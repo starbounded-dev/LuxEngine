@@ -600,9 +600,20 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   their steps to before the welcome card opens. Both banners use the brand art
   (`ImGuiEx::Draw::LuxMark` / `DotGrid`, `Colors::Brand`).
 - `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package. Each export
-  (`EditorLayer::ExportRuntimeNow`) first deletes the `<Game>-<Platform>` output folder, but only
-  when it holds `Assets/Project.luxruntime` from a previous export; any other non-empty folder at
-  that path stops the export instead of being overwritten.
+  first deletes the `<Game>-<Platform>` output folder, but only when it holds
+  `Assets/Project.luxruntime` from a previous export; any other non-empty folder at that path stops
+  the export instead of being overwritten. `EditorLayer::ExportRuntimeNow` stops Play, saves, checks
+  audio, and creates `m_PendingRuntimeExport` with the settings Export was clicked with. While it
+  exists, `UI_RuntimeExportProgress` shows a modal progress overlay that locks the editor, and
+  `OnEvent` drops shortcuts, picking and camera input. A missing or stale Lux-Runtime or script
+  module is built first by `RuntimeExport::RuntimeBuildJob`, which runs the MSBuild/make/dotnet
+  subprocess on its own thread (`Threading.md`); the overlay shows an indeterminate bar and offers
+  Cancel Export, which drops the export while the build finishes in the background. A failed build
+  stops the export with its reason in the export window. The package is then written on the main
+  thread (it reads the project and asset registry), one `EditorLayer::RuntimeExportStep` per frame
+  from `UpdateRuntimeBuild`, so the overlay's bar advances between steps; the asset pack is one
+  step and holds the frame while it builds. The Project Settings Build buttons use the same job,
+  so one build runs at a time; they do not lock the editor.
 - Viewport transform gizmos operate on world matrices and convert edits back through the parent
   transform. Translation, rotation, and scale have separate snap increments (also available with Ctrl).
   The six-axis view widget uses `EditorCamera::SetOrbitState`; camera view construction uses the
@@ -838,8 +849,8 @@ filenames, and the live-update setting (disabled for Dist exports). Never put ow
 vectors into the raw `ProjectInfo` block. Older formats load without Studio configuration and warn
 that a re-export is needed for events; authoring paths and rebuild-on-play are disabled at runtime.
 
-`RuntimeExport::PrepareAudioBanks` runs once during the existing synchronous export operation on
-the main thread. It rejects missing authoring input, missing/empty banks, a missing master/strings
+`RuntimeExport::PrepareAudioBanks` runs once on the main thread when an export starts, before any
+Lux-Runtime or script build; the export overlay locks the editor until it writes. It rejects missing authoring input, missing/empty banks, a missing master/strings
 pair, and stale output using `AudioBankBuilder::NeedsRebuild`. The selected bank-output directory
 is the enabled host desktop profile's FMOD output, or the project's default output; export does
 not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.

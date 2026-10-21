@@ -4,8 +4,10 @@
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/Core/Assert.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Audio/AudioBankBuilder.h"
+#include "Lux/Debug/Profiler.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -322,21 +324,8 @@ namespace Lux::RuntimeExport {
 		return false;
 	}
 
-	bool BuildRuntimeExecutable(RuntimeExportTarget target)
+	bool BuildRuntimeExecutable(RuntimeExportTarget target, const std::filesystem::path& repositoryRoot, std::string& outError)
 	{
-		std::filesystem::path repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
-		if (repositoryRoot.empty())
-		{
-			if (Ref<Project> activeProject = Project::GetActive())
-				repositoryRoot = FindRepositoryRootFrom(activeProject->GetProjectDirectory());
-		}
-
-		if (repositoryRoot.empty())
-		{
-			LUX_CONSOLE_LOG_ERROR("Could not locate repository root for Lux-Runtime build.");
-			return false;
-		}
-
 #ifdef LUX_PLATFORM_LINUX
 		std::string config = RuntimeExportTargetToString(target);
 		std::transform(config.begin(), config.end(), config.begin(), ::tolower);
@@ -347,7 +336,8 @@ namespace Lux::RuntimeExport {
 		const std::filesystem::path projectFile = repositoryRoot / "Lux-Runtime" / "Lux-Runtime.vcxproj";
 		if (!FileExists(projectFile))
 		{
-			LUX_CONSOLE_LOG_ERROR("Lux-Runtime project file not found: {}", projectFile.string());
+			outError = std::format("Lux-Runtime project file not found: {}", projectFile.string());
+			LUX_CONSOLE_LOG_ERROR("{}", outError);
 			return false;
 		}
 
@@ -390,6 +380,8 @@ namespace Lux::RuntimeExport {
 		if (result != 0)
 		{
 			LUX_CONSOLE_LOG_ERROR("Lux-Runtime build failed with exit code {}.", result);
+			outError = std::format("Lux-Runtime ({}) build failed with exit code {}. The compiler output is in the terminal, not the Log panel.",
+				RuntimeExportTargetToString(target), result);
 			return false;
 		}
 
@@ -463,34 +455,142 @@ namespace Lux::RuntimeExport {
 		return false;
 	}
 
-	bool BuildScriptModule(RuntimeExportTarget target)
+	bool BuildScriptModule(RuntimeExportTarget target, const std::filesystem::path& scriptProject, const std::filesystem::path& scriptModule, std::string& outError)
 	{
-		Ref<Project> project = Project::GetActive();
-		if (!project)
-		{
-			LUX_CONSOLE_LOG_ERROR("No active project to build scripts for.");
-			return false;
-		}
-
-		const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
-		if (!FileExists(scriptProject))
-		{
-			LUX_CONSOLE_LOG_ERROR("Script project file not found: {}", scriptProject.string());
-			return false;
-		}
-
 		if (!ScriptBuilder::BuildProject(scriptProject, RuntimeExportTargetToString(target)))
+		{
+			outError = std::format("Script build ({}) failed. The dotnet output is in the terminal, not the Log panel.", RuntimeExportTargetToString(target));
 			return false;
+		}
 
-		const std::filesystem::path scriptModule = project->GetScriptModuleFilePath();
 		if (!FileExists(scriptModule))
 		{
-			LUX_CONSOLE_LOG_ERROR("Script build completed, but the script module was not found: {}", scriptModule.string());
+			outError = std::format("Script build completed, but the script module was not found: {}", scriptModule.string());
+			LUX_CONSOLE_LOG_ERROR("{}", outError);
 			return false;
 		}
 
 		LUX_CONSOLE_LOG_INFO("Script build complete: {}", scriptModule.string());
 		return true;
+	}
+
+	RuntimeBuildJob::RuntimeBuildJob()
+		: m_Thread("Runtime Build")
+	{
+	}
+
+	RuntimeBuildJob::~RuntimeBuildJob()
+	{
+		// A joinable std::thread terminates the process when destroyed.
+		m_Thread.Join();
+	}
+
+	bool RuntimeBuildJob::Start(RuntimeExportTarget target, bool buildRuntime, bool buildScripts)
+	{
+		LUX_CORE_ASSERT(buildRuntime || buildScripts, "RuntimeBuildJob::Start with nothing to build");
+
+		auto fail = [this](std::string message)
+		{
+			LUX_CONSOLE_LOG_ERROR("{}", message);
+			m_LastError = std::move(message);
+			return false;
+		};
+
+		if (m_Running)
+			return fail("A Lux-Runtime or script build is already running.");
+
+		std::filesystem::path repositoryRoot;
+		if (buildRuntime)
+		{
+			repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
+			if (repositoryRoot.empty())
+			{
+				if (Ref<Project> activeProject = Project::GetActive())
+					repositoryRoot = FindRepositoryRootFrom(activeProject->GetProjectDirectory());
+			}
+
+			if (repositoryRoot.empty())
+				return fail("Could not locate repository root for Lux-Runtime build.");
+		}
+
+		std::filesystem::path scriptProject;
+		std::filesystem::path scriptModule;
+		if (buildScripts)
+		{
+			Ref<Project> project = Project::GetActive();
+			if (!project)
+				return fail("No active project to build scripts for.");
+
+			scriptProject = ResolveScriptProjectFile(project);
+			if (!FileExists(scriptProject))
+				return fail(std::format("Script project file not found: {}", scriptProject.string()));
+			scriptModule = project->GetScriptModuleFilePath();
+		}
+
+		m_Target = target;
+		m_RepositoryRoot = std::move(repositoryRoot);
+		m_ScriptProject = std::move(scriptProject);
+		m_ScriptModule = std::move(scriptModule);
+		m_Result = {};
+		m_LastError.clear();
+		m_Step = buildRuntime ? Step::Runtime : Step::Scripts;
+		m_Finished = false;
+		m_Running = true;
+		m_StartTime = std::chrono::steady_clock::now();
+
+		// Everything the worker reads is written above, before the thread starts, and stays unchanged
+		// until Poll or Wait joins it.
+		m_Thread.Dispatch([this]()
+		{
+			LUX_PROFILE_THREAD("Runtime Build");
+
+			RuntimeBuildResult result;
+			if (!m_RepositoryRoot.empty())
+				result.RuntimeFailed = !BuildRuntimeExecutable(m_Target, m_RepositoryRoot, result.Error);
+
+			// An export stops on a failed runtime build, so its scripts are not built after one.
+			if (!result.RuntimeFailed && !m_ScriptProject.empty())
+			{
+				m_Step = Step::Scripts;
+				result.ScriptsFailed = !BuildScriptModule(m_Target, m_ScriptProject, m_ScriptModule, result.Error);
+			}
+
+			m_Result = std::move(result);
+			m_Finished.store(true, std::memory_order_release);
+		});
+		return true;
+	}
+
+	std::optional<RuntimeBuildResult> RuntimeBuildJob::Poll()
+	{
+		if (!m_Running || !m_Finished.load(std::memory_order_acquire))
+			return std::nullopt;
+
+		m_Thread.Join();
+		m_Running = false;
+		m_LastError = m_Result.Error;
+		return std::move(m_Result);
+	}
+
+	void RuntimeBuildJob::Wait()
+	{
+		if (!m_Running)
+			return;
+
+		if (!m_Finished.load(std::memory_order_acquire))
+			LUX_CONSOLE_LOG_INFO("Waiting for the running Lux-Runtime or script build to finish...");
+		m_Thread.Join();
+		m_Running = false;
+	}
+
+	std::string RuntimeBuildJob::GetStatusText() const
+	{
+		if (!m_Running)
+			return {};
+
+		const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - m_StartTime).count();
+		return std::format("Building {} ({})...  {}:{:02}", m_Step == Step::Runtime ? "Lux-Runtime" : "scripts",
+			RuntimeExportTargetToString(m_Target), seconds / 60, seconds % 60);
 	}
 
 }

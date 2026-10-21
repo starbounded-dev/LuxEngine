@@ -185,10 +185,8 @@ namespace Lux {
 		using RuntimeExport::GetRuntimeOutputDirectory;
 		using RuntimeExport::GetRuntimeExecutablePath;
 		using RuntimeExport::IsRuntimeExecutableOutdated;
-		using RuntimeExport::BuildRuntimeExecutable;
 		using RuntimeExport::ResolveScriptProjectFile;
 		using RuntimeExport::IsScriptModuleOutdated;
-		using RuntimeExport::BuildScriptModule;
 
 		constexpr const char* s_RuntimeProjectFile = RuntimeProjectFile;
 		constexpr const char* s_RuntimeAssetPackFile = RuntimeAssetPackFile;
@@ -197,6 +195,26 @@ namespace Lux {
 			RuntimeExportTarget::Debug,
 			RuntimeExportTarget::Release,
 			RuntimeExportTarget::Dist
+		};
+
+		constexpr const char* s_RuntimeExportPopupID = "##RuntimeExportProgress";
+		// Export overlay layout, in unscaled pixels (multiplied by the font scale).
+		constexpr float k_ExportOverlayWidth = 480.0f;
+		constexpr float k_ExportOverlayRounding = 8.0f;
+		constexpr ImVec2 k_ExportOverlayPadding = ImVec2(20.0f, 18.0f);
+		constexpr float k_ExportOverlayMarkSize = 30.0f;
+		constexpr float k_ExportOverlayMarkGap = 12.0f;
+		// Indexed by EditorLayer::RuntimeExportStep; shown in the export overlay while that step runs.
+		constexpr const char* s_RuntimeExportStepLabels[] = {
+			"Checking the export and clearing its folder",
+			"Building the asset pack",
+			"Copying audio banks",
+			"Writing the runtime project",
+			"Copying Lux-Runtime",
+			"Copying resources",
+			"Writing the shader pack",
+			"Copying scripts",
+			"Writing runtime settings",
 		};
 
 		bool StartupSceneUsesScripts(Ref<Project> project)
@@ -472,7 +490,7 @@ namespace Lux {
 
 		m_PanelManager->AddPanel<ApplicationSettingsPanel>(PanelCategory::View, APPLICATION_SETTINGS_PANEL_ID, "Application Settings", false, contentBrowserPanel, editorPreferencesBindings, m_UserPreferences);
 		m_PanelManager->AddPanel<AssetManagerPanel>(PanelCategory::View, ASSET_MANAGER_PANEL_ID, "Asset Manager", false);
-		m_PanelManager->AddPanel<ProjectSettingsWindow>(PanelCategory::View, PROJECT_SETTINGS_PANEL_ID, "Project Settings", false);
+		m_PanelManager->AddPanel<ProjectSettingsWindow>(PanelCategory::View, PROJECT_SETTINGS_PANEL_ID, "Project Settings", false, m_RuntimeBuildJob);
 
 		// Light Settings panel
 		m_PanelManager->AddPanel<LightSettingsPanel>(PanelCategory::View, "LightSettingsPanel", "Light Settings", false);
@@ -652,6 +670,10 @@ namespace Lux {
 		m_GoldenCapture.reset();
 		SaveEditorPreferences();
 
+		// The build subprocess cannot be interrupted, and its worker writes into m_RuntimeBuildJob.
+		m_PendingRuntimeExport.reset();
+		m_RuntimeBuildJob.Wait();
+
 		// io.IniFilename points into m_ImGuiIniPath, which dies with this layer, but ImGui saves its
 		// settings again when the ImGui overlay destroys the context afterwards. Save now, while the
 		// path is valid, and stop ImGui from reading the freed string later.
@@ -810,6 +832,8 @@ namespace Lux {
 		ImGuizmo::BeginFrame();
 
 		UpdateGamepadNavigation();
+		// Before any window: a finished build may resume an export, which stops Play and saves.
+		UpdateRuntimeBuild();
 
 		static bool dockspaceOpen = true;
 		static bool opt_fullscreen_persistent = true;
@@ -908,6 +932,7 @@ namespace Lux {
 			UI_PrefabEditBanner();
 
 			RenderRuntimeExportWindow();
+			UI_RuntimeExportProgress();
 
 			if (m_ShowImGuiMetrics)
 				ImGui::ShowMetricsWindow(&m_ShowImGuiMetrics);
@@ -920,7 +945,8 @@ namespace Lux {
 			// event, so it fires regardless of which panel currently holds keyboard focus.
 			if (m_CommandPalette)
 			{
-				if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P))
+				// Not while the export overlay locks the editor: the palette runs editor commands.
+				if (!m_PendingRuntimeExport && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P))
 					m_CommandPalette->Toggle();
 
 				m_CommandPalette->OnImGuiRender();
@@ -2310,6 +2336,15 @@ namespace Lux {
 
 	void EditorLayer::OnEvent(Event& e)
 	{
+		// The export overlay locks the editor: no shortcuts, picking or camera input until it ends.
+		// The title bar still drags the window.
+		if (m_PendingRuntimeExport)
+		{
+			EventDispatcher dispatcher(e);
+			dispatcher.Dispatch<WindowTitleBarHitTestEvent>(LUX_BIND_EVENT_FN(EditorLayer::OnTitleBarHitTest));
+			return;
+		}
+
 		if (m_EditorViewport && m_EditorViewport->IsHovered())
 			m_EditorViewport->GetCamera().OnEvent(e);
 
@@ -3528,6 +3563,13 @@ namespace Lux {
 
 		auto& config = project->GetConfig();
 		auto& runtime = config.RuntimeExport;
+		const bool building = m_RuntimeBuildJob.IsRunning();
+		auto startBuild = [this, &runtime](bool buildRuntime, bool buildScripts)
+		{
+			m_RuntimeExportError.clear();
+			if (!m_RuntimeBuildJob.Start(runtime.TargetConfig, buildRuntime, buildScripts))
+				m_RuntimeExportError = m_RuntimeBuildJob.GetLastError();
+		};
 
 		auto syncRuntimeIconPath = [&runtime](AssetHandle iconHandle)
 		{
@@ -3545,42 +3587,47 @@ namespace Lux {
 			}
 		};
 
-		ImGuiEx::BeginPropertyGrid();
-		if (ImGuiEx::Property("Game Name", m_RuntimeExportGameNameBuffer, sizeof(m_RuntimeExportGameNameBuffer)))
-			runtime.GameName = m_RuntimeExportGameNameBuffer;
-
-		int32_t width = (int32_t)runtime.WindowWidth;
-		if (ImGuiEx::Property("Window Width", width, 320, 16384))
-			runtime.WindowWidth = (uint32_t)std::max(width, 320);
-
-		int32_t height = (int32_t)runtime.WindowHeight;
-		if (ImGuiEx::Property("Window Height", height, 240, 16384))
-			runtime.WindowHeight = (uint32_t)std::max(height, 240);
-
-		ImGuiEx::Property("Fullscreen", runtime.Fullscreen);
-		ImGuiEx::Property("VSync", runtime.VSync);
-
-		AssetHandle icon = runtime.IconHandle;
-		ImGuiEx::PropertyAssetReferenceSettings iconSettings;
-		iconSettings.ShowFullFilePath = true;
-		if (ImGuiEx::PropertyAssetReference<Texture2D>("Icon", icon, "Optional PNG/JPG window icon copied beside exported runtime resources.", nullptr, iconSettings))
 		{
-			m_RuntimeExportIcon = icon;
-			syncRuntimeIconPath(icon);
-		}
-		ImGuiEx::EndPropertyGrid();
+			// Settings stay put while a build runs: a waiting export has already taken them.
+			ImGuiEx::ScopedDisable disableWhileBuilding(building);
 
-		if (ImGui::BeginCombo("Target Config", RuntimeExportTargetToString(runtime.TargetConfig)))
-		{
-			for (RuntimeExportTarget target : s_RuntimeExportTargets)
+			ImGuiEx::BeginPropertyGrid();
+			if (ImGuiEx::Property("Game Name", m_RuntimeExportGameNameBuffer, sizeof(m_RuntimeExportGameNameBuffer)))
+				runtime.GameName = m_RuntimeExportGameNameBuffer;
+
+			int32_t width = static_cast<int32_t>(runtime.WindowWidth);
+			if (ImGuiEx::Property("Window Width", width, 320, 16384))
+				runtime.WindowWidth = static_cast<uint32_t>(std::max(width, 320));
+
+			int32_t height = static_cast<int32_t>(runtime.WindowHeight);
+			if (ImGuiEx::Property("Window Height", height, 240, 16384))
+				runtime.WindowHeight = static_cast<uint32_t>(std::max(height, 240));
+
+			ImGuiEx::Property("Fullscreen", runtime.Fullscreen);
+			ImGuiEx::Property("VSync", runtime.VSync);
+
+			AssetHandle icon = runtime.IconHandle;
+			ImGuiEx::PropertyAssetReferenceSettings iconSettings;
+			iconSettings.ShowFullFilePath = true;
+			if (ImGuiEx::PropertyAssetReference<Texture2D>("Icon", icon, "Optional PNG/JPG window icon copied beside exported runtime resources.", nullptr, iconSettings))
 			{
-				const bool selected = runtime.TargetConfig == target;
-				if (ImGui::Selectable(RuntimeExportTargetToString(target), selected))
-					runtime.TargetConfig = target;
-				if (selected)
-					ImGui::SetItemDefaultFocus();
+				m_RuntimeExportIcon = icon;
+				syncRuntimeIconPath(icon);
 			}
-			ImGui::EndCombo();
+			ImGuiEx::EndPropertyGrid();
+
+			if (ImGui::BeginCombo("Target Config", RuntimeExportTargetToString(runtime.TargetConfig)))
+			{
+				for (RuntimeExportTarget target : s_RuntimeExportTargets)
+				{
+					const bool selected = runtime.TargetConfig == target;
+					if (ImGui::Selectable(RuntimeExportTargetToString(target), selected))
+						runtime.TargetConfig = target;
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
 		}
 
 		ImGui::Spacing();
@@ -3641,26 +3688,174 @@ namespace Lux {
 		}
 
 		ImGui::Spacing();
-		if (ImGui::Button("Build Runtime"))
-			BuildRuntimeExecutable(runtime.TargetConfig);
+		{
+			ImGuiEx::ScopedDisable disableWhileBuilding(building);
+			if (ImGui::Button("Build Runtime"))
+				startBuild(true, false);
 
-		ImGui::SameLine();
-		if (ImGui::Button("Build Scripts"))
-			BuildScriptModule(runtime.TargetConfig);
+			ImGui::SameLine();
+			if (ImGui::Button("Build Scripts"))
+				startBuild(false, true);
+		}
+
+		// A Build button's build; an export's build shows in the export overlay instead.
+		if (building && !m_PendingRuntimeExport)
+		{
+			ImGui::TextUnformatted(m_RuntimeBuildJob.GetStatusText().c_str());
+			// A negative fraction draws the indeterminate animation.
+			ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), ImVec2(-FLT_MIN, 0.0f), "");
+		}
 
 		ImGui::Separator();
 		if (!m_RuntimeExportError.empty())
 			ImGui::TextWrapped("%s", m_RuntimeExportError.c_str());
-		if (ImGui::Button("Export..."))
 		{
-			if (ExportRuntimeNow())
-				m_ShowRuntimeExportWindow = false;
+			ImGuiEx::ScopedDisable disableWhileBuilding(building);
+			if (ImGui::Button("Export..."))
+				ExportRuntimeNow();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel"))
 			m_ShowRuntimeExportWindow = false;
 
 		ImGui::End();
+	}
+
+	void EditorLayer::UI_RuntimeExportProgress()
+	{
+		if (m_PendingRuntimeExport && !ImGui::IsPopupOpen(s_RuntimeExportPopupID))
+			ImGui::OpenPopup(s_RuntimeExportPopupID);
+
+		const float scale = ImGuiEx::Fonts::GetScale();
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(k_ExportOverlayWidth * scale, 0.0f), ImGuiCond_Always);
+
+		// A modal, so every editor window behind it ignores input until the export ends; OnEvent drops
+		// the shortcuts and viewport input that do not go through ImGui.
+		ImGuiEx::ScopedColour backdrop(ImGuiCol_ModalWindowDimBg, Colors::Theme::backdropDim);
+		ImGuiEx::ScopedColour background(ImGuiCol_PopupBg, Colors::Theme::backgroundPopup);
+		ImGuiEx::ScopedStyle rounding(ImGuiStyleVar_WindowRounding, k_ExportOverlayRounding * scale);   // modals round with WindowRounding, not PopupRounding
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(k_ExportOverlayPadding.x * scale, k_ExportOverlayPadding.y * scale));
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+		if (!ImGui::BeginPopupModal(s_RuntimeExportPopupID, nullptr, flags))
+			return;
+
+		if (!m_PendingRuntimeExport)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+
+		const PendingRuntimeExport& pending = *m_PendingRuntimeExport;
+		const char* targetName = RuntimeExportTargetToString(pending.Settings.TargetConfig);
+
+		// The Lux mark beside the title, as on the startup splash.
+		const float markSize = k_ExportOverlayMarkSize * scale;
+		const ImVec2 markPos = ImGui::GetCursorScreenPos();
+		ImGuiEx::Draw::LuxMark(ImGui::GetWindowDrawList(), markPos, markSize, Colors::Brand::ink, Colors::Brand::lux);
+		ImGui::SetCursorScreenPos(ImVec2(markPos.x + markSize + k_ExportOverlayMarkGap * scale, markPos.y));
+		ImGui::BeginGroup();
+		{
+			ImGuiEx::ScopedFont titleFont(ImGuiEx::Fonts::Get("BoldTitle"));
+			ImGui::Text("Exporting %s", pending.Settings.GameName.c_str());
+		}
+		// PlatformExportLabel is the folder suffix ("-Windows-x86_64"); skip its dash.
+		ImGui::TextDisabled("%s build, %s", targetName, RuntimeExport::PlatformExportLabel + 1);
+		ImGui::EndGroup();
+		ImGui::Dummy(ImVec2(0.0f, 8.0f * scale));
+
+		// Compiling has no measurable progress, so its bar is indeterminate. Writing advances one step
+		// per frame, and the label names the step the next frame runs.
+		if (!pending.Writing)
+		{
+			ImGui::TextUnformatted("Compiling");
+			ImGui::TextDisabled("%s", m_RuntimeBuildJob.GetStatusText().c_str());
+			ImGui::ProgressBar(-1.0f * static_cast<float>(ImGui::GetTime()), ImVec2(-FLT_MIN, 0.0f), "");
+		}
+		else
+		{
+			const uint32_t stepCount = static_cast<uint32_t>(RuntimeExportStep::Count);
+			const uint32_t step = std::min(pending.NextStep, stepCount - 1);
+			ImGui::TextUnformatted("Packaging the game");
+			ImGui::TextDisabled("%s...  (%u/%u)", s_RuntimeExportStepLabels[step], step + 1, stepCount);
+			ImGui::ProgressBar(static_cast<float>(pending.NextStep) / static_cast<float>(stepCount), ImVec2(-FLT_MIN, 0.0f), "");
+		}
+
+		ImGui::Dummy(ImVec2(0.0f, 6.0f * scale));
+		ImGui::TextDisabled("The editor is locked until the export finishes.");
+
+		// Only the build can be walked away from: it finishes in the background. Writing is a few frames
+		// of main-thread work and stopping it halfway would leave a partial package.
+		if (!pending.Writing)
+		{
+			ImGui::Dummy(ImVec2(0.0f, 4.0f * scale));
+			if (ImGui::Button("Cancel Export"))
+				CancelPendingRuntimeExport();
+		}
+
+		ImGui::EndPopup();
+	}
+
+	void EditorLayer::CancelPendingRuntimeExport()
+	{
+		if (!m_PendingRuntimeExport)
+			return;
+
+		m_PendingRuntimeExport.reset();
+		LUX_CONSOLE_LOG_WARN("Runtime export cancelled. The build it started keeps running and reports to the Log panel.");
+	}
+
+	void EditorLayer::UpdateRuntimeBuild()
+	{
+		// An export continues only while its project stays open.
+		if (m_PendingRuntimeExport && m_PendingRuntimeExport->ExportedProject != Project::GetActive())
+		{
+			m_PendingRuntimeExport.reset();
+			LUX_CONSOLE_LOG_WARN("Runtime export cancelled: the project changed while it was running.");
+		}
+
+		if (std::optional<RuntimeExport::RuntimeBuildResult> result = m_RuntimeBuildJob.Poll())
+		{
+			if (!m_PendingRuntimeExport)
+			{
+				// A Build button's build, or one whose export was cancelled.
+				if (!result->Error.empty())
+					m_RuntimeExportError = result->Error;
+			}
+			// As before the build moved off the main thread, a failed script build only stops an export
+			// whose startup scene runs scripts.
+			else if (result->RuntimeFailed || (result->ScriptsFailed && StartupSceneUsesScripts(m_PendingRuntimeExport->ExportedProject)))
+			{
+				m_PendingRuntimeExport.reset();
+				m_RuntimeExportError = "Export stopped. " + result->Error;
+			}
+			else
+			{
+				// Writing starts next frame, once the overlay has drawn its first step.
+				m_PendingRuntimeExport->Writing = true;
+			}
+			return;
+		}
+
+		if (!m_PendingRuntimeExport || !m_PendingRuntimeExport->Writing)
+			return;
+
+		PendingRuntimeExport& pending = *m_PendingRuntimeExport;
+		const auto step = static_cast<RuntimeExportStep>(pending.NextStep);
+		if (!RunRuntimeExportStep(pending, step))
+		{
+			m_RuntimeExportError = std::format("Export failed during \"{}\". The Log panel has the reason.", s_RuntimeExportStepLabels[pending.NextStep]);
+			m_PendingRuntimeExport.reset();
+			return;
+		}
+
+		if (++pending.NextStep == static_cast<uint32_t>(RuntimeExportStep::Count))
+		{
+			m_PendingRuntimeExport.reset();
+			m_ShowRuntimeExportWindow = false;
+		}
 	}
 
 	void EditorLayer::ExportRuntime()
@@ -3676,14 +3871,14 @@ namespace Lux {
 		m_ShowRuntimeExportWindow = true;
 	}
 
-	bool EditorLayer::ExportRuntimeNow()
+	void EditorLayer::ExportRuntimeNow()
 	{
 		m_RuntimeExportError.clear();
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
 			LUX_CONSOLE_LOG_ERROR("No active project to export.");
-			return false;
+			return;
 		}
 
 		if (m_SceneState != SceneState::Edit)
@@ -3694,16 +3889,50 @@ namespace Lux {
 
 		const std::filesystem::path selectedFolder = FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str());
 		if (selectedFolder.empty())
-			return false;
+			return;
 
-		std::error_code ec;
 		ProjectRuntimeExportSettings runtimeSettings = project->GetConfig().RuntimeExport;
 		if (runtimeSettings.GameName.empty())
 			runtimeSettings.GameName = project->GetConfig().Name;
 		runtimeSettings.WindowWidth = std::max<uint32_t>(runtimeSettings.WindowWidth, 320);
 		runtimeSettings.WindowHeight = std::max<uint32_t>(runtimeSettings.WindowHeight, 240);
 
+		// Before any build, so a blocked export fails without waiting a minute for one. The overlay
+		// locks the editor from here on, so nothing these checks read can change before the export
+		// writes.
 		AudioBankManifest audioBanks;
+		if (!ValidateRuntimeExportAudio(project, audioBanks))
+			return;
+
+		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
+		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath(targetConfig);
+		std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
+		if (repositoryRoot.empty())
+			repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
+
+		const bool buildRuntime = runtimeExe.empty() || (!repositoryRoot.empty() && IsRuntimeExecutableOutdated(runtimeExe, repositoryRoot));
+		if (buildRuntime)
+			LUX_CONSOLE_LOG_INFO("Lux-Runtime ({}) is missing or older than runtime sources. Building before export...", RuntimeExportTargetToString(targetConfig));
+
+		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
+		const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
+		const bool buildScripts = !project->GetConfig().ScriptModulePath.empty() && FileExists(scriptProject) && IsScriptModuleOutdated(scriptModule, scriptProject);
+		if (buildScripts)
+			LUX_CONSOLE_LOG_INFO("Script module is missing or stale. Building scripts before asset pack creation...");
+
+		if ((buildRuntime || buildScripts) && !m_RuntimeBuildJob.Start(targetConfig, buildRuntime, buildScripts))
+		{
+			m_RuntimeExportError = "Export stopped. " + m_RuntimeBuildJob.GetLastError();
+			return;
+		}
+
+		// UpdateRuntimeBuild writes the export once any build has finished.
+		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings, audioBanks };
+		m_PendingRuntimeExport->Writing = !buildRuntime && !buildScripts;
+	}
+
+	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
+	{
 		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
 		{
 			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
@@ -3722,246 +3951,284 @@ namespace Lux {
 			return false;
 		}
 
+		return true;
+	}
+
+	bool EditorLayer::RunRuntimeExportStep(PendingRuntimeExport& pending, RuntimeExportStep step)
+	{
+		static_assert(std::size(s_RuntimeExportStepLabels) == static_cast<size_t>(RuntimeExportStep::Count), "one label per runtime export step");
+
+		std::error_code ec;
+		const Ref<Project>& project = pending.ExportedProject;
+		const ProjectRuntimeExportSettings& runtimeSettings = pending.Settings;
+		const AudioBankManifest& audioBanks = pending.AudioBanks;
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
-		std::filesystem::path runtimeExe = GetRuntimeExecutablePath(targetConfig);
-		std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
-		if (repositoryRoot.empty())
-			repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
+		// Resolved by the Prepare step, used by the steps after it.
+		std::filesystem::path& runtimeExe = pending.RuntimeExe;
+		std::filesystem::path& resourcesSource = pending.ResourcesSource;
+		std::filesystem::path& dotnetSource = pending.DotNetSource;
+		std::filesystem::path& scriptModule = pending.ScriptModule;
+		std::filesystem::path& exportRoot = pending.ExportRoot;
+		std::filesystem::path& exportAssets = pending.ExportAssets;
+		std::filesystem::path& exportedExe = pending.ExportedExe;
+		std::string& buildName = pending.BuildName;
 
-		if (runtimeExe.empty() || (!repositoryRoot.empty() && IsRuntimeExecutableOutdated(runtimeExe, repositoryRoot)))
+		switch (step)
 		{
-			LUX_CONSOLE_LOG_INFO("Lux-Runtime ({}) is missing or older than runtime sources. Building before export...", RuntimeExportTargetToString(targetConfig));
-			if (!BuildRuntimeExecutable(targetConfig))
-				return false;
+		case RuntimeExportStep::Prepare:
+		{
 			runtimeExe = GetRuntimeExecutablePath(targetConfig);
-		}
+			std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
+			if (repositoryRoot.empty())
+				repositoryRoot = FindRepositoryRootFrom(std::filesystem::current_path());
 
-		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
-		const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
-		const bool startupSceneUsesScripts = StartupSceneUsesScripts(project);
-		const bool scriptProjectExists = FileExists(scriptProject);
-		if (!project->GetConfig().ScriptModulePath.empty() && scriptProjectExists && IsScriptModuleOutdated(scriptModule, scriptProject))
-		{
-			LUX_CONSOLE_LOG_INFO("Script module is missing or stale. Building scripts before asset pack creation...");
-			if (!BuildScriptModule(targetConfig) && startupSceneUsesScripts)
-				return false;
-		}
+			scriptModule = Project::GetActiveScriptModuleFilePath();
+			const std::filesystem::path scriptProject = ResolveScriptProjectFile(project);
+			const bool startupSceneUsesScripts = StartupSceneUsesScripts(project);
 
-		const std::filesystem::path current = std::filesystem::current_path(ec);
-		const std::filesystem::path resourcesSource = FindFirstExistingDirectory({
-			current / "Resources",
-			current / ".." / "Editor" / "Resources",
-			repositoryRoot / "Editor" / "Resources",
-			std::filesystem::path("Editor") / "Resources"
-		});
-		const std::filesystem::path dotnetSource = FindFirstExistingDirectory({
-			current / "DotNet",
-			current / ".." / "Editor" / "DotNet",
-			repositoryRoot / "Editor" / "DotNet",
-			std::filesystem::path("Editor") / "DotNet"
-		});
-		const bool hasStartupScene = project->GetConfig().StartSceneHandle != 0;
-		const bool hasRuntimeExe = FileExists(runtimeExe);
-		const bool hasResources = !resourcesSource.empty();
-		const bool hasDotNet = !dotnetSource.empty();
-		const bool hasScriptModule = project->GetConfig().ScriptModulePath.empty() || FileExists(scriptModule);
-		const bool scriptModuleStale = !project->GetConfig().ScriptModulePath.empty() && hasScriptModule && IsScriptModuleOutdated(scriptModule, scriptProject);
+			const std::filesystem::path current = std::filesystem::current_path(ec);
+			resourcesSource = FindFirstExistingDirectory({
+				current / "Resources",
+				current / ".." / "Editor" / "Resources",
+				repositoryRoot / "Editor" / "Resources",
+				std::filesystem::path("Editor") / "Resources"
+			});
+			dotnetSource = FindFirstExistingDirectory({
+				current / "DotNet",
+				current / ".." / "Editor" / "DotNet",
+				repositoryRoot / "Editor" / "DotNet",
+				std::filesystem::path("Editor") / "DotNet"
+			});
+			const bool hasStartupScene = project->GetConfig().StartSceneHandle != 0;
+			const bool hasRuntimeExe = FileExists(runtimeExe);
+			const bool hasResources = !resourcesSource.empty();
+			const bool hasDotNet = !dotnetSource.empty();
+			const bool hasScriptModule = project->GetConfig().ScriptModulePath.empty() || FileExists(scriptModule);
+			const bool scriptModuleStale = !project->GetConfig().ScriptModulePath.empty() && hasScriptModule && IsScriptModuleOutdated(scriptModule, scriptProject);
 
-		LUX_CONSOLE_LOG_INFO("Runtime export preflight:");
-		LUX_CONSOLE_LOG_INFO("  Startup Scene: {}", hasStartupScene ? "set" : "missing");
-		LUX_CONSOLE_LOG_INFO("  Startup Scene Uses Scripts: {}", startupSceneUsesScripts ? "yes" : "no");
-		LUX_CONSOLE_LOG_INFO("  {}: {}", RuntimeExport::RuntimeExeName, hasRuntimeExe ? runtimeExe.string() : "missing");
-		LUX_CONSOLE_LOG_INFO("  Resources: {}", hasResources ? resourcesSource.string() : "missing");
-		if (project->GetConfig().ScriptModulePath.empty())
-			LUX_CONSOLE_LOG_INFO("  Script Module: optional");
-		else if (!hasScriptModule)
-			LUX_CONSOLE_LOG_INFO("  Script Module: missing ({})", scriptModule.string());
-		else
-			LUX_CONSOLE_LOG_INFO("  Script Module: {} ({})", scriptModuleStale ? "stale" : "found", scriptModule.string());
-		LUX_CONSOLE_LOG_INFO("  DotNet: {}", hasDotNet ? dotnetSource.string() : "missing");
+			LUX_CONSOLE_LOG_INFO("Runtime export preflight:");
+			LUX_CONSOLE_LOG_INFO("  Startup Scene: {}", hasStartupScene ? "set" : "missing");
+			LUX_CONSOLE_LOG_INFO("  Startup Scene Uses Scripts: {}", startupSceneUsesScripts ? "yes" : "no");
+			LUX_CONSOLE_LOG_INFO("  {}: {}", RuntimeExport::RuntimeExeName, hasRuntimeExe ? runtimeExe.string() : "missing");
+			LUX_CONSOLE_LOG_INFO("  Resources: {}", hasResources ? resourcesSource.string() : "missing");
+			if (project->GetConfig().ScriptModulePath.empty())
+				LUX_CONSOLE_LOG_INFO("  Script Module: optional");
+			else if (!hasScriptModule)
+				LUX_CONSOLE_LOG_INFO("  Script Module: missing ({})", scriptModule.string());
+			else
+				LUX_CONSOLE_LOG_INFO("  Script Module: {} ({})", scriptModuleStale ? "stale" : "found", scriptModule.string());
+			LUX_CONSOLE_LOG_INFO("  DotNet: {}", hasDotNet ? dotnetSource.string() : "missing");
 
-		if (!hasStartupScene || !hasRuntimeExe || !hasResources)
-		{
-			LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Set a Startup Scene and make sure Lux-Runtime and Resources are available.");
-			return false;
-		}
-
-		if (startupSceneUsesScripts && (!hasScriptModule || scriptModuleStale))
-		{
-			LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Startup Scene uses scripts, but the script module is {}.", hasScriptModule ? "stale" : "missing");
-			return false;
-		}
-
-		if (!hasScriptModule)
-			LUX_CONSOLE_LOG_WARN("Script module is missing. Export will continue because the Startup Scene does not use scripts.");
-		if (!hasDotNet)
-			LUX_CONSOLE_LOG_WARN("DotNet directory (Coral.Managed) is missing. Export will continue, but scripting will not run.");
-
-		const std::string buildName = SanitizeBuildName(runtimeSettings.GameName.empty() ? project->GetConfig().Name : runtimeSettings.GameName);
-		const std::filesystem::path exportRoot = selectedFolder / (buildName + RuntimeExport::PlatformExportLabel);
-		const std::filesystem::path exportAssets = exportRoot / "Assets";
-
-		// Start from an empty folder so files a previous export shipped (deleted shaders, old
-		// runtimes' folders, logs from test runs) do not survive into this one. Only a folder a
-		// previous export produced is wiped; anything else is left alone and the export stops.
-		if (std::filesystem::exists(exportRoot, ec) && !std::filesystem::is_empty(exportRoot, ec))
-		{
-			if (!std::filesystem::exists(exportAssets / RuntimeExport::RuntimeProjectFile, ec))
+			if (!hasStartupScene || !hasRuntimeExe || !hasResources)
 			{
-				LUX_CONSOLE_LOG_ERROR("Export folder '{}' already exists and is not a previous Lux export. Choose an empty folder, or remove it first.", exportRoot.string());
+				LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Set a Startup Scene and make sure Lux-Runtime and Resources are available.");
 				return false;
 			}
 
-			std::filesystem::remove_all(exportRoot, ec);
+			if (startupSceneUsesScripts && (!hasScriptModule || scriptModuleStale))
+			{
+				LUX_CONSOLE_LOG_ERROR("Runtime export preflight failed. Startup Scene uses scripts, but the script module is {}.", hasScriptModule ? "stale" : "missing");
+				return false;
+			}
+
+			if (!hasScriptModule)
+				LUX_CONSOLE_LOG_WARN("Script module is missing. Export will continue because the Startup Scene does not use scripts.");
+			if (!hasDotNet)
+				LUX_CONSOLE_LOG_WARN("DotNet directory (Coral.Managed) is missing. Export will continue, but scripting will not run.");
+
+			buildName = SanitizeBuildName(runtimeSettings.GameName.empty() ? project->GetConfig().Name : runtimeSettings.GameName);
+			exportRoot = pending.Folder / (buildName + RuntimeExport::PlatformExportLabel);
+			exportAssets = exportRoot / "Assets";
+#ifdef LUX_PLATFORM_LINUX
+			exportedExe = exportRoot / buildName;
+#else
+			exportedExe = exportRoot / (buildName + ".exe");
+#endif
+
+			// Start from an empty folder so files a previous export shipped (deleted shaders, old
+			// runtimes' folders, logs from test runs) do not survive into this one. Only a folder a
+			// previous export produced is wiped; anything else is left alone and the export stops.
+			if (std::filesystem::exists(exportRoot, ec) && !std::filesystem::is_empty(exportRoot, ec))
+			{
+				if (!std::filesystem::exists(exportAssets / RuntimeExport::RuntimeProjectFile, ec))
+				{
+					LUX_CONSOLE_LOG_ERROR("Export folder '{}' already exists and is not a previous Lux export. Choose an empty folder, or remove it first.", exportRoot.string());
+					return false;
+				}
+
+				std::filesystem::remove_all(exportRoot, ec);
+				if (ec)
+				{
+					LUX_CONSOLE_LOG_ERROR("Failed to clear previous export '{}': {}. Close the exported game if it is running.", exportRoot.string(), ec.message());
+					return false;
+				}
+				LUX_CONSOLE_LOG_INFO("Cleared previous export: {}", exportRoot.string());
+			}
+
+			std::filesystem::create_directories(exportAssets, ec);
 			if (ec)
 			{
-				LUX_CONSOLE_LOG_ERROR("Failed to clear previous export '{}': {}. Close the exported game if it is running.", exportRoot.string(), ec.message());
+				LUX_CONSOLE_LOG_ERROR("Failed to create export directory '{}': {}", exportRoot.string(), ec.message());
 				return false;
 			}
-			LUX_CONSOLE_LOG_INFO("Cleared previous export: {}", exportRoot.string());
+			return true;
 		}
 
-		std::filesystem::create_directories(exportAssets, ec);
-		if (ec)
+		case RuntimeExportStep::AssetPack:
 		{
-			LUX_CONSOLE_LOG_ERROR("Failed to create export directory '{}': {}", exportRoot.string(), ec.message());
-			return false;
+			std::atomic<float> assetPackProgress = 0.0f;
+			Ref<AssetPack> assetPack = AssetPack::CreateFromActiveProject(assetPackProgress);
+			if (!assetPack)
+			{
+				LUX_CONSOLE_LOG_ERROR("Runtime export failed while building the asset pack.");
+				return false;
+			}
+			return true;
 		}
 
-		std::atomic<float> assetPackProgress = 0.0f;
-		Ref<AssetPack> assetPack = AssetPack::CreateFromActiveProject(assetPackProgress);
-		if (!assetPack)
+		case RuntimeExportStep::AudioBanks:
+			return RuntimeExport::CopyAudioBanks(*project, audioBanks, exportAssets)
+				&& RuntimeExport::CopyAudioLibraries(runtimeExe.parent_path(), exportRoot);
+
+		case RuntimeExportStep::RuntimeProject:
 		{
-			LUX_CONSOLE_LOG_ERROR("Runtime export failed while building the asset pack.");
-			return false;
+			ProjectSerializer serializer(project);
+			const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
+			if (!serializer.SerializeRuntime(runtimeProjectFile, audioBanks))
+			{
+				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
+				return false;
+			}
+
+			if (!CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true))
+				return false;
+			LUX_CONSOLE_LOG_INFO("  AssetPack.lap: created");
+			return true;
 		}
 
-		if (!RuntimeExport::CopyAudioBanks(*project, audioBanks, exportAssets)
-			|| !RuntimeExport::CopyAudioLibraries(runtimeExe.parent_path(), exportRoot))
-			return false;
-
-		ProjectSerializer serializer(project);
-		const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
-		if (!serializer.SerializeRuntime(runtimeProjectFile, audioBanks))
+		case RuntimeExportStep::Executable:
 		{
-			LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
-			return false;
-		}
+			if (!CopyFileIfExists(runtimeExe, exportedExe, true))
+				LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
 
-		if (!CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true))
-			return false;
-		LUX_CONSOLE_LOG_INFO("  AssetPack.lap: created");
-
+			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
+			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
+			{
 #ifdef LUX_PLATFORM_LINUX
-		const std::filesystem::path exportedExe = exportRoot / buildName;
+				const std::filesystem::path libDir = exportRoot / "lib";
+				std::filesystem::create_directories(libDir, ec);
+				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
+				{
+					if (!entry.is_regular_file(ec))
+						continue;
+
+					const std::string filename = entry.path().filename().string();
+					if (filename.find(".so") != std::string::npos)
+						CopyFileIfExists(entry.path(), libDir / entry.path().filename());
+				}
 #else
-		const std::filesystem::path exportedExe = exportRoot / (buildName + ".exe");
+				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
+				{
+					if (!entry.is_regular_file(ec))
+						continue;
+
+					const std::filesystem::path extension = entry.path().extension();
+					if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
+						CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
+				}
 #endif
-		if (!CopyFileIfExists(runtimeExe, exportedExe, true))
-			LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
-
-		const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
-		if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
-		{
-#ifdef LUX_PLATFORM_LINUX
-			const std::filesystem::path libDir = exportRoot / "lib";
-			std::filesystem::create_directories(libDir, ec);
-			for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
-			{
-				if (!entry.is_regular_file(ec))
-					continue;
-
-				const std::string filename = entry.path().filename().string();
-				if (filename.find(".so") != std::string::npos)
-					CopyFileIfExists(entry.path(), libDir / entry.path().filename());
 			}
-#else
-			for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
-			{
-				if (!entry.is_regular_file(ec))
-					continue;
-
-				const std::filesystem::path extension = entry.path().extension();
-				if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
-					CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
-			}
-#endif
+			return true;
 		}
 
-		if (!resourcesSource.empty())
-			CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", targetConfig == RuntimeExportTarget::Dist);
-		else
-			LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
-
-		if (!WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile))
-			return false;
-
-		if (!dotnetSource.empty())
-			CopyDirectoryRecursive(dotnetSource, exportRoot / "DotNet", targetConfig == RuntimeExportTarget::Dist);
-
-		if (std::filesystem::exists(scriptModule, ec))
-			CopyFileIfExists(scriptModule, exportAssets / project->GetConfig().ScriptModulePath);
-
-		std::filesystem::path runtimeIconPath;
-		if (std::filesystem::path iconSource = ResolveRuntimeIconSource(runtimeSettings); !iconSource.empty())
-		{
-			if (FileExists(iconSource))
-			{
-				const std::filesystem::path iconFilename = "Icon" + iconSource.extension().string();
-				const std::filesystem::path exportedIconPath = exportRoot / "Resources" / "Runtime" / iconFilename;
-				if (CopyFileIfExists(iconSource, exportedIconPath))
-					runtimeIconPath = std::filesystem::path("..") / "Resources" / "Runtime" / iconFilename;
-			}
+		case RuntimeExportStep::Resources:
+			if (!resourcesSource.empty())
+				CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", targetConfig == RuntimeExportTarget::Dist);
 			else
-			{
-				LUX_CONSOLE_LOG_WARN("Configured runtime icon is missing: {}", iconSource.string());
-			}
-		}
+				LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
+			return true;
 
-		if (!WriteRuntimeSettingsFile(exportAssets / "RuntimeSettings.yaml", runtimeSettings, runtimeIconPath))
-			return false;
+		case RuntimeExportStep::ShaderPack:
+			return WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile);
+
+		case RuntimeExportStep::Scripts:
+			if (!dotnetSource.empty())
+				CopyDirectoryRecursive(dotnetSource, exportRoot / "DotNet", targetConfig == RuntimeExportTarget::Dist);
+
+			if (std::filesystem::exists(scriptModule, ec))
+				CopyFileIfExists(scriptModule, exportAssets / project->GetConfig().ScriptModulePath);
+			return true;
+
+		case RuntimeExportStep::Finish:
+		{
+			std::filesystem::path runtimeIconPath;
+			if (std::filesystem::path iconSource = ResolveRuntimeIconSource(runtimeSettings); !iconSource.empty())
+			{
+				if (FileExists(iconSource))
+				{
+					const std::filesystem::path iconFilename = "Icon" + iconSource.extension().string();
+					const std::filesystem::path exportedIconPath = exportRoot / "Resources" / "Runtime" / iconFilename;
+					if (CopyFileIfExists(iconSource, exportedIconPath))
+						runtimeIconPath = std::filesystem::path("..") / "Resources" / "Runtime" / iconFilename;
+				}
+				else
+				{
+					LUX_CONSOLE_LOG_WARN("Configured runtime icon is missing: {}", iconSource.string());
+				}
+			}
+
+			if (!WriteRuntimeSettingsFile(exportAssets / "RuntimeSettings.yaml", runtimeSettings, runtimeIconPath))
+				return false;
 
 #ifdef LUX_PLATFORM_LINUX
-		std::filesystem::permissions(exportedExe,
-			std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
-			std::filesystem::perm_options::add, ec);
+			std::filesystem::permissions(exportedExe,
+				std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+				std::filesystem::perm_options::add, ec);
 
-		{
-			const std::filesystem::path launchScript = exportRoot / ("run-" + buildName + ".sh");
-			std::ofstream script(launchScript);
-			if (script.is_open())
 			{
-				script << "#!/bin/sh\n";
-				script << "SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n";
-				script << "export LD_LIBRARY_PATH=\"$SCRIPT_DIR/lib:$LD_LIBRARY_PATH\"\n";
-				script << "exec \"$SCRIPT_DIR/" << buildName << "\" \"$@\"\n";
-				script.close();
-				std::filesystem::permissions(launchScript,
-					std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
-					std::filesystem::perm_options::add, ec);
+				const std::filesystem::path launchScript = exportRoot / ("run-" + buildName + ".sh");
+				std::ofstream script(launchScript);
+				if (script.is_open())
+				{
+					script << "#!/bin/sh\n";
+					script << "SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n";
+					script << "export LD_LIBRARY_PATH=\"$SCRIPT_DIR/lib:$LD_LIBRARY_PATH\"\n";
+					script << "exec \"$SCRIPT_DIR/" << buildName << "\" \"$@\"\n";
+					script.close();
+					std::filesystem::permissions(launchScript,
+						std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+						std::filesystem::perm_options::add, ec);
+				}
 			}
-		}
 
-		{
-			const std::filesystem::path desktopFile = exportRoot / (buildName + ".desktop");
-			std::ofstream desktop(desktopFile);
-			if (desktop.is_open())
 			{
-				desktop << "[Desktop Entry]\n";
-				desktop << "Type=Application\n";
-				desktop << "Name=" << runtimeSettings.GameName << "\n";
-				desktop << "Exec=run-" << buildName << ".sh\n";
-				if (!runtimeIconPath.empty())
-					desktop << "Icon=" << (exportRoot / runtimeIconPath).string() << "\n";
-				desktop << "Terminal=false\n";
-				desktop << "Categories=Game;\n";
+				const std::filesystem::path desktopFile = exportRoot / (buildName + ".desktop");
+				std::ofstream desktop(desktopFile);
+				if (desktop.is_open())
+				{
+					desktop << "[Desktop Entry]\n";
+					desktop << "Type=Application\n";
+					desktop << "Name=" << runtimeSettings.GameName << "\n";
+					desktop << "Exec=run-" << buildName << ".sh\n";
+					if (!runtimeIconPath.empty())
+						desktop << "Icon=" << (exportRoot / runtimeIconPath).string() << "\n";
+					desktop << "Terminal=false\n";
+					desktop << "Categories=Game;\n";
+				}
 			}
-		}
 #endif
 
-		LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
-		FileSystem::OpenDirectoryInExplorer(exportRoot);
-		return true;
+			LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
+			FileSystem::OpenDirectoryInExplorer(exportRoot);
+			return true;
+		}
+
+		case RuntimeExportStep::Count:
+			break;
+		}
+
+		LUX_CORE_VERIFY(false, "Unknown runtime export step");
+		return false;
 	}
 
 	void EditorLayer::NewScene()

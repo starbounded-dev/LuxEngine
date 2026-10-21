@@ -9,9 +9,11 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 
 #include "Panels/LightSettingsPanel.h"
 #include "CommandPalette.h"
+#include "RuntimeExportUtils.h"
 #include "SplashScreen.h"
 #include "Lux/Core/StartupSplash.h"
 #include "Lux/Editor/EditorConsolePanel.h"
@@ -108,7 +110,20 @@ namespace Lux
 		void CloseProject();   // back to the splash screen
 		void SaveProject();
 		void ExportRuntime();
-		bool ExportRuntimeNow();
+		// Export... in the export window. It starts m_PendingRuntimeExport: a Lux-Runtime or script
+		// build on m_RuntimeBuildJob when one is stale, then the writing steps, one per frame from
+		// UpdateRuntimeBuild, while UI_RuntimeExportProgress locks the editor.
+		void ExportRuntimeNow();
+		bool ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks);
+		enum class RuntimeExportStep : uint8_t
+		{
+			Prepare, AssetPack, AudioBanks, RuntimeProject, Executable, Resources, ShaderPack, Scripts, Finish, Count
+		};
+		struct PendingRuntimeExport;
+		bool RunRuntimeExportStep(PendingRuntimeExport& pending, RuntimeExportStep step);
+		void CancelPendingRuntimeExport();
+		void UpdateRuntimeBuild();
+		void UI_RuntimeExportProgress();
 		void RenderRuntimeExportWindow();
 		void SyncRuntimeExportWindowFromProject();
 
@@ -215,6 +230,8 @@ namespace Lux
 		std::vector<RecentProject> GetRecentProjects() const;
 		std::filesystem::path GetStartupProjectPath() const;
 	private:
+		// Before m_PanelManager: ProjectSettingsWindow holds a reference to it.
+		RuntimeExport::RuntimeBuildJob m_RuntimeBuildJob;
 		Scope<PanelManager> m_PanelManager;
 
 		bool m_VSync = true;
@@ -353,6 +370,28 @@ namespace Lux
 		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;
 		std::string m_RuntimeExportError;
+		// The export in progress, with the settings Export was clicked with. While it exists the export
+		// overlay locks the editor.
+		struct PendingRuntimeExport
+		{
+			Ref<Project> ExportedProject;
+			std::filesystem::path Folder;
+			ProjectRuntimeExportSettings Settings;
+			AudioBankManifest AudioBanks;
+			// False while its build runs. Then one RuntimeExportStep per frame, so the overlay redraws.
+			bool Writing = false;
+			uint32_t NextStep = 0;
+			// Resolved by RuntimeExportStep::Prepare for the steps after it.
+			std::filesystem::path RuntimeExe;
+			std::filesystem::path ResourcesSource;
+			std::filesystem::path DotNetSource;
+			std::filesystem::path ScriptModule;
+			std::filesystem::path ExportRoot;
+			std::filesystem::path ExportAssets;
+			std::filesystem::path ExportedExe;
+			std::string BuildName;
+		};
+		std::optional<PendingRuntimeExport> m_PendingRuntimeExport;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;
