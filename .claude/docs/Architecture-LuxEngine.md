@@ -360,6 +360,11 @@ Structurally:
   `MeshKey::TwoSided`. Those draws use the two passes' no-cull variant pipelines, switched inside
   each pass (the raster-variant rule in `Rendering.md`). `GBuffer_Static` lights back faces with the normal
   flipped.
+- **Diffuse transmission (light through leaves).** `MaterialSurfaceParameters::DiffuseTransmission`,
+  `DiffuseTransmissionColor` and `DiffuseTransmissionMap` (glTF `KHR_materials_diffuse_transmission`,
+  opaque and Cutout only) fill the GPU row's `Transmission` rows. `GBuffer_Static` writes the
+  per-pixel factor to `normal.w`; `DeferredLighting` reads the colour through `MaterialID`. The
+  Assimp importer does not read the extension (the vendored Assimp lacks it).
 - `FrameRenderPacket` is the per-frame snapshot that decouples submission from the live registry.
 - `RendererConfig::FramesInFlight` defaults to 3.
 - Selection outline jump-flood inputs are rebound inside the render queue for each iteration,

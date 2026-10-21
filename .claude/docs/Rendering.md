@@ -1060,6 +1060,19 @@ result on top with `FramebufferBlendMode::Additive`. Consequences: anything that
 opaque color must stay additive over what is already there, and the G-buffer render-graph pass reads
 and writes scene color.
 
+**Diffuse transmission rides in the G-buffer normal's alpha.** `LuxGBufferData::DiffuseTransmission`
+(the material factor × map) is `normal.w`; its colour is read from the material row through
+`MaterialID`. `DeferredLighting` follows glTF's `mix(diffuse_brdf, diffuse_btdf, t)`:
+- it scales the albedo by `1 − t` after F0, so only diffuse reflection loses energy, and specular is
+  unchanged;
+- it sets `g_DiffuseTransmission`, so the point and spot loops add `LuxDiffuseTransmissionLobe`
+  (Lambert about −N) under the light's own shadow;
+- the directional light's back lobe is shadowed with its receiver offset toward the light
+  (`CalculateDirectionalShadow(..., -N)`); the camera-side offset would make the leaf shadow itself;
+- IBL adds the irradiance from −N.
+Pixels with `t = 0` take none of these branches, and `g_DiffuseTransmission` stays zero in every
+other shader.
+
 `Renderer::BeginRenderPass` honours a per-attachment `AttachmentLoadOp` (`Load` keeps, `Clear`
 clears, `Inherit` follows `ClearColorOnLoad`). Use it to share an image into a framebuffer without
 clearing it.

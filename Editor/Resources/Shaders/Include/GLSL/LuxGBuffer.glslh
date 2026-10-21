@@ -8,7 +8,8 @@ struct LuxGBufferData
 	vec3 BaseColor;
 	float Opacity;
 	vec3 ViewNormal;
-	float Reserved0;
+	// Diffuse transmission factor (material factor x map); its colour is in the material row.
+	float DiffuseTransmission;
 	float Metalness;
 	float Roughness;
 	float AmbientOcclusion;
@@ -25,7 +26,7 @@ void EncodeGBuffer(
 	out uvec2 outMaterialObjectID)
 {
 	outBaseColorOpacity = vec4(max(data.BaseColor, vec3(0.0)), clamp(data.Opacity, 0.0, 1.0));
-	outViewNormal = vec4(normalize(data.ViewNormal), data.Reserved0);
+	outViewNormal = vec4(normalize(data.ViewNormal), clamp(data.DiffuseTransmission, 0.0, 1.0));
 	outMetalRoughAO = vec4(
 		clamp(data.Metalness, 0.0, 1.0),
 		clamp(data.Roughness, 0.0, 1.0),
@@ -49,7 +50,7 @@ LuxGBufferData DecodeGBuffer(
 	data.BaseColor = baseColorOpacity.rgb;
 	data.Opacity = baseColorOpacity.a;
 	data.ViewNormal = normalize(normalData.xyz);
-	data.Reserved0 = normalData.w;
+	data.DiffuseTransmission = normalData.w;
 	data.Metalness = metalRoughAO.x;
 	data.Roughness = max(metalRoughAO.y, 0.05);
 	data.AmbientOcclusion = metalRoughAO.z;
