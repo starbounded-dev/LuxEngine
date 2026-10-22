@@ -13,6 +13,7 @@
 #include <map>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace Lux {
@@ -43,6 +44,8 @@ namespace Lux {
 	// Keyed by texture asset and cutoff step: what a Cutout material's albedo binds instead of its sRGB
 	// copy. Ordered, so one texture's variants are adjacent. Shares the sRGB cache's mutex.
 	static std::map<std::pair<AssetHandle, uint8_t>, SRGBTextureCacheEntry> s_AlphaCoverageTextureCache;
+	// Cutout albedo textures already reported as keeping their box-filtered chain. Same mutex.
+	static std::unordered_set<AssetHandle> s_ReportedAlphaCoverageFallbacks;
 	static std::mutex s_SRGBTextureCacheMutex;
 
 	enum MaterialDebugFlags : uint32_t
@@ -86,9 +89,22 @@ namespace Lux {
 		if (!texture)
 			return nullptr;
 
-		// The chain is rescaled from 8-bit RGBA bytes, the bytes the sRGB copy reinterprets.
-		if (!alphaCoverageCutoff || texture->GetFormat() != ImageFormat::RGBA)
+		if (!alphaCoverageCutoff)
 			return GetSRGBTexture(textureHandle, texture);
+
+		// The chain is rescaled from 8-bit RGBA bytes, the bytes the sRGB copy reinterprets.
+		if (texture->GetFormat() != ImageFormat::RGBA)
+		{
+			{
+				std::scoped_lock lock(s_SRGBTextureCacheMutex);
+				if (s_ReportedAlphaCoverageFallbacks.insert(textureHandle).second)
+				{
+					LUX_CORE_WARN_TAG("Renderer", "Cutout albedo '{}' ({}) keeps its box-filtered mips and may thin out with distance: coverage-preserving mips are built from 8-bit RGBA only",
+						texture->GetPath().string(), Utils::ImageFormatToString(texture->GetFormat()));
+				}
+			}
+			return GetSRGBTexture(textureHandle, texture);
+		}
 
 #ifndef LUX_HEADLESS
 		const uint64_t sourceHash = texture->GetHash();

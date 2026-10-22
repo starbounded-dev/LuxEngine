@@ -43,7 +43,8 @@ namespace Lux {
 		size_t operator()(const GPUTextureSlot& slot) const
 		{
 			size_t seed = std::hash<AssetHandle>{}(slot.Handle);
-			seed ^= std::hash<uint32_t>{}((uint32_t)slot.ColorSpace | ((uint32_t)slot.AlphaCoverageCutoff << 8)) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+			const uint32_t slotKind = static_cast<uint32_t>(slot.ColorSpace) | (static_cast<uint32_t>(slot.AlphaCoverageCutoff) << 8);
+			seed ^= std::hash<uint32_t>{}(slotKind) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 			return seed;
 		}
 	};
