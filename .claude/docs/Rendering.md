@@ -762,8 +762,10 @@ crash or corruption on some driver even if it renders correctly on yours.
   material table, bindless textures and `r_MaterialSampler`). Every other caster keeps the
   depth-only shadow shaders, which have no fragment work. A masked shadow depends on its material,
   so its static-cache hashes include `MaterialScene::GetAssetRevision`, and a material edit
-  re-renders the static shadow caches. The mesh-shader prepass has no variants: it culls back faces
-  and does not alpha-test. Skinned meshes (`*_Anim` shaders) have none either.
+  re-renders the static shadow caches. The mesh-shader prepass matches the classic one: its fragment
+  stage alpha-tests with the same UVs and mip bias, and two-sided draws switch to
+  `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Skinned meshes (`*_Anim`
+  shaders) have no variants; the engine has no skeletal animation.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still

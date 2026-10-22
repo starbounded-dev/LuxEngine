@@ -1702,6 +1702,11 @@ namespace Lux {
 				meshletPipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
 				m_PreDepthMeshletPipeline = Pipeline::Create(meshletPipelineSpec);
 
+				PipelineSpecification meshletTwoSidedPipelineSpec = meshletPipelineSpec;
+				meshletTwoSidedPipelineSpec.DebugName = "PreDepth-Meshlet-TwoSided";
+				meshletTwoSidedPipelineSpec.BackfaceCulling = false;
+				m_PreDepthMeshletTwoSidedPipeline = Pipeline::Create(meshletTwoSidedPipelineSpec);
+
 				RenderPassSpecification meshletRPSpec;
 				meshletRPSpec.DebugName = "PreDepthMeshletPass";
 				meshletRPSpec.Pipeline = m_PreDepthMeshletPipeline;
@@ -1710,6 +1715,11 @@ namespace Lux {
 				m_PreDepthMeshletPass->SetInput("Camera", m_UBSCamera);
 				m_PreDepthMeshletPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 				m_PreDepthMeshletPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
+				// The same alpha-test inputs as m_PreDepthPass, bound the same way.
+				SetRenderPassInputIfValid(m_PreDepthMeshletPass, "RendererData", m_UBSRendererData);
+				SetRenderPassInputIfValid(m_PreDepthMeshletPass, "GPUMaterials", m_SBSGPUMaterials);
+				SetRenderPassInputIfValid(m_PreDepthMeshletPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
+				m_PreDepthMeshletPass->SetBindlessTextures(m_BindlessTextures);
 				LUX_CORE_VERIFY(m_PreDepthMeshletPass->Validate());
 				m_PreDepthMeshletPass->Bake();
 			}
@@ -8441,13 +8451,21 @@ namespace Lux {
 			Renderer::RT_BeginRenderPass(*cmd, *instance->m_PreDepthMeshletPass, noColorClears, framebuffer->HasDepthAttachment());
 		});
 
+		// As the classic prepass: the two-sided draws sort together and switch to the no-cull pipeline.
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
+		bool twoSidedPipeline = false;
 		for (const MeshKey& key : depthPass.DrawOrder)
 		{
 			const auto drawIt = depthPass.DrawList.find(key);
 			if (drawIt == depthPass.DrawList.end()) continue;
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
+
+			if (key.TwoSided != twoSidedPipeline)
+			{
+				twoSidedPipeline = key.TwoSided;
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_PreDepthMeshletPass, twoSidedPipeline ? m_PreDepthMeshletTwoSidedPipeline : nullptr);
+			}
 
 			const MeshDrawParams params(it->second);
 			StaticDrawCommand drawCmd = drawIt->second;

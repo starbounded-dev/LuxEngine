@@ -346,7 +346,8 @@ Structurally:
   also rebind `ObjectIndexes` to the *visible* set and pre-depth uses the unculled one. The two
   passes must discard identically (same UV — the G-buffer's `(u, 1 − v)` — same mip bias, same cutoff) or the G-buffer fails its
   depth-equal test, so `GetMaterialMipBias` is duplicated verbatim in both shaders. `PreDepth_Meshlet`
-  does **not** alpha-test yet: with mesh shaders enabled, cutout geometry writes full depth.
+  alpha-tests the same way: its mesh stage outputs the UVs, object index and view position, and
+  `m_PreDepthMeshletPass` binds the same material inputs.
   Shadows alpha-test too: a Cutout caster (`MeshKey::AlphaMasked`) draws through
   `DirShadowMap_Masked` / `SpotShadowMap_Masked`, which bind the same material inputs, switched in
   inside the shadow passes.

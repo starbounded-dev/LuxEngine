@@ -1715,6 +1715,7 @@ namespace Lux {
 		Ref<RenderPass>  m_PreDepthPass;
 		// Mesh-shader variant (created only when VK_EXT_mesh_shader is available).
 		Ref<Pipeline>    m_PreDepthMeshletPipeline;
+		Ref<Pipeline>    m_PreDepthMeshletTwoSidedPipeline; // without back-face culling (MeshKey::TwoSided)
 		Ref<RenderPass>  m_PreDepthMeshletPass;
 
 		// ── Tiled light culling ──────────────────────────────────────────────
