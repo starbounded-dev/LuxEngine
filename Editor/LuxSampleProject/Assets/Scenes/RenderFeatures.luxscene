@@ -1,0 +1,860 @@
+Scene: RenderFeatures
+PostProcess:
+  Exposure: 1
+  ExposureMode: 0
+  Aperture: 16
+  ShutterSpeed: 0.008
+  ISO: 100
+  ExposureEV100: 12
+  ExposureCompensation: 0
+  AutoMinEV100: -2
+  AutoMaxEV100: 16
+  AutoAdaptationSpeedUp: 3
+  AutoAdaptationSpeedDown: 1
+  ColorFilter: [1, 1, 1]
+  Saturation: 1
+  Contrast: 1
+  Gamma: 2.2
+  Tonemap: 0
+  WhiteTemperature: 0
+  WhiteTint: 0
+  Lift: [0, 0, 0]
+  GradeGamma: [1, 1, 1]
+  Gain: [1, 1, 1]
+Entities:
+  - Entity: 16100000000001000000
+    TagComponent:
+      Tag: Environment
+    Folder: true
+    Parent: 0
+    Children:
+      - Handle: 16100000000001000001
+      - Handle: 16100000000001000002
+      - Handle: 16100000000001000003
+      - Handle: 16100000000001000004
+      - Handle: 16100000000001000005
+      - Handle: 16100000000001000006
+      - Handle: 16100000000001000007
+      - Handle: 16100000000001000008
+      - Handle: 16100000000001000009
+      - Handle: 16100000000001000010
+      - Handle: 16100000000001000011
+      - Handle: 16100000000001000012
+      - Handle: 16100000000001000013
+      - Handle: 16100000000001000014
+      - Handle: 16100000000001000015
+      - Handle: 16100000000001000016
+      - Handle: 16100000000001000017
+      - Handle: 16100000000001000018
+      - Handle: 16100000000001000019
+      - Handle: 16100000000001000020
+      - Handle: 16100000000001000021
+      - Handle: 16100000000001000022
+      - Handle: 16100000000001000023
+      - Handle: 16100000000001000024
+      - Handle: 16100000000001000025
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000001
+    TagComponent:
+      Tag: Sun
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.35, 0.6, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 0.8
+      Radiance: [1, 0.78, 0.6]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 16100000000001000002
+    TagComponent:
+      Tag: Sky
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.25
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.6]
+  - Entity: 16100000000001000003
+    TagComponent:
+      Tag: Ground
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, -6]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001000
+      Visible: true
+  - Entity: 16100000000001000004
+    TagComponent:
+      Tag: Grid Wall
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3, -12]
+      Rotation: [0, 0, 0]
+      Scale: [22, 6, 0.2]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001004
+      Visible: true
+  - Entity: 16100000000001000005
+    TagComponent:
+      Tag: Grid Bar V00
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-10.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000006
+    TagComponent:
+      Tag: Grid Bar V01
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-9, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000007
+    TagComponent:
+      Tag: Grid Bar V02
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-7.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000008
+    TagComponent:
+      Tag: Grid Bar V03
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-6, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000009
+    TagComponent:
+      Tag: Grid Bar V04
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-4.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000010
+    TagComponent:
+      Tag: Grid Bar V05
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-3, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000011
+    TagComponent:
+      Tag: Grid Bar V06
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000012
+    TagComponent:
+      Tag: Grid Bar V07
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000013
+    TagComponent:
+      Tag: Grid Bar V08
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [1.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000014
+    TagComponent:
+      Tag: Grid Bar V09
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [3, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000015
+    TagComponent:
+      Tag: Grid Bar V10
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [4.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000016
+    TagComponent:
+      Tag: Grid Bar V11
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [6, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000017
+    TagComponent:
+      Tag: Grid Bar V12
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [7.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000018
+    TagComponent:
+      Tag: Grid Bar V13
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [9, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000019
+    TagComponent:
+      Tag: Grid Bar V14
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [10.5, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [0.12, 6, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000020
+    TagComponent:
+      Tag: Grid Bar H0
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [22, 0.12, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000021
+    TagComponent:
+      Tag: Grid Bar H1
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [22, 0.12, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000022
+    TagComponent:
+      Tag: Grid Bar H2
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [22, 0.12, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000023
+    TagComponent:
+      Tag: Grid Bar H3
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [22, 0.12, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000024
+    TagComponent:
+      Tag: Grid Bar H4
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 5, -11.88]
+      Rotation: [0, 0, 0]
+      Scale: [22, 0.12, 0.04]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000025
+    TagComponent:
+      Tag: Fill Light
+    Parent: 16100000000001000000
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 6, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.95, 0.9]
+      Intensity: 2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 22
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 16100000000001000026
+    TagComponent:
+      Tag: Features Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3.2, 7]
+      Rotation: [-0.16, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 400
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+    ScriptComponent:
+      ClassName: LuxSample.FlyCamera
+      ScriptID: 3987114672
+      StoredFields:
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 6
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
+  - Entity: 16100000000001000027
+    TagComponent:
+      Tag: Area Lights
+    Folder: true
+    Parent: 0
+    Children:
+      - Handle: 16100000000001000028
+      - Handle: 16100000000001000029
+      - Handle: 16100000000001000030
+      - Handle: 16100000000001000031
+      - Handle: 16100000000001000032
+      - Handle: 16100000000001000033
+      - Handle: 16100000000001000034
+      - Handle: 16100000000001000035
+      - Handle: 16100000000001000036
+      - Handle: 16100000000001000037
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000028
+    TagComponent:
+      Tag: Floor Strip 0
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [2.5, 0.01, -6.5]
+      Rotation: [0, 0, 0]
+      Scale: [2, 0.02, 9]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001001
+      Visible: true
+  - Entity: 16100000000001000029
+    TagComponent:
+      Tag: Slot Stand 0
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [2.5, 1, -11.4]
+      Rotation: [0, 0, 0]
+      Scale: [0.08, 2, 0.08]
+    StaticMeshComponent:
+      AssetID: 12947748576387674464
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000030
+    TagComponent:
+      Tag: Floor Strip 1
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [5, 0.01, -6.5]
+      Rotation: [0, 0, 0]
+      Scale: [2, 0.02, 9]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001002
+      Visible: true
+  - Entity: 16100000000001000031
+    TagComponent:
+      Tag: Slot Stand 1
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [5, 1, -11.4]
+      Rotation: [0, 0, 0]
+      Scale: [0.08, 2, 0.08]
+    StaticMeshComponent:
+      AssetID: 12947748576387674464
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000032
+    TagComponent:
+      Tag: Floor Strip 2
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [7.5, 0.01, -6.5]
+      Rotation: [0, 0, 0]
+      Scale: [2, 0.02, 9]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001003
+      Visible: true
+  - Entity: 16100000000001000033
+    TagComponent:
+      Tag: Slot Stand 2
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [7.5, 1, -11.4]
+      Rotation: [0, 0, 0]
+      Scale: [0.08, 2, 0.08]
+    StaticMeshComponent:
+      AssetID: 12947748576387674464
+      MaterialTable:
+        0: 16000000000000001014
+      Visible: true
+  - Entity: 16100000000001000034
+    TagComponent:
+      Tag: Area Light Slot - Rect
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [2.5, 2.2, -11.2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000035
+    TagComponent:
+      Tag: Area Light Slot - Disk
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [5, 2.2, -11.2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000036
+    TagComponent:
+      Tag: Area Light Slot - Sphere
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [7.5, 2.2, -11.2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000037
+    TagComponent:
+      Tag: Area Light Slot - Tube
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [5, 3.6, -9]
+      Rotation: [0, 0, 1.5708]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000038
+    TagComponent:
+      Tag: Glass
+    Folder: true
+    Parent: 0
+    Children:
+      - Handle: 16100000000001000039
+      - Handle: 16100000000001000040
+      - Handle: 16100000000001000041
+      - Handle: 16100000000001000042
+      - Handle: 16100000000001000043
+      - Handle: 16100000000001000044
+      - Handle: 16100000000001000045
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000039
+    TagComponent:
+      Tag: Glass Pane 0
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-8, 1.4, -8]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2.8, 0.06]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001005
+      Visible: true
+  - Entity: 16100000000001000040
+    TagComponent:
+      Tag: Glass Sphere 0
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-8, 0.6, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001005
+      Visible: true
+  - Entity: 16100000000001000041
+    TagComponent:
+      Tag: Glass Pane 1
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-5.5, 1.4, -8]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2.8, 0.06]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001006
+      Visible: true
+  - Entity: 16100000000001000042
+    TagComponent:
+      Tag: Glass Sphere 1
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-5.5, 0.6, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001006
+      Visible: true
+  - Entity: 16100000000001000043
+    TagComponent:
+      Tag: Glass Pane 2
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-3, 1.4, -8]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2.8, 0.06]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001007
+      Visible: true
+  - Entity: 16100000000001000044
+    TagComponent:
+      Tag: Glass Sphere 2
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-3, 0.6, -5]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001007
+      Visible: true
+  - Entity: 16100000000001000045
+    TagComponent:
+      Tag: Tinted Glass Block
+    Parent: 16100000000001000038
+    Children:
+      []
+    TransformComponent:
+      Position: [-5.5, 0.5, -2.5]
+      Rotation: [0, 0, 0]
+      Scale: [3, 1, 1]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001008
+      Visible: true
+  - Entity: 16100000000001000046
+    TagComponent:
+      Tag: Bloom
+    Folder: true
+    Parent: 0
+    Children:
+      - Handle: 16100000000001000047
+      - Handle: 16100000000001000048
+      - Handle: 16100000000001000049
+      - Handle: 16100000000001000050
+      - Handle: 16100000000001000051
+      - Handle: 16100000000001000052
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+  - Entity: 16100000000001000047
+    TagComponent:
+      Tag: Emitter 0
+    Parent: 16100000000001000046
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.2, 1.2, -10.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.18, 0.18, 0.18]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001011
+      Visible: true
+  - Entity: 16100000000001000048
+    TagComponent:
+      Tag: Emitter 1
+    Parent: 16100000000001000046
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.6, -10.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.18, 0.18, 0.18]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001012
+      Visible: true
+  - Entity: 16100000000001000049
+    TagComponent:
+      Tag: Emitter 2
+    Parent: 16100000000001000046
+    Children:
+      []
+    TransformComponent:
+      Position: [1.2, 1.6, -10.5]
+      Rotation: [0, 0, 0]
+      Scale: [0.18, 0.18, 0.18]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001013
+      Visible: true
+  - Entity: 16100000000001000050
+    TagComponent:
+      Tag: Emitter Bar
+    Parent: 16100000000001000046
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.4, -11.8]
+      Rotation: [0, 0, 0]
+      Scale: [3, 0.08, 0.08]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001012
+      Visible: true
+  - Entity: 16100000000001000051
+    TagComponent:
+      Tag: Chrome Sphere
+    Parent: 16100000000001000046
+    Children:
+      []
+    TransformComponent:
+      Position: [-0.8, 0.7, -3.5]
+      Rotation: [0, 0, 0]
+      Scale: [1.4, 1.4, 1.4]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001009
+      Visible: true
+  - Entity: 16100000000001000052
+    TagComponent:
+      Tag: Satin Sphere
+    Parent: 16100000000001000046
+    Children:
+      []
+    TransformComponent:
+      Position: [0.9, 0.7, -3.5]
+      Rotation: [0, 0, 0]
+      Scale: [1.4, 1.4, 1.4]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true

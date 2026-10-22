@@ -23,6 +23,13 @@ What the scene holds, by district:
 
 Play mode drives a repeatable camera flight (CameraPath, PlayOnStart) through every district, so a
 Play-mode capture is the reproducible measurement. In Edit mode, place the editor camera yourself.
+
+`--scene features` writes the render-features test scene instead (docs/RENDER_FEATURES_PLAN.md),
+leaving Benchmark and its materials untouched:
+  Assets/Scenes/RenderFeatures.luxscene    glossy floor strips under area-light slots, glass panes and
+                                           spheres in front of a grid wall, bright emitters for bloom
+  Assets/Materials/RenderFeatures/*.lmat   its materials, registered under their own fixed handles
+The area-light slots are empty entities until area lights exist; later phases give them components.
 """
 
 from __future__ import annotations
@@ -39,6 +46,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ASSETS = ROOT / "Editor" / "LuxSampleProject" / "Assets"
 SCENE_PATH = PROJECT_ASSETS / "Scenes" / "Benchmark.luxscene"
 MATERIAL_DIR_RELATIVE = "Materials/Benchmark"
+FEATURES_SCENE_PATH = PROJECT_ASSETS / "Scenes" / "RenderFeatures.luxscene"
+FEATURES_MATERIAL_DIR_RELATIVE = "Materials/RenderFeatures"
 REGISTRY_PATH = PROJECT_ASSETS / "AssetRegistry.lzr"
 
 # Mesh sources already in the sample project's registry.
@@ -68,6 +77,9 @@ EVENT_MUSIC = "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
 # in practice, and regenerating keeps every reference valid.
 MATERIAL_HANDLE_BASE = 16000000000000000000
 ENTITY_UUID_BASE = 16100000000000000000
+# Past Benchmark's 900 field + named materials, and past its entity range.
+FEATURES_MATERIAL_HANDLE_BASE = MATERIAL_HANDLE_BASE + 1000
+FEATURES_ENTITY_UUID_BASE = ENTITY_UUID_BASE + 1000000
 
 CAMERA_NAME = "Listener Camera - RMB + WASD"  # CameraPath's default Target; string fields don't serialize
 
@@ -229,11 +241,11 @@ def build_materials(count: int) -> tuple[list[Material], dict[str, int]]:
 	return materials, {key: value.handle for key, value in specials.items()}
 
 
-def write_materials(materials: list[Material]) -> None:
-	directory = PROJECT_ASSETS / MATERIAL_DIR_RELATIVE
+def write_materials(materials: list[Material], directory_relative: str = MATERIAL_DIR_RELATIVE, prefix: str = "Bench_") -> None:
+	directory = PROJECT_ASSETS / directory_relative
 	directory.mkdir(parents=True, exist_ok=True)
 	wanted = {f"{m.name}.lmat" for m in materials}
-	for stale in directory.glob("Bench_*.lmat"):
+	for stale in directory.glob(f"{prefix}*.lmat"):
 		if stale.name not in wanted:
 			stale.unlink()
 	for material in materials:
@@ -241,18 +253,18 @@ def write_materials(materials: list[Material]) -> None:
 		(directory / f"{material.name}.lmat").write_text(content, encoding="utf-8", newline="\n")
 
 
-def update_registry(materials: list[Material]) -> None:
-	"""Replace every Materials/Benchmark entry with the generated set; leave all other entries as-is."""
+def update_registry(materials: list[Material], directory_relative: str = MATERIAL_DIR_RELATIVE) -> None:
+	"""Replace every entry under `directory_relative` with the generated set; leave all other entries as-is."""
 	text = REGISTRY_PATH.read_text(encoding="utf-8")
 	header, _, body = text.partition("Assets:\n")
 	blocks = re.split(r"(?m)^(?=  - Handle: )", body)
-	kept = [b for b in blocks if b and f"FilePath: {MATERIAL_DIR_RELATIVE}/" not in b]
+	kept = [b for b in blocks if b and f"FilePath: {directory_relative}/" not in b]
 	if kept and not kept[-1].endswith("\n"):
 		kept[-1] += "\n"
 	for material in materials:
 		kept.append(
 			f"  - Handle: {material.handle}\n"
-			f"    FilePath: {MATERIAL_DIR_RELATIVE}/{material.name}.lmat\n"
+			f"    FilePath: {directory_relative}/{material.name}.lmat\n"
 			f"    Type: Material\n")
 	REGISTRY_PATH.write_text(header + "Assets:\n" + "".join(kept), encoding="utf-8", newline="\n")
 
@@ -279,10 +291,10 @@ class Entity:
 
 
 class Scene:
-	def __init__(self, name: str) -> None:
+	def __init__(self, name: str, uuid_base: int = ENTITY_UUID_BASE) -> None:
 		self.name = name
 		self.entities: list[Entity] = []
-		self.next_uuid = ENTITY_UUID_BASE
+		self.next_uuid = uuid_base
 		self.stats: dict[str, int] = {}
 		self.outdoor_zone: Entity | None = None  # set by add_environment; house portals open onto it
 
@@ -748,14 +760,135 @@ def add_2d_corner(scene: Scene) -> None:
 	text(label, "2D CORNER\nBox2D sprites + circles")
 
 
+# --------------------------------------------------------------------------------------------------
+# Render-features test scene (docs/RENDER_FEATURES_PLAN.md, Phase 0)
+
+
+def build_feature_materials() -> tuple[list[Material], dict[str, int]]:
+	def plain(index: int, name: str, albedo, roughness: float, metalness: float = 0.0, extra: list[str] | None = None,
+			  transparent: bool = False) -> Material:
+		lines = [
+			f"  Transparent: {boolean(transparent)}", f"  AlbedoColor: {vec(albedo)}", "  Emission: 0", "  UseNormalMap: false",
+			f"  Metalness: {num(metalness)}", f"  Roughness: {num(roughness)}", "  AlbedoMap: 0", "  NormalMap: 0",
+			"  MetalnessMap: 0", "  RoughnessMap: 0"]
+		lines = [line for line in lines if not (transparent and line.startswith("  Metalness:"))]
+		return plain_material(FEATURES_MATERIAL_HANDLE_BASE + index, name, lines + (extra or []))
+
+	def glass(index: int, name: str, tint, roughness: float) -> Material:
+		return plain(index, name, tint, roughness, extra=["  Transparency: 0.25", "  AcousticMaterial: Glass"], transparent=True)
+
+	def emitter(index: int, name: str, color, emission: float) -> Material:
+		return plain_material(FEATURES_MATERIAL_HANDLE_BASE + index, name, [
+			"  Transparent: false", f"  AlbedoColor: {vec(color)}", f"  Emission: {num(emission)}", "  UseNormalMap: false",
+			"  Metalness: 0", "  Roughness: 0.4", "  AlbedoMap: 0", "  NormalMap: 0", "  MetalnessMap: 0",
+			"  RoughnessMap: 0", f"  EmissiveColor: {vec(color)}"])
+
+	named = {
+		"Ground": plain(0, "RF_Ground", (0.32, 0.32, 0.34), 0.8),
+		"Strip05": plain(1, "RF_Strip_Rough05", (0.18, 0.18, 0.2), 0.05),
+		"Strip30": plain(2, "RF_Strip_Rough30", (0.18, 0.18, 0.2), 0.3),
+		"Strip70": plain(3, "RF_Strip_Rough70", (0.18, 0.18, 0.2), 0.7),
+		"Wall": plain(4, "RF_Wall", (0.75, 0.75, 0.72), 0.9),
+		"GlassClear": glass(5, "RF_Glass_Clear", (0.9, 0.95, 1.0), 0.02),
+		"GlassFrosted": glass(6, "RF_Glass_Frosted", (0.9, 0.95, 1.0), 0.25),
+		"GlassRough": glass(7, "RF_Glass_Rough", (0.9, 0.95, 1.0), 0.6),
+		"GlassTinted": glass(8, "RF_Glass_Tinted", (0.45, 0.8, 0.55), 0.05),
+		"Chrome": plain(9, "RF_Chrome", (0.95, 0.95, 0.95), 0.06, metalness=1.0),
+		"Satin": plain(10, "RF_Satin", (0.8, 0.35, 0.25), 0.45),
+		"EmitWarm": emitter(11, "RF_Emit_Warm", (1.0, 0.75, 0.45), 40.0),
+		"EmitCool": emitter(12, "RF_Emit_Cool", (0.35, 0.65, 1.0), 120.0),
+		"EmitWhite": emitter(13, "RF_Emit_White", (1.0, 1.0, 1.0), 400.0),
+		"Stand": plain(14, "RF_Stand", (0.08, 0.08, 0.08), 0.5),
+	}
+	return list(named.values()), {key: value.handle for key, value in named.items()}
+
+
+def build_features_scene(m: dict[str, int]) -> Scene:
+	"""A dusk stage: area-light section on the right, glass on the left, emitters in the middle."""
+	scene = Scene("RenderFeatures", FEATURES_ENTITY_UUID_BASE)
+
+	env = scene.folder("Environment")
+	sun = scene.entity("Sun", rotation=(-0.35, 0.6, 0.0), parent=env)
+	sun.add("DirectionalLightComponent", [
+		"Intensity: 0.8", "Radiance: [1, 0.78, 0.6]", "Unit: 0", "ColorTemperature: 6500", "UseColorTemperature: false",
+		"CastShadows: true", "SoftShadows: true", "LightSize: 0.5", "ShadowAmount: 1", "ShadowDistance: 0",
+		"ShadowResolutionTier: 2"])
+	sky = scene.entity("Sky", parent=env)
+	sky.add("SkyLightComponent", ["EnvironmentMap: 0", "Intensity: 0.25", "Lod: 0", "DynamicSky: true", "TurbidityAzimuthInclination: [2, 0, 0.6]"])
+	static_mesh(scene.entity("Ground", (0.0, -0.5, -6.0), scale=(60.0, 1.0, 60.0), parent=env), CUBE, m["Ground"], scene)
+	# A light wall with a dark grid on it: straight edges show refraction bending clearly.
+	static_mesh(scene.entity("Grid Wall", (0.0, 3.0, -12.0), scale=(22.0, 6.0, 0.2), parent=env), CUBE, m["Wall"], scene)
+	for i in range(15):
+		x = -10.5 + i * 1.5
+		static_mesh(scene.entity(f"Grid Bar V{i:02d}", (x, 3.0, -11.88), scale=(0.12, 6.0, 0.04), parent=env), CUBE, m["Stand"], scene)
+	for i in range(5):
+		static_mesh(scene.entity(f"Grid Bar H{i}", (0.0, 1.0 + i, -11.88), scale=(22.0, 0.12, 0.04), parent=env), CUBE, m["Stand"], scene)
+	fill = scene.entity("Fill Light", (0.0, 6.0, -2.0), parent=env)
+	point_light(fill, (1.0, 0.95, 0.9), 2.0, 22.0)
+	scene.count("point lights")
+
+	camera = scene.entity("Features Camera", (0.0, 3.2, 7.0), (-0.16, 0.0, 0.0))
+	camera.add("CameraComponent", [
+		"Camera:", "  ProjectionType: 0", "  PerspectiveFOV: 50", "  PerspectiveNear: 0.1", "  PerspectiveFar: 400",
+		"  OrthographicSize: 10", "  OrthographicNear: -1", "  OrthographicFar: 1", "Primary: true", "FixedAspectRatio: false"])
+	script(camera, "LuxSample.FlyCamera", [("Speed", "Float", "6"), ("SprintMultiplier", "Float", "3")])
+
+	# Area lights: three floor strips of rising roughness, a slot above the far end of each, a tube
+	# slot across all three. The slots are plain entities until area lights exist.
+	area = scene.folder("Area Lights")
+	for i, (key, x) in enumerate((("Strip05", 2.5), ("Strip30", 5.0), ("Strip70", 7.5))):
+		static_mesh(scene.entity(f"Floor Strip {i}", (x, 0.01, -6.5), scale=(2.0, 0.02, 9.0), parent=area), CUBE, m[key], scene)
+		static_mesh(scene.entity(f"Slot Stand {i}", (x, 1.0, -11.4), scale=(0.08, 2.0, 0.08), parent=area), CYLINDER, m["Stand"], scene)
+	for shape, x in (("Rect", 2.5), ("Disk", 5.0), ("Sphere", 7.5)):
+		scene.entity(f"Area Light Slot - {shape}", (x, 2.2, -11.2), parent=area)
+	scene.entity("Area Light Slot - Tube", (5.0, 3.6, -9.0), (0.0, 0.0, math.pi / 2.0), parent=area)
+
+	# Glass: panes and spheres of rising roughness in front of the grid wall.
+	glass = scene.folder("Glass")
+	for i, (key, x) in enumerate((("GlassClear", -8.0), ("GlassFrosted", -5.5), ("GlassRough", -3.0))):
+		pane = scene.entity(f"Glass Pane {i}", (x, 1.4, -8.0), scale=(2.0, 2.8, 0.06), parent=glass)
+		static_mesh(pane, CUBE, m[key], scene)
+		sphere = scene.entity(f"Glass Sphere {i}", (x, 0.6, -5.0), scale=(1.2, 1.2, 1.2), parent=glass)
+		static_mesh(sphere, SPHERE, m[key], scene)
+		scene.count("transparent meshes", 2)
+	thick = scene.entity("Tinted Glass Block", (-5.5, 0.5, -2.5), scale=(3.0, 1.0, 1.0), parent=glass)
+	static_mesh(thick, CUBE, m["GlassTinted"], scene)
+	scene.count("transparent meshes")
+
+	# Bloom: small, very bright emitters against the dark wall, plus reflective spheres.
+	bloom = scene.folder("Bloom")
+	for i, (key, x, y) in enumerate((("EmitWarm", -1.2, 1.2), ("EmitCool", 0.0, 2.6), ("EmitWhite", 1.2, 1.6))):
+		static_mesh(scene.entity(f"Emitter {i}", (x, y, -10.5), scale=(0.18, 0.18, 0.18), parent=bloom), SPHERE, m[key], scene)
+	static_mesh(scene.entity("Emitter Bar", (0.0, 4.4, -11.8), scale=(3.0, 0.08, 0.08), parent=bloom), CUBE, m["EmitCool"], scene)
+	static_mesh(scene.entity("Chrome Sphere", (-0.8, 0.7, -3.5), scale=(1.4, 1.4, 1.4), parent=bloom), SPHERE, m["Chrome"], scene)
+	static_mesh(scene.entity("Satin Sphere", (0.9, 0.7, -3.5), scale=(1.4, 1.4, 1.4), parent=bloom), SPHERE, m["Satin"], scene)
+	return scene
+
+
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Generate the LuxEngine all-systems benchmark scene.")
 	parser.add_argument("--objects", type=int, default=6000, help="static meshes in the material field (default 6000)")
 	parser.add_argument("--materials", type=int, default=128, help="distinct generated field materials (default 128)")
 	parser.add_argument("--lights", type=int, default=192, help="point lights over the material field (default 192)")
 	parser.add_argument("--bodies", type=int, default=800, help="dynamic rigid bodies in the physics yard (default 800)")
-	parser.add_argument("--output", type=Path, default=SCENE_PATH, help="scene file to write")
+	parser.add_argument("--scene", choices=("benchmark", "features"), default="benchmark",
+						help="benchmark (default) or the render-features test scene")
+	parser.add_argument("--output", type=Path, default=None, help="scene file to write")
 	args = parser.parse_args()
+
+	if args.scene == "features":
+		materials, handles = build_feature_materials()
+		write_materials(materials, FEATURES_MATERIAL_DIR_RELATIVE, "RF_")
+		update_registry(materials, FEATURES_MATERIAL_DIR_RELATIVE)
+		scene = build_features_scene(handles)
+		output = args.output or FEATURES_SCENE_PATH
+		scene.write(output)
+		print(f"Wrote {output.relative_to(ROOT) if output.is_relative_to(ROOT) else output}")
+		print(f"  {len(scene.entities)} entities, {len(materials)} materials")
+		for key in sorted(scene.stats):
+			print(f"  {scene.stats[key]:>6} {key}")
+		return
+	args.output = args.output or SCENE_PATH
 	if min(args.objects, args.lights, args.bodies) < 0 or not 1 <= args.materials <= 900:
 		parser.error("counts must be >= 0 and --materials must be in 1..900")
 

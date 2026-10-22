@@ -212,6 +212,9 @@ Assets:
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture
+  - Handle: 7716415855374001845
+    FilePath: Scenes/RenderFeatures.luxscene
+    Type: Scene
   - Handle: 7886385001127071647
     FilePath: Textures/Bricks097/Bricks097_1K-JPG_NormalGL.jpg
     Type: Texture
@@ -868,6 +871,51 @@ Assets:
     Type: Material
   - Handle: 16000000000000000911
     FilePath: Materials/Benchmark/Bench_Metal.lmat
+    Type: Material
+  - Handle: 16000000000000001000
+    FilePath: Materials/RenderFeatures/RF_Ground.lmat
+    Type: Material
+  - Handle: 16000000000000001001
+    FilePath: Materials/RenderFeatures/RF_Strip_Rough05.lmat
+    Type: Material
+  - Handle: 16000000000000001002
+    FilePath: Materials/RenderFeatures/RF_Strip_Rough30.lmat
+    Type: Material
+  - Handle: 16000000000000001003
+    FilePath: Materials/RenderFeatures/RF_Strip_Rough70.lmat
+    Type: Material
+  - Handle: 16000000000000001004
+    FilePath: Materials/RenderFeatures/RF_Wall.lmat
+    Type: Material
+  - Handle: 16000000000000001005
+    FilePath: Materials/RenderFeatures/RF_Glass_Clear.lmat
+    Type: Material
+  - Handle: 16000000000000001006
+    FilePath: Materials/RenderFeatures/RF_Glass_Frosted.lmat
+    Type: Material
+  - Handle: 16000000000000001007
+    FilePath: Materials/RenderFeatures/RF_Glass_Rough.lmat
+    Type: Material
+  - Handle: 16000000000000001008
+    FilePath: Materials/RenderFeatures/RF_Glass_Tinted.lmat
+    Type: Material
+  - Handle: 16000000000000001009
+    FilePath: Materials/RenderFeatures/RF_Chrome.lmat
+    Type: Material
+  - Handle: 16000000000000001010
+    FilePath: Materials/RenderFeatures/RF_Satin.lmat
+    Type: Material
+  - Handle: 16000000000000001011
+    FilePath: Materials/RenderFeatures/RF_Emit_Warm.lmat
+    Type: Material
+  - Handle: 16000000000000001012
+    FilePath: Materials/RenderFeatures/RF_Emit_Cool.lmat
+    Type: Material
+  - Handle: 16000000000000001013
+    FilePath: Materials/RenderFeatures/RF_Emit_White.lmat
+    Type: Material
+  - Handle: 16000000000000001014
+    FilePath: Materials/RenderFeatures/RF_Stand.lmat
     Type: Material
   - Handle: 16078392067688766467
     FilePath: Meshes/Source/Sponza/755318871556304029.jpg

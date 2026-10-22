@@ -442,6 +442,9 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 python3 tests/rendering/threading_ab.py                                   # build, then Single vs Multi
 ```
 
+- **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features
+  scene (area-light slots over glossy strips, glass in front of a grid wall, bright emitters), which
+  `python3 scripts/GenerateBenchmarkScenes.py --scene features` regenerates without touching Benchmark.
 - **Captures live in `bin/golden/<label>/`** and are never committed.
 - **Validation counts only exist in Debug captures** (`--config debug`, plus `--sync-validation`
   for synchronization validation). `summary.json` and `validation.txt` list them, and a comparison
