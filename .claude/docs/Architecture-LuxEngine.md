@@ -340,7 +340,9 @@ Structurally:
   emissive maps as sRGB, and `SceneRenderer` binds those to `MaterialAsset::GetSRGBTexture`.
 - **Cutout materials are alpha-tested in pre-depth as well as the G-buffer.** `MaterialAlphaMode::Cutout`
   becomes `GPUMaterialAlphaMode::Masked` in the material row, with the authored threshold in
-  `Surface.z`. `PreDepth.glsl` therefore reads the material table, and `m_PreDepthPass` binds
+  `Surface.z`. Only Cutout draws (`MeshKey::AlphaMasked`) read the material table in pre-depth: they
+  switch to `PreDepth_Masked.glsl` (`m_PreDepthMaskedPass`, never begun) inside the prepass, whose
+  own `PreDepth.glsl` is depth-only. `m_PreDepthMaskedPass` binds
   `GPUMaterials`, `r_MaterialSampler` and `RendererData` plus its `BindlessTextureTable` (the
   bindless `u_GPUMaterialTextures`, set 4) — bound explicitly, not via `BindSceneRenderPassInputs(PassInputMaterialScene)`, because that would
   also rebind `ObjectIndexes` to the *visible* set and pre-depth uses the unculled one. The two

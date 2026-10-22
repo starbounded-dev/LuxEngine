@@ -528,6 +528,7 @@ namespace Lux {
 
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Masked.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
 		if (Renderer::SupportsMeshShaders())
 			Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Meshlet.glsl");

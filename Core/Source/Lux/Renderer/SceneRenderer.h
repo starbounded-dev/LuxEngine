@@ -898,7 +898,7 @@ namespace Lux {
 			// The material's raster variant (MaterialScene::ResolveRasterState), so each draw has one
 			// pipeline: a two-sided material's depth-prepass and G-buffer draws take those passes'
 			// no-cull pipelines (a two-sided transparent draws its back faces, then its front faces), and
-			// a Cutout material's shadow draws the alpha-tested shadow ones.
+			// a Cutout material's prepass and shadow draws the alpha-tested ones.
 			bool        TwoSided = false;
 			bool        AlphaMasked = false;
 
@@ -1215,6 +1215,8 @@ namespace Lux {
 			uint64_t TransparentGeometryPipeline = 0;
 			uint64_t PreDepthPipeline = 0;
 			uint64_t PreDepthTwoSidedPipeline = 0;
+			uint64_t PreDepthMaskedPipeline = 0;
+			uint64_t PreDepthMaskedTwoSidedPipeline = 0;
 			uint64_t PreDepthShader = 0;
 			uint64_t PreDepthMaterial = 0;
 			uint64_t SelectedPipeline = 0;
@@ -1245,6 +1247,9 @@ namespace Lux {
 		// The proxy's cached submit data, rebuilt when the proxy or any material input changed.
 		const ProxySubmitCacheEntry& GetProxySubmitData(const StaticMeshRenderProxy& proxy);
 		const PassSortKeys& GetPassSortKeys();
+		// The prepass pipeline a draw's raster variant takes, as a sort key, so the prepass switches
+		// pipeline once per variant.
+		static uint64_t GetPreDepthPipelineSortKey(const PassSortKeys& keys, const MeshKey& key);
 		TransformMapData& GetMeshTransformBucket(const MeshKey& key);
 		// True when the main view is culled and LOD-selected on the GPU through cull groups this frame:
 		// GPU-driven rendering on and the mesh-shader prepass (which needs CPU LOD buckets) not in use.
@@ -1713,6 +1718,10 @@ namespace Lux {
 		Ref<Pipeline>    m_PreDepthTwoSidedPipeline;
 		Ref<Material>    m_PreDepthMaterial;
 		Ref<RenderPass>  m_PreDepthPass;
+		// Never begun: Cutout draws (MeshKey::AlphaMasked) switch to its alpha-testing pipeline (or the
+		// two-sided one) and sets inside m_PreDepthPass, whose own shader is depth-only.
+		Ref<RenderPass>  m_PreDepthMaskedPass;
+		Ref<Pipeline>    m_PreDepthMaskedTwoSidedPipeline;
 		// Mesh-shader variant (created only when VK_EXT_mesh_shader is available).
 		Ref<Pipeline>    m_PreDepthMeshletPipeline;
 		Ref<Pipeline>    m_PreDepthMeshletTwoSidedPipeline; // without back-face culling (MeshKey::TwoSided)

@@ -747,7 +747,12 @@ crash or corruption on some driver even if it renders correctly on yours.
 - **Raster variants are part of the draw key.** `MeshKey::TwoSided` and `MeshKey::AlphaMasked` come
   from `MaterialScene::ResolveRasterState`, the resolution that also builds the material's GPU row,
   so a bucket's pipeline matches the material data its shaders read. Both the CPU buckets and the cull
-  groups set them. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
+  groups set them. The prepass has four pipelines: its own depth-only `PreDepth` and its no-cull
+  variant, and `m_PreDepthMaskedPass`'s alpha-testing `PreDepth_Masked` and its no-cull variant,
+  picked by `GetPreDepthPipelineSortKey`. On 2026-10-21 (Release, 1280×720 golden captures, medians
+  of 3) the depth-only split cut `PreDepthPass` from 0.936 to 0.916 ms on Benchmark and from 0.061 to
+  0.038 ms on FMODDemo, with pixel-identical images. The mesh-shader prepass keeps one alpha-testing
+  shader for every draw. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
   and `m_GeometryTwoSidedPipeline`, which do no culling. Those two must stay in step, because the
   G-buffer depth-tests EQUAL against the prepass. Draws sort by pipeline (`PassSortKeys`), so a pass
   switches pipeline at most once per variant. `GBuffer_Static` flips the normal and tangent frame on

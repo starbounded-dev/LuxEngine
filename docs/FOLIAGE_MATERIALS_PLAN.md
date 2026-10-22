@@ -224,6 +224,18 @@ Each phase builds (Debug, Core then Editor), passes the offline shader check (`g
 - **Keep it only if** `PreDepthPass` improves beyond run-to-run noise; otherwise drop the commit
   and record the numbers here.
 - **Docs:** `Rendering.md` (prepass variants), if kept.
+- **Result (2026-10-21):** kept. The protocol used `tests/rendering/golden_run.py` (Release,
+  1280×720, script-launched, single-threaded Linux, three runs each side) rather than the
+  in-editor Profiler:
+
+  | Scene | `PreDepthPass` before | after | Total GPU before → after |
+  |---|---|---|---|
+  | Benchmark | 0.936 ms (0.917–0.944) | 0.916 ms (0.897–0.916) | 25.61 → 25.67 ms (noise) |
+  | FMODDemo | 0.061 ms (0.060–0.062) | 0.038 ms (0.034–0.039) | 16.62 → 16.60 ms (noise) |
+
+  Images are pixel-identical before and after. The gain is real but small at this resolution;
+  Benchmark's prepass is dominated by its 7k meshes' vertex work. The mesh-shader prepass is not
+  split: that would duplicate its task and mesh stages for a gain this size.
 
 ---
 
