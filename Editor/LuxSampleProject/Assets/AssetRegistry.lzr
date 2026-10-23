@@ -917,6 +917,15 @@ Assets:
   - Handle: 16000000000000001014
     FilePath: Materials/RenderFeatures/RF_Stand.lmat
     Type: Material
+  - Handle: 16000000000000001015
+    FilePath: Materials/RenderFeatures/RF_GlassBall_Clear.lmat
+    Type: Material
+  - Handle: 16000000000000001016
+    FilePath: Materials/RenderFeatures/RF_GlassBall_Frosted.lmat
+    Type: Material
+  - Handle: 16000000000000001017
+    FilePath: Materials/RenderFeatures/RF_GlassBall_Rough.lmat
+    Type: Material
   - Handle: 16078392067688766467
     FilePath: Meshes/Source/Sponza/755318871556304029.jpg
     Type: Texture

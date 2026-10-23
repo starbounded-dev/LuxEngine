@@ -786,8 +786,15 @@ def build_feature_materials() -> tuple[list[Material], dict[str, int]]:
 		lines = [line for line in lines if not (transparent and line.startswith("  Metalness:"))]
 		return plain_material(FEATURES_MATERIAL_HANDLE_BASE + index, name, lines + (extra or []))
 
-	def glass(index: int, name: str, tint, roughness: float) -> Material:
-		return plain(index, name, tint, roughness, extra=["  Transparency: 0.25", "  AcousticMaterial: Glass"], transparent=True)
+	# Refractive glass: opaque in alpha, all of its see-through light from transmission.
+	def glass(index: int, name: str, tint, roughness: float, thickness: float = 0.0, attenuation=None) -> Material:
+		extra = ["  Transparency: 1", "  Transmission: 1", "  IOR: 1.5"]
+		if thickness > 0.0:
+			extra.append(f"  Thickness: {num(thickness)}")
+		if attenuation:
+			color, distance = attenuation
+			extra += [f"  AttenuationColor: {vec(color)}", f"  AttenuationDistance: {num(distance)}"]
+		return plain(index, name, tint, roughness, extra=extra + ["  AcousticMaterial: Glass"], transparent=True)
 
 	def emitter(index: int, name: str, color, emission: float) -> Material:
 		return plain_material(FEATURES_MATERIAL_HANDLE_BASE + index, name, [
@@ -804,13 +811,16 @@ def build_feature_materials() -> tuple[list[Material], dict[str, int]]:
 		"GlassClear": glass(5, "RF_Glass_Clear", (0.9, 0.95, 1.0), 0.02),
 		"GlassFrosted": glass(6, "RF_Glass_Frosted", (0.9, 0.95, 1.0), 0.25),
 		"GlassRough": glass(7, "RF_Glass_Rough", (0.9, 0.95, 1.0), 0.6),
-		"GlassTinted": glass(8, "RF_Glass_Tinted", (0.45, 0.8, 0.55), 0.05),
+		"GlassTinted": glass(8, "RF_Glass_Tinted", (1.0, 1.0, 1.0), 0.05, thickness=1.0, attenuation=((0.3, 0.8, 0.45), 0.6)),
 		"Chrome": plain(9, "RF_Chrome", (0.95, 0.95, 0.95), 0.06, metalness=1.0),
 		"Satin": plain(10, "RF_Satin", (0.8, 0.35, 0.25), 0.45),
 		"EmitWarm": emitter(11, "RF_Emit_Warm", (1.0, 0.75, 0.45), 40.0),
 		"EmitCool": emitter(12, "RF_Emit_Cool", (0.35, 0.65, 1.0), 120.0),
 		"EmitWhite": emitter(13, "RF_Emit_White", (1.0, 1.0, 1.0), 400.0),
 		"Stand": plain(14, "RF_Stand", (0.08, 0.08, 0.08), 0.5),
+		"BallClear": glass(15, "RF_GlassBall_Clear", (0.9, 0.95, 1.0), 0.02, thickness=1.0),
+		"BallFrosted": glass(16, "RF_GlassBall_Frosted", (0.9, 0.95, 1.0), 0.25, thickness=1.0),
+		"BallRough": glass(17, "RF_GlassBall_Rough", (0.9, 0.95, 1.0), 0.6, thickness=1.0),
 	}
 	return list(named.values()), {key: value.handle for key, value in named.items()}
 
@@ -863,13 +873,14 @@ def build_features_scene(m: dict[str, int]) -> Scene:
 	area_light(tube, 3, (0.6, 1.0, 0.75), 120.0, radius=0.04, length=5.5, range_=12.0)
 	scene.count("area lights", 4)
 
-	# Glass: panes and spheres of rising roughness in front of the grid wall.
+	# Glass: thin panes and thick spheres of rising roughness in front of the grid wall.
 	glass = scene.folder("Glass")
-	for i, (key, x) in enumerate((("GlassClear", -8.0), ("GlassFrosted", -5.5), ("GlassRough", -3.0))):
+	for i, (pane_key, ball_key, x) in enumerate((("GlassClear", "BallClear", -8.0), ("GlassFrosted", "BallFrosted", -5.5),
+												  ("GlassRough", "BallRough", -3.0))):
 		pane = scene.entity(f"Glass Pane {i}", (x, 1.4, -8.0), scale=(2.0, 2.8, 0.06), parent=glass)
-		static_mesh(pane, CUBE, m[key], scene)
+		static_mesh(pane, CUBE, m[pane_key], scene)
 		sphere = scene.entity(f"Glass Sphere {i}", (x, 0.6, -5.0), scale=(1.2, 1.2, 1.2), parent=glass)
-		static_mesh(sphere, SPHERE, m[key], scene)
+		static_mesh(sphere, SPHERE, m[ball_key], scene)
 		scene.count("transparent meshes", 2)
 	thick = scene.entity("Tinted Glass Block", (-5.5, 0.5, -2.5), scale=(3.0, 1.0, 1.0), parent=glass)
 	static_mesh(thick, CUBE, m["GlassTinted"], scene)

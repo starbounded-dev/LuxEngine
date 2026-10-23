@@ -1631,6 +1631,9 @@ namespace Lux {
 			AreaLight AreaLights[LightEnvironment::MaxAreaLights]{};
 		} m_AreaLightsUB;
 		uint32_t m_AreaLightCount = 0; // this frame's uploaded area lights; the area pass runs only when > 0
+		// The submitted render scene holds a refractive material: Pre-Convolution runs for it, and the
+		// transparent pass reads its output. Set in SubmitRenderScene, cleared in BeginScene.
+		bool m_FrameHasRefraction = false;
 		bool m_AreaLightCapWarned = false;
 
 		struct UBSpotLights

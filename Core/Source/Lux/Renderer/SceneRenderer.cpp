@@ -1989,6 +1989,8 @@ namespace Lux {
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
 			m_GeometryPassTransparent = RenderPass::Create(rpSpec);
 			BindSceneRenderPassInputs(m_GeometryPassTransparent, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth);
+			// Rebound every frame in TransparentForwardPass: the pre-convolved scene with refraction, black without.
+			m_GeometryPassTransparent->SetInput("u_RefractionSource", Renderer::GetBlackTexture());
 			m_GeometryPassTransparent->SetInput("AreaLightData", m_UBSAreaLights);
 			m_GeometryPassTransparent->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
 			m_GeometryPassTransparent->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
@@ -4363,13 +4365,17 @@ namespace Lux {
 			addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
 		}
 
+		// The pre-convolved opaque scene feeds SSR and refraction; it runs when either needs it.
+		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
+		if (m_Options.EnableSSR || m_FrameHasRefraction)
+		{
+			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
+		}
+
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
 		if (m_Options.EnableSSR)
 		{
-			std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
-			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
-
 			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
 			ssrOutputs.push_back(ssrImage);
 
@@ -4397,6 +4403,8 @@ namespace Lux {
 			std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
 			appendResources(transparentReads, preDepthOutputs);
 			appendResources(transparentReads, sceneColorCurrent);
+			if (m_FrameHasRefraction)
+				appendResources(transparentReads, preConvolutionOutputs);
 			std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
 			addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass),
 				{
@@ -5079,6 +5087,7 @@ namespace Lux {
 		m_CullGroupsSubmitted = false;
 		m_CullGroupsFrozen = false;
 		m_ShadowCullDispatched = false;
+		m_FrameHasRefraction = false;
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
@@ -5904,6 +5913,8 @@ namespace Lux {
 		m_SubmittedRenderScene = renderScene;
 		if (!renderScene)
 			return;
+
+		m_FrameHasRefraction = renderScene->GetMaterialScene().HasRefractiveMaterials();
 
 		// Cached proxy submit data holds material assets and resolved handles: any table edit, material
 		// reload or edit, or a different (or cleared) scene starts a new epoch, so every entry rebuilds.
@@ -9070,6 +9081,14 @@ namespace Lux {
 		if (transparentPass.DrawList.empty())
 			return;
 
+		// Refraction reads this frame's pre-convolved scene; without a refractive material it is not
+		// produced, so the pass gets a black texture. Applied on the render thread like its other inputs.
+		Ref<Texture2D> refractionSource = m_FrameHasRefraction && m_PreConvolutedTexture.Texture ? m_PreConvolutedTexture.Texture : Renderer::GetBlackTexture();
+		Renderer::Submit([transparentRenderPass = m_GeometryPassTransparent, refractionSource]() mutable
+			{
+				transparentRenderPass->SetInput("u_RefractionSource", refractionSource);
+			});
+
 		BeginProfiledGPU("TransparentForwardPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPassTransparent);
 
@@ -9347,7 +9366,7 @@ namespace Lux {
 	void SceneRenderer::PreConvolutionCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
-		if (!m_Options.EnableSSR || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
+		if (!(m_Options.EnableSSR || m_FrameHasRefraction) || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
 			return;
 
 		struct PreConvolutionComputePushConstants

@@ -329,7 +329,9 @@ Structurally:
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
 - "Lux Standard" inputs live in `MaterialSurfaceParameters` on the asset (emissive colour + map,
   occlusion map + strength, packed-map channel selection, specular, normal strength, height map as
-  bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided). They reach shaders through the GPU material table
+  bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided, and for transparent materials
+  refraction: transmission, IOR, thickness, attenuation colour + distance, imported from glTF
+  `KHR_materials_transmission` / `_ior` / `_volume`). They reach shaders through the GPU material table
   (`Rendering.md § The GPU material table`); `MaterialSerializer` writes them as YAML keys (the
   asset pack stores the same YAML) and migrates pre-emissive-colour files as data.
 - **Material textures are bindless through NRI descriptor sets.** Each `SceneRenderer` owns a

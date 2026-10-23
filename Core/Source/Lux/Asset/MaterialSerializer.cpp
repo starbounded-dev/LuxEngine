@@ -288,6 +288,19 @@ namespace Lux
 				out << Yaml::Key << "AlphaThreshold" << Yaml::Value << surface.AlphaThreshold;
 			if (surface.TwoSided != defaults.TwoSided)
 				out << Yaml::Key << "TwoSided" << Yaml::Value << surface.TwoSided;
+			if (surface.Transmission != defaults.Transmission)
+				out << Yaml::Key << "Transmission" << Yaml::Value << surface.Transmission;
+			if (surface.IOR != defaults.IOR)
+				out << Yaml::Key << "IOR" << Yaml::Value << surface.IOR;
+			if (surface.Thickness != defaults.Thickness)
+				out << Yaml::Key << "Thickness" << Yaml::Value << surface.Thickness;
+			if (surface.AttenuationColor != defaults.AttenuationColor)
+			{
+				out << Yaml::Key << "AttenuationColor" << Yaml::Value;
+				WriteVec3(out, surface.AttenuationColor);
+			}
+			if (surface.AttenuationDistance != defaults.AttenuationDistance)
+				out << Yaml::Key << "AttenuationDistance" << Yaml::Value << surface.AttenuationDistance;
 			const int32_t acousticTag = materialAsset->GetAcousticTag();
 			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
 				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
@@ -386,6 +399,11 @@ namespace Lux
 			surface.AlphaMode = ReadAlphaMode(materialNode["AlphaMode"], surface.AlphaMode);
 			surface.AlphaThreshold = materialNode["AlphaThreshold"].as<float>(surface.AlphaThreshold);
 			surface.TwoSided = materialNode["TwoSided"].as<bool>(surface.TwoSided);
+			surface.Transmission = materialNode["Transmission"].as<float>(surface.Transmission);
+			surface.IOR = materialNode["IOR"].as<float>(surface.IOR);
+			surface.Thickness = materialNode["Thickness"].as<float>(surface.Thickness);
+			surface.AttenuationColor = ReadVec3(materialNode["AttenuationColor"], surface.AttenuationColor);
+			surface.AttenuationDistance = materialNode["AttenuationDistance"].as<float>(surface.AttenuationDistance);
 
 			// Files written before emissive colour existed tinted emission by the base colour and its
 			// map. Carry that over as data so they render exactly as they did.

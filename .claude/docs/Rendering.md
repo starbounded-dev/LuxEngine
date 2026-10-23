@@ -1010,6 +1010,17 @@ std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMat
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
 size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
+**Refraction.** A transparent material with `Transmission > 0` (row `Transmission` / `AttenuationColor`)
+takes that share from its diffuse lobe and adds the opaque scene behind it in
+`HazelPBR_Transparent.glsl`: the view ray refracted by the IOR and carried `Thickness` into the
+volume (0 = thin-walled, blurred but not displaced), projected back to the screen, read from the
+pre-convolved scene at a roughness mip (capped at mip 5), the sky when it leaves the screen, absorbed
+Beer–Lambert toward the attenuation colour, tinted by the base colour. Alpha stays coverage, so
+refractive glass keeps opacity 1. `MaterialScene::HasRefractiveMaterials()` on the submitted render
+scene sets `m_FrameHasRefraction`: `Pre-Convolution` then runs even with SSR off, the transparent
+pass reads its output (`u_RefractionSource`, `(1, 11)`, bound in `TransparentForwardPass`; a black
+texture on frames without refraction). Materials submitted outside a render scene do not set it.
+
 ### Bindless textures — set 4 is reserved
 
 `u_GPUMaterialTextures[]` is an unsized array backed by NRI descriptor sets

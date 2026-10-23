@@ -8,6 +8,8 @@ Material:
   NormalMap: 0
   MetalnessMap: 0
   RoughnessMap: 0
-  Transparency: 0.25
+  Transparency: 1
+  Transmission: 1
+  IOR: 1.5
   AcousticMaterial: Glass
   MaterialFlags: 6

@@ -70,6 +70,16 @@ namespace Lux {
 		// change them.
 		bool TwoSided = false;
 
+		// Refraction, transparent materials only (glTF KHR_materials_transmission / _ior / _volume).
+		// Transmission replaces that share of the diffuse light with the opaque scene behind, bent by
+		// IOR over Thickness, blurred by roughness and absorbed toward AttenuationColor over
+		// AttenuationDistance. 0 keeps today's plain alpha blending; refractive glass keeps opacity 1.
+		float Transmission = 0.0f;
+		float IOR = 1.5f;
+		float Thickness = 0.0f;           // metres; 0 = thin-walled (blurred, not displaced)
+		glm::vec3 AttenuationColor{ 1.0f };
+		float AttenuationDistance = 0.0f; // metres; 0 = no absorption
+
 		bool operator==(const MaterialSurfaceParameters& other) const = default;
 	};
 

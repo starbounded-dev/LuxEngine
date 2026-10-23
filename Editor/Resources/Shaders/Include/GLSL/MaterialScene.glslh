@@ -18,6 +18,8 @@ struct GPUMaterial
 	vec4 UVTransform;     // 2x2 matrix columns (xy, zw): rotation x tiling
 	vec4 UVOffset;        // xy = offset
 	uvec4 ExtraTextureIndices; // x = emissive, y = occlusion, z = height, w = packed-map channel selects
+	vec4 Transmission;         // x = transmission (transparent rows only), y = IOR, z = thickness, w = attenuation distance
+	vec4 AttenuationColor;     // rgb = linear attenuation colour
 };
 
 layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
@@ -165,6 +167,11 @@ vec3 GetGPUMaterialEmissive(GPUMaterial material)
 float GetGPUMaterialSpecular(GPUMaterial material, float fallbackSpecular)
 {
 	return IsGPUMaterialRowUsable(material) ? clamp(material.Surface.x, 0.0, 1.0) : fallbackSpecular;
+}
+
+float GetGPUMaterialTransmission(GPUMaterial material)
+{
+	return IsGPUMaterialRowUsable(material) ? clamp(material.Transmission.x, 0.0, 1.0) : 0.0;
 }
 
 // Alpha cutoff for GPU_MATERIAL_ALPHA_MASKED. An unusable row falls back so a missing material

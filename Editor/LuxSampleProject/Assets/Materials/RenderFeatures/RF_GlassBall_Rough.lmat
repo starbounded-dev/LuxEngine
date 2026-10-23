@@ -1,0 +1,16 @@
+Material:
+  Transparent: true
+  AlbedoColor: [0.9, 0.95, 1]
+  Emission: 0
+  UseNormalMap: false
+  Roughness: 0.6
+  AlbedoMap: 0
+  NormalMap: 0
+  MetalnessMap: 0
+  RoughnessMap: 0
+  Transparency: 1
+  Transmission: 1
+  IOR: 1.5
+  Thickness: 1
+  AcousticMaterial: Glass
+  MaterialFlags: 6

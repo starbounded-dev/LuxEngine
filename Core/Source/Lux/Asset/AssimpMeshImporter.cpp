@@ -349,7 +349,13 @@ namespace Lux
 			const bool alphaMasked = hasGltfAlphaMode && std::strcmp(gltfAlphaMode.C_Str(), "MASK") == 0;
 			const bool alphaBlended = hasGltfAlphaMode && std::strcmp(gltfAlphaMode.C_Str(), "BLEND") == 0;
 
-			const bool transparent = !alphaMasked && (alphaBlended || baseColor.a < 0.999f || opacity < 0.999f);
+			// KHR_materials_transmission: refractive glass is usually opaque in alpha and takes the
+			// transparent path for its transmission.
+			float transmission = 0.0f;
+			if (assimpMaterial)
+				assimpMaterial->Get(AI_MATKEY_TRANSMISSION_FACTOR, transmission);
+
+			const bool transparent = !alphaMasked && (alphaBlended || baseColor.a < 0.999f || opacity < 0.999f || transmission > 0.0f);
 			Ref<MaterialAsset> materialAsset = Ref<MaterialAsset>::Create(transparent);
 			materialAsset->Handle = materialHandle;
 			if (!materialAsset->GetMaterial())
@@ -420,6 +426,24 @@ namespace Lux
 			int twoSided = 0;
 			if (assimpMaterial && assimpMaterial->Get(AI_MATKEY_TWOSIDED, twoSided) == AI_SUCCESS)
 				surface.TwoSided = twoSided != 0;
+
+			// KHR_materials_transmission / _ior / _volume. The thickness factor is the volume's thickness
+			// in the mesh's units; the thickness texture is not read.
+			if (transparent && transmission > 0.0f)
+			{
+				surface.Transmission = std::clamp(transmission, 0.0f, 1.0f);
+				float ior = surface.IOR;
+				if (assimpMaterial->Get(AI_MATKEY_REFRACTI, ior) == AI_SUCCESS && ior >= 1.0f)
+					surface.IOR = ior;
+				assimpMaterial->Get(AI_MATKEY_VOLUME_THICKNESS_FACTOR, surface.Thickness);
+				float attenuationDistance = 0.0f;
+				if (assimpMaterial->Get(AI_MATKEY_VOLUME_ATTENUATION_DISTANCE, attenuationDistance) == AI_SUCCESS
+					&& attenuationDistance > 0.0f && std::isfinite(attenuationDistance))
+					surface.AttenuationDistance = attenuationDistance;
+				aiColor3D attenuationColor(1.0f, 1.0f, 1.0f);
+				if (assimpMaterial->Get(AI_MATKEY_VOLUME_ATTENUATION_COLOR, attenuationColor) == AI_SUCCESS)
+					surface.AttenuationColor = { attenuationColor.r, attenuationColor.g, attenuationColor.b };
+			}
 
 			materialAsset->SetSurfaceParameters(surface);
 

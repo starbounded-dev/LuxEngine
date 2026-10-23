@@ -273,6 +273,21 @@ on frames with refractive glass.
 
 **Docs:** `Rendering.md` (refraction, Pre-Convolution condition), material section of Architecture.
 
+**Status 2026-10-23: code done on `feature/render-features`, editor check pending.** Model (decided
+while building, glTF-style): transmission takes its share from the diffuse lobe and adds the refracted,
+absorbed, base-colour-tinted opaque scene weighted by (1 - Fresnel); alpha stays coverage, so refractive
+glass keeps opacity 1 and transmission 0 is exactly today's blend. `MaterialSurfaceParameters` gains
+Transmission / IOR / Thickness / AttenuationColor / AttenuationDistance (YAML keys written when not
+default; asset packs reuse the YAML); the GPU row grows to 11 vec4 (`Transmission`, `AttenuationColor`);
+`MaterialScene::HasRefractiveMaterials()` drives `m_FrameHasRefraction`, which runs Pre-Convolution
+without SSR and binds it to the transparent pass at `(1, 11)` (black otherwise); blur capped at mip 5;
+sky fallback off screen; importer maps the three glTF extensions (thickness texture not read); material
+editor "Refraction" section for transparent materials. Verified: Release, Debug, Lux-Runtime build; golden
+`rf3`: Benchmark identical to `rf2`; RenderFeatures panes sharp / frosted / rough, spheres bend, the
+tinted block absorbs; SSR off (`SSR=0`) gives the same glass with Pre-Convolution alone (0.088 ms); Debug +
+sync validation: 0 ids. Merge note: PR #34 also grows the material row and may add transparent passes
+that must bind `u_RefractionSource`, `AreaLightData` and the LTC tables.
+
 ### Phase 4 — FFT bloom spike and cost gate
 
 **Goal:** the FFT chain runs beside the old bloom behind a temporary option, and its cost is known.

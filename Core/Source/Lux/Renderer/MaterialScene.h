@@ -86,8 +86,10 @@ namespace Lux {
 		glm::vec4 UVTransform = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // 2x2 matrix columns (xy, zw): rotation x tiling
 		glm::vec4 UVOffset = glm::vec4(0.0f); // xy offset, zw reserved
 		glm::uvec4 ExtraTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, GPUMaterialDefaultChannelSelects); // x emissive, y occlusion, z height, w channel selects
+		glm::vec4 Transmission = glm::vec4(0.0f, 1.5f, 0.0f, 0.0f); // x transmission (transparent rows only), y IOR, z thickness, w attenuation distance
+		glm::vec4 AttenuationColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f); // rgb linear attenuation colour
 	};
-	static_assert(sizeof(GPUMaterialData) == 9 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
+	static_assert(sizeof(GPUMaterialData) == 11 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
 
 	struct GPUMaterialBuildInput
 	{
@@ -148,6 +150,8 @@ namespace Lux {
 		bool HasDirtyMaterials() const { return m_DirtyMaterialCount > 0; }
 		uint32_t GetDirtyMaterialCount() const { return m_DirtyMaterialCount; }
 		size_t GetActiveMaterialCount() const { return m_MaterialIDByKey.size(); }
+		// Some row refracts (Transmission > 0): the renderer then pre-convolves the opaque scene for it.
+		bool HasRefractiveMaterials() const { return m_RefractiveMaterialCount > 0; }
 
 		static GPUMaterialData GetFallbackMaterialData();
 		static GPUMaterialData BuildGPUMaterialData(
@@ -206,6 +210,7 @@ namespace Lux {
 	private:
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyMaterialCount = 0;
+		uint32_t m_RefractiveMaterialCount = 0; // rows with Transmission.x > 0
 		uint64_t m_Version = 0;
 		uint64_t m_AssetRevision = 1;
 		TextureScene* m_TextureScene = nullptr;
