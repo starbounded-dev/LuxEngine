@@ -521,6 +521,7 @@ namespace Lux {
 
 		// Post-processing
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/Bloom.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/BloomFFT.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceHistogram.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceAverage.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-EdgeDetection.glsl");

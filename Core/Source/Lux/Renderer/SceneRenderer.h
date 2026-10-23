@@ -332,6 +332,9 @@ namespace Lux {
 		// Experimental: task/mesh-shader PreDepth with per-meshlet culling.
 		// Requires VK_EXT_mesh_shader; ignored (classic path) when unsupported.
 		bool  EnableMeshShaders = false;
+		// Spike (render features plan, phase 4): FFT convolution bloom in place of the mip bloom, to
+		// measure its cost before it replaces it. Not serialized.
+		bool  BloomFFT = false;
 		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
 		SSRQualityPreset SSRQuality = SSRQualityPreset::HalfBilateral;
 		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
@@ -1340,6 +1343,7 @@ namespace Lux {
 		void SSRCompute();
 		void SSRCompositePass();
 		void BloomCompute();
+		void BloomFFTCompute();
 		void AutoExposurePass();
 		float ComputeFinalExposure(const PostProcessSettings& settings) const;
 		void CompositePass();
@@ -1825,6 +1829,15 @@ namespace Lux {
 		// ── Bloom compute ────────────────────────────────────────────────────
 		Ref<ComputePass>     m_BloomComputePass;
 		Ref<PipelineCompute> m_BloomComputePipeline;
+		// FFT bloom spike: the 512x512 transform grid (R+G complex, B complex), the kernel spectrum in
+		// the same layout, and one material for the frame's dispatches and one for the kernel's.
+		static constexpr uint32_t BloomFFTSize = 512; // FFT_SIZE in BloomFFT.glsl
+		Ref<ComputePass>     m_BloomFFTPass;
+		Ref<Texture2D>       m_BloomFFTGrid[2];
+		Ref<Texture2D>       m_BloomFFTKernel[2];
+		Ref<Material>        m_BloomFFTMaterial;
+		Ref<Material>        m_BloomFFTKernelMaterial;
+		bool                 m_BloomFFTKernelReady = false;
 		uint32_t             m_BloomComputeWorkgroupSize = 4;
 
 		struct BloomComputeTextures

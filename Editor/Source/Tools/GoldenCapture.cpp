@@ -84,6 +84,7 @@ namespace Lux {
 			{ "OcclusionCulling", &SceneRendererOptions::EnableOcclusionCulling },
 			{ "SoftShadows", &SceneRendererOptions::SoftShadows },
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
+			{ "BloomFFT", &SceneRendererOptions::BloomFFT },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop" };

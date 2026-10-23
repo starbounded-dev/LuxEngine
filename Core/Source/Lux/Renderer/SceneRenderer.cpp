@@ -2526,6 +2526,34 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_BloomComputePass->Validate());
 			m_BloomComputePass->Bake();
 
+			// FFT bloom spike: fixed 512x512 grids, independent of the viewport.
+			{
+				ComputePassSpecification fftSpec;
+				fftSpec.DebugName = "BloomFFT";
+				fftSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("BloomFFT"));
+				m_BloomFFTPass = ComputePass::Create(fftSpec);
+				m_BloomFFTPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+				LUX_CORE_VERIFY(m_BloomFFTPass->Validate());
+				m_BloomFFTPass->Bake();
+
+				TextureSpecification gridSpec;
+				gridSpec.Width = BloomFFTSize;
+				gridSpec.Height = BloomFFTSize;
+				gridSpec.SamplerWrap = TextureWrap::Clamp;
+				gridSpec.Storage = true;
+				gridSpec.GenerateMips = false;
+				gridSpec.FlipVertically = false;
+				const ImageFormat formats[2] = { ImageFormat::RGBA32F, ImageFormat::RG32F };
+				for (uint32_t i = 0; i < 2; i++)
+				{
+					gridSpec.Format = formats[i];
+					gridSpec.DebugName = "BloomFFT-Grid" + std::to_string(i);
+					m_BloomFFTGrid[i] = Texture2D::Create(gridSpec);
+					gridSpec.DebugName = "BloomFFT-Kernel" + std::to_string(i);
+					m_BloomFFTKernel[i] = Texture2D::Create(gridSpec);
+				}
+			}
+
 			m_BloomDirtTexture = Renderer::GetBlackTexture();
 			ResizeBloomResources();
 			CreateBloomPassMaterials();
@@ -3022,6 +3050,24 @@ namespace Lux {
 			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mip]);
 			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
 			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].ImageViews[mip + 1]);
+		}
+
+		if (m_BloomFFTPass && m_BloomFFTGrid[0] && m_BloomFFTKernel[0])
+		{
+			auto bindFFT = [&](Ref<Material> material, Ref<Texture2D> gridA, Ref<Texture2D> gridB)
+				{
+					material->Set("o_Bloom", m_BloomComputeTextures[2].ImageViews[0]);
+					material->Set("u_Input", inputImage);
+					material->Set("u_GridA", gridA->GetImage());
+					material->Set("u_GridB", gridB->GetImage());
+					material->Set("u_KernelA", m_BloomFFTKernel[0]->GetImage());
+					material->Set("u_KernelB", m_BloomFFTKernel[1]->GetImage());
+				};
+			m_BloomFFTMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT");
+			bindFFT(m_BloomFFTMaterial, m_BloomFFTGrid[0], m_BloomFFTGrid[1]);
+			// The kernel's own transform runs the same FFT over the kernel images.
+			m_BloomFFTKernelMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT-Kernel");
+			bindFFT(m_BloomFFTKernelMaterial, m_BloomFFTKernel[0], m_BloomFFTKernel[1]);
 		}
 	}
 
@@ -9652,6 +9698,12 @@ namespace Lux {
 		if (!postProcessSettings.BloomEnabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
 			return;
 
+		if (m_Options.BloomFFT)
+		{
+			BloomFFTCompute();
+			return;
+		}
+
 		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
 		if (mipCount < 4)
 			return;
@@ -9767,6 +9819,80 @@ namespace Lux {
 		}
 
 		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::BloomFFTCompute()
+	{
+		ScopedCPUProfile cpuProfile(*this, "BloomFFT");
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!m_BloomFFTPass || !m_BloomFFTMaterial || !m_BloomFFTKernelMaterial || !sceneColor || !m_BloomComputeTextures[2].Texture)
+			return;
+
+		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		const uint32_t inputWidth = glm::max(1u, sceneColor->GetWidth());
+		const uint32_t inputHeight = glm::max(1u, sceneColor->GetHeight());
+		auto [outputWidth, outputHeight] = m_BloomComputeTextures[2].Texture->GetMipSize(0);
+
+		// The source fills half the grid along its longer side; the other half is padding the
+		// glare kernel spreads into, so the circular convolution never wraps.
+		const float aspect = static_cast<float>(inputWidth) / static_cast<float>(inputHeight);
+		const uint32_t regionWidth = aspect >= 1.0f ? BloomFFTSize / 2u : glm::max(1u, static_cast<uint32_t>(BloomFFTSize / 2u * aspect));
+		const uint32_t regionHeight = aspect >= 1.0f ? glm::max(1u, static_cast<uint32_t>(BloomFFTSize / 2u / aspect)) : BloomFFTSize / 2u;
+
+		struct BloomFFTPushConstants
+		{
+			glm::vec4 Region;
+			glm::vec4 InputSize;
+			glm::vec4 OutputSize;
+			glm::vec4 Threshold;
+			int32_t Mode = 0;
+			int32_t Axis = 0;
+			int32_t Inverse = 0;
+			int32_t Unused = 0;
+		} pushConstants;
+		static_assert(sizeof(BloomFFTPushConstants) == 80, "BloomFFTPushConstants must match BloomFFT.glsl");
+
+		const float knee = glm::max(postProcessSettings.BloomKnee, 0.0001f);
+		pushConstants.Region = { (float)regionWidth, (float)regionHeight, 1.0f / (float)regionWidth, 1.0f / (float)regionHeight };
+		pushConstants.InputSize = { (float)inputWidth, (float)inputHeight, 1.0f / (float)inputWidth, 1.0f / (float)inputHeight };
+		pushConstants.OutputSize = { (float)outputWidth, (float)outputHeight, 1.0f / glm::max(1u, outputWidth), 1.0f / glm::max(1u, outputHeight) };
+		pushConstants.Threshold = { postProcessSettings.BloomThreshold, postProcessSettings.BloomThreshold - knee, knee * 2.0f, 0.25f / knee };
+
+		constexpr uint32_t ThreadsPerGroup = 256u;
+		auto dispatch = [&](const Ref<Material>& material, int32_t mode, uint32_t groups, int32_t axis = 0, int32_t inverse = 0)
+			{
+				pushConstants.Mode = mode;
+				pushConstants.Axis = axis;
+				pushConstants.Inverse = inverse;
+				Renderer::DispatchCompute(m_CommandBuffer, m_BloomFFTPass, material, { groups, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
+			};
+		constexpr uint32_t gridGroups = BloomFFTSize * BloomFFTSize / ThreadsPerGroup;
+		enum : int32_t { Bright = 0, Kernel = 1, FFT = 2, Multiply = 3, Resolve = 4 };
+
+		BeginProfiledGPU("BloomFFT");
+		Renderer::BeginComputePass(m_CommandBuffer, m_BloomFFTPass);
+
+		// The kernel spectrum: once (it has no settings yet).
+		if (!m_BloomFFTKernelReady)
+		{
+			dispatch(m_BloomFFTKernelMaterial, Kernel, gridGroups);
+			dispatch(m_BloomFFTKernelMaterial, FFT, BloomFFTSize, 0, 0);
+			dispatch(m_BloomFFTKernelMaterial, FFT, BloomFFTSize, 1, 0);
+			m_BloomFFTKernelReady = true;
+		}
+
+		dispatch(m_BloomFFTMaterial, Bright, gridGroups);
+		// Rows past the source region are all zero, so only the source rows need the forward row
+		// pass, and only they are read back after the inverse one.
+		dispatch(m_BloomFFTMaterial, FFT, regionHeight, 0, 0);
+		dispatch(m_BloomFFTMaterial, FFT, BloomFFTSize, 1, 0);
+		dispatch(m_BloomFFTMaterial, Multiply, gridGroups);
+		dispatch(m_BloomFFTMaterial, FFT, BloomFFTSize, 1, 1);
+		dispatch(m_BloomFFTMaterial, FFT, regionHeight, 0, 1);
+		dispatch(m_BloomFFTMaterial, Resolve, (outputWidth * outputHeight + ThreadsPerGroup - 1u) / ThreadsPerGroup);
+
+		Renderer::EndComputePass(m_CommandBuffer, m_BloomFFTPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 

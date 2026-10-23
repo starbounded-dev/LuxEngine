@@ -303,6 +303,18 @@ Benchmark; the image shows glare around emissive points and the sun.
 FFT bloom ≤ 0.6 ms GPU at 1080p on the RTX 4070 Ti; above that, the user decides whether to still
 replace (their stated choice) or keep a fallback.
 
+**Status 2026-10-23: spike done, gate passed — the user decides on Phase 5.** `PostProcessing/BloomFFT.glsl`
+(GLSL compute, one shader with five modes: bright pass, kernel PSF, 512-point shared-memory line FFT,
+spectral multiply with DC normalisation, resolve) behind the temporary `SceneRendererOptions::BloomFFT`
+(golden option `BloomFFT=1`); the source is area-averaged into half the 512² grid along its longer side
+(the other half is padding, so the circular convolution never wraps); the kernel spectrum is built once;
+the result writes the bloom texture the composite already reads. Grids: 2x RGBA32F + 2x RG32F 512² ≈ 12 MB.
+A-B-A on Benchmark (medians of 3, same build): 1280×720 mip bloom 0.059 / FFT 0.109 / mip 0.060 ms;
+1920×1080 0.083 / 0.133 / 0.083 ms — +0.05 ms, nearly resolution-independent, far under the 0.6 ms budget.
+Option off: Benchmark and RenderFeatures pixel-identical to `rf3`; FFT on, Debug + sync validation: 0 ids.
+Look: a sharp core, a soft halo and six faint streaks, slightly chromatic; the kernel is hard-coded for
+now (Phase 5 adds its settings).
+
 ### Phase 5 — FFT bloom replaces the mip bloom
 
 **Goal:** one bloom, FFT, everywhere.
