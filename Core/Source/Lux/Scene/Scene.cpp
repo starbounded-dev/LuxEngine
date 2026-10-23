@@ -1990,22 +1990,41 @@ namespace Lux {
 				const auto& areaLight = view.get<const AreaLightComponent>(entity);
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 
-				const bool disk = areaLight.Shape == AreaLightShape::Disk;
-				const float halfWidth = disk ? areaLight.Radius : areaLight.Width * 0.5f;
-				const float halfHeight = disk ? areaLight.Radius : areaLight.Height * 0.5f;
+				// HalfRight / HalfUp: the rect's or disk's half-extents; a sphere's radius along HalfRight;
+				// a tube's half-length along HalfRight (its axis) and its radius along HalfUp.
+				float halfRight = areaLight.Radius;
+				float halfUp = areaLight.Radius;
+				if (areaLight.Shape == AreaLightShape::Rect)
+				{
+					halfRight = areaLight.Width * 0.5f;
+					halfUp = areaLight.Height * 0.5f;
+				}
+				else if (areaLight.Shape == AreaLightShape::Tube)
+				{
+					halfRight = areaLight.Length * 0.5f;
+				}
 
 				AreaLight al;
 				al.Position = glm::vec3(worldTransform[3]);
-				al.HalfRight = glm::vec3(worldTransform[0]) * halfWidth;
-				al.HalfUp = glm::vec3(worldTransform[1]) * halfHeight;
-				const float halfWidthWorld = glm::length(al.HalfRight);
-				const float halfHeightWorld = glm::length(al.HalfUp);
-				const float area = disk ? glm::pi<float>() * halfWidthWorld * halfHeightWorld : 4.0f * halfWidthWorld * halfHeightWorld;
+				al.HalfRight = glm::vec3(worldTransform[0]) * halfRight;
+				al.HalfUp = glm::vec3(worldTransform[1]) * halfUp;
+				const float rightWorld = glm::length(al.HalfRight);
+				const float upWorld = glm::length(al.HalfUp);
+				// The emitting surface, for lumens -> luminance.
+				float area = 4.0f * rightWorld * upWorld;
+				if (areaLight.Shape == AreaLightShape::Disk)
+					area = glm::pi<float>() * rightWorld * upWorld;
+				else if (areaLight.Shape == AreaLightShape::Sphere)
+					area = 4.0f * glm::pi<float>() * rightWorld * rightWorld;
+				else if (areaLight.Shape == AreaLightShape::Tube)
+					area = 2.0f * glm::pi<float>() * upWorld * (2.0f * rightWorld) + 4.0f * glm::pi<float>() * upWorld * upWorld;
+				const bool oneSurface = areaLight.Shape == AreaLightShape::Rect || areaLight.Shape == AreaLightShape::Disk;
+				const bool twoSided = oneSurface && areaLight.TwoSided;
 				al.Radiance = PhysicalLight::EffectiveRadiance(areaLight.Radiance, areaLight.UseColorTemperature, areaLight.ColorTemperature);
-				al.Intensity = PhysicalLight::AreaIntensity(areaLight.Unit, areaLight.Intensity, area, areaLight.TwoSided);
+				al.Intensity = PhysicalLight::AreaIntensity(areaLight.Unit, areaLight.Intensity, area, twoSided);
 				al.Range = areaLight.Range;
 				al.Shape = static_cast<uint32_t>(areaLight.Shape);
-				al.Flags = areaLight.TwoSided ? AreaLightTwoSided : 0u;
+				al.Flags = twoSided ? AreaLightTwoSided : 0u;
 				if (al.Intensity <= 0.0f || area <= 0.0f)
 					continue;
 

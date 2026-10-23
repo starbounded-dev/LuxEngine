@@ -92,6 +92,7 @@ void main()
 #include <Lighting.glslh>
 #include <ShadowMapping.glslh>
 #include <Samplers.glslh>
+#include <LTC.glslh>
 
 struct VertexOutput
 {
@@ -324,6 +325,8 @@ void main()
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
+	lightContribution += LuxEvaluateAreaLights(Input.WorldPosition, m_Params.Normal, m_Params.View, m_Params.Albedo,
+		m_Params.Metalness, m_Params.Roughness, F0);
 	lightContribution += emissive;
 
 	// Indirect lighting (material AO occludes ambient light only, as in deferred lighting)

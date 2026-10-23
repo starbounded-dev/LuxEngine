@@ -290,16 +290,20 @@ projection at the near plane, and the filter radius is the penumbra half-width a
 depth`. The search is capped at 0.05 tile UV, the margin point-light faces keep, so taps never read
 a neighbouring tile.
 
-**Area lights are a separate pass.** `AreaLightComponent` (rect or disk, emitting along the entity's
--Z, Unitless = luminance or Lumens via `PhysicalLight::AreaIntensity`) reaches the renderer through
-`LightEnvironment::AreaLights`; `SceneRenderer` uploads the nearest `LightEnvironment::MaxAreaLights`
-(32, `MAX_AREA_LIGHTS` in `LTC.glslh`; change both) to `AreaLightData` at `(1, 18)`, and the
-"Area Lights" pass (`DeferredLighting_Area.glsl`) adds them over deferred lighting with Linearly
-Transformed Cosines. The pass is only in the graph on frames with area lights, so the deferred
-lighting shader never carries the LTC code. The LTC tables are `Renderer::GetLTCMatrixTexture` /
-`GetLTCAmplitudeTexture` at `(3, 6)` / `(3, 7)`, built from `Core/vendor/ltc/LTCTables.h`
-(BSD-2-Clause, `selfshadow/ltc_code`). A disk is integrated as an area-matched 12-gon. Area lights
-are unshadowed, and transparents are not lit by them yet.
+**Area lights are a separate pass.** `AreaLightComponent` (rect or disk emitting along the entity's
+-Z, or a sphere or tube emitting all around; Unitless = luminance or Lumens via
+`PhysicalLight::AreaIntensity`) reaches the renderer through `LightEnvironment::AreaLights`;
+`SceneRenderer` uploads the nearest `LightEnvironment::MaxAreaLights` (32, `MAX_AREA_LIGHTS` in
+`LTC.glslh`; change both) to `AreaLightData` at `(1, 18)` every frame, the count included when it is
+zero, because the transparent pass reads it every frame. The "Area Lights" pass
+(`DeferredLighting_Area.glsl`) adds them over deferred lighting with Linearly Transformed Cosines and
+is only in the graph on frames with area lights, so the deferred lighting shader never carries the
+LTC code; `HazelPBR_Transparent.glsl` evaluates the same `LuxEvaluateAreaLights`. The LTC tables are
+`Renderer::GetLTCMatrixTexture` / `GetLTCAmplitudeTexture` at `(3, 6)` / `(3, 7)`, built from
+`Core/vendor/ltc/LTCTables.h` (BSD-2-Clause, `selfshadow/ltc_code`). A disk is integrated as an
+area-matched 12-gon; a sphere as a disk facing the shaded point, and a tube as a rectangle facing it
+around its axis, lengthened by πr/4 per end to keep the capsule's silhouette area
+(`LTC_FacingShape`). Area lights are unshadowed.
 
 **Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
 tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and

@@ -2762,36 +2762,61 @@ namespace Lux {
 			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, SpotLightComponent>(), EditorResources::SpotLightIcon);
 			drawIconForView(m_ActiveScene->GetAllEntitiesWith<TransformComponent, AreaLightComponent>(), EditorResources::PointLightIcon);
 
-			// Area lights also show their emitting shape, and a short line along the direction they face.
+			// Area lights also show their emitting shape; flat ones a short line along the direction they face.
 			constexpr glm::vec4 k_AreaLightOutlineColor = { 1.0f, 0.85f, 0.4f, 1.0f };
-			constexpr uint32_t k_AreaLightDiskSegments = 32;
+			constexpr uint32_t k_AreaLightCircleSegments = 32;
+			auto drawEllipse = [this, k_AreaLightOutlineColor](const glm::vec3& center, const glm::vec3& axisA, const glm::vec3& axisB)
+				{
+					glm::vec3 previous = center + axisA;
+					for (uint32_t i = 1; i <= k_AreaLightCircleSegments; i++)
+					{
+						const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(k_AreaLightCircleSegments);
+						const glm::vec3 point = center + axisA * std::cos(angle) + axisB * std::sin(angle);
+						m_Renderer2D->DrawLine(previous, point, k_AreaLightOutlineColor);
+						previous = point;
+					}
+				};
 			for (auto entityID : m_ActiveScene->GetAllEntitiesWith<TransformComponent, AreaLightComponent>())
 			{
 				const auto& areaLight = Entity{ entityID, m_ActiveScene.Raw() }.GetComponent<AreaLightComponent>();
 				const glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix({ entityID, m_ActiveScene.Raw() });
 				const glm::vec3 center = glm::vec3(transform[3]);
-				const bool disk = areaLight.Shape == AreaLightShape::Disk;
-				const glm::vec3 right = glm::vec3(transform[0]) * (disk ? areaLight.Radius : areaLight.Width * 0.5f);
-				const glm::vec3 up = glm::vec3(transform[1]) * (disk ? areaLight.Radius : areaLight.Height * 0.5f);
-				if (disk)
+				const glm::vec3 axisX = glm::vec3(transform[0]);
+				const glm::vec3 axisY = glm::vec3(transform[1]);
+				const glm::vec3 axisZ = glm::vec3(transform[2]);
+				switch (areaLight.Shape)
 				{
-					glm::vec3 previous = center + right;
-					for (uint32_t i = 1; i <= k_AreaLightDiskSegments; i++)
+					case AreaLightShape::Rect:
 					{
-						const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(k_AreaLightDiskSegments);
-						const glm::vec3 point = center + right * std::cos(angle) + up * std::sin(angle);
-						m_Renderer2D->DrawLine(previous, point, k_AreaLightOutlineColor);
-						previous = point;
+						const glm::vec3 right = axisX * (areaLight.Width * 0.5f);
+						const glm::vec3 up = axisY * (areaLight.Height * 0.5f);
+						const glm::vec3 corners[4] = { center - right - up, center + right - up, center + right + up, center - right + up };
+						for (uint32_t i = 0; i < 4; i++)
+							m_Renderer2D->DrawLine(corners[i], corners[(i + 1) % 4], k_AreaLightOutlineColor);
+						break;
+					}
+					case AreaLightShape::Disk:
+						drawEllipse(center, axisX * areaLight.Radius, axisY * areaLight.Radius);
+						break;
+					case AreaLightShape::Sphere:
+						drawEllipse(center, axisX * areaLight.Radius, axisY * areaLight.Radius);
+						drawEllipse(center, axisX * areaLight.Radius, axisZ * areaLight.Radius);
+						drawEllipse(center, axisY * areaLight.Radius, axisZ * areaLight.Radius);
+						break;
+					case AreaLightShape::Tube:
+					{
+						const glm::vec3 halfLength = axisX * (areaLight.Length * 0.5f);
+						const glm::vec3 radiusY = axisY * areaLight.Radius;
+						const glm::vec3 radiusZ = axisZ * areaLight.Radius;
+						drawEllipse(center - halfLength, radiusY, radiusZ);
+						drawEllipse(center + halfLength, radiusY, radiusZ);
+						for (const glm::vec3& offset : { radiusY, -radiusY, radiusZ, -radiusZ })
+							m_Renderer2D->DrawLine(center - halfLength + offset, center + halfLength + offset, k_AreaLightOutlineColor);
+						break;
 					}
 				}
-				else
-				{
-					const glm::vec3 corners[4] = { center - right - up, center + right - up, center + right + up, center - right + up };
-					for (uint32_t i = 0; i < 4; i++)
-						m_Renderer2D->DrawLine(corners[i], corners[(i + 1) % 4], k_AreaLightOutlineColor);
-				}
-				const glm::vec3 forward = -glm::normalize(glm::vec3(transform[2]));
-				m_Renderer2D->DrawLine(center, center + forward * 0.5f, k_AreaLightOutlineColor);
+				if (areaLight.Shape == AreaLightShape::Rect || areaLight.Shape == AreaLightShape::Disk)
+					m_Renderer2D->DrawLine(center, center - glm::normalize(axisZ) * 0.5f, k_AreaLightOutlineColor);
 			}
 		}
 

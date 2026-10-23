@@ -445,11 +445,11 @@ def spot_light(entity: Entity, color, intensity: float, angle: float, range_: fl
 
 
 def area_light(entity: Entity, shape: int, color, intensity: float, width: float = 1.0, height: float = 1.0, radius: float = 0.5,
-			   two_sided: bool = False, range_: float = 10.0) -> Entity:
+			   length: float = 1.0, two_sided: bool = False, range_: float = 10.0) -> Entity:
 	return entity.add("AreaLightComponent", [
 		f"Shape: {shape}", f"Radiance: {vec(color)}", f"Intensity: {num(intensity)}", "Unit: 0", "ColorTemperature: 6500",
 		"UseColorTemperature: false", f"Width: {num(width)}", f"Height: {num(height)}", f"Radius: {num(radius)}",
-		f"TwoSided: {boolean(two_sided)}", f"Range: {num(range_)}"])
+		f"Length: {num(length)}", f"TwoSided: {boolean(two_sided)}", f"Range: {num(range_)}"])
 
 
 def text(entity: Entity, string: str, color=(1.0, 1.0, 1.0, 1.0), screen_space: bool = False, max_width: float = 30.0) -> Entity:
@@ -845,8 +845,8 @@ def build_features_scene(m: dict[str, int]) -> Scene:
 		"  OrthographicSize: 10", "  OrthographicNear: -1", "  OrthographicFar: 1", "Primary: true", "FixedAspectRatio: false"])
 	script(camera, "LuxSample.FlyCamera", [("Speed", "Float", "6"), ("SprintMultiplier", "Float", "3")])
 
-	# Area lights: three floor strips of rising roughness, a light (or, until its shape exists, an
-	# empty slot) above the far end of each, and a tube slot across all three.
+	# Area lights: three floor strips of rising roughness, a rect, disk and sphere light above the far
+	# end of each, and a tube across all three.
 	area = scene.folder("Area Lights")
 	for i, (key, x) in enumerate((("Strip05", 2.5), ("Strip30", 5.0), ("Strip70", 7.5))):
 		static_mesh(scene.entity(f"Floor Strip {i}", (x, 0.01, -6.5), scale=(2.0, 0.02, 9.0), parent=area), CUBE, m[key], scene)
@@ -857,9 +857,11 @@ def build_features_scene(m: dict[str, int]) -> Scene:
 	area_light(rect, 0, (1.0, 0.9, 0.75), 60.0, width=1.6, height=0.5, range_=12.0)
 	disk = scene.entity("Area Light - Disk", (5.0, 2.2, -11.2), facing, parent=area)
 	area_light(disk, 1, (0.7, 0.85, 1.0), 60.0, radius=0.35, range_=12.0)
-	scene.count("area lights", 2)
-	scene.entity("Area Light Slot - Sphere", (7.5, 2.2, -11.2), parent=area)
-	scene.entity("Area Light Slot - Tube", (5.0, 3.6, -9.0), (0.0, 0.0, math.pi / 2.0), parent=area)
+	sphere = scene.entity("Area Light - Sphere", (7.5, 2.2, -11.2), parent=area)
+	area_light(sphere, 2, (1.0, 0.65, 0.35), 60.0, radius=0.25, range_=12.0)
+	tube = scene.entity("Area Light - Tube", (5.0, 3.6, -9.0), parent=area)
+	area_light(tube, 3, (0.6, 1.0, 0.75), 120.0, radius=0.04, length=5.5, range_=12.0)
+	scene.count("area lights", 4)
 
 	# Glass: panes and spheres of rising roughness in front of the grid wall.
 	glass = scene.folder("Glass")

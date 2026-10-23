@@ -610,6 +610,7 @@ Entities:
       Width: 1.6
       Height: 0.5
       Radius: 0.5
+      Length: 1
       TwoSided: false
       Range: 12
   - Entity: 16100000000001000035
@@ -632,11 +633,12 @@ Entities:
       Width: 1
       Height: 1
       Radius: 0.35
+      Length: 1
       TwoSided: false
       Range: 12
   - Entity: 16100000000001000036
     TagComponent:
-      Tag: Area Light Slot - Sphere
+      Tag: Area Light - Sphere
     Parent: 16100000000001000027
     Children:
       []
@@ -644,16 +646,42 @@ Entities:
       Position: [7.5, 2.2, -11.2]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 2
+      Radiance: [1, 0.65, 0.35]
+      Intensity: 60
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1
+      Height: 1
+      Radius: 0.25
+      Length: 1
+      TwoSided: false
+      Range: 12
   - Entity: 16100000000001000037
     TagComponent:
-      Tag: Area Light Slot - Tube
+      Tag: Area Light - Tube
     Parent: 16100000000001000027
     Children:
       []
     TransformComponent:
       Position: [5, 3.6, -9]
-      Rotation: [0, 0, 1.5708]
+      Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 3
+      Radiance: [0.6, 1, 0.75]
+      Intensity: 120
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1
+      Height: 1
+      Radius: 0.04
+      Length: 5.5
+      TwoSided: false
+      Range: 12
   - Entity: 16100000000001000038
     TagComponent:
       Tag: Glass

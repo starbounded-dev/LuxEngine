@@ -1989,6 +1989,9 @@ namespace Lux {
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
 			m_GeometryPassTransparent = RenderPass::Create(rpSpec);
 			BindSceneRenderPassInputs(m_GeometryPassTransparent, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth);
+			m_GeometryPassTransparent->SetInput("AreaLightData", m_UBSAreaLights);
+			m_GeometryPassTransparent->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
+			m_GeometryPassTransparent->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 
@@ -5351,16 +5354,14 @@ namespace Lux {
 			}
 			m_AreaLightsUB.Count = m_AreaLightCount;
 
-			if (m_AreaLightCount > 0)
-			{
-				Ref<SceneRenderer> instance = this;
-				auto areaData = m_AreaLightsUB;
-				const uint32_t areaSize = static_cast<uint32_t>(16ull + sizeof(AreaLight) * m_AreaLightCount);
-				Renderer::Submit([instance, areaData, areaSize]() mutable {
-					instance->m_UBSAreaLights->RT_Get()->RT_SetData(
-						instance->m_UploadCommandBuffer, &areaData, areaSize);
-					});
-			}
+			// Uploaded even with no area lights: the transparent pass reads the count every frame.
+			Ref<SceneRenderer> instance = this;
+			auto areaData = m_AreaLightsUB;
+			const uint32_t areaSize = static_cast<uint32_t>(16ull + sizeof(AreaLight) * m_AreaLightCount);
+			Renderer::Submit([instance, areaData, areaSize]() mutable {
+				instance->m_UBSAreaLights->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &areaData, areaSize);
+				});
 		}
 
 		// ── Spot lights uniform buffer + shadow data ─────────────────────────-

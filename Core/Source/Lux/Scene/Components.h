@@ -641,12 +641,15 @@ namespace Lux {
 	enum class AreaLightShape : uint32_t
 	{
 		Rect = 0,
-		Disk = 1
+		Disk = 1,
+		Sphere = 2,
+		Tube = 3
 	};
 
-	// A light with a surface: emits along the entity's -Z from a rectangle (Width x Height, in its
-	// local X/Y plane) or a disk (Radius); the entity's scale stretches it. Lit with Linearly
-	// Transformed Cosines, unshadowed.
+	// A light with a surface, lit with Linearly Transformed Cosines and unshadowed. A rectangle
+	// (Width x Height, in the local X/Y plane) or a disk (Radius) emits along the entity's -Z; a
+	// sphere (Radius) and a tube (Length along local X, Radius) emit all around. The entity's scale
+	// stretches the shape.
 	struct AreaLightComponent
 	{
 		AreaLightShape Shape = AreaLightShape::Rect;
@@ -657,8 +660,9 @@ namespace Lux {
 		bool UseColorTemperature = false;
 		float Width = 1.0f;  // Rect
 		float Height = 1.0f; // Rect
-		float Radius = 0.5f; // Disk
-		bool TwoSided = false;
+		float Radius = 0.5f; // Disk, Sphere, Tube
+		float Length = 1.0f; // Tube
+		bool TwoSided = false; // Rect, Disk
 		float Range = 10.0f; // the light's influence fades to zero at this distance from its centre
 
 		AreaLightComponent() = default;

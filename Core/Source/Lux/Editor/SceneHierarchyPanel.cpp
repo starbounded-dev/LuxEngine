@@ -3866,9 +3866,9 @@ namespace Lux {
 				ImGuiEx::BeginPropertyGrid();
 
 				{
-					static const char* shapeNames[] = { "Rectangle", "Disk" };
+					static const char* shapeNames[] = { "Rectangle", "Disk", "Sphere", "Tube" };
 					int32_t current = static_cast<int32_t>(firstComponent.Shape);
-					if (ImGuiEx::PropertyDropdown("Shape", shapeNames, 2, &current))
+					if (ImGuiEx::PropertyDropdown("Shape", shapeNames, 4, &current))
 					{
 						firstComponent.Shape = static_cast<AreaLightShape>(current);
 						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
@@ -3944,6 +3944,14 @@ namespace Lux {
 				}
 				else
 				{
+					if (firstComponent.Shape == AreaLightShape::Tube && ImGuiEx::Property("Length", firstComponent.Length, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Length = firstComponent.Length;
+						});
+					}
+
 					if (ImGuiEx::Property("Radius", firstComponent.Radius, 0.01f, 0.0f, 50.0f))
 					{
 						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
@@ -3953,7 +3961,9 @@ namespace Lux {
 					}
 				}
 
-				if (ImGuiEx::Property("Two Sided", firstComponent.TwoSided))
+				// Spheres and tubes emit all around; only flat shapes have a back side.
+				const bool flatShape = firstComponent.Shape == AreaLightShape::Rect || firstComponent.Shape == AreaLightShape::Disk;
+				if (flatShape && ImGuiEx::Property("Two Sided", firstComponent.TwoSided))
 				{
 					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
 					{

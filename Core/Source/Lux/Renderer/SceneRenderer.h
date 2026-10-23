@@ -167,8 +167,10 @@ namespace Lux {
 		glm::vec2 Padding2 = { 0.0f, 0.0f };
 	};
 
-	// A rect or disk light: its centre, and half-extent vectors spanning the emitting plane (it emits
-	// along -normalize(cross(HalfRight, HalfUp))). Intensity is luminance. Mirrors AreaLight in LTC.glslh.
+	// An area light: its centre and two half-extent vectors. A rect or disk spans HalfRight x HalfUp and
+	// emits along -normalize(cross(HalfRight, HalfUp)); a sphere's radius is length(HalfRight); a tube's
+	// axis and half-length are HalfRight and its radius length(HalfUp). Intensity is luminance.
+	// Mirrors AreaLight in LTC.glslh.
 	struct AreaLight
 	{
 		glm::vec3 Position = { 0.0f, 0.0f, 0.0f };

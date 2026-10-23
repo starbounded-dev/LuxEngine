@@ -239,6 +239,19 @@ screenshot compared by eye); Linux build compiles.
 
 **Docs:** `Rendering.md` shapes and limits. **Exit:** all success criteria for area lights.
 
+**Status 2026-10-22: code done on `feature/render-features`, editor checks pending.** Sphere and tube
+shapes (`AreaLightShape::Sphere` / `Tube`, new `Length` key; a sphere is integrated as a disk facing the
+shaded point, a tube as a facing rectangle lengthened by πr/4 per end — `LTC_FacingShape`); two-sided
+only for flat shapes; `HazelPBR_Transparent.glsl` (the transparent pass's shader) adds
+`LuxEvaluateAreaLights`, and the area buffer is now uploaded every frame (count 0 included) because
+transparents read it; viewport outlines for all four shapes. Exported games: the shader pack is built
+from the whole shader library (`ShaderPack::CreateFromLibrary`) and the LTC tables are compiled into
+Core, so the runtime has everything; not run through an export. Linux: portable code, not built here.
+Verified: Release, Debug and Lux-Runtime build; golden `rf2` — Benchmark identical to `rf1` except
+`colliders`, which lands in its other known state (collider-line blending, 107–248 px, max 73, seen
+before this phase in `p6A`); RenderFeatures shows all four lights and lit glass; Debug + sync
+validation: 0 ids (the 20 old performance warnings).
+
 ### Phase 3 — Glass refraction
 
 **Goal:** glass with Transmission > 0 refracts the opaque scene behind it, blurred by roughness and

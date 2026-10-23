@@ -503,6 +503,7 @@ namespace Lux {
 				out << Yaml::Key << "Width" << Yaml::Value << light.Width;
 				out << Yaml::Key << "Height" << Yaml::Value << light.Height;
 				out << Yaml::Key << "Radius" << Yaml::Value << light.Radius;
+				out << Yaml::Key << "Length" << Yaml::Value << light.Length;
 				out << Yaml::Key << "TwoSided" << Yaml::Value << light.TwoSided;
 				out << Yaml::Key << "Range" << Yaml::Value << light.Range;
 				out << Yaml::EndMap;
@@ -1048,7 +1049,7 @@ namespace Lux {
 				{
 					auto& component = deserializedEntity.AddComponent<AreaLightComponent>();
 					const uint32_t shape = light["Shape"].as<uint32_t>(static_cast<uint32_t>(AreaLightShape::Rect));
-					component.Shape = shape == static_cast<uint32_t>(AreaLightShape::Disk) ? AreaLightShape::Disk : AreaLightShape::Rect;
+					component.Shape = shape <= static_cast<uint32_t>(AreaLightShape::Tube) ? static_cast<AreaLightShape>(shape) : AreaLightShape::Rect;
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
 					component.Intensity = light["Intensity"].as<float>(1.0f);
 					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
@@ -1057,6 +1058,7 @@ namespace Lux {
 					component.Width = light["Width"].as<float>(1.0f);
 					component.Height = light["Height"].as<float>(1.0f);
 					component.Radius = light["Radius"].as<float>(0.5f);
+					component.Length = light["Length"].as<float>(1.0f);
 					component.TwoSided = light["TwoSided"].as<bool>(false);
 					component.Range = light["Range"].as<float>(10.0f);
 				}

@@ -4,7 +4,8 @@
 // (github.com/selfshadow/ltc_code, BSD-2-Clause, see Core/vendor/ltc/LICENSE); the tables are
 // Renderer::GetLTCMatrixTexture / GetLTCAmplitudeTexture.
 //
-// Only the area-light pass includes this file: AreaLightData and the tables are bound there alone.
+// The area-light pass and the transparent forward pass include this file; both bind AreaLightData and
+// the tables.
 
 #ifndef LUX_LTC_GLSLH
 #define LUX_LTC_GLSLH
@@ -13,11 +14,15 @@
 
 const uint AREA_LIGHT_SHAPE_RECT = 0u; // AreaLightShape in Components.h
 const uint AREA_LIGHT_SHAPE_DISK = 1u;
+const uint AREA_LIGHT_SHAPE_SPHERE = 2u;
+const uint AREA_LIGHT_SHAPE_TUBE = 3u;
 const uint AREA_LIGHT_TWO_SIDED = 1u;  // AreaLightFlags in SceneRenderer.h
 
 #define MAX_AREA_LIGHTS 32 // LightEnvironment::MaxAreaLights
 
-// Mirrors SceneRenderer.h AreaLight (64 bytes). It emits along -normalize(cross(HalfRight, HalfUp)).
+// Mirrors SceneRenderer.h AreaLight (64 bytes). A rect or disk emits along
+// -normalize(cross(HalfRight, HalfUp)); a sphere's radius is length(HalfRight); a tube's axis and
+// half-length are HalfRight and its radius length(HalfUp).
 struct AreaLight
 {
 	vec3 Position;
@@ -124,6 +129,44 @@ vec3 LTC_PolygonFormFactor(AreaLight light, vec3 worldPosition, mat3 transform)
 	return sum;
 }
 
+// Any vector perpendicular to the unit vector n.
+vec3 LTC_Perpendicular(vec3 n)
+{
+	return normalize(abs(n.y) < 0.999 ? cross(vec3(0.0, 1.0, 0.0), n) : cross(vec3(1.0, 0.0, 0.0), n));
+}
+
+// A sphere seen from a point is a disk facing it, and a tube (a capsule) is close to a rectangle
+// facing it around its axis, lengthened by pi r / 4 at each end so it keeps the capsule silhouette's
+// area. Both are built facing worldPosition (cross(HalfRight, HalfUp) points away from it), so the
+// flat-shape integral applies with no back side.
+AreaLight LTC_FacingShape(AreaLight light, vec3 worldPosition)
+{
+	vec3 toPoint = worldPosition - light.Position;
+	AreaLight facing = light;
+	if (light.Shape == AREA_LIGHT_SHAPE_SPHERE)
+	{
+		float radius = length(light.HalfRight);
+		vec3 n = dot(toPoint, toPoint) > 1e-8 ? normalize(toPoint) : vec3(0.0, 1.0, 0.0);
+		vec3 right = LTC_Perpendicular(n);
+		facing.HalfRight = right * radius;
+		facing.HalfUp = cross(right, n) * radius;
+		facing.Shape = AREA_LIGHT_SHAPE_DISK;
+	}
+	else
+	{
+		float radius = length(light.HalfUp);
+		float halfLength = length(light.HalfRight);
+		vec3 axis = halfLength > 1e-6 ? light.HalfRight / halfLength : vec3(1.0, 0.0, 0.0);
+		vec3 n = toPoint - axis * dot(toPoint, axis);
+		n = dot(n, n) > 1e-8 ? normalize(n) : LTC_Perpendicular(axis);
+		facing.HalfRight = axis * (halfLength + 0.78539816 * radius);
+		facing.HalfUp = cross(axis, n) * radius;
+		facing.Shape = AREA_LIGHT_SHAPE_RECT;
+	}
+	facing.Flags = 0u;
+	return facing;
+}
+
 // Outgoing radiance from every area light at a surface point: Lambert diffuse and GGX specular.
 vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, float metalness, float roughness, vec3 F0)
 {
@@ -153,10 +196,18 @@ vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, floa
 		if (window <= 0.0)
 			continue;
 
-		vec3 emitDirection = -cross(light.HalfRight, light.HalfUp);
-		bool front = dot(fromLight, emitDirection) > 0.0;
-		if (!front && (light.Flags & AREA_LIGHT_TWO_SIDED) == 0u)
-			continue;
+		bool front = true;
+		if (light.Shape == AREA_LIGHT_SHAPE_SPHERE || light.Shape == AREA_LIGHT_SHAPE_TUBE)
+		{
+			light = LTC_FacingShape(light, worldPosition);
+		}
+		else
+		{
+			vec3 emitDirection = -cross(light.HalfRight, light.HalfUp);
+			front = dot(fromLight, emitDirection) > 0.0;
+			if (!front && (light.Flags & AREA_LIGHT_TWO_SIDED) == 0u)
+				continue;
+		}
 
 		// Seen from behind, the polygon winds the other way.
 		float facing = front ? 1.0 : -1.0;
