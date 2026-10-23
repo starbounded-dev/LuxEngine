@@ -288,6 +288,15 @@ namespace Lux
 				out << Yaml::Key << "AlphaThreshold" << Yaml::Value << surface.AlphaThreshold;
 			if (surface.TwoSided != defaults.TwoSided)
 				out << Yaml::Key << "TwoSided" << Yaml::Value << surface.TwoSided;
+			if (surface.DiffuseTransmission != defaults.DiffuseTransmission)
+				out << Yaml::Key << "DiffuseTransmission" << Yaml::Value << surface.DiffuseTransmission;
+			if (surface.DiffuseTransmissionColor != defaults.DiffuseTransmissionColor)
+			{
+				out << Yaml::Key << "DiffuseTransmissionColor" << Yaml::Value;
+				WriteVec3(out, surface.DiffuseTransmissionColor);
+			}
+			if (surface.DiffuseTransmissionMap)
+				WriteTextureReference(out, "DiffuseTransmissionMap", surface.DiffuseTransmissionMap, textureReferenceSerialization);
 			const int32_t acousticTag = materialAsset->GetAcousticTag();
 			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
 				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
@@ -324,6 +333,7 @@ namespace Lux
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["EmissiveMap"]), handle);
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["OcclusionMap"]), handle);
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["HeightMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DiffuseTransmissionMap"]), handle);
 		}
 
 		static bool DeserializeMaterialFromYAML(const std::string& yamlString, Ref<MaterialAsset>& targetMaterialAsset, AssetHandle handle)
@@ -363,11 +373,6 @@ namespace Lux
 					assignFn(textureHandle);
 			};
 
-			tryAssignTexture(materialNode["AlbedoMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetAlbedoMap(handle); });
-			tryAssignTexture(materialNode["NormalMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetNormalMap(handle); });
-			tryAssignTexture(materialNode["MetalnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetMetalnessMap(handle); });
-			tryAssignTexture(materialNode["RoughnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetRoughnessMap(handle); });
-
 			MaterialSurfaceParameters surface;
 			surface.EmissiveColor = ReadVec3(materialNode["EmissiveColor"], surface.EmissiveColor);
 			surface.EmissiveMap = ResolveTextureReference(materialNode["EmissiveMap"]);
@@ -386,6 +391,18 @@ namespace Lux
 			surface.AlphaMode = ReadAlphaMode(materialNode["AlphaMode"], surface.AlphaMode);
 			surface.AlphaThreshold = materialNode["AlphaThreshold"].as<float>(surface.AlphaThreshold);
 			surface.TwoSided = materialNode["TwoSided"].as<bool>(surface.TwoSided);
+			surface.DiffuseTransmission = materialNode["DiffuseTransmission"].as<float>(surface.DiffuseTransmission);
+			surface.DiffuseTransmissionColor = ReadVec3(materialNode["DiffuseTransmissionColor"], surface.DiffuseTransmissionColor);
+			surface.DiffuseTransmissionMap = ResolveTextureReference(materialNode["DiffuseTransmissionMap"]);
+
+			// Before the maps: the albedo's mip chain depends on the alpha mode and cutoff, so it is built
+			// once, for the ones the file has.
+			targetMaterialAsset->SetSurfaceParameters(surface);
+
+			tryAssignTexture(materialNode["AlbedoMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetAlbedoMap(handle); });
+			tryAssignTexture(materialNode["NormalMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetNormalMap(handle); });
+			tryAssignTexture(materialNode["MetalnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetMetalnessMap(handle); });
+			tryAssignTexture(materialNode["RoughnessMap"], [&targetMaterialAsset](AssetHandle handle) { targetMaterialAsset->SetRoughnessMap(handle); });
 
 			// Files written before emissive colour existed tinted emission by the base colour and its
 			// map. Carry that over as data so they render exactly as they did.

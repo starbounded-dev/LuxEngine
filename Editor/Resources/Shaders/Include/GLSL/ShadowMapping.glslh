@@ -492,7 +492,9 @@ vec3 CalculateSpotLightsShadowed(in vec3 F0, vec3 worldPos, texture2D SpotAtlas)
 		}
 
 		vec3 Lradiance = light.Radiance * light.Multiplier * attenuation;
-		result += LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li) * Lradiance;
+		// The transmission lobe shares the light's shadow: these shadows test the surface point itself.
+		result += (LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li)
+			+ LuxDiffuseTransmissionLobe(m_Params.Normal, Li)) * Lradiance;
 
 	}
 	return result;
@@ -554,7 +556,9 @@ vec3 CalculatePointLightsShadowed(in vec3 F0, vec3 worldPos, texture2D shadowAtl
 			attenuation *= SamplePointLightShadow(light, worldPos, shadowAtlas);
 
 		vec3 Lradiance = light.Radiance * light.Multiplier * attenuation;
-		result += LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li) * Lradiance;
+		// The transmission lobe shares the light's shadow: these shadows test the surface point itself.
+		result += (LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li)
+			+ LuxDiffuseTransmissionLobe(m_Params.Normal, Li)) * Lradiance;
 	}
 	return result;
 }

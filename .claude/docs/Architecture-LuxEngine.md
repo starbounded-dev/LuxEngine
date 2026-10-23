@@ -340,13 +340,16 @@ Structurally:
   emissive maps as sRGB, and `SceneRenderer` binds those to `MaterialAsset::GetSRGBTexture`.
 - **Cutout materials are alpha-tested in pre-depth as well as the G-buffer.** `MaterialAlphaMode::Cutout`
   becomes `GPUMaterialAlphaMode::Masked` in the material row, with the authored threshold in
-  `Surface.z`. `PreDepth.glsl` therefore reads the material table, and `m_PreDepthPass` binds
+  `Surface.z`. Only Cutout draws (`MeshKey::AlphaMasked`) read the material table in pre-depth: they
+  switch to `PreDepth_Masked.glsl` (`m_PreDepthMaskedPass`, never begun) inside the prepass, whose
+  own `PreDepth.glsl` is depth-only. `m_PreDepthMaskedPass` binds
   `GPUMaterials`, `r_MaterialSampler` and `RendererData` plus its `BindlessTextureTable` (the
   bindless `u_GPUMaterialTextures`, set 4) — bound explicitly, not via `BindSceneRenderPassInputs(PassInputMaterialScene)`, because that would
   also rebind `ObjectIndexes` to the *visible* set and pre-depth uses the unculled one. The two
-  passes must discard identically (same UV, same mip bias, same cutoff) or the G-buffer fails its
+  passes must discard identically (same UV — the G-buffer's `(u, 1 − v)` — same mip bias, same cutoff) or the G-buffer fails its
   depth-equal test, so `GetMaterialMipBias` is duplicated verbatim in both shaders. `PreDepth_Meshlet`
-  does **not** alpha-test yet: with mesh shaders enabled, cutout geometry writes full depth.
+  alpha-tests the same way: its mesh stage outputs the UVs, object index and view position, and
+  `m_PreDepthMeshletPass` binds the same material inputs.
   Shadows alpha-test too: a Cutout caster (`MeshKey::AlphaMasked`) draws through
   `DirShadowMap_Masked` / `SpotShadowMap_Masked`, which bind the same material inputs, switched in
   inside the shadow passes.
@@ -360,6 +363,11 @@ Structurally:
   `MeshKey::TwoSided`. Those draws use the two passes' no-cull variant pipelines, switched inside
   each pass (the raster-variant rule in `Rendering.md`). `GBuffer_Static` lights back faces with the normal
   flipped.
+- **Diffuse transmission (light through leaves).** `MaterialSurfaceParameters::DiffuseTransmission`,
+  `DiffuseTransmissionColor` and `DiffuseTransmissionMap` (glTF `KHR_materials_diffuse_transmission`,
+  opaque and Cutout only) fill the GPU row's `Transmission` rows. `GBuffer_Static` writes the
+  per-pixel factor to `normal.w`; `DeferredLighting` reads the colour through `MaterialID`. The
+  Assimp importer does not read the extension (the vendored Assimp lacks it).
 - `FrameRenderPacket` is the per-frame snapshot that decouples submission from the live registry.
 - `RendererConfig::FramesInFlight` defaults to 3.
 - Selection outline jump-flood inputs are rebound inside the render queue for each iteration,

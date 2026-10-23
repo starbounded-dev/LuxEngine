@@ -43,6 +43,9 @@ namespace Lux {
 		PrimitiveTopology Topology = PrimitiveTopology::Triangles;
 		DepthCompareOperator DepthOperator = DepthCompareOperator::GreaterOrEqual;
 		bool BackfaceCulling = true;
+		// Culls front faces instead, drawing only back faces (whatever BackfaceCulling says): the first
+		// of a two-sided transparent's two draws, so its far side blends in before its near side.
+		bool FrontFaceCulling = false;
 		bool DepthTest = true;
 		bool DepthWrite = true;
 		bool Wireframe = false;

@@ -169,6 +169,11 @@ out gl_MeshPerVertexEXT
 	invariant vec4 gl_Position;
 } gl_MeshVerticesEXT[];
 
+// What the fragment stage's alpha test needs, as PreDepth.glsl's vertex stage outputs it.
+layout(location = 0) out vec2 OutputTexCoord[];
+layout(location = 1) flat out uint OutputObjectIndex[];
+layout(location = 2) out vec3 OutputViewPosition[];
+
 struct TaskPayload
 {
 	uint MeshletIndices[32];
@@ -194,6 +199,12 @@ void main()
 
 		vec4 worldPosition = transform * vec4(position, 1.0);
 		gl_MeshVerticesEXT[i].gl_Position = u_Camera.ViewProjectionMatrix * worldPosition;
+
+		// The UVs GBuffer_Static samples, or the two passes discard different texels.
+		const vec2 texCoord = vec2(r_VertexData.Data[base + 12u], r_VertexData.Data[base + 13u]);
+		OutputTexCoord[i] = vec2(texCoord.x, 1.0 - texCoord.y);
+		OutputObjectIndex[i] = i_Payload.ObjectIndex;
+		OutputViewPosition[i] = vec3(u_Camera.ViewMatrix * worldPosition);
 	}
 
 	for (uint t = gl_LocalInvocationIndex; t < triangleCount; t += 64u)
@@ -204,8 +215,47 @@ void main()
 }
 
 #version 460 core
+
+// Samplers.glslh indexes the bindless material texture array with nonuniformEXT; every shader
+// that samples it declares the extension itself (the headers do not).
+#extension GL_EXT_nonuniform_qualifier : enable
+
 #pragma stage : frag
 
+#include <Buffers.glslh>
+#include <MaterialScene.glslh>
+#include <Samplers.glslh>
+
+layout(location = 0) in vec2 InputTexCoord;
+layout(location = 1) flat in uint InputObjectIndex;
+layout(location = 2) in vec3 InputViewPosition;
+
+// Must stay identical to GBuffer_Static's and PreDepth's GetMaterialMipBias: the passes have to
+// sample the same mip, or they discard different fragments and the G-buffer fails its depth-equal test.
+float GetMaterialMipBias()
+{
+	float mipBias = u_RendererData.TextureMipBias;
+	if (u_RendererData.EnableDistanceMipBias)
+	{
+		float distanceToCamera = length(InputViewPosition);
+		float biasRange = max(u_RendererData.DistanceMipBiasEnd - u_RendererData.DistanceMipBiasStart, 1.0);
+		float distanceFactor = clamp((distanceToCamera - u_RendererData.DistanceMipBiasStart) / biasRange, 0.0, 1.0);
+		mipBias += distanceFactor * u_RendererData.DistanceMipBiasMax;
+	}
+	return mipBias;
+}
+
+// Cutout materials discard here as in PreDepth.glsl, or they punch full depth and occlude whatever
+// is behind the transparent parts of the texture.
 void main()
 {
+	GPUMaterial gpuMaterial = GetGPUMaterialForObject(InputObjectIndex);
+	if (GetGPUMaterialAlphaMode(gpuMaterial, GPU_MATERIAL_ALPHA_OPAQUE) != GPU_MATERIAL_ALPHA_MASKED)
+		return;
+
+	vec2 uv = GetGPUMaterialUV(gpuMaterial, InputTexCoord);
+	float alpha = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, uv, GetMaterialMipBias()).a
+		* GetGPUMaterialOpacity(gpuMaterial, 1.0);
+	if (alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
+		discard;
 }

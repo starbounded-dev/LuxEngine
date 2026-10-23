@@ -261,7 +261,8 @@ namespace Lux {
 		// open pass's attachments, viewport and scissor. A pass's variant pipelines (no culling, alpha
 		// tested) switch this way without splitting its rendering scope, so `pipeline` must use
 		// `renderPass`'s shader, and both must render to the open pass's attachment formats. False,
-		// with nothing changed, when the pipeline cannot be bound (logged once per pipeline).
+		// with nothing changed, when the pipeline cannot be bound (logged once per pipeline), or outside
+		// a pass, as RT_DrawIndexed: a pass that failed to open was reported when it did.
 		static bool RT_SwitchRenderPassPipeline(RenderCommandBuffer& renderCommandBuffer, const RenderPass& renderPass, const Pipeline* pipeline = nullptr);
 		// Render thread, inside a pass begun with RT_BeginRenderPass: records `draw`. False, with
 		// nothing recorded, outside such a pass or when the draw cannot be recorded (logged once per

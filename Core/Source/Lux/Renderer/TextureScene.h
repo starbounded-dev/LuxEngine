@@ -23,15 +23,18 @@ namespace Lux {
 		SRGB = 1
 	};
 
-	// One bindless texture slot: the same texture used as colour and as data takes two slots.
+	// One bindless texture slot: the same texture used as colour and as data takes two slots, and so
+	// does an albedo a Cutout material alpha-tests (its mips keep their coverage at that cutoff).
 	struct GPUTextureSlot
 	{
 		AssetHandle Handle = 0;
 		TextureColorSpace ColorSpace = TextureColorSpace::Linear;
+		// A Cutout material's cutoff (GetAlphaCoverageCutoffKey) for sRGB albedo; 0 for every other slot.
+		uint8_t AlphaCoverageCutoff = 0;
 
 		bool operator==(const GPUTextureSlot& other) const
 		{
-			return Handle == other.Handle && ColorSpace == other.ColorSpace;
+			return Handle == other.Handle && ColorSpace == other.ColorSpace && AlphaCoverageCutoff == other.AlphaCoverageCutoff;
 		}
 	};
 
@@ -40,7 +43,8 @@ namespace Lux {
 		size_t operator()(const GPUTextureSlot& slot) const
 		{
 			size_t seed = std::hash<AssetHandle>{}(slot.Handle);
-			seed ^= std::hash<uint32_t>{}((uint32_t)slot.ColorSpace) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+			const uint32_t slotKind = static_cast<uint32_t>(slot.ColorSpace) | (static_cast<uint32_t>(slot.AlphaCoverageCutoff) << 8);
+			seed ^= std::hash<uint32_t>{}(slotKind) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 			return seed;
 		}
 	};
@@ -60,7 +64,7 @@ namespace Lux {
 		// Takes a reference on the texture's bindless slot, allocating the slot on first use. Returns
 		// InvalidGPUTextureIndex (and takes no reference) for a handle that is not a texture asset.
 		// Each acquired index is released exactly once with ReleaseTexture.
-		GPUTextureIndex AcquireTexture(AssetHandle textureHandle, TextureColorSpace colorSpace = TextureColorSpace::Linear);
+		GPUTextureIndex AcquireTexture(const GPUTextureSlot& slot);
 		void ReleaseTexture(GPUTextureIndex textureIndex);
 		// Frees the slots whose last reference was released this frame.
 		void EndSync();

@@ -747,19 +747,30 @@ crash or corruption on some driver even if it renders correctly on yours.
 - **Raster variants are part of the draw key.** `MeshKey::TwoSided` and `MeshKey::AlphaMasked` come
   from `MaterialScene::ResolveRasterState`, the resolution that also builds the material's GPU row,
   so a bucket's pipeline matches the material data its shaders read. Both the CPU buckets and the cull
-  groups set them. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
+  groups set them. The prepass has four pipelines: its own depth-only `PreDepth` and its no-cull
+  variant, and `m_PreDepthMaskedPass`'s alpha-testing `PreDepth_Masked` and its no-cull variant,
+  picked by `GetPreDepthPipelineSortKey`. On 2026-10-21 (Release, 1280×720 golden captures, medians
+  of 3) the depth-only split cut `PreDepthPass` from 0.936 to 0.916 ms on Benchmark and from 0.061 to
+  0.038 ms on FMODDemo, with pixel-identical images. The mesh-shader prepass keeps one alpha-testing
+  shader for every draw. A two-sided material's prepass and G-buffer draws use `m_PreDepthTwoSidedPipeline`
   and `m_GeometryTwoSidedPipeline`, which do no culling. Those two must stay in step, because the
   G-buffer depth-tests EQUAL against the prepass. Draws sort by pipeline (`PassSortKeys`), so a pass
   switches pipeline at most once per variant. `GBuffer_Static` flips the normal and tangent frame on
-  back faces (glTF's double-sided rule); a culling pipeline never draws one. A Cutout caster's shadow
+  back faces (glTF's double-sided rule); a culling pipeline never draws one. A two-sided transparent
+  records each draw twice: through `m_TransparentBackFacesPipeline`
+  (`PipelineSpecification::FrontFaceCulling`), then through the default pipeline, so its far side
+  blends in first. Its sort keys are unchanged, so blend order between materials does not move, and
+  `HazelPBR_Transparent` flips the normal on back faces too. A Cutout caster's shadow
   draws (`AlphaMasked`) switch, inside whichever cascade or spot-atlas pass is open, to
   `m_ShadowMapMaskedPass` / `m_SpotShadowMaskedPass`. Those passes are never begun: they hold the
   alpha-tested `DirShadowMap_Masked` / `SpotShadowMap_Masked` pipelines and their sets (the
   material table, bindless textures and `r_MaterialSampler`). Every other caster keeps the
   depth-only shadow shaders, which have no fragment work. A masked shadow depends on its material,
   so its static-cache hashes include `MaterialScene::GetAssetRevision`, and a material edit
-  re-renders the static shadow caches. The mesh-shader prepass has no variants: it culls back faces
-  and does not alpha-test. Skinned meshes (`*_Anim` shaders) have none either.
+  re-renders the static shadow caches. The mesh-shader prepass matches the classic one: its fragment
+  stage alpha-tests with the same UVs and mip bias, and two-sided draws switch to
+  `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Skinned meshes (`*_Anim`
+  shaders) have no variants; the engine has no skeletal animation.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still
@@ -990,7 +1001,9 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+size in step. A row is 11 `vec4` (176 bytes). The last two hold diffuse transmission:
+`Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
+`TransmissionTextureIndices.x` (the factor map, read from alpha). Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 ### Bindless textures — set 4 is reserved
 
@@ -1027,6 +1040,17 @@ texture used both as colour and as data takes two slots. Data maps (normal, meta
 occlusion, height) stay `Linear`. Only RGBA8 sources get a copy: float and block-compressed textures
 are bound as they are.
 
+**A Cutout albedo binds a coverage-preserving copy.** When a row resolves Masked, its albedo slot
+carries `GPUTextureSlot::AlphaCoverageCutoff`, the cutoff in 1/255 steps
+(`GetAlphaCoverageCutoffKey`). `resolveMaterialTexture` then binds
+`MaterialAsset::GetAlphaCoverageTexture` instead of the sRGB copy. That variant's mips come from
+`Texture2D::GenerateMips(cutoff)`: the box-filtered chain, then each level's alpha rescaled so the
+share of texels at or above the cutoff matches mip 0's (Castaño). The new cutoff is solved from a
+256-bin histogram per mip (`AlphaCoverageHistogram.glsl`, `AlphaCoverageScale.glsl`, storage buffer
+at set 1, binding 26). `MaterialAsset` builds the variant when its albedo, alpha mode or cutoff
+changes. Every pass that alpha-tests samples this one slot, so the prepass, G-buffer and shadows stay
+in agreement.
+
 Rows are built by `MaterialScene::BuildGPUMaterialData` from the `MaterialAsset` (its own values and
 `MaterialSurfaceParameters`), never from the shader push-constant block. A new material input must
 default to the value that reproduces today's shading, so an older `.lmat` renders unchanged.
@@ -1046,6 +1070,19 @@ into scene color (the G-buffer framebuffer borrows the scene-color image as atta
 result on top with `FramebufferBlendMode::Additive`. Consequences: anything that writes the lit
 opaque color must stay additive over what is already there, and the G-buffer render-graph pass reads
 and writes scene color.
+
+**Diffuse transmission rides in the G-buffer normal's alpha.** `LuxGBufferData::DiffuseTransmission`
+(the material factor × map) is `normal.w`; its colour is read from the material row through
+`MaterialID`. `DeferredLighting` follows glTF's `mix(diffuse_brdf, diffuse_btdf, t)`:
+- it scales the albedo by `1 − t` after F0, so only diffuse reflection loses energy, and specular is
+  unchanged;
+- it sets `g_DiffuseTransmission`, so the point and spot loops add `LuxDiffuseTransmissionLobe`
+  (Lambert about −N) under the light's own shadow;
+- the directional light's back lobe is shadowed with its receiver offset toward the light
+  (`CalculateDirectionalShadow(..., -N)`); the camera-side offset would make the leaf shadow itself;
+- IBL adds the irradiance from −N.
+Pixels with `t = 0` take none of these branches, and `g_DiffuseTransmission` stays zero in every
+other shader.
 
 `Renderer::BeginRenderPass` honours a per-attachment `AttachmentLoadOp` (`Load` keeps, `Clear`
 clears, `Inherit` follows `ClearColorOnLoad`). Use it to share an image into a framebuffer without

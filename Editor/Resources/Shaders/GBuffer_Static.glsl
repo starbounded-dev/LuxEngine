@@ -179,7 +179,11 @@ void main()
 	gbuffer.BaseColor = baseColor;
 	gbuffer.Opacity = alpha;
 	gbuffer.ViewNormal = normalize(Input.CameraView * worldNormal);
-	gbuffer.Reserved0 = 0.0;
+	// Deferred lighting reads the transmission colour from this material's row.
+	float diffuseTransmission = gpuMaterial.Transmission.w;
+	if (diffuseTransmission > 0.0 && HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_TRANSMISSION_TEXTURE))
+		diffuseTransmission *= SampleMaterialSceneTexture(gpuMaterial.TransmissionTextureIndices.x, uv, materialMipBias).a;
+	gbuffer.DiffuseTransmission = diffuseTransmission;
 	gbuffer.Metalness = metalness;
 	gbuffer.Roughness = roughness;
 	gbuffer.AmbientOcclusion = occlusion;
