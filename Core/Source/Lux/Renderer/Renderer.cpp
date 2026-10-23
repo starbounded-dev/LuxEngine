@@ -486,6 +486,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleUInt.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleSRGB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGui.hlsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGuiGlass.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Transparent.glsl");

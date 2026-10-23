@@ -21,6 +21,7 @@
 #include "Lux/ImGui/ImGuiFonts.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include "backends/imgui_impl_glfw.h"
 
@@ -34,6 +35,15 @@
 // extern bool g_DisableImGuiEvents;
 
 namespace Lux {
+
+	namespace {
+
+		// What popup backgrounds keep of their alpha while glass backdrops are on.
+		constexpr float k_GlassPopupBgAlpha = 0.72f;
+		// The windows that asked for a glass backdrop this frame (RequestGlassBackdrop). Main thread.
+		std::vector<ImGuiID> s_GlassBackdropRequests;
+
+	}
 
 	void ImGuiLayer::OnAttach()
 	{
@@ -333,6 +343,50 @@ namespace Lux {
 
 		ImGui::NewFrame();
 		ImGuizmo::BeginFrame();
+
+		s_GlassBackdropRequests.clear();
+		if (m_GlassBackdrops)
+		{
+			float& popupAlpha = ImGui::GetStyle().Colors[ImGuiCol_PopupBg].w;
+			m_PopupBgAlpha = popupAlpha;
+			popupAlpha *= k_GlassPopupBgAlpha;
+			m_DimmedPopupBgAlpha = popupAlpha;
+			m_PopupBgDimmed = true;
+		}
+	}
+
+	void ImGuiLayer::RequestGlassBackdrop()
+	{
+		if (const ImGuiWindow* window = ImGui::GetCurrentWindowRead())
+			s_GlassBackdropRequests.push_back(window->ID);
+	}
+
+	void ImGuiLayer::InsertGlassBackdrops()
+	{
+		for (ImGuiWindow* window : GImGui->Windows)
+		{
+			if (!window->Active || window->Hidden || window->Size.x <= 0.0f || window->Size.y <= 0.0f)
+				continue;
+
+			const bool popup = (window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0
+				&& (window->Flags & ImGuiWindowFlags_ChildWindow) == 0;
+			if (!popup && std::find(s_GlassBackdropRequests.begin(), s_GlassBackdropRequests.end(), window->ID) == s_GlassBackdropRequests.end())
+				continue;
+
+			ImDrawList* drawList = window->DrawList;
+			if (drawList->CmdBuffer.Size == 0)
+				continue;
+
+			// Before the window's background, with the first command's header; no vertices.
+			ImDrawCmd command = drawList->CmdBuffer[0];
+			command.ElemCount = 0;
+			command.UserCallback = ImGuiGlassBackdropCallback;
+			command.UserCallbackData = EncodeImGuiGlassRounding(window->WindowRounding);
+			command.UserCallbackDataSize = 0;
+			command.UserCallbackDataOffset = -1;
+			command.ClipRect = ImVec4(window->Pos.x, window->Pos.y, window->Pos.x + window->Size.x, window->Pos.y + window->Size.y);
+			drawList->CmdBuffer.push_front(command);
+		}
 	}
 
 	namespace {
@@ -450,7 +504,21 @@ namespace Lux {
 		LUX_CORE_ASSERT(Application::GetMainThreadID() == std::this_thread::get_id(),
 			"ImGui frame finalization must run on the window-owning main thread");
 
+		if (m_GlassBackdrops)
+		{
+			// EndFrame can still open windows (a drag-and-drop tooltip), so the backdrops go in after it.
+			ImGui::EndFrame();
+			InsertGlassBackdrops();
+		}
 		ImGui::Render();
+
+		if (m_PopupBgDimmed)
+		{
+			float& popupAlpha = ImGui::GetStyle().Colors[ImGuiCol_PopupBg].w;
+			if (popupAlpha == m_DimmedPopupBgAlpha)
+				popupAlpha = m_PopupBgAlpha;
+			m_PopupBgDimmed = false;
+		}
 
 		// Service ImGui-owned textures (font atlas etc.) now that ImGui::Render() has finalized the
 		// texture list and pixel data, and before the draw-data snapshots below capture the registry.
@@ -468,6 +536,7 @@ namespace Lux {
 
 		if (auto snapshot = ImGuiDrawDataSnapshot::Create(ImGui::GetDrawData(), registry))
 		{
+			m_ImGuiRenderer->PrepareGlassBackdrops(*snapshot);
 			ImGuiRenderer* renderer = m_ImGuiRenderer.get();
 			RHISwapChain* swapchain = &Application::Get().GetWindow().GetSwapChain();
 			const bool clearTarget = m_ClearMainViewport;
@@ -493,6 +562,7 @@ namespace Lux {
 				// out of date without a resize (e.g. moved to another monitor).
 				if (viewportData->SC->NeedsRecreate())
 					viewportData->SC->OnResize();
+				viewportData->Renderer->PrepareGlassBackdrops(*snapshot);
 
 				m_PendingRenderTasks.emplace_back([weakViewportData = WeakRef<ImGuiViewportData>(viewportData), viewportID = viewport->ID, snapshot]()
 				{

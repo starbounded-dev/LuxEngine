@@ -363,6 +363,26 @@ ID audit (`Conventions.md § ImGui correctness`) plus driving every new state.
 
 **Docs:** `Architecture-LuxEngine.md` editor section (the glass hook and preference).
 
+**Status 2026-10-23: done, awaiting the user's look check.** `ImGuiGlass.hlsl` (full-screen
+triangle; DOWN / UP dual-Kawase, COMPOSITE, PRESENT). `ImGuiLayer::End` puts an
+`ImGuiGlassBackdropCallback` command first in each popup, menu and tooltip, and in the four
+translucent viewport overlays that call `ImGuiLayer::RequestGlassBackdrop()` (Performance HUD,
+viewport settings toolbar, acoustic legend, room acoustics); the orientation gizmo and selection
+badge (background alpha 0) and the near-opaque toasts do not. Deviation from the plan: no copy out
+of the back buffer (TRANSFER_SRC on swapchain images is optional in Vulkan and NRI cannot report
+it); a frame with backdrops draws ImGui into an RGBA8 UI target that the blur reads directly and
+presents it with one full-screen pass. Frames without backdrops, and the preference off, take the
+old direct path unchanged. Preference "Glass Overlays" (Application Settings → Editor,
+`Editor.GlassOverlays`, default on). There is no light editor theme, only the two dark ones.
+Verified in the editor (Release, 3862x2110): the Performance HUD and the settings, File and View
+popups blur what is behind them; preference off restores the old look (sharp scene through the HUD,
+opaque popups); a window resize with glass on (1612x951 to 1926x1038) is clean. Cost (RenderDoc, two
+backdrops): ~0.008 ms GPU per backdrop (six small passes) plus 0.080 ms for the full-screen present,
+~0.10 ms of the ImGui renderer's 0.34 ms. Debug + sync validation with the popups open: no errors
+(only the 20 pre-existing performance warnings `rf3dbg` has). Golden `rf6` Benchmark and
+RenderFeatures identical to `rf5`. Not verified: a popup in an undocked platform window. The start
+page and other popups that push an opaque `PopupBg` pay for a backdrop they cover.
+
 ### Phase 7 — Slimmer G-buffer
 
 **Goal:** the same image from a cheaper G-buffer.

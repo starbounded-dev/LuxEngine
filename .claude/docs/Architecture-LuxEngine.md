@@ -286,7 +286,12 @@ submission.
   slot, read back a frame-in-flight later, and `CmdBeginAnnotation` markers.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
-  `Image2D`s in the shared `ImGuiTextureRegistry`.
+  `Image2D`s in the shared `ImGuiTextureRegistry`. A frame with glass backdrops (§ 2.9) draws into
+  the renderer's UI target instead and presents it at the end (`ImGuiGlass.hlsl`, mode PRESENT);
+  each `ImGuiGlassBackdropCallback` command splits the ImGui pass for a dual-Kawase blur of the
+  window's region into three smaller levels and a rounded-rectangle composite, then reopens it.
+  Only over a cleared target (never the runtime's overlay); the targets are created on the main
+  thread (`PrepareGlassBackdrops`) and reach the render thread inside the snapshot.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NRIBarrierEmitter` (`Renderer/RHI/`), which record every barrier as an
@@ -638,6 +643,16 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
 
 UI style: use `ImGuiEx` scopes and widgets and `Colors::Theme` constants — see
 `.claude/docs/Conventions.md`.
+
+Glass backdrops: with `ImGuiLayer::SetGlassBackdrops(true)` (the editor preference "Glass
+Overlays", `Editor.GlassOverlays`, default on; Application Settings → Editor), `ImGuiLayer::End`
+puts an `ImGuiGlassBackdropCallback` command first in the draw list of every active popup, menu
+and tooltip, and of every window that called `ImGuiLayer::RequestGlassBackdrop()` inside its
+Begin/End (the translucent viewport overlays), after `ImGui::EndFrame` and before `ImGui::Render`.
+The command carries the window's rectangle in `ClipRect` and its rounding in the callback-data
+bits, so nothing points into ImGui's buffers. The window's own background then draws over the blur
+as its tint: while glass is on, `PopupBg`'s alpha is scaled by 0.72 for the frame. A window with an
+opaque background gains nothing from it, and one with none (alpha 0) must not request it.
 
 Gamepad navigation: the stock GLFW backend only reads `GLFW_JOYSTICK_1`, so `ImGuiLayer::Begin`
 clears `ImGuiConfigFlags_NavEnableGamepad` before the backend's `NewFrame` and then feeds the

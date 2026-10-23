@@ -363,6 +363,8 @@ namespace Lux
 		// Editor layout mode: Simple (a fixed, minimal default arrangement) vs Advanced (a fuller
 		// workspace with the diagnostic panels docked). Persisted as Editor.SimpleLayout.
 		bool m_SimpleLayout = true;
+		// Frosted-glass backdrops behind popups and the translucent viewport overlays.
+		bool m_GlassOverlays = true;
 		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
 		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
 		bool m_PendingLayoutReset = false;

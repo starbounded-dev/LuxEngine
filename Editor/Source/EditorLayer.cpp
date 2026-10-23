@@ -478,6 +478,7 @@ namespace Lux {
 		editorPreferencesBindings.GamepadNavigation = &m_GamepadNavigation;
 		editorPreferencesBindings.GamepadNavigationDevice = &m_GamepadNavigationDevice;
 		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
+		editorPreferencesBindings.GlassOverlays = &m_GlassOverlays;
 		editorPreferencesBindings.OnLayoutModeChanged = [this](bool simple)
 			{
 				SetEditorLayoutMode(simple);
@@ -1993,6 +1994,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##acoustic_material_legend", nullptr, flags);
+		ImGuiLayer::RequestGlassBackdrop();
 		ImGui::TextUnformatted("Acoustic materials");
 		bool any = false;
 		for (size_t i = 0; i < AcousticMaterialCount; ++i)
@@ -2055,6 +2057,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
+		ImGuiLayer::RequestGlassBackdrop();
 		// Numeric readout in the monospace face (JetBrains Mono), like the mock's fps/ms pill.
 		ImGuiEx::Fonts::PushFont("Mono");
 		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
@@ -2089,6 +2092,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.55f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
 		ImGui::Begin("##viewport_settings_toolbar", nullptr, flags);
+		ImGuiLayer::RequestGlassBackdrop();
 
 		const ImVec2 buttonSize(24.0f, 24.0f);
 		ImGui::InvisibleButton("##viewport_settings_btn", buttonSize);
@@ -3150,6 +3154,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
+		ImGuiLayer::RequestGlassBackdrop();
 		ImGui::TextUnformatted("Room (VA measured)");
 		ImGuiEx::Fonts::PushFont("Mono");
 		ImGui::Text("Returned %5.1f%%  Outside %5.1f%%", ambience.ReturnedPercent * 100.0f, ambience.OutsidePercent * 100.0f);
@@ -3230,6 +3235,7 @@ namespace Lux {
 		m_GamepadNavigationDevice.Name = settings.Get("Editor.GamepadNavigationName");
 		m_GamepadNavigationDevice.JoystickID = settings.GetInt("Editor.GamepadNavigationSlot", -1);
 		m_SimpleLayout = settings.GetInt("Editor.SimpleLayout", 1) != 0;
+		m_GlassOverlays = settings.GetInt("Editor.GlassOverlays", 1) != 0;
 
 		ApplyEditorPreferences();
 	}
@@ -3255,6 +3261,7 @@ namespace Lux {
 		settings.Set("Editor.GamepadNavigationName", m_GamepadNavigationDevice.Name);
 		settings.SetInt("Editor.GamepadNavigationSlot", m_GamepadNavigationDevice.JoystickID);
 		settings.SetInt("Editor.SimpleLayout", m_SimpleLayout ? 1 : 0);
+		settings.SetInt("Editor.GlassOverlays", m_GlassOverlays ? 1 : 0);
 		settings.Serialize();
 	}
 
@@ -3295,6 +3302,8 @@ namespace Lux {
 		Application::Get().SetTargetFrameRate(m_VSync ? 0u : (uint32_t)std::max(m_TargetFrameRate, 0));
 		Application::Get().GetWindow().SetSwapChainBufferCount((uint32_t)m_SwapChainBufferCount);
 		Application::Get().GetWindow().SetPreferImmediatePresentMode(m_PreferImmediatePresentMode);
+		if (ImGuiLayer* imguiLayer = Application::Get().GetImGuiLayer())
+			imguiLayer->SetGlassBackdrops(m_GlassOverlays);
 
 		if (m_SceneRenderer)
 		{
