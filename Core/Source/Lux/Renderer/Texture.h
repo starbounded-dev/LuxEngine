@@ -79,8 +79,9 @@ namespace Lux {
 
 		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return m_Image->GetDescriptorInfo(); }
 
-		// reinterpret the given texture's data as if it was sRGB
-		static Ref<Texture2D> CreateFromSRGB(Ref<Texture2D> texture);
+		// reinterpret the given texture's data as if it was sRGB. With an alpha cutoff (0 = none), the
+		// mip chain keeps mip 0's alpha-test coverage at that cutoff (see GenerateMips).
+		static Ref<Texture2D> CreateFromSRGB(Ref<Texture2D> texture, float alphaCoverageCutoff = 0.0f);
 
 		void CreateFromFile(const TextureSpecification& specification, const std::filesystem::path& filepath);
 		void CreateFromBuffer(const TextureSpecification& specification, Buffer data = Buffer());
@@ -112,7 +113,10 @@ namespace Lux {
 		uint32_t GetMipLevelCount() const;
 		virtual std::pair<uint32_t, uint32_t> GetMipSize(uint32_t mip) const;
 
-		void GenerateMips();
+		// With an alpha cutoff (SRGBA textures; 0 = none), each mip's alpha is rescaled so the share of
+		// texels at or above the cutoff matches mip 0's: Castano's coverage-preserving mips, which
+		// keep alpha-tested foliage from thinning out with distance.
+		void GenerateMips(float alphaCoverageCutoff = 0.0f);
 		void CopyToHostBuffer(Buffer& buffer);
 
 		void SetData(Buffer buffer);

@@ -10,8 +10,11 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
+#include <utility>
 
 namespace Lux {
 
@@ -38,6 +41,11 @@ namespace Lux {
 	// Keyed by texture asset. Material assets fill it and SceneRenderer reads it for the bindless
 	// colour slots, from whichever threads load assets and build frames.
 	static std::unordered_map<AssetHandle, SRGBTextureCacheEntry> s_SRGBTextureCache;
+	// Keyed by texture asset and cutoff step: what a Cutout material's albedo binds instead of its sRGB
+	// copy. Ordered, so one texture's variants are adjacent. Shares the sRGB cache's mutex.
+	static std::map<std::pair<AssetHandle, uint8_t>, SRGBTextureCacheEntry> s_AlphaCoverageTextureCache;
+	// Cutout albedo textures already reported as keeping their box-filtered chain. Same mutex.
+	static std::unordered_set<AssetHandle> s_ReportedAlphaCoverageFallbacks;
 	static std::mutex s_SRGBTextureCacheMutex;
 
 	enum MaterialDebugFlags : uint32_t
@@ -76,10 +84,61 @@ namespace Lux {
 #endif
 	}
 
+	Ref<Texture2D> MaterialAsset::GetAlphaCoverageTexture(AssetHandle textureHandle, const Ref<Texture2D>& texture, uint8_t alphaCoverageCutoff)
+	{
+		if (!texture)
+			return nullptr;
+
+		if (!alphaCoverageCutoff)
+			return GetSRGBTexture(textureHandle, texture);
+
+		// The chain is rescaled from 8-bit RGBA bytes, the bytes the sRGB copy reinterprets.
+		if (texture->GetFormat() != ImageFormat::RGBA)
+		{
+			{
+				std::scoped_lock lock(s_SRGBTextureCacheMutex);
+				if (s_ReportedAlphaCoverageFallbacks.insert(textureHandle).second)
+				{
+					LUX_CORE_WARN_TAG("Renderer", "Cutout albedo '{}' ({}) keeps its box-filtered mips and may thin out with distance: coverage-preserving mips are built from 8-bit RGBA only",
+						texture->GetPath().string(), Utils::ImageFormatToString(texture->GetFormat()));
+				}
+			}
+			return GetSRGBTexture(textureHandle, texture);
+		}
+
+#ifndef LUX_HEADLESS
+		const uint64_t sourceHash = texture->GetHash();
+		std::scoped_lock lock(s_SRGBTextureCacheMutex);
+		auto& cacheEntry = s_AlphaCoverageTextureCache[{ textureHandle, alphaCoverageCutoff }];
+		if (!cacheEntry.Texture || cacheEntry.SourceHash != sourceHash || cacheEntry.Texture->GetSize() != texture->GetSize() || cacheEntry.Texture->GetMipLevelCount() != texture->GetMipLevelCount())
+		{
+			cacheEntry.SourceHash = sourceHash;
+			cacheEntry.Texture = Texture2D::CreateFromSRGB(texture, static_cast<float>(alphaCoverageCutoff) / 255.0f);
+		}
+
+		// Editing a cutoff builds a variant for each step it passes through: drop this texture's other
+		// variants once nothing but the cache holds them. Erasing other nodes keeps cacheEntry valid.
+		for (auto it = s_AlphaCoverageTextureCache.lower_bound({ textureHandle, 0 });
+			it != s_AlphaCoverageTextureCache.end() && it->first.first == textureHandle;)
+		{
+			const bool unused = !it->second.Texture || it->second.Texture->GetRefCount() == 1;
+			if (it->first.second != alphaCoverageCutoff && unused)
+				it = s_AlphaCoverageTextureCache.erase(it);
+			else
+				++it;
+		}
+
+		return cacheEntry.Texture ? cacheEntry.Texture : texture;
+#else
+		return texture;
+#endif
+	}
+
 	void MaterialAsset::ReleaseSharedResources()
 	{
 		std::scoped_lock lock(s_SRGBTextureCacheMutex);
 		s_SRGBTextureCache.clear();
+		s_AlphaCoverageTextureCache.clear();
 	}
 
 	MaterialAsset::MaterialAsset(bool transparent)
@@ -213,14 +272,17 @@ namespace Lux {
 			Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(handle);
 			if (texture)
 			{
-				// Skip building the sRGB copy for a shader that has no albedo slot to put it in.
-				if (m_Material->FindResourceDeclaration(s_AlbedoMapUniform))
-					WriteTexture(s_AlbedoMapUniform, GetSRGBTexture(handle, texture));
+				WriteAlbedoTexture(handle, texture);
 			}
 			else
 			{
 				std::scoped_lock lock(s_SRGBTextureCacheMutex);
 				s_SRGBTextureCache.erase(handle);
+				for (auto it = s_AlphaCoverageTextureCache.lower_bound({ handle, 0 });
+					it != s_AlphaCoverageTextureCache.end() && it->first.first == handle;)
+				{
+					it = s_AlphaCoverageTextureCache.erase(it);
+				}
 				ClearAlbedoMap();
 			}
 		}
@@ -372,8 +434,53 @@ namespace Lux {
 	void MaterialAsset::SetSurfaceParameters(const MaterialSurfaceParameters& parameters)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		const bool albedoChainChanged = parameters.AlphaMode != m_Surface.AlphaMode || parameters.AlphaThreshold != m_Surface.AlphaThreshold;
 		m_Surface = parameters;
+
+		// The albedo's mip chain follows the alpha mode and cutoff.
+		if (albedoChainChanged && m_Maps.AlbedoMap && m_Material)
+		{
+			if (Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(m_Maps.AlbedoMap))
+				WriteAlbedoTexture(m_Maps.AlbedoMap, texture);
+		}
+
 		UpdateMaterialComplexityMetadata();
+	}
+
+	void MaterialAsset::WriteAlbedoTexture(AssetHandle handle, const Ref<Texture2D>& texture)
+	{
+		// Skip building a copy for a shader that has no albedo slot to put it in.
+		if (!m_Material->FindResourceDeclaration(s_AlbedoMapUniform))
+			return;
+
+		// The copy SceneRenderer binds for this material's bindless albedo slot, built here ahead of the
+		// first frame that draws it.
+		const bool cutout = !m_Transparent && m_Surface.AlphaMode == MaterialAlphaMode::Cutout;
+		const uint8_t alphaCoverageCutoff = cutout ? GetAlphaCoverageCutoffKey(m_Surface.AlphaThreshold) : uint8_t(0);
+		WriteTexture(s_AlbedoMapUniform, alphaCoverageCutoff
+			? GetAlphaCoverageTexture(handle, texture, alphaCoverageCutoff)
+			: GetSRGBTexture(handle, texture));
+
+#ifndef LUX_HEADLESS
+		// The copy this material stopped binding (the importer and the editor switch alpha modes after
+		// the albedo is set) goes once only the cache holds it. The bound one has the material's reference.
+		std::scoped_lock lock(s_SRGBTextureCacheMutex);
+		auto isUnused = [](const SRGBTextureCacheEntry& entry) { return !entry.Texture || entry.Texture->GetRefCount() == 1; };
+		if (alphaCoverageCutoff)
+		{
+			auto srgbIt = s_SRGBTextureCache.find(handle);
+			if (srgbIt != s_SRGBTextureCache.end() && isUnused(srgbIt->second))
+				s_SRGBTextureCache.erase(srgbIt);
+		}
+		else
+		{
+			for (auto it = s_AlphaCoverageTextureCache.lower_bound({ handle, 0 });
+				it != s_AlphaCoverageTextureCache.end() && it->first.first == handle;)
+			{
+				it = isUnused(it->second) ? s_AlphaCoverageTextureCache.erase(it) : std::next(it);
+			}
+		}
+#endif
 	}
 
 	void MaterialAsset::UpdateMaterialComplexityMetadata()
@@ -395,7 +502,8 @@ namespace Lux {
 			flags |= MaterialDebug_AlbedoMap;
 			textureCount++;
 		}
-		textureCount += (m_Surface.EmissiveMap ? 1 : 0) + (m_Surface.OcclusionMap ? 1 : 0) + (m_Surface.HeightMap ? 1 : 0);
+		textureCount += (m_Surface.EmissiveMap ? 1 : 0) + (m_Surface.OcclusionMap ? 1 : 0) + (m_Surface.HeightMap ? 1 : 0)
+			+ (m_Surface.DiffuseTransmissionMap ? 1 : 0);
 		if (usingNormalMap)
 		{
 			flags |= MaterialDebug_NormalMap;

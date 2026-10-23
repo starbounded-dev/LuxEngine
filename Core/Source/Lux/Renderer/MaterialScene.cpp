@@ -32,7 +32,7 @@ namespace Lux {
 
 		bool IsRefractive(const GPUMaterialData& data)
 		{
-			return data.Transmission.x > 0.0f;
+			return data.Refraction.x > 0.0f;
 		}
 
 		uint32_t PackFloatBits(float value)
@@ -144,7 +144,8 @@ namespace Lux {
 
 		const bool transparent = input.Transparent || (materialAsset && materialAsset->IsTransparent());
 		const bool shadowCasting = materialAsset ? materialAsset->IsShadowCasting() : !material->GetFlag(MaterialFlag::DisableShadowCasting);
-		const bool twoSided = ResolveRasterState(materialAsset, input.OverrideMaterial, input.Transparent).TwoSided;
+		const GPUMaterialRasterState rasterState = ResolveRasterState(materialAsset, input.OverrideMaterial, input.Transparent);
+		const bool twoSided = rasterState.TwoSided;
 
 		// A material asset owns its values; only a bare override material is read from its shader
 		// block, which may not declare every member.
@@ -172,7 +173,7 @@ namespace Lux {
 			flags |= GPUMaterialFlags::TwoSided;
 
 		auto assignTexture = [&](AssetHandle textureHandle, GPUMaterialFlags presentFlag, uint32_t& textureSlot,
-			TextureColorSpace colorSpace = TextureColorSpace::Linear)
+			TextureColorSpace colorSpace = TextureColorSpace::Linear, uint8_t alphaCoverageCutoff = 0)
 			{
 				if (!textureHandle)
 					return;
@@ -184,7 +185,9 @@ namespace Lux {
 				}
 
 				flags |= presentFlag;
-				textureSlot = resolveTextureIndex ? resolveTextureIndex(textureHandle, colorSpace) : InvalidGPUTextureIndex;
+				textureSlot = resolveTextureIndex
+					? resolveTextureIndex(GPUTextureSlot{ textureHandle, colorSpace, alphaCoverageCutoff })
+					: InvalidGPUTextureIndex;
 			};
 
 		// Without an asset (a bare override material) emission keeps tinting by the base colour.
@@ -192,7 +195,12 @@ namespace Lux {
 
 		if (materialAsset)
 		{
-			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, data.TextureIndices.x, TextureColorSpace::SRGB);
+			// Every pass that alpha-tests samples this slot, so they all see the same coverage-preserving mips.
+			const uint8_t albedoCoverageCutoff = rasterState.AlphaMasked
+				? GetAlphaCoverageCutoffKey(materialAsset->GetSurfaceParameters().AlphaThreshold)
+				: uint8_t(0);
+			assignTexture(materialAsset->GetAlbedoMapHandle(), GPUMaterialFlags::HasAlbedoTexture, data.TextureIndices.x,
+				TextureColorSpace::SRGB, albedoCoverageCutoff);
 
 			const bool useNormalMap = (fromAsset ? materialAsset->IsUsingNormalMap() : ReadMaterialBool(material, s_UseNormalMapUniform, false))
 				&& materialAsset->GetNormalMapHandle();
@@ -224,12 +232,20 @@ namespace Lux {
 			assignTexture(surface.EmissiveMap, GPUMaterialFlags::HasEmissiveTexture, data.ExtraTextureIndices.x, TextureColorSpace::SRGB);
 			assignTexture(surface.OcclusionMap, GPUMaterialFlags::HasOcclusionTexture, data.ExtraTextureIndices.y);
 			assignTexture(surface.HeightMap, GPUMaterialFlags::HasHeightTexture, data.ExtraTextureIndices.z);
+
+			// Thin-surface diffuse transmission is a deferred-lighting term; the transparent forward
+			// path has none, so its rows keep a factor of 0.
+			if (!transparent && surface.DiffuseTransmission > 0.0f)
+			{
+				data.Transmission = glm::vec4(ToLinearColor(surface.DiffuseTransmissionColor), glm::clamp(surface.DiffuseTransmission, 0.0f, 1.0f));
+				assignTexture(surface.DiffuseTransmissionMap, GPUMaterialFlags::HasTransmissionTexture, data.TransmissionTextureIndices.x);
+			}
 			data.ExtraTextureIndices.w =
 				((uint32_t)surface.MetalnessChannel << GPUMaterialChannelShiftMetalness)
 				| ((uint32_t)surface.RoughnessChannel << GPUMaterialChannelShiftRoughness)
 				| ((uint32_t)surface.OcclusionChannel << GPUMaterialChannelShiftOcclusion);
 
-			data.Transmission = glm::vec4(
+			data.Refraction = glm::vec4(
 				transparent ? glm::clamp(surface.Transmission, 0.0f, 1.0f) : 0.0f,
 				glm::max(surface.IOR, 1.0f),
 				glm::max(surface.Thickness, 0.0f),
@@ -380,12 +396,12 @@ namespace Lux {
 		// Acquire the new texture set before releasing the old one, so a texture both use keeps its slot.
 		std::vector<GPUTextureIndex> previousTextures = std::move(row.Textures);
 		row.Textures.clear();
-		GPUMaterialData data = BuildGPUMaterialData(input, [this, &row](AssetHandle textureHandle, TextureColorSpace colorSpace)
+		GPUMaterialData data = BuildGPUMaterialData(input, [this, &row](const GPUTextureSlot& slot)
 			{
 				if (!m_TextureScene)
 					return InvalidGPUTextureIndex;
 
-				const GPUTextureIndex textureIndex = m_TextureScene->AcquireTexture(textureHandle, colorSpace);
+				const GPUTextureIndex textureIndex = m_TextureScene->AcquireTexture(slot);
 				if (textureIndex != InvalidGPUTextureIndex)
 					row.Textures.push_back(textureIndex);
 				return textureIndex;

@@ -105,8 +105,8 @@ const float REFRACTION_MAX_MIP = 5.0;
 // screen; absorbed over the path toward the attenuation colour (Beer-Lambert). No history.
 vec3 RefractedBackground(GPUMaterial material, vec3 worldPosition, vec3 N, vec3 V, float roughness, float envMapRotation)
 {
-	float ior = max(material.Transmission.y, 1.0);
-	float thickness = max(material.Transmission.z, 0.0);
+	float ior = max(material.Refraction.y, 1.0);
+	float thickness = max(material.Refraction.z, 0.0);
 	vec3 refractDirection = refract(-V, N, 1.0 / ior);
 	if (dot(refractDirection, refractDirection) < 1e-6)
 		refractDirection = -V;
@@ -132,7 +132,7 @@ vec3 RefractedBackground(GPUMaterial material, vec3 worldPosition, vec3 N, vec3 
 			* u_Scene.EnvironmentMapIntensity;
 	}
 
-	float attenuationDistance = material.Transmission.w;
+	float attenuationDistance = material.Refraction.w;
 	if (attenuationDistance > 0.0 && thickness > 0.0)
 		background *= pow(max(material.AttenuationColor.rgb, vec3(1e-4)), vec3(thickness / attenuationDistance));
 	return background;
@@ -257,15 +257,18 @@ void main()
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
-	// Normals (either from vertex or map)
-	m_Params.Normal = normalize(Input.Normal);
+	// Normals (either from vertex or map). A two-sided material's back-faces draw is lit as the side
+	// the camera sees, as GBuffer_Static does: the normal and tangent frame flip.
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	const vec3 vertexNormal = Input.Normal * faceSign;
+	m_Params.Normal = normalize(vertexNormal);
 	if (materialUseNormalMap)
 	{
 		vec4 normalTexColor = SampleMaterialSceneTexture(
 			gpuMaterial.TextureIndices.y,
 			uv,
 			materialMipBias);
-		m_Params.Normal = LuxApplyNormalMap(Input.Normal, Input.WorldNormals, normalTexColor.rgb, gpuMaterial.Surface.y);
+		m_Params.Normal = LuxApplyNormalMap(vertexNormal, Input.WorldNormals * faceSign, normalTexColor.rgb, gpuMaterial.Surface.y);
 	}
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
 	{
@@ -298,7 +301,7 @@ void main()
 
 	// Transmission takes its share from the diffuse lobe (glTF); the base colour then tints what
 	// comes through instead.
-	float transmission = GetGPUMaterialTransmission(gpuMaterial);
+	float transmission = GetGPUMaterialRefraction(gpuMaterial);
 	vec3 transmissionTint = m_Params.Albedo;
 	m_Params.Albedo *= 1.0 - transmission;
 

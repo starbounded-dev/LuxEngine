@@ -6,17 +6,26 @@
 
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/StorageBuffer.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/TextureReadback.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include "Lux/Asset/TextureImporter.h"
 
+#include <array>
 #include <atomic>
+#include <format>
 
 namespace Lux {
 
 	namespace Utils {
+
+		// Mirrors AlphaCoverageHistogram.glsl / AlphaCoverageScale.glsl: one 256-bin histogram per mip,
+		// for up to 16 mips (a side below 65536).
+		constexpr uint32_t AlphaCoverageBins = 256;
+		constexpr uint32_t AlphaCoverageMaxMips = 16;
+		constexpr std::array<uint32_t, AlphaCoverageBins * AlphaCoverageMaxMips> k_EmptyAlphaCoverageHistogram{};
 
 		static bool NVRHISamplerFilter(TextureFilter filter)
 		{
@@ -113,6 +122,96 @@ namespace Lux {
 				});
 		}
 
+		// Records the coverage-preserving copy of `chain`, a box-filtered RGBA8 chain RecordMipDownsample
+		// left in ShaderResource: every level's alpha histogram, then every level written to a new image
+		// with its alpha rescaled to mip 0's coverage at `alphaCutoff` (mip 0 unchanged). The new image is
+		// returned in ShaderResource; `chain` is not modified.
+		static Ref<Image2D> RecordAlphaCoverageChain(Ref<RenderCommandBuffer> commandBuffer, Ref<Image2D> chain, float alphaCutoff)
+		{
+			const ImageSpecification& chainSpec = chain->GetSpecification();
+			LUX_CORE_VERIFY(chainSpec.Mips <= AlphaCoverageMaxMips);
+
+			ImageSpecification outputSpec = chainSpec;
+			outputSpec.DebugName = chainSpec.DebugName + " (alpha coverage)";
+			Ref<Image2D> output = Image2D::Create(outputSpec);
+			output->Invalidate();
+
+			StorageBufferSpecification histogramSpec;
+			histogramSpec.DebugName = "AlphaCoverageHistogram";
+			Ref<StorageBuffer> histogram = StorageBuffer::Create(static_cast<uint32_t>(sizeof(k_EmptyAlphaCoverageHistogram)), histogramSpec);
+
+			Renderer::Submit([commandBuffer, histogram, output]() mutable
+				{
+					commandBuffer->RT_WriteBuffer(histogram->GetBuffer(), k_EmptyAlphaCoverageHistogram.data(), sizeof(k_EmptyAlphaCoverageHistogram));
+					commandBuffer->RT_TransitionTextureState(output->GetImageInfo().Tracked, AllSubresources, ResourceState::UnorderedAccess);
+					commandBuffer->RT_CommitBarriers();
+				});
+
+			auto createPass = [&histogram](const char* name, const Ref<Shader>& shader)
+				{
+					ComputePassSpecification spec;
+					spec.DebugName = name;
+					spec.Pipeline = Renderer::GetOrCreateMipGenPipeline(shader); // cached: built once, not per texture
+					Ref<ComputePass> pass = ComputePass::Create(spec);
+					pass->SetInput("AlphaCoverageHistogram", histogram);
+					LUX_CORE_VERIFY(pass->Validate());
+					pass->Bake();
+					return pass;
+				};
+
+			auto mipView = [](const Ref<Image2D>& image, uint32_t mip)
+				{
+					ImageViewSpecification viewSpec;
+					viewSpec.Image = image;
+					viewSpec.Mip = mip;
+					viewSpec.MipCount = 1;
+					return ImageView::Create(viewSpec);
+				};
+
+			// Every level's histogram first: the scale of each level is solved against mip 0's.
+			Ref<Shader> histogramShader = Renderer::GetShaderLibrary()->Get("AlphaCoverageHistogram");
+			Ref<ComputePass> histogramPass = createPass("AlphaCoverageHistogram", histogramShader);
+			Renderer::BeginComputePass(commandBuffer, histogramPass);
+			for (uint32_t mip = 0; mip < chainSpec.Mips; mip++)
+			{
+				const uint32_t mipWidth = glm::max(chainSpec.Width >> mip, 1u);
+				const uint32_t mipHeight = glm::max(chainSpec.Height >> mip, 1u);
+
+				Ref<Material> material = Material::Create(histogramShader);
+				material->Set("u_InputTexture", mipView(chain, mip));
+
+				struct { uint32_t Mip; } pushConstants{ mip };
+				const glm::uvec3 workGroups{ (mipWidth + 15) / 16, (mipHeight + 15) / 16, 1 };
+				Renderer::DispatchCompute(commandBuffer, histogramPass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			}
+			Renderer::EndComputePass(commandBuffer, histogramPass);
+
+			Ref<Shader> scaleShader = Renderer::GetShaderLibrary()->Get("AlphaCoverageScale");
+			Ref<ComputePass> scalePass = createPass("AlphaCoverageScale", scaleShader);
+			Renderer::BeginComputePass(commandBuffer, scalePass);
+			for (uint32_t mip = 0; mip < chainSpec.Mips; mip++)
+			{
+				const uint32_t mipWidth = glm::max(chainSpec.Width >> mip, 1u);
+				const uint32_t mipHeight = glm::max(chainSpec.Height >> mip, 1u);
+
+				Ref<Material> material = Material::Create(scaleShader);
+				material->Set("u_InputTexture", mipView(chain, mip));
+				material->Set("o_OutputTexture", mipView(output, mip));
+
+				struct { uint32_t Mip; float AlphaCutoff; } pushConstants{ mip, alphaCutoff };
+				const glm::uvec3 workGroups{ (mipWidth + 7) / 8, (mipHeight + 7) / 8, 1 };
+				Renderer::DispatchCompute(commandBuffer, scalePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			}
+			Renderer::EndComputePass(commandBuffer, scalePass);
+
+			Renderer::Submit([commandBuffer, output]() mutable
+				{
+					commandBuffer->RT_TransitionTextureState(output->GetImageInfo().Tracked, AllSubresources, ResourceState::ShaderResource);
+					commandBuffer->RT_CommitBarriers();
+				});
+			return output;
+		}
+
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////
@@ -141,7 +240,7 @@ namespace Lux {
 		m_ImageData.Release();
 	}
 
-	Ref<Texture2D> Texture2D::CreateFromSRGB(Ref<Texture2D> texture)
+	Ref<Texture2D> Texture2D::CreateFromSRGB(Ref<Texture2D> texture, float alphaCoverageCutoff)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// The same bytes, read as sRGB. Only mip 0 is copied: the source's chain was averaged on the
@@ -156,7 +255,8 @@ namespace Lux {
 		spec.SamplerWrap = texture->m_Specification.SamplerWrap;
 		spec.SamplerFilter = texture->m_Specification.SamplerFilter;
 		spec.MaxAnisotropy = texture->m_Specification.MaxAnisotropy;
-		spec.DebugName = texture->m_Specification.DebugName + " (sRGB)";
+		spec.DebugName = texture->m_Specification.DebugName
+			+ (alphaCoverageCutoff > 0.0f ? std::format(" (sRGB, alpha coverage {:.3f})", alphaCoverageCutoff) : std::string(" (sRGB)"));
 
 		ImageSpecification imageSpec;
 		imageSpec.DebugName = spec.DebugName;
@@ -202,7 +302,7 @@ namespace Lux {
 		commandBuffer->Submit();
 
 		if (mipCount > 1)
-			srgbTexture->GenerateMips();
+			srgbTexture->GenerateMips(alphaCoverageCutoff);
 
 		return srgbTexture;
 	}
@@ -452,9 +552,11 @@ namespace Lux {
 		return { width, height };
 	}
 
-	void Texture2D::GenerateMips()
+	void Texture2D::GenerateMips(float alphaCoverageCutoff)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		LUX_CORE_ASSERT(alphaCoverageCutoff <= 0.0f || m_Specification.Format == ImageFormat::SRGBA,
+			"Coverage-preserving mips are built for SRGBA albedo only ('{}')", m_Specification.DebugName);
 		if (m_Specification.Format == ImageFormat::SRGB)
 		{
 			LUX_CORE_WARN("Texture2D::GenerateMips - Skipping mip generation for 3-channel SRGB texture '{}'. Use SRGBA.", m_Specification.DebugName);
@@ -518,9 +620,14 @@ namespace Lux {
 
 			Utils::RecordMipDownsample(renderCommandBuffer, scratch, Renderer::GetShaderLibrary()->Get("LinearSampleSRGB"));
 
-			Renderer::Submit([renderCommandBuffer, image, scratch]() mutable
+			// With a cutoff, the chain copied back is the coverage-preserving copy of the box-filtered one.
+			Ref<Image2D> chain = alphaCoverageCutoff > 0.0f
+				? Utils::RecordAlphaCoverageChain(renderCommandBuffer, scratch, alphaCoverageCutoff)
+				: scratch;
+
+			Renderer::Submit([renderCommandBuffer, image, chain]() mutable
 				{
-					const ImageInfo& source = scratch->GetImageInfo();
+					const ImageInfo& source = chain->GetImageInfo();
 					const ImageInfo& destination = image->GetImageInfo();
 					if (!source.RHITexture || !destination.RHITexture)
 						return;

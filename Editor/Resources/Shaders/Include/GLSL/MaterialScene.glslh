@@ -18,7 +18,9 @@ struct GPUMaterial
 	vec4 UVTransform;     // 2x2 matrix columns (xy, zw): rotation x tiling
 	vec4 UVOffset;        // xy = offset
 	uvec4 ExtraTextureIndices; // x = emissive, y = occlusion, z = height, w = packed-map channel selects
-	vec4 Transmission;         // x = transmission (transparent rows only), y = IOR, z = thickness, w = attenuation distance
+	vec4 Transmission;    // rgb = linear diffuse transmission colour, w = factor (0 = none)
+	uvec4 TransmissionTextureIndices; // x = factor map (alpha), yzw reserved
+	vec4 Refraction;           // x = transmission (transparent rows only), y = IOR, z = thickness, w = attenuation distance
 	vec4 AttenuationColor;     // rgb = linear attenuation colour
 };
 
@@ -47,6 +49,7 @@ const uint GPU_MATERIAL_FLAG_OVERRIDE_MATERIAL = 1u << 11u;
 const uint GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE = 1u << 12u;
 const uint GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE = 1u << 13u;
 const uint GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE = 1u << 14u;
+const uint GPU_MATERIAL_FLAG_HAS_TRANSMISSION_TEXTURE = 1u << 15u;
 
 const uint GPU_MATERIAL_CHANNEL_SHIFT_METALNESS = 0u;
 const uint GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS = 2u;
@@ -169,9 +172,10 @@ float GetGPUMaterialSpecular(GPUMaterial material, float fallbackSpecular)
 	return IsGPUMaterialRowUsable(material) ? clamp(material.Surface.x, 0.0, 1.0) : fallbackSpecular;
 }
 
-float GetGPUMaterialTransmission(GPUMaterial material)
+// The share of the light a transparent row refracts (glTF transmission), not diffuse transmission.
+float GetGPUMaterialRefraction(GPUMaterial material)
 {
-	return IsGPUMaterialRowUsable(material) ? clamp(material.Transmission.x, 0.0, 1.0) : 0.0;
+	return IsGPUMaterialRowUsable(material) ? clamp(material.Refraction.x, 0.0, 1.0) : 0.0;
 }
 
 // Alpha cutoff for GPU_MATERIAL_ALPHA_MASKED. An unusable row falls back so a missing material

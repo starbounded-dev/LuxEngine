@@ -558,6 +558,27 @@ namespace Lux
 			ImGui::TreePop();
 		}
 
+		// Diffuse transmission is a deferred-lighting term: the transparent path has none.
+		if (!transparent && ImGuiEx::PropertyGridHeader("Translucency"))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			surfaceChanged |= ImGuiEx::Property("Transmission", surface.DiffuseTransmission, 0.01f, 0.0f, 1.0f,
+				"How much of the diffuse light passes through to the far side, as through a leaf lit from behind. 0 turns it off.", false);
+			surfaceChanged |= ImGuiEx::PropertyColor("Transmission Color", surface.DiffuseTransmissionColor,
+				"Tint of the light that passes through.", false);
+
+			AssetHandle transmissionMap;
+			if (textureSlot("Transmission Map", surface.DiffuseTransmissionMap, "Its alpha multiplies Transmission, to mask out veins and stems.", transmissionMap))
+			{
+				surface.DiffuseTransmissionMap = transmissionMap;
+				surfaceChanged = true;
+			}
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
 		if (ImGuiEx::PropertyGridHeader("Texture Maps"))
 		{
 			ImGuiEx::BeginPropertyGrid();
@@ -651,6 +672,10 @@ namespace Lux
 			bool castShadows = material->IsShadowCasting();
 			if (ImGuiEx::Property("Cast Shadows", castShadows, "", false))
 				material->SetShadowCasting(castShadows);
+
+			surfaceChanged |= ImGuiEx::Property("Two Sided", surface.TwoSided,
+				"Draws back faces too, lit from the side the camera sees. For leaves, chains and other single-sheet cards; "
+				"a transparent material blends its far side in first.", false);
 
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();

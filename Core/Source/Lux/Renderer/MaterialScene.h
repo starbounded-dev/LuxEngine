@@ -44,7 +44,8 @@ namespace Lux {
 		OverrideMaterial = BIT(11),
 		HasEmissiveTexture = BIT(12),
 		HasOcclusionTexture = BIT(13),
-		HasHeightTexture = BIT(14)
+		HasHeightTexture = BIT(14),
+		HasTransmissionTexture = BIT(15)
 	};
 
 	inline constexpr GPUMaterialFlags operator|(GPUMaterialFlags lhs, GPUMaterialFlags rhs)
@@ -86,10 +87,12 @@ namespace Lux {
 		glm::vec4 UVTransform = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f); // 2x2 matrix columns (xy, zw): rotation x tiling
 		glm::vec4 UVOffset = glm::vec4(0.0f); // xy offset, zw reserved
 		glm::uvec4 ExtraTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, GPUMaterialDefaultChannelSelects); // x emissive, y occlusion, z height, w channel selects
-		glm::vec4 Transmission = glm::vec4(0.0f, 1.5f, 0.0f, 0.0f); // x transmission (transparent rows only), y IOR, z thickness, w attenuation distance
+		glm::vec4 Transmission = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f); // rgb linear diffuse transmission colour, w factor (0 = none)
+		glm::uvec4 TransmissionTextureIndices = glm::uvec4(InvalidGPUTextureIndex, 0u, 0u, 0u); // x factor map (alpha), yzw reserved
+		glm::vec4 Refraction = glm::vec4(0.0f, 1.5f, 0.0f, 0.0f); // x transmission (transparent rows only), y IOR, z thickness, w attenuation distance
 		glm::vec4 AttenuationColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f); // rgb linear attenuation colour
 	};
-	static_assert(sizeof(GPUMaterialData) == 11 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
+	static_assert(sizeof(GPUMaterialData) == 13 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
 
 	struct GPUMaterialBuildInput
 	{
@@ -114,8 +117,9 @@ namespace Lux {
 		uint32_t MaterialCount = 0;
 	};
 
-	// Maps a material's texture to its bindless slot. Colour maps ask for TextureColorSpace::SRGB.
-	using GPUTextureResolver = std::function<GPUTextureIndex(AssetHandle, TextureColorSpace)>;
+	// Maps a material's texture to its bindless slot. Colour maps ask for TextureColorSpace::SRGB, and a
+	// Cutout material's albedo for its alpha-coverage cutoff too.
+	using GPUTextureResolver = std::function<GPUTextureIndex(const GPUTextureSlot&)>;
 
 	// The GPU material table of one RenderScene. Asset materials are reference counted: a row lives
 	// while something holds it, and is rebuilt only when its MaterialAsset object or that asset's
@@ -210,7 +214,7 @@ namespace Lux {
 	private:
 		uint32_t m_FrameIndex = 0;
 		uint32_t m_DirtyMaterialCount = 0;
-		uint32_t m_RefractiveMaterialCount = 0; // rows with Transmission.x > 0
+		uint32_t m_RefractiveMaterialCount = 0; // rows with Refraction.x > 0
 		uint64_t m_Version = 0;
 		uint64_t m_AssetRevision = 1;
 		TextureScene* m_TextureScene = nullptr;

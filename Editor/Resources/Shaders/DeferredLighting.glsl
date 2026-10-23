@@ -77,7 +77,9 @@ vec3 IBL(vec3 F0, vec3 Lr, float ao)
 		ao);
 }
 
-float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
+// `normal` is the side of the surface the receiver bias offsets toward: the shading normal for
+// reflected light, the back face for transmitted light.
+float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 normal)
 {
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0)
 		return 0.0;
@@ -99,7 +101,7 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
 	// hides the depth steps between caster facets without over-biasing the near cascades. It grows at
 	// grazing angles but keeps a floor head-on, where faceted meshes still differ from their smooth normal.
 	float shadowMapResolution = float(textureSize(sampler2DArray(u_ShadowMapTexture, r_LinearSampler), 0).x);
-	float NdotL = max(dot(m_Params.Normal, u_Scene.DirectionalLights.Direction), 0.0);
+	float NdotL = max(dot(normal, u_Scene.DirectionalLights.Direction), 0.0);
 	float normalBiasTexels = DIR_SHADOW_NORMAL_BIAS_TEXELS * max(1.0 - NdotL, DIR_SHADOW_MIN_NORMAL_BIAS);
 
 	vec4 shadowCoordsClip[4];
@@ -107,7 +109,7 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
 	{
 		mat4 lightMatrix = u_DirShadow.DirLightMatrices[i];
 		float texelWorldSize = 2.0 / max(length(vec3(lightMatrix[0][0], lightMatrix[1][0], lightMatrix[2][0])) * shadowMapResolution, 1e-6);
-		vec3 biasedPosition = worldPosition + m_Params.Normal * (texelWorldSize * normalBiasTexels);
+		vec3 biasedPosition = worldPosition + normal * (texelWorldSize * normalBiasTexels);
 		shadowCoordsClip[i] = lightMatrix * vec4(biasedPosition, 1.0);
 	}
 
@@ -154,6 +156,22 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition)
 	}
 
 	return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0, 1.0);
+}
+
+// The directional light through a translucent surface. Its shadow is offset toward the light's side,
+// the back face: the shading-normal offset points away from the light, so the surface would shadow
+// itself.
+vec3 CalculateDirLightTransmission(vec3 worldPosition, vec3 viewPosition)
+{
+	if (u_Scene.DirectionalLights.Multiplier == 0.0)
+		return vec3(0.0);
+
+	vec3 Li = u_Scene.DirectionalLights.Direction;
+	if (dot(m_Params.Normal, Li) >= 0.0)
+		return vec3(0.0);
+
+	vec3 Lradiance = u_Scene.DirectionalLights.Radiance * u_Scene.DirectionalLights.Multiplier;
+	return LuxDiffuseTransmissionLobe(m_Params.Normal, Li) * Lradiance * CalculateDirectionalShadow(worldPosition, viewPosition, -m_Params.Normal);
 }
 
 vec3 DebugGradient(float value)
@@ -203,8 +221,21 @@ void main()
 	vec3 F0 = mix(LuxDielectricF0(gbuffer.Specular), m_Params.Albedo, m_Params.Metalness);
 	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
 
-	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition);
+	// Thin-surface diffuse transmission takes its share t of the diffuse light from reflection (glTF:
+	// mix(diffuse_brdf, diffuse_btdf, t)); specular is unchanged. Diffuse reflection is linear in albedo,
+	// so scaling the albedo after F0 scales exactly that, for direct light and IBL alike.
+	const float diffuseTransmission = clamp(gbuffer.DiffuseTransmission, 0.0, 1.0);
+	if (diffuseTransmission > 0.0)
+	{
+		const vec3 transmissionColor = r_GPUMaterials.Materials[gbuffer.MaterialID].Transmission.rgb;
+		g_DiffuseTransmission = transmissionColor * diffuseTransmission * (1.0 - m_Params.Metalness);
+		m_Params.Albedo *= 1.0 - diffuseTransmission;
+	}
+
+	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition, m_Params.Normal);
 	vec3 directLighting = CalculateDirLights(F0) * shadowScale;
+	if (diffuseTransmission > 0.0)
+		directLighting += CalculateDirLightTransmission(worldPosition, viewPosition);
 	directLighting += CalculatePointLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
 	directLighting += CalculateSpotLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
 
@@ -213,6 +244,12 @@ void main()
 	float screenSpaceAO = texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
 	float ambientOcclusion = max(gbuffer.AmbientOcclusion, 0.0) * screenSpaceAO;
 	vec3 iblLighting = IBL(F0, Lr, ambientOcclusion) * u_Scene.EnvironmentMapIntensity;
+	// Ambient light arriving at the back face, from the irradiance about -N.
+	if (diffuseTransmission > 0.0)
+	{
+		vec3 backIrradiance = SampleLinear(u_EnvIrradianceTex, RotateVectorAboutY(u_Scene.EnvironmentMapRotation, -m_Params.Normal)).rgb;
+		iblLighting += g_DiffuseTransmission * backIrradiance * ambientOcclusion * u_Scene.EnvironmentMapIntensity;
+	}
 	// Emission is already in scene color (the G-buffer pass writes it); this pass blends additively
 	// on top of it, so it outputs lighting only.
 	vec3 color = directLighting + iblLighting;

@@ -485,6 +485,8 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSample.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleUInt.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LinearSampleSRGB.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/AlphaCoverageHistogram.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/AlphaCoverageScale.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGui.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGuiGlass.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
@@ -531,6 +533,7 @@ namespace Lux {
 
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Masked.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
 		if (Renderer::SupportsMeshShaders())
 			Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Meshlet.glsl");
