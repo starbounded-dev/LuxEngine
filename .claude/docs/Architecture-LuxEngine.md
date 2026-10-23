@@ -391,8 +391,8 @@ Structurally:
 `RelationshipComponent`; rendering (`MeshComponent`, `StaticMeshComponent`, `SubmeshComponent`,
 `MeshTagComponent`, `SpriteRendererComponent`, `CircleRendererComponent`, `TextComponent`,
 `CameraComponent`); lighting (`DirectionalLightComponent`, `PointLightComponent`,
-`SpotLightComponent`, `SkyLightComponent`, `SkyAtmosphereComponent`, `VolumetricCloudComponent`,
-`ExponentialHeightFogComponent`); physics 3D (`RigidBodyComponent`, `CharacterControllerComponent`,
+`SpotLightComponent`, `AreaLightComponent`, `SkyLightComponent`, `SkyAtmosphereComponent`,
+`VolumetricCloudComponent`, `ExponentialHeightFogComponent`); physics 3D (`RigidBodyComponent`, `CharacterControllerComponent`,
 `Box`/`Sphere`/`Capsule`/`Mesh`/`CompoundColliderComponent`); physics 2D (`RigidBody2DComponent`,
 `BoxCollider2DComponent`, `CircleCollider2DComponent`); scripting (`ScriptComponent`,
 `NativeScriptComponent`); audio (`AudioSourceComponent`, `AudioListenerComponent`);

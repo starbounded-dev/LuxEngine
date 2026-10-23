@@ -211,6 +211,19 @@ render thread via the graph; LUTs owned by `SceneRenderer`.
 **Exit criteria:** the checks above. **Rollback:** revert the branch; scenes saved with the component
 would drop it on load in older builds (unknown components are skipped — verify in Phase 1).
 
+**Status 2026-10-22: code done on `feature/render-features`, editor checks pending.** `AreaLightComponent`
+(rect / disk, Unitless = luminance or Lumens) through every component touch point; `LightEnvironment::AreaLights`;
+`AreaLightData` at `(1, 18)` (nearest 32, one-time warning past the cap); LTC tables at `(3, 6)`/`(3, 7)` from
+`Core/vendor/ltc` (the `ltc_1`/`ltc_2` DDS of `selfshadow/ltc_code`, BSD-2-Clause); `DeferredLighting_Area.glsl`
++ `LTC.glslh` in an "Area Lights" pass that is only in the graph with area lights; viewport outline of each
+light's shape. RenderFeatures has a rect and a disk light. Verified: Release, Debug and Lux-Runtime build;
+golden `rf1` — all 17 Benchmark captures identical to `rf0` (known 2-px noise), RenderFeatures shows the
+lights; Debug + sync validation on RenderFeatures and Benchmark: 0 validation ids (the 20 performance
+warnings predate this). Older builds ignore the unknown `AreaLightComponent` key (the deserializer reads
+known keys only) and drop it on save. Pending: driving the new inspector, create menu and add-component
+row in the editor. Found on the way: the metal/rough target's `.w` holds `Specular`, so it is not free
+for diffuse transmission (open question 2).
+
 ### Phase 2 — Sphere and tube lights, transparents, runtime parity
 
 **Goal:** all four shapes; glass and other transparents are lit by area lights; Lux-Runtime and Dist

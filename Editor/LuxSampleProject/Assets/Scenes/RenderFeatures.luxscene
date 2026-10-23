@@ -592,24 +592,48 @@ Entities:
       Visible: true
   - Entity: 16100000000001000034
     TagComponent:
-      Tag: Area Light Slot - Rect
+      Tag: Area Light - Rect
     Parent: 16100000000001000027
     Children:
       []
     TransformComponent:
       Position: [2.5, 2.2, -11.2]
-      Rotation: [0, 0, 0]
+      Rotation: [-0.4, 3.14159, 0]
       Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 0
+      Radiance: [1, 0.9, 0.75]
+      Intensity: 60
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1.6
+      Height: 0.5
+      Radius: 0.5
+      TwoSided: false
+      Range: 12
   - Entity: 16100000000001000035
     TagComponent:
-      Tag: Area Light Slot - Disk
+      Tag: Area Light - Disk
     Parent: 16100000000001000027
     Children:
       []
     TransformComponent:
       Position: [5, 2.2, -11.2]
-      Rotation: [0, 0, 0]
+      Rotation: [-0.4, 3.14159, 0]
       Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 1
+      Radiance: [0.7, 0.85, 1]
+      Intensity: 60
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1
+      Height: 1
+      Radius: 0.35
+      TwoSided: false
+      Range: 12
   - Entity: 16100000000001000036
     TagComponent:
       Tag: Area Light Slot - Sphere

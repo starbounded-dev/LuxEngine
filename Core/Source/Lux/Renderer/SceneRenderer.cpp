@@ -1349,6 +1349,7 @@ namespace Lux {
 		m_UBSShadow = UniformBufferSet::Create(sizeof(UBShadow));
 		m_UBSRendererData = UniformBufferSet::Create(sizeof(UBRendererData));
 		m_UBSPointLights = UniformBufferSet::Create(sizeof(UBPointLights));
+		m_UBSAreaLights = UniformBufferSet::Create(sizeof(UBAreaLights));
 		m_UBSSpotLights = UniformBufferSet::Create(sizeof(UBSpotLights));
 		m_UBSSpotShadow = UniformBufferSet::Create(sizeof(UBSpotShadow));
 		m_UBSScreenData = UniformBufferSet::Create(sizeof(UBScreenData));
@@ -2050,6 +2051,27 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
 			m_DeferredLightingPass->Bake();
 			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
+
+			// Area lights: a second additive full-screen pass, only in the graph when the frame has
+			// area lights, so the deferred lighting shader never carries the LTC code's registers.
+			FramebufferSpecification areaSpec = deferredSpec;
+			areaSpec.DebugName = "AreaLights";
+
+			PipelineSpecification areaPipelineSpec = deferredPipelineSpec;
+			areaPipelineSpec.DebugName = "AreaLights";
+			areaPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("DeferredLighting_Area");
+			areaPipelineSpec.TargetFramebuffer = Framebuffer::Create(areaSpec);
+
+			rpSpec.DebugName = "AreaLightPass";
+			rpSpec.Pipeline = Pipeline::Create(areaPipelineSpec);
+			m_AreaLightPass = RenderPass::Create(rpSpec);
+			BindSceneRenderPassInputs(m_AreaLightPass, PassInputCommonScene | PassInputDepth | PassInputGBuffer);
+			m_AreaLightPass->SetInput("AreaLightData", m_UBSAreaLights);
+			m_AreaLightPass->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
+			m_AreaLightPass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
+			LUX_CORE_VERIFY(m_AreaLightPass->Validate());
+			m_AreaLightPass->Bake();
+			m_AreaLightMaterial = Material::Create(areaPipelineSpec.Shader, "AreaLights");
 
 			// Editor-only debug view target — not created in the standalone runtime.
 			if (m_Specification.EnableEditorRenderTargets)
@@ -3027,6 +3049,7 @@ namespace Lux {
 		}
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
+		resizePass(m_AreaLightPass, viewportSize);
 		resizePass(m_GBufferDebugPass, viewportSize);
 		resizePass(m_JumpFloodInitPass, viewportSize);
 		resizePass(m_JumpFloodPasses[0], viewportSize);
@@ -3821,6 +3844,7 @@ namespace Lux {
 		addRenderPass(m_GeometryPass);
 		addRenderPass(m_GeometryPassTransparent);
 		addRenderPass(m_DeferredLightingPass);
+		addRenderPass(m_AreaLightPass);
 		addRenderPass(m_GBufferDebugPass);
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
@@ -4306,6 +4330,16 @@ namespace Lux {
 				});
 			sceneColorCurrent = deferredOutputs;
 
+			if (m_AreaLightCount > 0 && m_AreaLightPass)
+			{
+				std::vector<RenderGraph::ResourceHandle> areaReads = gbufferOutputs;
+				appendResources(areaReads, preDepthOutputs);
+				appendResources(areaReads, sceneColorCurrent);
+				std::vector<RenderGraph::ResourceHandle> areaOutputs = addRenderPassResources("Area Lights", m_AreaLightPass);
+				addPass("Area Lights", areaReads, areaOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AreaLightPass));
+				sceneColorCurrent = areaOutputs;
+			}
+
 			geometryOutputs = gbufferOutputs;
 			appendResources(geometryOutputs, sceneColorCurrent);
 		}
@@ -4542,6 +4576,7 @@ namespace Lux {
 						if (name == "Selected Geometry") return "SelectedGeometryPass";
 						if (name == "GBuffer") return "GBufferPass";
 						if (name == "Deferred Lighting") return "DeferredLightingPass";
+						if (name == "Area Lights") return "AreaLightPass";
 						if (name == "Transparent Forward") return "TransparentForwardPass";
 						if (name == "Geometry Wireframe") return "GeometryWireframePass";
 						if (name == "GBuffer Debug") return "GBufferDebugPass";
@@ -4935,6 +4970,7 @@ namespace Lux {
 		recreatePassFramebuffer(m_GeometryPass);
 		recreatePassFramebuffer(m_GeometryPassTransparent);
 		recreatePassFramebuffer(m_DeferredLightingPass);
+		recreatePassFramebuffer(m_AreaLightPass);
 		recreatePassFramebuffer(m_GBufferDebugPass);
 		recreatePassFramebuffer(m_SkyboxPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
@@ -5071,6 +5107,7 @@ namespace Lux {
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_AreaLightPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			// Editor-only passes may not exist (EnableEditorRenderTargets=false).
 			if (m_GBufferDebugPass)
 				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -5126,6 +5163,7 @@ namespace Lux {
 			repairPassIfStale(m_GeometryPass, "GBuffer");
 			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
 			repairPassIfStale(m_DeferredLightingPass, "DeferredLighting");
+			repairPassIfStale(m_AreaLightPass, "AreaLights");
 			repairPassIfStale(m_AOCompositePass, "AO-Composite");
 			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
 			repairPassIfStale(m_SkyboxPass, "Skybox");
@@ -5282,6 +5320,47 @@ namespace Lux {
 			if (m_PointLightsUB.Count > 0)
 				std::memcpy(m_PointLightsUB.PointLights, pointLights.data(),
 					sizeof(PointLight) * m_PointLightsUB.Count);
+		}
+
+		// ── Area lights: the nearest MaxAreaLights to the camera ─────────────
+		{
+			const auto& areaLights = m_SceneData.SceneLightEnvironment.AreaLights;
+			const uint32_t maxAreaLights = LightEnvironment::MaxAreaLights;
+			m_AreaLightCount = static_cast<uint32_t>(glm::min<size_t>(areaLights.size(), maxAreaLights));
+			if (areaLights.size() > maxAreaLights)
+			{
+				if (!m_AreaLightCapWarned)
+				{
+					LUX_CORE_WARN_TAG("Renderer", "{} area lights in the scene; only the {} nearest the camera are drawn", areaLights.size(), maxAreaLights);
+					m_AreaLightCapWarned = true;
+				}
+
+				std::vector<AreaLight> nearest = areaLights;
+				const glm::vec3 cameraPosition = m_SceneData.CameraPosition;
+				std::partial_sort(nearest.begin(), nearest.begin() + maxAreaLights, nearest.end(), [&cameraPosition](const AreaLight& lhs, const AreaLight& rhs)
+					{
+						const glm::vec3 lhsOffset = lhs.Position - cameraPosition;
+						const glm::vec3 rhsOffset = rhs.Position - cameraPosition;
+						return glm::dot(lhsOffset, lhsOffset) < glm::dot(rhsOffset, rhsOffset);
+					});
+				std::memcpy(m_AreaLightsUB.AreaLights, nearest.data(), sizeof(AreaLight) * m_AreaLightCount);
+			}
+			else if (m_AreaLightCount > 0)
+			{
+				std::memcpy(m_AreaLightsUB.AreaLights, areaLights.data(), sizeof(AreaLight) * m_AreaLightCount);
+			}
+			m_AreaLightsUB.Count = m_AreaLightCount;
+
+			if (m_AreaLightCount > 0)
+			{
+				Ref<SceneRenderer> instance = this;
+				auto areaData = m_AreaLightsUB;
+				const uint32_t areaSize = static_cast<uint32_t>(16ull + sizeof(AreaLight) * m_AreaLightCount);
+				Renderer::Submit([instance, areaData, areaSize]() mutable {
+					instance->m_UBSAreaLights->RT_Get()->RT_SetData(
+						instance->m_UploadCommandBuffer, &areaData, areaSize);
+					});
+			}
 		}
 
 		// ── Spot lights uniform buffer + shadow data ─────────────────────────-
@@ -8966,6 +9045,19 @@ namespace Lux {
 		BeginProfiledGPU("DeferredLightingPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_DeferredLightingPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_DeferredLightingPass->GetPipeline(), m_DeferredLightingMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::AreaLightPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AreaLightPass");
+		if (!m_AreaLightPass || !m_AreaLightMaterial)
+			return;
+
+		BeginProfiledGPU("AreaLightPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}

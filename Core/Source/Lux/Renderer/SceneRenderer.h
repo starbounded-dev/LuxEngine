@@ -167,16 +167,39 @@ namespace Lux {
 		glm::vec2 Padding2 = { 0.0f, 0.0f };
 	};
 
+	// A rect or disk light: its centre, and half-extent vectors spanning the emitting plane (it emits
+	// along -normalize(cross(HalfRight, HalfUp))). Intensity is luminance. Mirrors AreaLight in LTC.glslh.
+	struct AreaLight
+	{
+		glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+		float     Intensity = 0.0f;
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float     Range = 10.0f;
+		glm::vec3 HalfRight = { 0.5f, 0.0f, 0.0f };
+		uint32_t  Shape = 0; // AreaLightShape
+		glm::vec3 HalfUp = { 0.0f, 0.5f, 0.0f };
+		uint32_t  Flags = 0; // AreaLightFlags
+	};
+
+	// AreaLight::Flags; mirrors AREA_LIGHT_* in LTC.glslh.
+	enum AreaLightFlags : uint32_t
+	{
+		AreaLightTwoSided = 1u << 0,
+	};
+
 	static_assert(sizeof(PointLight) == 48, "PointLight must match the GLSL std140 layout.");
+	static_assert(sizeof(AreaLight) == 64, "AreaLight must match the GLSL std140 layout.");
 	static_assert(sizeof(SpotLight) == 96, "SpotLight must match the GLSL std140 layout.");
 
 	struct LightEnvironment
 	{
 		static constexpr uint32_t MaxDirectionalLights = 1;
+		static constexpr uint32_t MaxAreaLights = 32; // MAX_AREA_LIGHTS in LTC.glslh
 
 		DirectionalLight        DirectionalLights[MaxDirectionalLights];
 		std::vector<PointLight> PointLights;
 		std::vector<SpotLight>  SpotLights;
+		std::vector<AreaLight>  AreaLights; // every area light; the renderer keeps the nearest MaxAreaLights
 
 		uint64_t GetPointLightsSize() const
 		{
@@ -1303,6 +1326,7 @@ namespace Lux {
 		void SelectedGeometryPass();
 		void GBufferPass();
 		void DeferredLightingPass();
+		void AreaLightPass();
 		void TransparentForwardPass();
 		void GeometryWireframePass();
 		void GBufferDebugPass();
@@ -1598,6 +1622,15 @@ namespace Lux {
 			PointLight PointLights[256]{};
 		} m_PointLightsUB;
 
+		struct UBAreaLights
+		{
+			uint32_t  Count = 0;
+			glm::vec3 Padding{};
+			AreaLight AreaLights[LightEnvironment::MaxAreaLights]{};
+		} m_AreaLightsUB;
+		uint32_t m_AreaLightCount = 0; // this frame's uploaded area lights; the area pass runs only when > 0
+		bool m_AreaLightCapWarned = false;
+
 		struct UBSpotLights
 		{
 			uint32_t Count = 0;
@@ -1659,6 +1692,7 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSRendererData;
 		Ref<UniformBufferSet> m_UBSScreenData;
 		Ref<UniformBufferSet> m_UBSPointLights;
+		Ref<UniformBufferSet> m_UBSAreaLights;
 		Ref<UniformBufferSet> m_UBSSpotLights;
 
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] - maps draw instance to GPUScene instance
@@ -1842,6 +1876,8 @@ namespace Lux {
 		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
 		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent forward
 		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
+		Ref<RenderPass>  m_AreaLightPass;               // fullscreen LTC area lights, added over deferred lighting
+		Ref<Material>    m_AreaLightMaterial;
 		Ref<Material>    m_DeferredLightingMaterial;
 		Ref<RenderPass>  m_GBufferDebugPass;
 		Ref<Material>    m_GBufferDebugMaterial;

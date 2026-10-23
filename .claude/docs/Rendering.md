@@ -290,6 +290,17 @@ projection at the near plane, and the filter radius is the penumbra half-width a
 depth`. The search is capped at 0.05 tile UV, the margin point-light faces keep, so taps never read
 a neighbouring tile.
 
+**Area lights are a separate pass.** `AreaLightComponent` (rect or disk, emitting along the entity's
+-Z, Unitless = luminance or Lumens via `PhysicalLight::AreaIntensity`) reaches the renderer through
+`LightEnvironment::AreaLights`; `SceneRenderer` uploads the nearest `LightEnvironment::MaxAreaLights`
+(32, `MAX_AREA_LIGHTS` in `LTC.glslh`; change both) to `AreaLightData` at `(1, 18)`, and the
+"Area Lights" pass (`DeferredLighting_Area.glsl`) adds them over deferred lighting with Linearly
+Transformed Cosines. The pass is only in the graph on frames with area lights, so the deferred
+lighting shader never carries the LTC code. The LTC tables are `Renderer::GetLTCMatrixTexture` /
+`GetLTCAmplitudeTexture` at `(3, 6)` / `(3, 7)`, built from `Core/vendor/ltc/LTCTables.h`
+(BSD-2-Clause, `selfshadow/ltc_code`). A disk is integrated as an area-matched 12-gon. Area lights
+are unshadowed, and transparents are not lit by them yet.
+
 **Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
 tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and
 `AtlasScale` the tile size. Each face renders at 2·atan(1/0.9) ≈ 96°, so the face the shader picks

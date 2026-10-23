@@ -259,13 +259,17 @@ def update_registry(materials: list[Material], directory_relative: str = MATERIA
 	header, _, body = text.partition("Assets:\n")
 	blocks = re.split(r"(?m)^(?=  - Handle: )", body)
 	kept = [b for b in blocks if b and f"FilePath: {directory_relative}/" not in b]
+	wanted = [
+		f"  - Handle: {material.handle}\n"
+		f"    FilePath: {directory_relative}/{material.name}.lmat\n"
+		f"    Type: Material\n" for material in materials]
+	# Already registered exactly (the editor keeps the file sorted by handle): leave it untouched.
+	current = [b for b in blocks if b and f"FilePath: {directory_relative}/" in b]
+	if sorted(current) == sorted(wanted):
+		return
 	if kept and not kept[-1].endswith("\n"):
 		kept[-1] += "\n"
-	for material in materials:
-		kept.append(
-			f"  - Handle: {material.handle}\n"
-			f"    FilePath: {directory_relative}/{material.name}.lmat\n"
-			f"    Type: Material\n")
+	kept += wanted
 	REGISTRY_PATH.write_text(header + "Assets:\n" + "".join(kept), encoding="utf-8", newline="\n")
 
 
@@ -438,6 +442,14 @@ def spot_light(entity: Entity, color, intensity: float, angle: float, range_: fl
 		f"SoftShadows: {boolean(shadows)}", "Falloff: 1", f"Intensity: {num(intensity)}", "Unit: 0",
 		"ColorTemperature: 6500", "UseColorTemperature: false", f"Range: {num(range_)}", "ShadowDistance: 0",
 		"ShadowResolutionTier: 1"])
+
+
+def area_light(entity: Entity, shape: int, color, intensity: float, width: float = 1.0, height: float = 1.0, radius: float = 0.5,
+			   two_sided: bool = False, range_: float = 10.0) -> Entity:
+	return entity.add("AreaLightComponent", [
+		f"Shape: {shape}", f"Radiance: {vec(color)}", f"Intensity: {num(intensity)}", "Unit: 0", "ColorTemperature: 6500",
+		"UseColorTemperature: false", f"Width: {num(width)}", f"Height: {num(height)}", f"Radius: {num(radius)}",
+		f"TwoSided: {boolean(two_sided)}", f"Range: {num(range_)}"])
 
 
 def text(entity: Entity, string: str, color=(1.0, 1.0, 1.0, 1.0), screen_space: bool = False, max_width: float = 30.0) -> Entity:
@@ -833,14 +845,20 @@ def build_features_scene(m: dict[str, int]) -> Scene:
 		"  OrthographicSize: 10", "  OrthographicNear: -1", "  OrthographicFar: 1", "Primary: true", "FixedAspectRatio: false"])
 	script(camera, "LuxSample.FlyCamera", [("Speed", "Float", "6"), ("SprintMultiplier", "Float", "3")])
 
-	# Area lights: three floor strips of rising roughness, a slot above the far end of each, a tube
-	# slot across all three. The slots are plain entities until area lights exist.
+	# Area lights: three floor strips of rising roughness, a light (or, until its shape exists, an
+	# empty slot) above the far end of each, and a tube slot across all three.
 	area = scene.folder("Area Lights")
 	for i, (key, x) in enumerate((("Strip05", 2.5), ("Strip30", 5.0), ("Strip70", 7.5))):
 		static_mesh(scene.entity(f"Floor Strip {i}", (x, 0.01, -6.5), scale=(2.0, 0.02, 9.0), parent=area), CUBE, m[key], scene)
 		static_mesh(scene.entity(f"Slot Stand {i}", (x, 1.0, -11.4), scale=(0.08, 2.0, 0.08), parent=area), CYLINDER, m["Stand"], scene)
-	for shape, x in (("Rect", 2.5), ("Disk", 5.0), ("Sphere", 7.5)):
-		scene.entity(f"Area Light Slot - {shape}", (x, 2.2, -11.2), parent=area)
+	# Rect and disk lights face the camera, tilted down onto their strips (an area light emits along -Z).
+	facing = (-0.4, math.pi, 0.0)
+	rect = scene.entity("Area Light - Rect", (2.5, 2.2, -11.2), facing, parent=area)
+	area_light(rect, 0, (1.0, 0.9, 0.75), 60.0, width=1.6, height=0.5, range_=12.0)
+	disk = scene.entity("Area Light - Disk", (5.0, 2.2, -11.2), facing, parent=area)
+	area_light(disk, 1, (0.7, 0.85, 1.0), 60.0, radius=0.35, range_=12.0)
+	scene.count("area lights", 2)
+	scene.entity("Area Light Slot - Sphere", (7.5, 2.2, -11.2), parent=area)
 	scene.entity("Area Light Slot - Tube", (5.0, 3.6, -9.0), (0.0, 0.0, math.pi / 2.0), parent=area)
 
 	# Glass: panes and spheres of rising roughness in front of the grid wall.
