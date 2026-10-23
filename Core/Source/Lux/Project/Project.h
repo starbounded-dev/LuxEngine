@@ -175,6 +175,12 @@ namespace Lux
 		float BloomUpsampleScale = 1.0f;
 		float BloomIntensity = 1.0f;
 		float BloomDirtIntensity = 1.0f;
+		uint32_t BloomStreakCount = 6;
+		float BloomStreakLength = 1.0f;
+		float BloomStreakIntensity = 1.0f;
+		float BloomStreakRotation = 11.5f;
+		float BloomHaloIntensity = 1.0f;
+		float BloomChromaticSpread = 0.08f;
 
 		bool DOFEnabled = false;
 		uint32_t DOFResolutionScale = 1; // SceneRendererOptions::EffectResolutionScale

@@ -236,6 +236,24 @@ temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ 
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
 
+**Bloom is an FFT convolution with a lens-glare kernel.** One compute pass, "Bloom"
+(`SceneRenderer::BloomCompute`, `PostProcessing/BloomFFT.glsl`, one shader with a mode per dispatch),
+replaces the old mip chain: the bright pass area-averages and soft-thresholds the scene into half of a
+fixed 512×512 grid along its longer side (the other half is zero padding, so the circular convolution
+never wraps), a 512-point shared-memory FFT runs over rows then columns, the spectrum is multiplied by
+the kernel spectrum divided by its DC term (the glare redistributes energy, it does not add any), the
+inverse FFT runs back, and the source region is bilinearly resolved into `m_BloomTexture` (RGBA16F, at
+`BloomSettings::ResolutionScale`), which the composite adds with `BloomIntensity` and the dirt texture.
+R and G share one RGBA32F grid as two complex numbers, B has an RG32F one; with the kernel's pair that
+is ~12 MB, independent of the viewport. The kernel (core, power-law halo, streak lines, the red channel
+wider than the blue) is built from `BloomSettings` — `StreakCount` (≤ `MaxStreakCount`, 8, which is
+`MAX_STREAK_LINES` in the shader), `StreakLength`, `StreakIntensity`, `StreakRotation`,
+`HaloIntensity`, `ChromaticSpread` — and its spectrum is rebuilt only when they change
+(`m_BloomFFTKernelKey`). Bloom settings are renderer-owned project settings:
+`GetEffectivePostProcessSettings` overlays them onto the scene's `PostProcessSettings`. Cost on the
+RTX 4070 Ti, Benchmark: ~0.11 ms at 1280×720, ~0.13 ms at 1920×1080 (the grid size, not the
+viewport, sets it). Everything is per frame; there is no history.
+
 **AO is indirect-only.** The AO composite resolves GTAO into its own `RED8UN` image, and deferred
 lighting multiplies it into the IBL term only (with material AO, which also drives specular
 occlusion). Direct light already has shadow-map visibility, so AO must never multiply the lit scene

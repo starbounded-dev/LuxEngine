@@ -1,4 +1,4 @@
-// FFT convolution bloom (render features plan, phase 4 spike). One shader, one mode per dispatch:
+// FFT convolution bloom: the engine's bloom (SceneRenderer::BloomCompute). One shader, one mode per dispatch:
 //   BRIGHT    the scene, area-averaged and soft-thresholded, into the source region of the 512x512
 //             transform grid, zeros elsewhere (the padding turns the FFT's circular convolution
 //             into a linear one); R and G share u_GridA (two complex numbers), B is u_GridB
@@ -14,6 +14,7 @@
 #include <Samplers.glslh>
 
 #define FFT_SIZE 512u
+#define MAX_STREAK_LINES 8 // BloomSettings::MaxStreakCount
 #define FFT_LOG2_SIZE 9u
 #define THREADS 256u
 
@@ -32,6 +33,8 @@ layout(push_constant) uniform Uniforms
 	vec4 InputSize;  // xy = scene colour size, zw = 1 / that
 	vec4 OutputSize; // xy = bloom texture size, zw = 1 / that
 	vec4 Threshold;  // x threshold, y threshold - knee, z knee * 2, w 0.25 / knee
+	vec4 KernelShape; // x streak lines, y streak length, z streak intensity, w halo intensity
+	vec4 KernelColor; // x chromatic spread, y streak rotation (radians)
 	int Mode;
 	int Axis;        // FFT: 0 rows, 1 columns
 	int Inverse;     // FFT: 1 for the inverse transform
@@ -98,25 +101,30 @@ void Bright()
 	imageStore(u_GridB, pixel, vec4(color.b, 0.0, 0.0, 0.0));
 }
 
-// Lens glare: a sharp core, a power-law halo and six thin streaks, slightly wider in red than in
-// blue; it fades out well inside half the grid so the convolution never wraps.
+// Lens glare: a sharp core, a power-law halo and thin streak lines through the centre, the red
+// channel wider than the blue by the chromatic spread; it fades out well inside half the grid so
+// the convolution never wraps.
 float GlarePSF(vec2 offset, float scale)
 {
 	vec2 d = offset / scale;
 	float radius = length(d);
 	float core = exp(-radius * radius * 0.5);
-	float halo = 0.03 / pow(1.0 + radius * radius * 0.25, 1.5);
+	float halo = 0.03 * u_Uniforms.KernelShape.w / pow(1.0 + radius * radius * 0.25, 1.5);
 	float streaks = 0.0;
-	for (int i = 0; i < 6; i++)
+	int lines = int(u_Uniforms.KernelShape.x);
+	float streakLength = max(u_Uniforms.KernelShape.y, 1e-3) * 14.0;
+	for (int i = 0; i < MAX_STREAK_LINES; i++)
 	{
-		float angle = PI * float(i) / 6.0 + 0.2;
+		if (i >= lines)
+			break;
+		float angle = PI * float(i) / float(lines) + u_Uniforms.KernelColor.y;
 		vec2 direction = vec2(cos(angle), sin(angle));
 		float along = abs(dot(d, direction));
 		float across = abs(dot(d, vec2(-direction.y, direction.x)));
-		streaks += exp(-across * across * 2.0) * exp(-along / 14.0);
+		streaks += exp(-across * across * 2.0) * exp(-along / streakLength);
 	}
 	float window = 1.0 - smoothstep(150.0, 230.0, length(offset));
-	return (core + halo + 0.0015 * streaks) * window;
+	return (core + halo + 0.0015 * u_Uniforms.KernelShape.z * streaks) * window;
 }
 
 void Kernel()
@@ -128,8 +136,9 @@ void Kernel()
 	// Centred on (0, 0): offsets past half the grid wrap to negative.
 	vec2 offset = vec2(pixel);
 	offset = mix(offset, offset - float(FFT_SIZE), greaterThanEqual(offset, vec2(FFT_SIZE / 2u)));
-	imageStore(u_GridA, pixel, vec4(GlarePSF(offset, 1.08), 0.0, GlarePSF(offset, 1.0), 0.0));
-	imageStore(u_GridB, pixel, vec4(GlarePSF(offset, 0.92), 0.0, 0.0, 0.0));
+	float spread = u_Uniforms.KernelColor.x;
+	imageStore(u_GridA, pixel, vec4(GlarePSF(offset, 1.0 + spread), 0.0, GlarePSF(offset, 1.0), 0.0));
+	imageStore(u_GridB, pixel, vec4(GlarePSF(offset, 1.0 - spread), 0.0, 0.0, 0.0));
 }
 
 void FFT()

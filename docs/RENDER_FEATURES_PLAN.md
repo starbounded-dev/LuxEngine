@@ -329,6 +329,22 @@ runtime and Dist builds (the HLSL compiles into the shader pack).
 
 **Docs:** `Rendering.md` (bloom chain, kernel settings, cost).
 
+**Status 2026-10-23: done, awaiting the user's look check.** `Bloom.glsl`, its three mip textures, the
+mip views and materials, and the `BloomFFT` option are gone; `SceneRenderer::BloomCompute` is the FFT
+chain and writes `m_BloomTexture` (RGBA16F, at the bloom resolution scale), which the composite and the
+Bloom debug view read. Deviation from the plan: the kernel settings live in the renderer's
+`BloomSettings` and the project's `ProjectSceneRendererSettings`, next to every other bloom setting,
+not in the scene's `PostProcessSettings`: bloom is renderer-owned (`GetEffectivePostProcessSettings`
+overlays it onto the scene values), so a scene-level copy would never be read. Settings: `StreakCount`
+(0-8), `StreakLength`, `StreakIntensity`, `StreakRotation` (degrees), `HaloIntensity`,
+`ChromaticSpread`; YAML under `PostFX/Bloom` with defaults for missing keys, runtime format 28 (older
+packs keep the defaults), Renderer panel → Post FX rows. The kernel spectrum is rebuilt only when they
+change. `Bloom Upsample Scale` no longer does anything: its row is removed and the field kept so
+project files round-trip. Golden `rf5`: every bloom capture changes, `noBloom` identical to `rf3`; the
+defaults reproduce the approved Phase 4 FFT look (RenderFeatures vs the Phase 4 FFT capture: max 2,
+mean 0.01). Benchmark bloom 0.059 → 0.109 ms. Debug + sync validation: 0 ids. Release, Debug and
+Lux-Runtime build; `BloomFFT.glsl` compiles offline with spirv-val clean.
+
 ### Phase 6 — Frosted-glass overlays and popups
 
 **Goal:** viewport overlays and popups draw over a blurred, tinted backdrop; the preference turns it

@@ -1006,6 +1006,13 @@ namespace Lux {
 		m_BloomSettings.UpsampleScale = 1.0f;
 		m_BloomSettings.Intensity = 1.0f;
 		m_BloomSettings.DirtIntensity = 1.0f;
+		const BloomSettings bloomDefaults;
+		m_BloomSettings.StreakCount = bloomDefaults.StreakCount;
+		m_BloomSettings.StreakLength = bloomDefaults.StreakLength;
+		m_BloomSettings.StreakIntensity = bloomDefaults.StreakIntensity;
+		m_BloomSettings.StreakRotation = bloomDefaults.StreakRotation;
+		m_BloomSettings.HaloIntensity = bloomDefaults.HaloIntensity;
+		m_BloomSettings.ChromaticSpread = bloomDefaults.ChromaticSpread;
 		m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 
 		switch (level)
@@ -1201,6 +1208,12 @@ namespace Lux {
 		m_BloomSettings.UpsampleScale = settings.BloomUpsampleScale;
 		m_BloomSettings.Intensity = settings.BloomIntensity;
 		m_BloomSettings.DirtIntensity = settings.BloomDirtIntensity;
+		m_BloomSettings.StreakCount = settings.BloomStreakCount;
+		m_BloomSettings.StreakLength = settings.BloomStreakLength;
+		m_BloomSettings.StreakIntensity = settings.BloomStreakIntensity;
+		m_BloomSettings.StreakRotation = settings.BloomStreakRotation;
+		m_BloomSettings.HaloIntensity = settings.BloomHaloIntensity;
+		m_BloomSettings.ChromaticSpread = settings.BloomChromaticSpread;
 
 		m_DOFSettings.Enabled = settings.DOFEnabled;
 		m_DOFSettings.ResolutionScale = SanitizeEffectResolutionScale(settings.DOFResolutionScale);
@@ -1301,6 +1314,12 @@ namespace Lux {
 		settings.BloomUpsampleScale = m_BloomSettings.UpsampleScale;
 		settings.BloomIntensity = m_BloomSettings.Intensity;
 		settings.BloomDirtIntensity = m_BloomSettings.DirtIntensity;
+		settings.BloomStreakCount = m_BloomSettings.StreakCount;
+		settings.BloomStreakLength = m_BloomSettings.StreakLength;
+		settings.BloomStreakIntensity = m_BloomSettings.StreakIntensity;
+		settings.BloomStreakRotation = m_BloomSettings.StreakRotation;
+		settings.BloomHaloIntensity = m_BloomSettings.HaloIntensity;
+		settings.BloomChromaticSpread = m_BloomSettings.ChromaticSpread;
 
 		settings.DOFEnabled = m_DOFSettings.Enabled;
 		settings.DOFResolutionScale = GetEffectResolutionDivisor(m_DOFSettings.ResolutionScale);
@@ -2495,64 +2514,43 @@ namespace Lux {
 			m_SkyboxPass->Bake();
 		}
 
-		// ── Bloom compute (feeds the scene composite) ─────────────────────────
+		// ── Bloom: FFT convolution with a lens-glare kernel (feeds the scene composite) ──
 		{
-			Ref<Shader> shader = Renderer::GetShaderLibrary()->Get("Bloom");
-			m_BloomComputePipeline = PipelineCompute::Create(shader);
+			ComputePassSpecification fftSpec;
+			fftSpec.DebugName = "BloomFFT";
+			fftSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("BloomFFT"));
+			m_BloomFFTPass = ComputePass::Create(fftSpec);
+			m_BloomFFTPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_BloomFFTPass->Validate());
+			m_BloomFFTPass->Bake();
 
-			TextureSpecification spec;
-			// 16F: bloom is a blurred HDR pyramid — fp32 is 2x the bandwidth for
-			// no visual gain. Matches Bloom.glsl's image layout.
-			spec.Format = ImageFormat::RGBA16F;
-			spec.Width = 1;
-			spec.Height = 1;
-			spec.SamplerWrap = TextureWrap::Clamp;
-			spec.Storage = true;
-			spec.GenerateMips = true;
-
-			for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
+			// The 512x512 transform grid and the kernel spectrum: fixed, independent of the viewport.
+			TextureSpecification gridSpec;
+			gridSpec.Width = BloomFFTSize;
+			gridSpec.Height = BloomFFTSize;
+			gridSpec.SamplerWrap = TextureWrap::Clamp;
+			gridSpec.Storage = true;
+			gridSpec.GenerateMips = false;
+			gridSpec.FlipVertically = false;
+			const ImageFormat formats[2] = { ImageFormat::RGBA32F, ImageFormat::RG32F };
+			for (uint32_t i = 0; i < 2; i++)
 			{
-				spec.DebugName = "BloomCompute-" + std::to_string(i);
-				m_BloomComputeTextures[i].Texture = Texture2D::Create(spec);
+				gridSpec.Format = formats[i];
+				gridSpec.DebugName = "BloomFFT-Grid" + std::to_string(i);
+				m_BloomFFTGrid[i] = Texture2D::Create(gridSpec);
+				gridSpec.DebugName = "BloomFFT-Kernel" + std::to_string(i);
+				m_BloomFFTKernel[i] = Texture2D::Create(gridSpec);
 			}
 
-			ComputePassSpecification computeSpec;
-			computeSpec.DebugName = "Bloom-Compute";
-			computeSpec.Pipeline = m_BloomComputePipeline;
-			m_BloomComputePass = ComputePass::Create(computeSpec);
-			m_BloomComputePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
-			m_BloomComputePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_BloomComputePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_BloomComputePass->Validate());
-			m_BloomComputePass->Bake();
-
-			// FFT bloom spike: fixed 512x512 grids, independent of the viewport.
-			{
-				ComputePassSpecification fftSpec;
-				fftSpec.DebugName = "BloomFFT";
-				fftSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("BloomFFT"));
-				m_BloomFFTPass = ComputePass::Create(fftSpec);
-				m_BloomFFTPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-				LUX_CORE_VERIFY(m_BloomFFTPass->Validate());
-				m_BloomFFTPass->Bake();
-
-				TextureSpecification gridSpec;
-				gridSpec.Width = BloomFFTSize;
-				gridSpec.Height = BloomFFTSize;
-				gridSpec.SamplerWrap = TextureWrap::Clamp;
-				gridSpec.Storage = true;
-				gridSpec.GenerateMips = false;
-				gridSpec.FlipVertically = false;
-				const ImageFormat formats[2] = { ImageFormat::RGBA32F, ImageFormat::RG32F };
-				for (uint32_t i = 0; i < 2; i++)
-				{
-					gridSpec.Format = formats[i];
-					gridSpec.DebugName = "BloomFFT-Grid" + std::to_string(i);
-					m_BloomFFTGrid[i] = Texture2D::Create(gridSpec);
-					gridSpec.DebugName = "BloomFFT-Kernel" + std::to_string(i);
-					m_BloomFFTKernel[i] = Texture2D::Create(gridSpec);
-				}
-			}
+			// The resolved glare the composite adds, at the bloom resolution scale.
+			TextureSpecification bloomSpec;
+			bloomSpec.Format = ImageFormat::RGBA16F;
+			bloomSpec.SamplerWrap = TextureWrap::Clamp;
+			bloomSpec.Storage = true;
+			bloomSpec.GenerateMips = false;
+			bloomSpec.FlipVertically = false;
+			bloomSpec.DebugName = "Bloom";
+			m_BloomTexture = Texture2D::Create(bloomSpec);
 
 			m_BloomDirtTexture = Renderer::GetBlackTexture();
 			ResizeBloomResources();
@@ -2627,7 +2625,7 @@ namespace Lux {
 			m_CompositePass = RenderPass::Create(rpSpec);
 			// SceneColorHDR is produced by either deferred lighting or the forward fallback.
 			m_CompositePass->SetInput("u_Texture", GetSceneColorOutput());
-			m_CompositePass->SetInput("u_BloomTexture", m_BloomComputeTextures[2].Texture);
+			m_CompositePass->SetInput("u_BloomTexture", m_BloomTexture);
 			m_CompositePass->SetInput("u_BloomDirtTexture", m_BloomDirtTexture);
 			m_CompositePass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_CompositePass->SetInput("u_TransparentDepthTexture", m_GeometryPassTransparent->GetDepthOutput());
@@ -2972,103 +2970,32 @@ namespace Lux {
 
 	void SceneRenderer::ResizeBloomResources()
 	{
-		if (!m_BloomComputePass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+		if (!m_BloomTexture || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
-		glm::uvec2 bloomSize = GetScaledExtent({ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) }, m_BloomSettings.ResolutionScale);
-		bloomSize.x = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.x, m_BloomComputeWorkgroupSize));
-		bloomSize.y = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.y, m_BloomComputeWorkgroupSize));
-
-		ImageViewSpecification imageViewSpec;
-		imageViewSpec.MipCount = 1;
-
-		for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
-		{
-			auto& bloomTexture = m_BloomComputeTextures[i];
-			bloomTexture.Texture->Resize(bloomSize);
-
-			const uint32_t mipCount = bloomTexture.Texture->GetMipLevelCount();
-			bloomTexture.ImageViews.resize(mipCount);
-
-			imageViewSpec.Image = bloomTexture.Texture->GetImage();
-			imageViewSpec.DebugName = "BloomCompute-" + std::to_string(i);
-
-			for (uint32_t mip = 0; mip < mipCount; mip++)
-			{
-				imageViewSpec.Mip = mip;
-				bloomTexture.ImageViews[mip] = ImageView::Create(imageViewSpec);
-			}
-		}
+		m_BloomTexture->Resize(GetScaledExtent({ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) }, m_BloomSettings.ResolutionScale));
 	}
 
 	void SceneRenderer::CreateBloomPassMaterials()
 	{
-		if (!m_BloomComputePass || !GetSceneColorOutput() || !m_BloomComputeTextures[0].Texture)
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!m_BloomFFTPass || !sceneColor || !m_BloomTexture || !m_BloomFFTGrid[0] || !m_BloomFFTKernel[0])
 			return;
 
-		Ref<Image2D> inputImage = GetSceneColorOutput();
-		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
-		if (mipCount < 4)
-			return;
-
-		const uint32_t mips = mipCount - 2;
-
-		m_BloomComputeMaterials.PrefilterMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Prefilter");
-		m_BloomComputeMaterials.PrefilterMaterial->Set("o_Image", m_BloomComputeTextures[0].ImageViews[0]);
-		m_BloomComputeMaterials.PrefilterMaterial->Set("u_Texture", inputImage);
-		m_BloomComputeMaterials.PrefilterMaterial->Set("u_BloomTexture", inputImage);
-
-		m_BloomComputeMaterials.DownsampleAMaterials.clear();
-		m_BloomComputeMaterials.DownsampleBMaterials.clear();
-		m_BloomComputeMaterials.DownsampleAMaterials.resize(mips);
-		m_BloomComputeMaterials.DownsampleBMaterials.resize(mips);
-
-		for (uint32_t i = 1; i < mips; i++)
-		{
-			m_BloomComputeMaterials.DownsampleAMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleA");
-			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("o_Image", m_BloomComputeTextures[1].ImageViews[i]);
-			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_BloomTexture", inputImage);
-
-			m_BloomComputeMaterials.DownsampleBMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleB");
-			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("o_Image", m_BloomComputeTextures[0].ImageViews[i]);
-			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_Texture", m_BloomComputeTextures[1].Texture);
-			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_BloomTexture", inputImage);
-		}
-
-		m_BloomComputeMaterials.FirstUpsampleMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-FirstUpsample");
-		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mips - 2]);
-		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_BloomTexture", inputImage);
-
-		m_BloomComputeMaterials.UpsampleMaterials.clear();
-		m_BloomComputeMaterials.UpsampleMaterials.resize(mips - 2);
-
-		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
-		{
-			m_BloomComputeMaterials.UpsampleMaterials[mip] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Upsample");
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mip]);
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].ImageViews[mip + 1]);
-		}
-
-		if (m_BloomFFTPass && m_BloomFFTGrid[0] && m_BloomFFTKernel[0])
-		{
-			auto bindFFT = [&](Ref<Material> material, Ref<Texture2D> gridA, Ref<Texture2D> gridB)
-				{
-					material->Set("o_Bloom", m_BloomComputeTextures[2].ImageViews[0]);
-					material->Set("u_Input", inputImage);
-					material->Set("u_GridA", gridA->GetImage());
-					material->Set("u_GridB", gridB->GetImage());
-					material->Set("u_KernelA", m_BloomFFTKernel[0]->GetImage());
-					material->Set("u_KernelB", m_BloomFFTKernel[1]->GetImage());
-				};
-			m_BloomFFTMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT");
-			bindFFT(m_BloomFFTMaterial, m_BloomFFTGrid[0], m_BloomFFTGrid[1]);
-			// The kernel's own transform runs the same FFT over the kernel images.
-			m_BloomFFTKernelMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT-Kernel");
-			bindFFT(m_BloomFFTKernelMaterial, m_BloomFFTKernel[0], m_BloomFFTKernel[1]);
-		}
+		auto bindFFT = [&](Ref<Material> material, Ref<Texture2D> gridA, Ref<Texture2D> gridB)
+			{
+				material->Set("o_Bloom", m_BloomTexture->GetImage());
+				material->Set("u_Input", sceneColor);
+				material->Set("u_GridA", gridA->GetImage());
+				material->Set("u_GridB", gridB->GetImage());
+				material->Set("u_KernelA", m_BloomFFTKernel[0]->GetImage());
+				material->Set("u_KernelB", m_BloomFFTKernel[1]->GetImage());
+			};
+		m_BloomFFTMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT");
+		bindFFT(m_BloomFFTMaterial, m_BloomFFTGrid[0], m_BloomFFTGrid[1]);
+		// The kernel's own transform runs the same FFT over the kernel images.
+		m_BloomFFTKernelMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT-Kernel");
+		bindFFT(m_BloomFFTKernelMaterial, m_BloomFFTKernel[0], m_BloomFFTKernel[1]);
 	}
 
 	void SceneRenderer::ResizeScreenSpaceEffectResources()
@@ -3919,7 +3846,7 @@ namespace Lux {
 		addComputePass(m_GTAODenoisePass[0]);
 		addComputePass(m_GTAODenoisePass[1]);
 		addComputePass(m_SSRPass);
-		addComputePass(m_BloomComputePass);
+		addComputePass(m_BloomFFTPass);
 
 		if (m_HierarchicalDepthTexture.Texture)
 			addRenderTargetImage(m_HierarchicalDepthTexture.Texture->GetImage());
@@ -3927,10 +3854,12 @@ namespace Lux {
 			addRenderTargetImage(m_PreIntegrationVisibilityTexture.Texture->GetImage());
 		if (m_PreConvolutedTexture.Texture)
 			addRenderTargetImage(m_PreConvolutedTexture.Texture->GetImage());
-		for (const BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
+		if (m_BloomTexture)
+			addRenderTargetImage(m_BloomTexture->GetImage());
+		for (const Ref<Texture2D>& texture : { m_BloomFFTGrid[0], m_BloomFFTGrid[1], m_BloomFFTKernel[0], m_BloomFFTKernel[1] })
 		{
-			if (bloomTexture.Texture)
-				addRenderTargetImage(bloomTexture.Texture->GetImage());
+			if (texture)
+				addRenderTargetImage(texture->GetImage());
 		}
 
 		addRenderTargetImage(m_GTAOOutputImage);
@@ -4509,14 +4438,8 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
 		if (postProcessSettings.BloomEnabled)
 		{
-			for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
-			{
-				if (m_BloomComputeTextures[index].Texture)
-				{
-					std::string bloomName = captureNames ? std::format("Bloom {}", index) : std::string{};
-					bloomOutputs.push_back(addTexture(bloomName, m_BloomComputeTextures[index].Texture->GetImage()));
-				}
-			}
+			if (m_BloomTexture)
+				bloomOutputs.push_back(addTexture(captureNames ? "Bloom" : std::string{}, m_BloomTexture->GetImage()));
 			addPass("Bloom", sceneColorCurrent, bloomOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::BloomCompute));
 		}
 
@@ -5062,8 +4985,6 @@ namespace Lux {
 		if (m_PreIntegrationVisibilityTexture.Texture)
 			m_PreIntegrationVisibilityClear = Ref<StorageImageClear>::Create(m_PreIntegrationVisibilityTexture.Texture->GetImage(), 0);
 		invalidateViews(m_PreConvolutedTexture.ImageViews);
-		for (BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
-			invalidateViews(bloomTexture.ImageViews);
 	}
 
 	bool SceneRenderer::IsRenderGraphAliasCandidate(const Ref<Image2D>& image)
@@ -9694,145 +9615,15 @@ namespace Lux {
 	void SceneRenderer::BloomCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "BloomCompute");
-		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
-		if (!postProcessSettings.BloomEnabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
-			return;
-
-		if (m_Options.BloomFFT)
-		{
-			BloomFFTCompute();
-			return;
-		}
-
-		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
-		if (mipCount < 4)
-			return;
-
-		const uint32_t mips = mipCount - 2;
-		if (mips < 3 || !m_BloomComputeMaterials.FirstUpsampleMaterial)
-			return;
-
-		struct BloomComputePushConstants
-		{
-			glm::vec4 Params;
-			glm::vec4 TexSize;
-			float LOD = 0.0f;
-			int Mode = 0;
-		} pushConstants;
-
-		const float knee = glm::max(postProcessSettings.BloomKnee, 0.0001f);
-		pushConstants.Params = {
-			postProcessSettings.BloomThreshold,
-			postProcessSettings.BloomThreshold - knee,
-			knee * 2.0f,
-			0.25f / knee
-		};
-
-		auto setTexSize = [&](uint32_t mip)
-		{
-			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
-			pushConstants.TexSize = {
-				(float)mipWidth,
-				(float)mipHeight,
-				mipWidth > 0 ? 1.0f / (float)mipWidth : 0.0f,
-				mipHeight > 0 ? 1.0f / (float)mipHeight : 0.0f
-			};
-		};
-
-		auto dispatchForMip = [&](Ref<Material> material, uint32_t mip)
-		{
-			if (!material)
-				return;
-
-			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
-			const glm::uvec3 workGroups = {
-				AlignUp(glm::max(1u, mipWidth), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
-				AlignUp(glm::max(1u, mipHeight), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
-				1
-			};
-			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-		};
-
-		auto transitionBloomMip = [commandBuffer = m_CommandBuffer, this](uint32_t textureIndex, uint32_t mip, ResourceState state, const char* label)
-		{
-			if (textureIndex >= m_BloomComputeTextures.size() || !m_BloomComputeTextures[textureIndex].Texture)
-				return;
-
-			Ref<Image2D> image = m_BloomComputeTextures[textureIndex].Texture->GetImage();
-			std::string markerName = std::format("Barrier Bloom {} mip {} {}", textureIndex, mip, label);
-			Renderer::Submit([commandBuffer, image, mip, state, markerName]() mutable
-			{
-				commandBuffer->RT_BeginMarker(markerName);
-				// Skip a missing texture: during a resize the bloom mip image can be mid-recreation
-				// (see PreConvolutionCompute).
-				if (const TrackedTexture& texture = image->GetImageInfo().Tracked; texture.Handle)
-					commandBuffer->RT_TransitionTextureState(texture, { mip, 1, 0, 1 }, state);
-				commandBuffer->RT_CommitBarriers();
-				commandBuffer->RT_EndMarker();
-			});
-		};
-
-		BeginProfiledGPU("BloomCompute");
-		Renderer::BeginComputePass(m_CommandBuffer, m_BloomComputePass);
-
-		// Prefilter
-		pushConstants.Mode = 0;
-		pushConstants.LOD = 0.0f;
-		setTexSize(0);
-		transitionBloomMip(0, 0, ResourceState::UnorderedAccess, "write");
-		dispatchForMip(m_BloomComputeMaterials.PrefilterMaterial, 0);
-		transitionBloomMip(0, 0, ResourceState::ShaderResource, "read");
-
-		// Downsample, ping-ponging between texture 0 and texture 1.
-		pushConstants.Mode = 1;
-		for (uint32_t i = 1; i < mips; i++)
-		{
-			setTexSize(i);
-			pushConstants.LOD = (float)i - 1.0f;
-			transitionBloomMip(1, i, ResourceState::UnorderedAccess, "write");
-			dispatchForMip(m_BloomComputeMaterials.DownsampleAMaterials[i], i);
-			transitionBloomMip(1, i, ResourceState::ShaderResource, "read");
-
-			pushConstants.LOD = (float)i;
-			transitionBloomMip(0, i, ResourceState::UnorderedAccess, "write");
-			dispatchForMip(m_BloomComputeMaterials.DownsampleBMaterials[i], i);
-			transitionBloomMip(0, i, ResourceState::ShaderResource, "read");
-		}
-
-		// First upsample from the smallest downsampled mip.
-		pushConstants.Mode = 2;
-		pushConstants.LOD = (float)mips - 2.0f;
-		setTexSize(mips - 1);
-		transitionBloomMip(2, mips - 2, ResourceState::UnorderedAccess, "write");
-		dispatchForMip(m_BloomComputeMaterials.FirstUpsampleMaterial, mips - 2);
-		transitionBloomMip(2, mips - 2, ResourceState::ShaderResource, "read");
-
-		// Upsample back to mip 0.
-		pushConstants.Mode = 3;
-		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
-		{
-			pushConstants.LOD = (float)mip;
-			setTexSize((uint32_t)mip + 1u);
-			transitionBloomMip(2, (uint32_t)mip, ResourceState::UnorderedAccess, "write");
-			dispatchForMip(m_BloomComputeMaterials.UpsampleMaterials[mip], (uint32_t)mip);
-			transitionBloomMip(2, (uint32_t)mip, ResourceState::ShaderResource, "read");
-		}
-
-		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);
-		Renderer::EndGPUPerfMarker(m_CommandBuffer);
-	}
-
-	void SceneRenderer::BloomFFTCompute()
-	{
-		ScopedCPUProfile cpuProfile(*this, "BloomFFT");
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
-		if (!m_BloomFFTPass || !m_BloomFFTMaterial || !m_BloomFFTKernelMaterial || !sceneColor || !m_BloomComputeTextures[2].Texture)
+		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
+		if (!postProcessSettings.BloomEnabled || !m_BloomFFTPass || !m_BloomFFTMaterial || !m_BloomFFTKernelMaterial || !sceneColor || !m_BloomTexture)
 			return;
 
-		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
 		const uint32_t inputWidth = glm::max(1u, sceneColor->GetWidth());
 		const uint32_t inputHeight = glm::max(1u, sceneColor->GetHeight());
-		auto [outputWidth, outputHeight] = m_BloomComputeTextures[2].Texture->GetMipSize(0);
+		const uint32_t outputWidth = glm::max(1u, m_BloomTexture->GetWidth());
+		const uint32_t outputHeight = glm::max(1u, m_BloomTexture->GetHeight());
 
 		// The source fills half the grid along its longer side; the other half is padding the
 		// glare kernel spreads into, so the circular convolution never wraps.
@@ -9846,18 +9637,32 @@ namespace Lux {
 			glm::vec4 InputSize;
 			glm::vec4 OutputSize;
 			glm::vec4 Threshold;
+			glm::vec4 KernelShape; // x streak lines, y streak length, z streak intensity, w halo intensity
+			glm::vec4 KernelColor; // x chromatic spread, y streak rotation (radians)
 			int32_t Mode = 0;
 			int32_t Axis = 0;
 			int32_t Inverse = 0;
 			int32_t Unused = 0;
 		} pushConstants;
-		static_assert(sizeof(BloomFFTPushConstants) == 80, "BloomFFTPushConstants must match BloomFFT.glsl");
+		static_assert(sizeof(BloomFFTPushConstants) == 112, "BloomFFTPushConstants must match BloomFFT.glsl");
 
 		const float knee = glm::max(postProcessSettings.BloomKnee, 0.0001f);
 		pushConstants.Region = { (float)regionWidth, (float)regionHeight, 1.0f / (float)regionWidth, 1.0f / (float)regionHeight };
 		pushConstants.InputSize = { (float)inputWidth, (float)inputHeight, 1.0f / (float)inputWidth, 1.0f / (float)inputHeight };
 		pushConstants.OutputSize = { (float)outputWidth, (float)outputHeight, 1.0f / glm::max(1u, outputWidth), 1.0f / glm::max(1u, outputHeight) };
 		pushConstants.Threshold = { postProcessSettings.BloomThreshold, postProcessSettings.BloomThreshold - knee, knee * 2.0f, 0.25f / knee };
+		pushConstants.KernelShape = {
+			(float)glm::min(m_BloomSettings.StreakCount, BloomSettings::MaxStreakCount),
+			glm::max(m_BloomSettings.StreakLength, 0.0f),
+			glm::max(m_BloomSettings.StreakIntensity, 0.0f),
+			glm::max(m_BloomSettings.HaloIntensity, 0.0f) };
+		pushConstants.KernelColor = { glm::clamp(m_BloomSettings.ChromaticSpread, 0.0f, 0.5f), glm::radians(m_BloomSettings.StreakRotation), 0.0f, 0.0f };
+		// The kernel spectrum is rebuilt only when its settings change.
+		const glm::vec4 kernelKey[2] = { pushConstants.KernelShape, pushConstants.KernelColor };
+		if (m_BloomFFTKernelReady && (kernelKey[0] != m_BloomFFTKernelKey[0] || kernelKey[1] != m_BloomFFTKernelKey[1]))
+			m_BloomFFTKernelReady = false;
+		m_BloomFFTKernelKey[0] = kernelKey[0];
+		m_BloomFFTKernelKey[1] = kernelKey[1];
 
 		constexpr uint32_t ThreadsPerGroup = 256u;
 		auto dispatch = [&](const Ref<Material>& material, int32_t mode, uint32_t groups, int32_t axis = 0, int32_t inverse = 0)
@@ -9870,10 +9675,9 @@ namespace Lux {
 		constexpr uint32_t gridGroups = BloomFFTSize * BloomFFTSize / ThreadsPerGroup;
 		enum : int32_t { Bright = 0, Kernel = 1, FFT = 2, Multiply = 3, Resolve = 4 };
 
-		BeginProfiledGPU("BloomFFT");
+		BeginProfiledGPU("BloomCompute");
 		Renderer::BeginComputePass(m_CommandBuffer, m_BloomFFTPass);
 
-		// The kernel spectrum: once (it has no settings yet).
 		if (!m_BloomFFTKernelReady)
 		{
 			dispatch(m_BloomFFTKernelMaterial, Kernel, gridGroups);
@@ -10345,8 +10149,8 @@ namespace Lux {
 			case DebugViewMode::Bloom:
 				if (!GetResolvedPostProcessSettings().BloomEnabled)
 					return nullptr;
-				if (m_BloomComputeTextures.size() > 2 && m_BloomComputeTextures[2].Texture)
-					return m_BloomComputeTextures[2].Texture->GetImage();
+				if (m_BloomTexture)
+					return m_BloomTexture->GetImage();
 				return nullptr;
 
 			case DebugViewMode::Composite:

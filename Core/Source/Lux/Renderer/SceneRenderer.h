@@ -332,9 +332,6 @@ namespace Lux {
 		// Experimental: task/mesh-shader PreDepth with per-meshlet culling.
 		// Requires VK_EXT_mesh_shader; ignored (classic path) when unsupported.
 		bool  EnableMeshShaders = false;
-		// Spike (render features plan, phase 4): FFT convolution bloom in place of the mip bloom, to
-		// measure its cost before it replaces it. Not serialized.
-		bool  BloomFFT = false;
 		EffectResolutionScale GTAOResolutionScale = EffectResolutionScale::Half;
 		SSRQualityPreset SSRQuality = SSRQualityPreset::HalfBilateral;
 		EffectResolutionScale SSRResolutionScale = EffectResolutionScale::Half;
@@ -381,9 +378,17 @@ namespace Lux {
 		SceneRendererOptions::EffectResolutionScale ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 		float Threshold = 1.0f;
 		float Knee = 0.1f;
-		float UpsampleScale = 1.0f;
+		float UpsampleScale = 1.0f; // unused since the FFT bloom; kept so project files round-trip
 		float Intensity = 1.0f;
 		float DirtIntensity = 1.0f;
+		// The glare kernel the FFT bloom convolves with (rebuilt when these change).
+		static constexpr uint32_t MaxStreakCount = 8; // MAX_STREAK_LINES in BloomFFT.glsl
+		uint32_t StreakCount = 6;     // streak lines through the centre (each makes two rays); 0 = none
+		float StreakLength = 1.0f;
+		float StreakIntensity = 1.0f;
+		float StreakRotation = 11.5f; // degrees
+		float HaloIntensity = 1.0f;
+		float ChromaticSpread = 0.08f; // red glare this much wider, blue this much narrower
 	};
 
 	struct DOFSettings
@@ -1343,7 +1348,6 @@ namespace Lux {
 		void SSRCompute();
 		void SSRCompositePass();
 		void BloomCompute();
-		void BloomFFTCompute();
 		void AutoExposurePass();
 		float ComputeFinalExposure(const PostProcessSettings& settings) const;
 		void CompositePass();
@@ -1826,35 +1830,19 @@ namespace Lux {
 		Ref<Material>    m_SSRCompositeMaterial;
 		glm::uvec3       m_SSRWorkGroups{ 1 };
 
-		// ── Bloom compute ────────────────────────────────────────────────────
-		Ref<ComputePass>     m_BloomComputePass;
-		Ref<PipelineCompute> m_BloomComputePipeline;
-		// FFT bloom spike: the 512x512 transform grid (R+G complex, B complex), the kernel spectrum in
-		// the same layout, and one material for the frame's dispatches and one for the kernel's.
+		// ── Bloom (FFT convolution) ───────────────────────────────────────────
+		// The 512x512 transform grid (R+G complex, B complex), the kernel spectrum in the same layout,
+		// the resolved bloom the composite adds, and one material for the frame's dispatches and one
+		// for the kernel's.
 		static constexpr uint32_t BloomFFTSize = 512; // FFT_SIZE in BloomFFT.glsl
 		Ref<ComputePass>     m_BloomFFTPass;
 		Ref<Texture2D>       m_BloomFFTGrid[2];
 		Ref<Texture2D>       m_BloomFFTKernel[2];
+		Ref<Texture2D>       m_BloomTexture;
 		Ref<Material>        m_BloomFFTMaterial;
 		Ref<Material>        m_BloomFFTKernelMaterial;
 		bool                 m_BloomFFTKernelReady = false;
-		uint32_t             m_BloomComputeWorkgroupSize = 4;
-
-		struct BloomComputeTextures
-		{
-			Ref<Texture2D> Texture;
-			std::vector<Ref<ImageView>> ImageViews;
-		};
-		std::vector<BloomComputeTextures> m_BloomComputeTextures{ 3 };
-
-		struct BloomComputeMaterials
-		{
-			Ref<Material> PrefilterMaterial;
-			std::vector<Ref<Material>> DownsampleAMaterials;
-			std::vector<Ref<Material>> DownsampleBMaterials;
-			Ref<Material> FirstUpsampleMaterial;
-			std::vector<Ref<Material>> UpsampleMaterials;
-		} m_BloomComputeMaterials;
+		glm::vec4            m_BloomFFTKernelKey[2]{}; // the kernel settings it was built from
 		Ref<Texture2D> m_BloomDirtTexture;
 
 		// ── DOF ──────────────────────────────────────────────────────────────

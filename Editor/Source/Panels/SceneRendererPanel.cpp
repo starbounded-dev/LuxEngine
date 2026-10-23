@@ -725,7 +725,7 @@ namespace Lux {
 		}
 
 		// ---- Post FX -------------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Post FX", { "Bloom", "Bloom Resolution", "Bloom Threshold", "Bloom Knee", "Bloom Upsample Scale", "Bloom Intensity", "Bloom Dirt Intensity", "DOF", "DOF Resolution", "DOF Focus Distance", "DOF Blur Size", "SSR Max Steps", "SSR Brightness", "SSR Depth Tolerance" }))
+		if (CardHasMatch(queryLower, "Post FX", { "Bloom", "Bloom Resolution", "Bloom Threshold", "Bloom Knee", "Bloom Intensity", "Bloom Dirt Intensity", "Bloom Streaks", "Bloom Streak Length", "Bloom Streak Intensity", "Bloom Streak Rotation", "Bloom Halo Intensity", "Bloom Chromatic Spread", "DOF", "DOF Resolution", "DOF Focus Distance", "DOF Blur Size", "SSR Max Steps", "SSR Brightness", "SSR Depth Tolerance" }))
 		{
 			if (BeginSettingsCard("card_postfx", LUX_ICON_FILM, "Post FX", m_CardPostFX, searching))
 			{
@@ -740,12 +740,24 @@ namespace Lux {
 					projectSettingsChanged |= ImGuiEx::Property("Bloom Threshold", bloom.Threshold, 0.01f, 0.0f, 25.0f);
 				if (match("Bloom Knee"))
 					projectSettingsChanged |= ImGuiEx::Property("Bloom Knee", bloom.Knee, 0.01f, 0.0f, 1.0f);
-				if (match("Bloom Upsample Scale"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Upsample Scale", bloom.UpsampleScale, 0.01f, 0.0f, 10.0f);
 				if (match("Bloom Intensity"))
 					projectSettingsChanged |= ImGuiEx::Property("Bloom Intensity", bloom.Intensity, 0.01f, 0.0f, 10.0f);
 				if (match("Bloom Dirt Intensity"))
 					projectSettingsChanged |= ImGuiEx::Property("Bloom Dirt Intensity", bloom.DirtIntensity, 0.01f, 0.0f, 10.0f);
+				if (match("Bloom Streaks"))
+					projectSettingsChanged |= ImGuiEx::Property("Bloom Streaks", bloom.StreakCount, 0u, BloomSettings::MaxStreakCount,
+						"Glare streak lines through each bright point; each line makes two rays. 0 = none.");
+				if (match("Bloom Streak Length"))
+					projectSettingsChanged |= ImGuiEx::Property("Bloom Streak Length", bloom.StreakLength, 0.01f, 0.0f, 4.0f);
+				if (match("Bloom Streak Intensity"))
+					projectSettingsChanged |= ImGuiEx::Property("Bloom Streak Intensity", bloom.StreakIntensity, 0.01f, 0.0f, 10.0f);
+				if (match("Bloom Streak Rotation"))
+					projectSettingsChanged |= ImGuiEx::Property("Bloom Streak Rotation", bloom.StreakRotation, 0.5f, -180.0f, 180.0f, "Degrees.");
+				if (match("Bloom Halo Intensity"))
+					projectSettingsChanged |= ImGuiEx::Property("Bloom Halo Intensity", bloom.HaloIntensity, 0.01f, 0.0f, 10.0f);
+				if (match("Bloom Chromatic Spread"))
+					projectSettingsChanged |= ImGuiEx::Property("Bloom Chromatic Spread", bloom.ChromaticSpread, 0.005f, 0.0f, 0.5f,
+						"Red glare spreads this much wider than green, blue this much narrower.");
 				projectSettingsChanged |= toggle("DOF", dof.Enabled);
 				if (match("DOF Resolution") && DrawEffectScaleProperty("DOF Resolution", dof.ResolutionScale))
 				{
