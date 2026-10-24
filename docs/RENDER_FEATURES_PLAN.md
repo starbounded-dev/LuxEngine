@@ -398,6 +398,26 @@ set identical (GTAO/SSR variants included); G-buffer debug views still correct.
 
 **Docs:** `Rendering.md` G-buffer layout.
 
+**Status 2026-10-23: done — step 1 kept, steps 2 and 3 measured and rejected by the gate.** First dev (PR #34,
+foliage) was merged in (52d78287): the material row is 13 vec4, this branch's refraction vec4 renamed
+`Refraction`, diffuse transmission keeping `Transmission`; golden `rf7m` identical to `rf5`.
+1. **Velocity target dropped** (kept): no G-buffer attachment, no previous-transform fetch or clip
+   varyings in `GBuffer_Static`, the dead `forwardSpec` and `GetGeometryVelocityOutput` gone; emission is
+   attachment 4. Golden `rf7a` identical to `rf7m` (all 18). G-buffer pass 0.371 → 0.337 ms at 1080p
+   (Benchmark, medians of 3).
+2. **Octahedral normals** (rejected): in RG16F, 1,152 pixels differ by up to 52/255; in a new RG16 snorm
+   format, 353 pixels by up to 35 — all grazing-angle rim highlights, where N·V near 0 divides the
+   specular and the octahedral z (1 − |x| − |y|) is coarser than the xyz layout's. G-buffer pass and
+   deferred lighting unchanged (0.337 / 0.311 ms). Diffuse transmission would have moved to the base
+   colour alpha (opacity is decoded but never read).
+3. **RGBA8 sRGB base colour** (rejected): 181 pixels up to 26/255 on Benchmark; it also clips base colours
+   above 1.
+Answer to open question 2: the base colour's alpha is free; metal/rough's w is specular.
+Found on the way, left as is: GTAO scales its power by `AOShadowTolerance` lerped with the normal's w,
+the luminance the forward path once stored there. In the deferred G-buffer that w is 0, or a foliage
+pixel's diffuse transmission since PR #34, so the setting has no effect except on foliage, by accident.
+Debug sync validation clean; Release, Debug and Lux-Runtime build.
+
 ### Phase 8 — Meshlet path that pays off
 
 **Goal:** the mesh-shader prepass is no slower than the classic one, then a meshlet G-buffer pass

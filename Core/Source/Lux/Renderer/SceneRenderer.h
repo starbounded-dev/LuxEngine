@@ -1413,7 +1413,6 @@ namespace Lux {
 		Ref<Image2D> GetGeometryMetalRoughOutput() const;
 		Ref<Image2D> GetGeometryMaterialIDOutput() const;
 		Ref<Image2D> GetGeometryObjectIDOutput() const;
-		Ref<Image2D> GetGeometryVelocityOutput() const;
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();

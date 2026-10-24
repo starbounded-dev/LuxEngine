@@ -1037,11 +1037,14 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. A row is 11 `vec4` (176 bytes). The last two hold diffuse transmission:
+size in step. A row is 13 `vec4` (208 bytes). Two hold diffuse transmission:
 `Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
-`TransmissionTextureIndices.x` (the factor map, read from alpha). Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+`TransmissionTextureIndices.x` (the factor map, read from alpha); the last two hold refraction:
+`Refraction` (x share, transparent rows only; y IOR, z thickness, w attenuation distance) and
+`AttenuationColor`. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
-**Refraction.** A transparent material with `Transmission > 0` (row `Transmission` / `AttenuationColor`)
+**Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,
+read through `GetGPUMaterialRefraction`)
 takes that share from its diffuse lobe and adds the opaque scene behind it in
 `HazelPBR_Transparent.glsl`: the view ray refracted by the IOR and carried `Thickness` into the
 volume (0 = thin-walled, blurred but not displaced), projected back to the screen, read from the
@@ -1112,11 +1115,20 @@ the revision** — a setter that does not leaves the GPU row stale until the nex
 `UpsertOverrideMaterial` rows are unreferenced and live while they are upserted every frame.
 
 **Emission does not go through the G-buffer.** `GBuffer_Static` writes emissive radiance straight
-into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 5, with
+into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 4, with
 `AttachmentLoadOp::Load` so the sky drawn before it survives), and `DeferredLighting` blends its
 result on top with `FramebufferBlendMode::Additive`. Consequences: anything that writes the lit
 opaque color must stay additive over what is already there, and the G-buffer render-graph pass reads
 and writes scene color.
+
+**The G-buffer is four targets** (`LuxGBuffer.glslh` encodes and decodes them): base colour RGBA16F
+(a = opacity), view normal RGBA16F (w = diffuse transmission), metalness / roughness / AO / specular
+RGBA8, and material + object ID RG32UI; then emission into scene colour and the pre-depth buffer.
+There is no velocity target (nothing temporal reads one); `UBCamera::PreviousViewProjection` stays
+in the shared block but is unread. Narrower formats were measured and rejected (render features plan,
+phase 7): octahedral normals change grazing-angle rim highlights (N·V near 0 divides the specular)
+by up to 35/255 on a few hundred pixels even in RG16 snorm, and an RGBA8 sRGB base colour clips
+base colours above 1 — for no measurable time saved at 1080p.
 
 **Diffuse transmission rides in the G-buffer normal's alpha.** `LuxGBufferData::DiffuseTransmission`
 (the material factor × map) is `normal.w`; its colour is read from the material row through

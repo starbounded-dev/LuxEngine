@@ -1931,7 +1931,6 @@ namespace Lux {
 			// Material + object IDs packed into one RG32UI target (one fewer
 			// full-res attachment write/clear per frame).
 			FramebufferTextureSpecification gbufferMaterialObjectID = ImageFormat::RG32UI;
-			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
 			// Emission is written straight into scene color, over the sky already there; deferred
 			// lighting then blends the lit result on top. Loaded, never cleared: the sky must survive.
 			FramebufferTextureSpecification gbufferEmissive = ImageFormat::RGBA16F;
@@ -1940,7 +1939,6 @@ namespace Lux {
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
 			gbufferMaterialObjectID.Blend = false;
-			gbufferVelocity.Blend = false;
 			gbufferEmissive.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
@@ -1951,12 +1949,11 @@ namespace Lux {
 				gbufferNormal,
 				gbufferMetalRough,
 				gbufferMaterialObjectID,
-				gbufferVelocity,
 				gbufferEmissive,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[5] = m_SceneColorFramebuffer->GetImage(0);
-			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[4] = m_SceneColorFramebuffer->GetImage(0);
+			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -1985,47 +1982,28 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
+			// Transparents draw into scene colour and the G-buffer's normal and metal/rough targets.
 			FramebufferTextureSpecification forwardSceneColor = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification forwardNormal = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification forwardMetalRough = ImageFormat::RGBA;
-			FramebufferTextureSpecification forwardVelocity = ImageFormat::RG16F;
 			forwardSceneColor.Blend = false;
 			forwardNormal.Blend = false;
 			forwardMetalRough.Blend = false;
-			forwardVelocity.Blend = false;
-
-			FramebufferSpecification forwardSpec;
-			forwardSpec.Width = m_ViewportWidth;
-			forwardSpec.Height = m_ViewportHeight;
-			forwardSpec.Attachments = {
-				forwardSceneColor,
-				forwardNormal,
-				forwardMetalRough,
-				forwardVelocity,
-				ImageFormat::DEPTH32FSTENCIL8UINT
-			};
-			forwardSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
-			forwardSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
-			forwardSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
-			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(4); // shared velocity buffer
-			forwardSpec.ExistingImages[4] = m_PreDepthPass->GetDepthOutput();
-			forwardSpec.ClearColorOnLoad = false;
-			forwardSpec.ClearDepthOnLoad = false;
-			forwardSpec.Blend = false;
-			forwardSpec.DebugName = "TransparentForwardShared";
-
-			// Transparent does not write motion vectors (layering/blending make them
-			// ill-defined), so drop the velocity attachment; transparent pixels keep the
-			// opaque-behind velocity and fall back to camera reprojection in TAA.
-			FramebufferSpecification transparentSpec = forwardSpec;
+			FramebufferSpecification transparentSpec;
+			transparentSpec.Width = m_ViewportWidth;
+			transparentSpec.Height = m_ViewportHeight;
 			transparentSpec.Attachments = {
 				forwardSceneColor,
 				forwardNormal,
 				forwardMetalRough,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			transparentSpec.ExistingImages.erase(4);
+			transparentSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
+			transparentSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
+			transparentSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
 			transparentSpec.ExistingImages[3] = m_PreDepthPass->GetDepthOutput();
+			transparentSpec.ClearColorOnLoad = false;
+			transparentSpec.ClearDepthOnLoad = false;
 			transparentSpec.Blend = true;
 			transparentSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
 			transparentSpec.DebugName = "TransparentForward";
@@ -5203,8 +5181,7 @@ namespace Lux {
 			// No sub-pixel jitter: the only consumers were TAA and SMAA T2x, both removed.
 			// The projection is rasterized exactly as authored, so jittered == unjittered.
 			// UnjitteredViewProjectionMatrix and the zeroed Jitter fields stay in UBCamera
-			// because PreviousViewProjectionMatrix still feeds the G-buffer velocity target,
-			// and that block is shared by nearly every shader.
+			// because that block is shared by nearly every shader.
 			const glm::mat4 viewProj = unjitteredViewProj;
 			const glm::mat4 viewInverse = glm::inverse(camera.ViewMatrix);
 			const glm::mat4 projInverse = glm::inverse(unjitteredProj);
@@ -5219,7 +5196,7 @@ namespace Lux {
 			m_CameraUB.View = camera.ViewMatrix;
 			m_CameraUB.InverseView = viewInverse;
 			m_CameraUB.UnjitteredViewProjection = unjitteredViewProj;
-			// Still written: the G-buffer velocity target reprojects against it.
+			// Nothing reads it since the G-buffer velocity target was dropped; kept in the shared block.
 			m_CameraUB.PreviousViewProjection = m_PreviousViewProjection;
 			// Permanently zero now that nothing jitters the projection.
 			m_CameraUB.Jitter = glm::vec2(0.0f);
@@ -10184,11 +10161,6 @@ namespace Lux {
 	{
 		// Same packed RG32UI target as the material IDs (object ID in .y).
 		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
-	}
-
-	Ref<Image2D> SceneRenderer::GetGeometryVelocityOutput() const
-	{
-		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
 	}
 
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()
