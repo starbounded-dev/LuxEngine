@@ -898,6 +898,14 @@ reads. Reading the previous frame then is safe because frame pacing has retired 
 queries need one command list per frame in flight (`Create(0, …)`; others get none, with a
 warning). A timer name used several times in a frame reports its total.
 
+**Pipeline statistics are counted only on demand.** An open PIPELINE_STATISTICS query serializes
+mesh-shader work on NVIDIA: with one open around every segment, the mesh-shader prepass on Benchmark
+measured 24 ms against 0.15 ms without (render features plan, phase 8). Segments open the query only
+in render frames that took a `RenderCommandBuffer::RequestPipelineStatistics()` (each render frame
+takes the request once, at its first segment); the Profiler requests every frame its Pipeline
+Statistics section is open, so counting stops however the panel closes. Never time mesh-shader passes
+with that section open.
+
 The frame total (`GetExecutionGPUTime`, shown as "GPU" in the viewport HUD and read by dynamic
 resolution) is a separate frame-level timestamp pair written in `RT_Begin` and `RT_End`. A frame
 that is split mid-way — End, Submit, then Begin again, as the WorldOverlay2D pass does — must resume

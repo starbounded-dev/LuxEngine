@@ -434,6 +434,18 @@ frustum/cone/occlusion culling in a task stage, meshlet sizing per NVIDIA guidan
 **Verification:** `MeshShaders=1` golden identical to classic; Benchmark A-B-A prepass and G-buffer
 GPU time; Debug sync validation.
 
+**Status 2026-10-24: diagnosed — the 25.9 ms was the pipeline-statistics query, not the meshlet path.**
+RenderDoc on Benchmark (`MeshShaders=1`): 17 `vkCmdDrawMeshTasksEXT`, four of them 3–5 ms, one only
+66 task groups. Bisected with the golden harness (medians of 3, 1280×720): no fragment work 23.2 ms;
+mesh shader emitting nothing 21.9 ms; task stage only 4.1 ms — the cost was in launching task/mesh
+work, before rasterization. With the PIPELINE_STATISTICS query (open around every command-buffer
+segment, task/mesh counters included) disabled: **0.151 ms**, against 0.142 ms for the classic prepass
+in the same build. Fix: statistics are counted only while the Profiler's Pipeline Statistics section
+is open (`RenderCommandBuffer::RequestPipelineStatistics`, taken once per render frame). Golden `rf8a` identical to `rf7f`
+(all 18); Debug sync validation clean, classic and mesh-shader. The meshlet prepass is now at parity,
+not ahead (0.147 vs 0.117 ms in one golden run): the per-meshlet culling and meshlet G-buffer steps
+are the open part of this phase.
+
 ### Phase 9 — QTangent vertices
 
 **Goal:** 24–28-byte vertices, identical image, every existing mesh migrated automatically.

@@ -33,6 +33,23 @@ namespace Lux {
 		// Root constants up to this size are compared with the last ones set, so repeats are skipped.
 		constexpr uint32_t k_NRIRootConstantCacheSize = 256;
 
+		// RequestPipelineStatistics: set by the main thread, taken by the render thread once per render
+		// frame (the frame's first query segment, any command buffer), which then counts that frame.
+		std::atomic<bool> s_PipelineStatisticsRequested{ false };
+		uint64_t s_PipelineStatisticsFrame = UINT64_MAX; // render thread
+		bool s_PipelineStatisticsCounted = false;        // render thread
+
+		bool RT_CountPipelineStatistics()
+		{
+			const uint64_t frame = Renderer::RT_GetFrameNumber();
+			if (frame != s_PipelineStatisticsFrame)
+			{
+				s_PipelineStatisticsFrame = frame;
+				s_PipelineStatisticsCounted = s_PipelineStatisticsRequested.exchange(false, std::memory_order_relaxed);
+			}
+			return s_PipelineStatisticsCounted;
+		}
+
 #ifdef LUX_DEBUG
 		// The inside-rendering audit (NRI migration Phase 10): pass and reason of every NRI render pass
 		// split already reported. Render thread.
@@ -837,6 +854,11 @@ namespace Lux {
 		return m_LastGPUWorkTime.load(std::memory_order_relaxed);
 	}
 
+	void RenderCommandBuffer::RequestPipelineStatistics()
+	{
+		s_PipelineStatisticsRequested.store(true, std::memory_order_relaxed);
+	}
+
 	Lux::PipelineStatistics RenderCommandBuffer::GetPipelineStatistics() const
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -881,9 +903,10 @@ namespace Lux {
 		segment.BeginTimestamp = slot.TimestampCount++;
 		segment.EndTimestamp = slot.TimestampCount++;
 		segment.Statistics = slot.StatisticsCount++;
+		segment.HasStatistics = slot.Statistics && RT_CountPipelineStatistics();
 		m_ActiveSegment = &segment;
 		api.CmdEndQuery(*m_NRICommandBuffer, *slot.Timestamps, segment.BeginTimestamp);
-		if (slot.Statistics)
+		if (segment.HasStatistics)
 			api.CmdBeginQuery(*m_NRICommandBuffer, *slot.Statistics, segment.Statistics);
 	}
 
@@ -892,10 +915,10 @@ namespace Lux {
 		const NRIInterface& api = RHIDevice::API();
 		if (m_ActiveSegment)
 		{
-			if (slot.Statistics)
+			if (m_ActiveSegment->HasStatistics)
 				api.CmdEndQuery(*m_NRICommandBuffer, *slot.Statistics, m_ActiveSegment->Statistics);
 			api.CmdEndQuery(*m_NRICommandBuffer, *slot.Timestamps, m_ActiveSegment->EndTimestamp);
-			if (slot.Statistics)
+			if (m_ActiveSegment->HasStatistics)
 				api.CmdCopyQueries(*m_NRICommandBuffer, *slot.Statistics, m_ActiveSegment->Statistics, 1, *slot.Results, k_MaxTimestamps * sizeof(uint64_t) + m_ActiveSegment->Statistics * m_StatisticsSize);
 			m_ActiveSegment->Ended = true;
 		}
@@ -940,6 +963,7 @@ namespace Lux {
 		// The frame total is the sum of its segments (Begin(true) splits a frame).
 		float frameTime = 0.0f;
 		bool measured = false;
+		bool counted = false;
 		PipelineStatistics statistics;
 		for (const QuerySegment& segment : slot.Segments)
 		{
@@ -948,8 +972,9 @@ namespace Lux {
 			frameTime += elapsed(segment.BeginTimestamp, segment.EndTimestamp);
 			measured = true;
 
-			if (slot.Statistics)
+			if (segment.HasStatistics)
 			{
+				counted = true;
 				nri::PipelineStatisticsDesc counters;
 				std::memcpy(&counters, results + k_MaxTimestamps * sizeof(uint64_t) + segment.Statistics * m_StatisticsSize, sizeof(counters));
 				statistics.InputAssemblyVertices += counters.inputVertexNum;
@@ -968,7 +993,7 @@ namespace Lux {
 			// frames and reads as a bogus sub-millisecond frame.
 			const float previous = m_LastGPUWorkTime.load(std::memory_order_relaxed);
 			m_LastGPUWorkTime.store(previous > 0.0f ? frameTime * kGPUTimeSmoothing + previous * (1.0f - kGPUTimeSmoothing) : frameTime, std::memory_order_relaxed);
-			if (slot.Statistics)
+			if (counted)
 				m_LastPipelineStatistics.store(statistics, std::memory_order_relaxed);
 		}
 

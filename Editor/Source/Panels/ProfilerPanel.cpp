@@ -252,6 +252,8 @@ namespace Lux {
 
 		if (ImGui::CollapsingHeader(LUX_ICON_BAR_CHART "  Pipeline Statistics"))
 		{
+			RenderCommandBuffer::RequestPipelineStatistics();
+			ImGui::TextDisabled("Counted only while this section is open; counting slows mesh shaders.");
 			const PipelineStatistics& ps = stats.PipelineStats;
 			ImGui::Text("Input Vertices:       %llu", static_cast<unsigned long long>(ps.InputAssemblyVertices));
 			ImGui::Text("Input Primitives:     %llu", static_cast<unsigned long long>(ps.InputAssemblyPrimitives));
