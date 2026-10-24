@@ -483,6 +483,21 @@ errors; runtime export works.
 
 **Docs:** `Architecture-LuxEngine.md` asset/mesh format; `Rendering.md` vertex layout.
 
+**Status 2026-10-24: done, as Lucky Engine does it.** Lucky (`M:\LuckyEngine\MAC-Source`, Apache-2.0)
+keeps the full `Vertex` on the CPU and uploads a 28-byte `PackedVertex` (float3 position, int16×4
+snorm QTangent, float2 UV) with `QTangent_ToTBN` in the shaders; LuxEngine now does the same, so
+`MeshSourceFile`, the mesh caches and runtime packs are untouched (no version bump, no re-export).
+`ShaderDataType::Short4N` (RGBA16_SNORM) is new; the mesh layout and the 11 shaders on it declare
+position, QTangent and UV at locations 0–2; `GBuffer_Static`, `HazelPBR_Transparent` and
+`HazelPBR_Static` decode the frame; the meshlet prepass reads a 7-float stride. Not touched: the
+`_Anim` and `LuxPBR_*` shaders (no pipeline uses them). The encoder orthonormalizes the frame, so the
+image changes where imported tangents were skewed — 14,180 Benchmark pixels (1.5%), most of them SSR
+reflections on glossy normal-mapped floors, 12,639 on RenderFeatures; the user accepted the corrected
+frame as the reference: golden **`rf9`** (reproduced from `rf9a`, all 18). Cost: Benchmark vertex
+buffers halve (~11 → ~5.5 MB); no measurable GPU-time change at 1080p (G-buffer and shadow passes
+within run-to-run noise; a 32-byte padded variant was tried and dropped). Debug sync validation clean
+on Benchmark, RenderFeatures and the mesh-shader prepass; Release, Debug and Lux-Runtime build.
+
 ---
 
 ## Part 4 — Verification

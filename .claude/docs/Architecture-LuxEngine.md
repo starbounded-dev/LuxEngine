@@ -284,6 +284,9 @@ submission.
   transition (undefined → resting state) in the batch.
 - Queries and markers are NRI too: timestamp and pipeline-statistics query pools per command list
   slot, read back a frame-in-flight later, and `CmdBeginAnnotation` markers.
+- Mesh vertex buffers hold `PackedVertex` (28 bytes: position, a QTangent frame quaternion, UV), packed
+  from the CPU `Vertex` when `MeshSource` uploads; mesh files, caches and runtime packs keep `Vertex`.
+  See `Rendering.md § Shaders`.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
   `Image2D`s in the shared `ImGuiTextureRegistry`. A frame with glass backdrops (§ 2.9) draws into

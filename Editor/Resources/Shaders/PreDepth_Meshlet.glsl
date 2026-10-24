@@ -149,14 +149,14 @@ layout(std430, set = 0, binding = 2) readonly buffer MeshletTriangles
 	uint Data[];
 } r_MeshletTriangles;
 
-// The shared render vertex buffer viewed as raw floats
-// (14 floats per vertex: position 3, normal 3, tangent 3, binormal 3, uv 2).
+// The shared render vertex buffer viewed as raw floats: PackedVertex, 7 per vertex (position 3,
+// QTangent as four snorm16 in 2, uv 2).
 layout(std430, set = 0, binding = 3) readonly buffer MeshVertexData
 {
 	float Data[];
 } r_VertexData;
 
-#define MESH_VERTEX_STRIDE 14u
+#define MESH_VERTEX_STRIDE 7u
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
@@ -201,7 +201,7 @@ void main()
 		gl_MeshVerticesEXT[i].gl_Position = u_Camera.ViewProjectionMatrix * worldPosition;
 
 		// The UVs GBuffer_Static samples, or the two passes discard different texels.
-		const vec2 texCoord = vec2(r_VertexData.Data[base + 12u], r_VertexData.Data[base + 13u]);
+		const vec2 texCoord = vec2(r_VertexData.Data[base + 5u], r_VertexData.Data[base + 6u]);
 		OutputTexCoord[i] = vec2(texCoord.x, 1.0 - texCoord.y);
 		OutputObjectIndex[i] = i_Payload.ObjectIndex;
 		OutputViewPosition[i] = vec3(u_Camera.ViewMatrix * worldPosition);

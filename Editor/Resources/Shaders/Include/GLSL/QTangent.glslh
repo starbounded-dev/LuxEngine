@@ -1,0 +1,34 @@
+#ifndef LUX_QTANGENT_GLSLH
+#define LUX_QTANGENT_GLSLH
+
+// The mesh vertex's tangent frame, stored as a unit quaternion in four snorm16 values (PackedVertex
+// in Renderer/Mesh.h, after Lucky Engine): the rotation taking (x, y, z) to (tangent, binormal,
+// normal), with the binormal's handedness in the sign of w.
+
+// Columns: tangent, binormal, normal.
+mat3 QTangent_ToTBN(vec4 q)
+{
+	// q and -q are the same rotation; the sign only carries the handedness.
+	float handedness = q.w < 0.0 ? -1.0 : 1.0;
+	q *= handedness;
+
+	float x2 = q.x + q.x;
+	float y2 = q.y + q.y;
+	float z2 = q.z + q.z;
+	float xx = q.x * x2;
+	float xy = q.x * y2;
+	float xz = q.x * z2;
+	float yy = q.y * y2;
+	float yz = q.y * z2;
+	float zz = q.z * z2;
+	float wx = q.w * x2;
+	float wy = q.w * y2;
+	float wz = q.w * z2;
+
+	vec3 tangent  = vec3(1.0 - (yy + zz), xy + wz, xz - wy);
+	vec3 binormal = vec3(xy - wz, 1.0 - (xx + zz), yz + wx) * handedness;
+	vec3 normal   = vec3(xz + wy, yz - wx, 1.0 - (xx + yy));
+	return mat3(tangent, binormal, normal);
+}
+
+#endif // LUX_QTANGENT_GLSLH

@@ -1434,12 +1434,11 @@ namespace Lux {
 		}
 
 		// Common vertex layout for all opaque mesh pipelines
+		// PackedVertex (Mesh.h): the tangent frame as a quaternion, decoded by QTangent.glslh.
 		VertexBufferLayout vertexLayout = {
-			{ ShaderDataType::Float3, "a_Position" },
-			{ ShaderDataType::Float3, "a_Normal"   },
-			{ ShaderDataType::Float3, "a_Tangent"  },
-			{ ShaderDataType::Float3, "a_Binormal" },
-			{ ShaderDataType::Float2, "a_TexCoord" }
+			{ ShaderDataType::Float3,  "a_Position" },
+			{ ShaderDataType::Short4N, "a_QTangent" },
+			{ ShaderDataType::Float2,  "a_TexCoord" }
 		};
 
 		// ── Directional shadow maps ───────────────────────────────────────────

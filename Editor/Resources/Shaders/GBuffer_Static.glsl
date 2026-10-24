@@ -4,10 +4,10 @@
 #include <Buffers.glslh>
 
 layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
-layout(location = 2) in vec3 a_Tangent;
-layout(location = 3) in vec3 a_Binormal;
-layout(location = 4) in vec2 a_TexCoord;
+layout(location = 1) in vec4 a_QTangent; // tangent frame, QTangent.glslh
+layout(location = 2) in vec2 a_TexCoord;
+
+#include <QTangent.glslh>
 
 struct VertexOutput
 {
@@ -40,9 +40,10 @@ void main()
 
 	OutputObjectIndex = objectIndex;
 	Output.WorldPosition = worldPosition.xyz;
-	Output.Normal = mat3(transform) * a_Normal;
+	const mat3 tbn = QTangent_ToTBN(a_QTangent); // columns: tangent, binormal, normal
+	Output.Normal = mat3(transform) * tbn[2];
 	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
-	Output.WorldNormals = mat3(transform) * mat3(a_Tangent, a_Binormal, a_Normal);
+	Output.WorldNormals = mat3(transform) * tbn;
 	Output.CameraView = mat3(u_Camera.ViewMatrix);
 	Output.ViewPosition = vec3(u_Camera.ViewMatrix * vec4(Output.WorldPosition, 1.0));
 

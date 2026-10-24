@@ -46,6 +46,7 @@ namespace Lux {
 				case ShaderDataType::Float2:	outFormat = nri::Format::RG32_SFLOAT; return true;
 				case ShaderDataType::Float3:	outFormat = nri::Format::RGB32_SFLOAT; return true;
 				case ShaderDataType::Float4:	outFormat = nri::Format::RGBA32_SFLOAT; return true;
+				case ShaderDataType::Short4N:	outFormat = nri::Format::RGBA16_SNORM; return true;
 				case ShaderDataType::Int:		outFormat = nri::Format::R32_SINT; return true;
 				case ShaderDataType::Int2:		outFormat = nri::Format::RG32_SINT; return true;
 				case ShaderDataType::Int3:		outFormat = nri::Format::RGB32_SINT; return true;

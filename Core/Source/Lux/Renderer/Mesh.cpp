@@ -535,7 +535,12 @@ namespace Lux
 			}
 		}
 
-		m_VertexBuffer = VertexBuffer::Create(Buffer(renderVertices.data(), (uint32_t)(renderVertices.size() * sizeof(Vertex))));
+		// The GPU gets the 28-byte PackedVertex; the full Vertex stays on the CPU (physics, picking, caches).
+		std::vector<PackedVertex> packedVertices;
+		packedVertices.reserve(renderVertices.size());
+		for (const Vertex& vertex : renderVertices)
+			packedVertices.emplace_back(vertex);
+		m_VertexBuffer = VertexBuffer::Create(Buffer(packedVertices.data(), (uint32_t)(packedVertices.size() * sizeof(PackedVertex))));
 		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
 
 		if (generatedLODCount > 0)
@@ -739,6 +744,51 @@ namespace Lux
 			for (uint32_t i = 0; i < submeshes.size(); i++)
 				m_Submeshes[i] = i;
 		}
+	}
+
+	PackedVertex::PackedVertex(const Vertex& vertex)
+		: Position(vertex.Position), Texcoord(vertex.Texcoord)
+	{
+		constexpr float Snorm16Max = 32767.0f;
+		auto isUsable = [](const glm::vec3& v)
+			{
+				const float lengthSquared = glm::dot(v, v);
+				return lengthSquared > 1e-8f && !std::isnan(lengthSquared);
+			};
+
+		const glm::vec3 normal = isUsable(vertex.Normal) ? glm::normalize(vertex.Normal) : glm::vec3(0.0f, 0.0f, 1.0f);
+
+		glm::vec3 tangent(0.0f);
+		float handedness = 1.0f;
+		if (isUsable(vertex.Tangent))
+		{
+			const glm::vec3 sourceTangent = glm::normalize(vertex.Tangent);
+			if (isUsable(vertex.Binormal))
+				handedness = glm::dot(glm::cross(normal, sourceTangent), vertex.Binormal) >= 0.0f ? 1.0f : -1.0f;
+			tangent = sourceTangent - normal * glm::dot(normal, sourceTangent);
+		}
+		// No tangent, or one parallel to the normal: any perpendicular will do.
+		if (!isUsable(tangent))
+			tangent = glm::cross(std::abs(normal.y) < 0.999f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f), normal);
+		tangent = glm::normalize(tangent);
+
+		// A quaternion holds only rotations, so the frame is built right-handed and the handedness
+		// rides in the sign of w; w is kept off zero so that sign survives snorm16.
+		const glm::mat3 frame(tangent, glm::cross(normal, tangent), normal);
+		glm::quat q = glm::normalize(glm::quat_cast(frame));
+		if (q.w < 0.0f)
+			q = -q;
+		if (q.w < 1.0f / Snorm16Max)
+		{
+			q.w = 1.0f / Snorm16Max;
+			q = glm::normalize(q);
+		}
+		if (handedness < 0.0f)
+			q = -q;
+
+		const float components[4] = { q.x, q.y, q.z, q.w };
+		for (int i = 0; i < 4; i++)
+			QTangent[i] = static_cast<int16_t>(std::round(std::clamp(components[i], -1.0f, 1.0f) * Snorm16Max));
 	}
 
 	////////////////////////////////////////////////////////

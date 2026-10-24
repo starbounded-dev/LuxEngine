@@ -368,6 +368,19 @@ coordinates in the vertex stage and keep the depth bias only.
 
 ## Shaders
 
+**Mesh vertices reach the GPU as `PackedVertex` (28 bytes, `Renderer/Mesh.h`).** Position (float3), the
+tangent frame as a unit quaternion in four snorm16 values ("QTangent", the binormal's handedness in
+the sign of `w`) and the UV (float2); `MeshSource` packs it when it creates the vertex buffer, and the
+CPU keeps the full 56-byte `Vertex` (physics, picking, the mesh caches and runtime packs, which are
+unchanged). The mesh layout in `SceneRenderer` is `a_Position` Float3, `a_QTangent` `Short4N`
+(RGBA16_SNORM), `a_TexCoord` Float2 at locations 0–2; every shader on it declares exactly those, and
+the ones that need the frame call `QTangent_ToTBN` (`Include/GLSL/QTangent.glslh`, columns tangent,
+binormal, normal). The mesh-shader prepass reads the buffer raw at `MESH_VERTEX_STRIDE` 7 floats (UV at
+5–6). The encoder orthonormalizes the frame (Gram-Schmidt on the tangent, binormal ±cross(N, T)), so a
+mesh whose imported tangents were skewed shades with the corrected frame. The design follows Lucky
+Engine's `PackedVertex`. Edit `PackedVertex`, the layout, `QTangent.glslh` and the meshlet stride
+together.
+
 **LuxEngine is GLSL-first.** The corpus is ~68 `.glsl` + 15 `.glslh` includes, with a small number of
 `.hlsl` / `.hlslh` / `.slh` files. This is the opposite of some Hazel-derived engines — do not assume
 HLSL-only.

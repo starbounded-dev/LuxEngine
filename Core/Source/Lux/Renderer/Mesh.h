@@ -28,6 +28,22 @@ namespace Lux {
 		glm::vec3 Binormal;
 		glm::vec2 Texcoord;
 	};
+
+	// What the GPU vertex buffer holds, half a Vertex (after Lucky Engine's PackedVertex): the tangent
+	// frame as a unit quaternion in four snorm16 values ("QTangent"), its handedness in the sign of w.
+	// Include/GLSL/QTangent.glslh decodes it; the full Vertex stays on the CPU.
+	struct PackedVertex
+	{
+		glm::vec3 Position;
+		int16_t QTangent[4]; // x, y, z, w
+		glm::vec2 Texcoord;
+
+		PackedVertex() = default;
+		// Orthonormalizes the frame (Gram-Schmidt on the tangent), keeps the binormal's handedness,
+		// and builds a tangent from the normal alone when the vertex has none.
+		explicit PackedVertex(const Vertex& vertex);
+	};
+	static_assert(sizeof(PackedVertex) == 28, "PackedVertex must match the mesh vertex layout and MESH_VERTEX_STRIDE");
 	/*
 	struct BoneInfo
 	{
