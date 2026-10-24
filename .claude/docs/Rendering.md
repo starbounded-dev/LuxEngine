@@ -236,6 +236,24 @@ temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ 
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
 
+**Bloom is an FFT convolution with a lens-glare kernel.** One compute pass, "Bloom"
+(`SceneRenderer::BloomCompute`, `PostProcessing/BloomFFT.glsl`, one shader with a mode per dispatch),
+replaces the old mip chain: the bright pass area-averages and soft-thresholds the scene into half of a
+fixed 512×512 grid along its longer side (the other half is zero padding, so the circular convolution
+never wraps), a 512-point shared-memory FFT runs over rows then columns, the spectrum is multiplied by
+the kernel spectrum divided by its DC term (the glare redistributes energy, it does not add any), the
+inverse FFT runs back, and the source region is bilinearly resolved into `m_BloomTexture` (RGBA16F, at
+`BloomSettings::ResolutionScale`), which the composite adds with `BloomIntensity` and the dirt texture.
+R and G share one RGBA32F grid as two complex numbers, B has an RG32F one; with the kernel's pair that
+is ~12 MB, independent of the viewport. The kernel (core, power-law halo, streak lines, the red channel
+wider than the blue) is built from `BloomSettings` — `StreakCount` (≤ `MaxStreakCount`, 8, which is
+`MAX_STREAK_LINES` in the shader), `StreakLength`, `StreakIntensity`, `StreakRotation`,
+`HaloIntensity`, `ChromaticSpread` — and its spectrum is rebuilt only when they change
+(`m_BloomFFTKernelKey`). Bloom settings are renderer-owned project settings:
+`GetEffectivePostProcessSettings` overlays them onto the scene's `PostProcessSettings`. Cost on the
+RTX 4070 Ti, Benchmark: ~0.11 ms at 1280×720, ~0.13 ms at 1920×1080 (the grid size, not the
+viewport, sets it). Everything is per frame; there is no history.
+
 **AO is indirect-only.** The AO composite resolves GTAO into its own `RED8UN` image, and deferred
 lighting multiplies it into the IBL term only (with material AO, which also drives specular
 occlusion). Direct light already has shadow-map visibility, so AO must never multiply the lit scene
@@ -289,6 +307,21 @@ projection at the near plane, and the filter radius is the penumbra half-width a
 `lightRadius · (receiver − blocker) / blocker`. Both are converted to tile UV with `0.5 · P[0][0] /
 depth`. The search is capped at 0.05 tile UV, the margin point-light faces keep, so taps never read
 a neighbouring tile.
+
+**Area lights are a separate pass.** `AreaLightComponent` (rect or disk emitting along the entity's
+-Z, or a sphere or tube emitting all around; Unitless = luminance or Lumens via
+`PhysicalLight::AreaIntensity`) reaches the renderer through `LightEnvironment::AreaLights`;
+`SceneRenderer` uploads the nearest `LightEnvironment::MaxAreaLights` (32, `MAX_AREA_LIGHTS` in
+`LTC.glslh`; change both) to `AreaLightData` at `(1, 18)` every frame, the count included when it is
+zero, because the transparent pass reads it every frame. The "Area Lights" pass
+(`DeferredLighting_Area.glsl`) adds them over deferred lighting with Linearly Transformed Cosines and
+is only in the graph on frames with area lights, so the deferred lighting shader never carries the
+LTC code; `HazelPBR_Transparent.glsl` evaluates the same `LuxEvaluateAreaLights`. The LTC tables are
+`Renderer::GetLTCMatrixTexture` / `GetLTCAmplitudeTexture` at `(3, 6)` / `(3, 7)`, built from
+`Core/vendor/ltc/LTCTables.h` (BSD-2-Clause, `selfshadow/ltc_code`). A disk is integrated as an
+area-matched 12-gon; a sphere as a disk facing the shaded point, and a tube as a rectangle facing it
+around its axis, lengthened by πr/4 per end to keep the capsule's silhouette area
+(`LTC_FacingShape`). Area lights are unshadowed.
 
 **Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
 tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and
@@ -442,6 +475,9 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 python3 tests/rendering/threading_ab.py                                   # build, then Single vs Multi
 ```
 
+- **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features
+  scene (area-light slots over glossy strips, glass in front of a grid wall, bright emitters), which
+  `python3 scripts/GenerateBenchmarkScenes.py --scene features` regenerates without touching Benchmark.
 - **Captures live in `bin/golden/<label>/`** and are never committed.
 - **Validation counts only exist in Debug captures** (`--config debug`, plus `--sync-validation`
   for synchronization validation). `summary.json` and `validation.txt` list them, and a comparison
@@ -862,6 +898,14 @@ reads. Reading the previous frame then is safe because frame pacing has retired 
 queries need one command list per frame in flight (`Create(0, …)`; others get none, with a
 warning). A timer name used several times in a frame reports its total.
 
+**Pipeline statistics are counted only on demand.** An open PIPELINE_STATISTICS query serializes
+mesh-shader work on NVIDIA: with one open around every segment, the mesh-shader prepass on Benchmark
+measured 24 ms against 0.15 ms without (render features plan, phase 8). Segments open the query only
+in render frames that took a `RenderCommandBuffer::RequestPipelineStatistics()` (each render frame
+takes the request once, at its first segment); the Profiler requests every frame its Pipeline
+Statistics section is open, so counting stops however the panel closes. Never time mesh-shader passes
+with that section open.
+
 The frame total (`GetExecutionGPUTime`, shown as "GPU" in the viewport HUD and read by dynamic
 resolution) is a separate frame-level timestamp pair written in `RT_Begin` and `RT_End`. A frame
 that is split mid-way — End, Submit, then Begin again, as the WorldOverlay2D pass does — must resume
@@ -1001,9 +1045,23 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. A row is 11 `vec4` (176 bytes). The last two hold diffuse transmission:
+size in step. A row is 13 `vec4` (208 bytes). Two hold diffuse transmission:
 `Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
-`TransmissionTextureIndices.x` (the factor map, read from alpha). Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+`TransmissionTextureIndices.x` (the factor map, read from alpha); the last two hold refraction:
+`Refraction` (x share, transparent rows only; y IOR, z thickness, w attenuation distance) and
+`AttenuationColor`. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+
+**Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,
+read through `GetGPUMaterialRefraction`)
+takes that share from its diffuse lobe and adds the opaque scene behind it in
+`HazelPBR_Transparent.glsl`: the view ray refracted by the IOR and carried `Thickness` into the
+volume (0 = thin-walled, blurred but not displaced), projected back to the screen, read from the
+pre-convolved scene at a roughness mip (capped at mip 5), the sky when it leaves the screen, absorbed
+Beer–Lambert toward the attenuation colour, tinted by the base colour. Alpha stays coverage, so
+refractive glass keeps opacity 1. `MaterialScene::HasRefractiveMaterials()` on the submitted render
+scene sets `m_FrameHasRefraction`: `Pre-Convolution` then runs even with SSR off, the transparent
+pass reads its output (`u_RefractionSource`, `(1, 11)`, bound in `TransparentForwardPass`; a black
+texture on frames without refraction). Materials submitted outside a render scene do not set it.
 
 ### Bindless textures — set 4 is reserved
 
@@ -1065,11 +1123,20 @@ the revision** — a setter that does not leaves the GPU row stale until the nex
 `UpsertOverrideMaterial` rows are unreferenced and live while they are upserted every frame.
 
 **Emission does not go through the G-buffer.** `GBuffer_Static` writes emissive radiance straight
-into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 5, with
+into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 4, with
 `AttachmentLoadOp::Load` so the sky drawn before it survives), and `DeferredLighting` blends its
 result on top with `FramebufferBlendMode::Additive`. Consequences: anything that writes the lit
 opaque color must stay additive over what is already there, and the G-buffer render-graph pass reads
 and writes scene color.
+
+**The G-buffer is four targets** (`LuxGBuffer.glslh` encodes and decodes them): base colour RGBA16F
+(a = opacity), view normal RGBA16F (w = diffuse transmission), metalness / roughness / AO / specular
+RGBA8, and material + object ID RG32UI; then emission into scene colour and the pre-depth buffer.
+There is no velocity target (nothing temporal reads one); `UBCamera::PreviousViewProjection` stays
+in the shared block but is unread. Narrower formats were measured and rejected (render features plan,
+phase 7): octahedral normals change grazing-angle rim highlights (N·V near 0 divides the specular)
+by up to 35/255 on a few hundred pixels even in RG16 snorm, and an RGBA8 sRGB base colour clips
+base colours above 1 — for no measurable time saved at 1080p.
 
 **Diffuse transmission rides in the G-buffer normal's alpha.** `LuxGBufferData::DiffuseTransmission`
 (the material factor × map) is `normal.w`; its colour is read from the material row through

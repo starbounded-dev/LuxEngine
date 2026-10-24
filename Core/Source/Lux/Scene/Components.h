@@ -637,6 +637,38 @@ namespace Lux {
 		SpotLightComponent(const SpotLightComponent&) = default;
 	};
 
+	// AreaLightComponent::Shape; mirrors AREA_LIGHT_SHAPE_* in LTC.glslh.
+	enum class AreaLightShape : uint32_t
+	{
+		Rect = 0,
+		Disk = 1,
+		Sphere = 2,
+		Tube = 3
+	};
+
+	// A light with a surface, lit with Linearly Transformed Cosines and unshadowed. A rectangle
+	// (Width x Height, in the local X/Y plane) or a disk (Radius) emits along the entity's -Z; a
+	// sphere (Radius) and a tube (Length along local X, Radius) emit all around. The entity's scale
+	// stretches the shape.
+	struct AreaLightComponent
+	{
+		AreaLightShape Shape = AreaLightShape::Rect;
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		LightUnit Unit = LightUnit::Unitless; // Unitless (luminance) or Lumens
+		float ColorTemperature = 6500.0f;     // Kelvin
+		bool UseColorTemperature = false;
+		float Width = 1.0f;  // Rect
+		float Height = 1.0f; // Rect
+		float Radius = 0.5f; // Disk, Sphere, Tube
+		float Length = 1.0f; // Tube
+		bool TwoSided = false; // Rect, Disk
+		float Range = 10.0f; // the light's influence fades to zero at this distance from its centre
+
+		AreaLightComponent() = default;
+		AreaLightComponent(const AreaLightComponent&) = default;
+	};
+
 	struct SkyLightComponent
 	{
 		AssetHandle SceneEnvironment = 0;
@@ -665,7 +697,7 @@ namespace Lux {
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 		FolderComponent>;
 

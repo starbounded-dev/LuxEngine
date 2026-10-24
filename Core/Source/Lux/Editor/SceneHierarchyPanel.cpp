@@ -70,7 +70,8 @@ namespace Lux {
 			if (entity.HasComponent<CameraComponent>())           return { LUX_ICON_VIDEO_CAMERA, cool };
 			if (entity.HasComponent<DirectionalLightComponent>()) return { LUX_ICON_SUN_O, warm };
 			if (entity.HasComponent<PointLightComponent>() ||
-			    entity.HasComponent<SpotLightComponent>())        return { LUX_ICON_LIGHTBULB_O, warm };
+			    entity.HasComponent<SpotLightComponent>() ||
+			    entity.HasComponent<AreaLightComponent>())        return { LUX_ICON_LIGHTBULB_O, warm };
 			if (entity.HasComponent<SkyLightComponent>())         return { LUX_ICON_SUN_O, warm };
 			if (entity.HasComponent<StaticMeshComponent>() ||
 			    entity.HasComponent<MeshComponent>())             return { LUX_ICON_CUBE, neutral };
@@ -843,6 +844,12 @@ namespace Lux {
 					entity.AddComponent<SpotLightComponent>();
 				}
 
+				if (ImGui::MenuItem("Area Light"))
+				{
+					Entity entity = createEntity("Area Light");
+					entity.AddComponent<AreaLightComponent>();
+				}
+
 				if (ImGui::MenuItem("Sky Light"))
 				{
 					Entity entity = createEntity("Sky Light");
@@ -1590,6 +1597,7 @@ namespace Lux {
 				const bool canAddDirectionalLight = canAddComponent.template operator()<DirectionalLightComponent>();
 				const bool canAddPointLight = canAddComponent.template operator()<PointLightComponent>();
 				const bool canAddSpotLight = canAddComponent.template operator()<SpotLightComponent>();
+				const bool canAddAreaLight = canAddComponent.template operator()<AreaLightComponent>();
 				const bool canAddSkyLight = canAddComponent.template operator()<SkyLightComponent>();
 
 				if (canAddCamera || canAddScript)
@@ -1894,7 +1902,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddSkyLight)
+				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddAreaLight || canAddSkyLight)
 					addCategoryHeader("Lighting");
 
 				if (canAddDirectionalLight)
@@ -1932,6 +1940,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<SpotLightComponent>())
 								entity.AddComponent<SpotLightComponent>();
+						}
+					});
+				}
+
+				if (canAddAreaLight)
+				{
+					addComponentRow("Area Light", EditorResources::PointLightIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<AreaLightComponent>())
+								entity.AddComponent<AreaLightComponent>();
 						}
 					});
 				}
@@ -2071,6 +2092,7 @@ namespace Lux {
 						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
 						row.operator()<PointLightComponent>("PointLightComponent", "Point Light");
 						row.operator()<SpotLightComponent>("SpotLightComponent", "Spot Light");
+						row.operator()<AreaLightComponent>("AreaLightComponent", "Area Light");
 						row.operator()<SkyLightComponent>("SkyLightComponent", "Sky Light");
 						row.operator()<RigidBodyComponent>("RigidBodyComponent", "Rigid Body");
 						row.operator()<CharacterControllerComponent>("CharacterControllerComponent", "Character Controller");
@@ -3832,6 +3854,128 @@ namespace Lux {
 					ApplyToSelection<SpotLightComponent>(m_Context, selectedEntities, [&firstComponent](SpotLightComponent& component, Entity)
 					{
 						component.SoftShadows = firstComponent.SoftShadows;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<AreaLightComponent>(m_Context, entityIDs, "Area Light", EditorResources::PointLightIcon,
+			[this](AreaLightComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				{
+					static const char* shapeNames[] = { "Rectangle", "Disk", "Sphere", "Tube" };
+					int32_t current = static_cast<int32_t>(firstComponent.Shape);
+					if (ImGuiEx::PropertyDropdown("Shape", shapeNames, 4, &current))
+					{
+						firstComponent.Shape = static_cast<AreaLightShape>(current);
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Shape = firstComponent.Shape;
+						});
+					}
+				}
+
+				if (ImGuiEx::PropertyColor("Radiance", firstComponent.Radiance))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.Radiance = firstComponent.Radiance;
+					});
+				}
+
+				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.1f, 0.0f, 100000.0f))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.Intensity = firstComponent.Intensity;
+					});
+				}
+
+				{
+					static const char* unitNames[] = { "Unitless (luminance)", "Lumens" };
+					static const LightUnit unitValues[] = { LightUnit::Unitless, LightUnit::Lumens };
+					int32_t current = firstComponent.Unit == LightUnit::Lumens ? 1 : 0;
+					if (ImGuiEx::PropertyDropdown("Unit", unitNames, 2, &current))
+					{
+						firstComponent.Unit = unitValues[current];
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Unit = firstComponent.Unit;
+						});
+					}
+				}
+
+				if (ImGuiEx::Property("Use Color Temperature", firstComponent.UseColorTemperature))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.UseColorTemperature = firstComponent.UseColorTemperature;
+					});
+				}
+
+				if (ImGuiEx::Property("Temperature (K)", firstComponent.ColorTemperature, 50.0f, 1000.0f, 15000.0f))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.ColorTemperature = firstComponent.ColorTemperature;
+					});
+				}
+
+				if (firstComponent.Shape == AreaLightShape::Rect)
+				{
+					if (ImGuiEx::Property("Width", firstComponent.Width, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Width = firstComponent.Width;
+						});
+					}
+
+					if (ImGuiEx::Property("Height", firstComponent.Height, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Height = firstComponent.Height;
+						});
+					}
+				}
+				else
+				{
+					if (firstComponent.Shape == AreaLightShape::Tube && ImGuiEx::Property("Length", firstComponent.Length, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Length = firstComponent.Length;
+						});
+					}
+
+					if (ImGuiEx::Property("Radius", firstComponent.Radius, 0.01f, 0.0f, 50.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Radius = firstComponent.Radius;
+						});
+					}
+				}
+
+				// Spheres and tubes emit all around; only flat shapes have a back side.
+				const bool flatShape = firstComponent.Shape == AreaLightShape::Rect || firstComponent.Shape == AreaLightShape::Disk;
+				if (flatShape && ImGuiEx::Property("Two Sided", firstComponent.TwoSided))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.TwoSided = firstComponent.TwoSided;
+					});
+				}
+
+				if (ImGuiEx::Property("Range", firstComponent.Range, 0.1f, 0.0f, 1000.0f))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.Range = firstComponent.Range;
 					});
 				}
 

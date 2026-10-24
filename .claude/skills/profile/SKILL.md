@@ -191,7 +191,8 @@ Use this whenever a number goes into a report or justifies a change.
    `python scripts/GenerateBenchmarkScenes.py` regenerates it deterministically, along with its
    materials (`Assets/Materials/Benchmark/`, registered under fixed handles). `--objects`,
    `--materials`, `--lights` and `--bodies` scale it. Record any non-default arguments with the
-   numbers. **Play** starts a looping camera flight through every district (the `CameraPath`
+   numbers. `--scene features` writes the small `RenderFeatures.luxscene` instead (area lights,
+   glass, bloom test stage) and leaves Benchmark alone. **Play** starts a looping camera flight through every district (the `CameraPath`
    script; C toggles it), so a Play-mode capture is the reproducible one. Edit mode depends on
    where you left the editor camera.
 4. **Fix** window size, resolution scale, camera vantage point (screenshot it), quality settings,

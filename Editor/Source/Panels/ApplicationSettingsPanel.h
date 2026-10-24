@@ -53,6 +53,8 @@ namespace Lux {
 			// more than flip a bool (re-docks panels), so the change is routed through the callback
 			// rather than written directly.
 			bool* SimpleLayout = nullptr;
+			// Frosted-glass backdrops behind popups and the translucent viewport overlays.
+			bool* GlassOverlays = nullptr;
 			std::function<void(bool)> OnLayoutModeChanged;
 			std::function<void()> OnPreferencesChanged;
 		};

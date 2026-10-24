@@ -46,6 +46,8 @@ SOFTWARE.
 
 #pragma once
 
+#include <array>
+#include <map>
 #include <memory>
 #include <vector>
 #include <unordered_map>
@@ -164,6 +166,26 @@ namespace Lux
 		}
 	};
 
+	// The ImDrawCallback that marks a frosted-glass backdrop (ImGuiLayer::SetGlassBackdrops): a
+	// command placed first in a window's draw list, its ClipRect the window's rectangle and its
+	// UserCallbackData the bits of the corner rounding (no pointer, so the cloned snapshot holds
+	// everything). ImGuiRenderer draws the backdrop instead of calling it; it does nothing itself.
+	void ImGuiGlassBackdropCallback(const ImDrawList* drawList, const ImDrawCmd* command);
+	void* EncodeImGuiGlassRounding(float rounding);
+	float DecodeImGuiGlassRounding(const void* userData);
+
+	// The glass shader's push constants (ImGuiRenderer.cpp).
+	struct ImGuiGlassConstants;
+
+	// The images a frame with glass backdrops renders through, at the framebuffer's size: the UI
+	// target ImGui draws into, and the blur levels at 1/2, 1/4 and 1/8 of it.
+	struct ImGuiGlassTargets
+	{
+		static constexpr uint32_t LevelCount = 3;
+		Ref<Image2D> UI;
+		std::array<Ref<Image2D>, LevelCount> Levels;
+	};
+
 	// Immutable CPU-side copy of an ImGui viewport's draw data and texture table.
 	// ImGui owns the source lists only until the next NewFrame(), so render-thread
 	// consumption must not retain ImGuiViewport::DrawData directly.
@@ -179,6 +201,10 @@ namespace Lux
 		ImDrawData* GetDrawData() { return &m_DrawData; }
 		const ImGuiTextureInfo& ResolveTexture(uint64_t handle) const;
 
+		uint32_t GetGlassBackdropCount() const { return m_GlassBackdropCount; }
+		const ImGuiGlassTargets& GetGlassTargets() const { return m_GlassTargets; }
+		void SetGlassTargets(const ImGuiGlassTargets& targets) { m_GlassTargets = targets; }
+
 	private:
 		ImGuiDrawDataSnapshot() = default;
 
@@ -188,6 +214,9 @@ namespace Lux
 		std::vector<ImGuiTextureInfo> m_PersistentTextures;
 		std::vector<ImGuiTextureInfo> m_FrameTextures;
 		uint32_t m_FrameCounter = 0;
+		uint32_t m_GlassBackdropCount = 0;
+		// Copied from the renderer on the main thread, so the render thread never reads its members.
+		ImGuiGlassTargets m_GlassTargets;
 	};
 
 	// --------------------------------------------------------------------
@@ -223,6 +252,11 @@ namespace Lux
 		// frame). False, with only the acquire waited for, when the UI cannot be drawn (logged once).
 		bool RenderToSwapchain(const std::shared_ptr<ImGuiDrawDataSnapshot>& snapshot, RHISwapChain* swapchain, bool clearTarget = true);
 		float GetGPUTime() const;
+
+		// Main thread. When `snapshot` has glass backdrops, sizes this renderer's glass targets to its
+		// framebuffer (recreating them on a resize) and hands them to it. Without that the render
+		// thread draws the frame without them.
+		void PrepareGlassBackdrops(ImGuiDrawDataSnapshot& snapshot);
 
 		// Register a persistent texture (indices 0-63) - survives across frames.
 		ImTextureID RegisterPersistentTexture(const Ref<Image2D>& image, TextureSubresourceRange subresources = AllSubresources);
@@ -263,14 +297,28 @@ namespace Lux
 			uint32_t Capacity = 0;
 			uint32_t Used = 0;
 		};
+		// A shader's set 0 (a texture and a sampler) and where its ranges are.
+		struct SetLayout
+		{
+			Ref<RHIShader> Shader;
+			uint32_t SetIndex = 0;
+			uint32_t TextureRange = 0;
+			uint32_t SamplerRange = 0;
+		};
+		// One shader's sets in one frame slot.
+		struct DescriptorSets
+		{
+			std::vector<DescriptorPool> Pools;
+			std::unordered_map<SetKey, nri::DescriptorSet*, SetKeyHash> Sets;
+		};
 		// The resources of one frame slot: geometry written through Map, and descriptor pools reset
 		// when the slot comes round again (its previous frame has retired by then). Render thread.
 		struct FrameResources
 		{
 			NRIBuffer VertexBuffer;
 			NRIBuffer IndexBuffer;
-			std::vector<DescriptorPool> DescriptorPools;
-			std::unordered_map<SetKey, nri::DescriptorSet*, SetKeyHash> DescriptorSets;
+			DescriptorSets ImGuiSets;
+			DescriptorSets GlassSets;
 		};
 
 		// Host-visible: written through Map.
@@ -280,20 +328,34 @@ namespace Lux
 		bool UpdateGeometry(FrameResources& frame, ImDrawData* drawData);
 		// The set binding `texInfo`'s image and the sampler, allocated once per frame slot and image.
 		// Null when it cannot be made (logged).
-		nri::DescriptorSet* GetDescriptorSet(FrameResources& frame, const ImGuiTextureInfo& texInfo);
-		nri::DescriptorSet* AllocateDescriptorSet(FrameResources& frame);
+		nri::DescriptorSet* GetDescriptorSet(DescriptorSets& sets, const SetLayout& layout, const ImGuiTextureInfo& texInfo);
+		nri::DescriptorSet* AllocateDescriptorSet(DescriptorSets& sets, const SetLayout& layout);
+
+		// Glass pipelines, by whether they blend and the target format. Null when NRI cannot make
+		// one (logged).
+		nri::Pipeline* GetOrCreateGlassPipeline(bool blend, nri::Format format);
+		// Render thread, inside the UI target's ImGui pass: blurs the region under `command`'s window
+		// and composites it into the UI target, then reopens the ImGui pass. False when the ImGui
+		// pass could not be reopened (the rest of the frame is not drawn).
+		bool DrawGlassBackdrop(FrameResources& frame, const ImGuiGlassTargets& targets, const ImDrawCmd& command,
+			const ImVec2& clipOffset, const ImVec2& clipScale, const RenderCommandBuffer::NRIRenderPassDesc& imguiPass,
+			const nri::Viewport& viewport, const nri::Rect& scissor);
+		// Render thread: one glass pass, a full-screen triangle into `target` limited to `scissor`.
+		bool RenderGlassPass(FrameResources& frame, const Ref<Image2D>& target, const Ref<Image2D>& source, bool blend,
+			const ImGuiGlassConstants& constants, const nri::Rect& scissor, std::string_view name);
 
 	private:
 		// Shared across all ImGuiRenderer instances for this ImGui context.
 		std::shared_ptr<ImGuiTextureRegistry> m_Registry;
 
 		Ref<RenderCommandBuffer> m_RenderCommandBuffer;
-		Ref<RHIShader> m_Shader;
 		Ref<Sampler> m_Sampler;
-		uint32_t m_SetIndex = 0;
-		uint32_t m_TextureRange = 0;
-		uint32_t m_SamplerRange = 0;
+		SetLayout m_ImGuiLayout;
+		SetLayout m_GlassLayout;
 		std::unordered_map<nri::Format, nri::Pipeline*> m_Pipelines;
+		std::map<std::pair<bool, nri::Format>, nri::Pipeline*> m_GlassPipelines;
+		// Main thread: the targets the last glass frame was given, reused while the size holds.
+		ImGuiGlassTargets m_GlassTargets;
 		std::array<FrameResources, RendererConfig::MaxFramesInFlight> m_Frames;
 		bool m_ReportedSkippedFrames = false;
 	};

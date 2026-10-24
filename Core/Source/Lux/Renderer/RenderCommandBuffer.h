@@ -216,6 +216,12 @@ namespace Lux {
 		// frame: see m_LastGPUWorkTime for why a per-index handoff cannot work here.
 		float GetExecutionGPUTime() const;
 		PipelineStatistics GetPipelineStatistics() const;
+		// Pipeline statistics are counted only for frames something shows them in (the Profiler's
+		// Pipeline Statistics section): an open statistics query serializes mesh-shader work on NVIDIA,
+		// which took the mesh-shader prepass on Benchmark from 0.15 to 24 ms. Main thread, every frame
+		// they are shown; each render frame takes the request once, so it lapses when the caller stops
+		// asking, however its panel was closed.
+		static void RequestPipelineStatistics();
 
 		void RT_BeginTimerQuery(const std::string& name);
 		void RT_EndTimerQuery();
@@ -321,6 +327,7 @@ namespace Lux {
 			uint32_t BeginTimestamp = 0;
 			uint32_t EndTimestamp = 0;
 			uint32_t Statistics = 0;
+			bool HasStatistics = false; // the statistics query was open for this segment
 			bool Ended = false;
 		};
 		struct QueryTimer

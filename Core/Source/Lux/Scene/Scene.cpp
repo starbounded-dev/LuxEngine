@@ -1117,7 +1117,7 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 			FolderComponent>;
 
@@ -1185,7 +1185,7 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		std::unordered_map<UUID, UUID> entityMap;
@@ -1336,7 +1336,7 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
@@ -1979,6 +1979,56 @@ namespace Lux {
 				sl.ShadowResolutionTier = spotLight.ShadowResolutionTier;
 
 				lightEnv.SpotLights.push_back(sl);
+			}
+		}
+
+		// Collect area lights (the renderer keeps the nearest LightEnvironment::MaxAreaLights)
+		{
+			auto view = m_Registry.view<const TransformComponent, const AreaLightComponent>();
+			for (auto entity : view)
+			{
+				const auto& areaLight = view.get<const AreaLightComponent>(entity);
+				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
+
+				// HalfRight / HalfUp: the rect's or disk's half-extents; a sphere's radius along HalfRight;
+				// a tube's half-length along HalfRight (its axis) and its radius along HalfUp.
+				float halfRight = areaLight.Radius;
+				float halfUp = areaLight.Radius;
+				if (areaLight.Shape == AreaLightShape::Rect)
+				{
+					halfRight = areaLight.Width * 0.5f;
+					halfUp = areaLight.Height * 0.5f;
+				}
+				else if (areaLight.Shape == AreaLightShape::Tube)
+				{
+					halfRight = areaLight.Length * 0.5f;
+				}
+
+				AreaLight al;
+				al.Position = glm::vec3(worldTransform[3]);
+				al.HalfRight = glm::vec3(worldTransform[0]) * halfRight;
+				al.HalfUp = glm::vec3(worldTransform[1]) * halfUp;
+				const float rightWorld = glm::length(al.HalfRight);
+				const float upWorld = glm::length(al.HalfUp);
+				// The emitting surface, for lumens -> luminance.
+				float area = 4.0f * rightWorld * upWorld;
+				if (areaLight.Shape == AreaLightShape::Disk)
+					area = glm::pi<float>() * rightWorld * upWorld;
+				else if (areaLight.Shape == AreaLightShape::Sphere)
+					area = 4.0f * glm::pi<float>() * rightWorld * rightWorld;
+				else if (areaLight.Shape == AreaLightShape::Tube)
+					area = 2.0f * glm::pi<float>() * upWorld * (2.0f * rightWorld) + 4.0f * glm::pi<float>() * upWorld * upWorld;
+				const bool oneSurface = areaLight.Shape == AreaLightShape::Rect || areaLight.Shape == AreaLightShape::Disk;
+				const bool twoSided = oneSurface && areaLight.TwoSided;
+				al.Radiance = PhysicalLight::EffectiveRadiance(areaLight.Radiance, areaLight.UseColorTemperature, areaLight.ColorTemperature);
+				al.Intensity = PhysicalLight::AreaIntensity(areaLight.Unit, areaLight.Intensity, area, twoSided);
+				al.Range = areaLight.Range;
+				al.Shape = static_cast<uint32_t>(areaLight.Shape);
+				al.Flags = twoSided ? AreaLightTwoSided : 0u;
+				if (al.Intensity <= 0.0f || area <= 0.0f)
+					continue;
+
+				lightEnv.AreaLights.push_back(al);
 			}
 		}
 
@@ -3138,6 +3188,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<SpotLightComponent>(Entity entity, SpotLightComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AreaLightComponent>(Entity entity, AreaLightComponent& component)
 	{
 	}
 
