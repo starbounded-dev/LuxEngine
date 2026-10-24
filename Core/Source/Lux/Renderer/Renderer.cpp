@@ -496,19 +496,13 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting_Area.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBufferDebug.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Anim.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LuxPBR_Static.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LuxPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Grid.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Skybox.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Masked.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap_Masked.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap_Anim.glsl");
 
 		//SSR
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Pre-Integration.glsl");
@@ -534,7 +528,6 @@ namespace Lux {
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Masked.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
 		if (Renderer::SupportsMeshShaders())
 			Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Meshlet.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/MeshCulling.glsl");
@@ -562,7 +555,6 @@ namespace Lux {
 
 		// Misc
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SelectedGeometry.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SelectedGeometry_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/TexturePass.glsl");
 
 		// Compile shaders

@@ -821,8 +821,8 @@ crash or corruption on some driver even if it renders correctly on yours.
   `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Mesh shaders stay off by
   default: at parity they are still behind the classic prepass on Benchmark (0.151 vs 0.118 ms), and
   backface cones, fuller task groups, a position-only output and meshoptimizer-built meshlets did not
-  close it (render features plan, phase 8). Skinned meshes (`*_Anim`
-  shaders) have no variants; the engine has no skeletal animation.
+  close it (render features plan, phase 8). There are no skinned variants: the engine has no skeletal
+  animation, and the unused `*_Anim` and `LuxPBR_*` shaders were deleted with the packed vertex.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still

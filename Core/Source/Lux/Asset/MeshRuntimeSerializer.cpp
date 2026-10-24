@@ -212,12 +212,6 @@ namespace Lux
 						if (auto it = shaders.find("HazelPBR_Static"); it != shaders.end())
 							shader = it->second;
 					}
-
-					if (!shader)
-					{
-						if (auto it = shaders.find("LuxPBR_Static"); it != shaders.end())
-							shader = it->second;
-					}
 				}
 
 				Ref<MaterialAsset> materialAsset;
