@@ -14,6 +14,7 @@ namespace Lux
 		struct FileHeader
 		{
 			char Header[4] = { 'L', 'P', 'R', 'J' };
+			// 29: the AO shadow tolerance is removed from the scene-renderer block
 			// 28: FFT bloom glare kernel settings close the scene-renderer block
 			// 27: GTAO visibility bitmask, thickness and noise passes close the scene-renderer block
 			// 26: PCSS blocker/filter sample counts close the scene-renderer block
@@ -28,7 +29,7 @@ namespace Lux
 			// 17: explicit AudioBankManifest follows the unchanged fixed ProjectInfo block
 			// 16: GTAO slice/step sample counts
 			// 15: removed all temporal settings (TAA, SMAA T2x, GTAO/SSR accumulation)
-			uint32_t Version = 28;
+			uint32_t Version = 29;
 		};
 
 		struct Audio

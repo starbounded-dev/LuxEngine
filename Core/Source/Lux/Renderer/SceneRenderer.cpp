@@ -798,7 +798,6 @@ namespace Lux {
 		// NEVER enabled by a tier. Temporal accumulation reprojects last frame's AO, which
 		// smears ghosting behind anything that moves. Cost is paid with spatial denoise
 		// passes and full-resolution AO instead - see the denoise counts below.
-		m_Options.AOShadowTolerance = 1.0f;
 
 		switch (level)
 		{
@@ -1162,7 +1161,6 @@ namespace Lux {
 		m_Options.GTAOVisibilityBitmask = settings.GTAOVisibilityBitmask;
 		m_Options.GTAOThickness = std::clamp(settings.GTAOThickness, 0.01f, 10.0f);
 		m_Options.GTAONoisePasses = std::clamp(settings.GTAONoisePasses, 1u, 3u);
-		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
 		m_Options.EnableSSR = settings.EnableSSR;
 		m_Options.GTAOResolutionScale = SanitizeEffectResolutionScale(settings.GTAOResolutionScale);
 		m_Options.SSRQuality = SanitizeSSRQualityPreset(settings.SSRQuality);
@@ -1267,7 +1265,6 @@ namespace Lux {
 		settings.GTAOVisibilityBitmask = m_Options.GTAOVisibilityBitmask;
 		settings.GTAOThickness = m_Options.GTAOThickness;
 		settings.GTAONoisePasses = m_Options.GTAONoisePasses;
-		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
 		settings.EnableSSR = m_Options.EnableSSR;
 		settings.GTAOResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
 		const SceneRendererOptions::SSRQualityPreset ssrQuality = SanitizeSSRQualityPreset(static_cast<uint32_t>(m_Options.SSRQuality));
@@ -5276,7 +5273,6 @@ namespace Lux {
 			// Fixed noise: with no temporal resolve, a per-frame index only makes the AO noise cycle with the
 			// frame-in-flight slot (a visible 3-frame shimmer, and captures that depend on the frame's phase).
 			m_GTAODataCB.NoiseIndex = 0;
-			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
 			m_GTAODataCB.SliceCount = m_Options.GTAOSliceCount;
 			m_GTAODataCB.StepsPerSlice = m_Options.GTAOStepsPerSlice;
 			m_GTAODataCB.VisibilityBitmask = m_Options.GTAOVisibilityBitmask ? 1u : 0u;

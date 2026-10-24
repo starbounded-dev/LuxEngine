@@ -615,7 +615,7 @@ namespace Lux {
 		}
 
 		// ---- Screen-Space Effects ------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Screen Space Effects", { "GTAO", "GTAO Bent Normals", "GTAO Visibility Bitmask", "GTAO Thickness", "GTAO Noise Passes", "GTAO Resolution", "GTAO Denoise Passes", "AO Shadow Tolerance", "SSR", "SSR Quality", "SMAA", "SMAA Threshold", "SMAA Local Contrast", "Jump Flood Outline", "Async Compute" }))
+		if (CardHasMatch(queryLower, "Screen Space Effects", { "GTAO", "GTAO Bent Normals", "GTAO Visibility Bitmask", "GTAO Thickness", "GTAO Noise Passes", "GTAO Resolution", "GTAO Denoise Passes", "SSR", "SSR Quality", "SMAA", "SMAA Threshold", "SMAA Local Contrast", "Jump Flood Outline", "Async Compute" }))
 		{
 			if (BeginSettingsCard("card_ss", LUX_ICON_MAGIC, "Screen-Space Effects", m_CardScreenSpace, searching))
 			{
@@ -637,8 +637,6 @@ namespace Lux {
 				projectSettingsChanged |= gtaoSettingsChanged;
 				if (match("GTAO Denoise Passes"))
 					projectSettingsChanged |= ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8);
-				if (match("AO Shadow Tolerance"))
-					projectSettingsChanged |= ImGuiEx::Property("AO Shadow Tolerance", options.AOShadowTolerance, 0.01f, 0.0f, 4.0f);
 				gtaoSettingsChanged |= toggle("SSR", options.EnableSSR);
 				const char* ssrQualityLabels[] = { "Full", "Half + Bilateral Upscale", "Quarter Debug Only" };
 				int ssrQuality = static_cast<int>(options.SSRQuality);

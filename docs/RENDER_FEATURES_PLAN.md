@@ -413,9 +413,12 @@ foliage) was merged in (52d78287): the material row is 13 vec4, this branch's re
 3. **RGBA8 sRGB base colour** (rejected): 181 pixels up to 26/255 on Benchmark; it also clips base colours
    above 1.
 Answer to open question 2: the base colour's alpha is free; metal/rough's w is specular.
-Found on the way, left as is: GTAO scales its power by `AOShadowTolerance` lerped with the normal's w,
-the luminance the forward path once stored there. In the deferred G-buffer that w is 0, or a foliage
-pixel's diffuse transmission since PR #34, so the setting has no effect except on foliage, by accident.
+Found on the way: GTAO scaled its power by `AOShadowTolerance` lerped with the normal's w, the
+luminance the forward path once stored there. In the deferred G-buffer that w is 0, or a foliage
+pixel's diffuse transmission since PR #34, so the setting did nothing except on foliage, by accident;
+no current-frame luminance exists when GTAO runs (before lighting). Removed 2026-10-24 at the user's
+choice: the setting, its UI row, the GTAO constant (a pad keeps the 88-byte layout) and the shader
+term; runtime format 29, older packs skip the field. Golden `rf7f` identical to `rf7a` (all 18).
 Debug sync validation clean; Release, Debug and Lux-Runtime build.
 
 ### Phase 8 — Meshlet path that pays off

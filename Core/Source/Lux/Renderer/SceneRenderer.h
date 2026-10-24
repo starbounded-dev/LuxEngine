@@ -305,7 +305,6 @@ namespace Lux {
 		RendererQualityCategories QualityCategories;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
-		float AOShadowTolerance = 1.0f;
 		int   GTAODenoisePasses = 4;
 		// XeGTAO sampling: SliceCount * StepsPerSlice * 2 depth samples per pixel, and
 		// the dominant cost of the GTAO pass. Driven by the AO quality tier - see
@@ -1614,12 +1613,12 @@ namespace Lux {
 			float DepthMIPSamplingOffset = 3.3f;
 			int NoiseIndex = 0;
 			glm::vec2 HZBUVFactor = { 1.0f, 1.0f };
-			float ShadowTolerance = 0.0f;
 			uint32_t SliceCount = 9;
 			uint32_t StepsPerSlice = 3;
 			float Thickness = 0.5f;
 			uint32_t VisibilityBitmask = 0;
 			uint32_t NoisePassCount = 1;
+			float Padding0 = 0.0f;
 			glm::vec2 Padding = { 0.0f, 0.0f };
 		} m_GTAODataCB;
 		static_assert(sizeof(CBGTAOData) == 88, "CBGTAOData must match GTAOConstants in GTAO.hlsl.");

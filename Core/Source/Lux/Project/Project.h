@@ -124,7 +124,6 @@ namespace Lux
 		bool GTAOVisibilityBitmask = false;
 		float GTAOThickness = 0.5f;
 		uint32_t GTAONoisePasses = 1;
-		float AOShadowTolerance = 1.0f;
 		bool EnableSSR = true;
 		bool EnableJumpFlood = true;
 		uint32_t RenderScaleMode = 0; // SceneRendererOptions::RenderResolutionScaleMode
