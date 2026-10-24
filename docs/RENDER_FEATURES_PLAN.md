@@ -443,8 +443,30 @@ segment, task/mesh counters included) disabled: **0.151 ms**, against 0.142 ms f
 in the same build. Fix: statistics are counted only while the Profiler's Pipeline Statistics section
 is open (`RenderCommandBuffer::RequestPipelineStatistics`, taken once per render frame). Golden `rf8a` identical to `rf7f`
 (all 18); Debug sync validation clean, classic and mesh-shader. The meshlet prepass is now at parity,
-not ahead (0.147 vs 0.117 ms in one golden run): the per-meshlet culling and meshlet G-buffer steps
-are the open part of this phase.
+not ahead (0.147 vs 0.117 ms in one golden run).
+
+**Closed 2026-10-24: mesh shaders stay off; no meshlet G-buffer pass.** Three ways to make the meshlet
+prepass win were built and measured (Benchmark, 1280×720, medians of 3, all pixel-identical to the
+classic prepass, then reverted):
+| Meshlet prepass variant | PreDepth GPU |
+|---|---|
+| as committed (frustum-culled meshlets, one task group per instance) | 0.151 ms |
+| + whole-instance frustum test and world-space backface cones | 0.178 ms |
+| task threads over (instance, meshlet) pairs end to end, 32 per group | 0.154 ms |
+| mesh shader writing positions only, no fragment work (opaque bound) | 0.145 ms |
+| classic prepass, same build | 0.118 ms |
+The cones reject too little to pay for their math; filling the task groups for Benchmark's many small
+instances changes nothing; even a depth-only opaque meshlet pipeline stays behind. The rest is the
+meshlet data itself: built greedily in index order (`BuildSubmeshLODMeshlets`: loose spheres, wide
+cones) and fetched from the full 56-byte vertex.
+Spatially clustered meshlets were tried next, as Lucky Engine builds them (`MeshProcessor::BuildMeshlets`:
+meshoptimizer 1.1 `meshopt_buildMeshlets`, cone weight 0.25, `meshopt_optimizeMeshlet`,
+`meshopt_computeMeshletBounds`), with meshoptimizer vendored for the trial: still pixel-identical, but
+0.163 ms with frustum culling and 0.184 ms with the backface cones, against 0.120 ms classic in the same
+session. Better meshlets do not change it: on Benchmark's thousands of small instanced meshes the
+classic instanced draw is cheaper on this GPU than task and mesh dispatch. Everything was reverted,
+meshoptimizer included. A meshlet G-buffer pass is not built: the depth pass cannot win here. Revisit
+only for scenes of a few dense meshes, or with GPU instance culling feeding the task stage.
 
 ### Phase 9 — QTangent vertices
 

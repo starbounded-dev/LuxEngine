@@ -805,7 +805,10 @@ crash or corruption on some driver even if it renders correctly on yours.
   so its static-cache hashes include `MaterialScene::GetAssetRevision`, and a material edit
   re-renders the static shadow caches. The mesh-shader prepass matches the classic one: its fragment
   stage alpha-tests with the same UVs and mip bias, and two-sided draws switch to
-  `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Skinned meshes (`*_Anim`
+  `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Mesh shaders stay off by
+  default: at parity they are still behind the classic prepass on Benchmark (0.151 vs 0.118 ms), and
+  backface cones, fuller task groups, a position-only output and meshoptimizer-built meshlets did not
+  close it (render features plan, phase 8). Skinned meshes (`*_Anim`
   shaders) have no variants; the engine has no skeletal animation.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
