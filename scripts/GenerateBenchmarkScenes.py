@@ -445,11 +445,11 @@ def spot_light(entity: Entity, color, intensity: float, angle: float, range_: fl
 
 
 def area_light(entity: Entity, shape: int, color, intensity: float, width: float = 1.0, height: float = 1.0, radius: float = 0.5,
-			   length: float = 1.0, two_sided: bool = False, range_: float = 10.0) -> Entity:
+			   length: float = 1.0, two_sided: bool = False, range_: float = 10.0, shadows: bool = False) -> Entity:
 	return entity.add("AreaLightComponent", [
 		f"Shape: {shape}", f"Radiance: {vec(color)}", f"Intensity: {num(intensity)}", "Unit: 0", "ColorTemperature: 6500",
 		"UseColorTemperature: false", f"Width: {num(width)}", f"Height: {num(height)}", f"Radius: {num(radius)}",
-		f"Length: {num(length)}", f"TwoSided: {boolean(two_sided)}", f"Range: {num(range_)}"])
+		f"Length: {num(length)}", f"TwoSided: {boolean(two_sided)}", f"Range: {num(range_)}", f"CastsShadows: {boolean(shadows)}"])
 
 
 def text(entity: Entity, string: str, color=(1.0, 1.0, 1.0, 1.0), screen_space: bool = False, max_width: float = 30.0) -> Entity:
@@ -864,13 +864,13 @@ def build_features_scene(m: dict[str, int]) -> Scene:
 	# Rect and disk lights face the camera, tilted down onto their strips (an area light emits along -Z).
 	facing = (-0.4, math.pi, 0.0)
 	rect = scene.entity("Area Light - Rect", (2.5, 2.2, -11.2), facing, parent=area)
-	area_light(rect, 0, (1.0, 0.9, 0.75), 60.0, width=1.6, height=0.5, range_=12.0)
+	area_light(rect, 0, (1.0, 0.9, 0.75), 60.0, width=1.6, height=0.5, range_=12.0, shadows=True)
 	disk = scene.entity("Area Light - Disk", (5.0, 2.2, -11.2), facing, parent=area)
-	area_light(disk, 1, (0.7, 0.85, 1.0), 60.0, radius=0.35, range_=12.0)
+	area_light(disk, 1, (0.7, 0.85, 1.0), 60.0, radius=0.35, range_=12.0, shadows=True)
 	sphere = scene.entity("Area Light - Sphere", (7.5, 2.2, -11.2), parent=area)
-	area_light(sphere, 2, (1.0, 0.65, 0.35), 60.0, radius=0.25, range_=12.0)
+	area_light(sphere, 2, (1.0, 0.65, 0.35), 60.0, radius=0.25, range_=12.0, shadows=True)
 	tube = scene.entity("Area Light - Tube", (5.0, 3.6, -9.0), parent=area)
-	area_light(tube, 3, (0.6, 1.0, 0.75), 120.0, radius=0.04, length=5.5, range_=12.0)
+	area_light(tube, 3, (0.6, 1.0, 0.75), 120.0, radius=0.04, length=5.5, range_=12.0, shadows=True)
 	scene.count("area lights", 4)
 
 	# Glass: thin panes and thick spheres of rising roughness in front of the grid wall.
@@ -893,6 +893,14 @@ def build_features_scene(m: dict[str, int]) -> Scene:
 	static_mesh(scene.entity("Emitter Bar", (0.0, 4.4, -11.8), scale=(3.0, 0.08, 0.08), parent=bloom), CUBE, m["EmitCool"], scene)
 	static_mesh(scene.entity("Chrome Sphere", (-0.8, 0.7, -3.5), scale=(1.4, 1.4, 1.4), parent=bloom), SPHERE, m["Chrome"], scene)
 	static_mesh(scene.entity("Satin Sphere", (0.9, 0.7, -3.5), scale=(1.4, 1.4, 1.4), parent=bloom), SPHERE, m["Satin"], scene)
+
+	# Area-light shadow casters on each strip: a cube on the floor (contact hardening) and a sphere about
+	# a metre up (a wide penumbra); a thin post under the tube shows a shadow stretched along its axis.
+	# Added last so the entities above keep their UUIDs.
+	for i, x in enumerate((2.5, 5.0, 7.5)):
+		static_mesh(scene.entity(f"Shadow Cube {i}", (x, 0.17, -9.6), scale=(0.3, 0.3, 0.3), parent=area), CUBE, m["Satin"], scene)
+		static_mesh(scene.entity(f"Shadow Sphere {i}", (x, 1.0, -8.6), scale=(0.35, 0.35, 0.35), parent=area), SPHERE, m["Satin"], scene)
+	static_mesh(scene.entity("Shadow Post", (6.2, 0.6, -8.0), scale=(0.06, 1.2, 0.06), parent=area), CYLINDER, m["Stand"], scene)
 	return scene
 
 

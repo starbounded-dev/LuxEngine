@@ -34,6 +34,11 @@ namespace Lux {
 		constexpr ImU32 kCPUColor = IM_COL32(120, 170, 255, 255);   // blue-ish CPU series
 		constexpr ImU32 kGPUColor = IM_COL32(200, 255, 77, 255);    // lime GPU series (on-brand)
 		constexpr ImU32 kBarColor = IM_COL32(200, 255, 77, 255);    // per-pass GPU bars
+		// Shadow atlas tile outlines by light type.
+		constexpr ImU32 kSpotTileColor = IM_COL32(120, 170, 255, 255);
+		constexpr ImU32 kPointTileColor = IM_COL32(200, 255, 77, 255);
+		constexpr ImU32 kAreaTileColor = IM_COL32(255, 200, 90, 255);
+		constexpr ImU32 kTileLabelShadowColor = IM_COL32(0, 0, 0, 200);
 
 		void DrawStat(const char* label, const char* value)
 		{
@@ -1404,6 +1409,121 @@ namespace Lux {
 		ImGui::TreePop();
 	}
 
+	// The spot shadow atlas: every spot, point (six faces) and area light tile, outlined and labelled
+	// over the depth image, plus how many shadowed lights the tile budget left without one.
+	void RendererDebuggerPanel::DrawShadowAtlas()
+	{
+		using TileType = SceneRenderer::ShadowAtlasTile::LightType;
+		const SceneRenderer::ShadowAtlasDebugInfo& atlas = m_Context->GetShadowAtlasDebugInfo();
+
+		uint32_t spotTiles = 0;
+		uint32_t pointTiles = 0;
+		uint32_t areaTiles = 0;
+		uint32_t areaLights = 0; // a light's first tile is face 0 (its front, or +X)
+		for (const SceneRenderer::ShadowAtlasTile& tile : atlas.Tiles)
+		{
+			if (tile.Type == TileType::Spot)
+				spotTiles++;
+			else if (tile.Type == TileType::Point)
+				pointTiles++;
+			else
+			{
+				areaTiles++;
+				areaLights += tile.Face == 0 ? 1u : 0u;
+			}
+		}
+		const uint32_t pointLights = pointTiles / 6;
+
+		if (ImGui::BeginTable("##renderer_debugger_shadow_atlas", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+		{
+			DrawStat("Atlas", std::format("{} x {} px", atlas.AtlasSize, atlas.AtlasSize).c_str());
+			DrawStat("Grid", std::format("{} x {}, {} px tiles", atlas.GridSize, atlas.GridSize, atlas.TileSize).c_str());
+			DrawStat("Tiles", std::format("{} of {}", atlas.Tiles.size(), SceneRenderer::MaxShadowAtlasTiles).c_str());
+			DrawStat("Spot Lights", std::format("{} of {} shadowed", spotTiles, atlas.SpotRequested).c_str());
+			DrawStat("Point Lights", std::format("{} of {} shadowed (6 tiles each)", pointLights, atlas.PointRequested).c_str());
+			DrawStat("Area Lights", std::format("{} of {} shadowed ({} tiles)", areaLights, atlas.AreaRequested, areaTiles).c_str());
+			ImGui::EndTable();
+		}
+
+		const uint32_t unshadowed = (atlas.SpotRequested - spotTiles) + (atlas.PointRequested - pointLights) + (atlas.AreaRequested - areaLights);
+		if (unshadowed > 0)
+		{
+			ImGuiEx::ScopedColour warning(ImGuiCol_Text, Colors::Theme::textWarning);
+			ImGui::TextWrapped("%u shadowed light(s) got no tile: the atlas holds %u spot, %u point and %u area shadows, filled in that order.",
+				unshadowed, SceneRenderer::MaxSpotShadows, SceneRenderer::MaxPointShadows, SceneRenderer::MaxAreaShadows);
+		}
+
+		if (atlas.Tiles.empty() || !atlas.Image || atlas.GridSize == 0)
+		{
+			ImGui::TextDisabled("No shadowed spot, point or area lights this frame.");
+			return;
+		}
+
+		ImGui::TextDisabled("Every tile shares one size: each shadowed light makes the grid larger and all tiles smaller.");
+		ImGui::Spacing();
+
+		const float imageSize = std::max(std::min(ImGui::GetContentRegionAvail().x, 1024.0f), 64.0f);
+		const ImVec2 origin = ImGui::GetCursorScreenPos();
+		ImGuiEx::Image(atlas.Image, ImVec2(imageSize, imageSize), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), ImGuiEx::ImageMode::Depth);
+		const bool imageHovered = ImGui::IsItemHovered();
+
+		static constexpr const char* k_FaceNames[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
+		auto tileLabel = [](const SceneRenderer::ShadowAtlasTile& tile)
+			{
+				switch (tile.Type)
+				{
+					case TileType::Spot:  return std::format("S{}", tile.LightIndex);
+					case TileType::Point: return std::format("P{} {}", tile.LightIndex, k_FaceNames[tile.Face % 6]);
+					default:
+						if (tile.CubeFace)
+							return std::format("A{} {}", tile.LightIndex, k_FaceNames[tile.Face % 6]);
+						return tile.Face == 1 ? std::format("A{} back", tile.LightIndex) : std::format("A{}", tile.LightIndex);
+				}
+			};
+
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		const float tileExtent = imageSize / static_cast<float>(atlas.GridSize);
+		for (uint32_t index = 0; index < atlas.Tiles.size(); index++)
+		{
+			const SceneRenderer::ShadowAtlasTile& tile = atlas.Tiles[index];
+			const ImVec2 tileMin(origin.x + static_cast<float>(index % atlas.GridSize) * tileExtent,
+				origin.y + static_cast<float>(index / atlas.GridSize) * tileExtent);
+			const ImVec2 tileMax(tileMin.x + tileExtent, tileMin.y + tileExtent);
+			const ImU32 color = tile.Type == TileType::Spot ? kSpotTileColor : tile.Type == TileType::Point ? kPointTileColor : kAreaTileColor;
+			drawList->AddRect(ImVec2(tileMin.x + 1.0f, tileMin.y + 1.0f), ImVec2(tileMax.x - 1.0f, tileMax.y - 1.0f), color);
+			if (tileExtent >= 28.0f)
+			{
+				const std::string label = tileLabel(tile);
+				drawList->AddText(ImVec2(tileMin.x + 5.0f, tileMin.y + 4.0f), kTileLabelShadowColor, label.c_str());
+				drawList->AddText(ImVec2(tileMin.x + 4.0f, tileMin.y + 3.0f), color, label.c_str());
+			}
+		}
+
+		if (imageHovered)
+		{
+			const ImVec2 mouse = ImGui::GetMousePos();
+			const uint32_t column = static_cast<uint32_t>(std::clamp((mouse.x - origin.x) / tileExtent, 0.0f, static_cast<float>(atlas.GridSize - 1)));
+			const uint32_t row = static_cast<uint32_t>(std::clamp((mouse.y - origin.y) / tileExtent, 0.0f, static_cast<float>(atlas.GridSize - 1)));
+			const uint32_t index = row * atlas.GridSize + column;
+			if (index < atlas.Tiles.size() && ImGui::BeginTooltip())
+			{
+				const SceneRenderer::ShadowAtlasTile& tile = atlas.Tiles[index];
+				const char* typeName = tile.Type == TileType::Spot ? "Spot light" : tile.Type == TileType::Point ? "Point light" : "Area light";
+				ImGui::Text("Tile %u: %s %u", index, typeName, tile.LightIndex);
+				if (tile.CubeFace)
+					ImGui::Text("Cube face %s", k_FaceNames[tile.Face % 6]);
+				else if (tile.Type == TileType::Area)
+					ImGui::TextUnformatted(tile.Face == 1 ? "Back side" : "Front side");
+				ImGui::Text("Light at (%.2f, %.2f, %.2f)", tile.LightPosition.x, tile.LightPosition.y, tile.LightPosition.z);
+				ImGui::TextDisabled("%u x %u px", atlas.TileSize, atlas.TileSize);
+				ImGui::EndTooltip();
+			}
+		}
+
+		ImGui::TextDisabled("S = spot, P = point (cube face), A = area (a cube face for spheres and tubes, \"back\" for a two-sided light's back). Indices follow the light lists the renderer received; area lights are the nearest %u.",
+			LightEnvironment::MaxAreaLights);
+	}
+
 	void RendererDebuggerPanel::OnImGuiRender(bool& isOpen)
 	{
 		if (!ImGui::Begin("Renderer Debugger", &isOpen))
@@ -1459,6 +1579,11 @@ namespace Lux {
 			if (ImGui::BeginTabItem("Shaders"))
 			{
 				DrawShaders();
+				ImGui::EndTabItem();
+			}
+			if (ImGui::BeginTabItem("Shadows"))
+			{
+				DrawShadowAtlas();
 				ImGui::EndTabItem();
 			}
 			ImGui::EndTabBar();

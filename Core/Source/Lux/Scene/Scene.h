@@ -156,6 +156,9 @@ namespace Lux {
 		void ParentEntity(Entity entity, Entity parent);
 		void UnparentEntity(Entity entity, bool convertToWorldSpace = true);
 		std::vector<UUID> GetAllChildren(Entity entity) const;
+		// True when the entity and every ancestor are Active (TagComponent::Active). Walks the parent
+		// chain, so it is always current; the per-frame system loops use IsInactive() instead.
+		bool IsEntityActiveInHierarchy(Entity entity) const;
 		void CopyTo(Ref<Scene>& target);
 		void SortEntities();
 
@@ -260,6 +263,12 @@ namespace Lux {
 		Ref<::Lux::RenderScene> SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
+		// Rebuilds m_InactiveEntities: every entity switched off by its own TagComponent::Active or by
+		// an ancestor's. Called at each update and render-packet entry point; one pass over the tags,
+		// and nothing more while every entity is active.
+		void RefreshInactiveEntities() const;
+		bool IsInactive(entt::entity entity) const { return !m_InactiveEntities.empty() && m_InactiveEntities.contains(entity); }
+
 	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
@@ -320,6 +329,11 @@ namespace Lux {
 		// Per-entity C# script field values (serialized with the scene) and live instances.
 		ScriptStorage m_ScriptStorage;
 		std::unordered_map<UUID, CSharpObject> m_ScriptInstances;
+		// Instances whose OnCreate has not run yet: the script or its entity was off at Play. OnCreate
+		// runs on the first frame it is on, before its first OnUpdate.
+		std::unordered_set<UUID> m_PendingScriptCreates;
+
+		mutable std::unordered_set<entt::entity> m_InactiveEntities;
 
 	public:
 		ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }

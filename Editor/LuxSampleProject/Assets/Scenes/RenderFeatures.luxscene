@@ -496,6 +496,13 @@ Entities:
       - Handle: 16100000000001000035
       - Handle: 16100000000001000036
       - Handle: 16100000000001000037
+      - Handle: 16100000000001000053
+      - Handle: 16100000000001000054
+      - Handle: 16100000000001000055
+      - Handle: 16100000000001000056
+      - Handle: 16100000000001000057
+      - Handle: 16100000000001000058
+      - Handle: 16100000000001000059
     TransformComponent:
       Position: [0, 0, 0]
       Rotation: [0, 0, 0]
@@ -613,6 +620,7 @@ Entities:
       Length: 1
       TwoSided: false
       Range: 12
+      CastsShadows: true
   - Entity: 16100000000001000035
     TagComponent:
       Tag: Area Light - Disk
@@ -636,6 +644,7 @@ Entities:
       Length: 1
       TwoSided: false
       Range: 12
+      CastsShadows: true
   - Entity: 16100000000001000036
     TagComponent:
       Tag: Area Light - Sphere
@@ -659,6 +668,7 @@ Entities:
       Length: 1
       TwoSided: false
       Range: 12
+      CastsShadows: true
   - Entity: 16100000000001000037
     TagComponent:
       Tag: Area Light - Tube
@@ -682,6 +692,7 @@ Entities:
       Length: 5.5
       TwoSided: false
       Range: 12
+      CastsShadows: true
   - Entity: 16100000000001000038
     TagComponent:
       Tag: Glass
@@ -909,4 +920,109 @@ Entities:
       AssetID: 9685142686327195147
       MaterialTable:
         0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000053
+    TagComponent:
+      Tag: Shadow Cube 0
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [2.5, 0.17, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 0.3, 0.3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000054
+    TagComponent:
+      Tag: Shadow Sphere 0
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [2.5, 1, -8.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 0.35, 0.35]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000055
+    TagComponent:
+      Tag: Shadow Cube 1
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [5, 0.17, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 0.3, 0.3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000056
+    TagComponent:
+      Tag: Shadow Sphere 1
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [5, 1, -8.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 0.35, 0.35]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000057
+    TagComponent:
+      Tag: Shadow Cube 2
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [7.5, 0.17, -9.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.3, 0.3, 0.3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000058
+    TagComponent:
+      Tag: Shadow Sphere 2
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [7.5, 1, -8.6]
+      Rotation: [0, 0, 0]
+      Scale: [0.35, 0.35, 0.35]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16100000000001000059
+    TagComponent:
+      Tag: Shadow Post
+    Parent: 16100000000001000027
+    Children:
+      []
+    TransformComponent:
+      Position: [6.2, 0.6, -8]
+      Rotation: [0, 0, 0]
+      Scale: [0.06, 1.2, 0.06]
+    StaticMeshComponent:
+      AssetID: 12947748576387674464
+      MaterialTable:
+        0: 16000000000000001014
       Visible: true

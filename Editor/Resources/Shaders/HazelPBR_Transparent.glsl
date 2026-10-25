@@ -380,7 +380,7 @@ void main()
 	lightContribution += CalculatePointLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += LuxEvaluateAreaLights(Input.WorldPosition, m_Params.Normal, m_Params.View, m_Params.Albedo,
-		m_Params.Metalness, m_Params.Roughness, F0);
+		m_Params.Metalness, m_Params.Roughness, F0, u_SpotShadowTexture);
 	lightContribution += emissive;
 
 	// Indirect lighting (material AO occludes ambient light only, as in deferred lighting)

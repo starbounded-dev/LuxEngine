@@ -743,8 +743,13 @@ namespace Lux {
 			cameraViewportSize = m_EditorViewport->GetRenderSize();
 		m_ActiveScene->OnViewportResize(cameraViewportSize.x, cameraViewportSize.y);
 
+		// A drag the camera already holds keeps it active until the buttons are released. Capturing
+		// turns ImGui's mouse off, which clears the Scene View's hover on the next frame, so with
+		// another panel focused (an entity picked in the Hierarchy) a hover-only gate dropped the
+		// capture every other frame and the camera could not fly or orbit.
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
-		viewportCamera.SetActive(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
+		const bool cameraWasCaptured = viewportCamera.IsMouseCaptured();
+		viewportCamera.SetActive(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured);
 
 		if (m_SceneRenderer)
 		{
@@ -805,6 +810,11 @@ namespace Lux {
 			break;
 		}
 		}
+
+		// Right-click does not focus an ImGui window, so a drag started over an unfocused Scene View
+		// focuses it here, as a left-click would; otherwise the Hierarchy's own shortcuts stay live.
+		if (!cameraWasCaptured && viewportCamera.IsMouseCaptured() && !m_EditorViewport->IsFocused())
+			m_FocusSceneViewRequested = true;
 
 		if (renderGameView)
 			m_GameViewPanel->Render();
@@ -2128,6 +2138,23 @@ namespace Lux {
 			if (ImGui::Checkbox("Show Entity Icons", &m_ShowEntityIcons))
 				settingsChanged = true;
 
+			{
+				static const char* volumeModeNames = "Off\0Selected\0All\0";
+				int cameraFrustumMode = static_cast<int>(m_CameraFrustumMode);
+				if (ImGui::Combo("Camera Frustums", &cameraFrustumMode, volumeModeNames))
+				{
+					m_CameraFrustumMode = static_cast<OverlayVolumeMode>(cameraFrustumMode);
+					settingsChanged = true;
+				}
+				int lightVolumeMode = static_cast<int>(m_LightVolumeMode);
+				if (ImGui::Combo("Light Volumes", &lightVolumeMode, volumeModeNames))
+				{
+					m_LightVolumeMode = static_cast<OverlayVolumeMode>(lightVolumeMode);
+					settingsChanged = true;
+				}
+				ImGui::SetItemTooltip("Point light range spheres, spot light cones, and area light shadow frustums (or range spheres)");
+			}
+
 			if (m_SceneRenderer)
 			{
 				auto& options = m_SceneRenderer->GetOptions();
@@ -2349,7 +2376,8 @@ namespace Lux {
 			return;
 		}
 
-		if (m_EditorViewport && m_EditorViewport->IsHovered())
+		// Hover reads false while the camera holds the mouse, and right-drag + scroll sets fly speed.
+		if (m_EditorViewport && (m_EditorViewport->IsHovered() || m_EditorViewport->GetCamera().IsMouseCaptured()))
 			m_EditorViewport->GetCamera().OnEvent(e);
 
 		m_PanelManager->OnEvent(e);
@@ -2372,6 +2400,11 @@ namespace Lux {
 				OpenProject();
 			return false;
 		}
+
+		// While the camera holds the mouse, WASD/QE fly it and Ctrl/Shift set its speed: those keys
+		// must not also switch gizmos, duplicate the selection (Ctrl+D) or save (Ctrl+S).
+		if (m_EditorViewport && m_EditorViewport->GetCamera().IsMouseCaptured())
+			return false;
 
 		switch (e.GetKeyCode())
 		{
@@ -2824,9 +2857,202 @@ namespace Lux {
 			}
 		}
 
+		DrawCameraAndLightVolumes();
 		DrawAudioVisualisation(overlayView);
 
 		m_Renderer2D->EndScene();
+	}
+
+	void EditorLayer::DrawCameraAndLightVolumes()
+	{
+		if (m_CameraFrustumMode == OverlayVolumeMode::Off && m_LightVolumeMode == OverlayVolumeMode::Off)
+			return;
+
+		static constexpr glm::vec4 k_CameraFrustumColor = { 0.85f, 0.85f, 0.85f, 0.9f };
+		static constexpr glm::vec4 k_AreaShadowFrustumColor = { 1.0f, 0.85f, 0.4f, 0.9f };
+		static constexpr uint32_t k_VolumeCircleSegments = 32;
+		// A camera's far plane is often hundreds of metres away; past this its frustum is cut off.
+		static constexpr float k_MaxDrawnFrustumDistance = 50.0f;
+
+		// Switched-off entities (and their children) draw no volume: they light and see nothing.
+		auto shouldDraw = [this](entt::entity entityID, OverlayVolumeMode mode)
+			{
+				if (!m_ActiveScene->IsEntityActiveInHierarchy(Entity{ entityID, m_ActiveScene.Raw() }))
+					return false;
+				if (mode == OverlayVolumeMode::All)
+					return true;
+				return mode == OverlayVolumeMode::Selected
+					&& SelectionManager::IsSelected(SelectionContext::Scene, Entity{ entityID, m_ActiveScene.Raw() }.GetUUID());
+			};
+
+		// A light's colour at full brightness, so a dim light's volume stays visible.
+		auto lightColor = [](const glm::vec3& radiance)
+			{
+				const float peak = glm::max(glm::max(radiance.r, radiance.g), glm::max(radiance.b, 1e-4f));
+				return glm::vec4(radiance / peak, 0.9f);
+			};
+
+		auto drawCircle = [this](const glm::vec3& center, const glm::vec3& axisA, const glm::vec3& axisB, const glm::vec4& color)
+			{
+				glm::vec3 previous = center + axisA;
+				for (uint32_t i = 1; i <= k_VolumeCircleSegments; i++)
+				{
+					const float angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(k_VolumeCircleSegments);
+					const glm::vec3 point = center + axisA * std::cos(angle) + axisB * std::sin(angle);
+					m_Renderer2D->DrawLine(previous, point, color);
+					previous = point;
+				}
+			};
+
+		auto drawSphere = [&drawCircle](const glm::vec3& center, float radius, const glm::vec4& color)
+			{
+				drawCircle(center, glm::vec3(radius, 0.0f, 0.0f), glm::vec3(0.0f, radius, 0.0f), color);
+				drawCircle(center, glm::vec3(radius, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, radius), color);
+				drawCircle(center, glm::vec3(0.0f, radius, 0.0f), glm::vec3(0.0f, 0.0f, radius), color);
+			};
+
+		// Corners ordered near (0-3) then far (4-7), each face counter-clockwise.
+		auto drawBox = [this](const std::array<glm::vec3, 8>& corners, const glm::vec4& color)
+			{
+				for (uint32_t i = 0; i < 4; i++)
+				{
+					m_Renderer2D->DrawLine(corners[i], corners[(i + 1) % 4], color);
+					m_Renderer2D->DrawLine(corners[4 + i], corners[4 + (i + 1) % 4], color);
+					m_Renderer2D->DrawLine(corners[i], corners[4 + i], color);
+				}
+			};
+
+		if (m_CameraFrustumMode != OverlayVolumeMode::Off)
+		{
+			for (auto entityID : m_ActiveScene->GetAllEntitiesWith<TransformComponent, CameraComponent>())
+			{
+				if (!shouldDraw(entityID, m_CameraFrustumMode))
+					continue;
+
+				const auto& cameraComponent = Entity{ entityID, m_ActiveScene.Raw() }.GetComponent<CameraComponent>();
+				const SceneCamera& camera = cameraComponent.Camera;
+				const glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix({ entityID, m_ActiveScene.Raw() });
+				const glm::vec3 position = glm::vec3(transform[3]);
+				const glm::vec3 right = glm::normalize(glm::vec3(transform[0]));
+				const glm::vec3 up = glm::normalize(glm::vec3(transform[1]));
+				const glm::vec3 forward = -glm::normalize(glm::vec3(transform[2]));
+
+				// The projection holds the aspect the camera last rendered at: P[1][1] / P[0][0].
+				const glm::mat4& projection = camera.GetProjectionMatrix();
+				const float aspect = glm::abs(projection[0][0]) > 1e-6f ? glm::abs(projection[1][1] / projection[0][0]) : 16.0f / 9.0f;
+
+				std::array<glm::vec3, 8> corners;
+				const bool perspective = camera.GetProjectionType() == SceneCamera::ProjectionType::Perspective;
+				const float nearDistance = perspective ? camera.GetPerspectiveNearClip() : camera.GetOrthographicNearClip();
+				const float farDistance = glm::min(perspective ? camera.GetPerspectiveFarClip() : camera.GetOrthographicFarClip(), k_MaxDrawnFrustumDistance);
+				for (uint32_t plane = 0; plane < 2; plane++)
+				{
+					const float distance = plane == 0 ? nearDistance : farDistance;
+					const float halfHeight = perspective
+						? distance * std::tan(0.5f * camera.GetRadPerspectiveVerticalFOV())
+						: 0.5f * camera.GetOrthographicSize();
+					const float halfWidth = halfHeight * aspect;
+					const glm::vec3 planeCenter = position + forward * distance;
+					corners[plane * 4 + 0] = planeCenter - right * halfWidth - up * halfHeight;
+					corners[plane * 4 + 1] = planeCenter + right * halfWidth - up * halfHeight;
+					corners[plane * 4 + 2] = planeCenter + right * halfWidth + up * halfHeight;
+					corners[plane * 4 + 3] = planeCenter - right * halfWidth + up * halfHeight;
+				}
+				drawBox(corners, k_CameraFrustumColor);
+				// An up marker over the far plane's top edge, so a rolled camera reads at a glance.
+				const glm::vec3 upMarker = (corners[6] + corners[7]) * 0.5f + up * glm::distance(corners[6], corners[7]) * 0.15f;
+				m_Renderer2D->DrawLine(corners[7], upMarker, k_CameraFrustumColor);
+				m_Renderer2D->DrawLine(corners[6], upMarker, k_CameraFrustumColor);
+			}
+		}
+
+		if (m_LightVolumeMode == OverlayVolumeMode::Off)
+			return;
+
+		for (auto entityID : m_ActiveScene->GetAllEntitiesWith<TransformComponent, PointLightComponent>())
+		{
+			if (!shouldDraw(entityID, m_LightVolumeMode))
+				continue;
+
+			const auto& light = Entity{ entityID, m_ActiveScene.Raw() }.GetComponent<PointLightComponent>();
+			if (!light.Enabled)
+				continue;
+			const glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix({ entityID, m_ActiveScene.Raw() });
+			drawSphere(glm::vec3(transform[3]), light.Radius, lightColor(light.Radiance));
+		}
+
+		for (auto entityID : m_ActiveScene->GetAllEntitiesWith<TransformComponent, SpotLightComponent>())
+		{
+			if (!shouldDraw(entityID, m_LightVolumeMode))
+				continue;
+
+			const auto& light = Entity{ entityID, m_ActiveScene.Raw() }.GetComponent<SpotLightComponent>();
+			if (!light.Enabled)
+				continue;
+			const glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix({ entityID, m_ActiveScene.Raw() });
+			const glm::vec3 apex = glm::vec3(transform[3]);
+			const glm::vec3 right = glm::normalize(glm::vec3(transform[0]));
+			const glm::vec3 up = glm::normalize(glm::vec3(transform[1]));
+			const glm::vec3 direction = -glm::normalize(glm::vec3(transform[2]));
+			// Angle is the full cone angle; the cone ends on a spherical cap at Range, drawn as its rim.
+			const float halfAngle = glm::radians(glm::clamp(light.Angle, 1.0f, 179.0f)) * 0.5f;
+			const glm::vec3 rimCenter = apex + direction * (light.Range * std::cos(halfAngle));
+			const float rimRadius = light.Range * std::sin(halfAngle);
+			const glm::vec4 color = lightColor(light.Radiance);
+			drawCircle(rimCenter, right * rimRadius, up * rimRadius, color);
+			for (const glm::vec3& side : { right, -right, up, -up })
+				m_Renderer2D->DrawLine(apex, rimCenter + side * rimRadius, color);
+		}
+
+		for (auto entityID : m_ActiveScene->GetAllEntitiesWith<TransformComponent, AreaLightComponent>())
+		{
+			if (!shouldDraw(entityID, m_LightVolumeMode))
+				continue;
+
+			const auto& areaLight = Entity{ entityID, m_ActiveScene.Raw() }.GetComponent<AreaLightComponent>();
+			if (!areaLight.Enabled)
+				continue;
+			const glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix({ entityID, m_ActiveScene.Raw() });
+			const bool flatShape = areaLight.Shape == AreaLightShape::Rect || areaLight.Shape == AreaLightShape::Disk;
+			if (!flatShape || !areaLight.CastsShadows)
+			{
+				drawSphere(glm::vec3(transform[3]), areaLight.Range, lightColor(areaLight.Radiance));
+				continue;
+			}
+
+			// The tiles the renderer shadows it from (Scene::CollectLightEnvironment builds the same extents):
+			// the front, and for a two-sided light the back, mirrored through the emitter's plane.
+			AreaLight light;
+			light.Position = glm::vec3(transform[3]);
+			const float halfRight = areaLight.Shape == AreaLightShape::Rect ? areaLight.Width * 0.5f : areaLight.Radius;
+			const float halfUp = areaLight.Shape == AreaLightShape::Rect ? areaLight.Height * 0.5f : areaLight.Radius;
+			light.HalfRight = glm::vec3(transform[0]) * halfRight;
+			light.HalfUp = glm::vec3(transform[1]) * halfUp;
+			light.Range = areaLight.Range;
+			if (glm::length(glm::cross(light.HalfRight, light.HalfUp)) <= 1e-8f)
+				continue;
+
+			for (uint32_t side = 0; side < (areaLight.TwoSided ? 2u : 1u); side++)
+			{
+				AreaLight sideLight = light;
+				if (side == 1)
+					sideLight.HalfUp = -light.HalfUp;
+
+				const glm::mat4 inverseViewProjection = glm::inverse(ComputeAreaLightShadowFrustum(sideLight).ViewProjection);
+				std::array<glm::vec3, 8> corners;
+				for (uint32_t plane = 0; plane < 2; plane++)
+				{
+					const float depth = static_cast<float>(plane); // [0, 1] depth: near, then far
+					const glm::vec2 ndc[4] = { { -1.0f, -1.0f }, { 1.0f, -1.0f }, { 1.0f, 1.0f }, { -1.0f, 1.0f } };
+					for (uint32_t i = 0; i < 4; i++)
+					{
+						const glm::vec4 world = inverseViewProjection * glm::vec4(ndc[i], depth, 1.0f);
+						corners[plane * 4 + i] = glm::vec3(world) / world.w;
+					}
+				}
+				drawBox(corners, k_AreaShadowFrustumColor);
+			}
+		}
 	}
 
 	// Draws the ray-traced acoustics simulation into the viewport: the visualisation rays the
@@ -3227,6 +3453,10 @@ namespace Lux {
 		m_ScaleSnapValue = std::max(settings.GetFloat("Editor.ScaleSnapValue", 0.1f), 0.01f);
 		m_ShowBoundingBoxes = settings.GetInt("Editor.ShowBoundingBoxes", 0) != 0;
 		m_ShowEntityIcons = settings.GetInt("Editor.ShowEntityIcons", 1) != 0;
+		m_CameraFrustumMode = static_cast<OverlayVolumeMode>(std::clamp(settings.GetInt("Editor.CameraFrustums",
+			static_cast<int>(OverlayVolumeMode::Selected)), 0, static_cast<int>(OverlayVolumeMode::All)));
+		m_LightVolumeMode = static_cast<OverlayVolumeMode>(std::clamp(settings.GetInt("Editor.LightVolumes",
+			static_cast<int>(OverlayVolumeMode::Selected)), 0, static_cast<int>(OverlayVolumeMode::All)));
 		m_ShowViewportPerformanceHUD = settings.GetInt("Editor.ShowViewportPerformanceHUD", 1) != 0;
 		m_ShowPhysicsColliders = settings.GetInt("Editor.ShowPhysicsColliders", 0) != 0;
 		LoadGridPreferences(settings, m_GridSettings);
@@ -3253,6 +3483,8 @@ namespace Lux {
 		settings.SetFloat("Editor.ScaleSnapValue", m_ScaleSnapValue);
 		settings.SetInt("Editor.ShowBoundingBoxes", m_ShowBoundingBoxes ? 1 : 0);
 		settings.SetInt("Editor.ShowEntityIcons", m_ShowEntityIcons ? 1 : 0);
+		settings.SetInt("Editor.CameraFrustums", static_cast<int>(m_CameraFrustumMode));
+		settings.SetInt("Editor.LightVolumes", static_cast<int>(m_LightVolumeMode));
 		settings.SetInt("Editor.ShowViewportPerformanceHUD", m_ShowViewportPerformanceHUD ? 1 : 0);
 		settings.SetInt("Editor.ShowPhysicsColliders", m_ShowPhysicsColliders ? 1 : 0);
 		SaveGridPreferences(settings, m_GridSettings);
@@ -5202,6 +5434,8 @@ namespace Lux {
 		m_ShowPhysicsColliders = false;
 		m_ShowBoundingBoxes = false;
 		m_ShowEntityIcons = false;
+		m_CameraFrustumMode = OverlayVolumeMode::Off;
+		m_LightVolumeMode = OverlayVolumeMode::Off;
 
 		if (m_EditorViewport)
 			m_EditorViewport->SetDisplayMode(Viewport::DisplayMode::Lit);
@@ -5240,6 +5474,8 @@ namespace Lux {
 		}
 		m_PlayModeDebugViewState.ShowBoundingBoxes = m_ShowBoundingBoxes;
 		m_PlayModeDebugViewState.ShowEntityIcons = m_ShowEntityIcons;
+		m_PlayModeDebugViewState.CameraFrustumMode = m_CameraFrustumMode;
+		m_PlayModeDebugViewState.LightVolumeMode = m_LightVolumeMode;
 		m_PlayModeDebugViewState.DisplayMode = m_EditorViewport ? m_EditorViewport->GetDisplayMode() : Viewport::DisplayMode::Lit;
 
 		m_PlayModeDebugViewsSuspended = true;
@@ -5274,6 +5510,8 @@ namespace Lux {
 		m_ShowPhysicsColliders = m_PlayModeDebugViewState.ShowPhysicsColliders;
 		m_ShowBoundingBoxes = m_PlayModeDebugViewState.ShowBoundingBoxes;
 		m_ShowEntityIcons = m_PlayModeDebugViewState.ShowEntityIcons;
+		m_CameraFrustumMode = m_PlayModeDebugViewState.CameraFrustumMode;
+		m_LightVolumeMode = m_PlayModeDebugViewState.LightVolumeMode;
 
 		if (m_EditorViewport)
 			m_EditorViewport->SetDisplayMode(m_PlayModeDebugViewState.DisplayMode);

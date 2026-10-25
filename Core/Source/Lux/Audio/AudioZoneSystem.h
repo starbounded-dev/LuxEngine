@@ -33,6 +33,7 @@ namespace Lux {
 		UUID ID = 0;
 		const AudioZoneComponent* Component = nullptr;
 		AudioZoneVolume Volume;
+		bool Enabled = true; // the component's Enabled, cleared too while its entity is inactive
 		float Target = 0.0f;
 		float ListenerTarget = 0.0f, PortalDelta = 0.0f, PortalOutgoing = 0.0f;
 	};

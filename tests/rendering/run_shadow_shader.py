@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile deferred lighting and reject per-fragment copies of the PCSS sample table."""
+"""Compile the shadowed lighting passes and reject per-fragment copies of the PCSS sample table."""
 import argparse
 import os
 from pathlib import Path
@@ -9,6 +9,9 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# Full-screen lighting passes that sample shadow maps.
+SHADERS = ('DeferredLighting.glsl', 'DeferredLighting_Area.glsl')
 
 
 def main():
@@ -30,12 +33,17 @@ def main():
         raise RuntimeError(f'{name} not found; pass --sdk-bin with the Vulkan SDK bin directory')
 
     shaders = ROOT / 'Editor/Resources/Shaders'
-    source = (shaders / 'DeferredLighting.glsl').read_text()
+    for name in SHADERS:
+        check_shader(tool, shaders, name)
+
+
+def check_shader(tool, shaders, name):
+    source = (shaders / name).read_text()
     fragment = source[source.rindex('#version'):].replace('#pragma stage : frag', '')
     with tempfile.TemporaryDirectory(prefix='lux-shadow-shader-') as directory:
         directory = Path(directory)
-        shader = directory / 'deferred.frag'
-        binary = directory / 'deferred.spv'
+        shader = directory / 'shader.frag'
+        binary = directory / 'shader.spv'
         shader.write_text(fragment)
         subprocess.run([
             tool('glslc'), '-fshader-stage=frag', '--target-env=vulkan1.2', '-O',
@@ -70,8 +78,8 @@ def main():
         if pointer[0] == 'OpTypePointer' and pointer[1][1] in sample_arrays:
             local_tables.append(identifier)
     if local_tables:
-        raise RuntimeError(f'PCSS regressed: {len(local_tables)} per-fragment sample-table copies')
-    print('PASS: deferred lighting validates and has no function-local 64-sample tables')
+        raise RuntimeError(f'PCSS regressed in {name}: {len(local_tables)} per-fragment sample-table copies')
+    print(f'PASS: {name} validates and has no function-local 64-sample tables')
 
 
 if __name__ == '__main__':

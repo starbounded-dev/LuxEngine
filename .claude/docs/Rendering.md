@@ -321,7 +321,37 @@ LTC code; `HazelPBR_Transparent.glsl` evaluates the same `LuxEvaluateAreaLights`
 `Core/vendor/ltc/LTCTables.h` (BSD-2-Clause, `selfshadow/ltc_code`). A disk is integrated as an
 area-matched 12-gon; a sphere as a disk facing the shaded point, and a tube as a rectangle facing it
 around its axis, lengthened by πr/4 per end to keep the capsule's silhouette area
-(`LTC_FacingShape`). Area lights are unshadowed.
+(`LTC_FacingShape`).
+
+**Area lights shadow through the spot atlas** (`AreaLightComponent::CastsShadows`, off by default).
+`GetAreaLightShadowTileCount` sets the tiles, in the order `LTC_AreaLightShadow` reads them. A rect or
+disk takes one tile per lit side (`ComputeAreaLightShadowFrustum`, public in `SceneRenderer.h` so the
+editor draws the same frustum; a two-sided light's second tile is that frustum mirrored through the
+emitter's plane, `HalfUp` negated): a perspective cone of 120° across
+the shape's short side, the long side's FOV following from the aspect (capped at 3.274, i.e. 160°), with
+the apex pulled back behind the emitter by `halfShort / tan(60°)` so the whole surface is inside the
+cone (HDRP's area-light frustum). The near plane sits 1 cm in front of the emitter, so a fixture behind
+or flush with the light never shadows it; receivers outside the cone fade to unshadowed at the tile
+edge. A sphere or tube takes six cube faces from its centre, as a point light does (face by
+`PointShadowFace`, same ≈96° faces), with the near plane at 1.05 × its radius so its own bulb or glass
+never shadows it. Lights are taken in score order while their tiles fit; one that does not fit is
+skipped and a smaller one after it may still get tiles. The first frame a shadowed area light gets no
+tile logs one warning per renderer (`m_AreaShadowBudgetWarned`). `AreaLight` (80 bytes) carries `ShadowIndex`, `AtlasScale`, `ShadowFlags` (the scene requests
+`AreaLightShadowCasts`, the renderer clears it for a light it gives no tile) and `ShadowEmitterDepth`.
+The area UBO is therefore uploaded after the atlas selection, like the point lights. `LuxEvaluateAreaLights`
+takes the atlas and multiplies diffuse and specular by one visibility (`LTC_AreaLightShadow`: hardware 2x2
+PCF, a 1.5-texel normal offset as the cascades use); the "Area Lights" pass binds `PassInputShadowMaps`
+and reads the shadow outputs. `SoftShadows` (default on) follows `ShadowFilterMode` like spot lights:
+Tuned PCF unless the filter is PCSS, which runs `RawPCSS_AreaLight` (`LTC.glslh`). It is the spot PCSS
+with the emitter `ShadowEmitterDepth` in front of the apex (search `r·(zr − near) / ((zr − d0)·near)`,
+penumbra `r·(zr − zb) / (zb − d0)`) and a two-axis radius, so its kernels are ellipses.
+`LTC_AreaLightTileRadius` measures the radius along the tile's own axes (rows 0 and 1 of its matrix): a
+rect's or disk's half-axes projected, a tube's half-length projected plus its radius (so its penumbra
+stretches along its axis), a sphere's radius. Rect and disk tiles cap the search at
+`AREA_PCSS_MAX_SEARCH_UV` (0.15), wider than the spot cap, because they have no cube seam; sphere and
+tube faces keep `SPOT_PCSS_MAX_SEARCH_UV` and an emitter depth of 0. Spot and point PCSS are separate
+functions and unchanged. The shadow is read from the light as placed, before a sphere or tube is
+replaced by the shape facing the shaded point for the LTC integral.
 
 **Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
 tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and
@@ -329,9 +359,15 @@ tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowInde
 by the major axis (`PointShadowFace`) always lands in [0.05, 0.95] of its tile and filter taps
 never cross a seam. The atlas holds `MaxShadowAtlasTiles` (64, `SHADOW_ATLAS_MAX_TILES` in
 `Buffers.glslh`; change both) in up to an 8x8 grid: up to 16 spot lights first, then up to
-`MaxPointShadows` (8) point lights scored by intensity and distance. Spot and point tiles share the
-spot shadow pass, its per-tile frustum culling and its static/dynamic cache. The point-light buffer
-is uploaded after this selection, because the selection writes the tile fields.
+`MaxPointShadows` (8) point lights scored by intensity and distance, then up to `MaxAreaShadows` (8)
+area lights from the tiles left over (the spot and point caps alone can fill all 64, so area lights
+lose their shadows first). Every tile shares the spot shadow pass, its per-tile frustum culling and
+its static/dynamic cache, and every selected tile makes the grid larger, which shrinks all tiles. The
+point- and area-light buffers are uploaded after this selection, because the selection writes their
+tile fields. The selection also fills `SceneRenderer::GetShadowAtlasDebugInfo()` (main thread): each
+tile's light type, index and face, the grid, and how many shadowed lights of each type asked for a tile.
+The Renderer Debugger's Shadows tab draws it over the atlas image (`ImGuiEx::ImageMode::Depth`, which
+stretches the [0.95, 1] end of perspective depth).
 
 **Orthographic cameras are handled in every depth- and view-dependent shader.** `UBCamera` ends
 with `IsOrthographic` (set when `Projection[3][3] == 1`); the GLSL `Camera` block in `Buffers.glslh`,

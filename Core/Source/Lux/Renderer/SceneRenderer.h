@@ -181,6 +181,10 @@ namespace Lux {
 		uint32_t  Shape = 0; // AreaLightShape
 		glm::vec3 HalfUp = { 0.0f, 0.5f, 0.0f };
 		uint32_t  Flags = 0; // AreaLightFlags
+		uint32_t  ShadowIndex = 0;        // first spot-atlas tile; set by SceneRenderer
+		float     AtlasScale = 1.0f;      // atlas tile size in UV; set by SceneRenderer
+		uint32_t  ShadowFlags = 0;        // AreaLightShadowFlags; the scene requests, SceneRenderer keeps it only with a tile
+		float     ShadowEmitterDepth = 0.0f; // the emitter's linear depth in its tile (the apex sits behind it); set by SceneRenderer
 	};
 
 	// AreaLight::Flags; mirrors AREA_LIGHT_* in LTC.glslh.
@@ -189,8 +193,25 @@ namespace Lux {
 		AreaLightTwoSided = 1u << 0,
 	};
 
+	// AreaLight::ShadowFlags; mirrors AREA_LIGHT_SHADOW_* in LTC.glslh.
+	enum AreaLightShadowFlags : uint32_t
+	{
+		AreaLightShadowCasts = 1u << 0,
+		AreaLightShadowSoft = 1u << 1,
+	};
+
+	// The spot-atlas tile a one-sided rect or disk area light renders its shadow into: a 120-degree cone
+	// across the shape's short side with its apex behind the emitter (SceneRenderer.cpp). Reads
+	// Position, HalfRight, HalfUp and Range. The editor draws it as the light's shadow frustum.
+	struct AreaLightShadowFrustum
+	{
+		glm::mat4 ViewProjection{ 1.0f }; // [0, 1] depth
+		float EmitterDepth = 0.0f;        // linear depth of the emitter's plane from the apex
+	};
+	AreaLightShadowFrustum ComputeAreaLightShadowFrustum(const AreaLight& light);
+
 	static_assert(sizeof(PointLight) == 48, "PointLight must match the GLSL std140 layout.");
-	static_assert(sizeof(AreaLight) == 64, "AreaLight must match the GLSL std140 layout.");
+	static_assert(sizeof(AreaLight) == 80, "AreaLight must match the GLSL std140 layout.");
 	static_assert(sizeof(SpotLight) == 96, "SpotLight must match the GLSL std140 layout.");
 
 	struct LightEnvironment
@@ -479,6 +500,8 @@ namespace Lux {
 		static constexpr uint32_t MaxSpotShadows = 16;
 		// Point lights take six spot-atlas tiles each (one per cube face).
 		static constexpr uint32_t MaxPointShadows = 8;
+		// Shadowed area lights. They take the atlas tiles spot and point lights leave free.
+		static constexpr uint32_t MaxAreaShadows = 8;
 		// Tiles in the shared spot/point shadow atlas; mirrors SHADOW_ATLAS_MAX_TILES in Buffers.glslh.
 		static constexpr uint32_t MaxShadowAtlasTiles = 64;
 		static_assert(MaxSpotShadows + 6 * MaxPointShadows <= MaxShadowAtlasTiles);
@@ -904,6 +927,31 @@ namespace Lux {
 		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
 		RendererFrameDebugSnapshot GetRendererFrameDebugSnapshot() const;
 		const GPUSceneDebugSnapshot& GetGPUSceneDebugSnapshot() const { return m_GPUSceneDebugSnapshot; }
+
+		// The spot shadow atlas as this frame's light selection laid it out (main thread), for the
+		// Renderer Debugger: every tile in order, and how many shadowed lights of each kind asked for one.
+		struct ShadowAtlasTile
+		{
+			enum class LightType : uint8_t { Spot, Point, Area };
+			LightType Type = LightType::Spot;
+			uint32_t LightIndex = 0; // into LightEnvironment::SpotLights / PointLights, or the uploaded (nearest) area lights
+			uint32_t Face = 0;       // cube faces: +X, -X, +Y, -Y, +Z, -Z; a flat area light: 0 front, 1 back
+			glm::vec3 LightPosition{ 0.0f };
+			bool CubeFace = false;   // a point light's, or a sphere or tube area light's, cube face
+		};
+		struct ShadowAtlasDebugInfo
+		{
+			Ref<Image2D> Image; // DEPTH32F, static and dynamic casters together
+			uint32_t AtlasSize = 0;
+			uint32_t GridSize = 1;
+			uint32_t TileSize = 0;
+			std::vector<ShadowAtlasTile> Tiles;
+			// Shadowed lights within the shadow distance; those past the tile budget have no tile.
+			uint32_t SpotRequested = 0;
+			uint32_t PointRequested = 0;
+			uint32_t AreaRequested = 0;
+		};
+		const ShadowAtlasDebugInfo& GetShadowAtlasDebugInfo() const { return m_ShadowAtlasDebugInfo; }
 		// The snapshot's validation loops cost O(instances + materials) CPU, so it
 		// is only built on frames where a consumer (Renderer Debugger panel) asks.
 		void RequestGPUSceneDebugSnapshot() { m_GPUSceneDebugSnapshotRequested = true; }
@@ -1647,6 +1695,7 @@ namespace Lux {
 		// transparent pass reads its output. Set in SubmitRenderScene, cleared in BeginScene.
 		bool m_FrameHasRefraction = false;
 		bool m_AreaLightCapWarned = false;
+		bool m_AreaShadowBudgetWarned = false; // logged once when shadowed area lights get no atlas tile
 
 		struct UBSpotLights
 		{
@@ -1754,8 +1803,9 @@ namespace Lux {
 		uint32_t         m_SpotShadowMapSize = 2048;
 		uint32_t         m_SpotShadowAtlasGridSize = 1;
 		uint32_t         m_SpotShadowTileSize = 2048;
-		uint32_t         m_SpotShadowCount = 0;      // atlas tiles in use: spot lights + 6 per point light
+		uint32_t         m_SpotShadowCount = 0;      // atlas tiles in use: spot lights + 6 per point light + area lights
 		uint32_t         m_SpotShadowLightCount = 0; // spot lights with shadows
+		ShadowAtlasDebugInfo m_ShadowAtlasDebugInfo;
 
 		// ── Pre-depth pass ────────────────────────────────────────────────────
 		Ref<Pipeline>    m_PreDepthPipeline;

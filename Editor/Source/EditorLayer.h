@@ -64,6 +64,7 @@ namespace Lux
 		//bool OnWindowDrop(WindowDropEvent& e);
 
 		void OnOverlayRender();
+		void DrawCameraAndLightVolumes();
 		void DrawAudioVisualisation(const glm::mat4& view);
 		void UI_AcousticMaterialLegend();
 		void DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings);
@@ -352,6 +353,15 @@ namespace Lux
 		bool m_ShowBoundingBoxes = false;
 		AssetHandle m_LastInvalidBoundsMesh = 0;
 		bool m_ShowEntityIcons = true;
+		// Viewport wireframes: each camera's view frustum, and each light's reach (a point light's range
+		// sphere, a spot light's cone, an area light's shadow frustum or range sphere). Persisted as
+		// Editor.CameraFrustums / Editor.LightVolumes.
+		enum class OverlayVolumeMode : int32_t
+		{
+			Off = 0, Selected = 1, All = 2
+		};
+		OverlayVolumeMode m_CameraFrustumMode = OverlayVolumeMode::Selected;
+		OverlayVolumeMode m_LightVolumeMode = OverlayVolumeMode::Selected;
 		bool m_ShowViewportPerformanceHUD = true;
 		// Drive editor UI with a controller (ImGui gamepad navigation). Persisted as
 		// Editor.GamepadNavigation*; suspended during Play so the game gets the pad.
@@ -420,6 +430,8 @@ namespace Lux
 			bool ShowMaterialComplexity = false;
 			bool ShowBoundingBoxes = false;
 			bool ShowEntityIcons = true;
+			OverlayVolumeMode CameraFrustumMode = OverlayVolumeMode::Selected;
+			OverlayVolumeMode LightVolumeMode = OverlayVolumeMode::Selected;
 			SceneRenderer::DebugViewMode RendererDebugView = SceneRenderer::DebugViewMode::Final;
 			Viewport::DisplayMode DisplayMode = Viewport::DisplayMode::Lit;
 		};

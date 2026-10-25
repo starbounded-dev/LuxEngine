@@ -57,10 +57,11 @@ float4 main(PS_INPUT input) : SV_Target
 {
     float4 sample = u_Texture.Sample(u_Sampler, input.uv);
 
-    // Display single-channel textures as grayscale (for depth maps)
+    // Display single-channel textures as grayscale (for depth maps). A perspective [0, 1] depth map
+    // crowds almost everything near 1, so the curve spreads that end: 0.95 shows as 0.2, 0.99 as 0.7.
     if (g_ConstPS.Flags & 2)
     {
-        sample.rgb = sample.r;
+        sample.rgb = pow(saturate(sample.r), 32.0);
     }
 
     // Force opaque rendering for debug texture visualization

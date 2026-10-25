@@ -14,6 +14,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Scene/Components.h"
 
 
 // SMAA's precomputed lookup tables ship as headers in the reference implementation
@@ -348,6 +349,17 @@ namespace Lux {
 		constexpr float k_PointShadowFaceFOV = 1.67596244f;
 		constexpr float k_PointShadowNearPlane = 0.1f;
 
+		// Rect and disk area-light shadows (ComputeAreaLightShadowFrustum): one spot-atlas tile, a
+		// 120-degree cone across the shape's short side. The long side's FOV follows from the aspect, capped at 160 degrees
+		// (tan(80) / tan(60) = 3.274); receivers outside the cone are unshadowed.
+		constexpr float k_AreaShadowConeAngle = 2.09439510f; // 120 degrees
+		constexpr float k_AreaShadowMaxAspect = 3.274f;
+		// The near plane sits just in front of the emitter, so a fixture behind or flush with it casts nothing.
+		constexpr float k_AreaShadowNearMargin = 0.01f;
+		constexpr float k_AreaShadowMinNearPlane = 0.02f;
+		// Sphere and tube shadows: six cube faces like a point light, the near plane at this times the radius.
+		constexpr float k_AreaShadowCubeNearScale = 1.05f;
+
 		// Clustered light culling slices depth exponentially from the near plane, which must be
 		// positive. An orthographic camera's near plane can be zero or negative (SceneCamera
 		// defaults to -1); fragments in front of this floor all land in the first slice.
@@ -360,6 +372,19 @@ namespace Lux {
 			{ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f },
 			{ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f },
 			{ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+
+		bool IsFlatAreaLight(const AreaLight& light)
+		{
+			return light.Shape == static_cast<uint32_t>(AreaLightShape::Rect) || light.Shape == static_cast<uint32_t>(AreaLightShape::Disk);
+		}
+
+		// Atlas tiles a shadowed area light takes, in the order its shader reads them (LTC_AreaLightShadow).
+		uint32_t GetAreaLightShadowTileCount(const AreaLight& light)
+		{
+			if (!IsFlatAreaLight(light))
+				return 6;
+			return (light.Flags & AreaLightTwoSided) != 0 ? 2u : 1u;
+		}
 
 		SceneRendererOptions::ShadowResolutionTier SanitizeShadowResolutionTier(uint32_t tier)
 		{
@@ -492,6 +517,29 @@ namespace Lux {
 			value |= value >> 16;
 			return value + 1;
 		}
+	}
+
+	// The apex sits behind the emitter, by the distance that puts the short side's edges on the cone, so
+	// the whole surface is inside the frustum (HDRP's area-light shadow frustum). The tile's vertical axis
+	// is the short side.
+	AreaLightShadowFrustum ComputeAreaLightShadowFrustum(const AreaLight& light)
+	{
+		const float halfRight = glm::length(light.HalfRight);
+		const float halfUp = glm::length(light.HalfUp);
+		const float halfShort = glm::max(glm::min(halfRight, halfUp), 1e-4f);
+		const float halfLong = glm::max(halfRight, halfUp);
+		const glm::vec3 emitDirection = -glm::normalize(glm::cross(light.HalfRight, light.HalfUp));
+		const glm::vec3 shortAxis = halfUp <= halfRight ? light.HalfUp / glm::max(halfUp, 1e-6f) : light.HalfRight / glm::max(halfRight, 1e-6f);
+
+		AreaLightShadowFrustum frustum;
+		frustum.EmitterDepth = halfShort / glm::tan(0.5f * k_AreaShadowConeAngle);
+		const float aspect = glm::clamp(halfLong / halfShort, 1.0f, k_AreaShadowMaxAspect);
+		const glm::vec3 apex = light.Position - emitDirection * frustum.EmitterDepth;
+		const glm::mat4 view = glm::lookAt(apex, apex + emitDirection, shortAxis);
+		const float nearPlane = glm::max(frustum.EmitterDepth + k_AreaShadowNearMargin, k_AreaShadowMinNearPlane);
+		const float farPlane = glm::max(frustum.EmitterDepth + light.Range, 2.0f * nearPlane);
+		frustum.ViewProjection = glm::perspective(k_AreaShadowConeAngle, aspect, nearPlane, farPlane) * view;
+		return frustum;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -2101,7 +2149,7 @@ namespace Lux {
 			rpSpec.DebugName = "AreaLightPass";
 			rpSpec.Pipeline = Pipeline::Create(areaPipelineSpec);
 			m_AreaLightPass = RenderPass::Create(rpSpec);
-			BindSceneRenderPassInputs(m_AreaLightPass, PassInputCommonScene | PassInputDepth | PassInputGBuffer);
+			BindSceneRenderPassInputs(m_AreaLightPass, PassInputCommonScene | PassInputShadowMaps | PassInputDepth | PassInputGBuffer);
 			m_AreaLightPass->SetInput("AreaLightData", m_UBSAreaLights);
 			m_AreaLightPass->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
 			m_AreaLightPass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
@@ -4327,6 +4375,7 @@ namespace Lux {
 			{
 				std::vector<RenderGraph::ResourceHandle> areaReads = gbufferOutputs;
 				appendResources(areaReads, preDepthOutputs);
+				appendResources(areaReads, shadowOutputs);
 				appendResources(areaReads, sceneColorCurrent);
 				std::vector<RenderGraph::ResourceHandle> areaOutputs = addRenderPassResources("Area Lights", m_AreaLightPass);
 				addPass("Area Lights", areaReads, areaOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AreaLightPass));
@@ -5312,7 +5361,8 @@ namespace Lux {
 					sizeof(PointLight) * m_PointLightsUB.Count);
 		}
 
-		// ── Area lights: the nearest MaxAreaLights to the camera ─────────────
+		// ── Area lights: the nearest MaxAreaLights to the camera (uploaded below, once the shadow
+		// atlas assigns their tiles) ──
 		{
 			const auto& areaLights = m_SceneData.SceneLightEnvironment.AreaLights;
 			const uint32_t maxAreaLights = LightEnvironment::MaxAreaLights;
@@ -5340,15 +5390,6 @@ namespace Lux {
 				std::memcpy(m_AreaLightsUB.AreaLights, areaLights.data(), sizeof(AreaLight) * m_AreaLightCount);
 			}
 			m_AreaLightsUB.Count = m_AreaLightCount;
-
-			// Uploaded even with no area lights: the transparent pass reads the count every frame.
-			Ref<SceneRenderer> instance = this;
-			auto areaData = m_AreaLightsUB;
-			const uint32_t areaSize = static_cast<uint32_t>(16ull + sizeof(AreaLight) * m_AreaLightCount);
-			Renderer::Submit([instance, areaData, areaSize]() mutable {
-				instance->m_UBSAreaLights->RT_Get()->RT_SetData(
-					instance->m_UploadCommandBuffer, &areaData, areaSize);
-				});
 		}
 
 		// ── Spot lights uniform buffer + shadow data ─────────────────────────-
@@ -5406,11 +5447,60 @@ namespace Lux {
 				return a.Score > b.Score;
 			});
 
+			// Area lights take the tiles spot and point lights leave: a rect or disk one (two when
+			// two-sided, the second mirrored to the back), a sphere or tube six cube faces like a point light.
+			struct AreaShadowCandidate
+			{
+				uint32_t Index = 0;
+				float Score = 0.0f;
+				uint32_t Tiles = 1;
+			};
+
+			std::vector<AreaShadowCandidate> areaShadowCandidates;
+			for (uint32_t i = 0; i < m_AreaLightCount; i++)
+			{
+				AreaLight& light = m_AreaLightsUB.AreaLights[i];
+				light.ShadowIndex = 0;
+				light.AtlasScale = 1.0f;
+				light.ShadowEmitterDepth = 0.0f;
+				if ((light.ShadowFlags & AreaLightShadowCasts) == 0)
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				// A light whose whole lit sphere lies beyond the shadow distance casts nothing visible.
+				const glm::vec3 toLight = light.Position - m_SceneUB.CameraPosition;
+				const float distanceSquared = glm::dot(toLight, toLight);
+				if (glm::sqrt(distanceSquared) - light.Range > m_Options.MaxShadowDistance)
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				const float luminance = glm::max(CalculateLightLuminance(light.Radiance), 0.001f);
+				const float extent = glm::sqrt(glm::length(light.HalfRight) * glm::length(light.HalfUp));
+				const float score = light.Intensity * luminance * extent * light.Range / glm::max(1.0f, distanceSquared);
+				areaShadowCandidates.push_back({ i, score, GetAreaLightShadowTileCount(light) });
+			}
+
+			std::sort(areaShadowCandidates.begin(), areaShadowCandidates.end(), [](const AreaShadowCandidate& a, const AreaShadowCandidate& b)
+			{
+				if (a.Score == b.Score)
+					return a.Index < b.Index;
+				return a.Score > b.Score;
+			});
+
 			m_SpotShadowLightCount = 0;
+			m_ShadowAtlasDebugInfo.Image = m_SpotShadowMapImage;
+			m_ShadowAtlasDebugInfo.Tiles.clear();
+			m_ShadowAtlasDebugInfo.SpotRequested = 0;
+			m_ShadowAtlasDebugInfo.PointRequested = static_cast<uint32_t>(pointShadowCandidates.size());
+			m_ShadowAtlasDebugInfo.AreaRequested = static_cast<uint32_t>(areaShadowCandidates.size());
 
 			// Candidate scoring/sorting and atlas sizing only matter when shadowed lights
 			// may exist; with none, skip straight to the (16-byte) UBO upload.
-			if (m_SpotLightsUB.Count > 0 || !pointShadowCandidates.empty())
+			if (m_SpotLightsUB.Count > 0 || !pointShadowCandidates.empty() || !areaShadowCandidates.empty())
 			{
 			std::vector<SpotShadowCandidate> shadowCandidates;
 			shadowCandidates.reserve(m_SpotLightsUB.Count);
@@ -5457,7 +5547,30 @@ namespace Lux {
 			std::array<bool, 256> selectedPointShadowCasters{};
 			for (uint32_t i = 0; i < selectedPointShadowCount; i++)
 				selectedPointShadowCasters[pointShadowCandidates[i].Index] = true;
-			const uint32_t selectedTileCount = selectedShadowCount + 6u * selectedPointShadowCount;
+			// Best score first; a light whose tiles no longer fit is skipped, a smaller one after it may still fit.
+			uint32_t areaTilesLeft = MaxShadowAtlasTiles - selectedShadowCount - 6u * selectedPointShadowCount;
+			uint32_t selectedAreaShadowCount = 0;
+			uint32_t selectedAreaTileCount = 0;
+			std::array<bool, LightEnvironment::MaxAreaLights> selectedAreaShadowCasters{};
+			for (const AreaShadowCandidate& candidate : areaShadowCandidates)
+			{
+				if (selectedAreaShadowCount == MaxAreaShadows)
+					break;
+				if (candidate.Tiles > areaTilesLeft)
+					continue;
+
+				selectedAreaShadowCasters[candidate.Index] = true;
+				selectedAreaShadowCount++;
+				selectedAreaTileCount += candidate.Tiles;
+				areaTilesLeft -= candidate.Tiles;
+			}
+			const uint32_t selectedTileCount = selectedShadowCount + 6u * selectedPointShadowCount + selectedAreaTileCount;
+			if (selectedAreaShadowCount < areaShadowCandidates.size() && !m_AreaShadowBudgetWarned)
+			{
+				LUX_CORE_WARN_TAG("Renderer", "{} shadowed area lights have no shadow: spot and point lights fill the {}-tile shadow atlas first, and at most {} area lights get tiles (Renderer Debugger > Shadows shows the atlas)",
+					areaShadowCandidates.size() - selectedAreaShadowCount, MaxShadowAtlasTiles, MaxAreaShadows);
+				m_AreaShadowBudgetWarned = true;
+			}
 			std::array<bool, 256> selectedShadowCasters{};
 			uint32_t maxSelectedTier = 1;
 			for (uint32_t i = 0; i < selectedShadowCount; i++)
@@ -5470,6 +5583,10 @@ namespace Lux {
 			m_SpotShadowAtlasGridSize = (uint32_t)glm::ceil(glm::sqrt((float)glm::max(1u, selectedTileCount)));
 			m_SpotShadowAtlasGridSize = glm::max(1u, glm::min(m_SpotShadowAtlasGridSize, 8u));
 			m_SpotShadowTileSize = m_SpotShadowMapSize / m_SpotShadowAtlasGridSize;
+			m_ShadowAtlasDebugInfo.SpotRequested = static_cast<uint32_t>(shadowCandidates.size());
+			m_ShadowAtlasDebugInfo.AtlasSize = m_SpotShadowMapSize;
+			m_ShadowAtlasDebugInfo.GridSize = m_SpotShadowAtlasGridSize;
+			m_ShadowAtlasDebugInfo.TileSize = m_SpotShadowTileSize;
 
 			bool spotShadowFramebufferResized = false;
 			if (m_SpotShadowMapImage && m_SpotShadowMapImage->GetSize().x != m_SpotShadowMapSize)
@@ -5507,6 +5624,8 @@ namespace Lux {
 			uint64_t spotShadowStateHash = 1469598103934665603ull;
 			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedShadowCount);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedPointShadowCount);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedAreaShadowCount);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedAreaTileCount);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, maxSelectedTier);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowMapSize);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowAtlasGridSize);
@@ -5538,6 +5657,7 @@ namespace Lux {
 				const uint32_t tileX = atlasIndex % m_SpotShadowAtlasGridSize;
 				const uint32_t tileY = atlasIndex / m_SpotShadowAtlasGridSize;
 				const float atlasScale = 1.0f / (float)m_SpotShadowAtlasGridSize;
+				m_ShadowAtlasDebugInfo.Tiles.push_back({ ShadowAtlasTile::LightType::Spot, i, 0, light.Position });
 
 				light.ShadowIndex = atlasIndex;
 				light.AtlasOffsetX = tileX * atlasScale;
@@ -5580,11 +5700,64 @@ namespace Lux {
 				for (uint32_t face = 0; face < 6; face++)
 				{
 					const uint32_t atlasIndex = m_SpotShadowCount++;
+					m_ShadowAtlasDebugInfo.Tiles.push_back({ ShadowAtlasTile::LightType::Point, i, face, light.Position, true });
 					const glm::mat4 view = glm::lookAt(light.Position, light.Position + k_PointShadowFaceDirections[face], k_PointShadowFaceUps[face]);
 					const glm::mat4 viewProjection = proj * view;
 					m_SpotShadowUB.ViewProjection[atlasIndex] = viewProjection;
 					m_SpotShadowFrustums[atlasIndex] = Frustum::FromViewProjection(viewProjection);
 					m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
+				}
+			}
+
+			for (uint32_t i = 0; i < m_AreaLightCount; i++)
+			{
+				AreaLight& light = m_AreaLightsUB.AreaLights[i];
+				if (!selectedAreaShadowCasters[i])
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.Position);
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.HalfRight);
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.HalfUp);
+				spotShadowStateHash = HashCombine(spotShadowStateHash, HashFloat(light.Range));
+				spotShadowStateHash = HashCombine(spotShadowStateHash, light.Shape);
+				spotShadowStateHash = HashCombine(spotShadowStateHash, light.Flags);
+
+				light.ShadowIndex = m_SpotShadowCount;
+				light.AtlasScale = atlasTileScale;
+				auto addTile = [&](const glm::mat4& viewProjection, uint32_t face, bool cubeFace)
+				{
+					const uint32_t atlasIndex = m_SpotShadowCount++;
+					m_ShadowAtlasDebugInfo.Tiles.push_back({ ShadowAtlasTile::LightType::Area, i, face, light.Position, cubeFace });
+					m_SpotShadowUB.ViewProjection[atlasIndex] = viewProjection;
+					m_SpotShadowFrustums[atlasIndex] = Frustum::FromViewProjection(viewProjection);
+					m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
+				};
+
+				if (IsFlatAreaLight(light))
+				{
+					const AreaLightShadowFrustum front = ComputeAreaLightShadowFrustum(light);
+					light.ShadowEmitterDepth = front.EmitterDepth;
+					addTile(front.ViewProjection, 0, false);
+					if ((light.Flags & AreaLightTwoSided) != 0)
+					{
+						// The back side: the same frustum mirrored through the emitter's plane.
+						AreaLight back = light;
+						back.HalfUp = -light.HalfUp;
+						addTile(ComputeAreaLightShadowFrustum(back).ViewProjection, 1, false);
+					}
+				}
+				else
+				{
+					// A sphere or tube shadows from its centre like a point light; the near plane sits just
+					// outside its radius, so its own bulb or glass never shadows it.
+					const float radius = light.Shape == static_cast<uint32_t>(AreaLightShape::Sphere) ? glm::length(light.HalfRight) : glm::length(light.HalfUp);
+					const float nearPlane = glm::max(k_AreaShadowCubeNearScale * radius, k_PointShadowNearPlane);
+					const glm::mat4 proj = glm::perspective(k_PointShadowFaceFOV, 1.0f, nearPlane, glm::max(light.Range, 2.0f * nearPlane));
+					for (uint32_t face = 0; face < 6; face++)
+						addTile(proj * glm::lookAt(light.Position, light.Position + k_PointShadowFaceDirections[face], k_PointShadowFaceUps[face]), face, true);
 				}
 			}
 
@@ -5635,6 +5808,14 @@ namespace Lux {
 			Renderer::Submit([instance, plData, plSize]() mutable {
 				instance->m_UBSPointLights->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &plData, plSize);
+				});
+
+			// Uploaded even with no area lights: the transparent pass reads the count every frame.
+			auto areaData = m_AreaLightsUB;
+			const uint32_t areaSize = static_cast<uint32_t>(16ull + sizeof(AreaLight) * m_AreaLightCount);
+			Renderer::Submit([instance, areaData, areaSize]() mutable {
+				instance->m_UBSAreaLights->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &areaData, areaSize);
 				});
 		}
 

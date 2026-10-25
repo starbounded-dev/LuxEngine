@@ -21,6 +21,7 @@ void main()
 
 #include <Buffers.glslh>
 #include <PBR.glslh>
+#include <ShadowMapping.glslh>
 #include <LuxGBuffer.glslh>
 #include <LTC.glslh>
 
@@ -28,6 +29,7 @@ layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in vec2 v_ClipPosition;
 layout(location = 0) out vec4 o_Color;
 
+layout(set = 1, binding = 3) uniform texture2D u_SpotShadowTexture;
 layout(set = 1, binding = 12) uniform texture2D u_GBufferBaseColor;
 layout(set = 1, binding = 13) uniform texture2D u_GBufferNormal;
 layout(set = 1, binding = 14) uniform texture2D u_GBufferMetalRoughAO;
@@ -52,6 +54,6 @@ void main()
 	float metalness = clamp(gbuffer.Metalness, 0.0, 1.0);
 	vec3 F0 = mix(LuxDielectricF0(gbuffer.Specular), gbuffer.BaseColor, metalness);
 
-	vec3 color = LuxEvaluateAreaLights(worldPosition, N, V, gbuffer.BaseColor, metalness, roughness, F0);
+	vec3 color = LuxEvaluateAreaLights(worldPosition, N, V, gbuffer.BaseColor, metalness, roughness, F0, u_SpotShadowTexture);
 	o_Color = vec4(color, 1.0);
 }

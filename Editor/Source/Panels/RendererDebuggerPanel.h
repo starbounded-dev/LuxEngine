@@ -31,6 +31,7 @@ namespace Lux {
 		void DrawWorkload(const SceneRenderer::Statistics& stats);
 		void DrawGPUScene();
 		void DrawShaders();
+		void DrawShadowAtlas();
 		void DrawRenderPassIsolation();
 		void DrawRenderGraphInspector();
 

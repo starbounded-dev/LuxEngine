@@ -68,6 +68,7 @@ namespace Lux {
 		{
 			Entity destination = m_Scene->CreateEntity(source.GetName());
 			CopyComponentIfExists(PrefabCloneComponents{}, destination, source);
+			destination.GetComponent<TagComponent>().Active = source.GetComponent<TagComponent>().Active;
 			source.GetScene()->GetScriptStorage().CopyEntityFields(source.GetUUID(), m_Scene->GetScriptStorage(), destination.GetUUID());
 
 			entityMap[source.GetUUID()] = destination.GetUUID();
