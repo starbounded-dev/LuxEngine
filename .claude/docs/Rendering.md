@@ -236,6 +236,24 @@ temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ 
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
 
+**Bloom is an FFT convolution with a lens-glare kernel.** One compute pass, "Bloom"
+(`SceneRenderer::BloomCompute`, `PostProcessing/BloomFFT.glsl`, one shader with a mode per dispatch),
+replaces the old mip chain: the bright pass area-averages and soft-thresholds the scene into half of a
+fixed 512×512 grid along its longer side (the other half is zero padding, so the circular convolution
+never wraps), a 512-point shared-memory FFT runs over rows then columns, the spectrum is multiplied by
+the kernel spectrum divided by its DC term (the glare redistributes energy, it does not add any), the
+inverse FFT runs back, and the source region is bilinearly resolved into `m_BloomTexture` (RGBA16F, at
+`BloomSettings::ResolutionScale`), which the composite adds with `BloomIntensity` and the dirt texture.
+R and G share one RGBA32F grid as two complex numbers, B has an RG32F one; with the kernel's pair that
+is ~12 MB, independent of the viewport. The kernel (core, power-law halo, streak lines, the red channel
+wider than the blue) is built from `BloomSettings` — `StreakCount` (≤ `MaxStreakCount`, 8, which is
+`MAX_STREAK_LINES` in the shader), `StreakLength`, `StreakIntensity`, `StreakRotation`,
+`HaloIntensity`, `ChromaticSpread` — and its spectrum is rebuilt only when they change
+(`m_BloomFFTKernelKey`). Bloom settings are renderer-owned project settings:
+`GetEffectivePostProcessSettings` overlays them onto the scene's `PostProcessSettings`. Cost on the
+RTX 4070 Ti, Benchmark: ~0.11 ms at 1280×720, ~0.13 ms at 1920×1080 (the grid size, not the
+viewport, sets it). Everything is per frame; there is no history.
+
 **AO is indirect-only.** The AO composite resolves GTAO into its own `RED8UN` image, and deferred
 lighting multiplies it into the IBL term only (with material AO, which also drives specular
 occlusion). Direct light already has shadow-map visibility, so AO must never multiply the lit scene
@@ -290,15 +308,66 @@ projection at the near plane, and the filter radius is the penumbra half-width a
 depth`. The search is capped at 0.05 tile UV, the margin point-light faces keep, so taps never read
 a neighbouring tile.
 
+**Area lights are a separate pass.** `AreaLightComponent` (rect or disk emitting along the entity's
+-Z, or a sphere or tube emitting all around; Unitless = luminance or Lumens via
+`PhysicalLight::AreaIntensity`) reaches the renderer through `LightEnvironment::AreaLights`;
+`SceneRenderer` uploads the nearest `LightEnvironment::MaxAreaLights` (32, `MAX_AREA_LIGHTS` in
+`LTC.glslh`; change both) to `AreaLightData` at `(1, 18)` every frame, the count included when it is
+zero, because the transparent pass reads it every frame. The "Area Lights" pass
+(`DeferredLighting_Area.glsl`) adds them over deferred lighting with Linearly Transformed Cosines and
+is only in the graph on frames with area lights, so the deferred lighting shader never carries the
+LTC code; `HazelPBR_Transparent.glsl` evaluates the same `LuxEvaluateAreaLights`. The LTC tables are
+`Renderer::GetLTCMatrixTexture` / `GetLTCAmplitudeTexture` at `(3, 6)` / `(3, 7)`, built from
+`Core/vendor/ltc/LTCTables.h` (BSD-2-Clause, `selfshadow/ltc_code`). A disk is integrated as an
+area-matched 12-gon; a sphere as a disk facing the shaded point, and a tube as a rectangle facing it
+around its axis, lengthened by πr/4 per end to keep the capsule's silhouette area
+(`LTC_FacingShape`).
+
+**Area lights shadow through the spot atlas** (`AreaLightComponent::CastsShadows`, off by default).
+`GetAreaLightShadowTileCount` sets the tiles, in the order `LTC_AreaLightShadow` reads them. A rect or
+disk takes one tile per lit side (`ComputeAreaLightShadowFrustum`, public in `SceneRenderer.h` so the
+editor draws the same frustum; a two-sided light's second tile is that frustum mirrored through the
+emitter's plane, `HalfUp` negated): a perspective cone of 120° across
+the shape's short side, the long side's FOV following from the aspect (capped at 3.274, i.e. 160°), with
+the apex pulled back behind the emitter by `halfShort / tan(60°)` so the whole surface is inside the
+cone (HDRP's area-light frustum). The near plane sits 1 cm in front of the emitter, so a fixture behind
+or flush with the light never shadows it; receivers outside the cone fade to unshadowed at the tile
+edge. A sphere or tube takes six cube faces from its centre, as a point light does (face by
+`PointShadowFace`, same ≈96° faces), with the near plane at 1.05 × its radius so its own bulb or glass
+never shadows it. Lights are taken in score order while their tiles fit; one that does not fit is
+skipped and a smaller one after it may still get tiles. The first frame a shadowed area light gets no
+tile logs one warning per renderer (`m_AreaShadowBudgetWarned`). `AreaLight` (80 bytes) carries `ShadowIndex`, `AtlasScale`, `ShadowFlags` (the scene requests
+`AreaLightShadowCasts`, the renderer clears it for a light it gives no tile) and `ShadowEmitterDepth`.
+The area UBO is therefore uploaded after the atlas selection, like the point lights. `LuxEvaluateAreaLights`
+takes the atlas and multiplies diffuse and specular by one visibility (`LTC_AreaLightShadow`: hardware 2x2
+PCF, a 1.5-texel normal offset as the cascades use); the "Area Lights" pass binds `PassInputShadowMaps`
+and reads the shadow outputs. `SoftShadows` (default on) follows `ShadowFilterMode` like spot lights:
+Tuned PCF unless the filter is PCSS, which runs `RawPCSS_AreaLight` (`LTC.glslh`). It is the spot PCSS
+with the emitter `ShadowEmitterDepth` in front of the apex (search `r·(zr − near) / ((zr − d0)·near)`,
+penumbra `r·(zr − zb) / (zb − d0)`) and a two-axis radius, so its kernels are ellipses.
+`LTC_AreaLightTileRadius` measures the radius along the tile's own axes (rows 0 and 1 of its matrix): a
+rect's or disk's half-axes projected, a tube's half-length projected plus its radius (so its penumbra
+stretches along its axis), a sphere's radius. Rect and disk tiles cap the search at
+`AREA_PCSS_MAX_SEARCH_UV` (0.15), wider than the spot cap, because they have no cube seam; sphere and
+tube faces keep `SPOT_PCSS_MAX_SEARCH_UV` and an emitter depth of 0. Spot and point PCSS are separate
+functions and unchanged. The shadow is read from the light as placed, before a sphere or tube is
+replaced by the shape facing the shaded point for the LTC integral.
+
 **Point lights shadow through the spot atlas.** A shadowed point light takes six consecutive atlas
 tiles, one per cube face (+X, −X, +Y, −Y, +Z, −Z); `PointLight::ShadowIndex` is the first tile and
 `AtlasScale` the tile size. Each face renders at 2·atan(1/0.9) ≈ 96°, so the face the shader picks
 by the major axis (`PointShadowFace`) always lands in [0.05, 0.95] of its tile and filter taps
 never cross a seam. The atlas holds `MaxShadowAtlasTiles` (64, `SHADOW_ATLAS_MAX_TILES` in
 `Buffers.glslh`; change both) in up to an 8x8 grid: up to 16 spot lights first, then up to
-`MaxPointShadows` (8) point lights scored by intensity and distance. Spot and point tiles share the
-spot shadow pass, its per-tile frustum culling and its static/dynamic cache. The point-light buffer
-is uploaded after this selection, because the selection writes the tile fields.
+`MaxPointShadows` (8) point lights scored by intensity and distance, then up to `MaxAreaShadows` (8)
+area lights from the tiles left over (the spot and point caps alone can fill all 64, so area lights
+lose their shadows first). Every tile shares the spot shadow pass, its per-tile frustum culling and
+its static/dynamic cache, and every selected tile makes the grid larger, which shrinks all tiles. The
+point- and area-light buffers are uploaded after this selection, because the selection writes their
+tile fields. The selection also fills `SceneRenderer::GetShadowAtlasDebugInfo()` (main thread): each
+tile's light type, index and face, the grid, and how many shadowed lights of each type asked for a tile.
+The Renderer Debugger's Shadows tab draws it over the atlas image (`ImGuiEx::ImageMode::Depth`, which
+stretches the [0.95, 1] end of perspective depth).
 
 **Orthographic cameras are handled in every depth- and view-dependent shader.** `UBCamera` ends
 with `IsOrthographic` (set when `Projection[3][3] == 1`); the GLSL `Camera` block in `Buffers.glslh`,
@@ -334,6 +403,19 @@ coordinates in the vertex stage and keep the depth bias only.
 ---
 
 ## Shaders
+
+**Mesh vertices reach the GPU as `PackedVertex` (28 bytes, `Renderer/Mesh.h`).** Position (float3), the
+tangent frame as a unit quaternion in four snorm16 values ("QTangent", the binormal's handedness in
+the sign of `w`) and the UV (float2); `MeshSource` packs it when it creates the vertex buffer, and the
+CPU keeps the full 56-byte `Vertex` (physics, picking, the mesh caches and runtime packs, which are
+unchanged). The mesh layout in `SceneRenderer` is `a_Position` Float3, `a_QTangent` `Short4N`
+(RGBA16_SNORM), `a_TexCoord` Float2 at locations 0–2; every shader on it declares exactly those, and
+the ones that need the frame call `QTangent_ToTBN` (`Include/GLSL/QTangent.glslh`, columns tangent,
+binormal, normal). The mesh-shader prepass reads the buffer raw at `MESH_VERTEX_STRIDE` 7 floats (UV at
+5–6). The encoder orthonormalizes the frame (Gram-Schmidt on the tangent, binormal ±cross(N, T)), so a
+mesh whose imported tangents were skewed shades with the corrected frame. The design follows Lucky
+Engine's `PackedVertex`. Edit `PackedVertex`, the layout, `QTangent.glslh` and the meshlet stride
+together.
 
 **LuxEngine is GLSL-first.** The corpus is ~68 `.glsl` + 15 `.glslh` includes, with a small number of
 `.hlsl` / `.hlslh` / `.slh` files. This is the opposite of some Hazel-derived engines — do not assume
@@ -442,6 +524,9 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 python3 tests/rendering/threading_ab.py                                   # build, then Single vs Multi
 ```
 
+- **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features
+  scene (area-light slots over glossy strips, glass in front of a grid wall, bright emitters), which
+  `python3 scripts/GenerateBenchmarkScenes.py --scene features` regenerates without touching Benchmark.
 - **Captures live in `bin/golden/<label>/`** and are never committed.
 - **Validation counts only exist in Debug captures** (`--config debug`, plus `--sync-validation`
   for synchronization validation). `summary.json` and `validation.txt` list them, and a comparison
@@ -769,8 +854,11 @@ crash or corruption on some driver even if it renders correctly on yours.
   so its static-cache hashes include `MaterialScene::GetAssetRevision`, and a material edit
   re-renders the static shadow caches. The mesh-shader prepass matches the classic one: its fragment
   stage alpha-tests with the same UVs and mip bias, and two-sided draws switch to
-  `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Skinned meshes (`*_Anim`
-  shaders) have no variants; the engine has no skeletal animation.
+  `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Mesh shaders stay off by
+  default: at parity they are still behind the classic prepass on Benchmark (0.151 vs 0.118 ms), and
+  backface cones, fuller task groups, a position-only output and meshoptimizer-built meshlets did not
+  close it (render features plan, phase 8). There are no skinned variants: the engine has no skeletal
+  animation, and the unused `*_Anim` and `LuxPBR_*` shaders were deleted with the packed vertex.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still
@@ -861,6 +949,14 @@ resets the pools; every `RT_End` copies what it wrote (`CmdCopyQueries`) and add
 reads. Reading the previous frame then is safe because frame pacing has retired it, which is why
 queries need one command list per frame in flight (`Create(0, …)`; others get none, with a
 warning). A timer name used several times in a frame reports its total.
+
+**Pipeline statistics are counted only on demand.** An open PIPELINE_STATISTICS query serializes
+mesh-shader work on NVIDIA: with one open around every segment, the mesh-shader prepass on Benchmark
+measured 24 ms against 0.15 ms without (render features plan, phase 8). Segments open the query only
+in render frames that took a `RenderCommandBuffer::RequestPipelineStatistics()` (each render frame
+takes the request once, at its first segment); the Profiler requests every frame its Pipeline
+Statistics section is open, so counting stops however the panel closes. Never time mesh-shader passes
+with that section open.
 
 The frame total (`GetExecutionGPUTime`, shown as "GPU" in the viewport HUD and read by dynamic
 resolution) is a separate frame-level timestamp pair written in `RT_Begin` and `RT_End`. A frame
@@ -1001,9 +1097,23 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. A row is 11 `vec4` (176 bytes). The last two hold diffuse transmission:
+size in step. A row is 13 `vec4` (208 bytes). Two hold diffuse transmission:
 `Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
-`TransmissionTextureIndices.x` (the factor map, read from alpha). Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+`TransmissionTextureIndices.x` (the factor map, read from alpha); the last two hold refraction:
+`Refraction` (x share, transparent rows only; y IOR, z thickness, w attenuation distance) and
+`AttenuationColor`. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+
+**Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,
+read through `GetGPUMaterialRefraction`)
+takes that share from its diffuse lobe and adds the opaque scene behind it in
+`HazelPBR_Transparent.glsl`: the view ray refracted by the IOR and carried `Thickness` into the
+volume (0 = thin-walled, blurred but not displaced), projected back to the screen, read from the
+pre-convolved scene at a roughness mip (capped at mip 5), the sky when it leaves the screen, absorbed
+Beer–Lambert toward the attenuation colour, tinted by the base colour. Alpha stays coverage, so
+refractive glass keeps opacity 1. `MaterialScene::HasRefractiveMaterials()` on the submitted render
+scene sets `m_FrameHasRefraction`: `Pre-Convolution` then runs even with SSR off, the transparent
+pass reads its output (`u_RefractionSource`, `(1, 11)`, bound in `TransparentForwardPass`; a black
+texture on frames without refraction). Materials submitted outside a render scene do not set it.
 
 ### Bindless textures — set 4 is reserved
 
@@ -1065,11 +1175,20 @@ the revision** — a setter that does not leaves the GPU row stale until the nex
 `UpsertOverrideMaterial` rows are unreferenced and live while they are upserted every frame.
 
 **Emission does not go through the G-buffer.** `GBuffer_Static` writes emissive radiance straight
-into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 5, with
+into scene color (the G-buffer framebuffer borrows the scene-color image as attachment 4, with
 `AttachmentLoadOp::Load` so the sky drawn before it survives), and `DeferredLighting` blends its
 result on top with `FramebufferBlendMode::Additive`. Consequences: anything that writes the lit
 opaque color must stay additive over what is already there, and the G-buffer render-graph pass reads
 and writes scene color.
+
+**The G-buffer is four targets** (`LuxGBuffer.glslh` encodes and decodes them): base colour RGBA16F
+(a = opacity), view normal RGBA16F (w = diffuse transmission), metalness / roughness / AO / specular
+RGBA8, and material + object ID RG32UI; then emission into scene colour and the pre-depth buffer.
+There is no velocity target (nothing temporal reads one); `UBCamera::PreviousViewProjection` stays
+in the shared block but is unread. Narrower formats were measured and rejected (render features plan,
+phase 7): octahedral normals change grazing-angle rim highlights (N·V near 0 divides the specular)
+by up to 35/255 on a few hundred pixels even in RG16 snorm, and an RGBA8 sRGB base colour clips
+base colours above 1 — for no measurable time saved at 1080p.
 
 **Diffuse transmission rides in the G-buffer normal's alpha.** `LuxGBufferData::DiffuseTransmission`
 (the material factor × map) is `normal.w`; its colour is read from the material row through

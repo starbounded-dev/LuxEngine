@@ -49,6 +49,7 @@
 
 #include "IndexBuffer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "ltc/LTCTables.h"
 
 namespace std {
 	template<>
@@ -109,6 +110,8 @@ namespace Lux {
 		Ref<Texture2D> WhiteTexture;
 		Ref<Texture2D> BlackTexture;
 		Ref<Texture2D> BRDFLutTexture;
+		Ref<Texture2D> LTCMatrixTexture;
+		Ref<Texture2D> LTCAmplitudeTexture;
 		Ref<Texture2D> HilbertLut;
 		Ref<TextureCube> BlackCubeTexture;
 		Ref<Material> DefaultWhiteMaterial;
@@ -485,25 +488,21 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/AlphaCoverageHistogram.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/AlphaCoverageScale.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGui.hlsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ImGuiGlass.hlsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HZB.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBuffer_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting_Area.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBufferDebug.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Anim.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LuxPBR_Static.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/LuxPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Grid.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Skybox.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Masked.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap_Masked.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SpotShadowMap_Anim.glsl");
 
 		//SSR
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Pre-Integration.glsl");
@@ -518,7 +517,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreethamSky.glsl");
 
 		// Post-processing
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/Bloom.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/BloomFFT.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceHistogram.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/LuminanceAverage.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-EdgeDetection.glsl");
@@ -529,7 +528,6 @@ namespace Lux {
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Masked.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Anim.glsl");
 		if (Renderer::SupportsMeshShaders())
 			Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth_Meshlet.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/MeshCulling.glsl");
@@ -557,7 +555,6 @@ namespace Lux {
 
 		// Misc
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SelectedGeometry.glsl");
-		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SelectedGeometry_Anim.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/TexturePass.glsl");
 
 		// Compile shaders
@@ -580,6 +577,20 @@ namespace Lux {
 			spec.SamplerWrap = TextureWrap::Clamp;
 			spec.GenerateMips = false; // a lookup table, always read at mip 0
 			s_Data->BRDFLutTexture = Texture2D::Create(spec, std::filesystem::path("Resources/Renderer/BRDF_LUT.png"));
+		}
+
+		{
+			TextureSpecification spec;
+			spec.Format = ImageFormat::RGBA16F;
+			spec.Width = LTC::TableSize;
+			spec.Height = LTC::TableSize;
+			spec.SamplerWrap = TextureWrap::Clamp;
+			spec.GenerateMips = false; // lookup tables, always read at mip 0
+			spec.FlipVertically = false;
+			spec.DebugName = "Renderer-LTCMatrix";
+			s_Data->LTCMatrixTexture = Texture2D::Create(spec, Buffer(LTC::LTCMatrixTable, sizeof(LTC::LTCMatrixTable)));
+			spec.DebugName = "Renderer-LTCAmplitude";
+			s_Data->LTCAmplitudeTexture = Texture2D::Create(spec, Buffer(LTC::LTCAmplitudeTable, sizeof(LTC::LTCAmplitudeTable)));
 		}
 
 		constexpr uint32_t blackCubeTextureData[6] = { 0xff000000, 0xff000000, 0xff000000, 0xff000000, 0xff000000, 0xff000000 };
@@ -1840,6 +1851,16 @@ namespace Lux {
 	Ref<Texture2D> Renderer::GetBRDFLutTexture()
 	{
 		return s_Data->BRDFLutTexture;
+	}
+
+	Ref<Texture2D> Renderer::GetLTCMatrixTexture()
+	{
+		return s_Data->LTCMatrixTexture;
+	}
+
+	Ref<Texture2D> Renderer::GetLTCAmplitudeTexture()
+	{
+		return s_Data->LTCAmplitudeTexture;
 	}
 	
 	Ref<TextureCube> Renderer::GetBlackCubeTexture()

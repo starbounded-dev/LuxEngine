@@ -124,13 +124,13 @@ namespace Lux {
 					++end;
 				float sum = 0.0f;
 				for (size_t i = begin; i < end; ++i)
-					if (zones[i].Component->Enabled)
+					if (zones[i].Enabled)
 						sum += Evaluate(zones[i].Volume, position, zones[i].Component->BlendDistance);
 				const float coverage = std::min(sum, 1.0f);
 				if (sum > 0.0f)
 				{
 					for (size_t i = begin; i < end; ++i)
-						if (zones[i].Component->Enabled)
+						if (zones[i].Enabled)
 							zones[i].ListenerTarget += remaining * coverage * Evaluate(zones[i].Volume, position, zones[i].Component->BlendDistance) / sum;
 				}
 				remaining *= 1.0f - coverage;
@@ -144,7 +144,7 @@ namespace Lux {
 						continue;
 					auto a = std::find_if(zones.begin(), zones.end(), [&](const auto& zone) { return zone.ID == portal.ZoneA; });
 					auto b = std::find_if(zones.begin(), zones.end(), [&](const auto& zone) { return zone.ID == portal.ZoneB; });
-					if (a == zones.end() || b == zones.end() || !a->Component->Enabled || !b->Component->Enabled || !a->Volume.Valid || !b->Volume.Valid)
+					if (a == zones.end() || b == zones.end() || !a->Enabled || !b->Enabled || !a->Volume.Valid || !b->Volume.Valid)
 						continue;
 					const glm::vec3 local(glm::inverse(portal.Transform) * glm::vec4(position, 1));
 					const glm::vec3 closest(portal.Transform * glm::vec4(glm::clamp(local, -portal.HalfExtents, portal.HalfExtents), 1));

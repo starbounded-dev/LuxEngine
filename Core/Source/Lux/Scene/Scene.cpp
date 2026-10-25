@@ -247,6 +247,7 @@ namespace Lux {
 			auto& dstTag = newEntity.GetComponent<TagComponent>();
 			dstTag.Locked = srcTag.Locked;
 			dstTag.LabelColor = srcTag.LabelColor;
+			dstTag.Active = srcTag.Active;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -338,7 +339,8 @@ namespace Lux {
 			{
 				ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
 				const auto& sc = entity.GetComponent<ScriptComponent>();
-				if (scriptEngine.IsValidScript(sc.ScriptID) &&
+				const bool created = m_PendingScriptCreates.erase(entityID) == 0;
+				if (created && scriptEngine.IsValidScript(sc.ScriptID) &&
 					scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnDestroy"))
 					it->second.Invoke("OnDestroy");
 
@@ -460,7 +462,8 @@ namespace Lux {
 		for (auto handle : m_Registry.view<TransformComponent, AudioZoneComponent>())
 		{
 			Entity entity{ handle, this };
-			m_AudioZoneInputs.push_back({ entity.GetUUID(), &entity.GetComponent<AudioZoneComponent>(), GetAudioZoneVolume(entity) });
+			const auto& zone = entity.GetComponent<AudioZoneComponent>();
+			m_AudioZoneInputs.push_back({ entity.GetUUID(), &zone, GetAudioZoneVolume(entity), zone.Enabled && !IsInactive(handle) });
 		}
 		m_AudioPortalInputs.clear();
 		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
@@ -469,7 +472,7 @@ namespace Lux {
 			const auto& portal = entity.GetComponent<AudioPortalComponent>();
 			const float open = m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning() ? m_AudioGeometry.GetPortalOpen(entity.GetUUID()) : portal.Open;
 			m_AudioPortalInputs.push_back({ entity.GetUUID(), portal.ZoneA, portal.ZoneB, GetWorldSpaceTransformMatrix(entity),
-				portal.HalfExtents, open, portal.BlendDistance, portal.Enabled });
+				portal.HalfExtents, open, portal.BlendDistance, portal.Enabled && !IsInactive(handle) });
 		}
 		const auto project = Project::GetActive();
 		m_AudioZones.Update(m_AudioZoneInputs, m_RuntimeAudioListeners, timestep, m_IsPaused,
@@ -497,7 +500,7 @@ namespace Lux {
 		{
 			Entity entity{ handle, this };
 			const auto& component = entity.GetComponent<AudioListenerComponent>();
-			if (!component.Active)
+			if (!component.Active || IsInactive(handle))
 				continue;
 			const UUID id = entity.GetUUID();
 			if (component.ListenerIndex < 0 || component.ListenerIndex >= AudioListener::MaxListeners)
@@ -632,6 +635,7 @@ namespace Lux {
 		}
 
 		PhysicsScene2D::SetPlaying(true);
+		RefreshInactiveEntities();
 
 		m_RuntimeAudioListeners = {};
 		m_AudioListenerWarnings = 0;
@@ -642,6 +646,8 @@ namespace Lux {
 			Entity entity{ handle, this };
 			auto& source = entity.GetComponent<AudioSourceComponent>();
 			source.ScriptPaused = false;
+			if (!source.Enabled || IsInactive(handle))
+				continue;
 			if (source.Event.IsValid())
 				GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
 			else if (source.LegacyAudio)
@@ -697,7 +703,11 @@ namespace Lux {
 				CSharpObject instance = scriptEngine.Instantiate(entityID, m_ScriptStorage, (uint64_t)entityID);
 				m_ScriptInstances[entityID] = instance;
 
-				if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnCreate"))
+				// Every instance exists from the start, so other scripts can find it; a switched-off one
+				// defers OnCreate to its first enabled frame (OnUpdateRuntime).
+				if (!sc.Enabled || IsInactive(e))
+					m_PendingScriptCreates.insert(entityID);
+				else if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnCreate"))
 					instance.Invoke("OnCreate");
 			}
 		}
@@ -744,13 +754,14 @@ namespace Lux {
 				if (it == m_ScriptStorage.EntityStorage.end())
 					continue;
 
-				if (scriptEngine.IsValidScript(it->second.ScriptID) &&
+				if (!m_PendingScriptCreates.contains(entityID) && scriptEngine.IsValidScript(it->second.ScriptID) &&
 					scriptEngine.GetScriptMetadata(it->second.ScriptID).HasMethod("OnDestroy"))
 					instance.Invoke("OnDestroy");
 
 				scriptEngine.DestroyInstance(entityID, m_ScriptStorage);
 			}
 			m_ScriptInstances.clear();
+			m_PendingScriptCreates.clear();
 			AudioScriptBindings::Reset();
 			ScriptGlue::ResetInput();
 			scriptEngine.SetCurrentScene(nullptr);
@@ -771,6 +782,7 @@ namespace Lux {
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
 		AudioAccessibilityView accessibilityView;
@@ -804,7 +816,13 @@ namespace Lux {
 						continue;
 
 					const auto& sc = entity.GetComponent<ScriptComponent>();
-					if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnUpdate"))
+					if (!sc.Enabled || IsInactive(e))
+						continue;
+
+					const auto& metadata = scriptEngine.GetScriptMetadata(sc.ScriptID);
+					if (m_PendingScriptCreates.erase(entityID) && metadata.HasMethod("OnCreate"))
+						it->second.Invoke("OnCreate");
+					if (metadata.HasMethod("OnUpdate"))
 						it->second.Invoke("OnUpdate", (float)ts);
 				}
 
@@ -836,7 +854,8 @@ namespace Lux {
 			{
 				Entity entity{ handle, this };
 				const auto& source = entity.GetComponent<AudioSourceComponent>();
-				if (source.Event.IsValid())
+				// Switching a source back on starts its event again, honouring PlayOnAwake.
+				if (source.Event.IsValid() && source.Enabled && !IsInactive(handle))
 					GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity), true, static_cast<float>(ts));
 				else if (m_RuntimeEventInstances.contains(entity.GetUUID()))
 					ReleaseRuntimeAudio(entity);
@@ -874,7 +893,7 @@ namespace Lux {
 						Entity entity = { entityHandle, this };
 						UUID entityID = entity.GetUUID();
 
-						if (!asc.Event.IsValid() || IsAudioSourceCulled(entityID))
+						if (!asc.Event.IsValid() || !asc.Enabled || IsInactive(entityHandle) || IsAudioSourceCulled(entityID))
 						{
 							m_RaytracedAudioScene->DestroyEmitter(entityID);
 							m_AppliedAudioOcclusion.erase(entityID);
@@ -922,8 +941,7 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& camera = view.get<CameraComponent>(entity);
-				if (camera.Primary)
-
+				if (camera.Primary && !IsInactive(entity))
 				{
 					mainCamera = &camera.Camera;
 					cameraTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
@@ -943,6 +961,8 @@ namespace Lux {
 				for (auto entity : group)
 				{
 					auto& sprite = group.get<SpriteRendererComponent>(entity);
+					if (!sprite.Enabled || IsInactive(entity))
+						continue;
 
 					Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 					const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
@@ -959,6 +979,8 @@ namespace Lux {
 				for (auto entity : view)
 				{
 					auto& circle = view.get<CircleRendererComponent>(entity);
+					if (!circle.Enabled || IsInactive(entity))
+						continue;
 
 					m_Renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
 				}
@@ -970,6 +992,8 @@ namespace Lux {
 				for (auto entity : view)
 				{
 					auto& text = view.get<TextComponent>(entity);
+					if (!text.Enabled || IsInactive(entity))
+						continue;
 
 					Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 					if (font)
@@ -1044,7 +1068,7 @@ namespace Lux {
 		for (auto entity : view)
 		{
 			const auto& camera = view.get<CameraComponent>(entity);
-			if (camera.Primary)
+			if (camera.Primary && IsEntityActiveInHierarchy(Entity{ entity, this }))
 				return Entity{ entity, this };
 		}
 		return {};
@@ -1117,7 +1141,7 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 			FolderComponent>;
 
@@ -1133,11 +1157,12 @@ namespace Lux {
 			m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
 			entityMap[source.GetUUID()] = destination.GetUUID();
 
-			// TagComponent isn't in DuplicateComponents (name is set above); carry the editor lock/label.
+			// TagComponent isn't in DuplicateComponents (name is set above); carry the lock/label/active state.
 			const auto& srcTag = source.GetComponent<TagComponent>();
 			auto& dstTag = destination.GetComponent<TagComponent>();
 			dstTag.Locked = srcTag.Locked;
 			dstTag.LabelColor = srcTag.LabelColor;
+			dstTag.Active = srcTag.Active;
 
 			if (parent)
 				ParentEntity(destination, parent);
@@ -1185,7 +1210,7 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		std::unordered_map<UUID, UUID> entityMap;
@@ -1194,6 +1219,7 @@ namespace Lux {
 			{
 				Entity destination = CreateEntity(source.GetName());
 				CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
+				destination.GetComponent<TagComponent>().Active = source.GetComponent<TagComponent>().Active;
 				source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
 				entityMap[source.GetUUID()] = destination.GetUUID();
 
@@ -1336,7 +1362,7 @@ namespace Lux {
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		ReconcileComponents(PrefabSyncComponents{}, destination, source);
@@ -1582,6 +1608,34 @@ namespace Lux {
 		return result;
 	}
 
+	bool Scene::IsEntityActiveInHierarchy(Entity entity) const
+	{
+		for (Entity current = entity; current; current = current.GetParent())
+		{
+			if (!current.GetComponent<TagComponent>().Active)
+				return false;
+		}
+		return true;
+	}
+
+	void Scene::RefreshInactiveEntities() const
+	{
+		m_InactiveEntities.clear();
+		auto view = m_Registry.view<const TagComponent>();
+		for (auto e : view)
+		{
+			if (view.get<const TagComponent>(e).Active)
+				continue;
+
+			m_InactiveEntities.insert(e);
+			for (UUID childID : GetAllChildren(Entity{ e, const_cast<Scene*>(this) }))
+			{
+				if (Entity child = TryGetEntityWithUUID(childID))
+					m_InactiveEntities.insert((entt::entity)child);
+			}
+		}
+	}
+
 	void Scene::CopyTo(Ref<Scene>& target)
 	{
 		if (!target)
@@ -1598,8 +1652,9 @@ namespace Lux {
 		for (auto entity : idView)
 		{
 			UUID uuid = m_Registry.get<IDComponent>(entity).ID;
-			const auto& name = m_Registry.get<TagComponent>(entity).Tag;
-			Entity newEntity = target->CreateEntityWithID(uuid, name, false);
+			const auto& tag = m_Registry.get<TagComponent>(entity);
+			Entity newEntity = target->CreateEntityWithID(uuid, tag.Tag, false);
+			newEntity.GetComponent<TagComponent>().Active = tag.Active;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -1802,7 +1857,7 @@ namespace Lux {
 		m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
 			{
 				Entity entity = { entityHandle, this };
-				if (source.Event.IsValid() && !IsAudioSourceCulled(entity.GetUUID()))
+				if (source.Event.IsValid() && source.Enabled && !IsInactive(entityHandle) && !IsAudioSourceCulled(entity.GetUUID()))
 					m_AudioOcclusionSources.push_back({ entity.GetUUID(), glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]) });
 			});
 
@@ -1856,6 +1911,7 @@ namespace Lux {
 
 	void Scene::RenderScene(EditorCamera& camera)
 	{
+		RefreshInactiveEntities();
 		m_Renderer2D->BeginScene(camera.GetViewProjection(), camera.GetViewMatrix());
 
 		// Draw sprites
@@ -1864,6 +1920,8 @@ namespace Lux {
 			for (auto entity : group)
 			{
 				auto& sprite = group.get<SpriteRendererComponent>(entity);
+				if (!sprite.Enabled || IsInactive(entity))
+					continue;
 				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
 				if (texture)
@@ -1879,6 +1937,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& circle = view.get<CircleRendererComponent>(entity);
+				if (!circle.Enabled || IsInactive(entity))
+					continue;
 				m_Renderer2D->DrawCircle(GetWorldSpaceTransformMatrix(Entity{ entity, this }), circle.Color);
 			}
 		}
@@ -1888,6 +1948,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& text = view.get<TextComponent>(entity);
+				if (!text.Enabled || IsInactive(entity))
+					continue;
 				Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 				if (font)
 				{
@@ -1917,6 +1979,8 @@ namespace Lux {
 					break;
 
 				const auto& dirLight = view.get<const DirectionalLightComponent>(entity);
+				if (!dirLight.Enabled || IsInactive(entity))
+					continue;
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 
 				glm::vec3 direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
@@ -1941,6 +2005,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				const auto& pointLight = view.get<const PointLightComponent>(entity);
+				if (!pointLight.Enabled || IsInactive(entity))
+					continue;
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 
 				PointLight pl;
@@ -1962,6 +2028,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				const auto& spotLight = view.get<const SpotLightComponent>(entity);
+				if (!spotLight.Enabled || IsInactive(entity))
+					continue;
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 
 				SpotLight sl;
@@ -1982,6 +2050,59 @@ namespace Lux {
 			}
 		}
 
+		// Collect area lights (the renderer keeps the nearest LightEnvironment::MaxAreaLights)
+		{
+			auto view = m_Registry.view<const TransformComponent, const AreaLightComponent>();
+			for (auto entity : view)
+			{
+				const auto& areaLight = view.get<const AreaLightComponent>(entity);
+				if (!areaLight.Enabled || IsInactive(entity))
+					continue;
+				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
+
+				// HalfRight / HalfUp: the rect's or disk's half-extents; a sphere's radius along HalfRight;
+				// a tube's half-length along HalfRight (its axis) and its radius along HalfUp.
+				float halfRight = areaLight.Radius;
+				float halfUp = areaLight.Radius;
+				if (areaLight.Shape == AreaLightShape::Rect)
+				{
+					halfRight = areaLight.Width * 0.5f;
+					halfUp = areaLight.Height * 0.5f;
+				}
+				else if (areaLight.Shape == AreaLightShape::Tube)
+				{
+					halfRight = areaLight.Length * 0.5f;
+				}
+
+				AreaLight al;
+				al.Position = glm::vec3(worldTransform[3]);
+				al.HalfRight = glm::vec3(worldTransform[0]) * halfRight;
+				al.HalfUp = glm::vec3(worldTransform[1]) * halfUp;
+				const float rightWorld = glm::length(al.HalfRight);
+				const float upWorld = glm::length(al.HalfUp);
+				// The emitting surface, for lumens -> luminance.
+				float area = 4.0f * rightWorld * upWorld;
+				if (areaLight.Shape == AreaLightShape::Disk)
+					area = glm::pi<float>() * rightWorld * upWorld;
+				else if (areaLight.Shape == AreaLightShape::Sphere)
+					area = 4.0f * glm::pi<float>() * rightWorld * rightWorld;
+				else if (areaLight.Shape == AreaLightShape::Tube)
+					area = 2.0f * glm::pi<float>() * upWorld * (2.0f * rightWorld) + 4.0f * glm::pi<float>() * upWorld * upWorld;
+				const bool oneSurface = areaLight.Shape == AreaLightShape::Rect || areaLight.Shape == AreaLightShape::Disk;
+				const bool twoSided = oneSurface && areaLight.TwoSided;
+				al.Radiance = PhysicalLight::EffectiveRadiance(areaLight.Radiance, areaLight.UseColorTemperature, areaLight.ColorTemperature);
+				al.Intensity = PhysicalLight::AreaIntensity(areaLight.Unit, areaLight.Intensity, area, twoSided);
+				al.Range = areaLight.Range;
+				al.Shape = static_cast<uint32_t>(areaLight.Shape);
+				al.Flags = twoSided ? AreaLightTwoSided : 0u;
+				al.ShadowFlags = areaLight.CastsShadows ? (AreaLightShadowCasts | (areaLight.SoftShadows ? AreaLightShadowSoft : 0u)) : 0u;
+				if (al.Intensity <= 0.0f || area <= 0.0f)
+					continue;
+
+				lightEnv.AreaLights.push_back(al);
+			}
+		}
+
 		return lightEnv;
 	}
 
@@ -1998,6 +2119,8 @@ namespace Lux {
 		for (auto entity : view)
 		{
 			const auto& skyLight = view.get<const SkyLightComponent>(entity);
+			if (!skyLight.Enabled || IsInactive(entity))
+				continue;
 			outIntensity = skyLight.Intensity;
 			outLod = skyLight.Lod;
 			outRotation = skyLight.Rotation;
@@ -2085,7 +2208,7 @@ namespace Lux {
 			syncItem.EntityID = entity.GetUUID();
 			syncItem.Inputs.StaticMeshHandle = meshComp.StaticMesh;
 			syncItem.Inputs.ComponentMaterialTable = &meshComp.MaterialTable;
-			syncItem.Inputs.Visible = meshComp.Visible;
+			syncItem.Inputs.Visible = meshComp.Visible && !IsInactive(e);
 			syncItem.Inputs.Selected = isSelected ? isSelected(entity) : false;
 
 			// Defer world-transform computation to the parallel pass below (it's the expensive,
@@ -2294,6 +2417,7 @@ namespace Lux {
 		packet.Overlay2DViewProjection = camera.GetViewProjection();
 
 		// Collect light / environment / volumes (all read-only on the registry)
+		RefreshInactiveEntities();
 		packet.Lights = CollectLightEnvironment();
 		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod, packet.EnvironmentRotation);
 		packet.PostProcess = m_PostProcessSettings;
@@ -2434,6 +2558,8 @@ namespace Lux {
 			for (auto entity : group)
 			{
 				auto& sprite = group.get<SpriteRendererComponent>(entity);
+				if (!sprite.Enabled || IsInactive(entity))
+					continue;
 
 				Draw2DItem item;
 				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
@@ -2451,6 +2577,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& circle = view.get<CircleRendererComponent>(entity);
+				if (!circle.Enabled || IsInactive(entity))
+					continue;
 
 				Draw2DItem item;
 				item.Type = Draw2DItem::Kind::Circle;
@@ -2466,6 +2594,8 @@ namespace Lux {
 			for (auto entity : view)
 			{
 				auto& text = view.get<TextComponent>(entity);
+				if (!text.Enabled || IsInactive(entity))
+					continue;
 
 				Ref<Font> font = Font::GetFontAssetForTextComponent(text);
 				if (!font)
@@ -2579,6 +2709,7 @@ namespace Lux {
 		packet.Overlay2DView = sceneCamera.ViewMatrix;
 		packet.Overlay2DViewProjection = cameraComp.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
 
+		RefreshInactiveEntities();
 		packet.Lights = CollectLightEnvironment();
 		packet.SkyEnvironment = CollectEnvironment(packet.EnvironmentIntensity, packet.EnvironmentLod, packet.EnvironmentRotation);
 		packet.PostProcess = m_PostProcessSettings;
@@ -3138,6 +3269,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<SpotLightComponent>(Entity entity, SpotLightComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AreaLightComponent>(Entity entity, AreaLightComponent& component)
 	{
 	}
 

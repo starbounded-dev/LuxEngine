@@ -286,6 +286,8 @@ namespace Lux {
 					out << Yaml::Key << "Locked" << Yaml::Value << tagComponent.Locked;
 				if (tagComponent.LabelColor != 0)
 					out << Yaml::Key << "LabelColor" << Yaml::Value << tagComponent.LabelColor;
+				if (!tagComponent.Active)
+					out << Yaml::Key << "Active" << Yaml::Value << tagComponent.Active;
 				out << Yaml::EndMap;
 			}
 
@@ -332,6 +334,8 @@ namespace Lux {
 				const auto& script = entity.GetComponent<ScriptComponent>();
 				out << Yaml::Key << "ScriptComponent";
 				out << Yaml::BeginMap;
+				if (!script.Enabled) // only emitted when off, so existing scenes stay byte-identical
+					out << Yaml::Key << "Enabled" << Yaml::Value << script.Enabled;
 				out << Yaml::Key << "ClassName" << Yaml::Value << script.ClassName;
 				out << Yaml::Key << "ScriptID" << Yaml::Value << (uint64_t)script.ScriptID;
 
@@ -435,6 +439,8 @@ namespace Lux {
 				const auto& light = entity.GetComponent<DirectionalLightComponent>();
 				out << Yaml::Key << "DirectionalLightComponent";
 				out << Yaml::BeginMap;
+				if (!light.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << light.Enabled;
 				out << Yaml::Key << "Intensity" << Yaml::Value << light.Intensity;
 				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
 				out << Yaml::Key << "Unit" << Yaml::Value << static_cast<uint32_t>(light.Unit);
@@ -454,6 +460,8 @@ namespace Lux {
 				const auto& light = entity.GetComponent<PointLightComponent>();
 				out << Yaml::Key << "PointLightComponent";
 				out << Yaml::BeginMap;
+				if (!light.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << light.Enabled;
 				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
 				out << Yaml::Key << "Intensity" << Yaml::Value << light.Intensity;
 				out << Yaml::Key << "Unit" << Yaml::Value << static_cast<uint32_t>(light.Unit);
@@ -473,6 +481,8 @@ namespace Lux {
 				const auto& light = entity.GetComponent<SpotLightComponent>();
 				out << Yaml::Key << "SpotLightComponent";
 				out << Yaml::BeginMap;
+				if (!light.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << light.Enabled;
 				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
 				out << Yaml::Key << "Angle" << Yaml::Value << light.Angle;
 				out << Yaml::Key << "AngleAttenuation" << Yaml::Value << light.AngleAttenuation;
@@ -489,11 +499,37 @@ namespace Lux {
 				out << Yaml::EndMap;
 			}
 
+			if (entity.HasComponent<AreaLightComponent>())
+			{
+				const auto& light = entity.GetComponent<AreaLightComponent>();
+				out << Yaml::Key << "AreaLightComponent";
+				out << Yaml::BeginMap;
+				if (!light.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << light.Enabled;
+				out << Yaml::Key << "Shape" << Yaml::Value << static_cast<uint32_t>(light.Shape);
+				out << Yaml::Key << "Radiance" << Yaml::Value << light.Radiance;
+				out << Yaml::Key << "Intensity" << Yaml::Value << light.Intensity;
+				out << Yaml::Key << "Unit" << Yaml::Value << static_cast<uint32_t>(light.Unit);
+				out << Yaml::Key << "ColorTemperature" << Yaml::Value << light.ColorTemperature;
+				out << Yaml::Key << "UseColorTemperature" << Yaml::Value << light.UseColorTemperature;
+				out << Yaml::Key << "Width" << Yaml::Value << light.Width;
+				out << Yaml::Key << "Height" << Yaml::Value << light.Height;
+				out << Yaml::Key << "Radius" << Yaml::Value << light.Radius;
+				out << Yaml::Key << "Length" << Yaml::Value << light.Length;
+				out << Yaml::Key << "TwoSided" << Yaml::Value << light.TwoSided;
+				out << Yaml::Key << "Range" << Yaml::Value << light.Range;
+				out << Yaml::Key << "CastsShadows" << Yaml::Value << light.CastsShadows;
+				out << Yaml::Key << "SoftShadows" << Yaml::Value << light.SoftShadows;
+				out << Yaml::EndMap;
+			}
+
 			if (entity.HasComponent<SkyLightComponent>())
 			{
 				const auto& skyLight = entity.GetComponent<SkyLightComponent>();
 				out << Yaml::Key << "SkyLightComponent";
 				out << Yaml::BeginMap;
+				if (!skyLight.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << skyLight.Enabled;
 				out << Yaml::Key << "EnvironmentMap" << Yaml::Value << (AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
 				out << Yaml::Key << "Intensity" << Yaml::Value << skyLight.Intensity;
 				out << Yaml::Key << "Lod" << Yaml::Value << skyLight.Lod;
@@ -509,6 +545,8 @@ namespace Lux {
 				const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
 				out << Yaml::Key << "SpriteRendererComponent";
 				out << Yaml::BeginMap;
+				if (!sprite.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << sprite.Enabled;
 				out << Yaml::Key << "Color" << Yaml::Value << sprite.Color;
 				out << Yaml::Key << "Texture" << Yaml::Value << sprite.Texture;
 				out << Yaml::Key << "TilingFactor" << Yaml::Value << sprite.TilingFactor;
@@ -523,6 +561,8 @@ namespace Lux {
 				const auto& circle = entity.GetComponent<CircleRendererComponent>();
 				out << Yaml::Key << "CircleRendererComponent";
 				out << Yaml::BeginMap;
+				if (!circle.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << circle.Enabled;
 				out << Yaml::Key << "Color" << Yaml::Value << circle.Color;
 				out << Yaml::Key << "Thickness" << Yaml::Value << circle.Thickness;
 				out << Yaml::Key << "Fade" << Yaml::Value << circle.Fade;
@@ -534,6 +574,8 @@ namespace Lux {
 				const auto& text = entity.GetComponent<TextComponent>();
 				out << Yaml::Key << "TextComponent";
 				out << Yaml::BeginMap;
+				if (!text.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << text.Enabled;
 				out << Yaml::Key << "TextString" << Yaml::Value << text.TextString;
 				out << Yaml::Key << "FontHandle" << Yaml::Value << text.FontHandle;
 				out << Yaml::Key << "Color" << Yaml::Value << text.Color;
@@ -777,6 +819,8 @@ namespace Lux {
 				const auto& config = audioSource.Config;
 				out << Yaml::Key << "AudioSourceComponent";
 				out << Yaml::BeginMap;
+				if (!audioSource.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << audioSource.Enabled;
 				if (audioSource.LegacyAudio || audioSource.LegacyLooping)
 				{
 					out << Yaml::Key << "Audio" << Yaml::Value << audioSource.LegacyAudio;
@@ -881,6 +925,7 @@ namespace Lux {
 					auto& tagComponent = deserializedEntity.GetComponent<TagComponent>();
 					tagComponent.Locked = tag["Locked"].as<bool>(false);
 					tagComponent.LabelColor = tag["LabelColor"].as<uint32_t>(0);
+					tagComponent.Active = tag["Active"].as<bool>(true);
 				}
 
 				if (entity["Folder"] && entity["Folder"].as<bool>(false))
@@ -921,6 +966,7 @@ namespace Lux {
 				if (const auto script = entity["ScriptComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<ScriptComponent>();
+					component.Enabled = script["Enabled"].as<bool>(true);
 					component.ClassName = script["ClassName"].as<std::string>("");
 					component.ScriptID = script["ScriptID"].as<uint64_t>(
 						component.ClassName.empty() ? 0 : (uint64_t)Hash::GenerateFNVHash(component.ClassName));
@@ -978,6 +1024,7 @@ namespace Lux {
 				if (const auto light = entity["DirectionalLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<DirectionalLightComponent>();
+					component.Enabled = light["Enabled"].as<bool>(true);
 					component.Intensity = light["Intensity"].as<float>(1.0f);
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
 					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
@@ -994,6 +1041,7 @@ namespace Lux {
 				if (const auto light = entity["PointLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<PointLightComponent>();
+					component.Enabled = light["Enabled"].as<bool>(true);
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
 					component.Intensity = light["Intensity"].as<float>(1.0f);
 					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
@@ -1010,6 +1058,7 @@ namespace Lux {
 				if (const auto light = entity["SpotLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SpotLightComponent>();
+					component.Enabled = light["Enabled"].as<bool>(true);
 					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
 					component.Intensity = light["Intensity"].as<float>(1.0f);
 					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
@@ -1025,9 +1074,31 @@ namespace Lux {
 					component.ShadowResolutionTier = light["ShadowResolutionTier"].as<uint32_t>(1);
 				}
 
+				if (const auto light = entity["AreaLightComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<AreaLightComponent>();
+					component.Enabled = light["Enabled"].as<bool>(true);
+					const uint32_t shape = light["Shape"].as<uint32_t>(static_cast<uint32_t>(AreaLightShape::Rect));
+					component.Shape = shape <= static_cast<uint32_t>(AreaLightShape::Tube) ? static_cast<AreaLightShape>(shape) : AreaLightShape::Rect;
+					component.Radiance = light["Radiance"].as<glm::vec3>(glm::vec3(1.0f));
+					component.Intensity = light["Intensity"].as<float>(1.0f);
+					component.Unit = static_cast<LightUnit>(light["Unit"].as<uint32_t>(static_cast<uint32_t>(LightUnit::Unitless)));
+					component.ColorTemperature = light["ColorTemperature"].as<float>(6500.0f);
+					component.UseColorTemperature = light["UseColorTemperature"].as<bool>(false);
+					component.Width = light["Width"].as<float>(1.0f);
+					component.Height = light["Height"].as<float>(1.0f);
+					component.Radius = light["Radius"].as<float>(0.5f);
+					component.Length = light["Length"].as<float>(1.0f);
+					component.TwoSided = light["TwoSided"].as<bool>(false);
+					component.Range = light["Range"].as<float>(10.0f);
+					component.CastsShadows = light["CastsShadows"].as<bool>(false);
+					component.SoftShadows = light["SoftShadows"].as<bool>(true);
+				}
+
 				if (const auto skyLight = entity["SkyLightComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SkyLightComponent>();
+					component.Enabled = skyLight["Enabled"].as<bool>(true);
 					component.SceneEnvironment = skyLight["EnvironmentMap"].as<uint64_t>(0);
 					component.Intensity = skyLight["Intensity"].as<float>(1.0f);
 					component.Lod = skyLight["Lod"].as<float>(0.0f);
@@ -1039,6 +1110,7 @@ namespace Lux {
 				if (const auto sprite = entity["SpriteRendererComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SpriteRendererComponent>();
+					component.Enabled = sprite["Enabled"].as<bool>(true);
 					component.Color = sprite["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.Texture = sprite["Texture"].as<uint64_t>(0);
 					component.TilingFactor = sprite["TilingFactor"].as<float>(1.0f);
@@ -1050,6 +1122,7 @@ namespace Lux {
 				if (const auto circle = entity["CircleRendererComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<CircleRendererComponent>();
+					component.Enabled = circle["Enabled"].as<bool>(true);
 					component.Color = circle["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.Thickness = circle["Thickness"].as<float>(1.0f);
 					component.Fade = circle["Fade"].as<float>(0.005f);
@@ -1058,6 +1131,7 @@ namespace Lux {
 				if (const auto text = entity["TextComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<TextComponent>();
+					component.Enabled = text["Enabled"].as<bool>(true);
 					component.TextString = text["TextString"].as<std::string>("");
 					component.FontHandle = text["FontHandle"].as<uint64_t>(0);
 					component.Color = text["Color"].as<glm::vec4>(glm::vec4(1.0f));
@@ -1285,6 +1359,7 @@ namespace Lux {
 				if (const auto audioSource = entity["AudioSourceComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<AudioSourceComponent>();
+					component.Enabled = audioSource["Enabled"].as<bool>(true);
 					component.LegacyAudio = audioSource["Audio"].as<uint64_t>(0);
 					if (audioSource["Priority"])
 						component.Priority = audioSource["Priority"].as<int>();
@@ -1885,6 +1960,10 @@ namespace Lux {
 			fail("prefab retained a listener target outside its hierarchy");
 		listenerRig.GetComponent<AudioListenerComponent>().AttenuationTarget = attenuationTarget.GetUUID();
 
+		// Switched-off state: an inactive entity and a disabled component must come back off.
+		childA.GetComponent<TagComponent>().Active = false;
+		childA.GetComponent<PointLightComponent>().Enabled = false;
+
 		std::string meta1;
 		std::map<UUID, std::string> ents1 = SceneSerializer(src).SerializeEntitySnapshots(meta1);
 
@@ -1902,6 +1981,15 @@ namespace Lux {
 
 		checkPortal(dst->TryGetEntityWithUUID(portalRig.GetUUID()), "Portal round-trip");
 		checkListener(dst->TryGetEntityWithUUID(listenerRig.GetUUID()), "Listener round-trip");
+		for (const auto& [scene, operation] : { std::pair{ dst, "Round-trip" }, std::pair{ Scene::Copy(dst), "Scene copy" } })
+		{
+			Entity restoredLight = scene->TryGetEntityWithUUID(childA.GetUUID());
+			if (!restoredLight || scene->IsEntityActiveInHierarchy(restoredLight) || !restoredLight.HasComponent<PointLightComponent>()
+				|| restoredLight.GetComponent<PointLightComponent>().Enabled)
+				fail(std::format("{} switched an inactive entity or a disabled light back on", operation));
+			if (!scene->IsEntityActiveInHierarchy(scene->TryGetEntityWithUUID(childB.GetUUID())))
+				fail(std::format("{} switched off an active sibling", operation));
+		}
 		std::string meta2;
 		Entity restoredAudioEntity = dst->TryGetEntityWithUUID(childB.GetUUID());
 		if (!restoredAudioEntity || !restoredAudioEntity.HasComponent<AudioSourceComponent>())

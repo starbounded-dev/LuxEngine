@@ -48,6 +48,11 @@ namespace Lux {
 		bool Locked = false;
 		uint32_t LabelColor = 0;
 
+		// Runtime state, unlike the two above. Active == false switches the entity off together with
+		// every descendant (Unity's activeSelf): renderers, lights, audio and scripts skip it; physics
+		// does not honour it yet. Read it through Scene::IsEntityActiveInHierarchy, not directly.
+		bool Active = true;
+
 		TagComponent() = default;
 		TagComponent(const TagComponent&) = default;
 		TagComponent(const std::string& tag)
@@ -155,6 +160,7 @@ namespace Lux {
 
 	struct SpriteRendererComponent
 	{
+		bool Enabled = true;
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		AssetHandle Texture = 0;
 		float TilingFactor = 1.0f;
@@ -171,6 +177,7 @@ namespace Lux {
 
 	struct CircleRendererComponent
 	{
+		bool Enabled = true;
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		float Thickness = 1.0f;
 		float Fade = 0.005f;
@@ -200,6 +207,7 @@ namespace Lux {
 
 	struct ScriptComponent
 	{
+		bool Enabled = true; // false: OnUpdate is skipped, and OnCreate waits until the script is first enabled
 		std::string ClassName;
 
 		// FNV hash of the full class name; the runtime script identity that keys ScriptEngine's
@@ -392,6 +400,7 @@ namespace Lux {
 
 	struct TextComponent
 	{
+		bool Enabled = true;
 		std::string TextString = "";
 		size_t TextHash = 0;
 
@@ -473,6 +482,7 @@ namespace Lux {
 
 	struct AudioSourceComponent
 	{
+		bool Enabled = true; // false: the event never starts; switching it off during Play stops it
 		AudioSourceConfig Config;
 		int Priority = 128; // FMOD channel priority: 0 is highest, 256 is lowest.
 		bool DistanceCulling = false; // Opt in: distant loops suspend; one-shots are discarded.
@@ -583,6 +593,7 @@ namespace Lux {
 
 	struct DirectionalLightComponent
 	{
+		bool Enabled = true; // false: the light contributes nothing, shadows included
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
 		LightUnit Unit = LightUnit::Unitless; // Unitless or Lux
@@ -601,6 +612,7 @@ namespace Lux {
 
 	struct PointLightComponent
 	{
+		bool Enabled = true; // false: the light contributes nothing, shadows included
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
 		LightUnit Unit = LightUnit::Unitless; // Unitless, Lumens or Candela
@@ -619,6 +631,7 @@ namespace Lux {
 
 	struct SpotLightComponent
 	{
+		bool Enabled = true; // false: the light contributes nothing, its shadow tile included
 		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
 		float Intensity = 1.0f;
 		LightUnit Unit = LightUnit::Unitless; // Unitless, Lumens or Candela
@@ -637,8 +650,45 @@ namespace Lux {
 		SpotLightComponent(const SpotLightComponent&) = default;
 	};
 
+	// AreaLightComponent::Shape; mirrors AREA_LIGHT_SHAPE_* in LTC.glslh.
+	enum class AreaLightShape : uint32_t
+	{
+		Rect = 0,
+		Disk = 1,
+		Sphere = 2,
+		Tube = 3
+	};
+
+	// A light with a surface, lit with Linearly Transformed Cosines. A rectangle (Width x Height, in
+	// the local X/Y plane) or a disk (Radius) emits along the entity's -Z; a sphere (Radius) and a tube
+	// (Length along local X, Radius) emit all around. The entity's scale stretches the shape.
+	// CastsShadows renders the light into the spot shadow atlas (a rect or disk one tile per lit side,
+	// a sphere or tube six cube faces); SoftShadows sizes the penumbra from the shape (PCSS).
+	struct AreaLightComponent
+	{
+		bool Enabled = true; // false: the light contributes nothing, its shadow tile included
+		AreaLightShape Shape = AreaLightShape::Rect;
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float Intensity = 1.0f;
+		LightUnit Unit = LightUnit::Unitless; // Unitless (luminance) or Lumens
+		float ColorTemperature = 6500.0f;     // Kelvin
+		bool UseColorTemperature = false;
+		float Width = 1.0f;  // Rect
+		float Height = 1.0f; // Rect
+		float Radius = 0.5f; // Disk, Sphere, Tube
+		float Length = 1.0f; // Tube
+		bool TwoSided = false; // Rect, Disk
+		float Range = 10.0f; // the light's influence fades to zero at this distance from its centre
+		bool CastsShadows = false;
+		bool SoftShadows = true;
+
+		AreaLightComponent() = default;
+		AreaLightComponent(const AreaLightComponent&) = default;
+	};
+
 	struct SkyLightComponent
 	{
+		bool Enabled = true; // false: the scene falls back to the default environment
 		AssetHandle SceneEnvironment = 0;
 		float Intensity = 1.0f;
 		float Lod = 0.0f;
@@ -665,7 +715,7 @@ namespace Lux {
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
-		DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent,
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 		FolderComponent>;
 

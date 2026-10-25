@@ -4,10 +4,10 @@
 #include <Buffers.glslh>
 
 layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
-layout(location = 2) in vec3 a_Tangent;
-layout(location = 3) in vec3 a_Binormal;
-layout(location = 4) in vec2 a_TexCoord;
+layout(location = 1) in vec4 a_QTangent; // tangent frame, QTangent.glslh
+layout(location = 2) in vec2 a_TexCoord;
+
+#include <QTangent.glslh>
 
 struct VertexOutput
 {
@@ -21,9 +21,6 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 layout(location = 18) flat out uint OutputObjectIndex;
-// TAA motion vectors: unjittered current + previous clip-space positions.
-layout(location = 19) out vec4 OutputCurrentClip;
-layout(location = 20) out vec4 OutputPreviousClip;
 
 layout(push_constant) uniform PushConstants
 {
@@ -41,16 +38,12 @@ void main()
 	mat4 transform = GetInstanceTransform(objectIndex);
 	vec4 worldPosition = transform * vec4(a_Position, 1.0);
 
-	mat4 previousTransform = GetPreviousInstanceTransform(objectIndex);
-	vec4 previousWorldPosition = previousTransform * vec4(a_Position, 1.0);
-	OutputCurrentClip = u_Camera.UnjitteredViewProjectionMatrix * worldPosition;
-	OutputPreviousClip = u_Camera.PreviousViewProjectionMatrix * previousWorldPosition;
-
 	OutputObjectIndex = objectIndex;
 	Output.WorldPosition = worldPosition.xyz;
-	Output.Normal = mat3(transform) * a_Normal;
+	const mat3 tbn = QTangent_ToTBN(a_QTangent); // columns: tangent, binormal, normal
+	Output.Normal = mat3(transform) * tbn[2];
 	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
-	Output.WorldNormals = mat3(transform) * mat3(a_Tangent, a_Binormal, a_Normal);
+	Output.WorldNormals = mat3(transform) * tbn;
 	Output.CameraView = mat3(u_Camera.ViewMatrix);
 	Output.ViewPosition = vec3(u_Camera.ViewMatrix * vec4(Output.WorldPosition, 1.0));
 
@@ -81,16 +74,13 @@ struct VertexOutput
 
 layout(location = 0) in VertexOutput Input;
 layout(location = 18) flat in uint InputObjectIndex;
-layout(location = 19) in vec4 InputCurrentClip;
-layout(location = 20) in vec4 InputPreviousClip;
 
 layout(location = 0) out vec4 o_GBufferBaseColor;
 layout(location = 1) out vec4 o_GBufferViewNormal;
 layout(location = 2) out vec4 o_GBufferMetalRoughAO;
 layout(location = 3) out uvec2 o_GBufferMaterialObjectID;
-layout(location = 4) out vec2 o_GBufferVelocity;
 // Written straight into scene color; deferred lighting then adds the lit result on top.
-layout(location = 5) out vec4 o_Emissive;
+layout(location = 4) out vec4 o_Emissive;
 
 layout(push_constant) uniform PushConstants
 {
@@ -192,9 +182,4 @@ void main()
 	gbuffer.ObjectID = GetInstancePrimitiveID(InputObjectIndex);
 
 	EncodeGBuffer(gbuffer, o_GBufferBaseColor, o_GBufferViewNormal, o_GBufferMetalRoughAO, o_GBufferMaterialObjectID);
-
-	// Screen-space motion vector (UV delta, current - previous), jitter removed.
-	vec2 currentUV = (InputCurrentClip.xy / InputCurrentClip.w) * 0.5 + 0.5;
-	vec2 previousUV = (InputPreviousClip.xy / InputPreviousClip.w) * 0.5 + 0.5;
-	o_GBufferVelocity = currentUV - previousUV;
 }

@@ -541,6 +541,23 @@ namespace Lux
 			ImGui::TreePop();
 		}
 
+		if (transparent && ImGuiEx::PropertyGridHeader("Refraction"))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			surfaceChanged |= ImGuiEx::Property("Transmission", surface.Transmission, 0.01f, 0.0f, 1.0f,
+				"Share of the light that passes through and refracts. 0 = plain alpha blending; refractive glass keeps Opacity at 1.", false);
+			surfaceChanged |= ImGuiEx::Property("IOR", surface.IOR, 0.01f, 1.0f, 3.0f, "Index of refraction: 1.33 water, 1.5 glass, 2.4 diamond.", false);
+			surfaceChanged |= ImGuiEx::Property("Thickness", surface.Thickness, 0.01f, 0.0f, 100.0f,
+				"Metres the light travels inside. 0 = thin-walled: blurred by roughness, not displaced.", false);
+			surfaceChanged |= ImGuiEx::PropertyColor("Attenuation Color", surface.AttenuationColor, "Colour light fades toward inside the volume.", false);
+			surfaceChanged |= ImGuiEx::Property("Attenuation Distance", surface.AttenuationDistance, 0.01f, 0.0f, 1000.0f,
+				"Metres for light to reach the attenuation colour. 0 = no absorption.", false);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
 		// Diffuse transmission is a deferred-lighting term: the transparent path has none.
 		if (!transparent && ImGuiEx::PropertyGridHeader("Translucency"))
 		{

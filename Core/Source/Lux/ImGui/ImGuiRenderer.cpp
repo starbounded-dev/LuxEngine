@@ -13,6 +13,7 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 
+#include <bit>
 #include <format>
 
 namespace Lux {
@@ -23,6 +24,13 @@ namespace Lux {
 		constexpr uint32_t k_DescriptorPoolSize = 64;
 		// Elements of headroom the geometry buffers grow by, so they are not reallocated every frame.
 		constexpr size_t k_GeometryHeadroom = 5000;
+
+		// Glass backdrops: the blur reach (pixels of the backdrop sampled outside the window), the
+		// dual-Kawase tap offsets in source texels, and the shader's modes.
+		constexpr float k_GlassMargin = 32.0f;
+		constexpr float k_GlassDownOffset = 1.0f;
+		constexpr float k_GlassUpOffset = 0.5f;
+		enum GlassMode : uint32_t { GlassModeDown = 0, GlassModeUp = 1, GlassModeComposite = 2, GlassModePresent = 3 };
 
 		// `range` with AllMips / AllLayers resolved against the image's current texture.
 		TextureSubresourceRange ResolveRange(const Image2D& image, TextureSubresourceRange range)
@@ -35,6 +43,20 @@ namespace Lux {
 			return range;
 		}
 
+	}
+
+	void ImGuiGlassBackdropCallback(const ImDrawList*, const ImDrawCmd*)
+	{
+	}
+
+	void* EncodeImGuiGlassRounding(float rounding)
+	{
+		return reinterpret_cast<void*>(static_cast<uintptr_t>(std::bit_cast<uint32_t>(rounding)));
+	}
+
+	float DecodeImGuiGlassRounding(const void* userData)
+	{
+		return std::bit_cast<float>(static_cast<uint32_t>(reinterpret_cast<uintptr_t>(userData)));
 	}
 
 	std::shared_ptr<ImGuiDrawDataSnapshot> ImGuiDrawDataSnapshot::Create(
@@ -72,7 +94,11 @@ namespace Lux {
 			// may have destroyed it (a growing font atlas replaces its texture), leaving the render
 			// thread an invalid ID.
 			for (ImDrawCmd& command : clonedDrawList->CmdBuffer)
+			{
 				command.TexRef = ImTextureRef(command.GetTexID());
+				if (command.UserCallback == ImGuiGlassBackdropCallback)
+					snapshot->m_GlassBackdropCount++;
+			}
 
 			snapshot->m_OwnedDrawLists.push_back(clonedDrawList);
 			snapshot->m_DrawData.AddDrawList(clonedDrawList);
@@ -145,7 +171,6 @@ namespace Lux {
 			: std::make_shared<ImGuiTextureRegistry>();
 
 		m_RenderCommandBuffer = RenderCommandBuffer::Create(0, "ImGuiRenderer", true);
-		m_Shader = Renderer::GetShaderLibrary()->Get("ImGui").As<RHIShader>();
 
 		// Repeat addressing and linear filtering (the renderer's repeat sampler is anisotropic), and
 		// the pipeline for the main window's format, made now rather than on the first frame. A
@@ -154,9 +179,23 @@ namespace Lux {
 		SamplerSpecification samplerSpecification;
 		samplerSpecification.AddressMode = TextureWrap::Repeat;
 		m_Sampler = Sampler::Create(samplerSpecification);
-		m_SetIndex = m_Shader->GetNRISetIndex(0);
-		m_TextureRange = m_Shader->GetNRIRangeIndex(0, 0);
-		m_SamplerRange = m_Shader->GetNRIRangeIndex(0, 1);
+		auto makeLayout = [](const char* shaderName)
+			{
+				SetLayout layout;
+				layout.Shader = Renderer::GetShaderLibrary()->Get(shaderName).As<RHIShader>();
+				if (!layout.Shader)
+				{
+					LUX_CORE_ERROR_TAG("Renderer", "[ImGuiRenderer] Shader {} is not loaded", shaderName);
+					layout.SetIndex = layout.TextureRange = layout.SamplerRange = RHIShader::k_NoNRISet;
+					return layout;
+				}
+				layout.SetIndex = layout.Shader->GetNRISetIndex(0);
+				layout.TextureRange = layout.Shader->GetNRIRangeIndex(0, 0);
+				layout.SamplerRange = layout.Shader->GetNRIRangeIndex(0, 1);
+				return layout;
+			};
+		m_ImGuiLayout = makeLayout("ImGui");
+		m_GlassLayout = makeLayout("ImGuiGlass");
 		GetOrCreatePipeline(Application::Get().GetWindow().GetSwapChain().GetNRIColorFormat());
 
 		return true;
@@ -164,24 +203,31 @@ namespace Lux {
 
 	ImGuiRenderer::~ImGuiRenderer()
 	{
+		auto freePipeline = [](nri::Pipeline* pipeline)
+			{
+				if (!pipeline)
+					return;
+				Renderer::SubmitResourceFree([pipeline]()
+					{
+						RHIDevice::API().DestroyPipeline(pipeline);
+					});
+			};
 		for (const auto& [format, pipeline] : m_Pipelines)
-		{
-			if (!pipeline)
-				continue;
-			Renderer::SubmitResourceFree([pipeline]()
-				{
-					RHIDevice::API().DestroyPipeline(pipeline);
-				});
-		}
+			freePipeline(pipeline);
+		for (const auto& [key, pipeline] : m_GlassPipelines)
+			freePipeline(pipeline);
 
 		for (FrameResources& frame : m_Frames)
 		{
-			for (const DescriptorPool& pool : frame.DescriptorPools)
+			for (const DescriptorSets* sets : { &frame.ImGuiSets, &frame.GlassSets })
 			{
-				Renderer::SubmitResourceFree([descriptorPool = pool.Pool]()
-					{
-						RHIDevice::API().DestroyDescriptorPool(descriptorPool);
-					});
+				for (const DescriptorPool& pool : sets->Pools)
+				{
+					Renderer::SubmitResourceFree([descriptorPool = pool.Pool]()
+						{
+							RHIDevice::API().DestroyDescriptorPool(descriptorPool);
+						});
+				}
 			}
 		}
 	}
@@ -362,6 +408,19 @@ namespace Lux {
 		return true;
 	}
 
+	// Mirrors Constants in ImGuiGlass.hlsl.
+	struct ImGuiGlassConstants
+	{
+		glm::vec4 SourceRegion = glm::vec4(0.0f);
+		glm::vec4 Rect = glm::vec4(0.0f);
+		glm::vec2 SourceTexel = glm::vec2(0.0f);
+		float PixelScale = 1.0f;
+		float Rounding = 0.0f;
+		uint32_t Mode = 0;
+		float Offset = 0.0f;
+	};
+	static_assert(sizeof(ImGuiGlassConstants) == 56, "ImGuiGlassConstants must match ImGuiGlass.hlsl");
+
 	// -----------------------------------------------------------------------
 	// RenderToSwapchain
 	//
@@ -381,7 +440,7 @@ namespace Lux {
 			: !pipeline ? "no NRI pipeline for the target format"
 			: !target ? "the back buffer has no NRI view"
 			: !m_Sampler->GetRHIDescriptor() ? "the sampler has no NRI descriptor"
-			: (m_SetIndex == RHIShader::k_NoNRISet || m_TextureRange == RHIShader::k_NoNRISet || m_SamplerRange == RHIShader::k_NoNRISet) ? "the ImGui shader's set 0 has no NRI ranges"
+			: (m_ImGuiLayout.SetIndex == RHIShader::k_NoNRISet || m_ImGuiLayout.TextureRange == RHIShader::k_NoNRISet || m_ImGuiLayout.SamplerRange == RHIShader::k_NoNRISet) ? "the ImGui shader's set 0 has no NRI ranges"
 			: nullptr;
 		if (problem && !m_ReportedSkippedFrames)
 		{
@@ -393,12 +452,15 @@ namespace Lux {
 		// geometry are free again.
 		FrameResources& frame = m_Frames[Renderer::RT_GetCurrentFrameIndex() % m_Frames.size()];
 		const NRIInterface& api = RHIDevice::API();
-		for (DescriptorPool& pool : frame.DescriptorPools)
+		for (DescriptorSets* sets : { &frame.ImGuiSets, &frame.GlassSets })
 		{
-			api.ResetDescriptorPool(*pool.Pool);
-			pool.Used = 0;
+			for (DescriptorPool& pool : sets->Pools)
+			{
+				api.ResetDescriptorPool(*pool.Pool);
+				pool.Used = 0;
+			}
+			sets->Sets.clear();
 		}
-		frame.DescriptorSets.clear();
 
 		// Written through Map, so before anything is recorded. A failure is logged by the buffer's
 		// creation.
@@ -407,6 +469,28 @@ namespace Lux {
 		{
 			// The frame presents what the back buffer holds; Present waits for the acquire.
 			return false;
+		}
+
+		// A frame with glass backdrops draws into the UI target, which the backdrops blur, and presents
+		// it at the end. Only over a cleared target: the runtime's overlay draws over the game frame,
+		// which the UI target does not hold. Otherwise, or when anything for it is missing, the frame
+		// draws straight into the back buffer without them, as it always has.
+		const ImGuiGlassTargets& glass = snapshot->GetGlassTargets();
+		nri::Format uiFormat = nri::Format::UNKNOWN;
+		nri::Descriptor* uiTarget = nullptr;
+		bool useGlass = clearTarget && snapshot->GetGlassBackdropCount() > 0 && glass.UI && glass.UI->GetImageInfo().RHITexture
+			&& glass.UI->GetWidth() == swapchain->GetWidth() && glass.UI->GetHeight() == swapchain->GetHeight()
+			&& m_GlassLayout.SetIndex != RHIShader::k_NoNRISet && m_GlassLayout.TextureRange != RHIShader::k_NoNRISet && m_GlassLayout.SamplerRange != RHIShader::k_NoNRISet;
+		if (useGlass)
+		{
+			uiFormat = api.GetTextureDesc(*glass.UI->GetImageInfo().RHITexture).format;
+			NRITextureViewKey viewKey;
+			viewKey.Type = nri::TextureView::COLOR_ATTACHMENT;
+			viewKey.MipNum = 1;
+			viewKey.LayerNum = 1;
+			uiTarget = GetNRITextureView(glass.UI->GetImageInfo().RHITexture, viewKey);
+			useGlass = uiTarget && GetOrCreatePipeline(uiFormat) && GetOrCreateGlassPipeline(false, uiFormat)
+				&& GetOrCreateGlassPipeline(true, uiFormat) && GetOrCreateGlassPipeline(false, swapchain->GetNRIColorFormat());
 		}
 
 		m_RenderCommandBuffer->RT_Begin();
@@ -440,13 +524,14 @@ namespace Lux {
 		pushConstants.Flags = 0;
 
 		RenderCommandBuffer::NRIRenderPassDesc passDesc;
-		passDesc.ColorAttachments[0] = { target, swapchain->GetCurrentTrackedBackBuffer(), AllSubresources };
+		passDesc.ColorAttachments[0] = useGlass ? RenderCommandBuffer::NRIAttachment{ uiTarget, glass.UI->GetImageInfo().Tracked, AllSubresources }
+			: RenderCommandBuffer::NRIAttachment{ target, swapchain->GetCurrentTrackedBackBuffer(), AllSubresources };
 		passDesc.ClearColor[0] = clearTarget;
 		passDesc.ClearColorValues[0] = { 1.0f, 0.0f, 1.0f, 1.0f };
 		passDesc.ColorAttachmentCount = 1;
-		passDesc.PipelineLayout = m_Shader->GetNRIPipelineLayout();
-		passDesc.Pipeline = pipeline;
-		passDesc.DrawSetIndex = m_SetIndex;
+		passDesc.PipelineLayout = m_ImGuiLayout.Shader->GetNRIPipelineLayout();
+		passDesc.Pipeline = useGlass ? GetOrCreatePipeline(uiFormat) : pipeline;
+		passDesc.DrawSetIndex = m_ImGuiLayout.SetIndex;
 		passDesc.VertexStride = sizeof(ImDrawVert);
 		passDesc.RootConstants = true;
 
@@ -459,10 +544,21 @@ namespace Lux {
 			const ImVec2 clipScale = drawData->FramebufferScale;
 			int vertexOffset = 0;
 			int indexOffset = 0;
+			bool passOpen = true;
 			for (const ImDrawList* drawList : drawData->CmdLists)
 			{
 				for (const ImDrawCmd& drawCommand : drawList->CmdBuffer)
 				{
+					if (!passOpen)
+						break;
+
+					if (drawCommand.UserCallback == ImGuiGlassBackdropCallback)
+					{
+						if (useGlass)
+							passOpen = DrawGlassBackdrop(frame, glass, drawCommand, clipOffset, clipScale, passDesc, viewport, scissor);
+						continue;
+					}
+
 					if (drawCommand.UserCallback)
 					{
 						// Every draw rebinds what it uses, so there is no render state to reset.
@@ -482,7 +578,7 @@ namespace Lux {
 					if (clipMax.x <= clipMin.x || clipMax.y <= clipMin.y)
 						continue;
 
-					nri::DescriptorSet* set = GetDescriptorSet(frame, texInfo);
+					nri::DescriptorSet* set = GetDescriptorSet(frame.ImGuiSets, m_ImGuiLayout, texInfo);
 					if (!set)
 						continue;
 
@@ -517,7 +613,34 @@ namespace Lux {
 				indexOffset += drawList->IdxBuffer.Size;
 			}
 
-			m_RenderCommandBuffer->RT_EndNRIRenderPass();
+			if (passOpen)
+				m_RenderCommandBuffer->RT_EndNRIRenderPass();
+		}
+
+		if (useGlass)
+		{
+			// The UI target into the back buffer, every pixel overwritten.
+			RenderCommandBuffer::NRIRenderPassDesc presentPass;
+			presentPass.ColorAttachments[0] = { target, swapchain->GetCurrentTrackedBackBuffer(), AllSubresources };
+			presentPass.ColorAttachmentCount = 1;
+			presentPass.PipelineLayout = m_GlassLayout.Shader->GetNRIPipelineLayout();
+			presentPass.Pipeline = GetOrCreateGlassPipeline(false, swapchain->GetNRIColorFormat());
+			presentPass.DrawSetIndex = m_GlassLayout.SetIndex;
+			presentPass.RootConstants = true;
+
+			ImGuiGlassConstants constants;
+			constants.Mode = GlassModePresent;
+			m_RenderCommandBuffer->RT_RequireTextureState(glass.UI->GetImageInfo().Tracked, AllSubresources, ResourceState::ShaderResource);
+			if (m_RenderCommandBuffer->RT_BeginNRIRenderPass(presentPass, "ImGui Glass Present", viewport, scissor, {}))
+			{
+				RenderCommandBuffer::NRIDrawBindings bindings;
+				bindings.DrawSet.Set = GetDescriptorSet(frame.GlassSets, m_GlassLayout, { glass.UI, ResolveRange(*glass.UI, AllSubresources) });
+				bindings.RootConstants = &constants;
+				bindings.RootConstantsSize = sizeof(constants);
+				if (nri::CommandBuffer* commandBuffer = bindings.DrawSet.Set ? m_RenderCommandBuffer->RT_BeginNRIDraw(bindings) : nullptr)
+					api.CmdDraw(*commandBuffer, { 3, 1, 0, 0 });
+				m_RenderCommandBuffer->RT_EndNRIRenderPass();
+			}
 		}
 
 		m_RenderCommandBuffer->RT_End();
@@ -538,9 +661,9 @@ namespace Lux {
 			return it->second;
 
 		nri::Pipeline*& pipeline = m_Pipelines[format];
-		nri::PipelineLayout* layout = m_Shader->GetNRIPipelineLayout();
-		const std::vector<uint32_t>& vertexSPIRV = m_Shader->GetSPIRV(ShaderStage::Vertex);
-		const std::vector<uint32_t>& pixelSPIRV = m_Shader->GetSPIRV(ShaderStage::Pixel);
+		nri::PipelineLayout* layout = m_ImGuiLayout.Shader->GetNRIPipelineLayout();
+		const std::vector<uint32_t>& vertexSPIRV = m_ImGuiLayout.Shader->GetSPIRV(ShaderStage::Vertex);
+		const std::vector<uint32_t>& pixelSPIRV = m_ImGuiLayout.Shader->GetSPIRV(ShaderStage::Pixel);
 		if (!layout || vertexSPIRV.empty() || pixelSPIRV.empty() || format == nri::Format::UNKNOWN)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[ImGuiRenderer] No NRI pipeline for format {}: {}", static_cast<int>(format),
@@ -640,13 +763,13 @@ namespace Lux {
 		return true;
 	}
 
-	nri::DescriptorSet* ImGuiRenderer::AllocateDescriptorSet(FrameResources& frame)
+	nri::DescriptorSet* ImGuiRenderer::AllocateDescriptorSet(DescriptorSets& sets, const SetLayout& layout)
 	{
 		const NRIInterface& api = RHIDevice::API();
 
 		// Full pools are skipped rather than allocated from, so NRI never reports an exhausted pool.
 		DescriptorPool* pool = nullptr;
-		for (DescriptorPool& candidate : frame.DescriptorPools)
+		for (DescriptorPool& candidate : sets.Pools)
 		{
 			if (candidate.Used < candidate.Capacity)
 			{
@@ -657,13 +780,13 @@ namespace Lux {
 
 		if (!pool)
 		{
-			const uint32_t capacity = k_DescriptorPoolSize << frame.DescriptorPools.size();
-			DescriptorPool& newPool = frame.DescriptorPools.emplace_back();
+			const uint32_t capacity = k_DescriptorPoolSize << sets.Pools.size();
+			DescriptorPool& newPool = sets.Pools.emplace_back();
 			newPool.Capacity = capacity;
-			if (api.CreateDescriptorPool(RHIDevice::Get(), m_Shader->GetNRIPoolDesc(0, capacity), newPool.Pool) != nri::Result::SUCCESS)
+			if (api.CreateDescriptorPool(RHIDevice::Get(), layout.Shader->GetNRIPoolDesc(0, capacity), newPool.Pool) != nri::Result::SUCCESS)
 			{
 				LUX_CORE_ERROR_TAG("Renderer", "[ImGuiRenderer] Failed to create an NRI descriptor pool of {} sets", capacity);
-				frame.DescriptorPools.pop_back();
+				sets.Pools.pop_back();
 				return nullptr;
 			}
 			api.SetDebugName(newPool.Pool, "ImGui");
@@ -671,7 +794,7 @@ namespace Lux {
 		}
 
 		nri::DescriptorSet* set = nullptr;
-		if (api.AllocateDescriptorSets(*pool->Pool, *m_Shader->GetNRIPipelineLayout(), m_SetIndex, &set, 1, 0) != nri::Result::SUCCESS)
+		if (api.AllocateDescriptorSets(*pool->Pool, *layout.Shader->GetNRIPipelineLayout(), layout.SetIndex, &set, 1, 0) != nri::Result::SUCCESS)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[ImGuiRenderer] Failed to allocate an NRI descriptor set");
 			return nullptr;
@@ -680,11 +803,11 @@ namespace Lux {
 		return set;
 	}
 
-	nri::DescriptorSet* ImGuiRenderer::GetDescriptorSet(FrameResources& frame, const ImGuiTextureInfo& texInfo)
+	nri::DescriptorSet* ImGuiRenderer::GetDescriptorSet(DescriptorSets& sets, const SetLayout& layout, const ImGuiTextureInfo& texInfo)
 	{
 		nri::Texture* texture = texInfo.Image->GetImageInfo().RHITexture;
 		const SetKey key{ texture, texInfo.Range };
-		if (auto it = frame.DescriptorSets.find(key); it != frame.DescriptorSets.end())
+		if (auto it = sets.Sets.find(key); it != sets.Sets.end())
 			return it->second;
 
 		// A 2D view of the range's first layer: the shader samples a Texture2D.
@@ -696,24 +819,247 @@ namespace Lux {
 		viewKey.LayerNum = 1;
 		// GetNRITextureView logs its own failures.
 		const nri::Descriptor* view = GetNRITextureView(texture, viewKey);
-		nri::DescriptorSet* set = view ? AllocateDescriptorSet(frame) : nullptr;
+		nri::DescriptorSet* set = view ? AllocateDescriptorSet(sets, layout) : nullptr;
 		if (set)
 		{
 			const nri::Descriptor* sampler = m_Sampler->GetRHIDescriptor();
 			std::array<nri::UpdateDescriptorRangeDesc, 2> updates = {};
 			updates[0].descriptorSet = set;
-			updates[0].rangeIndex = m_TextureRange;
+			updates[0].rangeIndex = layout.TextureRange;
 			updates[0].descriptors = &view;
 			updates[0].descriptorNum = 1;
 			updates[1].descriptorSet = set;
-			updates[1].rangeIndex = m_SamplerRange;
+			updates[1].rangeIndex = layout.SamplerRange;
 			updates[1].descriptors = &sampler;
 			updates[1].descriptorNum = 1;
 			RHIDevice::API().UpdateDescriptorRanges(updates.data(), static_cast<uint32_t>(updates.size()));
 		}
 
-		frame.DescriptorSets[key] = set;
+		sets.Sets[key] = set;
 		return set;
+	}
+
+	nri::Pipeline* ImGuiRenderer::GetOrCreateGlassPipeline(bool blend, nri::Format format)
+	{
+		if (auto it = m_GlassPipelines.find({ blend, format }); it != m_GlassPipelines.end())
+			return it->second;
+
+		nri::Pipeline*& pipeline = m_GlassPipelines[{ blend, format }];
+		nri::PipelineLayout* layout = m_GlassLayout.Shader ? m_GlassLayout.Shader->GetNRIPipelineLayout() : nullptr;
+		if (!layout || m_GlassLayout.Shader->GetSPIRV(ShaderStage::Vertex).empty() || m_GlassLayout.Shader->GetSPIRV(ShaderStage::Pixel).empty() || format == nri::Format::UNKNOWN)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[ImGuiRenderer] No glass pipeline for format {}: glass backdrops are off", static_cast<int>(format));
+			return pipeline;
+		}
+		const std::vector<uint32_t>& vertexSPIRV = m_GlassLayout.Shader->GetSPIRV(ShaderStage::Vertex);
+		const std::vector<uint32_t>& pixelSPIRV = m_GlassLayout.Shader->GetSPIRV(ShaderStage::Pixel);
+
+		std::array<nri::ShaderDesc, 2> shaders = {};
+		shaders[0].stage = nri::StageBits::VERTEX_SHADER;
+		shaders[0].bytecode = vertexSPIRV.data();
+		shaders[0].size = vertexSPIRV.size() * sizeof(uint32_t);
+		shaders[0].entryPointName = "main";
+		shaders[1].stage = nri::StageBits::FRAGMENT_SHADER;
+		shaders[1].bytecode = pixelSPIRV.data();
+		shaders[1].size = pixelSPIRV.size() * sizeof(uint32_t);
+		shaders[1].entryPointName = "main";
+
+		// The blur levels and the present overwrite; the composite blends the backdrop in by the
+		// window's coverage.
+		nri::ColorAttachmentDesc color = {};
+		color.format = format;
+		color.blendEnabled = blend;
+		color.colorBlend = { nri::BlendFactor::SRC_ALPHA, nri::BlendFactor::ONE_MINUS_SRC_ALPHA, nri::BlendOp::ADD };
+		color.alphaBlend = { nri::BlendFactor::ONE, nri::BlendFactor::ONE_MINUS_SRC_ALPHA, nri::BlendOp::ADD };
+		color.colorWriteMask = nri::ColorWriteBits::RGBA;
+
+		// A full-screen triangle from the vertex index: no vertex input.
+		nri::GraphicsPipelineDesc pipelineDesc = {};
+		pipelineDesc.pipelineLayout = layout;
+		pipelineDesc.inputAssembly.topology = nri::Topology::TRIANGLE_LIST;
+		pipelineDesc.rasterization.fillMode = nri::FillMode::SOLID;
+		pipelineDesc.rasterization.cullMode = nri::CullMode::NONE;
+		pipelineDesc.outputMerger.colors = &color;
+		pipelineDesc.outputMerger.colorNum = 1;
+		pipelineDesc.outputMerger.depth.compareOp = nri::CompareOp::NONE;
+		pipelineDesc.shaders = shaders.data();
+		pipelineDesc.shaderNum = static_cast<uint32_t>(shaders.size());
+
+		const NRIInterface& api = RHIDevice::API();
+		if (api.CreateGraphicsPipeline(RHIDevice::Get(), pipelineDesc, pipeline) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[ImGuiRenderer] Failed to create the glass pipeline for format {}: glass backdrops are off", static_cast<int>(format));
+			pipeline = nullptr;
+			return pipeline;
+		}
+
+		api.SetDebugName(pipeline, blend ? "ImGui Glass Composite" : "ImGui Glass");
+		return pipeline;
+	}
+
+	void ImGuiRenderer::PrepareGlassBackdrops(ImGuiDrawDataSnapshot& snapshot)
+	{
+		ImDrawData* drawData = snapshot.GetDrawData();
+		if (snapshot.GetGlassBackdropCount() == 0 || !drawData)
+			return;
+
+		const uint32_t width = static_cast<uint32_t>(drawData->DisplaySize.x * drawData->FramebufferScale.x);
+		const uint32_t height = static_cast<uint32_t>(drawData->DisplaySize.y * drawData->FramebufferScale.y);
+		if (width == 0 || height == 0)
+			return;
+
+		// Frames still in flight keep the old targets through their snapshots.
+		if (!m_GlassTargets.UI || m_GlassTargets.UI->GetWidth() != width || m_GlassTargets.UI->GetHeight() != height)
+		{
+			auto createTarget = [](const char* name, uint32_t targetWidth, uint32_t targetHeight)
+				{
+					ImageSpecification specification;
+					specification.DebugName = name;
+					specification.Format = ImageFormat::RGBA;
+					specification.Usage = ImageUsage::Attachment;
+					specification.Width = std::max(targetWidth, 1u);
+					specification.Height = std::max(targetHeight, 1u);
+					Ref<Image2D> image = Image2D::Create(specification);
+					image->Invalidate();
+					return image;
+				};
+			m_GlassTargets.UI = createTarget("ImGui glass UI target", width, height);
+			for (uint32_t level = 0; level < ImGuiGlassTargets::LevelCount; level++)
+			{
+				const uint32_t divisor = 2u << level;
+				m_GlassTargets.Levels[level] = createTarget("ImGui glass blur level", (width + divisor - 1) / divisor, (height + divisor - 1) / divisor);
+			}
+		}
+		snapshot.SetGlassTargets(m_GlassTargets);
+	}
+
+	bool ImGuiRenderer::RenderGlassPass(FrameResources& frame, const Ref<Image2D>& target, const Ref<Image2D>& source, bool blend,
+		const ImGuiGlassConstants& constants, const nri::Rect& scissor, std::string_view name)
+	{
+		nri::Texture* texture = target->GetImageInfo().RHITexture;
+		NRITextureViewKey viewKey;
+		viewKey.Type = nri::TextureView::COLOR_ATTACHMENT;
+		viewKey.MipNum = 1;
+		viewKey.LayerNum = 1;
+		nri::Descriptor* view = texture ? GetNRITextureView(texture, viewKey) : nullptr;
+		nri::Pipeline* pipeline = texture ? GetOrCreateGlassPipeline(blend, RHIDevice::API().GetTextureDesc(*texture).format) : nullptr;
+		nri::DescriptorSet* set = GetDescriptorSet(frame.GlassSets, m_GlassLayout, { source, ResolveRange(*source, AllSubresources) });
+		if (!view || !pipeline || !set)
+			return false;
+
+		RenderCommandBuffer::NRIRenderPassDesc passDesc;
+		passDesc.ColorAttachments[0] = { view, target->GetImageInfo().Tracked, AllSubresources };
+		passDesc.ColorAttachmentCount = 1;
+		passDesc.PipelineLayout = m_GlassLayout.Shader->GetNRIPipelineLayout();
+		passDesc.Pipeline = pipeline;
+		passDesc.DrawSetIndex = m_GlassLayout.SetIndex;
+		passDesc.RootConstants = true;
+
+		// The source is sampled, so it is required before the pass opens (the set carries no
+		// requirements of its own).
+		m_RenderCommandBuffer->RT_RequireTextureState(source->GetImageInfo().Tracked, AllSubresources, ResourceState::ShaderResource);
+		const nri::Viewport viewport = { 0.0f, 0.0f, static_cast<float>(target->GetWidth()), static_cast<float>(target->GetHeight()), 0.0f, 1.0f, false };
+		if (!m_RenderCommandBuffer->RT_BeginNRIRenderPass(passDesc, name, viewport, scissor, {}))
+			return false;
+
+		RenderCommandBuffer::NRIDrawBindings bindings;
+		bindings.DrawSet.Set = set;
+		bindings.RootConstants = &constants;
+		bindings.RootConstantsSize = sizeof(constants);
+		if (nri::CommandBuffer* commandBuffer = m_RenderCommandBuffer->RT_BeginNRIDraw(bindings))
+			RHIDevice::API().CmdDraw(*commandBuffer, { 3, 1, 0, 0 });
+		m_RenderCommandBuffer->RT_EndNRIRenderPass();
+		return true;
+	}
+
+	bool ImGuiRenderer::DrawGlassBackdrop(FrameResources& frame, const ImGuiGlassTargets& targets, const ImDrawCmd& command,
+		const ImVec2& clipOffset, const ImVec2& clipScale, const RenderCommandBuffer::NRIRenderPassDesc& imguiPass,
+		const nri::Viewport& viewport, const nri::Rect& scissor)
+	{
+		const glm::vec2 uiSize = { static_cast<float>(targets.UI->GetWidth()), static_cast<float>(targets.UI->GetHeight()) };
+
+		// The window in UI-target pixels, mapped as the draws' clip rectangles are.
+		const glm::vec4 window = {
+			(command.ClipRect.x - clipOffset.x) * clipScale.x, (command.ClipRect.y - clipOffset.y) * clipScale.y,
+			(command.ClipRect.z - clipOffset.x) * clipScale.x, (command.ClipRect.w - clipOffset.y) * clipScale.y };
+		const glm::vec2 visibleMin = glm::max(glm::vec2(window.x, window.y), glm::vec2(0.0f));
+		const glm::vec2 visibleMax = glm::min(glm::vec2(window.z, window.w), uiSize);
+		if (visibleMax.x <= visibleMin.x || visibleMax.y <= visibleMin.y)
+			return true;
+
+		// The part of `image`, `divisor` times smaller than the UI target, the blur reads and writes:
+		// the visible window plus the blur's reach, rounded out.
+		struct Region
+		{
+			glm::ivec2 Min;
+			glm::ivec2 Max;
+		};
+		auto regionAt = [&](const Ref<Image2D>& image, float divisor)
+			{
+				const glm::ivec2 size = { static_cast<int32_t>(image->GetWidth()), static_cast<int32_t>(image->GetHeight()) };
+				Region region;
+				region.Min = glm::clamp(glm::ivec2(glm::floor((visibleMin - k_GlassMargin) / divisor)), glm::ivec2(0), size);
+				region.Max = glm::clamp(glm::ivec2(glm::ceil((visibleMax + k_GlassMargin) / divisor)), glm::ivec2(0), size);
+				return region;
+			};
+		auto toScissor = [](const Region& region)
+			{
+				return nri::Rect{ static_cast<int16_t>(region.Min.x), static_cast<int16_t>(region.Min.y),
+					static_cast<nri::Dim_t>(region.Max.x - region.Min.x), static_cast<nri::Dim_t>(region.Max.y - region.Min.y) };
+			};
+		auto setSource = [](ImGuiGlassConstants& constants, const Ref<Image2D>& source, const Region& region, float pixelScale)
+			{
+				const glm::vec2 texel = { 1.0f / static_cast<float>(source->GetWidth()), 1.0f / static_cast<float>(source->GetHeight()) };
+				constants.SourceTexel = texel;
+				constants.SourceRegion = glm::vec4((glm::vec2(region.Min) + 0.5f) * texel, (glm::vec2(region.Max) - 0.5f) * texel);
+				constants.PixelScale = pixelScale;
+			};
+
+		m_RenderCommandBuffer->RT_EndNRIRenderPass();
+
+		// Down the levels from the UI target, then back up to the first: each pass reads only the
+		// level before it, so the up passes overwrite the down passes' levels in place.
+		std::array<Region, ImGuiGlassTargets::LevelCount> regions;
+		Ref<Image2D> source = targets.UI;
+		Region sourceRegion = regionAt(targets.UI, 1.0f);
+		bool blurred = true;
+		for (uint32_t level = 0; level < ImGuiGlassTargets::LevelCount && blurred; level++)
+		{
+			regions[level] = regionAt(targets.Levels[level], static_cast<float>(2u << level));
+			ImGuiGlassConstants constants;
+			constants.Mode = GlassModeDown;
+			constants.Offset = k_GlassDownOffset;
+			setSource(constants, source, sourceRegion, 2.0f);
+			blurred = RenderGlassPass(frame, targets.Levels[level], source, false, constants, toScissor(regions[level]), "ImGui Glass Down");
+			source = targets.Levels[level];
+			sourceRegion = regions[level];
+		}
+		for (int32_t level = static_cast<int32_t>(ImGuiGlassTargets::LevelCount) - 2; level >= 0 && blurred; level--)
+		{
+			ImGuiGlassConstants constants;
+			constants.Mode = GlassModeUp;
+			constants.Offset = k_GlassUpOffset;
+			setSource(constants, targets.Levels[level + 1], regions[level + 1], 0.5f);
+			blurred = RenderGlassPass(frame, targets.Levels[level], targets.Levels[level + 1], false, constants, toScissor(regions[level]), "ImGui Glass Up");
+		}
+
+		// The first level, upsampled into the window's rounded rectangle. A failed pass was logged
+		// where it failed; the window then draws without its backdrop.
+		if (blurred)
+		{
+			ImGuiGlassConstants composite;
+			composite.Mode = GlassModeComposite;
+			composite.Rect = window;
+			composite.Rounding = DecodeImGuiGlassRounding(command.UserCallbackData) * clipScale.x;
+			setSource(composite, targets.Levels[0], regions[0], 0.5f);
+			const Region visible = { glm::ivec2(glm::floor(visibleMin)), glm::ivec2(glm::ceil(visibleMax)) };
+			RenderGlassPass(frame, targets.UI, targets.Levels[0], true, composite, toScissor(visible), "ImGui Glass Composite");
+		}
+
+		// Back to ImGui, over what the target holds now.
+		RenderCommandBuffer::NRIRenderPassDesc reopened = imguiPass;
+		reopened.ClearColor[0] = false;
+		return m_RenderCommandBuffer->RT_BeginNRIRenderPass(reopened, "ImGui", viewport, scissor, {});
 	}
 
 }

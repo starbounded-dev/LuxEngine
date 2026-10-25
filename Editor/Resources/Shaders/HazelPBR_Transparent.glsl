@@ -17,10 +17,10 @@
 #include <ShadowMapping.glslh>
 
 layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec3 a_Normal;
-layout(location = 2) in vec3 a_Tangent;
-layout(location = 3) in vec3 a_Binormal;
-layout(location = 4) in vec2 a_TexCoord;
+layout(location = 1) in vec4 a_QTangent; // tangent frame, QTangent.glslh
+layout(location = 2) in vec2 a_TexCoord;
+
+#include <QTangent.glslh>
 
 struct VertexOutput
 {
@@ -60,11 +60,12 @@ void main()
 
 	OutputObjectIndex = objectIndex;
 	Output.WorldPosition = worldPosition.xyz;
-	Output.Normal = mat3(transform) * a_Normal;
+	const mat3 tbn = QTangent_ToTBN(a_QTangent); // columns: tangent, binormal, normal
+	Output.Normal = mat3(transform) * tbn[2];
 	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
-	Output.WorldNormals = mat3(transform) * mat3(a_Tangent, a_Binormal, a_Normal);
+	Output.WorldNormals = mat3(transform) * tbn;
 	Output.WorldTransform = mat3(transform);
-	Output.Binormal = a_Binormal;
+	Output.Binormal = tbn[1];
 
 	Output.CameraView = mat3(u_Camera.ViewMatrix);
 
@@ -92,6 +93,51 @@ void main()
 #include <Lighting.glslh>
 #include <ShadowMapping.glslh>
 #include <Samplers.glslh>
+#include <LTC.glslh>
+
+// The opaque scene before transparents, pre-convolved by roughness (SceneRenderer binds it only on
+// frames with refractive materials, a black texture otherwise).
+layout(set = 1, binding = 11) uniform texture2D u_RefractionSource;
+
+const float REFRACTION_MAX_MIP = 5.0;
+
+// What a refractive surface shows through it: the view ray bent by the IOR and carried Thickness into
+// the volume, projected back to the screen and read at a roughness mip; the sky when that leaves the
+// screen; absorbed over the path toward the attenuation colour (Beer-Lambert). No history.
+vec3 RefractedBackground(GPUMaterial material, vec3 worldPosition, vec3 N, vec3 V, float roughness, float envMapRotation)
+{
+	float ior = max(material.Refraction.y, 1.0);
+	float thickness = max(material.Refraction.z, 0.0);
+	vec3 refractDirection = refract(-V, N, 1.0 / ior);
+	if (dot(refractDirection, refractDirection) < 1e-6)
+		refractDirection = -V;
+
+	vec4 clip = u_Camera.ViewProjectionMatrix * vec4(worldPosition + refractDirection * thickness, 1.0);
+	// The viewport is flipped: NDC y = +1 is the top row.
+	vec2 screenUV = vec2(clip.x / clip.w * 0.5 + 0.5, -clip.y / clip.w * 0.5 + 0.5);
+	bool onScreen = clip.w > 0.0 && all(greaterThanEqual(screenUV, vec2(0.0))) && all(lessThanEqual(screenUV, vec2(1.0)));
+
+	float blur = roughness * (1.7 - 0.7 * roughness);
+	vec3 background;
+	if (onScreen)
+	{
+		// Capped so rough glass stays a local blur rather than the whole screen's average.
+		float maxMip = min(float(textureQueryLevels(sampler2D(u_RefractionSource, r_LinearSampler))) - 1.0, REFRACTION_MAX_MIP);
+		background = textureLod(sampler2D(u_RefractionSource, r_LinearSampler), screenUV, blur * maxMip).rgb;
+	}
+	else
+	{
+		float levels = float(textureQueryLevels(samplerCube(u_EnvRadianceTex, r_LinearSampler)));
+		vec3 direction = RotateVectorAboutY(envMapRotation, refractDirection);
+		background = textureLod(samplerCube(u_EnvRadianceTex, r_LinearSampler), direction, blur * (levels - 1.0)).rgb
+			* u_Scene.EnvironmentMapIntensity;
+	}
+
+	float attenuationDistance = material.Refraction.w;
+	if (attenuationDistance > 0.0 && thickness > 0.0)
+		background *= pow(max(material.AttenuationColor.rgb, vec3(1e-4)), vec3(thickness / attenuationDistance));
+	return background;
+}
 
 struct VertexOutput
 {
@@ -254,6 +300,12 @@ void main()
 	// Fresnel reflectance, metals use albedo
 	vec3 F0 = mix(LuxDielectricF0(GetGPUMaterialSpecular(gpuMaterial, 0.5)), m_Params.Albedo, m_Params.Metalness);
 
+	// Transmission takes its share from the diffuse lobe (glTF); the base colour then tints what
+	// comes through instead.
+	float transmission = GetGPUMaterialRefraction(gpuMaterial);
+	vec3 transmissionTint = m_Params.Albedo;
+	m_Params.Albedo *= 1.0 - transmission;
+
 	uint cascadeIndex = 0;
 
 	const uint SHADOW_MAP_CASCADE_COUNT = 4;
@@ -327,12 +379,22 @@ void main()
 	vec3 lightContribution = CalculateDirLights(F0) * shadowScale;
 	lightContribution += CalculatePointLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
 	lightContribution += CalculateSpotLightsShadowed(F0, Input.WorldPosition, u_SpotShadowTexture);
+	lightContribution += LuxEvaluateAreaLights(Input.WorldPosition, m_Params.Normal, m_Params.View, m_Params.Albedo,
+		m_Params.Metalness, m_Params.Roughness, F0, u_SpotShadowTexture);
 	lightContribution += emissive;
 
 	// Indirect lighting (material AO occludes ambient light only, as in deferred lighting)
 	vec3 iblContribution = IBL(F0, Lr, materialEnvMapRotation) * occlusion * u_Scene.EnvironmentMapIntensity;
 
 	color = vec4(iblContribution + lightContribution, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
+
+	if (transmission > 0.0)
+	{
+		vec3 fresnel = FresnelSchlickRoughness(F0, m_Params.NdotV, m_Params.Roughness);
+		vec3 background = RefractedBackground(gpuMaterial, Input.WorldPosition, m_Params.Normal, m_Params.View,
+			m_Params.Roughness, materialEnvMapRotation + u_Scene.EnvironmentMapRotation);
+		color.rgb += transmission * (1.0 - fresnel) * background * transmissionTint;
+	}
 
 	// TODO: Temporary bug fix.
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0f)

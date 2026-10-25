@@ -217,6 +217,10 @@ namespace Lux {
 				if (ImGuiEx::Property("Simple UX", simpleLayout) && m_Bindings.OnLayoutModeChanged)
 					m_Bindings.OnLayoutModeChanged(simpleLayout);
 			}
+
+		if (m_Bindings.GlassOverlays && ImGuiEx::Property("Glass Overlays", *m_Bindings.GlassOverlays,
+			"Popups, menus, tooltips and the viewport overlays blur what is behind them."))
+			notifyBindings = true;
 		ImGuiEx::EndPropertyGrid();
 
 		if (notifyBindings && m_Bindings.OnPreferencesChanged)

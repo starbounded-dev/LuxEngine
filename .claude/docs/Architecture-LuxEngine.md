@@ -284,9 +284,17 @@ submission.
   transition (undefined → resting state) in the batch.
 - Queries and markers are NRI too: timestamp and pipeline-statistics query pools per command list
   slot, read back a frame-in-flight later, and `CmdBeginAnnotation` markers.
+- Mesh vertex buffers hold `PackedVertex` (28 bytes: position, a QTangent frame quaternion, UV), packed
+  from the CPU `Vertex` when `MeshSource` uploads; mesh files, caches and runtime packs keep `Vertex`.
+  See `Rendering.md § Shaders`.
 - `ImGuiRenderer::RenderToSwapchain` draws the UI into each swapchain with its own per-format
   pipelines, per-frame-slot geometry and descriptor pools. ImGui textures, the atlas included, are
-  `Image2D`s in the shared `ImGuiTextureRegistry`.
+  `Image2D`s in the shared `ImGuiTextureRegistry`. A frame with glass backdrops (§ 2.9) draws into
+  the renderer's UI target instead and presents it at the end (`ImGuiGlass.hlsl`, mode PRESENT);
+  each `ImGuiGlassBackdropCallback` command splits the ImGui pass for a dual-Kawase blur of the
+  window's region into three smaller levels and a rounded-rectangle composite, then reopens it.
+  Only over a cleared target (never the runtime's overlay); the targets are created on the main
+  thread (`PrepareGlassBackdrops`) and reach the render thread inside the snapshot.
 
 **Resource states** (`Rendering.md § Resource states`): each `RenderCommandBuffer` owns a
 `ResourceStateTracker` + `NRIBarrierEmitter` (`Renderer/RHI/`), which record every barrier as an
@@ -329,7 +337,9 @@ Structurally:
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
 - "Lux Standard" inputs live in `MaterialSurfaceParameters` on the asset (emissive colour + map,
   occlusion map + strength, packed-map channel selection, specular, normal strength, height map as
-  bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided). They reach shaders through the GPU material table
+  bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided, and for transparent materials
+  refraction: transmission, IOR, thickness, attenuation colour + distance, imported from glTF
+  `KHR_materials_transmission` / `_ior` / `_volume`). They reach shaders through the GPU material table
   (`Rendering.md § The GPU material table`); `MaterialSerializer` writes them as YAML keys (the
   asset pack stores the same YAML) and migrates pre-emissive-colour files as data.
 - **Material textures are bindless through NRI descriptor sets.** Each `SceneRenderer` owns a
@@ -399,8 +409,8 @@ Structurally:
 `RelationshipComponent`; rendering (`MeshComponent`, `StaticMeshComponent`, `SubmeshComponent`,
 `MeshTagComponent`, `SpriteRendererComponent`, `CircleRendererComponent`, `TextComponent`,
 `CameraComponent`); lighting (`DirectionalLightComponent`, `PointLightComponent`,
-`SpotLightComponent`, `SkyLightComponent`, `SkyAtmosphereComponent`, `VolumetricCloudComponent`,
-`ExponentialHeightFogComponent`); physics 3D (`RigidBodyComponent`, `CharacterControllerComponent`,
+`SpotLightComponent`, `AreaLightComponent`, `SkyLightComponent`, `SkyAtmosphereComponent`,
+`VolumetricCloudComponent`, `ExponentialHeightFogComponent`); physics 3D (`RigidBodyComponent`, `CharacterControllerComponent`,
 `Box`/`Sphere`/`Capsule`/`Mesh`/`CompoundColliderComponent`); physics 2D (`RigidBody2DComponent`,
 `BoxCollider2DComponent`, `CircleCollider2DComponent`); scripting (`ScriptComponent`,
 `NativeScriptComponent`); audio (`AudioSourceComponent`, `AudioListenerComponent`);
@@ -422,6 +432,40 @@ saving a base, `EditorLayer::PropagateToVariants` refreshes each derived variant
 (EditorLayer) swaps the editing context to a copy of the prefab's scene (`ApplyEditorScene`, shared
 with `OpenScene`); on save it writes the asset and calls `Scene::PropagatePrefabEdits`, which
 refreshes un-overridden instances in the returned scene to the edited prefab's values.
+
+**Switching things off** (Unity's `activeSelf` and per-component `enabled`), two levels:
+
+- *Entity:* `TagComponent::Active`. `false` switches the entity **and every descendant** off. Read it
+  through `Scene::IsEntityActiveInHierarchy(entity)` (walks the parents, always current) or, inside
+  the per-frame system loops, the private `Scene::IsInactive(entt::entity)`. That is a set rebuilt by
+  `RefreshInactiveEntities()` at each entry point (`OnRuntimeStart`, `OnUpdateRuntime`,
+  `RenderScene`, `BuildRenderPacketEditor` / `Runtime`). The rebuild is one pass over the tags, plus
+  the inactive subtrees. `Scene::Copy`, `CopyTo`, `DuplicateEntity`, `Prefab::Create` and prefab
+  instantiation copy it explicitly, because `TagComponent` is not in their component lists.
+- *Component:* a `bool Enabled = true` on the component. `StaticMeshComponent` / `SubmeshComponent`
+  keep their older `Visible`, and `AudioListenerComponent` keeps `Active`. The inspector draws a
+  header checkbox for any component that has one of these
+  (`HasEnabledFlag` / `GetEnabledFlag` in `SceneHierarchyPanel.cpp`), with multi-select and undo
+  (`MarkEntitiesEdited`).
+
+Who honours them, at both levels: the lights (`CollectLightEnvironment`, so no lighting and no
+shadow tile), the sky light (`CollectEnvironment` falls back to the default environment), static
+meshes (`RenderScene` proxy `Visible`), sprites / circles / text (all three 2D paths), audio sources
+(never started; switching one off during Play releases its event, and switching it back on
+re-creates it with PlayOnAwake), audio listeners, zones and portals (`AudioZoneInput::Enabled`),
+scripts, and the primary camera (an inactive camera entity is skipped). A script that is off at Play
+is still instantiated, so other scripts can find it, but its `OnCreate` waits until its first
+enabled frame (`m_PendingScriptCreates`). It then gets no `OnUpdate` while off, and no `OnDestroy`
+if `OnCreate` never ran. Both flags are serialized **only when off** (`Active: false` in
+`TagComponent`, `Enabled: false` in the component), so older scenes load as on and re-save
+unchanged.
+
+**Not done yet (known gaps):** physics ignores both levels. Rigid bodies and colliders on an
+inactive entity still simulate, and colliders have no `Enabled`, because switching them during Play
+needs Jolt/Box2D body add/remove. `NativeScriptComponent` is not covered. There is **no C# API**
+yet: no `Entity.Active` and no `Enabled` property on the C# components. Add those as
+`ScriptCore` properties plus internal calls (Part 4 "Add a new C# internal call"). They are not in
+this pass by the user's decision (2026-10-24), not by oversight.
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /
@@ -644,6 +688,16 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
 
 UI style: use `ImGuiEx` scopes and widgets and `Colors::Theme` constants — see
 `.claude/docs/Conventions.md`.
+
+Glass backdrops: with `ImGuiLayer::SetGlassBackdrops(true)` (the editor preference "Glass
+Overlays", `Editor.GlassOverlays`, default on; Application Settings → Editor), `ImGuiLayer::End`
+puts an `ImGuiGlassBackdropCallback` command first in the draw list of every active popup, menu
+and tooltip, and of every window that called `ImGuiLayer::RequestGlassBackdrop()` inside its
+Begin/End (the translucent viewport overlays), after `ImGui::EndFrame` and before `ImGui::Render`.
+The command carries the window's rectangle in `ClipRect` and its rounding in the callback-data
+bits, so nothing points into ImGui's buffers. The window's own background then draws over the blur
+as its tint: while glass is on, `PopupBg`'s alpha is scaled by 0.72 for the frame. A window with an
+opaque background gains nothing from it, and one with none (alpha 0) must not request it.
 
 Gamepad navigation: the stock GLFW backend only reads `GLFW_JOYSTICK_1`, so `ImGuiLayer::Begin`
 clears `ImGuiConfigFlags_NavEnableGamepad` before the backend's `NewFrame` and then feeds the
@@ -1351,8 +1405,11 @@ Aftermath.h`: NVIDIA, Debug and Release), logs its path and aborts. There is no 
    `DrawComponents` plus an "Add Component" menu entry.
 5. If the renderer consumes it, add it to `FrameRenderPacket` and the `BuildRenderPacket*` capture —
    not to a direct ECS read during submission.
-6. Optional: C# mirror in `ScriptCore` + internal calls in `ScriptGlue.cpp`.
-7. Regenerate projects if you added files (`scripts\Win-GenProjects.bat`).
+6. If it does something that can be switched off, give it `bool Enabled = true` (serialized only
+   when `false`) and honour both it and `Scene::IsInactive` where it is consumed. The header
+   checkbox then appears on its own (see §2.4 "Switching things off").
+7. Optional: C# mirror in `ScriptCore` + internal calls in `ScriptGlue.cpp`.
+8. Regenerate projects if you added files (`scripts\Win-GenProjects.bat`).
 
 Skipping any step fails silently: invisible in the editor, lost on save, or dropped on Play.
 

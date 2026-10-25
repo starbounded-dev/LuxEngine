@@ -279,6 +279,9 @@ namespace Lux {
 		static Ref<Texture2D> GetBlackTexture();
 		static Ref<Texture2D> GetHilbertLut();
 		static Ref<Texture2D> GetBRDFLutTexture();
+		// Linearly Transformed Cosines tables for area lights (64x64 RGBA16F, Core/vendor/ltc).
+		static Ref<Texture2D> GetLTCMatrixTexture();
+		static Ref<Texture2D> GetLTCAmplitudeTexture();
 		static Ref<TextureCube> GetBlackCubeTexture();
 		static Ref<Material> GetDefaultWhiteMaterial();
 		static Ref<Environment> GetEmptyEnvironment();

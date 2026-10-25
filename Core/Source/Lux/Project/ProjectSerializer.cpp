@@ -227,7 +227,6 @@ namespace Lux
 			out << Yaml::Key << "GTAOVisibilityBitmask" << Yaml::Value << settings.GTAOVisibilityBitmask;
 			out << Yaml::Key << "GTAOThickness" << Yaml::Value << settings.GTAOThickness;
 			out << Yaml::Key << "GTAONoisePasses" << Yaml::Value << settings.GTAONoisePasses;
-			out << Yaml::Key << "AOShadowTolerance" << Yaml::Value << settings.AOShadowTolerance;
 			out << Yaml::Key << "SSR" << Yaml::Value << settings.EnableSSR;
 			out << Yaml::Key << "JumpFloodOutline" << Yaml::Value << settings.EnableJumpFlood;
 			out << Yaml::Key << "RenderScaleMode" << Yaml::Value << RenderScaleModeToString(settings.RenderScaleMode);
@@ -282,6 +281,12 @@ namespace Lux
 			out << Yaml::Key << "UpsampleScale" << Yaml::Value << settings.BloomUpsampleScale;
 			out << Yaml::Key << "Intensity" << Yaml::Value << settings.BloomIntensity;
 			out << Yaml::Key << "DirtIntensity" << Yaml::Value << settings.BloomDirtIntensity;
+			out << Yaml::Key << "StreakCount" << Yaml::Value << settings.BloomStreakCount;
+			out << Yaml::Key << "StreakLength" << Yaml::Value << settings.BloomStreakLength;
+			out << Yaml::Key << "StreakIntensity" << Yaml::Value << settings.BloomStreakIntensity;
+			out << Yaml::Key << "StreakRotation" << Yaml::Value << settings.BloomStreakRotation;
+			out << Yaml::Key << "HaloIntensity" << Yaml::Value << settings.BloomHaloIntensity;
+			out << Yaml::Key << "ChromaticSpread" << Yaml::Value << settings.BloomChromaticSpread;
 			out << Yaml::EndMap;
 
 			out << Yaml::Key << "DOF" << Yaml::Value;
@@ -328,7 +333,6 @@ namespace Lux
 				settings.GTAOVisibilityBitmask = rendering["GTAOVisibilityBitmask"].as<bool>(settings.GTAOVisibilityBitmask);
 				settings.GTAOThickness = rendering["GTAOThickness"].as<float>(settings.GTAOThickness);
 				settings.GTAONoisePasses = rendering["GTAONoisePasses"].as<uint32_t>(settings.GTAONoisePasses);
-				settings.AOShadowTolerance = rendering["AOShadowTolerance"].as<float>(settings.AOShadowTolerance);
 				settings.EnableSSR = rendering["SSR"].as<bool>(settings.EnableSSR);
 				settings.EnableJumpFlood = rendering["JumpFloodOutline"].as<bool>(settings.EnableJumpFlood);
 				settings.RenderScaleMode = RenderScaleModeFromString(rendering["RenderScaleMode"].as<std::string>(RenderScaleModeToString(settings.RenderScaleMode)));
@@ -385,6 +389,12 @@ namespace Lux
 					settings.BloomUpsampleScale = bloom["UpsampleScale"].as<float>(settings.BloomUpsampleScale);
 					settings.BloomIntensity = bloom["Intensity"].as<float>(settings.BloomIntensity);
 					settings.BloomDirtIntensity = bloom["DirtIntensity"].as<float>(settings.BloomDirtIntensity);
+					settings.BloomStreakCount = bloom["StreakCount"].as<uint32_t>(settings.BloomStreakCount);
+					settings.BloomStreakLength = bloom["StreakLength"].as<float>(settings.BloomStreakLength);
+					settings.BloomStreakIntensity = bloom["StreakIntensity"].as<float>(settings.BloomStreakIntensity);
+					settings.BloomStreakRotation = bloom["StreakRotation"].as<float>(settings.BloomStreakRotation);
+					settings.BloomHaloIntensity = bloom["HaloIntensity"].as<float>(settings.BloomHaloIntensity);
+					settings.BloomChromaticSpread = bloom["ChromaticSpread"].as<float>(settings.BloomChromaticSpread);
 				}
 
 				if (auto dof = postFX["DOF"])
@@ -424,7 +434,6 @@ namespace Lux
 			serializer.WriteRaw(settings.GTAODenoisePasses);
 			serializer.WriteRaw(settings.GTAOSliceCount);
 			serializer.WriteRaw(settings.GTAOStepsPerSlice);
-			serializer.WriteRaw(settings.AOShadowTolerance);
 			serializer.WriteRaw(settings.EnableSSR);
 			serializer.WriteRaw(settings.EnableJumpFlood);
 			serializer.WriteRaw(settings.RenderScaleMode);
@@ -485,6 +494,12 @@ namespace Lux
 			serializer.WriteRaw(settings.GTAOVisibilityBitmask);
 			serializer.WriteRaw(settings.GTAOThickness);
 			serializer.WriteRaw(settings.GTAONoisePasses);
+			serializer.WriteRaw(settings.BloomStreakCount);
+			serializer.WriteRaw(settings.BloomStreakLength);
+			serializer.WriteRaw(settings.BloomStreakIntensity);
+			serializer.WriteRaw(settings.BloomStreakRotation);
+			serializer.WriteRaw(settings.BloomHaloIntensity);
+			serializer.WriteRaw(settings.BloomChromaticSpread);
 		}
 
 		void ReadSceneRendererRuntimeSettings(FileStreamReader& stream, ProjectSceneRendererSettings& settings, uint32_t version)
@@ -512,7 +527,12 @@ namespace Lux
 				stream.ReadRaw(settings.GTAOSliceCount);
 				stream.ReadRaw(settings.GTAOStepsPerSlice);
 			}
-			stream.ReadRaw(settings.AOShadowTolerance);
+			// Packs before 29 carry the removed AO shadow tolerance here.
+			if (version < 29)
+			{
+				float removedAOShadowTolerance = 1.0f;
+				stream.ReadRaw(removedAOShadowTolerance);
+			}
 			stream.ReadRaw(settings.EnableSSR);
 			stream.ReadRaw(settings.EnableJumpFlood);
 			if (version >= 4)
@@ -633,6 +653,16 @@ namespace Lux
 				stream.ReadRaw(settings.GTAOVisibilityBitmask);
 				stream.ReadRaw(settings.GTAOThickness);
 				stream.ReadRaw(settings.GTAONoisePasses);
+			}
+
+			if (version >= 28)
+			{
+				stream.ReadRaw(settings.BloomStreakCount);
+				stream.ReadRaw(settings.BloomStreakLength);
+				stream.ReadRaw(settings.BloomStreakIntensity);
+				stream.ReadRaw(settings.BloomStreakRotation);
+				stream.ReadRaw(settings.BloomHaloIntensity);
+				stream.ReadRaw(settings.BloomChromaticSpread);
 			}
 
 			if (version >= 7)

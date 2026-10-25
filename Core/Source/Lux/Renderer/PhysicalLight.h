@@ -90,6 +90,15 @@ namespace Lux {
 			return intensity; // Unitless or Candela
 		}
 
+		// Area light: lumens -> luminance over the emitting area, for a Lambertian emitter (one side, or
+		// both halves of the power when two-sided). Unitless is luminance already.
+		inline float AreaIntensity(LightUnit unit, float intensity, float area, bool twoSided)
+		{
+			if (unit == LightUnit::Lumens)
+				return intensity / (glm::pi<float>() * glm::max(area, 1e-4f) * (twoSided ? 2.0f : 1.0f));
+			return intensity;
+		}
+
 	} // namespace PhysicalLight
 
 } // namespace Lux

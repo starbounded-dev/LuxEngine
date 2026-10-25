@@ -31,6 +31,8 @@ namespace Lux {
 
 		bool IsActive() const { return m_IsActive; }
 		void SetActive(bool active) { m_IsActive = active; }
+		// True while a fly or orbit drag holds the mouse (cursor hidden, ImGui mouse input off).
+		bool IsMouseCaptured() const { return m_CameraMouseCaptured; }
 
 		CameraMode GetCurrentMode() const { return m_CameraMode; }
 

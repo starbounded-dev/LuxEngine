@@ -30,6 +30,11 @@ namespace Lux {
 			return std::memcmp(&lhs, &rhs, sizeof(GPUMaterialData)) == 0;
 		}
 
+		bool IsRefractive(const GPUMaterialData& data)
+		{
+			return data.Refraction.x > 0.0f;
+		}
+
 		uint32_t PackFloatBits(float value)
 		{
 			uint32_t bits = 0;
@@ -239,6 +244,13 @@ namespace Lux {
 				((uint32_t)surface.MetalnessChannel << GPUMaterialChannelShiftMetalness)
 				| ((uint32_t)surface.RoughnessChannel << GPUMaterialChannelShiftRoughness)
 				| ((uint32_t)surface.OcclusionChannel << GPUMaterialChannelShiftOcclusion);
+
+			data.Refraction = glm::vec4(
+				transparent ? glm::clamp(surface.Transmission, 0.0f, 1.0f) : 0.0f,
+				glm::max(surface.IOR, 1.0f),
+				glm::max(surface.Thickness, 0.0f),
+				glm::max(surface.AttenuationDistance, 0.0f));
+			data.AttenuationColor = glm::vec4(ToLinearColor(glm::clamp(surface.AttenuationColor, glm::vec3(0.0f), glm::vec3(1.0f))), 0.0f);
 		}
 
 		data.Metadata = glm::uvec4(
@@ -404,6 +416,8 @@ namespace Lux {
 		data.Metadata.z = materialID;
 		if (forceDirty || !MaterialDataEquals(m_Materials[materialID], data))
 		{
+			m_RefractiveMaterialCount -= IsRefractive(m_Materials[materialID]) ? 1u : 0u;
+			m_RefractiveMaterialCount += IsRefractive(data) ? 1u : 0u;
 			m_Materials[materialID] = data;
 			MarkMaterialDirty(materialID);
 		}
@@ -420,6 +434,7 @@ namespace Lux {
 
 		m_MaterialIDByKey.erase(row.Key);
 		row = {};
+		m_RefractiveMaterialCount -= IsRefractive(m_Materials[materialID]) ? 1u : 0u;
 		m_Materials[materialID] = GetFallbackMaterialData();
 		m_Materials[materialID].Metadata.z = materialID;
 		m_FreeMaterialIDs.push_back(materialID);
@@ -503,6 +518,7 @@ namespace Lux {
 
 		m_FrameIndex = 0;
 		m_DirtyMaterialCount = 0;
+		m_RefractiveMaterialCount = 0;
 		m_Materials.clear();
 		m_Rows.clear();
 		m_FreeMaterialIDs.clear();

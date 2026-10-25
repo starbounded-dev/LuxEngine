@@ -30,6 +30,7 @@
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Core/Hash.h"
 
+#include <concepts>
 #include <entt/entt.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui/imgui.h>
@@ -70,7 +71,8 @@ namespace Lux {
 			if (entity.HasComponent<CameraComponent>())           return { LUX_ICON_VIDEO_CAMERA, cool };
 			if (entity.HasComponent<DirectionalLightComponent>()) return { LUX_ICON_SUN_O, warm };
 			if (entity.HasComponent<PointLightComponent>() ||
-			    entity.HasComponent<SpotLightComponent>())        return { LUX_ICON_LIGHTBULB_O, warm };
+			    entity.HasComponent<SpotLightComponent>() ||
+			    entity.HasComponent<AreaLightComponent>())        return { LUX_ICON_LIGHTBULB_O, warm };
 			if (entity.HasComponent<SkyLightComponent>())         return { LUX_ICON_SUN_O, warm };
 			if (entity.HasComponent<StaticMeshComponent>() ||
 			    entity.HasComponent<MeshComponent>())             return { LUX_ICON_CUBE, neutral };
@@ -128,6 +130,24 @@ namespace Lux {
 
 				fn(entity.GetComponent<TComponent>(), entity);
 			}
+		}
+
+		// Components with an on/off switch get a checkbox in their section header (Unity's
+		// per-component enabled). Meshes keep their older Visible name, the listener its Active.
+		template<typename TComponent>
+		constexpr bool HasEnabledFlag = requires(TComponent& c) { { c.Enabled } -> std::same_as<bool&>; }
+			|| requires(TComponent& c) { { c.Visible } -> std::same_as<bool&>; }
+			|| std::is_same_v<TComponent, AudioListenerComponent>;
+
+		template<typename TComponent>
+		bool& GetEnabledFlag(TComponent& component)
+		{
+			if constexpr (std::is_same_v<TComponent, AudioListenerComponent>)
+				return component.Active;
+			else if constexpr (requires { component.Visible; })
+				return component.Visible;
+			else
+				return component.Enabled;
 		}
 
 		template<typename TValue, typename Getter>
@@ -385,9 +405,40 @@ namespace Lux {
 			{
 				const ImRect secRect = ImGuiEx::GetItemRect();
 				ImGuiContext& g = *GImGui;
-				const float labelX = secRect.Min.x + g.Style.FramePadding.x + g.FontSize + g.Style.ItemInnerSpacing.x;
+				float labelX = secRect.Min.x + g.Style.FramePadding.x + g.FontSize + g.Style.ItemInnerSpacing.x;
+				bool enabled = true;
+
+				// Enable checkbox between the chevron and the label; it overlaps the node (AllowOverlap),
+				// so clicking it doesn't fold the section.
+				if constexpr (HasEnabledFlag<TComponent>)
+				{
+					enabled = GetEnabledFlag(firstComponent);
+					const bool mixed = IsSelectionInconsistent<bool>(scene, entityIDs, [](Entity entity)
+					{
+						return GetEnabledFlag(entity.GetComponent<TComponent>());
+					});
+
+					ImGui::SameLine();
+					ImGui::SetCursorScreenPos(ImVec2(labelX, secRect.Min.y));
+					{
+						ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixed);
+						if (ImGui::Checkbox("##ComponentEnabled", &enabled))
+						{
+							ApplyToSelection<TComponent>(scene, entityIDs, [enabled](TComponent& component, Entity)
+							{
+								GetEnabledFlag(component) = enabled;
+							});
+							EditorStack::Get().MarkEntitiesEdited(entityIDs, enabled ? "Enable Component" : "Disable Component");
+						}
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("%s", enabled ? "Enabled - untick to switch this component off" : "Disabled - tick to switch this component on");
+
+					labelX = ImGui::GetItemRectMax().x + g.Style.ItemInnerSpacing.x;
+				}
+
 				const float labelY = secRect.Min.y + (secRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
-				ImGui::GetWindowDrawList()->AddText(ImVec2(labelX, labelY), Colors::Theme::textBrighter,
+				ImGui::GetWindowDrawList()->AddText(ImVec2(labelX, labelY), enabled ? Colors::Theme::textBrighter : Colors::Theme::textDarker,
 					Utils::String::ToUpperCopy(name).c_str());
 			}
 
@@ -843,6 +894,12 @@ namespace Lux {
 					entity.AddComponent<SpotLightComponent>();
 				}
 
+				if (ImGui::MenuItem("Area Light"))
+				{
+					Entity entity = createEntity("Area Light");
+					entity.AddComponent<AreaLightComponent>();
+				}
+
 				if (ImGui::MenuItem("Sky Light"))
 				{
 					Entity entity = createEntity("Sky Light");
@@ -982,7 +1039,8 @@ namespace Lux {
 			const float nameX = iconX + iconSize.x + g.Style.ItemInnerSpacing.x + 2.0f;
 			const float nameRight = contentRight;
 			const ImU32 baseName = isSelected ? Colors::Theme::accent : Colors::Theme::text;
-			const ImU32 nameColor = (locked || (hasVisToggle && !meshVisible)) ? Colors::Theme::textDarker : baseName;
+			const bool inactive = !m_Context->IsEntityActiveInHierarchy(entity);
+			const ImU32 nameColor = (locked || inactive || (hasVisToggle && !meshVisible)) ? Colors::Theme::textDarker : baseName;
 			const ImVec2 nameSize = ImGui::CalcTextSize(tag.c_str());
 			dl->PushClipRect(ImVec2(nameX, rowRect.Min.y), ImVec2(std::max(nameX, nameRight), rowRect.Max.y), true);
 			dl->AddText(ImVec2(nameX, centerY - nameSize.y * 0.5f), nameColor, tag.c_str());
@@ -1002,6 +1060,7 @@ namespace Lux {
 			if (overEye)
 			{
 				entity.GetComponent<StaticMeshComponent>().Visible = !meshVisible;
+				EditorStack::Get().MarkEntitiesEdited({ entity.GetUUID() }, meshVisible ? "Hide Mesh" : "Show Mesh");
 			}
 			else
 			{
@@ -1455,13 +1514,32 @@ namespace Lux {
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
 
-			// Accent status dot before the name, like the concept's inspector header.
+			// Active checkbox before the name (Unity's activeSelf): unticked switches the entity and
+			// all its children off, in the editor and at runtime.
 			{
-				const float dotRadius = 4.0f;
-				const ImVec2 cursor = ImGui::GetCursorScreenPos();
-				const ImVec2 dotCenter(cursor.x + dotRadius + 2.0f, cursor.y + ImGui::GetFrameHeight() * 0.5f);
-				ImGui::GetWindowDrawList()->AddCircleFilled(dotCenter, dotRadius, Colors::Theme::accent);
-				ImGui::Dummy(ImVec2(dotRadius * 2.0f + 4.0f, ImGui::GetFrameHeight()));
+				bool active = firstEntity.GetComponent<TagComponent>().Active;
+				const bool mixed = IsSelectionInconsistent<bool>(m_Context, entityIDs, [](Entity entity)
+				{
+					return entity.GetComponent<TagComponent>().Active;
+				});
+				{
+					ImGuiEx::ScopedItemFlags mixedFlag(ImGuiItemFlags_MixedValue, mixed);
+					if (ImGui::Checkbox("##EntityActive", &active))
+					{
+						ApplyToSelection<TagComponent>(m_Context, entityIDs, [active](TagComponent& component, Entity)
+						{
+							component.Active = active;
+						});
+						EditorStack::Get().MarkEntitiesEdited(entityIDs, active ? "Activate Entity" : "Deactivate Entity");
+					}
+				}
+				if (ImGui::IsItemHovered())
+				{
+					if (active && !isMultiSelect && !m_Context->IsEntityActiveInHierarchy(firstEntity))
+						ImGui::SetTooltip("Active, but a parent is inactive, so this entity is off too");
+					else
+						ImGui::SetTooltip("%s", active ? "Active - untick to switch this entity and its children off" : "Inactive - tick to switch it back on");
+				}
 				ImGui::SameLine(0.0f, 8.0f);
 			}
 
@@ -1590,6 +1668,7 @@ namespace Lux {
 				const bool canAddDirectionalLight = canAddComponent.template operator()<DirectionalLightComponent>();
 				const bool canAddPointLight = canAddComponent.template operator()<PointLightComponent>();
 				const bool canAddSpotLight = canAddComponent.template operator()<SpotLightComponent>();
+				const bool canAddAreaLight = canAddComponent.template operator()<AreaLightComponent>();
 				const bool canAddSkyLight = canAddComponent.template operator()<SkyLightComponent>();
 
 				if (canAddCamera || canAddScript)
@@ -1894,7 +1973,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddSkyLight)
+				if (canAddDirectionalLight || canAddPointLight || canAddSpotLight || canAddAreaLight || canAddSkyLight)
 					addCategoryHeader("Lighting");
 
 				if (canAddDirectionalLight)
@@ -1932,6 +2011,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<SpotLightComponent>())
 								entity.AddComponent<SpotLightComponent>();
+						}
+					});
+				}
+
+				if (canAddAreaLight)
+				{
+					addComponentRow("Area Light", EditorResources::PointLightIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<AreaLightComponent>())
+								entity.AddComponent<AreaLightComponent>();
 						}
 					});
 				}
@@ -2071,6 +2163,7 @@ namespace Lux {
 						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
 						row.operator()<PointLightComponent>("PointLightComponent", "Point Light");
 						row.operator()<SpotLightComponent>("SpotLightComponent", "Spot Light");
+						row.operator()<AreaLightComponent>("AreaLightComponent", "Area Light");
 						row.operator()<SkyLightComponent>("SkyLightComponent", "Sky Light");
 						row.operator()<RigidBodyComponent>("RigidBodyComponent", "Rigid Body");
 						row.operator()<CharacterControllerComponent>("CharacterControllerComponent", "Character Controller");
@@ -3245,7 +3338,6 @@ namespace Lux {
 							component.*member = value;
 						});
 				};
-				property("Enabled", &AudioPortalComponent::Enabled, [](const char* label, bool& value) { return ImGuiEx::Property(label, value, "", false); });
 				property("Open", &AudioPortalComponent::Open, [](const char* label, float& value) { return ImGuiEx::Property(label, value, 0.01f, 0.0f, 1.0f, "0 closes the shutter; 1 removes it.", false); });
 				property("Half Extents", &AudioPortalComponent::HalfExtents, [](const char* label, glm::vec3& value) { return ImGuiEx::Property(label, value, 0.01f, 0.001f, 10000.0f, "Local X width, Y height, Z thickness.", false); });
 				property("Blend Distance", &AudioPortalComponent::BlendDistance, [](const char* label, float& value) { return ImGuiEx::Property(label, value, 0.1f, 0.001f, 10000.0f, "Room leakage fades away with distance from the opening.", false); });
@@ -3293,10 +3385,6 @@ namespace Lux {
 							component.*member = value;
 						});
 				};
-				property("Enabled", &AudioZoneComponent::Enabled, [](const char* label, bool& value)
-				{
-					return ImGuiEx::Property(label, value, "", false);
-				});
 				property("Shape", &AudioZoneComponent::Shape, [](const char* label, AudioZoneShape& value)
 				{
 					static const char* names[] = { "Box", "Sphere", "Collider" };
@@ -3458,13 +3546,6 @@ namespace Lux {
 			[this](AudioListenerComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
 			{
 				ImGuiEx::BeginPropertyGrid();
-				if (ImGuiEx::Property("Active", firstComponent.Active))
-				{
-					ApplyToSelection<AudioListenerComponent>(m_Context, selectedEntities, [&firstComponent](AudioListenerComponent& component, Entity)
-					{
-						component.Active = firstComponent.Active;
-					});
-				}
 				if (ImGuiEx::Property("Listener Index", firstComponent.ListenerIndex, 0, AudioListener::MaxListeners - 1,
 					"Active listeners need unique indices. On a conflict, the lowest entity UUID wins."))
 				{
@@ -3547,14 +3628,6 @@ namespace Lux {
 					});
 				}
 				ImGui::PopItemFlag();
-
-				if (ImGuiEx::Property("Visible", firstComponent.Visible))
-				{
-					ApplyToSelection<StaticMeshComponent>(m_Context, selectedEntities, [&firstComponent](StaticMeshComponent& component, Entity)
-					{
-						component.Visible = firstComponent.Visible;
-					});
-				}
 
 				ImGuiEx::EndPropertyGrid();
 
@@ -3833,6 +3906,149 @@ namespace Lux {
 					{
 						component.SoftShadows = firstComponent.SoftShadows;
 					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<AreaLightComponent>(m_Context, entityIDs, "Area Light", EditorResources::PointLightIcon,
+			[this](AreaLightComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				{
+					static const char* shapeNames[] = { "Rectangle", "Disk", "Sphere", "Tube" };
+					int32_t current = static_cast<int32_t>(firstComponent.Shape);
+					if (ImGuiEx::PropertyDropdown("Shape", shapeNames, 4, &current))
+					{
+						firstComponent.Shape = static_cast<AreaLightShape>(current);
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Shape = firstComponent.Shape;
+						});
+					}
+				}
+
+				if (ImGuiEx::PropertyColor("Radiance", firstComponent.Radiance))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.Radiance = firstComponent.Radiance;
+					});
+				}
+
+				if (ImGuiEx::Property("Intensity", firstComponent.Intensity, 0.1f, 0.0f, 100000.0f))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.Intensity = firstComponent.Intensity;
+					});
+				}
+
+				{
+					static const char* unitNames[] = { "Unitless (luminance)", "Lumens" };
+					static const LightUnit unitValues[] = { LightUnit::Unitless, LightUnit::Lumens };
+					int32_t current = firstComponent.Unit == LightUnit::Lumens ? 1 : 0;
+					if (ImGuiEx::PropertyDropdown("Unit", unitNames, 2, &current))
+					{
+						firstComponent.Unit = unitValues[current];
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Unit = firstComponent.Unit;
+						});
+					}
+				}
+
+				if (ImGuiEx::Property("Use Color Temperature", firstComponent.UseColorTemperature))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.UseColorTemperature = firstComponent.UseColorTemperature;
+					});
+				}
+
+				if (ImGuiEx::Property("Temperature (K)", firstComponent.ColorTemperature, 50.0f, 1000.0f, 15000.0f))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.ColorTemperature = firstComponent.ColorTemperature;
+					});
+				}
+
+				if (firstComponent.Shape == AreaLightShape::Rect)
+				{
+					if (ImGuiEx::Property("Width", firstComponent.Width, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Width = firstComponent.Width;
+						});
+					}
+
+					if (ImGuiEx::Property("Height", firstComponent.Height, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Height = firstComponent.Height;
+						});
+					}
+				}
+				else
+				{
+					if (firstComponent.Shape == AreaLightShape::Tube && ImGuiEx::Property("Length", firstComponent.Length, 0.01f, 0.0f, 100.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Length = firstComponent.Length;
+						});
+					}
+
+					if (ImGuiEx::Property("Radius", firstComponent.Radius, 0.01f, 0.0f, 50.0f))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.Radius = firstComponent.Radius;
+						});
+					}
+				}
+
+				// Spheres and tubes emit all around; only flat shapes have a back side.
+				const bool flatShape = firstComponent.Shape == AreaLightShape::Rect || firstComponent.Shape == AreaLightShape::Disk;
+				if (flatShape && ImGuiEx::Property("Two Sided", firstComponent.TwoSided))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.TwoSided = firstComponent.TwoSided;
+					});
+				}
+
+				if (ImGuiEx::Property("Range", firstComponent.Range, 0.1f, 0.0f, 1000.0f))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.Range = firstComponent.Range;
+					});
+				}
+
+				if (ImGuiEx::Property("Cast Shadows", firstComponent.CastsShadows,
+					"Takes shadow atlas tiles: one per lit side of a rectangle or disk, six for a sphere or tube. A mesh placed inside the light's surface shadows it too; turn off that mesh's shadow casting."))
+				{
+					ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+					{
+						component.CastsShadows = firstComponent.CastsShadows;
+					});
+				}
+
+				{
+					ImGuiEx::ScopedDisable noShadows(!firstComponent.CastsShadows);
+					if (ImGuiEx::Property("Soft Shadows", firstComponent.SoftShadows,
+						"Contact-hardening penumbra sized by the light's shape. Needs the PCSS shadow filter (Scene Renderer panel, Shadows > Filter); the other filters use a fixed blur."))
+					{
+						ApplyToSelection<AreaLightComponent>(m_Context, selectedEntities, [&firstComponent](AreaLightComponent& component, Entity)
+						{
+							component.SoftShadows = firstComponent.SoftShadows;
+						});
+					}
 				}
 
 				ImGuiEx::EndPropertyGrid();

@@ -167,16 +167,62 @@ namespace Lux {
 		glm::vec2 Padding2 = { 0.0f, 0.0f };
 	};
 
+	// An area light: its centre and two half-extent vectors. A rect or disk spans HalfRight x HalfUp and
+	// emits along -normalize(cross(HalfRight, HalfUp)); a sphere's radius is length(HalfRight); a tube's
+	// axis and half-length are HalfRight and its radius length(HalfUp). Intensity is luminance.
+	// Mirrors AreaLight in LTC.glslh.
+	struct AreaLight
+	{
+		glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+		float     Intensity = 0.0f;
+		glm::vec3 Radiance = { 1.0f, 1.0f, 1.0f };
+		float     Range = 10.0f;
+		glm::vec3 HalfRight = { 0.5f, 0.0f, 0.0f };
+		uint32_t  Shape = 0; // AreaLightShape
+		glm::vec3 HalfUp = { 0.0f, 0.5f, 0.0f };
+		uint32_t  Flags = 0; // AreaLightFlags
+		uint32_t  ShadowIndex = 0;        // first spot-atlas tile; set by SceneRenderer
+		float     AtlasScale = 1.0f;      // atlas tile size in UV; set by SceneRenderer
+		uint32_t  ShadowFlags = 0;        // AreaLightShadowFlags; the scene requests, SceneRenderer keeps it only with a tile
+		float     ShadowEmitterDepth = 0.0f; // the emitter's linear depth in its tile (the apex sits behind it); set by SceneRenderer
+	};
+
+	// AreaLight::Flags; mirrors AREA_LIGHT_* in LTC.glslh.
+	enum AreaLightFlags : uint32_t
+	{
+		AreaLightTwoSided = 1u << 0,
+	};
+
+	// AreaLight::ShadowFlags; mirrors AREA_LIGHT_SHADOW_* in LTC.glslh.
+	enum AreaLightShadowFlags : uint32_t
+	{
+		AreaLightShadowCasts = 1u << 0,
+		AreaLightShadowSoft = 1u << 1,
+	};
+
+	// The spot-atlas tile a one-sided rect or disk area light renders its shadow into: a 120-degree cone
+	// across the shape's short side with its apex behind the emitter (SceneRenderer.cpp). Reads
+	// Position, HalfRight, HalfUp and Range. The editor draws it as the light's shadow frustum.
+	struct AreaLightShadowFrustum
+	{
+		glm::mat4 ViewProjection{ 1.0f }; // [0, 1] depth
+		float EmitterDepth = 0.0f;        // linear depth of the emitter's plane from the apex
+	};
+	AreaLightShadowFrustum ComputeAreaLightShadowFrustum(const AreaLight& light);
+
 	static_assert(sizeof(PointLight) == 48, "PointLight must match the GLSL std140 layout.");
+	static_assert(sizeof(AreaLight) == 80, "AreaLight must match the GLSL std140 layout.");
 	static_assert(sizeof(SpotLight) == 96, "SpotLight must match the GLSL std140 layout.");
 
 	struct LightEnvironment
 	{
 		static constexpr uint32_t MaxDirectionalLights = 1;
+		static constexpr uint32_t MaxAreaLights = 32; // MAX_AREA_LIGHTS in LTC.glslh
 
 		DirectionalLight        DirectionalLights[MaxDirectionalLights];
 		std::vector<PointLight> PointLights;
 		std::vector<SpotLight>  SpotLights;
+		std::vector<AreaLight>  AreaLights; // every area light; the renderer keeps the nearest MaxAreaLights
 
 		uint64_t GetPointLightsSize() const
 		{
@@ -280,7 +326,6 @@ namespace Lux {
 		RendererQualityCategories QualityCategories;
 		bool  EnableGTAO = true;
 		bool  GTAOBentNormals = false;
-		float AOShadowTolerance = 1.0f;
 		int   GTAODenoisePasses = 4;
 		// XeGTAO sampling: SliceCount * StepsPerSlice * 2 depth samples per pixel, and
 		// the dominant cost of the GTAO pass. Driven by the AO quality tier - see
@@ -353,9 +398,17 @@ namespace Lux {
 		SceneRendererOptions::EffectResolutionScale ResolutionScale = SceneRendererOptions::EffectResolutionScale::Half;
 		float Threshold = 1.0f;
 		float Knee = 0.1f;
-		float UpsampleScale = 1.0f;
+		float UpsampleScale = 1.0f; // unused since the FFT bloom; kept so project files round-trip
 		float Intensity = 1.0f;
 		float DirtIntensity = 1.0f;
+		// The glare kernel the FFT bloom convolves with (rebuilt when these change).
+		static constexpr uint32_t MaxStreakCount = 8; // MAX_STREAK_LINES in BloomFFT.glsl
+		uint32_t StreakCount = 6;     // streak lines through the centre (each makes two rays); 0 = none
+		float StreakLength = 1.0f;
+		float StreakIntensity = 1.0f;
+		float StreakRotation = 11.5f; // degrees
+		float HaloIntensity = 1.0f;
+		float ChromaticSpread = 0.08f; // red glare this much wider, blue this much narrower
 	};
 
 	struct DOFSettings
@@ -447,6 +500,8 @@ namespace Lux {
 		static constexpr uint32_t MaxSpotShadows = 16;
 		// Point lights take six spot-atlas tiles each (one per cube face).
 		static constexpr uint32_t MaxPointShadows = 8;
+		// Shadowed area lights. They take the atlas tiles spot and point lights leave free.
+		static constexpr uint32_t MaxAreaShadows = 8;
 		// Tiles in the shared spot/point shadow atlas; mirrors SHADOW_ATLAS_MAX_TILES in Buffers.glslh.
 		static constexpr uint32_t MaxShadowAtlasTiles = 64;
 		static_assert(MaxSpotShadows + 6 * MaxPointShadows <= MaxShadowAtlasTiles);
@@ -872,6 +927,31 @@ namespace Lux {
 		RenderGraphDebugSnapshot GetRenderGraphDebugSnapshot();
 		RendererFrameDebugSnapshot GetRendererFrameDebugSnapshot() const;
 		const GPUSceneDebugSnapshot& GetGPUSceneDebugSnapshot() const { return m_GPUSceneDebugSnapshot; }
+
+		// The spot shadow atlas as this frame's light selection laid it out (main thread), for the
+		// Renderer Debugger: every tile in order, and how many shadowed lights of each kind asked for one.
+		struct ShadowAtlasTile
+		{
+			enum class LightType : uint8_t { Spot, Point, Area };
+			LightType Type = LightType::Spot;
+			uint32_t LightIndex = 0; // into LightEnvironment::SpotLights / PointLights, or the uploaded (nearest) area lights
+			uint32_t Face = 0;       // cube faces: +X, -X, +Y, -Y, +Z, -Z; a flat area light: 0 front, 1 back
+			glm::vec3 LightPosition{ 0.0f };
+			bool CubeFace = false;   // a point light's, or a sphere or tube area light's, cube face
+		};
+		struct ShadowAtlasDebugInfo
+		{
+			Ref<Image2D> Image; // DEPTH32F, static and dynamic casters together
+			uint32_t AtlasSize = 0;
+			uint32_t GridSize = 1;
+			uint32_t TileSize = 0;
+			std::vector<ShadowAtlasTile> Tiles;
+			// Shadowed lights within the shadow distance; those past the tile budget have no tile.
+			uint32_t SpotRequested = 0;
+			uint32_t PointRequested = 0;
+			uint32_t AreaRequested = 0;
+		};
+		const ShadowAtlasDebugInfo& GetShadowAtlasDebugInfo() const { return m_ShadowAtlasDebugInfo; }
 		// The snapshot's validation loops cost O(instances + materials) CPU, so it
 		// is only built on frames where a consumer (Renderer Debugger panel) asks.
 		void RequestGPUSceneDebugSnapshot() { m_GPUSceneDebugSnapshotRequested = true; }
@@ -1309,6 +1389,7 @@ namespace Lux {
 		void SelectedGeometryPass();
 		void GBufferPass();
 		void DeferredLightingPass();
+		void AreaLightPass();
 		void TransparentForwardPass();
 		void GeometryWireframePass();
 		void GBufferDebugPass();
@@ -1379,7 +1460,6 @@ namespace Lux {
 		Ref<Image2D> GetGeometryMetalRoughOutput() const;
 		Ref<Image2D> GetGeometryMaterialIDOutput() const;
 		Ref<Image2D> GetGeometryObjectIDOutput() const;
-		Ref<Image2D> GetGeometryVelocityOutput() const;
 		void CreateHZBPassMaterials();
 		void CreatePreIntegrationPassMaterials();
 		void CreatePreConvolutionPassMaterials();
@@ -1581,12 +1661,12 @@ namespace Lux {
 			float DepthMIPSamplingOffset = 3.3f;
 			int NoiseIndex = 0;
 			glm::vec2 HZBUVFactor = { 1.0f, 1.0f };
-			float ShadowTolerance = 0.0f;
 			uint32_t SliceCount = 9;
 			uint32_t StepsPerSlice = 3;
 			float Thickness = 0.5f;
 			uint32_t VisibilityBitmask = 0;
 			uint32_t NoisePassCount = 1;
+			float Padding0 = 0.0f;
 			glm::vec2 Padding = { 0.0f, 0.0f };
 		} m_GTAODataCB;
 		static_assert(sizeof(CBGTAOData) == 88, "CBGTAOData must match GTAOConstants in GTAO.hlsl.");
@@ -1603,6 +1683,19 @@ namespace Lux {
 			glm::vec3  Padding{};
 			PointLight PointLights[256]{};
 		} m_PointLightsUB;
+
+		struct UBAreaLights
+		{
+			uint32_t  Count = 0;
+			glm::vec3 Padding{};
+			AreaLight AreaLights[LightEnvironment::MaxAreaLights]{};
+		} m_AreaLightsUB;
+		uint32_t m_AreaLightCount = 0; // this frame's uploaded area lights; the area pass runs only when > 0
+		// The submitted render scene holds a refractive material: Pre-Convolution runs for it, and the
+		// transparent pass reads its output. Set in SubmitRenderScene, cleared in BeginScene.
+		bool m_FrameHasRefraction = false;
+		bool m_AreaLightCapWarned = false;
+		bool m_AreaShadowBudgetWarned = false; // logged once when shadowed area lights get no atlas tile
 
 		struct UBSpotLights
 		{
@@ -1665,6 +1758,7 @@ namespace Lux {
 		Ref<UniformBufferSet> m_UBSRendererData;
 		Ref<UniformBufferSet> m_UBSScreenData;
 		Ref<UniformBufferSet> m_UBSPointLights;
+		Ref<UniformBufferSet> m_UBSAreaLights;
 		Ref<UniformBufferSet> m_UBSSpotLights;
 
 		Ref<StorageBufferSet> m_SBSObjectIndexes;       // uint32_t[] - maps draw instance to GPUScene instance
@@ -1709,8 +1803,9 @@ namespace Lux {
 		uint32_t         m_SpotShadowMapSize = 2048;
 		uint32_t         m_SpotShadowAtlasGridSize = 1;
 		uint32_t         m_SpotShadowTileSize = 2048;
-		uint32_t         m_SpotShadowCount = 0;      // atlas tiles in use: spot lights + 6 per point light
+		uint32_t         m_SpotShadowCount = 0;      // atlas tiles in use: spot lights + 6 per point light + area lights
 		uint32_t         m_SpotShadowLightCount = 0; // spot lights with shadows
+		ShadowAtlasDebugInfo m_ShadowAtlasDebugInfo;
 
 		// ── Pre-depth pass ────────────────────────────────────────────────────
 		Ref<Pipeline>    m_PreDepthPipeline;
@@ -1794,26 +1889,19 @@ namespace Lux {
 		Ref<Material>    m_SSRCompositeMaterial;
 		glm::uvec3       m_SSRWorkGroups{ 1 };
 
-		// ── Bloom compute ────────────────────────────────────────────────────
-		Ref<ComputePass>     m_BloomComputePass;
-		Ref<PipelineCompute> m_BloomComputePipeline;
-		uint32_t             m_BloomComputeWorkgroupSize = 4;
-
-		struct BloomComputeTextures
-		{
-			Ref<Texture2D> Texture;
-			std::vector<Ref<ImageView>> ImageViews;
-		};
-		std::vector<BloomComputeTextures> m_BloomComputeTextures{ 3 };
-
-		struct BloomComputeMaterials
-		{
-			Ref<Material> PrefilterMaterial;
-			std::vector<Ref<Material>> DownsampleAMaterials;
-			std::vector<Ref<Material>> DownsampleBMaterials;
-			Ref<Material> FirstUpsampleMaterial;
-			std::vector<Ref<Material>> UpsampleMaterials;
-		} m_BloomComputeMaterials;
+		// ── Bloom (FFT convolution) ───────────────────────────────────────────
+		// The 512x512 transform grid (R+G complex, B complex), the kernel spectrum in the same layout,
+		// the resolved bloom the composite adds, and one material for the frame's dispatches and one
+		// for the kernel's.
+		static constexpr uint32_t BloomFFTSize = 512; // FFT_SIZE in BloomFFT.glsl
+		Ref<ComputePass>     m_BloomFFTPass;
+		Ref<Texture2D>       m_BloomFFTGrid[2];
+		Ref<Texture2D>       m_BloomFFTKernel[2];
+		Ref<Texture2D>       m_BloomTexture;
+		Ref<Material>        m_BloomFFTMaterial;
+		Ref<Material>        m_BloomFFTKernelMaterial;
+		bool                 m_BloomFFTKernelReady = false;
+		glm::vec4            m_BloomFFTKernelKey[2]{}; // the kernel settings it was built from
 		Ref<Texture2D> m_BloomDirtTexture;
 
 		// ── DOF ──────────────────────────────────────────────────────────────
@@ -1854,6 +1942,8 @@ namespace Lux {
 		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
 		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent forward
 		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
+		Ref<RenderPass>  m_AreaLightPass;               // fullscreen LTC area lights, added over deferred lighting
+		Ref<Material>    m_AreaLightMaterial;
 		Ref<Material>    m_DeferredLightingMaterial;
 		Ref<RenderPass>  m_GBufferDebugPass;
 		Ref<Material>    m_GBufferDebugMaterial;

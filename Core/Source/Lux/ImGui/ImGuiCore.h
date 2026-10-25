@@ -101,7 +101,7 @@ namespace Lux::ImGuiEx {
 	{
 		Normal,
 		Opaque,   // Force alpha to 1.0 for debug visualization
-		Depth     // Display single-channel as grayscale (for depth maps)
+		Depth     // Display single-channel as grayscale, contrast-stretched toward 1 for perspective depth maps (ImGui.hlsl)
 	};
 
 	// Get texture handles with mode support

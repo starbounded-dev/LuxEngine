@@ -1,0 +1,377 @@
+// Area lights with Linearly Transformed Cosines [Heitz, Dupuy, Hill, Neubelt 2016, "Real-Time
+// Polygonal-Light Shading with Linearly Transformed Cosines"]. The edge integral, the table
+// parameterisation and the horizon handling follow the authors' reference code
+// (github.com/selfshadow/ltc_code, BSD-2-Clause, see Core/vendor/ltc/LICENSE); the tables are
+// Renderer::GetLTCMatrixTexture / GetLTCAmplitudeTexture.
+//
+// The area-light pass and the transparent forward pass include this file; both bind AreaLightData, the
+// tables and the spot shadow atlas.
+
+#ifndef LUX_LTC_GLSLH
+#define LUX_LTC_GLSLH
+
+#include <Samplers.glslh>
+#include <ShadowMapping.glslh>
+
+const uint AREA_LIGHT_SHAPE_RECT = 0u; // AreaLightShape in Components.h
+const uint AREA_LIGHT_SHAPE_DISK = 1u;
+const uint AREA_LIGHT_SHAPE_SPHERE = 2u;
+const uint AREA_LIGHT_SHAPE_TUBE = 3u;
+const uint AREA_LIGHT_TWO_SIDED = 1u;  // AreaLightFlags in SceneRenderer.h
+const uint AREA_LIGHT_SHADOW_CASTS = 1u; // AreaLightShadowFlags in SceneRenderer.h
+const uint AREA_LIGHT_SHADOW_SOFT = 2u;
+
+#define MAX_AREA_LIGHTS 32 // LightEnvironment::MaxAreaLights
+
+// Mirrors SceneRenderer.h AreaLight (80 bytes). A rect or disk emits along
+// -normalize(cross(HalfRight, HalfUp)); a sphere's radius is length(HalfRight); a tube's axis and
+// half-length are HalfRight and its radius length(HalfUp). A shadowed light's tiles start at
+// u_SpotLightMatrices.Mats[ShadowIndex] in the spot atlas (LTC_AreaLightShadow says which follow).
+struct AreaLight
+{
+	vec3 Position;
+	float Intensity; // luminance
+	vec3 Radiance;
+	float Range;
+	vec3 HalfRight;
+	uint Shape;
+	vec3 HalfUp;
+	uint Flags;
+	uint ShadowIndex;
+	float AtlasScale;
+	uint ShadowFlags;
+	float ShadowEmitterDepth; // the emitter's linear depth in its tile; the apex sits behind it
+};
+
+layout(std140, set = 1, binding = 18) uniform AreaLightData
+{
+	uint LightCount;
+	AreaLight Lights[MAX_AREA_LIGHTS];
+} u_AreaLights;
+
+// 64x64 RGBA16F. Matrix: the inverse LTC matrix's (m00, m02, m20, m22), normalised by m11.
+// Amplitude: x = BRDF norm, y = Fresnel term, w = horizon-clipped sphere form factor.
+layout(set = 3, binding = 6) uniform texture2D u_LTCMatrixTexture;
+layout(set = 3, binding = 7) uniform texture2D u_LTCAmplitudeTexture;
+
+const float LTC_LUT_SIZE = 64.0;
+const float LTC_LUT_SCALE = (LTC_LUT_SIZE - 1.0) / LTC_LUT_SIZE;
+const float LTC_LUT_BIAS = 0.5 / LTC_LUT_SIZE;
+
+// A disk is integrated as a regular polygon whose circumradius is scaled so its area matches.
+const int LTC_DISK_VERTICES = 12;
+const float LTC_DISK_RADIUS_SCALE = 1.0233267; // sqrt(2 pi / (12 sin(2 pi / 12)))
+
+vec2 LTC_TableCoords(vec2 uv)
+{
+	return uv * LTC_LUT_SCALE + LTC_LUT_BIAS;
+}
+
+// Vector form factor of one polygon edge between two unit vectors: cross(v1, v2) scaled by a fit of
+// theta / (2 pi sin(theta)), so the 1 / (2 pi) of the form factor is already in.
+vec3 LTC_IntegrateEdge(vec3 v1, vec3 v2)
+{
+	float x = dot(v1, v2);
+	float y = abs(x);
+	float a = 0.8543985 + (0.4965155 + 0.0145206 * y) * y;
+	float b = 3.4175940 + (4.1616724 + y) * y;
+	float v = a / b;
+	float thetaOverSinTheta = (x > 0.0) ? v : 0.5 * inversesqrt(max(1.0 - x * x, 1e-7)) - v;
+	return cross(v1, v2) * thetaOverSinTheta;
+}
+
+// Form factor of a polygon from its vector form factor, clipped to the horizon through the
+// fitted sphere approximation.
+float LTC_FormFactor(vec3 vectorFormFactor)
+{
+	float len = length(vectorFormFactor);
+	if (len <= 1e-6)
+		return 0.0;
+
+	float z = vectorFormFactor.z / len;
+	vec2 uv = LTC_TableCoords(vec2(z * 0.5 + 0.5, len));
+	return len * texture(sampler2D(u_LTCAmplitudeTexture, r_LinearSampler), uv).w;
+}
+
+// World -> the shading point's (T1, T2, N) frame, T1 in the plane of N and V.
+mat3 LTC_ShadingFrame(vec3 N, vec3 V)
+{
+	vec3 T1 = V - N * dot(V, N);
+	if (dot(T1, T1) < 1e-8)
+		T1 = abs(N.z) < 0.999 ? cross(N, vec3(0.0, 0.0, 1.0)) : cross(N, vec3(1.0, 0.0, 0.0));
+	T1 = normalize(T1);
+	vec3 T2 = cross(N, T1);
+	return transpose(mat3(T1, T2, N));
+}
+
+// Vector form factor of the light's polygon after `transform` (a shading frame, or the LTC matrix
+// times it). Vertices wind counter-clockwise around cross(HalfRight, HalfUp), which faces away from
+// the emitting side, so a point on the emitting side sees a positive z.
+vec3 LTC_PolygonFormFactor(AreaLight light, vec3 worldPosition, mat3 transform)
+{
+	vec3 toCenter = light.Position - worldPosition;
+	vec3 sum = vec3(0.0);
+	if (light.Shape == AREA_LIGHT_SHAPE_DISK)
+	{
+		vec3 right = light.HalfRight * LTC_DISK_RADIUS_SCALE;
+		vec3 up = light.HalfUp * LTC_DISK_RADIUS_SCALE;
+		vec3 first = normalize(transform * (toCenter + right));
+		vec3 previous = first;
+		for (int i = 1; i < LTC_DISK_VERTICES; i++)
+		{
+			float angle = 6.28318531 * float(i) / float(LTC_DISK_VERTICES);
+			vec3 current = normalize(transform * (toCenter + right * cos(angle) + up * sin(angle)));
+			sum += LTC_IntegrateEdge(previous, current);
+			previous = current;
+		}
+		sum += LTC_IntegrateEdge(previous, first);
+	}
+	else
+	{
+		vec3 l0 = normalize(transform * (toCenter - light.HalfRight - light.HalfUp));
+		vec3 l1 = normalize(transform * (toCenter + light.HalfRight - light.HalfUp));
+		vec3 l2 = normalize(transform * (toCenter + light.HalfRight + light.HalfUp));
+		vec3 l3 = normalize(transform * (toCenter - light.HalfRight + light.HalfUp));
+		sum = LTC_IntegrateEdge(l0, l1) + LTC_IntegrateEdge(l1, l2) + LTC_IntegrateEdge(l2, l3) + LTC_IntegrateEdge(l3, l0);
+	}
+	return sum;
+}
+
+// Any vector perpendicular to the unit vector n.
+vec3 LTC_Perpendicular(vec3 n)
+{
+	return normalize(abs(n.y) < 0.999 ? cross(vec3(0.0, 1.0, 0.0), n) : cross(vec3(1.0, 0.0, 0.0), n));
+}
+
+// A sphere seen from a point is a disk facing it, and a tube (a capsule) is close to a rectangle
+// facing it around its axis, lengthened by pi r / 4 at each end so it keeps the capsule silhouette's
+// area. Both are built facing worldPosition (cross(HalfRight, HalfUp) points away from it), so the
+// flat-shape integral applies with no back side.
+AreaLight LTC_FacingShape(AreaLight light, vec3 worldPosition)
+{
+	vec3 toPoint = worldPosition - light.Position;
+	AreaLight facing = light;
+	if (light.Shape == AREA_LIGHT_SHAPE_SPHERE)
+	{
+		float radius = length(light.HalfRight);
+		vec3 n = dot(toPoint, toPoint) > 1e-8 ? normalize(toPoint) : vec3(0.0, 1.0, 0.0);
+		vec3 right = LTC_Perpendicular(n);
+		facing.HalfRight = right * radius;
+		facing.HalfUp = cross(right, n) * radius;
+		facing.Shape = AREA_LIGHT_SHAPE_DISK;
+	}
+	else
+	{
+		float radius = length(light.HalfUp);
+		float halfLength = length(light.HalfRight);
+		vec3 axis = halfLength > 1e-6 ? light.HalfRight / halfLength : vec3(1.0, 0.0, 0.0);
+		vec3 n = toPoint - axis * dot(toPoint, axis);
+		n = dot(n, n) > 1e-8 ? normalize(n) : LTC_Perpendicular(axis);
+		facing.HalfRight = axis * (halfLength + 0.78539816 * radius);
+		facing.HalfUp = cross(axis, n) * radius;
+		facing.Shape = AREA_LIGHT_SHAPE_RECT;
+	}
+	facing.Flags = 0u;
+	return facing;
+}
+
+// Receiver normal offset for area-light shadows, in tile texels, as the directional cascades do: it
+// grows at grazing angles and keeps a floor head-on. A 120-degree tile spreads its texels thin.
+const float AREA_SHADOW_NORMAL_BIAS_TEXELS = 1.5;
+const float AREA_SHADOW_MIN_NORMAL_BIAS = 0.2;
+
+// The widest blocker search on a rect or disk tile, in tile UV. Unlike a cube face (spheres and tubes
+// keep SPOT_PCSS_MAX_SEARCH_UV), such a tile has no seam to stay away from: IsSpotShadowSampleValid
+// drops taps outside the tile.
+const float AREA_PCSS_MAX_SEARCH_UV = 0.15;
+
+// PCSS for an area tile. The spot version assumes the emitter sits at the apex; a rect or disk lies at
+// emitterDepth in front of it, and its half-extents lightRadius (metres, tile u then v) differ, so the
+// blocker search and the filter are ellipses. With an occluder at depth z between the receiver (zr)
+// and the emitter, the light that reaches the receiver passes within lightRadius * (zr - z) / (zr - d0)
+// of its ray, widest in UV at the near plane; the penumbra half-width at the receiver is
+// lightRadius * (zr - zb) / (zb - d0). The emitter is taken as centred on the receiver's ray.
+float RawPCSS_AreaLight(texture2D shadowMap, vec2 atlasOffset, float atlasScale, vec3 shadowCoords, float receiverDepth, uint tile,
+	vec2 lightRadius, float emitterDepth, float maxSearchUV)
+{
+	if (!IsSpotShadowSampleValid(shadowCoords, shadowCoords.xy))
+		return 1.0;
+
+	mat4 viewProjection = u_SpotLightMatrices.Mats[tile];
+	SpotShadowProjection projection = GetSpotShadowProjection(viewProjection);
+	// Tile UV per lateral metre at unit depth, per axis: a tile is not square in metres.
+	vec2 uvPerMetre = 0.5 * vec2(length(vec3(viewProjection[0][0], viewProjection[1][0], viewProjection[2][0])),
+		length(vec3(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1])));
+	float nearPlane = projection.DepthB / projection.DepthA;
+	float texelUV = 1.0 / max(float(textureSize(sampler2D(shadowMap, r_LinearSampler), 0).x) * atlasScale, 1.0);
+
+	vec2 searchRadius = uvPerMetre * lightRadius * max(receiverDepth - nearPlane, 0.0) / max((receiverDepth - emitterDepth) * nearPlane, 1e-6);
+	searchRadius = clamp(searchRadius, vec2(texelUV), vec2(maxSearchUV));
+
+	uint blockerSamples = GetShadowBlockerSampleCount();
+	uint validSamples = 0u;
+	uint blockers = 0u;
+	float blockerDepthSum = 0.0;
+	for (uint i = 0u; i < blockerSamples; i++)
+	{
+		vec2 sampleUV = shadowCoords.xy + ShadowBlockerTap(i) * searchRadius;
+		if (!IsSpotShadowSampleValid(shadowCoords, sampleUV))
+			continue;
+
+		validSamples++;
+		float z = SampleLinearLOD(shadowMap, sampleUV * atlasScale + atlasOffset, 0).r;
+		if (z < (shadowCoords.z - SPOT_SHADOW_BIAS))
+		{
+			blockers++;
+			blockerDepthSum += LinearizeSpotShadowDepth(projection, z);
+		}
+	}
+
+	if (blockers == 0u)
+		return 1.0;
+	if (blockers == validSamples)
+		return ApplySpotShadowFades(0.0, shadowCoords.xy);
+
+	// Capped by the search so the all-blocked early-out stays exact.
+	float blockerDepth = blockerDepthSum / float(blockers);
+	vec2 filterRadius = lightRadius * (receiverDepth - blockerDepth) / max(blockerDepth - emitterDepth, 1e-4) * uvPerMetre / max(receiverDepth, 1e-4);
+	filterRadius = clamp(filterRadius, vec2(texelUV), searchRadius);
+
+	uint filterSamples = GetShadowFilterSampleCount();
+	float sum = 0.0;
+	for (uint i = 0u; i < filterSamples; i++)
+		sum += SampleSpotShadowVisibility(shadowMap, atlasOffset, atlasScale, shadowCoords, shadowCoords.xy + ShadowFilterTap(i) * filterRadius);
+	return ApplySpotShadowFades(sum / float(filterSamples), shadowCoords.xy);
+}
+
+bool LTC_IsFlatShape(AreaLight light)
+{
+	return light.Shape == AREA_LIGHT_SHAPE_RECT || light.Shape == AREA_LIGHT_SHAPE_DISK;
+}
+
+// The light's half-extent in metres along each axis of a tile (rows 0 and 1 of the tile matrix point
+// along them): a rect's or disk's two half-axes projected, a tube's half-length projected plus its
+// radius, a sphere's radius.
+vec2 LTC_AreaLightTileRadius(AreaLight light, mat4 viewProjection)
+{
+	if (light.Shape == AREA_LIGHT_SHAPE_SPHERE)
+		return vec2(length(light.HalfRight));
+
+	vec3 tileU = normalize(vec3(viewProjection[0][0], viewProjection[1][0], viewProjection[2][0]));
+	vec3 tileV = normalize(vec3(viewProjection[0][1], viewProjection[1][1], viewProjection[2][1]));
+	vec2 alongRight = abs(vec2(dot(light.HalfRight, tileU), dot(light.HalfRight, tileV)));
+	if (light.Shape == AREA_LIGHT_SHAPE_TUBE)
+		return alongRight + length(light.HalfUp);
+	return alongRight + abs(vec2(dot(light.HalfUp, tileU), dot(light.HalfUp, tileV)));
+}
+
+// The lit fraction at worldPosition from an area light's spot-atlas tiles (SceneRenderer, in this order):
+// a rect or disk has one tile per lit side, a perspective cone with its apex behind the emitter (front
+// is false only for the back of a two-sided light); a sphere or tube has six cube faces from its centre,
+// picked by the major axis like a point light's.
+float LTC_AreaLightShadow(AreaLight light, vec3 worldPosition, vec3 N, bool front, texture2D shadowAtlas)
+{
+	bool flatShape = LTC_IsFlatShape(light);
+	uint tile = light.ShadowIndex;
+	if (!flatShape)
+		tile += PointShadowFace(worldPosition - light.Position);
+	else if (!front)
+		tile += 1u;
+	if (tile >= SHADOW_ATLAS_MAX_TILES || tile >= u_SpotLightMatrices.Count)
+		return 1.0;
+
+	mat4 viewProjection = u_SpotLightMatrices.Mats[tile];
+	vec4 clip = viewProjection * vec4(worldPosition, 1.0);
+	if (clip.w <= 0.0)
+		return 1.0;
+
+	// A tile texel spans texelUV * depth / UVPerMetre metres at the receiver (along the tile's long axis,
+	// the coarser one).
+	SpotShadowProjection projection = GetSpotShadowProjection(viewProjection);
+	float texelUV = 1.0 / max(float(textureSize(sampler2D(shadowAtlas, r_LinearSampler), 0).x) * light.AtlasScale, 1.0);
+	float texelWorldSize = texelUV * clip.w / max(projection.UVPerMetre, 1e-6);
+	float NdotL = max(dot(N, normalize(light.Position - worldPosition)), 0.0);
+	float normalBiasTexels = AREA_SHADOW_NORMAL_BIAS_TEXELS * max(1.0 - NdotL, AREA_SHADOW_MIN_NORMAL_BIAS);
+	clip = viewProjection * vec4(worldPosition + N * (texelWorldSize * normalBiasTexels), 1.0);
+	if (clip.w <= 0.0)
+		return 1.0;
+
+	vec3 shadowMapCoords = clip.xyz / clip.w;
+	shadowMapCoords.xy = ShadowCoordsToUV(shadowMapCoords.xy);
+
+	uint gridSize = uint(round(1.0 / max(light.AtlasScale, 1e-4)));
+	vec2 atlasOffset = vec2(float(tile % gridSize), float(tile / gridSize)) * light.AtlasScale;
+	if ((light.ShadowFlags & AREA_LIGHT_SHADOW_SOFT) == 0u)
+		return HardShadows_SpotLight(shadowAtlas, atlasOffset, light.AtlasScale, shadowMapCoords);
+	if (u_RendererData.ShadowFilterMode != LUX_SHADOW_FILTER_PCSS)
+		return TunedPCF_SpotLight(shadowAtlas, atlasOffset, light.AtlasScale, shadowMapCoords);
+
+	// A cube face's emitter is its centre, at the apex; a cube face keeps the seam margin of a point light.
+	return RawPCSS_AreaLight(shadowAtlas, atlasOffset, light.AtlasScale, shadowMapCoords, clip.w, tile,
+		LTC_AreaLightTileRadius(light, viewProjection),
+		flatShape ? light.ShadowEmitterDepth : 0.0,
+		flatShape ? AREA_PCSS_MAX_SEARCH_UV : SPOT_PCSS_MAX_SEARCH_UV);
+}
+
+// Outgoing radiance from every area light at a surface point: Lambert diffuse and GGX specular, each
+// light's shadow (if it casts one) applied to both. shadowAtlas is the spot shadow atlas.
+vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, float metalness, float roughness, vec3 F0, texture2D shadowAtlas)
+{
+	float NdotV = clamp(dot(N, V), 1e-4, 1.0);
+	vec2 uv = LTC_TableCoords(vec2(roughness, sqrt(1.0 - NdotV)));
+	vec4 matrixTerms = texture(sampler2D(u_LTCMatrixTexture, r_LinearSampler), uv);
+	vec4 amplitude = texture(sampler2D(u_LTCAmplitudeTexture, r_LinearSampler), uv);
+
+	mat3 frame = LTC_ShadingFrame(N, V);
+	mat3 specularTransform = mat3(
+		vec3(matrixTerms.x, 0.0, matrixTerms.y),
+		vec3(0.0, 1.0, 0.0),
+		vec3(matrixTerms.z, 0.0, matrixTerms.w)) * frame;
+	vec3 specularScale = F0 * amplitude.x + (1.0 - F0) * amplitude.y;
+	vec3 diffuseColor = albedo * (1.0 - metalness);
+
+	vec3 result = vec3(0.0);
+	uint count = min(u_AreaLights.LightCount, uint(MAX_AREA_LIGHTS));
+	for (uint i = 0u; i < count; i++)
+	{
+		AreaLight light = u_AreaLights.Lights[i];
+		vec3 fromLight = worldPosition - light.Position;
+		float distanceSq = dot(fromLight, fromLight);
+		float ratio = distanceSq / max(light.Range * light.Range, 1e-4);
+		float window = clamp(1.0 - ratio * ratio, 0.0, 1.0);
+		window *= window;
+		if (window <= 0.0)
+			continue;
+
+		bool front = true;
+		bool flatShape = LTC_IsFlatShape(light);
+		if (flatShape)
+		{
+			vec3 emitDirection = -cross(light.HalfRight, light.HalfUp);
+			front = dot(fromLight, emitDirection) > 0.0;
+			if (!front && (light.Flags & AREA_LIGHT_TWO_SIDED) == 0u)
+				continue;
+		}
+
+		// Read from the light as placed: a sphere or tube is integrated below as a shape facing the point.
+		float visibility = 1.0;
+		if ((light.ShadowFlags & AREA_LIGHT_SHADOW_CASTS) != 0u)
+		{
+			visibility = LTC_AreaLightShadow(light, worldPosition, N, front, shadowAtlas);
+			if (visibility <= 0.0)
+				continue;
+		}
+
+		if (!flatShape)
+			light = LTC_FacingShape(light, worldPosition);
+
+		// Seen from behind, the polygon winds the other way.
+		float facing = front ? 1.0 : -1.0;
+		float diffuse = LTC_FormFactor(facing * LTC_PolygonFormFactor(light, worldPosition, frame));
+		float specular = LTC_FormFactor(facing * LTC_PolygonFormFactor(light, worldPosition, specularTransform));
+		result += light.Radiance * (light.Intensity * window * visibility) * (diffuseColor * diffuse + specularScale * specular);
+	}
+	return result;
+}
+
+#endif

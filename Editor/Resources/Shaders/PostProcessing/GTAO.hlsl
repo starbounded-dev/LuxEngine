@@ -48,12 +48,12 @@ struct GTAOConstants
     int NoiseIndex; // frameIndex % 64 if using TAA or 0 otherwise
 
     float2 HZBUVFactor;
-    float ShadowTolerance;
     uint SliceCount;
     uint StepsPerSlice;
     float Thickness;            // visibility-bitmask mode: assumed depth of every occluder, view-space metres
     uint VisibilityBitmask;     // 0 = GTAO horizon integral, 1 = visibility bitmask
     uint NoisePassCount;        // 1..3 noise passes per pixel, averaged
+    float Padding0;
     float2 Padding;
 };
 [[vk::push_constant]] ConstantBuffer<GTAOConstants> u_GTAOConsts;
@@ -528,7 +528,7 @@ void XeGTAO_MainPass(const int2 outputPixCoord, const int2 inputPixCoords, lpflo
                 visibility += passVisibility / (lpfloat)sliceCount;
         }
         visibility /= (lpfloat)noisePassCount;
-        visibility = (lpfloat)pow(visibility, (lpfloat)u_GTAOConsts.FinalValuePower * lerp(1.0f, (lpfloat)u_GTAOConsts.ShadowTolerance, viewspaceNormalLuminance.a));
+        visibility = (lpfloat)pow(visibility, (lpfloat)u_GTAOConsts.FinalValuePower);
         visibility = max((lpfloat)0.03, visibility); // disallow total occlusion (which wouldn't make any sense anyhow since pixel is visible but also helps with packing bent normals)
 
 #if __HZ_GTAO_COMPUTE_BENT_NORMALS

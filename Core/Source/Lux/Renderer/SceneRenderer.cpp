@@ -14,6 +14,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/RHI/RHIShader.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
+#include "Lux/Scene/Components.h"
 
 
 // SMAA's precomputed lookup tables ship as headers in the reference implementation
@@ -348,6 +349,17 @@ namespace Lux {
 		constexpr float k_PointShadowFaceFOV = 1.67596244f;
 		constexpr float k_PointShadowNearPlane = 0.1f;
 
+		// Rect and disk area-light shadows (ComputeAreaLightShadowFrustum): one spot-atlas tile, a
+		// 120-degree cone across the shape's short side. The long side's FOV follows from the aspect, capped at 160 degrees
+		// (tan(80) / tan(60) = 3.274); receivers outside the cone are unshadowed.
+		constexpr float k_AreaShadowConeAngle = 2.09439510f; // 120 degrees
+		constexpr float k_AreaShadowMaxAspect = 3.274f;
+		// The near plane sits just in front of the emitter, so a fixture behind or flush with it casts nothing.
+		constexpr float k_AreaShadowNearMargin = 0.01f;
+		constexpr float k_AreaShadowMinNearPlane = 0.02f;
+		// Sphere and tube shadows: six cube faces like a point light, the near plane at this times the radius.
+		constexpr float k_AreaShadowCubeNearScale = 1.05f;
+
 		// Clustered light culling slices depth exponentially from the near plane, which must be
 		// positive. An orthographic camera's near plane can be zero or negative (SceneCamera
 		// defaults to -1); fragments in front of this floor all land in the first slice.
@@ -360,6 +372,19 @@ namespace Lux {
 			{ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f },
 			{ 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f },
 			{ 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } };
+
+		bool IsFlatAreaLight(const AreaLight& light)
+		{
+			return light.Shape == static_cast<uint32_t>(AreaLightShape::Rect) || light.Shape == static_cast<uint32_t>(AreaLightShape::Disk);
+		}
+
+		// Atlas tiles a shadowed area light takes, in the order its shader reads them (LTC_AreaLightShadow).
+		uint32_t GetAreaLightShadowTileCount(const AreaLight& light)
+		{
+			if (!IsFlatAreaLight(light))
+				return 6;
+			return (light.Flags & AreaLightTwoSided) != 0 ? 2u : 1u;
+		}
 
 		SceneRendererOptions::ShadowResolutionTier SanitizeShadowResolutionTier(uint32_t tier)
 		{
@@ -492,6 +517,29 @@ namespace Lux {
 			value |= value >> 16;
 			return value + 1;
 		}
+	}
+
+	// The apex sits behind the emitter, by the distance that puts the short side's edges on the cone, so
+	// the whole surface is inside the frustum (HDRP's area-light shadow frustum). The tile's vertical axis
+	// is the short side.
+	AreaLightShadowFrustum ComputeAreaLightShadowFrustum(const AreaLight& light)
+	{
+		const float halfRight = glm::length(light.HalfRight);
+		const float halfUp = glm::length(light.HalfUp);
+		const float halfShort = glm::max(glm::min(halfRight, halfUp), 1e-4f);
+		const float halfLong = glm::max(halfRight, halfUp);
+		const glm::vec3 emitDirection = -glm::normalize(glm::cross(light.HalfRight, light.HalfUp));
+		const glm::vec3 shortAxis = halfUp <= halfRight ? light.HalfUp / glm::max(halfUp, 1e-6f) : light.HalfRight / glm::max(halfRight, 1e-6f);
+
+		AreaLightShadowFrustum frustum;
+		frustum.EmitterDepth = halfShort / glm::tan(0.5f * k_AreaShadowConeAngle);
+		const float aspect = glm::clamp(halfLong / halfShort, 1.0f, k_AreaShadowMaxAspect);
+		const glm::vec3 apex = light.Position - emitDirection * frustum.EmitterDepth;
+		const glm::mat4 view = glm::lookAt(apex, apex + emitDirection, shortAxis);
+		const float nearPlane = glm::max(frustum.EmitterDepth + k_AreaShadowNearMargin, k_AreaShadowMinNearPlane);
+		const float farPlane = glm::max(frustum.EmitterDepth + light.Range, 2.0f * nearPlane);
+		frustum.ViewProjection = glm::perspective(k_AreaShadowConeAngle, aspect, nearPlane, farPlane) * view;
+		return frustum;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -798,7 +846,6 @@ namespace Lux {
 		// NEVER enabled by a tier. Temporal accumulation reprojects last frame's AO, which
 		// smears ghosting behind anything that moves. Cost is paid with spatial denoise
 		// passes and full-resolution AO instead - see the denoise counts below.
-		m_Options.AOShadowTolerance = 1.0f;
 
 		switch (level)
 		{
@@ -1006,6 +1053,13 @@ namespace Lux {
 		m_BloomSettings.UpsampleScale = 1.0f;
 		m_BloomSettings.Intensity = 1.0f;
 		m_BloomSettings.DirtIntensity = 1.0f;
+		const BloomSettings bloomDefaults;
+		m_BloomSettings.StreakCount = bloomDefaults.StreakCount;
+		m_BloomSettings.StreakLength = bloomDefaults.StreakLength;
+		m_BloomSettings.StreakIntensity = bloomDefaults.StreakIntensity;
+		m_BloomSettings.StreakRotation = bloomDefaults.StreakRotation;
+		m_BloomSettings.HaloIntensity = bloomDefaults.HaloIntensity;
+		m_BloomSettings.ChromaticSpread = bloomDefaults.ChromaticSpread;
 		m_DOFSettings.ResolutionScale = SceneRendererOptions::EffectResolutionScale::Full;
 
 		switch (level)
@@ -1155,7 +1209,6 @@ namespace Lux {
 		m_Options.GTAOVisibilityBitmask = settings.GTAOVisibilityBitmask;
 		m_Options.GTAOThickness = std::clamp(settings.GTAOThickness, 0.01f, 10.0f);
 		m_Options.GTAONoisePasses = std::clamp(settings.GTAONoisePasses, 1u, 3u);
-		m_Options.AOShadowTolerance = settings.AOShadowTolerance;
 		m_Options.EnableSSR = settings.EnableSSR;
 		m_Options.GTAOResolutionScale = SanitizeEffectResolutionScale(settings.GTAOResolutionScale);
 		m_Options.SSRQuality = SanitizeSSRQualityPreset(settings.SSRQuality);
@@ -1201,6 +1254,12 @@ namespace Lux {
 		m_BloomSettings.UpsampleScale = settings.BloomUpsampleScale;
 		m_BloomSettings.Intensity = settings.BloomIntensity;
 		m_BloomSettings.DirtIntensity = settings.BloomDirtIntensity;
+		m_BloomSettings.StreakCount = settings.BloomStreakCount;
+		m_BloomSettings.StreakLength = settings.BloomStreakLength;
+		m_BloomSettings.StreakIntensity = settings.BloomStreakIntensity;
+		m_BloomSettings.StreakRotation = settings.BloomStreakRotation;
+		m_BloomSettings.HaloIntensity = settings.BloomHaloIntensity;
+		m_BloomSettings.ChromaticSpread = settings.BloomChromaticSpread;
 
 		m_DOFSettings.Enabled = settings.DOFEnabled;
 		m_DOFSettings.ResolutionScale = SanitizeEffectResolutionScale(settings.DOFResolutionScale);
@@ -1254,7 +1313,6 @@ namespace Lux {
 		settings.GTAOVisibilityBitmask = m_Options.GTAOVisibilityBitmask;
 		settings.GTAOThickness = m_Options.GTAOThickness;
 		settings.GTAONoisePasses = m_Options.GTAONoisePasses;
-		settings.AOShadowTolerance = m_Options.AOShadowTolerance;
 		settings.EnableSSR = m_Options.EnableSSR;
 		settings.GTAOResolutionScale = GetEffectResolutionDivisor(m_Options.GTAOResolutionScale);
 		const SceneRendererOptions::SSRQualityPreset ssrQuality = SanitizeSSRQualityPreset(static_cast<uint32_t>(m_Options.SSRQuality));
@@ -1301,6 +1359,12 @@ namespace Lux {
 		settings.BloomUpsampleScale = m_BloomSettings.UpsampleScale;
 		settings.BloomIntensity = m_BloomSettings.Intensity;
 		settings.BloomDirtIntensity = m_BloomSettings.DirtIntensity;
+		settings.BloomStreakCount = m_BloomSettings.StreakCount;
+		settings.BloomStreakLength = m_BloomSettings.StreakLength;
+		settings.BloomStreakIntensity = m_BloomSettings.StreakIntensity;
+		settings.BloomStreakRotation = m_BloomSettings.StreakRotation;
+		settings.BloomHaloIntensity = m_BloomSettings.HaloIntensity;
+		settings.BloomChromaticSpread = m_BloomSettings.ChromaticSpread;
 
 		settings.DOFEnabled = m_DOFSettings.Enabled;
 		settings.DOFResolutionScale = GetEffectResolutionDivisor(m_DOFSettings.ResolutionScale);
@@ -1349,6 +1413,7 @@ namespace Lux {
 		m_UBSShadow = UniformBufferSet::Create(sizeof(UBShadow));
 		m_UBSRendererData = UniformBufferSet::Create(sizeof(UBRendererData));
 		m_UBSPointLights = UniformBufferSet::Create(sizeof(UBPointLights));
+		m_UBSAreaLights = UniformBufferSet::Create(sizeof(UBAreaLights));
 		m_UBSSpotLights = UniformBufferSet::Create(sizeof(UBSpotLights));
 		m_UBSSpotShadow = UniformBufferSet::Create(sizeof(UBSpotShadow));
 		m_UBSScreenData = UniformBufferSet::Create(sizeof(UBScreenData));
@@ -1417,12 +1482,11 @@ namespace Lux {
 		}
 
 		// Common vertex layout for all opaque mesh pipelines
+		// PackedVertex (Mesh.h): the tangent frame as a quaternion, decoded by QTangent.glslh.
 		VertexBufferLayout vertexLayout = {
-			{ ShaderDataType::Float3, "a_Position" },
-			{ ShaderDataType::Float3, "a_Normal"   },
-			{ ShaderDataType::Float3, "a_Tangent"  },
-			{ ShaderDataType::Float3, "a_Binormal" },
-			{ ShaderDataType::Float2, "a_TexCoord" }
+			{ ShaderDataType::Float3,  "a_Position" },
+			{ ShaderDataType::Short4N, "a_QTangent" },
+			{ ShaderDataType::Float2,  "a_TexCoord" }
 		};
 
 		// ── Directional shadow maps ───────────────────────────────────────────
@@ -1911,7 +1975,6 @@ namespace Lux {
 			// Material + object IDs packed into one RG32UI target (one fewer
 			// full-res attachment write/clear per frame).
 			FramebufferTextureSpecification gbufferMaterialObjectID = ImageFormat::RG32UI;
-			FramebufferTextureSpecification gbufferVelocity = ImageFormat::RG16F;
 			// Emission is written straight into scene color, over the sky already there; deferred
 			// lighting then blends the lit result on top. Loaded, never cleared: the sky must survive.
 			FramebufferTextureSpecification gbufferEmissive = ImageFormat::RGBA16F;
@@ -1920,7 +1983,6 @@ namespace Lux {
 			gbufferNormal.Blend = false;
 			gbufferMetalRough.Blend = false;
 			gbufferMaterialObjectID.Blend = false;
-			gbufferVelocity.Blend = false;
 			gbufferEmissive.Blend = false;
 
 			FramebufferSpecification gbufferSpec;
@@ -1931,12 +1993,11 @@ namespace Lux {
 				gbufferNormal,
 				gbufferMetalRough,
 				gbufferMaterialObjectID,
-				gbufferVelocity,
 				gbufferEmissive,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			gbufferSpec.ExistingImages[5] = m_SceneColorFramebuffer->GetImage(0);
-			gbufferSpec.ExistingImages[6] = m_PreDepthPass->GetDepthOutput();
+			gbufferSpec.ExistingImages[4] = m_SceneColorFramebuffer->GetImage(0);
+			gbufferSpec.ExistingImages[5] = m_PreDepthPass->GetDepthOutput();
 			gbufferSpec.ClearColor = { 0.0f, 0.0f, 0.0f, 0.0f };
 			gbufferSpec.ClearDepthOnLoad = false;
 			gbufferSpec.Blend = false;
@@ -1965,47 +2026,28 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
+			// Transparents draw into scene colour and the G-buffer's normal and metal/rough targets.
 			FramebufferTextureSpecification forwardSceneColor = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification forwardNormal = ImageFormat::RGBA16F;
 			FramebufferTextureSpecification forwardMetalRough = ImageFormat::RGBA;
-			FramebufferTextureSpecification forwardVelocity = ImageFormat::RG16F;
 			forwardSceneColor.Blend = false;
 			forwardNormal.Blend = false;
 			forwardMetalRough.Blend = false;
-			forwardVelocity.Blend = false;
-
-			FramebufferSpecification forwardSpec;
-			forwardSpec.Width = m_ViewportWidth;
-			forwardSpec.Height = m_ViewportHeight;
-			forwardSpec.Attachments = {
-				forwardSceneColor,
-				forwardNormal,
-				forwardMetalRough,
-				forwardVelocity,
-				ImageFormat::DEPTH32FSTENCIL8UINT
-			};
-			forwardSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
-			forwardSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
-			forwardSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
-			forwardSpec.ExistingImages[3] = m_GeometryPassFramebuffer->GetImage(4); // shared velocity buffer
-			forwardSpec.ExistingImages[4] = m_PreDepthPass->GetDepthOutput();
-			forwardSpec.ClearColorOnLoad = false;
-			forwardSpec.ClearDepthOnLoad = false;
-			forwardSpec.Blend = false;
-			forwardSpec.DebugName = "TransparentForwardShared";
-
-			// Transparent does not write motion vectors (layering/blending make them
-			// ill-defined), so drop the velocity attachment; transparent pixels keep the
-			// opaque-behind velocity and fall back to camera reprojection in TAA.
-			FramebufferSpecification transparentSpec = forwardSpec;
+			FramebufferSpecification transparentSpec;
+			transparentSpec.Width = m_ViewportWidth;
+			transparentSpec.Height = m_ViewportHeight;
 			transparentSpec.Attachments = {
 				forwardSceneColor,
 				forwardNormal,
 				forwardMetalRough,
 				ImageFormat::DEPTH32FSTENCIL8UINT
 			};
-			transparentSpec.ExistingImages.erase(4);
+			transparentSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
+			transparentSpec.ExistingImages[1] = m_GeometryPassFramebuffer->GetImage(1);
+			transparentSpec.ExistingImages[2] = m_GeometryPassFramebuffer->GetImage(2);
 			transparentSpec.ExistingImages[3] = m_PreDepthPass->GetDepthOutput();
+			transparentSpec.ClearColorOnLoad = false;
+			transparentSpec.ClearDepthOnLoad = false;
 			transparentSpec.Blend = true;
 			transparentSpec.BlendMode = FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha;
 			transparentSpec.DebugName = "TransparentForward";
@@ -2026,6 +2068,11 @@ namespace Lux {
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
 			m_GeometryPassTransparent = RenderPass::Create(rpSpec);
 			BindSceneRenderPassInputs(m_GeometryPassTransparent, PassInputPBRLighting | PassInputMaterialScene | PassInputDepth);
+			// Rebound every frame in TransparentForwardPass: the pre-convolved scene with refraction, black without.
+			m_GeometryPassTransparent->SetInput("u_RefractionSource", Renderer::GetBlackTexture());
+			m_GeometryPassTransparent->SetInput("AreaLightData", m_UBSAreaLights);
+			m_GeometryPassTransparent->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
+			m_GeometryPassTransparent->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
 			LUX_CORE_VERIFY(m_GeometryPassTransparent->Validate());
 			m_GeometryPassTransparent->Bake();
 
@@ -2088,6 +2135,27 @@ namespace Lux {
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
 			m_DeferredLightingPass->Bake();
 			m_DeferredLightingMaterial = Material::Create(deferredPipelineSpec.Shader, "DeferredLighting");
+
+			// Area lights: a second additive full-screen pass, only in the graph when the frame has
+			// area lights, so the deferred lighting shader never carries the LTC code's registers.
+			FramebufferSpecification areaSpec = deferredSpec;
+			areaSpec.DebugName = "AreaLights";
+
+			PipelineSpecification areaPipelineSpec = deferredPipelineSpec;
+			areaPipelineSpec.DebugName = "AreaLights";
+			areaPipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("DeferredLighting_Area");
+			areaPipelineSpec.TargetFramebuffer = Framebuffer::Create(areaSpec);
+
+			rpSpec.DebugName = "AreaLightPass";
+			rpSpec.Pipeline = Pipeline::Create(areaPipelineSpec);
+			m_AreaLightPass = RenderPass::Create(rpSpec);
+			BindSceneRenderPassInputs(m_AreaLightPass, PassInputCommonScene | PassInputShadowMaps | PassInputDepth | PassInputGBuffer);
+			m_AreaLightPass->SetInput("AreaLightData", m_UBSAreaLights);
+			m_AreaLightPass->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
+			m_AreaLightPass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
+			LUX_CORE_VERIFY(m_AreaLightPass->Validate());
+			m_AreaLightPass->Bake();
+			m_AreaLightMaterial = Material::Create(areaPipelineSpec.Shader, "AreaLights");
 
 			// Editor-only debug view target — not created in the standalone runtime.
 			if (m_Specification.EnableEditorRenderTargets)
@@ -2506,36 +2574,43 @@ namespace Lux {
 			m_SkyboxPass->Bake();
 		}
 
-		// ── Bloom compute (feeds the scene composite) ─────────────────────────
+		// ── Bloom: FFT convolution with a lens-glare kernel (feeds the scene composite) ──
 		{
-			Ref<Shader> shader = Renderer::GetShaderLibrary()->Get("Bloom");
-			m_BloomComputePipeline = PipelineCompute::Create(shader);
+			ComputePassSpecification fftSpec;
+			fftSpec.DebugName = "BloomFFT";
+			fftSpec.Pipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("BloomFFT"));
+			m_BloomFFTPass = ComputePass::Create(fftSpec);
+			m_BloomFFTPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
+			LUX_CORE_VERIFY(m_BloomFFTPass->Validate());
+			m_BloomFFTPass->Bake();
 
-			TextureSpecification spec;
-			// 16F: bloom is a blurred HDR pyramid — fp32 is 2x the bandwidth for
-			// no visual gain. Matches Bloom.glsl's image layout.
-			spec.Format = ImageFormat::RGBA16F;
-			spec.Width = 1;
-			spec.Height = 1;
-			spec.SamplerWrap = TextureWrap::Clamp;
-			spec.Storage = true;
-			spec.GenerateMips = true;
-
-			for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
+			// The 512x512 transform grid and the kernel spectrum: fixed, independent of the viewport.
+			TextureSpecification gridSpec;
+			gridSpec.Width = BloomFFTSize;
+			gridSpec.Height = BloomFFTSize;
+			gridSpec.SamplerWrap = TextureWrap::Clamp;
+			gridSpec.Storage = true;
+			gridSpec.GenerateMips = false;
+			gridSpec.FlipVertically = false;
+			const ImageFormat formats[2] = { ImageFormat::RGBA32F, ImageFormat::RG32F };
+			for (uint32_t i = 0; i < 2; i++)
 			{
-				spec.DebugName = "BloomCompute-" + std::to_string(i);
-				m_BloomComputeTextures[i].Texture = Texture2D::Create(spec);
+				gridSpec.Format = formats[i];
+				gridSpec.DebugName = "BloomFFT-Grid" + std::to_string(i);
+				m_BloomFFTGrid[i] = Texture2D::Create(gridSpec);
+				gridSpec.DebugName = "BloomFFT-Kernel" + std::to_string(i);
+				m_BloomFFTKernel[i] = Texture2D::Create(gridSpec);
 			}
 
-			ComputePassSpecification computeSpec;
-			computeSpec.DebugName = "Bloom-Compute";
-			computeSpec.Pipeline = m_BloomComputePipeline;
-			m_BloomComputePass = ComputePass::Create(computeSpec);
-			m_BloomComputePass->SetInput("r_DefaultSampler", Renderer::GetDefaultSampler());
-			m_BloomComputePass->SetInput("r_PointSampler", Renderer::GetPointSampler());
-			m_BloomComputePass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
-			LUX_CORE_VERIFY(m_BloomComputePass->Validate());
-			m_BloomComputePass->Bake();
+			// The resolved glare the composite adds, at the bloom resolution scale.
+			TextureSpecification bloomSpec;
+			bloomSpec.Format = ImageFormat::RGBA16F;
+			bloomSpec.SamplerWrap = TextureWrap::Clamp;
+			bloomSpec.Storage = true;
+			bloomSpec.GenerateMips = false;
+			bloomSpec.FlipVertically = false;
+			bloomSpec.DebugName = "Bloom";
+			m_BloomTexture = Texture2D::Create(bloomSpec);
 
 			m_BloomDirtTexture = Renderer::GetBlackTexture();
 			ResizeBloomResources();
@@ -2610,7 +2685,7 @@ namespace Lux {
 			m_CompositePass = RenderPass::Create(rpSpec);
 			// SceneColorHDR is produced by either deferred lighting or the forward fallback.
 			m_CompositePass->SetInput("u_Texture", GetSceneColorOutput());
-			m_CompositePass->SetInput("u_BloomTexture", m_BloomComputeTextures[2].Texture);
+			m_CompositePass->SetInput("u_BloomTexture", m_BloomTexture);
 			m_CompositePass->SetInput("u_BloomDirtTexture", m_BloomDirtTexture);
 			m_CompositePass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			m_CompositePass->SetInput("u_TransparentDepthTexture", m_GeometryPassTransparent->GetDepthOutput());
@@ -2955,85 +3030,32 @@ namespace Lux {
 
 	void SceneRenderer::ResizeBloomResources()
 	{
-		if (!m_BloomComputePass || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+		if (!m_BloomTexture || m_ViewportWidth == 0 || m_ViewportHeight == 0)
 			return;
 
-		glm::uvec2 bloomSize = GetScaledExtent({ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) }, m_BloomSettings.ResolutionScale);
-		bloomSize.x = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.x, m_BloomComputeWorkgroupSize));
-		bloomSize.y = glm::max(m_BloomComputeWorkgroupSize, AlignUp(bloomSize.y, m_BloomComputeWorkgroupSize));
-
-		ImageViewSpecification imageViewSpec;
-		imageViewSpec.MipCount = 1;
-
-		for (uint32_t i = 0; i < (uint32_t)m_BloomComputeTextures.size(); i++)
-		{
-			auto& bloomTexture = m_BloomComputeTextures[i];
-			bloomTexture.Texture->Resize(bloomSize);
-
-			const uint32_t mipCount = bloomTexture.Texture->GetMipLevelCount();
-			bloomTexture.ImageViews.resize(mipCount);
-
-			imageViewSpec.Image = bloomTexture.Texture->GetImage();
-			imageViewSpec.DebugName = "BloomCompute-" + std::to_string(i);
-
-			for (uint32_t mip = 0; mip < mipCount; mip++)
-			{
-				imageViewSpec.Mip = mip;
-				bloomTexture.ImageViews[mip] = ImageView::Create(imageViewSpec);
-			}
-		}
+		m_BloomTexture->Resize(GetScaledExtent({ glm::max(1u, m_ViewportWidth), glm::max(1u, m_ViewportHeight) }, m_BloomSettings.ResolutionScale));
 	}
 
 	void SceneRenderer::CreateBloomPassMaterials()
 	{
-		if (!m_BloomComputePass || !GetSceneColorOutput() || !m_BloomComputeTextures[0].Texture)
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (!m_BloomFFTPass || !sceneColor || !m_BloomTexture || !m_BloomFFTGrid[0] || !m_BloomFFTKernel[0])
 			return;
 
-		Ref<Image2D> inputImage = GetSceneColorOutput();
-		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
-		if (mipCount < 4)
-			return;
-
-		const uint32_t mips = mipCount - 2;
-
-		m_BloomComputeMaterials.PrefilterMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Prefilter");
-		m_BloomComputeMaterials.PrefilterMaterial->Set("o_Image", m_BloomComputeTextures[0].ImageViews[0]);
-		m_BloomComputeMaterials.PrefilterMaterial->Set("u_Texture", inputImage);
-		m_BloomComputeMaterials.PrefilterMaterial->Set("u_BloomTexture", inputImage);
-
-		m_BloomComputeMaterials.DownsampleAMaterials.clear();
-		m_BloomComputeMaterials.DownsampleBMaterials.clear();
-		m_BloomComputeMaterials.DownsampleAMaterials.resize(mips);
-		m_BloomComputeMaterials.DownsampleBMaterials.resize(mips);
-
-		for (uint32_t i = 1; i < mips; i++)
-		{
-			m_BloomComputeMaterials.DownsampleAMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleA");
-			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("o_Image", m_BloomComputeTextures[1].ImageViews[i]);
-			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-			m_BloomComputeMaterials.DownsampleAMaterials[i]->Set("u_BloomTexture", inputImage);
-
-			m_BloomComputeMaterials.DownsampleBMaterials[i] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-DownsampleB");
-			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("o_Image", m_BloomComputeTextures[0].ImageViews[i]);
-			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_Texture", m_BloomComputeTextures[1].Texture);
-			m_BloomComputeMaterials.DownsampleBMaterials[i]->Set("u_BloomTexture", inputImage);
-		}
-
-		m_BloomComputeMaterials.FirstUpsampleMaterial = Material::Create(m_BloomComputePass->GetShader(), "Bloom-FirstUpsample");
-		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mips - 2]);
-		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-		m_BloomComputeMaterials.FirstUpsampleMaterial->Set("u_BloomTexture", inputImage);
-
-		m_BloomComputeMaterials.UpsampleMaterials.clear();
-		m_BloomComputeMaterials.UpsampleMaterials.resize(mips - 2);
-
-		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
-		{
-			m_BloomComputeMaterials.UpsampleMaterials[mip] = Material::Create(m_BloomComputePass->GetShader(), "Bloom-Upsample");
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("o_Image", m_BloomComputeTextures[2].ImageViews[mip]);
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_Texture", m_BloomComputeTextures[0].Texture);
-			m_BloomComputeMaterials.UpsampleMaterials[mip]->Set("u_BloomTexture", m_BloomComputeTextures[2].ImageViews[mip + 1]);
-		}
+		auto bindFFT = [&](Ref<Material> material, Ref<Texture2D> gridA, Ref<Texture2D> gridB)
+			{
+				material->Set("o_Bloom", m_BloomTexture->GetImage());
+				material->Set("u_Input", sceneColor);
+				material->Set("u_GridA", gridA->GetImage());
+				material->Set("u_GridB", gridB->GetImage());
+				material->Set("u_KernelA", m_BloomFFTKernel[0]->GetImage());
+				material->Set("u_KernelB", m_BloomFFTKernel[1]->GetImage());
+			};
+		m_BloomFFTMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT");
+		bindFFT(m_BloomFFTMaterial, m_BloomFFTGrid[0], m_BloomFFTGrid[1]);
+		// The kernel's own transform runs the same FFT over the kernel images.
+		m_BloomFFTKernelMaterial = Material::Create(m_BloomFFTPass->GetShader(), "BloomFFT-Kernel");
+		bindFFT(m_BloomFFTKernelMaterial, m_BloomFFTKernel[0], m_BloomFFTKernel[1]);
 	}
 
 	void SceneRenderer::ResizeScreenSpaceEffectResources()
@@ -3065,6 +3087,7 @@ namespace Lux {
 		}
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
+		resizePass(m_AreaLightPass, viewportSize);
 		resizePass(m_GBufferDebugPass, viewportSize);
 		resizePass(m_JumpFloodInitPass, viewportSize);
 		resizePass(m_JumpFloodPasses[0], viewportSize);
@@ -3860,6 +3883,7 @@ namespace Lux {
 		addRenderPass(m_GeometryPass);
 		addRenderPass(m_GeometryPassTransparent);
 		addRenderPass(m_DeferredLightingPass);
+		addRenderPass(m_AreaLightPass);
 		addRenderPass(m_GBufferDebugPass);
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
@@ -3883,7 +3907,7 @@ namespace Lux {
 		addComputePass(m_GTAODenoisePass[0]);
 		addComputePass(m_GTAODenoisePass[1]);
 		addComputePass(m_SSRPass);
-		addComputePass(m_BloomComputePass);
+		addComputePass(m_BloomFFTPass);
 
 		if (m_HierarchicalDepthTexture.Texture)
 			addRenderTargetImage(m_HierarchicalDepthTexture.Texture->GetImage());
@@ -3891,10 +3915,12 @@ namespace Lux {
 			addRenderTargetImage(m_PreIntegrationVisibilityTexture.Texture->GetImage());
 		if (m_PreConvolutedTexture.Texture)
 			addRenderTargetImage(m_PreConvolutedTexture.Texture->GetImage());
-		for (const BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
+		if (m_BloomTexture)
+			addRenderTargetImage(m_BloomTexture->GetImage());
+		for (const Ref<Texture2D>& texture : { m_BloomFFTGrid[0], m_BloomFFTGrid[1], m_BloomFFTKernel[0], m_BloomFFTKernel[1] })
 		{
-			if (bloomTexture.Texture)
-				addRenderTargetImage(bloomTexture.Texture->GetImage());
+			if (texture)
+				addRenderTargetImage(texture->GetImage());
 		}
 
 		addRenderTargetImage(m_GTAOOutputImage);
@@ -4345,6 +4371,17 @@ namespace Lux {
 				});
 			sceneColorCurrent = deferredOutputs;
 
+			if (m_AreaLightCount > 0 && m_AreaLightPass)
+			{
+				std::vector<RenderGraph::ResourceHandle> areaReads = gbufferOutputs;
+				appendResources(areaReads, preDepthOutputs);
+				appendResources(areaReads, shadowOutputs);
+				appendResources(areaReads, sceneColorCurrent);
+				std::vector<RenderGraph::ResourceHandle> areaOutputs = addRenderPassResources("Area Lights", m_AreaLightPass);
+				addPass("Area Lights", areaReads, areaOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AreaLightPass));
+				sceneColorCurrent = areaOutputs;
+			}
+
 			geometryOutputs = gbufferOutputs;
 			appendResources(geometryOutputs, sceneColorCurrent);
 		}
@@ -4365,13 +4402,17 @@ namespace Lux {
 			addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
 		}
 
+		// The pre-convolved opaque scene feeds SSR and refraction; it runs when either needs it.
+		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
+		if (m_Options.EnableSSR || m_FrameHasRefraction)
+		{
+			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
+		}
+
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
 		if (m_Options.EnableSSR)
 		{
-			std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
-			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
-			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
-
 			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
 			ssrOutputs.push_back(ssrImage);
 
@@ -4399,6 +4440,8 @@ namespace Lux {
 			std::vector<RenderGraph::ResourceHandle> transparentReads = shadowOutputs;
 			appendResources(transparentReads, preDepthOutputs);
 			appendResources(transparentReads, sceneColorCurrent);
+			if (m_FrameHasRefraction)
+				appendResources(transparentReads, preConvolutionOutputs);
 			std::vector<RenderGraph::ResourceHandle> transparentOutputs = addRenderPassResources("Transparent Forward", m_GeometryPassTransparent);
 			addPass("Transparent Forward", transparentReads, transparentOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::TransparentForwardPass),
 				{
@@ -4457,14 +4500,8 @@ namespace Lux {
 		std::vector<RenderGraph::ResourceHandle> bloomOutputs;
 		if (postProcessSettings.BloomEnabled)
 		{
-			for (uint32_t index = 0; index < m_BloomComputeTextures.size(); index++)
-			{
-				if (m_BloomComputeTextures[index].Texture)
-				{
-					std::string bloomName = captureNames ? std::format("Bloom {}", index) : std::string{};
-					bloomOutputs.push_back(addTexture(bloomName, m_BloomComputeTextures[index].Texture->GetImage()));
-				}
-			}
+			if (m_BloomTexture)
+				bloomOutputs.push_back(addTexture(captureNames ? "Bloom" : std::string{}, m_BloomTexture->GetImage()));
 			addPass("Bloom", sceneColorCurrent, bloomOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::BloomCompute));
 		}
 
@@ -4581,6 +4618,7 @@ namespace Lux {
 						if (name == "Selected Geometry") return "SelectedGeometryPass";
 						if (name == "GBuffer") return "GBufferPass";
 						if (name == "Deferred Lighting") return "DeferredLightingPass";
+						if (name == "Area Lights") return "AreaLightPass";
 						if (name == "Transparent Forward") return "TransparentForwardPass";
 						if (name == "Geometry Wireframe") return "GeometryWireframePass";
 						if (name == "GBuffer Debug") return "GBufferDebugPass";
@@ -4974,6 +5012,7 @@ namespace Lux {
 		recreatePassFramebuffer(m_GeometryPass);
 		recreatePassFramebuffer(m_GeometryPassTransparent);
 		recreatePassFramebuffer(m_DeferredLightingPass);
+		recreatePassFramebuffer(m_AreaLightPass);
 		recreatePassFramebuffer(m_GBufferDebugPass);
 		recreatePassFramebuffer(m_SkyboxPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
@@ -5008,8 +5047,6 @@ namespace Lux {
 		if (m_PreIntegrationVisibilityTexture.Texture)
 			m_PreIntegrationVisibilityClear = Ref<StorageImageClear>::Create(m_PreIntegrationVisibilityTexture.Texture->GetImage(), 0);
 		invalidateViews(m_PreConvolutedTexture.ImageViews);
-		for (BloomComputeTextures& bloomTexture : m_BloomComputeTextures)
-			invalidateViews(bloomTexture.ImageViews);
 	}
 
 	bool SceneRenderer::IsRenderGraphAliasCandidate(const Ref<Image2D>& image)
@@ -5079,6 +5116,7 @@ namespace Lux {
 		m_CullGroupsSubmitted = false;
 		m_CullGroupsFrozen = false;
 		m_ShadowCullDispatched = false;
+		m_FrameHasRefraction = false;
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
@@ -5110,6 +5148,7 @@ namespace Lux {
 			m_GeometryPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_AreaLightPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			// Editor-only passes may not exist (EnableEditorRenderTargets=false).
 			if (m_GBufferDebugPass)
 				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -5165,6 +5204,7 @@ namespace Lux {
 			repairPassIfStale(m_GeometryPass, "GBuffer");
 			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
 			repairPassIfStale(m_DeferredLightingPass, "DeferredLighting");
+			repairPassIfStale(m_AreaLightPass, "AreaLights");
 			repairPassIfStale(m_AOCompositePass, "AO-Composite");
 			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
 			repairPassIfStale(m_SkyboxPass, "Skybox");
@@ -5186,8 +5226,7 @@ namespace Lux {
 			// No sub-pixel jitter: the only consumers were TAA and SMAA T2x, both removed.
 			// The projection is rasterized exactly as authored, so jittered == unjittered.
 			// UnjitteredViewProjectionMatrix and the zeroed Jitter fields stay in UBCamera
-			// because PreviousViewProjectionMatrix still feeds the G-buffer velocity target,
-			// and that block is shared by nearly every shader.
+			// because that block is shared by nearly every shader.
 			const glm::mat4 viewProj = unjitteredViewProj;
 			const glm::mat4 viewInverse = glm::inverse(camera.ViewMatrix);
 			const glm::mat4 projInverse = glm::inverse(unjitteredProj);
@@ -5202,7 +5241,7 @@ namespace Lux {
 			m_CameraUB.View = camera.ViewMatrix;
 			m_CameraUB.InverseView = viewInverse;
 			m_CameraUB.UnjitteredViewProjection = unjitteredViewProj;
-			// Still written: the G-buffer velocity target reprojects against it.
+			// Nothing reads it since the G-buffer velocity target was dropped; kept in the shared block.
 			m_CameraUB.PreviousViewProjection = m_PreviousViewProjection;
 			// Permanently zero now that nothing jitters the projection.
 			m_CameraUB.Jitter = glm::vec2(0.0f);
@@ -5282,7 +5321,6 @@ namespace Lux {
 			// Fixed noise: with no temporal resolve, a per-frame index only makes the AO noise cycle with the
 			// frame-in-flight slot (a visible 3-frame shimmer, and captures that depend on the frame's phase).
 			m_GTAODataCB.NoiseIndex = 0;
-			m_GTAODataCB.ShadowTolerance = m_Options.AOShadowTolerance;
 			m_GTAODataCB.SliceCount = m_Options.GTAOSliceCount;
 			m_GTAODataCB.StepsPerSlice = m_Options.GTAOStepsPerSlice;
 			m_GTAODataCB.VisibilityBitmask = m_Options.GTAOVisibilityBitmask ? 1u : 0u;
@@ -5321,6 +5359,37 @@ namespace Lux {
 			if (m_PointLightsUB.Count > 0)
 				std::memcpy(m_PointLightsUB.PointLights, pointLights.data(),
 					sizeof(PointLight) * m_PointLightsUB.Count);
+		}
+
+		// ── Area lights: the nearest MaxAreaLights to the camera (uploaded below, once the shadow
+		// atlas assigns their tiles) ──
+		{
+			const auto& areaLights = m_SceneData.SceneLightEnvironment.AreaLights;
+			const uint32_t maxAreaLights = LightEnvironment::MaxAreaLights;
+			m_AreaLightCount = static_cast<uint32_t>(glm::min<size_t>(areaLights.size(), maxAreaLights));
+			if (areaLights.size() > maxAreaLights)
+			{
+				if (!m_AreaLightCapWarned)
+				{
+					LUX_CORE_WARN_TAG("Renderer", "{} area lights in the scene; only the {} nearest the camera are drawn", areaLights.size(), maxAreaLights);
+					m_AreaLightCapWarned = true;
+				}
+
+				std::vector<AreaLight> nearest = areaLights;
+				const glm::vec3 cameraPosition = m_SceneData.CameraPosition;
+				std::partial_sort(nearest.begin(), nearest.begin() + maxAreaLights, nearest.end(), [&cameraPosition](const AreaLight& lhs, const AreaLight& rhs)
+					{
+						const glm::vec3 lhsOffset = lhs.Position - cameraPosition;
+						const glm::vec3 rhsOffset = rhs.Position - cameraPosition;
+						return glm::dot(lhsOffset, lhsOffset) < glm::dot(rhsOffset, rhsOffset);
+					});
+				std::memcpy(m_AreaLightsUB.AreaLights, nearest.data(), sizeof(AreaLight) * m_AreaLightCount);
+			}
+			else if (m_AreaLightCount > 0)
+			{
+				std::memcpy(m_AreaLightsUB.AreaLights, areaLights.data(), sizeof(AreaLight) * m_AreaLightCount);
+			}
+			m_AreaLightsUB.Count = m_AreaLightCount;
 		}
 
 		// ── Spot lights uniform buffer + shadow data ─────────────────────────-
@@ -5378,11 +5447,60 @@ namespace Lux {
 				return a.Score > b.Score;
 			});
 
+			// Area lights take the tiles spot and point lights leave: a rect or disk one (two when
+			// two-sided, the second mirrored to the back), a sphere or tube six cube faces like a point light.
+			struct AreaShadowCandidate
+			{
+				uint32_t Index = 0;
+				float Score = 0.0f;
+				uint32_t Tiles = 1;
+			};
+
+			std::vector<AreaShadowCandidate> areaShadowCandidates;
+			for (uint32_t i = 0; i < m_AreaLightCount; i++)
+			{
+				AreaLight& light = m_AreaLightsUB.AreaLights[i];
+				light.ShadowIndex = 0;
+				light.AtlasScale = 1.0f;
+				light.ShadowEmitterDepth = 0.0f;
+				if ((light.ShadowFlags & AreaLightShadowCasts) == 0)
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				// A light whose whole lit sphere lies beyond the shadow distance casts nothing visible.
+				const glm::vec3 toLight = light.Position - m_SceneUB.CameraPosition;
+				const float distanceSquared = glm::dot(toLight, toLight);
+				if (glm::sqrt(distanceSquared) - light.Range > m_Options.MaxShadowDistance)
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				const float luminance = glm::max(CalculateLightLuminance(light.Radiance), 0.001f);
+				const float extent = glm::sqrt(glm::length(light.HalfRight) * glm::length(light.HalfUp));
+				const float score = light.Intensity * luminance * extent * light.Range / glm::max(1.0f, distanceSquared);
+				areaShadowCandidates.push_back({ i, score, GetAreaLightShadowTileCount(light) });
+			}
+
+			std::sort(areaShadowCandidates.begin(), areaShadowCandidates.end(), [](const AreaShadowCandidate& a, const AreaShadowCandidate& b)
+			{
+				if (a.Score == b.Score)
+					return a.Index < b.Index;
+				return a.Score > b.Score;
+			});
+
 			m_SpotShadowLightCount = 0;
+			m_ShadowAtlasDebugInfo.Image = m_SpotShadowMapImage;
+			m_ShadowAtlasDebugInfo.Tiles.clear();
+			m_ShadowAtlasDebugInfo.SpotRequested = 0;
+			m_ShadowAtlasDebugInfo.PointRequested = static_cast<uint32_t>(pointShadowCandidates.size());
+			m_ShadowAtlasDebugInfo.AreaRequested = static_cast<uint32_t>(areaShadowCandidates.size());
 
 			// Candidate scoring/sorting and atlas sizing only matter when shadowed lights
 			// may exist; with none, skip straight to the (16-byte) UBO upload.
-			if (m_SpotLightsUB.Count > 0 || !pointShadowCandidates.empty())
+			if (m_SpotLightsUB.Count > 0 || !pointShadowCandidates.empty() || !areaShadowCandidates.empty())
 			{
 			std::vector<SpotShadowCandidate> shadowCandidates;
 			shadowCandidates.reserve(m_SpotLightsUB.Count);
@@ -5429,7 +5547,30 @@ namespace Lux {
 			std::array<bool, 256> selectedPointShadowCasters{};
 			for (uint32_t i = 0; i < selectedPointShadowCount; i++)
 				selectedPointShadowCasters[pointShadowCandidates[i].Index] = true;
-			const uint32_t selectedTileCount = selectedShadowCount + 6u * selectedPointShadowCount;
+			// Best score first; a light whose tiles no longer fit is skipped, a smaller one after it may still fit.
+			uint32_t areaTilesLeft = MaxShadowAtlasTiles - selectedShadowCount - 6u * selectedPointShadowCount;
+			uint32_t selectedAreaShadowCount = 0;
+			uint32_t selectedAreaTileCount = 0;
+			std::array<bool, LightEnvironment::MaxAreaLights> selectedAreaShadowCasters{};
+			for (const AreaShadowCandidate& candidate : areaShadowCandidates)
+			{
+				if (selectedAreaShadowCount == MaxAreaShadows)
+					break;
+				if (candidate.Tiles > areaTilesLeft)
+					continue;
+
+				selectedAreaShadowCasters[candidate.Index] = true;
+				selectedAreaShadowCount++;
+				selectedAreaTileCount += candidate.Tiles;
+				areaTilesLeft -= candidate.Tiles;
+			}
+			const uint32_t selectedTileCount = selectedShadowCount + 6u * selectedPointShadowCount + selectedAreaTileCount;
+			if (selectedAreaShadowCount < areaShadowCandidates.size() && !m_AreaShadowBudgetWarned)
+			{
+				LUX_CORE_WARN_TAG("Renderer", "{} shadowed area lights have no shadow: spot and point lights fill the {}-tile shadow atlas first, and at most {} area lights get tiles (Renderer Debugger > Shadows shows the atlas)",
+					areaShadowCandidates.size() - selectedAreaShadowCount, MaxShadowAtlasTiles, MaxAreaShadows);
+				m_AreaShadowBudgetWarned = true;
+			}
 			std::array<bool, 256> selectedShadowCasters{};
 			uint32_t maxSelectedTier = 1;
 			for (uint32_t i = 0; i < selectedShadowCount; i++)
@@ -5442,6 +5583,10 @@ namespace Lux {
 			m_SpotShadowAtlasGridSize = (uint32_t)glm::ceil(glm::sqrt((float)glm::max(1u, selectedTileCount)));
 			m_SpotShadowAtlasGridSize = glm::max(1u, glm::min(m_SpotShadowAtlasGridSize, 8u));
 			m_SpotShadowTileSize = m_SpotShadowMapSize / m_SpotShadowAtlasGridSize;
+			m_ShadowAtlasDebugInfo.SpotRequested = static_cast<uint32_t>(shadowCandidates.size());
+			m_ShadowAtlasDebugInfo.AtlasSize = m_SpotShadowMapSize;
+			m_ShadowAtlasDebugInfo.GridSize = m_SpotShadowAtlasGridSize;
+			m_ShadowAtlasDebugInfo.TileSize = m_SpotShadowTileSize;
 
 			bool spotShadowFramebufferResized = false;
 			if (m_SpotShadowMapImage && m_SpotShadowMapImage->GetSize().x != m_SpotShadowMapSize)
@@ -5479,6 +5624,8 @@ namespace Lux {
 			uint64_t spotShadowStateHash = 1469598103934665603ull;
 			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedShadowCount);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedPointShadowCount);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedAreaShadowCount);
+			spotShadowStateHash = HashCombine(spotShadowStateHash, selectedAreaTileCount);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, maxSelectedTier);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowMapSize);
 			spotShadowStateHash = HashCombine(spotShadowStateHash, m_SpotShadowAtlasGridSize);
@@ -5510,6 +5657,7 @@ namespace Lux {
 				const uint32_t tileX = atlasIndex % m_SpotShadowAtlasGridSize;
 				const uint32_t tileY = atlasIndex / m_SpotShadowAtlasGridSize;
 				const float atlasScale = 1.0f / (float)m_SpotShadowAtlasGridSize;
+				m_ShadowAtlasDebugInfo.Tiles.push_back({ ShadowAtlasTile::LightType::Spot, i, 0, light.Position });
 
 				light.ShadowIndex = atlasIndex;
 				light.AtlasOffsetX = tileX * atlasScale;
@@ -5552,11 +5700,64 @@ namespace Lux {
 				for (uint32_t face = 0; face < 6; face++)
 				{
 					const uint32_t atlasIndex = m_SpotShadowCount++;
+					m_ShadowAtlasDebugInfo.Tiles.push_back({ ShadowAtlasTile::LightType::Point, i, face, light.Position, true });
 					const glm::mat4 view = glm::lookAt(light.Position, light.Position + k_PointShadowFaceDirections[face], k_PointShadowFaceUps[face]);
 					const glm::mat4 viewProjection = proj * view;
 					m_SpotShadowUB.ViewProjection[atlasIndex] = viewProjection;
 					m_SpotShadowFrustums[atlasIndex] = Frustum::FromViewProjection(viewProjection);
 					m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
+				}
+			}
+
+			for (uint32_t i = 0; i < m_AreaLightCount; i++)
+			{
+				AreaLight& light = m_AreaLightsUB.AreaLights[i];
+				if (!selectedAreaShadowCasters[i])
+				{
+					light.ShadowFlags = 0;
+					continue;
+				}
+
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.Position);
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.HalfRight);
+				spotShadowStateHash = HashVec3(spotShadowStateHash, light.HalfUp);
+				spotShadowStateHash = HashCombine(spotShadowStateHash, HashFloat(light.Range));
+				spotShadowStateHash = HashCombine(spotShadowStateHash, light.Shape);
+				spotShadowStateHash = HashCombine(spotShadowStateHash, light.Flags);
+
+				light.ShadowIndex = m_SpotShadowCount;
+				light.AtlasScale = atlasTileScale;
+				auto addTile = [&](const glm::mat4& viewProjection, uint32_t face, bool cubeFace)
+				{
+					const uint32_t atlasIndex = m_SpotShadowCount++;
+					m_ShadowAtlasDebugInfo.Tiles.push_back({ ShadowAtlasTile::LightType::Area, i, face, light.Position, cubeFace });
+					m_SpotShadowUB.ViewProjection[atlasIndex] = viewProjection;
+					m_SpotShadowFrustums[atlasIndex] = Frustum::FromViewProjection(viewProjection);
+					m_SpotShadowFrustumCount = glm::max(m_SpotShadowFrustumCount, atlasIndex + 1u);
+				};
+
+				if (IsFlatAreaLight(light))
+				{
+					const AreaLightShadowFrustum front = ComputeAreaLightShadowFrustum(light);
+					light.ShadowEmitterDepth = front.EmitterDepth;
+					addTile(front.ViewProjection, 0, false);
+					if ((light.Flags & AreaLightTwoSided) != 0)
+					{
+						// The back side: the same frustum mirrored through the emitter's plane.
+						AreaLight back = light;
+						back.HalfUp = -light.HalfUp;
+						addTile(ComputeAreaLightShadowFrustum(back).ViewProjection, 1, false);
+					}
+				}
+				else
+				{
+					// A sphere or tube shadows from its centre like a point light; the near plane sits just
+					// outside its radius, so its own bulb or glass never shadows it.
+					const float radius = light.Shape == static_cast<uint32_t>(AreaLightShape::Sphere) ? glm::length(light.HalfRight) : glm::length(light.HalfUp);
+					const float nearPlane = glm::max(k_AreaShadowCubeNearScale * radius, k_PointShadowNearPlane);
+					const glm::mat4 proj = glm::perspective(k_PointShadowFaceFOV, 1.0f, nearPlane, glm::max(light.Range, 2.0f * nearPlane));
+					for (uint32_t face = 0; face < 6; face++)
+						addTile(proj * glm::lookAt(light.Position, light.Position + k_PointShadowFaceDirections[face], k_PointShadowFaceUps[face]), face, true);
 				}
 			}
 
@@ -5607,6 +5808,14 @@ namespace Lux {
 			Renderer::Submit([instance, plData, plSize]() mutable {
 				instance->m_UBSPointLights->RT_Get()->RT_SetData(
 					instance->m_UploadCommandBuffer, &plData, plSize);
+				});
+
+			// Uploaded even with no area lights: the transparent pass reads the count every frame.
+			auto areaData = m_AreaLightsUB;
+			const uint32_t areaSize = static_cast<uint32_t>(16ull + sizeof(AreaLight) * m_AreaLightCount);
+			Renderer::Submit([instance, areaData, areaSize]() mutable {
+				instance->m_UBSAreaLights->RT_Get()->RT_SetData(
+					instance->m_UploadCommandBuffer, &areaData, areaSize);
 				});
 		}
 
@@ -5863,6 +6072,8 @@ namespace Lux {
 		m_SubmittedRenderScene = renderScene;
 		if (!renderScene)
 			return;
+
+		m_FrameHasRefraction = renderScene->GetMaterialScene().HasRefractiveMaterials();
 
 		// Cached proxy submit data holds material assets and resolved handles: any table edit, material
 		// reload or edit, or a different (or cleared) scene starts a new epoch, so every entry rebuilds.
@@ -9040,12 +9251,33 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	void SceneRenderer::AreaLightPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "AreaLightPass");
+		if (!m_AreaLightPass || !m_AreaLightMaterial)
+			return;
+
+		BeginProfiledGPU("AreaLightPass");
+		Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
+		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
+		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
 	void SceneRenderer::TransparentForwardPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "TransparentForwardPass");
 		const MeshPassState& transparentPass = GetMeshPass(MeshPassType::Transparent);
 		if (transparentPass.DrawList.empty())
 			return;
+
+		// Refraction reads this frame's pre-convolved scene; without a refractive material it is not
+		// produced, so the pass gets a black texture. Applied on the render thread like its other inputs.
+		Ref<Texture2D> refractionSource = m_FrameHasRefraction && m_PreConvolutedTexture.Texture ? m_PreConvolutedTexture.Texture : Renderer::GetBlackTexture();
+		Renderer::Submit([transparentRenderPass = m_GeometryPassTransparent, refractionSource]() mutable
+			{
+				transparentRenderPass->SetInput("u_RefractionSource", refractionSource);
+			});
 
 		BeginProfiledGPU("TransparentForwardPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPassTransparent);
@@ -9337,7 +9569,7 @@ namespace Lux {
 	void SceneRenderer::PreConvolutionCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
-		if (!m_Options.EnableSSR || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
+		if (!(m_Options.EnableSSR || m_FrameHasRefraction) || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
 			return;
 
 		struct PreConvolutionComputePushConstants
@@ -9619,125 +9851,88 @@ namespace Lux {
 	void SceneRenderer::BloomCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "BloomCompute");
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		const PostProcessSettings postProcessSettings = GetResolvedPostProcessSettings();
-		if (!postProcessSettings.BloomEnabled || !m_BloomComputePass || !m_BloomComputePipeline || !m_BloomComputeMaterials.PrefilterMaterial)
+		if (!postProcessSettings.BloomEnabled || !m_BloomFFTPass || !m_BloomFFTMaterial || !m_BloomFFTKernelMaterial || !sceneColor || !m_BloomTexture)
 			return;
 
-		const uint32_t mipCount = m_BloomComputeTextures[0].Texture->GetMipLevelCount();
-		if (mipCount < 4)
-			return;
+		const uint32_t inputWidth = glm::max(1u, sceneColor->GetWidth());
+		const uint32_t inputHeight = glm::max(1u, sceneColor->GetHeight());
+		const uint32_t outputWidth = glm::max(1u, m_BloomTexture->GetWidth());
+		const uint32_t outputHeight = glm::max(1u, m_BloomTexture->GetHeight());
 
-		const uint32_t mips = mipCount - 2;
-		if (mips < 3 || !m_BloomComputeMaterials.FirstUpsampleMaterial)
-			return;
+		// The source fills half the grid along its longer side; the other half is padding the
+		// glare kernel spreads into, so the circular convolution never wraps.
+		const float aspect = static_cast<float>(inputWidth) / static_cast<float>(inputHeight);
+		const uint32_t regionWidth = aspect >= 1.0f ? BloomFFTSize / 2u : glm::max(1u, static_cast<uint32_t>(BloomFFTSize / 2u * aspect));
+		const uint32_t regionHeight = aspect >= 1.0f ? glm::max(1u, static_cast<uint32_t>(BloomFFTSize / 2u / aspect)) : BloomFFTSize / 2u;
 
-		struct BloomComputePushConstants
+		struct BloomFFTPushConstants
 		{
-			glm::vec4 Params;
-			glm::vec4 TexSize;
-			float LOD = 0.0f;
-			int Mode = 0;
+			glm::vec4 Region;
+			glm::vec4 InputSize;
+			glm::vec4 OutputSize;
+			glm::vec4 Threshold;
+			glm::vec4 KernelShape; // x streak lines, y streak length, z streak intensity, w halo intensity
+			glm::vec4 KernelColor; // x chromatic spread, y streak rotation (radians)
+			int32_t Mode = 0;
+			int32_t Axis = 0;
+			int32_t Inverse = 0;
+			int32_t Unused = 0;
 		} pushConstants;
+		static_assert(sizeof(BloomFFTPushConstants) == 112, "BloomFFTPushConstants must match BloomFFT.glsl");
 
 		const float knee = glm::max(postProcessSettings.BloomKnee, 0.0001f);
-		pushConstants.Params = {
-			postProcessSettings.BloomThreshold,
-			postProcessSettings.BloomThreshold - knee,
-			knee * 2.0f,
-			0.25f / knee
-		};
+		pushConstants.Region = { (float)regionWidth, (float)regionHeight, 1.0f / (float)regionWidth, 1.0f / (float)regionHeight };
+		pushConstants.InputSize = { (float)inputWidth, (float)inputHeight, 1.0f / (float)inputWidth, 1.0f / (float)inputHeight };
+		pushConstants.OutputSize = { (float)outputWidth, (float)outputHeight, 1.0f / glm::max(1u, outputWidth), 1.0f / glm::max(1u, outputHeight) };
+		pushConstants.Threshold = { postProcessSettings.BloomThreshold, postProcessSettings.BloomThreshold - knee, knee * 2.0f, 0.25f / knee };
+		pushConstants.KernelShape = {
+			(float)glm::min(m_BloomSettings.StreakCount, BloomSettings::MaxStreakCount),
+			glm::max(m_BloomSettings.StreakLength, 0.0f),
+			glm::max(m_BloomSettings.StreakIntensity, 0.0f),
+			glm::max(m_BloomSettings.HaloIntensity, 0.0f) };
+		pushConstants.KernelColor = { glm::clamp(m_BloomSettings.ChromaticSpread, 0.0f, 0.5f), glm::radians(m_BloomSettings.StreakRotation), 0.0f, 0.0f };
+		// The kernel spectrum is rebuilt only when its settings change.
+		const glm::vec4 kernelKey[2] = { pushConstants.KernelShape, pushConstants.KernelColor };
+		if (m_BloomFFTKernelReady && (kernelKey[0] != m_BloomFFTKernelKey[0] || kernelKey[1] != m_BloomFFTKernelKey[1]))
+			m_BloomFFTKernelReady = false;
+		m_BloomFFTKernelKey[0] = kernelKey[0];
+		m_BloomFFTKernelKey[1] = kernelKey[1];
 
-		auto setTexSize = [&](uint32_t mip)
-		{
-			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
-			pushConstants.TexSize = {
-				(float)mipWidth,
-				(float)mipHeight,
-				mipWidth > 0 ? 1.0f / (float)mipWidth : 0.0f,
-				mipHeight > 0 ? 1.0f / (float)mipHeight : 0.0f
-			};
-		};
-
-		auto dispatchForMip = [&](Ref<Material> material, uint32_t mip)
-		{
-			if (!material)
-				return;
-
-			auto [mipWidth, mipHeight] = m_BloomComputeTextures[0].Texture->GetMipSize(mip);
-			const glm::uvec3 workGroups = {
-				AlignUp(glm::max(1u, mipWidth), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
-				AlignUp(glm::max(1u, mipHeight), m_BloomComputeWorkgroupSize) / m_BloomComputeWorkgroupSize,
-				1
-			};
-			Renderer::DispatchCompute(m_CommandBuffer, m_BloomComputePass, material, workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-		};
-
-		auto transitionBloomMip = [commandBuffer = m_CommandBuffer, this](uint32_t textureIndex, uint32_t mip, ResourceState state, const char* label)
-		{
-			if (textureIndex >= m_BloomComputeTextures.size() || !m_BloomComputeTextures[textureIndex].Texture)
-				return;
-
-			Ref<Image2D> image = m_BloomComputeTextures[textureIndex].Texture->GetImage();
-			std::string markerName = std::format("Barrier Bloom {} mip {} {}", textureIndex, mip, label);
-			Renderer::Submit([commandBuffer, image, mip, state, markerName]() mutable
+		constexpr uint32_t ThreadsPerGroup = 256u;
+		auto dispatch = [&](const Ref<Material>& material, int32_t mode, uint32_t groups, int32_t axis = 0, int32_t inverse = 0)
 			{
-				commandBuffer->RT_BeginMarker(markerName);
-				// Skip a missing texture: during a resize the bloom mip image can be mid-recreation
-				// (see PreConvolutionCompute).
-				if (const TrackedTexture& texture = image->GetImageInfo().Tracked; texture.Handle)
-					commandBuffer->RT_TransitionTextureState(texture, { mip, 1, 0, 1 }, state);
-				commandBuffer->RT_CommitBarriers();
-				commandBuffer->RT_EndMarker();
-			});
-		};
+				pushConstants.Mode = mode;
+				pushConstants.Axis = axis;
+				pushConstants.Inverse = inverse;
+				Renderer::DispatchCompute(m_CommandBuffer, m_BloomFFTPass, material, { groups, 1, 1 }, Buffer(&pushConstants, sizeof(pushConstants)));
+			};
+		constexpr uint32_t gridGroups = BloomFFTSize * BloomFFTSize / ThreadsPerGroup;
+		enum : int32_t { Bright = 0, Kernel = 1, FFT = 2, Multiply = 3, Resolve = 4 };
 
 		BeginProfiledGPU("BloomCompute");
-		Renderer::BeginComputePass(m_CommandBuffer, m_BloomComputePass);
+		Renderer::BeginComputePass(m_CommandBuffer, m_BloomFFTPass);
 
-		// Prefilter
-		pushConstants.Mode = 0;
-		pushConstants.LOD = 0.0f;
-		setTexSize(0);
-		transitionBloomMip(0, 0, ResourceState::UnorderedAccess, "write");
-		dispatchForMip(m_BloomComputeMaterials.PrefilterMaterial, 0);
-		transitionBloomMip(0, 0, ResourceState::ShaderResource, "read");
-
-		// Downsample, ping-ponging between texture 0 and texture 1.
-		pushConstants.Mode = 1;
-		for (uint32_t i = 1; i < mips; i++)
+		if (!m_BloomFFTKernelReady)
 		{
-			setTexSize(i);
-			pushConstants.LOD = (float)i - 1.0f;
-			transitionBloomMip(1, i, ResourceState::UnorderedAccess, "write");
-			dispatchForMip(m_BloomComputeMaterials.DownsampleAMaterials[i], i);
-			transitionBloomMip(1, i, ResourceState::ShaderResource, "read");
-
-			pushConstants.LOD = (float)i;
-			transitionBloomMip(0, i, ResourceState::UnorderedAccess, "write");
-			dispatchForMip(m_BloomComputeMaterials.DownsampleBMaterials[i], i);
-			transitionBloomMip(0, i, ResourceState::ShaderResource, "read");
+			dispatch(m_BloomFFTKernelMaterial, Kernel, gridGroups);
+			dispatch(m_BloomFFTKernelMaterial, FFT, BloomFFTSize, 0, 0);
+			dispatch(m_BloomFFTKernelMaterial, FFT, BloomFFTSize, 1, 0);
+			m_BloomFFTKernelReady = true;
 		}
 
-		// First upsample from the smallest downsampled mip.
-		pushConstants.Mode = 2;
-		pushConstants.LOD = (float)mips - 2.0f;
-		setTexSize(mips - 1);
-		transitionBloomMip(2, mips - 2, ResourceState::UnorderedAccess, "write");
-		dispatchForMip(m_BloomComputeMaterials.FirstUpsampleMaterial, mips - 2);
-		transitionBloomMip(2, mips - 2, ResourceState::ShaderResource, "read");
+		dispatch(m_BloomFFTMaterial, Bright, gridGroups);
+		// Rows past the source region are all zero, so only the source rows need the forward row
+		// pass, and only they are read back after the inverse one.
+		dispatch(m_BloomFFTMaterial, FFT, regionHeight, 0, 0);
+		dispatch(m_BloomFFTMaterial, FFT, BloomFFTSize, 1, 0);
+		dispatch(m_BloomFFTMaterial, Multiply, gridGroups);
+		dispatch(m_BloomFFTMaterial, FFT, BloomFFTSize, 1, 1);
+		dispatch(m_BloomFFTMaterial, FFT, regionHeight, 0, 1);
+		dispatch(m_BloomFFTMaterial, Resolve, (outputWidth * outputHeight + ThreadsPerGroup - 1u) / ThreadsPerGroup);
 
-		// Upsample back to mip 0.
-		pushConstants.Mode = 3;
-		for (int32_t mip = (int32_t)mips - 3; mip >= 0; mip--)
-		{
-			pushConstants.LOD = (float)mip;
-			setTexSize((uint32_t)mip + 1u);
-			transitionBloomMip(2, (uint32_t)mip, ResourceState::UnorderedAccess, "write");
-			dispatchForMip(m_BloomComputeMaterials.UpsampleMaterials[mip], (uint32_t)mip);
-			transitionBloomMip(2, (uint32_t)mip, ResourceState::ShaderResource, "read");
-		}
-
-		Renderer::EndComputePass(m_CommandBuffer, m_BloomComputePass);
+		Renderer::EndComputePass(m_CommandBuffer, m_BloomFFTPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -10144,11 +10339,6 @@ namespace Lux {
 		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(3) : nullptr;
 	}
 
-	Ref<Image2D> SceneRenderer::GetGeometryVelocityOutput() const
-	{
-		return m_GeometryPassFramebuffer ? m_GeometryPassFramebuffer->GetImage(4) : nullptr;
-	}
-
 	Ref<Image2D> SceneRenderer::GetFinalPassImage()
 	{
 		if (Ref<Image2D> debugImage = GetDebugViewImage(m_DebugViewMode))
@@ -10190,8 +10380,8 @@ namespace Lux {
 			case DebugViewMode::Bloom:
 				if (!GetResolvedPostProcessSettings().BloomEnabled)
 					return nullptr;
-				if (m_BloomComputeTextures.size() > 2 && m_BloomComputeTextures[2].Texture)
-					return m_BloomComputeTextures[2].Texture->GetImage();
+				if (m_BloomTexture)
+					return m_BloomTexture->GetImage();
 				return nullptr;
 
 			case DebugViewMode::Composite:
