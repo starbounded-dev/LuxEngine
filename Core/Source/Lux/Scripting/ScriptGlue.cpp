@@ -148,7 +148,9 @@ namespace Lux {
 
 	static void Scene_DestroyEntity(uint64_t entityID)
 	{
-		GetScene()->DestroyEntity(GetEntity(entityID));
+		// Deferred to the end of the update: the caller may be the script being destroyed, inside the
+		// loop over script instances.
+		GetScene()->SubmitToDestroyEntity(GetEntity(entityID));
 	}
 
 	#pragma endregion

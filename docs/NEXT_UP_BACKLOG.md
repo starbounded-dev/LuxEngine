@@ -23,11 +23,11 @@ the DX11/DX12 scaffolding stays; nothing may make game makers install extra soft
 | 1.1 | Click through the Help panel: F1, every section, search, back/forward, a link to a missing page, Copy on a code block, each component's **?** button. Check ImGui shows no ID-conflict popup | S | ✔ built, never driven |
 | 1.2 | Run the tutorial end to end on a **new** project: Create Project → Build Scripts → Ctrl+R → Script component → Play → Export | S | ✔ `.csproj` builds with `dotnet`; the editor flow was not run |
 | 1.3 | A scene with 40 distinct sprite textures and 40 fonts: draws, no validation errors, no flicker while textures change | S | ✔ code path built, not driven |
-| 1.4 | Font cache: corrupt a `.lfa` file, change a font under the same name; both regenerate | S | ✔ by reading only |
-| 1.5 | Drag `tests/meshes/SharedMeshNodes.gltf` into a scene: three cubes, all collide, picking hits each | S | ✔ importer walk tested outside the engine |
+| 1.4 | Font cache: corrupt a `.lfa` file, change a font under the same name; both regenerate | S | ✔ by reading only; atlas generation needs the GPU, so no headless test |
+| 1.5 | Drag `tests/meshes/SharedMeshNodes.gltf` into a scene: three cubes, all collide, picking hits each, the mirrored one is not inside-out | S | ✔ engine importer tested headless (3 placements, outward winding); render/collide/pick not driven |
 | 1.6 | A Debug-build golden run with sync validation (`golden_run.py --config debug --sync-validation`) on the branch | S | not run yet |
-| 1.7 | Linux build of the branch (`scripts/Linux-Build.sh`): meshoptimizer, new files, `Ref.h` | M | not run |
-| 1.8 | Measure editor start-up with the Help panel loading all pages (expected a few ms) and the meshoptimizer LOD cost on big imports (Sponza +170 ms) | S | ✔ LOD cost measured offline only |
+| 1.7 | Linux build of the branch (`scripts/Linux-Build.sh`): meshoptimizer, new files, `Ref.h` | M | ◐ compile-only (`g++ 13 -fsyntax-only`, Linux defines, WSL Ubuntu 24.04) passes for every touched Core/Editor file and meshoptimizer; no link or run (WSL has no Vulkan SDK or .NET) |
+| 1.8 | Measure editor start-up with the Help panel loading all pages and the meshoptimizer LOD cost on big imports | S | ✔ headless, Release: Help topics 22 ms cold / 2.5 ms warm (17 pages); Sponza import 436 ms with LODs (no materials), LODs measured at +170 ms offline |
 
 ## 2. Bugs found but not fixed
 
@@ -35,11 +35,12 @@ the DX11/DX12 scaffolding stays; nothing may make game makers install extra soft
 |---|---|---|---|---|
 | 2.1 | **Fixed (2026-10-25).** A failed async runtime load stayed "pending" forever | `RuntimeAssetSystem::TryLoadData` publishes only successes; `RuntimeAssetManager` erases `m_PendingAssets` only when an asset arrives, so the handle is never retried or reported as failed. Same flaw the research found in Lucky. Its error log is also untagged | S | ✔ `RuntimeAssetSystem.cpp:68-85`, `RuntimeAssetManager.cpp:74,251` |
 | 2.2 | **Fixed (2026-10-25).** A StaticMesh with an explicit `SubmeshIndices` list missed the new extra placements | Only "all submeshes" (the empty list) picks up placements appended by the importer | S | ✔ `MeshSerializer.cpp` `SerializeMeshSelectionToYAML`, `StaticMesh::SetSubmeshes` |
-| 2.3 | The sample project registers C# build intermediates as assets | `Assets/Scripts/Intermediates/**.cs` gets random-handle `ScriptFile` entries in `AssetRegistry.lzr` on every launch, dirtying a tracked file. New projects avoid it (intermediates in `Cache/`); the sample's premake still writes into `Assets` | S | ✔ seen in every golden run today |
-| 2.4 | Mirrored placements (negative scale) render and collide inside-out | Winding flips under a negative-determinant transform; true for any negatively scaled entity, now reachable from glTF instancing | M | ✔ fixture has one; render/collision path not checked |
-| 2.5 | `C# Entity.Destroy()` may not fire `OnDestroy` | `OnDestroy` is invoked on Play stop and undo restore; the script-side destroy path was not traced | S | ◐ found while writing the manual |
-| 2.6 | `RenderStatsPanel` is never registered | Dead panel; the Profiler panel replaced it | S | ✔ `EditorLayer.cpp` has no `RenderStatsPanel` |
-| 2.7 | `MeshSource::GetRootNode()` returns the importer's empty placeholder node, not the real root | No caller today, so latent | S | ✔ `Mesh.h:309`, `AssimpMeshImporter.cpp` root placeholder |
+| 2.3 | **Fixed (2026-10-26).** The sample project registered C# build intermediates as assets | The sample's premake and `Directory.Build.props` wrote `Intermediates/` and `obj/` inside `Assets/Scripts`; they now go to the project's `Cache/ScriptBuild/` like a new project's, the stale registry entries are removed, and `Cache/` is ignored | S | ✔ sample builds with `dotnet`, no `.cs` left outside `Source/` |
+| 2.4 | **Fixed for imported placements (2026-10-26).** Mirrored placements (negative scale) rendered and collided inside-out | The importer gives a negative-determinant placement a reversed-winding copy of its index range (one per range); placement matching for explicit submesh lists uses the vertex range. Entity-level negative scale is still open: 2.8 | M | ✔ headless import of `SharedMeshNodes.gltf`: all three placements enclose positive volume |
+| 2.5 | **Fixed (2026-10-26).** C# `Entity.Destroy()` destroyed immediately, inside the script update loop | `OnDestroy` did fire, but the entity (possibly the calling script's own) was destroyed while views were being iterated. `Scene_DestroyEntity` now uses `SubmitToDestroyEntity`: the entity and its children go at the end of the frame, after `OnDestroy`. Manual updated | S | ✔ `ScriptGlue.cpp`, `Scene.cpp` post-update queue drained in all three update paths |
+| 2.6 | **Fixed (2026-10-26).** `RenderStatsPanel` was never registered | Removed (the Profiler panel replaced it); projects regenerated | S | ✔ no references left |
+| 2.7 | **Fixed (2026-10-26).** `MeshSource::GetRootNode()` returned the importer's empty placeholder node | Removed; it had no callers. `GetNodes()` stays | S | ✔ |
+| 2.8 | Entities with a negative scale render and collide inside-out | No determinant handling anywhere: `Pipeline.cpp` culling is fixed per pipeline and `JoltShapes.cpp` scales mesh-collider triangles by the entity scale. Needs per-draw front-face choice (or a mirrored pipeline variant) and reversed collider winding | M | ✔ grep: no `determinant` in `Renderer/` or `Physics/` |
 
 ## 3. Lucky research follow-ups (not in the merge)
 

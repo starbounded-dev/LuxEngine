@@ -89,8 +89,8 @@ namespace Lux
 		}
 
 		// An explicit submesh selection also draws the other placements of each selected submesh: for
-		// every further node that places a mesh, the importer appends a copy over the same vertex/index
-		// range after the original (AssimpMeshImporter::TraverseNodes). Without this, a selection saved
+		// every further node that places a mesh, the importer appends a copy over the same vertex range
+		// after the original (AssimpMeshImporter::TraverseNodes). Without this, a selection saved
 		// before placements existed would show one copy of an instanced mesh.
 		static std::vector<uint32_t> AddSubmeshPlacements(const std::vector<uint32_t>& selection, const std::vector<Submesh>& submeshes)
 		{
@@ -106,8 +106,9 @@ namespace Lux
 					if (selected >= candidate)
 						return false;
 					const Submesh& original = submeshes[selected];
-					return original.BaseVertex == placement.BaseVertex && original.BaseIndex == placement.BaseIndex
-						&& original.VertexCount == placement.VertexCount && original.IndexCount == placement.IndexCount;
+					// Not BaseIndex: a mirrored placement indexes a reversed copy of the range.
+					return original.BaseVertex == placement.BaseVertex && original.VertexCount == placement.VertexCount
+						&& original.IndexCount == placement.IndexCount;
 				});
 				if (placesSelected)
 					result.push_back(candidate);

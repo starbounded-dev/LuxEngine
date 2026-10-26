@@ -115,3 +115,4 @@ Editor/LuxSampleProject/Assets/Audio/**/Build/
 
 # Per-user editor state lives in FileSystem::GetPersistentStoragePath()
 Editor/imgui.ini
+Editor/LuxSampleProject/Cache

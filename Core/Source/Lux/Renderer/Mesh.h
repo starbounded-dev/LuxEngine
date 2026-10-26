@@ -306,7 +306,6 @@ namespace Lux {
 
 		const AABB& GetBoundingBox() const { return m_BoundingBox; }
 
-		const MeshNode& GetRootNode() const { return m_Nodes[0]; }
 		const std::vector<MeshNode>& GetNodes() const { return m_Nodes; }
 
 	private:

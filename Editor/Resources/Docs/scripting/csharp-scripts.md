@@ -21,7 +21,7 @@ The engine calls these methods by name if your class has them:
 |---|---|
 | `void OnCreate()` | Once, before the script's first `OnUpdate`. |
 | `void OnUpdate(float ts)` | Every frame. `ts` is the time since the last frame, in seconds. |
-| `void OnDestroy()` | When play stops. |
+| `void OnDestroy()` | When play stops, or at the end of the frame in which the entity is destroyed. |
 | `protected override void OnCollisionBegin(Entity other)` | This entity's physics body starts touching another. |
 | `protected override void OnCollisionEnd(Entity other)` | They stop touching. |
 
@@ -65,6 +65,6 @@ Inside a script, the entity is `this`:
 - `Name`, `Parent` and `Children` navigate the hierarchy.
 - `GetComponent<T>()`, `HasComponent<T>()`, `AddComponent<T>()` and `RemoveComponent<T>()` reach components such as `RigidBodyComponent` or `AudioSourceComponent`. `GetComponent` returns `null` when there is none.
 - `FindEntityByName("Player")` finds another entity; `As<MyScript>()` returns its script.
-- `Entity.Create("Name")` creates an entity, and `Destroy()` removes one.
+- `Entity.Create("Name")` creates an entity, and `Destroy()` removes one, with its children, at the end of the current frame. Until then it still exists, so code later in the same frame can still read it.
 
 `Log.Info`, `Log.Warn` and `Log.Error` print to the **Log** panel. Read the keyboard, mouse and gamepads with [Input](input).

@@ -481,7 +481,8 @@ orchestrators.
   UUID anywhere that crosses a frame, a file, or a duplication.
 - The registry is **not** thread-safe; mutation is main-thread only.
 - Destroying an entity mid-iteration invalidates views — use `SubmitToDestroyEntity`, which defers
-  into `m_PostUpdateQueue`.
+  into `m_PostUpdateQueue`. C# `Entity.Destroy()` goes through it too (`Scene_DestroyEntity`), so a
+  script's entity is gone, and its `OnDestroy` has run, at the end of the frame.
 - `Scene::Copy` / `CopyTo` back play-mode duplication, scene open (the editor edits a copy of the
   scene asset) and prefab edit mode; a component that isn't copied there silently vanishes on Play.
   They copy the `ScriptStorage` too, so script field values reach Play and survive open → save.
@@ -581,7 +582,10 @@ Rules:
   transform, and the node lists the new index. File meshes keep their indices, and an explicit
   `SubmeshIndices` list also takes the placements of the submeshes it names (`SetSubmeshes`), and every consumer of `submesh.Transform` (retained renderer,
   collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
-  LODs and meshlets once per distinct range and shares them. `MeshSource::GetBoundingBox` is the
+  LODs and meshlets once per distinct range and shares them. A mirrored placement (negative
+  determinant) indexes a reversed-winding copy of its range, appended after import, so culling and
+  one-sided collision see it right side out; placements are therefore matched by vertex range, not
+  `BaseIndex`. Negative scale on the *entity* transform is not handled (backlog). `MeshSource::GetBoundingBox` is the
   union of the placed submesh boxes (`AABB::Transformed`). Fixture:
   `tests/meshes/SharedMeshNodes.gltf` (three cubes from one mesh).
 - `AssetManagerBase::GetDataGeneration()` (facade `AssetManager::GetDataGeneration()`) is bumped

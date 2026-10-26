@@ -1,10 +1,10 @@
 <Project>
 	<!-- BaseIntermediateOutputPath must be set before Microsoft.Common.props is imported,
 	     otherwise NuGet still writes restore assets to obj/ (MSBuild warning MSB3539).
-	     Keeping intermediates in Intermediates/ matches premake5.lua and keeps the folder
-	     out of the editor's script-staleness scan. -->
+	     Keeping intermediates in the project's Cache/ScriptBuild/ matches premake5.lua and keeps
+	     them outside Assets/, out of the asset registry and the script-staleness scan. -->
 	<PropertyGroup>
-		<BaseIntermediateOutputPath>Intermediates/</BaseIntermediateOutputPath>
+		<BaseIntermediateOutputPath>../../Cache/ScriptBuild/</BaseIntermediateOutputPath>
 	</PropertyGroup>
 
 	<!-- Copy Local = off for every assembly reference, applied here rather than in the .csproj

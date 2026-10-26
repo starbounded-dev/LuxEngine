@@ -653,6 +653,30 @@ namespace Lux
 		std::vector<bool> placedSubmeshes(meshSource->m_Submeshes.size(), false);
 		TraverseNodes(meshSource, scene->mRootNode, glm::mat4(1.0f), s_InvalidParentIndex, placedSubmeshes);
 
+		// A mirrored placement (negative scale) reverses the winding of its triangles, so back-face culling
+		// and one-sided collision would see it inside out. It indexes a reversed copy of its range instead,
+		// one copy per range however many mirrored placements share it.
+		std::unordered_map<uint32_t, uint32_t> mirroredBaseIndices; // BaseIndex -> BaseIndex of the reversed copy
+		for (Submesh& submesh : meshSource->m_Submeshes)
+		{
+			if (glm::determinant(glm::mat3(submesh.Transform)) >= 0.0f)
+				continue;
+
+			const uint32_t reversedBaseIndex = static_cast<uint32_t>(meshSource->m_Indices.size()) * 3;
+			const auto [it, inserted] = mirroredBaseIndices.try_emplace(submesh.BaseIndex, reversedBaseIndex);
+			if (inserted)
+			{
+				const uint32_t firstTriangle = submesh.BaseIndex / 3;
+				for (uint32_t t = 0; t < submesh.IndexCount / 3; t++)
+				{
+					Index triangle = meshSource->m_Indices[firstTriangle + t];
+					std::swap(triangle.V2, triangle.V3);
+					meshSource->m_Indices.push_back(triangle);
+				}
+			}
+			submesh.BaseIndex = it->second;
+		}
+
 		// The mesh's bounds are what its entity covers: every placement, in mesh space.
 		meshSource->m_BoundingBox.Min = { FLT_MAX,  FLT_MAX,  FLT_MAX };
 		meshSource->m_BoundingBox.Max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
