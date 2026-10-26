@@ -18,6 +18,7 @@ namespace Lux
 	{
 		m_AssetSystem.StopAndWait();
 		m_PendingAssets.clear();
+		m_FailedAssets.clear();
 		m_LoadedAssets.clear();
 		m_MemoryAssets.clear();
 		m_AssetPack = nullptr;
@@ -52,6 +53,7 @@ namespace Lux
 		if (asset)
 		{
 			m_LoadedAssets[assetHandle] = asset;
+			m_FailedAssets.erase(assetHandle);
 			UpdateDependents(assetHandle);
 		}
 
@@ -71,7 +73,7 @@ namespace Lux
 		if (IsAssetLoaded(assetHandle))
 			return { m_LoadedAssets.at(assetHandle), true };
 
-		if (!m_PendingAssets.contains(assetHandle))
+		if (!m_PendingAssets.contains(assetHandle) && !m_FailedAssets.contains(assetHandle))
 		{
 			m_PendingAssets.insert(assetHandle);
 			m_AssetSystem.QueueAssetLoad({ m_ActiveScene, assetHandle });
@@ -98,6 +100,7 @@ namespace Lux
 		if (asset)
 		{
 			m_LoadedAssets[assetHandle] = asset;
+			m_FailedAssets.erase(assetHandle);
 			MarkDataChanged();
 			UpdateDependents(assetHandle);
 		}
@@ -109,6 +112,8 @@ namespace Lux
 	{
 		if (!m_AssetPack || !IsAssetHandleValid(assetHandle))
 			return;
+
+		m_FailedAssets.erase(assetHandle);
 
 		if (!m_PendingAssets.contains(assetHandle))
 		{
@@ -183,6 +188,7 @@ namespace Lux
 
 		m_LoadedAssets.erase(handle);
 		m_PendingAssets.erase(handle);
+		m_FailedAssets.erase(handle);
 		DeregisterDependencies(handle);
 	}
 
@@ -242,13 +248,21 @@ namespace Lux
 	void RuntimeAssetManager::SyncWithAssetThread()
 	{
 		std::vector<Ref<Asset>> freshAssets;
-		if (!m_AssetSystem.RetrieveReadyAssets(freshAssets))
+		std::vector<AssetHandle> failedHandles;
+		if (!m_AssetSystem.RetrieveReadyAssets(freshAssets, failedHandles))
 			return;
 
 		for (const auto& asset : freshAssets)
 		{
 			m_LoadedAssets[asset->Handle] = asset;
 			m_PendingAssets.erase(asset->Handle);
+		}
+
+		// A failed load is final: it keeps its placeholder and is not queued again every frame.
+		for (AssetHandle handle : failedHandles)
+		{
+			m_PendingAssets.erase(handle);
+			m_FailedAssets.insert(handle);
 		}
 
 		m_AssetSystem.UpdateLoadedAssetList(m_LoadedAssets);

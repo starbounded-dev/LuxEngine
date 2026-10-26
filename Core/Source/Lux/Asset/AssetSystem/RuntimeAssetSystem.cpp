@@ -50,8 +50,12 @@ namespace Lux
 					}
 				}
 
-				if (request.Handle != 0 && request.SceneHandle != 0)
-					TryLoadData(request);
+				if (request.Handle != 0 && request.SceneHandle != 0 && !TryLoadData(request))
+				{
+					// Reported back so the manager stops waiting for it.
+					std::scoped_lock<std::mutex> lock(m_LoadedAssetsMutex);
+					m_FailedAssets.push_back(request.Handle);
+				}
 			}
 
 			std::unique_lock<std::mutex> lock(m_AssetLoadingQueueMutex);
@@ -78,7 +82,7 @@ namespace Lux
 		}
 		else
 		{
-			LUX_CORE_ERROR("RuntimeAssetSystem: failed to load asset {}", (uint64_t)request.Handle);
+			LUX_CORE_ERROR_TAG("AssetManager", "RuntimeAssetSystem: failed to load asset {}", (uint64_t)request.Handle);
 		}
 
 		return asset;
@@ -104,14 +108,16 @@ namespace Lux
 		return TryLoadData({ sceneHandle, assetHandle });
 	}
 
-	bool RuntimeAssetSystem::RetrieveReadyAssets(std::vector<Ref<Asset>>& outAssetList)
+	bool RuntimeAssetSystem::RetrieveReadyAssets(std::vector<Ref<Asset>>& outAssetList, std::vector<AssetHandle>& outFailedHandles)
 	{
 		std::scoped_lock<std::mutex> lock(m_LoadedAssetsMutex);
-		if (m_LoadedAssets.empty())
+		if (m_LoadedAssets.empty() && m_FailedAssets.empty())
 			return false;
 
-		outAssetList = m_LoadedAssets;
+		outAssetList = std::move(m_LoadedAssets);
+		outFailedHandles = std::move(m_FailedAssets);
 		m_LoadedAssets.clear();
+		m_FailedAssets.clear();
 		return true;
 	}
 

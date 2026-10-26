@@ -88,6 +88,33 @@ namespace Lux
 			return true;
 		}
 
+		// An explicit submesh selection also draws the other placements of each selected submesh: for
+		// every further node that places a mesh, the importer appends a copy over the same vertex/index
+		// range after the original (AssimpMeshImporter::TraverseNodes). Without this, a selection saved
+		// before placements existed would show one copy of an instanced mesh.
+		static std::vector<uint32_t> AddSubmeshPlacements(const std::vector<uint32_t>& selection, const std::vector<Submesh>& submeshes)
+		{
+			std::vector<uint32_t> result = selection;
+			for (uint32_t candidate = 0; candidate < (uint32_t)submeshes.size(); candidate++)
+			{
+				if (std::find(result.begin(), result.end(), candidate) != result.end())
+					continue;
+
+				const Submesh& placement = submeshes[candidate];
+				const bool placesSelected = std::any_of(selection.begin(), selection.end(), [&](uint32_t selected)
+				{
+					if (selected >= candidate)
+						return false;
+					const Submesh& original = submeshes[selected];
+					return original.BaseVertex == placement.BaseVertex && original.BaseIndex == placement.BaseIndex
+						&& original.VertexCount == placement.VertexCount && original.IndexCount == placement.IndexCount;
+				});
+				if (placesSelected)
+					result.push_back(candidate);
+			}
+			return result;
+		}
+
 		// Split one submesh LOD range into meshlets (<= 64 vertices, <= 124
 		// triangles each) with a bounding sphere and a backface cone per meshlet
 		// for task-shader culling.
@@ -650,7 +677,7 @@ namespace Lux
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!submeshes.empty())
 		{
-			m_Submeshes = submeshes;
+			m_Submeshes = meshSource ? AddSubmeshPlacements(submeshes, meshSource->GetSubmeshes()) : submeshes;
 		}
 		else
 		{
@@ -795,7 +822,7 @@ namespace Lux
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!submeshes.empty())
 		{
-			m_Submeshes = submeshes;
+			m_Submeshes = meshSource ? AddSubmeshPlacements(submeshes, meshSource->GetSubmeshes()) : submeshes;
 		}
 		else
 		{

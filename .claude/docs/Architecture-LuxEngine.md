@@ -569,15 +569,17 @@ Rules:
   `MemoryOnly` flag; there isn't one.
 - Engine code must work against **both** managers — no editor-only assumptions.
 - Async: `GetAssetAsync` + `SyncWithAssetThread()`; the worker is `EditorAssetSystem` /
-  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). `EditorAssetManager::GetPendingAsyncLoadCount()`
+  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). A queued runtime load that fails is
+  reported back (`RetrieveReadyAssets`) and kept as failed: it leaves the pending set, keeps its
+  placeholder, and is not queued again until `ReloadData` / `ReloadDataAsync`. `EditorAssetManager::GetPendingAsyncLoadCount()`
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own
-  transform, and the node lists the new index. File meshes keep their indices (explicit
-  `SubmeshIndices` lists stay valid), and every consumer of `submesh.Transform` (retained renderer,
+  transform, and the node lists the new index. File meshes keep their indices, and an explicit
+  `SubmeshIndices` list also takes the placements of the submeshes it names (`SetSubmeshes`), and every consumer of `submesh.Transform` (retained renderer,
   collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
   LODs and meshlets once per distinct range and shares them. `MeshSource::GetBoundingBox` is the
   union of the placed submesh boxes (`AABB::Transformed`). Fixture:
