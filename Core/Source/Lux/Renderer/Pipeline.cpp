@@ -13,7 +13,9 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 
 #include <array>
+#include <optional>
 #include <span>
+#include <unordered_set>
 
 namespace Lux {
 
@@ -69,6 +71,80 @@ namespace Lux {
 				case PrimitiveTopology::TriangleStrip:	outTopology = nri::Topology::TRIANGLE_STRIP; return true;
 				default:								return false;
 			}
+		}
+
+		// The vertex input locations a vertex shader reads, one bit each, from its SPIR-V. Empty when it
+		// has an input this does not size (a matrix or an array takes several locations): then every
+		// attribute is kept. A depth-only shader reads the position alone, and the attributes it skips
+		// would each be a validation warning and a wasted fetch.
+		static std::optional<uint32_t> GetVertexInputLocations(const std::vector<uint32_t>& spirv)
+		{
+			constexpr uint32_t k_SPIRVHeaderWords = 5;
+			constexpr uint32_t k_OpEntryPoint = 15, k_OpTypeBool = 20, k_OpTypeInt = 21, k_OpTypeFloat = 22, k_OpTypeVector = 23;
+			constexpr uint32_t k_OpTypePointer = 32, k_OpVariable = 59, k_OpDecorate = 71;
+			constexpr uint32_t k_DecorationBuiltIn = 11, k_DecorationLocation = 30, k_StorageClassInput = 1;
+			constexpr uint32_t k_ExecutionModelVertex = 0;
+
+			std::unordered_set<uint32_t> interfaceIds;            // the vertex entry point's interface: what it reads
+			std::unordered_map<uint32_t, uint32_t> locations;   // id -> Location
+			std::unordered_set<uint32_t> builtIns;
+			std::unordered_set<uint32_t> scalarOrVectorTypes;
+			std::unordered_map<uint32_t, uint32_t> inputPointees; // Input pointer type id -> pointee type id
+			std::vector<uint32_t> inputVariables;                 // { pointer type id, variable id } pairs
+
+			for (size_t word = k_SPIRVHeaderWords; word < spirv.size();)
+			{
+				const uint32_t wordCount = spirv[word] >> 16;
+				const uint32_t opcode = spirv[word] & 0xFFFFu;
+				if (wordCount == 0 || word + wordCount > spirv.size())
+					return std::nullopt;
+				const uint32_t* operands = &spirv[word + 1];
+
+				if (opcode == k_OpEntryPoint && wordCount >= 4 && operands[0] == k_ExecutionModelVertex)
+				{
+					// Operands: execution model, entry point id, a null-terminated name packed in words, then the interface ids.
+					uint32_t operand = 2;
+					while (operand < wordCount - 1 && (operands[operand] >> 24) != 0)
+						operand++;
+					for (operand++; operand < wordCount - 1; operand++)
+						interfaceIds.insert(operands[operand]);
+				}
+				else if (opcode == k_OpDecorate && wordCount >= 3)
+				{
+					if (operands[1] == k_DecorationLocation && wordCount >= 4)
+						locations[operands[0]] = operands[2];
+					else if (operands[1] == k_DecorationBuiltIn)
+						builtIns.insert(operands[0]);
+				}
+				else if ((opcode == k_OpTypeBool || opcode == k_OpTypeInt || opcode == k_OpTypeFloat || opcode == k_OpTypeVector) && wordCount >= 2)
+					scalarOrVectorTypes.insert(operands[0]);
+				else if (opcode == k_OpTypePointer && wordCount >= 4 && operands[1] == k_StorageClassInput)
+					inputPointees[operands[0]] = operands[2];
+				else if (opcode == k_OpVariable && wordCount >= 4 && operands[2] == k_StorageClassInput)
+				{
+					inputVariables.push_back(operands[0]);
+					inputVariables.push_back(operands[1]);
+				}
+				word += wordCount;
+			}
+			if (interfaceIds.empty())
+				return std::nullopt;
+
+			uint32_t mask = 0;
+			for (size_t i = 0; i + 1 < inputVariables.size(); i += 2)
+			{
+				const uint32_t variable = inputVariables[i + 1];
+				if (builtIns.contains(variable) || !interfaceIds.contains(variable))
+					continue;
+
+				const auto location = locations.find(variable);
+				const auto pointee = inputPointees.find(inputVariables[i]);
+				if (location == locations.end() || pointee == inputPointees.end() || !scalarOrVectorTypes.contains(pointee->second)
+					|| location->second >= 32)
+					return std::nullopt;
+				mask |= 1u << location->second;
+			}
+			return mask;
 		}
 
 		static nri::CompareOp GetNRICompareOp(DepthCompareOperator compareOp)
@@ -201,15 +277,17 @@ namespace Lux {
 			problem = "no SPIR-V";
 
 		// Vertex input: the layouts' elements at locations 0..n in order, one stream (binding slot) per
-		// layout that has elements.
+		// layout that has elements. Locations the vertex shader does not read get no attribute.
 		const std::array<const VertexBufferLayout*, 3> layouts = { &m_Specification.Layout, &m_Specification.InstanceLayout, &m_Specification.BoneInfluenceLayout };
 		std::array<nri::VertexAttributeDesc, MaxVertexAttributes> attributes = {};
 		std::array<nri::VertexStreamDesc, layouts.size()> streams = {};
 		uint32_t attributeCount = 0;
+		uint32_t location = 0;
 		uint32_t streamCount = 0;
 		nri::VertexInputDesc vertexInput = {};
 		if (!m_IsMeshletPipeline)
 		{
+			const std::optional<uint32_t> readLocations = Utils::GetVertexInputLocations(shader->GetSPIRV(ShaderStage::Vertex));
 			for (const VertexBufferLayout* vertexLayout : layouts)
 			{
 				if (vertexLayout->GetElementCount() == 0)
@@ -217,6 +295,10 @@ namespace Lux {
 
 				for (const VertexBufferElement& element : *vertexLayout)
 				{
+					const uint32_t elementLocation = location++;
+					if (readLocations && (elementLocation >= 32 || (*readLocations & (1u << elementLocation)) == 0))
+						continue;
+
 					if (attributeCount == attributes.size())
 					{
 						problem = "it has more vertex attributes than NRI takes";
@@ -224,7 +306,7 @@ namespace Lux {
 					}
 
 					nri::VertexAttributeDesc& attribute = attributes[attributeCount];
-					attribute.vk.location = attributeCount;
+					attribute.vk.location = elementLocation;
 					attribute.offset = element.Offset;
 					attribute.streamIndex = static_cast<uint16_t>(streamCount);
 					if (!Utils::TryGetNRIFormat(element.Type, attribute.format) && !problem)
@@ -251,7 +333,7 @@ namespace Lux {
 		pipelineDesc.rasterization.cullMode = m_Specification.FrontFaceCulling ? nri::CullMode::FRONT
 			: m_Specification.BackfaceCulling ? nri::CullMode::BACK
 			: nri::CullMode::NONE;
-		pipelineDesc.rasterization.frontCounterClockwise = true;
+		pipelineDesc.rasterization.frontCounterClockwise = !m_Specification.Mirrored;
 		// Mesh pipelines take no shading-rate state, as NVRHI's meshlet pipelines had none.
 		pipelineDesc.rasterization.shadingRate = Renderer::SupportsVariableRateShading() && !m_IsMeshletPipeline;
 		if (!problem && pipelineDesc.rasterization.shadingRate && RHIDevice::GetDesc().tiers.shadingRate == 0)

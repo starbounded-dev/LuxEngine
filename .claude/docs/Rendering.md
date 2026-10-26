@@ -859,6 +859,23 @@ crash or corruption on some driver even if it renders correctly on yours.
   backface cones, fuller task groups, a position-only output and meshoptimizer-built meshlets did not
   close it (render features plan, phase 8). There are no skinned variants: the engine has no skeletal
   animation, and the unused `*_Anim` and `LuxPBR_*` shaders were deleted with the packed vertex.
+- **A mirroring entity transform is a raster variant too.** `MeshKey::Mirrored` is set when the
+  entity's world transform has a negative determinant (`SubmitStaticMeshInternal`). Its draws take
+  pipelines with `PipelineSpecification::Mirrored` (clockwise front faces), so culling and
+  `gl_FrontFacing` see the sides as authored: `m_PreDepthMirroredPipeline`,
+  `m_PreDepthMaskedMirroredPipeline`, `m_PreDepthMeshletMirroredPipeline`, `m_GeometryMirroredPipeline`,
+  `m_GeometryTwoSidedMirroredPipeline`, `m_TransparentMirroredPipeline` and
+  `m_TransparentBackFacesMirroredPipeline`. A mirrored two-sided prepass draw uses the plain two-sided
+  pipeline (depth has no front). Shadow and selection pipelines do not cull, so their keys never set
+  it. A mirrored transparent switches per draw and keeps its sort key, so blend order does not move.
+  Kept cull groups record each grouped proxy's mirroring (`m_CullGroupPrimitiveMirroring`); a move
+  that flips it rebuilds them. A mirrored *submesh placement* needs none of this: the importer gives it
+  reversed indices.
+- **Vertex input follows the shader.** `Pipeline` reads the vertex shader's SPIR-V entry-point
+  interface (`Utils::GetVertexInputLocations`) and declares only the layout locations it reads,
+  keeping every location number and stream stride. Depth-only shaders read the position alone, so
+  they no longer fetch the tangent frame and UV. An input it cannot size (a matrix or array) keeps
+  every attribute.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still

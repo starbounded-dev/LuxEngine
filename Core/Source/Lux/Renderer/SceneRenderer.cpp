@@ -1735,6 +1735,11 @@ namespace Lux {
 			twoSidedPipelineSpec.BackfaceCulling = false;
 			m_PreDepthTwoSidedPipeline = Pipeline::Create(twoSidedPipelineSpec);
 
+			PipelineSpecification mirroredPipelineSpec = pipelineSpec;
+			mirroredPipelineSpec.DebugName = "PreDepth-Mirrored";
+			mirroredPipelineSpec.Mirrored = true;
+			m_PreDepthMirroredPipeline = Pipeline::Create(mirroredPipelineSpec);
+
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "PreDepthPass";
 			rpSpec.Pipeline = m_PreDepthPipeline;
@@ -1761,6 +1766,11 @@ namespace Lux {
 				maskedTwoSidedPipelineSpec.DebugName = "PreDepth-Masked-TwoSided";
 				maskedTwoSidedPipelineSpec.BackfaceCulling = false;
 				m_PreDepthMaskedTwoSidedPipeline = Pipeline::Create(maskedTwoSidedPipelineSpec);
+
+				PipelineSpecification maskedMirroredPipelineSpec = maskedPipelineSpec;
+				maskedMirroredPipelineSpec.DebugName = "PreDepth-Masked-Mirrored";
+				maskedMirroredPipelineSpec.Mirrored = true;
+				m_PreDepthMaskedMirroredPipeline = Pipeline::Create(maskedMirroredPipelineSpec);
 
 				m_PreDepthMaskedPass = RenderPass::Create(maskedRPSpec);
 				m_PreDepthMaskedPass->SetInput("Camera", m_UBSCamera);
@@ -1793,6 +1803,11 @@ namespace Lux {
 				meshletTwoSidedPipelineSpec.DebugName = "PreDepth-Meshlet-TwoSided";
 				meshletTwoSidedPipelineSpec.BackfaceCulling = false;
 				m_PreDepthMeshletTwoSidedPipeline = Pipeline::Create(meshletTwoSidedPipelineSpec);
+
+				PipelineSpecification meshletMirroredPipelineSpec = meshletPipelineSpec;
+				meshletMirroredPipelineSpec.DebugName = "PreDepth-Meshlet-Mirrored";
+				meshletMirroredPipelineSpec.Mirrored = true;
+				m_PreDepthMeshletMirroredPipeline = Pipeline::Create(meshletMirroredPipelineSpec);
 
 				RenderPassSpecification meshletRPSpec;
 				meshletRPSpec.DebugName = "PreDepthMeshletPass";
@@ -2018,6 +2033,16 @@ namespace Lux {
 			twoSidedPipelineSpec.BackfaceCulling = false;
 			m_GeometryTwoSidedPipeline = Pipeline::Create(twoSidedPipelineSpec);
 
+			PipelineSpecification mirroredPipelineSpec = pipelineSpec;
+			mirroredPipelineSpec.DebugName = "GBuffer-Static-Mirrored";
+			mirroredPipelineSpec.Mirrored = true;
+			m_GeometryMirroredPipeline = Pipeline::Create(mirroredPipelineSpec);
+
+			PipelineSpecification twoSidedMirroredPipelineSpec = twoSidedPipelineSpec;
+			twoSidedMirroredPipelineSpec.DebugName = "GBuffer-Static-TwoSided-Mirrored";
+			twoSidedMirroredPipelineSpec.Mirrored = true;
+			m_GeometryTwoSidedMirroredPipeline = Pipeline::Create(twoSidedMirroredPipelineSpec);
+
 			RenderPassSpecification rpSpec;
 			rpSpec.DebugName = "GBufferPass";
 			rpSpec.Pipeline = m_GeometryPipeline;
@@ -2063,6 +2088,16 @@ namespace Lux {
 			backFacesPipelineSpec.DebugName = "TransparentForward-BackFaces";
 			backFacesPipelineSpec.FrontFaceCulling = true;
 			m_TransparentBackFacesPipeline = Pipeline::Create(backFacesPipelineSpec);
+
+			PipelineSpecification transparentMirroredPipelineSpec = pipelineSpec;
+			transparentMirroredPipelineSpec.DebugName = "TransparentForward-Mirrored";
+			transparentMirroredPipelineSpec.Mirrored = true;
+			m_TransparentMirroredPipeline = Pipeline::Create(transparentMirroredPipelineSpec);
+
+			PipelineSpecification backFacesMirroredPipelineSpec = backFacesPipelineSpec;
+			backFacesMirroredPipelineSpec.DebugName = "TransparentForward-BackFaces-Mirrored";
+			backFacesMirroredPipelineSpec.Mirrored = true;
+			m_TransparentBackFacesMirroredPipeline = Pipeline::Create(backFacesMirroredPipelineSpec);
 
 			rpSpec.DebugName = "TransparentForwardPass";
 			rpSpec.Pipeline = m_TransparentGeometryPipeline;
@@ -6118,6 +6153,12 @@ namespace Lux {
 						return false;
 					if (proxy->PrimitiveID < m_ShadowCullGroupPrimitives.size() && m_ShadowCullGroupPrimitives[proxy->PrimitiveID])
 						return false;
+					// A move that mirrors or unmirrors a grouped proxy changes its draws' pipeline.
+					if (proxy->PrimitiveID < m_CullGroupPrimitiveMirroring.size()
+						&& m_CullGroupPrimitiveMirroring[proxy->PrimitiveID] != CullGroupMirroring::None
+						&& (m_CullGroupPrimitiveMirroring[proxy->PrimitiveID] == CullGroupMirroring::Mirrored)
+							!= (glm::determinant(glm::mat3(proxy->WorldTransform)) < 0.0f))
+						return false;
 					movedProxies++;
 				}
 				return movedProxies == changedPrimitives.size();
@@ -6766,11 +6807,15 @@ namespace Lux {
 		keys.Frame = m_MeshDrawCommandCacheFrame;
 		keys.GeometryPipeline = SortKeyFromRef(m_GeometryPipeline.Raw());
 		keys.GeometryTwoSidedPipeline = SortKeyFromRef(m_GeometryTwoSidedPipeline.Raw());
+		keys.GeometryMirroredPipeline = SortKeyFromRef(m_GeometryMirroredPipeline.Raw());
+		keys.GeometryTwoSidedMirroredPipeline = SortKeyFromRef(m_GeometryTwoSidedMirroredPipeline.Raw());
 		keys.TransparentGeometryPipeline = SortKeyFromRef(m_TransparentGeometryPipeline.Raw());
 		keys.PreDepthPipeline = SortKeyFromRef(m_PreDepthPipeline.Raw());
 		keys.PreDepthTwoSidedPipeline = SortKeyFromRef(m_PreDepthTwoSidedPipeline.Raw());
+		keys.PreDepthMirroredPipeline = SortKeyFromRef(m_PreDepthMirroredPipeline.Raw());
 		keys.PreDepthMaskedPipeline = m_PreDepthMaskedPass ? SortKeyFromRef(m_PreDepthMaskedPass->GetPipeline().Raw()) : 0;
 		keys.PreDepthMaskedTwoSidedPipeline = SortKeyFromRef(m_PreDepthMaskedTwoSidedPipeline.Raw());
+		keys.PreDepthMaskedMirroredPipeline = SortKeyFromRef(m_PreDepthMaskedMirroredPipeline.Raw());
 		keys.PreDepthShader = m_PreDepthMaterial && m_PreDepthMaterial->GetShader()
 			? SortKeyFromRef(m_PreDepthMaterial->GetShader().Raw()) : 0;
 		keys.PreDepthMaterial = SortKeyFromRef(m_PreDepthMaterial.Raw());
@@ -6793,8 +6838,15 @@ namespace Lux {
 	uint64_t SceneRenderer::GetPreDepthPipelineSortKey(const PassSortKeys& keys, const MeshKey& key)
 	{
 		if (key.AlphaMasked)
-			return key.TwoSided ? keys.PreDepthMaskedTwoSidedPipeline : keys.PreDepthMaskedPipeline;
-		return key.TwoSided ? keys.PreDepthTwoSidedPipeline : keys.PreDepthPipeline;
+			return key.TwoSided ? keys.PreDepthMaskedTwoSidedPipeline : (key.Mirrored ? keys.PreDepthMaskedMirroredPipeline : keys.PreDepthMaskedPipeline);
+		return key.TwoSided ? keys.PreDepthTwoSidedPipeline : (key.Mirrored ? keys.PreDepthMirroredPipeline : keys.PreDepthPipeline);
+	}
+
+	uint64_t SceneRenderer::GetGeometryPipelineSortKey(const PassSortKeys& keys, const MeshKey& key)
+	{
+		if (key.TwoSided)
+			return key.Mirrored ? keys.GeometryTwoSidedMirroredPipeline : keys.GeometryTwoSidedPipeline;
+		return key.Mirrored ? keys.GeometryMirroredPipeline : keys.GeometryPipeline;
 	}
 
 	bool SceneRenderer::CanUseGPUCullGroups() const
@@ -6805,13 +6857,14 @@ namespace Lux {
 	}
 
 	void SceneRenderer::AddToCullGroup(const SubmeshSubmitData& data, const Ref<StaticMesh>& staticMesh, const Ref<MeshSource>& meshSource,
-		const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex, bool staticCaster)
+		const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex, bool staticCaster, bool mirrored)
 	{
 		// Transparent draws bind their material, so they group by material key as the CPU path does.
 		MeshKey key{ data.MeshKeyHandle, data.Transparent ? data.KeyMaterialHandle : AssetHandle(0), submeshIndex, 0, false, false };
 		key.GPUCullGroup = true;
 		key.TwoSided = data.TwoSided;
 		key.AlphaMasked = data.AlphaMasked && !data.Transparent;
+		key.Mirrored = mirrored;
 
 		auto [it, inserted] = m_CullGroups.try_emplace(key);
 		CullGroup& group = it->second;
@@ -6865,6 +6918,7 @@ namespace Lux {
 		m_CullGroups.clear();
 		m_ShadowCullGroups.clear();
 		m_ShadowCullGroupPrimitives.clear();
+		m_CullGroupPrimitiveMirroring.clear();
 		m_NextStaticCasterFrame = std::numeric_limits<uint32_t>::max();
 		m_ShadowStaticCasterSetHash = 0;
 		m_CullGroupsValid = false;
@@ -6896,7 +6950,7 @@ namespace Lux {
 
 				SubmitMeshPassDraw(MeshPassType::Opaque, key, group.StaticMesh, group.MeshSource, nullptr,
 					group.SubmeshIndex, lodIndex, AssetHandle(0), nullptr,
-					key.TwoSided ? passSortKeys.GeometryTwoSidedPipeline : passSortKeys.GeometryPipeline,
+					GetGeometryPipelineSortKey(passSortKeys, key),
 					0, 0, group.MeshSortKey).InstanceCount = instanceCount;
 				SubmitMeshPassDraw(MeshPassType::DepthPrepass, key, group.StaticMesh, group.MeshSource, nullptr,
 					group.SubmeshIndex, lodIndex, AssetHandle(0), m_PreDepthMaterial,
@@ -6937,6 +6991,9 @@ namespace Lux {
 
 		const auto& submeshData = meshSource->GetSubmeshes();
 		const PassSortKeys& passSortKeys = GetPassSortKeys();
+		// A mirroring entity transform turns its triangles around; its draws take the clockwise-front
+		// pipelines. A mirrored submesh placement needs nothing here: the importer reversed its indices.
+		const bool mirrored = glm::determinant(glm::mat3(transform)) < 0.0f;
 
 		auto submitSubmesh = [&](uint32_t submeshIndex, const GPUSceneInstanceRef* gpuSceneInstanceRef, const SubmeshSubmitData& data)
 		{
@@ -6967,7 +7024,14 @@ namespace Lux {
 			const bool staticCaster = gpuCullGroup && renderProxy && sceneFrame - renderProxy->LastMovedFrame >= StaticShadowCasterStableFrames;
 			if (gpuCullGroup && !m_CullGroupsFrozen)
 			{
-				AddToCullGroup(data, staticMesh, meshSource, materialTable, submeshIndex, gpuSceneInstanceRef->InstanceID, staticCaster);
+				AddToCullGroup(data, staticMesh, meshSource, materialTable, submeshIndex, gpuSceneInstanceRef->InstanceID, staticCaster, mirrored);
+				// Kept groups are only valid while this stays the same (onlyCPUShadowProxiesMoved).
+				if (renderProxy)
+				{
+					if (renderProxy->PrimitiveID >= m_CullGroupPrimitiveMirroring.size())
+						m_CullGroupPrimitiveMirroring.resize((size_t)renderProxy->PrimitiveID + 1, CullGroupMirroring::None);
+					m_CullGroupPrimitiveMirroring[renderProxy->PrimitiveID] = mirrored ? CullGroupMirroring::Mirrored : CullGroupMirroring::Unmirrored;
+				}
 				if (castsShadows && staticCaster)
 				{
 					if (renderProxy->PrimitiveID >= m_ShadowCullGroupPrimitives.size())
@@ -7000,11 +7064,13 @@ namespace Lux {
 			// The transparent pass's key: a two-sided material's draws record back faces, then front faces.
 			MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
 			materialKey.TwoSided = data.TwoSided;
+			materialKey.Mirrored = mirrored;
 			// The opaque passes' key: a two-sided material's draws take their no-cull pipelines, and a
 			// Cutout material's prepass draws the alpha-testing one.
 			MeshKey bindlessMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, false, false };
 			bindlessMeshKey.TwoSided = data.TwoSided && !isTransparent;
 			bindlessMeshKey.AlphaMasked = data.AlphaMasked && !isTransparent;
+			bindlessMeshKey.Mirrored = mirrored;
 			const MeshKey selectedMeshKey{ meshKeyHandle, 0, submeshIndex, lodIndex, true, false };
 
 			// Adds this instance to a bucket's draw: the bucket's first instance creates the draw (one
@@ -7059,8 +7125,7 @@ namespace Lux {
 						isTransparent ? materialTable : nullptr,
 						isTransparent ? data.MaterialHandle : AssetHandle(0),
 						isTransparent ? data.OverrideMaterial : nullptr,
-						isTransparent ? passSortKeys.TransparentGeometryPipeline
-							: (bindlessMeshKey.TwoSided ? passSortKeys.GeometryTwoSidedPipeline : passSortKeys.GeometryPipeline),
+						isTransparent ? passSortKeys.TransparentGeometryPipeline : GetGeometryPipelineSortKey(passSortKeys, bindlessMeshKey),
 						isTransparent ? data.ShaderSortKey : 0,
 						isTransparent ? data.MaterialSortKey : 0);
 
@@ -8650,6 +8715,7 @@ namespace Lux {
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
 		bool twoSidedPipeline = false;
 		bool maskedPipeline = false;
+		bool mirroredPipeline = false;
 		for (const MeshKey& key : depthPass.DrawOrder)
 		{
 			const auto drawIt = depthPass.DrawList.find(key);
@@ -8657,13 +8723,15 @@ namespace Lux {
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			if (key.TwoSided != twoSidedPipeline || key.AlphaMasked != maskedPipeline)
+			if (key.TwoSided != twoSidedPipeline || key.AlphaMasked != maskedPipeline || key.Mirrored != mirroredPipeline)
 			{
 				twoSidedPipeline = key.TwoSided;
 				maskedPipeline = key.AlphaMasked;
+				mirroredPipeline = key.Mirrored;
 				const Ref<Pipeline> twoSidedVariant = maskedPipeline ? m_PreDepthMaskedTwoSidedPipeline : m_PreDepthTwoSidedPipeline;
+				const Ref<Pipeline> mirroredVariant = maskedPipeline ? m_PreDepthMaskedMirroredPipeline : m_PreDepthMirroredPipeline;
 				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, maskedPipeline ? m_PreDepthMaskedPass : m_PreDepthPass,
-					twoSidedPipeline ? twoSidedVariant : nullptr);
+					twoSidedPipeline ? twoSidedVariant : (mirroredPipeline ? mirroredVariant : nullptr));
 			}
 
 			StaticDrawCommand drawCmd = drawIt->second;
@@ -8706,6 +8774,7 @@ namespace Lux {
 		// As the classic prepass: the two-sided draws sort together and switch to the no-cull pipeline.
 		const MeshPassState& depthPass = GetMeshPass(MeshPassType::DepthPrepass);
 		bool twoSidedPipeline = false;
+		bool mirroredPipeline = false;
 		for (const MeshKey& key : depthPass.DrawOrder)
 		{
 			const auto drawIt = depthPass.DrawList.find(key);
@@ -8713,10 +8782,12 @@ namespace Lux {
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			if (key.TwoSided != twoSidedPipeline)
+			if (key.TwoSided != twoSidedPipeline || key.Mirrored != mirroredPipeline)
 			{
 				twoSidedPipeline = key.TwoSided;
-				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_PreDepthMeshletPass, twoSidedPipeline ? m_PreDepthMeshletTwoSidedPipeline : nullptr);
+				mirroredPipeline = key.Mirrored;
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_PreDepthMeshletPass, twoSidedPipeline ? m_PreDepthMeshletTwoSidedPipeline
+					: (mirroredPipeline ? m_PreDepthMeshletMirroredPipeline : nullptr));
 			}
 
 			const MeshDrawParams params(it->second);
@@ -9211,6 +9282,7 @@ namespace Lux {
 		// The same culling as the prepass, whose depth this pass tests for equality.
 		const MeshPassState& opaquePass = GetMeshPass(MeshPassType::Opaque);
 		bool twoSidedPipeline = false;
+		bool mirroredPipeline = false;
 		for (const MeshKey& key : opaquePass.DrawOrder)
 		{
 			const auto drawIt = opaquePass.DrawList.find(key);
@@ -9218,10 +9290,13 @@ namespace Lux {
 			auto it = m_MeshTransformMap.find(key);
 			if (it == m_MeshTransformMap.end()) continue;
 
-			if (key.TwoSided != twoSidedPipeline)
+			if (key.TwoSided != twoSidedPipeline || key.Mirrored != mirroredPipeline)
 			{
 				twoSidedPipeline = key.TwoSided;
-				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPass, twoSidedPipeline ? m_GeometryTwoSidedPipeline : nullptr);
+				mirroredPipeline = key.Mirrored;
+				const Ref<Pipeline> mirroredVariant = twoSidedPipeline ? m_GeometryTwoSidedMirroredPipeline : m_GeometryMirroredPipeline;
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPass,
+					mirroredPipeline ? mirroredVariant : (twoSidedPipeline ? m_GeometryTwoSidedPipeline : nullptr));
 			}
 
 			StaticDrawCommand drawCmd = drawIt->second;
@@ -9303,13 +9378,19 @@ namespace Lux {
 
 			// A two-sided transparent blends its far side in before its near side: back faces, then front
 			// faces (HDRP's "back then front"). The draw order between materials stays the sort's.
+			// A mirrored instance takes the clockwise-front variants, and switches back after.
 			if (key.TwoSided)
 			{
-				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent, m_TransparentBackFacesPipeline);
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent,
+					key.Mirrored ? m_TransparentBackFacesMirroredPipeline : m_TransparentBackFacesPipeline);
 				submitDraw();
-				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent);
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent, key.Mirrored ? m_TransparentMirroredPipeline : nullptr);
 			}
+			else if (key.Mirrored)
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent, m_TransparentMirroredPipeline);
 			submitDraw();
+			if (key.Mirrored)
+				Renderer::SwitchRenderPassPipeline(m_CommandBuffer, m_GeometryPassTransparent);
 		}
 
 		Renderer::EndRenderPass(m_CommandBuffer);
