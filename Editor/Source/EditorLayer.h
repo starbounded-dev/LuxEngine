@@ -41,6 +41,7 @@ namespace Lux
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
+	class HelpPanel;
 	class AudioDebugPanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
@@ -183,6 +184,7 @@ namespace Lux
 		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
 		void UI_ScriptToast();                                    // transient C#-reload status overlay
 		void ReloadScriptsWithFeedback();                         // reload C# + sync storage + toast the result
+		void OpenHelpTopic(std::string_view topic);               // shows the Help panel at a manual topic
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
 		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
@@ -254,6 +256,7 @@ namespace Lux
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;
+		Ref<HelpPanel> m_HelpPanel;
 		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;

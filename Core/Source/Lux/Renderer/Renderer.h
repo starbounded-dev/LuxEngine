@@ -94,7 +94,7 @@ namespace Lux {
 					// static_assert(std::is_trivially_destructible_v<FuncT>, "FuncT must be trivially destructible");
 					pFunc->~FuncT();
 					};
-				auto storageBuffer = GetRenderCommandQueue().Allocate(renderCmd, sizeof(func));
+				auto storageBuffer = GetRenderCommandQueue().Allocate(renderCmd, sizeof(func), alignof(FuncT));
 				new (storageBuffer) FuncT(std::forward<FuncT>(func));
 				return;
 			}
@@ -354,6 +354,10 @@ namespace Lux {
 
 		static int GetDrawcallCount();
 		static int GetInstanceCount();
+
+		// Render command queue usage of the last executed frame, with the high-water marks of both
+		// queues. Any thread.
+		static RenderCommandQueueStats GetRenderCommandQueueStats();
 	private:
 		static RenderCommandQueue& GetRenderCommandQueue();
 	};

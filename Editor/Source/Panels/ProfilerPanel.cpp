@@ -7,6 +7,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
@@ -288,6 +289,11 @@ namespace Lux {
 			MetricRow("Textures", Utils::BytesToString(memory.TextureBytes));
 			MetricRow("Buffers", Utils::BytesToString(memory.BufferBytes));
 			MetricRow("Render Targets", Utils::BytesToString(memory.RenderTargetBytes));
+
+			const RenderCommandQueueStats queue = Renderer::GetRenderCommandQueueStats();
+			MetricRow("Render Commands", std::format("{} in {} ({} peak, {} page{})",
+				queue.CommandCount, Utils::BytesToString(queue.Bytes), Utils::BytesToString(queue.MaxBytes),
+				queue.MaxPageCount, queue.MaxPageCount == 1 ? "" : "s"));
 
 			ImGui::EndTable();
 		}

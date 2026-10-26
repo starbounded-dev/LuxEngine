@@ -4,7 +4,7 @@
 Capture a labelled set (one editor launch per scene / feature variant):
 
     golden_run.py --label nvrhi-baseline [--config release] [--features] [--scenes FMODDemo,Physics]
-                  [--sync-validation] [--threading single|multi] [--timeout 900]
+                  [--options MeshLODs=0] [--sync-validation] [--threading single|multi] [--timeout 900]
 
 Compare two labelled sets (every capture present in both):
 
@@ -49,6 +49,7 @@ FEATURE_VARIANTS = {
     "settling": "MoveEntities=256,MoveStop=2",
     "asyncCompute": "AsyncCompute=1",
     "meshShaders": "MeshShaders=1",
+    "noMeshLODs": "MeshLODs=0",
 }
 
 VALIDATION_LINE = re.compile(r"Vulkan (performance )?validation (error|warning)")
@@ -133,10 +134,13 @@ def capture(args):
     label_dir = GOLDEN_ROOT / args.label
     label_dir.mkdir(parents=True, exist_ok=True)
 
-    runs = [(scene, scene, "") for scene in args.scenes]
+    def with_options(options):
+        return ",".join(part for part in (args.options, options) if part)
+
+    runs = [(scene, scene, with_options("")) for scene in args.scenes]
     if args.features:
         first = args.scenes[0]
-        runs += [(f"{first}__{variant}", first, options) for variant, options in FEATURE_VARIANTS.items()]
+        runs += [(f"{first}__{variant}", first, with_options(options)) for variant, options in FEATURE_VARIANTS.items()]
 
     print(f"Capturing {len(runs)} run(s) into {label_dir} ({args.config})")
     results = [run_capture(label_dir, name, scene, options, args, selftest=(index == 0)) for index, (name, scene, options) in enumerate(runs)]
@@ -197,6 +201,7 @@ def main():
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--scenes", type=lambda s: [x for x in s.split(",") if x], default=DEFAULT_SCENES)
     parser.add_argument("--features", action="store_true", help="also capture the first scene once per feature variant")
+    parser.add_argument("--options", default="", help="renderer options for every run, e.g. MeshLODs=0,SSR=0 (LUX_GOLDEN_OPTIONS)")
     parser.add_argument("--size", default="1280x720")
     parser.add_argument("--frame", type=int, default=300)
     parser.add_argument("--perf-frames", type=int, default=300)

@@ -6,6 +6,7 @@
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Audio/AudioValidation.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
@@ -57,6 +58,7 @@
 #include "Lux/Renderer/DebugPalette.h"
 #include "Lux/Physics/PhysicsScene.h"
 #include "Panels/ProfilerPanel.h"
+#include "Panels/HelpPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
 
@@ -101,6 +103,7 @@ namespace Lux {
 #define GAME_VIEW_PANEL_ID "GameViewPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
+#define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
@@ -108,6 +111,61 @@ namespace Lux {
 		std::string GetRecentProjectKey(size_t index)
 		{
 			return "RecentProjects." + std::to_string(index);
+		}
+
+		// The C# project a new game's scripts build with (Project::GetScriptProjectPath; built by
+		// ScriptBuilder from Project Settings and the runtime export). It compiles Source/, writes the
+		// module where ProjectConfig::ScriptModulePath points (Scripts/Binaries), keeps intermediates
+		// in the project's Cache so generated .cs files stay out of the asset registry, and references
+		// the ScriptCore and Coral assemblies this editor loads, so nothing else needs installing.
+		bool WriteScriptProject(const std::filesystem::path& csprojPath, const std::string& name)
+		{
+			const std::filesystem::path editorDirectory = FileSystem::GetWorkingDirectory();
+			const std::string scriptCore = std::filesystem::absolute(editorDirectory / "Resources" / "Scripts" / "ScriptCore.dll").string();
+			const std::string coral = std::filesystem::absolute(editorDirectory / "DotNet" / "Coral.Managed.dll").string();
+			const std::string project = std::format(R"(<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>{0}</AssemblyName>
+    <RootNamespace>{0}</RootNamespace>
+    <Configurations>Debug;Release;Dist</Configurations>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>Binaries\</OutputPath>
+    <IntermediateOutputPath>..\..\Cache\ScriptBuild\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Source\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="ScriptCore">
+      <HintPath>{1}</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Coral.Managed">
+      <HintPath>{2}</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
+)", name, scriptCore, coral);
+
+			std::ofstream stream(csprojPath, std::ios::binary | std::ios::trunc);
+			stream << project;
+			stream.close();
+			if (!stream)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Could not write the script project '{}'", csprojPath.string());
+				return false;
+			}
+			return true;
 		}
 
 		std::filesystem::path NormalizeProjectPath(const std::filesystem::path& path)
@@ -413,6 +471,10 @@ namespace Lux {
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
+		// The offline manual. Inspector help buttons (Core) reach it through EditorDocs.
+		m_HelpPanel = m_PanelManager->AddPanel<HelpPanel>(PanelCategory::View, HELP_PANEL_ID, "Help", false);
+		EditorDocs::SetOpenTopicHandler([this](std::string_view topic) { OpenHelpTopic(topic); });
+
 		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, MATERIAL_EDITOR_PANEL_ID, "Material Editor", false);
 		materialEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
 		{
@@ -708,6 +770,8 @@ namespace Lux {
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
 		m_ProfilerPanel.reset();
+		EditorDocs::SetOpenTopicHandler(nullptr);
+		m_HelpPanel.reset();
 		m_AudioDebugPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
@@ -1309,6 +1373,8 @@ namespace Lux {
 		// Tools
 		add("ImGui Metrics", "Tools", "", [this] { m_ShowImGuiMetrics = true; });
 		add("ImGui Style Editor", "Tools", "", [this] { m_ShowImGuiStyleEditor = true; });
+		add("Manual", "Help", "F1", [this] { OpenHelpTopic(HelpPanel::HomeTopic); });
+		add("Getting Started: Your First Game", "Help", "", [this] { OpenHelpTopic("getting-started/first-game"); });
 		add("Open User Data Folder", "Help", "", [] { FileSystem::OpenDirectoryInExplorer(FileSystem::GetPersistentStoragePath()); });
 		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
 	}
@@ -1597,6 +1663,11 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Help"))
 			{
+				if (ImGui::MenuItem("Manual", "F1"))
+					OpenHelpTopic(HelpPanel::HomeTopic);
+				if (ImGui::MenuItem("Getting Started"))
+					OpenHelpTopic("getting-started/first-game");
+				ImGui::Separator();
 				if (ImGui::MenuItem("Splash Screen") && m_SplashScreen)
 					m_SplashScreen->Open();
 				if (ImGui::MenuItem("Open User Data Folder"))
@@ -2418,6 +2489,7 @@ namespace Lux {
 			}
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
+		case Key::F1: OpenHelpTopic(HelpPanel::HomeTopic); break;
 		case Key::B: if (control) ToggleEntityBookmark(); break;
 
 		// Undo/redo. Skipped while a text field is active so ImGui's own in-field undo keeps Ctrl+Z.
@@ -3782,6 +3854,9 @@ namespace Lux {
 			}
 		}
 
+		if (!WriteScriptProject(assetDirectory / "Scripts" / (name + ".csproj"), name))
+			return false;
+
 		ProjectSerializer serializer(project);
 		if (!serializer.Serialize(projectFilePath))
 		{
@@ -5119,6 +5194,16 @@ namespace Lux {
 		if (ImGui::Begin("##UndoToast", nullptr, flags))
 			ImGui::TextUnformatted(m_UndoToastText.c_str());
 		ImGui::End();
+	}
+
+	void EditorLayer::OpenHelpTopic(std::string_view topic)
+	{
+		if (!m_HelpPanel)
+			return;
+
+		m_HelpPanel->OpenTopic(topic);
+		if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(HELP_PANEL_ID)))
+			panelData->IsOpen = true;
 	}
 
 	void EditorLayer::ReloadScriptsWithFeedback()

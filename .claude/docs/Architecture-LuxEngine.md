@@ -573,6 +573,15 @@ Rules:
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
+- **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
+  the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
+  submesh descriptor for every further reference: same vertex/index range and material, its own
+  transform, and the node lists the new index. File meshes keep their indices (explicit
+  `SubmeshIndices` lists stay valid), and every consumer of `submesh.Transform` (retained renderer,
+  collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
+  LODs and meshlets once per distinct range and shares them. `MeshSource::GetBoundingBox` is the
+  union of the placed submesh boxes (`AABB::Transformed`). Fixture:
+  `tests/meshes/SharedMeshNodes.gltf` (three cubes from one mesh).
 - `AssetManagerBase::GetDataGeneration()` (facade `AssetManager::GetDataGeneration()`) is bumped
   whenever a loaded asset's data is replaced: `ReloadData`, an asynchronous load landing in
   `SyncWithAssetThread`, a runtime-pack reload. A cache that holds asset objects by handle compares it
@@ -625,7 +634,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
   LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,
-  GameView.
+  GameView, Help.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
   `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
   the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;
@@ -652,6 +661,25 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   never does a main-thread GPU readback.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
+- **The manual (Help).** `Editor/Resources/Docs/**.md` is the user manual for game makers, shipped
+  with the editor and read offline (the contributor docs stay in `docs/Editor/`). A topic is its path
+  without `.md` (`components/physics`); `index` is the start page. `HelpPanel`
+  (`Editor/Source/Panels/HelpPanel.{h,cpp}`, View → Help, **F1**, Help → Manual) reads every page once
+  at construction and shows a section list (folder order `getting-started`, `editor`, `components`,
+  `scripting`), search over titles and text, back/forward, and links resolved relative to the page
+  (then from the root); a missing topic shows a "Page not found" page with suggestions, and a web
+  link is copied instead of opened. Pages render through `ImGuiEx::RenderMarkdown`
+  (`Core/Source/Lux/ImGui/ImGuiMarkdown.h`: parse once into a `MarkdownDocument`, draw every frame).
+  Core code opens a topic with `EditorDocs::OpenTopic` (`Core/Source/Lux/Editor/EditorDocs.h`), whose
+  handler `EditorLayer` installs; `ComponentDocTopic<T>` (`Editor/ComponentDocs.h`) maps a component
+  to its page, and `DrawComponentSection` draws an `ImGuiEx::DocsButton` left of the settings gear
+  for every mapped component. A new component page needs its entry there. Every C# snippet in the
+  manual must compile against ScriptCore.
+- **New projects can build scripts.** `EditorLayer::CreateProject` writes
+  `Assets/Scripts/<Name>.csproj` (`Project::GetScriptProjectPath`): `Source/**.cs`, output in
+  `Scripts/Binaries` (the `ScriptModulePath`), intermediates in `<project>/Cache/ScriptBuild` so
+  generated `.cs` files stay out of the asset registry, and references to this editor's
+  `Resources/Scripts/ScriptCore.dll` and `DotNet/Coral.Managed.dll` by absolute path.
 - **No-project state + splash.** `SplashScreen` (`Editor/Source/SplashScreen.{h,cpp}`, callbacks only,
   like `CommandPalette`) is the Blender-style startup splash and the only UI while
   `Project::GetActive()` is null. In that state `EditorLayer` draws no panels or viewport (the
@@ -1293,6 +1321,13 @@ Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `AssetPackSerializer`, `ShaderPackFile.h`, and the stream layer (`FileStream`, `MemoryStream`,
 `StreamReader`, `StreamWriter`, `Serialization.h` / `SerializationImpl.h`).
 
+`StreamReader::ReadArray` / `ReadString` trust their counts, so they are only for data the engine
+just wrote. A reader of shipped data validates first: `MeshRuntimeSerializer::DeserializeFromAssetPack`
+reads the entry once (capped at 2 GiB), parses every section, count and string with a bounded reader
+against the bytes actually there, checks submesh ranges, every index against its submesh's vertices
+and every node link, and creates the `MeshSource` and its materials only after all of it passes; a
+bad entry is logged (`AssetManager` tag) and returns null.
+
 Missing keys must deserialize to the struct default. Never hard-fail a load on an absent optional
 field, and never silently drop data on save.
 
@@ -1349,8 +1384,8 @@ distortion or headset window yet.
 
 ### Smart pointers
 
-`Ref<T>` (intrusive, atomic, `RefCounted`), `WeakRef<T>` (liveness-checked, **no** `Lock()`),
-`Scope<T>` (`std::unique_ptr` alias). Forbidden: raw `new`/`delete`, `std::shared_ptr`,
+`Ref<T>` (intrusive, atomic, `RefCounted`), `WeakRef<T>` (control block per weakly referenced
+object; use it through `Lock()` → `Ref<T>`), `Scope<T>` (`std::unique_ptr` alias). Forbidden: raw `new`/`delete`, `std::shared_ptr`,
 `std::make_shared`. Full rules and the double-free hazard in `Ref::DecRef` are in
 `.claude/docs/Conventions.md`.
 

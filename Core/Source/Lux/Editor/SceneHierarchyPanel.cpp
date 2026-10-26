@@ -13,6 +13,8 @@
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
+#include "Lux/Editor/ComponentDocs.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -446,6 +448,15 @@ namespace Lux {
 
 			bool resetComponent = false;
 			bool removeComponent = false;
+
+			// The component's manual page, left of the settings gear.
+			if constexpr (!ComponentDocTopic<TComponent>::Topic.empty())
+			{
+				ImGui::SameLine(contentRegionAvailable.x - lineHeight * 2.0f - 7.0f);
+				const ImVec2 docsMin = ImGui::GetCursorScreenPos();
+				ImGuiEx::DocsButton("##ComponentDocs", ComponentDocTopic<TComponent>::Topic, ComponentDocTopic<TComponent>::Title,
+					ImRect(docsMin, ImVec2(docsMin.x + lineHeight, docsMin.y + lineHeight)));
+			}
 
 			ImGui::SameLine(contentRegionAvailable.x - lineHeight - 5.0f);
 			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{ lineHeight, lineHeight }))
