@@ -43,4 +43,4 @@ if (controller.IsGrounded && Input.IsKeyPressed(KeyCode.Space))
 	controller.Jump(5.0f);
 ```
 
-`OnCollisionBegin` and `OnCollisionEnd` tell a [script](../scripting/csharp-scripts) when its entity touches another.
+`OnCollisionBegin` and `OnCollisionEnd` tell a [script](../scripting/csharp-scripts) when its entity touches another. A body with **Is Trigger** on does not collide; instead `OnTriggerBegin` and `OnTriggerEnd` tell both scripts when something enters and leaves it, character controllers included.

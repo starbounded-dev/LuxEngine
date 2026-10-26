@@ -445,7 +445,15 @@ instance-added children are never touched. It runs in `PropagatePrefabEdits` bef
 on `EditorLayer::OpenScene` and in `SceneAssetSerializer::SerializeToAssetPack` (`SyncAllPrefabInstances`,
 through the AssetManager, so prefabs edited while a scene was closed reach it; never inside
 `SceneSerializer::Deserialize`, where a prefab nesting itself would recurse). Variants take the same
-gains, losses and moves from the base's old/new difference in `AdoptPrefabBaseEdits`, keeping UUIDs.
+gains, losses, moves and sibling order from the base's old/new difference in `AdoptPrefabBaseEdits`,
+keeping UUIDs. An instance converted from before records existed logs what it took as deleted, and the
+Properties panel's Prefab section offers **Restore** (clears `RemovedEntities`, syncs again).
+**Spawning:** `Scene::Instantiate` during Play or Simulate defers the physics component hooks while the
+hierarchy is copied (`m_SpawningPrefab`; the hooks used to run before an entity's colliders existed), then
+`StartSpawnedHierarchy` creates rigid bodies (static colliders included) and character controllers and, in
+Play, script instances with `OnCreate` (`StartScriptInstance`, shared with `OnRuntimeStart`). C# spawns
+through `Entity.Instantiate(Prefab[, position, rotation])` (`Scene_InstantiatePrefab`). 2D physics bodies
+are not created for spawned prefabs.
 `PrefabComponent::Tracked` (on the root) says the records are kept; an instance saved before they
 existed is converted on its first sync: what it lacks or has moved relative to the prefab it last matched
 (`baseline`: the pre-edit prefab in `PropagatePrefabEdits`, else the current one) becomes records.
@@ -542,8 +550,10 @@ Layered so the backend can be swapped:
 - C# `OnCollisionBegin/End` for 3D: `Scene::DispatchCollisionEvents` (Play, after `UpdatePhysicsAudio`
   drains the rigid-body events) feeds rigid-body and character events through `ContactPairTracker`, which
   counts live contact keys per entity pair, so scripts get one Begin when a pair first touches and one End
-  when its last contact goes (Jolt reports every sub-shape pair). Sensors raise nothing (there is no trigger
-  callback). Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
+  when its last contact goes (Jolt reports every sub-shape pair). Triggers (`RigidBodyComponent::IsTrigger`,
+  Jolt sensors with `mCollideKinematicVsNonDynamic`, so kinematic bodies and character controllers' inner
+  bodies count) come through `JoltContactListener` as `PhysicsContactEvent::Trigger` events, skipped by physics
+  audio and dispatched through a second tracker to C# `OnTriggerBegin/End`. Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
   scripts at all; only Box2D's `ContactListener2D` called the hooks.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
 - `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
@@ -629,7 +639,11 @@ Rules:
   collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
   LODs and meshlets once per distinct range and shares them. **Geometry cache:** generated LODs are
   kept in `MeshSource::SetGeometryCacheDirectory` (the editor sets `<project>/Cache/Geometry` in
-  `OpenProject`, clears it in `CloseProject`; the runtime sets none and generates at load). Files are
+  `OpenProject`, clears it in `CloseProject`; the runtime sets none). The asset pack carries the same bytes:
+  `MeshRuntimeSerializer` appends `MeshSource::ReadBakedLODs()` (the cache file, when it decodes for this
+  geometry) after the index buffer with `MeshFlags::HasBakedLODs`, and the player hands them to
+  `SetBakedLODs`, which the next `BuildRenderGeometry` decodes with the same validation instead of generating
+  (a mismatch generates). Packs without the flag still load and generate. Files are
   `<stem>-<path hash>-<key>.lgeo`; the key hashes the vertices, indices, submesh ranges, every LOD
   setting and `MESHOPTIMIZER_VERSION`, so any change misses. Reads validate every range and index
   (a bad file is a miss, regenerated); writes go through a per-thread temp file and
@@ -1385,14 +1399,17 @@ Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `StreamReader` checks every length and count it reads against `GetRemainingBytes()` (each reader
 reports `GetStreamSize()`): `ReadString`, `ReadBuffer`, `ReadArray` and `ReadMap` return false and leave
 the target empty instead of allocating or looping over what a damaged file claims. That bounds the
-damage, it does not validate the data; `ReadRaw` still asserts in Debug on a short read. A pack is
+damage, it does not validate the data; `ReadRaw` returns false on a short read and never asserts (a Debug
+player reports a damaged file instead of stopping). `ProjectSerializer::DeserializeRuntime` bounds its log-tag
+count and refuses a truncated file. A pack is
 checked at three levels: `AssetPackSerializer::DeserializeIndex` rejects a short header, bad magic, a
 scene count that cannot fit, null or duplicate handles, and any app-binary, scene or asset range outside
 the file (it logs and returns false; `AssetPack::Load` returns null, no `VERIFY`); `AssetImporter`'s two
 pack dispatchers catch `std::exception` (unparsable YAML, impossible allocations) and fail just that asset;
 and `TextureRuntimeSerializer::DeserializeTexture2D` accepts only a colour format, 1-16384 per side and
-pixels of exactly one mip's size before anything reaches the GPU. Prefabs are not packed
-(`PrefabSerializer` has no pack methods). A reader of shipped data validates its own fields: `MeshRuntimeSerializer::DeserializeFromAssetPack`
+pixels of exactly one mip's size before anything reaches the GPU. Prefabs are packed as their scene's YAML (`PrefabSerializer` pack methods; the root is the parentless
+entity), and a scene's asset list includes asset handles held in script fields (`Scene::GetAssetList`; a
+`Scene` field is a level, not packed with it), so a prefab a script spawns ships with the game. A reader of shipped data validates its own fields: `MeshRuntimeSerializer::DeserializeFromAssetPack`
 reads the entry once (capped at 2 GiB), parses every section, count and string with a bounded reader
 against the bytes actually there, checks submesh ranges, every index against its submesh's vertices
 and every node link, and creates the `MeshSource` and its materials only after all of it passes; a

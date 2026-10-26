@@ -406,6 +406,7 @@ namespace Lux {
 		m_PhysicsContactEvents.clear();
 		m_CharacterContactEvents.clear();
 		m_ScriptContacts.Clear();
+		m_ScriptTriggers.Clear();
 		m_AudioZoneRaytracedValid = false;
 		m_AudioZoneInputs.clear();
 	}
@@ -683,35 +684,79 @@ namespace Lux {
 			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
 			scriptEngine.SetCurrentScene(this);
 
-			auto view = m_Registry.view<ScriptComponent>();
-			for (auto e : view)
+			// Collected first: an OnCreate may create entities.
+			std::vector<UUID> scripted;
+			for (auto e : m_Registry.view<ScriptComponent>())
+				scripted.push_back(Entity{ e, this }.GetUUID());
+			for (UUID id : scripted)
+				StartScriptInstance(TryGetEntityWithUUID(id));
+		}
+	}
+
+	void Scene::StartScriptInstance(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<ScriptComponent>())
+			return;
+
+		ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+		const auto& sc = entity.GetComponent<ScriptComponent>();
+		if (!scriptEngine.IsValidScript(sc.ScriptID))
+		{
+			// Without this the entity is skipped here AND every frame in OnUpdateRuntime
+			// (which drops entities with no instance), so the script silently never runs.
+			LUX_CORE_ERROR("[Scripting] Script '{}' (ID {}) is not present in the loaded app assembly - it will not run. "
+				"Rebuild the script project and re-export so the assembly matches the scene.",
+				sc.ClassName.empty() ? "<unnamed>" : sc.ClassName, (uint64_t)sc.ScriptID);
+			return;
+		}
+
+		UUID entityID = entity.GetUUID();
+		if (m_ScriptInstances.contains(entityID))
+			return;
+		if (!m_ScriptStorage.EntityStorage.contains(entityID))
+			m_ScriptStorage.InitializeEntityStorage(sc.ScriptID, entityID);
+
+		CSharpObject instance = scriptEngine.Instantiate(entityID, m_ScriptStorage, (uint64_t)entityID);
+		m_ScriptInstances[entityID] = instance;
+
+		// Every instance exists from the start, so other scripts can find it; a switched-off one
+		// defers OnCreate to its first enabled frame (OnUpdateRuntime).
+		if (!sc.Enabled || IsInactive(entity))
+			m_PendingScriptCreates.insert(entityID);
+		else if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnCreate"))
+			instance.Invoke("OnCreate");
+	}
+
+	void Scene::StartSpawnedHierarchy(Entity root)
+	{
+		std::vector<UUID> spawned{ root.GetUUID() };
+		for (size_t i = 0; i < spawned.size(); i++)
+		{
+			if (Entity entity = TryGetEntityWithUUID(spawned[i]))
+				spawned.insert(spawned.end(), entity.Children().begin(), entity.Children().end());
+		}
+
+		RefreshInactiveEntities();
+		if (m_PhysicsScene)
+		{
+			for (UUID id : spawned)
 			{
-				Entity entity = { e, this };
-				const auto& sc = entity.GetComponent<ScriptComponent>();
-				if (!scriptEngine.IsValidScript(sc.ScriptID))
-				{
-					// Without this the entity is skipped here AND every frame in OnUpdateRuntime
-					// (which drops entities with no instance), so the script silently never runs.
-					LUX_CORE_ERROR("[Scripting] Script '{}' (ID {}) is not present in the loaded app assembly - it will not run. "
-						"Rebuild the script project and re-export so the assembly matches the scene.",
-						sc.ClassName.empty() ? "<unnamed>" : sc.ClassName, (uint64_t)sc.ScriptID);
+				Entity entity = TryGetEntityWithUUID(id);
+				if (!entity)
 					continue;
-				}
-
-				UUID entityID = entity.GetUUID();
-				if (!m_ScriptStorage.EntityStorage.contains(entityID))
-					m_ScriptStorage.InitializeEntityStorage(sc.ScriptID, entityID);
-
-				CSharpObject instance = scriptEngine.Instantiate(entityID, m_ScriptStorage, (uint64_t)entityID);
-				m_ScriptInstances[entityID] = instance;
-
-				// Every instance exists from the start, so other scripts can find it; a switched-off one
-				// defers OnCreate to its first enabled frame (OnUpdateRuntime).
-				if (!sc.Enabled || IsInactive(e))
-					m_PendingScriptCreates.insert(entityID);
-				else if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnCreate"))
-					instance.Invoke("OnCreate");
+				if (entity.HasComponent<CharacterControllerComponent>())
+					m_PhysicsScene->CreateCharacterController(entity);
+				else if (entity.HasAny<BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent>())
+					m_PhysicsScene->CreateBody(entity);
 			}
+		}
+		// shortcut: 2D physics bodies are not created for spawned prefabs; add when a 2D game needs it.
+
+		// Scripts last, so OnCreate finds the physics it may use. Simulate runs no scripts.
+		if (m_IsRunning)
+		{
+			for (UUID id : spawned)
+				StartScriptInstance(TryGetEntityWithUUID(id));
 		}
 	}
 
@@ -1196,7 +1241,14 @@ namespace Lux {
 		if (!prefab || !prefab->m_Entity)
 			return {};
 
-		return CreatePrefabEntity(prefab->m_Entity, parent, prefab->Handle, translation, rotation, scale);
+		// Play or Simulate: the instance's physics (and in Play its scripts) start once it is whole.
+		const bool live = m_IsRunning || m_PhysicsScene;
+		m_SpawningPrefab = live;
+		Entity root = CreatePrefabEntity(prefab->m_Entity, parent, prefab->Handle, translation, rotation, scale);
+		m_SpawningPrefab = false;
+		if (live && root)
+			StartSpawnedHierarchy(root);
+		return root;
 	}
 
 	Entity Scene::InstantiatePrefab(Ref<Prefab> prefab)
@@ -1554,6 +1606,9 @@ namespace Lux {
 					records.ReparentedEntities.push_back(source.GetUUID());
 			}
 			records.Tracked = true;
+			if (!records.RemovedEntities.empty())
+				LUX_CORE_WARN_TAG("Prefab", "'{}' was saved before prefab edits were recorded: its {} missing prefab child(ren) are kept deleted. "
+					"Restore, in the instance's Prefab section, brings them back.", instanceRoot.GetName(), records.RemovedEntities.size());
 			link = records;
 			changed = true;
 		}
@@ -1838,6 +1893,27 @@ namespace Lux {
 				if (oldSource && entity && parent && oldSource.GetParentUUID() != source.GetParentUUID()
 					&& entity.GetParentUUID() == oldSource.GetParentUUID())
 					entity.SetParent(parent);
+			}
+
+			// Siblings follow the base's order; the variant's own children keep their slots.
+			for (auto e : newBase->GetAllEntitiesWith<IDComponent>())
+			{
+				Entity source{ e, newBase.Raw() };
+				Entity entity = TryGetEntityWithUUID(source.GetUUID());
+				if (!entity)
+					continue;
+				std::vector<UUID> ordered;
+				for (UUID childID : source.Children())
+				{
+					if (Entity child = TryGetEntityWithUUID(childID); child && child.GetParent() == entity)
+						ordered.push_back(childID);
+				}
+				size_t next = 0;
+				for (UUID& slot : entity.Children())
+				{
+					if (Contains(ordered, slot))
+						slot = ordered[next++];
+				}
 			}
 			SortEntities();
 		}
@@ -2327,12 +2403,25 @@ namespace Lux {
 		else
 			m_CharacterContactEvents.clear();
 
-		const auto hook = [this](UUID a, UUID b, bool begin)
+		const auto collision = [this](UUID a, UUID b, bool begin)
 		{
-			InvokeCollisionHook(a, b, begin);
-			InvokeCollisionHook(b, a, begin);
+			const char* method = begin ? "OnCollisionBeginInternal" : "OnCollisionEndInternal";
+			InvokeCollisionHook(a, b, method);
+			InvokeCollisionHook(b, a, method);
 		};
-		const auto handle = [&](const PhysicsContactEvent& event) { m_ScriptContacts.Apply(event, hook); };
+		const auto trigger = [this](UUID a, UUID b, bool begin)
+		{
+			const char* method = begin ? "OnTriggerBeginInternal" : "OnTriggerEndInternal";
+			InvokeCollisionHook(a, b, method);
+			InvokeCollisionHook(b, a, method);
+		};
+		const auto handle = [&](const PhysicsContactEvent& event)
+		{
+			if (event.Trigger)
+				m_ScriptTriggers.Apply(event, trigger);
+			else
+				m_ScriptContacts.Apply(event, collision);
+		};
 		for (const PhysicsContactEvent& event : m_PhysicsContactEvents)
 			handle(event);
 		for (const PhysicsContactEvent& event : m_CharacterContactEvents)
@@ -2340,7 +2429,7 @@ namespace Lux {
 	}
 
 	// Same rules as OnUpdate.
-	void Scene::InvokeCollisionHook(UUID entityID, UUID other, bool begin)
+	void Scene::InvokeCollisionHook(UUID entityID, UUID other, const char* method)
 	{
 		const auto instance = m_ScriptInstances.find(entityID);
 		Entity entity = instance != m_ScriptInstances.end() ? TryGetEntityWithUUID(entityID) : Entity{};
@@ -2348,7 +2437,7 @@ namespace Lux {
 			return;
 		if (!entity.GetComponent<ScriptComponent>().Enabled || IsInactive(entity))
 			return;
-		instance->second.Invoke(begin ? "OnCollisionBeginInternal" : "OnCollisionEndInternal", (uint64_t)other);
+		instance->second.Invoke(method, (uint64_t)other);
 	}
 
 	// Same rules as OnUpdate: enabled, active, and already created (OnUpdate ran OnCreate this frame).
@@ -3522,6 +3611,35 @@ namespace Lux {
 		for (auto entity : skyLightView)
 			addIfValid(skyLightView.get<SkyLightComponent>(entity).SceneEnvironment);
 
+		// Assets script fields hold (a Prefab to spawn, a Material to swap), arrays included. A Scene field
+		// names a level to load, which ships as a scene of its own.
+		auto addScriptField = [&](DataType type, const Buffer& value)
+		{
+			if (!FieldUtils::IsAssetType(type) || type == DataType::Scene || !value.Data)
+				return;
+			for (uint64_t offset = 0; offset + sizeof(uint64_t) <= value.Size; offset += sizeof(uint64_t))
+			{
+				uint64_t handle = 0;
+				std::memcpy(&handle, static_cast<const uint8_t*>(value.Data) + offset, sizeof(handle));
+				if (type == DataType::Material)
+					addMaterialDependencies(handle);
+				else if (type == DataType::Mesh || type == DataType::StaticMesh)
+					addMeshDependencies(handle);
+				else
+					addIfValid(handle);
+			}
+		};
+		for (const auto& [entityID, storage] : m_ScriptStorage.EntityStorage)
+		{
+			for (const auto& [fieldID, field] : storage.Fields)
+				addScriptField(field.GetType(), field.ValueBuffer());
+		}
+		for (const auto& [entityID, storage] : m_ScriptStorage.UnresolvedStorage)
+		{
+			for (const StoredField& field : storage.Fields)
+				addScriptField(field.GetType(), field.ValueBuffer());
+		}
+
 		return assets;
 	}
 
@@ -3613,7 +3731,7 @@ namespace Lux {
 	void Scene::OnComponentAdded<RigidBodyComponent>(Entity entity, RigidBodyComponent& component)
 	{
 		(void)component;
-		if (m_PhysicsScene)
+		if (m_PhysicsScene && !m_SpawningPrefab)
 			m_PhysicsScene->CreateBody(entity);
 	}
 
@@ -3621,7 +3739,7 @@ namespace Lux {
 	void Scene::OnComponentAdded<CharacterControllerComponent>(Entity entity, CharacterControllerComponent& component)
 	{
 		(void)component;
-		if (m_PhysicsScene)
+		if (m_PhysicsScene && !m_SpawningPrefab)
 			m_PhysicsScene->CreateCharacterController(entity);
 	}
 

@@ -216,37 +216,31 @@ namespace Lux
 			return directory / std::format("{}{:016x}.lgeo", outPrefix, key);
 		}
 
-		// Reads the LODs cached for `key` into `outLODs`, appending their triangles to `renderIndices`.
+		// Decodes LODs encoded for `key` into `outLODs`, appending their triangles to `renderIndices`.
 		// Anything that does not fit this geometry exactly (truncated, another mesh or version, a range or
-		// index out of bounds) is a miss that leaves both untouched, and the caller regenerates the file.
-		static bool TryReadGeometryCache(const std::filesystem::path& path, uint64_t key, const std::vector<Submesh>& submeshes,
+		// index out of bounds) is refused and leaves both untouched.
+		static bool DecodeGeometryCache(const uint8_t* data, size_t size, uint64_t key, const std::vector<Submesh>& submeshes,
 			std::vector<std::vector<SubmeshLOD>>& outLODs, std::vector<Index>& renderIndices)
 		{
-			if (!FileSystem::Exists(path))
-				return false;
-
-			Buffer data = FileSystem::ReadBytes(path);
 			const size_t sourceTriangleCount = renderIndices.size();
 			auto reject = [&]()
 			{
-				LUX_CORE_WARN_TAG("Mesh", "Geometry cache '{}' does not match its mesh; regenerating it", path.string());
 				renderIndices.resize(sourceTriangleCount);
 				for (std::vector<SubmeshLOD>& lods : outLODs)
 					lods.clear();
-				data.Release();
 				return false;
 			};
 
 			GeometryCacheHeader header;
-			if (data.Size < sizeof(header))
+			if (!data || size < sizeof(header))
 				return reject();
-			std::memcpy(&header, data.Data, sizeof(header));
+			std::memcpy(&header, data, sizeof(header));
 			if (header.Magic != k_GeometryCacheMagic || header.Version != k_GeometryCacheVersion || header.Key != key
-				|| header.SubmeshCount != submeshes.size() || header.TriangleCount > data.Size / sizeof(Index)
-				|| data.Size != sizeof(header) + uint64_t(header.LODCount) * sizeof(GeometryCacheLOD) + header.TriangleCount * sizeof(Index))
+				|| header.SubmeshCount != submeshes.size() || header.TriangleCount > size / sizeof(Index)
+				|| size != sizeof(header) + uint64_t(header.LODCount) * sizeof(GeometryCacheLOD) + header.TriangleCount * sizeof(Index))
 				return reject();
 
-			const uint8_t* cursor = static_cast<const uint8_t*>(data.Data) + sizeof(header);
+			const uint8_t* cursor = data + sizeof(header);
 			std::vector<GeometryCacheLOD> entries(header.LODCount);
 			std::memcpy(entries.data(), cursor, entries.size() * sizeof(GeometryCacheLOD));
 			cursor += entries.size() * sizeof(GeometryCacheLOD);
@@ -268,15 +262,11 @@ namespace Lux
 				}
 				outLODs[entry.SubmeshIndex].push_back({ submesh.BaseVertex, entry.BaseIndex, entry.IndexCount, submesh.VertexCount, entry.DistanceMultiplier });
 			}
-
-			data.Release();
 			return true;
 		}
 
-		// Writes through a temporary file, so an interrupted write never leaves a cache file that reads as
-		// valid, then removes this source's cache files from earlier versions of it.
-		static void WriteGeometryCache(const std::filesystem::path& path, const std::string& prefix, uint64_t key,
-			const std::vector<std::vector<SubmeshLOD>>& lods, const std::vector<Index>& renderIndices, size_t sourceTriangleCount)
+		static std::vector<uint8_t> EncodeGeometryCache(uint64_t key, const std::vector<std::vector<SubmeshLOD>>& lods,
+			const std::vector<Index>& renderIndices, size_t sourceTriangleCount)
 		{
 			std::vector<GeometryCacheLOD> entries;
 			for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)lods.size(); submeshIndex++)
@@ -291,15 +281,42 @@ namespace Lux
 			header.LODCount = (uint32_t)entries.size();
 			header.TriangleCount = renderIndices.size() - sourceTriangleCount;
 
+			std::vector<uint8_t> bytes(sizeof(header) + entries.size() * sizeof(GeometryCacheLOD) + header.TriangleCount * sizeof(Index));
+			uint8_t* cursor = bytes.data();
+			std::memcpy(cursor, &header, sizeof(header));
+			cursor += sizeof(header);
+			std::memcpy(cursor, entries.data(), entries.size() * sizeof(GeometryCacheLOD));
+			cursor += entries.size() * sizeof(GeometryCacheLOD);
+			std::memcpy(cursor, renderIndices.data() + sourceTriangleCount, header.TriangleCount * sizeof(Index));
+			return bytes;
+		}
+
+		static bool TryReadGeometryCache(const std::filesystem::path& path, uint64_t key, const std::vector<Submesh>& submeshes,
+			std::vector<std::vector<SubmeshLOD>>& outLODs, std::vector<Index>& renderIndices)
+		{
+			if (!FileSystem::Exists(path))
+				return false;
+			ScopedBuffer data(FileSystem::ReadBytes(path));
+			if (DecodeGeometryCache(data.As<uint8_t>(), data.Size(), key, submeshes, outLODs, renderIndices))
+				return true;
+			LUX_CORE_WARN_TAG("Mesh", "Geometry cache '{}' does not match its mesh; regenerating it", path.string());
+			return false;
+		}
+
+		// Writes through a temporary file, so an interrupted write never leaves a cache file that reads as
+		// valid, then removes this source's cache files from earlier versions of it.
+		static void WriteGeometryCache(const std::filesystem::path& path, const std::string& prefix, uint64_t key,
+			const std::vector<std::vector<SubmeshLOD>>& lods, const std::vector<Index>& renderIndices, size_t sourceTriangleCount)
+		{
+			const std::vector<uint8_t> bytes = EncodeGeometryCache(key, lods, renderIndices, sourceTriangleCount);
+
 			std::error_code error;
 			std::filesystem::create_directories(path.parent_path(), error);
 			// Per thread: two loader threads can build the same mesh at once.
 			const std::filesystem::path temporary = path.string() + std::format(".{}.tmp", std::hash<std::thread::id>{}(std::this_thread::get_id()));
 			{
 				std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
-				stream.write(reinterpret_cast<const char*>(&header), sizeof(header));
-				stream.write(reinterpret_cast<const char*>(entries.data()), static_cast<std::streamsize>(entries.size() * sizeof(GeometryCacheLOD)));
-				stream.write(reinterpret_cast<const char*>(renderIndices.data() + sourceTriangleCount), static_cast<std::streamsize>(header.TriangleCount * sizeof(Index)));
+				stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 				stream.close();
 				if (!stream)
 				{
@@ -479,6 +496,27 @@ namespace Lux
 		s_GeometryCacheDirectory = directory;
 	}
 
+	std::vector<uint8_t> MeshSource::ReadBakedLODs() const
+	{
+		const std::filesystem::path cacheDirectory = GetGeometryCacheDirectory();
+		if (cacheDirectory.empty() || m_FilePath.empty() || m_Vertices.empty())
+			return {};
+
+		const uint64_t key = GetGeometryCacheKey(m_Vertices, m_Indices, m_Submeshes);
+		std::string prefix;
+		const std::filesystem::path path = GetGeometryCachePath(cacheDirectory, m_FilePath, key, prefix);
+		if (!FileSystem::Exists(path))
+			return {};
+
+		ScopedBuffer data(FileSystem::ReadBytes(path));
+		// Only bytes that decode for exactly this geometry are worth shipping.
+		std::vector<std::vector<SubmeshLOD>> lods(m_Submeshes.size());
+		std::vector<Index> indices = m_Indices;
+		if (!DecodeGeometryCache(data.As<uint8_t>(), data.Size(), key, m_Submeshes, lods, indices))
+			return {};
+		return std::vector<uint8_t>(data.As<uint8_t>(), data.As<uint8_t>() + data.Size());
+	}
+
 	void MeshSource::CompactCPUGeometry()
 	{
 		if (s_RetainFullCPUGeometry || m_Vertices.empty())
@@ -621,7 +659,18 @@ namespace Lux
 			cachePath = GetGeometryCachePath(cacheDirectory, m_FilePath, cacheKey, cachePrefix);
 		}
 		const size_t sourceTriangleCount = renderIndices.size();
-		const bool cachedLODs = !cachePath.empty() && TryReadGeometryCache(cachePath, cacheKey, m_Submeshes, m_SubmeshLODs, renderIndices);
+		bool cachedLODs = !cachePath.empty() && TryReadGeometryCache(cachePath, cacheKey, m_Submeshes, m_SubmeshLODs, renderIndices);
+		// LODs baked into an asset pack (SetBakedLODs): the same encoding, keyed by the same geometry.
+		bool bakedLODs = false;
+		if (!cachedLODs && !m_BakedLODs.empty())
+		{
+			bakedLODs = DecodeGeometryCache(m_BakedLODs.data(), m_BakedLODs.size(), GetGeometryCacheKey(m_Vertices, m_Indices, m_Submeshes),
+				m_Submeshes, m_SubmeshLODs, renderIndices);
+			if (!bakedLODs)
+				LUX_CORE_WARN_TAG("Mesh", "Baked LODs do not match their mesh; generating them");
+			cachedLODs = bakedLODs;
+		}
+		m_BakedLODs = {};
 
 		uint32_t generatedLODCount = 0;
 		uint64_t removedIndexCount = 0;
@@ -712,7 +761,9 @@ namespace Lux
 		m_VertexBuffer = VertexBuffer::Create(Buffer(packedVertices.data(), (uint32_t)(packedVertices.size() * sizeof(PackedVertex))));
 		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
 
-		if (cachedLODs)
+		if (bakedLODs)
+			LUX_CORE_TRACE_TAG("Mesh", "MeshSource: LODs read from the asset pack");
+		else if (cachedLODs)
 			LUX_CORE_INFO_TAG("Mesh", "MeshSource: LODs for '{}' read from the geometry cache", m_FilePath);
 		else if (generatedLODCount > 0)
 		{

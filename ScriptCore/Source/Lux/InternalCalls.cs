@@ -95,6 +95,7 @@ namespace Lux
 		#region Scene
 		internal static delegate*<NativeString, ulong> Scene_CreateEntity;
 		internal static delegate*<ulong, void> Scene_DestroyEntity;
+		internal static delegate*<ulong, Vector3*, Vector3*, ulong> Scene_InstantiatePrefab;
 		#endregion
 
 		#region Entity

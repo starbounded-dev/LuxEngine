@@ -32,12 +32,12 @@ namespace Lux
 		bool ReadBuffer(Buffer& buffer, uint32_t size = 0);
 		bool ReadString(std::string& string);
 
+		// False on a short read. No assert: shipped files (asset packs, the runtime project, shader packs)
+		// can be damaged, and a Debug player must report that, not stop.
 		template<typename T>
 		bool ReadRaw(T& type)
 		{
-			bool success = ReadData((char*)&type, sizeof(T));
-			LUX_CORE_ASSERT(success);
-			return success;
+			return ReadData((char*)&type, sizeof(T));
 		}
 
 		template<typename T>

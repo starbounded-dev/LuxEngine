@@ -205,6 +205,7 @@ namespace Lux
 			std::vector<MeshMaterial> Materials;
 			std::vector<Vertex> Vertices;
 			std::vector<Index> Indices;
+			std::vector<uint8_t> BakedLODs;
 		};
 
 		// Parses one MeshSourceFile entry of `size` bytes. Returns what is wrong, or empty.
@@ -251,6 +252,14 @@ namespace Lux
 			{
 				error = section(metadata.IndexBufferOffset, metadata.IndexBufferSize, "index",
 					[&](BoundedReader& sectionReader) { return sectionReader.ReadTrivialArray(mesh.Indices); });
+			}
+			// Baked LODs: the rest of the entry. Their contents are checked when the mesh decodes them.
+			if (error.empty() && (metadata.Flags & static_cast<uint32_t>(MeshSourceFile::MeshFlags::HasBakedLODs)))
+			{
+				const uint64_t lodOffset = metadata.IndexBufferOffset + metadata.IndexBufferSize;
+				if (lodOffset >= size)
+					return "its baked LOD section is empty";
+				mesh.BakedLODs.assign(data + lodOffset, data + size);
 			}
 			return error;
 		}
@@ -372,6 +381,13 @@ namespace Lux
 		stream.WriteArray(meshSource->m_Indices);
 		file.Data.IndexBufferSize = (stream.GetStreamPosition() - streamOffset) - file.Data.IndexBufferOffset;
 
+		// The LODs the editor generated, so the player does not generate them again at load.
+		if (const std::vector<uint8_t> bakedLODs = meshSource->ReadBakedLODs(); !bakedLODs.empty())
+		{
+			file.Data.Flags |= (uint32_t)MeshSourceFile::MeshFlags::HasBakedLODs;
+			stream.WriteData(reinterpret_cast<const char*>(bakedLODs.data()), bakedLODs.size());
+		}
+
 		const uint64_t endOfStream = stream.GetStreamPosition();
 		stream.SetStreamPosition(metadataAbsolutePosition);
 		stream.WriteRaw<MeshSourceFile::Metadata>(file.Data);
@@ -462,6 +478,7 @@ namespace Lux
 
 		meshSource->m_Vertices = std::move(packed.Vertices);
 		meshSource->m_Indices = std::move(packed.Indices);
+		meshSource->SetBakedLODs(std::move(packed.BakedLODs));
 
 		meshSource->BuildRenderGeometry();
 

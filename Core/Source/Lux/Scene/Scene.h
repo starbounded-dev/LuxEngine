@@ -286,6 +286,12 @@ namespace Lux {
 		// One entity's prefab-tracked components, Active flag and script fields, with no parent or
 		// PrefabComponent; `uuid` 0 makes a new one.
 		Entity ClonePrefabEntity(Entity source, UUID uuid);
+		// During Play: the script instance and OnCreate for one entity, as OnRuntimeStart does.
+		void StartScriptInstance(Entity entity);
+		// During Play or Simulate: physics bodies, character controllers and (Play) scripts for a hierarchy just
+		// instantiated (the component hooks run before an entity's colliders exist, so physics waits).
+		void StartSpawnedHierarchy(Entity root);
+		bool m_SpawningPrefab = false;
 		Entity CreatePrefabEntity(Entity entity, Entity parent, AssetHandle prefabID, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 		// Rebuilds m_InactiveEntities: every entity switched off by its own TagComponent::Active or by
@@ -339,11 +345,12 @@ namespace Lux {
 		UUID m_MusicOwner = 0;
 		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
 		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
-		// C# OnCollisionBegin/End for 3D bodies and character controllers.
+		// C# OnCollisionBegin/End (3D bodies and character controllers) and OnTriggerBegin/End.
 		void DispatchCollisionEvents();
-		void InvokeCollisionHook(UUID entity, UUID other, bool begin);
+		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
 		std::vector<PhysicsContactEvent> m_CharacterContactEvents;
 		ContactPairTracker m_ScriptContacts;
+		ContactPairTracker m_ScriptTriggers;
 		struct FootstepState
 		{
 			glm::vec3 Position{ 0.0f };

@@ -25,6 +25,8 @@ The engine calls these methods by name if your class has them:
 | `void OnDestroy()` | When play stops, or at the end of the frame in which the entity is destroyed. |
 | `protected override void OnCollisionBegin(Entity other)` | This entity's physics body starts touching another. |
 | `protected override void OnCollisionEnd(Entity other)` | They stop touching. |
+| `protected override void OnTriggerBegin(Entity other)` | This entity and another start to overlap, where one of them is a trigger (**Is Trigger** on its 3D rigid body). Character controllers count. |
+| `protected override void OnTriggerEnd(Entity other)` | They stop overlapping. |
 
 A script whose component is switched off is still created, so other scripts can find it, but it gets no `OnCreate` or `OnUpdate` until it is switched on.
 

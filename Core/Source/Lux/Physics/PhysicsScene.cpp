@@ -786,6 +786,8 @@ namespace Lux {
 				bodySettings.mMaxLinearVelocity = rigidBody->MaxLinearVelocity;
 				bodySettings.mMaxAngularVelocity = rigidBody->MaxAngularVelocity;
 				bodySettings.mIsSensor = rigidBody->IsTrigger;
+				// A trigger must also see kinematic bodies, character controllers among them.
+				bodySettings.mCollideKinematicVsNonDynamic = rigidBody->IsTrigger;
 			}
 
 			JPH::BodyInterface& bodyInterface = m_Impl->System.GetBodyInterface();
@@ -983,6 +985,7 @@ namespace Lux {
 			bodySettings.mMaxLinearVelocity = rigidBody->MaxLinearVelocity;
 			bodySettings.mMaxAngularVelocity = rigidBody->MaxAngularVelocity;
 			bodySettings.mIsSensor = rigidBody->IsTrigger;
+			bodySettings.mCollideKinematicVsNonDynamic = rigidBody->IsTrigger;
 		}
 
 		JPH::BodyInterface& bodyInterface = m_Impl->System.GetBodyInterface();

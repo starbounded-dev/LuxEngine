@@ -17,6 +17,22 @@ Changes to the prefab's hierarchy reach every instance too, including instances 
 - A child added to the prefab appears in every instance; a child removed from the prefab leaves them. Anything you added under it in an instance moves up and stays.
 - A child the prefab moves to another parent moves in every instance.
 - What you did to an instance wins: a prefab child you deleted from an instance stays deleted, one you moved stays where you put it, and children you added are kept.
+- The **Prefab** section of the Properties panel shows how many prefab children were deleted from an instance; **Restore** brings them back. Scenes saved before these changes were tracked keep missing children deleted, so check there after opening an older scene.
+
+## Spawning prefabs from a script
+
+Give the script a `Prefab` field, assign the prefab in the Properties panel, and call `Entity.Instantiate`:
+
+```
+public Prefab Projectile;
+
+void Fire(Vector3 position)
+{
+	Entity shot = Entity.Instantiate(Projectile, position);
+}
+```
+
+The new instance's physics and scripts start at once (its scripts' `OnCreate` has run when `Instantiate` returns). Prefabs a script refers to are packed with the game, so this works in exported builds too.
 
 ## Overrides
 

@@ -12,7 +12,10 @@ namespace Lux
 	{
 		enum class MeshFlags : uint32_t
 		{
-			HasMaterials = BIT(0)
+			HasMaterials = BIT(0),
+			// Generated LODs follow the index buffer, up to the end of the entry (the editor's geometry
+			// cache encoding; MeshSource::SetBakedLODs). Packs without it generate LODs at load.
+			HasBakedLODs = BIT(1)
 		};
 
 		struct Metadata

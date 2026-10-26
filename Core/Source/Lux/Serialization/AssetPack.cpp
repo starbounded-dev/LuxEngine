@@ -56,6 +56,7 @@ namespace Lux
 				case AssetType::Audio:
 				case AssetType::DialogueTable:
 				case AssetType::AudioSurfaceTable:
+				case AssetType::Prefab:
 					return true;
 				default:
 					return false;
@@ -241,6 +242,7 @@ namespace Lux
 				LUX_CORE_ERROR("Failed to deserialize scene '{}' ({})", metadata.FilePath.string(), sceneHandle);
 				continue;
 			}
+			scene->SyncAllPrefabInstances(); // the hierarchy that ships, so its assets are the ones listed
 
 			std::unordered_set<AssetHandle> sceneAssetList = CollectSceneAssetList(scene);
 			sceneAssetList.insert(audioFiles.begin(), audioFiles.end());

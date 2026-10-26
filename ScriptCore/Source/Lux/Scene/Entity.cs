@@ -36,6 +36,14 @@ namespace Lux
 		internal void OnCollisionBeginInternal(ulong otherID) => OnCollisionBegin(new Entity(otherID));
 		internal void OnCollisionEndInternal(ulong otherID) => OnCollisionEnd(new Entity(otherID));
 
+		// A 3D trigger (Is Trigger on the rigid body) and another body start or stop overlapping. Both
+		// entities' scripts are told; character controllers count.
+		protected virtual void OnTriggerBegin(Entity other) { }
+		protected virtual void OnTriggerEnd(Entity other) { }
+
+		internal void OnTriggerBeginInternal(ulong otherID) => OnTriggerBegin(new Entity(otherID));
+		internal void OnTriggerEndInternal(ulong otherID) => OnTriggerEnd(new Entity(otherID));
+
 		public unsafe Vector3 Translation
 		{
 			get { Vector3 r; InternalCalls.TransformComponent_GetTranslation(ID, &r); return r; }
@@ -118,6 +126,20 @@ namespace Lux
 		public static unsafe Entity Create(string name = "Entity")
 		{
 			return new Entity(InternalCalls.Scene_CreateEntity(name));
+		}
+
+		// A new instance of `prefab` (its root), or null. Its scripts' OnCreate has run when this returns.
+		public static unsafe Entity Instantiate(Prefab prefab)
+		{
+			ulong id = prefab != null ? InternalCalls.Scene_InstantiatePrefab(prefab.Handle, null, null) : 0;
+			return id != 0 ? new Entity(id) : null;
+		}
+
+		// As above, placed at `position` with `rotation` (Euler angles in radians, like Rotation).
+		public static unsafe Entity Instantiate(Prefab prefab, Vector3 position, Vector3 rotation = default)
+		{
+			ulong id = prefab != null ? InternalCalls.Scene_InstantiatePrefab(prefab.Handle, &position, &rotation) : 0;
+			return id != 0 ? new Entity(id) : null;
 		}
 
 		public static unsafe void Destroy(Entity entity)

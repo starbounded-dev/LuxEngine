@@ -2231,6 +2231,31 @@ namespace Lux {
 							ImGui::EndPopup();
 						}
 					}
+
+					// Prefab children deleted from this instance stay deleted when the prefab changes. An
+					// instance saved before deletions were recorded had its missing children taken as deleted
+					// (Scene::SyncPrefabInstance); Restore brings them back from the prefab.
+					if (Entity instanceRoot = Scene::FindPrefabInstanceRoot(instanceEntity))
+					{
+						const size_t removed = instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.size();
+						if (removed > 0)
+						{
+							ImGui::Spacing();
+							{
+								ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+								ImGui::Text("%zu prefab %s deleted from this instance", removed, removed == 1 ? "child" : "children");
+							}
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Restore##PrefabRemovals"))
+							{
+								const AssetHandle rootPrefabID = instanceRoot.GetComponent<PrefabComponent>().PrefabID;
+								instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.clear();
+								if (Ref<Prefab> rootPrefab = AssetManager::GetAsset<Prefab>(rootPrefabID))
+									m_Context->SyncPrefabInstance(instanceRoot, rootPrefab->GetScene());
+								EditorStack::Get().MarkSceneEdited("Restore Prefab Children");
+							}
+						}
+					}
 				}
 			});
 
