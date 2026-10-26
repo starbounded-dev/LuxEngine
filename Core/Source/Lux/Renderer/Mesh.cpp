@@ -13,6 +13,7 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Utilities/FileSystem.h"
 
 //#include "Jolt/Core/HashCombine.h"
 
@@ -26,8 +27,13 @@
 #include "meshoptimizer/meshoptimizer.h"
 
 #include <array>
+#include <cstring>
 #include <map>
+#include <mutex>
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <thread>
 #include <unordered_map>
 
 namespace Lux
@@ -58,6 +64,8 @@ namespace Lux
 		// Submeshes smaller than this are drawn as they are.
 		constexpr uint32_t k_LODMinimumVertexCount = 64;
 		constexpr uint32_t k_LODMinimumIndexCount = 300;
+		// LOD n is drawn beyond this many bounding-sphere radii from the camera (SelectStaticMeshLOD).
+		constexpr std::array<float, k_MaxGeneratedLODs> k_LODDistanceMultipliers = { 24.0f, 48.0f, 96.0f };
 
 		static glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
 		{
@@ -114,6 +122,204 @@ namespace Lux
 					result.push_back(candidate);
 			}
 			return result;
+		}
+
+		// Generated-LOD cache (Cache/Geometry/<stem>-<path hash>-<key>.lgeo). The key covers the geometry and
+		// every LOD setting, so a changed source file, importer or setting misses instead of reading stale LODs.
+		constexpr std::array<char, 4> k_GeometryCacheMagic = { 'L', 'X', 'G', 'C' };
+		constexpr uint32_t k_GeometryCacheVersion = 1;
+
+		struct GeometryCacheHeader
+		{
+			std::array<char, 4> Magic = k_GeometryCacheMagic;
+			uint32_t Version = k_GeometryCacheVersion;
+			uint64_t Key = 0;
+			uint32_t SubmeshCount = 0;
+			uint32_t LODCount = 0;      // GeometryCacheLOD entries that follow, every submesh's levels
+			uint64_t TriangleCount = 0; // generated triangles, appended after the source indices
+		};
+
+		struct GeometryCacheLOD
+		{
+			uint32_t SubmeshIndex = 0;
+			uint32_t BaseIndex = 0;
+			uint32_t IndexCount = 0;
+			float DistanceMultiplier = 0.0f;
+		};
+
+		// 64-bit FNV-style hash fed a word at a time: a cache key over tens of megabytes of vertices
+		// has to cost far less than the LOD generation it saves.
+		class GeometryHasher
+		{
+		public:
+			void Add(const void* data, size_t size)
+			{
+				const uint8_t* bytes = static_cast<const uint8_t*>(data);
+				size_t offset = 0;
+				for (; offset + sizeof(uint64_t) <= size; offset += sizeof(uint64_t))
+				{
+					uint64_t word;
+					std::memcpy(&word, bytes + offset, sizeof(word));
+					Mix(word);
+				}
+				uint64_t tail = 0;
+				std::memcpy(&tail, bytes + offset, size - offset);
+				Mix(tail ^ (static_cast<uint64_t>(size) << 56));
+			}
+
+			uint64_t Get() const { return m_Hash; }
+
+		private:
+			void Mix(uint64_t word)
+			{
+				m_Hash = (m_Hash ^ (word * 0x9E3779B97F4A7C15ull)) * 0x100000001B3ull;
+				m_Hash ^= m_Hash >> 29;
+			}
+
+			uint64_t m_Hash = 14695981039346656037ull;
+		};
+
+		static uint64_t GetGeometryCacheKey(const std::vector<Vertex>& vertices, const std::vector<Index>& indices, const std::vector<Submesh>& submeshes)
+		{
+			GeometryHasher hasher;
+			hasher.Add(vertices.data(), vertices.size() * sizeof(Vertex));
+			hasher.Add(indices.data(), indices.size() * sizeof(Index));
+			for (const Submesh& submesh : submeshes)
+			{
+				const uint32_t range[5] = { submesh.BaseVertex, submesh.BaseIndex, submesh.VertexCount, submesh.IndexCount, submesh.IsRigged ? 1u : 0u };
+				hasher.Add(range, sizeof(range));
+			}
+			const float settings[] = { static_cast<float>(k_MaxGeneratedLODs), k_LODTargetRatio, k_LODTargetError, k_LODNormalWeight,
+				k_LODMinimumSaving, static_cast<float>(k_LODMinimumVertexCount), static_cast<float>(k_LODMinimumIndexCount),
+				k_LODDistanceMultipliers[0], k_LODDistanceMultipliers[1], k_LODDistanceMultipliers[2], static_cast<float>(MESHOPTIMIZER_VERSION) };
+			hasher.Add(settings, sizeof(settings));
+			return hasher.Get();
+		}
+
+		// MeshSource::SetGeometryCacheDirectory; set on the main thread, read by asset loader threads.
+		std::mutex s_GeometryCacheDirectoryMutex;
+		std::filesystem::path s_GeometryCacheDirectory;
+
+		static std::filesystem::path GetGeometryCacheDirectory()
+		{
+			std::scoped_lock lock(s_GeometryCacheDirectoryMutex);
+			return s_GeometryCacheDirectory;
+		}
+
+		// The cache file for `sourcePath`, and the prefix every cache file of that source shares (so
+		// a regenerated file replaces the ones from earlier versions of the source).
+		static std::filesystem::path GetGeometryCachePath(const std::filesystem::path& directory, const std::string& sourcePath, uint64_t key, std::string& outPrefix)
+		{
+			GeometryHasher pathHasher;
+			pathHasher.Add(sourcePath.data(), sourcePath.size());
+			outPrefix = std::format("{}-{:08x}-", std::filesystem::path(sourcePath).stem().string(), static_cast<uint32_t>(pathHasher.Get()));
+			return directory / std::format("{}{:016x}.lgeo", outPrefix, key);
+		}
+
+		// Reads the LODs cached for `key` into `outLODs`, appending their triangles to `renderIndices`.
+		// Anything that does not fit this geometry exactly (truncated, another mesh or version, a range or
+		// index out of bounds) is a miss that leaves both untouched, and the caller regenerates the file.
+		static bool TryReadGeometryCache(const std::filesystem::path& path, uint64_t key, const std::vector<Submesh>& submeshes,
+			std::vector<std::vector<SubmeshLOD>>& outLODs, std::vector<Index>& renderIndices)
+		{
+			if (!FileSystem::Exists(path))
+				return false;
+
+			Buffer data = FileSystem::ReadBytes(path);
+			const size_t sourceTriangleCount = renderIndices.size();
+			auto reject = [&]()
+			{
+				LUX_CORE_WARN_TAG("Mesh", "Geometry cache '{}' does not match its mesh; regenerating it", path.string());
+				renderIndices.resize(sourceTriangleCount);
+				for (std::vector<SubmeshLOD>& lods : outLODs)
+					lods.clear();
+				data.Release();
+				return false;
+			};
+
+			GeometryCacheHeader header;
+			if (data.Size < sizeof(header))
+				return reject();
+			std::memcpy(&header, data.Data, sizeof(header));
+			if (header.Magic != k_GeometryCacheMagic || header.Version != k_GeometryCacheVersion || header.Key != key
+				|| header.SubmeshCount != submeshes.size() || header.TriangleCount > data.Size / sizeof(Index)
+				|| data.Size != sizeof(header) + uint64_t(header.LODCount) * sizeof(GeometryCacheLOD) + header.TriangleCount * sizeof(Index))
+				return reject();
+
+			const uint8_t* cursor = static_cast<const uint8_t*>(data.Data) + sizeof(header);
+			std::vector<GeometryCacheLOD> entries(header.LODCount);
+			std::memcpy(entries.data(), cursor, entries.size() * sizeof(GeometryCacheLOD));
+			cursor += entries.size() * sizeof(GeometryCacheLOD);
+			renderIndices.resize(sourceTriangleCount + header.TriangleCount);
+			std::memcpy(renderIndices.data() + sourceTriangleCount, cursor, header.TriangleCount * sizeof(Index));
+
+			for (const GeometryCacheLOD& entry : entries)
+			{
+				if (entry.SubmeshIndex >= submeshes.size() || entry.BaseIndex % 3 != 0 || entry.IndexCount % 3 != 0
+					|| uint64_t(entry.BaseIndex / 3) + entry.IndexCount / 3 > renderIndices.size())
+					return reject();
+
+				const Submesh& submesh = submeshes[entry.SubmeshIndex];
+				for (uint32_t triangle = entry.BaseIndex / 3; triangle < entry.BaseIndex / 3 + entry.IndexCount / 3; triangle++)
+				{
+					const Index& indices = renderIndices[triangle];
+					if (indices.V1 >= submesh.VertexCount || indices.V2 >= submesh.VertexCount || indices.V3 >= submesh.VertexCount)
+						return reject();
+				}
+				outLODs[entry.SubmeshIndex].push_back({ submesh.BaseVertex, entry.BaseIndex, entry.IndexCount, submesh.VertexCount, entry.DistanceMultiplier });
+			}
+
+			data.Release();
+			return true;
+		}
+
+		// Writes through a temporary file, so an interrupted write never leaves a cache file that reads as
+		// valid, then removes this source's cache files from earlier versions of it.
+		static void WriteGeometryCache(const std::filesystem::path& path, const std::string& prefix, uint64_t key,
+			const std::vector<std::vector<SubmeshLOD>>& lods, const std::vector<Index>& renderIndices, size_t sourceTriangleCount)
+		{
+			std::vector<GeometryCacheLOD> entries;
+			for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)lods.size(); submeshIndex++)
+			{
+				for (const SubmeshLOD& lod : lods[submeshIndex])
+					entries.push_back({ submeshIndex, lod.BaseIndex, lod.IndexCount, lod.DistanceMultiplier });
+			}
+
+			GeometryCacheHeader header;
+			header.Key = key;
+			header.SubmeshCount = (uint32_t)lods.size();
+			header.LODCount = (uint32_t)entries.size();
+			header.TriangleCount = renderIndices.size() - sourceTriangleCount;
+
+			std::error_code error;
+			std::filesystem::create_directories(path.parent_path(), error);
+			// Per thread: two loader threads can build the same mesh at once.
+			const std::filesystem::path temporary = path.string() + std::format(".{}.tmp", std::hash<std::thread::id>{}(std::this_thread::get_id()));
+			{
+				std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+				stream.write(reinterpret_cast<const char*>(&header), sizeof(header));
+				stream.write(reinterpret_cast<const char*>(entries.data()), static_cast<std::streamsize>(entries.size() * sizeof(GeometryCacheLOD)));
+				stream.write(reinterpret_cast<const char*>(renderIndices.data() + sourceTriangleCount), static_cast<std::streamsize>(header.TriangleCount * sizeof(Index)));
+				stream.close();
+				if (!stream)
+				{
+					LUX_CORE_ERROR_TAG("Mesh", "Failed to write the geometry cache {}", temporary.string());
+					std::filesystem::remove(temporary, error);
+					return;
+				}
+			}
+			if (!FileSystem::ReplaceFileAtomically(temporary, path))
+			{
+				std::filesystem::remove(temporary, error);
+				return;
+			}
+
+			for (const auto& entry : std::filesystem::directory_iterator(path.parent_path(), error))
+			{
+				const std::string filename = entry.path().filename().string();
+				if (entry.path() != path && entry.path().extension() == ".lgeo" && filename.starts_with(prefix))
+					std::filesystem::remove(entry.path(), error);
+			}
 		}
 
 		// Split one submesh LOD range into meshlets (<= 64 vertices, <= 124
@@ -267,6 +473,12 @@ namespace Lux
 
 	bool MeshSource::s_RetainFullCPUGeometry = true;
 
+	void MeshSource::SetGeometryCacheDirectory(const std::filesystem::path& directory)
+	{
+		std::scoped_lock lock(s_GeometryCacheDirectoryMutex);
+		s_GeometryCacheDirectory = directory;
+	}
+
 	void MeshSource::CompactCPUGeometry()
 	{
 		if (s_RetainFullCPUGeometry || m_Vertices.empty())
@@ -383,7 +595,6 @@ namespace Lux
 		const std::vector<Vertex>& renderVertices = m_Vertices;
 		std::vector<Index> renderIndices = m_Indices;
 
-		constexpr std::array<float, k_MaxGeneratedLODs> lodDistanceMultipliers = { 24.0f, 48.0f, 96.0f };
 		std::vector<uint32_t> previousIndices, simplifiedIndices;
 
 		// Submeshes over the same vertex/index range are placements of one geometry (the importer adds
@@ -399,9 +610,22 @@ namespace Lux
 			}
 		}
 
+		// An imported mesh's LODs come from the geometry cache when it holds them for exactly this geometry.
+		std::filesystem::path cachePath;
+		std::string cachePrefix;
+		uint64_t cacheKey = 0;
+		if (const std::filesystem::path cacheDirectory = GetGeometryCacheDirectory(); !cacheDirectory.empty() && !m_FilePath.empty())
+		{
+			LUX_PROFILE_SCOPE("MeshSource::BuildRenderGeometry::CacheKey");
+			cacheKey = GetGeometryCacheKey(m_Vertices, m_Indices, m_Submeshes);
+			cachePath = GetGeometryCachePath(cacheDirectory, m_FilePath, cacheKey, cachePrefix);
+		}
+		const size_t sourceTriangleCount = renderIndices.size();
+		const bool cachedLODs = !cachePath.empty() && TryReadGeometryCache(cachePath, cacheKey, m_Submeshes, m_SubmeshLODs, renderIndices);
+
 		uint32_t generatedLODCount = 0;
 		uint64_t removedIndexCount = 0;
-		for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size(); submeshIndex++)
+		for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size() && !cachedLODs; submeshIndex++)
 		{
 			if (geometryOwner[submeshIndex] != submeshIndex)
 				continue;
@@ -436,7 +660,7 @@ namespace Lux
 				lod.VertexCount = submesh.VertexCount;
 				lod.BaseIndex = static_cast<uint32_t>(renderIndices.size()) * 3u;
 				lod.IndexCount = static_cast<uint32_t>(simplifiedIndices.size());
-				lod.DistanceMultiplier = lodDistanceMultipliers[lodLevel];
+				lod.DistanceMultiplier = k_LODDistanceMultipliers[lodLevel];
 				for (size_t index = 0; index < simplifiedIndices.size(); index += 3)
 					renderIndices.push_back({ simplifiedIndices[index], simplifiedIndices[index + 1], simplifiedIndices[index + 2] });
 
@@ -446,6 +670,8 @@ namespace Lux
 				std::swap(previousIndices, simplifiedIndices);
 			}
 		}
+		if (!cachedLODs && !cachePath.empty())
+			WriteGeometryCache(cachePath, cachePrefix, cacheKey, m_SubmeshLODs, renderIndices, sourceTriangleCount);
 
 		// Meshlet data for the mesh-shader path (built per submesh per LOD so the
 		// two systems compose). Only when the GPU supports mesh shaders.
@@ -486,7 +712,9 @@ namespace Lux
 		m_VertexBuffer = VertexBuffer::Create(Buffer(packedVertices.data(), (uint32_t)(packedVertices.size() * sizeof(PackedVertex))));
 		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
 
-		if (generatedLODCount > 0)
+		if (cachedLODs)
+			LUX_CORE_INFO_TAG("Mesh", "MeshSource: LODs for '{}' read from the geometry cache", m_FilePath);
+		else if (generatedLODCount > 0)
 		{
 			LUX_CORE_INFO("MeshSource: generated {} auto LOD level(s) for '{}' ({} fewer indices across selected levels)",
 				generatedLODCount,

@@ -433,6 +433,27 @@ saving a base, `EditorLayer::PropagateToVariants` refreshes each derived variant
 with `OpenScene`); on save it writes the asset and calls `Scene::PropagatePrefabEdits`, which
 refreshes un-overridden instances in the returned scene to the edited prefab's values.
 
+**Prefab structure** (Unity-style overrides): `Scene::SyncPrefabInstance(root, prefabScene)` makes an
+instance follow the prefab's hierarchy: entities the prefab gained are cloned in one at a time
+(`ClonePrefabEntity`, parents first), entities it lost are destroyed after their surviving children move
+up, children follow the prefab's parenting, and siblings follow its order (children the user added keep
+their slots; there is no sibling-reorder UI, so order is never an override). User edits win: the editor records a deleted or moved
+prefab child on the instance root (`Scene::RecordPrefabRemoval` / `RecordPrefabReparent`, called by
+`SceneHierarchyPanel` before the edit) in `PrefabComponent::RemovedEntities` / `ReparentedEntities`
+(serialized as `Removed` / `Reparented`; records about entities the prefab dropped are pruned), and
+instance-added children are never touched. It runs in `PropagatePrefabEdits` before the component pass,
+on `EditorLayer::OpenScene` and in `SceneAssetSerializer::SerializeToAssetPack` (`SyncAllPrefabInstances`,
+through the AssetManager, so prefabs edited while a scene was closed reach it; never inside
+`SceneSerializer::Deserialize`, where a prefab nesting itself would recurse). Variants take the same
+gains, losses and moves from the base's old/new difference in `AdoptPrefabBaseEdits`, keeping UUIDs.
+`PrefabComponent::Tracked` (on the root) says the records are kept; an instance saved before they
+existed is converted on its first sync: what it lacks or has moved relative to the prefab it last matched
+(`baseline`: the pre-edit prefab in `PropagatePrefabEdits`, else the current one) becomes records.
+`SyncAllPrefabInstances` first relinks entities still carrying `PrefabID` 0 (`RelinkPrefabInstances`: the
+prefab asset whose scene owns their `EntityID`; prefabs are loaded only when such entities exist).
+Instantiation links every instance entity to the prefab asset (`CreatePrefabEntity(..., prefabID)`;
+the prefab's own entities carry no `PrefabComponent`) and keeps children's prefab-local transforms.
+
 **Switching things off** (Unity's `activeSelf` and per-component `enabled`), two levels:
 
 - *Entity:* `TagComponent::Active`. `false` switches the entity **and every descendant** off. Read it
@@ -498,8 +519,32 @@ Layered so the backend can be swapped:
 - `PhysicsSystem` (`PhysicsSystem.h`) — static facade: init/shutdown, mesh cooking, scene factory.
 - `PhysicsScene` / `PhysicsBody` — the world and its bodies (`JoltScene`-equivalent logic in
   `PhysicsScene.cpp`, `JoltBody`).
+- Stepping: `Scene::StepPhysics` asks `PhysicsScene::AdvanceFixedClock(ts)` how many fixed steps
+  are due (project `FixedTimestep`, at most 8 a frame, the excess dropped) and runs that many
+  `SimulateStep(fixedDt)` calls, each one Jolt step with kinematic targets, character controllers and
+  the transform sync. In Play, C# `OnFixedUpdate(fixedDt)` runs before each step, after the frame's
+  `OnUpdate` (`Scene::InvokeScriptFixedUpdate`, same enabled/active/created rules). Contact events
+  still drain once per frame. Box2D (`PhysicsScene2D`) still steps once per frame with the frame time.
 - `PhysicsShapes.h` — box, sphere, capsule, convex mesh, triangle mesh (static only), compound.
-- `CharacterController.h` / `JoltCharacterController`.
+- `CharacterController.h` / `JoltCharacterController` — a `JPH::CharacterVirtual` whose shape is the
+  entity's primitive colliders (`CreateEntityShape`; a 2 m capsule without one; a character entity's
+  colliders get no rigid body). Its inner body (same shape, `CharacterControllerComponent::LayerID`,
+  user data = entity UUID) is what rigid bodies, triggers and queries see. Order per fixed step, as
+  in Jolt's CharacterVirtualTest: kinematic targets, then each controller's `Simulate` (ground velocity,
+  jump, gravity, `Move` displacement, then `ExtendedUpdate` with step-up = Step Offset), then the world
+  step, then `PostSimulate` writes the position to the entity. `PhysicsScene::Stop` and
+  `DestroyCharacterController` call `JoltCharacterController::Destroy()` first, so a controller a script
+  still holds never outlives the Jolt system. A character reports its own contacts (its sweep never reaches
+  `JoltContactListener`, and the inner body reports none with dynamic bodies): after `ExtendedUpdate`, bodies hit
+  this step or resting within twice the character padding are touched; Begin on first touch, End after 3
+  untouched steps (a pushed crate otherwise flickers ~10 Hz), pushed as `PhysicsContactEvent`s keyed
+  `{inner body, other body, ~0, ~0}` into `PhysicsScene::DrainCharacterContactEvents`; `Destroy()` ends them.
+- C# `OnCollisionBegin/End` for 3D: `Scene::DispatchCollisionEvents` (Play, after `UpdatePhysicsAudio`
+  drains the rigid-body events) feeds rigid-body and character events through `ContactPairTracker`, which
+  counts live contact keys per entity pair, so scripts get one Begin when a pair first touches and one End
+  when its last contact goes (Jolt reports every sub-shape pair). Sensors raise nothing (there is no trigger
+  callback). Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
+  scripts at all; only Box2D's `ContactListener2D` called the hooks.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
 - `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
   crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
@@ -582,10 +627,20 @@ Rules:
   transform, and the node lists the new index. File meshes keep their indices, and an explicit
   `SubmeshIndices` list also takes the placements of the submeshes it names (`SetSubmeshes`), and every consumer of `submesh.Transform` (retained renderer,
   collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
-  LODs and meshlets once per distinct range and shares them. A mirrored placement (negative
+  LODs and meshlets once per distinct range and shares them. **Geometry cache:** generated LODs are
+  kept in `MeshSource::SetGeometryCacheDirectory` (the editor sets `<project>/Cache/Geometry` in
+  `OpenProject`, clears it in `CloseProject`; the runtime sets none and generates at load). Files are
+  `<stem>-<path hash>-<key>.lgeo`; the key hashes the vertices, indices, submesh ranges, every LOD
+  setting and `MESHOPTIMIZER_VERSION`, so any change misses. Reads validate every range and index
+  (a bad file is a miss, regenerated); writes go through a per-thread temp file and
+  `FileSystem::ReplaceFileAtomically`, then delete that source's older `.lgeo` files. Bump
+  `k_GeometryCacheVersion` when the file layout or LOD generation changes. A mirrored placement (negative
   determinant) indexes a reversed-winding copy of its range, appended after import, so culling and
   one-sided collision see it right side out; placements are therefore matched by vertex range, not
-  `BaseIndex`. Negative scale on the *entity* transform is not handled (backlog). `MeshSource::GetBoundingBox` is the
+  `BaseIndex`. A mirrored *entity* takes clockwise-front pipelines instead (`MeshKey::Mirrored`,
+  Rendering.md), and its mesh collider keeps the signed scale with its triangles' winding swapped
+  (`JoltShapes.cpp`). `Math::DecomposeTransform` puts a reflection into `scale.x`, so a mirrored
+  matrix decomposes into a proper rotation. `MeshSource::GetBoundingBox` is the
   union of the placed submesh boxes (`AABB::Transformed`). Fixture:
   `tests/meshes/SharedMeshNodes.gltf` (three cubes from one mesh).
 - `AssetManagerBase::GetDataGeneration()` (facade `AssetManager::GetDataGeneration()`) is bumped
@@ -1327,8 +1382,17 @@ Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `AssetPackSerializer`, `ShaderPackFile.h`, and the stream layer (`FileStream`, `MemoryStream`,
 `StreamReader`, `StreamWriter`, `Serialization.h` / `SerializationImpl.h`).
 
-`StreamReader::ReadArray` / `ReadString` trust their counts, so they are only for data the engine
-just wrote. A reader of shipped data validates first: `MeshRuntimeSerializer::DeserializeFromAssetPack`
+`StreamReader` checks every length and count it reads against `GetRemainingBytes()` (each reader
+reports `GetStreamSize()`): `ReadString`, `ReadBuffer`, `ReadArray` and `ReadMap` return false and leave
+the target empty instead of allocating or looping over what a damaged file claims. That bounds the
+damage, it does not validate the data; `ReadRaw` still asserts in Debug on a short read. A pack is
+checked at three levels: `AssetPackSerializer::DeserializeIndex` rejects a short header, bad magic, a
+scene count that cannot fit, null or duplicate handles, and any app-binary, scene or asset range outside
+the file (it logs and returns false; `AssetPack::Load` returns null, no `VERIFY`); `AssetImporter`'s two
+pack dispatchers catch `std::exception` (unparsable YAML, impossible allocations) and fail just that asset;
+and `TextureRuntimeSerializer::DeserializeTexture2D` accepts only a colour format, 1-16384 per side and
+pixels of exactly one mip's size before anything reaches the GPU. Prefabs are not packed
+(`PrefabSerializer` has no pack methods). A reader of shipped data validates its own fields: `MeshRuntimeSerializer::DeserializeFromAssetPack`
 reads the entry once (capped at 2 GiB), parses every section, count and string with a bounded reader
 against the bytes actually there, checks submesh ranges, every index against its submesh's vertices
 and every node link, and creates the `MeshSource` and its materials only after all of it passes; a

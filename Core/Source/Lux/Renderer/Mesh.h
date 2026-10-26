@@ -280,6 +280,9 @@ namespace Lux {
 		// upload, keeping positions + indices for physics. The editor retains
 		// everything (mesh export/serialization reads the full vertices).
 		static void SetRetainFullCPUGeometry(bool retain) { s_RetainFullCPUGeometry = retain; }
+		// Where BuildRenderGeometry keeps generated LODs between loads, keyed by the geometry's contents
+		// (the editor sets the open project's Cache/Geometry); empty, the default, means no cache. Any thread.
+		static void SetGeometryCacheDirectory(const std::filesystem::path& directory);
 		void CompactCPUGeometry();
 		void BuildRenderGeometry();
 

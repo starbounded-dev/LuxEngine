@@ -404,6 +404,8 @@ namespace Lux {
 		m_AudioSurfaceTable = nullptr;
 		m_Footsteps.clear();
 		m_PhysicsContactEvents.clear();
+		m_CharacterContactEvents.clear();
+		m_ScriptContacts.Clear();
 		m_AudioZoneRaytracedValid = false;
 		m_AudioZoneInputs.clear();
 	}
@@ -845,8 +847,9 @@ namespace Lux {
 					});
 			}
 
-			StepPhysics(ts);
-			UpdatePhysicsAudio(static_cast<float>(ts));
+			StepPhysics(ts, true);
+			UpdatePhysicsAudio(static_cast<float>(ts)); // drains this frame's contact events
+			DispatchCollisionEvents();
 
 			SyncAudioListeners(m_IsPaused ? 0.0f : static_cast<float>(ts));
 
@@ -925,6 +928,7 @@ namespace Lux {
 			SyncAudioListeners(0.0f);
 			UpdateAudioZones(0.0f, false);
 			UpdatePhysicsAudio(0.0f);
+			DispatchCollisionEvents();
 
 			for (auto& [id, event] : m_RuntimeEventInstances)
 			{
@@ -1192,7 +1196,7 @@ namespace Lux {
 		if (!prefab || !prefab->m_Entity)
 			return {};
 
-		return CreatePrefabEntity(prefab->m_Entity, parent, translation, rotation, scale);
+		return CreatePrefabEntity(prefab->m_Entity, parent, prefab->Handle, translation, rotation, scale);
 	}
 
 	Entity Scene::InstantiatePrefab(Ref<Prefab> prefab)
@@ -1200,35 +1204,46 @@ namespace Lux {
 		return Instantiate(prefab);
 	}
 
-	Entity Scene::CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation, const glm::vec3* rotation, const glm::vec3* scale)
+	using PrefabInstantiationComponents =
+		ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
+		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
+		MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
+		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
+
+	Entity Scene::ClonePrefabEntity(Entity source, UUID uuid)
+	{
+		Entity destination = uuid == 0 ? CreateEntity(source.GetName()) : CreateEntityWithUUID(uuid, source.GetName());
+		CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
+		destination.GetComponent<TagComponent>().Active = source.GetComponent<TagComponent>().Active;
+		source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
+		return destination;
+	}
+
+	Entity Scene::CreatePrefabEntity(Entity entity, Entity parent, AssetHandle prefabID, const glm::vec3* translation, const glm::vec3* rotation, const glm::vec3* scale)
 	{
 		if (!entity)
 			return {};
-
-		using PrefabInstantiationComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
-			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
-			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
-			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
 		std::unordered_map<UUID, UUID> entityMap;
 		std::function<Entity(Entity, Entity)> instantiateHierarchy;
 		instantiateHierarchy = [&](Entity source, Entity destinationParent) -> Entity
 			{
-				Entity destination = CreateEntity(source.GetName());
-				CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
-				destination.GetComponent<TagComponent>().Active = source.GetComponent<TagComponent>().Active;
-				source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
+				Entity destination = ClonePrefabEntity(source, UUID(0));
 				entityMap[source.GetUUID()] = destination.GetUUID();
 
+				// Every entity of the instance links to this prefab asset (the prefab's own entities carry
+				// no PrefabComponent, so taking the source's left dropped-in instances unlinked).
 				auto& prefabComponent = destination.AddOrReplaceComponent<PrefabComponent>();
-				prefabComponent.PrefabID = source.HasComponent<PrefabComponent>() ? source.GetComponent<PrefabComponent>().PrefabID : AssetHandle(0);
+				prefabComponent.PrefabID = prefabID;
 				prefabComponent.EntityID = source.GetUUID();
 
+				// Children keep their prefab-local transform. (ParentEntity keeps the world transform, and
+				// a fresh child's world transform is its local one, so children used to land at their local
+				// coordinates in world space whenever the prefab root was not at the origin.)
 				if (destinationParent)
-					ParentEntity(destination, destinationParent);
+					destination.SetParent(destinationParent);
 
 				for (const UUID childID : source.Children())
 				{
@@ -1240,7 +1255,10 @@ namespace Lux {
 				return destination;
 			};
 
-		Entity root = instantiateHierarchy(entity, parent);
+		Entity root = instantiateHierarchy(entity, {});
+		root.GetComponent<PrefabComponent>().Tracked = true;
+		if (parent)
+			ParentEntity(root, parent);
 		RemapAudioListenerTargets(entityMap, true);
 		if (translation)
 			root.Transform().Translation = *translation;
@@ -1248,6 +1266,7 @@ namespace Lux {
 			root.Transform().SetRotationEuler(*rotation);
 		if (scale)
 			root.Transform().Scale = *scale;
+		SortEntities();
 		return root;
 	}
 
@@ -1388,10 +1407,348 @@ namespace Lux {
 		}
 	}
 
+	namespace {
+
+		// The parentless entity of a prefab's scene.
+		Entity FindPrefabSceneRoot(Scene& prefabScene)
+		{
+			for (auto handle : prefabScene.GetAllEntitiesWith<IDComponent>())
+			{
+				Entity entity{ handle, &prefabScene };
+				if (!entity.HasParent())
+					return entity;
+			}
+			return {};
+		}
+
+		// The instance entities under `entity` that belong to `prefabID`, by prefab entity UUID. Stops at
+		// a nested instance of the same prefab, which is an instance of its own.
+		void MapPrefabInstance(Entity entity, AssetHandle prefabID, UUID prefabRootID, bool isRoot, std::unordered_map<UUID, Entity>& map)
+		{
+			if (const auto* prefab = entity.TryGetComponent<PrefabComponent>(); prefab && prefab->PrefabID == prefabID)
+			{
+				if (!isRoot && prefab->EntityID == prefabRootID)
+					return;
+				map.emplace(prefab->EntityID, entity);
+			}
+			for (UUID childID : entity.Children())
+			{
+				if (Entity child = entity.GetScene()->TryGetEntityWithUUID(childID))
+					MapPrefabInstance(child, prefabID, prefabRootID, false, map);
+			}
+		}
+
+		bool Contains(const std::vector<UUID>& ids, UUID id)
+		{
+			return std::find(ids.begin(), ids.end(), id) != ids.end();
+		}
+
+		// Destroys `doomed`, first moving each one's children that stay to the nearest ancestor that stays.
+		void RescueSurvivingChildren(Scene& scene, const std::vector<UUID>& doomed)
+		{
+			const std::unordered_set<UUID> doomedSet(doomed.begin(), doomed.end());
+			for (UUID id : doomed)
+			{
+				Entity entity = scene.TryGetEntityWithUUID(id);
+				if (!entity)
+					continue;
+				Entity keeper = entity.GetParent();
+				while (keeper && doomedSet.contains(keeper.GetUUID()))
+					keeper = keeper.GetParent();
+				for (UUID childID : std::vector<UUID>(entity.Children()))
+				{
+					Entity child = scene.TryGetEntityWithUUID(childID);
+					if (child && !doomedSet.contains(childID))
+						child.SetParent(keeper);
+				}
+			}
+			for (UUID id : doomed)
+				scene.DestroyEntity(id, false, false);
+		}
+
+	}
+
+	Entity Scene::FindPrefabInstanceRoot(Entity entity)
+	{
+		const auto* prefab = entity ? entity.TryGetComponent<PrefabComponent>() : nullptr;
+		if (!prefab || prefab->PrefabID == 0)
+			return {};
+
+		// shortcut: an instance parented directly under another instance of the same prefab reads as
+		// part of it; nothing in the editor creates that today.
+		Entity root = entity;
+		for (Entity parent = entity.GetParent(); parent; parent = parent.GetParent())
+		{
+			const auto* parentPrefab = parent.TryGetComponent<PrefabComponent>();
+			if (!parentPrefab || parentPrefab->PrefabID != prefab->PrefabID)
+				break;
+			root = parent;
+		}
+		return root;
+	}
+
+	void Scene::RecordPrefabRemoval(Entity entity)
+	{
+		Entity root = FindPrefabInstanceRoot(entity);
+		if (!root || root == entity)
+			return;
+		auto& removed = root.GetComponent<PrefabComponent>().RemovedEntities;
+		const UUID id = entity.GetComponent<PrefabComponent>().EntityID;
+		if (!Contains(removed, id))
+			removed.push_back(id);
+	}
+
+	void Scene::RecordPrefabReparent(Entity entity, Entity newParent)
+	{
+		Entity root = FindPrefabInstanceRoot(entity);
+		if (!root || root == entity || entity.GetParent() == newParent)
+			return;
+		auto& reparented = root.GetComponent<PrefabComponent>().ReparentedEntities;
+		const UUID id = entity.GetComponent<PrefabComponent>().EntityID;
+		if (!Contains(reparented, id))
+			reparented.push_back(id);
+	}
+
+	bool Scene::SyncPrefabInstance(Entity instanceRoot, const Ref<Scene>& prefabScene, const Ref<Scene>& baseline)
+	{
+		if (!instanceRoot || !prefabScene || !instanceRoot.HasComponent<PrefabComponent>())
+			return false;
+
+		// A copy: creating and destroying entities can move component storage.
+		PrefabComponent link = instanceRoot.GetComponent<PrefabComponent>();
+		Entity prefabRoot = prefabScene->TryGetEntityWithUUID(link.EntityID);
+		if (!prefabRoot || prefabRoot.HasParent())
+			return false;
+
+		std::unordered_map<UUID, Entity> mapped;
+		MapPrefabInstance(instanceRoot, link.PrefabID, link.EntityID, true, mapped);
+		bool changed = false;
+
+		// 0. An instance from before edits were recorded: what it lacks or has moved, against the prefab
+		// it last matched, was the user's doing. (Ambiguous on scene open, where the current prefab is all
+		// there is: a child the prefab gained while the scene was closed reads as deleted. Keeping the
+		// scene as the user left it is the safe reading.)
+		if (!link.Tracked)
+		{
+			const Ref<Scene>& reference = baseline ? baseline : prefabScene;
+			Entity referenceRoot = reference->TryGetEntityWithUUID(link.EntityID);
+			auto& records = instanceRoot.GetComponent<PrefabComponent>();
+			std::vector<Entity> queue;
+			if (referenceRoot)
+				queue.push_back(referenceRoot);
+			for (size_t i = 0; i < queue.size(); i++)
+			{
+				Entity source = queue[i];
+				for (UUID childID : source.Children())
+				{
+					if (Entity child = reference->TryGetEntityWithUUID(childID))
+						queue.push_back(child);
+				}
+				const auto parent = mapped.find(source.GetParentUUID());
+				if (source == referenceRoot || parent == mapped.end())
+					continue; // the root, or under something already missing
+				const auto entity = mapped.find(source.GetUUID());
+				if (entity == mapped.end())
+					records.RemovedEntities.push_back(source.GetUUID());
+				else if (entity->second.GetParent() != parent->second)
+					records.ReparentedEntities.push_back(source.GetUUID());
+			}
+			records.Tracked = true;
+			link = records;
+			changed = true;
+		}
+
+		// 1. Entities the prefab no longer has go; what the user put under them stays.
+		std::vector<UUID> gone;
+		for (const auto& [id, entity] : mapped)
+		{
+			if (id != link.EntityID && !prefabScene->TryGetEntityWithUUID(id))
+				gone.push_back(entity.GetUUID());
+		}
+		if (!gone.empty())
+		{
+			std::erase_if(mapped, [&](const auto& entry) { return Contains(gone, entry.second.GetUUID()); });
+			RescueSurvivingChildren(*this, gone);
+			changed = true;
+		}
+
+		// 2. Entities the prefab gained arrive, parents before children, one entity at a time (a child
+		// the prefab moved under a new entity already exists here and is re-parented in step 3).
+		std::vector<Entity> queue{ prefabRoot };
+		bool added = false;
+		for (size_t i = 0; i < queue.size(); i++)
+		{
+			Entity source = queue[i];
+			for (UUID childID : source.Children())
+			{
+				if (Entity child = prefabScene->TryGetEntityWithUUID(childID))
+					queue.push_back(child);
+			}
+
+			const UUID id = source.GetUUID();
+			if (source == prefabRoot || mapped.contains(id) || Contains(link.RemovedEntities, id) || Contains(link.ReparentedEntities, id))
+				continue;
+			const auto parent = mapped.find(source.GetParentUUID());
+			if (parent == mapped.end())
+				continue; // under something the user deleted
+
+			Entity entity = ClonePrefabEntity(source, UUID(0));
+			auto& prefabComponent = entity.AddOrReplaceComponent<PrefabComponent>();
+			prefabComponent.PrefabID = link.PrefabID;
+			prefabComponent.EntityID = id;
+			entity.SetParent(parent->second);
+			mapped.emplace(id, entity);
+			added = true;
+		}
+		if (added)
+		{
+			// Listener and portal links of the new entities point into the prefab; aim them at this
+			// instance. Existing entities already hold instance UUIDs, which are not keys here.
+			std::unordered_map<UUID, UUID> prefabToInstance;
+			for (const auto& [id, entity] : mapped)
+				prefabToInstance.emplace(id, entity.GetUUID());
+			RemapAudioListenerTargets(prefabToInstance, false);
+			changed = true;
+		}
+
+		// 3. Children follow the prefab's parenting unless the user moved them.
+		for (const auto& [id, entity] : mapped)
+		{
+			if (id == link.EntityID || Contains(link.ReparentedEntities, id))
+				continue;
+			Entity source = prefabScene->TryGetEntityWithUUID(id);
+			const auto parent = source ? mapped.find(source.GetParentUUID()) : mapped.end();
+			if (parent != mapped.end() && entity.GetParent() != parent->second)
+			{
+				Entity child = entity;
+				child.SetParent(parent->second);
+				changed = true;
+			}
+		}
+
+		// 4. Siblings follow the prefab's order; children the user added keep their slots.
+		for (const auto& [id, mappedParent] : mapped)
+		{
+			Entity source = prefabScene->TryGetEntityWithUUID(id);
+			if (!source)
+				continue;
+			Entity parent = mappedParent;
+			std::vector<UUID> ordered;
+			for (UUID childID : source.Children())
+			{
+				const auto child = mapped.find(childID);
+				if (child != mapped.end() && child->second.GetParent() == parent)
+					ordered.push_back(child->second.GetUUID());
+			}
+			size_t next = 0;
+			for (UUID& slot : parent.Children())
+			{
+				if (!Contains(ordered, slot))
+					continue;
+				if (slot != ordered[next])
+				{
+					slot = ordered[next];
+					changed = true;
+				}
+				next++;
+			}
+		}
+
+		// Records about entities the prefab no longer has are moot.
+		auto& records = instanceRoot.GetComponent<PrefabComponent>();
+		const auto stale = [&](UUID id) { return !prefabScene->TryGetEntityWithUUID(id); };
+		changed |= std::erase_if(records.RemovedEntities, stale) > 0;
+		changed |= std::erase_if(records.ReparentedEntities, stale) > 0;
+
+		if (changed)
+			SortEntities();
+		return changed;
+	}
+
+	uint32_t Scene::RelinkPrefabInstances(const std::vector<Ref<Prefab>>& prefabs)
+	{
+		uint32_t linked = 0;
+		for (auto handle : GetAllEntitiesWith<PrefabComponent>())
+		{
+			auto& link = m_Registry.get<PrefabComponent>(handle);
+			if (link.PrefabID != 0 || link.EntityID == 0)
+				continue;
+			for (const Ref<Prefab>& prefab : prefabs)
+			{
+				if (prefab && prefab->GetScene() && prefab->GetScene()->TryGetEntityWithUUID(link.EntityID))
+				{
+					link.PrefabID = prefab->Handle;
+					linked++;
+					break;
+				}
+			}
+		}
+		return linked;
+	}
+
+	void Scene::SyncAllPrefabInstances()
+	{
+		// Unlinked instances first (loading every prefab asset only when there are some).
+		bool anyUnlinked = false;
+		for (auto handle : GetAllEntitiesWith<PrefabComponent>())
+		{
+			const auto& link = m_Registry.get<PrefabComponent>(handle);
+			anyUnlinked |= link.PrefabID == 0 && link.EntityID != 0;
+		}
+		if (anyUnlinked)
+		{
+			std::vector<Ref<Prefab>> prefabs;
+			for (AssetHandle handle : AssetManager::GetAllAssetsWithType<Prefab>())
+			{
+				if (Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle))
+					prefabs.push_back(prefab);
+			}
+			if (const uint32_t linked = RelinkPrefabInstances(prefabs))
+				LUX_CORE_INFO_TAG("Prefab", "Linked {} entit{} in '{}' back to their prefab", linked, linked == 1 ? "y" : "ies", GetName());
+		}
+
+		std::vector<UUID> roots;
+		for (auto handle : GetAllEntitiesWith<PrefabComponent>())
+		{
+			Entity entity{ handle, this };
+			if (FindPrefabInstanceRoot(entity) == entity)
+				roots.push_back(entity.GetUUID());
+		}
+
+		uint32_t synced = 0;
+		for (UUID rootID : roots)
+		{
+			Entity root = TryGetEntityWithUUID(rootID);
+			const AssetHandle prefabID = root ? root.GetComponent<PrefabComponent>().PrefabID : AssetHandle(0);
+			if (!prefabID || !AssetManager::IsAssetHandleValid(prefabID) || AssetManager::GetAssetType(prefabID) != AssetType::Prefab)
+				continue;
+			Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabID);
+			if (prefab && prefab->GetScene() && SyncPrefabInstance(root, prefab->GetScene()))
+				synced++;
+		}
+		if (synced > 0)
+			LUX_CORE_INFO_TAG("Prefab", "Brought {} prefab instance(s) in '{}' up to date with their prefab's hierarchy", synced, GetName());
+	}
+
 	void Scene::PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab)
 	{
 		if (!oldPrefab || !newPrefab)
 			return;
+
+		// Structure first, so the component pass below finds the prefab's entities where they belong.
+		if (Entity newRoot = FindPrefabSceneRoot(*newPrefab))
+		{
+			std::vector<UUID> roots;
+			for (auto e : GetAllEntitiesWith<PrefabComponent>())
+			{
+				Entity entity{ e, this };
+				const auto& prefab = entity.GetComponent<PrefabComponent>();
+				if (prefab.PrefabID == prefabID && prefab.EntityID == newRoot.GetUUID())
+					roots.push_back(entity.GetUUID());
+			}
+			for (UUID rootID : roots)
+				SyncPrefabInstance(TryGetEntityWithUUID(rootID), newPrefab, oldPrefab);
+		}
 
 		// Collect first — reconciling adds/removes components, which would invalidate a live view.
 		std::vector<UUID> instances;
@@ -1438,6 +1795,52 @@ namespace Lux {
 	{
 		if (!oldBase || !newBase)
 			return;
+
+		// Structure, from what the base edit changed (every variant is rewritten on each base save, so
+		// the old/new difference is the whole story). A variant shares the base's UUIDs.
+		{
+			// Lost by the base: goes here too, keeping what the variant added under it.
+			std::vector<UUID> gone;
+			for (auto e : oldBase->GetAllEntitiesWith<IDComponent>())
+			{
+				const UUID id = Entity{ e, oldBase.Raw() }.GetUUID();
+				if (!newBase->TryGetEntityWithUUID(id) && TryGetEntityWithUUID(id))
+					gone.push_back(id);
+			}
+			RescueSurvivingChildren(*this, gone);
+
+			// Gained by the base: cloned with the same UUID under the same parent, parents first.
+			std::vector<Entity> queue;
+			if (Entity root = FindPrefabSceneRoot(*newBase))
+				queue.push_back(root);
+			for (size_t i = 0; i < queue.size(); i++)
+			{
+				Entity source = queue[i];
+				for (UUID childID : source.Children())
+				{
+					if (Entity child = newBase->TryGetEntityWithUUID(childID))
+						queue.push_back(child);
+				}
+				const UUID id = source.GetUUID();
+				Entity parent = TryGetEntityWithUUID(source.GetParentUUID());
+				if (oldBase->TryGetEntityWithUUID(id) || TryGetEntityWithUUID(id) || !parent)
+					continue;
+				ClonePrefabEntity(source, id).SetParent(parent);
+			}
+
+			// Moved by the base: follows, unless the variant moved it too.
+			for (auto e : newBase->GetAllEntitiesWith<IDComponent>())
+			{
+				Entity source{ e, newBase.Raw() };
+				Entity oldSource = oldBase->TryGetEntityWithUUID(source.GetUUID());
+				Entity entity = TryGetEntityWithUUID(source.GetUUID());
+				Entity parent = TryGetEntityWithUUID(source.GetParentUUID());
+				if (oldSource && entity && parent && oldSource.GetParentUUID() != source.GetParentUUID()
+					&& entity.GetParentUUID() == oldSource.GetParentUUID())
+					entity.SetParent(parent);
+			}
+			SortEntities();
+		}
 
 		// A variant shares the base's UUIDs, so match entities directly (no PrefabComponent). Unlike
 		// an instance, a variant isn't "placed", so the transform is treated like any other component.
@@ -1900,13 +2303,74 @@ namespace Lux {
 		}
 	}
 
-	void Scene::StepPhysics(Timestep ts)
+	void Scene::StepPhysics(Timestep ts, bool runScripts)
 	{
 		if (m_PhysicsScene)
-			m_PhysicsScene->Simulate(ts);
+		{
+			const float fixedTimestep = m_PhysicsScene->GetFixedTimestep();
+			for (uint32_t steps = m_PhysicsScene->AdvanceFixedClock(ts); steps > 0; steps--)
+			{
+				if (runScripts)
+					InvokeScriptFixedUpdate(fixedTimestep);
+				m_PhysicsScene->SimulateStep(fixedTimestep);
+			}
+		}
 
 		if (m_PhysicsScene2D)
 			m_PhysicsScene2D->Simulate(ts);
+	}
+
+	void Scene::DispatchCollisionEvents()
+	{
+		if (m_PhysicsScene)
+			m_PhysicsScene->DrainCharacterContactEvents(m_CharacterContactEvents);
+		else
+			m_CharacterContactEvents.clear();
+
+		const auto hook = [this](UUID a, UUID b, bool begin)
+		{
+			InvokeCollisionHook(a, b, begin);
+			InvokeCollisionHook(b, a, begin);
+		};
+		const auto handle = [&](const PhysicsContactEvent& event) { m_ScriptContacts.Apply(event, hook); };
+		for (const PhysicsContactEvent& event : m_PhysicsContactEvents)
+			handle(event);
+		for (const PhysicsContactEvent& event : m_CharacterContactEvents)
+			handle(event);
+	}
+
+	// Same rules as OnUpdate.
+	void Scene::InvokeCollisionHook(UUID entityID, UUID other, bool begin)
+	{
+		const auto instance = m_ScriptInstances.find(entityID);
+		Entity entity = instance != m_ScriptInstances.end() ? TryGetEntityWithUUID(entityID) : Entity{};
+		if (!entity || !entity.HasComponent<ScriptComponent>() || m_PendingScriptCreates.contains(entityID))
+			return;
+		if (!entity.GetComponent<ScriptComponent>().Enabled || IsInactive(entity))
+			return;
+		instance->second.Invoke(begin ? "OnCollisionBeginInternal" : "OnCollisionEndInternal", (uint64_t)other);
+	}
+
+	// Same rules as OnUpdate: enabled, active, and already created (OnUpdate ran OnCreate this frame).
+	void Scene::InvokeScriptFixedUpdate(float fixedTimestep)
+	{
+		LUX_PROFILE_FUNC("Scene::InvokeScriptFixedUpdate");
+		ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+		for (auto e : m_Registry.view<ScriptComponent>())
+		{
+			Entity entity = { e, this };
+			const UUID entityID = entity.GetUUID();
+			auto it = m_ScriptInstances.find(entityID);
+			if (it == m_ScriptInstances.end() || m_PendingScriptCreates.contains(entityID))
+				continue;
+
+			const auto& sc = entity.GetComponent<ScriptComponent>();
+			if (!sc.Enabled || IsInactive(e))
+				continue;
+
+			if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnFixedUpdate"))
+				it->second.Invoke("OnFixedUpdate", fixedTimestep);
+		}
 	}
 
 	void Scene::RenderScene(EditorCamera& camera)

@@ -524,6 +524,26 @@ namespace Lux {
 			runtimeBody.AxisLockConstraint = nullptr;
 		}
 
+		// A character takes its entity's colliders as its shape (a 2 m capsule without one); they get no
+		// rigid body of their own, which the character would collide with.
+		static Ref<JoltCharacterController> CreateJoltCharacter(Entity entity, JPH::PhysicsSystem& system, const PhysicsLayerTable& layers,
+			std::vector<PhysicsContactEvent>& contactEvents)
+		{
+			const TransformComponent transform = entity.GetScene()->GetWorldSpaceTransform(entity);
+			ColliderMaterial material;
+			bool requiresStaticBody = false;
+			JPH::RefConst<JPH::Shape> shape = CreateEntityShape(entity, transform, 0.0f, material, requiresStaticBody);
+			if (!shape || requiresStaticBody)
+			{
+				if (requiresStaticBody)
+					LUX_CORE_WARN_TAG("Physics", "Character '{}' cannot use a mesh collider; using a default capsule", entity.Name());
+				shape = new JPH::CapsuleShape(0.5f, 0.5f);
+			}
+
+			const auto& component = entity.GetComponent<CharacterControllerComponent>();
+			return Ref<JoltCharacterController>::Create(entity, system, shape, layers.Sanitize((JPH::ObjectLayer)component.LayerID), &contactEvents);
+		}
+
 	}
 
 	struct PhysicsScene::Impl
@@ -536,6 +556,7 @@ namespace Lux {
 		JPH::PhysicsSystem System;
 		std::unordered_map<UUID, RuntimeBody> Bodies;
 		std::unordered_map<UUID, Ref<CharacterController>> CharacterControllers;
+		std::vector<PhysicsContactEvent> CharacterContacts;
 		std::vector<SceneQueryHit> OverlapHitBuffer;
 		float Accumulator = 0.0f;
 		float FixedTimestep = 1.0f / 60.0f;
@@ -602,10 +623,12 @@ namespace Lux {
 					continue;
 				}
 
-				if (!body.IsActive())
-					bodyInterface.ActivateBody(runtimeBody.BodyID);
-
+				// ActivateBody locks the body itself: holding the read lock here deadlocked the first
+				// move of a kinematic body that had gone to sleep.
+				const bool activate = !body.IsActive();
 				readLock.ReleaseLock();
+				if (activate)
+					bodyInterface.ActivateBody(runtimeBody.BodyID);
 
 				JPH::BodyLockWrite writeLock(bodyLockInterface, runtimeBody.BodyID);
 				if (!writeLock.Succeeded())
@@ -717,7 +740,8 @@ namespace Lux {
 		for (auto entityHandle : view)
 		{
 			Entity entity = { entityHandle, m_Scene };
-			if (!entity.HasAny<BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent>())
+			if (!entity.HasAny<BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent>()
+				|| entity.HasComponent<CharacterControllerComponent>())
 				continue;
 
 			TransformComponent transform = m_Scene->GetWorldSpaceTransform(entity);
@@ -795,7 +819,7 @@ namespace Lux {
 		for (auto entityHandle : characterView)
 		{
 			Entity entity = { entityHandle, m_Scene };
-			m_Impl->CharacterControllers[entity.GetUUID()] = Ref<JoltCharacterController>::Create(entity);
+			m_Impl->CharacterControllers[entity.GetUUID()] = CreateJoltCharacter(entity, m_Impl->System, m_Impl->LayerTable, m_Impl->CharacterContacts);
 		}
 
 		m_Impl->System.OptimizeBroadPhase();
@@ -805,6 +829,11 @@ namespace Lux {
 	{
 		if (!m_Impl)
 			return;
+
+		// A script can still hold a controller; its character must not outlive the system.
+		for (auto& [entityID, controller] : m_Impl->CharacterControllers)
+			controller.As<JoltCharacterController>()->Destroy();
+		m_Impl->CharacterControllers.clear();
 
 		JPH::BodyInterface& bodyInterface = m_Impl->System.GetBodyInterface();
 		for (auto& [entityID, runtimeBody] : m_Impl->Bodies)
@@ -822,38 +851,25 @@ namespace Lux {
 		m_Impl.reset();
 	}
 
-	void PhysicsScene::Simulate(Timestep timestep)
+	uint32_t PhysicsScene::AdvanceFixedClock(Timestep timestep)
 	{
 		if (!m_Impl || !m_Scene)
-			return;
+			return 0;
 
 		SubStepStrategy(*m_Impl, timestep);
-		const float physicsTimestep = m_Impl->FixedTimestep * (float)m_Impl->CollisionSteps;
-		PreSimulate(m_Scene, *m_Impl, physicsTimestep > 0.0f ? physicsTimestep : (float)timestep);
+		return m_Impl->CollisionSteps;
+	}
 
-		if (m_Impl->CollisionSteps > 0)
-		{
-			for (auto& [entityID, controller] : m_Impl->CharacterControllers)
-			{
-				(void)entityID;
-				controller->PreSimulate(physicsTimestep);
-			}
+	float PhysicsScene::GetFixedTimestep() const
+	{
+		return m_Impl ? m_Impl->FixedTimestep : 1.0f / 60.0f;
+	}
 
-			m_Impl->System.Update(
-				physicsTimestep,
-				(int)m_Impl->CollisionSteps,
-				PhysicsSystem::GetTempAllocator(),
-				PhysicsSystem::GetJobSystem());
-
-			for (auto& [entityID, controller] : m_Impl->CharacterControllers)
-			{
-				(void)entityID;
-				controller->Simulate(physicsTimestep);
-				controller->PostSimulate();
-			}
-		}
-
-		SyncActiveBodies(m_Scene, *m_Impl);
+	void PhysicsScene::DrainCharacterContactEvents(std::vector<PhysicsContactEvent>& events)
+	{
+		events.clear();
+		if (m_Impl)
+			m_Impl->CharacterContacts.swap(events);
 	}
 
 	void PhysicsScene::DrainContactEvents(std::vector<PhysicsContactEvent>& events)
@@ -874,21 +890,15 @@ namespace Lux {
 		if (!m_Impl || !m_Scene)
 			return;
 
+		// Kinematic targets first, so a platform's velocity is set before characters read it.
 		PreSimulate(m_Scene, *m_Impl, fixedTimestep);
 		for (auto& [entityID, controller] : m_Impl->CharacterControllers)
-		{
-			(void)entityID;
-			controller->PreSimulate(fixedTimestep);
-		}
+			controller->Simulate(fixedTimestep);
 
 		m_Impl->System.Update(fixedTimestep, 1, PhysicsSystem::GetTempAllocator(), PhysicsSystem::GetJobSystem());
 
 		for (auto& [entityID, controller] : m_Impl->CharacterControllers)
-		{
-			(void)entityID;
-			controller->Simulate(fixedTimestep);
 			controller->PostSimulate();
-		}
 
 		SyncActiveBodies(m_Scene, *m_Impl);
 	}
@@ -1065,15 +1075,26 @@ namespace Lux {
 		if (Ref<CharacterController> existingController = GetCharacterController(entity))
 			return existingController;
 
-		Ref<CharacterController> controller = Ref<JoltCharacterController>::Create(entity);
+		if (Ref<PhysicsBody> body = GetBody(entity))
+		{
+			LUX_CORE_WARN_TAG("Physics", "Entity '{}' already has a rigid body; not adding a character controller", entity.Name());
+			return nullptr;
+		}
+
+		Ref<CharacterController> controller = CreateJoltCharacter(entity, m_Impl->System, m_Impl->LayerTable, m_Impl->CharacterContacts);
 		m_Impl->CharacterControllers[entity.GetUUID()] = controller;
 		return controller;
 	}
 
 	void PhysicsScene::DestroyCharacterController(Entity entity)
 	{
-		if (entity && m_Impl)
-			m_Impl->CharacterControllers.erase(entity.GetUUID());
+		if (!entity || !m_Impl)
+			return;
+		if (auto it = m_Impl->CharacterControllers.find(entity.GetUUID()); it != m_Impl->CharacterControllers.end())
+		{
+			it->second.As<JoltCharacterController>()->Destroy();
+			m_Impl->CharacterControllers.erase(it);
+		}
 	}
 
 	bool PhysicsScene::CastRay(const RayCastInfo* rayCastInfo, SceneQueryHit& outHit)

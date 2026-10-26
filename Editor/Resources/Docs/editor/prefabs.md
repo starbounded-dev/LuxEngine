@@ -12,6 +12,12 @@ A **prefab** is a saved entity hierarchy you can place many times. Change the pr
 
 Double-click a prefab in the Content Browser to open it on its own. A banner shows that you are editing the prefab. Saving it updates every instance, except the values you changed on an instance yourself.
 
+Changes to the prefab's hierarchy reach every instance too, including instances in scenes that were closed (they catch up when you open the scene):
+
+- A child added to the prefab appears in every instance; a child removed from the prefab leaves them. Anything you added under it in an instance moves up and stays.
+- A child the prefab moves to another parent moves in every instance.
+- What you did to an instance wins: a prefab child you deleted from an instance stays deleted, one you moved stays where you put it, and children you added are kept.
+
 ## Overrides
 
 You can change an instance's components freely. Changed components are marked in the **Prefab** section of the Properties panel:

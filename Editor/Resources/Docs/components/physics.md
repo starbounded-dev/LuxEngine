@@ -26,6 +26,12 @@ An entity with a collider and **no** Rigidbody is static: walls and floors that 
 
 For a player that walks: a **Character Controller** climbs steps (**Step Offset**) and slopes up to **Slope Limit**, and is moved from a script with `Move` and `Jump`.
 
+- Its shape is the entity's Box, Sphere or Capsule Collider (a 2 m capsule if it has none). That collider does not also become a rigid body.
+- It stands on the ground, slides along walls, rides moving platforms, and pushes dynamic bodies it walks into. It does not slide down a walkable slope while standing still.
+- `Move(displacement)` moves it that far by the next physics step; call it every frame with speed × `ts`. On the ground only the horizontal part counts. In the air it is ignored unless **Control Movement In Air** is on.
+- `Jump(speed)` jumps from the ground with that upward speed in m/s. Gravity comes from Project Settings > Physics.
+- Setting `LinearVelocity` replaces its velocity once; gravity and ground contact take over from there.
+
 ## From a script
 
 ```

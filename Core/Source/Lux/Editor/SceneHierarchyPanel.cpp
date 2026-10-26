@@ -638,7 +638,10 @@ namespace Lux {
 		{
 			Entity entity = m_Context->GetEntityByUUID(entityID);
 			if (entity)
+			{
+				Scene::RecordPrefabRemoval(entity); // a prefab child deleted from an instance stays deleted
 				m_Context->DestroyEntity(entity);
+			}
 		}
 
 		if (!queuedDeletions.empty())
@@ -725,7 +728,10 @@ namespace Lux {
 					{
 						Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 						if (draggedEntity)
+						{
+							Scene::RecordPrefabReparent(draggedEntity, {});
 							draggedEntity.SetParent({});
+						}
 					}
 					EditorStack::Get().MarkSceneEdited("Reparent");
 				}
@@ -1125,7 +1131,10 @@ namespace Lux {
 				{
 					Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 					if (draggedEntity && draggedEntity != entity)
+					{
+						Scene::RecordPrefabReparent(draggedEntity, entity);
 						draggedEntity.SetParent(entity);
+					}
 				}
 				EditorStack::Get().MarkSceneEdited("Reparent");
 			}

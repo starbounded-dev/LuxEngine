@@ -136,7 +136,8 @@ namespace Lux
 		if (m_AssetPack->HasAppBinary())
 		{
 			Buffer appBinary = m_AssetPack->ReadAppBinary();
-			scriptEngine.LoadProjectAssemblyRuntime(appBinary);
+			if (appBinary)
+				scriptEngine.LoadProjectAssemblyRuntime(appBinary);
 			appBinary.Release();
 		}
 		else

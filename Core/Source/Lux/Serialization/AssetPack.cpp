@@ -175,8 +175,11 @@ namespace Lux
 		FileStreamReader stream(m_Path);
 		stream.SetStreamPosition(m_File.Index.PackedAppBinaryOffset);
 		Buffer buffer;
-		stream.ReadBuffer(buffer);
-		LUX_CORE_VERIFY(m_File.Index.PackedAppBinarySize == (buffer.Size + sizeof(uint64_t)));
+		if (!stream.ReadBuffer(buffer) || m_File.Index.PackedAppBinarySize != buffer.Size + sizeof(uint64_t))
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "'{}' is damaged: the app binary does not match its index entry", m_Path.string());
+			buffer.Release();
+		}
 		return buffer;
 	}
 
@@ -315,9 +318,8 @@ namespace Lux
 		Ref<AssetPack> assetPack = Ref<AssetPack>::Create();
 		assetPack->m_Path = path;
 
-		const bool success = AssetPackSerializer::DeserializeIndex(assetPack->m_Path, assetPack->m_File);
-		LUX_CORE_VERIFY(success);
-		if (!success)
+		// DeserializeIndex reports what is wrong; a missing or damaged pack is the caller's to handle.
+		if (!AssetPackSerializer::DeserializeIndex(assetPack->m_Path, assetPack->m_File))
 			return nullptr;
 
 		for (const auto& [sceneHandle, sceneInfo] : assetPack->m_File.Index.Scenes)

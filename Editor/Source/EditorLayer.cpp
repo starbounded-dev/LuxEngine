@@ -1443,6 +1443,7 @@ namespace Lux {
 				auto& prefabComponent = linked.AddOrReplaceComponent<PrefabComponent>();
 				prefabComponent.PrefabID = handle;
 				prefabComponent.EntityID = prefabUUID;
+				prefabComponent.Tracked = sourceUUID == entity.GetUUID(); // the root keeps the instance's records
 			}
 			EditorStack::Get().MarkSceneEdited("Create Prefab");
 			LUX_CONSOLE_LOG_INFO("Created prefab '{}'", relativePath.generic_string());
@@ -3802,6 +3803,8 @@ namespace Lux {
 		StartupSplash::Report(0.5f, std::format("Loading {}", path.filename().string()));
 		if (Project::Load(path))
 		{
+			// Imported meshes keep their generated LODs in the project's Cache between launches.
+			MeshSource::SetGeometryCacheDirectory(Project::GetActive()->GetCacheDirectory() / "Geometry");
 			AddRecentProject(path);
 			if (m_SplashScreen)
 				m_SplashScreen->Close();
@@ -3882,6 +3885,7 @@ namespace Lux {
 		// Drop the scene's references into this project's assets before its asset manager goes away.
 		NewScene();
 		Project::SetActive(nullptr);
+		MeshSource::SetGeometryCacheDirectory({});
 		m_PanelManager->OnProjectChanged(nullptr);
 	}
 
@@ -4656,6 +4660,8 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to open scene asset {0}; scene copy failed.", handle);
 			return;
 		}
+		// Prefabs edited while this scene was closed: their instances catch up with the hierarchy.
+		newScene->SyncAllPrefabInstances();
 
 		ApplyEditorScene(newScene, Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle));
 

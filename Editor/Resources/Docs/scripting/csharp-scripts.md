@@ -21,6 +21,7 @@ The engine calls these methods by name if your class has them:
 |---|---|
 | `void OnCreate()` | Once, before the script's first `OnUpdate`. |
 | `void OnUpdate(float ts)` | Every frame. `ts` is the time since the last frame, in seconds. |
+| `void OnFixedUpdate(float fixedTs)` | Before each physics step, after the frame's `OnUpdate`. Physics steps at the project's Fixed Timestep (Project Settings > Physics, 1/60 s by default), so this runs zero, one or several times a frame, always with the same `fixedTs`. Apply forces and velocities here so they do not depend on the frame rate. |
 | `void OnDestroy()` | When play stops, or at the end of the frame in which the entity is destroyed. |
 | `protected override void OnCollisionBegin(Entity other)` | This entity's physics body starts touching another. |
 | `protected override void OnCollisionEnd(Entity other)` | They stop touching. |

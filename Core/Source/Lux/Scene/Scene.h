@@ -14,7 +14,7 @@
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Audio/MusicDirector.h"
 #include "Lux/Audio/DialogueDirector.h"
-#include "Lux/Physics/PhysicsContactEvent.h"
+#include "Lux/Physics/ContactPairTracker.h"
 #include "Lux/Physics/SceneQueries.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
@@ -137,6 +137,26 @@ namespace Lux {
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
 		void PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab);
 
+		// Prefab structure (backlog 3.10, Unity-style overrides). An instance follows its prefab's
+		// hierarchy: children the prefab gained are added, children it lost are removed (instance-only
+		// children under them move up), and re-parented children follow the prefab. What the user did to
+		// the instance wins: an entity deleted or moved in the instance is recorded on the instance root
+		// (RecordPrefabRemoval / RecordPrefabReparent, called by the editor before the edit) and left alone,
+		// and children the user added are never touched. Returns true when the instance changed.
+		// `baseline` is the prefab the instance last matched (the pre-edit prefab when saving one), used
+		// to tell an untracked instance's own edits from the prefab's.
+		bool SyncPrefabInstance(Entity instanceRoot, const Ref<Scene>& prefabScene, const Ref<Scene>& baseline = nullptr);
+		// Every instance in this scene, against the prefab assets the AssetManager holds now (editor: on
+		// scene open and before packing). Prefabs that are not assets here (the runtime) are skipped.
+		void SyncAllPrefabInstances();
+		// Instances placed before instances were linked carry PrefabID 0; links each to the prefab that
+		// owns its EntityID. Returns how many entities it linked.
+		uint32_t RelinkPrefabInstances(const std::vector<Ref<Prefab>>& prefabs);
+		static void RecordPrefabRemoval(Entity entity);
+		static void RecordPrefabReparent(Entity entity, Entity newParent);
+		// The top of the prefab instance `entity` belongs to, or null.
+		static Entity FindPrefabInstanceRoot(Entity entity);
+
 		// This scene is a prefab variant sharing the base's entity UUIDs; after the base is edited,
 		// each entity un-overridden vs oldBase adopts newBase's values (overridden entities kept).
 		void AdoptPrefabBaseEdits(Ref<Scene> oldBase, Ref<Scene> newBase);
@@ -246,7 +266,9 @@ namespace Lux {
 		void OnPhysics3DStop();
 		void OnRaytracedAudioStart();
 		void OnRaytracedAudioStop();
-		void StepPhysics(Timestep ts);
+		// Steps 3D physics at its fixed rate; with runScripts, C# OnFixedUpdate(fixedDt) runs before each step.
+		void StepPhysics(Timestep ts, bool runScripts = false);
+		void InvokeScriptFixedUpdate(float fixedTimestep);
 		void RenderScene(EditorCamera& camera);
 		Ref<AudioEventInstance> GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake = true, float timestep = 0.0f);
 		void ReleaseRuntimeAudio(Entity entity);
@@ -261,7 +283,10 @@ namespace Lux {
 		void CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const;
 		bool ResolveMeshColliderDebug(Entity entity, const MeshColliderComponent& collider, Ref<StaticMesh>& staticMesh, Ref<MeshSource>& meshSource, glm::mat4& transform) const;
 		Ref<::Lux::RenderScene> SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const;
-		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
+		// One entity's prefab-tracked components, Active flag and script fields, with no parent or
+		// PrefabComponent; `uuid` 0 makes a new one.
+		Entity ClonePrefabEntity(Entity source, UUID uuid);
+		Entity CreatePrefabEntity(Entity entity, Entity parent, AssetHandle prefabID, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 		// Rebuilds m_InactiveEntities: every entity switched off by its own TagComponent::Active or by
 		// an ancestor's. Called at each update and render-packet entry point; one pass over the tags,
@@ -314,6 +339,11 @@ namespace Lux {
 		UUID m_MusicOwner = 0;
 		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
 		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
+		// C# OnCollisionBegin/End for 3D bodies and character controllers.
+		void DispatchCollisionEvents();
+		void InvokeCollisionHook(UUID entity, UUID other, bool begin);
+		std::vector<PhysicsContactEvent> m_CharacterContactEvents;
+		ContactPairTracker m_ScriptContacts;
 		struct FootstepState
 		{
 			glm::vec3 Position{ 0.0f };
