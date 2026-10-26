@@ -25,7 +25,7 @@ the DX11/DX12 scaffolding stays; nothing may make game makers install extra soft
 | 1.3 | A scene with 40 distinct sprite textures and 40 fonts: draws, no validation errors, no flicker while textures change | S | ✔ code path built, not driven |
 | 1.4 | Font cache: corrupt a `.lfa` file, change a font under the same name; both regenerate | S | ✔ by reading only; atlas generation needs the GPU, so no headless test |
 | 1.5 | Drag `tests/meshes/SharedMeshNodes.gltf` into a scene: three cubes, all collide, picking hits each, the mirrored one is not inside-out | S | ✔ engine importer tested headless (3 placements, outward winding); render/collide/pick not driven |
-| 1.6 | A Debug-build golden run with sync validation (`golden_run.py --config debug --sync-validation`) on the branch | S | not run yet |
+| 1.6 | **Done (2026-10-26).** A Debug-build golden run with sync validation (`golden_run.py --config debug --sync-validation`) on the branch | S | ✔ `lm9-debug-sync`: 19 captures (Benchmark + RenderFeatures, every feature variant) all OK, 0 sync hazards, 0 VUIDs; Benchmark and RenderFeatures pixel-identical to `lm8`; `AssetRegistry.lzr` untouched after 19 launches. The only layer output is a performance warning, "vertex attribute not consumed by vertex shader", present in every Debug capture since 2026-10-17 (item 2.9) |
 | 1.7 | Linux build of the branch (`scripts/Linux-Build.sh`): meshoptimizer, new files, `Ref.h` | M | ◐ compile-only (`g++ 13 -fsyntax-only`, Linux defines, WSL Ubuntu 24.04) passes for every touched Core/Editor file and meshoptimizer; no link or run (WSL has no Vulkan SDK or .NET) |
 | 1.8 | Measure editor start-up with the Help panel loading all pages and the meshoptimizer LOD cost on big imports | S | ✔ headless, Release: Help topics 22 ms cold / 2.5 ms warm (17 pages); Sponza import 436 ms with LODs (no materials), LODs measured at +170 ms offline |
 
@@ -41,6 +41,7 @@ the DX11/DX12 scaffolding stays; nothing may make game makers install extra soft
 | 2.6 | **Fixed (2026-10-26).** `RenderStatsPanel` was never registered | Removed (the Profiler panel replaced it); projects regenerated | S | ✔ no references left |
 | 2.7 | **Fixed (2026-10-26).** `MeshSource::GetRootNode()` returned the importer's empty placeholder node | Removed; it had no callers. `GetNodes()` stays | S | ✔ |
 | 2.8 | Entities with a negative scale render and collide inside-out | No determinant handling anywhere: `Pipeline.cpp` culling is fixed per pipeline and `JoltShapes.cpp` scales mesh-collider triangles by the entity scale. Needs per-draw front-face choice (or a mirrored pipeline variant) and reversed collider winding | M | ✔ grep: no `determinant` in `Renderer/` or `Physics/` |
+| 2.9 | Depth-only pipelines declare vertex attributes their shaders do not read | Khronos performance warning on `vkCreateGraphicsPipelines` in every Debug run ("Vertex attribute at location N not consumed by vertex shader"); harmless but noise in validation logs, and possibly a wider vertex fetch than needed. Give those pipelines a position-only input layout | S | ✔ golden logs since 2026-10-17 |
 
 ## 3. Lucky research follow-ups (not in the merge)
 
