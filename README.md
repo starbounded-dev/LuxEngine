@@ -368,7 +368,18 @@ The audio runner needs `clang++`, both audio SDKs and `fmodstudiocl`; it copies 
 ./packaging/linux/build-appimage.sh release runtime   # LuxRuntime.AppImage
 ```
 
-Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resources and the .NET host into an AppDir. There are no packaged releases yet — you build from source.
+Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resources and the .NET host into an AppDir. For prebuilt editor packages, see [Releases](#releases).
+
+***
+
+## Releases
+
+Every push to `dev` publishes a **pre-release** on the [Releases page](https://github.com/starbounded-dev/LuxEngine/releases): one zip per platform (`LuxEngine-<version>-windows-x64.zip`, `LuxEngine-<version>-linux-x64.zip`) holding the Release editor, its resources, the .NET host and the sample project.
+
+- **Versioning:** `2026.N-<commit>`. `2026.N` is the year's Nth release series (set by `LUX_VERSION_SERIES` in [`Core/Source/Lux/Core/Version.h`](Core/Source/Lux/Core/Version.h)); the suffix is the 7-character commit the build came from. The tag is the version with a `v`: `v2026.1-a3f9c1d`. `Editor --version` prints the version a binary was built as, and the startup log shows it too. Local builds report just the series.
+- **Dev builds are alpha.** The API will change between them, and nothing about them is supported for shipping games.
+- **Only the 10 newest** dev pre-releases of the current series are kept; older ones (and their tags) are deleted automatically.
+- **Audio libraries are not included.** FMOD and Vercidium Audio licences forbid redistributing their runtime libraries with an engine, so each zip has an `AUDIO_LIBRARIES_REQUIRED.txt` naming the files to copy in from your own SDK downloads (see [Required SDKs](#required-sdks)).
 
 ***
 

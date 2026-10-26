@@ -3,7 +3,16 @@
 
 #pragma once
 
-#define LUX_VERSION "2026.1"
+// The release series: 2026.N is the year's Nth. CI builds append the commit ("2026.1-a3f9c1d"):
+// the workflow writes Lux/Core/BuildVersion.h (gitignored), which defines LUX_VERSION first.
+#define LUX_VERSION_SERIES "2026.1"
+
+#if __has_include("Lux/Core/BuildVersion.h")
+	#include "Lux/Core/BuildVersion.h"
+#endif
+#ifndef LUX_VERSION
+	#define LUX_VERSION LUX_VERSION_SERIES
+#endif
 
 //
 // Build Configuration

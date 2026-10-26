@@ -22,7 +22,41 @@ permissions:
   contents: read
 
 jobs:
+  # The build's version string, 2026.N-<7-char commit>: the series from Version.h
+  # (LUX_VERSION_SERIES), so the binaries, the zips and the release tag (v<version>) agree.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      series: ${{ steps.version.outputs.series }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout Version.h
+        uses: actions/checkout@v6.0.2
+        with:
+          sparse-checkout: Core/Source/Lux/Core/Version.h
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Compute the version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          series="$(sed -n 's/^#define LUX_VERSION_SERIES "\([^"]*\)".*/\1/p' Core/Source/Lux/Core/Version.h)"
+          # Checked before it reaches a file name, a tag or a header.
+          if ! [[ "$series" =~ ^[0-9]{4}\.[0-9]+$ ]]; then
+            echo "::error::LUX_VERSION_SERIES in Version.h is not YYYY.N: '$series'"
+            exit 1
+          fi
+          version="${series}-${GITHUB_SHA::7}"
+          echo "series=$series" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+
   build:
+    needs: version
     runs-on: windows-2025
     strategy:
       fail-fast: false
@@ -65,6 +99,18 @@ jobs:
         run: |
           "LUX_FMOD_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/FMOD/windows')" >> $env:GITHUB_ENV
           "LUX_VA_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/VA_RAY')" >> $env:GITHUB_ENV
+
+      # Version.h includes this when present: LUX_VERSION becomes 2026.N-<commit>, printed by
+      # --version and in the startup log.
+      - name: Bake the version string
+        shell: pwsh
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          Set-Content -Path Core/Source/Lux/Core/BuildVersion.h -Encoding utf8 -Value @(
+            "#pragma once",
+            "#define LUX_VERSION `"$env:LUX_BUILD_VERSION`""
+          )
 
       - name: Setup Python
         uses: actions/setup-python@v6.2.0
@@ -191,6 +237,37 @@ jobs:
           path: artifacts/Editor-${{ matrix.configuration }}/
           if-no-files-found: error
 
+      # The pre-release download: the same package (editor, Resources, DotNet, sample project, no
+      # licensed audio libraries) in one top-level folder.
+      - name: Zip release package
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # From the build output: the package has no FMOD DLLs, which Editor.exe loads at startup.
+          $reported = & "bin\${{ matrix.configuration }}-windows-x86_64\Editor\Editor.exe" --version
+          Write-Host "Editor --version: $reported"
+          if ($LASTEXITCODE -ne 0 -or "$reported" -notlike "*$env:LUX_BUILD_VERSION*") {
+            throw "Editor.exe --version did not report $env:LUX_BUILD_VERSION (exit $LASTEXITCODE)"
+          }
+
+          $editor = Join-Path "artifacts" "Editor-${{ matrix.configuration }}"
+          $name = "LuxEngine-$env:LUX_BUILD_VERSION-windows-x64"
+          Rename-Item $editor $name
+          New-Item -ItemType Directory -Force release | Out-Null
+          7z a -tzip -mx=7 "release/$name.zip" "./artifacts/$name"
+          if ($LASTEXITCODE -ne 0) { throw "7z failed ($LASTEXITCODE)" }
+
+      - name: Upload release package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -200,6 +277,7 @@ jobs:
           if-no-files-found: ignore
 
   build-linux:
+    needs: version
     # Vercidium Audio 1.9.0's libvaudionative.so needs glibc 2.43 (sqrtf/log10f/acosf@GLIBC_2.43),
     # which Ubuntu 24.04 (glibc 2.39) cannot link against. Ubuntu 26.04 ships glibc 2.43.
     runs-on: ubuntu-26.04
@@ -241,6 +319,14 @@ jobs:
           echo "LUX_FMOD_SDK=${GITHUB_WORKSPACE}/.audio-sdk/FMOD/linux" >> "$GITHUB_ENV"
           echo "LUX_VA_SDK=${GITHUB_WORKSPACE}/.audio-sdk/VA_RAY" >> "$GITHUB_ENV"
 
+      # See the Windows job.
+      - name: Bake the version string
+        shell: bash
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          printf '#pragma once\n#define LUX_VERSION "%s"\n' "$LUX_BUILD_VERSION" > Core/Source/Lux/Core/BuildVersion.h
+
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
       - name: Set up .NET 9
         uses: actions/setup-dotnet@v4
@@ -258,7 +344,7 @@ jobs:
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
-            libdw-dev libunwind-dev libtbb-dev zlib1g-dev
+            libdw-dev libunwind-dev libtbb-dev zlib1g-dev zip
 
           # The Dist configuration compiles with -flto, and premake's clang toolset then archives
           # with llvm-ar because GNU ar cannot index LLVM bitcode. Ubuntu ships that binary
@@ -403,6 +489,41 @@ jobs:
           path: artifacts/Editor-linux-${{ matrix.configuration }}/
           if-no-files-found: error
 
+      # See the Windows job. Zipped here, not in the release job: artifacts do not keep file
+      # modes, and the zip must keep the executable bit and the lib/ symlinks.
+      - name: Zip release package
+        if: matrix.configuration == 'Release'
+        shell: bash
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          editor="artifacts/Editor-linux-${{ matrix.configuration }}"
+
+          # The package has no FMOD/Vercidium libraries; take them from the SDK checkout.
+          audio_dirs="$(find "$GITHUB_WORKSPACE/.audio-sdk" -name 'lib*.so*' \
+            \( -name 'libfmod*' -o -name 'libvaudionative*' \) -printf '%h\n' | sort -u | paste -sd:)"
+          reported="$(LD_LIBRARY_PATH="$editor/lib:$audio_dirs" "$editor/Editor" --version)"
+          echo "Editor --version: $reported"
+          if [[ "$reported" != *"$LUX_BUILD_VERSION"* ]]; then
+            echo "::error::Editor --version did not report $LUX_BUILD_VERSION"
+            exit 1
+          fi
+
+          name="LuxEngine-${LUX_BUILD_VERSION}-linux-x64"
+          mv "$editor" "artifacts/$name"
+          mkdir -p release
+          (cd artifacts && zip -r -y -q "../release/$name.zip" "$name")
+
+      - name: Upload release package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -410,3 +531,73 @@ jobs:
           name: build-logs-linux-${{ matrix.configuration }}
           path: logs/*.log
           if-no-files-found: ignore
+
+  # Every push to dev publishes one pre-release, v2026.N-<commit>, with both platforms' packages,
+  # then deletes all but the 10 newest dev pre-releases of the series (and their tags). Never runs
+  # for pull requests or other branches.
+  release:
+    needs: [version, build, build-linux]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Two quick pushes publish one after the other, so the cleanup never races a publish.
+    concurrency:
+      group: dev-prerelease
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+      SERIES: ${{ needs.version.outputs.series }}
+
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+
+      - name: Publish the pre-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l release
+          if [ "$(find release -name '*.zip' | wc -l)" -ne 2 ]; then
+            echo "::error::Expected the Windows and Linux packages in release/"
+            exit 1
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # A re-run for the same commit: replace its packages.
+            gh release upload "$TAG" release/*.zip --clobber
+          else
+            # --notes is prepended to the generated notes.
+            gh release create "$TAG" release/*.zip \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --generate-notes \
+              --notes "Alpha: the API will change."
+          fi
+
+      - name: Delete old dev pre-releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          keep=10
+          # Only pre-releases tagged exactly v<series>-<7 hex>; nothing else is ever touched. A literal
+          # prefix, not a regex, so the series' dot matches only a dot.
+          prefix="v${SERIES}-"
+
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.prerelease and (.draft | not)) | [.created_at, .tag_name] | @tsv' \
+            | awk -F '\t' -v prefix="$prefix" \
+                'index($2, prefix) == 1 && substr($2, length(prefix) + 1) ~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/' \
+            | sort -r \
+            | tail -n +$((keep + 1)) \
+            | cut -f2 \
+            | while read -r tag; do
+                echo "Deleting pre-release and tag $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done

@@ -4,7 +4,11 @@
 #pragma once
 
 #include "Lux/Core/Application.h"
+#include "Lux/Core/Version.h"
 #include "Lux/Utilities/FileSystem.h"
+
+#include <cstdio>
+#include <string_view>
 
 // Define LUX_LOGS_IN_PERSISTENT_STORAGE before including this header to write logs to the per-user
 // folder (FileSystem::GetPersistentStoragePath()/logs) instead of ./logs. The editor does; shipped
@@ -17,6 +21,16 @@ namespace Lux {
 
 	int Main(int argc, char** argv)
 	{
+		// Before anything starts: no window, no log files.
+		for (int i = 1; i < argc; i++)
+		{
+			if (std::string_view(argv[i]) == "--version")
+			{
+				std::puts(LUX_VERSION_LONG);
+				return 0;
+			}
+		}
+
 		while (g_ApplicationRunning)
 		{
 #ifdef LUX_LOGS_IN_PERSISTENT_STORAGE
