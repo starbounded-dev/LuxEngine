@@ -316,6 +316,17 @@ namespace Lux
 
 			out << Yaml::Key << "MaterialFlags" << Yaml::Value << materialFlags;
 
+			// A material instance: its parent and the values it sets itself. The values above are
+			// all written anyway, so the file loads as it was saved without the parent.
+			if (const AssetHandle parent = materialAsset->GetParent())
+			{
+				out << Yaml::Key << "Parent" << Yaml::Value << static_cast<uint64_t>(parent);
+				out << Yaml::Key << "Overrides" << Yaml::Value << Yaml::BeginSeq;
+				for (const std::string& key : materialAsset->GetOverrides())
+					out << key;
+				out << Yaml::EndSeq;
+			}
+
 			out << Yaml::EndMap;
 			out << Yaml::EndMap;
 			return std::string(out.c_str());
@@ -445,6 +456,36 @@ namespace Lux
 
 			if (materialNode["MaterialFlags"])
 				targetMaterialAsset->GetMaterial()->SetFlags(materialNode["MaterialFlags"].as<uint32_t>());
+
+			if (const AssetHandle parent = materialNode["Parent"].as<uint64_t>(0))
+			{
+				std::set<std::string, std::less<>> overrides;
+				for (const Yaml::Node key : materialNode["Overrides"])
+					overrides.emplace(key.as<std::string>(""));
+				targetMaterialAsset->SetOverrides(std::move(overrides));
+				targetMaterialAsset->Handle = handle;
+				AssetManager::RegisterDependency(parent, handle);
+
+				// In the editor, take the parent's current values; a pack already holds the resolved
+				// ones. Loading the parent loads its own parent, so a loop in the files is cut off.
+				static thread_local int s_ParentDepth = 0;
+				if (!Project::GetEditorAssetManager())
+				{
+					targetMaterialAsset->SetParent(0);
+				}
+				else if (s_ParentDepth >= 32 || !targetMaterialAsset->SetParent(parent))
+					LUX_CORE_WARN_TAG("AssetManager", "Material {}: parent {} is not a material or makes a loop; keeping its own values", static_cast<uint64_t>(handle), static_cast<uint64_t>(parent));
+				else
+				{
+					s_ParentDepth++;
+					Ref<MaterialAsset> parentAsset = AssetManager::GetAsset<MaterialAsset>(parent);
+					s_ParentDepth--;
+					if (parentAsset)
+						targetMaterialAsset->InheritFrom(*parentAsset);
+					else
+						LUX_CORE_WARN_TAG("AssetManager", "Material {}: parent {} is missing; keeping its own values", static_cast<uint64_t>(handle), static_cast<uint64_t>(parent));
+				}
+			}
 
 			return true;
 		}

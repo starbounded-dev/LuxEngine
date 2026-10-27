@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "MaterialEditorPanel.h"
 #include "MaterialPreview.h"
+#include "Panels/ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -79,6 +80,8 @@ namespace Lux
 		state.RoughnessMap = material->GetRoughnessMapHandle();
 		state.Surface = material->GetSurfaceParameters();
 		state.AcousticTag = material->GetAcousticTag();
+		state.Parent = material->GetParent();
+		state.Overrides = material->GetOverrides();
 		return state;
 	}
 
@@ -100,6 +103,8 @@ namespace Lux
 		material->SetUseNormalMap(UseNormalMap);
 		material->SetSurfaceParameters(Surface);
 		material->SetAcousticTag(AcousticTag);
+		material->SetParent(Parent);
+		material->SetOverrides(Overrides);
 	}
 
 	// -- Documents -------------------------------------------------------------------------------
@@ -132,6 +137,7 @@ namespace Lux
 		Document document;
 		document.Handle = handle;
 		document.Saved = MaterialState::Capture(material);
+		document.Propagated = document.Saved;
 		m_Documents.push_back(document);
 		m_ActiveDocument = (int)m_Documents.size() - 1;
 		m_SelectActiveTab = true;
@@ -281,10 +287,28 @@ namespace Lux
 		ImGui::SameLine();
 
 		if (ImGui::BeginChild("##material_properties_column", ImVec2(0.0f, 0.0f)))
+		{
+			UI_Instance(material);
 			UI_Properties(*document, material);
+		}
 		ImGui::EndChild();
 
+		// An instance's overrides are the values that differ from its parent; its inherited values
+		// still match the parent here, since a parent change reaches it through propagation.
+		if (material->GetParent() && !(MaterialState::Capture(material) == document->EditBaseline))
+		{
+			if (Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(material->GetParent()))
+				material->UpdateOverrides(*parent);
+		}
+
 		TrackEdit(*document, material);
+
+		// Instances follow their parent live, including while a slider is dragged.
+		if (MaterialState current = MaterialState::Capture(material); !(current == document->Propagated))
+		{
+			MaterialAsset::PropagateToInstances(document->Handle);
+			document->Propagated = std::move(current);
+		}
 
 		ImGui::End();
 	}
@@ -374,6 +398,59 @@ namespace Lux
 		ImGui::EndPopup();
 	}
 
+	void MaterialEditorPanel::UI_Instance(Ref<MaterialAsset> material)
+	{
+		if (!ImGuiEx::PropertyGridHeader("Instance", material->GetParent() != 0))
+			return;
+
+		ImGuiEx::BeginPropertyGrid();
+		AssetHandle parentHandle = material->GetParent();
+		if (ImGuiEx::PropertyAssetReference<MaterialAsset>("Parent", parentHandle,
+			"Values this material does not set itself come from the parent. Clear it to keep the current values.", nullptr, {}, false))
+		{
+			if (!material->SetParent(parentHandle))
+				LUX_CONSOLE_LOG_ERROR("'{}' cannot be the parent: it is this material or one of its instances", GetMaterialName(parentHandle));
+			else if (Ref<MaterialAsset> parent = parentHandle ? AssetManager::GetAsset<MaterialAsset>(parentHandle) : nullptr)
+				material->InheritFrom(*parent);
+		}
+		ImGuiEx::EndPropertyGrid();
+
+		Ref<MaterialAsset> parent = material->GetParent() ? AssetManager::GetAsset<MaterialAsset>(material->GetParent()) : nullptr;
+		if (!parent)
+		{
+			if (material->GetParent())
+				ImGui::TextDisabled("The parent material is missing; this material keeps its own values.");
+			ImGui::TreePop();
+			return;
+		}
+
+		if (material->GetOverrides().empty())
+		{
+			ImGui::TextDisabled("Every value comes from the parent. Change one to override it.");
+		}
+		else
+		{
+			ImGui::TextDisabled("Set by this material:");
+			// Copied: a reset changes the set.
+			const std::set<std::string, std::less<>> overrides = material->GetOverrides();
+			for (const std::string& key : overrides)
+			{
+				ImGui::PushID(key.c_str());
+				if (ImGui::SmallButton("Reset"))
+					material->ResetToParent(key, *parent);
+				ImGui::SameLine();
+				ImGui::TextUnformatted(key.c_str());
+				ImGui::PopID();
+			}
+			if (ImGui::Button("Reset All to Parent"))
+			{
+				material->SetOverrides({});
+				material->InheritFrom(*parent);
+			}
+		}
+		ImGui::TreePop();
+	}
+
 	void MaterialEditorPanel::UI_Toolbar(Document& document, Ref<MaterialAsset> material)
 	{
 		const bool dirty = !(MaterialState::Capture(material) == document.Saved);
@@ -389,6 +466,15 @@ namespace Lux
 
 		ImGui::SameLine();
 		ImGui::TextDisabled("%s", dirty ? "Unsaved changes" : "Saved");
+
+		ImGui::SameLine();
+		if (ImGui::Button(LUX_ICON_CLONE "  Create Instance"))
+		{
+			if (const AssetHandle instance = ContentBrowserPanel::Get().CreateMaterialInstance(document.Handle))
+				OpenMaterial(instance);
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("A new material that follows this one, except for the values it sets itself");
 	}
 
 	void MaterialEditorPanel::UI_Preview(float width)

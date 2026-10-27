@@ -184,6 +184,13 @@ namespace Lux {
 	void MaterialAsset::OnDependencyUpdated(AssetHandle handle)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		if (handle && handle == m_Parent)
+		{
+			if (Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(m_Parent))
+				InheritFrom(*parent);
+			return;
+		}
+
 		if (handle == m_Maps.AlbedoMap)
 		{
 			SetAlbedoMap(handle);
@@ -200,6 +207,185 @@ namespace Lux {
 		else if (handle == m_Maps.RoughnessMap)
 		{
 			SetRoughnessMap(handle);
+		}
+	}
+
+	// -- Material instances --------------------------------------------------------------------
+
+	namespace {
+
+		// One inheritable value: how to compare it between two materials and copy it across. The
+		// keys are the .lmat names. Maps come before UseNormalMap: assigning a normal map sets it.
+		struct InstanceField
+		{
+			std::string_view Key;
+			bool (*Equal)(const MaterialAsset&, const MaterialAsset&);
+			void (*Copy)(MaterialAsset&, const MaterialAsset&);
+		};
+
+		template<auto Member>
+		constexpr InstanceField SurfaceField(std::string_view key)
+		{
+			return { key,
+				[](const MaterialAsset& a, const MaterialAsset& b) { return a.GetSurfaceParameters().*Member == b.GetSurfaceParameters().*Member; },
+				[](MaterialAsset& to, const MaterialAsset& from)
+				{
+					MaterialSurfaceParameters surface = to.GetSurfaceParameters();
+					surface.*Member = from.GetSurfaceParameters().*Member;
+					to.SetSurfaceParameters(surface);
+				} };
+		}
+
+		#define LUX_MATERIAL_FIELD(key, get, set) InstanceField{ key, \
+			[](const MaterialAsset& a, const MaterialAsset& b) { return a.get() == b.get(); }, \
+			[](MaterialAsset& to, const MaterialAsset& from) { to.set(from.get()); } }
+		#define LUX_MATERIAL_MAP(key, get, set, clear) InstanceField{ key, \
+			[](const MaterialAsset& a, const MaterialAsset& b) { return a.get() == b.get(); }, \
+			[](MaterialAsset& to, const MaterialAsset& from) { if (from.get()) to.set(from.get()); else to.clear(); } }
+
+		const InstanceField s_InstanceFields[] = {
+			LUX_MATERIAL_FIELD("AlbedoColor", GetAlbedoColor, SetAlbedoColor),
+			LUX_MATERIAL_FIELD("Metalness", GetMetalness, SetMetalness),
+			LUX_MATERIAL_FIELD("Roughness", GetRoughness, SetRoughness),
+			LUX_MATERIAL_FIELD("Emission", GetEmission, SetEmission),
+			LUX_MATERIAL_FIELD("Transparency", GetTransparency, SetTransparency),
+			LUX_MATERIAL_MAP("AlbedoMap", GetAlbedoMapHandle, SetAlbedoMap, ClearAlbedoMap),
+			LUX_MATERIAL_MAP("NormalMap", GetNormalMapHandle, SetNormalMap, ClearNormalMap),
+			LUX_MATERIAL_MAP("MetalnessMap", GetMetalnessMapHandle, SetMetalnessMap, ClearMetalnessMap),
+			LUX_MATERIAL_MAP("RoughnessMap", GetRoughnessMapHandle, SetRoughnessMap, ClearRoughnessMap),
+			LUX_MATERIAL_FIELD("UseNormalMap", IsUsingNormalMap, SetUseNormalMap),
+			LUX_MATERIAL_FIELD("CastShadows", IsShadowCasting, SetShadowCasting),
+			LUX_MATERIAL_FIELD("AcousticMaterial", GetAcousticTag, SetAcousticTag),
+			SurfaceField<&MaterialSurfaceParameters::EmissiveColor>("EmissiveColor"),
+			SurfaceField<&MaterialSurfaceParameters::EmissiveMap>("EmissiveMap"),
+			SurfaceField<&MaterialSurfaceParameters::OcclusionMap>("OcclusionMap"),
+			SurfaceField<&MaterialSurfaceParameters::OcclusionStrength>("OcclusionStrength"),
+			SurfaceField<&MaterialSurfaceParameters::OcclusionChannel>("OcclusionChannel"),
+			SurfaceField<&MaterialSurfaceParameters::MetalnessChannel>("MetalnessChannel"),
+			SurfaceField<&MaterialSurfaceParameters::RoughnessChannel>("RoughnessChannel"),
+			SurfaceField<&MaterialSurfaceParameters::Specular>("Specular"),
+			SurfaceField<&MaterialSurfaceParameters::NormalStrength>("NormalStrength"),
+			SurfaceField<&MaterialSurfaceParameters::HeightMap>("HeightMap"),
+			SurfaceField<&MaterialSurfaceParameters::BumpHeight>("BumpHeight"),
+			SurfaceField<&MaterialSurfaceParameters::UVTiling>("UVTiling"),
+			SurfaceField<&MaterialSurfaceParameters::UVOffset>("UVOffset"),
+			SurfaceField<&MaterialSurfaceParameters::UVRotation>("UVRotation"),
+			SurfaceField<&MaterialSurfaceParameters::AlphaMode>("AlphaMode"),
+			SurfaceField<&MaterialSurfaceParameters::AlphaThreshold>("AlphaThreshold"),
+			SurfaceField<&MaterialSurfaceParameters::TwoSided>("TwoSided"),
+			SurfaceField<&MaterialSurfaceParameters::Transmission>("Transmission"),
+			SurfaceField<&MaterialSurfaceParameters::IOR>("IOR"),
+			SurfaceField<&MaterialSurfaceParameters::Thickness>("Thickness"),
+			SurfaceField<&MaterialSurfaceParameters::AttenuationColor>("AttenuationColor"),
+			SurfaceField<&MaterialSurfaceParameters::AttenuationDistance>("AttenuationDistance"),
+			SurfaceField<&MaterialSurfaceParameters::DiffuseTransmission>("DiffuseTransmission"),
+			SurfaceField<&MaterialSurfaceParameters::DiffuseTransmissionColor>("DiffuseTransmissionColor"),
+			SurfaceField<&MaterialSurfaceParameters::DiffuseTransmissionMap>("DiffuseTransmissionMap"),
+		};
+
+		#undef LUX_MATERIAL_FIELD
+		#undef LUX_MATERIAL_MAP
+
+		// A deeper chain than this is a cycle written by hand into the files.
+		constexpr int k_MaxInstanceDepth = 32;
+
+		const std::array<std::string_view, std::size(s_InstanceFields)> s_InstanceKeys = [] {
+			std::array<std::string_view, std::size(s_InstanceFields)> keys{};
+			for (size_t i = 0; i < keys.size(); i++)
+				keys[i] = s_InstanceFields[i].Key;
+			return keys;
+		}();
+	}
+
+	std::span<const std::string_view> MaterialAsset::GetInstanceKeys()
+	{
+		return s_InstanceKeys;
+	}
+
+	bool MaterialAsset::SetParent(AssetHandle parent)
+	{
+		if (!parent)
+		{
+			m_Parent = 0;
+			m_Overrides.clear();
+			return true;
+		}
+
+		// An unknown handle is kept (a parent not imported yet, or deleted): the instance keeps its values.
+		const AssetType type = AssetManager::GetAssetType(parent);
+		if (parent == Handle || (type != AssetType::None && type != AssetType::Material))
+			return false;
+
+		// Walk up from the new parent: reaching this material would close a loop.
+		AssetHandle ancestor = parent;
+		for (int depth = 0; ancestor && depth < k_MaxInstanceDepth; depth++)
+		{
+			Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(ancestor);
+			if (!material)
+				break;
+			ancestor = material->GetParent();
+			if (ancestor == Handle)
+				return false;
+		}
+
+		m_Parent = parent;
+		return true;
+	}
+
+	void MaterialAsset::InheritFrom(const MaterialAsset& parent)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		for (const InstanceField& field : s_InstanceFields)
+		{
+			if (!m_Overrides.contains(field.Key) && !field.Equal(*this, parent))
+				field.Copy(*this, parent);
+		}
+		m_Revision++;
+	}
+
+	void MaterialAsset::UpdateOverrides(const MaterialAsset& parent)
+	{
+		m_Overrides.clear();
+		for (const InstanceField& field : s_InstanceFields)
+		{
+			if (!field.Equal(*this, parent))
+				m_Overrides.emplace(field.Key);
+		}
+	}
+
+	void MaterialAsset::ResetToParent(std::string_view key, const MaterialAsset& parent)
+	{
+		if (auto it = m_Overrides.find(key); it != m_Overrides.end())
+			m_Overrides.erase(it);
+		InheritFrom(parent);
+	}
+
+	void MaterialAsset::PropagateToInstances(AssetHandle parent)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		std::vector<AssetHandle> pending = { parent };
+		for (int depth = 0; !pending.empty() && depth < k_MaxInstanceDepth; depth++)
+		{
+			std::vector<AssetHandle> next;
+			for (AssetHandle handle : pending)
+			{
+				Ref<MaterialAsset> source = AssetManager::GetAsset<MaterialAsset>(handle);
+				if (!source)
+					continue;
+				// Collected first: inheriting can load textures, which adds to the loaded-asset map.
+				std::vector<Ref<MaterialAsset>> children;
+				for (const auto& [childHandle, asset] : AssetManager::GetLoadedAssets())
+				{
+					if (asset && asset->GetAssetType() == AssetType::Material && asset.As<MaterialAsset>()->GetParent() == handle)
+						children.push_back(asset.As<MaterialAsset>());
+				}
+				for (Ref<MaterialAsset>& child : children)
+				{
+					child->InheritFrom(*source);
+					next.push_back(child->Handle);
+				}
+			}
+			pending = std::move(next);
 		}
 	}
 

@@ -11,6 +11,10 @@
 #include <atomic>
 #include <cmath>
 #include <map>
+#include <set>
+#include <span>
+#include <string>
+#include <string_view>
 
 namespace Lux {
 
@@ -188,6 +192,31 @@ namespace Lux {
 		// surface once sets how it looks and how it sounds.
 		int32_t GetAcousticTag() const { return m_AcousticTag; }
 		void SetAcousticTag(int32_t tag) { m_AcousticTag = tag; }
+
+		// -- Material instances ------------------------------------------------------------------
+		// An instance takes every value it does not override from its parent (and so on up the
+		// chain). It still holds all of its values itself, so it renders and exports like any
+		// material, and keeps the values it last had when the parent is missing. Transparency
+		// (the shader) is never inherited.
+		AssetHandle GetParent() const { return m_Parent; }
+		// False, changing nothing, for a parent that is this material, is not a material, or has
+		// this material as an ancestor. Copies nothing: call InheritFrom. 0 clears the parent and
+		// the overrides.
+		bool SetParent(AssetHandle parent);
+		const std::set<std::string, std::less<>>& GetOverrides() const { return m_Overrides; }
+		void SetOverrides(std::set<std::string, std::less<>> overrides) { m_Overrides = std::move(overrides); }
+		bool IsOverridden(std::string_view key) const { return m_Overrides.contains(key); }
+		// Copies every value this material does not override from `parent`.
+		void InheritFrom(const MaterialAsset& parent);
+		// The values that differ from `parent` become the overrides. Run after an edit, while the
+		// inherited values still match the parent.
+		void UpdateOverrides(const MaterialAsset& parent);
+		// Drops the override on `key` and takes the parent's value.
+		void ResetToParent(std::string_view key, const MaterialAsset& parent);
+		// Main thread: re-inherits every loaded instance below `parent`, after it changed.
+		static void PropagateToInstances(AssetHandle parent);
+		// The inheritable values, named as in the .lmat file.
+		static std::span<const std::string_view> GetInstanceKeys();
 	private:
 		void SetDefaults();
 		template<typename T>
@@ -225,6 +254,9 @@ namespace Lux {
 
 		bool m_Transparent = false;
 		int32_t m_AcousticTag = -1;
+
+		AssetHandle m_Parent = 0;
+		std::set<std::string, std::less<>> m_Overrides;
 
 		friend class MaterialEditor;
 	};

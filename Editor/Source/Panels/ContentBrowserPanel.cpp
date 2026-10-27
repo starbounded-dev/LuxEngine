@@ -890,7 +890,10 @@ namespace Lux {
 			// CreatePrefabVariant refreshes the item list, so exit the loop right after (same as above).
 			if (result.IsSet(ContentBrowserAction::CreateVariant) && item->GetType() == ContentBrowserItem::ItemType::Asset)
 			{
-				CreatePrefabVariant(item->GetID());
+				if (AssetManager::GetAssetType(item->GetID()) == AssetType::Material)
+					CreateMaterialInstance(item->GetID());
+				else
+					CreatePrefabVariant(item->GetID());
 				break;
 			}
 		}
@@ -1480,6 +1483,40 @@ namespace Lux {
 		Refresh();
 		if (handle)
 		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateMaterialInstance(AssetHandle parentHandle)
+	{
+		Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(parentHandle);
+		if (!parent)
+			return 0;
+
+		auto assetManager = Project::GetEditorAssetManager();
+		const std::string extension = assetManager->GetDefaultExtensionForAssetType(AssetType::Material);
+		const std::filesystem::path parentPath = assetManager->GetFileSystemPath(parentHandle);
+		const std::filesystem::path relativePath = std::filesystem::relative(
+			FileSystem::GetUniqueFileName(parentPath.parent_path() / (parentPath.stem().string() + " Instance" + extension)),
+			Project::GetActiveAssetDirectory()).lexically_normal();
+
+		Ref<MaterialAsset> instance = Ref<MaterialAsset>::Create(parent->IsTransparent());
+		instance->SetParent(parentHandle);
+		instance->InheritFrom(*parent);
+
+		AssetMetadata metadata;
+		metadata.Type = AssetType::Material;
+		metadata.FilePath = relativePath;
+		AssetImporter::Serialize(metadata, instance);
+
+		const AssetHandle handle = assetManager->ImportAsset(relativePath);
+		Refresh();
+		if (handle)
+		{
+			LUX_CONSOLE_LOG_INFO("Created material instance '{}'", relativePath.generic_string());
 			ClearSelections();
 			SelectItem(handle);
 			StartRenamingItem(handle);

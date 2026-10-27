@@ -51,6 +51,8 @@ namespace Lux
 			AssetHandle RoughnessMap = 0;
 			MaterialSurfaceParameters Surface;
 			int32_t AcousticTag = -1;
+			AssetHandle Parent = 0;
+			std::set<std::string, std::less<>> Overrides;
 
 			bool operator==(const MaterialState& other) const = default;
 
@@ -63,6 +65,7 @@ namespace Lux
 			AssetHandle Handle = 0;
 			MaterialState Saved;          // state on disk (captured at open and on save)
 			MaterialState EditBaseline;   // state before the edit currently in progress
+			MaterialState Propagated;     // state last pushed to the material's instances
 			bool EditInProgress = false;
 		};
 
@@ -75,6 +78,7 @@ namespace Lux
 		void UI_Toolbar(Document& document, Ref<MaterialAsset> material);
 		void UI_Preview(float width);
 		void UI_Properties(Document& document, Ref<MaterialAsset> material);
+		void UI_Instance(Ref<MaterialAsset> material);
 		void UI_CloseConfirm();
 		void TrackEdit(Document& document, Ref<MaterialAsset> material);
 

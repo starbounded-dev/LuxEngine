@@ -209,6 +209,10 @@ namespace Lux {
 			return *s_Instance;
 		}
 
+		// Creates "<parent> Instance" next to `parent`: a material instance with no overrides yet.
+		// Registers it, rescans, and starts renaming it. 0 when `parent` is not a loaded material.
+		AssetHandle CreateMaterialInstance(AssetHandle parent);
+
 	private:
 		AssetHandle ProcessDirectory(const std::filesystem::path& directoryPath, const Ref<DirectoryInfo>& parent);
 		void ChangeDirectory(const Ref<DirectoryInfo>& directory);

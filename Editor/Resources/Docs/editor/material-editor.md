@@ -11,10 +11,20 @@ The Material Editor edits [materials](materials). Open a material by double-clic
 
 Changes show at once in the Scene View and the Game View, in every scene that uses the material, even before you save.
 
+## Material instances
+
+An instance is a material that follows another one, its **parent**, except for the values it sets itself. Make one with **Create Instance** in the Material Editor's toolbar or in a material's right-click menu in the Content Browser, or pick a **Parent** in the **Instance** section of any material.
+
+- Change a value in the instance and it becomes the instance's own: it is listed under **Set by this material**, and changes to the parent no longer touch it. **Reset** next to it takes the parent's value again; **Reset All to Parent** does that for every value.
+- Change the parent and every instance follows at once, apart from the values the instances set themselves. Instances of instances follow too.
+- Clear the **Parent** to make the instance a plain material with its current values. If the parent is deleted, its instances keep the values they had.
+- An instance is always opaque or transparent as it was made; that is not inherited.
+
 ## Sections
 
 | Section | Settings |
 |---|---|
+| **Instance** | **Parent**, and the values this material sets itself (see above). |
 | **Surface** | **Base Color**, **Metallic**, **Roughness**, **Specular**; **Alpha Mode** and **Alpha Cutoff** for opaque materials, **Opacity** for transparent ones. |
 | **Emission** | **Emissive Color**, **Intensity** (0 turns emission off) and an **Emissive Map**. |
 | **Refraction** | Transparent materials only. **Transmission** is how much light passes through and bends (keep **Opacity** at 1 for clear glass), **IOR** how strongly it bends (1.33 water, 1.5 glass), **Thickness** how far light travels inside (0 for a thin sheet), and **Attenuation Color** and **Distance** for tinted glass. |

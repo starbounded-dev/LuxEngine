@@ -355,6 +355,17 @@ Structurally:
   `GPUMaterialData` from the asset's values (the shader block is read only for a bare override
   `Material`, with fallbacks). Never read a material uniform with `Material::Get*` without
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
+- **Material instances.** A `MaterialAsset` with a parent (`GetParent`, `.lmat` `Parent:` plus an
+  `Overrides:` list of value keys) takes every value it does not override from the parent chain;
+  transparency (the shader) is never inherited. The instance still holds and saves all its values,
+  so the renderer, `MaterialScene` and asset packs see a plain material, a missing parent leaves the
+  last values, and a pack load drops the parent. `MaterialAsset.cpp`'s `s_InstanceFields` table is the
+  one list of inheritable values (key, compare, copy); a new material value needs an entry there.
+  `InheritFrom` runs on editor load (the serializer loads the parent first, depth-capped) and from
+  `OnDependencyUpdated(parent)` (the parent is a registered dependency);
+  `PropagateToInstances(parent)` re-inherits loaded instances after a live edit (the Material Editor
+  calls it each frame the material changed). Overrides are the values that differ from the parent at
+  the end of an edit (`UpdateOverrides`); `SetParent` refuses a loop.
 - "Lux Standard" inputs live in `MaterialSurfaceParameters` on the asset (emissive colour + map,
   occlusion map + strength, packed-map channel selection, specular, normal strength, height map as
   bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided, and for transparent materials

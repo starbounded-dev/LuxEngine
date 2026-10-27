@@ -881,6 +881,8 @@ namespace Lux
 				RegisterDependency(materialAsset->GetMetalnessMapHandle(), materialAsset->Handle);
 			if (materialAsset->GetRoughnessMapHandle())
 				RegisterDependency(materialAsset->GetRoughnessMapHandle(), materialAsset->Handle);
+			if (materialAsset->GetParent())
+				RegisterDependency(materialAsset->GetParent(), materialAsset->Handle);
 			return;
 		}
 
