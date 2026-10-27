@@ -169,6 +169,14 @@ void main()
 	gbuffer.BaseColor = baseColor;
 	gbuffer.Opacity = alpha;
 	gbuffer.ViewNormal = normalize(Input.CameraView * worldNormal);
+	// Deferred lighting has no tangent, so an anisotropic material stores its own in the alpha.
+	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_ANISOTROPY))
+	{
+		// The mesh tangent turned by the material's rotation (as LuxAnisotropyTangent in MaterialLobes.glslh).
+		vec3 tangent = cos(gpuMaterial.Lobes.w) * Input.WorldNormals[0] + sin(gpuMaterial.Lobes.w) * Input.WorldNormals[1];
+		vec3 viewTangent = Input.CameraView * (tangent - worldNormal * dot(worldNormal, tangent));
+		gbuffer.Opacity = EncodeGBufferTangent(gbuffer.ViewNormal, viewTangent);
+	}
 	// Deferred lighting reads the transmission colour from this material's row.
 	float diffuseTransmission = gpuMaterial.Transmission.w;
 	if (diffuseTransmission > 0.0 && HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_TRANSMISSION_TEXTURE))

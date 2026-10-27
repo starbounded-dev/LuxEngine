@@ -355,6 +355,9 @@ Structurally:
   `GPUMaterialData` from the asset's values (the shader block is read only for a bare override
   `Material`, with fallbacks). Never read a material uniform with `Material::Get*` without
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
+- Advanced lobes (clearcoat, sheen, subsurface, anisotropy) are `MaterialSurfaceParameters` values,
+  each off at its default; `MaterialScene` sets a GPU flag only for a lobe that is on, and the
+  shaders evaluate it per pixel (`Rendering.md § The GPU material table`).
 - **Material instances.** A `MaterialAsset` with a parent (`GetParent`, `.lmat` `Parent:` plus an
   `Overrides:` list of value keys) takes every value it does not override from the parent chain;
   transparency (the shader) is never inherited. The instance still holds and saves all its values,

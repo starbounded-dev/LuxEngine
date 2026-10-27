@@ -102,6 +102,22 @@ namespace Lux {
 		glm::vec3 DiffuseTransmissionColor{ 1.0f };
 		AssetHandle DiffuseTransmissionMap = 0;
 
+		// Advanced lobes. Each is off at its default, and a material without them pays nothing.
+		// Clearcoat: a clear varnish layer over the surface (car paint, lacquer), with its own roughness.
+		float Clearcoat = 0.0f;
+		float ClearcoatRoughness = 0.1f;
+		// Sheen: back-scattering fibres at grazing angles (velvet, cloth). Black is off.
+		glm::vec3 SheenColor{ 0.0f };
+		float SheenRoughness = 0.5f;
+		// Subsurface: light scattering inside the material (wax, skin, jade): wrapped diffuse plus
+		// scattered light in SubsurfaceColor, stronger through thinner parts. Black is off.
+		glm::vec3 SubsurfaceColor{ 0.0f };
+		float SubsurfaceThickness = 0.5f; // 0 = thin, scatters most; 1 = thick, none
+		// Anisotropy: highlights stretched along the surface tangent (brushed metal, hair). -1..1;
+		// negative stretches across the tangent. Rotation turns the direction, in degrees.
+		float Anisotropy = 0.0f;
+		float AnisotropyRotation = 0.0f;
+
 		bool operator==(const MaterialSurfaceParameters& other) const = default;
 	};
 

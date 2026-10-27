@@ -1142,11 +1142,15 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. A row is 13 `vec4` (208 bytes). Two hold diffuse transmission:
+size in step. A row is 16 `vec4` (256 bytes). Two hold diffuse transmission:
 `Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
 `TransmissionTextureIndices.x` (the factor map, read from alpha); the last two hold refraction:
 `Refraction` (x share, transparent rows only; y IOR, z thickness, w attenuation distance) and
-`AttenuationColor`. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+`AttenuationColor`. The last three hold the advanced lobes: `Lobes` (x clearcoat, y clearcoat
+roughness, z anisotropy, w anisotropy rotation in radians), `Sheen` (linear colour, w roughness) and
+`Subsurface` (linear colour, w thickness); each lobe also has a flag (`HasClearcoat` ... `HasAnisotropy`,
+bits 16-19), set only when it does something. Textures are bindless indices into
+`u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 **Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,
 read through `GetGPUMaterialRefraction`)
@@ -1247,6 +1251,26 @@ base colours above 1 — for no measurable time saved at 1080p.
 - IBL adds the irradiance from −N.
 Pixels with `t = 0` take none of these branches, and `g_DiffuseTransmission` stays zero in every
 other shader.
+
+**Advanced lobes (clearcoat, sheen, subsurface, anisotropy) are per pixel, off by default.**
+`LuxEvaluateDirectBRDF` (`PBR.glslh`) evaluates them for every light from the `g_Lobe*` globals, and
+returns the plain result while `g_LobeFlags` is 0 — its value in every shader that never sets it, so
+those shade exactly as before. `MaterialLobes.glslh` sets them from a material row
+(`LuxSetupMaterialLobes`), bends the IBL reflection for anisotropy (`LuxLobeReflection`) and adds the
+lobes' image-based light on top of `LuxEvaluateImageBasedLighting` (`LuxApplyLobesIBL`). Deferred
+lighting reads the row through `MaterialID`; the transparent forward pass through its object. Models
+follow Filament: clearcoat is a 4% dielectric layer with Kelemen visibility taking its Fresnel share
+from the layer under it; sheen is Charlie + Neubelt (shortcut: a constant directional albedo
+`LUX_SHEEN_ALBEDO` instead of a DFG channel); subsurface is wrapped diffuse plus forward/back scatter
+by thickness, and also lights the side facing away from the light; anisotropy is anisotropic GGX
+with a bent IBL normal. All spatial. Area lights (`DeferredLighting_Area`, LTC) ignore the lobes.
+
+**The anisotropic tangent rides in the G-buffer base colour's alpha.** The opaque passes never read
+that alpha after `GBuffer_Static` (cutout is resolved there; blending is off), so an anisotropic
+material writes its tangent there instead: the angle about the view normal, over [0, pi), in a basis
+built from the normal alone (`LuxGBufferNormalBasis`, Duff et al.), which deferred lighting rebuilds
+from the decoded normal (`EncodeGBufferTangent` / `DecodeGBufferTangent`, RGBA16F). The tangent is
+the mesh's, turned by the material's rotation, so it needs a mesh with tangents.
 
 `Renderer::BeginRenderPass` honours a per-attachment `AttachmentLoadOp` (`Load` keeps, `Clear`
 clears, `Inherit` follows `ClearColorOnLoad`). Use it to share an image into a framebuffer without

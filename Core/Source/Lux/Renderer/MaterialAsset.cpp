@@ -281,6 +281,14 @@ namespace Lux {
 			SurfaceField<&MaterialSurfaceParameters::DiffuseTransmission>("DiffuseTransmission"),
 			SurfaceField<&MaterialSurfaceParameters::DiffuseTransmissionColor>("DiffuseTransmissionColor"),
 			SurfaceField<&MaterialSurfaceParameters::DiffuseTransmissionMap>("DiffuseTransmissionMap"),
+			SurfaceField<&MaterialSurfaceParameters::Clearcoat>("Clearcoat"),
+			SurfaceField<&MaterialSurfaceParameters::ClearcoatRoughness>("ClearcoatRoughness"),
+			SurfaceField<&MaterialSurfaceParameters::SheenColor>("SheenColor"),
+			SurfaceField<&MaterialSurfaceParameters::SheenRoughness>("SheenRoughness"),
+			SurfaceField<&MaterialSurfaceParameters::SubsurfaceColor>("SubsurfaceColor"),
+			SurfaceField<&MaterialSurfaceParameters::SubsurfaceThickness>("SubsurfaceThickness"),
+			SurfaceField<&MaterialSurfaceParameters::Anisotropy>("Anisotropy"),
+			SurfaceField<&MaterialSurfaceParameters::AnisotropyRotation>("AnisotropyRotation"),
 		};
 
 		#undef LUX_MATERIAL_FIELD

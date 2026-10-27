@@ -310,6 +310,28 @@ namespace Lux
 			}
 			if (surface.DiffuseTransmissionMap)
 				WriteTextureReference(out, "DiffuseTransmissionMap", surface.DiffuseTransmissionMap, textureReferenceSerialization);
+			if (surface.Clearcoat != defaults.Clearcoat)
+				out << Yaml::Key << "Clearcoat" << Yaml::Value << surface.Clearcoat;
+			if (surface.ClearcoatRoughness != defaults.ClearcoatRoughness)
+				out << Yaml::Key << "ClearcoatRoughness" << Yaml::Value << surface.ClearcoatRoughness;
+			if (surface.SheenColor != defaults.SheenColor)
+			{
+				out << Yaml::Key << "SheenColor" << Yaml::Value;
+				WriteVec3(out, surface.SheenColor);
+			}
+			if (surface.SheenRoughness != defaults.SheenRoughness)
+				out << Yaml::Key << "SheenRoughness" << Yaml::Value << surface.SheenRoughness;
+			if (surface.SubsurfaceColor != defaults.SubsurfaceColor)
+			{
+				out << Yaml::Key << "SubsurfaceColor" << Yaml::Value;
+				WriteVec3(out, surface.SubsurfaceColor);
+			}
+			if (surface.SubsurfaceThickness != defaults.SubsurfaceThickness)
+				out << Yaml::Key << "SubsurfaceThickness" << Yaml::Value << surface.SubsurfaceThickness;
+			if (surface.Anisotropy != defaults.Anisotropy)
+				out << Yaml::Key << "Anisotropy" << Yaml::Value << surface.Anisotropy;
+			if (surface.AnisotropyRotation != defaults.AnisotropyRotation)
+				out << Yaml::Key << "AnisotropyRotation" << Yaml::Value << surface.AnisotropyRotation;
 			const int32_t acousticTag = materialAsset->GetAcousticTag();
 			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
 				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
@@ -423,6 +445,14 @@ namespace Lux
 			surface.DiffuseTransmission = materialNode["DiffuseTransmission"].as<float>(surface.DiffuseTransmission);
 			surface.DiffuseTransmissionColor = ReadVec3(materialNode["DiffuseTransmissionColor"], surface.DiffuseTransmissionColor);
 			surface.DiffuseTransmissionMap = ResolveTextureReference(materialNode["DiffuseTransmissionMap"]);
+			surface.Clearcoat = materialNode["Clearcoat"].as<float>(surface.Clearcoat);
+			surface.ClearcoatRoughness = materialNode["ClearcoatRoughness"].as<float>(surface.ClearcoatRoughness);
+			surface.SheenColor = ReadVec3(materialNode["SheenColor"], surface.SheenColor);
+			surface.SheenRoughness = materialNode["SheenRoughness"].as<float>(surface.SheenRoughness);
+			surface.SubsurfaceColor = ReadVec3(materialNode["SubsurfaceColor"], surface.SubsurfaceColor);
+			surface.SubsurfaceThickness = materialNode["SubsurfaceThickness"].as<float>(surface.SubsurfaceThickness);
+			surface.Anisotropy = materialNode["Anisotropy"].as<float>(surface.Anisotropy);
+			surface.AnisotropyRotation = materialNode["AnisotropyRotation"].as<float>(surface.AnisotropyRotation);
 
 			// Before the maps: the albedo's mip chain depends on the alpha mode and cutoff, so it is built
 			// once, for the ones the file has.

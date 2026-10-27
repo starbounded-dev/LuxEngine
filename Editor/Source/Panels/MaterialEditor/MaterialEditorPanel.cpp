@@ -665,6 +665,38 @@ namespace Lux
 			ImGui::TreePop();
 		}
 
+		if (ImGuiEx::PropertyGridHeader("Advanced Shading", false))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			surfaceChanged |= ImGuiEx::Property("Clearcoat", surface.Clearcoat, 0.01f, 0.0f, 1.0f,
+				"A clear varnish layer on top, like car paint or lacquered wood. 0 turns it off.", false);
+			if (surface.Clearcoat > 0.0f)
+				surfaceChanged |= ImGuiEx::Property("Clearcoat Roughness", surface.ClearcoatRoughness, 0.01f, 0.0f, 1.0f,
+					"Roughness of the varnish layer alone.", false);
+
+			surfaceChanged |= ImGuiEx::PropertyColor("Sheen Color", surface.SheenColor,
+				"Soft light from fibres at grazing angles, like velvet or cloth. Black turns it off.", false);
+			if (surface.SheenColor != glm::vec3(0.0f))
+				surfaceChanged |= ImGuiEx::Property("Sheen Roughness", surface.SheenRoughness, 0.01f, 0.0f, 1.0f,
+					"Low is a tight rim of sheen; high spreads it over the surface.", false);
+
+			surfaceChanged |= ImGuiEx::PropertyColor("Subsurface Color", surface.SubsurfaceColor,
+				"Light scattered inside the material, like wax, skin or jade. Black turns it off.", false);
+			if (surface.SubsurfaceColor != glm::vec3(0.0f))
+				surfaceChanged |= ImGuiEx::Property("Subsurface Thickness", surface.SubsurfaceThickness, 0.01f, 0.0f, 1.0f,
+					"0 is thin and lets the most light through; 1 is thick and scatters none.", false);
+
+			surfaceChanged |= ImGuiEx::Property("Anisotropy", surface.Anisotropy, 0.01f, -1.0f, 1.0f,
+				"Stretches highlights along the surface, like brushed metal. Negative stretches them across. 0 turns it off. Needs a mesh with tangents.", false);
+			if (surface.Anisotropy != 0.0f)
+				surfaceChanged |= ImGuiEx::Property("Anisotropy Rotation", surface.AnisotropyRotation, 1.0f, -180.0f, 180.0f,
+					"Turns the direction of the stretch, in degrees.", false);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
 		if (ImGuiEx::PropertyGridHeader("Texture Maps"))
 		{
 			ImGuiEx::BeginPropertyGrid();

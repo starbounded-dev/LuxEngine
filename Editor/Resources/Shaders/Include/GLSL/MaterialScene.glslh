@@ -22,6 +22,9 @@ struct GPUMaterial
 	uvec4 TransmissionTextureIndices; // x = factor map (alpha), yzw reserved
 	vec4 Refraction;           // x = transmission (transparent rows only), y = IOR, z = thickness, w = attenuation distance
 	vec4 AttenuationColor;     // rgb = linear attenuation colour
+	vec4 Lobes;                // x = clearcoat, y = clearcoat roughness, z = anisotropy, w = anisotropy rotation (radians)
+	vec4 Sheen;                // rgb = linear sheen colour, w = sheen roughness
+	vec4 Subsurface;           // rgb = linear subsurface colour, w = thickness
 };
 
 layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
@@ -50,6 +53,10 @@ const uint GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE = 1u << 12u;
 const uint GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE = 1u << 13u;
 const uint GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE = 1u << 14u;
 const uint GPU_MATERIAL_FLAG_HAS_TRANSMISSION_TEXTURE = 1u << 15u;
+const uint GPU_MATERIAL_FLAG_HAS_CLEARCOAT = 1u << 16u;
+const uint GPU_MATERIAL_FLAG_HAS_SHEEN = 1u << 17u;
+const uint GPU_MATERIAL_FLAG_HAS_SUBSURFACE = 1u << 18u;
+const uint GPU_MATERIAL_FLAG_HAS_ANISOTROPY = 1u << 19u;
 
 const uint GPU_MATERIAL_CHANNEL_SHIFT_METALNESS = 0u;
 const uint GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS = 2u;

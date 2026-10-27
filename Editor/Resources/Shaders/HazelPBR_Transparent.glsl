@@ -94,6 +94,7 @@ void main()
 #include <ShadowMapping.glslh>
 #include <Samplers.glslh>
 #include <LTC.glslh>
+#include <MaterialLobes.glslh>
 
 // The opaque scene before transparents, pre-convolved by roughness (SceneRenderer binds it only on
 // frames with refractive materials, a black texture otherwise).
@@ -294,8 +295,11 @@ void main()
 	m_Params.View = GetViewDirection(Input.WorldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
+	vec3 lobeTangent = LuxAnisotropyTangent(gpuMaterial, Input.WorldNormals[0] * faceSign, Input.WorldNormals[1] * faceSign);
+	LuxSetupMaterialLobes(gpuMaterial, m_Params.Normal, lobeTangent);
+
 	// Specular reflection vector
-	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
+	vec3 Lr = LuxLobeReflection(m_Params.Normal, m_Params.View, m_Params.Roughness);
 
 	// Fresnel reflectance, metals use albedo
 	vec3 F0 = mix(LuxDielectricF0(GetGPUMaterialSpecular(gpuMaterial, 0.5)), m_Params.Albedo, m_Params.Metalness);
@@ -384,7 +388,8 @@ void main()
 	lightContribution += emissive;
 
 	// Indirect lighting (material AO occludes ambient light only, as in deferred lighting)
-	vec3 iblContribution = IBL(F0, Lr, materialEnvMapRotation) * occlusion * u_Scene.EnvironmentMapIntensity;
+	vec3 iblContribution = LuxApplyLobesIBL(IBL(F0, Lr, materialEnvMapRotation), u_EnvRadianceTex, u_EnvIrradianceTex,
+		m_Params.Normal, m_Params.View, materialEnvMapRotation + u_Scene.EnvironmentMapRotation, 1.0) * occlusion * u_Scene.EnvironmentMapIntensity;
 
 	color = vec4(iblContribution + lightContribution, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
 

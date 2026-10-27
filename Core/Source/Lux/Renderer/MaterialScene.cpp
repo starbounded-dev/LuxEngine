@@ -251,6 +251,23 @@ namespace Lux {
 				glm::max(surface.Thickness, 0.0f),
 				glm::max(surface.AttenuationDistance, 0.0f));
 			data.AttenuationColor = glm::vec4(ToLinearColor(glm::clamp(surface.AttenuationColor, glm::vec3(0.0f), glm::vec3(1.0f))), 0.0f);
+
+			// Advanced lobes: a flag only for a lobe that does something, so plain rows skip them.
+			const float clearcoat = glm::clamp(surface.Clearcoat, 0.0f, 1.0f);
+			const float anisotropy = glm::clamp(surface.Anisotropy, -1.0f, 1.0f);
+			const glm::vec3 sheenColor = glm::clamp(surface.SheenColor, glm::vec3(0.0f), glm::vec3(1.0f));
+			const glm::vec3 subsurfaceColor = glm::clamp(surface.SubsurfaceColor, glm::vec3(0.0f), glm::vec3(1.0f));
+			if (clearcoat > 0.0f)
+				flags |= GPUMaterialFlags::HasClearcoat;
+			if (anisotropy != 0.0f)
+				flags |= GPUMaterialFlags::HasAnisotropy;
+			if (glm::any(glm::greaterThan(sheenColor, glm::vec3(0.0f))))
+				flags |= GPUMaterialFlags::HasSheen;
+			if (glm::any(glm::greaterThan(subsurfaceColor, glm::vec3(0.0f))))
+				flags |= GPUMaterialFlags::HasSubsurface;
+			data.Lobes = glm::vec4(clearcoat, glm::clamp(surface.ClearcoatRoughness, 0.0f, 1.0f), anisotropy, glm::radians(surface.AnisotropyRotation));
+			data.Sheen = glm::vec4(ToLinearColor(sheenColor), glm::clamp(surface.SheenRoughness, 0.0f, 1.0f));
+			data.Subsurface = glm::vec4(ToLinearColor(subsurfaceColor), glm::clamp(surface.SubsurfaceThickness, 0.0f, 1.0f));
 		}
 
 		data.Metadata = glm::uvec4(
