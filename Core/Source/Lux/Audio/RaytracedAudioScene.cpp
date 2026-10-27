@@ -114,6 +114,45 @@ namespace Lux {
 
 	namespace {
 
+		// vaWorldDestroy does not free what a world's updates allocated: about 143 MiB per world
+		// (1000 m world, listener ray counts below), every Play session, measured 2026-10-27 with
+		// the documented shutdown and every teardown call returning VA_SUCCESS. So a stopped
+		// world is emptied and kept for the next session instead, for the life of the process;
+		// ShutdownWorldPool destroys the idle ones at exit. Main thread only, like the scene.
+		std::vector<VAWorld*> s_IdleWorlds;
+
+		VAWorld* AcquireWorld()
+		{
+			if (s_IdleWorlds.empty())
+				return vaWorldCreate();
+			VAWorld* world = s_IdleWorlds.back();
+			s_IdleWorlds.pop_back();
+			vaWorldSetPendingShutdown(world, false);
+			return world;
+		}
+
+		// The world must be drained (no worker running). One still holding emitters - one waiting
+		// out a reverb tail answers VA_PENDING_REMOVAL - is destroyed instead: its callbacks and user
+		// data belong to the scene that is going away.
+		void ReleaseWorld(VAWorld* world)
+		{
+			if (vaWorldGetEmitterCount(world) == 0)
+				s_IdleWorlds.push_back(world);
+			else
+				vaWorldDestroy(world);
+		}
+
+	}
+
+	void RaytracedAudioScene::ShutdownWorldPool()
+	{
+		for (VAWorld* world : s_IdleWorlds)
+			vaWorldDestroy(world);
+		s_IdleWorlds.clear();
+	}
+
+	namespace {
+
 		// Visualisation bounces are produced on Vercidium's worker threads and are only valid for
 		// the duration of the callback, so they are copied out under this lock and copied again by
 		// whoever renders them. File-local rather than a member of the private Impl because
@@ -213,11 +252,11 @@ namespace Lux {
 		if (m_Impl->World)
 			return;
 
-		m_Impl->World = vaWorldCreate();
+		m_Impl->World = AcquireWorld();
 		if (!ConfigureAcousticMaterials(m_Impl->World, materials))
 		{
 			if (m_Impl->World)
-				vaWorldDestroy(m_Impl->World);
+				ReleaseWorld(m_Impl->World);
 			m_Impl->World = nullptr;
 			return;
 		}
@@ -340,8 +379,8 @@ namespace Lux {
 			m_Impl->Listener = nullptr;
 		}
 
-		// Waits for the background threads, then frees the world and anything still attached.
-		vaWorldDestroy(m_Impl->World);
+		// Drained and emptied above: kept for the next session (see AcquireWorld).
+		ReleaseWorld(m_Impl->World);
 		m_Impl->World = nullptr;
 	}
 

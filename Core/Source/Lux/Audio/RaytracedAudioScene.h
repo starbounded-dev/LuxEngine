@@ -181,6 +181,9 @@ namespace Lux {
 	public:
 		// SDK availability, independent of whether this scene has started its simulation.
 		static bool IsAvailable();
+		// Destroys the worlds kept for reuse between sessions (see RaytracedAudioScene.cpp). At exit,
+		// after every scene is gone.
+		static void ShutdownWorldPool();
 		bool IsRunning() const;
 		double GetRaytracingTimeMilliseconds() const;
 

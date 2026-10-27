@@ -66,6 +66,20 @@ namespace Lux {
 
 	const ScriptEngine& ScriptEngine::GetInstance() { return GetMutable(); }
 
+	namespace {
+
+		// An unloaded collectible context goes away only once a collection finds it unreferenced and
+		// its finalizers have run. Without this the old assemblies (a few MiB and their mapped files)
+		// stay until some later collection: measured, every project switch and reload left them.
+		void CollectUnloadedContexts()
+		{
+			Coral::GC::Collect();
+			Coral::GC::WaitForPendingFinalizers();
+			Coral::GC::Collect();
+		}
+
+	}
+
 	Ref<Scene> ScriptEngine::GetCurrentScene() const { return m_CurrentScene; }
 	void ScriptEngine::SetCurrentScene(Ref<Scene> scene) { m_CurrentScene = scene; }
 
@@ -158,12 +172,15 @@ namespace Lux {
 		m_AppAssemblyData.reset();
 		m_CoreAssemblyData.reset();
 
-		if (m_Host && m_LoadContext)
+		const bool unloaded = m_Host && m_LoadContext;
+		if (unloaded)
 			m_Host->UnloadAssemblyLoadContext(*m_LoadContext);
 		m_LoadContext.reset();
 
 		Coral::TypeCache::Get().Clear();
 		m_CurrentScene = nullptr;
+		if (unloaded)
+			CollectUnloadedContexts();
 	}
 
 	std::filesystem::path ScriptEngine::ShadowCopyAssembly(const std::filesystem::path& originalAbsolute)
@@ -296,7 +313,7 @@ namespace Lux {
 
 		m_Host->UnloadAssemblyLoadContext(*m_LoadContext);
 		Coral::TypeCache::Get().Clear();
-		Coral::GC::Collect();
+		CollectUnloadedContexts();
 
 		m_LoadContext = std::make_unique<Coral::AssemblyLoadContext>(std::move(m_Host->CreateAssemblyLoadContext("LuxScriptRuntime")));
 

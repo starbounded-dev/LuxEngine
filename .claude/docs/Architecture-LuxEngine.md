@@ -593,7 +593,13 @@ No abstraction layer — Box2D is small enough to use directly.
 
 `ScriptEngine` (`Scripting/ScriptEngine.h`) hosts .NET 9 through Coral (`Core/vendor/Coral/`).
 
-- Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`.
+- Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`. The
+  CoreCLR host is per process (it cannot start twice); `Application` brings it up once and each
+  project gets its own collectible `AssemblyLoadContext` (`Project::SetActive` → `Shutdown`,
+  `Initialize`, `LoadProjectAssembly`). Unloading a context (`Shutdown`, `ReloadAppAssembly`) is
+  followed by collect, wait for finalizers, collect, so the old assemblies are freed then and not at
+  some later GC. Measured with a headless loop of 12 project switches, each running a scene with a
+  script and physics: no growth in memory, handles or threads.
 - Assemblies: `LoadProjectAssembly` (editor, from disk), `LoadProjectAssemblyRuntime(Buffer)`
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
@@ -919,6 +925,15 @@ previous VA batch with `WaitForResults`, applies the geometry queue, updates the
 and source emitter positions, reads completed results, then launches the next batch with
 `OnUpdate`. Joining before mutation and teardown is mandatory. VA simulates one listener: highest
 weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
+
+**VA worlds are process-level and reused.** `vaWorldDestroy` does not free what a world's updates
+allocated (about 143 MiB per world per Play session, measured 2026-10-27 with the documented shutdown
+and every call returning `VA_SUCCESS`), so `RaytracedAudioScene::Stop` drains and empties its world and
+returns it to a pool (`AcquireWorld`/`ReleaseWorld` in `RaytracedAudioScene.cpp`) instead of destroying
+it; the next `Start` takes it back (clearing pending shutdown; bounds and materials are re-applied). A
+world still holding emitters after teardown (one waiting out a reverb tail) is destroyed rather than
+reused, since its callbacks point into the scene being torn down. `Application::~Application` calls
+`RaytracedAudioScene::ShutdownWorldPool` after the layers are gone.
 
 Event components receive `AudioEventAcoustics`: low-frequency direct gain becomes the optional
 Studio parameter `Occlusion` (1 minus gain), and returned energy becomes `ReverbSend`. Studio
