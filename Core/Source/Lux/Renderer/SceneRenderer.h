@@ -23,6 +23,9 @@
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/DebugRenderer.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
+
+#include <atomic>
 #include "Lux/Renderer/RendererTypes.h"
 #include "Lux/Renderer/ShaderDefs.h"
 #include "Lux/Core/Math/Frustum.h"
@@ -515,6 +518,17 @@ namespace Lux {
 		static constexpr uint32_t ClusterAvgLightsPerCluster = 16;
 		static constexpr uint32_t MaxClusterPointIndices = ClusterCount * ClusterAvgLightsPerCluster;
 		static constexpr uint32_t MaxClusterSpotIndices = ClusterCount * ClusterAvgLightsPerCluster;
+
+		// The cluster light counters, copied each frame into a CPU-readable buffer per frame in flight and
+		// read when that slot comes round again (the GPU is done with it then). Shared with render-thread
+		// lambdas, so it outlives a SceneRenderer destroyed with work still queued.
+		struct ClusterCounterReadback : public RefCounted
+		{
+			std::vector<NRIBuffer> Buffers;     // render thread
+			std::vector<bool> Written;          // render thread
+			std::atomic<uint32_t> PointRequested{ 0 };
+			std::atomic<uint32_t> SpotRequested{ 0 };
+		};
 		struct PassProfile
 		{
 			const char* Name = "";
@@ -553,6 +567,12 @@ namespace Lux {
 			uint32_t VisibleInstances = 0;
 			uint32_t GPUVisibleInstances = 0;
 			uint32_t CulledInstances = 0;
+			// Cluster light lists (read back a few frames late): entries the froxels asked for, and lights
+			// dropped from them because the list was full (nonzero = some froxels are missing lights).
+			uint32_t ClusterPointIndicesRequested = 0;
+			uint32_t ClusterSpotIndicesRequested = 0;
+			uint32_t ClusterPointLightsDropped = 0;
+			uint32_t ClusterSpotLightsDropped = 0;
 			uint32_t FrustumCulledInstances = 0;
 			uint32_t MainViewCulledInstances = 0;
 			uint32_t ShadowCulledInstances = 0;
@@ -2225,7 +2245,7 @@ namespace Lux {
 		uint64_t m_LastSpotShadowStateHash = 0;
 		glm::vec3 m_CachedShadowCameraPosition{ 0.0f };
 		glm::vec3 m_CachedShadowCameraForward{ 0.0f, 0.0f, -1.0f };
-		glm::vec3 m_CachedShadowLightDirection{ 0.0f, -1.0f, 0.0f };
+		glm::vec3 m_CachedShadowLightDirection{ 0.0f, 1.0f, 0.0f }; // toward the light
 		float m_CachedShadowFOV = 0.0f;
 		float m_CachedShadowNear = 0.0f;
 		float m_CachedShadowFar = 0.0f;
@@ -2245,6 +2265,8 @@ namespace Lux {
 
 		SceneRendererOptions m_Options;
 		Statistics           m_Statistics;
+		Ref<ClusterCounterReadback> m_ClusterCounterReadback = Ref<ClusterCounterReadback>::Create();
+		bool m_ClusterOverflowWarned = false;
 	};
 
 } // namespace Lux

@@ -720,6 +720,7 @@ namespace Lux {
 			return m_EditorScene != previousScene;
 		};
 		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
+		ContentBrowserPanel::SetThumbnailWorkPaused(m_GoldenCapture != nullptr);
 
 		// The splash stays up through the first frames (UI_StartupSplashHandOff), so the main window
 		// appears with the editor already drawn in it.

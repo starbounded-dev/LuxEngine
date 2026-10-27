@@ -137,6 +137,12 @@ namespace Lux {
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
 		void PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab);
 
+		// A line drawn by a script (C# Gizmos), main thread. It belongs to the update phase drawing it and
+		// stays until that phase runs again: OnUpdate (and collision/trigger callbacks) redraw every
+		// frame, OnFixedUpdate every physics step, so fixed-step lines hold still on frames without a
+		// step. A duration > 0 keeps it that many seconds instead. Drawn in Play, not in Dist builds.
+		void AddDebugLine(const glm::vec3& start, const glm::vec3& end, const glm::vec4& color, float duration, bool depthTest);
+
 		// Prefab structure (backlog 3.10, Unity-style overrides). An instance follows its prefab's
 		// hierarchy: children the prefab gained are added, children it lost are removed (instance-only
 		// children under them move up), and re-parented children follow the prefab. What the user did to
@@ -350,6 +356,17 @@ namespace Lux {
 		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
 		std::vector<PhysicsContactEvent> m_CharacterContactEvents;
 		ContactPairTracker m_ScriptContacts;
+
+		struct ScriptDebugLine
+		{
+			glm::vec3 Start, End;
+			glm::vec4 Color;
+			bool OnTop = false;
+			float Remaining = 0.0f;
+		};
+		std::vector<ScriptDebugLine> m_DebugLinesFrame, m_DebugLinesFixed, m_DebugLinesTimed;
+		bool m_DrawingFixedStep = false;
+		void CaptureScriptDebugLines(FrameRenderPacket& packet) const;
 		ContactPairTracker m_ScriptTriggers;
 		struct FootstepState
 		{

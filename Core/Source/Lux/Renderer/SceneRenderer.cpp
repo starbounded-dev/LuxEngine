@@ -1522,6 +1522,7 @@ namespace Lux {
 
 				PipelineSpecification pipelineSpec;
 				pipelineSpec.DebugName = "DirShadowMap-Cascade" + std::to_string(cascade);
+				pipelineSpec.DepthClamp = true; // casters sunward of the cascade flatten onto its near plane
 				pipelineSpec.Shader = shadowPassShader;
 				pipelineSpec.TargetFramebuffer = Framebuffer::Create(fbSpec);
 				pipelineSpec.Layout = vertexLayout;
@@ -3600,7 +3601,8 @@ namespace Lux {
 		const glm::mat4 viewProjection = sceneCamera.Camera.GetUnReversedProjectionMatrix() * viewMatrix;
 		const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
 		const float shadowMapResolution = m_ShadowMapPass ? static_cast<float>(m_ShadowMapPass->GetTargetFramebuffer()->GetWidth()) : 4096.0f;
-		const glm::vec3 normalizedLightDirection = NormalizeOrFallback(lightDirection, { 0.0f, -1.0f, 0.0f });
+		// Toward the light (as shading uses it): the light's eye sits on that side of each cascade.
+		const glm::vec3 normalizedLightDirection = NormalizeOrFallback(lightDirection, { 0.0f, 1.0f, 0.0f });
 		const glm::vec3 up = glm::abs(glm::dot(normalizedLightDirection, glm::vec3(0.0f, 1.0f, 0.0f))) < 0.99f
 			? glm::vec3(0.0f, 1.0f, 0.0f)
 			: glm::vec3(1.0f, 0.0f, 0.0f);
@@ -3647,7 +3649,7 @@ namespace Lux {
 
 			const glm::vec3 maxExtents(radius);
 			const glm::vec3 minExtents = -maxExtents;
-			glm::mat4 lightView = glm::lookAt(frustumCenter - normalizedLightDirection * radius, frustumCenter, up);
+			glm::mat4 lightView = glm::lookAt(frustumCenter + normalizedLightDirection * radius, frustumCenter, up);
 			glm::mat4 lightProjection = glm::ortho(
 				minExtents.x, maxExtents.x,
 				minExtents.y, maxExtents.y,
@@ -5954,6 +5956,11 @@ namespace Lux {
 						m_ShadowCascadeFrustums[cascade] = cascade < activeShadowCascadeCount
 							? Frustum::FromViewProjection(cascades[cascade].ViewProj)
 							: Frustum{};
+						// The caster volume is the cascade extruded toward the light: no near plane, since the
+						// shadow pass clamps depth (DepthClamp). A tall caster outside the view, sunward of the
+						// cascade, still shadows it. Feeds the CPU caster mask and the GPU shadow culling.
+						if (cascade < activeShadowCascadeCount)
+							m_ShadowCascadeFrustums[cascade].Planes[4] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 					}
 
 					m_RendererDataUB.CascadeSplits = {
@@ -9087,6 +9094,63 @@ namespace Lux {
 		pipeline->BufferMemoryBarrier(cb, m_SBSSpotLightIndexList, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		Renderer::EndComputePass(cb, m_ClusterLightCullingPass);
 		if (!async) EndProfiledGPU();
+
+		// Overflow: read the counters this slot copied FramesInFlight frames ago, then copy this frame's.
+		Ref<ClusterCounterReadback> readback = m_ClusterCounterReadback;
+		Renderer::Submit([commandBuffer, counter, readback]() mutable
+		{
+			const uint32_t slot = Renderer::RT_GetCurrentFrameIndex();
+			if (readback->Buffers.size() <= slot)
+			{
+				readback->Buffers.resize(slot + 1);
+				readback->Written.resize(slot + 1, false);
+			}
+			NRIBuffer& target = readback->Buffers[slot];
+			if (!target)
+			{
+				RHIBufferDesc desc;
+				desc.Size = sizeof(uint32_t) * 4;
+				desc.Access = CPUAccess::Read;
+				desc.DebugName = "ClusterCounterReadback";
+				target = NRIBuffer::Create(desc);
+				if (!target)
+					return;
+			}
+			else if (readback->Written[slot])
+			{
+				// RT_BeginFrame waited for the frame that last used this slot.
+				if (const uint32_t* values = static_cast<const uint32_t*>(target.Map(0, sizeof(uint32_t) * 2)))
+				{
+					readback->PointRequested.store(values[0], std::memory_order_relaxed);
+					readback->SpotRequested.store(values[1], std::memory_order_relaxed);
+					target.Unmap();
+				}
+			}
+
+			Ref<StorageBuffer> source = counter->RT_Get();
+			if (!source->GetBuffer().Get())
+				return;
+			commandBuffer->RT_RequireBufferState(source->GetBuffer().GetTracked(), ResourceState::CopySource);
+			nri::CommandBuffer* nriCommandBuffer = commandBuffer->RT_BeginNRITransfer();
+			if (!nriCommandBuffer)
+				return;
+			RHIDevice::API().CmdCopyBuffer(*nriCommandBuffer, *target.Get(), 0, *source->GetBuffer().Get(), 0, sizeof(uint32_t) * 4);
+			commandBuffer->RT_EndNRISegment();
+			readback->Written[slot] = true;
+		});
+
+		const uint32_t pointRequested = readback->PointRequested.load(std::memory_order_relaxed);
+		const uint32_t spotRequested = readback->SpotRequested.load(std::memory_order_relaxed);
+		m_Statistics.ClusterPointIndicesRequested = pointRequested;
+		m_Statistics.ClusterSpotIndicesRequested = spotRequested;
+		m_Statistics.ClusterPointLightsDropped = pointRequested > MaxClusterPointIndices ? pointRequested - MaxClusterPointIndices : 0;
+		m_Statistics.ClusterSpotLightsDropped = spotRequested > MaxClusterSpotIndices ? spotRequested - MaxClusterSpotIndices : 0;
+		const bool overflowing = m_Statistics.ClusterPointLightsDropped > 0 || m_Statistics.ClusterSpotLightsDropped > 0;
+		if (overflowing && !m_ClusterOverflowWarned)
+			LUX_CORE_WARN_TAG("Renderer", "Clustered light lists are full: {} point and {} spot light entries dropped this frame; some surfaces miss lights. "
+				"Fewer or smaller overlapping lights, or a larger ClusterAvgLightsPerCluster, fix it.",
+				m_Statistics.ClusterPointLightsDropped, m_Statistics.ClusterSpotLightsDropped);
+		m_ClusterOverflowWarned = overflowing;
 	}
 
 	void SceneRenderer::MeshCullingPass()

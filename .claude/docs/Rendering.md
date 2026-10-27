@@ -231,7 +231,9 @@ not a warning; only warnings and errors reach the log.
 Existing pass order, for orientation: shadow mesh culling (cull groups only) → shadow maps → early mesh
 culling (cull groups only) → PreDepth →
 HZB → mesh culling → cluster build →
-cluster light culling → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
+cluster light culling (each workgroup transforms the lights once per 64-light chunk into shared memory;
+the counters are read back a few frames late into `Statistics::ClusterPoint/SpotIndicesRequested` and
+`...LightsDropped`, warned once when the lists overflow and shown in the Renderer Debugger) → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
 temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ temporal, composite) →
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
@@ -395,6 +397,24 @@ have their own colours. Colours, widths, cell size and fade distance are
 `SceneRenderer::GridSettings` (`SetGridSettings`, main thread). The editor keeps them as
 `Editor.Grid.*` preferences (Application Settings → Viewport → Grid).
 
+**The sun's direction.** A directional light shines along its entity's forward (-Z), as authored in
+every sample scene (a sun pitched down lights from above). `Scene::CollectLightEnvironment` hands the
+renderer the opposite, the direction **toward** the light: shading's `L` (`NdotL = dot(N, Direction)`)
+and the side each shadow cascade puts its eye on (`CalculateCascades`: `lookAt(center + L * radius)`).
+Until 2026-10-26 the scene passed the forward itself, so a sun pitched down sat below the horizon for
+shading (no direct light in any sample scene) and its cascades were rendered from the far side
+(everything with geometry behind it read as shadowed); a test that keeps both conventions honest is a
+box floating over flat ground, whose shadow must land under it.
+
+**Shadow caster volume (pancaking).** The directional shadow pipelines clamp depth
+(`PipelineSpecification::DepthClamp`), and each cascade's caster frustum
+(`m_ShadowCascadeFrustums`, which feeds the CPU caster mask and `ShadowCulling.glsl`) has its near
+plane removed: the caster volume is the cascade extruded toward the light, and a caster in front of
+the near plane flattens onto it. A tall object outside the view and far sunward of the cascade still
+shadows it (golden scene `LowSun`: 60 m pillars 90-130 m behind the camera, 10-degree sun). Measured
+on Benchmark: no GPU or CPU cost against a bounded reach (frame-time medians there are bimodal between
+runs; compare GPU and per-thread times).
+
 **Directional shadows use a normal-offset bias** in deferred lighting: the receiver moves along its
 normal by 1.5 texels of its cascade (texel size from the cascade's orthographic matrix,
 `2 / (|row 0| × resolution)`), scaled up at grazing angles. Forward passes compute cascade
@@ -502,8 +522,16 @@ between runs:
 It waits until `LUX_GOLDEN_FRAME` frames have passed **and** asset streaming has been idle for
 `LUX_GOLDEN_IDLE_FRAMES`. It then reads back `SceneRenderer::GetFinalPassImage()` inside a
 `Renderer::Submit` lambda and writes `<name>.lximg` (a 32-byte header plus raw texels). After that
-it averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.status`, and closes
-the editor. `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
+it renders `LUX_GOLDEN_PERF_WARMUP` frames (30) untimed, since the readback blocks the queue, then
+averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.status`, and closes the
+editor. A timed frame where asset streaming restarted is dropped and counted (`lostReadinessFrames`);
+after four times the wanted frames the run ends anyway with `complete: false`. Besides the means,
+`perf.json` records `frameStats`/`gpuStats` (mean, median, p95, p99, min, max, stddev), each pass's
+`frames` (how often it ran), and how the numbers were taken: `build`, `gpu`, `vsync`, `readyAfterFrames`,
+`idleFramesRequired`, `warmupFrames`. `golden_run.py` prints medians and warnings per run, and `--compare`
+prints the GPU median per capture, flagging pairs taken on a different GPU, build or resolution, or
+incomplete. Thumbnail rendering in the Content Browser is paused for the whole capture
+(`ContentBrowserPanel::SetThumbnailWorkPaused`). `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
 `MoveEntities=N` moves the first N static-mesh entities (by UUID) around a 16-frame loop every frame
 and captures only on a frame at the loop's start, so the image must match the unmoved capture while
 the perf frames exercise the changed-mesh path. `MoveStop=K` (with `MoveEntities`) stops them at the

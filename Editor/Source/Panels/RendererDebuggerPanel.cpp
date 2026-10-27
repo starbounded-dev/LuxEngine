@@ -720,6 +720,9 @@ namespace Lux {
 			DrawStat("Saved Draws", stats.SavedDraws);
 			DrawStat("Indirect Draws", stats.IndirectDraws);
 			DrawStat("Spot Shadowcasters", stats.SpotlightShadowcasters);
+			DrawStat("Cluster Point Entries", stats.ClusterPointIndicesRequested);
+			DrawStat("Cluster Spot Entries", stats.ClusterSpotIndicesRequested);
+			DrawStat("Cluster Lights Dropped", stats.ClusterPointLightsDropped + stats.ClusterSpotLightsDropped);
 			ImGui::EndTable();
 		}
 

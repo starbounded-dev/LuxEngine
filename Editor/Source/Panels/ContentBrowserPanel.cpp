@@ -317,7 +317,7 @@ namespace Lux {
 
 		ImGui::End();
 
-		if (m_ThumbnailCache)
+		if (m_ThumbnailCache && !s_ThumbnailWorkPaused)
 		{
 			m_ThumbnailCache->OnUpdate();
 			if (m_MaterialThumbnailer)

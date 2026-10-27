@@ -49,6 +49,9 @@ namespace Lux {
 		// Clockwise triangles face front: the variant for a mirroring transform (negative determinant),
 		// which turns every triangle around. Culling and gl_FrontFacing then see the sides as authored.
 		bool Mirrored = false;
+		// Clamp depth instead of clipping at the near/far planes: directional shadow maps flatten casters
+		// in front of the near plane onto it ("pancaking"), so casters outside the cascade still shadow it.
+		bool DepthClamp = false;
 		bool DepthTest = true;
 		bool DepthWrite = true;
 		bool Wireframe = false;

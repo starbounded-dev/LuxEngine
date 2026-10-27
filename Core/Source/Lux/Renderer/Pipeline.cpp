@@ -334,6 +334,7 @@ namespace Lux {
 			: m_Specification.BackfaceCulling ? nri::CullMode::BACK
 			: nri::CullMode::NONE;
 		pipelineDesc.rasterization.frontCounterClockwise = !m_Specification.Mirrored;
+		pipelineDesc.rasterization.depthClamp = m_Specification.DepthClamp;
 		// Mesh pipelines take no shading-rate state, as NVRHI's meshlet pipelines had none.
 		pipelineDesc.rasterization.shadingRate = Renderer::SupportsVariableRateShading() && !m_IsMeshletPipeline;
 		if (!problem && pipelineDesc.rasterization.shadingRate && RHIDevice::GetDesc().tiers.shadingRate == 0)

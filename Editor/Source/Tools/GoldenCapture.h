@@ -100,7 +100,7 @@ namespace Lux {
 		{
 			double CPUTime = 0.0;
 			double GPUTime = 0.0;
-			uint32_t Samples = 0;
+			uint32_t Samples = 0;   // frames the pass ran in (some passes run only some frames)
 		};
 
 		void ParseOptions(const std::string& options);
@@ -126,6 +126,8 @@ namespace Lux {
 		uint32_t m_IdleFramesRequired = 60;
 		uint32_t m_TimeoutFrames = 6000;
 		uint32_t m_PerfFrames = 300;
+		// Frames rendered after the readback (which blocks the queue) before timing starts.
+		uint32_t m_PerfWarmupFrames = 30;
 		bool m_RunSelfTest = false;
 		bool m_ExitWhenDone = true;
 		std::map<std::string, std::string> m_Options;
@@ -134,6 +136,12 @@ namespace Lux {
 		uint32_t m_SceneFrames = 0;
 		uint32_t m_IdleFrames = 0;
 		uint32_t m_PerfSamples = 0;
+		uint32_t m_ReadyAfterFrames = 0;       // scene frames until the capture condition held
+		uint32_t m_PerfWarmupDone = 0;
+		uint32_t m_PerfFramesSeen = 0;         // timed frames, kept or not
+		uint32_t m_LostReadinessFrames = 0;    // timed frames dropped because asset streaming restarted
+		std::vector<double> m_FrameSamples, m_GPUSamples;
+		uint32_t m_ClusterEntries = 0, m_ClusterLightsDropped = 0; // last entries, most dropped in any frame
 
 		struct CameraPose
 		{

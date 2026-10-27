@@ -406,6 +406,9 @@ namespace Lux {
 		m_PhysicsContactEvents.clear();
 		m_CharacterContactEvents.clear();
 		m_ScriptContacts.Clear();
+		m_DebugLinesFrame.clear();
+		m_DebugLinesFixed.clear();
+		m_DebugLinesTimed.clear();
 		m_ScriptTriggers.Clear();
 		m_AudioZoneRaytracedValid = false;
 		m_AudioZoneInputs.clear();
@@ -850,6 +853,10 @@ namespace Lux {
 		m_Music.Update(m_IsPaused);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
+			// This frame's script lines replace the last frame's; timed ones age.
+			m_DebugLinesFrame.clear();
+			std::erase_if(m_DebugLinesTimed, [&](ScriptDebugLine& line) { return (line.Remaining -= (float)ts) <= 0.0f; });
+
 			// Update scripts
 			{
 				ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
@@ -2387,7 +2394,12 @@ namespace Lux {
 			for (uint32_t steps = m_PhysicsScene->AdvanceFixedClock(ts); steps > 0; steps--)
 			{
 				if (runScripts)
+				{
+					m_DebugLinesFixed.clear();
+					m_DrawingFixedStep = true;
 					InvokeScriptFixedUpdate(fixedTimestep);
+					m_DrawingFixedStep = false;
+				}
 				m_PhysicsScene->SimulateStep(fixedTimestep);
 			}
 		}
@@ -2536,9 +2548,13 @@ namespace Lux {
 					continue;
 				const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 
-				glm::vec3 direction = glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+				// A directional light shines along its entity's forward (-Z); the renderer takes the direction
+				// toward the light (shading's L, and where the shadow cascades put their eye). Until 2026-10-26
+				// this passed the forward itself, so a sun pointing down lit nothing and its shadows were
+				// built from the wrong side.
+				const glm::vec3 towardLight = -glm::normalize(glm::vec3(worldTransform * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
 
-				lightEnv.DirectionalLights[dirLightIndex].Direction = direction;
+				lightEnv.DirectionalLights[dirLightIndex].Direction = towardLight;
 				lightEnv.DirectionalLights[dirLightIndex].Radiance = PhysicalLight::EffectiveRadiance(dirLight.Radiance, dirLight.UseColorTemperature, dirLight.ColorTemperature);
 				lightEnv.DirectionalLights[dirLightIndex].Intensity = PhysicalLight::DirectionalIntensity(dirLight.Unit, dirLight.Intensity);
 				lightEnv.DirectionalLights[dirLightIndex].ShadowAmount = dirLight.ShadowAmount;
@@ -2982,8 +2998,31 @@ namespace Lux {
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
 		CaptureAudioZones(packet, isSelected);
+		CaptureScriptDebugLines(packet);
 
 		packet.Valid = true;
+	}
+
+	void Scene::AddDebugLine(const glm::vec3& start, const glm::vec3& end, const glm::vec4& color, float duration, bool depthTest)
+	{
+		const ScriptDebugLine line{ start, end, color, !depthTest, duration };
+		if (duration > 0.0f)
+			m_DebugLinesTimed.push_back(line);
+		else
+			(m_DrawingFixedStep ? m_DebugLinesFixed : m_DebugLinesFrame).push_back(line);
+	}
+
+	void Scene::CaptureScriptDebugLines(FrameRenderPacket& packet) const
+	{
+#ifndef LUX_DIST
+		for (const auto* lines : { &m_DebugLinesFrame, &m_DebugLinesFixed, &m_DebugLinesTimed })
+		{
+			for (const ScriptDebugLine& line : *lines)
+				packet.ScriptLines.push_back({ line.Start, line.End, line.Color, line.OnTop });
+		}
+#else
+		(void)packet;
+#endif
 	}
 
 	void Scene::CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)
@@ -3193,6 +3232,7 @@ namespace Lux {
 		// callback owns its own copy of the captured draw items - it never touches the live registry.
 		std::vector<FrameRenderPacket::Draw2DItem> draw2D = packet.Draw2D;
 		auto audioZoneLines = packet.AudioZoneLines;
+		audioZoneLines.insert(audioZoneLines.end(), packet.ScriptLines.begin(), packet.ScriptLines.end());
 		const glm::mat4 overlayView = packet.Overlay2DView;
 		const glm::mat4 overlayViewProjection = packet.Overlay2DViewProjection;
 		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), audioZoneLines = std::move(audioZoneLines), overlayView, overlayViewProjection]() mutable
@@ -3226,7 +3266,7 @@ namespace Lux {
 			}
 
 			for (const auto& line : audioZoneLines)
-				renderer2D->DrawLine(line.Start, line.End, line.Color, true);
+				renderer2D->DrawLine(line.Start, line.End, line.Color, line.OnTop);
 			renderer2D->EndScene();
 		});
 
@@ -3273,6 +3313,7 @@ namespace Lux {
 		packet.MeshSyncMs = meshSyncTimer.ElapsedMillis();
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, nullptr);
+		CaptureScriptDebugLines(packet);
 
 		packet.Valid = true;
 		return true;

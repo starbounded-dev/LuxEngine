@@ -932,6 +932,12 @@ Assets:
   - Handle: 16200000000000000001
     FilePath: Scenes/Mirroring.luxscene
     Type: Scene
+  - Handle: 16200000000000000002
+    FilePath: Scenes/ManyLights.luxscene
+    Type: Scene
+  - Handle: 16200000000000000003
+    FilePath: Scenes/LowSun.luxscene
+    Type: Scene
   - Handle: 16212976273744908290
     FilePath: Textures/Bricks097/Bricks097_1K-JPG_Color.jpg
     Type: Texture

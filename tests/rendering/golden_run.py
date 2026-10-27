@@ -10,6 +10,10 @@ Compare two labelled sets (every capture present in both):
 
     golden_run.py --compare nvrhi-baseline p1 [--max-bad-percent 0.05]
 
+Timing (<name>.perf.json) starts --perf-warmup frames after the image capture, drops frames where asset
+streaming restarted (lostReadinessFrames), and records medians/percentiles plus the GPU, build and readiness
+it was taken with; --compare reports timing per capture and flags pairs that were not taken the same way.
+
 Captures land in bin/golden/<label>/ (not committed). Each run writes <name>.lximg, <name>.perf.json,
 <name>.status and <name>.log; the label directory gets summary.json (status, timings and the
 validation messages found in each log) and validation.txt (unique validation identifiers).
@@ -73,6 +77,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "LUX_GOLDEN_SIZE": args.size,
         "LUX_GOLDEN_FRAME": str(args.frame),
         "LUX_GOLDEN_PERF_FRAMES": str(args.perf_frames),
+        "LUX_GOLDEN_PERF_WARMUP": str(args.perf_warmup),
         "LUX_GOLDEN_OPTIONS": options,
         "LUX_GOLDEN_SELFTEST": "1" if selftest else "0",
         "LUX_SKIP_BUILD": "1",
@@ -127,7 +132,26 @@ def run_capture(label_dir, name, scene, options, args, selftest):
             result["perf"] = None
 
     print(f"  {name:<32} {status:<8} {elapsed:6.1f}s  validation={validation_lines}  {reason}")
+    for note in perf_notes(result.get("perf")):
+        print(f"  {'':<32} {note}")
     return result
+
+
+def perf_notes(perf):
+    """One line of timing and any reason the timing is not trustworthy."""
+    if not perf:
+        return []
+    frame, gpu = perf.get("frameStats") or {}, perf.get("gpuStats") or {}
+    notes = []
+    if frame and gpu:
+        notes.append(f"frame median {frame['median']:.3f} ms (p95 {frame['p95']:.3f}), gpu median {gpu['median']:.3f} ms "
+                     f"(p95 {gpu['p95']:.3f}); {perf.get('frames', 0)} frames after {perf.get('warmupFrames', 0)} warm-up, "
+                     f"ready after {perf.get('readyAfterFrames', '?')}")
+    if perf.get("complete") is False:
+        notes.append(f"WARNING: incomplete, only {perf.get('frames', 0)} usable frames")
+    if perf.get("lostReadinessFrames", 0):
+        notes.append(f"WARNING: asset streaming restarted during {perf['lostReadinessFrames']} timed frame(s); those were dropped")
+    return notes
 
 
 def capture(args):
@@ -182,6 +206,19 @@ def compare(args):
         if output.returncode != 0:
             failures += 1
 
+    # Timing: only meaningful when both runs were taken the same way.
+    for name in names:
+        perf_a, perf_b = dir_a / f"{name}.perf.json", dir_b / f"{name}.perf.json"
+        if not (perf_a.exists() and perf_b.exists()):
+            continue
+        a, b = json.loads(perf_a.read_text(encoding="utf-8")), json.loads(perf_b.read_text(encoding="utf-8"))
+        problems = [f"{key} differs ({a.get(key)} vs {b.get(key)})" for key in ("gpu", "build", "width", "height") if a.get(key) != b.get(key)]
+        problems += [f"{label} incomplete" for label, perf in ((dir_a.name, a), (dir_b.name, b)) if perf.get("complete") is False]
+        problems += [f"{label} lost readiness" for label, perf in ((dir_a.name, a), (dir_b.name, b)) if perf.get("lostReadinessFrames", 0)]
+        gpu_a, gpu_b = (a.get("gpuStats") or {}).get("median"), (b.get("gpuStats") or {}).get("median")
+        timing = f"gpu median {gpu_a:.3f} -> {gpu_b:.3f} ms ({(gpu_b - gpu_a) / gpu_a * 100.0:+.1f}%)" if gpu_a and gpu_b else "no gpu stats"
+        print(f"  {name:<32} {timing}" + (f"  NOT COMPARABLE: {'; '.join(problems)}" if problems else ""))
+
     ids_a = set((dir_a / "validation.txt").read_text().split()) if (dir_a / "validation.txt").exists() else set()
     ids_b = set((dir_b / "validation.txt").read_text().split()) if (dir_b / "validation.txt").exists() else set()
     new_ids = sorted(ids_b - ids_a)
@@ -205,6 +242,7 @@ def main():
     parser.add_argument("--size", default="1280x720")
     parser.add_argument("--frame", type=int, default=300)
     parser.add_argument("--perf-frames", type=int, default=300)
+    parser.add_argument("--perf-warmup", type=int, default=30, help="frames rendered after the image capture before timing")
     parser.add_argument("--timeout", type=int, default=900, help="seconds per editor launch")
     parser.add_argument("--threading", choices=["single", "multi"],
                         help="force the editor's threading policy for these launches (default: the user setting)")

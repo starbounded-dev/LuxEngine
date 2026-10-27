@@ -579,6 +579,13 @@ No abstraction layer — Box2D is small enough to use directly.
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
+- C# `Gizmos` (`ScriptCore/Source/Lux/Gizmos.cs`; shapes are built from lines in C#) calls
+  `Scene::AddDebugLine`. A line belongs to the phase that drew it: the frame list is cleared when
+  `OnUpdate` runs (collision and trigger callbacks draw into it too), the fixed list before each
+  `OnFixedUpdate` step, and a line with a duration sits in a timed list that ages with frame time; pausing
+  clears nothing, so lines hold still. `CaptureScriptDebugLines` copies them into
+  `FrameRenderPacket::ScriptLines` (runtime and editor packets; nothing in Dist), drawn in the world
+  overlay with the audio-zone lines (`DebugLine::OnTop` = no depth test).
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:

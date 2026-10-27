@@ -163,6 +163,11 @@ namespace Lux {
 		return root ? (uint64_t)root.GetUUID() : 0;
 	}
 
+	static void Gizmos_DrawLine(glm::vec3* start, glm::vec3* end, glm::vec4* color, float duration, Coral::Bool32 depthTest)
+	{
+		GetScene()->AddDebugLine(*start, *end, *color, duration, depthTest);
+	}
+
 	static void Scene_DestroyEntity(uint64_t entityID)
 	{
 		// Deferred to the end of the update: the caller may be the script being destroyed, inside the
@@ -750,6 +755,7 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
+		LUX_ADD_INTERNAL_CALL(Gizmos_DrawLine);
 
 		LUX_ADD_INTERNAL_CALL(GetScriptInstance);
 		LUX_ADD_INTERNAL_CALL(Entity_HasComponent);

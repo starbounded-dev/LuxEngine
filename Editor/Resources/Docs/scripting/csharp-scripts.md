@@ -28,6 +28,19 @@ The engine calls these methods by name if your class has them:
 | `protected override void OnTriggerBegin(Entity other)` | This entity and another start to overlap, where one of them is a trigger (**Is Trigger** on its 3D rigid body). Character controllers count. |
 | `protected override void OnTriggerEnd(Entity other)` | They stop overlapping. |
 
+## Debug drawing
+
+`Gizmos` draws lines in the world while the game runs, to see what a script is doing: `DrawLine`, `DrawRay`, `DrawWireBox` and `DrawWireSphere`, each with a colour (`Vector4`, red green blue alpha), an optional duration in seconds and an optional depth test (off draws on top of everything).
+
+A line stays until the method that drew it runs again, so draw it every `OnUpdate`, or every `OnFixedUpdate` for physics things, and it holds still. With a duration it stays that long instead. Gizmos are not drawn in Dist builds.
+
+```
+void OnFixedUpdate(float fixedTs)
+{
+	Gizmos.DrawRay(Translation, new Vector3(0.0f, -2.0f, 0.0f), new Vector4(1.0f, 0.2f, 0.2f, 1.0f));
+}
+```
+
 A script whose component is switched off is still created, so other scripts can find it, but it gets no `OnCreate` or `OnUpdate` until it is switched on.
 
 ```
