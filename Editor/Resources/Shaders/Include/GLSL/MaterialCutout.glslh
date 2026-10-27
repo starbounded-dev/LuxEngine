@@ -1,0 +1,33 @@
+#ifndef LUX_MATERIAL_CUTOUT_GLSLH
+#define LUX_MATERIAL_CUTOUT_GLSLH
+
+// The opacity a Cutout material is tested against, computed as GBuffer_Static computes it: the
+// albedo's alpha through the material's mapping (UV or triplanar), times its opacity, then the
+// graph's Opacity when it has a graph. The pre-depth passes must discard exactly the texels the
+// G-buffer pass does, and the shadow passes cut the same shape.
+// `vertexNormal` and `tangentFrame` are already flipped for back faces (faceSign), as in GBuffer_Static.
+
+#include <MaterialMapping.glslh>
+#include <MaterialGraph.glslh>
+
+float LuxMaterialCutoutOpacity(GPUMaterial material, vec2 texCoord, vec3 worldPosition, vec3 vertexNormal, mat3 tangentFrame, uint objectIndex, float mipBias)
+{
+	LuxMaterialCoords coords = LuxMaterialMapping(material, texCoord, worldPosition, vertexNormal, objectIndex);
+	float alpha = LuxSampleMaterial(coords, material.TextureIndices.x, mipBias).a * GetGPUMaterialOpacity(material, 1.0);
+
+#if LUX_MATERIAL_GRAPH_COUNT > 0
+	uint graphIndex = material.TransmissionTextureIndices.y;
+	if (graphIndex != 0u)
+	{
+		// Only Opacity is read: the graph's other outputs compile away.
+		LuxGraphInput graphInput = LuxMakeGraphInput(material, texCoord, worldPosition, vertexNormal, tangentFrame, objectIndex, mipBias);
+		LuxGraphOutput graph = LuxGraphOutput(vec3(0.0), 0.0, 0.5, vec3(0.0), alpha, 1.0, normalize(vertexNormal), 0.5);
+		LuxEvaluateMaterialGraph(graphIndex, graphInput, graph);
+		alpha = graph.Opacity;
+	}
+#endif
+
+	return alpha;
+}
+
+#endif // LUX_MATERIAL_CUTOUT_GLSLH

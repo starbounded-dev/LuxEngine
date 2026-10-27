@@ -126,6 +126,7 @@ namespace Lux {
 			m_Material = material->Handle;
 			s_SeenGeneration = generation;
 			m_Placed.clear();
+			m_CommentNodeSizes.clear();
 			m_SelectedNode = 0;
 			m_Baseline = Snapshot(*graph);
 			if (switched)
@@ -217,6 +218,12 @@ namespace Lux {
 			const ImVec4 color(comment.Color.r, comment.Color.g, comment.Color.b, comment.Color.a);
 			ed::PushStyleColor(ed::StyleColor_NodeBg, color);
 			ed::PushStyleColor(ed::StyleColor_NodeBorder, ImVec4(color.x, color.y, color.z, 1.0f));
+			if (m_ResizeComment == comment.ID)
+			{
+				ed::SetGroupSize(comment.ID, ImVec2(comment.Size.x, comment.Size.y));
+				m_CommentNodeSizes.erase(comment.ID); // the new node size is not a drag-resize
+				m_ResizeComment = 0;
+			}
 			ed::BeginNode(comment.ID);
 			ImGui::PushID(static_cast<int>(comment.ID));
 			ImGui::TextUnformatted(comment.Text.empty() ? "Comment" : comment.Text.c_str());
@@ -395,6 +402,14 @@ namespace Lux {
 			const ImVec2 position = ed::GetNodePosition(comment.ID);
 			if (position.x != FLT_MAX && (position.x != comment.Position.x || position.y != comment.Position.y))
 				comment.Position = glm::vec2(position.x, position.y);
+
+			// The node editor takes a group's size only when it creates it, and its node size adds the
+			// header, so a resize is carried over as the change in node size between frames.
+			const ImVec2 size = ed::GetNodeSize(comment.ID);
+			auto [it, first] = m_CommentNodeSizes.try_emplace(comment.ID, size);
+			if (!first && (size.x != it->second.x || size.y != it->second.y) && it->second.x > 0.0f)
+				comment.Size = glm::max(comment.Size + glm::vec2(size.x - it->second.x, size.y - it->second.y), glm::vec2(50.0f));
+			it->second = size;
 		}
 
 		ed::NodeId selected[1];
@@ -538,7 +553,8 @@ namespace Lux {
 			if (ImGui::InputText("Text", text, sizeof(text)))
 				comment->Text = text;
 			ImGui::ColorEdit4("Color", &comment->Color.r);
-			ImGui::DragFloat2("Size", &comment->Size.x, 1.0f, 50.0f, 4000.0f);
+			if (ImGui::DragFloat2("Size", &comment->Size.x, 1.0f, 50.0f, 4000.0f))
+				m_ResizeComment = comment->ID;
 			return;
 		}
 		if (!node)

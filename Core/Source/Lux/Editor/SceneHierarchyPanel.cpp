@@ -10,6 +10,7 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetImporter.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
@@ -1336,6 +1337,59 @@ namespace Lux {
 				ImGui::SameLine();
 			if (ImGui::SmallButton(std::format("{}  Edit {}##edit_material_slot_{}", LUX_ICON_PENCIL, GetAssetDisplayName(materialHandle), slot).c_str()))
 				m_OpenMaterialCallback(materialHandle);
+		}
+
+		// A graph material's exposed parameters, editable here without opening the material. They
+		// belong to the material asset (every entity using it changes), and are saved to it.
+		for (AssetHandle materialHandle : listed)
+		{
+			Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+			Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
+			if (!graph)
+				continue;
+
+			std::vector<MaterialGraphParameter> exposed;
+			for (const MaterialGraphParameter& parameter : graph->Compile().Parameters)
+			{
+				if (parameter.Exposed)
+					exposed.push_back(parameter);
+			}
+			ImGuiEx::ScopedID materialID(static_cast<int>(static_cast<uint64_t>(materialHandle) & 0x7fffffff));
+			if (exposed.empty() || !ImGuiEx::PropertyGridHeader(std::format("{} Parameters", GetAssetDisplayName(materialHandle)), false))
+				continue;
+
+			ImGuiEx::BeginPropertyGrid();
+			for (const MaterialGraphParameter& parameter : exposed)
+			{
+				MaterialGraphParameterValue value = material->GetGraphParameter(parameter);
+				bool changed = false;
+				switch (parameter.Kind)
+				{
+					case MaterialGraphParameterKind::Float:
+						changed = ImGuiEx::Property(parameter.Name.c_str(), value.Value.x, 0.01f, 0.0f, 0.0f, "", false);
+						break;
+					case MaterialGraphParameterKind::Color:
+						changed = ImGuiEx::PropertyColor(parameter.Name.c_str(), value.Value, "", false);
+						break;
+					case MaterialGraphParameterKind::Texture:
+						changed = ImGuiEx::PropertyAssetReference<Texture2D>(parameter.Name.c_str(), value.Texture, "", nullptr, {}, false);
+						break;
+				}
+				if (changed)
+				{
+					material->SetGraphParameter(parameter.Name, value);
+					m_PendingMaterialSave = materialHandle;
+				}
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (m_PendingMaterialSave && !ImGui::IsAnyItemActive())
+		{
+			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(m_PendingMaterialSave))
+				AssetImporter::Serialize(material.As<Asset>());
+			m_PendingMaterialSave = 0;
 		}
 	}
 

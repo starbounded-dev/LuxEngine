@@ -1155,13 +1155,16 @@ sharpness) hold mapping and detail maps (flags bits 20-22). Every map read in th
 transparent passes goes through `MaterialMapping.glslh` (`LuxMaterialMapping` once per pixel, then
 `LuxSampleMaterial` / `LuxSampleMaterialNormal`), which samples UV0 or the three triplanar projections
 (world, or object space from the instance transform; whiteout normal blend). Detail maps always use
-UV0. Shortcut: the cutout pre-depth and shadow passes still test alpha on UV0, so cutout with
-triplanar mapping is not supported. `GraphParameters` (8 vec4) and `TransmissionTextureIndices.y`
+UV0. The Cutout passes (`PreDepth_Masked`, `PreDepth_Meshlet`, `DirShadowMap_Masked`,
+`SpotShadowMap_Masked`) test `LuxMaterialCutoutOpacity` (`MaterialCutout.glslh`): the same mapping,
+face sign and mip bias as `GBuffer_Static`, and a graph's Opacity, so the pre-depth discards exactly
+the texels the G-buffer does (its depth-equal test) and shadows cut the drawn shape. `GBuffer_Static`
+tests a graph material only after its graph. `GraphParameters` (8 vec4) and `TransmissionTextureIndices.y`
 (the graph index) serve material graphs: `GBuffer_Static` and `HazelPBR_Transparent` include
 `MaterialGraph.glslh`, which includes the generated `MaterialGraphs.glslh`; when the project's
 `LUX_MATERIAL_GRAPH_COUNT` is 0 the graph block compiles out, otherwise a graph row runs
 `LuxEvaluateMaterialGraph` after the standard surface and before the G-buffer write, overwriting the
-outputs it connects (the same shortcut as triplanar: pre-depth and shadows keep the standard alpha).
+outputs it connects. The registry reloads the Cutout passes with the surface shaders, since they include the graphs too.
 `u_RendererData.Time` (seconds, from `Application::GetTime`) took a former padding slot. Textures are bindless indices into
 `u_GPUMaterialTextures` `(set 4, binding 0)`.
 

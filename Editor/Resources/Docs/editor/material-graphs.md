@@ -41,10 +41,11 @@ Maths nodes work on numbers and on vectors: connect a colour and they work on co
 
 Give a **Float**, **Color** or texture node a **Parameter** name to expose it. Exposed values appear under **Graph Parameters** in the material's **Properties**, and changing them is instant: no recompile.
 
+They also show in the **Properties** panel under a mesh's material, for quick tweaks in the scene; changes there are saved to the material, so every object using it changes.
+
 Every [instance](material-editor) of a graph material shares its graph, and can set its own parameter values. So one rust graph can make ten rusts in different colours.
 
 ## Limits
 
 - A graph can carry 32 numbers' worth of parameters and textures: a colour takes 4, a number or texture 1.
-- With a **Cutout** material, the graph's **Opacity** cuts out the visible surface, but shadows and the depth pre-pass still use the standard opacity.
 - Area lights do not show [Advanced Shading](material-editor) layers.

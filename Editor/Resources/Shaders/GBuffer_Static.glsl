@@ -135,7 +135,8 @@ void main()
 	float detailMask = LuxDetailMask(gpuMaterial, coords, materialMipBias);
 	vec3 baseColor = LuxApplyDetailAlbedo(gpuMaterial, albedoTexColor.rgb * materialBaseColor, Input.TexCoord, detailMask, materialMipBias);
 	float alpha = albedoTexColor.a * materialOpacity;
-	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
+	// A graph material is tested after its graph, which may set Opacity.
+	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && gpuMaterial.TransmissionTextureIndices.y == 0u && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 
 	float metalness = SelectGPUMaterialChannel(LuxSampleMaterial(coords, gpuMaterial.TextureIndices.z, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_METALNESS) * materialMetalness;

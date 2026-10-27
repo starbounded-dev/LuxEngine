@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -52,6 +53,8 @@ namespace Lux {
 		AssetHandle m_Material = 0;
 		std::unordered_set<uint32_t> m_Placed; // nodes whose position the node editor already has
 		bool m_NavigateToContent = true;
+		std::unordered_map<uint32_t, ImVec2> m_CommentNodeSizes; // last frame's node size per comment
+		uint32_t m_ResizeComment = 0; // its Size was typed in the inspector: apply it to the group
 
 		uint32_t m_SelectedNode = 0;
 		uint32_t m_PendingSelect = 0; // selected in the node editor next frame (found, or just added)
