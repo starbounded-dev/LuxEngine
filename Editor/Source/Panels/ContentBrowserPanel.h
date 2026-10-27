@@ -148,6 +148,9 @@ namespace Lux {
 	public:
 		ContentBrowserPanel();
 
+		// Golden captures: no thumbnail rendering while frames are timed or captured.
+		static void SetThumbnailWorkPaused(bool paused) { s_ThumbnailWorkPaused = paused; }
+
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnEvent(Event& e) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
@@ -301,6 +304,8 @@ namespace Lux {
 
 	private:
 		static ContentBrowserPanel* s_Instance;
+
+		inline static bool s_ThumbnailWorkPaused = false;
 	};
 
 }

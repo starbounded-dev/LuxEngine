@@ -188,6 +188,24 @@ Folder opens the folder. `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies fi
 locations (`./App.lsettings`, `./imgui.ini`, the old `.../Editor` folder) when the new folder lacks
 them. Nothing per-user belongs in the repo.
 
+**Crash watchdog** (Windows, editor only). `Lux-Watchdog.exe` (`Watchdog/`, built into the editor's
+output folder, no engine dependencies) watches the editor from outside. The editor opts in by defining
+`LUX_CRASH_WATCHDOG L"Editor"` before including `EntryPoint.h`, which calls `CrashWatchdog::Start`
+(`Core/Source/Lux/Debug/CrashWatchdog.h`) once logging exists and `MarkCleanExit` as the last thing in
+`Lux::Main`. The two share a named mapping and two events (`CrashWatchdogProtocol.h`, named by the
+editor's PID). An unhandled exception (also `abort`/`std::terminate`, pure-virtual calls and invalid
+CRT parameters, raised as exceptions so they take the same path) signals the watchdog, which writes the
+minidump from outside, then the handler flushes the logs (helper thread, 2 s limit) and the process
+dies. `Application::Run` advances a heartbeat every iteration (it also re-installs the filter, which
+.NET may replace); with hang detection on (the run loop only, not startup or `OnShutdown`) a heartbeat
+still for `Watchdog::HangSeconds` (30) gets a quiet hang dump. A process that ends without
+`MarkCleanExit` gets a report: `CrashReports/<App>-<time>/` under the per-user folder with the dump,
+`report.txt` (exception code and module+offset, or the exit code; the engine log's last lines) and the
+session's logs, and one dialog offering to open it. Newest 10 kept. Fail-fast (`0xC0000409`) and stack
+overflow exits leave a report without a dump. Skipped under a debugger and when `LUX_NO_WATCHDOG` is
+set (the golden runner sets it); `LUX_WATCHDOG_QUIET` suppresses the dialog. Aftermath still covers GPU
+crashes.
+
 **Layers** (`Layer.h`, `LayerStack.h`): `OnAttach` / `OnDetach` / `OnUpdate(Timestep)` /
 `OnImGuiRender` / `OnEvent`. `PushLayer` for regular, `PushOverlay` for top. The editor and the
 runtime each supply one. A layer is on the stack before its `OnAttach` runs, but no layer receives
@@ -196,7 +214,8 @@ members exist (startup frames, and on Wayland `glfwShowWindow`'s roundtrip deliv
 synchronously), so `OnEvent` may assume a fully attached layer.
 
 **Frame loop** — see `.claude/docs/Threading.md § The frame loop` for the exact ordering. Do not add
-per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
+per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`. (The one exception is
+the crash watchdog's heartbeat, which must measure the loop itself.)
 
 **Events** are two-stage: `QueueEvent` / `DispatchEvent<T>` are thread-safe and run by the next
 `ProcessEvents()` on the main thread; `DispatchEvent<T>` additionally waits for `SyncEvents()`,
@@ -433,6 +452,35 @@ saving a base, `EditorLayer::PropagateToVariants` refreshes each derived variant
 with `OpenScene`); on save it writes the asset and calls `Scene::PropagatePrefabEdits`, which
 refreshes un-overridden instances in the returned scene to the edited prefab's values.
 
+**Prefab structure** (Unity-style overrides): `Scene::SyncPrefabInstance(root, prefabScene)` makes an
+instance follow the prefab's hierarchy: entities the prefab gained are cloned in one at a time
+(`ClonePrefabEntity`, parents first), entities it lost are destroyed after their surviving children move
+up, children follow the prefab's parenting, and siblings follow its order (children the user added keep
+their slots; there is no sibling-reorder UI, so order is never an override). User edits win: the editor records a deleted or moved
+prefab child on the instance root (`Scene::RecordPrefabRemoval` / `RecordPrefabReparent`, called by
+`SceneHierarchyPanel` before the edit) in `PrefabComponent::RemovedEntities` / `ReparentedEntities`
+(serialized as `Removed` / `Reparented`; records about entities the prefab dropped are pruned), and
+instance-added children are never touched. It runs in `PropagatePrefabEdits` before the component pass,
+on `EditorLayer::OpenScene` and in `SceneAssetSerializer::SerializeToAssetPack` (`SyncAllPrefabInstances`,
+through the AssetManager, so prefabs edited while a scene was closed reach it; never inside
+`SceneSerializer::Deserialize`, where a prefab nesting itself would recurse). Variants take the same
+gains, losses, moves and sibling order from the base's old/new difference in `AdoptPrefabBaseEdits`,
+keeping UUIDs. An instance converted from before records existed logs what it took as deleted, and the
+Properties panel's Prefab section offers **Restore** (clears `RemovedEntities`, syncs again).
+**Spawning:** `Scene::Instantiate` during Play or Simulate defers the physics component hooks while the
+hierarchy is copied (`m_SpawningPrefab`; the hooks used to run before an entity's colliders existed), then
+`StartSpawnedHierarchy` creates rigid bodies (static colliders included) and character controllers and, in
+Play, script instances with `OnCreate` (`StartScriptInstance`, shared with `OnRuntimeStart`). C# spawns
+through `Entity.Instantiate(Prefab[, position, rotation])` (`Scene_InstantiatePrefab`). 2D physics bodies
+are not created for spawned prefabs.
+`PrefabComponent::Tracked` (on the root) says the records are kept; an instance saved before they
+existed is converted on its first sync: what it lacks or has moved relative to the prefab it last matched
+(`baseline`: the pre-edit prefab in `PropagatePrefabEdits`, else the current one) becomes records.
+`SyncAllPrefabInstances` first relinks entities still carrying `PrefabID` 0 (`RelinkPrefabInstances`: the
+prefab asset whose scene owns their `EntityID`; prefabs are loaded only when such entities exist).
+Instantiation links every instance entity to the prefab asset (`CreatePrefabEntity(..., prefabID)`;
+the prefab's own entities carry no `PrefabComponent`) and keeps children's prefab-local transforms.
+
 **Switching things off** (Unity's `activeSelf` and per-component `enabled`), two levels:
 
 - *Entity:* `TagComponent::Active`. `false` switches the entity **and every descendant** off. Read it
@@ -481,7 +529,8 @@ orchestrators.
   UUID anywhere that crosses a frame, a file, or a duplication.
 - The registry is **not** thread-safe; mutation is main-thread only.
 - Destroying an entity mid-iteration invalidates views — use `SubmitToDestroyEntity`, which defers
-  into `m_PostUpdateQueue`.
+  into `m_PostUpdateQueue`. C# `Entity.Destroy()` goes through it too (`Scene_DestroyEntity`), so a
+  script's entity is gone, and its `OnDestroy` has run, at the end of the frame.
 - `Scene::Copy` / `CopyTo` back play-mode duplication, scene open (the editor edits a copy of the
   scene asset) and prefab edit mode; a component that isn't copied there silently vanishes on Play.
   They copy the `ScriptStorage` too, so script field values reach Play and survive open → save.
@@ -497,8 +546,34 @@ Layered so the backend can be swapped:
 - `PhysicsSystem` (`PhysicsSystem.h`) — static facade: init/shutdown, mesh cooking, scene factory.
 - `PhysicsScene` / `PhysicsBody` — the world and its bodies (`JoltScene`-equivalent logic in
   `PhysicsScene.cpp`, `JoltBody`).
+- Stepping: `Scene::StepPhysics` asks `PhysicsScene::AdvanceFixedClock(ts)` how many fixed steps
+  are due (project `FixedTimestep`, at most 8 a frame, the excess dropped) and runs that many
+  `SimulateStep(fixedDt)` calls, each one Jolt step with kinematic targets, character controllers and
+  the transform sync. In Play, C# `OnFixedUpdate(fixedDt)` runs before each step, after the frame's
+  `OnUpdate` (`Scene::InvokeScriptFixedUpdate`, same enabled/active/created rules). Contact events
+  still drain once per frame. Box2D (`PhysicsScene2D`) still steps once per frame with the frame time.
 - `PhysicsShapes.h` — box, sphere, capsule, convex mesh, triangle mesh (static only), compound.
-- `CharacterController.h` / `JoltCharacterController`.
+- `CharacterController.h` / `JoltCharacterController` — a `JPH::CharacterVirtual` whose shape is the
+  entity's primitive colliders (`CreateEntityShape`; a 2 m capsule without one; a character entity's
+  colliders get no rigid body). Its inner body (same shape, `CharacterControllerComponent::LayerID`,
+  user data = entity UUID) is what rigid bodies, triggers and queries see. Order per fixed step, as
+  in Jolt's CharacterVirtualTest: kinematic targets, then each controller's `Simulate` (ground velocity,
+  jump, gravity, `Move` displacement, then `ExtendedUpdate` with step-up = Step Offset), then the world
+  step, then `PostSimulate` writes the position to the entity. `PhysicsScene::Stop` and
+  `DestroyCharacterController` call `JoltCharacterController::Destroy()` first, so a controller a script
+  still holds never outlives the Jolt system. A character reports its own contacts (its sweep never reaches
+  `JoltContactListener`, and the inner body reports none with dynamic bodies): after `ExtendedUpdate`, bodies hit
+  this step or resting within twice the character padding are touched; Begin on first touch, End after 3
+  untouched steps (a pushed crate otherwise flickers ~10 Hz), pushed as `PhysicsContactEvent`s keyed
+  `{inner body, other body, ~0, ~0}` into `PhysicsScene::DrainCharacterContactEvents`; `Destroy()` ends them.
+- C# `OnCollisionBegin/End` for 3D: `Scene::DispatchCollisionEvents` (Play, after `UpdatePhysicsAudio`
+  drains the rigid-body events) feeds rigid-body and character events through `ContactPairTracker`, which
+  counts live contact keys per entity pair, so scripts get one Begin when a pair first touches and one End
+  when its last contact goes (Jolt reports every sub-shape pair). Triggers (`RigidBodyComponent::IsTrigger`,
+  Jolt sensors with `mCollideKinematicVsNonDynamic`, so kinematic bodies and character controllers' inner
+  bodies count) come through `JoltContactListener` as `PhysicsContactEvent::Trigger` events, skipped by physics
+  audio and dispatched through a second tracker to C# `OnTriggerBegin/End`. Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
+  scripts at all; only Box2D's `ContactListener2D` called the hooks.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
 - `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
   crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
@@ -518,11 +593,24 @@ No abstraction layer — Box2D is small enough to use directly.
 
 `ScriptEngine` (`Scripting/ScriptEngine.h`) hosts .NET 9 through Coral (`Core/vendor/Coral/`).
 
-- Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`.
+- Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`. The
+  CoreCLR host is per process (it cannot start twice); `Application` brings it up once and each
+  project gets its own collectible `AssemblyLoadContext` (`Project::SetActive` → `Shutdown`,
+  `Initialize`, `LoadProjectAssembly`). Unloading a context (`Shutdown`, `ReloadAppAssembly`) is
+  followed by collect, wait for finalizers, collect, so the old assemblies are freed then and not at
+  some later GC. Measured with a headless loop of 12 project switches, each running a scene with a
+  script and physics: no growth in memory, handles or threads.
 - Assemblies: `LoadProjectAssembly` (editor, from disk), `LoadProjectAssemblyRuntime(Buffer)`
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
+- C# `Gizmos` (`ScriptCore/Source/Lux/Gizmos.cs`; shapes are built from lines in C#) calls
+  `Scene::AddDebugLine`. A line belongs to the phase that drew it: the frame list is cleared when
+  `OnUpdate` runs (collision and trigger callbacks draw into it too), the fixed list before each
+  `OnFixedUpdate` step, and a line with a duration sits in a timed list that ages with frame time; pausing
+  clears nothing, so lines hold still. `CaptureScriptDebugLines` copies them into
+  `FrameRenderPacket::ScriptLines` (runtime and editor packets; nothing in Dist), drawn in the world
+  overlay with the audio-zone lines (`DebugLine::OnTop` = no depth test).
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:
@@ -569,10 +657,38 @@ Rules:
   `MemoryOnly` flag; there isn't one.
 - Engine code must work against **both** managers — no editor-only assumptions.
 - Async: `GetAssetAsync` + `SyncWithAssetThread()`; the worker is `EditorAssetSystem` /
-  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). `EditorAssetManager::GetPendingAsyncLoadCount()`
+  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). A queued runtime load that fails is
+  reported back (`RetrieveReadyAssets`) and kept as failed: it leaves the pending set, keeps its
+  placeholder, and is not queued again until `ReloadData` / `ReloadDataAsync`. `EditorAssetManager::GetPendingAsyncLoadCount()`
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
+- **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
+  the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
+  submesh descriptor for every further reference: same vertex/index range and material, its own
+  transform, and the node lists the new index. File meshes keep their indices, and an explicit
+  `SubmeshIndices` list also takes the placements of the submeshes it names (`SetSubmeshes`), and every consumer of `submesh.Transform` (retained renderer,
+  collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
+  LODs and meshlets once per distinct range and shares them. **Geometry cache:** generated LODs are
+  kept in `MeshSource::SetGeometryCacheDirectory` (the editor sets `<project>/Cache/Geometry` in
+  `OpenProject`, clears it in `CloseProject`; the runtime sets none). The asset pack carries the same bytes:
+  `MeshRuntimeSerializer` appends `MeshSource::ReadBakedLODs()` (the cache file, when it decodes for this
+  geometry) after the index buffer with `MeshFlags::HasBakedLODs`, and the player hands them to
+  `SetBakedLODs`, which the next `BuildRenderGeometry` decodes with the same validation instead of generating
+  (a mismatch generates). Packs without the flag still load and generate. Files are
+  `<stem>-<path hash>-<key>.lgeo`; the key hashes the vertices, indices, submesh ranges, every LOD
+  setting and `MESHOPTIMIZER_VERSION`, so any change misses. Reads validate every range and index
+  (a bad file is a miss, regenerated); writes go through a per-thread temp file and
+  `FileSystem::ReplaceFileAtomically`, then delete that source's older `.lgeo` files. Bump
+  `k_GeometryCacheVersion` when the file layout or LOD generation changes. A mirrored placement (negative
+  determinant) indexes a reversed-winding copy of its range, appended after import, so culling and
+  one-sided collision see it right side out; placements are therefore matched by vertex range, not
+  `BaseIndex`. A mirrored *entity* takes clockwise-front pipelines instead (`MeshKey::Mirrored`,
+  Rendering.md), and its mesh collider keeps the signed scale with its triangles' winding swapped
+  (`JoltShapes.cpp`). `Math::DecomposeTransform` puts a reflection into `scale.x`, so a mirrored
+  matrix decomposes into a proper rotation. `MeshSource::GetBoundingBox` is the
+  union of the placed submesh boxes (`AABB::Transformed`). Fixture:
+  `tests/meshes/SharedMeshNodes.gltf` (three cubes from one mesh).
 - `AssetManagerBase::GetDataGeneration()` (facade `AssetManager::GetDataGeneration()`) is bumped
   whenever a loaded asset's data is replaced: `ReloadData`, an asynchronous load landing in
   `SyncWithAssetThread`, a runtime-pack reload. A cache that holds asset objects by handle compares it
@@ -622,10 +738,26 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the
   stack. Play/Simulate get a separate transient history (discarded on Stop; undo there rebuilds and
   restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
+- `EditorToolHost` (`Core/.../Editor/EditorToolHost.h`, commands in `EditorToolCommands.cpp`) — scene
+  queries and edits for scripted or external tools. Any thread `Submit`s a named command with JSON
+  parameters into a bounded queue (256) and gets a `shared_future<ToolResult>` (Completed / Rejected /
+  Cancelled / Failed, a message, a JSON result). `EditorLayer` owns one, points it at `m_ActiveScene`
+  every frame (editable only in Edit state) and runs `ProcessQueue` right after `PollSceneEditForUndo`,
+  only while no user edit is pending or active, so tool and user edits never share an undo step. A
+  request is checked when it runs, not when it was made: the scene must still be the generation it names
+  (`scene.info` returns it; a different scene object starts a new generation), and mutating commands are
+  rejected while the scene runs. Each completed mutating request goes through the host's undo hook,
+  which `EditorLayer` commits at once as one undo step labelled with the command name. Built-ins:
+  `tools.list`, `scene.info`, `entity.list/get/create/delete/rename/reparent`,
+  `component.add/set/remove`. Component edits are generic: serialize the entity, change the YAML, patch
+  it back with `SceneSerializer::ApplyEntitySnapshots` (the undo path) and serialize again to reject an
+  unknown component or field. Delete and reparent record prefab removals/reparents as the Hierarchy
+  does. Entity IDs travel as strings (a uint64 does not fit a JSON number). No frontend yet: it is the
+  base for automation and tests; `EditorToolHost::RunSelfTests` runs from the Renderer Debugger.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
   LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,
-  GameView.
+  GameView, Help.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
   `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
   the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;
@@ -652,6 +784,25 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   never does a main-thread GPU readback.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
+- **The manual (Help).** `Editor/Resources/Docs/**.md` is the user manual for game makers, shipped
+  with the editor and read offline (the contributor docs stay in `docs/Editor/`). A topic is its path
+  without `.md` (`components/physics`); `index` is the start page. `HelpPanel`
+  (`Editor/Source/Panels/HelpPanel.{h,cpp}`, View → Help, **F1**, Help → Manual) reads every page once
+  at construction and shows a section list (folder order `getting-started`, `editor`, `components`,
+  `scripting`), search over titles and text, back/forward, and links resolved relative to the page
+  (then from the root); a missing topic shows a "Page not found" page with suggestions, and a web
+  link is copied instead of opened. Pages render through `ImGuiEx::RenderMarkdown`
+  (`Core/Source/Lux/ImGui/ImGuiMarkdown.h`: parse once into a `MarkdownDocument`, draw every frame).
+  Core code opens a topic with `EditorDocs::OpenTopic` (`Core/Source/Lux/Editor/EditorDocs.h`), whose
+  handler `EditorLayer` installs; `ComponentDocTopic<T>` (`Editor/ComponentDocs.h`) maps a component
+  to its page, and `DrawComponentSection` draws an `ImGuiEx::DocsButton` left of the settings gear
+  for every mapped component. A new component page needs its entry there. Every C# snippet in the
+  manual must compile against ScriptCore.
+- **New projects can build scripts.** `EditorLayer::CreateProject` writes
+  `Assets/Scripts/<Name>.csproj` (`Project::GetScriptProjectPath`): `Source/**.cs`, output in
+  `Scripts/Binaries` (the `ScriptModulePath`), intermediates in `<project>/Cache/ScriptBuild` so
+  generated `.cs` files stay out of the asset registry, and references to this editor's
+  `Resources/Scripts/ScriptCore.dll` and `DotNet/Coral.Managed.dll` by absolute path.
 - **No-project state + splash.** `SplashScreen` (`Editor/Source/SplashScreen.{h,cpp}`, callbacks only,
   like `CommandPalette`) is the Blender-style startup splash and the only UI while
   `Project::GetActive()` is null. In that state `EditorLayer` draws no panels or viewport (the
@@ -774,6 +925,15 @@ previous VA batch with `WaitForResults`, applies the geometry queue, updates the
 and source emitter positions, reads completed results, then launches the next batch with
 `OnUpdate`. Joining before mutation and teardown is mandatory. VA simulates one listener: highest
 weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
+
+**VA worlds are process-level and reused.** `vaWorldDestroy` does not free what a world's updates
+allocated (about 143 MiB per world per Play session, measured 2026-10-27 with the documented shutdown
+and every call returning `VA_SUCCESS`), so `RaytracedAudioScene::Stop` drains and empties its world and
+returns it to a pool (`AcquireWorld`/`ReleaseWorld` in `RaytracedAudioScene.cpp`) instead of destroying
+it; the next `Start` takes it back (clearing pending shutdown; bounds and materials are re-applied). A
+world still holding emitters after teardown (one waiting out a reverb tail) is destroyed rather than
+reused, since its callbacks point into the scene being torn down. `Application::~Application` calls
+`RaytracedAudioScene::ShutdownWorldPool` after the layers are gone.
 
 Event components receive `AudioEventAcoustics`: low-frequency direct gain becomes the optional
 Studio parameter `Occlusion` (1 minus gain), and returned energy becomes `ReverbSend`. Studio
@@ -1293,6 +1453,25 @@ Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `AssetPackSerializer`, `ShaderPackFile.h`, and the stream layer (`FileStream`, `MemoryStream`,
 `StreamReader`, `StreamWriter`, `Serialization.h` / `SerializationImpl.h`).
 
+`StreamReader` checks every length and count it reads against `GetRemainingBytes()` (each reader
+reports `GetStreamSize()`): `ReadString`, `ReadBuffer`, `ReadArray` and `ReadMap` return false and leave
+the target empty instead of allocating or looping over what a damaged file claims. That bounds the
+damage, it does not validate the data; `ReadRaw` returns false on a short read and never asserts (a Debug
+player reports a damaged file instead of stopping). `ProjectSerializer::DeserializeRuntime` bounds its log-tag
+count and refuses a truncated file. A pack is
+checked at three levels: `AssetPackSerializer::DeserializeIndex` rejects a short header, bad magic, a
+scene count that cannot fit, null or duplicate handles, and any app-binary, scene or asset range outside
+the file (it logs and returns false; `AssetPack::Load` returns null, no `VERIFY`); `AssetImporter`'s two
+pack dispatchers catch `std::exception` (unparsable YAML, impossible allocations) and fail just that asset;
+and `TextureRuntimeSerializer::DeserializeTexture2D` accepts only a colour format, 1-16384 per side and
+pixels of exactly one mip's size before anything reaches the GPU. Prefabs are packed as their scene's YAML (`PrefabSerializer` pack methods; the root is the parentless
+entity), and a scene's asset list includes asset handles held in script fields (`Scene::GetAssetList`; a
+`Scene` field is a level, not packed with it), so a prefab a script spawns ships with the game. A reader of shipped data validates its own fields: `MeshRuntimeSerializer::DeserializeFromAssetPack`
+reads the entry once (capped at 2 GiB), parses every section, count and string with a bounded reader
+against the bytes actually there, checks submesh ranges, every index against its submesh's vertices
+and every node link, and creates the `MeshSource` and its materials only after all of it passes; a
+bad entry is logged (`AssetManager` tag) and returns null.
+
 Missing keys must deserialize to the struct default. Never hard-fail a load on an absent optional
 field, and never silently drop data on save.
 
@@ -1349,8 +1528,8 @@ distortion or headset window yet.
 
 ### Smart pointers
 
-`Ref<T>` (intrusive, atomic, `RefCounted`), `WeakRef<T>` (liveness-checked, **no** `Lock()`),
-`Scope<T>` (`std::unique_ptr` alias). Forbidden: raw `new`/`delete`, `std::shared_ptr`,
+`Ref<T>` (intrusive, atomic, `RefCounted`), `WeakRef<T>` (control block per weakly referenced
+object; use it through `Lock()` → `Ref<T>`), `Scope<T>` (`std::unique_ptr` alias). Forbidden: raw `new`/`delete`, `std::shared_ptr`,
 `std::make_shared`. Full rules and the double-free hazard in `Ref::DecRef` are in
 `.claude/docs/Conventions.md`.
 

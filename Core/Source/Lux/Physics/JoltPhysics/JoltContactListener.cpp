@@ -25,9 +25,20 @@ namespace Lux
 	{
 		PhysicsContactEvent event;
 		event.Key = { a.GetID().GetIndexAndSequenceNumber(), b.GetID().GetIndexAndSequenceNumber(), manifold.mSubShapeID1.GetValue(), manifold.mSubShapeID2.GetValue() };
+		if (settings.mIsSensor)
+		{
+			// A trigger overlap: reported for scripts only (no impulse, no audio).
+			event.Trigger = true;
+			event.Entity1 = a.GetUserData();
+			event.Entity2 = b.GetUserData();
+			std::scoped_lock lock(m_Mutex);
+			event.State = m_TriggerContacts.insert(event.Key).second ? PhysicsContactEvent::Type::Begin : PhysicsContactEvent::Type::Persist;
+			m_Events.push_back(event);
+			return;
+		}
 		{
 			std::scoped_lock lock(m_Mutex);
-			if (settings.mIsSensor || manifold.mRelativeContactPointsOn1.empty() || manifold.mPenetrationDepth < 0.0f)
+			if (manifold.mRelativeContactPointsOn1.empty() || manifold.mPenetrationDepth < 0.0f)
 			{
 				if (m_RealContacts.erase(event.Key))
 				{
@@ -93,6 +104,11 @@ namespace Lux
 		std::scoped_lock lock(m_Mutex);
 		if (m_RealContacts.erase(event.Key))
 			m_Events.push_back(event);
+		else if (m_TriggerContacts.erase(event.Key))
+		{
+			event.Trigger = true;
+			m_Events.push_back(event);
+		}
 	}
 
 	void JoltContactListener::Drain(std::vector<PhysicsContactEvent>& events)

@@ -180,6 +180,9 @@ group ""
 
 group "Tools"
 	include "Editor"
+	if os.target() == "windows" then
+		include "Watchdog"
+	end
 group ""
 
 group "Runtime"

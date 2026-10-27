@@ -7,6 +7,7 @@
 #include "Lux/Core/ApplicationSettings.h"
 
 #define LUX_LOGS_IN_PERSISTENT_STORAGE
+#define LUX_CRASH_WATCHDOG L"Editor"
 #include "Lux/EntryPoint.h"
 
 namespace Lux {

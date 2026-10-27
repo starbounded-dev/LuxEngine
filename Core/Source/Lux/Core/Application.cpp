@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "Application.h"
 
+#include "Lux/Debug/CrashWatchdog.h"
+
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/UI/Font.h"
@@ -14,6 +16,7 @@
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/RaytracedAudioScene.h"
 //#include "Lux/Audio/AudioEvents/AudioCommandRegistry.h"
 
 #include "Input.h"
@@ -155,6 +158,7 @@ namespace Lux {
 		PhysicsSystem::Shutdown();
 		Font::Shutdown();
 		// Layers and their scene/audio instances have been destroyed above.
+		RaytracedAudioScene::ShutdownWorldPool();
 		AudioEngine::Shutdown();
 
 		Renderer::Shutdown();
@@ -266,8 +270,11 @@ namespace Lux {
 	void Application::Run()
 	{
 		OnInit();
+		CrashWatchdog::SetHangDetection(true);
 		while (m_Running)
 		{
+			CrashWatchdog::Heartbeat();
+
 			// Wait for render thread to finish frame
 			{
 				LUX_PROFILE_SCOPE("Wait");
@@ -387,6 +394,8 @@ namespace Lux {
 
 			LimitFrameRate();
 		}
+		// Shutdown may take long (the GPU drains, assets release); a crash in it is still reported.
+		CrashWatchdog::SetHangDetection(false);
 		OnShutdown();
 	}
 

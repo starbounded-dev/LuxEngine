@@ -145,7 +145,17 @@ namespace Lux
 		if (serializerIt == s_Serializers.end())
 			return nullptr;
 
-		return serializerIt->second->DeserializeFromAssetPack(stream, assetInfo);
+		// A damaged entry can hold YAML that does not parse or a size nothing can allocate; the asset
+		// fails to load instead of taking the player down.
+		try
+		{
+			return serializerIt->second->DeserializeFromAssetPack(stream, assetInfo);
+		}
+		catch (const std::exception& e)
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Packed {} at offset {} is damaged: {}", Utils::AssetTypeToString(assetType), assetInfo.PackedOffset, e.what());
+			return nullptr;
+		}
 	}
 
 	Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo)
@@ -160,6 +170,14 @@ namespace Lux
 		if (!sceneSerializer)
 			return nullptr;
 
-		return sceneSerializer->DeserializeSceneFromAssetPack(stream, sceneInfo);
+		try
+		{
+			return sceneSerializer->DeserializeSceneFromAssetPack(stream, sceneInfo);
+		}
+		catch (const std::exception& e)
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Packed scene at offset {} is damaged: {}", sceneInfo.PackedOffset, e.what());
+			return nullptr;
+		}
 	}
 }

@@ -6,7 +6,20 @@ using Coral.Managed.Interop;
 
 namespace Lux
 {
-	public enum MusicSync { Immediate, NextBeat, NextBar, NextMarker, NextSection }
+	/// <summary>When <see cref="Music.QueueTransition"/> switches to the new music.</summary>
+	public enum MusicSync
+	{
+		/// <summary>Right away.</summary>
+		Immediate,
+		/// <summary>On the next beat.</summary>
+		NextBeat,
+		/// <summary>On the next bar.</summary>
+		NextBar,
+		/// <summary>On the next timeline marker.</summary>
+		NextMarker,
+		/// <summary>On the next marker whose name starts with <c>Section:</c>.</summary>
+		NextSection
+	}
 
 	/// <summary>Scene-owned interactive music. All calls and callbacks run on the main thread.
 	/// Author State labels, continuous Intensity (0–1), and Layer_name parameters (0–1) in FMOD.</summary>
@@ -14,19 +27,25 @@ namespace Lux
 	{
 		private static Action<int, int>? s_Beat;
 		private static Action<string>? s_Marker;
+		/// <summary>Raised on every beat of the playing music, with the bar and the beat in it.</summary>
 		public static event Action<int, int> Beat
 		{
 			add { Audio.RequireMainThread(); s_Beat += value; }
 			remove { Audio.RequireMainThread(); s_Beat -= value; }
 		}
+		/// <summary>Raised when the playing music passes a timeline marker, with the marker's name.</summary>
 		public static event Action<string> Marker
 		{
 			add { Audio.RequireMainThread(); s_Marker += value; }
 			remove { Audio.RequireMainThread(); s_Marker -= value; }
 		}
+		/// <summary>Whether music is playing.</summary>
 		public static bool IsPlaying { get { Audio.RequireMainThread(); return InternalCalls.Music_IsPlaying(); } }
+		/// <summary>The beat within the current bar.</summary>
 		public static int CurrentBeat { get { Audio.RequireMainThread(); return InternalCalls.Music_GetBeat(false); } }
+		/// <summary>The current bar.</summary>
 		public static int CurrentBar { get { Audio.RequireMainThread(); return InternalCalls.Music_GetBeat(true); } }
+		/// <summary>The music's <c>Intensity</c> parameter, 0 to 1; kept across <see cref="Play"/> and transitions.</summary>
 		public static float Intensity
 		{
 			get { Audio.RequireMainThread(); return InternalCalls.Music_GetIntensity(); }
@@ -39,26 +58,35 @@ namespace Lux
 				Check(InternalCalls.Music_SetIntensity(value));
 			}
 		}
+		/// <summary>Starts a music event as the bed, replacing what was playing.</summary>
+		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
+		/// <exception cref="System.InvalidOperationException">The event could not be played (check the Audio log).</exception>
 		public static void Play(string eventRef)
 		{
 			using NativeString reference = Audio.String(eventRef);
 			Check(InternalCalls.Music_Play(reference));
 		}
+		/// <summary>Stops the music.</summary>
+		/// <param name="allowFadeOut">True lets the event's authored fade-out play; false cuts it.</param>
 		public static void Stop(bool allowFadeOut = true)
 		{
 			Audio.RequireMainThread();
 			InternalCalls.Music_Stop(allowFadeOut);
 		}
+		/// <summary>Sets the music's <c>State</c> labeled parameter (combat, explore...); kept across transitions.</summary>
 		public static void SetState(string state)
 		{
 			using NativeString label = Audio.String(state);
 			Check(InternalCalls.Music_SetState(label));
 		}
+		/// <summary>Turns a layer on or off: sets the music's <c>Layer_name</c> parameter to 1 or 0.</summary>
 		public static void SetLayerEnabled(string layer, bool enabled)
 		{
 			using NativeString name = Audio.String(layer);
 			Check(InternalCalls.Music_SetLayerEnabled(name, enabled));
 		}
+		/// <summary>Plays a short event over the music.</summary>
+		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
 		public static void PlayStinger(string eventRef)
 		{
 			using NativeString reference = Audio.String(eventRef);

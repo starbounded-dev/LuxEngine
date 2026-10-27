@@ -123,10 +123,14 @@ LuxEngine uses its own smart pointers. Headers: `Core/Source/Lux/Core/Ref.h`,
 - **`Ref<T>`** — intrusive, atomically refcounted. `T` must derive from `RefCounted`. Create with
   `Ref<T>::Create(args...)` (or the free `CreateRef<T>(...)`). Cast with `.As<T2>()`; raw access via
   `.Raw()` / `.get()`. Pass by value to share ownership, `const Ref<T>&` to observe.
-- **`WeakRef<T>`** — non-owning, with a liveness check (`IsValid()`), backed by the global live-object
-  registry in `RefUtils`. Note: `WeakRef` does **not** hand back a `Ref` — there is no `Lock()`. It
-  checks liveness and dereferences directly, so it is only safe where the owner cannot die
-  concurrently.
+- **`WeakRef<T>`** — non-owning. Reach the object only through `Lock()`, which returns a `Ref<T>`
+  (null once the object is destroyed or being destroyed) and is safe against another thread
+  releasing the last strong reference at the same moment. There is no `->`: a check followed by a
+  raw access can lose the object in between. `IsValid()` is advisory (pruning lists, asserts). The
+  first `WeakRef` to an object creates its `WeakControlBlock` (`Core/Ref.h`), which outlives the
+  object, so a `WeakRef` never mistakes a new object at a freed address for the old one. A `WeakRef`
+  made from `this` in a constructor reads as dead until a `Ref` owns the object. Don't take `Lock()`
+  inside a lock that the object's destructor also takes: the temporary `Ref` can be the last one.
 - **`Scope<T>`** — alias for `std::unique_ptr<T>`; create with `CreateScope<T>(...)`.
 
 **Why `Ref` deletes off the atomic's own result:** `DecRefCount()` returns the post-decrement value
@@ -257,6 +261,9 @@ a corrupted style stack, and the scopes make that unrepresentable.
 
 Widgets and layout helpers are in `ImGuiEx.h` / `ImGuiWidgets.h` (property rows, message boxes,
 collapsing headers, `ShiftCursor`, `HelpMarker`, `Draw::Underline`, …); fonts in `ImGuiFonts.h`.
+Markdown text (headings, lists, tables, code blocks with Copy, links) renders with
+`ImGuiEx::RenderMarkdown` (`ImGuiMarkdown.h`), and a help icon that opens a manual page is
+`ImGuiEx::DocsButton` (`Editor/EditorDocs.h`).
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped

@@ -1212,6 +1212,12 @@ namespace Lux
 		Log::SetDefaultTagSettings();
 		uint32_t tagCount = 0;
 		stream.ReadRaw<uint32_t>(tagCount);
+		// Each tag is at least a string length, a flag and a level.
+		if (tagCount > stream.GetRemainingBytes() / (sizeof(size_t) + 2))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Damaged runtime project (log tag count): {0}", filepath.string());
+			return false;
+		}
 		for (uint32_t i = 0; i < tagCount; i++)
 		{
 			std::string name;
@@ -1239,6 +1245,13 @@ namespace Lux
 			stream.ReadString(scriptModulePath);
 			if (!scriptModulePath.empty())
 				config.ScriptModulePath = scriptModulePath;
+		}
+
+		// A short file fails its reads (no assert since 2026-10-26); refuse it rather than run on half a config.
+		if (!stream.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Truncated runtime project: {0}", filepath.string());
+			return false;
 		}
 
 		const std::filesystem::path overridesFile = filepath.parent_path() / "Project.yaml";

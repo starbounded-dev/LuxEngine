@@ -230,7 +230,6 @@ namespace Lux {
 
 	struct ImGuiViewportData : public RefCounted
 	{
-		ImGuiID ViewportID = 0;
 		bool WindowOwned = false;
 		Scope<RHISwapChain> SC;
 		std::unique_ptr<ImGuiRenderer> Renderer;
@@ -251,7 +250,6 @@ namespace Lux {
 	static void ImGuiRenderer_CreateWindow(ImGuiViewport* viewport)
 	{
 		Ref<ImGuiViewportData> data = Ref<ImGuiViewportData>::Create();
-		data->ViewportID = viewport->ID;
 		s_ViewportData[viewport->ID] = data;
 		viewport->RendererUserData = data.Raw();
 
@@ -564,15 +562,13 @@ namespace Lux {
 					viewportData->SC->OnResize();
 				viewportData->Renderer->PrepareGlassBackdrops(*snapshot);
 
-				m_PendingRenderTasks.emplace_back([weakViewportData = WeakRef<ImGuiViewportData>(viewportData), viewportID = viewport->ID, snapshot]()
+				m_PendingRenderTasks.emplace_back([weakViewportData = WeakRef<ImGuiViewportData>(viewportData), snapshot]()
 				{
-					// Dead when the viewport was destroyed after this task was queued. The ID check
-					// rejects a new viewport that reused the freed address. Viewports are destroyed
-					// only on the main thread while this thread is idle, so the check cannot race.
-					if (!weakViewportData.IsValid() || weakViewportData->ViewportID != viewportID)
+					// Null when the viewport was destroyed after this task was queued (a new viewport at
+					// the same address is a different object to the WeakRef).
+					Ref<ImGuiViewportData> viewportData = weakViewportData.Lock();
+					if (!viewportData)
 						return;
-
-					const ImGuiViewportData* viewportData = &*weakViewportData;
 
 					if (viewportData->SC->BeginFrame())
 					{

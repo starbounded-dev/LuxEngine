@@ -13,6 +13,7 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Utilities/FileSystem.h"
 
 //#include "Jolt/Core/HashCombine.h"
 
@@ -23,10 +24,17 @@
 
 #include "imgui/imgui.h"
 
+#include "meshoptimizer/meshoptimizer.h"
+
 #include <array>
+#include <cstring>
+#include <map>
+#include <mutex>
 #include <filesystem>
+#include <format>
+#include <fstream>
+#include <thread>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace Lux
 {
@@ -42,34 +50,22 @@ namespace Lux
 
 	namespace
 	{
-		struct TriangleKey
-		{
-			uint32_t A = 0;
-			uint32_t B = 0;
-			uint32_t C = 0;
-
-			bool operator==(const TriangleKey& other) const
-			{
-				return A == other.A && B == other.B && C == other.C;
-			}
-		};
-
-		struct TriangleKeyHasher
-		{
-			size_t operator()(const TriangleKey& key) const
-			{
-				size_t seed = std::hash<uint32_t>{}(key.A);
-				seed ^= std::hash<uint32_t>{}(key.B) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				seed ^= std::hash<uint32_t>{}(key.C) + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
-				return seed;
-			}
-		};
-
-		struct VertexCluster
-		{
-			Vertex Sum{};
-			uint32_t Count = 0;
-		};
+		// Generated LODs (meshoptimizer, after Lucky Engine's MeshProcessor). Each level halves the one
+		// before it within an error of 2% of the submesh's extent. Normals are weighted into the error, so
+		// shading across hard edges survives, and the open border is locked, so submeshes meeting at a
+		// material boundary do not crack apart. A level is a new index list over the submesh's own
+		// vertices; no vertices are added.
+		constexpr uint32_t k_MaxGeneratedLODs = 3;
+		constexpr float k_LODTargetRatio = 0.5f;
+		constexpr float k_LODTargetError = 0.02f;
+		constexpr float k_LODNormalWeight = 0.5f;
+		// A level must drop at least this share of the previous level's indices to be worth drawing.
+		constexpr float k_LODMinimumSaving = 0.08f;
+		// Submeshes smaller than this are drawn as they are.
+		constexpr uint32_t k_LODMinimumVertexCount = 64;
+		constexpr uint32_t k_LODMinimumIndexCount = 300;
+		// LOD n is drawn beyond this many bounding-sphere radii from the camera (SelectStaticMeshLOD).
+		constexpr std::array<float, k_MaxGeneratedLODs> k_LODDistanceMultipliers = { 24.0f, 48.0f, 96.0f };
 
 		static glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback)
 		{
@@ -77,133 +73,270 @@ namespace Lux
 			return lengthSq > 0.000001f ? value * glm::inversesqrt(lengthSq) : fallback;
 		}
 
-		static uint64_t PackClusterCell(uint32_t x, uint32_t y, uint32_t z)
+		// One coarser level of `submesh` simplified from `previous` (indices local to the submesh's
+		// vertices). False when it would not save enough to be worth a level.
+		static bool SimplifySubmeshLOD(const std::vector<Vertex>& vertices, const Submesh& submesh,
+			const std::vector<uint32_t>& previous, std::vector<uint32_t>& simplified)
 		{
-			return (uint64_t)x | ((uint64_t)y << 21u) | ((uint64_t)z << 42u);
-		}
+			const Vertex& first = vertices[submesh.BaseVertex];
+			const float normalWeights[3] = { k_LODNormalWeight, k_LODNormalWeight, k_LODNormalWeight };
+			const size_t targetIndexCount = static_cast<size_t>(static_cast<float>(previous.size()) * k_LODTargetRatio) / 3 * 3;
 
-		static uint32_t QuantizeAxis(float value, float minValue, float extent, uint32_t resolution)
-		{
-			if (extent <= 0.000001f || resolution <= 1)
-				return 0;
+			simplified.resize(previous.size());
+			const size_t indexCount = meshopt_simplifyWithAttributes(simplified.data(), previous.data(), previous.size(),
+				&first.Position.x, submesh.VertexCount, sizeof(Vertex),
+				&first.Normal.x, sizeof(Vertex), normalWeights, 3,
+				nullptr, targetIndexCount, k_LODTargetError, meshopt_SimplifyLockBorder, nullptr);
+			simplified.resize(indexCount);
 
-			const float normalized = std::clamp((value - minValue) / extent, 0.0f, 1.0f);
-			return (uint32_t)std::clamp((int)glm::floor(normalized * (float)(resolution - 1u)), 0, (int)resolution - 1);
-		}
-
-		static bool BuildClusteredSubmeshLOD(
-			const std::vector<Vertex>& sourceVertices,
-			const std::vector<Index>& sourceIndices,
-			const Submesh& submesh,
-			float targetRatio,
-			std::vector<Vertex>& renderVertices,
-			std::vector<Index>& renderIndices,
-			SubmeshLOD& outLOD)
-		{
-			if (submesh.VertexCount < 64 || submesh.IndexCount < 300 || submesh.BaseVertex + submesh.VertexCount > sourceVertices.size())
+			if (indexCount < 3 || static_cast<float>(indexCount) > static_cast<float>(previous.size()) * (1.0f - k_LODMinimumSaving))
 				return false;
 
-			const uint32_t firstTriangle = submesh.BaseIndex / 3u;
-			const uint32_t triangleCount = submesh.IndexCount / 3u;
-			if (triangleCount == 0 || firstTriangle + triangleCount > sourceIndices.size())
-				return false;
-
-			const glm::vec3 boundsMin = submesh.BoundingBox.Min;
-			const glm::vec3 boundsExtent = glm::max(submesh.BoundingBox.Max - submesh.BoundingBox.Min, glm::vec3(0.000001f));
-			const uint32_t targetVertexCount = glm::max(16u, (uint32_t)glm::ceil((float)submesh.VertexCount * targetRatio));
-			const uint32_t gridResolution = std::clamp((uint32_t)glm::ceil(glm::pow((float)targetVertexCount, 1.0f / 3.0f) * 1.25f), 2u, 64u);
-
-			std::vector<uint32_t> localToCluster(submesh.VertexCount, std::numeric_limits<uint32_t>::max());
-			std::vector<VertexCluster> clusters;
-			clusters.reserve(targetVertexCount);
-
-			std::unordered_map<uint64_t, uint32_t> clusterIndexByCell;
-			clusterIndexByCell.reserve(targetVertexCount);
-
-			for (uint32_t localVertex = 0; localVertex < submesh.VertexCount; localVertex++)
-			{
-				const Vertex& vertex = sourceVertices[submesh.BaseVertex + localVertex];
-				const uint32_t cellX = QuantizeAxis(vertex.Position.x, boundsMin.x, boundsExtent.x, gridResolution);
-				const uint32_t cellY = QuantizeAxis(vertex.Position.y, boundsMin.y, boundsExtent.y, gridResolution);
-				const uint32_t cellZ = QuantizeAxis(vertex.Position.z, boundsMin.z, boundsExtent.z, gridResolution);
-				const uint64_t cellKey = PackClusterCell(cellX, cellY, cellZ);
-
-				auto [clusterIt, inserted] = clusterIndexByCell.try_emplace(cellKey, (uint32_t)clusters.size());
-				if (inserted)
-					clusters.emplace_back();
-
-				const uint32_t clusterIndex = clusterIt->second;
-				localToCluster[localVertex] = clusterIndex;
-
-				VertexCluster& cluster = clusters[clusterIndex];
-				cluster.Sum.Position += vertex.Position;
-				cluster.Sum.Normal += vertex.Normal;
-				cluster.Sum.Tangent += vertex.Tangent;
-				cluster.Sum.Binormal += vertex.Binormal;
-				cluster.Sum.Texcoord += vertex.Texcoord;
-				cluster.Count++;
-			}
-
-			if (clusters.size() >= submesh.VertexCount)
-				return false;
-
-			const uint32_t baseVertex = (uint32_t)renderVertices.size();
-			const uint32_t baseIndex = (uint32_t)renderIndices.size() * 3u;
-
-			for (const VertexCluster& cluster : clusters)
-			{
-				const float invCount = cluster.Count > 0 ? 1.0f / (float)cluster.Count : 1.0f;
-				Vertex vertex{};
-				vertex.Position = cluster.Sum.Position * invCount;
-				vertex.Normal = NormalizeOrFallback(cluster.Sum.Normal * invCount, { 0.0f, 1.0f, 0.0f });
-				vertex.Tangent = NormalizeOrFallback(cluster.Sum.Tangent * invCount, { 1.0f, 0.0f, 0.0f });
-				const glm::vec3 fallbackBinormal = NormalizeOrFallback(glm::cross(vertex.Normal, vertex.Tangent), { 0.0f, 0.0f, 1.0f });
-				vertex.Binormal = NormalizeOrFallback(cluster.Sum.Binormal * invCount, fallbackBinormal);
-				vertex.Texcoord = cluster.Sum.Texcoord * invCount;
-				renderVertices.push_back(vertex);
-			}
-
-			std::unordered_set<TriangleKey, TriangleKeyHasher> emittedTriangles;
-			emittedTriangles.reserve(triangleCount);
-
-			for (uint32_t triangle = 0; triangle < triangleCount; triangle++)
-			{
-				const Index& sourceIndex = sourceIndices[firstTriangle + triangle];
-				if (sourceIndex.V1 >= submesh.VertexCount || sourceIndex.V2 >= submesh.VertexCount || sourceIndex.V3 >= submesh.VertexCount)
-					continue;
-
-				Index lodIndex{
-					localToCluster[sourceIndex.V1],
-					localToCluster[sourceIndex.V2],
-					localToCluster[sourceIndex.V3]
-				};
-
-				if (lodIndex.V1 == lodIndex.V2 || lodIndex.V1 == lodIndex.V3 || lodIndex.V2 == lodIndex.V3)
-					continue;
-
-				std::array<uint32_t, 3> sorted = { lodIndex.V1, lodIndex.V2, lodIndex.V3 };
-				std::sort(sorted.begin(), sorted.end());
-				TriangleKey key{ sorted[0], sorted[1], sorted[2] };
-				if (!emittedTriangles.insert(key).second)
-					continue;
-
-				renderIndices.push_back(lodIndex);
-			}
-
-			const uint32_t generatedIndexCount = (uint32_t)(renderIndices.size() * 3u - baseIndex);
-			const bool usefulReduction = generatedIndexCount >= 3u && generatedIndexCount < (uint32_t)((float)submesh.IndexCount * 0.92f);
-			if (!usefulReduction)
-			{
-				renderVertices.resize(baseVertex);
-				renderIndices.resize(baseIndex / 3u);
-				return false;
-			}
-
-			outLOD.BaseVertex = baseVertex;
-			outLOD.BaseIndex = baseIndex;
-			outLOD.IndexCount = generatedIndexCount;
-			outLOD.VertexCount = (uint32_t)clusters.size();
+			meshopt_optimizeVertexCache(simplified.data(), simplified.data(), indexCount, submesh.VertexCount);
 			return true;
+		}
+
+		// An explicit submesh selection also draws the other placements of each selected submesh: for
+		// every further node that places a mesh, the importer appends a copy over the same vertex range
+		// after the original (AssimpMeshImporter::TraverseNodes). Without this, a selection saved
+		// before placements existed would show one copy of an instanced mesh.
+		static std::vector<uint32_t> AddSubmeshPlacements(const std::vector<uint32_t>& selection, const std::vector<Submesh>& submeshes)
+		{
+			std::vector<uint32_t> result = selection;
+			for (uint32_t candidate = 0; candidate < (uint32_t)submeshes.size(); candidate++)
+			{
+				if (std::find(result.begin(), result.end(), candidate) != result.end())
+					continue;
+
+				const Submesh& placement = submeshes[candidate];
+				const bool placesSelected = std::any_of(selection.begin(), selection.end(), [&](uint32_t selected)
+				{
+					if (selected >= candidate)
+						return false;
+					const Submesh& original = submeshes[selected];
+					// Not BaseIndex: a mirrored placement indexes a reversed copy of the range.
+					return original.BaseVertex == placement.BaseVertex && original.VertexCount == placement.VertexCount
+						&& original.IndexCount == placement.IndexCount;
+				});
+				if (placesSelected)
+					result.push_back(candidate);
+			}
+			return result;
+		}
+
+		// Generated-LOD cache (Cache/Geometry/<stem>-<path hash>-<key>.lgeo). The key covers the geometry and
+		// every LOD setting, so a changed source file, importer or setting misses instead of reading stale LODs.
+		constexpr std::array<char, 4> k_GeometryCacheMagic = { 'L', 'X', 'G', 'C' };
+		constexpr uint32_t k_GeometryCacheVersion = 1;
+
+		struct GeometryCacheHeader
+		{
+			std::array<char, 4> Magic = k_GeometryCacheMagic;
+			uint32_t Version = k_GeometryCacheVersion;
+			uint64_t Key = 0;
+			uint32_t SubmeshCount = 0;
+			uint32_t LODCount = 0;      // GeometryCacheLOD entries that follow, every submesh's levels
+			uint64_t TriangleCount = 0; // generated triangles, appended after the source indices
+		};
+
+		struct GeometryCacheLOD
+		{
+			uint32_t SubmeshIndex = 0;
+			uint32_t BaseIndex = 0;
+			uint32_t IndexCount = 0;
+			float DistanceMultiplier = 0.0f;
+		};
+
+		// 64-bit FNV-style hash fed a word at a time: a cache key over tens of megabytes of vertices
+		// has to cost far less than the LOD generation it saves.
+		class GeometryHasher
+		{
+		public:
+			void Add(const void* data, size_t size)
+			{
+				const uint8_t* bytes = static_cast<const uint8_t*>(data);
+				size_t offset = 0;
+				for (; offset + sizeof(uint64_t) <= size; offset += sizeof(uint64_t))
+				{
+					uint64_t word;
+					std::memcpy(&word, bytes + offset, sizeof(word));
+					Mix(word);
+				}
+				uint64_t tail = 0;
+				std::memcpy(&tail, bytes + offset, size - offset);
+				Mix(tail ^ (static_cast<uint64_t>(size) << 56));
+			}
+
+			uint64_t Get() const { return m_Hash; }
+
+		private:
+			void Mix(uint64_t word)
+			{
+				m_Hash = (m_Hash ^ (word * 0x9E3779B97F4A7C15ull)) * 0x100000001B3ull;
+				m_Hash ^= m_Hash >> 29;
+			}
+
+			uint64_t m_Hash = 14695981039346656037ull;
+		};
+
+		static uint64_t GetGeometryCacheKey(const std::vector<Vertex>& vertices, const std::vector<Index>& indices, const std::vector<Submesh>& submeshes)
+		{
+			GeometryHasher hasher;
+			hasher.Add(vertices.data(), vertices.size() * sizeof(Vertex));
+			hasher.Add(indices.data(), indices.size() * sizeof(Index));
+			for (const Submesh& submesh : submeshes)
+			{
+				const uint32_t range[5] = { submesh.BaseVertex, submesh.BaseIndex, submesh.VertexCount, submesh.IndexCount, submesh.IsRigged ? 1u : 0u };
+				hasher.Add(range, sizeof(range));
+			}
+			const float settings[] = { static_cast<float>(k_MaxGeneratedLODs), k_LODTargetRatio, k_LODTargetError, k_LODNormalWeight,
+				k_LODMinimumSaving, static_cast<float>(k_LODMinimumVertexCount), static_cast<float>(k_LODMinimumIndexCount),
+				k_LODDistanceMultipliers[0], k_LODDistanceMultipliers[1], k_LODDistanceMultipliers[2], static_cast<float>(MESHOPTIMIZER_VERSION) };
+			hasher.Add(settings, sizeof(settings));
+			return hasher.Get();
+		}
+
+		// MeshSource::SetGeometryCacheDirectory; set on the main thread, read by asset loader threads.
+		std::mutex s_GeometryCacheDirectoryMutex;
+		std::filesystem::path s_GeometryCacheDirectory;
+
+		static std::filesystem::path GetGeometryCacheDirectory()
+		{
+			std::scoped_lock lock(s_GeometryCacheDirectoryMutex);
+			return s_GeometryCacheDirectory;
+		}
+
+		// The cache file for `sourcePath`, and the prefix every cache file of that source shares (so
+		// a regenerated file replaces the ones from earlier versions of the source).
+		static std::filesystem::path GetGeometryCachePath(const std::filesystem::path& directory, const std::string& sourcePath, uint64_t key, std::string& outPrefix)
+		{
+			GeometryHasher pathHasher;
+			pathHasher.Add(sourcePath.data(), sourcePath.size());
+			outPrefix = std::format("{}-{:08x}-", std::filesystem::path(sourcePath).stem().string(), static_cast<uint32_t>(pathHasher.Get()));
+			return directory / std::format("{}{:016x}.lgeo", outPrefix, key);
+		}
+
+		// Decodes LODs encoded for `key` into `outLODs`, appending their triangles to `renderIndices`.
+		// Anything that does not fit this geometry exactly (truncated, another mesh or version, a range or
+		// index out of bounds) is refused and leaves both untouched.
+		static bool DecodeGeometryCache(const uint8_t* data, size_t size, uint64_t key, const std::vector<Submesh>& submeshes,
+			std::vector<std::vector<SubmeshLOD>>& outLODs, std::vector<Index>& renderIndices)
+		{
+			const size_t sourceTriangleCount = renderIndices.size();
+			auto reject = [&]()
+			{
+				renderIndices.resize(sourceTriangleCount);
+				for (std::vector<SubmeshLOD>& lods : outLODs)
+					lods.clear();
+				return false;
+			};
+
+			GeometryCacheHeader header;
+			if (!data || size < sizeof(header))
+				return reject();
+			std::memcpy(&header, data, sizeof(header));
+			if (header.Magic != k_GeometryCacheMagic || header.Version != k_GeometryCacheVersion || header.Key != key
+				|| header.SubmeshCount != submeshes.size() || header.TriangleCount > size / sizeof(Index)
+				|| size != sizeof(header) + uint64_t(header.LODCount) * sizeof(GeometryCacheLOD) + header.TriangleCount * sizeof(Index))
+				return reject();
+
+			const uint8_t* cursor = data + sizeof(header);
+			std::vector<GeometryCacheLOD> entries(header.LODCount);
+			std::memcpy(entries.data(), cursor, entries.size() * sizeof(GeometryCacheLOD));
+			cursor += entries.size() * sizeof(GeometryCacheLOD);
+			renderIndices.resize(sourceTriangleCount + header.TriangleCount);
+			std::memcpy(renderIndices.data() + sourceTriangleCount, cursor, header.TriangleCount * sizeof(Index));
+
+			for (const GeometryCacheLOD& entry : entries)
+			{
+				if (entry.SubmeshIndex >= submeshes.size() || entry.BaseIndex % 3 != 0 || entry.IndexCount % 3 != 0
+					|| uint64_t(entry.BaseIndex / 3) + entry.IndexCount / 3 > renderIndices.size())
+					return reject();
+
+				const Submesh& submesh = submeshes[entry.SubmeshIndex];
+				for (uint32_t triangle = entry.BaseIndex / 3; triangle < entry.BaseIndex / 3 + entry.IndexCount / 3; triangle++)
+				{
+					const Index& indices = renderIndices[triangle];
+					if (indices.V1 >= submesh.VertexCount || indices.V2 >= submesh.VertexCount || indices.V3 >= submesh.VertexCount)
+						return reject();
+				}
+				outLODs[entry.SubmeshIndex].push_back({ submesh.BaseVertex, entry.BaseIndex, entry.IndexCount, submesh.VertexCount, entry.DistanceMultiplier });
+			}
+			return true;
+		}
+
+		static std::vector<uint8_t> EncodeGeometryCache(uint64_t key, const std::vector<std::vector<SubmeshLOD>>& lods,
+			const std::vector<Index>& renderIndices, size_t sourceTriangleCount)
+		{
+			std::vector<GeometryCacheLOD> entries;
+			for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)lods.size(); submeshIndex++)
+			{
+				for (const SubmeshLOD& lod : lods[submeshIndex])
+					entries.push_back({ submeshIndex, lod.BaseIndex, lod.IndexCount, lod.DistanceMultiplier });
+			}
+
+			GeometryCacheHeader header;
+			header.Key = key;
+			header.SubmeshCount = (uint32_t)lods.size();
+			header.LODCount = (uint32_t)entries.size();
+			header.TriangleCount = renderIndices.size() - sourceTriangleCount;
+
+			std::vector<uint8_t> bytes(sizeof(header) + entries.size() * sizeof(GeometryCacheLOD) + header.TriangleCount * sizeof(Index));
+			uint8_t* cursor = bytes.data();
+			std::memcpy(cursor, &header, sizeof(header));
+			cursor += sizeof(header);
+			std::memcpy(cursor, entries.data(), entries.size() * sizeof(GeometryCacheLOD));
+			cursor += entries.size() * sizeof(GeometryCacheLOD);
+			std::memcpy(cursor, renderIndices.data() + sourceTriangleCount, header.TriangleCount * sizeof(Index));
+			return bytes;
+		}
+
+		static bool TryReadGeometryCache(const std::filesystem::path& path, uint64_t key, const std::vector<Submesh>& submeshes,
+			std::vector<std::vector<SubmeshLOD>>& outLODs, std::vector<Index>& renderIndices)
+		{
+			if (!FileSystem::Exists(path))
+				return false;
+			ScopedBuffer data(FileSystem::ReadBytes(path));
+			if (DecodeGeometryCache(data.As<uint8_t>(), data.Size(), key, submeshes, outLODs, renderIndices))
+				return true;
+			LUX_CORE_WARN_TAG("Mesh", "Geometry cache '{}' does not match its mesh; regenerating it", path.string());
+			return false;
+		}
+
+		// Writes through a temporary file, so an interrupted write never leaves a cache file that reads as
+		// valid, then removes this source's cache files from earlier versions of it.
+		static void WriteGeometryCache(const std::filesystem::path& path, const std::string& prefix, uint64_t key,
+			const std::vector<std::vector<SubmeshLOD>>& lods, const std::vector<Index>& renderIndices, size_t sourceTriangleCount)
+		{
+			const std::vector<uint8_t> bytes = EncodeGeometryCache(key, lods, renderIndices, sourceTriangleCount);
+
+			std::error_code error;
+			std::filesystem::create_directories(path.parent_path(), error);
+			// Per thread: two loader threads can build the same mesh at once.
+			const std::filesystem::path temporary = path.string() + std::format(".{}.tmp", std::hash<std::thread::id>{}(std::this_thread::get_id()));
+			{
+				std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+				stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+				stream.close();
+				if (!stream)
+				{
+					LUX_CORE_ERROR_TAG("Mesh", "Failed to write the geometry cache {}", temporary.string());
+					std::filesystem::remove(temporary, error);
+					return;
+				}
+			}
+			if (!FileSystem::ReplaceFileAtomically(temporary, path))
+			{
+				std::filesystem::remove(temporary, error);
+				return;
+			}
+
+			for (const auto& entry : std::filesystem::directory_iterator(path.parent_path(), error))
+			{
+				const std::string filename = entry.path().filename().string();
+				if (entry.path() != path && entry.path().extension() == ".lgeo" && filename.starts_with(prefix))
+					std::filesystem::remove(entry.path(), error);
+			}
 		}
 
 		// Split one submesh LOD range into meshlets (<= 64 vertices, <= 124
@@ -357,6 +490,33 @@ namespace Lux
 
 	bool MeshSource::s_RetainFullCPUGeometry = true;
 
+	void MeshSource::SetGeometryCacheDirectory(const std::filesystem::path& directory)
+	{
+		std::scoped_lock lock(s_GeometryCacheDirectoryMutex);
+		s_GeometryCacheDirectory = directory;
+	}
+
+	std::vector<uint8_t> MeshSource::ReadBakedLODs() const
+	{
+		const std::filesystem::path cacheDirectory = GetGeometryCacheDirectory();
+		if (cacheDirectory.empty() || m_FilePath.empty() || m_Vertices.empty())
+			return {};
+
+		const uint64_t key = GetGeometryCacheKey(m_Vertices, m_Indices, m_Submeshes);
+		std::string prefix;
+		const std::filesystem::path path = GetGeometryCachePath(cacheDirectory, m_FilePath, key, prefix);
+		if (!FileSystem::Exists(path))
+			return {};
+
+		ScopedBuffer data(FileSystem::ReadBytes(path));
+		// Only bytes that decode for exactly this geometry are worth shipping.
+		std::vector<std::vector<SubmeshLOD>> lods(m_Submeshes.size());
+		std::vector<Index> indices = m_Indices;
+		if (!DecodeGeometryCache(data.As<uint8_t>(), data.Size(), key, m_Submeshes, lods, indices))
+			return {};
+		return std::vector<uint8_t>(data.As<uint8_t>(), data.As<uint8_t>() + data.Size());
+	}
+
 	void MeshSource::CompactCPUGeometry()
 	{
 		if (s_RetainFullCPUGeometry || m_Vertices.empty())
@@ -469,16 +629,56 @@ namespace Lux
 			return;
 		}
 
-		std::vector<Vertex> renderVertices = m_Vertices;
+		// Generated LODs add indices over the existing vertices, so the vertex buffer is the source data.
+		const std::vector<Vertex>& renderVertices = m_Vertices;
 		std::vector<Index> renderIndices = m_Indices;
 
-		constexpr std::array<float, 3> lodRatios = { 0.50f, 0.25f, 0.125f };
-		constexpr std::array<float, 3> lodDistanceMultipliers = { 24.0f, 48.0f, 96.0f };
+		std::vector<uint32_t> previousIndices, simplifiedIndices;
+
+		// Submeshes over the same vertex/index range are placements of one geometry (the importer adds
+		// one per extra node reference): build its LODs and meshlets once, for the first of them.
+		std::vector<uint32_t> geometryOwner(m_Submeshes.size());
+		{
+			std::map<std::array<uint32_t, 4>, uint32_t> ownerByRange;
+			for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size(); submeshIndex++)
+			{
+				const Submesh& submesh = m_Submeshes[submeshIndex];
+				const std::array<uint32_t, 4> range = { submesh.BaseVertex, submesh.BaseIndex, submesh.VertexCount, submesh.IndexCount };
+				geometryOwner[submeshIndex] = ownerByRange.try_emplace(range, submeshIndex).first->second;
+			}
+		}
+
+		// An imported mesh's LODs come from the geometry cache when it holds them for exactly this geometry.
+		std::filesystem::path cachePath;
+		std::string cachePrefix;
+		uint64_t cacheKey = 0;
+		if (const std::filesystem::path cacheDirectory = GetGeometryCacheDirectory(); !cacheDirectory.empty() && !m_FilePath.empty())
+		{
+			LUX_PROFILE_SCOPE("MeshSource::BuildRenderGeometry::CacheKey");
+			cacheKey = GetGeometryCacheKey(m_Vertices, m_Indices, m_Submeshes);
+			cachePath = GetGeometryCachePath(cacheDirectory, m_FilePath, cacheKey, cachePrefix);
+		}
+		const size_t sourceTriangleCount = renderIndices.size();
+		bool cachedLODs = !cachePath.empty() && TryReadGeometryCache(cachePath, cacheKey, m_Submeshes, m_SubmeshLODs, renderIndices);
+		// LODs baked into an asset pack (SetBakedLODs): the same encoding, keyed by the same geometry.
+		bool bakedLODs = false;
+		if (!cachedLODs && !m_BakedLODs.empty())
+		{
+			bakedLODs = DecodeGeometryCache(m_BakedLODs.data(), m_BakedLODs.size(), GetGeometryCacheKey(m_Vertices, m_Indices, m_Submeshes),
+				m_Submeshes, m_SubmeshLODs, renderIndices);
+			if (!bakedLODs)
+				LUX_CORE_WARN_TAG("Mesh", "Baked LODs do not match their mesh; generating them");
+			cachedLODs = bakedLODs;
+		}
+		m_BakedLODs = {};
 
 		uint32_t generatedLODCount = 0;
 		uint64_t removedIndexCount = 0;
-		for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size(); submeshIndex++)
+		for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size() && !cachedLODs; submeshIndex++)
 		{
+			if (geometryOwner[submeshIndex] != submeshIndex)
+				continue;
+
 			const Submesh& submesh = m_Submeshes[submeshIndex];
 			std::vector<SubmeshLOD>& lods = m_SubmeshLODs[submeshIndex];
 			lods.push_back({
@@ -489,26 +689,38 @@ namespace Lux
 				0.0f
 			});
 
-			if (submesh.IsRigged)
+			if (submesh.IsRigged || submesh.VertexCount < k_LODMinimumVertexCount || submesh.IndexCount < k_LODMinimumIndexCount
+				|| submesh.BaseVertex + submesh.VertexCount > m_Vertices.size() || (submesh.BaseIndex + submesh.IndexCount) / 3 > m_Indices.size())
 				continue;
 
-			uint32_t previousIndexCount = submesh.IndexCount;
-			for (size_t lodLevel = 0; lodLevel < lodRatios.size(); lodLevel++)
+			// The simplifier needs indices local to the submesh's vertices (as the importer writes them).
+			const uint32_t* submeshIndices = &m_Indices[submesh.BaseIndex / 3].V1;
+			previousIndices.assign(submeshIndices, submeshIndices + submesh.IndexCount);
+			if (std::any_of(previousIndices.begin(), previousIndices.end(), [&](uint32_t index) { return index >= submesh.VertexCount; }))
+				continue;
+
+			for (uint32_t lodLevel = 0; lodLevel < k_MaxGeneratedLODs; lodLevel++)
 			{
+				if (!SimplifySubmeshLOD(m_Vertices, submesh, previousIndices, simplifiedIndices))
+					break;
+
 				SubmeshLOD lod{};
-				if (!BuildClusteredSubmeshLOD(m_Vertices, m_Indices, submesh, lodRatios[lodLevel], renderVertices, renderIndices, lod))
-					continue;
+				lod.BaseVertex = submesh.BaseVertex;
+				lod.VertexCount = submesh.VertexCount;
+				lod.BaseIndex = static_cast<uint32_t>(renderIndices.size()) * 3u;
+				lod.IndexCount = static_cast<uint32_t>(simplifiedIndices.size());
+				lod.DistanceMultiplier = k_LODDistanceMultipliers[lodLevel];
+				for (size_t index = 0; index < simplifiedIndices.size(); index += 3)
+					renderIndices.push_back({ simplifiedIndices[index], simplifiedIndices[index + 1], simplifiedIndices[index + 2] });
 
-				if (lod.IndexCount >= previousIndexCount)
-					continue;
-
-				lod.DistanceMultiplier = lodDistanceMultipliers[lodLevel];
 				lods.push_back(lod);
 				generatedLODCount++;
-				removedIndexCount += previousIndexCount - lod.IndexCount;
-				previousIndexCount = lod.IndexCount;
+				removedIndexCount += previousIndices.size() - simplifiedIndices.size();
+				std::swap(previousIndices, simplifiedIndices);
 			}
 		}
+		if (!cachedLODs && !cachePath.empty())
+			WriteGeometryCache(cachePath, cachePrefix, cacheKey, m_SubmeshLODs, renderIndices, sourceTriangleCount);
 
 		// Meshlet data for the mesh-shader path (built per submesh per LOD so the
 		// two systems compose). Only when the GPU supports mesh shaders.
@@ -535,6 +747,12 @@ namespace Lux
 			}
 		}
 
+		for (uint32_t submeshIndex = 0; submeshIndex < (uint32_t)m_Submeshes.size(); submeshIndex++)
+		{
+			if (geometryOwner[submeshIndex] != submeshIndex)
+				m_SubmeshLODs[submeshIndex] = m_SubmeshLODs[geometryOwner[submeshIndex]];
+		}
+
 		// The GPU gets the 28-byte PackedVertex; the full Vertex stays on the CPU (physics, picking, caches).
 		std::vector<PackedVertex> packedVertices;
 		packedVertices.reserve(renderVertices.size());
@@ -543,7 +761,11 @@ namespace Lux
 		m_VertexBuffer = VertexBuffer::Create(Buffer(packedVertices.data(), (uint32_t)(packedVertices.size() * sizeof(PackedVertex))));
 		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
 
-		if (generatedLODCount > 0)
+		if (bakedLODs)
+			LUX_CORE_TRACE_TAG("Mesh", "MeshSource: LODs read from the asset pack");
+		else if (cachedLODs)
+			LUX_CORE_INFO_TAG("Mesh", "MeshSource: LODs for '{}' read from the geometry cache", m_FilePath);
+		else if (generatedLODCount > 0)
 		{
 			LUX_CORE_INFO("MeshSource: generated {} auto LOD level(s) for '{}' ({} fewer indices across selected levels)",
 				generatedLODCount,
@@ -735,7 +957,7 @@ namespace Lux
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!submeshes.empty())
 		{
-			m_Submeshes = submeshes;
+			m_Submeshes = meshSource ? AddSubmeshPlacements(submeshes, meshSource->GetSubmeshes()) : submeshes;
 		}
 		else
 		{
@@ -880,7 +1102,7 @@ namespace Lux
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!submeshes.empty())
 		{
-			m_Submeshes = submeshes;
+			m_Submeshes = meshSource ? AddSubmeshPlacements(submeshes, meshSource->GetSubmeshes()) : submeshes;
 		}
 		else
 		{

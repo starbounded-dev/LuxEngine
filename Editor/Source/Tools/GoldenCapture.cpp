@@ -7,6 +7,8 @@
 
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 #include "Lux/Core/Application.h"
+#include "Lux/Core/Version.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Project/Project.h"
@@ -84,6 +86,7 @@ namespace Lux {
 			{ "OcclusionCulling", &SceneRendererOptions::EnableOcclusionCulling },
 			{ "SoftShadows", &SceneRendererOptions::SoftShadows },
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
+			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop" };
@@ -178,6 +181,7 @@ namespace Lux {
 		m_IdleFramesRequired = GetEnvUInt("LUX_GOLDEN_IDLE_FRAMES", m_IdleFramesRequired);
 		m_TimeoutFrames = GetEnvUInt("LUX_GOLDEN_TIMEOUT", m_TimeoutFrames);
 		m_PerfFrames = GetEnvUInt("LUX_GOLDEN_PERF_FRAMES", m_PerfFrames);
+		m_PerfWarmupFrames = GetEnvUInt("LUX_GOLDEN_PERF_WARMUP", m_PerfWarmupFrames);
 		m_RunSelfTest = ParseBool(GetEnv("LUX_GOLDEN_SELFTEST"));
 		m_ExitWhenDone = GetEnv("LUX_GOLDEN_EXIT") != "0";
 		ParseOptions(GetEnv("LUX_GOLDEN_OPTIONS"));
@@ -436,6 +440,7 @@ namespace Lux {
 
 					if (m_MoveStopped && m_FramesSinceMoveStop == m_MoveStopFrames)
 					{
+						m_ReadyAfterFrames = m_SceneFrames;
 						RequestReadback(renderer);
 						m_Stage = Stage::WaitForReadback;
 					}
@@ -447,6 +452,7 @@ namespace Lux {
 				}
 				if (canCapture && atRestPose)
 				{
+					m_ReadyAfterFrames = m_SceneFrames;
 					RequestReadback(renderer);
 					m_Stage = Stage::WaitForReadback;
 				}
@@ -474,9 +480,23 @@ namespace Lux {
 			}
 			case Stage::Perf:
 			{
-				if (renderer)
+				if (m_PerfWarmupDone < m_PerfWarmupFrames)
+				{
+					m_PerfWarmupDone++;
+					break;
+				}
+
+				// A frame where asset streaming restarted measures loading, not rendering: dropped and
+				// counted. Four times the wanted frames at most, so a scene that never settles still ends
+				// (its perf.json then says complete: false).
+				m_PerfFramesSeen++;
+				const Ref<EditorAssetManager> assetManager = Project::GetEditorAssetManager();
+				if (assetManager && assetManager->GetPendingAsyncLoadCount() > 0)
+					m_LostReadinessFrames++;
+				else if (renderer)
 					AccumulatePerf(*renderer);
-				if (m_PerfSamples >= m_PerfFrames)
+
+				if (m_PerfSamples >= m_PerfFrames || m_PerfFramesSeen >= m_PerfFrames * 4)
 				{
 					WritePerf();
 					Finish(true, {});
@@ -546,6 +566,10 @@ namespace Lux {
 		m_MainThreadWorkTime += timers.MainThreadWorkTime;
 		m_RenderThreadWorkTime += timers.RenderThreadWorkTime;
 		m_FrameTime += Application::Get().GetFrametime().GetMilliseconds();
+		m_FrameSamples.push_back(Application::Get().GetFrametime().GetMilliseconds());
+		m_GPUSamples.push_back(stats.TotalGPUTime);
+		m_ClusterEntries = stats.ClusterPointIndicesRequested + stats.ClusterSpotIndicesRequested;
+		m_ClusterLightsDropped = std::max(m_ClusterLightsDropped, stats.ClusterPointLightsDropped + stats.ClusterSpotLightsDropped);
 
 		for (const SceneRenderer::PassProfile& profile : stats.PassProfiles)
 		{
@@ -561,12 +585,42 @@ namespace Lux {
 		m_PerfSamples++;
 	}
 
+	// mean, median, p95, p99, min, max and standard deviation of `values`, as a JSON object.
+	static std::string SummarizeSamples(std::vector<double> values)
+	{
+		if (values.empty())
+			return "null";
+		std::sort(values.begin(), values.end());
+		const auto percentile = [&](double p) { return values[std::min(values.size() - 1, (size_t)std::ceil(p * values.size()) - (p > 0.0 ? 1 : 0))]; };
+		double sum = 0.0;
+		for (double value : values)
+			sum += value;
+		const double mean = sum / (double)values.size();
+		double variance = 0.0;
+		for (double value : values)
+			variance += (value - mean) * (value - mean);
+		const double stddev = std::sqrt(variance / (double)values.size());
+		return std::format("{{ \"mean\": {:.4f}, \"median\": {:.4f}, \"p95\": {:.4f}, \"p99\": {:.4f}, \"min\": {:.4f}, \"max\": {:.4f}, \"stddev\": {:.4f} }}",
+			mean, percentile(0.5), percentile(0.95), percentile(0.99), values.front(), values.back(), stddev);
+	}
+
 	void GoldenCapture::WritePerf() const
 	{
 		const double samples = glm::max(1.0, (double)m_PerfSamples);
 		std::string json = "{\n";
 		json += std::format("  \"scene\": \"{}\",\n", m_ScenePath.generic_string());
 		json += std::format("  \"width\": {},\n  \"height\": {},\n", m_Size.x, m_Size.y);
+		// How the numbers were taken, so two runs can be checked for comparability before comparing them.
+		json += std::format("  \"build\": \"{}\",\n", LUX_VERSION_LONG);
+		json += std::format("  \"gpu\": \"{}\",\n", RHIDevice::GetDesc().adapterDesc.name);
+		json += "  \"vsync\": false,\n";
+		json += std::format("  \"readyAfterFrames\": {},\n  \"idleFramesRequired\": {},\n", m_ReadyAfterFrames, m_IdleFramesRequired);
+		json += std::format("  \"warmupFrames\": {},\n", m_PerfWarmupDone);
+		json += std::format("  \"lostReadinessFrames\": {},\n", m_LostReadinessFrames);
+		json += std::format("  \"clusterLightEntries\": {},\n  \"clusterLightsDropped\": {},\n", m_ClusterEntries, m_ClusterLightsDropped);
+		json += std::format("  \"complete\": {},\n", m_PerfSamples >= m_PerfFrames ? "true" : "false");
+		json += std::format("  \"frameStats\": {},\n", SummarizeSamples(m_FrameSamples));
+		json += std::format("  \"gpuStats\": {},\n", SummarizeSamples(m_GPUSamples));
 		json += std::format("  \"frames\": {},\n", m_PerfSamples);
 		json += std::format("  \"frameMs\": {:.4f},\n", m_FrameTime / samples);
 		json += std::format("  \"gpuMs\": {:.4f},\n", m_GPUTime / samples);
@@ -579,7 +633,7 @@ namespace Lux {
 		for (const auto& [name, timing] : m_PassTimings)
 		{
 			const double passSamples = glm::max(1.0, (double)timing.Samples);
-			json += std::format("{}\n    \"{}\": {{ \"cpuMs\": {:.4f}, \"gpuMs\": {:.4f} }}", first ? "" : ",", name, timing.CPUTime / passSamples, timing.GPUTime / passSamples);
+			json += std::format("{}\n    \"{}\": {{ \"cpuMs\": {:.4f}, \"gpuMs\": {:.4f}, \"frames\": {} }}", first ? "" : ",", name, timing.CPUTime / passSamples, timing.GPUTime / passSamples, timing.Samples);
 			first = false;
 		}
 		json += "\n  }\n}\n";

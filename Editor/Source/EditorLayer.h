@@ -30,6 +30,7 @@
 #include "Lux/Renderer/VertexBuffer.h"
 
 #include "entt/entt.hpp"
+#include "Lux/Editor/EditorToolHost.h"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Tools/GoldenCapture.h"
@@ -41,6 +42,7 @@ namespace Lux
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
+	class HelpPanel;
 	class AudioDebugPanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
@@ -183,6 +185,7 @@ namespace Lux
 		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
 		void UI_ScriptToast();                                    // transient C#-reload status overlay
 		void ReloadScriptsWithFeedback();                         // reload C# + sync storage + toast the result
+		void OpenHelpTopic(std::string_view topic);               // shows the Help panel at a manual topic
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
 		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
@@ -254,6 +257,7 @@ namespace Lux
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;
+		Ref<HelpPanel> m_HelpPanel;
 		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
@@ -262,6 +266,9 @@ namespace Lux
 		Ref<GameViewPanel> m_GameViewPanel;
 
 		Scope<CommandPalette> m_CommandPalette;
+		// Scene queries and edits for scripted or external tools; its queue runs after the undo poll,
+		// between user edits, and each completed edit is one undo step.
+		Scope<EditorToolHost> m_ToolHost;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
 		Scope<StartupSplash> m_StartupSplash; // the loading splash: OnAttach, then the first few frames
 

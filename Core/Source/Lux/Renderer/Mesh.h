@@ -280,6 +280,14 @@ namespace Lux {
 		// upload, keeping positions + indices for physics. The editor retains
 		// everything (mesh export/serialization reads the full vertices).
 		static void SetRetainFullCPUGeometry(bool retain) { s_RetainFullCPUGeometry = retain; }
+		// Where BuildRenderGeometry keeps generated LODs between loads, keyed by the geometry's contents
+		// (the editor sets the open project's Cache/Geometry); empty, the default, means no cache. Any thread.
+		static void SetGeometryCacheDirectory(const std::filesystem::path& directory);
+		// The geometry cache's bytes for this mesh, when they are valid for its geometry (editor, for the
+		// asset pack); empty otherwise.
+		std::vector<uint8_t> ReadBakedLODs() const;
+		// LODs from an asset pack, read by the next BuildRenderGeometry instead of generating them.
+		void SetBakedLODs(std::vector<uint8_t> bakedLODs) { m_BakedLODs = std::move(bakedLODs); }
 		void CompactCPUGeometry();
 		void BuildRenderGeometry();
 
@@ -306,7 +314,6 @@ namespace Lux {
 
 		const AABB& GetBoundingBox() const { return m_BoundingBox; }
 
-		const MeshNode& GetRootNode() const { return m_Nodes[0]; }
 		const std::vector<MeshNode>& GetNodes() const { return m_Nodes; }
 
 	private:
@@ -319,6 +326,7 @@ namespace Lux {
 		std::vector<Vertex> m_Vertices;
 		std::vector<Index> m_Indices;
 		std::vector<std::vector<SubmeshLOD>> m_SubmeshLODs;
+		std::vector<uint8_t> m_BakedLODs;
 
 		// Meshlet SSBOs (mesh-shader path); null when meshlets were not built.
 		NRIBuffer m_MeshletBuffer;

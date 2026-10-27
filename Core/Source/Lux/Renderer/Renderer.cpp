@@ -51,17 +51,6 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "ltc/LTCTables.h"
 
-namespace std {
-	template<>
-	struct hash<Lux::WeakRef<Lux::Shader>>
-	{
-		size_t operator()(const Lux::WeakRef<Lux::Shader>& shader) const noexcept
-		{
-			return shader->GetHash();
-		}
-	};
-}
-
 namespace Lux {
 
 	// Cache of compute pipelines keyed by shader hash, shared across the whole
@@ -94,8 +83,8 @@ namespace Lux {
 	{
 		// Macro name, set of shaders with that macro.
 		std::unordered_map<std::string, std::unordered_map<size_t, WeakRef<Shader>>> ShaderGlobalMacrosMap;
-		// Shaders waiting to be reloaded.
-		std::unordered_set<WeakRef<Shader>> DirtyShaders;
+		// Shaders waiting to be reloaded, by shader hash.
+		std::unordered_map<size_t, WeakRef<Shader>> DirtyShaders;
 		ShaderPermutationCache PermutationCache;
 	};
 	static GlobalShaderInfo s_GlobalShaderInfo;
@@ -210,20 +199,20 @@ namespace Lux {
 		}
 		for (auto& pipeline : dependencies.Pipelines)
 		{
-			if (pipeline)
-				pipeline->Invalidate();
+			if (auto strong = pipeline.Lock())
+				strong->Invalidate();
 		}
 
 		for (auto& computePipeline : dependencies.ComputePipelines)
 		{
-			if (computePipeline)
-				computePipeline->CreatePipeline();
+			if (auto strong = computePipeline.Lock())
+				strong->CreatePipeline();
 		}
 
 		for (auto& material : dependencies.Materials)
 		{
-			if (material)
-				material->OnShaderReloaded();
+			if (auto strong = material.Lock())
+				strong->OnShaderReloaded();
 		}
 
 		// Passes re-bake after the pipelines above are rebuilt: an in-place
@@ -231,14 +220,14 @@ namespace Lux {
 		// were created against, so drawing with them is a use-after-free.
 		for (auto& renderPass : dependencies.Passes)
 		{
-			if (renderPass)
-				renderPass->OnShaderReloaded();
+			if (auto strong = renderPass.Lock())
+				strong->OnShaderReloaded();
 		}
 
 		for (auto& computePass : dependencies.ComputePasses)
 		{
-			if (computePass)
-				computePass->OnShaderReloaded();
+			if (auto strong = computePass.Lock())
+				strong->OnShaderReloaded();
 		}
 	}
 
@@ -816,19 +805,21 @@ namespace Lux {
 		uint32_t warmedCount = 0;
 		for (auto& pipeline : graphicsPipelines)
 		{
-			if (!pipeline)
+			Ref<Pipeline> strong = pipeline.Lock();
+			if (!strong)
 				continue;
 
-			pipeline->Invalidate();
+			strong->Invalidate();
 			warmedCount++;
 		}
 
 		for (auto& computePipeline : computePipelines)
 		{
-			if (!computePipeline)
+			Ref<PipelineCompute> strong = computePipeline.Lock();
+			if (!strong)
 				continue;
 
-			computePipeline->CreatePipeline();
+			strong->CreatePipeline();
 			warmedCount++;
 		}
 
@@ -1904,6 +1895,19 @@ namespace Lux {
 		return *s_CommandQueue[s_RenderCommandQueueSubmissionIndex];
 	}
 
+	RenderCommandQueueStats Renderer::GetRenderCommandQueueStats()
+	{
+		if (!s_CommandQueue[0] || !s_CommandQueue[1])
+			return {};
+
+		RenderCommandQueueStats stats = s_CommandQueue[GetRenderQueueIndex()]->GetStats();
+		const RenderCommandQueueStats other = s_CommandQueue[GetRenderQueueSubmissionIndex()]->GetStats();
+		stats.MaxCommandCount = std::max(stats.MaxCommandCount, other.MaxCommandCount);
+		stats.MaxBytes = std::max(stats.MaxBytes, other.MaxBytes);
+		stats.MaxPageCount = std::max(stats.MaxPageCount, other.MaxPageCount);
+		return stats;
+	}
+
 	uint32_t Renderer::RT_GetCurrentFrameIndex()
 	{
 		return static_cast<uint32_t>(s_RTFrameNumber % s_Config.FramesInFlight);
@@ -2002,7 +2006,7 @@ namespace Lux {
 		key.ShaderName = shader->GetName();
 		key.Macros.emplace_back(name, value);
 		s_GlobalShaderInfo.PermutationCache.Add(key);
-		s_GlobalShaderInfo.DirtyShaders.emplace(shader.Raw());
+		s_GlobalShaderInfo.DirtyShaders[shader->GetHash()] = shader;
 	}
 
 	void Renderer::SetGlobalMacroInShaders(const std::string& name, const std::string& value)
@@ -2027,14 +2031,19 @@ namespace Lux {
 		}
 
 		LUX_CORE_ASSERT(s_GlobalShaderInfo.ShaderGlobalMacrosMap.find(name) != s_GlobalShaderInfo.ShaderGlobalMacrosMap.end(), "Macro has not been passed from any shader!");
+		// A shader that consumed the macro may have been destroyed since (a library reload): forget it.
+		std::erase_if(s_GlobalShaderInfo.ShaderGlobalMacrosMap.at(name), [](const auto& entry) { return !entry.second.IsValid(); });
 		for (auto& [hash, shader] : s_GlobalShaderInfo.ShaderGlobalMacrosMap.at(name))
 		{
-			LUX_CORE_ASSERT(shader.IsValid(), "Shader is deleted!");
+			Ref<Shader> strong = shader.Lock();
+			if (!strong)
+				continue;
+
 			ShaderPermutationKey key;
-			key.ShaderName = shader->GetName();
+			key.ShaderName = strong->GetName();
 			key.Macros.emplace_back(name, value);
 			s_GlobalShaderInfo.PermutationCache.Add(key);
-			s_GlobalShaderInfo.DirtyShaders.emplace(shader);
+			s_GlobalShaderInfo.DirtyShaders[hash] = shader;
 		}
 	}
 
@@ -2049,10 +2058,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO(Yan): how is this going to work for dist?
 		const bool updatedAnyShaders = s_GlobalShaderInfo.DirtyShaders.size();
-		for (WeakRef<Shader> shader : s_GlobalShaderInfo.DirtyShaders)
+		for (const auto& [hash, shader] : s_GlobalShaderInfo.DirtyShaders)
 		{
-			LUX_CORE_ASSERT(shader.IsValid(), "Shader is deleted!");
-			shader->RT_Reload(true);
+			// Destroyed after it was marked: nothing left to reload.
+			if (Ref<Shader> strong = shader.Lock())
+				strong->RT_Reload(true);
 		}
 		s_GlobalShaderInfo.DirtyShaders.clear();
 

@@ -13,6 +13,8 @@
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
+#include "Lux/Editor/ComponentDocs.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -447,6 +449,15 @@ namespace Lux {
 			bool resetComponent = false;
 			bool removeComponent = false;
 
+			// The component's manual page, left of the settings gear.
+			if constexpr (!ComponentDocTopic<TComponent>::Topic.empty())
+			{
+				ImGui::SameLine(contentRegionAvailable.x - lineHeight * 2.0f - 7.0f);
+				const ImVec2 docsMin = ImGui::GetCursorScreenPos();
+				ImGuiEx::DocsButton("##ComponentDocs", ComponentDocTopic<TComponent>::Topic, ComponentDocTopic<TComponent>::Title,
+					ImRect(docsMin, ImVec2(docsMin.x + lineHeight, docsMin.y + lineHeight)));
+			}
+
 			ImGui::SameLine(contentRegionAvailable.x - lineHeight - 5.0f);
 			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{ lineHeight, lineHeight }))
 				ImGui::OpenPopup("ComponentSettings");
@@ -627,7 +638,10 @@ namespace Lux {
 		{
 			Entity entity = m_Context->GetEntityByUUID(entityID);
 			if (entity)
+			{
+				Scene::RecordPrefabRemoval(entity); // a prefab child deleted from an instance stays deleted
 				m_Context->DestroyEntity(entity);
+			}
 		}
 
 		if (!queuedDeletions.empty())
@@ -714,7 +728,10 @@ namespace Lux {
 					{
 						Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 						if (draggedEntity)
+						{
+							Scene::RecordPrefabReparent(draggedEntity, {});
 							draggedEntity.SetParent({});
+						}
 					}
 					EditorStack::Get().MarkSceneEdited("Reparent");
 				}
@@ -1114,7 +1131,10 @@ namespace Lux {
 				{
 					Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 					if (draggedEntity && draggedEntity != entity)
+					{
+						Scene::RecordPrefabReparent(draggedEntity, entity);
 						draggedEntity.SetParent(entity);
+					}
 				}
 				EditorStack::Get().MarkSceneEdited("Reparent");
 			}
@@ -2209,6 +2229,31 @@ namespace Lux {
 							if (ImGui::Button("Cancel"))
 								ImGui::CloseCurrentPopup();
 							ImGui::EndPopup();
+						}
+					}
+
+					// Prefab children deleted from this instance stay deleted when the prefab changes. An
+					// instance saved before deletions were recorded had its missing children taken as deleted
+					// (Scene::SyncPrefabInstance); Restore brings them back from the prefab.
+					if (Entity instanceRoot = Scene::FindPrefabInstanceRoot(instanceEntity))
+					{
+						const size_t removed = instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.size();
+						if (removed > 0)
+						{
+							ImGui::Spacing();
+							{
+								ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+								ImGui::Text("%zu prefab %s deleted from this instance", removed, removed == 1 ? "child" : "children");
+							}
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Restore##PrefabRemovals"))
+							{
+								const AssetHandle rootPrefabID = instanceRoot.GetComponent<PrefabComponent>().PrefabID;
+								instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.clear();
+								if (Ref<Prefab> rootPrefab = AssetManager::GetAsset<Prefab>(rootPrefabID))
+									m_Context->SyncPrefabInstance(instanceRoot, rootPrefab->GetScene());
+								EditorStack::Get().MarkSceneEdited("Restore Prefab Children");
+							}
 						}
 					}
 				}

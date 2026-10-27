@@ -12,6 +12,8 @@
 
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Entity.h"
+#include "Lux/Scene/Prefab.h"
+#include "Lux/Asset/AssetManager.h"
 
 #include "Lux/Physics2D/ContactListener2D.h"
 
@@ -146,9 +148,31 @@ namespace Lux {
 		return GetScene()->CreateEntity(nameStr).GetUUID();
 	}
 
+	// The new hierarchy's root, or 0. Translation and rotation (Euler, radians) are optional: null keeps
+	// the prefab root's own. During Play the instance's physics and scripts start at once (OnCreate runs
+	// before this returns).
+	static uint64_t Scene_InstantiatePrefab(uint64_t prefabHandle, glm::vec3* translation, glm::vec3* rotation)
+	{
+		if (!AssetManager::IsAssetHandleValid(prefabHandle) || AssetManager::GetAssetType(prefabHandle) != AssetType::Prefab)
+		{
+			LUX_CONSOLE_LOG_ERROR("Instantiate: {} is not a prefab", prefabHandle);
+			return 0;
+		}
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
+		Entity root = prefab ? GetScene()->Instantiate(prefab, translation, rotation) : Entity{};
+		return root ? (uint64_t)root.GetUUID() : 0;
+	}
+
+	static void Gizmos_DrawLine(glm::vec3* start, glm::vec3* end, glm::vec4* color, float duration, Coral::Bool32 depthTest)
+	{
+		GetScene()->AddDebugLine(*start, *end, *color, duration, depthTest);
+	}
+
 	static void Scene_DestroyEntity(uint64_t entityID)
 	{
-		GetScene()->DestroyEntity(GetEntity(entityID));
+		// Deferred to the end of the update: the caller may be the script being destroyed, inside the
+		// loop over script instances.
+		GetScene()->SubmitToDestroyEntity(GetEntity(entityID));
 	}
 
 	#pragma endregion
@@ -730,6 +754,8 @@ namespace Lux {
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);
+		LUX_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
+		LUX_ADD_INTERNAL_CALL(Gizmos_DrawLine);
 
 		LUX_ADD_INTERNAL_CALL(GetScriptInstance);
 		LUX_ADD_INTERNAL_CALL(Entity_HasComponent);

@@ -1,0 +1,129 @@
+# LuxEngine — What's Next (backlog)
+
+Everything open after the Lucky merge (`feature/lucky-merge`, commit `fe3771d7`), in one list, so it
+can travel with the PR. This is a planning document, not architecture: what is built is described in
+`.claude/docs/Architecture-LuxEngine.md`. Each item names where it comes from and how sure we are:
+
+- **✔ verified** — read in the source on 2026-10-25.
+- **◐ from a plan or note** — stated in a `docs/*_PLAN.md` or a session note; re-check before starting.
+- **Decision** — needs your call before work starts.
+
+Sizes: **S** (an hour or two), **M** (a day), **L** (several days), **XL** (a plan of its own).
+
+Standing rules still apply to every item: no temporal rendering (deferred, not on this list);
+ray tracing, terrain and DDGI/GI restart from scratch if ever picked up (not on this list);
+the DX11/DX12 scaffolding stays; nothing may make game makers install extra software.
+
+---
+
+## 1. Finish verifying the Lucky merge (do these before merging to master)
+
+| # | Item | Size | Source |
+|---|---|---|---|
+| 1.1 | **Done (2026-10-26, by you).** Click through the Help panel: F1, every section, search, back/forward, a link to a missing page, Copy on a code block, each component's **?** button. Check ImGui shows no ID-conflict popup | S | ✔ built, never driven |
+| 1.2 | **Done (2026-10-26, by you).** Run the tutorial end to end on a **new** project: Create Project → Build Scripts → Ctrl+R → Script component → Play → Export | S | ✔ `.csproj` builds with `dotnet`; the editor flow was not run |
+| 1.3 | A scene with 40 distinct sprite textures and 40 fonts: draws, no validation errors, no flicker while textures change | S | ✔ code path built, not driven |
+| 1.4 | Font cache: corrupt a `.lfa` file, change a font under the same name; both regenerate | S | ✔ by reading only; atlas generation needs the GPU, so no headless test |
+| 1.5 | Drag `tests/meshes/SharedMeshNodes.gltf` into a scene: three cubes, all collide, picking hits each, the mirrored one is not inside-out | S | ✔ engine importer tested headless (3 placements, outward winding); render/collide/pick not driven |
+| 1.6 | **Done (2026-10-26).** A Debug-build golden run with sync validation (`golden_run.py --config debug --sync-validation`) on the branch | S | ✔ `lm9-debug-sync`: 19 captures (Benchmark + RenderFeatures, every feature variant) all OK, 0 sync hazards, 0 VUIDs; Benchmark and RenderFeatures pixel-identical to `lm8`; `AssetRegistry.lzr` untouched after 19 launches. The only layer output is a performance warning, "vertex attribute not consumed by vertex shader", present in every Debug capture since 2026-10-17 (item 2.9) |
+| 1.7 | **Done (2026-10-26, by you).** Linux build of the branch (`scripts/Linux-Build.sh`): meshoptimizer, new files, `Ref.h` | M | ✔ builds and runs on Linux; earlier compile-only check in WSL also passed |
+| 1.8 | Measure editor start-up with the Help panel loading all pages and the meshoptimizer LOD cost on big imports | S | ✔ headless, Release: Help topics 22 ms cold / 2.5 ms warm (17 pages); Sponza import 436 ms with LODs (no materials), LODs measured at +170 ms offline |
+
+## 2. Bugs found but not fixed
+
+| # | Bug | Failure | Size | Source |
+|---|---|---|---|---|
+| 2.1 | **Fixed (2026-10-25).** A failed async runtime load stayed "pending" forever | `RuntimeAssetSystem::TryLoadData` publishes only successes; `RuntimeAssetManager` erases `m_PendingAssets` only when an asset arrives, so the handle is never retried or reported as failed. Same flaw the research found in Lucky. Its error log is also untagged | S | ✔ `RuntimeAssetSystem.cpp:68-85`, `RuntimeAssetManager.cpp:74,251` |
+| 2.2 | **Fixed (2026-10-25).** A StaticMesh with an explicit `SubmeshIndices` list missed the new extra placements | Only "all submeshes" (the empty list) picks up placements appended by the importer | S | ✔ `MeshSerializer.cpp` `SerializeMeshSelectionToYAML`, `StaticMesh::SetSubmeshes` |
+| 2.3 | **Fixed (2026-10-26).** The sample project registered C# build intermediates as assets | The sample's premake and `Directory.Build.props` wrote `Intermediates/` and `obj/` inside `Assets/Scripts`; they now go to the project's `Cache/ScriptBuild/` like a new project's, the stale registry entries are removed, and `Cache/` is ignored | S | ✔ sample builds with `dotnet`, no `.cs` left outside `Source/` |
+| 2.4 | **Fixed for imported placements (2026-10-26).** Mirrored placements (negative scale) rendered and collided inside-out | The importer gives a negative-determinant placement a reversed-winding copy of its index range (one per range); placement matching for explicit submesh lists uses the vertex range. Entity-level negative scale is still open: 2.8 | M | ✔ headless import of `SharedMeshNodes.gltf`: all three placements enclose positive volume |
+| 2.5 | **Fixed (2026-10-26).** C# `Entity.Destroy()` destroyed immediately, inside the script update loop | `OnDestroy` did fire, but the entity (possibly the calling script's own) was destroyed while views were being iterated. `Scene_DestroyEntity` now uses `SubmitToDestroyEntity`: the entity and its children go at the end of the frame, after `OnDestroy`. Manual updated | S | ✔ `ScriptGlue.cpp`, `Scene.cpp` post-update queue drained in all three update paths |
+| 2.6 | **Fixed (2026-10-26).** `RenderStatsPanel` was never registered | Removed (the Profiler panel replaced it); projects regenerated | S | ✔ no references left |
+| 2.7 | **Fixed (2026-10-26).** `MeshSource::GetRootNode()` returned the importer's empty placeholder node | Removed; it had no callers. `GetNodes()` stays | S | ✔ |
+| 2.8 | Entities with a negative scale render and collide inside-out | No determinant handling anywhere: `Pipeline.cpp` culling is fixed per pipeline and `JoltShapes.cpp` scales mesh-collider triangles by the entity scale. Needs per-draw front-face choice (or a mirrored pipeline variant) and reversed collider winding | M | ✔ grep: no `determinant` in `Renderer/` or `Physics/` |
+| 2.9 | Depth-only pipelines declare vertex attributes their shaders do not read | Khronos performance warning on `vkCreateGraphicsPipelines` in every Debug run ("Vertex attribute at location N not consumed by vertex shader"); harmless but noise in validation logs, and possibly a wider vertex fetch than needed. Give those pipelines a position-only input layout | S | ✔ golden logs since 2026-10-17 |
+
+## 3. Lucky research follow-ups (not in the merge)
+
+From `docs/LuckyEngine-Comparison.md` (decisions table) and `docs/LUCKY_MERGE_PLAN.md` Part 2.
+
+| # | Item | What it buys | Size | Notes |
+|---|---|---|---|---|
+| 3.1 | **Fixed-step scripting:** C# `OnFixedUpdate(float)` called once per physics step, before it | Forces and controls applied at a stable rate, independent of frame rate | M | **Decided (2026-10-26):** physics steps at a fixed rate one Jolt step at a time; `OnFixedUpdate(fixedDt)` runs once before each step (0..N per frame), Unity-style. **Done (2026-10-26):** `PhysicsScene::AdvanceFixedClock` + `SimulateStep` per step (the multi-step `Simulate` is gone), `Scene::InvokeScriptFixedUpdate` before each; manual page updated. Character controllers and kinematic targets now update per step; Box2D still steps per frame. Builds clean; not yet run in Play |
+| 3.2 | **Character controller order:** compare Lux (controller simulates after Jolt) with Lucky (before) on jump, slopes, moving platforms | Correct character physics | M | **Done (2026-10-26).** The comparison was moot: Lux's controller never touched Jolt (it integrated gravity into the transform, so characters fell through floors and `IsGrounded` was always false). Now a `JPH::CharacterVirtual` updated in Jolt's own order (before the world step, after kinematic targets). Found on the way: moving a kinematic body that had gone to sleep deadlocked `PreSimulate` (`ActivateBody` under a read lock) — fixed. Headless harness: 15 scenarios pass (land, step, wall, 30°/60° ramps, jump arc, moving platform, idle on slope, push crate, teleport, Stop). Follow-up the same day: C# `OnCollisionBegin/End` now fire for 3D (they never did, for any body: only Box2D called them) and for character controllers, one Begin/End per entity pair (`ContactPairTracker`), with a 3-step grace so pushing a crate is one contact, not ~10 a second. Harness: 26 checks pass. Triggers followed: C# `OnTriggerBegin/End` (character controllers count). Open: not yet tried in Play |
+| 3.3 | **Jolt bulk body add** (`AddBodiesPrepare/Finalize`) on Play start and prefab spawns | Faster Play start in large scenes | S | **Measured 2026-10-26, not worth doing.** Jolt's own add is <10% of Lux's `PhysicsScene::Start` (10k colliders: 2.86 ms of 36.8 ms; 1k: 4.4 ms total) and batching it changes nothing (2.86 vs 2.86 ms; OptimizeBroadPhase and first step equal). Lux's cost is its per-entity work (~3.5 µs: shape, world transform, body wrapper, map); 50k colliders start in 174 ms. Revisit only if Play start shows up in a profile |
+| 3.4 | **Done (2026-10-26) for the editor.** Dependency-aware geometry cache: generated LODs kept in `<project>/Cache/Geometry/*.lgeo`, keyed by the geometry contents + LOD settings + meshoptimizer version, validated on read, written atomically, older versions pruned | Sponza import 290 → 138 ms on a hit (Release, headless) | M | ✔ headless harness: hit equals generated output byte for byte; corrupt and truncated files rejected and rewritten identically. Follow-up done the same day: the asset pack carries the LODs (the cache bytes after the mesh's index buffer, `HasBakedLODs`); the player decodes them instead of generating: Sponza 16.7 ms against 439 ms, identical output, damaged bytes regenerated |
+| 3.5 | **Validate the rest of the asset pack:** scene/prefab/texture/audio entries and the pack index itself, like the mesh reader now does | A damaged game cannot crash the player | M | **Done (2026-10-26)** for Release/Dist: `StreamReader` bounds every length and count by the bytes left; the index rejects bad magic, impossible counts, null/duplicate handles and out-of-file ranges (no more `VERIFY` in `AssetPack::Load`/`ReadAppBinary`); pack dispatch catches exceptions per asset; textures need a colour format, ≤16384 px and exactly one mip of pixels. Headless harness: real 398 MB pack loads, 4,200 fuzzed indexes (698 load, all ranges in-file; 3,502 rejected), stream/texture/entry cases pass. Follow-ups done the same day: `ReadRaw` no longer asserts (the runtime project reader checks its stream); prefabs are packed, prefabs held in script fields are listed, and scripts spawn them with `Entity.Instantiate` (physics and scripts start once the instance is whole, which also fixed bodies of prefabs dropped in during Simulate) |
+| 3.6 | **Profiling readiness:** golden/perf captures wait for content readiness, record warm-up and accepted-sample counts, flag timeouts | Trustworthy A/B numbers | S | **Done (2026-10-26).** Golden capture already waited for idle streaming + renderer readiness with a timeout; added: 30 untimed warm-up frames after the readback, frames with restarted streaming dropped and counted, an end after 4x frames marked `complete: false`, frame/GPU median/p95/p99/min/max/stddev, pass occurrence, and build/GPU/VSync/readiness metadata; Content Browser thumbnails paused during captures; `golden_run.py` prints and compares these and flags non-comparable pairs. Stats checked standalone (1..100: median 50, p95 95, p99 99). Not yet run in a real capture |
+| 3.7 | **Cluster light culling:** pre-transform lights once, split cluster tests across lanes, 16-bit light IDs, report list overflow visibly | GPU time with many lights | M | ◐ research R7; profile first **Done (2026-10-26).** Lights are transformed once per 64-light chunk per workgroup (shared memory) instead of twice per froxel: ManyLights (656 lights) 0.105 -> 0.089 ms, Benchmark 0.067 -> 0.056 ms. Overflow is visible: the counters are read back (a few frames late) into renderer stats, the Renderer Debugger and golden perf.json, with a one-time warning (a 60 m-radius light test: 345,903 entries asked, 268,361 dropped, warned). 16-bit IDs skipped: the lists cost nothing measurable to read |
+| 3.8 | **Shadow caster volume** (Lucky's PSC) for cascades; test tall off-screen casters and low sun | Fewer missed or wasted shadow casters | M | ◐ research R9 **Done (2026-10-26), and a bigger bug under it.** The sun's direction meant opposite things to shading and to the cascades: every sample scene's sun sat below the horizon (no direct light) and directional shadows were inverted whenever a sun was above it. Fixed in `Scene::CollectLightEnvironment` (the renderer gets the direction toward the light) and `CalculateCascades` (eye on the sun side). Then the caster volume: depth clamp in the directional shadow pipelines and no near plane in the cascade caster frustums (CPU and GPU culling), so off-screen casters far sunward still shadow (LowSun: 60 m pillars 90-130 m behind the camera). No measured cost. Every golden image changes (sun-lit now): a new reference is needed |
+| 3.9 | **Split deferred lighting** (base / punctual / area draws) as an opt-in experiment with HDR parity | Possibly lower register pressure | M | ◐ research R8; Lucky's win was on Apple M2 only **Measured 2026-10-26, not worth doing here.** Deferred lighting is 0.33 ms for 656 lights at 1280x720 on an RTX 4070 Ti (ManyLights; Benchmark 0.24 ms); splitting can only win a fraction of that, and Lucky's gain was an Apple-GPU register effect |
+| 3.10 | **Prefab structural reconciliation:** added, deleted and re-parented children follow the prefab; keep variants | Prefabs that survive hierarchy edits | L | **Decided (2026-10-26):** overrides kept, Unity-style: prefab-added children appear in every instance, instance-added children stay as overrides, a child deleted in an instance stays deleted (recorded removal), re-parenting follows the prefab unless overridden; variants keep working. **Done (2026-10-26):** `Scene::SyncPrefabInstance` + removal/re-parent records on the instance root (saved in the scene), run on prefab save, scene open and pack build; variants via the base old/new diff. Two older bugs fixed on the way: dropped-in instances had `PrefabID` 0 (unlinked: no propagation, no overrides UI), and instantiated children landed at their local coordinates in world space when the prefab root was not at the origin. Headless harness: 19 checks pass. Follow-ups done the same day: sibling order follows the prefab (user-added children keep their slots); instances saved before records existed are converted on first sync (missing = deleted, moved = moved, against the pre-edit prefab when saving one); `PrefabID` 0 instances are relinked on scene open. 24 harness checks pass. Then: variants follow the base's sibling order; an old scene's conversion logs what it took as deleted and the Prefab section offers Restore (which data cannot decide, the user now can, in one click). Open: not yet tried in the editor |
+| 3.11 | **Debug drawing from C#** (`Gizmos.DrawLine` etc.), persisted per update phase so it does not flicker | Gameplay debugging | M | **Done (2026-10-26).** C# `Gizmos.DrawLine/DrawRay/DrawWireBox/DrawWireSphere` (colour, optional duration and depth test) → `Scene::AddDebugLine`; lines live per phase (OnUpdate frame / OnFixedUpdate step / timed), drawn through the render packet's world overlay in Play, not in Dist. Builds; not yet tried in Play |
+| 3.12 | **Project-owned services:** separate the process-wide .NET/Jolt host from per-project script and physics state | Clean project switching, isolated tests | L | ◐ research runtime §1; only if a concrete bug needs it **Done (2026-10-27), measured first.** A headless loop switching projects (asset manager, audio, script assemblies) and running a scene each time found the real lifetime bugs: the Vercidium SDK leaks ~143 MiB per destroyed world after updates (every Play session), now a process-level pool of reused worlds; and unloaded script contexts were only freed by a later GC, now collected on unload. Afterwards: 12 switches with scenes, no growth in memory, handles or threads, no crash in 36 switches. The .NET host was already per process and scripts per project; physics holds no project state. Not done: a dead slot (bytes) per script instance per Play in `ScriptEngine::m_ManagedObjects` (append-only), freed on reload |
+| 3.13 | **Crash watchdog:** a small parent process that survives the editor, collects dumps and the last log, shows a minimal report | Diagnosable crashes and hangs | L | ◐ research; existing Aftermath stays **Done (2026-10-27), Windows editor.** `Lux-Watchdog.exe` (95 KB, no dependencies) writes the dump from outside on an unhandled exception, assert, abort or terminate, a quiet hang dump after 30 s without a main-loop heartbeat, and a report folder (dump, report.txt with exception and module+offset, session logs) with one dialog when the editor ends without a clean exit. Tested with a harness in every mode; fail-fast and stack overflow end without a dump (reported). Linux and Lux-Runtime: not yet |
+| 3.14 | **Owner-tagged deferred events:** queued main-thread work tagged with its owner, dropped when the owner goes | Async jobs that outlive a panel or project | M | ◐ research (Lucky `EventBus`) **Audited 2026-10-26, not needed yet.** Nothing queued to the main thread outlives an owner today: `Application::QueueEvent` carries only app-lifetime window actions, `SelectionChangedEvent` (the one deferred event) has no handler, and no background job posts results to a panel or project. Build it with the first async job that does (async thumbnails, say) |
+| 3.15 | **Editor tool host:** owner-thread, undo-aware scene mutations for scripted or external tools | Basis for automation and tests | L | ◐ research; see the SolidCraft MCP note **Done (2026-10-27), core + tests (decided: no external bridge or C# frontend yet).** `EditorToolHost`: bounded any-thread queue run on the main thread between user edits, typed outcomes, stale-scene and running-scene rejection, one undo step per edit; built-in entity and generic component commands through the serializer. Headless harness: self-tests, 200 concurrent submits from four threads, cancel at shutdown |
+| 3.16 | **Generated C# API reference** in the manual from ScriptCore XML comments, checked against the built assembly | Docs that cannot drift | M | ✔ manual has hand-written API notes **Done (2026-10-26).** `tools/ScriptApiDocs` turns ScriptCore.dll + its XML docs into `Editor/Resources/Docs/api` (66 pages, an index by category, the Help panel's API Reference section); every public member now has a summary, and `--check` (in CI) fails on stale pages or undocumented members |
+| 3.17 | **More manual pages:** materials, Material Editor, Game View, physics layers, export settings, audio authoring in FMOD, prefabs walkthrough, a 2D tutorial | Complete onboarding | M | ✔ 17 pages today **Done (2026-10-27).** New pages: Materials, Material Editor, Game View, Physics Layers, Authoring Audio in FMOD Studio, Prefabs Step by Step, Your First 2D Game; Exporting a Game gained its settings and preflight. Written from the editor source, linked from the index and related pages |
+| 3.18 | **Point-light octahedral shadow atlas** instead of six spot tiles per light | Memory/descriptor cost of point shadows | M | ◐ research R9; only if measured as a bottleneck **Measured 2026-10-26, not a bottleneck.** With 8 shadowed point lights (ManyLights) the point/spot atlas pass costs nothing measurable once cached |
+| 3.19 | **Animation pipeline:** import skeletons and clips, compressed sampling (ACL is vendored), blending, root motion, GPU skinning, reload | Animated characters | XL | ✔ asset types exist (`Skeleton`, `Animation`), no runtime pipeline; earlier plans called this "a separate plan later" |
+
+## 4. Plans already in flight
+
+Check each plan's status section before starting; these lines summarise them.
+
+| # | Plan | Open part | Source |
+|---|---|---|---|
+| 4.1 | `AREA_LIGHT_SHADOWS_PLAN.md` | Phases 1-3 marked "code written, not yet run"; Phase 4 runtime checks are yours. The merged PR #35 contains shadowed area lights | ✔ plan status lines |
+| 4.2 | `VR_PLAN.md` | Phase 1 coded and builds, untested at runtime; Phases 2-7 (stereo, Game View preview, lens distortion, headset output, calibration, hardening) | ◐ note + plan |
+| 4.3 | `BEAM_EDITOR_PLAN.md` | Phases 0-11 (upstream editor core, never lose work, syntax, search, engine links, C# build errors inline, Roslyn spike, Vim mode, local history) | ◐ note says "start Phase 0"; Roslyn needs .NET only, no new install |
+| 4.4 | `MATERIAL_EDITOR_PLAN.md` | Phases 4+ (advanced lobes, material instances, triplanar, node graph, graph-to-shader, node library) | ◐ Phases 1-3 visible in the code (Material Editor, thumbnails, Lux Standard inputs) |
+| 4.5 | `BINDLESS_PLAN.md` | One resource heap, shared geometry pool, multi-draw per pass, shadows and everything else through the heap | ◐ status not recorded in the plan |
+| 4.6 | `AUDIO_VISUALISATION_PLAN.md` | Occlusion visualisation, material view, rooms/reverb showcase | ◐ status not recorded in the plan |
+| 4.7 | Quality category system | Per-category quality tiers: serialization and UI still pending | ◐ note |
+| 4.8 | Multi-threading Phase 4 | The asset-upload race | ◐ note |
+| 4.9 | Panel-state memory layer | Unity-like per-panel state on top of `imgui.ini` (never remove ImGui) | ◐ your queued goal |
+| 4.10 | NRD denoiser | Signal wiring left; **Decision:** NRD is temporal by design, so it conflicts with the standing rule unless used only in a non-temporal mode | ◐ note |
+| 4.11 | Async compute | Scaffolded and serialized; GTAO/SSR not on compute | ◐ note |
+| 4.12 | Retained render scene | `FlushDrawList` ~1.4 ms and the moving-shadow +0.2 ms remain | ◐ note |
+| 4.13 | Golden settle residual | Lighting penumbra not bit-stable after a hitch (60 px, max 1) | ◐ note |
+| 4.14 | Vercidium EULA clause 5.1(d) | Resolve before audio work ships in an engine release | ◐ note — **Decision** (legal) |
+
+## 5. Known gaps written into the architecture doc
+
+| # | Gap | Size | Source |
+|---|---|---|---|
+| 5.1 | Physics ignores switched-off entities and components; colliders have no `Enabled` (needs Jolt add/remove during Play) | M | ✔ Architecture § 2.4 "Not done yet" |
+| 5.2 | No C# `Entity.Active` and no `Enabled` on C# components | S | ✔ same section; it was your call to leave it out then |
+| 5.3 | `NativeScriptComponent` is not covered by the switch-off rules | S | ✔ same section |
+| 5.4 | The simulation thread is scaffolded but nothing constructs it | XL | ✔ `Threading.md` |
+| 5.5 | Linux runs single-threaded by default (render-thread races with Wayland/Vulkan swapchain) | L | ✔ `Threading.md` |
+| 5.6 | Accessibility captions are not shown in runtime VR; no C# `Lux.VR` API | M | ◐ `VR_PLAN.md` follow-ups |
+| 5.7 | Wide lines rely on a fork patch to NRI; quad-expanded lines are the portable follow-up | M | ◐ `NRI_MIGRATION_PLAN.md` D15 |
+| 5.8 | Per-submesh acoustic materials (one acoustic geometry per entity today) | M | ◐ `AUDIO_VISUALISATION_PLAN.md` |
+| 5.9 | `KHR_materials_diffuse_transmission` import (the vendored Assimp lacks it) and a transmission colour texture | M | ✔ Architecture § 2.3 |
+| 5.10 | Discord Social SDK runtime is unverified | S | ◐ note |
+
+## 6. Bigger features worth a plan of their own
+
+| # | Feature | Why | Size |
+|---|---|---|---|
+| 6.1 | Skeletal animation (3.19) and an animation graph editor | Characters | XL |
+| 6.2 | Material node graph (Material Editor plan Phases 8-12) | Artist workflow | XL |
+| 6.3 | UI system for games (screen-space layout, buttons, text input) beyond the 2D `Text` component | Menus and HUDs without custom code | XL |
+| 6.4 | Particle system | Effects | XL |
+| 6.5 | Navigation meshes and path finding | AI movement | L |
+| 6.6 | Input actions (named actions bound to keys and gamepad, rebindable) over the raw `Input` API | Rebindable controls | M |
+| 6.7 | Save-game API for scripts | Persisting player progress | M |
+| 6.8 | Scene streaming / additive scenes | Larger worlds | XL |
+| 6.9 | A runtime path tracer or reference renderer | Lookdev and validation — **Decision:** this is ray tracing, which restarts from scratch by your rule | XL |
+
+---
+
+## Suggested order
+
+1. Section 1 (verify the merge). **2.1** and **2.2** are done.
+2. Decisions: **3.1** fixed-step semantics, **3.10** prefab rules, **4.10** NRD, **4.14** EULA.
+3. **3.4** geometry cache (pays back the LOD import cost) and **3.5** asset-pack validation.
+4. Then pick the next large plan: VR (4.2), Beam (4.3), Material graph (6.2) or Animation (6.1).

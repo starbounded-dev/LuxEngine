@@ -131,6 +131,12 @@ Why each branch exists:
 **Do not "optimise" this into a single unconditional queue write.** Each branch is load-bearing, and
 the failure mode of getting it wrong is a corrupted command buffer, not a clean crash.
 
+The queue (`Renderer/RenderCommandQueue.h`) has no fixed capacity: commands are stored in 4 MiB pages,
+and a frame that fills one continues in the next (kept for later frames), so `Allocate` never fails
+and a payload never moves. Each payload is aligned for its own callable (`alignof(FuncT)`). The
+Profiler panel's "Render Commands" row shows the last frame's usage and the peak
+(`Renderer::GetRenderCommandQueueStats`).
+
 `Renderer::SubmitResourceFree` mirrors the same branching, but the release always lands on the
 render thread, tagged with the render frame number current at that point in the command stream.
 `Renderer::RT_BeginFrame()`, run first in every render-thread frame, closes the ending frame at the
@@ -294,6 +300,11 @@ event processed until the asset thread has synced its assets back to the main th
 entry blocks everything queued behind it, so a deferred dispatch must always be followed by a
 `SyncEvents()`; the per-frame call guarantees that. Use
 `DispatchEvent<T, /*DispatchImmediately=*/true>` only from the main thread.
+
+**Editor tool requests** (`EditorToolHost`) are a separate, bounded queue: `Submit`/`Cancel` from any
+thread, `ProcessQueue` on the main thread after the undo poll. A caller waits on the returned
+`shared_future`; it must never wait for a result **on the main thread** before `ProcessQueue` has run,
+or it deadlocks. Commands run outside the queue lock, so one may submit or cancel others.
 
 ---
 

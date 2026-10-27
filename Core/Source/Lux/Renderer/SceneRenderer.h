@@ -23,6 +23,9 @@
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/DebugRenderer.h"
+#include "Lux/Renderer/RHI/RHIResources.h"
+
+#include <atomic>
 #include "Lux/Renderer/RendererTypes.h"
 #include "Lux/Renderer/ShaderDefs.h"
 #include "Lux/Core/Math/Frustum.h"
@@ -515,6 +518,17 @@ namespace Lux {
 		static constexpr uint32_t ClusterAvgLightsPerCluster = 16;
 		static constexpr uint32_t MaxClusterPointIndices = ClusterCount * ClusterAvgLightsPerCluster;
 		static constexpr uint32_t MaxClusterSpotIndices = ClusterCount * ClusterAvgLightsPerCluster;
+
+		// The cluster light counters, copied each frame into a CPU-readable buffer per frame in flight and
+		// read when that slot comes round again (the GPU is done with it then). Shared with render-thread
+		// lambdas, so it outlives a SceneRenderer destroyed with work still queued.
+		struct ClusterCounterReadback : public RefCounted
+		{
+			std::vector<NRIBuffer> Buffers;     // render thread
+			std::vector<bool> Written;          // render thread
+			std::atomic<uint32_t> PointRequested{ 0 };
+			std::atomic<uint32_t> SpotRequested{ 0 };
+		};
 		struct PassProfile
 		{
 			const char* Name = "";
@@ -553,6 +567,12 @@ namespace Lux {
 			uint32_t VisibleInstances = 0;
 			uint32_t GPUVisibleInstances = 0;
 			uint32_t CulledInstances = 0;
+			// Cluster light lists (read back a few frames late): entries the froxels asked for, and lights
+			// dropped from them because the list was full (nonzero = some froxels are missing lights).
+			uint32_t ClusterPointIndicesRequested = 0;
+			uint32_t ClusterSpotIndicesRequested = 0;
+			uint32_t ClusterPointLightsDropped = 0;
+			uint32_t ClusterSpotLightsDropped = 0;
 			uint32_t FrustumCulledInstances = 0;
 			uint32_t MainViewCulledInstances = 0;
 			uint32_t ShadowCulledInstances = 0;
@@ -981,6 +1001,9 @@ namespace Lux {
 			// a Cutout material's prepass and shadow draws the alpha-tested ones.
 			bool        TwoSided = false;
 			bool        AlphaMasked = false;
+			// The instances' transform mirrors (negative determinant): their draws take the clockwise
+			// front-face pipelines. Not set on shadow or selection keys, whose pipelines do not cull.
+			bool        Mirrored = false;
 
 			bool operator<(const MeshKey& o) const
 			{
@@ -992,7 +1015,8 @@ namespace Lux {
 				if (IsSelected != o.IsSelected) return IsSelected < o.IsSelected;
 				if (GPUCullGroup != o.GPUCullGroup) return GPUCullGroup < o.GPUCullGroup;
 				if (TwoSided != o.TwoSided) return TwoSided < o.TwoSided;
-				return AlphaMasked < o.AlphaMasked;
+				if (AlphaMasked != o.AlphaMasked) return AlphaMasked < o.AlphaMasked;
+				return Mirrored < o.Mirrored;
 			}
 
 			bool operator==(const MeshKey& o) const
@@ -1005,7 +1029,8 @@ namespace Lux {
 					&& StaticShadowCaster == o.StaticShadowCaster
 					&& GPUCullGroup == o.GPUCullGroup
 					&& TwoSided == o.TwoSided
-					&& AlphaMasked == o.AlphaMasked;
+					&& AlphaMasked == o.AlphaMasked
+					&& Mirrored == o.Mirrored;
 			}
 		};
 
@@ -1030,7 +1055,7 @@ namespace Lux {
 				hash = mix(hash ^ (uint64_t)key.MaterialHandle);
 				hash = mix(hash ^ ((uint64_t)key.SubmeshIndex | ((uint64_t)key.LODIndex << 32)));
 				hash = mix(hash ^ ((uint64_t)key.IsSelected | ((uint64_t)key.StaticShadowCaster << 1) | ((uint64_t)key.GPUCullGroup << 2)
-					| ((uint64_t)key.TwoSided << 3) | ((uint64_t)key.AlphaMasked << 4)));
+					| ((uint64_t)key.TwoSided << 3) | ((uint64_t)key.AlphaMasked << 4) | ((uint64_t)key.Mirrored << 5)));
 				return (size_t)hash;
 			}
 		};
@@ -1292,11 +1317,15 @@ namespace Lux {
 			uint32_t Frame = std::numeric_limits<uint32_t>::max();
 			uint64_t GeometryPipeline = 0;
 			uint64_t GeometryTwoSidedPipeline = 0;
+			uint64_t GeometryMirroredPipeline = 0;
+			uint64_t GeometryTwoSidedMirroredPipeline = 0;
 			uint64_t TransparentGeometryPipeline = 0;
 			uint64_t PreDepthPipeline = 0;
 			uint64_t PreDepthTwoSidedPipeline = 0;
+			uint64_t PreDepthMirroredPipeline = 0;
 			uint64_t PreDepthMaskedPipeline = 0;
 			uint64_t PreDepthMaskedTwoSidedPipeline = 0;
+			uint64_t PreDepthMaskedMirroredPipeline = 0;
 			uint64_t PreDepthShader = 0;
 			uint64_t PreDepthMaterial = 0;
 			uint64_t SelectedPipeline = 0;
@@ -1330,6 +1359,7 @@ namespace Lux {
 		// The prepass pipeline a draw's raster variant takes, as a sort key, so the prepass switches
 		// pipeline once per variant.
 		static uint64_t GetPreDepthPipelineSortKey(const PassSortKeys& keys, const MeshKey& key);
+		static uint64_t GetGeometryPipelineSortKey(const PassSortKeys& keys, const MeshKey& key);
 		TransformMapData& GetMeshTransformBucket(const MeshKey& key);
 		// True when the main view is culled and LOD-selected on the GPU through cull groups this frame:
 		// GPU-driven rendering on and the mesh-shader prepass (which needs CPU LOD buckets) not in use.
@@ -1337,7 +1367,7 @@ namespace Lux {
 		// staticCaster: the instance has not moved for StaticShadowCasterStableFrames; only such a caster
 		// joins a shadow cull group.
 		void AddToCullGroup(const SubmeshSubmitData& data, const Ref<StaticMesh>& staticMesh, const Ref<MeshSource>& meshSource,
-			const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex, bool staticCaster);
+			const Ref<MaterialTable>& materialTable, uint32_t submeshIndex, uint32_t sceneInstanceIndex, bool staticCaster, bool mirrored);
 		void ClearCullGroups();
 		// Adds every cull group's per-LOD draws to the pass draw lists (FlushDrawList, before sorting).
 		void ExpandCullGroupDraws();
@@ -1817,9 +1847,14 @@ namespace Lux {
 		// two-sided one) and sets inside m_PreDepthPass, whose own shader is depth-only.
 		Ref<RenderPass>  m_PreDepthMaskedPass;
 		Ref<Pipeline>    m_PreDepthMaskedTwoSidedPipeline;
+		// Clockwise front faces, for mirrored instances' culled draws (MeshKey::Mirrored). A mirrored
+		// two-sided draw takes the two-sided pipeline: depth has no front or back.
+		Ref<Pipeline>    m_PreDepthMirroredPipeline;
+		Ref<Pipeline>    m_PreDepthMaskedMirroredPipeline;
 		// Mesh-shader variant (created only when VK_EXT_mesh_shader is available).
 		Ref<Pipeline>    m_PreDepthMeshletPipeline;
 		Ref<Pipeline>    m_PreDepthMeshletTwoSidedPipeline; // without back-face culling (MeshKey::TwoSided)
+		Ref<Pipeline>    m_PreDepthMeshletMirroredPipeline; // clockwise front faces (MeshKey::Mirrored)
 		Ref<RenderPass>  m_PreDepthMeshletPass;
 
 		// ── Tiled light culling ──────────────────────────────────────────────
@@ -1938,6 +1973,12 @@ namespace Lux {
 		Ref<Pipeline>    m_GeometryTwoSidedPipeline;    // opaque GBuffer without culling (MeshKey::TwoSided)
 		Ref<Pipeline>    m_TransparentGeometryPipeline; // transparent forward PBR
 		Ref<Pipeline>    m_TransparentBackFacesPipeline; // the same, back faces only: a two-sided transparent's first draw
+		// The four above with clockwise front faces, for mirrored instances (MeshKey::Mirrored): culling and
+		// the two-sided shaders' gl_FrontFacing normal flip see the sides as authored.
+		Ref<Pipeline>    m_GeometryMirroredPipeline;
+		Ref<Pipeline>    m_GeometryTwoSidedMirroredPipeline;
+		Ref<Pipeline>    m_TransparentMirroredPipeline;
+		Ref<Pipeline>    m_TransparentBackFacesMirroredPipeline;
 		Ref<Pipeline>    m_DeferredLightingPipeline;    // fullscreen deferred lighting
 		Ref<RenderPass>  m_GeometryPass;                // opaque GBuffer
 		Ref<RenderPass>  m_GeometryPassTransparent;     // transparent forward
@@ -2037,6 +2078,10 @@ namespace Lux {
 		// By RenderPrimitiveID: 1 when the proxy is in a shadow cull group. Moving one of these changes the
 		// groups, so it rebuilds them; moving any other proxy keeps them.
 		std::vector<uint8_t> m_ShadowCullGroupPrimitives;
+		// By RenderPrimitiveID: whether the proxy's grouped draws were mirrored (MeshKey::Mirrored). A move
+		// that changes it rebuilds the groups.
+		enum class CullGroupMirroring : uint8_t { None, Unmirrored, Mirrored };
+		std::vector<CullGroupMirroring> m_CullGroupPrimitiveMirroring;
 		// Order-independent hash of the static casters: the static shadow caches re-render when it moves.
 		uint64_t m_ShadowStaticCasterSetHash = 0;
 		uint64_t m_LastShadowStaticCasterSetHash = 0;
@@ -2200,7 +2245,7 @@ namespace Lux {
 		uint64_t m_LastSpotShadowStateHash = 0;
 		glm::vec3 m_CachedShadowCameraPosition{ 0.0f };
 		glm::vec3 m_CachedShadowCameraForward{ 0.0f, 0.0f, -1.0f };
-		glm::vec3 m_CachedShadowLightDirection{ 0.0f, -1.0f, 0.0f };
+		glm::vec3 m_CachedShadowLightDirection{ 0.0f, 1.0f, 0.0f }; // toward the light
 		float m_CachedShadowFOV = 0.0f;
 		float m_CachedShadowNear = 0.0f;
 		float m_CachedShadowFar = 0.0f;
@@ -2220,6 +2265,8 @@ namespace Lux {
 
 		SceneRendererOptions m_Options;
 		Statistics           m_Statistics;
+		Ref<ClusterCounterReadback> m_ClusterCounterReadback = Ref<ClusterCounterReadback>::Create();
+		bool m_ClusterOverflowWarned = false;
 	};
 
 } // namespace Lux
