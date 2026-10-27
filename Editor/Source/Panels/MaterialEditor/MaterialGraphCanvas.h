@@ -34,6 +34,11 @@ namespace Lux {
 		// Toolbar, canvas and the selected node's inspector, filling the available region.
 		void Draw(const Ref<MaterialAsset>& material, const UndoPushFn& pushUndo);
 
+		// While a node is previewed: the memory-only material the Material Editor's preview shows instead
+		// (the graph with that node's output as emission); 0 otherwise.
+		AssetHandle GetPreviewMaterial() const { return m_PreviewMaterial; }
+		void StopPreview();
+
 		// The graph as text, for dirty checks and undo snapshots.
 		static std::string Snapshot(const MaterialGraph& graph);
 		static void Restore(MaterialGraph& graph, const std::string& snapshot);
@@ -47,6 +52,7 @@ namespace Lux {
 		void CopySelection(const MaterialGraph& graph);
 		void Paste(MaterialGraph& graph, ImVec2 offset);
 		void TrackChanges(const Ref<MaterialAsset>& material, MaterialGraph& graph, const UndoPushFn& pushUndo);
+		void UpdatePreview(const Ref<MaterialAsset>& material, const MaterialGraph& graph);
 
 	private:
 		ax::NodeEditor::EditorContext* m_Context = nullptr;
@@ -72,6 +78,10 @@ namespace Lux {
 
 		std::string m_Baseline;   // the graph before the edit in progress
 		std::string m_LastCode;   // the generated code the registry last got
+
+		uint32_t m_PreviewNode = 0;
+		AssetHandle m_PreviewMaterial = 0;
+		std::string m_PreviewSource; // the graph and node the preview material was built from
 	};
 
 }

@@ -166,6 +166,8 @@ namespace Lux
 		m_ActiveDocument = -1;
 		m_PendingCloseIndex = -1;
 		m_Preview = nullptr;
+		if (m_GraphCanvas)
+			m_GraphCanvas->StopPreview();
 	}
 
 	MaterialEditorPanel::Document* MaterialEditorPanel::GetActiveDocument()
@@ -295,8 +297,11 @@ namespace Lux
 		{
 			if (!m_Preview)
 				m_Preview = Ref<MaterialPreview>::Create();
-			if (m_Preview->GetMaterial() != document->Handle)
-				m_Preview->SetMaterial(document->Handle);
+			// A previewed graph node replaces the material on the preview shape.
+			const AssetHandle shown = m_ShowGraph && m_GraphCanvas && m_GraphCanvas->GetPreviewMaterial()
+				? m_GraphCanvas->GetPreviewMaterial() : document->Handle;
+			if (m_Preview->GetMaterial() != shown)
+				m_Preview->SetMaterial(shown);
 			UI_Preview(previewWidth);
 		}
 		ImGui::EndChild();

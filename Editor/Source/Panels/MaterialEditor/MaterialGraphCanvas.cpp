@@ -97,7 +97,61 @@ namespace Lux {
 
 	MaterialGraphCanvas::~MaterialGraphCanvas()
 	{
+		StopPreview();
 		ed::DestroyEditor(m_Context);
+	}
+
+	void MaterialGraphCanvas::StopPreview()
+	{
+		m_PreviewNode = 0;
+		m_PreviewSource.clear();
+		if (!m_PreviewMaterial)
+			return;
+		MaterialGraphRegistry::Unregister(m_PreviewMaterial);
+		if (Project::GetActive())
+			AssetManager::RemoveAsset(m_PreviewMaterial);
+		m_PreviewMaterial = 0;
+	}
+
+	void MaterialGraphCanvas::UpdatePreview(const Ref<MaterialAsset>& material, const MaterialGraph& graph)
+	{
+		const MaterialGraphNode* node = m_PreviewNode ? graph.FindNode(m_PreviewNode) : nullptr;
+		if (!node || MaterialGraph::GetPins(*node).Outputs.empty())
+		{
+			StopPreview();
+			return;
+		}
+
+		// Rebuilt (and recompiled) only when the graph's code or the previewed node changes.
+		std::string source = std::format("{}|{}", m_PreviewNode, m_LastCode);
+		if (source == m_PreviewSource)
+			return;
+		m_PreviewSource = std::move(source);
+
+		// The same graph, with the node's first output as emission over a black surface.
+		Ref<MaterialGraph> preview = graph.Clone();
+		preview->DispatchIndex = 0;
+		preview->HasPackedParameters = false;
+		uint32_t outputID = 0;
+		for (const MaterialGraphNode& candidate : preview->Nodes)
+		{
+			if (candidate.Type == "Output")
+				outputID = candidate.ID;
+		}
+		std::erase_if(preview->Links, [outputID](const MaterialGraphLink& link) { return link.ToNode == outputID; });
+		const uint32_t black = preview->AddNode("Vector", glm::vec2(0.0f))->ID;
+		preview->Connect(black, 0, outputID, 0);
+		preview->Connect(m_PreviewNode, 0, outputID, 3);
+
+		if (!m_PreviewMaterial)
+			m_PreviewMaterial = AssetManager::AddMemoryOnlyAsset(Ref<MaterialAsset>::Create());
+		if (Ref<MaterialAsset> previewMaterial = AssetManager::GetAsset<MaterialAsset>(m_PreviewMaterial))
+		{
+			previewMaterial->SetGraph(preview);
+			previewMaterial->SetGraphParameters(material->GetGraphParameters());
+			MaterialGraphRegistry::Register(m_PreviewMaterial);
+			MaterialGraphRegistry::MarkDirty();
+		}
 	}
 
 	std::string MaterialGraphCanvas::Snapshot(const MaterialGraph& graph)
@@ -125,6 +179,8 @@ namespace Lux {
 		if (material->Handle != m_Material || generation != s_SeenGeneration)
 		{
 			const bool switched = material->Handle != m_Material;
+			if (switched)
+				StopPreview();
 			m_Material = material->Handle;
 			s_SeenGeneration = generation;
 			m_Placed.clear();
@@ -152,6 +208,7 @@ namespace Lux {
 		ImGui::EndChild();
 
 		TrackChanges(material, *graph, pushUndo);
+		UpdatePreview(material, *graph);
 	}
 
 	void MaterialGraphCanvas::DrawToolbar(const Ref<MaterialAsset>& material, MaterialGraph& graph)
@@ -582,6 +639,21 @@ namespace Lux {
 		ImGui::TextColored(CategoryColor(info->Category), "%s", std::string(info->Name).c_str());
 		if (!info->Help.empty())
 			ImGui::TextWrapped("%s", std::string(info->Help).c_str());
+		if (node->Type != "Output" && !MaterialGraph::GetPins(*node).Outputs.empty())
+		{
+			if (m_PreviewNode == node->ID)
+			{
+				if (ImGui::SmallButton("Stop Preview"))
+					StopPreview();
+			}
+			else if (ImGui::SmallButton("Preview This Node"))
+			{
+				m_PreviewNode = node->ID;
+				m_PreviewSource.clear();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Shows this node's first output on the preview shape (as light, over black). Recompiles once.");
+		}
 		ImGui::Separator();
 
 		if (!info->Modes.empty())

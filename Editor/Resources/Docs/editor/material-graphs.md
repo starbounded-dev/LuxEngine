@@ -12,6 +12,7 @@ Open a material in the [Material Editor](material-editor) and press **Make Graph
 
 - **Add a node:** right-click the canvas, press **Space**, or use **Add Node**. Type to search, then press **Enter** to add the first match.
 - **Connect:** drag from an output (right) to an input (left). An input takes one link, so a new link replaces the old one. Drag a link into empty space to add a node already connected to it.
+- **Preview a node:** select it and press **Preview This Node**. The preview shape then shows that node's output, as light over black, until you press **Stop Preview**. It recompiles once.
 - **Edit a node:** select it. Its settings show on the right: values for inputs with nothing connected, its mode, its texture, and its parameter name.
 - **Delete** removes the selection. **Ctrl+C**, **Ctrl+V** and **Ctrl+D** copy, paste and duplicate.
 - **Comments** (from the node list) are boxes to group and label part of a graph. Set their text and colour on the right.

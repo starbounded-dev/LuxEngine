@@ -124,6 +124,7 @@ namespace Lux {
 					continue;
 				}
 
+				material->MarkChanged(); // also reaches memory-only owners (the node preview)
 				graph->DispatchIndex = ++count;
 				functions += Function(std::format("LuxMaterialGraph{}", count), result.Body);
 				dispatch += std::format("\t\tcase {0}u: LuxMaterialGraph{0}(IN, OUT); break;\n", count);
