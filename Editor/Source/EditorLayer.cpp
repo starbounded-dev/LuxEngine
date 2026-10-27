@@ -562,6 +562,22 @@ namespace Lux {
 		m_CommandPalette = CreateScope<CommandPalette>();
 		RegisterCommands();
 
+		m_ToolHost = CreateScope<EditorToolHost>();
+		m_ToolHost->SetUndoHook([this](const std::string& label, const std::vector<UUID>& entities, bool sceneWide)
+		{
+			// Committed at once, so each tool request is its own undo step.
+			EditorStack& stack = EditorStack::Get();
+			if (sceneWide)
+				stack.MarkSceneEdited();
+			else
+				stack.MarkEntitiesEdited(entities);
+			stack.ConsumeSceneEdit();
+			stack.ConsumeLabel();
+			m_PendingUndoLabel = label;
+			CommitSceneSnapshot();
+			stack.ClearEditScope();
+		});
+
 		{
 			SplashScreen::Callbacks splashCallbacks;
 			splashCallbacks.IsProjectOpen = []() { return Project::GetActive() != nullptr; };
@@ -1003,6 +1019,15 @@ namespace Lux {
 			// After the panels have drawn (and possibly signalled an edit), decide whether to record
 			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
 			PollSceneEditForUndo();
+
+			// Tool requests run against the scene the user sees, and only between the user's own
+			// edits, so a tool edit never merges into (or splits) a user's undo step.
+			if (m_ToolHost)
+			{
+				m_ToolHost->SetScene(m_ActiveScene, m_SceneState == SceneState::Edit);
+				if (!m_UndoCommitPending && !EditorStack::Get().HasPendingSceneEdit() && !ImGui::IsAnyItemActive())
+					m_ToolHost->ProcessQueue();
+			}
 			UI_UndoToast();
 			UI_ScriptToast();
 			UI_PrefabEditBanner();

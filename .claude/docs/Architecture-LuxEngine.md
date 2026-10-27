@@ -713,6 +713,22 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the
   stack. Play/Simulate get a separate transient history (discarded on Stop; undo there rebuilds and
   restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
+- `EditorToolHost` (`Core/.../Editor/EditorToolHost.h`, commands in `EditorToolCommands.cpp`) — scene
+  queries and edits for scripted or external tools. Any thread `Submit`s a named command with JSON
+  parameters into a bounded queue (256) and gets a `shared_future<ToolResult>` (Completed / Rejected /
+  Cancelled / Failed, a message, a JSON result). `EditorLayer` owns one, points it at `m_ActiveScene`
+  every frame (editable only in Edit state) and runs `ProcessQueue` right after `PollSceneEditForUndo`,
+  only while no user edit is pending or active, so tool and user edits never share an undo step. A
+  request is checked when it runs, not when it was made: the scene must still be the generation it names
+  (`scene.info` returns it; a different scene object starts a new generation), and mutating commands are
+  rejected while the scene runs. Each completed mutating request goes through the host's undo hook,
+  which `EditorLayer` commits at once as one undo step labelled with the command name. Built-ins:
+  `tools.list`, `scene.info`, `entity.list/get/create/delete/rename/reparent`,
+  `component.add/set/remove`. Component edits are generic: serialize the entity, change the YAML, patch
+  it back with `SceneSerializer::ApplyEntitySnapshots` (the undo path) and serialize again to reject an
+  unknown component or field. Delete and reparent record prefab removals/reparents as the Hierarchy
+  does. Entity IDs travel as strings (a uint64 does not fit a JSON number). No frontend yet: it is the
+  base for automation and tests; `EditorToolHost::RunSelfTests` runs from the Renderer Debugger.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
   LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,

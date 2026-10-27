@@ -301,6 +301,11 @@ entry blocks everything queued behind it, so a deferred dispatch must always be 
 `SyncEvents()`; the per-frame call guarantees that. Use
 `DispatchEvent<T, /*DispatchImmediately=*/true>` only from the main thread.
 
+**Editor tool requests** (`EditorToolHost`) are a separate, bounded queue: `Submit`/`Cancel` from any
+thread, `ProcessQueue` on the main thread after the undo poll. A caller waits on the returned
+`shared_future`; it must never wait for a result **on the main thread** before `ProcessQueue` has run,
+or it deadlocks. Commands run outside the queue lock, so one may submit or cancel others.
+
 ---
 
 ## FMOD callbacks

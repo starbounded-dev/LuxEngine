@@ -30,6 +30,7 @@
 #include "Lux/Renderer/VertexBuffer.h"
 
 #include "entt/entt.hpp"
+#include "Lux/Editor/EditorToolHost.h"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Tools/GoldenCapture.h"
@@ -265,6 +266,9 @@ namespace Lux
 		Ref<GameViewPanel> m_GameViewPanel;
 
 		Scope<CommandPalette> m_CommandPalette;
+		// Scene queries and edits for scripted or external tools; its queue runs after the undo poll,
+		// between user edits, and each completed edit is one undo step.
+		Scope<EditorToolHost> m_ToolHost;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
 		Scope<StartupSplash> m_StartupSplash; // the loading splash: OnAttach, then the first few frames
 
