@@ -1,6 +1,6 @@
 # The Editor at a Glance
 
-The editor is one window made of dockable panels. Drag a panel's tab to move it; **View → Reset Layout** puts everything back. Every panel can be shown or hidden from the **View** menu or found in the command palette (**Tools → Command Palette**, **Ctrl+Shift+P**).
+The editor is one window made of dockable panels. Drag a panel's tab to move it; **View → Reset Layout** puts everything back. To keep an arrangement, use **View → Layouts → Save Layout...** and give it a name; it then appears in **View → Layouts**, which switches to it, and **Delete Layout** removes it. A layout remembers where the panels are, which are open, and what some of them were showing (the open sections of Scene Renderer, the Help page). The editor also remembers all of this between sessions. Every panel can be shown or hidden from the **View** menu or found in the command palette (**Tools → Command Palette**, **Ctrl+Shift+P**).
 
 ## The main panels
 

@@ -28,6 +28,7 @@
 #include <GLFW/glfw3.h>
 
 #include <cmath>
+#include <optional>
 #include <cstdlib>
 
 // TODO(Yan): WIP
@@ -42,6 +43,8 @@ namespace Lux {
 		constexpr float k_GlassPopupBgAlpha = 0.72f;
 		// The windows that asked for a glass backdrop this frame (RequestGlassBackdrop). Main thread.
 		std::vector<ImGuiID> s_GlassBackdropRequests;
+		// imgui.ini text to load before the next NewFrame (QueueIniSettingsLoad). Main thread.
+		std::optional<std::string> s_PendingIniSettings;
 
 	}
 
@@ -339,6 +342,12 @@ namespace Lux {
 		ImGui_ImplGlfw_NewFrame();
 		UpdateNavGamepad();
 
+		if (s_PendingIniSettings)
+		{
+			ImGui::LoadIniSettingsFromMemory(s_PendingIniSettings->data(), s_PendingIniSettings->size());
+			s_PendingIniSettings.reset();
+		}
+
 		ImGui::NewFrame();
 		ImGuizmo::BeginFrame();
 
@@ -351,6 +360,12 @@ namespace Lux {
 			m_DimmedPopupBgAlpha = popupAlpha;
 			m_PopupBgDimmed = true;
 		}
+	}
+
+	void ImGuiLayer::QueueIniSettingsLoad(std::string ini)
+	{
+		LUX_CORE_ASSERT(Application::GetMainThreadID() == std::this_thread::get_id());
+		s_PendingIniSettings = std::move(ini);
 	}
 
 	void ImGuiLayer::RequestGlassBackdrop()

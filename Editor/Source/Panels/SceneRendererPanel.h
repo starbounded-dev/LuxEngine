@@ -23,6 +23,8 @@ namespace Lux {
 		void SetDebugViewCallbacks(std::function<void()> onResetDebugViews, std::function<void()> onDebugViewsChanged);
 		void SetDebugViewsRuntimeSuspended(bool suspended);
 		virtual void OnImGuiRender(bool& isOpen) override;
+		virtual void SaveState(Yaml::Writer& out) const override;
+		virtual void LoadState(const Yaml::Node& state) override;
 
 	private:
 		void ApplyProjectSettingsToContext();

@@ -95,6 +95,12 @@ namespace Lux
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void DockViewsWhereLegacyViewportWas();
 		void SetEditorLayoutMode(bool simple);
+		// Named layouts (View > Layouts): a folder per layout under <user data>/Layouts holding the
+		// window and docking settings (imgui.ini) and the panels' open state and remembered state.
+		std::vector<std::string> GetSavedLayouts() const;
+		void SaveLayout(const std::string& name);
+		void LoadLayout(const std::string& name);
+		void UI_SaveLayoutPopup();
 		void UI_TitlebarTransport(float titlebarWidth);
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();
@@ -385,6 +391,8 @@ namespace Lux
 		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
 		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
 		bool m_PendingLayoutReset = false;
+		bool m_OpenSaveLayoutPopup = false;
+		char m_LayoutNameBuffer[64] = {};
 		bool m_LegacyViewportDockChecked = false;
 		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;

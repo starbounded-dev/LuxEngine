@@ -61,6 +61,10 @@ namespace Lux {
 		// Main thread, between a window's ImGui::Begin and End: a glass backdrop for that window this
 		// frame, when they are on. For overlays with a translucent background.
 		static void RequestGlassBackdrop();
+		// Main thread: replaces the window and docking settings with `ini` (imgui.ini text) just
+		// before the next frame starts, which is when ImGui can rebuild the dock tree. Windows the
+		// text does not mention keep their place.
+		static void QueueIniSettingsLoad(std::string ini);
 
 		ImGuiRenderer* GetImGuiRenderer();
 	public:

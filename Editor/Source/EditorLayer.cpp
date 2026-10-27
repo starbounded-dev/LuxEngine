@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <fstream>
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Core/Math/AABB.h"
@@ -41,6 +42,7 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Utilities/CommandLineParser.h"
@@ -749,6 +751,8 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		m_GoldenCapture.reset();
 		SaveEditorPreferences();
+		if (m_PanelManager)
+			m_PanelManager->Serialize();
 
 		// The build subprocess cannot be interrupted, and its worker writes into m_RuntimeBuildJob.
 		m_PendingRuntimeExport.reset();
@@ -1617,6 +1621,34 @@ namespace Lux {
 				if (ImGui::MenuItem("Reset Layout"))
 					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
 
+				if (ImGui::BeginMenu("Layouts"))
+				{
+					const std::vector<std::string> layouts = GetSavedLayouts();
+					for (const std::string& layout : layouts)
+					{
+						if (ImGui::MenuItem(layout.c_str()))
+							LoadLayout(layout);
+					}
+					if (layouts.empty())
+						ImGui::MenuItem("No saved layouts", nullptr, false, false);
+					ImGui::Separator();
+					if (ImGui::MenuItem("Save Layout..."))
+						m_OpenSaveLayoutPopup = true;
+					if (ImGui::BeginMenu("Delete Layout", !layouts.empty()))
+					{
+						for (const std::string& layout : layouts)
+						{
+							if (ImGui::MenuItem(layout.c_str()))
+							{
+								std::error_code error;
+								std::filesystem::remove_all(FileSystem::GetPersistentStoragePath() / "Layouts" / layout, error);
+							}
+						}
+						ImGui::EndMenu();
+					}
+					ImGui::EndMenu();
+				}
+
 				if (ImGui::BeginMenu("Camera Bookmarks"))
 				{
 					for (int slot = 1; slot <= 9; slot++)
@@ -1711,6 +1743,91 @@ namespace Lux {
 		}
 
 		ImGui::EndGroup();
+
+		UI_SaveLayoutPopup();
+	}
+
+	std::vector<std::string> EditorLayer::GetSavedLayouts() const
+	{
+		std::vector<std::string> layouts;
+		std::error_code error;
+		for (const auto& entry : std::filesystem::directory_iterator(FileSystem::GetPersistentStoragePath() / "Layouts", error))
+		{
+			if (entry.is_directory() && std::filesystem::exists(entry.path() / "imgui.ini"))
+				layouts.push_back(entry.path().filename().string());
+		}
+		std::ranges::sort(layouts);
+		return layouts;
+	}
+
+	void EditorLayer::SaveLayout(const std::string& name)
+	{
+		const std::filesystem::path directory = FileSystem::GetPersistentStoragePath() / "Layouts" / name;
+		std::error_code error;
+		std::filesystem::create_directories(directory, error);
+		if (error)
+		{
+			LUX_CONSOLE_LOG_ERROR("Couldn't save layout '{}': {}", name, error.message());
+			return;
+		}
+
+		ImGui::SaveIniSettingsToDisk((directory / "imgui.ini").string().c_str());
+		m_PanelManager->Serialize(directory / "Panels.yaml");
+		LUX_CONSOLE_LOG_INFO("Saved layout '{}'", name);
+	}
+
+	void EditorLayer::LoadLayout(const std::string& name)
+	{
+		const std::filesystem::path directory = FileSystem::GetPersistentStoragePath() / "Layouts" / name;
+		std::ifstream ini(directory / "imgui.ini", std::ios::binary);
+		if (!ini)
+		{
+			LUX_CONSOLE_LOG_ERROR("Layout '{}' is missing its imgui.ini", name);
+			return;
+		}
+
+		ImGuiLayer::QueueIniSettingsLoad(std::string(std::istreambuf_iterator<char>(ini), {}));
+		if (std::filesystem::exists(directory / "Panels.yaml"))
+			m_PanelManager->Deserialize(directory / "Panels.yaml");
+	}
+
+	void EditorLayer::UI_SaveLayoutPopup()
+	{
+		if (m_OpenSaveLayoutPopup)
+		{
+			ImGui::OpenPopup("Save Layout");
+			m_OpenSaveLayoutPopup = false;
+		}
+
+		if (!ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+
+		if (ImGui::IsWindowAppearing())
+			ImGui::SetKeyboardFocusHere();
+		const bool entered = ImGui::InputText("Name", m_LayoutNameBuffer, sizeof(m_LayoutNameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
+
+		// The name is a folder name: no path separators or characters Windows rejects.
+		std::string name = m_LayoutNameBuffer;
+		std::erase_if(name, [](char c) { return std::string_view("<>:\"/\\|?*").find(c) != std::string_view::npos || static_cast<unsigned char>(c) < 32; });
+		while (!name.empty() && (name.back() == ' ' || name.back() == '.'))
+			name.pop_back();
+		const bool exists = !name.empty() && std::filesystem::exists(FileSystem::GetPersistentStoragePath() / "Layouts" / name);
+		if (exists)
+			ImGui::TextDisabled("Replaces the saved layout '%s'.", name.c_str());
+
+		ImGui::BeginDisabled(name.empty());
+		const bool save = ImGui::Button("Save") || (entered && !name.empty());
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+			ImGui::CloseCurrentPopup();
+		if (save)
+		{
+			SaveLayout(name);
+			m_LayoutNameBuffer[0] = '\0';
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
 	}
 
 	void EditorLayer::UI_DrawTitlebar()

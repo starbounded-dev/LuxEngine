@@ -27,6 +27,9 @@ namespace Lux {
 
 		// Shows `topic` as the newest history entry and brings the window forward on its next draw.
 		void OpenTopic(std::string_view topic);
+
+		virtual void SaveState(Yaml::Writer& out) const override;
+		virtual void LoadState(const Yaml::Node& state) override;
 	private:
 		struct Topic
 		{

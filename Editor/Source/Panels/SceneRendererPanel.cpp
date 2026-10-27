@@ -10,6 +10,7 @@
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
@@ -925,6 +926,26 @@ namespace Lux {
 			SyncProjectSettingsFromContext();
 
 		ImGui::End();
+	}
+
+	void SceneRendererPanel::SaveState(Yaml::Writer& out) const
+	{
+		out << Yaml::Key << "DebugViewsOpen" << Yaml::Value << m_CardDebugViews;
+		out << Yaml::Key << "QualityOpen" << Yaml::Value << m_CardQuality;
+		out << Yaml::Key << "ScreenSpaceOpen" << Yaml::Value << m_CardScreenSpace;
+		out << Yaml::Key << "ShadowsOpen" << Yaml::Value << m_CardShadows;
+		out << Yaml::Key << "PostFXOpen" << Yaml::Value << m_CardPostFX;
+		out << Yaml::Key << "ColorGradingOpen" << Yaml::Value << m_CardColorGrading;
+	}
+
+	void SceneRendererPanel::LoadState(const Yaml::Node& state)
+	{
+		m_CardDebugViews = state["DebugViewsOpen"].as<bool>(m_CardDebugViews);
+		m_CardQuality = state["QualityOpen"].as<bool>(m_CardQuality);
+		m_CardScreenSpace = state["ScreenSpaceOpen"].as<bool>(m_CardScreenSpace);
+		m_CardShadows = state["ShadowsOpen"].as<bool>(m_CardShadows);
+		m_CardPostFX = state["PostFXOpen"].as<bool>(m_CardPostFX);
+		m_CardColorGrading = state["ColorGradingOpen"].as<bool>(m_CardColorGrading);
 	}
 
 

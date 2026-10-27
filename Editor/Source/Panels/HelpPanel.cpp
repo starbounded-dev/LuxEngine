@@ -8,6 +8,7 @@
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
+#include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -160,6 +161,18 @@ namespace Lux {
 	{
 		Navigate(std::string(topic), true);
 		m_FocusRequested = true;
+	}
+
+	void HelpPanel::SaveState(Yaml::Writer& out) const
+	{
+		out << Yaml::Key << "Page" << Yaml::Value << m_CurrentTopic;
+	}
+
+	void HelpPanel::LoadState(const Yaml::Node& state)
+	{
+		// The page opens without taking focus: restoring a layout should not raise the manual.
+		if (std::string page = state["Page"].as<std::string>(""); !page.empty() && FindTopic(page))
+			Navigate(std::move(page), true);
 	}
 
 	void HelpPanel::Navigate(std::string topic, bool addToHistory)

@@ -178,7 +178,8 @@ splash renders ImGui's first frame from inside `OnAttach`, `io.IniFilename` must
 Windows, `$XDG_DATA_HOME/LuxEngine` (default `~/.local/share/LuxEngine`) on Linux. The editor keeps
 everything machine-local there: `App.lsettings` (`ApplicationSpecification::SettingsPath`, which
 defaults to `./App.lsettings` for Lux-Runtime), `imgui.ini` (`io.IniFilename`, set in
-`EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, and `logs/` (the editor
+`EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, `Layouts/<name>/` (saved
+layouts: `imgui.ini` plus `Panels.yaml`), and `logs/` (the editor
 defines `LUX_LOGS_IN_PERSISTENT_STORAGE` before including `EntryPoint.h`; Lux-Runtime logs to
 `./logs`). Every run writes its own `LUX_<date>_<pid>.log` / `APP_<date>_<pid>.log`, so concurrent
 instances don't clobber each other; `Log::Init` keeps the newest 10 sessions. Warnings and errors
@@ -708,10 +709,18 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
 (`Editor/Source/`).
 
 - `EditorPanel` (`Core/.../Editor/EditorPanel.h`) — `RefCounted` base with `OnImGuiRender(bool&
-  isOpen)`, plus optional `OnEvent`, `OnProjectChanged`, `SetSceneContext`, `OnClose`.
+  isOpen)`, plus optional `OnEvent`, `OnProjectChanged`, `SetSceneContext`, `OnClose`, and
+  `SaveState(Yaml::Writer&)` / `LoadState(const Yaml::Node&)`: what the panel remembers (open
+  sections, current page), written as keys of a `State` map beside its open state.
 - `PanelManager` — `AddPanel<T>(category, strID, isOpenByDefault, args...)`, `GetPanel<T>(strID)`,
-  `RemovePanel`, and `Serialize` / `Deserialize` of open state. Panels are grouped by
-  `PanelCategory`.
+  `RemovePanel`, and `Serialize` / `Deserialize` of open state and panel state, to
+  `EditorLayout.yaml` or a given file. It saves when a panel opens or closes, before reloading on a
+  project change, and in `EditorLayer::OnDetach` (panel state has no other save point). Panels are
+  grouped by `PanelCategory`.
+- Named layouts (View → Layouts, `EditorLayer::SaveLayout` / `LoadLayout`) sit on top of
+  `imgui.ini`, which stays ImGui's own: saving copies the ini (`SaveIniSettingsToDisk`) and the panel
+  file into `Layouts/<name>/`; loading queues the ini with `ImGuiLayer::QueueIniSettingsLoad`, applied
+  just before the next `ImGui::NewFrame` (where docking can rebuild its tree), and loads the panels.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
 - `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo

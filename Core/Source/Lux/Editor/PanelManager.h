@@ -49,8 +49,10 @@ namespace Lux {
 		void SetSceneContext(const Ref<Scene>& context);
 		void OnProjectChanged(const Ref<Project>& project);
 
-		void Serialize() const;
-		void Deserialize();
+		// The open state and SaveState of every panel. Without a path: the per-user
+		// EditorLayout.yaml; a saved layout passes its own file.
+		void Serialize(const std::filesystem::path& path = {}) const;
+		void Deserialize(const std::filesystem::path& path = {});
 
 		std::unordered_map<uint32_t, PanelData>& GetPanels(PanelCategory category) { return m_Panels[(size_t)category]; }
 		const std::unordered_map<uint32_t, PanelData>& GetPanels(PanelCategory category) const { return m_Panels[(size_t)category]; }
