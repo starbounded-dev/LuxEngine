@@ -1661,7 +1661,8 @@ namespace Lux {
 			uint32_t  ShadowBlockerSampleCount = 16;
 			glm::vec4 ShadowFilterParams = { 1.25f, 1.5f, 0.0f, 0.0f }; // x=dir PCF texels, y=spot PCF texels
 			uint32_t  ShadowFilterSampleCount = 24;
-			uint32_t  ShadowKernelPadding[3] = { 0, 0, 0 };
+			float     Time = 0.0f; // seconds, for material graphs
+			uint32_t  ShadowKernelPadding[2] = { 0, 0 };
 			// xy = filter tap i, zw = blocker-search tap i; each a Vogel disk over its own count.
 			glm::vec4 ShadowKernel[ShadowKernelSize] = {};
 		} m_RendererDataUB;

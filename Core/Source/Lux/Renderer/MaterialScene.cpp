@@ -274,6 +274,33 @@ namespace Lux {
 			assignTexture(surface.DetailMaskMap, GPUMaterialFlags::HasDetailMaskTexture, data.DetailTextureIndices.z);
 			data.DetailTextureIndices.w = (uint32_t)surface.Mapping;
 			data.Detail = glm::vec4(surface.DetailTiling, glm::max(surface.DetailNormalStrength, 0.0f), glm::clamp(surface.TriplanarSharpness, 1.0f, 64.0f));
+
+			// A graph material: its function in the surface shaders, and its parameters' values.
+			if (Ref<MaterialGraph> graph = materialAsset->GetGraph(); graph && graph->DispatchIndex)
+			{
+				data.TransmissionTextureIndices.y = graph->DispatchIndex;
+				float* scalars = &data.GraphParameters[0].x;
+				for (const MaterialGraphParameter& parameter : graph->Compile().Parameters)
+				{
+					const MaterialGraphParameterValue value = materialAsset->GetGraphParameter(parameter);
+					switch (parameter.Kind)
+					{
+						case MaterialGraphParameterKind::Float:
+							scalars[parameter.Slot] = value.Value.x;
+							break;
+						case MaterialGraphParameterKind::Color:
+							data.GraphParameters[parameter.Slot / 4] = glm::vec4(ToLinearColor(glm::vec3(value.Value)), value.Value.w);
+							break;
+						case MaterialGraphParameterKind::Texture:
+						{
+							uint32_t textureIndex = InvalidGPUTextureIndex;
+							assignTexture(value.Texture, GPUMaterialFlags::None, textureIndex, parameter.SRGB ? TextureColorSpace::SRGB : TextureColorSpace::Linear);
+							scalars[parameter.Slot] = glm::uintBitsToFloat(textureIndex);
+							break;
+						}
+					}
+				}
+			}
 		}
 
 		data.Metadata = glm::uvec4(

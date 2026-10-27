@@ -61,6 +61,7 @@ void main()
 #include <Samplers.glslh>
 #include <MaterialSurface.glslh>
 #include <MaterialMapping.glslh>
+#include <MaterialGraph.glslh>
 #include <LuxGBuffer.glslh>
 
 struct VertexOutput
@@ -163,6 +164,29 @@ void main()
 	vec3 emissive = GetGPUMaterialEmissive(gpuMaterial);
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE))
 		emissive *= LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.x, materialMipBias).rgb;
+	float specular = GetGPUMaterialSpecular(gpuMaterial, 0.5);
+
+#if LUX_MATERIAL_GRAPH_COUNT > 0
+	// A graph material: its graph sets the values its output connects; the rest stay as above.
+	uint graphIndex = gpuMaterial.TransmissionTextureIndices.y;
+	if (graphIndex != 0u)
+	{
+		LuxGraphInput graphInput = LuxMakeGraphInput(gpuMaterial, Input.TexCoord, Input.WorldPosition, vertexNormal, Input.WorldNormals * faceSign, InputObjectIndex, materialMipBias);
+		LuxGraphOutput graph = LuxGraphOutput(baseColor, metalness, roughness, emissive, alpha, occlusion, worldNormal, specular);
+		LuxEvaluateMaterialGraph(graphIndex, graphInput, graph);
+		baseColor = max(graph.BaseColor, vec3(0.0));
+		metalness = clamp(graph.Metallic, 0.0, 1.0);
+		roughness = clamp(graph.Roughness, 0.05, 1.0);
+		emissive = max(graph.Emission, vec3(0.0));
+		alpha = graph.Opacity;
+		occlusion = clamp(graph.Occlusion, 0.0, 1.0);
+		worldNormal = graph.Normal;
+		specular = clamp(graph.Specular, 0.0, 1.0);
+		if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
+			discard;
+	}
+#endif
+
 	o_Emissive = vec4(emissive, 1.0);
 
 	LuxGBufferData gbuffer;
@@ -185,7 +209,7 @@ void main()
 	gbuffer.Metalness = metalness;
 	gbuffer.Roughness = roughness;
 	gbuffer.AmbientOcclusion = occlusion;
-	gbuffer.Specular = GetGPUMaterialSpecular(gpuMaterial, 0.5);
+	gbuffer.Specular = specular;
 	gbuffer.MaterialID = GetInstanceMaterialIndex(InputObjectIndex);
 	gbuffer.ObjectID = GetInstancePrimitiveID(InputObjectIndex);
 

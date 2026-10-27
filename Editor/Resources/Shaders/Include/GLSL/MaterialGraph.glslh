@@ -1,0 +1,77 @@
+#ifndef LUX_MATERIAL_GRAPH_GLSLH
+#define LUX_MATERIAL_GRAPH_GLSLH
+
+// Material graphs: what a graph's surface function reads and writes, and the generated per-project
+// include with every graph's function (MaterialGraphRegistry writes it to the shader cache).
+// LUX_MATERIAL_GRAPH_COUNT is 0 when the project has no graphs, and the passes then skip graphs.
+
+#include <MaterialScene.glslh>
+#include <Samplers.glslh>
+#include <MaterialSurface.glslh>
+#include <LuxNoise.glslh>
+
+struct LuxGraphInput
+{
+	vec2 UV;
+	vec3 WorldPosition;
+	vec3 ObjectPosition;
+	vec3 Normal;          // world normal from the mesh
+	mat3 TangentFrame;    // world tangent, binormal, normal
+	vec3 ViewDirection;   // toward the camera
+	vec3 CameraPosition;
+	float Time;
+	float MipBias;
+	vec4 Params[8];       // the material row's GraphParameters
+};
+
+// Starts as the standard material's values; a graph overwrites the ones its output connects.
+struct LuxGraphOutput
+{
+	vec3 BaseColor;
+	float Metallic;
+	float Roughness;
+	vec3 Emission;
+	float Opacity;
+	float Occlusion;
+	vec3 Normal;          // world shading normal
+	float Specular;
+};
+
+LuxGraphInput LuxMakeGraphInput(GPUMaterial material, vec2 texCoord, vec3 worldPosition, vec3 normal, mat3 tangentFrame, uint objectIndex, float mipBias)
+{
+	LuxGraphInput graphInput;
+	graphInput.UV = texCoord;
+	graphInput.WorldPosition = worldPosition;
+	mat4 transform = GetInstanceTransform(objectIndex);
+	graphInput.ObjectPosition = inverse(mat3(transform)) * (worldPosition - transform[3].xyz);
+	graphInput.Normal = normalize(normal);
+	graphInput.TangentFrame = tangentFrame;
+	graphInput.CameraPosition = u_Scene.CameraPosition;
+	graphInput.ViewDirection = normalize(u_Scene.CameraPosition - worldPosition);
+	graphInput.Time = u_RendererData.Time;
+	graphInput.MipBias = mipBias;
+	for (int i = 0; i < 8; i++)
+		graphInput.Params[i] = material.GraphParameters[i];
+	return graphInput;
+}
+
+vec3 LuxGraphNormalMap(uint textureIndex, vec2 uv, float strength, LuxGraphInput graphInput)
+{
+	vec3 normalSample = SampleMaterialSceneTexture(textureIndex, uv, graphInput.MipBias).rgb;
+	return LuxApplyNormalMap(graphInput.Normal, graphInput.TangentFrame, normalSample, strength);
+}
+
+vec4 LuxGraphTriplanar(uint textureIndex, vec3 position, vec3 normal, float sharpness, float mipBias)
+{
+	vec3 weights = pow(abs(normal), vec3(max(sharpness, 1.0)));
+	weights /= max(weights.x + weights.y + weights.z, 1e-5);
+	return SampleMaterialSceneTexture(textureIndex, position.zy, mipBias) * weights.x
+		+ SampleMaterialSceneTexture(textureIndex, position.xz, mipBias) * weights.y
+		+ SampleMaterialSceneTexture(textureIndex, position.xy, mipBias) * weights.z;
+}
+
+#ifndef LUX_MATERIAL_GRAPH_TEST
+#include <MaterialGraphs.glslh>
+#endif
+
+#endif // LUX_MATERIAL_GRAPH_GLSLH

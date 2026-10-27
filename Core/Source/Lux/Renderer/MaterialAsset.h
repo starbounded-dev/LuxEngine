@@ -6,6 +6,7 @@
 #include "Lux/Core/Base.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Renderer/Material.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraph.h"
 
 #include <algorithm>
 #include <atomic>
@@ -255,6 +256,24 @@ namespace Lux {
 		static void PropagateToInstances(AssetHandle parent);
 		// The inheritable values, named as in the .lmat file.
 		static std::span<const std::string_view> GetInstanceKeys();
+		// The override key for a graph parameter.
+		static std::string GetGraphParameterKey(std::string_view parameter) { return "Param." + std::string(parameter); }
+
+		// -- Material graph ----------------------------------------------------------------------
+		// A graph material computes some of its surface inputs per pixel (MaterialGraph). An instance
+		// shares its parent's graph; only a material without a parent owns one and is edited.
+		Ref<MaterialGraph> GetGraph() const { return m_Graph; }
+		// Owns `graph` (null makes this a standard material again). Registering it for compilation is
+		// the caller's: MaterialGraphRegistry::Register.
+		void SetGraph(Ref<MaterialGraph> graph) { m_Graph = std::move(graph); m_Revision++; }
+		// A parameter's value here: this material's own, else the graph's default.
+		MaterialGraphParameterValue GetGraphParameter(const MaterialGraphParameter& parameter) const;
+		void SetGraphParameter(std::string_view name, const MaterialGraphParameterValue& value);
+		const std::map<std::string, MaterialGraphParameterValue, std::less<>>& GetGraphParameters() const { return m_GraphParameters; }
+		void SetGraphParameters(std::map<std::string, MaterialGraphParameterValue, std::less<>> values) { m_GraphParameters = std::move(values); m_Revision++; }
+
+		// Makes MaterialScene rebuild this material's GPU row (its graph or graph index changed).
+		void MarkChanged() { m_Revision++; }
 	private:
 		void SetDefaults();
 		template<typename T>
@@ -295,6 +314,9 @@ namespace Lux {
 
 		AssetHandle m_Parent = 0;
 		std::set<std::string, std::less<>> m_Overrides;
+
+		Ref<MaterialGraph> m_Graph;
+		std::map<std::string, MaterialGraphParameterValue, std::less<>> m_GraphParameters;
 
 		friend class MaterialEditor;
 	};

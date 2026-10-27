@@ -7,6 +7,7 @@
 #include "Shader.h"
 
 #include "Renderer2D.h"
+#include "MaterialGraph/MaterialGraphRegistry.h"
 #include "RendererAPI.h"
 //#include "SceneRenderer.h"
 #include "ShaderPack.h"
@@ -438,6 +439,7 @@ namespace Lux {
 
 	void Renderer::Init()
 	{
+		MaterialGraphRegistry::EnsureGeneratedInclude();
 		LUX_PROFILE_FUNCTION_AUTO;
 		s_Data = lnew RendererData();
 		s_RendererData = lnew RendererData();

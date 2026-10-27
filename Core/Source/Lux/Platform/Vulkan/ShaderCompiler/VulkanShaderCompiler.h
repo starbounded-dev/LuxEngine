@@ -52,6 +52,9 @@ namespace Lux {
 
 		static Ref<RHIShader> Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile = false, bool disableOptimization = false);
 		static bool TryRecompile(Ref<RHIShader> shader);
+		// Compiles one GLSL stage from source with the engine's include paths and macros, keeping
+		// nothing: the compiler's messages, empty when it compiled. For checking generated code.
+		static std::string TryCompileGLSL(const std::string& source, ShaderStage stage);
 	private:
 		std::map<ShaderStage, std::string> PreProcess(const std::string& source);
 		std::map<ShaderStage, std::string> PreProcessGLSL(const std::string& source);

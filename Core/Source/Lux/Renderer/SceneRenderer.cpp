@@ -6064,6 +6064,7 @@ namespace Lux {
 			m_RendererDataUB.DistanceMipBiasEnd = glm::max(m_Options.DistanceMipBiasEnd, m_Options.DistanceMipBiasStart + 1.0f);
 			m_RendererDataUB.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
 			m_RendererDataUB.GPUSceneDebugMode = ResolveGPUSceneDebugMode(m_DebugViewMode);
+			m_RendererDataUB.Time = Application::Get().GetTime();
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;

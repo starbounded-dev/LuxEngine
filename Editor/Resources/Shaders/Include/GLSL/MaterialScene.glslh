@@ -19,7 +19,7 @@ struct GPUMaterial
 	vec4 UVOffset;        // xy = offset
 	uvec4 ExtraTextureIndices; // x = emissive, y = occlusion, z = height, w = packed-map channel selects
 	vec4 Transmission;    // rgb = linear diffuse transmission colour, w = factor (0 = none)
-	uvec4 TransmissionTextureIndices; // x = factor map (alpha), yzw reserved
+	uvec4 TransmissionTextureIndices; // x = factor map (alpha), y = material graph index (0 = none), zw reserved
 	vec4 Refraction;           // x = transmission (transparent rows only), y = IOR, z = thickness, w = attenuation distance
 	vec4 AttenuationColor;     // rgb = linear attenuation colour
 	vec4 Lobes;                // x = clearcoat, y = clearcoat roughness, z = anisotropy, w = anisotropy rotation (radians)
@@ -27,6 +27,7 @@ struct GPUMaterial
 	vec4 Subsurface;           // rgb = linear subsurface colour, w = thickness
 	uvec4 DetailTextureIndices; // x = detail albedo, y = detail normal, z = detail mask, w = mapping (0 UV, 1 triplanar world, 2 triplanar object)
 	vec4 Detail;               // xy = detail tiling, z = detail normal strength, w = triplanar sharpness
+	vec4 GraphParameters[8];   // a graph material's parameters; its graph index is TransmissionTextureIndices.y
 };
 
 layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials

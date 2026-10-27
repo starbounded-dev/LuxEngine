@@ -96,7 +96,7 @@ namespace Lux {
 		glm::vec4 UVOffset = glm::vec4(0.0f); // xy offset, zw reserved
 		glm::uvec4 ExtraTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, GPUMaterialDefaultChannelSelects); // x emissive, y occlusion, z height, w channel selects
 		glm::vec4 Transmission = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f); // rgb linear diffuse transmission colour, w factor (0 = none)
-		glm::uvec4 TransmissionTextureIndices = glm::uvec4(InvalidGPUTextureIndex, 0u, 0u, 0u); // x factor map (alpha), yzw reserved
+		glm::uvec4 TransmissionTextureIndices = glm::uvec4(InvalidGPUTextureIndex, 0u, 0u, 0u); // x factor map (alpha), y material graph index (0 = none), zw reserved
 		glm::vec4 Refraction = glm::vec4(0.0f, 1.5f, 0.0f, 0.0f); // x transmission (transparent rows only), y IOR, z thickness, w attenuation distance
 		glm::vec4 AttenuationColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f); // rgb linear attenuation colour
 		glm::vec4 Lobes = glm::vec4(0.0f, 0.1f, 0.0f, 0.0f); // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
@@ -104,8 +104,11 @@ namespace Lux {
 		glm::vec4 Subsurface = glm::vec4(0.0f, 0.0f, 0.0f, 0.5f); // rgb linear subsurface colour, w thickness
 		glm::uvec4 DetailTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, 0u); // x detail albedo, y detail normal, z detail mask, w mapping (MaterialMapping)
 		glm::vec4 Detail = glm::vec4(4.0f, 4.0f, 1.0f, 4.0f); // xy detail tiling, z detail normal strength, w triplanar sharpness
+		// A graph material's parameters (MaterialGraphParameter::Slot): floats, linear colours and
+		// bindless texture indices (as float bits). Its graph index is TransmissionTextureIndices.y.
+		glm::vec4 GraphParameters[8] = {};
 	};
-	static_assert(sizeof(GPUMaterialData) == 18 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
+	static_assert(sizeof(GPUMaterialData) == 26 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
 
 	struct GPUMaterialBuildInput
 	{

@@ -9,6 +9,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <fstream>
@@ -378,6 +379,30 @@ namespace Lux
 
 			out << Yaml::Key << "MaterialFlags" << Yaml::Value << materialFlags;
 
+			// A graph: written by the material that owns it; an asset pack also gives every instance its
+			// own copy and the graph's index in the exported shaders.
+			const bool packed = textureReferenceSerialization == TextureReferenceSerialization::AssetHandles;
+			if (Ref<MaterialGraph> graph = materialAsset->GetGraph(); graph && (packed || !materialAsset->GetParent()))
+			{
+				out << Yaml::Key << "Graph" << Yaml::Value;
+				graph->Serialize(out);
+				if (packed)
+					out << Yaml::Key << "GraphIndex" << Yaml::Value << graph->DispatchIndex;
+			}
+			if (!materialAsset->GetGraphParameters().empty())
+			{
+				out << Yaml::Key << "GraphParameters" << Yaml::Value << Yaml::BeginMap;
+				for (const auto& [name, value] : materialAsset->GetGraphParameters())
+				{
+					out << Yaml::Key << name << Yaml::Value << Yaml::BeginMap;
+					out << Yaml::Key << "Value" << Yaml::Value << value.Value;
+					if (value.Texture)
+						WriteTextureReference(out, "Texture", value.Texture, textureReferenceSerialization);
+					out << Yaml::EndMap;
+				}
+				out << Yaml::EndMap;
+			}
+
 			// A material instance: its parent and the values it sets itself. The values above are
 			// all written anyway, so the file loads as it was saved without the parent.
 			if (const AssetHandle parent = materialAsset->GetParent())
@@ -537,6 +562,24 @@ namespace Lux
 			if (materialNode["MaterialFlags"])
 				targetMaterialAsset->GetMaterial()->SetFlags(materialNode["MaterialFlags"].as<uint32_t>());
 
+			if (const Yaml::Node graphNode = materialNode["Graph"])
+			{
+				if (Ref<MaterialGraph> graph = MaterialGraph::Deserialize(graphNode))
+				{
+					graph->DispatchIndex = materialNode["GraphIndex"].as<uint32_t>(0);
+					targetMaterialAsset->SetGraph(graph);
+				}
+			}
+			std::map<std::string, MaterialGraphParameterValue, std::less<>> graphParameters;
+			for (const auto& entry : materialNode["GraphParameters"])
+			{
+				MaterialGraphParameterValue value;
+				value.Value = entry.second["Value"].as<glm::vec4>(glm::vec4(0.0f));
+				value.Texture = ResolveTextureReference(entry.second["Texture"]);
+				graphParameters[entry.first.as<std::string>("")] = value;
+			}
+			targetMaterialAsset->SetGraphParameters(std::move(graphParameters));
+
 			if (const AssetHandle parent = materialNode["Parent"].as<uint64_t>(0))
 			{
 				std::set<std::string, std::less<>> overrides;
@@ -566,6 +609,10 @@ namespace Lux
 						LUX_CORE_WARN_TAG("AssetManager", "Material {}: parent {} is missing; keeping its own values", static_cast<uint64_t>(handle), static_cast<uint64_t>(parent));
 				}
 			}
+
+			// The editor compiles the graphs a project's materials own into the surface shaders.
+			if (targetMaterialAsset->GetGraph() && !targetMaterialAsset->GetParent() && Project::GetEditorAssetManager())
+				MaterialGraphRegistry::Register(handle);
 
 			return true;
 		}

@@ -96,6 +96,7 @@ void main()
 #include <LTC.glslh>
 #include <MaterialLobes.glslh>
 #include <MaterialMapping.glslh>
+#include <MaterialGraph.glslh>
 
 // The opaque scene before transparents, pre-convolved by roughness (SceneRenderer binds it only on
 // frames with refractive materials, a black texture otherwise).
@@ -280,6 +281,27 @@ void main()
 	vec3 emissive = GetGPUMaterialEmissive(gpuMaterial);
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE))
 		emissive *= LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.x, materialMipBias).rgb;
+	float specular = GetGPUMaterialSpecular(gpuMaterial, 0.5);
+
+#if LUX_MATERIAL_GRAPH_COUNT > 0
+	// A graph material: its graph sets the values its output connects; the rest stay as above.
+	uint graphIndex = gpuMaterial.TransmissionTextureIndices.y;
+	if (graphIndex != 0u)
+	{
+		LuxGraphInput graphInput = LuxMakeGraphInput(gpuMaterial, Input.TexCoord, Input.WorldPosition, vertexNormal, Input.WorldNormals * faceSign, InputObjectIndex, materialMipBias);
+		LuxGraphOutput graph = LuxGraphOutput(m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, emissive, alpha, occlusion, m_Params.Normal, specular);
+		LuxEvaluateMaterialGraph(graphIndex, graphInput, graph);
+		m_Params.Albedo = max(graph.BaseColor, vec3(0.0));
+		m_Params.Metalness = clamp(graph.Metallic, 0.0, 1.0);
+		m_Params.Roughness = clamp(graph.Roughness, 0.05, 1.0);
+		emissive = max(graph.Emission, vec3(0.0));
+		alpha = graph.Opacity;
+		occlusion = clamp(graph.Occlusion, 0.0, 1.0);
+		m_Params.Normal = graph.Normal;
+		specular = clamp(graph.Specular, 0.0, 1.0);
+		o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
+	}
+#endif
 
 	// View normals
 	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
@@ -294,7 +316,7 @@ void main()
 	vec3 Lr = LuxLobeReflection(m_Params.Normal, m_Params.View, m_Params.Roughness);
 
 	// Fresnel reflectance, metals use albedo
-	vec3 F0 = mix(LuxDielectricF0(GetGPUMaterialSpecular(gpuMaterial, 0.5)), m_Params.Albedo, m_Params.Metalness);
+	vec3 F0 = mix(LuxDielectricF0(specular), m_Params.Albedo, m_Params.Metalness);
 
 	// Transmission takes its share from the diffuse lobe (glTF); the base colour then tints what
 	// comes through instead.

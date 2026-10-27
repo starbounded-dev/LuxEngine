@@ -16,6 +16,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/ShaderPack.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Serialization/AssetPack.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Social/DiscordSocial.h"
@@ -813,6 +814,9 @@ namespace Lux {
 		// With no project open the start screen replaces the viewport, so there is nothing to render.
 		if (!m_ActiveScene || !m_EditorViewport || !Project::GetActive())
 			return;
+
+		// Compiles changed material graphs into the surface shaders; cheap when nothing changed.
+		MaterialGraphRegistry::Update();
 
 		if (m_GoldenCapture)
 			m_GoldenCapture->ConfigureViewport(*m_EditorViewport);
@@ -4499,6 +4503,9 @@ namespace Lux {
 		{
 		case RuntimeExportStep::Prepare:
 		{
+			// Every graph in the project, not only the loaded ones, goes into the surface shaders before
+			// the asset pack records graph indices; the shaders recompile before the ShaderPack step.
+			MaterialGraphRegistry::ScanProject();
 			runtimeExe = GetRuntimeExecutablePath(targetConfig);
 			std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
 			if (repositoryRoot.empty())

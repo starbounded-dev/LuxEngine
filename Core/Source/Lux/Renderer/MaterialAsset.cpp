@@ -321,6 +321,9 @@ namespace Lux {
 	{
 		if (!parent)
 		{
+			// A former instance keeps its parent's graph as its own copy.
+			if (m_Parent && m_Graph)
+				m_Graph = m_Graph->Clone();
 			m_Parent = 0;
 			m_Overrides.clear();
 			return true;
@@ -355,6 +358,15 @@ namespace Lux {
 			if (!m_Overrides.contains(field.Key) && !field.Equal(*this, parent))
 				field.Copy(*this, parent);
 		}
+
+		// The graph is the parent's, and so is every parameter value not set here.
+		m_Graph = parent.m_Graph;
+		std::erase_if(m_GraphParameters, [&](const auto& entry) { return !m_Overrides.contains(GetGraphParameterKey(entry.first)); });
+		for (const auto& [name, value] : parent.m_GraphParameters)
+		{
+			if (!m_Overrides.contains(GetGraphParameterKey(name)))
+				m_GraphParameters[name] = value;
+		}
 		m_Revision++;
 	}
 
@@ -366,6 +378,33 @@ namespace Lux {
 			if (!field.Equal(*this, parent))
 				m_Overrides.emplace(field.Key);
 		}
+
+		auto differs = [](const auto& map, const auto& other, const std::string& name)
+		{
+			auto a = map.find(name);
+			auto b = other.find(name);
+			if (a == map.end() || b == other.end())
+				return (a == map.end()) != (b == other.end());
+			return !(a->second == b->second);
+		};
+		for (const auto& [name, value] : m_GraphParameters)
+		{
+			if (differs(m_GraphParameters, parent.m_GraphParameters, name))
+				m_Overrides.emplace(GetGraphParameterKey(name));
+		}
+	}
+
+	MaterialGraphParameterValue MaterialAsset::GetGraphParameter(const MaterialGraphParameter& parameter) const
+	{
+		if (auto it = m_GraphParameters.find(parameter.Name); it != m_GraphParameters.end())
+			return it->second;
+		return { parameter.Default, parameter.DefaultTexture };
+	}
+
+	void MaterialAsset::SetGraphParameter(std::string_view name, const MaterialGraphParameterValue& value)
+	{
+		m_GraphParameters[std::string(name)] = value;
+		m_Revision++;
 	}
 
 	void MaterialAsset::ResetToParent(std::string_view key, const MaterialAsset& parent)

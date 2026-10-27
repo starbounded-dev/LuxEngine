@@ -59,7 +59,11 @@ project "Core"
 		"vendor/rapidyaml/ryml.cpp",
 
 		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
-		"vendor/imgui/misc/cpp/imgui_stdlib.h"
+		"vendor/imgui/misc/cpp/imgui_stdlib.h",
+
+		-- Node canvas for the material graph (thedmd/imgui-node-editor, MIT).
+		"vendor/imgui-node-editor/**.h",
+		"vendor/imgui-node-editor/**.cpp"
 	}
 	
 	removefiles {
@@ -95,7 +99,7 @@ project "Core"
 		defines { "LUX_ENABLE_FMOD" }
 	end
 
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
 	flags { "NoPCH" }
 
 	filter "system:windows"
