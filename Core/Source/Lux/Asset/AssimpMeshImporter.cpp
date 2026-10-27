@@ -583,6 +583,11 @@ namespace Lux
 
 		// ── Reserve submeshes ─────────────────────────────────────────────────
 		meshSource->m_Submeshes.reserve(scene->mNumMeshes);
+		// Vertex colours and second UVs are kept for every vertex once any mesh in the file has them, so
+		// the array lines up with m_Vertices.
+		bool hasVertexAttributes = false;
+		for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+			hasVertexAttributes |= scene->mMeshes[m]->HasVertexColors(0) || scene->mMeshes[m]->HasTextureCoords(1);
 
 		uint32_t vertexCount = 0;
 		uint32_t indexCount = 0;
@@ -632,6 +637,21 @@ namespace Lux
 				aabb.Max.z = glm::max(vertex.Position.z, aabb.Max.z);
 
 				meshSource->m_Vertices.push_back(vertex);
+
+				// Colours and a second UV set, kept for the whole file once any mesh in it has them.
+				if (hasVertexAttributes)
+				{
+					VertexAttributes attributes = VertexAttributes::Default(vertex.Texcoord);
+					if (mesh->HasVertexColors(0))
+					{
+						const aiColor4D& color = mesh->mColors[0][v];
+						const glm::u8vec4 bytes = glm::u8vec4(glm::round(glm::clamp(glm::vec4(color.r, color.g, color.b, color.a), 0.0f, 1.0f) * 255.0f));
+						attributes.Color = static_cast<uint32_t>(bytes.r) | (static_cast<uint32_t>(bytes.g) << 8) | (static_cast<uint32_t>(bytes.b) << 16) | (static_cast<uint32_t>(bytes.a) << 24);
+					}
+					if (mesh->HasTextureCoords(1))
+						attributes.UV1 = glm::packHalf2x16(glm::vec2(mesh->mTextureCoords[1][v].x, mesh->mTextureCoords[1][v].y));
+					meshSource->m_VertexAttributes.push_back(attributes);
+				}
 			}
 
 			// ── Indices ───────────────────────────────────────────────────────

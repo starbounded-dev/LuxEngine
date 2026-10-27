@@ -13,6 +13,8 @@
 struct LuxGraphInput
 {
 	vec2 UV;
+	vec2 UV1;             // the second UV set (UV0 where the mesh has none)
+	vec4 VertexColor;     // white where the mesh has none
 	vec3 WorldPosition;
 	vec3 ObjectPosition;
 	vec3 Normal;          // world normal from the mesh
@@ -41,6 +43,8 @@ LuxGraphInput LuxMakeGraphInput(GPUMaterial material, vec2 texCoord, vec3 worldP
 {
 	LuxGraphInput graphInput;
 	graphInput.UV = texCoord;
+	graphInput.UV1 = texCoord;          // the surface passes set both from the attribute stream
+	graphInput.VertexColor = vec4(1.0);
 	graphInput.WorldPosition = worldPosition;
 	mat4 transform = GetInstanceTransform(objectIndex);
 	graphInput.ObjectPosition = inverse(mat3(transform)) * (worldPosition - transform[3].xyz);

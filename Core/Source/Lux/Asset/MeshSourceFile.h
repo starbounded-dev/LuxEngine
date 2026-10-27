@@ -15,7 +15,9 @@ namespace Lux
 			HasMaterials = BIT(0),
 			// Generated LODs follow the index buffer, up to the end of the entry (the editor's geometry
 			// cache encoding; MeshSource::SetBakedLODs). Packs without it generate LODs at load.
-			HasBakedLODs = BIT(1)
+			HasBakedLODs = BIT(1),
+			// VertexAttributes (vertex colours, UV1) lie between the vertex and index sections.
+			HasVertexAttributes = BIT(2)
 		};
 
 		struct Metadata

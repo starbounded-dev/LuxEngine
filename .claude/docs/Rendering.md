@@ -1165,7 +1165,16 @@ tests a graph material only after its graph. `GraphParameters` (8 vec4) and `Tra
 `LUX_MATERIAL_GRAPH_COUNT` is 0 the graph block compiles out, otherwise a graph row runs
 `LuxEvaluateMaterialGraph` after the standard surface and before the G-buffer write, overwriting the
 outputs it connects. The registry reloads the Cutout passes with the surface shaders, since they include the graphs too.
-`u_RendererData.Time` (seconds, from `Application::GetTime`) took a former padding slot. Textures are bindless indices into
+`u_RendererData.Time` (seconds, from `Application::GetTime`) took a former padding slot.
+
+**Vertex colour and UV1 ride a second vertex stream.** `PackedVertex` (28 bytes, stream 0) is
+unchanged; `VertexAttributes` (8 bytes: RGBA8 colour, UV1 as two float16) is
+`MeshSource::GetAttributeBuffer()`, which every mesh has (white and UV0 when the source has none).
+Only the surface pipelines (`GBuffer-Static*`, `TransparentForward*`) declare it
+(`PipelineSpecification::AttributeLayout`, locations 3-4); `RT_FillNRIPassPipeline` sets the pass's
+`AttributeSlot`/`AttributeStride`, `RT_DrawIndexed` binds `IndexedDraw::Attributes` to that slot and
+skips (logged) a draw without one. The surface shaders pass them to the graph at varyings 19-20. The
+Cutout passes do not read the stream: their graph input has white and UV0. Textures are bindless indices into
 `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 **Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,

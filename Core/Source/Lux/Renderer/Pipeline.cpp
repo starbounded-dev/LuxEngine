@@ -49,6 +49,8 @@ namespace Lux {
 				case ShaderDataType::Float3:	outFormat = nri::Format::RGB32_SFLOAT; return true;
 				case ShaderDataType::Float4:	outFormat = nri::Format::RGBA32_SFLOAT; return true;
 				case ShaderDataType::Short4N:	outFormat = nri::Format::RGBA16_SNORM; return true;
+				case ShaderDataType::UByte4N:	outFormat = nri::Format::RGBA8_UNORM; return true;
+				case ShaderDataType::Half2:		outFormat = nri::Format::RG16_SFLOAT; return true;
 				case ShaderDataType::Int:		outFormat = nri::Format::R32_SINT; return true;
 				case ShaderDataType::Int2:		outFormat = nri::Format::RG32_SINT; return true;
 				case ShaderDataType::Int3:		outFormat = nri::Format::RGB32_SINT; return true;
@@ -278,7 +280,7 @@ namespace Lux {
 
 		// Vertex input: the layouts' elements at locations 0..n in order, one stream (binding slot) per
 		// layout that has elements. Locations the vertex shader does not read get no attribute.
-		const std::array<const VertexBufferLayout*, 3> layouts = { &m_Specification.Layout, &m_Specification.InstanceLayout, &m_Specification.BoneInfluenceLayout };
+		const std::array<const VertexBufferLayout*, 4> layouts = { &m_Specification.Layout, &m_Specification.InstanceLayout, &m_Specification.BoneInfluenceLayout, &m_Specification.AttributeLayout };
 		std::array<nri::VertexAttributeDesc, MaxVertexAttributes> attributes = {};
 		std::array<nri::VertexStreamDesc, layouts.size()> streams = {};
 		uint32_t attributeCount = 0;

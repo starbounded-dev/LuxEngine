@@ -379,6 +379,11 @@ Structurally:
   instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
   imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
+- Mesh vertex colours and the second UV set are `MeshSource::m_VertexAttributes` (empty, or one
+  `VertexAttributes` per vertex), filled by `AssimpMeshImporter` when any mesh in the file has colour
+  set 0 or UV set 1, written to asset packs under `MeshSourceFile::HasVertexAttributes` (between the
+  vertex and index sections; older readers ignore it), and uploaded as the attribute stream
+  (`Rendering.md`).
 - **Material instances.** A `MaterialAsset` with a parent (`GetParent`, `.lmat` `Parent:` plus an
   `Overrides:` list of value keys) takes every value it does not override from the parent chain;
   transparency (the shader) is never inherited. The instance still holds and saves all its values,

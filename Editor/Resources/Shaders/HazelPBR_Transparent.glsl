@@ -19,6 +19,9 @@
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec4 a_QTangent; // tangent frame, QTangent.glslh
 layout(location = 2) in vec2 a_TexCoord;
+// The attribute stream (Mesh.h VertexAttributes): vertex colour and a second UV set.
+layout(location = 3) in vec4 a_Color;
+layout(location = 4) in vec2 a_TexCoord1;
 
 #include <QTangent.glslh>
 
@@ -39,6 +42,8 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 layout(location = 18) flat out uint OutputObjectIndex;
+layout(location = 19) out vec4 OutputVertexColor;
+layout(location = 20) out vec2 OutputTexCoord1;
 
 layout(push_constant) uniform Material
 {
@@ -63,6 +68,8 @@ void main()
 	const mat3 tbn = QTangent_ToTBN(a_QTangent); // columns: tangent, binormal, normal
 	Output.Normal = mat3(transform) * tbn[2];
 	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
+	OutputVertexColor = a_Color;
+	OutputTexCoord1 = vec2(a_TexCoord1.x, 1.0 - a_TexCoord1.y);
 	Output.WorldNormals = mat3(transform) * tbn;
 	Output.WorldTransform = mat3(transform);
 	Output.Binormal = tbn[1];
@@ -159,6 +166,8 @@ struct VertexOutput
  
 layout(location = 0) in VertexOutput Input;
 layout(location = 18) flat in uint InputObjectIndex;
+layout(location = 19) in vec4 InputVertexColor;
+layout(location = 20) in vec2 InputTexCoord1;
 
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 o_ViewNormalsLuminance;
@@ -289,6 +298,8 @@ void main()
 	if (graphIndex != 0u)
 	{
 		LuxGraphInput graphInput = LuxMakeGraphInput(gpuMaterial, Input.TexCoord, Input.WorldPosition, vertexNormal, Input.WorldNormals * faceSign, InputObjectIndex, materialMipBias);
+		graphInput.VertexColor = InputVertexColor;
+		graphInput.UV1 = InputTexCoord1;
 		LuxGraphOutput graph = LuxGraphOutput(m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, emissive, alpha, occlusion, m_Params.Normal, specular);
 		LuxEvaluateMaterialGraph(graphIndex, graphInput, graph);
 		m_Params.Albedo = max(graph.BaseColor, vec3(0.0));

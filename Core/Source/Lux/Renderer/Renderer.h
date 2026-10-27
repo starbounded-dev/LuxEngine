@@ -241,6 +241,8 @@ namespace Lux {
 			// The draw's set 0, a material's (RT_GetMaterialDescriptorSet); empty keeps the pass's own.
 			BoundDescriptorSet MaterialSet;
 			const VertexBuffer* Vertices = nullptr;
+			// The mesh's attribute stream (MeshSource::GetAttributeBuffer); needed by pipelines with one.
+			const VertexBuffer* Attributes = nullptr;
 			const IndexBuffer* Indices = nullptr;
 			const void* Constants = nullptr;
 			uint32_t ConstantsSize = 0;

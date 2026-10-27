@@ -375,6 +375,12 @@ namespace Lux {
 		desc.DynamicShadingRate = pipeline.HasNRIDynamicShadingRate();
 		desc.DrawSetIndex = shader->GetNRISetIndex(0);
 		desc.VertexStride = pipeline.GetNRIVertexStride(0);
+		if (const PipelineSpecification& spec = pipeline.GetSpecification(); spec.AttributeLayout.GetElementCount())
+		{
+			// Streams are numbered over the layouts that have elements, in PipelineSpecification order.
+			desc.AttributeSlot = (spec.Layout.GetElementCount() ? 1u : 0u) + (spec.InstanceLayout.GetElementCount() ? 1u : 0u) + (spec.BoneInfluenceLayout.GetElementCount() ? 1u : 0u);
+			desc.AttributeStride = pipeline.GetNRIVertexStride(desc.AttributeSlot);
+		}
 		desc.RootConstants = shader->HasNRIRootConstants();
 		return nullptr;
 	}
@@ -1606,6 +1612,7 @@ namespace Lux {
 		const bool drawSetUnbound = pass.DrawSetIndex != RHIShader::k_NoNRISet && !draw.MaterialSet.Set && !pass.DescriptorSets[pass.DrawSetIndex].Set;
 		const char* problem = drawSetUnbound ? "a draw leaves set 0 unbound"
 			: !draw.Vertices || !draw.Vertices->GetRHIBuffer() || !draw.Indices || !draw.Indices->GetRHIBuffer() ? "a draw's vertex or index buffer has no NRI buffer"
+			: pass.AttributeStride && (!draw.Attributes || !draw.Attributes->GetRHIBuffer()) ? "a draw has no vertex attribute buffer for a pipeline that reads one"
 			: draw.IndirectArguments && !draw.IndirectArguments->GetRHIBuffer() ? "a draw's indirect arguments have no NRI buffer"
 			: nullptr;
 		if (problem)
@@ -1617,6 +1624,7 @@ namespace Lux {
 		RenderCommandBuffer::NRIDrawBindings bindings;
 		bindings.DrawSet = draw.MaterialSet;
 		bindings.VertexBuffer = &draw.Vertices->GetBuffer();
+		bindings.AttributeBuffer = pass.AttributeStride ? &draw.Attributes->GetBuffer() : nullptr;
 		bindings.IndexBuffer = &draw.Indices->GetBuffer();
 		bindings.IndirectArguments = draw.IndirectArguments ? &draw.IndirectArguments->GetBuffer() : nullptr;
 		bindings.RootConstants = draw.Constants;

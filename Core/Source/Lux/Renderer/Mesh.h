@@ -44,6 +44,19 @@ namespace Lux {
 		explicit PackedVertex(const Vertex& vertex);
 	};
 	static_assert(sizeof(PackedVertex) == 28, "PackedVertex must match the mesh vertex layout and MESH_VERTEX_STRIDE");
+
+	// What a vertex has beyond PackedVertex, in its own GPU stream (the surface pipelines'
+	// AttributeLayout): its colour (RGBA8, as authored) and a second UV set (two float16). A mesh
+	// imported without them gets white and its first UV set.
+	struct VertexAttributes
+	{
+		// Trivial (written raw to asset packs): make one with Default.
+		uint32_t Color;
+		uint32_t UV1;
+
+		static VertexAttributes Default(const glm::vec2& uv0);
+	};
+	static_assert(sizeof(VertexAttributes) == 8, "VertexAttributes must match the attribute stream layout");
 	/*
 	struct BoneInfo
 	{
@@ -306,6 +319,9 @@ namespace Lux {
 		const std::string& GetFilePath() const { return m_FilePath; }
 
 		Ref<VertexBuffer> GetVertexBuffer() { return m_VertexBuffer; }
+		Ref<VertexBuffer> GetAttributeBuffer() { return m_AttributeBuffer; }
+		// Empty when the mesh has no colours or second UVs of its own.
+		const std::vector<VertexAttributes>& GetVertexAttributes() const { return m_VertexAttributes; }
 		Ref<VertexBuffer> GetBoneInfluenceBuffer() { return m_BoneInfluenceBuffer; }
 		Ref<IndexBuffer> GetIndexBuffer() { return m_IndexBuffer; }
 
@@ -320,10 +336,12 @@ namespace Lux {
 		std::vector<Submesh> m_Submeshes;
 
 		Ref<VertexBuffer> m_VertexBuffer;
+		Ref<VertexBuffer> m_AttributeBuffer;
 		Ref<VertexBuffer> m_BoneInfluenceBuffer;
 		Ref<IndexBuffer> m_IndexBuffer;
 
 		std::vector<Vertex> m_Vertices;
+		std::vector<VertexAttributes> m_VertexAttributes; // empty, or one per vertex
 		std::vector<Index> m_Indices;
 		std::vector<std::vector<SubmeshLOD>> m_SubmeshLODs;
 		std::vector<uint8_t> m_BakedLODs;

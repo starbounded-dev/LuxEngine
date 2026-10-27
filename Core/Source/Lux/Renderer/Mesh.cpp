@@ -529,6 +529,7 @@ namespace Lux
 			m_CollisionPositions[i] = m_Vertices[i].Position;
 
 		std::vector<Vertex>().swap(m_Vertices);
+		std::vector<VertexAttributes>().swap(m_VertexAttributes);
 	}
 
 	MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<Index>& indices, const glm::mat4& transform)
@@ -759,6 +760,17 @@ namespace Lux
 		for (const Vertex& vertex : renderVertices)
 			packedVertices.emplace_back(vertex);
 		m_VertexBuffer = VertexBuffer::Create(Buffer(packedVertices.data(), (uint32_t)(packedVertices.size() * sizeof(PackedVertex))));
+
+		// Every mesh has the attribute stream the surface pipelines read: its own, or white and UV0.
+		std::vector<VertexAttributes> attributes = m_VertexAttributes;
+		if (attributes.size() != renderVertices.size())
+		{
+			attributes.clear();
+			attributes.reserve(renderVertices.size());
+			for (const Vertex& vertex : renderVertices)
+				attributes.push_back(VertexAttributes::Default(vertex.Texcoord));
+		}
+		m_AttributeBuffer = VertexBuffer::Create(Buffer(attributes.data(), (uint32_t)(attributes.size() * sizeof(VertexAttributes))));
 		m_IndexBuffer = IndexBuffer::Create(Buffer(renderIndices.data(), (uint32_t)(renderIndices.size() * sizeof(Index))));
 
 		if (bakedLODs)
@@ -966,6 +978,14 @@ namespace Lux
 			for (uint32_t i = 0; i < submeshes.size(); i++)
 				m_Submeshes[i] = i;
 		}
+	}
+
+	VertexAttributes VertexAttributes::Default(const glm::vec2& uv0)
+	{
+		VertexAttributes attributes;
+		attributes.Color = 0xffffffffu;
+		attributes.UV1 = glm::packHalf2x16(uv0);
+		return attributes;
 	}
 
 	PackedVertex::PackedVertex(const Vertex& vertex)

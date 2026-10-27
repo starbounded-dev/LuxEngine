@@ -2027,6 +2027,12 @@ namespace Lux {
 			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBuffer_Static");
 			pipelineSpec.TargetFramebuffer = m_GeometryPassFramebuffer;
 			pipelineSpec.Layout = vertexLayout;
+			// Vertex colour and UV1 (Mesh.h VertexAttributes), for material graphs; the transparent
+			// pipelines below copy this spec and so read it too.
+			pipelineSpec.AttributeLayout = {
+				{ ShaderDataType::UByte4N, "a_Color" },
+				{ ShaderDataType::Half2,   "a_TexCoord1" }
+			};
 			pipelineSpec.DepthOperator = DepthCompareOperator::Equal;
 			pipelineSpec.DepthWrite = false;
 			m_GeometryPipeline = Pipeline::Create(pipelineSpec);
@@ -10367,6 +10373,7 @@ namespace Lux {
 		// null buffer — doing so trips Vulkan validation (vkCmdBindVertexBuffers:
 		// pBuffers[0] is VK_NULL_HANDLE) and then crashes on the null dereference.
 		Ref<VertexBuffer> vertexBuffer = meshSource->GetVertexBuffer();
+		Ref<VertexBuffer> attributeBuffer = meshSource->GetAttributeBuffer();
 		Ref<IndexBuffer>  indexBuffer = meshSource->GetIndexBuffer();
 		if (!vertexBuffer || !indexBuffer || !vertexBuffer->GetBuffer() || !indexBuffer->GetBuffer())
 			return;
@@ -10425,6 +10432,7 @@ namespace Lux {
 		Renderer::IndexedDraw draw;
 		draw.MaterialSet = materialSet;
 		draw.Vertices = vertexBuffer.Raw();
+		draw.Attributes = attributeBuffer.Raw();
 		draw.Indices = indexBuffer.Raw();
 		draw.Constants = pushConstants.data();
 		draw.ConstantsSize = static_cast<uint32_t>(pushConstants.size());

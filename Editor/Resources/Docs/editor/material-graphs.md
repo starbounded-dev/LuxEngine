@@ -25,7 +25,7 @@ Every edit is one step on the undo history. When an edit changes what the graph 
 
 | Group | Nodes |
 |---|---|
-| **Input** | UV, World Position, Object Position (moves with the object), Normal, View Direction, Camera Position, Time |
+| **Input** | UV, UV 2, Vertex Color, World Position, Object Position (moves with the object), Normal, View Direction, Camera Position, Time |
 | **Constant** | Float, Color, Vector |
 | **Math** | Add, Subtract, Multiply, Divide, Power, Minimum, Maximum, Absolute, Floor, Fraction, Square Root, Sine, Cosine, Saturate, One Minus, Negate, Clamp, Step, Smoothstep, Mix, Remap |
 | **Vector** | Dot Product, Cross Product, Length, Distance, Normalize, Reflect, Split, Combine |
@@ -48,6 +48,10 @@ Any graph material can be used inside another graph, to reuse a look such as a r
 
 The node gets one input per Function Input, and one output per **Material Output** input (Base Color, Roughness, and so on), carrying what the function's graph connects there. Changing the function updates every graph that uses it. A function cannot use itself.
 
+## Vertex colours and a second UV set
+
+**Vertex Color** reads colours painted on the mesh's vertices (in Blender, *Color Attributes*; the first set is used), and **UV 2** its second UV map, for example for a blend mask or a decal sheet. They are imported with the mesh. A mesh without them reads white and its first UV map.
+
 ## Parameters
 
 Give a **Float**, **Color** or texture node a **Parameter** name to expose it. Exposed values appear under **Graph Parameters** in the material's **Properties**, and changing them is instant: no recompile.
@@ -60,3 +64,4 @@ Every [instance](material-editor) of a graph material shares its graph, and can 
 
 - A graph can carry 32 numbers' worth of parameters and textures: a colour takes 4, a number or texture 1.
 - Area lights do not show [Advanced Shading](material-editor) layers.
+- A Cutout graph material's shadow and depth pass see white vertex colours, so an Opacity driven by Vertex Color cuts out the visible surface but not its shadow.

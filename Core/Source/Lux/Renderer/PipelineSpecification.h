@@ -40,6 +40,9 @@ namespace Lux {
 		VertexBufferLayout Layout;
 		VertexBufferLayout InstanceLayout;
 		VertexBufferLayout BoneInfluenceLayout;
+		// Per-vertex attributes beyond the packed vertex (MeshSource::GetAttributeBuffer): vertex colour
+		// and a second UV set. Only the surface pipelines read them.
+		VertexBufferLayout AttributeLayout;
 		PrimitiveTopology Topology = PrimitiveTopology::Triangles;
 		DepthCompareOperator DepthOperator = DepthCompareOperator::GreaterOrEqual;
 		bool BackfaceCulling = true;

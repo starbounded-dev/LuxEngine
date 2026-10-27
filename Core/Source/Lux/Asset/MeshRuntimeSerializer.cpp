@@ -204,6 +204,7 @@ namespace Lux
 			std::vector<Submesh> Submeshes;
 			std::vector<MeshMaterial> Materials;
 			std::vector<Vertex> Vertices;
+			std::vector<VertexAttributes> Attributes;
 			std::vector<Index> Indices;
 			std::vector<uint8_t> BakedLODs;
 		};
@@ -247,6 +248,16 @@ namespace Lux
 			{
 				error = section(metadata.VertexBufferOffset, metadata.VertexBufferSize, "vertex",
 					[&](BoundedReader& sectionReader) { return sectionReader.ReadTrivialArray(mesh.Vertices); });
+			}
+			if (error.empty() && (metadata.Flags & static_cast<uint32_t>(MeshSourceFile::MeshFlags::HasVertexAttributes)))
+			{
+				const uint64_t attributeOffset = metadata.VertexBufferOffset + metadata.VertexBufferSize;
+				if (metadata.IndexBufferOffset < attributeOffset)
+					return "its vertex attribute section overlaps the index section";
+				error = section(attributeOffset, metadata.IndexBufferOffset - attributeOffset, "vertex attribute",
+					[&](BoundedReader& sectionReader) { return sectionReader.ReadTrivialArray(mesh.Attributes); });
+				if (error.empty() && mesh.Attributes.size() != mesh.Vertices.size())
+					return "it has a different number of vertex attributes than vertices";
 			}
 			if (error.empty())
 			{
@@ -376,6 +387,11 @@ namespace Lux
 		file.Data.VertexBufferOffset = stream.GetStreamPosition() - streamOffset;
 		stream.WriteArray(meshSource->m_Vertices);
 		file.Data.VertexBufferSize = (stream.GetStreamPosition() - streamOffset) - file.Data.VertexBufferOffset;
+		if (!meshSource->m_VertexAttributes.empty())
+		{
+			file.Data.Flags |= (uint32_t)MeshSourceFile::MeshFlags::HasVertexAttributes;
+			stream.WriteArray(meshSource->m_VertexAttributes);
+		}
 
 		file.Data.IndexBufferOffset = stream.GetStreamPosition() - streamOffset;
 		stream.WriteArray(meshSource->m_Indices);
@@ -477,6 +493,7 @@ namespace Lux
 		}
 
 		meshSource->m_Vertices = std::move(packed.Vertices);
+		meshSource->m_VertexAttributes = std::move(packed.Attributes);
 		meshSource->m_Indices = std::move(packed.Indices);
 		meshSource->SetBakedLODs(std::move(packed.BakedLODs));
 

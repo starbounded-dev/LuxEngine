@@ -121,6 +121,9 @@ namespace Lux {
 
 			// Inputs
 			add({ "UV", "UV", "Input", {}, { { "UV", Type::Vec2 } }, {}, [](Ctx&) -> std::vector<std::string> { return { "IN.UV" }; }, "The mesh's first texture coordinates." });
+			add({ "UV1", "UV 2", "Input", {}, { { "UV", Type::Vec2 } }, {}, [](Ctx&) -> std::vector<std::string> { return { "IN.UV1" }; }, "The mesh's second texture coordinates (its first where it has none)." });
+			add({ "VertexColor", "Vertex Color", "Input", {}, { { "Color", Type::Vec3 }, { "Alpha", Type::Float } }, {},
+				[](Ctx&) -> std::vector<std::string> { return { "IN.VertexColor.rgb", "IN.VertexColor.a" }; }, "Colours painted on the mesh's vertices (white where it has none)." });
 			add({ "WorldPosition", "World Position", "Input", {}, { { "Position", Type::Vec3 } }, {}, [](Ctx&) -> std::vector<std::string> { return { "IN.WorldPosition" }; } });
 			add({ "ObjectPosition", "Object Position", "Input", {}, { { "Position", Type::Vec3 } }, {}, [](Ctx&) -> std::vector<std::string> { return { "IN.ObjectPosition" }; }, "Position on the object, before its transform: moves with the object." });
 			add({ "Normal", "Normal", "Input", {}, { { "Normal", Type::Vec3 } }, {}, [](Ctx&) -> std::vector<std::string> { return { "IN.Normal" }; }, "The surface's world normal from the mesh." });
