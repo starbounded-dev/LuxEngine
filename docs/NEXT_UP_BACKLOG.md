@@ -82,7 +82,7 @@ Check each plan's status section before starting; these lines summarise them.
 | 4.5 | `BINDLESS_PLAN.md` | One resource heap, shared geometry pool, multi-draw per pass, shadows and everything else through the heap | ◐ status not recorded in the plan |
 | 4.6 | `AUDIO_VISUALISATION_PLAN.md` | Occlusion visualisation, material view, rooms/reverb showcase | ◐ status not recorded in the plan |
 | 4.7 | Quality category system | Per-category quality tiers: serialization and UI still pending | ◐ note |
-| 4.8 | Multi-threading Phase 4 | The asset-upload race | ◐ note |
+| 4.8 | Multi-threading Phase 4 | The asset-upload race. **Done (2026-10-27):** the worker queues an asset's GPU work (mips, environment-map compute) for the main thread, then posts the asset; a sync mid-frame put it in the registry before that work was queued, so it was drawn a frame early. `SyncWithAssetThread` (editor and runtime) now drains the queued work right after taking the finished list. Builds; not run in the editor | ✔ |
 | 4.9 | Panel-state memory layer | Unity-like per-panel state on top of `imgui.ini` (never remove ImGui) | ◐ your queued goal |
 | 4.10 | NRD denoiser | Signal wiring left; **Decision:** NRD is temporal by design, so it conflicts with the standing rule unless used only in a non-temporal mode | ◐ note |
 | 4.11 | Async compute | Scaffolded and serialized; GTAO/SSR not on compute | ◐ note |

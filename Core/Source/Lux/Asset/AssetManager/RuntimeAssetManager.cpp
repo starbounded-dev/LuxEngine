@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Lux/Asset/AssetManager/RuntimeAssetManager.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Renderer/Renderer.h"
 
 namespace Lux
 {
@@ -251,6 +252,11 @@ namespace Lux
 		std::vector<AssetHandle> failedHandles;
 		if (!m_AssetSystem.RetrieveReadyAssets(freshAssets, failedHandles))
 			return;
+
+		// The worker queued these assets' GPU work before handing them over; it must reach the
+		// render queue ahead of the first draw that uses them.
+		if (Application::IsMainThread())
+			Renderer::ExecuteBackgroundThreadSubmits();
 
 		for (const auto& asset : freshAssets)
 		{

@@ -8,6 +8,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/FileSystem.h"
 
 #include <algorithm>
@@ -375,6 +376,13 @@ namespace Lux
 
 		std::vector<EditorAssetLoadResponse> loadedAssets;
 		m_AssetThread->SyncLoadedAssets(loadedAssets);
+		if (loadedAssets.empty())
+			return;
+
+		// The worker queued these assets' GPU work (uploads, mips, environment maps) before handing
+		// them over, so queue it now: the next draw of the asset must come after it.
+		if (Application::IsMainThread())
+			Renderer::ExecuteBackgroundThreadSubmits();
 
 		for (auto& response : loadedAssets)
 		{

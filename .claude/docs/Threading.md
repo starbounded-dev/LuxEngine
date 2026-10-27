@@ -237,13 +237,18 @@ The contract:
   finished queue and commit into the registry.
 - GPU resources created during a background load go through `Renderer::Submit`, which routes them via
   `SubmitBackgroundThreadWork` (see above).
+- Sync drains that deferred work. `SyncWithAssetThread` (editor and runtime) takes the finished list
+  first and then calls `Renderer::ExecuteBackgroundThreadSubmits()` on the main thread. The worker
+  queues an asset's GPU work before it posts the asset, so this queues all of it ahead of any draw
+  that can now see the asset. Without it, an asset synced mid-frame was drawn that frame and its
+  mips or environment-map compute ran the frame after.
 
 `AssetManager::GetAsset<T>(handle)` is synchronous and will load on the calling thread if needed.
 `GetAssetAsync(handle)` returns an `AsyncAssetResult` immediately; pump it with
 `SyncWithAssetThread()`.
 
 **Never mutate the registry from a worker**, and never assume an async result is ready without
-checking — that is the shape of the outstanding asset-upload race noted in project history.
+checking.
 
 ---
 
