@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "Application.h"
 
+#include "Lux/Debug/CrashWatchdog.h"
+
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/UI/Font.h"
@@ -266,8 +268,11 @@ namespace Lux {
 	void Application::Run()
 	{
 		OnInit();
+		CrashWatchdog::SetHangDetection(true);
 		while (m_Running)
 		{
+			CrashWatchdog::Heartbeat();
+
 			// Wait for render thread to finish frame
 			{
 				LUX_PROFILE_SCOPE("Wait");
@@ -387,6 +392,8 @@ namespace Lux {
 
 			LimitFrameRate();
 		}
+		// Shutdown may take long (the GPU drains, assets release); a crash in it is still reported.
+		CrashWatchdog::SetHangDetection(false);
 		OnShutdown();
 	}
 

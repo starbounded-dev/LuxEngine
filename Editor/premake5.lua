@@ -8,6 +8,11 @@ project "Editor"
 
 	links { "Core" }
 
+	-- The crash watchdog is built next to Editor.exe, where CrashWatchdog::Start looks for it.
+	if os.target() == "windows" then
+		dependson { "Lux-Watchdog" }
+	end
+
 	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE", }
 
 	if _OPTIONS["discord"] then

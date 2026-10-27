@@ -82,6 +82,8 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "LUX_GOLDEN_SELFTEST": "1" if selftest else "0",
         "LUX_SKIP_BUILD": "1",
     })
+    # The runner kills an editor that times out; that is not a crash to report with a dialog.
+    env["LUX_NO_WATCHDOG"] = "1"
     if args.threading:
         env["LUX_THREADING_POLICY"] = args.threading.capitalize()
     if args.sync_validation:

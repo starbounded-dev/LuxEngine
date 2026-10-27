@@ -188,6 +188,24 @@ Folder opens the folder. `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies fi
 locations (`./App.lsettings`, `./imgui.ini`, the old `.../Editor` folder) when the new folder lacks
 them. Nothing per-user belongs in the repo.
 
+**Crash watchdog** (Windows, editor only). `Lux-Watchdog.exe` (`Watchdog/`, built into the editor's
+output folder, no engine dependencies) watches the editor from outside. The editor opts in by defining
+`LUX_CRASH_WATCHDOG L"Editor"` before including `EntryPoint.h`, which calls `CrashWatchdog::Start`
+(`Core/Source/Lux/Debug/CrashWatchdog.h`) once logging exists and `MarkCleanExit` as the last thing in
+`Lux::Main`. The two share a named mapping and two events (`CrashWatchdogProtocol.h`, named by the
+editor's PID). An unhandled exception (also `abort`/`std::terminate`, pure-virtual calls and invalid
+CRT parameters, raised as exceptions so they take the same path) signals the watchdog, which writes the
+minidump from outside, then the handler flushes the logs (helper thread, 2 s limit) and the process
+dies. `Application::Run` advances a heartbeat every iteration (it also re-installs the filter, which
+.NET may replace); with hang detection on (the run loop only, not startup or `OnShutdown`) a heartbeat
+still for `Watchdog::HangSeconds` (30) gets a quiet hang dump. A process that ends without
+`MarkCleanExit` gets a report: `CrashReports/<App>-<time>/` under the per-user folder with the dump,
+`report.txt` (exception code and module+offset, or the exit code; the engine log's last lines) and the
+session's logs, and one dialog offering to open it. Newest 10 kept. Fail-fast (`0xC0000409`) and stack
+overflow exits leave a report without a dump. Skipped under a debugger and when `LUX_NO_WATCHDOG` is
+set (the golden runner sets it); `LUX_WATCHDOG_QUIET` suppresses the dialog. Aftermath still covers GPU
+crashes.
+
 **Layers** (`Layer.h`, `LayerStack.h`): `OnAttach` / `OnDetach` / `OnUpdate(Timestep)` /
 `OnImGuiRender` / `OnEvent`. `PushLayer` for regular, `PushOverlay` for top. The editor and the
 runtime each supply one. A layer is on the stack before its `OnAttach` runs, but no layer receives
@@ -196,7 +214,8 @@ members exist (startup frames, and on Wayland `glfwShowWindow`'s roundtrip deliv
 synchronously), so `OnEvent` may assume a fully attached layer.
 
 **Frame loop** — see `.claude/docs/Threading.md § The frame loop` for the exact ordering. Do not add
-per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
+per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`. (The one exception is
+the crash watchdog's heartbeat, which must measure the loop itself.)
 
 **Events** are two-stage: `QueueEvent` / `DispatchEvent<T>` are thread-safe and run by the next
 `ProcessEvents()` on the main thread; `DispatchEvent<T>` additionally waits for `SyncEvents()`,

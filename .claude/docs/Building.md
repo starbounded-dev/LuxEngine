@@ -150,6 +150,7 @@ stdin isn't a TTY, `Menu.py` degrades to plain prompts so the same path works un
 | Core | `Core` | StaticLib — the engine. PCH `lpch.h`. |
 | Core | `ScriptCore` | C# (.NET 9) scripting assembly |
 | Tools | `Editor` | The editor application |
+| Tools | `Lux-Watchdog` | Windows only: the editor's crash watchdog, built into the editor's output folder (`Editor` depends on it) |
 | Runtime | `Lux-Runtime` | Standalone runtime player |
 | Dependencies | Box2D, JoltPhysics, GLFW, imgui, Tracy, NFD-Extended, Coral.Native, Coral.Managed, Coral.Generator (stub) | |
 | Dependencies/Text | msdf-atlas-gen | |
