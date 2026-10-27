@@ -69,7 +69,11 @@ namespace Lux {
 				"\tLuxMaterialGraphCandidate(IN, OUT);\n"
 				"\to_Color = vec4(OUT.BaseColor + OUT.Emission + OUT.Normal, OUT.Metallic + OUT.Roughness + OUT.Opacity + OUT.Occlusion + OUT.Specular);\n"
 				"}\n";
+#ifdef LUX_DIST
+			return {}; // unreachable: Update does nothing in Dist, which has no shader compiler
+#else
 			return VulkanShaderCompiler::TryCompileGLSL(source, ShaderStage::Pixel);
+#endif
 		}
 
 		void ScanProjectFiles()
@@ -204,6 +208,10 @@ namespace Lux {
 
 	void MaterialGraphRegistry::Update()
 	{
+#ifdef LUX_DIST
+		// Dist has no shader compiler: graphs are already in the shipped shader pack.
+		return;
+#endif
 		if (!Project::GetEditorAssetManager())
 			return;
 
