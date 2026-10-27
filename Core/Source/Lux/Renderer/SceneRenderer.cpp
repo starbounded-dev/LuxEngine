@@ -1185,12 +1185,12 @@ namespace Lux {
 		const auto previousBloomScale = m_BloomSettings.ResolutionScale;
 		const auto previousDOFScale = m_DOFSettings.ResolutionScale;
 
-		// Legacy path: the project file still stores every resolved value, so the tier is
-		// only a label here and the raw assignments below are what actually take effect.
-		// Seed the categories from it so Quality == QualityCategories.Unified() holds; once
-		// the per-category tiers are serialized this is replaced by applying them.
-		// TODO: read per-category tiers and only take raw values for Custom categories.
-		m_Options.QualityCategories.SetAll(SanitizeQualityPreset(settings.QualityPreset));
+		// The tiers are labels: the project stores every resolved value and those load as they
+		// are, so retuning a tier in code never silently changes a saved project. Picking a tier
+		// writes its values, which are then saved.
+		static_assert(static_cast<uint32_t>(QualityCategory::COUNT) == ProjectSceneRendererSettings::QualityCategoryCount);
+		for (uint32_t i = 0; i < ProjectSceneRendererSettings::QualityCategoryCount; i++)
+			m_Options.QualityCategories.Get(static_cast<QualityCategory>(i)) = SanitizeQualityPreset(settings.QualityCategories[i]);
 		m_Options.Quality = m_Options.QualityCategories.Unified();
 		m_Options.EnableFrustumCulling = settings.EnableFrustumCulling;
 		m_Options.EnableOcclusionCulling = settings.EnableOcclusionCulling;
@@ -1296,6 +1296,8 @@ namespace Lux {
 	void SceneRenderer::WriteProjectSettings(ProjectSceneRendererSettings& settings) const
 	{
 		settings.QualityPreset = static_cast<uint32_t>(SanitizeQualityPreset(static_cast<uint32_t>(m_Options.Quality)));
+		for (uint32_t i = 0; i < ProjectSceneRendererSettings::QualityCategoryCount; i++)
+			settings.QualityCategories[i] = static_cast<uint32_t>(m_Options.QualityCategories.Get(static_cast<QualityCategory>(i)));
 		settings.EnableFrustumCulling = m_Options.EnableFrustumCulling;
 		settings.EnableOcclusionCulling = m_Options.EnableOcclusionCulling;
 		settings.OcclusionDepthBias = m_Options.OcclusionDepthBias;

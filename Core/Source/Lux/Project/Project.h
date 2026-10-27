@@ -11,6 +11,7 @@
 #include "Lux/Audio/AudioZoneSettings.h"
 
 #include <filesystem>
+#include <array>
 #include <map>
 #include <string>
 #include <vector>
@@ -107,6 +108,11 @@ namespace Lux
 	struct ProjectSceneRendererSettings
 	{
 		uint32_t QualityPreset = 1; // Lux::QualityPreset
+		// One Lux::QualityPreset per Lux::QualityCategory. A label only: the values below are what
+		// load. Custom (5), the default and what a project saved before the categories gets, means
+		// the values are the project's own.
+		static constexpr uint32_t QualityCategoryCount = 7;
+		std::array<uint32_t, QualityCategoryCount> QualityCategories = { 5, 5, 5, 5, 5, 5, 5 };
 		bool EnableFrustumCulling = true;
 		bool EnableOcclusionCulling = true;
 		bool EnableGPUDrivenRendering = true;

@@ -395,6 +395,40 @@ namespace Lux {
 				if (active)
 					ImGui::PopStyleColor(3);
 			}
+			if (options.Quality == QualityPreset::Custom)
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("Custom");
+			}
+
+			// The game-style menu: a tier per category. Custom means the category's values were
+			// edited by hand, and a tier no longer owns them.
+			if (!m_SearchBuffer[0] && ImGui::TreeNodeEx("Quality per category", ImGuiTreeNodeFlags_SpanAvailWidth))
+			{
+				const char* tierLabels[] = { "Low", "Medium", "High", "Ultra", "Cinematic", "Custom" };
+				ImGuiEx::BeginPropertyGrid();
+				for (uint32_t i = 0; i < static_cast<uint32_t>(QualityCategory::COUNT); i++)
+				{
+					const QualityCategory category = static_cast<QualityCategory>(i);
+					int tier = static_cast<int>(m_Context->GetCategoryQuality(category));
+					if (!DrawComboProperty(QualityCategoryToDisplayString(category), tier, tierLabels, IM_ARRAYSIZE(tierLabels)))
+						continue;
+
+					if (tier == static_cast<int>(QualityPreset::Custom))
+					{
+						m_Context->MarkCategoryCustom(category);
+					}
+					else
+					{
+						m_Context->SetCategoryQuality(category, static_cast<QualityPreset>(tier));
+						m_Context->RefreshRenderResolutionScale();
+						m_Context->RefreshScreenSpaceEffectResources();
+					}
+					projectSettingsChanged = true;
+				}
+				ImGuiEx::EndPropertyGrid();
+				ImGui::TreePop();
+			}
 		}
 
 		ImGui::Spacing();
@@ -423,6 +457,14 @@ namespace Lux {
 		ImGui::Spacing();
 
 		auto match = [&](const char* label) { return MatchesSearch(queryLower, label); };
+		// Categories whose tier-owned values were edited by hand this frame (see SceneRenderer::Apply*Quality).
+		bool editedCategories[static_cast<uint32_t>(QualityCategory::COUNT)] = {};
+		auto owned = [&](QualityCategory category, bool changed)
+		{
+			if (changed)
+				editedCategories[static_cast<uint32_t>(category)] = true;
+			return changed;
+		};
 		auto toggle = [&](const char* label, bool& value) -> bool
 		{
 			if (!match(label))
@@ -527,6 +569,7 @@ namespace Lux {
 				if (match("Render Scale") && DrawComboProperty("Render Scale", renderScaleMode, renderScaleLabels, IM_ARRAYSIZE(renderScaleLabels)))
 				{
 					options.ResolutionScaleMode = static_cast<SceneRendererOptions::RenderResolutionScaleMode>(renderScaleMode);
+					owned(QualityCategory::ResolutionScale, true);
 					m_Context->RefreshRenderResolutionScale();
 					projectSettingsChanged = true;
 				}
@@ -580,7 +623,7 @@ namespace Lux {
 						dynamicScaleChanged |= ImGuiEx::Property("Dynamic Max Scale", options.DynamicResolutionMaxScale, 0.01f, 0.25f, 1.0f);
 					if (match("Target GPU ms"))
 						dynamicScaleChanged |= ImGuiEx::Property("Target GPU ms", options.DynamicResolutionTargetGPUTime, 0.1f, 1.0f, 100.0f);
-					if (dynamicScaleChanged)
+					if (owned(QualityCategory::ResolutionScale, dynamicScaleChanged))
 					{
 						options.DynamicResolutionMinScale = std::clamp(options.DynamicResolutionMinScale, 0.25f, 1.0f);
 						options.DynamicResolutionMaxScale = std::clamp(options.DynamicResolutionMaxScale, options.DynamicResolutionMinScale, 1.0f);
@@ -590,8 +633,8 @@ namespace Lux {
 					}
 				}
 				if (match("Texture Mip Bias"))
-					projectSettingsChanged |= ImGuiEx::Property("Texture Mip Bias", options.TextureMipBias, 0.05f, -4.0f, 8.0f);
-				projectSettingsChanged |= toggle("Distance Mip Bias", options.EnableDistanceMipBias);
+					projectSettingsChanged |= owned(QualityCategory::Textures, ImGuiEx::Property("Texture Mip Bias", options.TextureMipBias, 0.05f, -4.0f, 8.0f));
+				projectSettingsChanged |= owned(QualityCategory::Textures, toggle("Distance Mip Bias", options.EnableDistanceMipBias));
 				if (options.EnableDistanceMipBias)
 				{
 					bool mipBiasChanged = false;
@@ -601,7 +644,7 @@ namespace Lux {
 						mipBiasChanged |= ImGuiEx::Property("Mip Bias End", options.DistanceMipBiasEnd, 1.0f, 1.0f, 10000.0f);
 					if (match("Mip Bias Max"))
 						mipBiasChanged |= ImGuiEx::Property("Mip Bias Max", options.DistanceMipBiasMax, 0.05f, 0.0f, 8.0f);
-					if (mipBiasChanged)
+					if (owned(QualityCategory::Textures, mipBiasChanged))
 					{
 						options.DistanceMipBiasStart = std::max(0.0f, options.DistanceMipBiasStart);
 						options.DistanceMipBiasEnd = std::max(options.DistanceMipBiasStart + 1.0f, options.DistanceMipBiasEnd);
@@ -621,28 +664,29 @@ namespace Lux {
 			{
 				ImGuiEx::BeginPropertyGrid();
 				bool gtaoSettingsChanged = false;
-				gtaoSettingsChanged |= toggle("GTAO", options.EnableGTAO);
-				gtaoSettingsChanged |= toggle("GTAO Bent Normals", options.GTAOBentNormals);
+				gtaoSettingsChanged |= owned(QualityCategory::AmbientOcclusion, toggle("GTAO", options.EnableGTAO));
+				gtaoSettingsChanged |= owned(QualityCategory::AmbientOcclusion, toggle("GTAO Bent Normals", options.GTAOBentNormals));
 				projectSettingsChanged |= toggle("GTAO Visibility Bitmask", options.GTAOVisibilityBitmask);
 				if (options.GTAOVisibilityBitmask && match("GTAO Thickness"))
 					projectSettingsChanged |= ImGuiEx::Property("GTAO Thickness", options.GTAOThickness, 0.01f, 0.01f, 10.0f,
 						"Assumed depth of every occluder, in metres. Thin values let light past thin objects.");
 				if (match("GTAO Noise Passes"))
-					projectSettingsChanged |= ImGuiEx::Property("GTAO Noise Passes", options.GTAONoisePasses, 1u, 3u);
-				if (match("GTAO Resolution") && DrawEffectScaleProperty("GTAO Resolution", options.GTAOResolutionScale))
+					projectSettingsChanged |= owned(QualityCategory::AmbientOcclusion, ImGuiEx::Property("GTAO Noise Passes", options.GTAONoisePasses, 1u, 3u));
+				if (match("GTAO Resolution") && owned(QualityCategory::AmbientOcclusion, DrawEffectScaleProperty("GTAO Resolution", options.GTAOResolutionScale)))
 				{
 					screenSpaceResourcesChanged = true;
 					projectSettingsChanged = true;
 				}
 				projectSettingsChanged |= gtaoSettingsChanged;
 				if (match("GTAO Denoise Passes"))
-					projectSettingsChanged |= ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8);
-				gtaoSettingsChanged |= toggle("SSR", options.EnableSSR);
+					projectSettingsChanged |= owned(QualityCategory::AmbientOcclusion, ImGuiEx::Property("GTAO Denoise Passes", options.GTAODenoisePasses, 0, 8));
+				gtaoSettingsChanged |= owned(QualityCategory::Reflections, toggle("SSR", options.EnableSSR));
 				const char* ssrQualityLabels[] = { "Full", "Half + Bilateral Upscale", "Quarter Debug Only" };
 				int ssrQuality = static_cast<int>(options.SSRQuality);
 				if (match("SSR Quality") && DrawComboProperty("SSR Quality", ssrQuality, ssrQualityLabels, IM_ARRAYSIZE(ssrQualityLabels)))
 				{
 					options.SSRQuality = static_cast<SceneRendererOptions::SSRQualityPreset>(std::clamp(ssrQuality, 0, 2));
+					owned(QualityCategory::Reflections, true);
 					options.SSRResolutionScale = ResolutionScaleFromSSRQuality(options.SSRQuality);
 					ssr.HalfRes = options.SSRResolutionScale != SceneRendererOptions::EffectResolutionScale::Full;
 					ssr.ResolutionScale = static_cast<uint32_t>(options.SSRResolutionScale);
@@ -651,13 +695,13 @@ namespace Lux {
 				}
 				if (options.SSRQuality == SceneRendererOptions::SSRQualityPreset::QuarterDebug && !searching)
 					ImGui::TextDisabled("Quarter SSR is debug-only; use Full or Half + Bilateral for normal rendering.");
-				projectSettingsChanged |= toggle("SMAA", options.EnableSMAA);
+				projectSettingsChanged |= owned(QualityCategory::AntiAliasing, toggle("SMAA", options.EnableSMAA));
 				if (options.EnableSMAA)
 				{
 					if (match("SMAA Threshold"))
-						projectSettingsChanged |= ImGuiEx::Property("SMAA Threshold", options.SMAAThreshold, 0.005f, 0.01f, 0.5f);
+						projectSettingsChanged |= owned(QualityCategory::AntiAliasing, ImGuiEx::Property("SMAA Threshold", options.SMAAThreshold, 0.005f, 0.01f, 0.5f));
 					if (match("SMAA Local Contrast"))
-						projectSettingsChanged |= ImGuiEx::Property("SMAA Local Contrast", options.SMAALocalContrastAdaptationFactor, 0.05f, 1.0f, 8.0f);
+						projectSettingsChanged |= owned(QualityCategory::AntiAliasing, ImGuiEx::Property("SMAA Local Contrast", options.SMAALocalContrastAdaptationFactor, 0.05f, 1.0f, 8.0f));
 					if (!m_Context->IsSMAAReady() && !searching)
 						ImGui::TextDisabled("SMAA lookup textures missing - see Core/vendor/smaa");
 				}
@@ -677,16 +721,16 @@ namespace Lux {
 			if (BeginSettingsCard("card_shadows", LUX_ICON_SUN_O, "Shadows", m_CardShadows, searching))
 			{
 				ImGuiEx::BeginPropertyGrid();
-				projectSettingsChanged |= toggle("Soft Shadows", options.SoftShadows);
+				projectSettingsChanged |= owned(QualityCategory::Shadows, toggle("Soft Shadows", options.SoftShadows));
 				projectSettingsChanged |= toggle("Shadow Culling", options.EnableShadowCulling);
 				if (match("Max Distance"))
-					projectSettingsChanged |= ImGuiEx::Property("Max Distance", options.MaxShadowDistance, 1.0f, 1.0f, 1000.0f);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("Max Distance", options.MaxShadowDistance, 1.0f, 1.0f, 1000.0f));
 				if (match("Distance Fade"))
-					projectSettingsChanged |= ImGuiEx::Property("Distance Fade", options.ShadowFade, 0.25f, 0.01f, 250.0f);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("Distance Fade", options.ShadowFade, 0.25f, 0.01f, 250.0f));
 				if (match("Active Cascades"))
-					projectSettingsChanged |= ImGuiEx::Property("Active Cascades", options.ActiveShadowCascadeCount, 1u, SceneRenderer::ShadowCascadeCount);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("Active Cascades", options.ActiveShadowCascadeCount, 1u, SceneRenderer::ShadowCascadeCount));
 				if (match("Split Lambda"))
-					projectSettingsChanged |= ImGuiEx::Property("Split Lambda", options.ShadowCascadeSplitLambda, 0.01f, 0.0f, 1.0f);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("Split Lambda", options.ShadowCascadeSplitLambda, 0.01f, 0.0f, 1.0f));
 				if (match("Near Offset"))
 					projectSettingsChanged |= ImGuiEx::Property("Near Offset", options.ShadowCascadeNearPlaneOffset, 0.1f, 0.0f, 200.0f);
 				if (match("Far Offset"))
@@ -698,23 +742,25 @@ namespace Lux {
 				if (match("Filter") && DrawComboProperty("Filter", shadowFilter, shadowFilterLabels, IM_ARRAYSIZE(shadowFilterLabels)))
 				{
 					options.ShadowFilter = static_cast<SceneRendererOptions::ShadowFilterMode>(std::clamp(shadowFilter, 0, 2));
+					owned(QualityCategory::Shadows, true);
 					projectSettingsChanged = true;
 				}
 				if (match("PCSS Cascades"))
-					projectSettingsChanged |= ImGuiEx::Property("PCSS Cascades", options.DirectionalPCSSCascadeCount, 0u, options.ActiveShadowCascadeCount);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("PCSS Cascades", options.DirectionalPCSSCascadeCount, 0u, options.ActiveShadowCascadeCount));
 				if (match("PCSS Blocker Samples"))
-					projectSettingsChanged |= ImGuiEx::Property("PCSS Blocker Samples", options.ShadowBlockerSamples, 1u, SceneRenderer::ShadowKernelSize);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("PCSS Blocker Samples", options.ShadowBlockerSamples, 1u, SceneRenderer::ShadowKernelSize));
 				if (match("PCSS Filter Samples"))
-					projectSettingsChanged |= ImGuiEx::Property("PCSS Filter Samples", options.ShadowFilterSamples, 1u, SceneRenderer::ShadowKernelSize);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("PCSS Filter Samples", options.ShadowFilterSamples, 1u, SceneRenderer::ShadowKernelSize));
 				if (match("PCF Radius"))
-					projectSettingsChanged |= ImGuiEx::Property("PCF Radius", options.ShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("PCF Radius", options.ShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f));
 				if (match("Spot PCF Radius"))
-					projectSettingsChanged |= ImGuiEx::Property("Spot PCF Radius", options.SpotShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f);
+					projectSettingsChanged |= owned(QualityCategory::Shadows, ImGuiEx::Property("Spot PCF Radius", options.SpotShadowPCFRadiusTexels, 0.05f, 0.25f, 8.0f));
 				const char* shadowResolutionLabels[] = { "1K", "2K", "4K", "8K" };
 				int shadowResolution = static_cast<int>(options.ShadowResolution);
 				if (match("Resolution Limit") && DrawComboProperty("Resolution Limit", shadowResolution, shadowResolutionLabels, IM_ARRAYSIZE(shadowResolutionLabels)))
 				{
 					options.ShadowResolution = static_cast<SceneRendererOptions::ShadowResolutionTier>(std::clamp(shadowResolution, 0, 3));
+					owned(QualityCategory::Shadows, true);
 					projectSettingsChanged = true;
 				}
 				ImGuiEx::EndPropertyGrid();
@@ -728,36 +774,36 @@ namespace Lux {
 			if (BeginSettingsCard("card_postfx", LUX_ICON_FILM, "Post FX", m_CardPostFX, searching))
 			{
 				ImGuiEx::BeginPropertyGrid();
-				projectSettingsChanged |= toggle("Bloom", bloom.Enabled);
-				if (match("Bloom Resolution") && DrawEffectScaleProperty("Bloom Resolution", bloom.ResolutionScale))
+				projectSettingsChanged |= owned(QualityCategory::PostProcessing, toggle("Bloom", bloom.Enabled));
+				if (match("Bloom Resolution") && owned(QualityCategory::PostProcessing, DrawEffectScaleProperty("Bloom Resolution", bloom.ResolutionScale)))
 				{
 					screenSpaceResourcesChanged = true;
 					projectSettingsChanged = true;
 				}
 				if (match("Bloom Threshold"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Threshold", bloom.Threshold, 0.01f, 0.0f, 25.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Threshold", bloom.Threshold, 0.01f, 0.0f, 25.0f));
 				if (match("Bloom Knee"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Knee", bloom.Knee, 0.01f, 0.0f, 1.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Knee", bloom.Knee, 0.01f, 0.0f, 1.0f));
 				if (match("Bloom Intensity"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Intensity", bloom.Intensity, 0.01f, 0.0f, 10.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Intensity", bloom.Intensity, 0.01f, 0.0f, 10.0f));
 				if (match("Bloom Dirt Intensity"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Dirt Intensity", bloom.DirtIntensity, 0.01f, 0.0f, 10.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Dirt Intensity", bloom.DirtIntensity, 0.01f, 0.0f, 10.0f));
 				if (match("Bloom Streaks"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Streaks", bloom.StreakCount, 0u, BloomSettings::MaxStreakCount,
-						"Glare streak lines through each bright point; each line makes two rays. 0 = none.");
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Streaks", bloom.StreakCount, 0u, BloomSettings::MaxStreakCount,
+						"Glare streak lines through each bright point; each line makes two rays. 0 = none."));
 				if (match("Bloom Streak Length"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Streak Length", bloom.StreakLength, 0.01f, 0.0f, 4.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Streak Length", bloom.StreakLength, 0.01f, 0.0f, 4.0f));
 				if (match("Bloom Streak Intensity"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Streak Intensity", bloom.StreakIntensity, 0.01f, 0.0f, 10.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Streak Intensity", bloom.StreakIntensity, 0.01f, 0.0f, 10.0f));
 				if (match("Bloom Streak Rotation"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Streak Rotation", bloom.StreakRotation, 0.5f, -180.0f, 180.0f, "Degrees.");
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Streak Rotation", bloom.StreakRotation, 0.5f, -180.0f, 180.0f, "Degrees."));
 				if (match("Bloom Halo Intensity"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Halo Intensity", bloom.HaloIntensity, 0.01f, 0.0f, 10.0f);
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Halo Intensity", bloom.HaloIntensity, 0.01f, 0.0f, 10.0f));
 				if (match("Bloom Chromatic Spread"))
-					projectSettingsChanged |= ImGuiEx::Property("Bloom Chromatic Spread", bloom.ChromaticSpread, 0.005f, 0.0f, 0.5f,
-						"Red glare spreads this much wider than green, blue this much narrower.");
+					projectSettingsChanged |= owned(QualityCategory::PostProcessing, ImGuiEx::Property("Bloom Chromatic Spread", bloom.ChromaticSpread, 0.005f, 0.0f, 0.5f,
+						"Red glare spreads this much wider than green, blue this much narrower."));
 				projectSettingsChanged |= toggle("DOF", dof.Enabled);
-				if (match("DOF Resolution") && DrawEffectScaleProperty("DOF Resolution", dof.ResolutionScale))
+				if (match("DOF Resolution") && owned(QualityCategory::PostProcessing, DrawEffectScaleProperty("DOF Resolution", dof.ResolutionScale)))
 				{
 					screenSpaceResourcesChanged = true;
 					projectSettingsChanged = true;
@@ -772,13 +818,14 @@ namespace Lux {
 					if (ImGuiEx::Property("SSR Max Steps", ssrMaxSteps, 1, 256))
 					{
 						ssr.MaxSteps = ssrMaxSteps;
+						owned(QualityCategory::Reflections, true);
 						projectSettingsChanged = true;
 					}
 				}
 				if (match("SSR Brightness"))
-					projectSettingsChanged |= ImGuiEx::Property("SSR Brightness", ssr.Brightness, 0.01f, 0.0f, 5.0f);
+					projectSettingsChanged |= owned(QualityCategory::Reflections, ImGuiEx::Property("SSR Brightness", ssr.Brightness, 0.01f, 0.0f, 5.0f));
 				if (match("SSR Depth Tolerance"))
-					projectSettingsChanged |= ImGuiEx::Property("SSR Depth Tolerance", ssr.DepthTolerance, 0.01f, 0.0f, 5.0f);
+					projectSettingsChanged |= owned(QualityCategory::Reflections, ImGuiEx::Property("SSR Depth Tolerance", ssr.DepthTolerance, 0.01f, 0.0f, 5.0f));
 				ImGuiEx::EndPropertyGrid();
 			}
 			EndSettingsCard();
@@ -863,6 +910,12 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 			}
 			EndSettingsCard();
+		}
+
+		for (uint32_t i = 0; i < static_cast<uint32_t>(QualityCategory::COUNT); i++)
+		{
+			if (editedCategories[i])
+				m_Context->MarkCategoryCustom(static_cast<QualityCategory>(i));
 		}
 
 		if (screenSpaceResourcesChanged)
