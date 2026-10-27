@@ -4,41 +4,22 @@
 #include "lpch.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
 
-#include "vaudio.h"
+#include "Lux/Core/Timer.h"
+#include <asterwave/simulation.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <mutex>
+#include <stdexcept>
 #include <unordered_map>
 
-namespace Lux {
-
-
-	namespace {
-
-		// Meters. Padded onto the mirrored geometry's AABB so emitters slightly above/beside it
-		// (e.g. a bird sound over open terrain) are still inside the world and get raytraced.
+namespace Lux
+{
+	namespace
+	{
 		constexpr float kWorldBoundsPadding = 50.0f;
-		// Meters. Used only until the first SetStaticGeometry() call gives us a real AABB.
 		constexpr float kDefaultWorldHalfExtent = 500.0f;
-
-		// The vendored libvaudionative.so exports only functions (EXPORT_API), not the header's
-		// extern VAMatrix globals - VA_MATRIX_IDENTITY/VA_MATRIX_EMPTY link-fail on Linux. Identity
-		// is the same under any row/column-major convention, so build it locally instead.
-		constexpr VAMatrix kIdentityMatrix = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
-
-		// A freshly created VAEmitter casts ZERO rays of every type - vaEmitterGetCastsAnyRays()
-		// returns false until both a ray count and a bounce count are set, and an emitter that
-		// casts nothing never produces an occlusion filter or reverb result. These are the values
-		// from Vercidium's own getting-started example; they are the starting point for tuning
-		// quality against CPU cost, not a hard requirement.
-		//
-		// All of them are set on the *listener*, which is the only ray caster (see the class
-		// comment). Reverb rays measure the space the listener is in; occlusion and permeation rays
-		// are cast toward each target source; the ambient pair measures how enclosed the listener
-		// is, independent of any source.
 		constexpr int kReverbRayCount = 128;
 		constexpr int kReverbBounceCount = 64;
 		constexpr int kOcclusionRayCount = 512;
@@ -49,44 +30,56 @@ namespace Lux {
 		constexpr int kAmbientOcclusionBounceCount = 8;
 		constexpr int kAmbientPermeationRayCount = 128;
 		constexpr int kAmbientPermeationBounceCount = 4;
+		constexpr int kDefaultVisualisationIntervalMs = 100;
 
-		// Upper bound on the vaWorldUpdate/vaWorldWait pumps used to drain Vercidium's worker
-		// threads during Stop(); one is normally enough (see the comment there).
-		constexpr int kShutdownDrainMaxSpins = 1000;
-
-		VAVector ToVA(const glm::vec3& v)
+		asterwave::Vec3 ToAsterwave(const glm::vec3& value)
 		{
-			return vaVectorCreate(v.x, v.y, v.z);
+			return { value.x, value.y, value.z };
 		}
 
-		glm::vec3 FromVA(const VAVector& v)
+		glm::vec3 FromAsterwave(const asterwave::Vec3& value)
 		{
-			return { v.x, v.y, v.z };
+			return { value.x, value.y, value.z };
+		}
+
+		asterwave::Mat4 ToAsterwave(const glm::mat4& value)
+		{
+			// GLM's column-major storage is the transpose needed by Asterwave's row vectors.
+			asterwave::Mat4 result;
+			std::copy_n(glm::value_ptr(value), result.m.size(), result.m.begin());
+			return result;
+		}
+
+		bool Finite(const glm::vec3& value)
+		{
+			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 		}
 
 		bool ValidGeometryTransform(const glm::mat4& transform)
 		{
-			for (int c = 0; c < 4; ++c)
-				for (int r = 0; r < 4; ++r)
-					if (!std::isfinite(transform[c][r]))
+			for (int column = 0; column < 4; ++column)
+				for (int row = 0; row < 4; ++row)
+					if (!std::isfinite(transform[column][row]))
 						return false;
 			const double determinant = glm::determinant(glm::dmat3(transform));
-			return std::isfinite(determinant) && determinant != 0 && transform[0].w == 0 &&
-				transform[1].w == 0 && transform[2].w == 0 && transform[3].w == 1;
+			if (!std::isfinite(determinant) || determinant == 0 || transform[0].w != 0 ||
+				transform[1].w != 0 || transform[2].w != 0 || transform[3].w != 1)
+				return false;
+			try
+			{
+				// A valid double determinant can still underflow in the native float inverse.
+				// Reject it before replacing a working node or submitting it to worker threads.
+				const auto inverse = ToAsterwave(transform).inverse();
+				return std::all_of(inverse.m.begin(), inverse.m.end(), [](float value) { return std::isfinite(value); });
+			}
+			catch (const std::domain_error&)
+			{
+				return false;
+			}
 		}
 
-		// Validate in double precision before passing any transformed coordinates to VA.
-		bool ExpandGeometryBounds(VAWorld* world, const glm::mat4& transform, const glm::vec3& localMin, const glm::vec3& localMax)
+		bool SetBounds(asterwave::WorldSettings& settings, const glm::dvec3& minimum, const glm::dvec3& maximum)
 		{
-			glm::dvec3 minimum = FromVA(vaWorldGetPosition(world));
-			glm::dvec3 maximum = minimum + glm::dvec3(FromVA(vaWorldGetSize(world)));
-			for (int i = 0; i < 8; ++i)
-			{
-				const glm::dvec3 local{ i & 1 ? localMax.x : localMin.x, i & 2 ? localMax.y : localMin.y, i & 4 ? localMax.z : localMin.z };
-				const glm::dvec3 point(glm::dmat4(transform) * glm::dvec4(local, 1));
-				minimum = glm::min(minimum, point - glm::dvec3(kWorldBoundsPadding));
-				maximum = glm::max(maximum, point + glm::dvec3(kWorldBoundsPadding));
-			}
 			const glm::dvec3 size = maximum - minimum;
 			for (int axis = 0; axis < 3; ++axis)
 			{
@@ -94,111 +87,138 @@ namespace Lux {
 				if (!std::isfinite(minimum[axis]) || !std::isfinite(maximum[axis]) || !std::isfinite(size[axis]) ||
 					std::abs(minimum[axis]) > limit || std::abs(maximum[axis]) > limit || size[axis] > limit || size[axis] <= 0)
 				{
-					LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry exceeds representable VA world bounds");
+					LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry exceeds representable Asterwave world bounds");
 					return false;
 				}
 			}
-			const auto positioned = vaWorldSetPosition(world, ToVA(glm::vec3(minimum)));
-			const auto sized = vaWorldSetSize(world, ToVA(glm::vec3(size)));
-			if ((positioned != VA_SUCCESS && positioned != VA_UNCHANGED) || (sized != VA_SUCCESS && sized != VA_UNCHANGED))
+			settings.Bounds = { ToAsterwave(glm::vec3(minimum)), ToAsterwave(glm::vec3(maximum)) };
+			// Float rounding can collapse a small extent at a very large position.
+			if (settings.Bounds.lo.greater_equal_any(settings.Bounds.hi))
 			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot expand acoustic world bounds (position={}, size={})", positioned, sized);
+				LUX_CORE_ERROR_TAG("Audio", "Acoustic world bounds collapse at float precision");
 				return false;
 			}
 			return true;
 		}
 
-	}
-
-	bool RaytracedAudioScene::IsAvailable() { return true; }
-
-	namespace {
-
-		// Visualisation bounces are produced on Vercidium's worker threads and are only valid for
-		// the duration of the callback, so they are copied out under this lock and copied again by
-		// whoever renders them. File-local rather than a member of the private Impl because
-		// vaEmitterSetVisualisationCallback takes a plain C function pointer with no user-data
-		// parameter — the emitter's user data is the only route back, and it must point at
-		// something this callback can name.
-		struct VisualisationState
+		bool ExpandGeometryBounds(asterwave::WorldSettings& settings, const glm::mat4& transform,
+			const glm::vec3& localMin, const glm::vec3& localMax)
 		{
-			mutable std::mutex Mutex;
-			std::vector<RaytracedAudioBounce> Bounces;
-			glm::vec3 Origin{ 0.0f };
-			int RayCount = 0;
-			int BounceCount = 0;
-			bool Enabled = false;
-		};
-
-		void VisualisationCallback(VAEmitter* emitter, VAVisualisationData* data, int count)
-		{
-			auto* state = (VisualisationState*)vaEmitterGetUserData(emitter);
-			if (!state || !data || count <= 0)
-				return;
-
-			// The lock is held for a copy of a few thousand floats. Workers contend only with each
-			// other and with one per-frame read; nothing here blocks on rendering.
-			std::scoped_lock lock(state->Mutex);
-
-			state->Bounces.resize((size_t)count);
-			for (int i = 0; i < count; i++)
+			glm::dvec3 minimum = FromAsterwave(settings.Bounds.lo);
+			glm::dvec3 maximum = FromAsterwave(settings.Bounds.hi);
+			for (int i = 0; i < 8; ++i)
 			{
-				state->Bounces[i].Position = FromVA(data[i].position);
-				state->Bounces[i].Normal = FromVA(data[i].normal);
+				const glm::dvec3 local{ i & 1 ? localMax.x : localMin.x, i & 2 ? localMax.y : localMin.y, i & 4 ? localMax.z : localMin.z };
+				const glm::dvec3 point(glm::dmat4(transform) * glm::dvec4(local, 1));
+				minimum = glm::min(minimum, point - glm::dvec3(kWorldBoundsPadding));
+				maximum = glm::max(maximum, point + glm::dvec3(kWorldBoundsPadding));
 			}
-			state->Origin = FromVA(vaEmitterGetPosition(emitter));
-
-			// The SDK hands back a flat array with no ray/bounce grouping. It is ray-major over
-			// rayCount * bounceCount, so derive the stride from what actually arrived rather than
-			// trusting the configured counts — a short delivery under the configured stride would
-			// splice unrelated rays into one polyline.
-			const int configuredBounces = vaEmitterGetVisualisationBounceCount(emitter);
-			if (configuredBounces > 0 && count % configuredBounces == 0)
-			{
-				state->BounceCount = configuredBounces;
-				state->RayCount = count / configuredBounces;
-			}
-			else
-			{
-				// Draw each bounce as its own segment from the origin instead of as a connected
-				// path. Visibly different from a real ray path, but never misleading.
-				state->BounceCount = 1;
-				state->RayCount = count;
-			}
+			return SetBounds(settings, minimum, maximum);
 		}
 
+		int StatisticCount(uint64_t value)
+		{
+			return static_cast<int>(std::min(value, static_cast<uint64_t>(std::numeric_limits<int>::max())));
+		}
 	}
 
 	struct RaytracedAudioScene::Impl
 	{
+		// Asterwave's API retains native objects for worker snapshots and reverb tails. Shared
+		// ownership is confined to this vendor boundary; Lux owners remain Scope/Ref objects.
 		struct Geometry
 		{
-			VAMeshPrimitive* Primitive = nullptr;
+			std::shared_ptr<asterwave::MeshPrimitive> Primitive;
 			glm::vec3 Min{ 0 }, Max{ 0 };
+			glm::mat4 Transform{ 1.0f };
 			int Triangles = 0;
 			bool Dynamic = false;
 		};
+		Scope<asterwave::World> World;
+		std::shared_ptr<asterwave::Emitter> Listener;
+		std::unordered_map<UUID, std::shared_ptr<asterwave::Emitter>> SourceEmitters;
 		std::unordered_map<UUID, Geometry> GeometryNodes;
-		VAWorld* World = nullptr;
-		VAEmitter* Listener = nullptr;
-		std::unordered_map<UUID, VAEmitter*> SourceEmitters;
-		std::vector<VAMeshPrimitive*> StaticPrimitives;
-		// The SDK offers no way to read a primitive's triangle count back, so record what we
-		// mirrored into it - the editor uses this to tell "no geometry" apart from "geometry the
-		// simulation is ignoring".
+		std::vector<Geometry> StaticPrimitives;
 		int StaticTriangleCount = 0;
+		bool BatchPending = false;
+		asterwave::SimulationStatistics CompletedStatistics;
+		int GroupedEAXCount = 0;
+		double SubmissionTimeMs = 0.0;
+		double MainThreadTimeMs = 0.0;
+		glm::vec3 ListenerPosition{ 0.0f };
+		glm::vec3 BatchListenerPosition{ 0.0f };
+		RaytracedAudioVisualisation Visualisation;
+		asterwave::RaySettings DesiredVisualisation;
+		int VisualisationIntervalMs = kDefaultVisualisationIntervalMs;
 
-		VisualisationState Visualisation;
+		static std::shared_ptr<asterwave::Emitter> CreateNativeEmitter()
+		{
+			return std::make_shared<asterwave::Emitter>();
+		}
+
+		static Geometry CreateGeometry(const AcousticGeometry& geometry, const glm::mat4& transform, bool dynamic)
+		{
+			if (!IsValidAcousticMaterial(geometry.Material) || geometry.Triangles.empty() ||
+				geometry.Triangles.size() % 3 || geometry.Triangles.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+				!ValidGeometryTransform(transform))
+				throw std::invalid_argument("invalid material, triangle count or transform");
+			Geometry node;
+			node.Min = glm::vec3(std::numeric_limits<float>::max());
+			node.Max = glm::vec3(std::numeric_limits<float>::lowest());
+			std::vector<asterwave::Vec3> vertices;
+			vertices.reserve(geometry.Triangles.size());
+			for (const auto& position : geometry.Triangles)
+			{
+				if (!Finite(position))
+					throw std::invalid_argument("non-finite acoustic vertex");
+				node.Min = glm::min(node.Min, position);
+				node.Max = glm::max(node.Max, position);
+				vertices.push_back(ToAsterwave(position));
+			}
+			auto mesh = std::make_shared<asterwave::MeshGeometry>(vertices, asterwave::AABB{ ToAsterwave(node.Min), ToAsterwave(node.Max) });
+			node.Primitive = std::make_shared<asterwave::MeshPrimitive>(std::move(mesh));
+			node.Primitive->transform = ToAsterwave(transform);
+			node.Primitive->material_id = AcousticMaterialID(geometry.Material);
+			node.Primitive->validate();
+			node.Transform = transform;
+			node.Triangles = static_cast<int>(vertices.size() / 3);
+			node.Dynamic = dynamic;
+			return node;
+		}
+
+		void SetWorldSettings(const asterwave::WorldSettings& settings)
+		{
+			const auto previous = World->settings();
+			if (previous.Bounds.lo != settings.Bounds.lo || previous.Bounds.hi != settings.Bounds.hi)
+				World->set_settings(settings);
+		}
+
+		void CaptureVisualisation(std::span<const asterwave::VisualisationData> data)
+		{
+			// wait() publishes on the main thread. Overlay requests cannot change the active stride.
+			if (!DesiredVisualisation.enabled())
+				return;
+			const int bounces = Listener->Visualisation.Bounces;
+			if (bounces <= 0 || data.size() % static_cast<size_t>(bounces))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Asterwave returned an invalid visualisation ray layout");
+				Visualisation = {};
+				return;
+			}
+			Visualisation.Bounces.resize(data.size());
+			for (size_t i = 0; i < data.size(); ++i)
+				Visualisation.Bounces[i] = { FromAsterwave(data[i].Position), FromAsterwave(data[i].Normal), data[i].Hit };
+			Visualisation.Origin = BatchListenerPosition;
+			Visualisation.BounceCount = bounces;
+			Visualisation.RayCount = static_cast<int>(data.size() / static_cast<size_t>(bounces));
+		}
 	};
+
+	bool RaytracedAudioScene::IsAvailable() { return true; }
 
 	RaytracedAudioScene::RaytracedAudioScene(Scene* scene)
 		: m_Scene(scene), m_Impl(CreateScope<Impl>())
 	{
-	}
-
-	bool RaytracedAudioScene::IsRunning() const
-	{
-		return m_Impl->World != nullptr;
 	}
 
 	RaytracedAudioScene::~RaytracedAudioScene()
@@ -206,386 +226,274 @@ namespace Lux {
 		Stop();
 	}
 
+	bool RaytracedAudioScene::IsRunning() const
+	{
+		return m_Impl->World != nullptr;
+	}
+
 	void RaytracedAudioScene::Start(const AcousticMaterialSettings& materials)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-
 		if (m_Impl->World)
 			return;
-
-		m_Impl->World = vaWorldCreate();
-		if (!ConfigureAcousticMaterials(m_Impl->World, materials))
+		try
 		{
-			if (m_Impl->World)
-				vaWorldDestroy(m_Impl->World);
-			m_Impl->World = nullptr;
-			return;
+			m_Impl->World = CreateScope<asterwave::World>();
+			if (!ConfigureAcousticMaterials(*m_Impl->World, materials))
+			{
+				Stop();
+				return;
+			}
+			auto settings = m_Impl->World->settings();
+			settings.Bounds = { asterwave::Vec3(-kDefaultWorldHalfExtent), asterwave::Vec3(kDefaultWorldHalfExtent) };
+			m_Impl->World->set_settings(settings);
+			m_Impl->Listener = Impl::CreateNativeEmitter();
+			auto& listener = *m_Impl->Listener;
+			listener.Name = "LuxListener";
+			listener.HasRelativeReverb = true;
+			listener.AffectsGroupedEAX = false;
+			listener.Reverb = { kReverbRayCount, kReverbBounceCount };
+			listener.Occlusion = { kOcclusionRayCount, kOcclusionBounceCount };
+			listener.Permeation = { kPermeationRayCount, kPermeationBounceCount };
+			listener.AmbientOcclusion = { kAmbientOcclusionRayCount, kAmbientOcclusionBounceCount };
+			listener.AmbientPermeation = { kAmbientPermeationRayCount, kAmbientPermeationBounceCount };
+			listener.OnVisualisation = [impl = m_Impl.get()](std::span<const asterwave::VisualisationData> data)
+			{
+				impl->CaptureVisualisation(data);
+			};
+			m_Impl->World->add_emitter(m_Impl->Listener);
 		}
-		vaWorldSetPosition(m_Impl->World, vaVectorCreateUniform(-kDefaultWorldHalfExtent));
-		vaWorldSetSize(m_Impl->World, vaVectorCreateUniform(kDefaultWorldHalfExtent * 2.0f));
-
-		// The listener is the only ray caster in the world (see the class comment): reverb rays
-		// measure the space it is in, occlusion and permeation rays are cast toward each target
-		// source, and the ambient pair measures how enclosed it is regardless of any source.
-		m_Impl->Listener = vaEmitterCreate();
-		vaEmitterSetName(m_Impl->Listener, "LuxListener");
-		vaEmitterSetHasRelativeReverb(m_Impl->Listener, true);
-		// The listener hears the grouped reverb rather than contributing to it; blending its own
-		// reverb back in would double-count the space.
-		vaEmitterSetAffectsGroupedEAX(m_Impl->Listener, false);
-
-		vaEmitterSetReverbRayCount(m_Impl->Listener, kReverbRayCount);
-		vaEmitterSetReverbBounceCount(m_Impl->Listener, kReverbBounceCount);
-		vaEmitterSetOcclusionRayCount(m_Impl->Listener, kOcclusionRayCount);
-		vaEmitterSetOcclusionBounceCount(m_Impl->Listener, kOcclusionBounceCount);
-		vaEmitterSetPermeationRayCount(m_Impl->Listener, kPermeationRayCount);
-		vaEmitterSetPermeationBounceCount(m_Impl->Listener, kPermeationBounceCount);
-		vaEmitterSetAmbientOcclusionRayCount(m_Impl->Listener, kAmbientOcclusionRayCount);
-		vaEmitterSetAmbientOcclusionBounceCount(m_Impl->Listener, kAmbientOcclusionBounceCount);
-		vaEmitterSetAmbientPermeationRayCount(m_Impl->Listener, kAmbientPermeationRayCount);
-		vaEmitterSetAmbientPermeationBounceCount(m_Impl->Listener, kAmbientPermeationBounceCount);
-
-		// Routes the visualisation callback back to our snapshot buffer. Set unconditionally so
-		// SetVisualisationEnabled only has to touch ray counts.
-		vaEmitterSetUserData(m_Impl->Listener, &m_Impl->Visualisation);
-		vaEmitterSetVisualisationCallback(m_Impl->Listener, VisualisationCallback);
-
-		if (VAResult result = vaWorldAddEmitter(m_Impl->World, m_Impl->Listener); result != VA_SUCCESS)
-			LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::Start failed to add the listener emitter to the world; no source will produce occlusion (VAResult={0})", result);
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot start Asterwave scene: {0}", error.what());
+			Stop();
+		}
 	}
 
 	void RaytracedAudioScene::Stop()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-
-		if (!m_Impl->World)
-			return;
-
-		// Stop the background raytracing threads submitting new work, then wait for the ones
-		// already in flight to drain. vaudio.h states the precondition explicitly: "When
-		// vaWorldGetThreadsRunning() returns false, it is safe to call vaWorldDestroy()".
-		// Tearing down without waiting segfaults on a Vercidium worker thread (it jumps through
-		// a function pointer belonging to the world we just freed); in a host process that
-		// surfaces later as glibc heap corruption in an unrelated allocation. One update is
-		// normally enough to drain - the bound only stops a wedged worker hanging the editor.
-		// Stop new visualisation bounces being delivered before anything is torn down, so the drain
-		// below is the only thing the workers are still finishing.
-		if (m_Impl->Listener)
+		m_Impl->DesiredVisualisation = {};
+		if (m_Impl->World)
 		{
-			vaEmitterSetVisualisationRayCount(m_Impl->Listener, 0);
-			vaEmitterSetVisualisationCallback(m_Impl->Listener, nullptr);
-		}
-
-		// Join whatever the last OnUpdate kicked off, unconditionally and before anything else.
-		// OnUpdate only calls vaWorldUpdate and never waits - that is the point of an asynchronous
-		// simulation - so on entry here a batch is typically still in flight or not yet picked up.
-		// In the latter case vaWorldGetThreadsRunning() answers false, the drain loop below is
-		// skipped entirely, and the world is destroyed out from under work that is about to start.
-		vaWorldWait(m_Impl->World);
-
-		vaWorldSetPendingShutdown(m_Impl->World, true);
-		for (int spin = 0; spin < kShutdownDrainMaxSpins && vaWorldGetThreadsRunning(m_Impl->World); spin++)
-		{
-			vaWorldUpdate(m_Impl->World);
-			vaWorldWait(m_Impl->World);
-		}
-
-		if (vaWorldGetThreadsRunning(m_Impl->World))
-			LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::Stop: Vercidium worker threads still running after {0} drain attempts; destroying the world anyway may crash", kShutdownDrainMaxSpins);
-
-		// Every source is a target of the listener, and the listener outlives them in this teardown
-		// order. Destroying a source while the listener still lists it as a target leaves a dangling
-		// entry that vaWorldDestroy walks - which segfaults inside the SDK, on the main thread, with
-		// nothing in the trace pointing back here. Deregister first, exactly as DestroyEmitter does.
-		//
-		// vaWorldRemoveEmitter can then answer VA_PENDING_REMOVAL: the world keeps the emitter alive
-		// until its reverb tail finishes. Destroying it here regardless leaves the world holding a
-		// freed pointer, which it frees again from vaWorldDestroy below - a double free. Only
-		// destroy what actually came back out; vaWorldDestroy releases whatever the world still
-		// owns along with itself.
-		for (auto& [entityID, emitter] : m_Impl->SourceEmitters)
-		{
-			if (m_Impl->Listener)
-				vaEmitterRemoveTarget(m_Impl->Listener, emitter);
-
-			if (vaWorldRemoveEmitter(m_Impl->World, emitter) == VA_SUCCESS)
-				vaEmitterDestroy(emitter);
-		}
-		m_Impl->SourceEmitters.clear();
-
-		for (auto& [id, node] : m_Impl->GeometryNodes)
-		{
-			const auto result = vaWorldRemovePrimitive_(m_Impl->World, node.Primitive);
-			if (result == VA_SUCCESS)
+			try
 			{
-				if (const auto destroyed = vaMeshPrimitiveDestroy(node.Primitive); destroyed != VA_SUCCESS)
-					LUX_CORE_ERROR_TAG("Audio", "Cannot release live acoustic geometry {} during teardown (VAResult={})", static_cast<uint64_t>(id), destroyed);
+				// Native shutdown joins the outstanding batch before detaching every retained object.
+				m_Impl->World->shutdown();
 			}
-			else
-				LUX_CORE_ERROR_TAG("Audio", "Cannot remove live acoustic geometry {} during teardown (VAResult={})", static_cast<uint64_t>(id), result);
+			catch (const std::exception& error)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Asterwave batch failed during shutdown: {0}", error.what());
+			}
+			m_Impl->World.reset();
 		}
+		m_Impl->Listener.reset();
+		m_Impl->SourceEmitters.clear();
 		m_Impl->GeometryNodes.clear();
-		for (VAMeshPrimitive* primitive : m_Impl->StaticPrimitives)
-		{
-			if (vaWorldRemovePrimitive_(m_Impl->World, primitive) == VA_SUCCESS)
-				vaMeshPrimitiveDestroy(primitive);
-		}
 		m_Impl->StaticPrimitives.clear();
 		m_Impl->StaticTriangleCount = 0;
-
-		if (m_Impl->Listener)
-		{
-			if (vaWorldRemoveEmitter(m_Impl->World, m_Impl->Listener) == VA_SUCCESS)
-				vaEmitterDestroy(m_Impl->Listener);
-			m_Impl->Listener = nullptr;
-		}
-
-		// Waits for the background threads, then frees the world and anything still attached.
-		vaWorldDestroy(m_Impl->World);
-		m_Impl->World = nullptr;
+		m_Impl->BatchPending = false;
+		m_Impl->CompletedStatistics = {};
+		m_Impl->GroupedEAXCount = 0;
+		m_Impl->SubmissionTimeMs = m_Impl->MainThreadTimeMs = 0.0;
+		m_Impl->ListenerPosition = m_Impl->BatchListenerPosition = glm::vec3(0.0f);
+		m_Impl->Visualisation = {};
+		m_Impl->VisualisationIntervalMs = kDefaultVisualisationIntervalMs;
 	}
 
 	double RaytracedAudioScene::GetRaytracingTimeMilliseconds() const
 	{
-		return m_Impl->World ? vaWorldGetRaytracingTime(m_Impl->World) : 0;
+		return m_Impl->CompletedStatistics.RaytracingMs;
 	}
 
 	void RaytracedAudioScene::WaitForResults()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-
-		if (!m_Impl->World)
+		if (!m_Impl->World || !m_Impl->BatchPending)
 			return;
-
-		// Joins the batch OnUpdate kicked last frame. Everything the caller does between this and
-		// the next OnUpdate - moving emitters, reading filters and reverb - then runs with no
-		// Vercidium worker touching the world. This is a wait on work that has had a full frame to
-		// finish, not a synchronous raytrace: by the time the caller gets here the batch is
-		// normally already complete and this returns immediately.
-		vaWorldWait(m_Impl->World);
+		Timer timer;
+		try
+		{
+			m_Impl->World->wait();
+			m_Impl->CompletedStatistics = m_Impl->World->Statistics;
+			m_Impl->GroupedEAXCount = StatisticCount(m_Impl->World->GroupedEAX.size());
+			m_Impl->BatchPending = false;
+			m_Impl->MainThreadTimeMs = m_Impl->SubmissionTimeMs + timer.ElapsedMillis();
+		}
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Asterwave simulation failed; stopping this scene: {0}", error.what());
+			Stop();
+		}
 	}
 
 	void RaytracedAudioScene::OnUpdate(Timestep ts)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		(void)ts;
-
+		WaitForResults();
 		if (!m_Impl->World)
 			return;
-
-		// Kicks the next batch and returns without waiting - the results land by the next frame's
-		// WaitForResults. Nothing may read results or move emitters after this point in the frame.
-		vaWorldUpdate(m_Impl->World);
+		Timer timer;
+		try
+		{
+			m_Impl->Listener->Visualisation = m_Impl->DesiredVisualisation;
+			m_Impl->Listener->VisualisationUpdateFrequency = m_Impl->VisualisationIntervalMs;
+			const auto settings = m_Impl->World->settings();
+			m_Impl->BatchListenerPosition = glm::clamp(m_Impl->ListenerPosition,
+				FromAsterwave(settings.Bounds.lo), FromAsterwave(settings.Bounds.hi));
+			m_Impl->World->update();
+			m_Impl->BatchPending = true;
+			m_Impl->SubmissionTimeMs = timer.ElapsedMillis();
+		}
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot submit Asterwave simulation; stopping this scene: {0}", error.what());
+			Stop();
+		}
 	}
 
 	bool RaytracedAudioScene::SetStaticGeometry(const std::vector<AcousticGeometry>& geometry)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		WaitForResults();
 		if (!m_Impl->World)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot mirror acoustic geometry: VA world is not running");
+			LUX_CORE_ERROR_TAG("Audio", "Cannot mirror acoustic geometry: Asterwave world is not running");
 			return false;
 		}
-
-		glm::vec3 minBounds(std::numeric_limits<float>::max());
-		glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
-		size_t triangleCount = 0;
-		for (const auto& batch : geometry)
+		std::vector<Impl::Geometry> pending;
+		size_t attached = 0;
+		try
 		{
-			if (!IsValidAcousticMaterial(batch.Material) || batch.Triangles.size() % 3 != 0
-				|| batch.Triangles.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
+			pending.reserve(geometry.size());
+			glm::dvec3 minimum(std::numeric_limits<double>::max());
+			glm::dvec3 maximum(std::numeric_limits<double>::lowest());
+			uint64_t triangleCount = 0;
+			for (const auto& batch : geometry)
 			{
-				LUX_CORE_ERROR_TAG("Audio", "Invalid acoustic geometry batch: check material ID and triangle count");
-				return false;
+				if (!IsValidAcousticMaterial(batch.Material))
+					throw std::invalid_argument("invalid acoustic material");
+				if (batch.Triangles.empty())
+					continue;
+				auto node = Impl::CreateGeometry(batch, glm::mat4(1.0f), false);
+				minimum = glm::min(minimum, glm::dvec3(node.Min));
+				maximum = glm::max(maximum, glm::dvec3(node.Max));
+				triangleCount += node.Triangles;
+				if (triangleCount > static_cast<uint64_t>(std::numeric_limits<int>::max()))
+					throw std::invalid_argument("acoustic triangle count exceeds the scene limit");
+				pending.push_back(std::move(node));
 			}
-			triangleCount += batch.Triangles.size() / 3;
-			for (const auto& vertex : batch.Triangles)
+			auto settings = m_Impl->World->settings();
+			if (triangleCount)
 			{
-				if (!std::isfinite(vertex.x) || !std::isfinite(vertex.y) || !std::isfinite(vertex.z))
-				{
-					LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry contains a non-finite vertex");
+				if (!SetBounds(settings, minimum - glm::dvec3(kWorldBoundsPadding), maximum + glm::dvec3(kWorldBoundsPadding)))
 					return false;
-				}
-				minBounds = glm::min(minBounds, vertex);
-				maxBounds = glm::max(maxBounds, vertex);
 			}
+			else
+				settings.Bounds = { asterwave::Vec3(-kDefaultWorldHalfExtent), asterwave::Vec3(kDefaultWorldHalfExtent) };
+			for (const auto& [id, node] : m_Impl->GeometryNodes)
+				if (!ExpandGeometryBounds(settings, node.Transform, node.Min, node.Max))
+					return false;
+			for (const auto& node : pending)
+			{
+				m_Impl->World->add_primitive(node.Primitive);
+				++attached;
+			}
+			m_Impl->SetWorldSettings(settings);
+			for (const auto& node : m_Impl->StaticPrimitives)
+				m_Impl->World->remove_primitive(node.Primitive->id);
+			m_Impl->StaticPrimitives = std::move(pending);
+			m_Impl->StaticTriangleCount = static_cast<int>(triangleCount);
+			return true;
 		}
-		if (triangleCount > static_cast<size_t>(std::numeric_limits<int>::max()))
+		catch (const std::exception& error)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Acoustic geometry exceeds VA's triangle limit");
+			for (size_t i = 0; i < attached; ++i)
+				m_Impl->World->remove_primitive(pending[i].Primitive->id);
+			LUX_CORE_ERROR_TAG("Audio", "Cannot replace Asterwave static geometry: {0}", error.what());
 			return false;
 		}
-
-		std::vector<VAMeshPrimitive*> pending;
-		const auto release = [this](auto& primitives)
-		{
-			for (auto* primitive : primitives)
-			{
-				const VAResult result = vaWorldRemovePrimitive_(m_Impl->World, primitive);
-				if (result == VA_SUCCESS)
-					vaMeshPrimitiveDestroy(primitive);
-				else
-					LUX_CORE_ERROR_TAG("Audio", "Cannot remove acoustic primitive (VAResult={0}); ownership remains with VA", result);
-			}
-			primitives.clear();
-		};
-		for (const auto& batch : geometry)
-		{
-			if (batch.Triangles.empty())
-				continue;
-			glm::vec3 batchMin(std::numeric_limits<float>::max());
-			glm::vec3 batchMax(std::numeric_limits<float>::lowest());
-			std::vector<VAVector> vertices;
-			vertices.reserve(batch.Triangles.size());
-			for (const auto& vertex : batch.Triangles)
-			{
-				vertices.push_back(ToVA(vertex));
-				batchMin = glm::min(batchMin, vertex);
-				batchMax = glm::max(batchMax, vertex);
-			}
-			VAMeshPrimitive* primitive = nullptr;
-			const auto material = static_cast<VAMaterialType>(AcousticMaterialVAID(batch.Material));
-			const VAResult created = vaMeshPrimitiveCreate(material, vertices.data(), static_cast<int>(vertices.size()),
-				ToVA(batchMin), ToVA(batchMax), &kIdentityMatrix, &primitive);
-			if (created != VA_SUCCESS || !primitive)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot create acoustic mesh for {0} (VAResult={1})", AcousticMaterialName(batch.Material), created);
-				release(pending);
-				return false;
-			}
-			const VAResult added = vaWorldAddPrimitive_(m_Impl->World, primitive);
-			if (added != VA_SUCCESS)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot add acoustic mesh for {0} (VAResult={1})", AcousticMaterialName(batch.Material), added);
-				vaMeshPrimitiveDestroy(primitive);
-				release(pending);
-				return false;
-			}
-			pending.push_back(primitive);
-		}
-		release(m_Impl->StaticPrimitives);
-		m_Impl->StaticPrimitives = std::move(pending);
-		m_Impl->StaticTriangleCount = static_cast<int>(triangleCount);
-		const glm::vec3 paddedMin = triangleCount ? minBounds - kWorldBoundsPadding : glm::vec3(-kDefaultWorldHalfExtent);
-		const glm::vec3 size = triangleCount ? maxBounds - minBounds + 2.0f * kWorldBoundsPadding : glm::vec3(2.0f * kDefaultWorldHalfExtent);
-		const VAResult positioned = vaWorldSetPosition(m_Impl->World, ToVA(paddedMin));
-		const VAResult resized = vaWorldSetSize(m_Impl->World, ToVA(size));
-		if ((positioned != VA_SUCCESS && positioned != VA_UNCHANGED) || (resized != VA_SUCCESS && resized != VA_UNCHANGED))
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot update acoustic world bounds (position={0}, size={1})", positioned, resized);
-			return false;
-		}
-		return true;
 	}
 
 	bool RaytracedAudioScene::SetGeometry(UUID id, const AcousticGeometry& geometry, const glm::mat4& transform, bool dynamic)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		if (!m_Impl->World || id == 0 || !IsValidAcousticMaterial(geometry.Material) || geometry.Triangles.empty() ||
-			geometry.Triangles.size() % 3 || geometry.Triangles.size() > static_cast<size_t>(INT_MAX))
+		WaitForResults();
+		if (!m_Impl->World || id == 0)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Invalid live acoustic geometry {}", static_cast<uint64_t>(id));
+			LUX_CORE_ERROR_TAG("Audio", "Cannot set acoustic geometry {0}: world is stopped or ID is invalid", static_cast<uint64_t>(id));
 			return false;
 		}
-		VAMatrix matrix;
-		std::memcpy(&matrix, glm::value_ptr(transform), sizeof(matrix));
-		if (!ValidGeometryTransform(transform))
+		int attachedID = -1;
+		try
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Invalid acoustic geometry transform {}", static_cast<uint64_t>(id));
-			return false;
-		}
-		Impl::Geometry node;
-		node.Min = glm::vec3(std::numeric_limits<float>::max());
-		node.Max = glm::vec3(std::numeric_limits<float>::lowest());
-		std::vector<VAVector> vertices;
-		vertices.reserve(geometry.Triangles.size());
-		for (const auto& position : geometry.Triangles)
-		{
-			if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Non-finite acoustic vertex on geometry {}", static_cast<uint64_t>(id));
+			auto node = Impl::CreateGeometry(geometry, transform, dynamic);
+			auto settings = m_Impl->World->settings();
+			if (!ExpandGeometryBounds(settings, transform, node.Min, node.Max))
 				return false;
+			m_Impl->World->add_primitive(node.Primitive);
+			attachedID = node.Primitive->id;
+			m_Impl->SetWorldSettings(settings);
+			auto found = m_Impl->GeometryNodes.find(id);
+			if (found == m_Impl->GeometryNodes.end())
+				m_Impl->GeometryNodes.emplace(id, std::move(node));
+			else
+			{
+				m_Impl->World->remove_primitive(found->second.Primitive->id);
+				found->second = std::move(node);
 			}
-			node.Min = glm::min(node.Min, position);
-			node.Max = glm::max(node.Max, position);
-			vertices.push_back(ToVA(position));
+			return true;
 		}
-		if (!ExpandGeometryBounds(m_Impl->World, transform, node.Min, node.Max))
-			return false;
-		node.Triangles = static_cast<int>(vertices.size() / 3);
-		node.Dynamic = dynamic;
-		auto result = vaMeshPrimitiveCreate(static_cast<VAMaterialType>(AcousticMaterialVAID(geometry.Material)), vertices.data(),
-			static_cast<int>(vertices.size()), ToVA(node.Min), ToVA(node.Max), &matrix, &node.Primitive);
-		if (result != VA_SUCCESS || !node.Primitive)
+		catch (const std::exception& error)
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot create live acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), result);
+			if (attachedID >= 0)
+				m_Impl->World->remove_primitive(attachedID);
+			LUX_CORE_ERROR_TAG("Audio", "Cannot replace acoustic geometry {0}: {1}", static_cast<uint64_t>(id), error.what());
 			return false;
 		}
-		result = vaWorldAddPrimitive_(m_Impl->World, node.Primitive);
-		if (result != VA_SUCCESS)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot attach live acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), result);
-			if (const auto destroyed = vaMeshPrimitiveDestroy(node.Primitive); destroyed != VA_SUCCESS)
-				LUX_CORE_ERROR_TAG("Audio", "Cannot release unattached acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), destroyed);
-			return false;
-		}
-		if (!RemoveGeometry(id))
-		{
-			if (vaWorldRemovePrimitive_(m_Impl->World, node.Primitive) == VA_SUCCESS)
-				if (const auto destroyed = vaMeshPrimitiveDestroy(node.Primitive); destroyed != VA_SUCCESS)
-				LUX_CORE_ERROR_TAG("Audio", "Cannot release unattached acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), destroyed);
-			return false;
-		}
-		m_Impl->GeometryNodes.emplace(id, node);
-		return true;
 	}
 
 	bool RaytracedAudioScene::UpdateGeometry(UUID id, const glm::mat4& transform, AcousticMaterial material, bool dynamic)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		WaitForResults();
 		const auto found = m_Impl->GeometryNodes.find(id);
-		if (!m_Impl->World || found == m_Impl->GeometryNodes.end() || !IsValidAcousticMaterial(material))
+		if (!m_Impl->World || found == m_Impl->GeometryNodes.end() || !IsValidAcousticMaterial(material) || !ValidGeometryTransform(transform))
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot update missing or invalid acoustic geometry {}", static_cast<uint64_t>(id));
-			return false;
-		}
-		VAMatrix matrix;
-		std::memcpy(&matrix, glm::value_ptr(transform), sizeof(matrix));
-		if (!ValidGeometryTransform(transform))
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Invalid acoustic geometry transform {}", static_cast<uint64_t>(id));
+			LUX_CORE_ERROR_TAG("Audio", "Cannot update missing or invalid acoustic geometry {0}", static_cast<uint64_t>(id));
 			return false;
 		}
 		auto& node = found->second;
-		if (!ExpandGeometryBounds(m_Impl->World, transform, node.Min, node.Max))
-			return false;
-		const auto moved = vaMeshPrimitiveSetTransform(node.Primitive, &matrix);
-		const auto tagged = vaMeshPrimitiveSetMaterial(node.Primitive, static_cast<VAMaterialType>(AcousticMaterialVAID(material)));
-		if ((moved != VA_SUCCESS && moved != VA_UNCHANGED) || (tagged != VA_SUCCESS && tagged != VA_UNCHANGED))
+		try
 		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot update acoustic geometry {} (transform={}, material={})", static_cast<uint64_t>(id), moved, tagged);
+			auto settings = m_Impl->World->settings();
+			if (!ExpandGeometryBounds(settings, transform, node.Min, node.Max))
+				return false;
+			m_Impl->SetWorldSettings(settings);
+			node.Primitive->transform = ToAsterwave(transform);
+			node.Primitive->material_id = AcousticMaterialID(material);
+			node.Transform = transform;
+			node.Dynamic = dynamic;
+			m_Impl->World->geometry_changed();
+			return true;
+		}
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot update acoustic geometry {0}: {1}", static_cast<uint64_t>(id), error.what());
 			return false;
 		}
-		node.Dynamic = dynamic;
-		return true;
 	}
 
 	bool RaytracedAudioScene::RemoveGeometry(UUID id)
 	{
+		WaitForResults();
 		const auto found = m_Impl->GeometryNodes.find(id);
 		if (found == m_Impl->GeometryNodes.end())
 			return true;
-		const auto removed = vaWorldRemovePrimitive_(m_Impl->World, found->second.Primitive);
-		if (removed != VA_SUCCESS)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot remove acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), removed);
-			return false;
-		}
-		const auto destroyed = vaMeshPrimitiveDestroy(found->second.Primitive);
+		m_Impl->World->remove_primitive(found->second.Primitive->id);
 		m_Impl->GeometryNodes.erase(found);
-		if (destroyed != VA_SUCCESS)
-			LUX_CORE_ERROR_TAG("Audio", "Cannot release detached acoustic geometry {} (VAResult={})", static_cast<uint64_t>(id), destroyed);
-		return destroyed == VA_SUCCESS;
+		return true;
 	}
 
 	bool RaytracedAudioScene::GetGeometryTransform(UUID id, glm::mat4& transform) const
@@ -593,192 +501,162 @@ namespace Lux {
 		const auto found = m_Impl->GeometryNodes.find(id);
 		if (found == m_Impl->GeometryNodes.end())
 			return false;
-		const auto* matrix = vaMeshPrimitiveGetTransform(found->second.Primitive);
-		if (!matrix)
-			return false;
-		std::memcpy(glm::value_ptr(transform), matrix, sizeof(VAMatrix));
+		transform = found->second.Transform;
 		return true;
 	}
 
 	void RaytracedAudioScene::SetListener(const glm::vec3& position, const glm::vec3& forward)
 	{
-		if (!m_Impl->World || !m_Impl->Listener)
+		WaitForResults();
+		if (!m_Impl->Listener)
 			return;
-
-		vaEmitterSetPosition(m_Impl->Listener, ToVA(position));
-
-		const glm::vec3 dir = glm::normalize(forward);
-		const float pitch = std::asin(std::clamp(dir.y, -1.0f, 1.0f));
-		const float yaw = std::atan2(-dir.x, -dir.z);
-
-		vaWorldSetCameraPosition(m_Impl->World, ToVA(position));
-		vaWorldSetCameraPitch(m_Impl->World, pitch);
-		vaWorldSetCameraYaw(m_Impl->World, yaw);
+		if (!Finite(position))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot position acoustic listener: coordinates must be finite");
+			return;
+		}
+		// Acoustic emission is omnidirectional. The engine owns the overlay camera separately.
+		(void)forward;
+		m_Impl->Listener->Position = ToAsterwave(position);
+		m_Impl->ListenerPosition = position;
 	}
 
 	void RaytracedAudioScene::CreateEmitter(UUID entityID)
 	{
+		WaitForResults();
 		if (!m_Impl->World || m_Impl->SourceEmitters.contains(entityID))
 			return;
-
-		// A source is a pure target: it casts nothing itself and is raytraced *by* the listener, so
-		// its ray counts stay at the SDK's zero defaults. Adding a source therefore costs one more
-		// target for the listener's existing ray budget, not a second budget of its own.
-		VAEmitter* emitter = vaEmitterCreate();
-
-		if (VAResult result = vaWorldAddEmitter(m_Impl->World, emitter); result != VA_SUCCESS)
+		try
 		{
-			LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::CreateEmitter failed to add emitter for entity {0} to the world (VAResult={1})", (uint64_t)entityID, result);
-			vaEmitterDestroy(emitter);
-			return;
+			auto entry = m_Impl->SourceEmitters.emplace(entityID, Impl::CreateNativeEmitter()).first;
+			try
+			{
+				// Sources keep their zero ray budgets. The listener traces every target in one batch.
+				m_Impl->World->add_emitter(entry->second);
+				m_Impl->Listener->add_target(entry->second);
+			}
+			catch (...)
+			{
+				// add_emitter validates before attaching; a failure can precede world membership.
+				for (const auto& attached : m_Impl->World->emitters())
+					if (attached == entry->second)
+						m_Impl->World->remove_emitter(entry->second);
+				m_Impl->SourceEmitters.erase(entry);
+				throw;
+			}
 		}
-
-		// vaEmitterAddTarget requires the target to already be in the same world, which the call
-		// above guarantees.
-		if (m_Impl->Listener)
+		catch (const std::exception& error)
 		{
-			if (VAResult result = vaEmitterAddTarget(m_Impl->Listener, emitter); result != VA_SUCCESS)
-				LUX_CORE_ERROR_TAG("Audio", "RaytracedAudioScene::CreateEmitter failed to target entity {0} from the listener; it will produce no occlusion (VAResult={1})", (uint64_t)entityID, result);
+			LUX_CORE_ERROR_TAG("Audio", "Cannot create acoustic emitter for entity {0}: {1}", static_cast<uint64_t>(entityID), error.what());
 		}
-
-		m_Impl->SourceEmitters[entityID] = emitter;
 	}
 
 	void RaytracedAudioScene::DestroyEmitter(UUID entityID)
 	{
-		auto it = m_Impl->SourceEmitters.find(entityID);
-		if (it == m_Impl->SourceEmitters.end())
+		// Entity destruction can run after OnUpdate in the scene's post-update queue.
+		WaitForResults();
+		const auto found = m_Impl->SourceEmitters.find(entityID);
+		if (found == m_Impl->SourceEmitters.end())
 			return;
-
-		// Join the in-flight batch before touching the world. Scene calls this from outside the
-		// WaitForResults/OnUpdate window too - entity destruction from scripts runs in the post-update
-		// queue after OnUpdate has kicked the next batch - and the listener's workers read its target
-		// list and this emitter. Removing or freeing it under them is the same use-after-free Stop()
-		// guards against. Inside the window the batch is already joined and this returns at once.
-		if (m_Impl->World)
-			vaWorldWait(m_Impl->World);
-
-		// Drop the listener's target first: leaving it registered would have the listener keep
-		// casting occlusion rays at an emitter that is on its way out of the world.
-		if (m_Impl->Listener)
-			vaEmitterRemoveTarget(m_Impl->Listener, it->second);
-
-		// As in Stop(): a VA_PENDING_REMOVAL emitter is still owned by the world (its reverb tail
-		// is still playing), so dropping our handle is all we may safely do - the world frees it.
-		if (m_Impl->World && vaWorldRemoveEmitter(m_Impl->World, it->second) == VA_SUCCESS)
-			vaEmitterDestroy(it->second);
-
-		m_Impl->SourceEmitters.erase(it);
+		m_Impl->Listener->remove_target(found->second->id());
+		m_Impl->World->remove_emitter(found->second);
+		m_Impl->SourceEmitters.erase(found);
 	}
 
 	void RaytracedAudioScene::SetEmitterMaxVolume(UUID entityID, float maxVolume)
 	{
-		auto it = m_Impl->SourceEmitters.find(entityID);
-		if (it == m_Impl->SourceEmitters.end())
+		WaitForResults();
+		const auto found = m_Impl->SourceEmitters.find(entityID);
+		if (found == m_Impl->SourceEmitters.end())
 			return;
-
-		vaEmitterSetMaxVolume(it->second, maxVolume);
+		if (!std::isfinite(maxVolume) || maxVolume < 0.0f)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot set acoustic emitter {0} volume: value must be finite and nonnegative", static_cast<uint64_t>(entityID));
+			return;
+		}
+		// FMOD accepts authored boosts above unity; the acoustic model stores a bounded energy fraction.
+		found->second->MaxVolume = std::min(maxVolume, 1.0f);
 	}
 
 	void RaytracedAudioScene::SetEmitterPosition(UUID entityID, const glm::vec3& position)
 	{
-		auto it = m_Impl->SourceEmitters.find(entityID);
-		if (it == m_Impl->SourceEmitters.end())
+		WaitForResults();
+		const auto found = m_Impl->SourceEmitters.find(entityID);
+		if (found == m_Impl->SourceEmitters.end())
 			return;
-
-		vaEmitterSetPosition(it->second, ToVA(position));
+		if (!Finite(position))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot position acoustic emitter {0}: coordinates must be finite", static_cast<uint64_t>(entityID));
+			return;
+		}
+		found->second->Position = ToAsterwave(position);
 	}
 
 	RaytracedAudioResult RaytracedAudioScene::GetResult(UUID entityID) const
 	{
 		RaytracedAudioResult result;
-
-		auto it = m_Impl->SourceEmitters.find(entityID);
-		if (it == m_Impl->SourceEmitters.end() || !m_Impl->Listener)
+		const auto found = m_Impl->SourceEmitters.find(entityID);
+		if (found == m_Impl->SourceEmitters.end() || !m_Impl->Listener || found->second->Initialising ||
+			found->second->PendingRemoval || m_Impl->Listener->Initialising)
 			return result;
-
-		VAEmitter* emitter = it->second;
-
-		// An emitter added to the world this frame has not been through a vaWorldUpdate yet, so
-		// its result buffers do not exist and the accessors below dereference them regardless -
-		// querying one that is still initialising segfaults inside the SDK rather than returning
-		// NULL. Scene::OnUpdateRuntime creates emitters and reads results in the same pass, so
-		// this is hit on the first frame of every newly-added source.
-		if (vaEmitterGetInitialising(emitter) || vaEmitterGetPendingRemoval(emitter))
-			return result;
-
-		if (vaEmitterGetInitialising(m_Impl->Listener))
-			return result;
-
-		// The listener is the caster, so the filter is looked up caster-first: this is the filter
-		// the listener computed for hearing that source.
-		if (const VALowPassFilter* filter = vaEmitterGetTargetFilter(m_Impl->Listener, emitter))
+		if (const auto filter = m_Impl->Listener->get_target_filter(found->second->id()))
 		{
-			result.OcclusionGainLF = filter->gainLF;
-			result.OcclusionGainHF = filter->gainHF;
+			result.OcclusionGainLF = filter->GainLF;
+			result.OcclusionGainHF = filter->GainHF;
 			result.Valid = true;
 		}
-
 		return result;
 	}
 
 	RaytracedAudioAmbience RaytracedAudioScene::GetAmbience() const
 	{
 		RaytracedAudioAmbience ambience;
-
-		if (!m_Impl->World || !m_Impl->Listener || vaEmitterGetInitialising(m_Impl->Listener))
+		if (!m_Impl->Listener || m_Impl->Listener->Initialising)
 			return ambience;
-
-		if (const VALowPassFilter* filter = vaEmitterGetAmbientFilter(m_Impl->Listener))
+		if (const auto& filter = m_Impl->Listener->AmbientFilter)
 		{
-			ambience.AmbientGainLF = filter->gainLF;
-			ambience.AmbientGainHF = filter->gainHF;
+			ambience.AmbientGainLF = filter->GainLF;
+			ambience.AmbientGainHF = filter->GainHF;
 			ambience.Valid = true;
 		}
-
-		if (const VAProcessedReverb* processed = vaEmitterGetProcessedReverb(m_Impl->Listener))
+		if (const auto& processed = m_Impl->Listener->Processed)
 		{
-			ambience.ReturnedPercent = processed->returnedPercent;
-			ambience.OutsidePercent = processed->outsidePercent;
-			ambience.MeasuredDecayTimeLF = processed->measuredDecayTimeLF;
-			ambience.MeasuredDecayTimeHF = processed->measuredDecayTimeHF;
-			ambience.MaterialRoughness = processed->materialRoughness;
-			ambience.MaterialAbsorptionLF = processed->materialAbsorptionLF;
-			ambience.MaterialAbsorptionHF = processed->materialAbsorptionHF;
+			ambience.ReturnedPercent = processed->ReturnedPercent;
+			ambience.OutsidePercent = processed->OutsidePercent;
+			ambience.MeasuredDecayTimeLF = processed->MeasuredDecayTimeLF;
+			ambience.MeasuredDecayTimeHF = processed->MeasuredDecayTimeHF;
+			ambience.MaterialRoughness = processed->MaterialRoughness;
+			ambience.MaterialAbsorptionLF = processed->MaterialAbsorptionLF;
+			ambience.MaterialAbsorptionHF = processed->MaterialAbsorptionHF;
 			ambience.Valid = true;
 		}
-
-		// The whole EAX set, copied field for field. This is the simulation's actual output: a
-		// backend that applies only one or two of these is leaving the reverb character on the
-		// table.
-		if (const VAEAXReverb* eax = vaEmitterGetEAX(m_Impl->Listener))
+		if (const auto& eax = m_Impl->Listener->EAX)
 		{
-			RaytracedAudioReverb& reverb = ambience.Reverb;
+			auto& reverb = ambience.Reverb;
 			reverb.Valid = true;
-			reverb.Gain = eax->gain;
-			reverb.GainLF = eax->gainLF;
-			reverb.GainHF = eax->gainHF;
-			reverb.DecayTime = eax->decayTime;
-			reverb.DecayLFRatio = eax->decayLFRatio;
-			reverb.DecayHFRatio = eax->decayHFRatio;
-			reverb.ReflectionsGain = eax->reflectionsGain;
-			reverb.ReflectionsDelay = eax->reflectionsDelay;
-			reverb.LateReverbGain = eax->lateReverbGain;
-			reverb.LateReverbDelay = eax->lateReverbDelay;
-			reverb.Density = eax->density;
-			reverb.Diffusion = eax->diffusion;
-			reverb.EchoTime = eax->echoTime;
-			reverb.EchoDepth = eax->echoDepth;
-			reverb.ModulationTime = eax->modulationTime;
-			reverb.ModulationDepth = eax->modulationDepth;
-			reverb.AirAbsorptionGainHF = eax->airAbsorptionGainHF;
-			reverb.HFReference = eax->hfReference;
-			reverb.LFReference = eax->lfReference;
-			reverb.RoomRolloffFactor = eax->roomRolloffFactor;
-			reverb.DecayHFLimit = eax->decayHFLimit != 0;
+			reverb.Gain = eax->Gain;
+			reverb.GainLF = eax->GainLF;
+			reverb.GainHF = eax->GainHF;
+			reverb.DecayTime = eax->DecayTime;
+			reverb.DecayLFRatio = eax->DecayLFRatio;
+			reverb.DecayHFRatio = eax->DecayHFRatio;
+			reverb.ReflectionsGain = eax->ReflectionsGain;
+			reverb.ReflectionsDelay = eax->ReflectionsDelay;
+			reverb.LateReverbGain = eax->LateReverbGain;
+			reverb.LateReverbDelay = eax->LateReverbDelay;
+			reverb.Density = eax->Density;
+			reverb.Diffusion = eax->Diffusion;
+			reverb.EchoTime = eax->EchoTime;
+			reverb.EchoDepth = eax->EchoDepth;
+			reverb.ModulationTime = eax->ModulationTime;
+			reverb.ModulationDepth = eax->ModulationDepth;
+			reverb.AirAbsorptionGainHF = eax->AirAbsorptionGainHF;
+			reverb.HFReference = eax->HFReference;
+			reverb.LFReference = eax->LFReference;
+			reverb.RoomRolloffFactor = eax->RoomRolloffFactor;
+			reverb.DecayHFLimit = eax->DecayHFLimit != 0;
 			ambience.Valid = true;
 		}
-
 		return ambience;
 	}
 
@@ -786,106 +664,73 @@ namespace Lux {
 	{
 		if (!m_Impl->Listener)
 			return;
-
 		const bool on = enabled && rayCount > 0 && bounceCount > 0;
-
-		vaEmitterSetVisualisationRayCount(m_Impl->Listener, on ? rayCount : 0);
-		vaEmitterSetVisualisationBounceCount(m_Impl->Listener, on ? bounceCount : 0);
-		if (on && updateIntervalMs > 0)
-			vaEmitterSetVisualisationUpdateFrequency(m_Impl->Listener, updateIntervalMs);
-
-		std::scoped_lock lock(m_Impl->Visualisation.Mutex);
-		m_Impl->Visualisation.Enabled = on;
-		if (!on)
+		if (on && static_cast<uint64_t>(rayCount) * static_cast<uint64_t>(bounceCount) > static_cast<uint64_t>(std::numeric_limits<int>::max()))
 		{
-			// Drop the last snapshot so a disabled overlay stops drawing immediately rather than
-			// leaving the final frame of rays frozen in the viewport.
-			m_Impl->Visualisation.Bounces.clear();
-			m_Impl->Visualisation.RayCount = 0;
-			m_Impl->Visualisation.BounceCount = 0;
+			LUX_CORE_ERROR_TAG("Audio", "Acoustic visualisation exceeds the supported bounce count");
+			return;
 		}
+		// Overlay calls may arrive after submission. Apply these fields only before the next batch.
+		m_Impl->DesiredVisualisation = on ? asterwave::RaySettings{ rayCount, bounceCount } : asterwave::RaySettings{};
+		if (updateIntervalMs > 0)
+			m_Impl->VisualisationIntervalMs = updateIntervalMs;
+		if (!on)
+			m_Impl->Visualisation = {};
 	}
 
-	void RaytracedAudioScene::GetVisualisation(RaytracedAudioVisualisation& outVisualisation) const
+	void RaytracedAudioScene::GetVisualisation(RaytracedAudioVisualisation& visualisation) const
 	{
-		{
-			std::scoped_lock lock(m_Impl->Visualisation.Mutex);
-			outVisualisation.Bounces = m_Impl->Visualisation.Bounces;
-			outVisualisation.Origin = m_Impl->Visualisation.Origin;
-			outVisualisation.RayCount = m_Impl->Visualisation.RayCount;
-			outVisualisation.BounceCount = m_Impl->Visualisation.BounceCount;
-		}
-
-		if (!m_Impl->World)
-			return;
-
-		// A ray that hit nothing still occupies its slot in the array, filled with a far
-		// out-of-world sentinel (observed as -99999 per component, but the SDK documents no
-		// specific value). Classifying by world containment rather than by that magic number keeps
-		// this correct if the sentinel ever changes, and costs one AABB test per bounce.
-		const glm::vec3 worldMin = FromVA(vaWorldGetPosition(m_Impl->World));
-		const glm::vec3 worldMax = worldMin + FromVA(vaWorldGetSize(m_Impl->World));
-
-		for (RaytracedAudioBounce& bounce : outVisualisation.Bounces)
-		{
-			bounce.Hit = glm::all(glm::greaterThanEqual(bounce.Position, worldMin))
-				&& glm::all(glm::lessThanEqual(bounce.Position, worldMax));
-		}
+		visualisation = m_Impl->Visualisation;
 	}
 
 	RaytracedAudioStats RaytracedAudioScene::GetStats() const
 	{
 		RaytracedAudioStats stats;
 		stats.Available = true;
-		vaGetVersion(&stats.VersionMajor, &stats.VersionMinor, &stats.VersionPatch);
-		stats.ProductionBuild = vaIsProduction();
-
+		stats.VersionMajor = 0;
+		stats.VersionMinor = 1;
+		stats.VersionPatch = 0;
+#if defined(LUX_DIST)
+		stats.ProductionBuild = true;
+#endif
 		if (!m_Impl->World)
 			return stats;
-
 		stats.Running = true;
-		stats.ThreadsRunning = vaWorldGetThreadsRunning(m_Impl->World);
-		stats.EmitterCount = vaWorldGetEmitterCount(m_Impl->World);
-		stats.SourceEmitterCount = (int)m_Impl->SourceEmitters.size();
-		stats.StaticPrimitiveCount = (int)m_Impl->StaticPrimitives.size();
+		stats.ThreadsRunning = m_Impl->World->threads_running();
+		stats.SourceEmitterCount = StatisticCount(m_Impl->SourceEmitters.size());
+		stats.EmitterCount = stats.SourceEmitterCount + 1;
+		stats.StaticPrimitiveCount = StatisticCount(m_Impl->StaticPrimitives.size());
 		stats.StaticTriangleCount = m_Impl->StaticTriangleCount;
 		for (const auto& [id, node] : m_Impl->GeometryNodes)
 		{
 			if (node.Dynamic)
 			{
 				++stats.DynamicPrimitiveCount;
-				stats.DynamicTriangleCount += node.Triangles;
+				stats.DynamicTriangleCount = StatisticCount(static_cast<uint64_t>(stats.DynamicTriangleCount) + node.Triangles);
 			}
 			else
 			{
 				++stats.StaticPrimitiveCount;
-				stats.StaticTriangleCount += node.Triangles;
+				stats.StaticTriangleCount = StatisticCount(static_cast<uint64_t>(stats.StaticTriangleCount) + node.Triangles);
 			}
 		}
-		stats.RaysCastThisFrame = vaWorldGetRaysCastThisFrame(m_Impl->World);
-		stats.WorkItemCount = vaWorldGetWorkItemCount(m_Impl->World);
-		stats.MaximumConcurrencyLevel = vaWorldGetMaximumConcurrencyLevel(m_Impl->World);
-		stats.GroupedEAXCount = vaWorldGetGroupedEAXCount(m_Impl->World);
-
-		if (m_Impl->Listener)
-		{
-			stats.VisualisationEnabled = vaEmitterGetVisualisationEnabled(m_Impl->Listener);
-			stats.VisualisationRayCount = vaEmitterGetVisualisationRayCount(m_Impl->Listener);
-			stats.VisualisationBounceCount = vaEmitterGetVisualisationBounceCount(m_Impl->Listener);
-		}
-
-		stats.MainThreadTimeMs = vaWorldGetMainThreadTime(m_Impl->World);
-		stats.RaytracingTimeMs = vaWorldGetRaytracingTime(m_Impl->World);
-		stats.PreparationTimeMs = vaWorldGetPreparationTime(m_Impl->World);
-		stats.AnalysisTimeMs = vaWorldGetAnalysisTime(m_Impl->World);
-		stats.LatencyMs = vaWorldGetLatency(m_Impl->World);
-
-		stats.WorldMin = FromVA(vaWorldGetPosition(m_Impl->World));
-		stats.WorldSize = FromVA(vaWorldGetSize(m_Impl->World));
-		stats.ListenerPosition = FromVA(vaWorldGetCameraPosition(m_Impl->World));
-
+		const auto settings = m_Impl->World->settings();
+		const auto& completed = m_Impl->CompletedStatistics;
+		stats.RaysCastThisFrame = StatisticCount(completed.RaysCast);
+		stats.WorkItemCount = StatisticCount(completed.WorkItems);
+		stats.MaximumConcurrencyLevel = settings.MaximumConcurrencyLevel;
+		stats.GroupedEAXCount = m_Impl->GroupedEAXCount;
+		stats.VisualisationEnabled = m_Impl->DesiredVisualisation.enabled();
+		stats.VisualisationRayCount = m_Impl->DesiredVisualisation.Count;
+		stats.VisualisationBounceCount = m_Impl->DesiredVisualisation.Bounces;
+		stats.MainThreadTimeMs = m_Impl->MainThreadTimeMs;
+		stats.RaytracingTimeMs = completed.RaytracingMs;
+		stats.PreparationTimeMs = completed.PreparationMs;
+		stats.AnalysisTimeMs = completed.AnalysisMs;
+		stats.LatencyMs = completed.LatencyMs;
+		stats.WorldMin = FromAsterwave(settings.Bounds.lo);
+		stats.WorldSize = FromAsterwave(settings.Bounds.hi - settings.Bounds.lo);
+		stats.ListenerPosition = m_Impl->ListenerPosition;
 		return stats;
 	}
-
-
 }

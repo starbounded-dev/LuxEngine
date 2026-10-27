@@ -31,13 +31,13 @@ namespace Lux {
 	{
 		bool Valid = false;
 
-		// Direct-path occlusion from the listener toward this source (1 = unoccluded).
+		// Listener-to-source two-band attenuation (1 = unoccluded).
 		float OcclusionGainLF = 1.0f;
 		float OcclusionGainHF = 1.0f;
 	};
 
 	// The full EAX / I3DL2 reverb parameter set the simulation derives from its echogram, in the
-	// SDK's own units: seconds, Hz, and linear gains. Converting to a backend's units (FMOD wants
+	// simulation's native units: seconds, Hz, and linear gains. Converting to a backend's units (FMOD wants
 	// milliseconds, percentages and decibels) is the backend's job, not this struct's.
 	//
 	// Defaults are a dry, neutral room, so a backend that applies this before the first result
@@ -104,12 +104,9 @@ namespace Lux {
 	struct RaytracedAudioBounce
 	{
 		glm::vec3 Position{ 0.0f };
-		glm::vec3 Normal{ 0.0f };   // surface normal at the bounce, already normalised by the SDK
+		glm::vec3 Normal{ 0.0f };   // surface normal at the bounce, already normalised by Asterwave
 
-		// False when the ray hit nothing and this slot is a miss placeholder. The SDK fills those
-		// with a large out-of-world sentinel rather than shortening the array, so a renderer that
-		// trusts every slot draws lines off to infinity. A miss also ends its ray: nothing after it
-		// in that ray is meaningful.
+		// Explicit native hit state. A miss ends its ray; later slots in that ray are unused.
 		bool Hit = false;
 	};
 
@@ -124,12 +121,11 @@ namespace Lux {
 		int BounceCount = 0;
 	};
 
-	// World-level snapshot of the acoustics simulation for editor tooling. Everything here comes
-	// from the SDK's own getters, so it costs nothing to collect and reports zeroes (Running =
-	// false) when the feature isn't compiled in or Start() hasn't run.
+	// World-level diagnostics for editor tooling. Completed batch measurements remain stable
+	// while workers run; geometry counts and settings describe the current main-thread scene.
 	struct RaytracedAudioStats
 	{
-		bool Available = false;   // Core/vendor/VA_RAY compiled in
+		bool Available = false;   // Core/vendor/Asterwave compiled in
 		bool Running = false;     // Start() has created a world
 
 		int VersionMajor = 0;
@@ -138,22 +134,22 @@ namespace Lux {
 		bool ProductionBuild = false;
 
 		bool ThreadsRunning = false;
-		int EmitterCount = 0;          // as the SDK counts it (sources + our listener emitter)
+		int EmitterCount = 0;          // sources + our listener emitter
 		int SourceEmitterCount = 0;    // emitters we own, one per audio-emitting entity
 		int StaticPrimitiveCount = 0;
 		int StaticTriangleCount = 0;
 		int DynamicPrimitiveCount = 0;
 		int DynamicTriangleCount = 0;
 		int RaysCastThisFrame = 0;
-		int WorkItemCount = 0;
+		int WorkItemCount = 0;         // scheduled chunks in the latest completed batch
 		int MaximumConcurrencyLevel = 0;
-		int GroupedEAXCount = 0;       // reverb zones the SDK is currently blending
+		int GroupedEAXCount = 0;       // reverb groups in the latest completed batch
 
 		bool VisualisationEnabled = false;
 		int VisualisationRayCount = 0;
 		int VisualisationBounceCount = 0;
 
-		// Milliseconds, averaged by the SDK.
+		// Latest completed batch, in milliseconds. MainThread includes submission and join time.
 		double MainThreadTimeMs = 0.0;
 		double RaytracingTimeMs = 0.0;
 		double PreparationTimeMs = 0.0;
@@ -165,21 +161,21 @@ namespace Lux {
 		glm::vec3 ListenerPosition{ 0.0f };
 	};
 
-	// Owns the ray-traced acoustics simulation (Vercidium Audio, Core/vendor/VA_RAY) for one Scene:
+	// Owns the ray-traced acoustics simulation (Asterwave, Core/vendor/Asterwave) for one Scene:
 	// mirrors static geometry, tracks one listener and one emitter per audio-emitting entity, and
 	// exposes the occlusion, reverb and ambience results for a playback backend to apply.
 	//
 	// **Topology.** The listener emitter is the one that casts rays — reverb, occlusion, permeation,
 	// ambient occlusion and ambient permeation — and every audio source is registered as one of its
-	// targets. Sources themselves cast nothing. This is the arrangement Vercidium's documentation
-	// describes, and it means the expensive ray budget is paid once per listener rather than once
-	// per source: adding a hundred sources adds a hundred *targets*, not a hundred ray casters.
+	// targets. Sources themselves cast nothing. The ray budget is shared across the listener's
+	// targets; adding a source does not create another ray caster. Target connections can include
+	// reflected paths, so this result differs from the engine's direct-path occlusion query.
 	//
-	// Vercidium Audio is a required build dependency; scene simulation can be disabled by settings.
+	// Asterwave is a required static build dependency; scene simulation can be disabled by settings.
 	class RaytracedAudioScene : public RefCounted
 	{
 	public:
-		// SDK availability, independent of whether this scene has started its simulation.
+		// Native backend availability, independent of whether this scene has started its simulation.
 		static bool IsAvailable();
 		bool IsRunning() const;
 		double GetRaytracingTimeMilliseconds() const;
@@ -196,9 +192,9 @@ namespace Lux {
 		//   ... move the listener and emitters, read GetResult / GetAmbience ...
 		//   OnUpdate(ts);      // kicks the next batch
 		//
-		// Everything between the two runs while no Vercidium worker is touching the world, so
-		// mutations and result reads are both safe there. Reading results without WaitForResults
-		// races the workers that are still writing them.
+		// Mutations are main-thread only and join any outstanding batch. Results are published by
+		// WaitForResults on the main thread; read-only getters return the previous published
+		// results safely while the next batch runs. No ECS data reaches Asterwave workers.
 		void WaitForResults();
 		void OnUpdate(Timestep ts);
 
@@ -218,9 +214,8 @@ namespace Lux {
 		void DestroyEmitter(UUID entityID);
 		void SetEmitterPosition(UUID entityID, const glm::vec3& position);
 
-		// The loudest linear volume the source is ever played at. The simulation needs it to scale
-		// the echogram correctly; leaving it at the default makes reverb energy wrong for sources
-		// that are quiet by design.
+		// The loudest linear source volume. Asterwave stores a 0..1 acoustic energy fraction, so
+		// boosts above unity are capped here while FMOD keeps the authored playback volume.
 		void SetEmitterMaxVolume(UUID entityID, float maxVolume);
 
 		RaytracedAudioResult GetResult(UUID entityID) const;
@@ -230,11 +225,11 @@ namespace Lux {
 
 		// Visualisation rays are off by default — they cost real raytracing work and feed nothing
 		// back into the audio. Enabling with rayCount or bounceCount <= 0 disables them.
-		// updateIntervalMs throttles how often the SDK recasts them.
+		// updateIntervalMs throttles recasts. Requests apply before the next batch; disabling
+		// clears the displayed snapshot immediately, including while a batch is in flight.
 		void SetVisualisationEnabled(bool enabled, int rayCount, int bounceCount, int updateIntervalMs);
 
-		// Copies the most recent visualisation snapshot. The SDK delivers bounces on its own worker
-		// threads, so this hands back a stable copy rather than a view into live data.
+		// Copies the most recent visualisation snapshot published by the main-thread join.
 		void GetVisualisation(RaytracedAudioVisualisation& outVisualisation) const;
 
 		// Pure readout for the editor's Audio Debugger; changes no simulation state.

@@ -37,6 +37,8 @@ project "Lux-Runtime"
 	}
 
 	filter "system:windows"
+		-- Runtime export copies DLLs from this directory; remove only the retired backend.
+		postbuildcommands { '{DELETE} "%{cfg.targetdir}/vaudionative.dll"' }
 		systemversion "latest"
 		defines { "LUX_PLATFORM_WINDOWS" }
 		files {
@@ -49,12 +51,6 @@ project "Lux-Runtime"
 		if _OPTIONS["discord"] then
 			postbuildcommands {
 				'{COPY} "../Core/vendor/discord_social_sdk/bin/release/discord_partner_sdk.dll" "%{cfg.targetdir}"',
-			}
-		end
-
-		do -- Vercidium Audio is required.
-			postbuildcommands {
-				'{COPY} "' .. VASDKRoot .. '/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
 			}
 		end
 
@@ -104,6 +100,7 @@ project "Lux-Runtime"
 	end
 
 	filter "system:linux"
+		postbuildcommands { '{DELETE} "%{cfg.targetdir}/lib/libvaudionative.so"' }
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread", "X11" }
 		-- --no-as-needed forces -latomic to stay linked even though, at LTO's initial
@@ -112,14 +109,6 @@ project "Lux-Runtime"
 		-- inserted during LTO's deferred codegen, after Ubuntu ld's default --as-needed
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
-
-		-- vaudionative.so is resolved via the $ORIGIN/lib rpath above, not the default loader path.
-		do -- Vercidium Audio is required.
-			postbuildcommands {
-				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPY} "' .. VASDKRoot .. '/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
-			}
-		end
 
 		-- See the Editor project for why {COPYFILE} + the exact SONAME, not a {COPY} glob.
 		do -- FMOD is required.

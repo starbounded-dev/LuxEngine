@@ -133,7 +133,7 @@ determined by the engine's own code, and say that you skipped it.
 - **Primary documentation for the exact versions the engine vendors.** Read the version from the
   repo first: Dear ImGui `IMGUI_VERSION` in `Core/vendor/imgui/imgui.h`, Tracy in
   `Core/vendor/tracy/tracy/public/common/TracyVersion.hpp`, FMOD `FMOD_VERSION` in the SDK's
-  `api/core/inc/fmod_common.h`, Vercidium Audio `VA_VERSION_*` in `3d/native/include/vaudio.h`, and
+  `api/core/inc/fmod_common.h`, Asterwave's exact revision in `scripts/dependencies/Asterwave.json`, and
   the Vulkan SDK from `VULKAN_SDK`. Advice for another version is a hypothesis until checked against the vendored
   source.
 

@@ -3037,7 +3037,7 @@ namespace Lux {
 						return entity.GetComponent<MeshColliderComponent>().AcousticMotion;
 					});
 					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
-					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from VA.", false))
+					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from Asterwave.", false))
 						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [mode](MeshColliderComponent& component, Entity)
 						{
 							component.AcousticMotion = static_cast<AcousticGeometryMode>(mode);
@@ -3539,7 +3539,7 @@ namespace Lux {
 				picker("Footstep Override", &AudioSurfaceComponent::FootstepOverride);
 				picker("Impact Override", &AudioSurfaceComponent::ImpactOverride);
 				ImGui::TextWrapped("Overrides the collider acoustic material and the project surface table events. The collider underfoot "
-								   "supplies footstep overrides. VA material changes apply on Play; physics audio uses current surface tags.");
+								   "supplies footstep overrides. Asterwave material changes apply on Play; physics audio uses current surface tags.");
 			});
 
 		DrawComponentSection<AudioListenerComponent>(m_Context, entityIDs, "Audio Listener", EditorResources::AudioListenerIcon,

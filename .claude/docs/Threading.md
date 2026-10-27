@@ -30,8 +30,8 @@ is **false here**. The user can force `Single` from the Application Settings pan
 must work under both policies.
 
 `ThreadingPolicy` also gates the `JobSystem`: `Single` initializes it with zero workers, which makes
-every `Submit`/`ParallelFor` run inline. One setting therefore disables *all* worker parallelism,
-not just the render thread.
+every `Submit`/`ParallelFor` run inline. This disables the engine JobSystem as well as the render thread. Third-party internal pools,
+including Jolt and Asterwave, have their own scheduling and are not controlled by that setting.
 
 ---
 
@@ -44,6 +44,7 @@ not just the render thread.
 | **JobSystem workers** | Data-parallel compute over disjoint indices (transform/cull fan-out) | ImGui, NRI, ECS mutation, anything order-dependent |
 | **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct NRI calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
+| **Asterwave internal workers** | Trace the native world's immutable batch snapshots | ECS, ImGui, engine mutation. `World::wait` joins and publishes results/callbacks on the main thread |
 | **VR head tracker** (`LuxOpticTracker`, "Head Tracker", only while a `VRSession` exists) | Blocking HID reads (100 ms timeout) and writing the latest pose under its mutex; logging | Everything else: no ECS, assets, ImGui, `Renderer::Submit` or NRI. It runs under **both** policies, because it never touches the engine |
 | **spdlog flusher** (`spdlog::flush_every`, started by `Log::Init`) | Flushing the registered loggers once a second, so a custom sink's `flush_()` runs off the logging thread | Anything engine-side |
 | **Editor build worker** (`RuntimeExport::RuntimeBuildJob`, "Runtime Build", only while a build runs) | The blocking MSBuild/make/dotnet subprocess for Lux-Runtime and script builds, on paths the main thread resolved in `Start`; file-existence checks; logging | `Project` (including `Project::GetActive()`), ImGui, ECS, assets, `Renderer::Submit`. It is a `Lux::Thread`, not a job, so it runs off the main thread under **both** policies. The main thread collects the result with `Poll()` at the top of `EditorLayer::OnImGuiRender` and resumes a waiting export there |
@@ -374,20 +375,23 @@ costs nothing in Release.
 ## Acoustic geometry and portals
 
 `Scene::SyncAudioGeometry` and its `AudioGeometrySystem` queue are main-thread owned. Runtime
-joins `RaytracedAudioScene::WaitForResults()` before adding, removing, retagging or transforming VA
+joins `RaytracedAudioScene::WaitForResults()` before adding, removing, retagging or transforming Asterwave
 primitives or changing world bounds. The next `OnUpdate()` launches workers only after these edits
 and listener/source updates finish. SDK workers receive no ECS pointers. C# portal/motion setters
-edit component data on the main thread; they never mutate VA directly. Pause defers queue work.
+edit component data on the main thread; they never mutate Asterwave directly. Pause defers queue work.
 Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so the render thread
-reads neither portal components nor mutable VA geometry. Teardown drains VA before destroying its
-primitives/world and clears the scene's queue.
+reads neither portal components nor mutable Asterwave geometry. Teardown joins Asterwave before destroying its
+primitives/world and clears the scene's queue. Asterwave is linked statically; these are its native
+C++ workers, with no external runtime library or managed host.
 
-`RaytracedAudioScene::GetResult` and `GetAmbience` read SDK buffers that VA's workers write, so they
-are valid only in that window. Code that runs outside it — ImGui panels and overlays, C# scripts —
-reads the copies the scene records inside it: `Scene::GetLastAudioAmbience()` and
-`Scene::GetAudioSourceOcclusion()`.
+`World::wait` joins the worker batch and publishes native results and callbacks on the caller's
+main thread. `RaytracedAudioScene` then snapshots stats and visualisation bounces. Native workers
+change private batch state, so `GetResult` and `GetAmbience` safely read the last published output
+on the main thread even while the next batch runs. `Scene::GetLastAudioAmbience()` and
+`Scene::GetAudioSourceOcclusion()` retain values actually applied to the scene's mix. Overlay
+settings queue until the next idle update; disabling clears the displayed rays immediately.
 
-Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the VA join
+Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the Asterwave join
 and before `OnUpdate()`. Its Jolt narrow-phase queries run between physics steps (stepping is also
 main-thread), so they need no locking beyond Jolt's own body locks, and nothing is handed to SDK
 or job threads.
@@ -395,8 +399,8 @@ or job threads.
 ## Audio budgets and validation
 
 `AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls
-only read/mutate the active scene there. Culled VA emitters are removed after joining the previous
-VA batch. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
+only read/mutate the active scene there. Culled Asterwave emitters are removed after joining the previous
+Asterwave batch. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
 groups and its own meter DSPs are detached and released before bank unload. The SDK mixer owns sample processing. ImGui
 reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
 prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.

@@ -11,7 +11,7 @@ namespace Lux
 {
 	namespace
 	{
-		// VA defines a material's transmission distance as the thickness that leaves 0.1% of the
+		// Asterwave defines a material's transmission distance as the thickness that leaves 0.1% of the
 		// energy (vaMaterialConvertMetersToTransmission), i.e. a 30 dB loss.
 		constexpr float k_TransmissionLossDb = 30.0f;
 		constexpr float k_MinTransmissionMetres = 0.001f;
@@ -143,7 +143,7 @@ namespace Lux
 		std::sort(hits.begin(), hits.end(), [](const AudioOcclusionHit& a, const AudioOcclusionHit& b) { return a.Distance < b.Distance; });
 
 		// Pair each entry with the same entity's next exit to measure a solid's thickness. A crossing
-		// that never pairs is a one-sided or non-watertight surface: VA charges those a flat loss.
+		// that never pairs is a one-sided or non-watertight surface: Asterwave charges those a flat loss.
 		m_OpenSolids.clear();
 		for (const AudioOcclusionHit& hit : hits)
 		{

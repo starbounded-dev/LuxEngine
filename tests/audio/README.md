@@ -1,13 +1,14 @@
 # Headless audio regression tests
 
-On Linux, regenerate `Core/Makefile`, build the Release Core objects (for `Lux::Yaml` and rapidyaml) and Debug Jolt,
+On Linux, regenerate the makefiles, build the Release Core objects (for `Lux::Yaml` and rapidyaml),
+Debug Jolt and Debug Asterwave (`bin/Debug-linux-x86_64/Asterwave/libAsterwave.a`),
 then run from the repository root:
 
 ```sh
 python tests/audio/run.py
 ```
 
-Requires `clang++`, the repository's FMOD and VA SDKs, and `fmodstudiocl`. The runner compiles production
+Requires `clang++`, the FMOD SDK and pinned Asterwave source checkout, and `fmodstudiocl`. The runner compiles production
 code with Debug assertions, creates a disposable copy of the sample FMOD project in `/tmp`, and
 uses FMOD's no-sound output. It does not alter the sample project or require a renderer/audio device.
 Logs and artifacts are retained in the printed temporary directory. `--output /tmp/my-audio-tests`
@@ -39,7 +40,7 @@ also exercised headlessly for draw output, clipping and explicit newline limits;
 alongside Debug Jolt before running. Managed payload/ABI/subscription
 tests run separately with `python3 tests/audio/run_managed.py`.
 
-Geometry checks use the real VA world and worker completion, including transform/material updates,
+Geometry checks use the native Asterwave world and worker completion, including transform/material updates,
 world-bound growth, static capture, queue budgets/coalescing, removal, nearly open shutters, invalid
 transform recovery, and normalized portal room leakage. Production portal and mesh YAML blocks
 are exercised for round-trip fields, room IDs, legacy defaults and malformed values. Managed tests
@@ -60,5 +61,22 @@ profiles, YAML round trips, effective runtime budgets, explicit Studio target ar
 and real FMOD output mute without changing authored bus mute or scripted event pause.
 
 Run `python3 tests/audio/run_sdk_layout.py` to exercise Premake's Windows/Linux SDK overrides,
-paths with spaces, and each missing header/link/runtime file. It uses disposable empty files to
-validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.
+paths with spaces, each missing FMOD header/link/runtime file, and the Asterwave source
+layout/revision. It uses disposable fixtures to validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.
+
+## Focused native Asterwave adapter checks
+
+The platform-neutral fixture builds the production `RaytracedAudioScene` adapter and material
+mapping against native Asterwave. It needs a C++20 compiler, CMake, the existing glm and
+spdlog submodules, and the pinned Asterwave checkout. It does not require FMOD, a renderer or audio
+hardware:
+
+```sh
+cmake -S tests/audio/asterwave -B bin/asterwave-tests
+cmake --build bin/asterwave-tests --config Debug --target lux_asterwave_tests
+ctest --test-dir bin/asterwave-tests -C Debug --output-on-failure
+```
+
+These commands describe the verification path; a passing run establishes only the exercised
+adapter/geometry contracts, not listening quality or full editor/runtime behavior. The complete
+FMOD suite above remains a separate check.

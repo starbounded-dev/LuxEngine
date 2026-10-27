@@ -861,7 +861,7 @@ namespace Lux {
 					ReleaseRuntimeAudio(entity);
 			}
 
-			// Join before reading VA results; zone evaluation itself also works without VA.
+			// Join before reading Asterwave results; zone evaluation itself also works without Asterwave.
 			if (m_RaytracedAudioScene)
 				m_RaytracedAudioScene->WaitForResults();
 			SyncAudioGeometry();
@@ -873,9 +873,9 @@ namespace Lux {
 			{
 				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::RaytracedAudioScene Scope", 0xFF7200);
 
-				// The batch is joined above. OnUpdate below launches the next VA batch.
+				// The batch is joined above. OnUpdate below launches the next Asterwave batch.
 
-				// Vercidium currently simulates one listener. Match the dominant mixer listener,
+				// This integration simulates one acoustic listener. Match the dominant mixer listener,
 				// using the character's position for acoustic paths when attenuation is detached.
 				const AudioListenerState fallback;
 				const AudioListenerState* primaryListener = GetPrimaryAudioListener();
@@ -905,7 +905,7 @@ namespace Lux {
 						m_RaytracedAudioScene->SetEmitterMaxVolume(entityID, asc.Config.VolumeMultiplier);
 
 						const RaytracedAudioResult result = m_RaytracedAudioScene->GetResult(entityID);
-						// Clear stale sends when VA has no result, so zone fallback cannot double the reverb.
+						// Clear stale sends when Asterwave has no result, so zone fallback cannot double the reverb.
 						AudioEventAcoustics acoustics;
 						if (m_OcclusionSource == AudioOcclusionSource::Engine)
 							acoustics.OcclusionGainLF = m_AudioOcclusion.GetGainLF(entityID);
@@ -1781,9 +1781,7 @@ namespace Lux {
 
 	void Scene::OnRaytracedAudioStart()
 	{
-		// Skip constructing the scene entirely when the feature isn't compiled in, so a build
-		// without Core/vendor/VA_RAY pays no per-frame cost for it (every m_RaytracedAudioScene
-		// check elsewhere then short-circuits on a null Ref).
+		// Asterwave is built in. Keep availability handling aligned with the backend stats contract.
 		if (!RaytracedAudioScene::IsAvailable())
 			return;
 
@@ -1841,8 +1839,8 @@ namespace Lux {
 		return material ? material->GetAcousticTag() : -1;
 	}
 
-	// Reads the value recorded when it was applied, inside the VA join window: VA's own result
-	// buffers are written by its workers and must not be read from script time.
+	// Scripts read the gain actually applied in the last joined update, including the project's
+	// engine/ray-traced selection, rather than querying a newer backend result.
 	float Scene::GetAudioSourceOcclusion(UUID source) const
 	{
 		const auto found = m_AppliedAudioOcclusion.find(source);
@@ -2872,7 +2870,7 @@ namespace Lux {
 	}
 
 	// Every surface the acoustics see, tinted by its effective tag: mesh colliders that are not
-	// Disabled, plus enabled portal shutters at their current Open (the box VA traces).
+	// Disabled, plus enabled portal shutters at their current Open (the box Asterwave traces).
 	void Scene::CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const
 	{
 		Scene* scene = const_cast<Scene*>(this);

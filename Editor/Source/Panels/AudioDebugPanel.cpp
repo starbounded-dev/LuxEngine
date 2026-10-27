@@ -94,7 +94,7 @@ namespace Lux {
 			return 1.0f - std::clamp(result.OcclusionGainLF, 0.0f, 1.0f);
 		}
 
-		// Relative high-frequency loss measured by VA. Studio controls its audible treatment.
+		// Relative high-frequency loss measured by Asterwave. Studio controls its audible treatment.
 		float RelativeHighFrequencyLoss(float gainLF, float gainHF)
 		{
 			constexpr float minAudibleGain = 1e-4f;
@@ -139,7 +139,7 @@ namespace Lux {
 		if (stats.MemoryAvailable)
 			ImGui::Text("FMOD allocated memory: %.2f / %u MiB", stats.MemoryMiB, settings.BankMemoryMiB);
 		if (stats.RaytracingAvailable)
-			ImGui::Text("VA raytracing: %.3f / %.3f ms", stats.RaytracingMilliseconds, settings.RaytracingMilliseconds);
+			ImGui::Text("Asterwave raytracing: %.3f / %.3f ms", stats.RaytracingMilliseconds, settings.RaytracingMilliseconds);
 		if (stats.VoicesExceeded || stats.CPUExceeded || stats.MemoryExceeded || stats.RaytracingExceeded)
 			ImGui::TextColored(kWarnColor, "Audio budget exceeded (details logged once per bank session).");
 		for (const auto& meter : AudioPerformance::GetBuses())
@@ -213,7 +213,7 @@ namespace Lux {
 				DrawStat("Playback Version", std::format("{}.{:02}.{:02}", engine.VersionMajor, engine.VersionMinor, engine.VersionPatch).c_str());
 			DrawStat("Sample Rate", engine.SampleRate > 0 ? std::format("{} Hz", engine.SampleRate).c_str() : kNoValue);
 
-			DrawStat("Acoustics Backend", "Vercidium Audio");
+			DrawStat("Acoustics Backend", "Asterwave");
 			if (acoustics.Available)
 			{
 				DrawStatColored("Acoustics State", acoustics.Running ? "Running" : "Idle (enter Play)",
@@ -223,8 +223,8 @@ namespace Lux {
 			}
 			else
 			{
-				// Runtime availability check; VA is a required build dependency.
-				DrawStatColored("Acoustics State", "Not compiled in", kOffColor);
+				// Defensive status for the backend contract; Asterwave is compiled into the application.
+				DrawStatColored("Acoustics State", "Unavailable", kOffColor);
 			}
 
 			ImGui::EndTable();
@@ -370,7 +370,7 @@ namespace Lux {
 		if (!raytraced)
 		{
 			if (!RaytracedAudioScene::IsAvailable())
-				ImGui::TextDisabled("The required Vercidium Audio SDK is unavailable. Check the installed runtime libraries.");
+				ImGui::TextDisabled("The built-in Asterwave backend is unavailable. Check the Audio log.");
 			else
 				ImGui::TextDisabled("The simulation runs only in Play mode.");
 
@@ -384,7 +384,7 @@ namespace Lux {
 		{
 			DrawStatColored("Worker Threads", stats.ThreadsRunning ? "Running" : "Idle",
 				stats.ThreadsRunning ? kGoodColor : kOffColor);
-			DrawStat("Emitters (SDK)", stats.EmitterCount);
+			DrawStat("Emitters (Asterwave)", stats.EmitterCount);
 			DrawStat("Source Emitters", stats.SourceEmitterCount);
 			DrawStat("Static Primitives", stats.StaticPrimitiveCount);
 			DrawStat("Dynamic Primitives", stats.DynamicPrimitiveCount);
@@ -434,10 +434,10 @@ namespace Lux {
 		}
 
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Timings (SDK averages)");
+		ImGui::TextUnformatted("Timings (latest completed batch)");
 		if (ImGui::BeginTable("##audio_debugger_acoustics_timings", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
-			DrawStat("Main Thread", stats.MainThreadTimeMs, " ms");
+			DrawStat("Main Thread (incl. wait)", stats.MainThreadTimeMs, " ms");
 			DrawStat("Raytracing", stats.RaytracingTimeMs, " ms");
 			DrawStat("Preparation", stats.PreparationTimeMs, " ms");
 			DrawStat("Analysis", stats.AnalysisTimeMs, " ms");
@@ -463,7 +463,7 @@ namespace Lux {
 			return;
 		}
 
-		ImGui::TextUnformatted("Simulation output (Vercidium EAX)");
+		ImGui::TextUnformatted("Simulation output (Asterwave EAX)");
 		if (ImGui::BeginTable("##audio_debugger_reverb_va", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
 			DrawStat("Gain", (double)reverb.Gain, "");
@@ -491,7 +491,7 @@ namespace Lux {
 		}
 
 		ImGui::Spacing();
-		ImGui::TextWrapped("Studio events receive ReverbSend from VA's returned energy. Author the reverb bus and send automation in FMOD Studio; these EAX measurements are diagnostic only.");
+		ImGui::TextWrapped("Studio events receive ReverbSend from Asterwave's returned energy. Author the reverb bus and send automation in FMOD Studio; these EAX measurements are diagnostic only.");
 
 		ImGui::TreePop();
 	}
@@ -534,7 +534,7 @@ namespace Lux {
 			ImGui::TableSetupColumn("Occlusion", ImGuiTableColumnFlags_WidthFixed, 110.0f);
 			ImGui::TableSetupColumn("Gain LF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupColumn("Gain HF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-			// VA measurement, not an applied Studio filter amount.
+			// Asterwave measurement, not an applied Studio filter amount.
 			ImGui::TableSetupColumn("Muffle", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableHeadersRow();
@@ -622,7 +622,7 @@ namespace Lux {
 		if (ImGui::Checkbox("See the Sound", &seeTheSound))
 			SetSeeTheSoundEnabled(seeTheSound);
 		ImGui::SameLine();
-		ImGuiEx::HelpMarker("Showcase preset: occlusion paths with wall labels, VA rays and emitters. "
+		ImGuiEx::HelpMarker("Showcase preset: occlusion paths with wall labels, Asterwave rays and emitters. "
 			"Turning it off restores the settings below.");
 
 		ImGui::Checkbox("Show Occlusion Paths", &m_Visualisation.ShowOcclusion);
@@ -640,11 +640,11 @@ namespace Lux {
 
 		ImGuiEx::BeginPropertyGrid();
 		ImGuiEx::Property("All Zones and Portals", m_Visualisation.ShowAllZones, "Every audio zone and portal in Play, brightened by its live weight and labelled with it.");
-		ImGuiEx::Property("Room Acoustics Readout", m_Visualisation.ShowRoomAcoustics, "Viewport readout of the listener's room as VA measures it: returned and escaping energy, decay times, absorption and scattering.");
-		ImGuiEx::Property("Colour Bounces by Material", m_Visualisation.ColorBouncesByMaterial, "Tints each VA bounce point with the acoustic material it landed on. Costs one short raycast per bounce while shown.");
+		ImGuiEx::Property("Room Acoustics Readout", m_Visualisation.ShowRoomAcoustics, "Viewport readout of the listener's room as Asterwave measures it: returned and escaping energy, decay times, absorption and scattering.");
+		ImGuiEx::Property("Colour Bounces by Material", m_Visualisation.ColorBouncesByMaterial, "Tints each Asterwave bounce point with the acoustic material it landed on. Costs one short raycast per bounce while shown.");
 		ImGuiEx::EndPropertyGrid();
 
-		ImGui::Checkbox("Show VA Rays", &m_Visualisation.Enabled);
+		ImGui::Checkbox("Show Asterwave Rays", &m_Visualisation.Enabled);
 		ImGui::SameLine();
 		ImGuiEx::HelpMarker("Casts extra rays purely for display. They cost real raytracing work and "
 			"feed nothing back into the audio, so leave this off unless you are looking at it.");
@@ -681,10 +681,10 @@ namespace Lux {
 			ImGui::Spacing();
 			if (ImGui::BeginTable("##audio_debugger_visualisation", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 			{
-				DrawStatColored("SDK State", stats.VisualisationEnabled ? "Casting" : "Off",
+				DrawStatColored("Asterwave State", stats.VisualisationEnabled ? "Casting" : "Off",
 					stats.VisualisationEnabled ? kGoodColor : kOffColor);
-				DrawStat("SDK Ray Count", stats.VisualisationRayCount);
-				DrawStat("SDK Bounce Count", stats.VisualisationBounceCount);
+				DrawStat("Asterwave Ray Count", stats.VisualisationRayCount);
+				DrawStat("Asterwave Bounce Count", stats.VisualisationBounceCount);
 				DrawStat("Bounces Received", (int)snapshot.Bounces.size());
 				DrawStat("Rays In Snapshot", snapshot.RayCount);
 
@@ -702,7 +702,7 @@ namespace Lux {
 				ImGui::EndTable();
 			}
 
-			// The SDK batches visualisation rays on its own schedule, so an enabled overlay with no
+			// Asterwave batches visualisation rays on its own schedule, so an enabled overlay with no
 			// bounces yet is normal for the first interval — but a persistent zero is not.
 			if (m_Visualisation.Enabled && stats.VisualisationEnabled && snapshot.Bounces.empty())
 				ImGui::TextDisabled("Waiting for the first batch of visualisation rays...");

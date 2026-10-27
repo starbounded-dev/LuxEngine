@@ -66,7 +66,8 @@ Write code that belongs in a serious long-term engine, not a demo.
 
 - **Self-contained, small, refined.** Game makers should never need to install extra software for
   an editor feature to work: build it in, vendor a small permissively licensed library, or reuse
-  what the editor already requires (.NET SDK, shaderc, FMOD, Vercidium Audio). Any unavoidable
+  what the editor already requires (.NET SDK, shaderc, FMOD, built-in Asterwave). Asterwave is
+  a private source dependency with its existing upstream licence, not a permissive-library example. Any unavoidable
   external tool is optional, auto-detected, and degrades gracefully. Full rule: `CLAUDE.md §
   Product Principle`.
 
@@ -80,7 +81,9 @@ Write code that belongs in a serious long-term engine, not a demo.
   mismatch that will crash on some other driver.
 - **Nothing expensive per frame.** Pipelines, shaders, descriptor layouts, and buffers are cached
   and invalidated, never rebuilt each frame.
-- **Explicit ownership.** `Ref<T>` / `Scope<T>`; no raw `new`/`delete`, no `std::shared_ptr`.
+- **Explicit ownership.** `Ref<T>` / `Scope<T>`; no raw `new`/`delete`. The sole native Asterwave
+  shared-ownership exception is confined to `RaytracedAudioScene::Impl` and documented in
+  `Conventions.md`; no `std::shared_ptr` elsewhere in engine code.
 - **`Core` stays usable without the editor.** `Lux-Runtime` building is the proof.
 - **Complete features.** A feature that only works in one code path is not done: runtime behaviour,
   editor integration, serialization, and safe fallbacks all count.

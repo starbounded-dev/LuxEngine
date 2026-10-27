@@ -14,7 +14,9 @@ ScriptCore/Makefile
 # Vendored Vulkan SDK (local install)
 Core/vendor/VulkanSDK/
 
-# Vercidium Audio (VA) raytraced audio SDK - manually fetched, requires accepting Vercidium's EULA
+# Private Asterwave source checkout; revision is tracked in scripts/dependencies/Asterwave.json.
+Core/vendor/Asterwave/
+# Retired local SDK drops remain ignored to prevent accidental publication during migration.
 Core/vendor/VA_RAY/
 
 # FMOD Engine SDK - manually fetched, requires accepting Firelight Technologies' EULA
@@ -54,6 +56,8 @@ premake5
 
 # Directories
 scripts/__pycache__
+scripts/ci/__pycache__/
+tests/audio/__pycache__/
 
 !vendor/bin/
 
@@ -110,7 +114,7 @@ Editor/LuxSampleProject/Assets/Audio/**/.user/
 Editor/LuxSampleProject/Assets/Audio/**/.cache/
 Editor/LuxSampleProject/Assets/Audio/**/Build/
 
-# CI checkout of the private FMOD / Vercidium Audio SDK repository (scripts/ci/StageAudioSDKs.py)
+# CI checkout of the private FMOD SDK repository (scripts/ci/StageAudioSDKs.py)
 .audio-sdk/
 
 # Per-user editor state lives in FileSystem::GetPersistentStoragePath()

@@ -19,7 +19,7 @@ newoption {
 
 newoption {
 	trigger = "raytraced-audio",
-	description = "Compatibility option: Vercidium Audio is always required"
+	description = "Compatibility option: Asterwave acoustics are always required"
 }
 
 newoption {
@@ -110,6 +110,35 @@ workspace "Lux"
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
+	-- Keep generated project files out of the pinned, clean private checkout. Compile the
+	-- complete native library from the same source list as its standalone CMake target.
+	project "Asterwave"
+		kind "StaticLib"
+		location "bin-int/projects/Asterwave"
+		targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
+		objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
+		includedirs { AsterwaveRoot .. "/include" }
+		floatingpoint "Default"
+		pic "On"
+		for _, source in ipairs(AsterwaveManifest.sources) do
+			files { AsterwaveRoot .. "/" .. source }
+		end
+		for _, source in ipairs(AsterwaveManifest.required_files) do
+			files { AsterwaveRoot .. "/" .. source }
+		end
+		filter "system:windows"
+			systemversion "latest"
+			buildoptions { "/fp:precise", "/utf-8" }
+		filter "configurations:Debug or configurations:Debug-AS"
+			runtime "Debug"
+		filter "configurations:Release or configurations:Dist"
+			runtime "Release"
+			vectorextensions "AVX2"
+			isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
+		filter { "system:windows", "configurations:Debug-AS" }
+			editandcontinue "Off"
+		filter {}
+
 	include "Core/vendor/Box2D"
 	include "Core/vendor/JoltPhysics/JoltPhysicsPremake.lua"
 	include "Core/vendor/GLFW"

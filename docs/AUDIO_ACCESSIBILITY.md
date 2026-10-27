@@ -1,7 +1,7 @@
 # Audio accessibility (Phase 12)
 
 Phase 12 adds player preferences, subtitle/caption presentation, visual cues and narration to the
-FMOD-backed engine. VA acoustics continue to run normally. There is no alternate playback backend.
+FMOD-backed engine. Asterwave acoustics continue to run normally. There is no alternate playback backend.
 
 ## Set up the project
 
@@ -47,7 +47,7 @@ changes, retained across frames, and detached before bank/system teardown.
 
 Visual cues use listener-relative direction: X right, Y up, Z forward. Nonspatial sounds have zero
 direction. Intensity combines authored importance, instance volume and linear falloff over the cue
-range. It is an accessibility hint, not measured loudness or a substitute for VA occlusion. Player
+range. It is an accessibility hint, not measured loudness or a substitute for Asterwave occlusion. Player
 bus volume does not remove cues, allowing them to work while sound is muted. The built-in indicator
 uses horizontal direction; custom UI can also use the vertical component. Captions are range-gated
 when playback begins and follow their source until it stops.

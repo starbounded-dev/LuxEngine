@@ -88,8 +88,14 @@ these SDKs or to redistribute them.
   FMOD Engine (Core + Studio)   FMOD End User License Agreement, Firelight
                                 Technologies Pty Ltd. https://www.fmod.com/licensing
 
-  Vercidium Audio               Vercidium Audio End User Licence Agreement,
-                                Vercidium Pty Ltd. https://vercidium.com
+  Asterwave                     Private native C++ dependency, derived from
+                                Vercidium Audio / VA_RAY 1.9.0. The original
+                                Vercidium Audio End User Licence Agreement
+                                is preserved without relicensing. See
+                                Core/vendor/Asterwave/provenance/NOTICE.md
+                                and provenance/LICENSE.upstream.txt within
+                                that dependency. Vercidium Pty Ltd.
+                                https://vercidium.com
 
   Vulkan SDK                    LunarG / Khronos Group; a collection of
                                 components under Apache-2.0 and other licenses.

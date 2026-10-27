@@ -1,6 +1,6 @@
 # Dynamic acoustic geometry and portals (Phase 13)
 
-Phase 13 keeps VA geometry synchronized with moving mesh colliders and adds acoustic shutters
+Phase 13 keeps Asterwave geometry synchronized with moving mesh colliders and adds acoustic shutters
 that can connect two audio zones. FMOD continues to own event playback and authored effects.
 
 ## Moving objects
@@ -15,13 +15,13 @@ that can connect two audio zones. FMOD continues to own event playback and autho
 | Acoustic Motion | Behavior |
 |---|---|
 | Static (default for old scenes) | Captures the initial world transform. Material and mesh/submesh selection changes still apply during Play. |
-| Dynamic | Tracks changes to the entity's world transform using VA's mesh-transform API. |
-| Disabled | Omits this mesh collider from VA. Physics collision remains independent. |
+| Dynamic | Tracks changes to the entity's world transform using Asterwave's mesh-transform API. |
+| Disabled | Omits this mesh collider from Asterwave. Physics collision remains independent. |
 
 Changing from Static to Dynamic follows the current transform; switching back captures that
 position. Transform updates reuse local triangles. Selecting another mesh or submesh rebuilds
 only that primitive. This extends the existing **mesh collider** acoustic path; box/sphere/capsule
-physics colliders do not automatically become VA geometry. Mesh deformation and in-place mesh
+physics colliders do not automatically become Asterwave geometry. Mesh deformation and in-place mesh
 asset hot reload are outside this phase; restart Play after those edits.
 
 ## A door between rooms
@@ -32,7 +32,7 @@ asset hot reload are outside this phase; restart Play after those edits.
 4. Set **Half Extents** to half the opening's width (local X), height (Y), and shutter thickness (Z).
 5. Choose the shutter **Material** and assign the two room entities to **Room A** and **Room B**.
 6. Set **Open** between 0 and 1. At 0 the rectangular shutter fills the opening; as Open rises,
-   it retracts toward local -X. At 1 its VA primitive is removed.
+   it retracts toward local -X. At 1 its Asterwave primitive is removed.
 7. Tune **Blend Distance** for how far from the opening the other room's ambience/snapshot leaks.
 
 The selected portal shows the full opening and remaining shutter as wire boxes. Portal geometry
@@ -43,7 +43,7 @@ A portal does **not** cut a hole through other geometry. If its physical door al
 collider, set that collider's Acoustic Motion to Disabled when the portal supplies the barrier.
 Otherwise the overlapping mesh continues to block sound after the portal opens.
 
-Room links are optional for the shutter. With both unset it still affects VA. Invalid or missing
+Room links are optional for the shutter. With both unset it still affects Asterwave. Invalid or missing
 room links disable room transfer and report an error; the linked rooms must be different Audio
 Zone entities. Disabling the portal removes its shutter and disables its room transfer.
 
@@ -51,13 +51,13 @@ Room transfer is a one-hop ambience approximation. A fully open portal transfers
 room's listener weight to its neighbor near the opening, falling to zero at Blend Distance. The
 open factor scales this transfer. Multiple portals share the available source weight, so they
 cannot amplify it or feed a cycle indefinitely. Existing zone fades smooth the resulting weights.
-VA separately ray traces the shutter's actual geometry for component audio sources; author the
+Asterwave separately ray traces the shutter's actual geometry for component audio sources; author the
 usual `Occlusion` / `ReverbSend` event parameters in FMOD. Standalone scripted one-shots retain
-the existing limitation that they do not register VA emitters.
+the existing limitation that they do not register Asterwave emitters.
 
 With the project's **Occlusion** set to Engine (the default), a closed shutter also muffles
 sources behind it: the engine's listener→source raycast treats it as a box of its material and
-thickness, shrinking with Open exactly as the VA primitive does, and ignores it once Open reaches 1.
+thickness, shrinking with Open exactly as the Asterwave primitive does, and ignores it once Open reaches 1.
 Tune the overall amount with **Project Settings > Audio > Occlusion Strength**.
 
 ## C# control
@@ -82,14 +82,14 @@ runtime changes follow the editor's existing Play-mode persistence behavior.
 
 ## Scheduling and failure behavior
 
-The scene joins the previous VA worker batch before applying geometry changes, then starts the
+The scene joins the previous Asterwave worker batch before applying geometry changes, then starts the
 next batch. The default queue processes at most eight changed primitives per frame and stops
 after crossing 65,536 affected vertices. The vertex limit is soft because one mesh operation is
 indivisible. Startup drains the queue before playback; unchanged static meshes require no mesh
 rebuild or hierarchy transform calculation. Edits to an already queued primitive coalesce to the
 latest state, and deletion clears its pending work. Play pause freezes geometry updates.
 
-With VA running, zone transfer uses the portal's last successfully applied Open value, so a queued
+With Asterwave running, zone transfer uses the portal's last successfully applied Open value, so a queued
 opening does not leak room audio ahead of its shutter. Entity/component removal and Disabled mode
 remove geometry on the next active scene update without waiting behind rebuilds. Invalid authored
 geometry is reported and removed. A failed mesh replacement or SDK update reports the failure and
@@ -100,7 +100,7 @@ retains the last successfully applied geometry; correcting the input queues anot
 Regenerate projects after pulling this phase: `scripts\Win-GenProjects.bat` on Windows, or the Linux
 build script. Build Core, ScriptCore, Editor and Lux-Runtime.
 
-`python3 tests/audio/run.py` exercises the real VA library for transforms, material updates, bounds,
+`python3 tests/audio/run.py` exercises the real Asterwave library for transforms, material updates, bounds,
 worker completion, queue budgets/coalescing, deletion, shutter opening, invalid-value recovery and
 portal room-weight conservation. It also runs the existing FMOD regression suites and production
 portal YAML validation. `python3 tests/audio/run_managed.py` checks managed portal dispatch and

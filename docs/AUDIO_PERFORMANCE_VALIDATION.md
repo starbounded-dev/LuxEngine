@@ -9,7 +9,7 @@ apply changes to the running audio system. New exports carry the saved settings.
 | --- | --- | --- |
 | Real voices | 64 | FMOD software-channel limit, configured before initialization; range 1–512 |
 | CPU warning | 5% | Sum of FMOD DSP, streaming, Core update and Studio update CPU measurements |
-| VA warning | 2 ms | Last completed VA raytracing batch |
+| Asterwave warning | 2 ms | Last completed Asterwave raytracing batch |
 | FMOD memory | 64 MiB | Total FMOD allocations, including banks, samples and mixer overhead |
 | Bus voice warning | `bus:/`: 64 | Inclusive playing-channel demand under each configured bus |
 
@@ -20,7 +20,7 @@ under the global cap. A single event can use several channels, so voice counts a
 counts differ. Parent bus counts include child buses; do not add those readings together.
 
 View → Audio Debugger → Budgets and Bus Meters shows real/virtual voices, culled components, CPU,
-memory, VA timing and input peak/RMS meters for configured buses. Sampling runs four times per
+memory, Asterwave timing and input peak/RMS meters for configured buses. Sampling runs four times per
 second. Peak/RMS display the loudest channel in dBFS at each bus input, before its fader/effects;
 they are not output loudness or LUFS readings. Budget warnings log once per bank session, while
 the panel continues showing current values. Reloading banks resets meters and warning history.
@@ -44,7 +44,7 @@ from every listener with positive weight. A listener's attenuation target takes 
 its camera position. Re-entry requires moving inside 95% of the maximum distance to prevent
 allocation churn at the boundary. 2D events are not distance-culled.
 
-An out-of-range source releases its FMOD instance and VA emitter. Continuous events retain play
+An out-of-range source releases its FMOD instance and Asterwave emitter. Continuous events retain play
 intent, script parameters, timeline and pause state; on re-entry they recreate and resume from
 the frozen timeline. A culled one-shot is discarded and never fires late on re-entry. Calling Stop
 while culled cancels the pending loop. Play restarts the timeline. `IsPlaying` remains true for a
@@ -82,7 +82,7 @@ Runtime project format 23 adds a bounded performance-settings block; older forma
 
 ## Verification
 
-`tests/audio/run.py` exercises real FMOD no-sound playback and VA, including source culling,
+`tests/audio/run.py` exercises real FMOD no-sound playback and Asterwave, including source culling,
 priority, virtualization, meters, independent bank validation and production serialization blocks.
 `tests/audio/run_managed.py` checks C# controls and thread guards. Scene hierarchy copy/prefab
 self-tests additionally require the full editor host. Listening tests and editor visual checks

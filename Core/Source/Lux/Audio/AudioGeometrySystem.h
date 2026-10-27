@@ -33,7 +33,7 @@ namespace Lux
 		using Builder = std::function<bool(const AudioGeometryInput&, AcousticGeometry&)>;
 		void Sync(std::span<const AudioGeometryInput> inputs, RaytracedAudioScene& world, const Builder& builder,
 			size_t primitiveBudget = 8, size_t vertexBudget = 65536);
-		void Clear(); // The scene stops its VA world immediately afterward.
+		void Clear(); // The scene stops its Asterwave world immediately afterward.
 		size_t GetPendingCount() const { return m_Pending.size(); }
 		float GetPortalOpen(UUID entity) const;
 		bool GetStaticTransform(UUID entity, glm::mat4& transform) const;

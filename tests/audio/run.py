@@ -186,8 +186,8 @@ def main():
          jolt, "-pthread", "-Wl,--gc-sections", "-o", directory / "jolt-test"], cwd=ROOT / "Core")
     run([directory / "jolt-test"], timeout=30)
     banks = args.banks.resolve() if args.banks else fixture(directory)
-    fmod = ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux/api"
-    libraries = [ROOT / "Core/vendor/VA_RAY/3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
+    fmod = Path(os.environ.get("LUX_FMOD_SDK", ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux")) / "api"
+    libraries = [ROOT / "bin/Debug-linux-x86_64/Asterwave/libAsterwave.a", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     # Lux::Yaml and the rapidyaml implementation unit (docs/YAML_MIGRATION_PLAN.md).
     yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / name for name in ("Yaml.o", "ryml.o")]
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",

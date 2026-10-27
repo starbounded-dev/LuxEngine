@@ -1,24 +1,22 @@
-"""Stage the FMOD Engine and Vercidium Audio SDK files CI needs into a private-repository layout.
+"""Stage the FMOD Engine SDK files CI needs into a private-repository layout.
 
-Both SDKs are licensed and must never be committed to the public LuxEngine repository. CI checks
+The SDK is licensed and must never be committed to the public LuxEngine repository. CI checks
 out a separate private repository instead (see .github/workflows/main.yml). This script copies
 only the headers, link libraries, runtime libraries and licence files the build reads, from the
 SDK packages you downloaded yourself, into:
 
     <out>/FMOD/windows/api/{core,studio}/{inc,lib/x64}      LUX_FMOD_SDK on Windows runners
     <out>/FMOD/linux/api/{core,studio}/{inc,lib/x86_64}     LUX_FMOD_SDK on Linux runners
-    <out>/VA_RAY/3d/native/{include,production/...}         LUX_VA_SDK on both
 
 Example:
 
     python scripts/ci/StageAudioSDKs.py --out ../LuxEngine-AudioSDKs ^
         --fmod-windows "Core/vendor/FMOD/FMOD Studio API Windows" ^
-        --fmod-linux fmodstudioapi20314linux.tar.gz ^
-        --va Core/vendor/VA_RAY
+        --fmod-linux fmodstudioapi20314linux.tar.gz
 
 Then commit and push <out> to the private repository. Any platform argument may be omitted to
-stage only the others; CI jobs for a missing platform fail at project generation. Vercidium Audio
-is staged for every platform its package contains.
+stage only the other; CI jobs for a missing platform fail at project generation. Asterwave source
+is checked out separately at its tracked revision; use scripts/FetchAsterwave.py for local setup.
 """
 
 import argparse
@@ -45,17 +43,6 @@ FMOD_LINUX_LIBRARIES = [
 
 FMOD_HEADER_DIRS = ["api/core/inc", "api/studio/inc"]
 FMOD_LICENCE = "doc/LICENSE.TXT"
-
-VA_FILES = {
-    "windows": [
-        "3d/native/production/windows/vaudionative.lib",
-        "3d/native/production/windows/vaudionative.dll",
-    ],
-    "linux": ["3d/native/production/linux/libvaudionative.so"],
-}
-VA_HEADER_DIR = "3d/native/include"
-VA_LICENCE = "LICENCE.txt"
-
 
 def fail(message):
     print(f"error: {message}", file=sys.stderr)
@@ -106,29 +93,15 @@ def stage_fmod(source: Path, destination: Path, libraries):
     print(f"Staged FMOD Engine SDK from {root} -> {destination}")
 
 
-def stage_va(source: Path, destination: Path):
-    # Stage every platform the package provides; VA ships Windows and Linux in one download.
-    platforms = [p for p, files in VA_FILES.items() if all((source / f).is_file() for f in files)]
-    if not platforms:
-        fail(f"no Windows or Linux Vercidium Audio libraries found under {source / '3d/native/production'}")
-    copy_tree(source / VA_HEADER_DIR, destination / VA_HEADER_DIR)
-    for platform in platforms:
-        for file in VA_FILES[platform]:
-            copy_file(source / file, destination / file)
-    copy_file(source / VA_LICENCE, destination / VA_LICENCE)
-    print(f"Staged Vercidium Audio SDK ({', '.join(platforms)}) from {source} -> {destination}")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--out", required=True, type=Path, help="Working tree of the private SDK repository.")
     parser.add_argument("--fmod-windows", type=Path, help="FMOD Engine SDK for Windows (package root).")
     parser.add_argument("--fmod-linux", type=Path, help="FMOD Engine SDK for Linux (package root or .tar.gz).")
-    parser.add_argument("--va", type=Path, help="Vercidium Audio SDK root (contains 3d/).")
     args = parser.parse_args()
 
-    if not (args.fmod_windows or args.fmod_linux or args.va):
-        fail("nothing to stage: pass at least one of --fmod-windows, --fmod-linux, --va")
+    if not (args.fmod_windows or args.fmod_linux):
+        fail("nothing to stage: pass at least one of --fmod-windows, --fmod-linux")
 
     out = args.out.resolve()
     repository_root = Path(__file__).resolve().parents[2]
@@ -149,9 +122,6 @@ def main():
                 shutil.rmtree(scratch, ignore_errors=True)
         else:
             stage_fmod(args.fmod_linux, out / "FMOD" / "linux", FMOD_LINUX_LIBRARIES)
-
-    if args.va:
-        stage_va(args.va, out / "VA_RAY")
 
     print(f"Done. Commit and push {out} to the private SDK repository.")
 

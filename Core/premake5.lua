@@ -84,7 +84,7 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	do -- Vercidium Audio is required.
+	do -- Asterwave acoustics are required.
 		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
 	end
 

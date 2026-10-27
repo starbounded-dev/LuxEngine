@@ -759,7 +759,11 @@ component (and C# API), with volume, pitch, play-on-awake, event references and 
 `AudioSource` raw-file voices, direct Core listener updates, the extra Core update pump, and the
 engine-created `Reverb3D` unit are removed. FMOD Core remains a dependency for mixer statistics and
 `AudioFileUtils` metadata inspection (`FMOD_OPENONLY`); inspecting a source asset does not play it.
-FMOD and Vercidium Audio are mandatory SDK dependencies, deployed beside both applications.
+FMOD Core/Studio is a required SDK whose shared libraries deploy beside both applications.
+Asterwave is a required native C++20 dependency compiled as a static library into Editor and
+Lux-Runtime; it has no separate runtime DLL or shared object. Source comes from the exact private
+revision in `scripts/dependencies/Asterwave.json`, under `Core/vendor/Asterwave` or
+`LUX_ASTERWAVE_ROOT`. Fetching is explicit; generation validates the local checkout offline.
 
 **Legacy scenes:** old `Audio` handles and `Looping` values are retained as migration-only
 `LegacyAudio`/`LegacyLooping`, under their original YAML keys. They survive save, copy, undo and
@@ -768,32 +772,44 @@ shows an inspector migration warning and reports an error on Play. Assign an aut
 event; the engine cannot infer event GUIDs or recreate Studio authoring from a raw asset. New
 sources do not write legacy keys. Looping is authored in the event timeline.
 
-**Acoustics:** `Scene` owns a `RaytracedAudioScene`, which wraps VA behind a Pimpl. Runtime start
-mirrors mesh-collider triangles into VA primitives owned by that scene. Each frame joins the
-previous VA batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
+**Acoustics:** `Scene` owns a `Ref<RaytracedAudioScene>`, which wraps Asterwave behind a
+`Scope<Impl>` and owns its native `World` through `Scope`. Only the private adapter uses
+Asterwave-required shared ownership for native emitters and mesh geometry; this narrow vendor
+boundary exception does not change engine `Ref`/`Scope` ownership rules. Runtime start
+mirrors mesh-collider triangles into Asterwave primitives owned by that scene. Each frame joins the
+previous Asterwave batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
 and source emitter positions, reads completed results, then launches the next batch with
-`OnUpdate`. Joining before mutation and teardown is mandatory. VA simulates one listener: highest
+`OnUpdate` (`World::update`). `World::wait` joins and publishes results on the calling main
+thread. Joining before mutation and teardown is mandatory. This integration selects one acoustic
+listener: highest
 weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
+The listener casts rays; audio sources are zero-ray targets. `IsAvailable()` is always true in
+this required built-in backend. Debug stats report Asterwave product version 0.1.0.
+
+The adapter caps source volume at unity for native acoustic energy; FMOD retains the authored
+playback volume, including boosts. Authored material values and their serialized forms also stay
+unchanged: native flat transmission loss is capped at 1, and extremely small positive transmission
+distances are raised just enough to keep the native `30 / distance` coefficient finite.
 
 Event components receive `AudioEventAcoustics`: low-frequency direct gain becomes the optional
 Studio parameter `Occlusion` (1 minus gain), and returned energy becomes `ReverbSend`. Studio
-authors the filters, sends and reverb buses. VA's other bands and EAX measurements remain diagnostic
+authors the filters, sends and reverb buses. Asterwave's other bands and EAX measurements remain diagnostic
 outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
-expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
+expected; other FMOD failures are reported. Standalone scripted events do not register Asterwave emitters.
 
-**Engine occlusion:** VA's per-source occlusion does not respond to geometry (`docs/vercidium-repro`),
-so `ProjectAudioSettings::Occlusion` (`AudioOcclusionSettings`) selects what drives each event's
+**Engine occlusion:** `ProjectAudioSettings::Occlusion` (`AudioOcclusionSettings`) selects what
+drives each event's
 Studio `Occlusion` parameter: `Engine` (default, including projects saved before the setting) or
-`Raytraced` (VA). The source is read at Play start. With Engine, `Scene`'s scene-owned
-`AudioOcclusion` runs after the VA join: `Scene::UpdateAudioOcclusion` feeds it the frame's
+`Raytraced` (Asterwave). The source is read at Play start. With Engine, `Scene`'s scene-owned
+`AudioOcclusion` runs after the Asterwave join: `Scene::UpdateAudioOcclusion` feeds it the frame's
 `m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied Open)
 and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider and
 every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
-30 dB per tag `TransmissionLF` metres (VA's own definition); unpaired crossings are one-sided
+30 dB per tag `TransmissionLF` metres (Asterwave's own definition); unpaired crossings are one-sided
 surfaces costing the tag's flat energy fraction. Losses are scaled by `Strength` (0–4), summed,
 capped at 60 dB, and become a linear gain on `AudioEventAcoustics::OcclusionGainLF`. Each source is
 recast at `UpdateRateHz` (1–120), round-robin within `CastBudget` (1–1024) casts per update; it
-snaps on its first result and is then smoothed over 0.1 s. It runs while the VA scene exists,
+snaps on its first result and is then smoothed over 0.1 s. It runs while the Asterwave scene exists,
 which is every Play session (`RaytracedAudioScene::IsAvailable` is unconditional). Settings persist
 under `Audio.Occlusion` in YAML (missing → defaults; invalid values fail the load) and as runtime
 format **25**'s bounded, length-prefixed YAML block after the format-23 performance block; formats
@@ -801,7 +817,7 @@ format **25**'s bounded, length-prefixed YAML block after the format-23 performa
 parameter, since walls then cannot muffle it.
 
 **Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
-VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
+Asterwave's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
 `AudioSurfaceComponent` on the same entity overrides that tag, including an explicit Default;
 without a mesh collider it is metadata only. Both tags survive scene snapshots, copy/duplicate,
 prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
@@ -821,7 +837,7 @@ queries and the editor's material view. The inspector shows the effective tag.
 **Acoustic Materials** (viewport options popup, usable in edit mode and Play) sets
 `SceneRendererOptions::ShowDebugCategories`: `Scene::CaptureAcousticMaterialDebug` replaces the
 collider debug items with every non-Disabled mesh collider and enabled portal shutter (at its current
-Open, in the box VA traces), each tagged with its palette index, and the editor shows a legend of the
+Open, in the box Asterwave traces), each tagged with its palette index, and the editor shows a legend of the
 tags present. See `Rendering.md` § Editor debug geometry.
 
 **Dynamic geometry and portals (Phase 13):** `Scene::SyncAudioGeometry` captures mesh collider
@@ -829,25 +845,25 @@ metadata and world transforms into a scene-owned `AudioGeometrySystem`. Static/D
 acoustic motion is independent of physics. Static captures its transform; Dynamic tracks hierarchy
 movement; Disabled omits the collider. Local triangle batches include submesh transforms and use
 the same selection rule as physics (valid index selects one; otherwise all). Changed transforms
-and tags update an existing VA primitive; mesh/submesh selection changes rebuild only that node.
+and tags update an existing Asterwave primitive; mesh/submesh selection changes rebuild only that node.
 The queue coalesces edits and limits active frames to eight primitive updates, stopping after
 65,536 affected vertices (a soft threshold because a mesh update is indivisible). Startup drains
 all work. Removal bypasses rebuild work. Failed replacements retain the prior geometry and report
 an error; invalid authored inputs are reported and removed. In-place mesh asset hot reload and
 deformation require restarting Play. Per-tag coefficient settings remain captured at Play start.
 
-`AudioPortalComponent` supplies a local rectangular VA shutter that retracts toward -X as Open
+`AudioPortalComponent` supplies a local rectangular Asterwave shutter that retracts toward -X as Open
 increases, disappearing at Open=1. It can link two AudioZone entities. `AudioZoneSystem` transfers
 a distance/open-weighted share of each listener's zone weights across those links, normalizing
 outgoing shares and applying only one hop so cycles/multiple openings cannot amplify weight.
-Room transfer uses the shutter's last applied Open while VA is running. Portal references remap
+Room transfer uses the shutter's last applied Open while Asterwave is running. Portal references remap
 through duplicate/prefab paths; C# setters and the inspector edit the same component data. Selected
-portal wireframes are copied into `FrameRenderPacket::AudioZoneLines` on the main thread. VA nodes
+portal wireframes are copied into `FrameRenderPacket::AudioZoneLines` on the main thread. Asterwave nodes
 and their local bounds/counts are owned by `RaytracedAudioScene`; world bounds expand for movement.
-All geometry mutations occur after the previous VA worker batch joins. See
+All geometry mutations occur after the previous Asterwave worker batch joins. See
 `docs/AUDIO_DYNAMIC_GEOMETRY.md` for authoring, scheduling and acoustic approximation limits.
 
-Each engine tag gets its own VA custom material ID (`1000 + stable tag ID`), so overrides cannot
+Each engine tag gets its own Asterwave custom material ID (`1000 + stable tag ID`), so overrides cannot
 leak between tags that share a preset. Most tags map directly; Default uses Concrete, Carpet and
 Rubber use Cloth, Plaster uses Gyprock, Plastic and WoodThin use WoodIndoor, Soil uses Mud, Wood
 uses WoodOutdoor, Ceramic uses Tile, and Foliage uses Leaf. These are editable starting presets,
@@ -855,15 +871,15 @@ not measured coefficients for every real-world material.
 
 Project Audio settings expose per-tag overrides for LF/HF absorption, scattering, LF/HF
 transmission distance in metres, and LF/HF energy loss on thin/open geometry. Defaults come from
-the installed VA SDK. Absorption/scattering must be finite and in 0..1; transmission distances
+the pinned Asterwave material presets. Absorption/scattering must be finite and in 0..1; transmission distances
 must be finite and positive; flat losses must be finite and nonnegative. Invalid settings fail
 loading/export with an audio error. YAML writes enabled overrides under `Audio.AcousticMaterials`;
-missing entries use SDK presets. Runtime format 18 appends a bounded explicit override block after
+missing entries use the Asterwave presets. Runtime format 18 appends a bounded explicit override block after
 the bank manifest, keeping `ProjectInfo`'s fixed layout unchanged. Formats 16/17 remain readable
 and use default material settings. Unknown or duplicate IDs and truncated blocks fail loading.
 
 **Zones and snapshots (Phase 8):** `Scene` owns `AudioZoneSystem` and supplies resolved volumes
-on the main thread after listener synchronization and the VA join. `AudioZoneComponent` supports
+on the main thread after listener synchronization and the Asterwave join. `AudioZoneComponent` supports
 box/sphere volumes or exactly one box, sphere or capsule collider on the same entity. Mesh and 2D
 colliders are unsupported; missing/ambiguous primitive colliders and invalid geometry log once
 until corrected. Box dimensions/offsets follow the world transform. Sphere radius uses maximum
@@ -885,14 +901,14 @@ multiple instances of the same snapshot, so separate instances would weaken over
 must be exposed from the snapshot dial as a local continuous writable 0–100 Studio parameter.
 `SetSnapshotIntensity` takes normalized 0–1, validates type/range, caches the parameter ID and
 sets intensity before playback. Event volume does not control snapshot intensity. A missing or
-mis-authored snapshot reports an error and does not suppress VA reverb. Snapshot mixer scope,
+mis-authored snapshot reports an error and does not suppress Asterwave reverb. Snapshot mixer scope,
 priority and transition curves remain authored in Studio. Explicit script-created snapshots are
 independently owned and can still interact with zone snapshots under FMOD's averaging rules.
 
-Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale source VA `ReverbSend`
+Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale source Asterwave `ReverbSend`
 by one minus active zone snapshot coverage), or PreferRaytraced (suppress zone snapshots while
-VA ambience is valid, falling back to zones otherwise). This policy leaves VA occlusion and zone
-ambience beds independent. The latest joined VA validity is retained while paused. Runtime format
+Asterwave ambience is valid, falling back to zones otherwise). This policy leaves Asterwave occlusion and zone
+ambience beds independent. The latest joined Asterwave validity is retained while paused. Runtime format
 19 adds one validated mode byte after the version-18 materials block; versions 16–18 use Layered.
 
 Zone data survives scene YAML, runtime scenes, copy/duplicate and prefab operations. The inspector
@@ -931,8 +947,10 @@ is the enabled host desktop profile's FMOD output, or the project's default outp
 not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.
 Bank paths inside Assets retain their relative location for scripts; external output is packaged
 under `Assets/Audio/Banks`. Absolute authoring paths are not portable script paths. The `.fspro`
-and source audio are not copied. FMOD Core/Studio and VA shared libraries are required copies,
-including Linux's `lib` subdirectory. Copy failures abort export.
+and source audio are not copied. FMOD Core/Studio shared libraries are required copies, including
+Linux's `lib` subdirectory. Copy failures abort export. Asterwave is statically linked into the
+player, so export does not copy an Asterwave runtime library. Its unchanged upstream licence
+requirements still apply; static linkage does not make it an Apache-2.0 dependency.
 
 The player also requires the shared ImGui fonts and managed host at top-level `Resources/` and
 `DotNet/`. Linux post-build directory copies target their parent to merge correctly on repeat
@@ -1166,10 +1184,10 @@ counted, so the mixer and this monitor both locking `bus:/` failed with `FMOD_ER
 with Live Update on, that makes every later `Studio::System::update` fail with
 `FMOD_ERR_BADCOMMAND` (found on Windows, 2026-09-17). Per-bus voice limits warn once
 per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies
-last-completed VA timing and culled-source counts. Editor panels only read cached telemetry.
+last-completed Asterwave timing and culled-source counts. Editor panels only read cached telemetry.
 
 `AudioSourceComponent::Priority` (0–256) reaches FMOD's channel-priority property. Opt-in
-`DistanceCulling` releases FMOD instances and VA emitters outside every weighted listener's authored
+`DistanceCulling` releases FMOD instances and Asterwave emitters outside every weighted listener's authored
 maximum distance, with 5% inward hysteresis. Continuous sources keep play intent, script
 parameters/labels and layered pauses; while culled and unpaused their timeline advances by the
 scene timestep (× pitch), wrapped over `EventDescription::getLength` since FMOD exposes no loop
@@ -1197,8 +1215,9 @@ may still play after a failed rebuild, with the build failure logged.
 
 Native exports flatten the selected budgets/focus option into format 23's bounded settings block;
 runtime profiles stay disabled and the manifest selects packaged banks. Optional YAML fields keep
-old projects compatible. This is not executable cross-compilation. SDK roots (`LUX_FMOD_SDK`,
-`LUX_VA_SDK`) drive Premake includes, link inputs, deployed libraries and target file validation.
+old projects compatible. This is not executable cross-compilation. `LUX_FMOD_SDK` selects FMOD
+headers, link inputs and deployed libraries; `LUX_ASTERWAVE_ROOT` selects the pinned native source
+compiled into the static Asterwave project. Generation validates both local layouts.
 FMOD packages can also be discovered under `Core/vendor/FMOD/`; ambiguity requires an override.
 
 `MuteWhenUnfocused` defaults false. `Application` pumps Studio even when minimized and determines
@@ -1214,47 +1233,51 @@ Audio Debugger, closed by default) renders both halves of the stack. Playback an
 read-only accessors — `AudioEngine::GetStats()` and
 `RaytracedAudioScene::GetStats()` / `GetResult()` / `GetAmbience()` / `GetVisualisation()` — alongside
 cached performance meters and an explicit validation action. Sources show event names, playback,
-virtual and culled state. The Reverb section shows VA measurements and explains Studio's authored
+virtual and culled state. The Reverb section shows Asterwave measurements and explains Studio's authored
 parameter path.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
 called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws ray paths, bounce
 points, surface normals, emitter gizmos and world bounds with the `Renderer2D` that function has
-already set up for the frame. It also pushes the VA visualisation-ray settings to the active scene's
+already set up for the frame. It also pushes the Asterwave visualisation-ray settings to the active scene's
 `RaytracedAudioScene` every frame, so they apply whether or not the panel is open (entering Play builds
-a new VA scene). Splitting it this way keeps the settings next to their UI while the drawing stays
+a new Asterwave scene). Splitting it this way keeps the settings next to their UI while the drawing stays
 where a camera is already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a
 `Ref<AudioDebugPanel>` *only* for this; `PanelManager` still owns the panel and drives its render and
 scene context.
 
-`ShowOcclusion` is independent of the VA rays (`Enabled`): `EditorLayer::DrawAudioOcclusion` reads
+`ShowOcclusion` is independent of the Asterwave rays (`Enabled`): `EditorLayer::DrawAudioOcclusion` reads
 `Scene::GetAudioOcclusion()` paths, which engine occlusion computes anyway, and draws each source's
 listener→source line coloured by LF loss, wall entry/exit markers and billboard labels (material,
 thickness, dB) plus a per-source total. Lines and markers draw on top of the scene depth; text is
 depth-tested (Renderer2D has no on-top text), so labels stand off the wall face nearest the camera.
 "See the Sound" (Audio Debugger and the viewport options popup, outside the Play-suspended debug
-views) is a preset that turns on occlusion paths, labels, VA rays and emitters, all zones, the room
+views) is a preset that turns on occlusion paths, labels, Asterwave rays and emitters, all zones, the room
 readout and material-tinted bounces, and restores the previous settings when turned off.
 
 `ShowAllZones` draws every zone and portal through `Scene::ForEachAudioZoneLine` (the same line
 generator the selection-only `FrameRenderPacket::AudioZoneLines` capture uses), brightened by live
-zone weight or portal Open and labelled with it. `ColorBouncesByMaterial` probes each VA bounce with
+zone weight or portal Open and labelled with it. `ColorBouncesByMaterial` probes each Asterwave bounce with
 one short `PhysicsScene::CastRay` into the surface and tints it by that entity's effective acoustic
 tag (overlay only; costs a raycast per bounce while shown). The room readout
 (`EditorLayer::UI_RoomAcousticsReadout`) shows `Scene::GetLastAudioAmbience()`: the listener ambience
-the scene copies inside the VA join window, so ImGui never reads VA's live buffers.
-`RaytracedAudioScene::GetResult`/`GetAmbience` read SDK buffers the VA workers write, so they are
-only valid between `WaitForResults` and `OnUpdate`; anything outside that window (ImGui, scripts)
-reads the scene's copies instead. C# `AudioSourceComponent.OcclusionGain` returns
+the scene copies inside the Asterwave join window, so ImGui never reads Asterwave's live buffers.
+`World::wait` publishes emitter outputs and callbacks on the main thread; workers only change
+private batch state. `GetResult` and `GetAmbience` therefore read the last published output safely
+on the main thread while the next batch runs. Stats and visualisation are separate completed
+snapshots. Scene accessors retain the values actually applied to the mix for scripts and overlays.
+Overlay ray settings queue until the next idle update; disabling clears displayed rays immediately. C# `AudioSourceComponent.OcclusionGain` returns
 `Scene::GetAudioSourceOcclusion`, the LF gain recorded when it was applied to the event that frame
-(engine or VA, per the project setting; 1 outside Play and while culled).
+(engine or Asterwave, per the project setting; 1 outside Play and while culled).
 
-Both stats structs expose SDK status as data, so editor panels use read-only Core accessors.
+Both stats structs expose backend status as data, so editor panels use read-only Core accessors.
+Asterwave timings describe the latest completed batch, not an average; main-thread time includes
+the update and wait calls.
 `AudioEngineStats::HasMixerStats` distinguishes unavailable measurements from a real zero.
 
 `RaytracedAudioScene::Impl` tracks local bounds and triangle counts for static/dynamic geometry;
-the debugger displays both counts and the scene queue backlog. The SDK offers no way to read a
-primitive's triangle count back.
+the debugger displays those cached counts and the scene queue backlog without traversing native
+geometry from ImGui.
 
 ### 2.11 Input
 

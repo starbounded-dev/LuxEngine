@@ -1,7 +1,7 @@
 # Surface and physics audio (Phase 9)
 
 Phase 9 connects 3D Jolt contacts and ground queries to FMOD Studio events. A shared surface table
-maps each `AcousticMaterial` to footstep, impact, scrape and roll sounds. VA continues to use the
+maps each `AcousticMaterial` to footstep, impact, scrape and roll sounds. Asterwave continues to use the
 same material tags for acoustic geometry; FMOD authors the sound and its spatialization.
 
 ## Set up a project

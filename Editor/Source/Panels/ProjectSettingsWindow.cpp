@@ -509,7 +509,7 @@ namespace Lux {
 			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "FMOD real voice cap. Lower priority channels virtualize.", false);
 			edited.RealVoices = static_cast<uint32_t>(voices);
 			changed |= ImGuiEx::Property("CPU Warning (%)", edited.CPUPercent, 0.1f, 0.1f, 100.0f, "Warn once when the measured audio CPU exceeds this value.", false);
-			changed |= ImGuiEx::Property("VA Warning (ms)", edited.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "VA worker raytracing time.", false);
+			changed |= ImGuiEx::Property("Asterwave Warning (ms)", edited.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Asterwave worker raytracing time.", false);
 			changed |= ImGuiEx::Property("FMOD Memory (MiB)", memory, 1, 65536, "Warning threshold for total FMOD allocations, including banks, samples and mixer overhead.", false);
 			edited.BankMemoryMiB = static_cast<uint32_t>(memory);
 			ImGuiEx::EndPropertyGrid();
@@ -576,7 +576,7 @@ namespace Lux {
 				m_Dirty |= ImGuiEx::Property("Real Voices", profile.Performance.RealVoices, 1u, 512u, "FMOD's global software-channel cap.", false);
 				m_Dirty |= ImGuiEx::Property("FMOD Memory (MiB)", profile.Performance.BankMemoryMiB, 1u, 65536u, "Includes banks, samples and mixer overhead.", false);
 				m_Dirty |= ImGuiEx::Property("CPU Warning (%)", profile.Performance.CPUPercent, 0.1f, 0.1f, 100.0f, "Audio CPU threshold.", false);
-				m_Dirty |= ImGuiEx::Property("VA Warning (ms)", profile.Performance.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Raytracing threshold.", false);
+				m_Dirty |= ImGuiEx::Property("Asterwave Warning (ms)", profile.Performance.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Raytracing threshold.", false);
 				m_Dirty |= ImGuiEx::Property("Mute When Unfocused", profile.Performance.MuteWhenUnfocused, "Output mute preserves authored bus and gameplay pause state.", false);
 				ImGuiEx::EndPropertyGrid();
 				if (ImGui::SmallButton("Copy Default Budgets"))
@@ -649,14 +649,14 @@ namespace Lux {
 			}
 		}
 
-		static const char* zoneModes[] = { "Layer zones and VA", "Prefer zones", "Prefer VA" };
+		static const char* zoneModes[] = { "Layer zones and Asterwave", "Prefer zones", "Prefer Asterwave" };
 		if (ImGuiEx::PropertyDropdown("Zone Reverb", zoneModes, 3, audioSettings.ZoneReverbMode,
-			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
+			"Layered keeps both. Prefer zones reduces Asterwave ReverbSend by active snapshot coverage. Prefer Asterwave suppresses zone snapshots while valid Asterwave ambience is available.", false))
 			m_Dirty = true;
 
-		static const char* occlusionSources[] = { "Engine raycasts", "VA (raytraced)" };
+		static const char* occlusionSources[] = { "Engine raycasts", "Asterwave (raytraced)" };
 		if (ImGuiEx::PropertyDropdown("Occlusion", occlusionSources, 2, audioSettings.Occlusion.Source,
-			"What drives each event's Occlusion parameter. Engine casts rays from the listener through acoustic mesh colliders and closed portals, using each acoustic material's transmission. VA occlusion does not yet respond to geometry in the current SDK. Applies on the next Play.", false))
+			"What drives each event's Occlusion parameter. Engine casts rays from the listener through acoustic mesh colliders and closed portals, using each acoustic material's transmission. Asterwave uses the completed ray-traced per-source result. Applies on the next Play.", false))
 			m_Dirty = true;
 		if (audioSettings.Occlusion.Source == AudioOcclusionSource::Engine)
 		{
@@ -912,7 +912,7 @@ namespace Lux {
 				if (!ImGui::TreeNode(AcousticMaterialNames[i]))
 					continue;
 				const auto material = static_cast<AcousticMaterial>(i);
-				ImGui::Text("VA base preset: %s", AcousticMaterialPresetName(material));
+				ImGui::Text("Asterwave base preset: %s", AcousticMaterialPresetName(material));
 				auto& entry = audioSettings.AcousticMaterials.Overrides[i];
 				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Override Preset", entry.Enabled))

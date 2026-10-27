@@ -146,5 +146,5 @@ int main()
 	Near(zones[0].Target, 1); Near(zones[1].Target, 0);
 	portal.ZoneB = portal.ZoneA;
 	assert(!AudioZoneSystem::ValidatePortal(portal));
-	std::cout << "PASS: real VA geometry transforms/materials/bounds, budget/coalescing/deletion, shutters and normalized room leakage\n";
+	std::cout << "PASS: real Asterwave geometry transforms/materials/bounds, budget/coalescing/deletion, shutters and normalized room leakage\n";
 }

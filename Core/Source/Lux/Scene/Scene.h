@@ -129,8 +129,8 @@ namespace Lux {
 		// The low-frequency occlusion gain applied to a source's Occlusion parameter (1 = clear),
 		// from whichever source the project selects; 1 when the source is not being simulated.
 		float GetAudioSourceOcclusion(UUID source) const;
-		// The listener's VA ambience as read in the last join window. Safe to read any time on the
-		// main thread, unlike RaytracedAudioScene::GetAmbience, which reads live SDK buffers.
+		// The listener's Asterwave ambience as read in the last join window. Safe to read any time on the
+		// main thread; this is the applied scene value, separate from the backend's latest result.
 		const RaytracedAudioAmbience& GetLastAudioAmbience() const { return m_LastAudioAmbience; }
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
@@ -304,8 +304,8 @@ namespace Lux {
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		AudioOcclusion m_AudioOcclusion;
 		AudioOcclusionSource m_OcclusionSource = AudioOcclusionSource::Engine;
-		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // written in the VA join window
-		RaytracedAudioAmbience m_LastAudioAmbience;               // written in the VA join window
+		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // written in the Asterwave join window
+		RaytracedAudioAmbience m_LastAudioAmbience;               // written in the Asterwave join window
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;

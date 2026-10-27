@@ -36,19 +36,19 @@ Multiple zones using the same snapshot share one instance with their summed, cap
 FMOD averages separate instances of the same snapshot, so independently starting that snapshot
 from scripts can change the resulting mix. Studio's own snapshot priority and scope still apply.
 
-## Zone reverb and Vercidium Audio
+## Zone reverb and Asterwave
 
 Project Settings → Audio → **Zone Reverb** is saved with the project and included in exports:
 
 | Setting | Result |
 |---|---|
-| Layer zones and VA | Both zone snapshots and VA-driven event reverb are active. Default. |
-| Prefer zones | Active zone snapshot coverage reduces the VA `ReverbSend` parameter. |
-| Prefer VA | Zone snapshots are suppressed while VA has valid ambience; otherwise zones apply. |
+| Layer zones and Asterwave | Both zone snapshots and Asterwave-driven event reverb are active. Default. |
+| Prefer zones | Active zone snapshot coverage reduces the Asterwave `ReverbSend` parameter. |
+| Prefer Asterwave | Zone snapshots are suppressed while Asterwave has valid ambience; otherwise zones apply. |
 
-Ambience beds and VA occlusion are independent of this choice. The engine adjusts authored Studio
+Ambience beds and Asterwave occlusion are independent of this choice. The engine adjusts authored Studio
 parameters; it does not create a second reverb DSP path. Missing banks or snapshots without the
-required intensity parameter are reported in the Audio log and do not suppress VA reverb.
+required intensity parameter are reported in the Audio log and do not suppress Asterwave reverb.
 
 ## C#
 
@@ -101,7 +101,7 @@ Regenerate Premake projects because Phase 8 adds native source files.
 
 Verification for this implementation covers production zone geometry and priority blending,
 weighted/attenuation listeners, real FMOD SDK snapshot intensity and instance coalescing, ambience
-volume/fade/pause, VA policy, bank/system reload and cleanup. The headless FMOD fixture uses a
+volume/fade/pause, Asterwave policy, bank/system reload and cleanup. The headless FMOD fixture uses a
 continuous Intensity parameter automating the snapshot dial. Project serializer tests cover YAML,
 format 19, older-format defaults and invalid/truncated mode bytes. Scene YAML tests cover every
 zone field and malformed values; the built-in scene roundtrip suite also covers copy/prefab data.

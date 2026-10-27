@@ -12,6 +12,7 @@ import sys
 from colorama import Back, Fore, Style
 
 import BuildOptions
+import FetchAsterwave
 import Menu
 
 
@@ -198,28 +199,21 @@ def warn_missing_fmod_sdk(config, root):
     print(f"{Style.BRIGHT}{Back.RED} FMOD Engine SDK incomplete {Style.RESET_ALL}")
     print("No native FMOD Engine SDK found. Extract the package into Core/vendor/FMOD/ or set")
     print("LUX_FMOD_SDK to its root containing api/. Premake verifies headers, link inputs and runtime libraries.")
-    print(f"{Fore.YELLOW}FMOD and VA are required; project generation will fail until the SDK is installed.{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}FMOD is required; project generation will fail until the SDK is installed.{Style.RESET_ALL}")
     print("")
     return False
 
 
-def warn_missing_va_ray_sdk(config, root):
-    """The Vercidium Audio (VA) SDK is fetched manually, so catch its absence before premake
-    generates a project that can't compile."""
-    va_root = os.path.join(os.getenv("LUX_VA_SDK") or os.path.join(root, "Core", "vendor", "VA_RAY"), "3d", "native")
-    libraries = [os.path.join("production", "windows", name) for name in ("vaudionative.lib", "vaudionative.dll")] if os.name == "nt" else [os.path.join("production", "linux", "libvaudionative.so")]
-    missing = [
-        name
-        for name in [os.path.join("include", "vaudio.h"), *libraries]
-        if not os.path.exists(os.path.join(va_root, name))
-    ]
-    if not missing:
+def warn_missing_asterwave(config, root):
+    """Validate the pinned source without network access; Premake enforces the same contract."""
+    try:
+        FetchAsterwave.validate_checkout(FetchAsterwave.source_root(root), FetchAsterwave.load_manifest(root))
         return True
-
-    print("")
-    print(f"{Style.BRIGHT}{Back.RED} Vercidium Audio SDK incomplete {Style.RESET_ALL}")
-    print(f"Missing from {va_root}: {', '.join(missing)}")
-    print("Extract the SDK there, or set LUX_VA_SDK to its package root containing 3d/.")
-    print(f"{Fore.YELLOW}FMOD and VA are required; project generation will fail until the SDK is installed.{Style.RESET_ALL}")
-    print("")
-    return False
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
+        print("")
+        print(f"{Style.BRIGHT}{Back.RED} Asterwave source unavailable {Style.RESET_ALL}")
+        print(str(error))
+        print("Run python scripts/FetchAsterwave.py, or set LUX_ASTERWAVE_ROOT to a clean checkout at the pinned revision.")
+        print(f"{Fore.YELLOW}Asterwave is required; project generation will fail until its source is ready.{Style.RESET_ALL}")
+        print("")
+        return False

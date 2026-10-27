@@ -191,7 +191,7 @@ namespace Lux
 		Warn(s_Stats.VoicesExceeded, 0, "Voice demand", total, s_Settings.RealVoices);
 		Warn(s_Stats.CPUExceeded, 1, "Audio CPU (%)", s_Stats.CPUPercent, s_Settings.CPUPercent);
 		Warn(s_Stats.MemoryExceeded, 2, "FMOD allocated memory (MiB)", s_Stats.MemoryMiB, s_Settings.BankMemoryMiB);
-		Warn(s_Stats.RaytracingExceeded, 3, "VA raytracing (ms)", s_Stats.RaytracingMilliseconds, s_Settings.RaytracingMilliseconds);
+		Warn(s_Stats.RaytracingExceeded, 3, "Asterwave raytracing (ms)", s_Stats.RaytracingMilliseconds, s_Settings.RaytracingMilliseconds);
 		for (size_t i = 0; i < s_Buses.size(); ++i)
 		{
 			auto& bus = s_Buses[i];

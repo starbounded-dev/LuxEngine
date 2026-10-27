@@ -138,6 +138,12 @@ by a `GetRefCount() == 0` check — two threads can both observe 0 and double-fr
 `std::unique_ptr` appears in a few places (`Application::m_Window`) but `Scope<T>` is the spelling to
 use.
 
+**Vendor-boundary exception:** `RaytracedAudioScene::Impl` uses the real shared ownership required
+by Asterwave's native emitter and mesh geometry API (batch snapshots can retain those objects).
+Confine `std::shared_ptr` / `std::make_shared` to those native objects inside the private adapter;
+never use no-op deleters to imitate ownership. The adapter and its `World` use `Scope`, and engine
+scene objects continue using `Ref`. This does not permit shared pointers elsewhere in engine code.
+
 `LUX_TRACK_MEMORY` (Debug + Release) routes `Ref<T>::Create` through a tagged allocator
 (`new(typeid(T).name()) T(...)`) for the memory panel. Anything allocating outside `Ref`/`Scope`
 disappears from those stats.

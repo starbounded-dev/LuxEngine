@@ -36,6 +36,8 @@ project "Editor"
 	}
 
 	filter "system:windows"
+		-- Incremental build directories can retain the previous dynamically loaded backend.
+		postbuildcommands { '{DELETE} "%{cfg.targetdir}/vaudionative.dll"' }
 		systemversion "latest"
 		defines { "LUX_PLATFORM_WINDOWS" }
 		files {
@@ -48,12 +50,6 @@ project "Editor"
 		if _OPTIONS["discord"] then
 			postbuildcommands {
 				'{COPY} "../Core/vendor/discord_social_sdk/bin/release/discord_partner_sdk.dll" "%{cfg.targetdir}"',
-			}
-		end
-
-		do -- Vercidium Audio is required.
-			postbuildcommands {
-				'{COPY} "' .. VASDKRoot .. '/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
 			}
 		end
 
@@ -98,6 +94,7 @@ project "Editor"
 	end
 
 	filter "system:linux"
+		postbuildcommands { '{DELETE} "%{cfg.targetdir}/lib/libvaudionative.so"' }
 		defines { "LUX_PLATFORM_LINUX", "__EMULATE_UUID", "BACKWARD_HAS_DW", "BACKWARD_HAS_LIBUNWIND" }
 		links { "dw", "dl", "unwind", "pthread", "X11" }
 		-- --no-as-needed forces -latomic to stay linked even though, at LTO's initial
@@ -107,15 +104,7 @@ project "Editor"
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
 
-		-- vaudionative.so is resolved via the $ORIGIN/lib rpath above, not the default loader path.
-		do -- Vercidium Audio is required.
-			postbuildcommands {
-				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPY} "' .. VASDKRoot .. '/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
-			}
-		end
-
-		-- Same rpath story as vaudionative.so above. The linker embeds libfmod.so.14 as the
+		-- The $ORIGIN/lib rpath resolves FMOD. The linker embeds libfmod.so.14 as the
 		-- SONAME (confirmed via readelf -d), not the unversioned libfmod.so, so only that exact
 		-- filename needs to exist at runtime - {COPYFILE} (unlike {COPY}, whose glob would sit
 		-- inside quotes and never expand) follows the symlink and writes it under that name.

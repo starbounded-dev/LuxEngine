@@ -2,7 +2,7 @@
 
 The ready-made scene is `Assets/Scenes/FMODDemo.luxscene`. It uses your existing
 `event:/Fart` from `Assets/Audio/SampleProject/SampleProject.fspro`.
-The engine already builds with FMOD Core, FMOD Studio, and Vercidium Audio (VA).
+The engine builds with FMOD Core, FMOD Studio, and the statically linked Asterwave acoustics library.
 You do not need a Unity/Unreal integration package or another audio backend toggle.
 
 ## Run the supplied scene
@@ -36,7 +36,7 @@ one-shot. For looping events, use K or I. Stop Play before rebuilding/reloading 
 The camera already has `LuxSample.FlyCamera` and an Audio Listener (index 0, weight 1).
 The emitter already has `LuxSample.FmodAudioDemo` and an Audio Source. The script's `PlayOnStart`
 field controls startup playback; the component's Play On Awake is off to prevent duplicate starts.
-The floor and wall have mesh colliders for VA's geometry collection.
+The floor and wall have mesh colliders for Asterwave's geometry collection.
 
 ### See the Sound
 
@@ -102,14 +102,16 @@ future runs. Live update is disabled in Dist builds.
 
 See FMOD's [connection instructions](https://qa.fmod.com/t/how-to-use-the-profiler-in-fmod-studio/11138).
 
-## VA occlusion and reverb
+## Occlusion and Asterwave reverb
 
-The wall supplies geometry to VA, but a Studio event must author how VA affects its sound.
+The wall supplies acoustic geometry. Engine raycasts drive occlusion by default; the project can
+select the Asterwave per-source result instead. Asterwave also measures room reverb. A Studio event
+must author how these parameters affect its sound.
 Lux supplies optional event parameters named **Occlusion** and **ReverbSend**, each from 0 to 1.
 Add those parameters to your event and automate a low-pass/level reduction and reverb send,
 respectively. Rebuild its bank afterward. Without that authoring, 3D distance attenuation can work
 while the wall does not audibly muffle the event. The K/component path receives scene acoustics;
-the L and I paths demonstrate independent playback and do not automatically register VA targets.
+the L and I paths demonstrate independent playback and do not automatically register Asterwave targets.
 
 ## If it is silent
 
@@ -124,7 +126,7 @@ the L and I paths demonstrate independent playback and do not automatically regi
 
 1. In FMOD Studio, build **all banks** for the platform selected by Lux's **Bank Output** directory (normally `Build/Desktop`).
 2. In Lux, use **File > Export Runtime…**. Missing or stale banks stop the export and report what needs fixing.
-3. Copy the entire exported folder to the destination machine. Banks are loose files under `Assets`; FMOD and VA libraries ship beside the executable (under `lib` on Linux). Studio itself is not required there.
+3. Copy the entire exported folder to the destination machine. Banks are loose files under `Assets`; FMOD libraries ship beside the executable (under `lib` on Linux). Asterwave is compiled into the executable. Studio itself is not required there.
 4. Launch the exported game. Required banks load before script `OnCreate`. This demo's asset-relative `Audio.LoadBank` paths remain valid and loading an already loaded bank succeeds.
 
 If Studio output is outside the project's Assets folder, export places it in `Assets/Audio/Banks`; use `Audio/Banks/<name>.bank` for explicit runtime loads, or rely on startup loading and fire events directly. Dist exports disable live update; Debug/Release follow the project's setting. Older runtime packages must be re-exported to include banks.
@@ -138,15 +140,15 @@ Audio Source components now play only FMOD Studio events. If an old scene refere
 1. Select an entity with a **Mesh Collider** and choose its **Acoustic Material**.
 2. Optionally add **Audio Surface** to that entity. Its material takes precedence over the collider
    tag. On an entity without a mesh collider, it is metadata only; it does not create geometry.
-3. In **Project Settings → Audio → Acoustic Materials**, expand a material to see its VA base
+3. In **Project Settings → Audio → Acoustic Materials**, expand a material to see its Asterwave base
    preset. Enable **Override Preset** to edit LF/HF absorption, scattering, transmission distances
    (metres), and energy loss through thin/open surfaces. Disabling the override restores the preset.
 4. Save project settings, then start a fresh Play session. Geometry and material settings are
    captured at Play start. They are included in runtime exports; moving geometry comes later.
-5. Use Studio event parameters `Occlusion` and `ReverbSend` to author the audible response. VA
-   measurements alone do not add an FMOD filter or reverb bus. The Audio Debugger shows VA results.
+5. Use Studio event parameters `Occlusion` and `ReverbSend` to author the audible response. Asterwave
+   measurements alone do not add an FMOD filter or reverb bus. The Audio Debugger shows Asterwave results.
 
-Carpet and Rubber start from VA's Cloth preset; Plastic and WoodThin from WoodIndoor; Default from
+Carpet and Rubber start from Asterwave's Cloth preset; Plastic and WoodThin from WoodIndoor; Default from
 Concrete; Plaster from Gyprock; Soil from Mud; Wood from WoodOutdoor; Ceramic from Tile; Foliage from
 Leaf. These are starting presets, not measured coefficients for every physical material. Overrides
 are independent even when two tags share a base preset.

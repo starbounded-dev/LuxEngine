@@ -6,39 +6,44 @@
 
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include "vaudio.h"
+#include <asterwave/simulation.hpp>
 #include "Lux/Serialization/Yaml.h"
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace Lux
 {
 	namespace
 	{
 		constexpr int kCustomMaterialBase = 1000;
-		constexpr std::array<VAMaterialType, AcousticMaterialCount> kPresets = {
-			VAMaterialConcrete,
-			VAMaterialBrick,
-			VAMaterialCloth,
-			VAMaterialCloth,
-			VAMaterialConcrete,
-			VAMaterialConcretePolished,
-			VAMaterialDirt,
-			VAMaterialGlass,
-			VAMaterialGrass,
-			VAMaterialGravel,
-			VAMaterialMarble,
-			VAMaterialMetal,
-			VAMaterialGyprock,
-			VAMaterialWoodIndoor,
-			VAMaterialRock,
-			VAMaterialSnow,
-			VAMaterialMud,
-			VAMaterialWater,
-			VAMaterialWoodOutdoor,
-			VAMaterialWoodIndoor,
-			VAMaterialTile,
-			VAMaterialCloth,
-			VAMaterialLeaf,
+		// Keep 30 / metres representable without changing the authored or serialized value.
+		const float kMinimumNativeTransmission = std::nextafter(30.0f / std::numeric_limits<float>::max(),
+			std::numeric_limits<float>::infinity());
+		constexpr std::array<asterwave::MaterialType, AcousticMaterialCount> kPresets = {
+			asterwave::MaterialType::Concrete,
+			asterwave::MaterialType::Brick,
+			asterwave::MaterialType::Cloth,
+			asterwave::MaterialType::Cloth,
+			asterwave::MaterialType::Concrete,
+			asterwave::MaterialType::ConcretePolished,
+			asterwave::MaterialType::Dirt,
+			asterwave::MaterialType::Glass,
+			asterwave::MaterialType::Grass,
+			asterwave::MaterialType::Gravel,
+			asterwave::MaterialType::Marble,
+			asterwave::MaterialType::Metal,
+			asterwave::MaterialType::Gyprock,
+			asterwave::MaterialType::WoodIndoor,
+			asterwave::MaterialType::Rock,
+			asterwave::MaterialType::Snow,
+			asterwave::MaterialType::Mud,
+			asterwave::MaterialType::Water,
+			asterwave::MaterialType::WoodOutdoor,
+			asterwave::MaterialType::WoodIndoor,
+			asterwave::MaterialType::Tile,
+			asterwave::MaterialType::Cloth,
+			asterwave::MaterialType::Leaf,
 		};
 		constexpr std::array<const char*, AcousticMaterialCount> kPresetNames = {
 			"Concrete",
@@ -66,16 +71,16 @@ namespace Lux
 			"Leaf",
 		};
 
-		AcousticMaterialProperties ReadProperties(VAWorld* world, int id)
+		AcousticMaterialProperties ReadProperties(const asterwave::MaterialProperties& source)
 		{
 			AcousticMaterialProperties properties;
-			properties.AbsorptionLF = vaWorldGetMaterialAbsorptionLF(world, id);
-			properties.AbsorptionHF = vaWorldGetMaterialAbsorptionHF(world, id);
-			properties.Scattering = vaWorldGetMaterialScattering(world, id);
-			properties.TransmissionLF = vaWorldGetMaterialTransmissionLF(world, id);
-			properties.TransmissionHF = vaWorldGetMaterialTransmissionHF(world, id);
-			properties.FlatTransmissionLF = vaWorldGetMaterialFlatTransmissionLF(world, id);
-			properties.FlatTransmissionHF = vaWorldGetMaterialFlatTransmissionHF(world, id);
+			properties.AbsorptionLF = source.AbsorptionLF();
+			properties.AbsorptionHF = source.AbsorptionHF();
+			properties.Scattering = source.Scattering();
+			properties.TransmissionLF = source.TransmissionLF();
+			properties.TransmissionHF = source.TransmissionHF();
+			properties.FlatTransmissionLF = source.FlatTransmissionLF();
+			properties.FlatTransmissionHF = source.FlatTransmissionHF();
 			return properties;
 		}
 	}
@@ -132,15 +137,9 @@ namespace Lux
 		static const auto s_Defaults = []()
 		{
 			std::array<AcousticMaterialProperties, AcousticMaterialCount> result{};
-			VAWorld* world = vaWorldCreate();
-			if (!world)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot read VA material presets: world creation failed");
-				return result;
-			}
+			const auto presets = asterwave::DefaultMaterials();
 			for (size_t i = 0; i < result.size(); ++i)
-				result[i] = ReadProperties(world, kPresets[i]);
-			vaWorldDestroy(world);
+				result[i] = ReadProperties(presets[static_cast<size_t>(kPresets[i])]);
 			return result;
 		}();
 		return s_Defaults[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
@@ -151,42 +150,34 @@ namespace Lux
 		return kPresetNames[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
 	}
 
-	int AcousticMaterialVAID(AcousticMaterial material)
+	int AcousticMaterialID(AcousticMaterial material)
 	{
 		return kCustomMaterialBase + (IsValidAcousticMaterial(material) ? static_cast<int>(material) : 0);
 	}
 
-	bool ConfigureAcousticMaterials(VAWorld* world, const AcousticMaterialSettings& settings)
+	bool ConfigureAcousticMaterials(asterwave::World& world, const AcousticMaterialSettings& settings)
 	{
 		if (!settings.Validate())
 			return false;
 		for (size_t i = 0; i < AcousticMaterialCount; ++i)
 		{
-			const int id = AcousticMaterialVAID(static_cast<AcousticMaterial>(i));
-			const auto check = [i](VAResult result)
+			const auto material = static_cast<AcousticMaterial>(i);
+			const auto properties = settings.Overrides[i].Enabled ? settings.Overrides[i].Properties : GetDefaultAcousticMaterialProperties(material);
+			try
 			{
-				if (result == VA_SUCCESS || result == VA_UNCHANGED)
-					return true;
-				LUX_CORE_ERROR_TAG("Audio", "Failed to configure VA material {0} (VAResult={1})", AcousticMaterialNames[i], result);
+				// Legacy projects permit flat loss above one. Native transmission multiplies by
+				// (1 - loss), so saturate complete loss instead of generating negative energy.
+				world.set_material(AcousticMaterialID(material), asterwave::MaterialProperties(
+					properties.AbsorptionLF, properties.AbsorptionHF, properties.Scattering,
+					std::max(properties.TransmissionLF, kMinimumNativeTransmission),
+					std::max(properties.TransmissionHF, kMinimumNativeTransmission),
+					std::min(properties.FlatTransmissionLF, 1.0f), std::min(properties.FlatTransmissionHF, 1.0f)));
+			}
+			catch (const std::exception& error)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot configure Asterwave material {0}: {1}", AcousticMaterialNames[i], error.what());
 				return false;
-			};
-			if (!vaWorldHasMaterial(world, id) && !check(vaWorldCreateMaterial(world, id)))
-				return false;
-			const auto properties = settings.Overrides[i].Enabled ? settings.Overrides[i].Properties : ReadProperties(world, kPresets[i]);
-			if (!check(vaWorldSetMaterialAbsorptionLF(world, id, properties.AbsorptionLF)))
-				return false;
-			if (!check(vaWorldSetMaterialAbsorptionHF(world, id, properties.AbsorptionHF)))
-				return false;
-			if (!check(vaWorldSetMaterialScattering(world, id, properties.Scattering)))
-				return false;
-			if (!check(vaWorldSetMaterialTransmissionLF(world, id, properties.TransmissionLF)))
-				return false;
-			if (!check(vaWorldSetMaterialTransmissionHF(world, id, properties.TransmissionHF)))
-				return false;
-			if (!check(vaWorldSetMaterialFlatTransmissionLF(world, id, properties.FlatTransmissionLF)))
-				return false;
-			if (!check(vaWorldSetMaterialFlatTransmissionHF(world, id, properties.FlatTransmissionHF)))
-				return false;
+			}
 		}
 		return true;
 	}

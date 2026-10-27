@@ -19,7 +19,7 @@ namespace Lux {
 	{
 		bool Enabled = false;
 
-		// Passed straight to the SDK. These cost real raytracing work and feed nothing back into
+		// Passed straight to Asterwave. These cost real raytracing work and feed nothing back into
 		// the audio, which is why they are off by default and kept modest when on.
 		int RayCount = 64;
 		int BounceCount = 4;
@@ -35,7 +35,7 @@ namespace Lux {
 		float EmitterRadius = 0.35f;
 
 		// Ray paths fade along their length so the listener end reads as the origin and later
-		// bounces recede, the way Vercidium's own debug view draws them.
+		// bounces recede, the way the acoustic path debug view draws them.
 		float PathFadeStrength = 0.75f;
 
 		// Engine occlusion paths: listener->source, coloured by loss, with the walls they cross.
@@ -45,7 +45,7 @@ namespace Lux {
 		bool OcclusionSelectedOnly = false;
 
 		// Every zone and portal with its live weight (not just the selection), a viewport readout of
-		// the listener's measured room acoustics, and VA bounce points tinted by the acoustic
+		// the listener's measured room acoustics, and Asterwave bounce points tinted by the acoustic
 		// material they landed on (one short raycast per bounce, overlay only).
 		bool ShowAllZones = false;
 		bool ShowRoomAcoustics = false;
@@ -53,7 +53,7 @@ namespace Lux {
 	};
 
 	// In-editor view of the audio stack: FMOD Studio playback and the
-	// ray-traced acoustics simulation (Vercidium Audio). Pure visualization over data those two
+	// ray-traced acoustics simulation (Asterwave). Pure visualization over data those two
 	// subsystems already expose — AudioEngine::GetStats / GetReverbSnapshot, and
 	// RaytracedAudioScene::GetStats / GetResult / GetAmbience / GetVisualisation. No audio
 	// instrumentation lives here.
@@ -72,7 +72,7 @@ namespace Lux {
 
 		const AudioVisualisationSettings& GetVisualisationSettings() const { return m_Visualisation; }
 
-		// The showcase preset: occlusion paths with labels, VA rays and emitters. Turning it off
+		// The showcase preset: occlusion paths with labels, Asterwave rays and emitters. Turning it off
 		// restores whatever the settings were before it was turned on.
 		bool IsSeeTheSoundEnabled() const { return m_SeeTheSound; }
 		void SetSeeTheSoundEnabled(bool enabled);

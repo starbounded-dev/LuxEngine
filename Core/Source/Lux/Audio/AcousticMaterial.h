@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <string_view>
 
-struct VAWorld;
+namespace asterwave { class World; }
 namespace Lux::Yaml { class Node; class Writer; }
 
 namespace Lux
@@ -104,10 +104,12 @@ namespace Lux
 		bool Deserialize(StreamReader& stream);
 	};
 
-	// Cached SDK presets. Engine names absent from VA use the documented nearest preset.
+	// Cached Asterwave presets. Engine names without a matching preset use the nearest material.
 	AcousticMaterialProperties GetDefaultAcousticMaterialProperties(AcousticMaterial material);
 	const char* AcousticMaterialPresetName(AcousticMaterial material);
 	// Called only on an idle world. Unique custom IDs prevent overrides leaking to other tags.
-	int AcousticMaterialVAID(AcousticMaterial material);
-	bool ConfigureAcousticMaterials(VAWorld* world, const AcousticMaterialSettings& settings);
+	// Native coefficients saturate flat losses at 1 and bound tiny transmission distances so
+	// 30 / metres stays finite. Authored values and both serialization formats remain unchanged.
+	int AcousticMaterialID(AcousticMaterial material);
+	bool ConfigureAcousticMaterials(asterwave::World& world, const AcousticMaterialSettings& settings);
 }

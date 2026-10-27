@@ -230,7 +230,7 @@ Entities:
       AttenuationTarget: 0
   - Entity: 73040000000000002
     TagComponent:
-      Tag: Floor - VA mesh collider
+      Tag: Floor - acoustic mesh collider
     Parent: 7010016380193777032
     Children: []
     TransformComponent:

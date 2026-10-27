@@ -2192,7 +2192,7 @@ namespace Lux {
 				bool seeTheSound = m_AudioDebugPanel->IsSeeTheSoundEnabled();
 				if (ImGui::Checkbox("See the Sound", &seeTheSound))
 					m_AudioDebugPanel->SetSeeTheSoundEnabled(seeTheSound);
-				ImGui::SetItemTooltip("Occlusion paths with wall labels, VA rays and emitters, drawn during Play.");
+				ImGui::SetItemTooltip("Occlusion paths with wall labels, Asterwave rays and emitters, drawn during Play.");
 			}
 			if (m_SceneRenderer)
 			{
@@ -3363,7 +3363,7 @@ namespace Lux {
 		}
 	}
 
-	// The listener's room as VA measures it, from the copy the scene takes inside the VA join.
+	// The listener's room as Asterwave measures it, from the copy the scene takes inside the Asterwave join.
 	void EditorLayer::UI_RoomAcousticsReadout()
 	{
 		if (!m_AudioDebugPanel || !m_AudioDebugPanel->GetVisualisationSettings().ShowRoomAcoustics || !m_EditorViewport || !m_EditorViewport->IsVisible() || !m_ActiveScene)
@@ -3381,7 +3381,7 @@ namespace Lux {
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
 		ImGuiLayer::RequestGlassBackdrop();
-		ImGui::TextUnformatted("Room (VA measured)");
+		ImGui::TextUnformatted("Room (Asterwave measured)");
 		ImGuiEx::Fonts::PushFont("Mono");
 		ImGui::Text("Returned %5.1f%%  Outside %5.1f%%", ambience.ReturnedPercent * 100.0f, ambience.OutsidePercent * 100.0f);
 		ImGui::Text("Decay    LF %4.2f s  HF %4.2f s", ambience.MeasuredDecayTimeLF, ambience.MeasuredDecayTimeHF);

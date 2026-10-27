@@ -40,8 +40,9 @@ an editor feature to work. Every feature is judged against this:
 - **Built in first.** Implement it in the engine, or compile in a small vendored library with a
   permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
 - **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
-  the bundled shader compiler (shaderc/glslang), FMOD, and Vercidium Audio. Building on those adds
-  nothing for the user to install.
+  the bundled shader compiler (shaderc/glslang), FMOD, and statically linked Asterwave. Building on those adds
+  nothing for the user to install. Asterwave is a private source dependency whose upstream licence
+  remains unchanged; it is not covered by the permissive-library rule above.
 - **No new mandatory installs for game makers.** No required language servers, external IDEs,
   Node/Python runtimes, package managers, or online services. If an external tool is genuinely
   unavoidable, it is optional, auto-detected, degrades gracefully when missing, and the choice is
@@ -224,7 +225,9 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Required FMOD Core/Studio playback and Vercidium Audio acoustics via `AudioEngine`, `AudioEventInstance`, `AudioListener`, and `RaytracedAudioScene`.
+- Required FMOD Core/Studio playback and statically linked native Asterwave acoustics via `AudioEngine`, `AudioEventInstance`, `AudioListener`, and `RaytracedAudioScene`.
+- Asterwave is fetched at the private revision in `scripts/dependencies/Asterwave.json` into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`); no Asterwave DLL/shared object is deployed.
+- Native shared ownership is confined to `RaytracedAudioScene::Impl` for Asterwave emitters/mesh geometry required by its API. Engine objects continue using `Ref`/`Scope`.
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

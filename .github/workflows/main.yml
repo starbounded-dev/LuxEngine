@@ -36,23 +36,21 @@ jobs:
           submodules: recursive
           lfs: true
 
-      # FMOD and Vercidium Audio are licensed SDKs that must never be committed to this public
-      # repository. They come from a private repository (repository variable
-      # AUDIO_SDK_REPOSITORY, laid out by scripts/ci/StageAudioSDKs.py), read with a fine-grained
-      # read-only token scoped to that one repository (secret AUDIO_SDK_TOKEN). Pull requests
-      # from forks cannot read secrets, so their builds stop here with an explicit message.
+      # Private dependencies are fetched separately. Each token has read-only contents
+      # access to its own repository. Fork pull requests cannot read these secrets.
       - name: Check audio SDK access
         shell: pwsh
         env:
           AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
           AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
+          ASTERWAVE_TOKEN: ${{ secrets.ASTERWAVE_TOKEN }}
         run: |
-          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY) {
-            Write-Output "::error::FMOD/Vercidium Audio SDKs are unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
+          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY -or -not $env:ASTERWAVE_TOKEN) {
+            Write-Output "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access). Fork pull requests cannot read secrets."
             exit 1
           }
 
-      - name: Checkout audio SDKs (private)
+      - name: Checkout FMOD SDKs (private)
         uses: actions/checkout@v6.0.2
         with:
           repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
@@ -64,12 +62,47 @@ jobs:
         shell: pwsh
         run: |
           "LUX_FMOD_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/FMOD/windows')" >> $env:GITHUB_ENV
-          "LUX_VA_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/VA_RAY')" >> $env:GITHUB_ENV
 
       - name: Setup Python
         uses: actions/setup-python@v6.2.0
         with:
           python-version: '3.11'
+
+      - name: Read pinned Asterwave revision
+        id: asterwave
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          from FetchAsterwave import load_manifest
+          pin = load_manifest()
+          if pin["repository"] != "starbounded-dev/asterwave":
+              raise SystemExit("Unexpected Asterwave repository in manifest")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"revision={pin['revision']}\n")
+          PY
+
+      - name: Checkout pinned Asterwave source (private)
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: starbounded-dev/asterwave
+          ref: ${{ steps.asterwave.outputs.revision }}
+          token: ${{ secrets.ASTERWAVE_TOKEN }}
+          path: Core/vendor/Asterwave
+          persist-credentials: false
+
+      - name: Validate Asterwave source
+        run: python scripts/FetchAsterwave.py --check
+
+      - name: Test native Asterwave integration
+        shell: bash
+        run: |
+          config="${{ matrix.configuration }}"
+          [ "$config" != "Dist" ] || config=Release
+          cmake -S tests/audio/asterwave -B bin/asterwave-tests -DCMAKE_BUILD_TYPE="$config"
+          cmake --build bin/asterwave-tests --config "$config" --target lux_asterwave_tests
+          ctest --test-dir bin/asterwave-tests -C "$config" --output-on-failure
 
       - name: Install Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1.4.0
@@ -105,6 +138,10 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: New-Item -ItemType Directory -Force logs
 
+      - name: Test dependency layouts
+        if: matrix.configuration == 'Debug'
+        run: python tests/audio/run_sdk_layout.py
+
       # /restore runs the Restore target before the build. ScriptCore and Coral.Managed are
       # SDK-style C# projects inside Lux.sln, and those cannot build without the
       # obj/project.assets.json that a NuGet restore produces (error NETSDK1004). The same
@@ -115,82 +152,18 @@ jobs:
         run: |
           MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
-      - name: Package editor artifact
-        if: matrix.configuration == 'Release'
-        working-directory: ${{env.GITHUB_WORKSPACE}}
+      - name: Verify build output
+        shell: pwsh
         run: |
-          $configuration = "${{ matrix.configuration }}"
-          $editorOutput = Join-Path "bin" "$configuration-windows-x86_64\Editor"
-          $artifactRoot = Join-Path "artifacts" "Editor-$configuration"
-          $editorItems = @(
-            "LuxSampleProject",
-            "Resources",
-            "DotNet"
-          )
-
-          # Editor state, not build input: both are regenerated on first run (ApplicationSettings
-          # falls back to defaults when App.lsettings is absent) and are gitignored, so they do
-          # not exist in a clean checkout. Copy them when present, never fail on them.
-          $optionalEditorItems = @(
-            "imgui.ini",
-            "App.lsettings"
-          )
-
-          if (!(Test-Path $editorOutput)) {
-            throw "Editor build output was not found: $editorOutput"
-          }
-
-          Remove-Item $artifactRoot -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force $artifactRoot | Out-Null
-
-          Copy-Item -Path (Join-Path $editorOutput "*") -Destination $artifactRoot -Recurse -Force
-
-          foreach ($item in $editorItems) {
-            $source = Join-Path "Editor" $item
-            if (!(Test-Path $source)) {
-              throw "Editor artifact input was not found: $source"
-            }
-
-            Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
-          }
-
-          foreach ($item in $optionalEditorItems) {
-            $source = Join-Path "Editor" $item
-            if (Test-Path $source) {
-              Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
-            } else {
-              Write-Host "Skipping optional editor state file (not present): $source"
+          $output = "bin/${{ matrix.configuration }}-windows-x86_64"
+          foreach ($file in @("Editor/Editor.exe", "Lux-Runtime/Lux-Runtime.exe", "Asterwave/Asterwave.lib")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $output $file) -PathType Leaf)) {
+              throw "Missing build output: $output/$file"
             }
           }
 
-          # FMOD and Vercidium Audio runtime libraries must not be redistributed: artifacts on a
-          # public repository are downloadable by anyone, and both EULAs forbid shipping their
-          # libraries outside a game build (FMOD also forbids shipping them as part of an engine).
-          # Users copy the DLLs from their own SDK downloads next to Editor.exe.
-          $audioLibraryPatterns = @("fmod*.dll", "vaudionative*.dll")
-          Get-ChildItem -Path $artifactRoot -Recurse -File -Include $audioLibraryPatterns |
-            ForEach-Object { Write-Host "Stripping licensed audio library: $($_.FullName)"; Remove-Item $_.FullName -Force }
-
-          $remaining = Get-ChildItem -Path $artifactRoot -Recurse -File -Include $audioLibraryPatterns
-          if ($remaining) {
-            throw "Licensed audio libraries remain in the artifact: $($remaining.FullName -join ', ')"
-          }
-
-          Set-Content -Path (Join-Path $artifactRoot "AUDIO_LIBRARIES_REQUIRED.txt") -Encoding utf8 -Value @(
-            "This build does not include the FMOD or Vercidium Audio runtime libraries (licence restrictions).",
-            "Download the SDKs yourself and copy these files next to Editor.exe before running:",
-            "  fmod.dll, fmodstudio.dll  - FMOD Engine SDK: api/core/lib/x64, api/studio/lib/x64",
-            "  vaudionative.dll          - Vercidium Audio SDK: 3d/native/production/windows"
-          )
-
-      - name: Upload editor artifact
-        if: matrix.configuration == 'Release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: editor-${{ matrix.configuration }}
-          path: artifacts/Editor-${{ matrix.configuration }}/
-          if-no-files-found: error
-
+      # Asterwave is statically linked into both executables. Public artifacts cannot be
+      # made redistributable by stripping separate libraries, so publish build logs only.
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -200,8 +173,6 @@ jobs:
           if-no-files-found: ignore
 
   build-linux:
-    # Vercidium Audio 1.9.0's libvaudionative.so needs glibc 2.43 (sqrtf/log10f/acosf@GLIBC_2.43),
-    # which Ubuntu 24.04 (glibc 2.39) cannot link against. Ubuntu 26.04 ships glibc 2.43.
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
@@ -221,13 +192,14 @@ jobs:
         env:
           AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
           AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
+          ASTERWAVE_TOKEN: ${{ secrets.ASTERWAVE_TOKEN }}
         run: |
-          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ]; then
-            echo "::error::FMOD/Vercidium Audio SDKs are unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
+          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ] || [ -z "$ASTERWAVE_TOKEN" ]; then
+            echo "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access). Fork pull requests cannot read secrets."
             exit 1
           fi
 
-      - name: Checkout audio SDKs (private)
+      - name: Checkout FMOD SDKs (private)
         uses: actions/checkout@v6.0.2
         with:
           repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
@@ -239,7 +211,38 @@ jobs:
         shell: bash
         run: |
           echo "LUX_FMOD_SDK=${GITHUB_WORKSPACE}/.audio-sdk/FMOD/linux" >> "$GITHUB_ENV"
-          echo "LUX_VA_SDK=${GITHUB_WORKSPACE}/.audio-sdk/VA_RAY" >> "$GITHUB_ENV"
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: '3.11'
+
+      - name: Read pinned Asterwave revision
+        id: asterwave
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          from FetchAsterwave import load_manifest
+          pin = load_manifest()
+          if pin["repository"] != "starbounded-dev/asterwave":
+              raise SystemExit("Unexpected Asterwave repository in manifest")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"revision={pin['revision']}\n")
+          PY
+
+      - name: Checkout pinned Asterwave source (private)
+        uses: actions/checkout@v6.0.2
+        with:
+          repository: starbounded-dev/asterwave
+          ref: ${{ steps.asterwave.outputs.revision }}
+          token: ${{ secrets.ASTERWAVE_TOKEN }}
+          path: Core/vendor/Asterwave
+          persist-credentials: false
+
+      - name: Validate Asterwave source
+        run: python scripts/FetchAsterwave.py --check
 
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
       - name: Set up .NET 9
@@ -279,6 +282,15 @@ jobs:
           cache: true
           stripdown: true
 
+      - name: Test native Asterwave integration
+        shell: bash
+        run: |
+          config="${{ matrix.configuration }}"
+          [ "$config" != "Dist" ] || config=Release
+          cmake -S tests/audio/asterwave -B bin/asterwave-tests -DCMAKE_BUILD_TYPE="$config"
+          cmake --build bin/asterwave-tests --config "$config" --target lux_asterwave_tests
+          ctest --test-dir bin/asterwave-tests -C "$config" --output-on-failure
+
       # Single entry point: generates the C# projects, builds the managed assemblies, the
       # native engine, and the sample game's scripts.
       - name: Build
@@ -305,104 +317,12 @@ jobs:
           done
           exit $fail
 
-      # Unlike Windows, the Linux build output holds only the executable, and the binary is
-      # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled
-      # into lib/ for the artifact to be runnable at all.
-      - name: Package editor artifact
-        if: matrix.configuration == 'Release'
-        shell: bash
-        run: |
-          set -euo pipefail
-          out="bin/${{ matrix.configuration }}-linux-x86_64/Editor"
-          root="artifacts/Editor-linux-${{ matrix.configuration }}"
+      - name: Test dependency layouts
+        if: matrix.configuration == 'Debug'
+        run: python tests/audio/run_sdk_layout.py
 
-          rm -rf "$root"
-          mkdir -p "$root/lib"
-          cp -a "$out/." "$root/"
-
-          for item in LuxSampleProject Resources DotNet; do
-            if [ ! -e "Editor/$item" ]; then
-              echo "Editor artifact input was not found: Editor/$item" >&2
-              exit 1
-            fi
-            cp -a "Editor/$item" "$root/"
-          done
-
-          # Drop build intermediates and asset caches that the build regenerates. Scripts/Binaries
-          # is deliberately kept - it holds the sample game's compiled script assembly.
-          find "$root/LuxSampleProject" -type d \
-            \( -name Intermediates -o -name obj -o -name Cache \) -prune -exec rm -rf {} + 2>/dev/null || true
-
-          # Editor state, regenerated on first run and gitignored, so absent in a clean checkout.
-          for item in imgui.ini App.lsettings; do
-            [ -e "Editor/$item" ] && cp -a "Editor/$item" "$root/" \
-              || echo "Skipping optional editor state file (not present): Editor/$item"
-          done
-
-          # Bundle only the libraries the binary actually resolves out of our vendored
-          # directories. Globbing every *.so from the Vulkan SDK pulled in ~780 MB of
-          # validation layers and SPIRV tooling that the editor never loads; ldd reports the
-          # full transitive closure, so filtering it keeps exactly what is needed.
-          vendor_dirs=""
-          for dir in "Core/vendor/assimp/bin/linux" \
-                     "Core/vendor/NvidiaAftermath/lib/x64/linux" \
-                     "${VULKAN_SDK:-}/lib"; do
-            if [ -d "$dir" ]; then
-              vendor_dirs="$vendor_dirs $(cd "$dir" && pwd)"
-            fi
-          done
-
-          # So ldd can resolve the vendored libraries, which are not on the default search path.
-          export LD_LIBRARY_PATH="$(echo $vendor_dirs | tr ' ' ':')"
-
-          for lib in $(ldd "$root/Editor" | awk '$3 ~ /^\// {print $3}' | sort -u); do
-            for dir in $vendor_dirs; do
-              case "$lib" in
-                "$dir"/*) cp -aL "$lib" "$root/lib/"; break ;;
-              esac
-            done
-          done
-
-          # FMOD and Vercidium Audio shared libraries must not be redistributed: artifacts on a
-          # public repository are downloadable by anyone, and both EULAs forbid shipping their
-          # libraries outside a game build (FMOD also forbids shipping them as part of an engine).
-          # Users copy them from their own SDK downloads into lib/.
-          audio_libs_regex='lib(fmod|fmodstudio|vaudionative)[^/]*\.so'
-          find "$root" \( -type f -o -type l \) -regextype posix-extended -regex ".*/${audio_libs_regex}.*" \
-            -print -delete | sed 's/^/Stripping licensed audio library: /'
-          if find "$root" \( -type f -o -type l \) -regextype posix-extended -regex ".*/${audio_libs_regex}.*" | grep -q .; then
-            echo "Licensed audio libraries remain in the artifact" >&2
-            exit 1
-          fi
-
-          cat > "$root/AUDIO_LIBRARIES_REQUIRED.txt" <<'EOF'
-          This build does not include the FMOD or Vercidium Audio runtime libraries (licence restrictions).
-          Download the SDKs yourself and copy these files into lib/ next to the Editor binary before running:
-            libfmod.so.14, libfmodstudio.so.14  - FMOD Engine SDK: api/core/lib/x86_64, api/studio/lib/x86_64
-            libvaudionative.so                  - Vercidium Audio SDK: 3d/native/production/linux
-          EOF
-
-          echo "Bundled $(find "$root/lib" -type f | wc -l) shared libraries ($(du -sh "$root/lib" | cut -f1))."
-
-          # The binary's RPATH is $ORIGIN/lib, so the bundle must resolve with no
-          # LD_LIBRARY_PATH set - otherwise we would ship an artifact that only runs on a
-          # machine that already has these libraries. The stripped audio libraries are the only
-          # permitted gaps.
-          unresolved="$(env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep 'not found' | grep -Ev "$audio_libs_regex" || true)"
-          if [ -n "$unresolved" ]; then
-            echo "Editor artifact has unresolved libraries:" >&2
-            echo "$unresolved" >&2
-            exit 1
-          fi
-
-      - name: Upload editor artifact
-        if: matrix.configuration == 'Release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: editor-linux-${{ matrix.configuration }}
-          path: artifacts/Editor-linux-${{ matrix.configuration }}/
-          if-no-files-found: error
-
+      # Executables, static libraries, PDBs and source remain on the ephemeral runner.
+      # This public workflow publishes logs only.
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4

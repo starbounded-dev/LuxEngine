@@ -8,6 +8,7 @@
 #include "Lux/Core/Log.h"
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Debug/Profiler.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -100,11 +101,11 @@ namespace Lux::RuntimeExport {
 #ifdef LUX_PLATFORM_LINUX
 		const auto source = runtimeDirectory / "lib";
 		const auto destination = exportRoot / "lib";
-		constexpr const char* libraries[] = { "libfmod.so.14", "libfmodstudio.so.14", "libvaudionative.so" };
+		constexpr const char* libraries[] = { "libfmod.so.14", "libfmodstudio.so.14" };
 #else
 		const auto& source = runtimeDirectory;
 		const auto& destination = exportRoot;
-		constexpr const char* libraries[] = { "fmod.dll", "fmodstudio.dll", "vaudionative.dll" };
+		constexpr const char* libraries[] = { "fmod.dll", "fmodstudio.dll" };
 #endif
 		for (const char* library : libraries)
 		{
@@ -295,10 +296,26 @@ namespace Lux::RuntimeExport {
 		if (ec)
 			return true;
 
-		const std::array<std::filesystem::path, 2> sourceRoots = {
+		const std::string sourceOverride = FileSystem::GetEnvironmentVariable("LUX_ASTERWAVE_ROOT");
+		std::filesystem::path asterwaveRoot = sourceOverride.empty()
+			? repositoryRoot / "Core/vendor/Asterwave" : std::filesystem::path(sourceOverride);
+		if (asterwaveRoot.is_relative())
+			asterwaveRoot = repositoryRoot / asterwaveRoot;
+		const std::array<std::filesystem::path, 4> sourceRoots = {
 			repositoryRoot / "Lux-Runtime",
-			repositoryRoot / "Core" / "Source"
+			repositoryRoot / "Core" / "Source",
+			asterwaveRoot / "include",
+			asterwaveRoot / "src"
 		};
+		// The acoustics implementation is linked into the executable. A pin or build-input
+		// change must invalidate an existing runtime just as an engine source change does.
+		for (const auto& relative : { "scripts/dependencies/Asterwave.json", "Dependencies.lua", "premake5.lua", "Core/premake5.lua" })
+		{
+			const auto inputTime = std::filesystem::last_write_time(repositoryRoot / relative, ec);
+			if (!ec && inputTime > executableWriteTime)
+				return true;
+			ec.clear();
+		}
 
 		for (const auto& sourceRoot : sourceRoots)
 		{
@@ -313,7 +330,7 @@ namespace Lux::RuntimeExport {
 					continue;
 
 				const std::filesystem::path extension = entry.path().extension();
-				if (extension != ".cpp" && extension != ".h" && extension != ".hpp" && extension != ".c" && extension != ".rc" && extension != ".lua")
+				if (extension != ".cpp" && extension != ".h" && extension != ".hpp" && extension != ".inc" && extension != ".c" && extension != ".rc" && extension != ".lua")
 					continue;
 
 				if (entry.last_write_time(ec) > executableWriteTime && !ec)
@@ -330,8 +347,8 @@ namespace Lux::RuntimeExport {
 		std::string config = RuntimeExportTargetToString(target);
 		std::transform(config.begin(), config.end(), config.begin(), ::tolower);
 		const std::string command =
-			"make -C \"" + (repositoryRoot / "Lux-Runtime").string() + "\""
-			+ " -f Makefile config=" + config;
+			"make -C \"" + repositoryRoot.string() + "\""
+			+ " -f Makefile config=" + config + " Lux-Runtime";
 #else
 		const std::filesystem::path projectFile = repositoryRoot / "Lux-Runtime" / "Lux-Runtime.vcxproj";
 		if (!FileExists(projectFile))

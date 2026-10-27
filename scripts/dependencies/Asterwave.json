@@ -1,0 +1,29 @@
+{
+  "repository": "starbounded-dev/asterwave",
+  "revision": "7eec9389bcff9db833a19f6683767e9479d1d1b0",
+  "sources": [
+    "src/acoustics.cpp",
+    "src/geometry.cpp",
+    "src/simulation.cpp",
+    "src/utilities.cpp",
+    "src/archive.cpp",
+    "src/debug.cpp",
+    "src/debug_process.cpp",
+    "src/debug_world.cpp"
+  ],
+  "required_files": [
+    "include/asterwave/asterwave.hpp",
+    "include/asterwave/acoustics.hpp",
+    "include/asterwave/geometry.hpp",
+    "include/asterwave/simulation.hpp",
+    "include/asterwave/utilities.hpp",
+    "include/asterwave/support.hpp",
+    "include/asterwave/archive.hpp",
+    "include/asterwave/debug.hpp",
+    "include/asterwave/debug_process.hpp",
+    "include/asterwave/debug_world.hpp",
+    "src/polyhedral_exact.inc",
+    "provenance/NOTICE.md",
+    "provenance/LICENSE.upstream.txt"
+  ]
+}
