@@ -4,12 +4,15 @@
 #include "lpch.h"
 #include "MaterialGraph.h"
 
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Serialization/Yaml.h"
 
 #include <algorithm>
 #include <cmath>
 #include <format>
 #include <functional>
+#include <optional>
 #include <unordered_map>
 
 namespace Lux {
@@ -74,12 +77,12 @@ namespace Lux {
 		const glm::vec4 Zero{ 0.0f };
 		const glm::vec4 One{ 1.0f };
 
-		std::string Var(Ctx& c, std::string_view suffix) { return std::format("n{}_{}", c.Node.ID, suffix); }
+		std::string Var(Ctx& c, std::string_view suffix) { return std::format("{}n{}_{}", c.Prefix, c.Node.ID, suffix); }
 
 		std::string TextureParameter(Ctx& c, bool srgb)
 		{
 			MaterialGraphParameter parameter;
-			parameter.Name = c.Node.Parameter.empty() ? std::format("#{}", c.Node.ID) : c.Node.Parameter;
+			parameter.Name = c.Node.Parameter.empty() ? std::format("#{}{}", c.Prefix, c.Node.ID) : c.Node.Parameter;
 			parameter.Kind = MaterialGraphParameterKind::Texture;
 			parameter.DefaultTexture = c.Node.Texture;
 			parameter.SRGB = srgb;
@@ -283,15 +286,39 @@ namespace Lux {
 					return { result };
 				}, "Maps a 0..1 factor to colours between stops." });
 
+			// Material functions: a graph material used as a node in another graph.
+			add({ "FunctionInputFloat", "Function Input (Float)", "Function", {}, { { "Value", Type::Float } }, {}, nullptr,
+				"An input of this graph when another graph uses it as a Material Function. Name it; its value is the default." });
+			add({ "FunctionInputVector", "Function Input (Vector)", "Function", {}, { { "Value", Type::Vec3 } }, {}, nullptr,
+				"A vector or colour input of this graph when another graph uses it as a Material Function." });
+			add({ "SubGraph", "Material Function", "Function", {}, {}, {}, nullptr,
+				"Runs another graph material's graph here: its Function Inputs are this node's inputs, and what its Material Output receives are the outputs." });
+
 			return library;
 		}
 
 		struct Compiler
 		{
-			const MaterialGraph& Graph;
 			MaterialGraph::CompileResult Result;
 			uint32_t NextScalar = 0;
-			std::string* Body = nullptr;
+			std::vector<const MaterialGraph*> Stack; // graphs being emitted, outermost first
+			uint32_t ErrorNode = 0;                  // inside a function: the outer node errors belong to
+
+			struct FunctionInput
+			{
+				std::string Expression;
+				Type ValueType = Type::Float;
+			};
+			using OutputValue = std::optional<std::pair<std::string, Type>>;
+
+			void AddError(uint32_t node, std::string message)
+			{
+				Result.Errors.push_back({ ErrorNode ? ErrorNode : node, std::move(message) });
+			}
+
+			// Emits the nodes of `graph` that reach its Material Output into Result.Body, with variable
+			// names under `prefix`. Returns what each Output input receives (empty when not connected).
+			std::vector<OutputValue> Emit(const MaterialGraph& graph, const std::string& prefix, const std::unordered_map<std::string, FunctionInput>& functionInputs);
 
 			static std::string AddParameter(MaterialGraphEmitContext& context, MaterialGraphParameter parameter)
 			{
@@ -394,6 +421,8 @@ namespace Lux {
 		copy->Comments = Comments;
 		copy->NextID = NextID;
 		copy->DispatchIndex = DispatchIndex;
+		copy->PackedParameters = PackedParameters;
+		copy->HasPackedParameters = HasPackedParameters;
 		return copy;
 	}
 
@@ -429,7 +458,7 @@ namespace Lux {
 		node.ID = NextID++;
 		node.Type = std::string(type);
 		node.Position = position;
-		for (const MaterialGraphPinInfo& pin : info->Inputs)
+		for (const MaterialGraphPinInfo& pin : GetPins(node).Inputs)
 			node.InputValues.push_back(pin.Default);
 		if (type == "Color")
 			node.Value = glm::vec4(1.0f);
@@ -468,9 +497,7 @@ namespace Lux {
 		const MaterialGraphNode* to = FindNode(toNode);
 		if (!from || !to || fromNode == toNode)
 			return false;
-		const MaterialGraphNodeInfo* fromInfo = FindNodeInfo(from->Type);
-		const MaterialGraphNodeInfo* toInfo = FindNodeInfo(to->Type);
-		if (!fromInfo || !toInfo || fromPin >= fromInfo->Outputs.size() || toPin >= toInfo->Inputs.size())
+		if (fromPin >= GetPins(*from).Outputs.size() || toPin >= GetPins(*to).Inputs.size())
 			return false;
 
 		// A loop: `to` already feeds `from`.
@@ -499,133 +526,239 @@ namespace Lux {
 		std::erase_if(Links, [id](const MaterialGraphLink& link) { return link.ID == id; });
 	}
 
-	MaterialGraph::CompileResult MaterialGraph::Compile() const
-	{
-		Compiler compiler{ *this };
-		CompileResult& result = compiler.Result;
+	namespace {
 
-		const MaterialGraphNode* output = nullptr;
-		for (const MaterialGraphNode& node : Nodes)
+		std::vector<Compiler::OutputValue> Compiler::Emit(const MaterialGraph& graph, const std::string& prefix, const std::unordered_map<std::string, FunctionInput>& functionInputs)
 		{
-			if (node.Type == "Output")
-			{
-				output = &node;
-				break;
-			}
-		}
-		if (!output)
-		{
-			result.Errors.push_back({ 0, "The graph has no Material Output node" });
-			return result;
-		}
+			const MaterialGraphNodeInfo* outputInfo = MaterialGraph::FindNodeInfo("Output");
+			std::vector<OutputValue> outputs(outputInfo->Inputs.size());
 
-		// Post-order from the output: every node after the nodes it reads. Nodes that do not reach the
-		// output are left out.
-		std::vector<uint32_t> order;
-		std::unordered_map<uint32_t, int> state; // 1 visiting, 2 done
-		std::function<void(uint32_t)> visit = [&](uint32_t id)
-		{
-			int& s = state[id];
-			if (s == 2)
-				return;
-			if (s == 1)
+			const MaterialGraphNode* output = nullptr;
+			for (const MaterialGraphNode& node : graph.Nodes)
 			{
-				result.Errors.push_back({ id, "The graph has a loop" });
-				return;
-			}
-			s = 1;
-			for (const MaterialGraphLink& link : Links)
-			{
-				if (link.ToNode == id)
-					visit(link.FromNode);
-			}
-			state[id] = 2;
-			order.push_back(id);
-		};
-		visit(output->ID);
-
-		std::unordered_map<uint32_t, std::vector<Type>> outputTypes;
-		auto inputExpression = [&](const MaterialGraphNode& node, uint32_t pin, const MaterialGraphPinInfo& info, Type& outType) -> std::string
-		{
-			if (const MaterialGraphLink* link = FindLinkInto(node.ID, pin))
-			{
-				auto it = outputTypes.find(link->FromNode);
-				if (it != outputTypes.end() && link->FromPin < it->second.size())
+				if (node.Type == "Output")
 				{
-					outType = it->second[link->FromPin];
-					return std::format("n{}_{}", link->FromNode, link->FromPin);
+					output = &node;
+					break;
 				}
 			}
-			if (!info.DefaultExpression.empty())
+			if (!output)
 			{
-				outType = info.Type;
-				return std::string(info.DefaultExpression);
-			}
-			const glm::vec4 value = pin < node.InputValues.size() ? node.InputValues[pin] : info.Default;
-			outType = info.Type == Type::Generic ? Type::Float : info.Type;
-			return Literal(value, outType);
-		};
-
-		s_StatementBody = &result.Body;
-		for (uint32_t id : order)
-		{
-			const MaterialGraphNode* node = FindNode(id);
-			if (!node || node->Type == "Output")
-				continue;
-			const MaterialGraphNodeInfo* info = FindNodeInfo(node->Type);
-			if (!info || !info->Emit)
-			{
-				result.Errors.push_back({ id, std::format("Unknown node type '{}'", node->Type) });
-				outputTypes[id] = std::vector<Type>(info ? info->Outputs.size() : 0, Type::Float);
-				continue;
+				AddError(0, "The graph has no Material Output node");
+				return outputs;
 			}
 
-			std::vector<std::string> raw(info->Inputs.size());
-			std::vector<Type> rawTypes(info->Inputs.size());
-			Type generic = Type::Float;
-			for (uint32_t pin = 0; pin < info->Inputs.size(); pin++)
+			// Post-order from the output: every node after the nodes it reads. Nodes that do not reach the
+			// output are left out.
+			std::vector<uint32_t> order;
+			std::unordered_map<uint32_t, int> state; // 1 visiting, 2 done
+			std::function<void(uint32_t)> visit = [&](uint32_t id)
 			{
-				raw[pin] = inputExpression(*node, pin, info->Inputs[pin], rawTypes[pin]);
-				if (info->Inputs[pin].Type == Type::Generic)
-					generic = std::max(generic, rawTypes[pin]);
+				int& s = state[id];
+				if (s == 2)
+					return;
+				if (s == 1)
+				{
+					AddError(id, "The graph has a loop");
+					return;
+				}
+				s = 1;
+				for (const MaterialGraphLink& link : graph.Links)
+				{
+					if (link.ToNode == id)
+						visit(link.FromNode);
+				}
+				state[id] = 2;
+				order.push_back(id);
+			};
+			visit(output->ID);
+
+			std::unordered_map<uint32_t, std::vector<Type>> outputTypes;
+			auto inputExpression = [&](const MaterialGraphNode& node, uint32_t pin, const MaterialGraphPinInfo& info, Type& outType) -> std::string
+			{
+				if (const MaterialGraphLink* link = graph.FindLinkInto(node.ID, pin))
+				{
+					auto it = outputTypes.find(link->FromNode);
+					if (it != outputTypes.end() && link->FromPin < it->second.size())
+					{
+						outType = it->second[link->FromPin];
+						return std::format("{}n{}_{}", prefix, link->FromNode, link->FromPin);
+					}
+				}
+				if (!info.DefaultExpression.empty())
+				{
+					outType = info.Type;
+					return std::string(info.DefaultExpression);
+				}
+				const glm::vec4 value = pin < node.InputValues.size() ? node.InputValues[pin] : info.Default;
+				outType = info.Type == Type::Generic ? Type::Float : info.Type;
+				return Literal(value, outType);
+			};
+
+			for (uint32_t id : order)
+			{
+				const MaterialGraphNode* node = graph.FindNode(id);
+				if (!node || node->Type == "Output")
+					continue;
+				const MaterialGraphNodeInfo* info = MaterialGraph::FindNodeInfo(node->Type);
+				const MaterialGraph::Pins pins = MaterialGraph::GetPins(*node);
+				if (!info)
+				{
+					AddError(id, std::format("Unknown node type '{}'", node->Type));
+					outputTypes[id] = std::vector<Type>(pins.Outputs.size(), Type::Float);
+					continue;
+				}
+
+				std::vector<std::string> raw(pins.Inputs.size());
+				std::vector<Type> rawTypes(pins.Inputs.size());
+				Type generic = Type::Float;
+				for (uint32_t pin = 0; pin < pins.Inputs.size(); pin++)
+				{
+					raw[pin] = inputExpression(*node, pin, pins.Inputs[pin], rawTypes[pin]);
+					if (pins.Inputs[pin].Type == Type::Generic)
+						generic = std::max(generic, rawTypes[pin]);
+				}
+
+				MaterialGraphEmitContext context{ *node, generic, {}, prefix, &Compiler::AddParameter, this };
+				for (uint32_t pin = 0; pin < pins.Inputs.size(); pin++)
+				{
+					const Type target = pins.Inputs[pin].Type == Type::Generic ? generic : pins.Inputs[pin].Type;
+					context.Inputs.push_back(Convert(raw[pin], rawTypes[pin], target));
+				}
+
+				std::vector<std::string> expressions;
+				if (node->Type == "FunctionInputFloat" || node->Type == "FunctionInputVector")
+				{
+					// The outer node's input when this graph runs as a function; its own value otherwise.
+					const Type type = pins.Outputs[0].Type;
+					auto it = functionInputs.find(node->Parameter);
+					expressions.push_back(it != functionInputs.end() ? Convert(it->second.Expression, it->second.ValueType, type) : Literal(node->Value, type));
+				}
+				else if (node->Type == "SubGraph")
+				{
+					Ref<MaterialGraph> function = MaterialGraph::ResolveFunction(node->Graph);
+					if (!function)
+					{
+						AddError(id, "Pick the graph material this function runs");
+					}
+					else if (std::ranges::find(Stack, function.Raw()) != Stack.end() || Stack.size() >= 8)
+					{
+						AddError(id, "This function uses itself");
+					}
+					else
+					{
+						std::unordered_map<std::string, FunctionInput> inputs;
+						for (uint32_t pin = 0; pin < pins.Inputs.size(); pin++)
+							inputs[std::string(pins.Inputs[pin].Name)] = { context.Inputs[pin], pins.Inputs[pin].Type };
+
+						const uint32_t outerError = ErrorNode;
+						if (!ErrorNode)
+							ErrorNode = id;
+						Stack.push_back(function.Raw());
+						const std::vector<OutputValue> values = Emit(*function, std::format("{}g{}_", prefix, id), inputs);
+						Stack.pop_back();
+						ErrorNode = outerError;
+
+						for (uint32_t pin = 0; pin < pins.Outputs.size(); pin++)
+						{
+							expressions.push_back(pin < values.size() && values[pin]
+								? Convert(values[pin]->first, values[pin]->second, pins.Outputs[pin].Type)
+								: Literal(pins.Outputs[pin].Default, pins.Outputs[pin].Type));
+						}
+					}
+				}
+				else if (info->Emit)
+				{
+					expressions = info->Emit(context);
+				}
+
+				std::vector<Type>& types = outputTypes[id];
+				for (uint32_t pin = 0; pin < pins.Outputs.size(); pin++)
+				{
+					const Type type = pins.Outputs[pin].Type == Type::Generic ? generic : pins.Outputs[pin].Type;
+					types.push_back(type);
+					const std::string expression = pin < expressions.size() ? expressions[pin] : Literal(glm::vec4(0.0f), type);
+					Result.Body += std::format("\t{} {}n{}_{} = {};\n", MaterialGraphTypeToGLSL(type), prefix, id, pin, expression);
+				}
 			}
 
-			MaterialGraphEmitContext context{ *node, generic, {}, &Compiler::AddParameter, &compiler };
-			for (uint32_t pin = 0; pin < info->Inputs.size(); pin++)
+			for (uint32_t pin = 0; pin < outputInfo->Inputs.size(); pin++)
 			{
-				const Type target = info->Inputs[pin].Type == Type::Generic ? generic : info->Inputs[pin].Type;
-				context.Inputs.push_back(Convert(raw[pin], rawTypes[pin], target));
+				if (!graph.FindLinkInto(output->ID, pin))
+					continue;
+				Type type = Type::Float;
+				const std::string value = inputExpression(*output, pin, outputInfo->Inputs[pin], type);
+				outputs[pin] = std::make_pair(value, type);
 			}
-
-			const std::vector<std::string> expressions = info->Emit(context);
-			std::vector<Type>& types = outputTypes[id];
-			for (uint32_t pin = 0; pin < info->Outputs.size(); pin++)
-			{
-				const Type type = info->Outputs[pin].Type == Type::Generic ? generic : info->Outputs[pin].Type;
-				types.push_back(type);
-				const std::string expression = pin < expressions.size() ? expressions[pin] : Literal(glm::vec4(0.0f), type);
-				result.Body += std::format("\t{} n{}_{} = {};\n", MaterialGraphTypeToGLSL(type), id, pin, expression);
-			}
+			return outputs;
 		}
+	}
+
+	MaterialGraph::CompileResult MaterialGraph::Compile() const
+	{
+		Compiler compiler;
+		compiler.Stack.push_back(this);
+		s_StatementBody = &compiler.Result.Body;
+		const std::vector<Compiler::OutputValue> outputs = compiler.Emit(*this, "", {});
 		s_StatementBody = nullptr;
 
 		static constexpr std::string_view s_OutputFields[] = { "BaseColor", "Metallic", "Roughness", "Emission", "Opacity", "Occlusion", "Normal", "Specular" };
 		const MaterialGraphNodeInfo* outputInfo = FindNodeInfo("Output");
-		for (uint32_t pin = 0; pin < outputInfo->Inputs.size(); pin++)
+		for (uint32_t pin = 0; pin < outputs.size(); pin++)
 		{
-			const MaterialGraphLink* link = FindLinkInto(output->ID, pin);
-			if (!link)
+			if (!outputs[pin])
 				continue;
-			Type type = Type::Float;
-			const std::string value = inputExpression(*output, pin, outputInfo->Inputs[pin], type);
-			const std::string converted = Convert(value, type, outputInfo->Inputs[pin].Type);
+			const std::string converted = Convert(outputs[pin]->first, outputs[pin]->second, outputInfo->Inputs[pin].Type);
 			if (s_OutputFields[pin] == "Normal")
-				result.Body += std::format("\tOUT.Normal = normalize({});\n", converted);
+				compiler.Result.Body += std::format("\tOUT.Normal = normalize({});\n", converted);
 			else
-				result.Body += std::format("\tOUT.{} = {};\n", s_OutputFields[pin], converted);
+				compiler.Result.Body += std::format("\tOUT.{} = {};\n", s_OutputFields[pin], converted);
+		}
+		return std::move(compiler.Result);
+	}
+
+	MaterialGraph::Pins MaterialGraph::GetPins(const MaterialGraphNode& node)
+	{
+		Pins pins;
+		if (node.Type == "SubGraph")
+		{
+			if (Ref<MaterialGraph> function = ResolveFunction(node.Graph))
+			{
+				std::vector<const MaterialGraphNode*> inputs;
+				for (const MaterialGraphNode& candidate : function->Nodes)
+				{
+					if (candidate.Type == "FunctionInputFloat" || candidate.Type == "FunctionInputVector")
+						inputs.push_back(&candidate);
+				}
+				std::ranges::sort(inputs, {}, &MaterialGraphNode::ID);
+				pins.Names.reserve(inputs.size());
+				for (const MaterialGraphNode* input : inputs)
+					pins.Names.push_back(input->Parameter.empty() ? std::format("Input {}", input->ID) : input->Parameter);
+				for (size_t i = 0; i < inputs.size(); i++)
+				{
+					const Type type = inputs[i]->Type == "FunctionInputFloat" ? Type::Float : Type::Vec3;
+					pins.Inputs.push_back({ pins.Names[i], type, inputs[i]->Value });
+				}
+			}
+			for (const MaterialGraphPinInfo& pin : FindNodeInfo("Output")->Inputs)
+				pins.Outputs.push_back(pin);
+			return pins;
 		}
 
-		return result;
+		if (const MaterialGraphNodeInfo* info = FindNodeInfo(node.Type))
+		{
+			pins.Inputs = info->Inputs;
+			pins.Outputs = info->Outputs;
+		}
+		return pins;
+	}
+
+	Ref<MaterialGraph> MaterialGraph::ResolveFunction(AssetHandle material)
+	{
+		if (!material || AssetManager::GetAssetType(material) != AssetType::Material)
+			return nullptr;
+		Ref<MaterialAsset> asset = AssetManager::GetAsset<MaterialAsset>(material);
+		return asset ? asset->GetGraph() : nullptr;
 	}
 
 	void MaterialGraph::Serialize(Yaml::Writer& out) const
@@ -646,6 +779,8 @@ namespace Lux {
 				out << Yaml::Key << "Value" << Yaml::Value << node.Value;
 			if (node.Texture)
 				out << Yaml::Key << "Texture" << Yaml::Value << static_cast<uint64_t>(node.Texture);
+			if (node.Graph)
+				out << Yaml::Key << "Graph" << Yaml::Value << static_cast<uint64_t>(node.Graph);
 			if (node.Mode)
 				out << Yaml::Key << "Mode" << Yaml::Value << node.Mode;
 			if (!node.Parameter.empty())
@@ -704,7 +839,9 @@ namespace Lux {
 				graphNode.Ramp.push_back(stop.as<glm::vec4>(glm::vec4(0.0f)));
 
 			// A file from an older library: pad the pin values to what the node has now.
-			if (const MaterialGraphNodeInfo* info = FindNodeInfo(graphNode.Type))
+			// (A Material Function's pins depend on its function, which may not be loaded yet: no padding.)
+			graphNode.Graph = item["Graph"].as<uint64_t>(0);
+			if (const MaterialGraphNodeInfo* info = FindNodeInfo(graphNode.Type); info && graphNode.Type != "SubGraph")
 			{
 				for (size_t pin = graphNode.InputValues.size(); pin < info->Inputs.size(); pin++)
 					graphNode.InputValues.push_back(info->Inputs[pin].Default);

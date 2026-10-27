@@ -1349,7 +1349,7 @@ namespace Lux {
 				continue;
 
 			std::vector<MaterialGraphParameter> exposed;
-			for (const MaterialGraphParameter& parameter : graph->Compile().Parameters)
+			for (const MaterialGraphParameter& parameter : graph->GetParameters())
 			{
 				if (parameter.Exposed)
 					exposed.push_back(parameter);

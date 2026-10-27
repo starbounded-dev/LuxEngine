@@ -30,12 +30,22 @@ Every edit is one step on the undo history. When an edit changes what the graph 
 | **Vector** | Dot Product, Cross Product, Length, Distance, Normalize, Reflect, Split, Combine |
 | **Texture** | Sample Texture (**Color** or **Data**), Normal Map, Triplanar Texture, Bump |
 | **Procedural** | Noise (**fBm**, **Multifractal**, **Ridged**, **Hybrid**), Voronoi (**F1**, **F2**, **Edge**), Color Ramp |
+| **Function** | Material Function, Function Input (Float), Function Input (Vector) |
 
 Maths nodes work on numbers and on vectors: connect a colour and they work on colours. A number connected to a vector input fills every component.
 
 - **Noise:** **Detail** is how many octaves it adds up, **Roughness** how much each finer octave contributes, and **Lacunarity** how much finer each octave is.
 - **Normal Map** and **Bump:** both give a normal for the Output's **Normal** input.
 - **Color Ramp:** maps a 0–1 value to colours between stops.
+
+## Material functions
+
+Any graph material can be used inside another graph, to reuse a look such as a rust layer or a noise setup.
+
+1. In the graph you want to reuse, add **Function Input** nodes for the values the user should set, and give each an **Input Name** and a default.
+2. In another graph, add a **Material Function** node and pick that material as its **Function**.
+
+The node gets one input per Function Input, and one output per **Material Output** input (Base Color, Roughness, and so on), carrying what the function's graph connects there. Changing the function updates every graph that uses it. A function cannot use itself.
 
 ## Parameters
 

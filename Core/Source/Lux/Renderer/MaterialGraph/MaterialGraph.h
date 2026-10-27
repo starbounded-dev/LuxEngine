@@ -47,6 +47,8 @@ namespace Lux {
 		// Constants, parameters and colours (colours in sRGB, as picked).
 		glm::vec4 Value{ 0.0f };
 		AssetHandle Texture = 0;
+		// Material Function nodes: the material whose graph this node runs.
+		AssetHandle Graph = 0;
 		// The node's variant: the noise type, a texture's colour space...
 		int32_t Mode = 0;
 		// Non-empty on a Float, Color or Texture node: exposed under this name, editable per material
@@ -181,6 +183,25 @@ namespace Lux {
 
 		static std::span<const MaterialGraphNodeInfo> GetNodeLibrary();
 		static const MaterialGraphNodeInfo* FindNodeInfo(std::string_view type);
+
+		// A node's pins. Most come from the library; a Material Function node's come from its function:
+		// one input per Function Input node there, and the Material Output's inputs as outputs.
+		struct Pins
+		{
+			std::vector<MaterialGraphPinInfo> Inputs;
+			std::vector<MaterialGraphPinInfo> Outputs;
+			std::vector<std::string> Names; // backing storage for function input names
+		};
+		static Pins GetPins(const MaterialGraphNode& node);
+
+		// The material graph a Material Function node runs (the material's own graph), or null.
+		static Ref<MaterialGraph> ResolveFunction(AssetHandle material);
+
+		// The parameter layout of the material row. In an asset pack it is stored (PackedParameters),
+		// so the run time never compiles and needs no function graphs; otherwise it is compiled.
+		std::vector<MaterialGraphParameter> PackedParameters;
+		bool HasPackedParameters = false;
+		std::vector<MaterialGraphParameter> GetParameters() const { return HasPackedParameters ? PackedParameters : Compile().Parameters; }
 	};
 
 	// Passed to a node's Emit while compiling.
@@ -189,6 +210,7 @@ namespace Lux {
 		const MaterialGraphNode& Node;
 		MaterialGraphType Type; // the resolved type of the node's generic pins
 		std::vector<std::string> Inputs; // each input as GLSL, already in the pin's type
+		std::string Prefix;              // names of this graph's variables (a function inlined in another graph)
 		// Registers a value the row carries; returns its GLSL read.
 		std::string (*AddParameter)(MaterialGraphEmitContext& context, MaterialGraphParameter parameter);
 		void* Compiler = nullptr;

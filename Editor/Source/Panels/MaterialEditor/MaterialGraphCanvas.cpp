@@ -5,6 +5,7 @@
 #include "MaterialGraphCanvas.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Project/Project.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Renderer/Texture.h"
@@ -54,6 +55,7 @@ namespace Lux {
 			if (category == "Texture") return ImVec4(0.9f, 0.7f, 0.95f, 1.0f);
 			if (category == "Procedural") return ImVec4(0.95f, 0.85f, 0.45f, 1.0f);
 			if (category == "Vector") return ImVec4(0.6f, 0.9f, 0.85f, 1.0f);
+			if (category == "Function") return ImVec4(0.95f, 0.6f, 0.7f, 1.0f);
 			return ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
 		}
 
@@ -254,22 +256,26 @@ namespace Lux {
 
 			if (info)
 			{
+				const MaterialGraph::Pins pins = MaterialGraph::GetPins(node);
+				if (node.Type == "SubGraph")
+					ImGui::TextDisabled("%s", node.Graph ? AssetManager::GetAssetType(node.Graph) == AssetType::Material
+						? Project::GetEditorAssetManager()->GetMetadata(node.Graph).FilePath.stem().string().c_str() : "(missing)" : "(none)");
 				ImGui::BeginGroup();
-				for (uint32_t pin = 0; pin < info->Inputs.size(); pin++)
+				for (uint32_t pin = 0; pin < pins.Inputs.size(); pin++)
 				{
 					ed::BeginPin(InputPin(node.ID, pin), ed::PinKind::Input);
 					const bool connected = graph.FindLinkInto(node.ID, pin) != nullptr;
-					ImGui::Text("%s %s", connected ? "(o)" : "( )", std::string(info->Inputs[pin].Name).c_str());
+					ImGui::Text("%s %s", connected ? "(o)" : "( )", std::string(pins.Inputs[pin].Name).c_str());
 					ed::EndPin();
 				}
 				ImGui::EndGroup();
-				if (!info->Inputs.empty() && !info->Outputs.empty())
+				if (!pins.Inputs.empty() && !pins.Outputs.empty())
 					ImGui::SameLine(0.0f, 24.0f);
 				ImGui::BeginGroup();
-				for (uint32_t pin = 0; pin < info->Outputs.size(); pin++)
+				for (uint32_t pin = 0; pin < pins.Outputs.size(); pin++)
 				{
 					ed::BeginPin(OutputPin(node.ID, pin), ed::PinKind::Output);
-					ImGui::Text("%s (o)", std::string(info->Outputs[pin].Name).c_str());
+					ImGui::Text("%s (o)", std::string(pins.Outputs[pin].Name).c_str());
 					ed::EndPin();
 				}
 				ImGui::EndGroup();
@@ -494,13 +500,13 @@ namespace Lux {
 			if (!node)
 				return;
 			const uint32_t id = node->ID;
-			const MaterialGraphNodeInfo* info = MaterialGraph::FindNodeInfo(type);
 			// From a dragged link: connect the new node's first pin of the other direction.
-			if (m_PaletteFromNode && info)
+			if (m_PaletteFromNode)
 			{
-				if (m_PaletteFromOutput && !info->Inputs.empty())
+				const MaterialGraph::Pins pins = MaterialGraph::GetPins(*graph.FindNode(id));
+				if (m_PaletteFromOutput && !pins.Inputs.empty())
 					graph.Connect(m_PaletteFromNode, m_PaletteFromPin, id, 0);
-				else if (!m_PaletteFromOutput && !info->Outputs.empty())
+				else if (!m_PaletteFromOutput && !pins.Outputs.empty())
 					graph.Connect(id, 0, m_PaletteFromNode, m_PaletteFromPin);
 			}
 			m_PendingSelect = id;
@@ -608,6 +614,40 @@ namespace Lux {
 			ImGuiEx::EndPropertyGrid();
 		}
 
+		if (node->Type == "SubGraph")
+		{
+			ImGuiEx::BeginPropertyGrid();
+			AssetHandle function = node->Graph;
+			if (ImGuiEx::PropertyAssetReference<MaterialAsset>("Function", function, "A graph material whose graph this node runs.", nullptr, {}, false)
+				&& function != material->Handle)
+			{
+				node->Graph = function;
+				// The pins follow the new function: drop links to pins it does not have.
+				const MaterialGraph::Pins pins = MaterialGraph::GetPins(*node);
+				const uint32_t id = node->ID;
+				std::erase_if(graph.Links, [&](const MaterialGraphLink& link)
+				{
+					return (link.ToNode == id && link.ToPin >= pins.Inputs.size()) || (link.FromNode == id && link.FromPin >= pins.Outputs.size());
+				});
+				node->InputValues.clear();
+				for (const MaterialGraphPinInfo& pin : pins.Inputs)
+					node->InputValues.push_back(pin.Default);
+			}
+			ImGuiEx::EndPropertyGrid();
+		}
+
+		if (node->Type == "FunctionInputFloat" || node->Type == "FunctionInputVector")
+		{
+			char name[64];
+			std::snprintf(name, sizeof(name), "%s", node->Parameter.c_str());
+			if (ImGui::InputText("Input Name", name, sizeof(name)))
+				node->Parameter = name;
+			if (node->Type == "FunctionInputFloat")
+				ImGui::DragFloat("Default", &node->Value.x, 0.01f);
+			else
+				ImGui::DragFloat3("Default", &node->Value.x, 0.01f);
+		}
+
 		if (IsParameterNode(node->Type))
 		{
 			char name[64];
@@ -642,16 +682,17 @@ namespace Lux {
 		}
 
 		bool header = false;
-		for (uint32_t pin = 0; pin < info->Inputs.size() && pin < node->InputValues.size(); pin++)
+		const MaterialGraph::Pins pins = MaterialGraph::GetPins(*node);
+		for (uint32_t pin = 0; pin < pins.Inputs.size() && pin < node->InputValues.size(); pin++)
 		{
-			if (graph.FindLinkInto(node->ID, pin) || !info->Inputs[pin].DefaultExpression.empty())
+			if (graph.FindLinkInto(node->ID, pin) || !pins.Inputs[pin].DefaultExpression.empty())
 				continue;
 			if (!header)
 			{
 				ImGui::SeparatorText("Unconnected inputs");
 				header = true;
 			}
-			EditPinValue(std::string(info->Inputs[pin].Name).c_str(), node->InputValues[pin], info->Inputs[pin].Type);
+			EditPinValue(std::string(pins.Inputs[pin].Name).c_str(), node->InputValues[pin], pins.Inputs[pin].Type);
 		}
 
 		ImGui::PopID();

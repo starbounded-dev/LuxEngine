@@ -387,7 +387,23 @@ namespace Lux
 				out << Yaml::Key << "Graph" << Yaml::Value;
 				graph->Serialize(out);
 				if (packed)
+				{
 					out << Yaml::Key << "GraphIndex" << Yaml::Value << graph->DispatchIndex;
+					out << Yaml::Key << "GraphLayout" << Yaml::Value << Yaml::BeginSeq;
+					for (const MaterialGraphParameter& parameter : graph->GetParameters())
+					{
+						out << Yaml::BeginMap;
+						out << Yaml::Key << "Name" << Yaml::Value << parameter.Name;
+						out << Yaml::Key << "Kind" << Yaml::Value << static_cast<uint32_t>(parameter.Kind);
+						out << Yaml::Key << "Slot" << Yaml::Value << parameter.Slot;
+						out << Yaml::Key << "Default" << Yaml::Value << parameter.Default;
+						out << Yaml::Key << "DefaultTexture" << Yaml::Value << static_cast<uint64_t>(parameter.DefaultTexture);
+						out << Yaml::Key << "SRGB" << Yaml::Value << parameter.SRGB;
+						out << Yaml::Key << "Exposed" << Yaml::Value << parameter.Exposed;
+						out << Yaml::EndMap;
+					}
+					out << Yaml::EndSeq;
+				}
 			}
 			if (!materialAsset->GetGraphParameters().empty())
 			{
@@ -567,6 +583,22 @@ namespace Lux
 				if (Ref<MaterialGraph> graph = MaterialGraph::Deserialize(graphNode))
 				{
 					graph->DispatchIndex = materialNode["GraphIndex"].as<uint32_t>(0);
+					if (const Yaml::Node layout = materialNode["GraphLayout"])
+					{
+						graph->HasPackedParameters = true;
+						for (const Yaml::Node item : layout)
+						{
+							MaterialGraphParameter parameter;
+							parameter.Name = item["Name"].as<std::string>("");
+							parameter.Kind = static_cast<MaterialGraphParameterKind>(item["Kind"].as<uint32_t>(0));
+							parameter.Slot = item["Slot"].as<uint32_t>(0);
+							parameter.Default = item["Default"].as<glm::vec4>(glm::vec4(0.0f));
+							parameter.DefaultTexture = item["DefaultTexture"].as<uint64_t>(0);
+							parameter.SRGB = item["SRGB"].as<bool>(true);
+							parameter.Exposed = item["Exposed"].as<bool>(true);
+							graph->PackedParameters.push_back(parameter);
+						}
+					}
 					targetMaterialAsset->SetGraph(graph);
 				}
 			}

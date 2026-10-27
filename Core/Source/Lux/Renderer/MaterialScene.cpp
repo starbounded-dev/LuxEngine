@@ -280,7 +280,7 @@ namespace Lux {
 			{
 				data.TransmissionTextureIndices.y = graph->DispatchIndex;
 				float* scalars = &data.GraphParameters[0].x;
-				for (const MaterialGraphParameter& parameter : graph->Compile().Parameters)
+				for (const MaterialGraphParameter& parameter : graph->GetParameters())
 				{
 					const MaterialGraphParameterValue value = materialAsset->GetGraphParameter(parameter);
 					switch (parameter.Kind)
