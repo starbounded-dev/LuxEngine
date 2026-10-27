@@ -1,0 +1,127 @@
+#ifndef LUX_MATERIAL_MAPPING_GLSLH
+#define LUX_MATERIAL_MAPPING_GLSLH
+
+// Where a material's maps are sampled: UV0, or triplanar in world or object space; and its detail
+// maps. Used by the passes that read a material's surface (G-buffer, transparent forward).
+
+#include <MaterialScene.glslh>
+#include <Samplers.glslh>
+#include <MaterialSurface.glslh>
+
+const uint LUX_MAPPING_UV = 0u;
+const uint LUX_MAPPING_TRIPLANAR_WORLD = 1u;
+const uint LUX_MAPPING_TRIPLANAR_OBJECT = 2u;
+
+struct LuxMaterialCoords
+{
+	uint Mode;
+	vec2 UV;              // UV0 through the material's UV transform (UV mapping)
+	vec2 UVX, UVY, UVZ;   // the three projections, through the same transform (triplanar)
+	vec3 Weights;         // projection blend, sums to 1
+	vec3 AxisSign;        // which side of each axis the surface faces
+	vec3 Normal;          // the surface normal in the projection space
+	mat3 ToWorld;         // projection space to world (identity for world space)
+};
+
+LuxMaterialCoords LuxMaterialMapping(GPUMaterial material, vec2 texCoord, vec3 worldPosition, vec3 worldNormal, uint objectIndex)
+{
+	LuxMaterialCoords coords;
+	coords.Mode = material.DetailTextureIndices.w;
+	coords.UV = GetGPUMaterialUV(material, texCoord);
+	coords.ToWorld = mat3(1.0);
+	if (coords.Mode == LUX_MAPPING_UV)
+		return coords;
+
+	vec3 position = worldPosition;
+	vec3 normal = normalize(worldNormal);
+	if (coords.Mode == LUX_MAPPING_TRIPLANAR_OBJECT)
+	{
+		mat4 transform = GetInstanceTransform(objectIndex);
+		mat3 linearPart = mat3(transform);
+		position = inverse(linearPart) * (worldPosition - transform[3].xyz);
+		// Normals go back through the transpose of the inverse: the transpose of the linear part.
+		normal = normalize(transpose(linearPart) * normal);
+		coords.ToWorld = transpose(inverse(linearPart));
+	}
+
+	coords.Normal = normal;
+	coords.AxisSign = vec3(normal.x < 0.0 ? -1.0 : 1.0, normal.y < 0.0 ? -1.0 : 1.0, normal.z < 0.0 ? -1.0 : 1.0);
+	vec3 weights = pow(abs(normal), vec3(material.Detail.w));
+	coords.Weights = weights / max(weights.x + weights.y + weights.z, 1e-5);
+
+	// Each projection mirrored on the far side, so a texture reads the same way round on both.
+	coords.UVX = GetGPUMaterialUV(material, vec2(position.z * coords.AxisSign.x, position.y));
+	coords.UVY = GetGPUMaterialUV(material, vec2(position.x * coords.AxisSign.y, position.z));
+	coords.UVZ = GetGPUMaterialUV(material, vec2(-position.x * coords.AxisSign.z, position.y));
+	return coords;
+}
+
+vec4 LuxSampleMaterial(LuxMaterialCoords coords, uint textureIndex, float mipBias)
+{
+	if (coords.Mode == LUX_MAPPING_UV)
+		return SampleMaterialSceneTexture(textureIndex, coords.UV, mipBias);
+
+	return SampleMaterialSceneTexture(textureIndex, coords.UVX, mipBias) * coords.Weights.x
+		+ SampleMaterialSceneTexture(textureIndex, coords.UVY, mipBias) * coords.Weights.y
+		+ SampleMaterialSceneTexture(textureIndex, coords.UVZ, mipBias) * coords.Weights.z;
+}
+
+// The world shading normal from the material's normal map. UV mapping uses the mesh's tangent frame;
+// triplanar blends the three projections' normals with the whiteout blend [Golus 2017].
+vec3 LuxSampleMaterialNormal(LuxMaterialCoords coords, uint textureIndex, float mipBias, vec3 vertexNormal, mat3 tangentFrame, float strength)
+{
+	if (coords.Mode == LUX_MAPPING_UV)
+		return LuxApplyNormalMap(vertexNormal, tangentFrame, SampleMaterialSceneTexture(textureIndex, coords.UV, mipBias).rgb, strength);
+
+	vec3 tx = LuxDecodeTangentNormal(SampleMaterialSceneTexture(textureIndex, coords.UVX, mipBias).rgb);
+	vec3 ty = LuxDecodeTangentNormal(SampleMaterialSceneTexture(textureIndex, coords.UVY, mipBias).rgb);
+	vec3 tz = LuxDecodeTangentNormal(SampleMaterialSceneTexture(textureIndex, coords.UVZ, mipBias).rgb);
+	tx.xy *= strength;
+	ty.xy *= strength;
+	tz.xy *= strength;
+	tx.x *= coords.AxisSign.x;
+	ty.x *= coords.AxisSign.y;
+	tz.x *= -coords.AxisSign.z;
+
+	vec3 n = coords.Normal;
+	vec3 absN = abs(n);
+	tx = vec3(tx.xy + n.zy, absN.x * tx.z);
+	ty = vec3(ty.xy + n.xz, absN.y * ty.z);
+	tz = vec3(tz.xy + n.xy, absN.z * tz.z);
+	tx.z *= coords.AxisSign.x;
+	ty.z *= coords.AxisSign.y;
+	tz.z *= coords.AxisSign.z;
+
+	vec3 blended = normalize(tx.zyx * coords.Weights.x + ty.xzy * coords.Weights.y + tz.xyz * coords.Weights.z);
+	return normalize(coords.ToWorld * blended);
+}
+
+// The detail mask (red channel), sampled like the other maps; 1 without one.
+float LuxDetailMask(GPUMaterial material, LuxMaterialCoords coords, float mipBias)
+{
+	if (!HasGPUMaterialFlag(material.Metadata.x, GPU_MATERIAL_FLAG_HAS_DETAIL_MASK_TEXTURE))
+		return 1.0;
+	return LuxSampleMaterial(coords, material.DetailTextureIndices.z, mipBias).r;
+}
+
+// Detail albedo as a x2 overlay in linear space: mid grey (sRGB 0.5, linear 0.218) leaves the colour.
+vec3 LuxApplyDetailAlbedo(GPUMaterial material, vec3 baseColor, vec2 texCoord, float mask, float mipBias)
+{
+	if (!HasGPUMaterialFlag(material.Metadata.x, GPU_MATERIAL_FLAG_HAS_DETAIL_ALBEDO_TEXTURE))
+		return baseColor;
+	vec3 detail = SampleMaterialSceneTexture(material.DetailTextureIndices.x, texCoord * material.Detail.xy, mipBias).rgb;
+	return baseColor * mix(vec3(1.0), detail * 4.59, mask);
+}
+
+// Detail normal on top of the shading normal, in the mesh's tangent frame turned to that normal.
+vec3 LuxApplyDetailNormal(GPUMaterial material, vec3 normal, mat3 tangentFrame, vec2 texCoord, float mask, float mipBias)
+{
+	if (!HasGPUMaterialFlag(material.Metadata.x, GPU_MATERIAL_FLAG_HAS_DETAIL_NORMAL_TEXTURE))
+		return normal;
+	vec3 detail = LuxDecodeTangentNormal(SampleMaterialSceneTexture(material.DetailTextureIndices.y, texCoord * material.Detail.xy, mipBias).rgb);
+	detail.xy *= material.Detail.z * mask;
+	mat3 frame = LuxBuildTangentFrame(normal, tangentFrame[0], tangentFrame[1]);
+	return normalize(frame * normalize(detail));
+}
+
+#endif // LUX_MATERIAL_MAPPING_GLSLH

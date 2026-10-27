@@ -41,6 +41,8 @@ namespace Lux
 		// created, not a value an opaque material can switch to here.
 		const char* s_AlphaModeNames[] = { "Opaque", "Cutout" };
 
+		const char* s_MappingNames[] = { "UV", "Triplanar (World)", "Triplanar (Object)" };
+
 		std::string GetMaterialName(AssetHandle handle)
 		{
 			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
@@ -775,9 +777,43 @@ namespace Lux
 		{
 			ImGuiEx::BeginPropertyGrid();
 
-			surfaceChanged |= ImGuiEx::Property("Tiling", surface.UVTiling, 0.01f, 0.0f, 0.0f, "How many times the maps repeat across the surface.", false);
+			surfaceChanged |= ImGuiEx::PropertyDropdown("Mapping", s_MappingNames, (int32_t)std::size(s_MappingNames), surface.Mapping,
+				"UV uses the mesh's texture coordinates. Triplanar projects the maps from the three axes, in the world or on the object, so they never stretch and need no UVs.", false);
+			const bool triplanar = surface.Mapping != MaterialMapping::UV;
+			surfaceChanged |= ImGuiEx::Property("Tiling", surface.UVTiling, 0.01f, 0.0f, 0.0f,
+				triplanar ? "Repeats per unit of distance." : "How many times the maps repeat across the surface.", false);
 			surfaceChanged |= ImGuiEx::Property("Offset", surface.UVOffset, 0.01f, 0.0f, 0.0f, "", false);
 			surfaceChanged |= ImGuiEx::Property("Rotation", surface.UVRotation, 0.5f, -360.0f, 360.0f, "Degrees.", false);
+			if (triplanar)
+				surfaceChanged |= ImGuiEx::Property("Blend Sharpness", surface.TriplanarSharpness, 0.1f, 1.0f, 64.0f,
+					"How quickly one projection gives way to the next at corners. Higher is a harder seam.", false);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (ImGuiEx::PropertyGridHeader("Detail", false))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			AssetHandle detailMap;
+			if (textureSlot("Detail Albedo", surface.DetailAlbedoMap, "A finer colour map laid over the base colour. Mid grey changes nothing; lighter brightens, darker darkens.", detailMap))
+			{
+				surface.DetailAlbedoMap = detailMap;
+				surfaceChanged = true;
+			}
+			if (textureSlot("Detail Normal", surface.DetailNormalMap, "A finer normal map added on top of the main one.", detailMap))
+			{
+				surface.DetailNormalMap = detailMap;
+				surfaceChanged = true;
+			}
+			if (textureSlot("Detail Mask", surface.DetailMaskMap, "Where the detail shows: its red channel, white for full detail. Without one, detail is everywhere.", detailMap))
+			{
+				surface.DetailMaskMap = detailMap;
+				surfaceChanged = true;
+			}
+			surfaceChanged |= ImGuiEx::Property("Detail Tiling", surface.DetailTiling, 0.01f, 0.0f, 0.0f, "Repeats of the detail maps across the mesh's UVs.", false);
+			surfaceChanged |= ImGuiEx::Property("Detail Normal Strength", surface.DetailNormalStrength, 0.01f, 0.0f, 4.0f, "", false);
 
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();

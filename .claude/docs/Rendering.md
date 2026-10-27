@@ -1142,14 +1142,21 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. A row is 16 `vec4` (256 bytes). Two hold diffuse transmission:
+size in step. A row is 18 `vec4` (288 bytes). Two hold diffuse transmission:
 `Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
 `TransmissionTextureIndices.x` (the factor map, read from alpha); the last two hold refraction:
 `Refraction` (x share, transparent rows only; y IOR, z thickness, w attenuation distance) and
 `AttenuationColor`. The last three hold the advanced lobes: `Lobes` (x clearcoat, y clearcoat
 roughness, z anisotropy, w anisotropy rotation in radians), `Sheen` (linear colour, w roughness) and
 `Subsurface` (linear colour, w thickness); each lobe also has a flag (`HasClearcoat` ... `HasAnisotropy`,
-bits 16-19), set only when it does something. Textures are bindless indices into
+bits 16-19), set only when it does something. `DetailTextureIndices` (detail albedo, normal, mask;
+w = `MaterialMapping`) and `Detail` (xy detail tiling, z detail normal strength, w triplanar
+sharpness) hold mapping and detail maps (flags bits 20-22). Every map read in the G-buffer and
+transparent passes goes through `MaterialMapping.glslh` (`LuxMaterialMapping` once per pixel, then
+`LuxSampleMaterial` / `LuxSampleMaterialNormal`), which samples UV0 or the three triplanar projections
+(world, or object space from the instance transform; whiteout normal blend). Detail maps always use
+UV0. Shortcut: the cutout pre-depth and shadow passes still test alpha on UV0, so cutout with
+triplanar mapping is not supported. Textures are bindless indices into
 `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 **Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,

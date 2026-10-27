@@ -268,6 +268,12 @@ namespace Lux {
 			data.Lobes = glm::vec4(clearcoat, glm::clamp(surface.ClearcoatRoughness, 0.0f, 1.0f), anisotropy, glm::radians(surface.AnisotropyRotation));
 			data.Sheen = glm::vec4(ToLinearColor(sheenColor), glm::clamp(surface.SheenRoughness, 0.0f, 1.0f));
 			data.Subsurface = glm::vec4(ToLinearColor(subsurfaceColor), glm::clamp(surface.SubsurfaceThickness, 0.0f, 1.0f));
+
+			assignTexture(surface.DetailAlbedoMap, GPUMaterialFlags::HasDetailAlbedoTexture, data.DetailTextureIndices.x, TextureColorSpace::SRGB);
+			assignTexture(surface.DetailNormalMap, GPUMaterialFlags::HasDetailNormalTexture, data.DetailTextureIndices.y);
+			assignTexture(surface.DetailMaskMap, GPUMaterialFlags::HasDetailMaskTexture, data.DetailTextureIndices.z);
+			data.DetailTextureIndices.w = (uint32_t)surface.Mapping;
+			data.Detail = glm::vec4(surface.DetailTiling, glm::max(surface.DetailNormalStrength, 0.0f), glm::clamp(surface.TriplanarSharpness, 1.0f, 64.0f));
 		}
 
 		data.Metadata = glm::uvec4(

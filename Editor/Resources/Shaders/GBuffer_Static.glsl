@@ -60,6 +60,7 @@ void main()
 #include <MaterialScene.glslh>
 #include <Samplers.glslh>
 #include <MaterialSurface.glslh>
+#include <MaterialMapping.glslh>
 #include <LuxGBuffer.glslh>
 
 struct VertexOutput
@@ -125,44 +126,43 @@ void main()
 	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, false);
 	uint materialFlags = gpuMaterial.Metadata.x;
 	uint channelSelects = gpuMaterial.ExtraTextureIndices.w;
-	vec2 uv = GetGPUMaterialUV(gpuMaterial, Input.TexCoord);
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	const vec3 vertexNormal = Input.Normal * faceSign;
+	LuxMaterialCoords coords = LuxMaterialMapping(gpuMaterial, Input.TexCoord, Input.WorldPosition, vertexNormal, InputObjectIndex);
 
-	vec4 albedoTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, uv, materialMipBias);
-	vec3 baseColor = albedoTexColor.rgb * materialBaseColor;
+	vec4 albedoTexColor = LuxSampleMaterial(coords, gpuMaterial.TextureIndices.x, materialMipBias);
+	float detailMask = LuxDetailMask(gpuMaterial, coords, materialMipBias);
+	vec3 baseColor = LuxApplyDetailAlbedo(gpuMaterial, albedoTexColor.rgb * materialBaseColor, Input.TexCoord, detailMask, materialMipBias);
 	float alpha = albedoTexColor.a * materialOpacity;
 	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 
-	float metalness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.TextureIndices.z, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_METALNESS) * materialMetalness;
-	float roughness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.TextureIndices.w, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS) * materialRoughness;
+	float metalness = SelectGPUMaterialChannel(LuxSampleMaterial(coords, gpuMaterial.TextureIndices.z, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_METALNESS) * materialMetalness;
+	float roughness = SelectGPUMaterialChannel(LuxSampleMaterial(coords, gpuMaterial.TextureIndices.w, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS) * materialRoughness;
 	roughness = max(roughness, 0.05);
 
 	float occlusion = 1.0;
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE))
 	{
-		float occlusionSample = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.y, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION);
+		float occlusionSample = SelectGPUMaterialChannel(LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.y, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION);
 		occlusion = mix(1.0, occlusionSample, gpuMaterial.Emissive.w);
 	}
 
 	// Only a two-sided material's pipeline draws back faces. They are lit as the side the camera
 	// sees, glTF's double-sided rule: the normal and tangent frame flip.
-	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
-	const vec3 vertexNormal = Input.Normal * faceSign;
 	vec3 worldNormal = normalize(vertexNormal);
 	if (materialUseNormalMap)
-	{
-		vec4 normalTexColor = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.y, uv, materialMipBias);
-		worldNormal = LuxApplyNormalMap(vertexNormal, Input.WorldNormals * faceSign, normalTexColor.rgb, gpuMaterial.Surface.y);
-	}
+		worldNormal = LuxSampleMaterialNormal(coords, gpuMaterial.TextureIndices.y, materialMipBias, vertexNormal, Input.WorldNormals * faceSign, gpuMaterial.Surface.y);
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
 	{
-		float height = SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.z, uv, materialMipBias).r;
+		float height = LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.z, materialMipBias).r;
 		worldNormal = PerturbNormalFromHeight(worldNormal, Input.WorldPosition, height, gpuMaterial.Surface.w);
 	}
+	worldNormal = LuxApplyDetailNormal(gpuMaterial, worldNormal, Input.WorldNormals * faceSign, Input.TexCoord, detailMask, materialMipBias);
 
 	vec3 emissive = GetGPUMaterialEmissive(gpuMaterial);
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE))
-		emissive *= SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.x, uv, materialMipBias).rgb;
+		emissive *= LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.x, materialMipBias).rgb;
 	o_Emissive = vec4(emissive, 1.0);
 
 	LuxGBufferData gbuffer;
@@ -180,7 +180,7 @@ void main()
 	// Deferred lighting reads the transmission colour from this material's row.
 	float diffuseTransmission = gpuMaterial.Transmission.w;
 	if (diffuseTransmission > 0.0 && HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_TRANSMISSION_TEXTURE))
-		diffuseTransmission *= SampleMaterialSceneTexture(gpuMaterial.TransmissionTextureIndices.x, uv, materialMipBias).a;
+		diffuseTransmission *= LuxSampleMaterial(coords, gpuMaterial.TransmissionTextureIndices.x, materialMipBias).a;
 	gbuffer.DiffuseTransmission = diffuseTransmission;
 	gbuffer.Metalness = metalness;
 	gbuffer.Roughness = roughness;

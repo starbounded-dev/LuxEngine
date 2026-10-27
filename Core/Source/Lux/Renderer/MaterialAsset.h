@@ -27,6 +27,16 @@ namespace Lux {
 		A
 	};
 
+	// How a material's maps are placed on the surface. Triplanar projects them along the three axes
+	// (world or object space) and blends by the surface direction, so they need no UVs and never
+	// stretch; the UV tiling then counts repeats per unit.
+	enum class MaterialMapping : uint8_t
+	{
+		UV = 0,
+		TriplanarWorld,
+		TriplanarObject
+	};
+
 	// How a material's alpha is resolved. Opaque ignores alpha entirely; Cutout discards fragments
 	// below AlphaThreshold (a hard edge, still rendered in the opaque passes so it lights and
 	// shadows like solid geometry); Blend is the sorted transparent forward path.
@@ -117,6 +127,18 @@ namespace Lux {
 		// negative stretches across the tangent. Rotation turns the direction, in degrees.
 		float Anisotropy = 0.0f;
 		float AnisotropyRotation = 0.0f;
+
+		// Mapping of every map except the detail maps. Sharpness narrows the blend between the three
+		// triplanar projections.
+		MaterialMapping Mapping = MaterialMapping::UV;
+		float TriplanarSharpness = 4.0f;
+		// Detail maps: a second, finer albedo (x2 overlay, grey is neutral) and normal map on UV0 at
+		// their own tiling, where the mask's red channel allows. For close-up surface detail.
+		AssetHandle DetailAlbedoMap = 0;
+		AssetHandle DetailNormalMap = 0;
+		AssetHandle DetailMaskMap = 0;
+		glm::vec2 DetailTiling{ 4.0f };
+		float DetailNormalStrength = 1.0f;
 
 		bool operator==(const MaterialSurfaceParameters& other) const = default;
 	};

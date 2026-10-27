@@ -50,7 +50,10 @@ namespace Lux {
 		HasClearcoat = BIT(16),
 		HasSheen = BIT(17),
 		HasSubsurface = BIT(18),
-		HasAnisotropy = BIT(19)
+		HasAnisotropy = BIT(19),
+		HasDetailAlbedoTexture = BIT(20),
+		HasDetailNormalTexture = BIT(21),
+		HasDetailMaskTexture = BIT(22)
 	};
 
 	inline constexpr GPUMaterialFlags operator|(GPUMaterialFlags lhs, GPUMaterialFlags rhs)
@@ -99,8 +102,10 @@ namespace Lux {
 		glm::vec4 Lobes = glm::vec4(0.0f, 0.1f, 0.0f, 0.0f); // x clearcoat, y clearcoat roughness, z anisotropy, w anisotropy rotation (radians)
 		glm::vec4 Sheen = glm::vec4(0.0f, 0.0f, 0.0f, 0.5f); // rgb linear sheen colour, w sheen roughness
 		glm::vec4 Subsurface = glm::vec4(0.0f, 0.0f, 0.0f, 0.5f); // rgb linear subsurface colour, w thickness
+		glm::uvec4 DetailTextureIndices = glm::uvec4(InvalidGPUTextureIndex, InvalidGPUTextureIndex, InvalidGPUTextureIndex, 0u); // x detail albedo, y detail normal, z detail mask, w mapping (MaterialMapping)
+		glm::vec4 Detail = glm::vec4(4.0f, 4.0f, 1.0f, 4.0f); // xy detail tiling, z detail normal strength, w triplanar sharpness
 	};
-	static_assert(sizeof(GPUMaterialData) == 16 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
+	static_assert(sizeof(GPUMaterialData) == 18 * 16, "GPUMaterialData must match the std430 GPUMaterial layout");
 
 	struct GPUMaterialBuildInput
 	{

@@ -103,6 +103,29 @@ namespace Lux
 			return fallback;
 		}
 
+		static const char* MappingToString(MaterialMapping mapping)
+		{
+			switch (mapping)
+			{
+				case MaterialMapping::UV: return "UV";
+				case MaterialMapping::TriplanarWorld: return "TriplanarWorld";
+				case MaterialMapping::TriplanarObject: return "TriplanarObject";
+			}
+			return "UV";
+		}
+
+		static MaterialMapping ReadMapping(const Yaml::Node& node, MaterialMapping fallback)
+		{
+			const std::string value = node ? node.as<std::string>("") : std::string{};
+			if (value == "UV")
+				return MaterialMapping::UV;
+			if (value == "TriplanarWorld")
+				return MaterialMapping::TriplanarWorld;
+			if (value == "TriplanarObject")
+				return MaterialMapping::TriplanarObject;
+			return fallback;
+		}
+
 		static std::string ReadMaterialYAML(const AssetMetadata& metadata)
 		{
 			std::ifstream stream(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
@@ -332,6 +355,23 @@ namespace Lux
 				out << Yaml::Key << "Anisotropy" << Yaml::Value << surface.Anisotropy;
 			if (surface.AnisotropyRotation != defaults.AnisotropyRotation)
 				out << Yaml::Key << "AnisotropyRotation" << Yaml::Value << surface.AnisotropyRotation;
+			if (surface.Mapping != defaults.Mapping)
+				out << Yaml::Key << "Mapping" << Yaml::Value << MappingToString(surface.Mapping);
+			if (surface.TriplanarSharpness != defaults.TriplanarSharpness)
+				out << Yaml::Key << "TriplanarSharpness" << Yaml::Value << surface.TriplanarSharpness;
+			if (surface.DetailAlbedoMap)
+				WriteTextureReference(out, "DetailAlbedoMap", surface.DetailAlbedoMap, textureReferenceSerialization);
+			if (surface.DetailNormalMap)
+				WriteTextureReference(out, "DetailNormalMap", surface.DetailNormalMap, textureReferenceSerialization);
+			if (surface.DetailMaskMap)
+				WriteTextureReference(out, "DetailMaskMap", surface.DetailMaskMap, textureReferenceSerialization);
+			if (surface.DetailTiling != defaults.DetailTiling)
+			{
+				out << Yaml::Key << "DetailTiling" << Yaml::Value;
+				WriteVec2(out, surface.DetailTiling);
+			}
+			if (surface.DetailNormalStrength != defaults.DetailNormalStrength)
+				out << Yaml::Key << "DetailNormalStrength" << Yaml::Value << surface.DetailNormalStrength;
 			const int32_t acousticTag = materialAsset->GetAcousticTag();
 			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
 				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
@@ -380,6 +420,9 @@ namespace Lux
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["OcclusionMap"]), handle);
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["HeightMap"]), handle);
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DiffuseTransmissionMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DetailAlbedoMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DetailNormalMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DetailMaskMap"]), handle);
 		}
 
 		static bool DeserializeMaterialFromYAML(const std::string& yamlString, Ref<MaterialAsset>& targetMaterialAsset, AssetHandle handle)
@@ -453,6 +496,13 @@ namespace Lux
 			surface.SubsurfaceThickness = materialNode["SubsurfaceThickness"].as<float>(surface.SubsurfaceThickness);
 			surface.Anisotropy = materialNode["Anisotropy"].as<float>(surface.Anisotropy);
 			surface.AnisotropyRotation = materialNode["AnisotropyRotation"].as<float>(surface.AnisotropyRotation);
+			surface.Mapping = ReadMapping(materialNode["Mapping"], surface.Mapping);
+			surface.TriplanarSharpness = materialNode["TriplanarSharpness"].as<float>(surface.TriplanarSharpness);
+			surface.DetailAlbedoMap = ResolveTextureReference(materialNode["DetailAlbedoMap"]);
+			surface.DetailNormalMap = ResolveTextureReference(materialNode["DetailNormalMap"]);
+			surface.DetailMaskMap = ResolveTextureReference(materialNode["DetailMaskMap"]);
+			surface.DetailTiling = ReadVec2(materialNode["DetailTiling"], surface.DetailTiling);
+			surface.DetailNormalStrength = materialNode["DetailNormalStrength"].as<float>(surface.DetailNormalStrength);
 
 			// Before the maps: the albedo's mip chain depends on the alpha mode and cutoff, so it is built
 			// once, for the ones the file has.

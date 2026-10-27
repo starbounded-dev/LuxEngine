@@ -289,6 +289,13 @@ namespace Lux {
 			SurfaceField<&MaterialSurfaceParameters::SubsurfaceThickness>("SubsurfaceThickness"),
 			SurfaceField<&MaterialSurfaceParameters::Anisotropy>("Anisotropy"),
 			SurfaceField<&MaterialSurfaceParameters::AnisotropyRotation>("AnisotropyRotation"),
+			SurfaceField<&MaterialSurfaceParameters::Mapping>("Mapping"),
+			SurfaceField<&MaterialSurfaceParameters::TriplanarSharpness>("TriplanarSharpness"),
+			SurfaceField<&MaterialSurfaceParameters::DetailAlbedoMap>("DetailAlbedoMap"),
+			SurfaceField<&MaterialSurfaceParameters::DetailNormalMap>("DetailNormalMap"),
+			SurfaceField<&MaterialSurfaceParameters::DetailMaskMap>("DetailMaskMap"),
+			SurfaceField<&MaterialSurfaceParameters::DetailTiling>("DetailTiling"),
+			SurfaceField<&MaterialSurfaceParameters::DetailNormalStrength>("DetailNormalStrength"),
 		};
 
 		#undef LUX_MATERIAL_FIELD

@@ -25,6 +25,8 @@ struct GPUMaterial
 	vec4 Lobes;                // x = clearcoat, y = clearcoat roughness, z = anisotropy, w = anisotropy rotation (radians)
 	vec4 Sheen;                // rgb = linear sheen colour, w = sheen roughness
 	vec4 Subsurface;           // rgb = linear subsurface colour, w = thickness
+	uvec4 DetailTextureIndices; // x = detail albedo, y = detail normal, z = detail mask, w = mapping (0 UV, 1 triplanar world, 2 triplanar object)
+	vec4 Detail;               // xy = detail tiling, z = detail normal strength, w = triplanar sharpness
 };
 
 layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
@@ -57,6 +59,9 @@ const uint GPU_MATERIAL_FLAG_HAS_CLEARCOAT = 1u << 16u;
 const uint GPU_MATERIAL_FLAG_HAS_SHEEN = 1u << 17u;
 const uint GPU_MATERIAL_FLAG_HAS_SUBSURFACE = 1u << 18u;
 const uint GPU_MATERIAL_FLAG_HAS_ANISOTROPY = 1u << 19u;
+const uint GPU_MATERIAL_FLAG_HAS_DETAIL_ALBEDO_TEXTURE = 1u << 20u;
+const uint GPU_MATERIAL_FLAG_HAS_DETAIL_NORMAL_TEXTURE = 1u << 21u;
+const uint GPU_MATERIAL_FLAG_HAS_DETAIL_MASK_TEXTURE = 1u << 22u;
 
 const uint GPU_MATERIAL_CHANNEL_SHIFT_METALNESS = 0u;
 const uint GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS = 2u;
