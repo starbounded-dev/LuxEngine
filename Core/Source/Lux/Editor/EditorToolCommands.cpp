@@ -16,6 +16,8 @@
 #include "Lux/Serialization/Yaml.h"
 
 #include <charconv>
+#include <format>
+#include <optional>
 
 namespace Lux {
 
@@ -27,17 +29,40 @@ namespace Lux {
 		{
 			enum class Kind { Null, Scalar, Sequence, Map } Type = Kind::Null;
 			std::string Text;
-			std::vector<YamlTree> Items;                          // Sequence
-			std::vector<std::pair<std::string, YamlTree>> Fields;  // Map, in order
+			std::vector<YamlTree> Items;     // Sequence
+			// Map, in order. Parallel vectors: a vector of pair<string, YamlTree> inside YamlTree
+			// needs the complete type, which libstdc++ rejects (a vector of YamlTree is fine).
+			std::vector<std::string> Keys;
+			std::vector<YamlTree> Values;
 
 			YamlTree* Find(std::string_view key)
 			{
-				for (auto& [name, value] : Fields)
+				for (size_t i = 0; i < Keys.size(); i++)
 				{
-					if (name == key)
-						return &value;
+					if (Keys[i] == key)
+						return &Values[i];
 				}
 				return nullptr;
+			}
+
+			YamlTree& Add(std::string key, YamlTree value)
+			{
+				Keys.push_back(std::move(key));
+				Values.push_back(std::move(value));
+				return Values.back();
+			}
+
+			void Remove(std::string_view key)
+			{
+				for (size_t i = 0; i < Keys.size(); i++)
+				{
+					if (Keys[i] == key)
+					{
+						Keys.erase(Keys.begin() + i);
+						Values.erase(Values.begin() + i);
+						return;
+					}
+				}
 			}
 		};
 
@@ -58,7 +83,7 @@ namespace Lux {
 				case Yaml::NodeType::Map:
 					tree.Type = YamlTree::Kind::Map;
 					for (const auto& item : node)
-						tree.Fields.emplace_back(item.first.as<std::string>(), FromYaml(item.second));
+						tree.Add(item.first.as<std::string>(), FromYaml(item.second));
 					break;
 				default:
 					break;
@@ -89,10 +114,10 @@ namespace Lux {
 				}
 				case YamlTree::Kind::Map:
 					out << Yaml::BeginMap;
-					for (const auto& [name, value] : tree.Fields)
+					for (size_t i = 0; i < tree.Keys.size(); i++)
 					{
-						out << Yaml::Key << name << Yaml::Value;
-						ToYaml(out, value);
+						out << Yaml::Key << tree.Keys[i] << Yaml::Value;
+						ToYaml(out, tree.Values[i]);
 					}
 					out << Yaml::EndMap;
 					break;
@@ -108,7 +133,7 @@ namespace Lux {
 				for (uint32_t i = 0; i < value.size(); i++)
 				{
 					const auto member = value.getObjectMemberAt(i);
-					tree.Fields.emplace_back(member.name, FromJson(member.value));
+					tree.Add(member.name, FromJson(member.value));
 				}
 			}
 			else if (value.isArray() || value.isVector())
@@ -242,7 +267,7 @@ namespace Lux {
 
 			if (edit == ComponentEdit::Remove)
 			{
-				std::erase_if(tree.Fields, [&](const auto& field) { return field.first == component; });
+				tree.Remove(component);
 			}
 			else
 			{
@@ -250,20 +275,19 @@ namespace Lux {
 				{
 					YamlTree empty;
 					empty.Type = YamlTree::Kind::Map;
-					tree.Fields.emplace_back(component, std::move(empty));
-					node = &tree.Fields.back().second;
+					node = &tree.Add(component, std::move(empty));
 				}
 				if (node->Type != YamlTree::Kind::Map)
 					throw ToolError(std::format("{} has no fields to set.", component));
 				if (hasValues)
 				{
 					const YamlTree values = FromJson(call.Params["values"]);
-					for (const auto& [field, value] : values.Fields)
+					for (size_t i = 0; i < values.Keys.size(); i++)
 					{
-						if (YamlTree* existing = node->Find(field))
-							*existing = value;
+						if (YamlTree* existing = node->Find(values.Keys[i]))
+							*existing = values.Values[i];
 						else
-							node->Fields.emplace_back(field, value);
+							node->Add(values.Keys[i], values.Values[i]);
 					}
 				}
 			}
@@ -288,7 +312,7 @@ namespace Lux {
 					throw restore(std::format("Unknown component '{}'. entity.get shows the names an entity uses.", component));
 				if (hasValues)
 				{
-					for (const auto& [field, value] : FromJson(call.Params["values"]).Fields)
+					for (const std::string& field : FromJson(call.Params["values"]).Keys)
 					{
 						if (!landed->Find(field))
 							throw restore(std::format("{} has no field '{}'.", component, field));
