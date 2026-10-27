@@ -83,4 +83,4 @@ Inside a script, the entity is `this`:
 - `FindEntityByName("Player")` finds another entity; `As<MyScript>()` returns its script.
 - `Entity.Create("Name")` creates an entity, and `Destroy()` removes one, with its children, at the end of the current frame. Until then it still exists, so code later in the same frame can still read it.
 
-`Log.Info`, `Log.Warn` and `Log.Error` print to the **Log** panel. Read the keyboard, mouse and gamepads with [Input](input).
+`Log.Info`, `Log.Warn` and `Log.Error` print to the **Log** panel. Read the keyboard, mouse and gamepads with [Input](input). The [C# API Reference](../api/index) lists everything else.

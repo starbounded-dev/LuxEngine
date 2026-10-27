@@ -5,27 +5,45 @@ using System;
 
 namespace Lux
 {
-	// Debug lines drawn in the world while the game runs (not in Dist builds). A line belongs to the
-	// update method that draws it and stays until that method runs again: draw every OnUpdate (or every
-	// OnFixedUpdate) to keep it. With a duration (seconds) it stays that long instead.
-	// depthTest: false draws it on top of everything.
+	/// <summary>
+	/// Debug lines drawn in the world while the game runs, in the editor and in the player (not in Dist builds).
+	/// </summary>
+	/// <remarks>
+	/// A drawing belongs to the update method that made it and stays until that method runs again, so draw it every
+	/// <c>OnUpdate</c> (or every <c>OnFixedUpdate</c>) to keep it. With a duration it stays that many seconds instead.
+	/// </remarks>
 	public static class Gizmos
 	{
+		/// <summary>Opaque white, the default color.</summary>
 		public static readonly Vector4 White = new Vector4(1.0f);
 
+		/// <summary>Draws a line between two world positions.</summary>
+		/// <param name="color">RGBA, components from 0 to 1.</param>
+		/// <param name="duration">Seconds the drawing stays; 0 keeps it until the drawing method runs again.</param>
+		/// <param name="depthTest">False draws it on top of everything.</param>
 		public static unsafe void DrawLine(Vector3 start, Vector3 end, Vector4 color, float duration = 0.0f, bool depthTest = true)
 		{
 			InternalCalls.Gizmos_DrawLine(&start, &end, &color, duration, depthTest);
 		}
 
+		/// <summary>Draws a white line between two world positions until the drawing method runs again.</summary>
 		public static void DrawLine(Vector3 start, Vector3 end) => DrawLine(start, end, White);
 
+		/// <summary>Draws a line from <paramref name="origin"/> to <c>origin + direction</c>.</summary>
+		/// <param name="color">RGBA, components from 0 to 1.</param>
+		/// <param name="duration">Seconds the drawing stays; 0 keeps it until the drawing method runs again.</param>
+		/// <param name="depthTest">False draws it on top of everything.</param>
 		public static void DrawRay(Vector3 origin, Vector3 direction, Vector4 color, float duration = 0.0f, bool depthTest = true)
 		{
 			DrawLine(origin, origin + direction, color, duration, depthTest);
 		}
 
-		// An axis-aligned box: its twelve edges.
+		/// <summary>Draws the twelve edges of an axis-aligned box.</summary>
+		/// <param name="center">The box's center.</param>
+		/// <param name="halfExtents">Half the box's size on each axis.</param>
+		/// <param name="color">RGBA, components from 0 to 1.</param>
+		/// <param name="duration">Seconds the drawing stays; 0 keeps it until the drawing method runs again.</param>
+		/// <param name="depthTest">False draws it on top of everything.</param>
 		public static void DrawWireBox(Vector3 center, Vector3 halfExtents, Vector4 color, float duration = 0.0f, bool depthTest = true)
 		{
 			Vector3 Corner(int i) => new Vector3(
@@ -43,7 +61,12 @@ namespace Lux
 			}
 		}
 
-		// Three circles, one around each axis.
+		/// <summary>Draws a sphere as three circles, one around each axis.</summary>
+		/// <param name="center">The sphere's center.</param>
+		/// <param name="radius">The sphere's radius.</param>
+		/// <param name="color">RGBA, components from 0 to 1.</param>
+		/// <param name="duration">Seconds the drawing stays; 0 keeps it until the drawing method runs again.</param>
+		/// <param name="depthTest">False draws it on top of everything.</param>
 		public static void DrawWireSphere(Vector3 center, float radius, Vector4 color, float duration = 0.0f, bool depthTest = true)
 		{
 			const int segments = 24;

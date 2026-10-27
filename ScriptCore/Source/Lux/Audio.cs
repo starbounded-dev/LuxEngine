@@ -53,12 +53,17 @@ namespace Lux
 			return InternalCalls.Audio_LoadBank(file);
 		}
 
+		/// <summary>Plays an event once, without position, and lets it release itself.</summary>
+		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
 		public static void PlayOneShot(string eventRef)
 		{
 			using NativeString reference = String(eventRef);
 			InternalCalls.Audio_CreateInstance(reference, true, null);
 		}
 
+		/// <summary>Plays an event once at a world position and lets it release itself.</summary>
+		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
+		/// <param name="position">Where the sound plays.</param>
 		public static void PlayOneShot(string eventRef, Vector3 position)
 		{
 			Finite(position.X); Finite(position.Y); Finite(position.Z);
@@ -66,6 +71,10 @@ namespace Lux
 			InternalCalls.Audio_CreateInstance(reference, true, &position);
 		}
 
+		/// <summary>Creates an event you control: start, stop, move and change it, then dispose it.</summary>
+		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
+		/// <returns>The new instance, not started yet.</returns>
+		/// <exception cref="System.InvalidOperationException">The event could not be created (check the loaded banks).</exception>
 		public static EventInstance CreateInstance(string eventRef)
 		{
 			using NativeString reference = String(eventRef);
@@ -98,34 +107,47 @@ namespace Lux
 			}
 		}
 
+		/// <summary>Sets a mixer bus's volume (1 is unchanged).</summary>
+		/// <param name="busPath">The bus path, <c>bus:/</c> for the master bus.</param>
+		/// <param name="volume">Linear volume multiplier.</param>
 		public static void SetBusVolume(string busPath, float volume)
 		{
 			Finite(volume);
 			using NativeString path = String(busPath);
 			InternalCalls.Audio_SetBusVolume(path, volume);
 		}
+		/// <summary>A mixer bus's volume.</summary>
+		/// <param name="busPath">The bus path, <c>bus:/</c> for the master bus.</param>
 		public static float GetBusVolume(string busPath)
 		{
 			using NativeString path = String(busPath);
 			return InternalCalls.Audio_GetBusVolume(path);
 		}
+		/// <summary>Mutes or unmutes a mixer bus.</summary>
+		/// <param name="busPath">The bus path, <c>bus:/</c> for the master bus.</param>
+		/// <param name="muted">True mutes.</param>
 		public static void SetBusMuted(string busPath, bool muted)
 		{
 			using NativeString path = String(busPath);
 			InternalCalls.Audio_SetBusMuted(path, muted);
 		}
+		/// <summary>Sets a VCA's volume (1 is unchanged).</summary>
+		/// <param name="vcaPath">The VCA path (<c>vca:/...</c>).</param>
+		/// <param name="volume">Linear volume multiplier.</param>
 		public static void SetVCAVolume(string vcaPath, float volume)
 		{
 			Finite(volume);
 			using NativeString path = String(vcaPath);
 			InternalCalls.Audio_SetVCAVolume(path, volume);
 		}
+		/// <summary>Sets a global FMOD parameter (one every event sees).</summary>
 		public static void SetGlobalParameter(string name, float value)
 		{
 			Finite(value);
 			using NativeString parameter = String(name);
 			InternalCalls.Audio_SetGlobalParameter(parameter, value);
 		}
+		/// <summary>Reads a global FMOD parameter.</summary>
 		public static float GetGlobalParameter(string name)
 		{
 			using NativeString parameter = String(name);
@@ -156,10 +178,14 @@ namespace Lux
 	{
 		private ulong m_Handle;
 		internal EventInstance(ulong handle) { m_Handle = handle; }
+		/// <summary>Whether the instance still exists (it was not disposed and Play has not stopped).</summary>
 		public bool IsValid => m_Handle != 0 && InternalCalls.Audio_IsValid(m_Handle);
 		private ulong Handle => IsValid ? m_Handle : throw new ObjectDisposedException(nameof(EventInstance));
+		/// <summary>Whether the event is playing.</summary>
 		public bool IsPlaying => IsValid && InternalCalls.Audio_IsPlaying(m_Handle);
+		/// <summary>Raised on the main thread when the event stops.</summary>
 		public event Action? Stopped;
+		/// <summary>Raised on the main thread when playback passes a timeline marker, with the marker's name.</summary>
 		public event Action<string>? Marker;
 		/// <summary>Normalized snapshot intensity, 0–1. This does not change event volume.</summary>
 		public void SetSnapshotIntensity(float intensity)
@@ -172,16 +198,28 @@ namespace Lux
 				throw new InvalidOperationException("Snapshot requires an exposed continuous Intensity parameter with range 0–100. Check the Audio log.");
 		}
 
+		/// <summary>Starts (or restarts) the event.</summary>
+		/// <exception cref="System.ObjectDisposedException">The instance is no longer valid.</exception>
 		public void Start() => InternalCalls.Audio_Start(Handle);
+		/// <summary>Stops the event; the instance stays usable.</summary>
+		/// <param name="allowFadeOut">True lets the event's authored fade-out play; false cuts it.</param>
 		public void Stop(bool allowFadeOut = true) => InternalCalls.Audio_Stop(Handle, allowFadeOut);
+		/// <summary>Sets the volume multiplier (1 is unchanged).</summary>
 		public void SetVolume(float volume) { Audio.Finite(volume); InternalCalls.Audio_SetVolume(Handle, volume); }
+		/// <summary>Sets the pitch multiplier (1 is unchanged).</summary>
 		public void SetPitch(float pitch) { Audio.Finite(pitch); InternalCalls.Audio_SetPitch(Handle, pitch); }
+		/// <summary>Sets one of the event's parameters.</summary>
 		public void SetParameter(string name, float value)
 		{
 			Audio.Finite(value);
 			using NativeString parameter = Audio.String(name);
 			InternalCalls.Audio_SetParameter(Handle, parameter, value);
 		}
+		/// <summary>Places the event in the world.</summary>
+		/// <param name="position">World position.</param>
+		/// <param name="velocity">Velocity in meters per second, for doppler.</param>
+		/// <param name="forward">The sound's forward direction.</param>
+		/// <param name="up">The sound's up direction.</param>
 		public void Set3DAttributes(Vector3 position, Vector3 velocity, Vector3 forward, Vector3 up)
 		{
 			Audio.Finite(position.X); Audio.Finite(position.Y); Audio.Finite(position.Z);
@@ -190,6 +228,7 @@ namespace Lux
 			Audio.Finite(up.X); Audio.Finite(up.Y); Audio.Finite(up.Z);
 			InternalCalls.Audio_Set3DAttributes(Handle, &position, &velocity, &forward, &up);
 		}
+		/// <summary>Stops the event at once and releases it. Call on the main thread.</summary>
 		public void Dispose()
 		{
 			Audio.RequireMainThread();

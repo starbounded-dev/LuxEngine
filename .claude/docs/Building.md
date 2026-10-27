@@ -161,6 +161,16 @@ for MSBuild to build them. `Core`'s post-build copies `Coral.Managed.dll` / `.ru
 `.deps.json` (and `.pdb` outside Dist) into `Editor/DotNet/`, which is the `CoralDirectory` the
 `ScriptEngine` host points at.
 
+**The manual's C# API reference is generated.** `ScriptCore` writes `ScriptCore.xml` next to the DLL
+(`GenerateDocumentationFile`; CS1591/CS1573 are off because the generator's check replaces them).
+`tools/ScriptApiDocs` (a developer-only .NET 9 console tool, not in the solution) reads both and writes
+`Editor/Resources/Docs/api/*.md`, the Help panel's "API Reference" section:
+`dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs`.
+With `--check` it writes nothing and fails on a stale or extra page, a public member (enum values and
+default constructors aside) without a `<summary>`, or a doc comment on something no longer public. CI
+runs the check after the Windows Release build, so a public ScriptCore change needs its `///` comment
+and the regenerated pages in the same commit.
+
 ### Vendored-submodule workarounds live in `premake5.lua`, not in the submodules
 
 Three deliberate hacks, all documented inline — don't "fix" them by editing the submodule, because
@@ -213,6 +223,7 @@ Read this **before** opening the file you think is broken.
 | Pulled a branch that bumped the Vulkan SDK | `scripts\Setup.bat` | Re-runs `Vulkan.CheckVulkanSDK()` |
 | Changed a shader (`.glsl` / `.glslh`) | nothing — hot-reload, or restart | Shaders compile at runtime and are cached; see `.claude/docs/Rendering.md` |
 | Changed C# in `ScriptCore` or a project's scripts | rebuild the solution | MSBuild builds the C# projects in-solution |
+| Changed `ScriptCore`'s public API | document it (`///`), rebuild, rerun `tools/ScriptApiDocs` | CI's API reference check fails otherwise |
 
 If in doubt, `scripts\Win-GenProjects.bat --last` is fast and always safe. `scripts\Setup.bat` is
 the heavier hammer and is also safe to re-run.

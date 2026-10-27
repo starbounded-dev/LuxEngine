@@ -161,6 +161,14 @@ jobs:
         run: |
           MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
+      # The manual's C# API reference (Editor/Resources/Docs/api) is generated from the built
+      # ScriptCore.dll and its XML docs. Fails when a page is stale (regenerate it with the same
+      # command without --check) or a public member has no <summary>.
+      - name: Check the C# API reference
+        if: matrix.configuration == 'Release'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs --check
+
       - name: Package editor artifact
         if: matrix.configuration == 'Release'
         working-directory: ${{env.GITHUB_WORKSPACE}}
