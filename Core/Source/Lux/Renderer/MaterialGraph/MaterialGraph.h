@@ -154,6 +154,11 @@ namespace Lux {
 		// Connects an output to an input, replacing what that input had. False, changing nothing, for
 		// pins that do not exist or a link that would make a loop.
 		bool Connect(uint32_t fromNode, uint32_t fromPin, uint32_t toNode, uint32_t toPin);
+		// Whether Connect would succeed, without changing anything.
+		bool CanConnect(uint32_t fromNode, uint32_t fromPin, uint32_t toNode, uint32_t toPin) const;
+		// Takes `other`'s nodes, links and comments (undo, revert); keeps this graph's identity, which
+		// the material and its instances share.
+		void CopyContentFrom(const MaterialGraph& other);
 		void RemoveLink(uint32_t id);
 
 		struct Error

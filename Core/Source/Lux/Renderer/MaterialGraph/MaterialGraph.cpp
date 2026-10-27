@@ -445,7 +445,24 @@ namespace Lux {
 		std::erase_if(Nodes, [id](const MaterialGraphNode& node) { return node.ID == id; });
 	}
 
+	void MaterialGraph::CopyContentFrom(const MaterialGraph& other)
+	{
+		Nodes = other.Nodes;
+		Links = other.Links;
+		Comments = other.Comments;
+		NextID = other.NextID;
+	}
+
 	bool MaterialGraph::Connect(uint32_t fromNode, uint32_t fromPin, uint32_t toNode, uint32_t toPin)
+	{
+		if (!CanConnect(fromNode, fromPin, toNode, toPin))
+			return false;
+		std::erase_if(Links, [&](const MaterialGraphLink& link) { return link.ToNode == toNode && link.ToPin == toPin; });
+		Links.push_back({ NextID++, fromNode, fromPin, toNode, toPin });
+		return true;
+	}
+
+	bool MaterialGraph::CanConnect(uint32_t fromNode, uint32_t fromPin, uint32_t toNode, uint32_t toPin) const
 	{
 		const MaterialGraphNode* from = FindNode(fromNode);
 		const MaterialGraphNode* to = FindNode(toNode);
@@ -474,9 +491,6 @@ namespace Lux {
 					pending.push_back(link.FromNode);
 			}
 		}
-
-		std::erase_if(Links, [&](const MaterialGraphLink& link) { return link.ToNode == toNode && link.ToPin == toPin; });
-		Links.push_back({ NextID++, fromNode, fromPin, toNode, toPin });
 		return true;
 	}
 

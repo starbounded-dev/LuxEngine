@@ -18,6 +18,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Content Browser and Assets](editor/content-browser) — importing meshes and textures, creating materials and scenes.
 - [Materials](editor/materials) — surfaces, textures and transparency.
 - [Material Editor](editor/material-editor) — editing materials with a live preview.
+- [Material Graphs](editor/material-graphs) — procedural materials from nodes.
 - [Prefabs](editor/prefabs) — reusable entity hierarchies, overrides, Apply and Revert.
 - [Authoring Audio in FMOD Studio](editor/audio-authoring) — banks, events and the parameters the engine drives.
 - [Exporting a Game](editor/export) — building a standalone player, and its settings.

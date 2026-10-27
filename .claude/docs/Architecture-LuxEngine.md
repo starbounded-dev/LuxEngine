@@ -358,6 +358,23 @@ Structurally:
 - Advanced lobes (clearcoat, sheen, subsurface, anisotropy) are `MaterialSurfaceParameters` values,
   each off at its default; `MaterialScene` sets a GPU flag only for a lobe that is on, and the
   shaders evaluate it per pixel (`Rendering.md § The GPU material table`).
+- **Material graphs** (`Renderer/MaterialGraph/`). A `MaterialAsset` may own a `MaterialGraph`
+  (nodes, links, comments; stored in the `.lmat` under `Graph:`), whose `Compile()` emits the body
+  of a GLSL surface function and the parameter layout. All of a project's graphs are compiled
+  into the two surface shaders (`GBuffer_Static`, `HazelPBR_Transparent`), not into per-graph
+  pipelines, so graph materials stay in the single GPU-driven pipeline. `MaterialGraphRegistry`
+  (editor only, main thread, `Update` every frame from `EditorLayer::OnUpdate`) collects the
+  graph-owning materials (`Register` is called by the serializer and may run on the asset worker),
+  test-compiles each function on its own (`VulkanShaderCompiler::TryCompileGLSL`; a graph that fails
+  gets index 0 and renders as the standard material), writes
+  `Resources/Cache/Shader/Generated/MaterialGraphs.glslh` (a third include search path) and reloads
+  the two shaders when it changed. The row carries the graph's 1-based index
+  (`TransmissionTextureIndices.y`) and its parameters (`GraphParameters`), so parameter edits never
+  recompile. Instances share the parent's graph object and override parameters by
+  `Param.<name>` keys. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
+  instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
+  generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
+  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
 - **Material instances.** A `MaterialAsset` with a parent (`GetParent`, `.lmat` `Parent:` plus an
   `Overrides:` list of value keys) takes every value it does not override from the parent chain;
   transparency (the shader) is never inherited. The instance still holds and saves all its values,

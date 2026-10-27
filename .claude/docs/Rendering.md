@@ -1156,7 +1156,13 @@ transparent passes goes through `MaterialMapping.glslh` (`LuxMaterialMapping` on
 `LuxSampleMaterial` / `LuxSampleMaterialNormal`), which samples UV0 or the three triplanar projections
 (world, or object space from the instance transform; whiteout normal blend). Detail maps always use
 UV0. Shortcut: the cutout pre-depth and shadow passes still test alpha on UV0, so cutout with
-triplanar mapping is not supported. Textures are bindless indices into
+triplanar mapping is not supported. `GraphParameters` (8 vec4) and `TransmissionTextureIndices.y`
+(the graph index) serve material graphs: `GBuffer_Static` and `HazelPBR_Transparent` include
+`MaterialGraph.glslh`, which includes the generated `MaterialGraphs.glslh`; when the project's
+`LUX_MATERIAL_GRAPH_COUNT` is 0 the graph block compiles out, otherwise a graph row runs
+`LuxEvaluateMaterialGraph` after the standard surface and before the G-buffer write, overwriting the
+outputs it connects (the same shortcut as triplanar: pre-depth and shadows keep the standard alpha).
+`u_RendererData.Time` (seconds, from `Application::GetTime`) took a former padding slot. Textures are bindless indices into
 `u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 **Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,

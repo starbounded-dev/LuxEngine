@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "MaterialEditorPanel.h"
 #include "MaterialPreview.h"
+#include "MaterialGraphCanvas.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Panels/ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetImporter.h"
@@ -61,6 +63,15 @@ namespace Lux
 		}
 	}
 
+	namespace
+	{
+		std::string GraphSnapshot(const Ref<MaterialAsset>& material)
+		{
+			Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
+			return graph && !material->GetParent() ? MaterialGraphCanvas::Snapshot(*graph) : std::string();
+		}
+	}
+
 	MaterialEditorPanel::MaterialEditorPanel() = default;
 	MaterialEditorPanel::~MaterialEditorPanel() = default;
 
@@ -84,6 +95,7 @@ namespace Lux
 		state.AcousticTag = material->GetAcousticTag();
 		state.Parent = material->GetParent();
 		state.Overrides = material->GetOverrides();
+		state.GraphParameters = material->GetGraphParameters();
 		return state;
 	}
 
@@ -107,6 +119,7 @@ namespace Lux
 		material->SetAcousticTag(AcousticTag);
 		material->SetParent(Parent);
 		material->SetOverrides(Overrides);
+		material->SetGraphParameters(GraphParameters);
 	}
 
 	// -- Documents -------------------------------------------------------------------------------
@@ -140,6 +153,7 @@ namespace Lux
 		document.Handle = handle;
 		document.Saved = MaterialState::Capture(material);
 		document.Propagated = document.Saved;
+		document.SavedGraph = GraphSnapshot(material);
 		m_Documents.push_back(document);
 		m_ActiveDocument = (int)m_Documents.size() - 1;
 		m_SelectActiveTab = true;
@@ -183,12 +197,13 @@ namespace Lux
 
 		AssetImporter::Serialize(material.As<Asset>());
 		document.Saved = MaterialState::Capture(material);
+		document.SavedGraph = GraphSnapshot(material);
 	}
 
 	bool MaterialEditorPanel::IsDirty(const Document& document) const
 	{
 		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle);
-		return material && !(MaterialState::Capture(material) == document.Saved);
+		return material && (!(MaterialState::Capture(material) == document.Saved) || GraphSnapshot(material) != document.SavedGraph);
 	}
 
 	// Widgets change the material directly. The state before the first change is kept until no
@@ -288,12 +303,34 @@ namespace Lux
 
 		ImGui::SameLine();
 
-		if (ImGui::BeginChild("##material_properties_column", ImVec2(0.0f, 0.0f)))
+		const bool ownsGraph = material->GetGraph() && !material->GetParent();
+		if (ownsGraph)
 		{
-			UI_Instance(material);
-			UI_Properties(*document, material);
+			if (ImGui::RadioButton("Properties", !m_ShowGraph))
+				m_ShowGraph = false;
+			ImGui::SameLine();
+			if (ImGui::RadioButton("Graph", m_ShowGraph))
+				m_ShowGraph = true;
 		}
-		ImGui::EndChild();
+
+		if (ownsGraph && m_ShowGraph)
+		{
+			if (!m_GraphCanvas)
+				m_GraphCanvas = CreateScope<MaterialGraphCanvas>();
+			if (ImGui::BeginChild("##material_graph_column", ImVec2(0.0f, 0.0f)))
+				m_GraphCanvas->Draw(material, m_PushUndo);
+			ImGui::EndChild();
+		}
+		else
+		{
+			if (ImGui::BeginChild("##material_properties_column", ImVec2(0.0f, 0.0f)))
+			{
+				UI_Instance(material);
+				UI_GraphParameters(material);
+				UI_Properties(*document, material);
+			}
+			ImGui::EndChild();
+		}
 
 		// An instance's overrides are the values that differ from its parent; its inherited values
 		// still match the parent here, since a parent change reaches it through propagation.
@@ -385,7 +422,14 @@ namespace Lux
 		{
 			Document& document = m_Documents[m_PendingCloseIndex];
 			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle))
+			{
 				document.Saved.Apply(material);
+				if (material->GetGraph() && !document.SavedGraph.empty())
+				{
+					MaterialGraphCanvas::Restore(*material->GetGraph(), document.SavedGraph);
+					MaterialGraphRegistry::MarkDirty();
+				}
+			}
 			CloseDocument((size_t)m_PendingCloseIndex);
 			m_PendingCloseIndex = -1;
 			ImGui::CloseCurrentPopup();
@@ -453,9 +497,49 @@ namespace Lux
 		ImGui::TreePop();
 	}
 
+	void MaterialEditorPanel::UI_GraphParameters(Ref<MaterialAsset> material)
+	{
+		Ref<MaterialGraph> graph = material->GetGraph();
+		if (!graph)
+			return;
+
+		std::vector<MaterialGraphParameter> exposed;
+		for (const MaterialGraphParameter& parameter : graph->Compile().Parameters)
+		{
+			if (parameter.Exposed)
+				exposed.push_back(parameter);
+		}
+		if (exposed.empty() || !ImGuiEx::PropertyGridHeader("Graph Parameters"))
+			return;
+
+		// No recompile: these go into the material's row. Instances override them like any value.
+		ImGuiEx::BeginPropertyGrid();
+		for (const MaterialGraphParameter& parameter : exposed)
+		{
+			MaterialGraphParameterValue value = material->GetGraphParameter(parameter);
+			bool changed = false;
+			switch (parameter.Kind)
+			{
+				case MaterialGraphParameterKind::Float:
+					changed = ImGuiEx::Property(parameter.Name.c_str(), value.Value.x, 0.01f, 0.0f, 0.0f, "", false);
+					break;
+				case MaterialGraphParameterKind::Color:
+					changed = ImGuiEx::PropertyColor(parameter.Name.c_str(), value.Value, "", false);
+					break;
+				case MaterialGraphParameterKind::Texture:
+					changed = ImGuiEx::PropertyAssetReference<Texture2D>(parameter.Name.c_str(), value.Texture, "", nullptr, {}, false);
+					break;
+			}
+			if (changed)
+				material->SetGraphParameter(parameter.Name, value);
+		}
+		ImGuiEx::EndPropertyGrid();
+		ImGui::TreePop();
+	}
+
 	void MaterialEditorPanel::UI_Toolbar(Document& document, Ref<MaterialAsset> material)
 	{
-		const bool dirty = !(MaterialState::Capture(material) == document.Saved);
+		const bool dirty = IsDirty(document);
 
 		ImGui::BeginDisabled(!dirty);
 		if (ImGui::Button(LUX_ICON_FLOPPY_O "  Save"))
@@ -463,7 +547,15 @@ namespace Lux
 		ImGui::SameLine();
 		// Reverting goes through TrackEdit like any other change, so it can be undone.
 		if (ImGui::Button(LUX_ICON_UNDO "  Revert"))
+		{
 			document.Saved.Apply(material);
+			if (material->GetGraph() && !document.SavedGraph.empty())
+			{
+				MaterialGraphCanvas::Restore(*material->GetGraph(), document.SavedGraph);
+				material->MarkChanged();
+				MaterialGraphRegistry::MarkDirty();
+			}
+		}
 		ImGui::EndDisabled();
 
 		ImGui::SameLine();
@@ -477,6 +569,29 @@ namespace Lux
 		}
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("A new material that follows this one, except for the values it sets itself");
+
+		// Graph materials: the standard inputs stay, and a graph sets whichever of them it connects.
+		if (!material->GetParent())
+		{
+			ImGui::SameLine();
+			if (!material->GetGraph())
+			{
+				if (ImGui::Button(LUX_ICON_SITEMAP "  Make Graph Material"))
+				{
+					material->SetGraph(MaterialGraph::CreateDefault());
+					MaterialGraphRegistry::Register(document.Handle);
+					m_ShowGraph = true;
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Compute this material's inputs with a node graph");
+			}
+			else if (ImGui::Button(LUX_ICON_TRASH "  Remove Graph"))
+			{
+				material->SetGraph(nullptr);
+				MaterialGraphRegistry::Unregister(document.Handle);
+				m_ShowGraph = false;
+			}
+		}
 	}
 
 	void MaterialEditorPanel::UI_Preview(float width)
