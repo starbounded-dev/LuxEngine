@@ -371,7 +371,11 @@ Structurally:
   the two shaders when it changed. The row carries the graph's 1-based index
   (`TransmissionTextureIndices.y`) and its parameters (`GraphParameters`), so parameter edits never
   recompile. Instances share the parent's graph object and override parameters by
-  `Param.<name>` keys. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
+  `Param.<name>` keys. A Material Function node (`SubGraph`) inlines another graph material's graph
+  at compile time (variables prefixed `g<node>_`, Function Input nodes bound to the node's inputs,
+  depth and cycle checked); its pins come from `MaterialGraph::GetPins`, the one source of per-node
+  pins. Asset packs store each graph's parameter layout (`GraphLayout`, `HasPackedParameters`), so
+  the run time never compiles and needs no function graphs. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
   instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
   imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
