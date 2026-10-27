@@ -1,6 +1,6 @@
 # Audio
 
-Sound is designed in **FMOD Studio** and played by the engine: an event carries its own sounds, randomisation, effects and 3D settings, so the editor only places and triggers it. The project's FMOD Studio project and banks are set in **Project Settings → Audio**.
+Sound is designed in **FMOD Studio** and played by the engine: an event carries its own sounds, randomisation, effects and 3D settings, so the editor only places and triggers it. The project's FMOD Studio project and banks are set in **Project Settings → Audio**; [Authoring Audio in FMOD Studio](../editor/audio-authoring) walks through it.
 
 ## Audio Source
 

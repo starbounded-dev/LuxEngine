@@ -7,7 +7,7 @@ The editor is one window made of dockable panels. Drag a panel's tab to move it;
 | Panel | What it is for |
 |---|---|
 | **Scene View** | Edit the scene with the editor camera: select, move, rotate and scale. See [Scene View and Camera](viewport). |
-| **Game View** | The scene through its primary camera, as the game will see it. Play opens it. |
+| **Game View** | The scene through its primary camera, as the game will see it. Play opens it. See [Game View](game-view). |
 | **Scene Hierarchy** | Every entity in the scene. Drag to re-parent, right-click to create entities. |
 | **Properties** | The components of the selected entity. **Add Component** adds more. |
 | **Content Browser** | The project's assets: scenes, meshes, textures, materials, prefabs. See [Content Browser and Assets](content-browser). |

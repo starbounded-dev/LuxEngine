@@ -21,6 +21,7 @@ An entity with a collider and **no** Rigidbody is static: walls and floors that 
 - **Body Type** — **Static** never moves; **Dynamic** falls and is pushed around; **Kinematic** is moved by your scripts or animation and pushes dynamic bodies, but nothing pushes it.
 - **Mass**, **Linear Drag** and **Angular Drag**.
 - **Disable Gravity**, **Is Trigger** (detects overlaps without colliding), locked axes, and **Collision Detection** (use continuous for fast, small objects).
+- **Layer ID** — which [physics layer](physics-layers) the body is on, to choose what it collides with.
 
 ## Character Controller
 

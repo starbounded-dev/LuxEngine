@@ -14,7 +14,7 @@ Distant objects automatically draw simpler versions of their meshes (levels of d
 
 ## Creating assets
 
-Right-click empty space and use **New** to create a **Folder**, **Scene** or **Material**. Double-click a material to edit it in the **Material Editor**, a scene to open it, and a prefab to edit it (see [Prefabs](prefabs)).
+Right-click empty space and use **New** to create a **Folder**, **Scene** or **Material**. Double-click a material to edit it in the [Material Editor](material-editor), a scene to open it, and a prefab to edit it (see [Prefabs](prefabs)).
 
 ## Using assets in a scene
 

@@ -10,7 +10,7 @@ A Static Mesh draws a 3D model. Create one with **Create 3D → Meshes** in the 
 
 ## Materials
 
-A material sets the surface: base colour, metalness, roughness, emission, normal map and more. Opaque, cutout (alpha-tested, for leaves and fences) and transparent materials are supported, and transparent materials can refract like glass. Edit materials in the **Material Editor**; changes show immediately in every scene that uses them.
+A material sets the surface: base colour, metalness, roughness, emission, normal map and more. Opaque, cutout (alpha-tested, for leaves and fences) and transparent materials are supported, and transparent materials can refract like glass. Edit materials in the [Material Editor](../editor/material-editor); changes show immediately in every scene that uses them. [Materials](../editor/materials) explains every setting.
 
 ## Performance
 

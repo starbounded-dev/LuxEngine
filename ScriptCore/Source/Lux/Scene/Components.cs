@@ -406,8 +406,8 @@ namespace Lux
 		}
 
 		/// <summary>
-		/// Moves the character this physics step, in meters (world space); call it from <c>OnFixedUpdate</c> with
-		/// <c>speed * dt</c>. While gravity is on only the horizontal part counts. In the air it is ignored unless the
+		/// Moves the character by this much (meters, world space) by the next physics step; call it every frame with
+		/// <c>speed * ts</c>. While gravity is on only the horizontal part counts. In the air it is ignored unless the
 		/// controller allows air control.
 		/// </summary>
 		public void Move(Vector3 displacement) => InternalCalls.CharacterControllerComponent_Move(Entity.ID, &displacement);

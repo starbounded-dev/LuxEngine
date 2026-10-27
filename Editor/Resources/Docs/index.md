@@ -7,14 +7,20 @@ Welcome. This manual ships with the editor, so it works offline and always match
 ## Getting started
 
 - [Your First Game](getting-started/first-game) — build, play and export a small physics scene.
+- [Your First 2D Game](getting-started/2d-game) — sprites, 2D physics and a score.
+- [Prefabs, Step by Step](getting-started/prefab-walkthrough) — make, place, override and spawn a prefab.
 
 ## The editor
 
 - [The Editor at a Glance](editor/interface) — the windows, Play and Simulate.
 - [Scene View and Camera](editor/viewport) — moving around, selecting and the transform gizmos.
+- [Game View](editor/game-view) — the game as the player sees it.
 - [Content Browser and Assets](editor/content-browser) — importing meshes and textures, creating materials and scenes.
+- [Materials](editor/materials) — surfaces, textures and transparency.
+- [Material Editor](editor/material-editor) — editing materials with a live preview.
 - [Prefabs](editor/prefabs) — reusable entity hierarchies, overrides, Apply and Revert.
-- [Exporting a Game](editor/export) — building a standalone player.
+- [Authoring Audio in FMOD Studio](editor/audio-authoring) — banks, events and the parameters the engine drives.
+- [Exporting a Game](editor/export) — building a standalone player, and its settings.
 - [Keyboard Shortcuts](editor/shortcuts)
 
 ## Components
@@ -24,6 +30,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Camera](components/camera)
 - [Lights](components/lights)
 - [Physics](components/physics)
+- [Physics Layers](components/physics-layers)
 - [Audio](components/audio)
 - [2D: Sprites, Circles and Text](components/2d)
 

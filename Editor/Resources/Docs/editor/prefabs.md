@@ -1,6 +1,6 @@
 # Prefabs
 
-A **prefab** is a saved entity hierarchy you can place many times. Change the prefab and every copy in your scenes follows.
+A **prefab** is a saved entity hierarchy you can place many times. Change the prefab and every copy in your scenes follows. New to prefabs? [Prefabs, Step by Step](../getting-started/prefab-walkthrough) builds one from scratch.
 
 ## Making and placing prefabs
 

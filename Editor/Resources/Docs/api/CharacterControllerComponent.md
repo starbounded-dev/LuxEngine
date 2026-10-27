@@ -25,7 +25,7 @@ Jumps on the next physics step, if the character is grounded.
 public void Move(Vector3 displacement)
 ```
 
-Moves the character this physics step, in meters (world space); call it from `OnFixedUpdate` with `speed * dt`. While gravity is on only the horizontal part counts. In the air it is ignored unless the controller allows air control.
+Moves the character by this much (meters, world space) by the next physics step; call it every frame with `speed * ts`. While gravity is on only the horizontal part counts. In the air it is ignored unless the controller allows air control.
 
 ```
 public void SetGravityEnabled(bool enabled)
