@@ -392,7 +392,8 @@ on the main thread even while the next batch runs. `Scene::GetLastAudioAmbience(
 settings queue until the next idle update; disabling clears the displayed rays immediately.
 
 Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the Asterwave join
-and before `OnUpdate()`. Its Jolt narrow-phase queries run between physics steps (stepping is also
+and before `OnUpdate()`; in a build without `--raytraced-audio` there is no join and it runs at the same
+point of the scene update. Its Jolt narrow-phase queries run between physics steps (stepping is also
 main-thread), so they need no locking beyond Jolt's own body locks, and nothing is handed to SDK
 or job threads.
 
@@ -412,3 +413,12 @@ master output group's mute; it never changes Studio bus state, event pause flags
 SDK mixer/streaming work and timeline callbacks continue while unfocused. No platform callback
 directly invokes audio, scripts or ECS. Profile selection and bank rebuild/reload remain main-thread
 operations; console suspend/resume integration is deferred.
+
+## Native audio backend (Phase 0)
+
+The vendored miniaudio (`Core/vendor/miniaudio`) is compiled only by `tests/audio/native` so far, and
+its tests render offline on the calling thread (`noDevice`). When Phase 2 links it into the engine,
+`docs/AUDIO_NATIVE_BACKEND_PLAN.md § Part 1 › Threads` governs: engine audio calls stay main-thread;
+the device callback is a vendor thread like FMOD's mixer; the resource manager is pumped from a named
+`Lux::Thread`; node attach/detach happens only on the main thread because detach blocks on the audio
+thread.

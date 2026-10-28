@@ -2,7 +2,7 @@
 
 The ready-made scene is `Assets/Scenes/FMODDemo.luxscene`. It uses your existing
 `event:/Fart` from `Assets/Audio/SampleProject/SampleProject.fspro`.
-The engine builds with FMOD Core, FMOD Studio, and the statically linked Asterwave acoustics library.
+The engine builds with FMOD Core and FMOD Studio, plus the Asterwave acoustics library when generated with `--raytraced-audio`.
 You do not need a Unity/Unreal integration package or another audio backend toggle.
 
 ## Run the supplied scene

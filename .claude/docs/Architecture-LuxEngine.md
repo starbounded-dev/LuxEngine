@@ -753,6 +753,12 @@ the managed handlers; `ShutdownInput` drops the type before assembly unload.
 
 ### 2.10 Audio
 
+**Native backend (planned, Phase 0 only):** `docs/AUDIO_NATIVE_BACKEND_PLAN.md` replaces FMOD with
+miniaudio and editor-authored Sound assets. Phase 0 vendored miniaudio 0.11.25 with stb_vorbis and its
+reverb node under `Core/vendor/miniaudio` (`README.lux.md` records the commit and licences). Only the
+offline harness `tests/audio/native` compiles it; no engine project links it yet. Until Phase 2 adds
+`--audio-backend`, everything below describes the FMOD path that ships.
+
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
 `AudioEventInstance` owns Studio event handles. `AudioSourceComponent` remains the entity-facing
 component (and C# API), with volume, pitch, play-on-awake, event references and parameter overrides.
@@ -760,10 +766,17 @@ component (and C# API), with volume, pitch, play-on-awake, event references and 
 engine-created `Reverb3D` unit are removed. FMOD Core remains a dependency for mixer statistics and
 `AudioFileUtils` metadata inspection (`FMOD_OPENONLY`); inspecting a source asset does not play it.
 FMOD Core/Studio is a required SDK whose shared libraries deploy beside both applications.
-Asterwave is a required native C++20 dependency compiled as a static library into Editor and
-Lux-Runtime; it has no separate runtime DLL or shared object. Source comes from the exact private
-revision in `scripts/dependencies/Asterwave.json`, under `Core/vendor/Asterwave` or
-`LUX_ASTERWAVE_ROOT`. Fetching is explicit; generation validates the local checkout offline.
+Asterwave is an **opt-in** native C++20 dependency (premake `--raytraced-audio`, off by default).
+When selected it is compiled as a static library into Editor and Lux-Runtime, with no separate
+runtime DLL or shared object, so every game exported from that build contains it; Dist CI builds
+without it. Source comes from the exact private revision in `scripts/dependencies/Asterwave.json`,
+under `Core/vendor/Asterwave` or `LUX_ASTERWAVE_ROOT`. Fetching is explicit; generation validates the
+local checkout offline, and only when the option is selected. Without it `Core/premake5.lua` swaps
+`RaytracedAudioScene.cpp` for `RaytracedAudioSceneStub.cpp`: `IsAvailable()` is false, every call is a
+no-op, `Scene` creates no raytraced scene, and engine occlusion plus reverb zones carry the mix.
+`LUX_ENABLE_RAYTRACED_AUDIO` is defined for Core only when Asterwave is built; the editor checks
+`IsAvailable()` instead. The adapter-only material helpers (`AcousticMaterialID`,
+`ConfigureAcousticMaterials`) live in `Audio/AsterwaveMaterials.h`, defined in the adapter.
 
 **Legacy scenes:** old `Audio` handles and `Looping` values are retained as migration-only
 `LegacyAudio`/`LegacyLooping`, under their original YAML keys. They survive save, copy, undo and
@@ -786,8 +799,8 @@ and source emitter positions, reads completed results, then launches the next ba
 thread. Joining before mutation and teardown is mandatory. This integration selects one acoustic
 listener: highest
 weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
-The listener casts rays; audio sources are zero-ray targets. `IsAvailable()` is always true in
-this required built-in backend. Debug stats report Asterwave product version 0.2.0.
+The listener casts rays; audio sources are zero-ray targets. `IsAvailable()` is true exactly when
+the build selected `--raytraced-audio`. Debug stats report Asterwave product version 0.2.0.
 Asterwave catches a throwing callback or custom formula and keeps simulating; the world is named
 `Asterwave` and its `LogError` hook sends those reports to `LUX_CORE_ERROR_TAG("Audio", ...)`.
 
@@ -810,12 +823,14 @@ Studio `Occlusion` parameter: `Engine` (default, including projects saved before
 `m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied Open)
 and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider and
 every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
-30 dB per tag `TransmissionLF` metres (Asterwave's own definition); unpaired crossings are one-sided
+30 dB per tag `TransmissionLF` metres; unpaired crossings are one-sided
 surfaces costing the tag's flat energy fraction. Losses are scaled by `Strength` (0–4), summed,
 capped at 60 dB, and become a linear gain on `AudioEventAcoustics::OcclusionGainLF`. Each source is
 recast at `UpdateRateHz` (1–120), round-robin within `CastBudget` (1–1024) casts per update; it
-snaps on its first result and is then smoothed over 0.1 s. It runs while the Asterwave scene exists,
-which is every Play session (`RaytracedAudioScene::IsAvailable` is unconditional). Settings persist
+snaps on its first result and is then smoothed over 0.1 s. It runs in every Play session, with or
+without Asterwave: `Scene::SyncAudioGeometry` always gathers the geometry inputs and only mirrors them
+into Asterwave when its scene is running. Without Asterwave, portals use their authored Open, and a
+project set to `Raytraced` logs one warning at Play start and uses `Engine`. Settings persist
 under `Audio.Occlusion` in YAML (missing → defaults; invalid values fail the load) and as runtime
 format **25**'s bounded, length-prefixed YAML block after the format-23 performance block; formats
 16–24 load with defaults. Bank validation warns when an audio source's event has no `Occlusion`
@@ -869,17 +884,20 @@ All geometry mutations occur after the previous Asterwave worker batch joins. Se
 `docs/AUDIO_DYNAMIC_GEOMETRY.md` for authoring, scheduling and acoustic approximation limits.
 
 Each engine tag gets its own Asterwave custom material ID (`1000 + stable tag ID`), so overrides cannot
-leak between tags that share a preset. Most tags map directly; Default uses Concrete, Carpet and
-Rubber use Cloth, Plaster uses Gyprock, Plastic and WoodThin use WoodIndoor, Soil uses Mud, Wood
-uses WoodOutdoor, Ceramic uses Tile, and Foliage uses Leaf. These are editable starting presets,
-not measured coefficients for every real-world material.
+leak between tags. **Default coefficients are LuxEngine's own** (`kPublished` in `AcousticMaterial.cpp`),
+used by engine occlusion and Asterwave alike: absorption from published octave-band tables (LF averages
+125/250 Hz, HF averages 2/4 kHz), estimated scattering, and transmission from the field-incidence mass law
+(`TL = 20 log10(m'' f) - 47 dB` at 125 Hz and 2 kHz for each tag's typical thickness, linearised to the
+30 dB-per-distance model; one-sided loss `1 - 10^(-TL/10)`). Foliage uses ISO 9613-2 per-metre
+attenuation instead. The file names the source of every row and marks estimates. Default equals
+Concrete. These are editable starting points, not measurements of every real-world material.
 
 Project Audio settings expose per-tag overrides for LF/HF absorption, scattering, LF/HF
 transmission distance in metres, and LF/HF energy loss on thin/open geometry. Defaults come from
-the pinned Asterwave material presets. Absorption/scattering must be finite and in 0..1; transmission distances
+the engine table above. Absorption/scattering must be finite and in 0..1; transmission distances
 must be finite and positive; flat losses must be finite and nonnegative. Invalid settings fail
 loading/export with an audio error. YAML writes enabled overrides under `Audio.AcousticMaterials`;
-missing entries use the Asterwave presets. Runtime format 18 appends a bounded explicit override block after
+missing entries use the engine defaults. Runtime format 18 appends a bounded explicit override block after
 the bank manifest, keeping `ProjectInfo`'s fixed layout unchanged. Formats 16/17 remain readable
 and use default material settings. Unknown or duplicate IDs and truncated blocks fail loading.
 
@@ -1222,7 +1240,8 @@ Native exports flatten the selected budgets/focus option into format 23's bounde
 runtime profiles stay disabled and the manifest selects packaged banks. Optional YAML fields keep
 old projects compatible. This is not executable cross-compilation. `LUX_FMOD_SDK` selects FMOD
 headers, link inputs and deployed libraries; `LUX_ASTERWAVE_ROOT` selects the pinned native source
-compiled into the static Asterwave project. Generation validates both local layouts.
+compiled into the static Asterwave project when `--raytraced-audio` is selected. Generation validates
+the FMOD layout always and the Asterwave checkout only for that option.
 FMOD packages can also be discovered under `Core/vendor/FMOD/`; ambiguity requires an override.
 
 `MuteWhenUnfocused` defaults false. `Application` pumps Studio even when minimized and determines
@@ -1539,7 +1558,7 @@ luxengine/
 │   │       └── Embed/             # LuxIcon.embed
 │   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread / NativeWindow
 │   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, NRI (fork), Coral, tracy,
-│                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, FastNoise, …
+│                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, FastNoise, miniaudio, …
 ├── ScriptCore/                    # C# scripting assembly (.NET 9)
 ├── Editor/
 │   ├── Source/                    # EditorLayer, LuxEditorApp, Panels/, Viewport/

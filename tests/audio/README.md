@@ -1,14 +1,15 @@
 # Headless audio regression tests
 
 On Linux, regenerate the makefiles, build the Release Core objects (for `Lux::Yaml` and rapidyaml),
-Debug Jolt and Debug Asterwave (`bin/Debug-linux-x86_64/Asterwave/libAsterwave.a`),
-then run from the repository root:
+Debug Jolt and, when generated with `--raytraced-audio`, Debug Asterwave
+(`bin/Debug-linux-x86_64/Asterwave/libAsterwave.a`), then run from the repository root:
 
 ```sh
 python tests/audio/run.py
 ```
 
-Requires `clang++`, the FMOD SDK and pinned Asterwave source checkout, and `fmodstudiocl`. The runner compiles production
+Requires `clang++`, the FMOD SDK and `fmodstudiocl` (plus the pinned Asterwave checkout when the makefiles
+opted into it; without it the stub backend is compiled and the Asterwave geometry test is skipped). The runner compiles production
 code with Debug assertions, creates a disposable copy of the sample FMOD project in `/tmp`, and
 uses FMOD's no-sound output. It does not alter the sample project or require a renderer/audio device.
 Logs and artifacts are retained in the printed temporary directory. `--output /tmp/my-audio-tests`
@@ -64,18 +65,22 @@ Run `python3 tests/audio/run_sdk_layout.py` to exercise Premake's Windows/Linux 
 paths with spaces, each missing FMOD header/link/runtime file, and the Asterwave source
 layout/revision. It uses disposable fixtures to validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.
 
-## Focused native Asterwave adapter checks
+## Acoustics checks without FMOD
 
-The platform-neutral fixture builds the production `RaytracedAudioScene` adapter and material
-mapping against native Asterwave. It needs a C++20 compiler, CMake, the existing glm and
-spdlog submodules, and the pinned Asterwave checkout. It does not require FMOD, a renderer or audio
-hardware:
+`tests/audio/acoustics` needs a C++20 compiler, CMake and the glm and spdlog submodules; it does not
+require FMOD, a renderer or audio hardware. It always builds the stub backend and engine material
+defaults test (`AcousticsStubTests.cpp`) and engine occlusion (`OcclusionTests.cpp`, which includes only
+`AudioTestLog.h`). When the pinned Asterwave checkout is present it also builds the production
+`RaytracedAudioScene` adapter test against native Asterwave:
 
 ```sh
-cmake -S tests/audio/asterwave -B bin/asterwave-tests
-cmake --build bin/asterwave-tests --config Debug --target lux_asterwave_tests
-ctest --test-dir bin/asterwave-tests -C Debug --output-on-failure
+cmake -S tests/audio/acoustics -B bin/acoustics-tests
+cmake --build bin/acoustics-tests --config Debug
+ctest --test-dir bin/acoustics-tests -C Debug --output-on-failure
 ```
+
+`tests/audio/native` holds the Phase 0 miniaudio checks for the planned native backend; see its
+README.
 
 These commands describe the verification path; a passing run establishes only the exercised
 adapter/geometry contracts, not listening quality or full editor/runtime behavior. The complete

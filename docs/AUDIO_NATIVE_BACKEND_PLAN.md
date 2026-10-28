@@ -65,7 +65,7 @@ Written 2026-10-28 from `feature/asterwave-audio` at `1c07162`.
 | Library | miniaudio 0.11.25 (public domain or MIT-0). | One vendored header with no runtime library to deploy. See the Research brief. |
 | Rejected libraries | SoLoud (zlib) has had no release since 2020. OpenAL Soft is LGPL, which breaks the permissive rule. Steam Audio has no mixer or decoder. | Steam Audio is listed as an HRTF follow-up. |
 | Vorbis | `stb_vorbis` from miniaudio `extras/` (public domain or MIT). | `.ogg` keeps working. Opus is not added. |
-| Reverb | miniaudio's `extras/nodes/ma_reverb_node` (verblib, Freeverb-based). Its licence is checked in Phase 0. | If the licence is not permissive, write a Freeverb node (Freeverb itself is public domain). |
+| Reverb | miniaudio's `extras/nodes/ma_reverb_node` (verblib, Freeverb-based). Phase 0 confirmed MIT-0 or public domain. | Usable as is; set its parameters through `verblib_set_*` (Phase 0 finding). |
 | Compressor and meters | Written in-engine as small custom miniaudio nodes. | miniaudio has neither. Both are tested with offline rendering. |
 | Backend selection | Compile time: one header set, two `.cpp` sets chosen by premake. | No virtual dispatch on hot paths, and deleting FMOD is a folder delete. |
 | Event references | `AudioEventRef` gains `AssetHandle Sound`. `Guid` is kept as the FMOD and legacy reference. | One field type covers both backends during the transition, and scenes stay openable in either build. |
@@ -89,7 +89,7 @@ FMOD SDK is not in this container.
 | Event references | ✅ Read | `AudioEventRef { Guid, Path, BankName }` is held by:<br>• `AudioSourceComponent`, `AudioZoneComponent` (`AmbienceEvent`, `Snapshot`), `MusicDirectorComponent`, `AudioSurfaceComponent` overrides<br>• `DialogueLine`, `AudioSurfaceSounds`, `AudioValidation`<br>Its YAML is written separately in `SceneSerializer.cpp`, `DialogueTable.cpp` and `AudioSurfaceTable.cpp`; there is no shared helper. |
 | Raw audio asset | ⚠️ Metadata only | `AssetType::Audio` (`.wav`, `.ogg`) → `AudioFile` (duration and format, read through FMOD in `AudioFileUtils`). The asset pack stores only the file path, not the audio. |
 | Bank pipeline | ✅ Read | `AudioBankBuilder` (`fmodstudiocl`), `AudioBankManifest` (runtime project format 17+), `RuntimeExport::PrepareAudioBanks`, and the Studio fields in `ProjectAudioSettings` (`StudioProjectPath`, `StudioBankOutputPath`, `StudioPlatform`, desktop profiles, live update). |
-| Engine occlusion without Asterwave | ❌ Broken | `Scene::UpdateAudioOcclusion` runs only inside the `if (m_RaytracedAudioScene)` block (`Scene.cpp` ~872–920). `SyncAudioGeometry` returns early unless Asterwave is running. This is fixed by the Asterwave-optional work (prerequisite). |
+| Engine occlusion without Asterwave | ✅ Fixed in Phase 0 | Was: `Scene::UpdateAudioOcclusion` ran only inside the `if (m_RaytracedAudioScene)` block and `SyncAudioGeometry` returned early without Asterwave. Now both run in every build; covered by `tests/audio/acoustics`. |
 | Zone reverb fallback | ✅ Read | `UpdateAudioZones(ts, raytracedAmbienceValid)` already falls back to zones when Asterwave has no ambience. |
 | Music timeline | ⚠️ FMOD-sourced | `MusicDirector` (`MusicSync { Immediate, NextBeat, NextBar, NextMarker, NextSection }`) uses FMOD's timeline beat and marker callbacks through `AudioEventInstance::DrainTimelineNotifications`. |
 | Dialogue audio | ⚠️ FMOD-specific | `DialogueTranslation { Text, SpeakerName, AudioKey }`. `AudioKey` is an FMOD audio-table key played through `SetProgrammerSound`. |
@@ -189,6 +189,60 @@ FMOD as the default and adds a native build job from Phase 2 on.
 **Exit criteria:** numbers recorded in this plan; licences confirmed; go or no-go.
 
 **Rollback:** delete the vendored folder.
+
+**Status (2026-10-28): done in code; verdict go.** The device listening check is still for the owner.
+
+- **Licences:**
+  - miniaudio is Unlicense or MIT-0.
+  - `stb_vorbis` v1.22 is MIT or public domain.
+  - verblib is MIT-0 or public domain.
+  - The reverb node is covered by miniaudio's `LICENSE`.
+  - `Core/vendor/miniaudio/README.lux.md` records the commit.
+- **Decoding** (`tests/audio/native`):
+  - WAV matches the authored samples exactly.
+  - FLAC is bit-exact.
+  - Ogg is 37.6 dB SNR and MP3 (192 kb/s) is 30.5 dB SNR against the source.
+- **Playback:**
+  - Decoded and streamed playback through `ma_engine` is bit-exact with `MA_SOUND_FLAG_NO_PITCH`.
+  - Resampling a 48 kHz clip to a 44.1 kHz engine keeps its length and pitch.
+  - The spatializer matches the engine's -Z forward / +X right convention.
+  - Inverse attenuation at distance 4 vs 1 gives 0.2501.
+  - A 1 kHz order-4 low-pass leaves 200 Hz at −0.00 dB and 8 kHz at −75.6 dB.
+  - The reverb node leaves a decaying tail.
+  - A scheduled start lands on the exact frame mid-block.
+- **Finding for Phase 2: the pitch path.** With pitch enabled, miniaudio always runs its linear
+  resampler, even at pitch 1. The voice is exactly one frame late (otherwise bit-exact) and its last
+  frame is dropped. Voices with no pitch variation or doppler should use `MA_SOUND_FLAG_NO_PITCH`;
+  scheduled music starts must, or account for the frame.
+- **Finding for Phase 4: the reverb node.** `ma_reverb_node_init` ignores the config's room size,
+  damping, width and wet/dry. It applies verblib's defaults, so set them through `verblib_set_*` on
+  the node's `reverb` member.
+- **Benchmark** (`lux_native_audio_bench`, Release, 4-vCPU 2.1 GHz cloud Xeon, 48 kHz stereo, 10 ms
+  periods; every voice 3D and moving, with its own low-pass retuned every 10 periods, a splitter, one of
+  4 buses plus a shared reverb, 4 voices streamed MP3):
+
+  | Voices | Mean per period | p99 | Device-thread load |
+  |---|---|---|---|
+  | 64 | 0.72 ms | 1.06 ms | 7.2% of one core |
+  | 128 | 1.46 ms | 2.40 ms | 14.6% of one core |
+  | 256 | 2.87 ms | 4.38 ms | 28.7% of one core |
+
+  - Main-thread update for 64 voices: 2.5 µs per frame.
+  - Engine init without a device: about 0.15 ms.
+  - Device init time is printed by `lux_native_audio_smoke` on real hardware.
+- **Size:** miniaudio, `stb_vorbis` and the reverb node compile to 0.87 MB of code (Linux x86-64, -O3,
+  every backend and decoder). A stripped program using them is 0.91 MB. The editor-level delta is
+  measured when Phase 2 links it.
+- **Prerequisite done:**
+  - Asterwave is opt-in (`--raytraced-audio`, off by default; a stub backend replaces it).
+  - Engine occlusion and geometry gathering run without it.
+  - Default acoustic materials come from LuxEngine's own published-data table (`AcousticMaterial.cpp`).
+  - `tests/audio/acoustics` checks all of this without FMOD, and the adapter test when Asterwave is
+    present.
+- **Not verified here:**
+  - premake generation (no Linux premake binary in the session);
+  - the full Windows/Linux engine build (no FMOD SDK or engine submodules in the session).
+  - CI covers both on the next run that triggers it.
 
 ### Phase 1 — Make the audio headers backend-neutral (FMOD only)
 
@@ -560,7 +614,7 @@ FMOD.
 
 ## Part 5 — Open questions
 
-- **verblib licence:** read `extras/nodes/ma_reverb_node` and verblib headers (Phase 0).
+- ~~**verblib licence**~~ — resolved in Phase 0: MIT-0 or public domain.
 - **`docs/AUDIO_*.md` guides** (zones, music, dialogue, surfaces, accessibility) describe FMOD
   authoring: rewrite them per phase or retire them in Phase 10? Owner's call.
 - **Default bus layout names:** confirm `Music`, `SFX`, `Dialogue`, `Ambience` (Phase 4).

@@ -164,7 +164,9 @@ def main():
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
-    sources = ["Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    # Asterwave is opt-in (--raytraced-audio); follow whatever the generated makefiles chose.
+    raytraced = "-DLUX_ENABLE_RAYTRACED_AUDIO" in flags
+    sources = ["Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene" if raytraced else "Audio/RaytracedAudioSceneStub", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader"]
     objects = {}
@@ -187,7 +189,9 @@ def main():
     run([directory / "jolt-test"], timeout=30)
     banks = args.banks.resolve() if args.banks else fixture(directory)
     fmod = Path(os.environ.get("LUX_FMOD_SDK", ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux")) / "api"
-    libraries = [ROOT / "bin/Debug-linux-x86_64/Asterwave/libAsterwave.a", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
+    libraries = [fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
+    if raytraced:
+        libraries.insert(0, ROOT / "bin/Debug-linux-x86_64/Asterwave/libAsterwave.a")
     # Lux::Yaml and the rapidyaml implementation unit (docs/YAML_MIGRATION_PLAN.md).
     yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / name for name in ("Yaml.o", "ryml.o")]
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
@@ -215,10 +219,13 @@ def main():
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "geometry-serialization-test"], cwd=ROOT / "Core")
     run([directory / "geometry-serialization-test"], timeout=30)
-    run(["clang++", *flags, TESTS / "GeometryTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "geometry-test"], cwd=ROOT / "Core")
-    run([directory / "geometry-test"], timeout=60)
+    if raytraced:  # The acoustic geometry queue drives a running Asterwave world.
+        run(["clang++", *flags, TESTS / "GeometryTests.cpp", *audio_objects, *yaml, *libraries,
+             *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+             "-o", directory / "geometry-test"], cwd=ROOT / "Core")
+        run([directory / "geometry-test"], timeout=60)
+    else:
+        print("Skipping GeometryTests: generated without --raytraced-audio", flush=True)
     run(["clang++", *flags, TESTS / "OcclusionTests.cpp", *audio_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "occlusion-test"], cwd=ROOT / "Core")

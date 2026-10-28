@@ -38,15 +38,18 @@ jobs:
 
       # Private dependencies are fetched separately. Each token has read-only contents
       # access to its own repository. Fork pull requests cannot read these secrets.
+      # Asterwave is opt-in (--raytraced-audio): Debug and Release build it to keep it tested;
+      # Dist is the configuration games ship, so it builds without it.
       - name: Check audio SDK access
         shell: pwsh
         env:
           AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
           AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
           ASTERWAVE_TOKEN: ${{ secrets.ASTERWAVE_TOKEN }}
+          NEEDS_ASTERWAVE: ${{ matrix.configuration != 'Dist' }}
         run: |
-          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY -or -not $env:ASTERWAVE_TOKEN) {
-            Write-Output "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access). Fork pull requests cannot read secrets."
+          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY -or ($env:NEEDS_ASTERWAVE -eq 'true' -and -not $env:ASTERWAVE_TOKEN)) {
+            Write-Output "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access, Debug/Release only). Fork pull requests cannot read secrets."
             exit 1
           }
 
@@ -69,6 +72,7 @@ jobs:
           python-version: '3.11'
 
       - name: Read pinned Asterwave revision
+        if: matrix.configuration != 'Dist'
         id: asterwave
         shell: bash
         run: |
@@ -84,6 +88,7 @@ jobs:
           PY
 
       - name: Checkout pinned Asterwave source (private)
+        if: matrix.configuration != 'Dist'
         uses: actions/checkout@v6.0.2
         with:
           repository: starbounded-dev/asterwave
@@ -93,16 +98,22 @@ jobs:
           persist-credentials: false
 
       - name: Validate Asterwave source
+        if: matrix.configuration != 'Dist'
         run: python scripts/FetchAsterwave.py --check
 
-      - name: Test native Asterwave integration
+      # Engine occlusion and material defaults always; the Asterwave adapter only where its source
+      # was checked out. Then the vendored miniaudio checks for the native backend.
+      - name: Test acoustics and native audio
         shell: bash
         run: |
           config="${{ matrix.configuration }}"
           [ "$config" != "Dist" ] || config=Release
-          cmake -S tests/audio/asterwave -B bin/asterwave-tests -DCMAKE_BUILD_TYPE="$config"
-          cmake --build bin/asterwave-tests --config "$config" --target lux_asterwave_tests
-          ctest --test-dir bin/asterwave-tests -C "$config" --output-on-failure
+          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE="$config"
+          cmake --build bin/acoustics-tests --config "$config"
+          ctest --test-dir bin/acoustics-tests -C "$config" --output-on-failure
+          cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE="$config"
+          cmake --build bin/native-audio-tests --config "$config"
+          ctest --test-dir bin/native-audio-tests -C "$config" --output-on-failure
 
       - name: Install Vulkan SDK
         uses: jakoch/install-vulkan-sdk-action@v1.4.0
@@ -132,7 +143,7 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           cd scripts
-          python Setup.py ${{ env.PREMAKE_GENERATOR }}
+          python Setup.py ${{ env.PREMAKE_GENERATOR }} ${{ matrix.configuration != 'Dist' && 'raytraced-audio' || '' }}
 
       - name: Prepare logs
         working-directory: ${{env.GITHUB_WORKSPACE}}
@@ -156,14 +167,19 @@ jobs:
         shell: pwsh
         run: |
           $output = "bin/${{ matrix.configuration }}-windows-x86_64"
-          foreach ($file in @("Editor/Editor.exe", "Lux-Runtime/Lux-Runtime.exe", "Asterwave/Asterwave.lib")) {
+          foreach ($file in @("Editor/Editor.exe", "Lux-Runtime/Lux-Runtime.exe")) {
             if (-not (Test-Path -LiteralPath (Join-Path $output $file) -PathType Leaf)) {
               throw "Missing build output: $output/$file"
             }
           }
+          # Asterwave exists exactly when the configuration opted in; Dist must never contain it.
+          $asterwave = Test-Path -LiteralPath (Join-Path $output "Asterwave/Asterwave.lib") -PathType Leaf
+          if ($asterwave -ne ("${{ matrix.configuration }}" -ne "Dist")) {
+            throw "Asterwave.lib presence ($asterwave) does not match the --raytraced-audio choice for ${{ matrix.configuration }}"
+          }
 
-      # Asterwave is statically linked into both executables. Public artifacts cannot be
-      # made redistributable by stripping separate libraries, so publish build logs only.
+      # Debug and Release link Asterwave statically into both executables. Public artifacts cannot
+      # be made redistributable by stripping separate libraries, so publish build logs only.
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -186,16 +202,18 @@ jobs:
           submodules: recursive
           lfs: true
 
-      # See the Windows job: licensed audio SDKs come from a private repository.
+      # See the Windows job: licensed audio SDKs come from a private repository, and only
+      # Debug/Release opt into Asterwave.
       - name: Check audio SDK access
         shell: bash
         env:
           AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
           AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
           ASTERWAVE_TOKEN: ${{ secrets.ASTERWAVE_TOKEN }}
+          NEEDS_ASTERWAVE: ${{ matrix.configuration != 'Dist' }}
         run: |
-          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ] || [ -z "$ASTERWAVE_TOKEN" ]; then
-            echo "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access). Fork pull requests cannot read secrets."
+          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ] || { [ "$NEEDS_ASTERWAVE" = true ] && [ -z "$ASTERWAVE_TOKEN" ]; }; then
+            echo "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access, Debug/Release only). Fork pull requests cannot read secrets."
             exit 1
           fi
 
@@ -218,6 +236,7 @@ jobs:
           python-version: '3.11'
 
       - name: Read pinned Asterwave revision
+        if: matrix.configuration != 'Dist'
         id: asterwave
         shell: bash
         run: |
@@ -233,6 +252,7 @@ jobs:
           PY
 
       - name: Checkout pinned Asterwave source (private)
+        if: matrix.configuration != 'Dist'
         uses: actions/checkout@v6.0.2
         with:
           repository: starbounded-dev/asterwave
@@ -242,6 +262,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate Asterwave source
+        if: matrix.configuration != 'Dist'
         run: python scripts/FetchAsterwave.py --check
 
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
@@ -282,19 +303,26 @@ jobs:
           cache: true
           stripdown: true
 
-      - name: Test native Asterwave integration
+      # Engine occlusion and material defaults always; the Asterwave adapter only where its source
+      # was checked out. Then the vendored miniaudio checks for the native backend.
+      - name: Test acoustics and native audio
         shell: bash
         run: |
           config="${{ matrix.configuration }}"
           [ "$config" != "Dist" ] || config=Release
-          cmake -S tests/audio/asterwave -B bin/asterwave-tests -DCMAKE_BUILD_TYPE="$config"
-          cmake --build bin/asterwave-tests --config "$config" --target lux_asterwave_tests
-          ctest --test-dir bin/asterwave-tests -C "$config" --output-on-failure
+          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE="$config"
+          cmake --build bin/acoustics-tests --config "$config"
+          ctest --test-dir bin/acoustics-tests -C "$config" --output-on-failure
+          cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE="$config"
+          cmake --build bin/native-audio-tests --config "$config"
+          ctest --test-dir bin/native-audio-tests -C "$config" --output-on-failure
 
       # Single entry point: generates the C# projects, builds the managed assemblies, the
       # native engine, and the sample game's scripts.
       - name: Build
         shell: bash
+        env:
+          LUX_PREMAKE_OPTIONS: ${{ matrix.configuration != 'Dist' && '--raytraced-audio' || '' }}
         run: |
           # pipefail so a build failure is not masked by tee's exit status.
           set -o pipefail
@@ -315,6 +343,12 @@ jobs:
               echo "MISSING $f"; fail=1
             fi
           done
+          # Asterwave exists exactly when the configuration opted in; Dist must never contain it.
+          has_asterwave=false; [ -f "$out/Asterwave/libAsterwave.a" ] && has_asterwave=true
+          wants_asterwave=true; [ "${{ matrix.configuration }}" = Dist ] && wants_asterwave=false
+          if [ "$has_asterwave" != "$wants_asterwave" ]; then
+            echo "Asterwave library presence ($has_asterwave) does not match the --raytraced-audio choice"; fail=1
+          fi
           exit $fail
 
       - name: Test dependency layouts

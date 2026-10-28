@@ -11,8 +11,8 @@ namespace Lux
 {
 	namespace
 	{
-		// Asterwave defines a material's transmission distance as the thickness that leaves 0.1% of the
-		// energy (vaMaterialConvertMetersToTransmission), i.e. a 30 dB loss.
+		// A material's transmission distance is the thickness that leaves 0.1% of the energy, i.e. a
+		// 30 dB loss (AcousticMaterial.cpp derives it from the mass law).
 		constexpr float k_TransmissionLossDb = 30.0f;
 		constexpr float k_MinTransmissionMetres = 0.001f;
 		constexpr float k_MaxLossDb = 60.0f;

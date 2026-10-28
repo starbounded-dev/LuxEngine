@@ -120,7 +120,8 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
-| Audio dependencies (required) | FMOD Core + Studio SDK and the pinned Asterwave C++ static library are always linked. No fallback backend. Legacy flags remain accepted for command compatibility. |
+| `--raytraced-audio` | Opt-in Asterwave ray-traced acoustics. Adds the `Asterwave` static-library project, links it into Editor and Lux-Runtime, defines `LUX_ENABLE_RAYTRACED_AUDIO` for Core, and makes generation validate the pinned private checkout. Without it, `RaytracedAudioSceneStub.cpp` replaces the adapter and no Asterwave source is needed. Every game exported from a build with it contains Asterwave, so leave it off for builds you ship. |
+| Audio dependencies (required) | FMOD Core + Studio SDK is always linked; `--fmod` remains accepted for command compatibility. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
 `skip-vulkan-check`, `skip-scripts`.
@@ -242,6 +243,8 @@ option.
 
 ### Asterwave source is missing or its revision does not match
 
+Only builds generated with `--raytraced-audio` need Asterwave; a default generation never reads it.
+On Linux pass the flag through `LUX_PREMAKE_OPTIONS="--raytraced-audio" ./scripts/Linux-Build.sh`.
 Asterwave is compiled as a native C++20 static library. Fetch its exact private revision explicitly:
 
 ```powershell
@@ -255,8 +258,8 @@ use `--root PATH` or `LUX_ASTERWAVE_ROOT` for another location. `--check` perfor
 revision/layout validation. Premake also validates the pin and required source files without
 fetching. Regenerate after changing the root or pinned revision.
 
-The `Asterwave` Premake project builds the native source for the target configuration. Editor and
-Lux-Runtime link it statically. There is no acoustics runtime DLL/shared object to copy or load,
+With the option, the `Asterwave` Premake project builds the native source for the target
+configuration and Editor and Lux-Runtime link it statically. There is no acoustics runtime DLL/shared object to copy or load,
 and no .NET delegation. Keep Asterwave's private source and unchanged upstream licence/provenance
 records out of the public engine tree; its source availability does not make it permissively licensed.
 
@@ -348,22 +351,30 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
 
 Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`.
-Asterwave compiles with the host toolchain. The former prebuilt acoustics library's glibc 2.43
-requirement no longer applies; this does not establish support for untested older distributions.
+Debug and Release generate with `--raytraced-audio` (Windows passes `raytraced-audio` to
+`Setup.py`; Linux sets `LUX_PREMAKE_OPTIONS`) so Asterwave stays compiled and tested. Dist, the shipping
+configuration, generates without it, and the verify step fails if an Asterwave library appears in
+Dist or is missing from Debug/Release. Asterwave compiles with the host toolchain; this does not
+establish support for untested older distributions.
+
+Before building, every job runs the renderer-free harnesses: `tests/audio/acoustics` (stub backend,
+engine material defaults and engine occlusion, plus the Asterwave adapter where its source was checked
+out) and `tests/audio/native` (the vendored miniaudio's offline decode/render checks).
 
 **Audio inputs come from private repositories.** FMOD is staged into `.audio-sdk/` from
 `AUDIO_SDK_REPOSITORY` using the read-only `AUDIO_SDK_TOKEN` secret. `LUX_FMOD_SDK` selects
 `.audio-sdk/FMOD/windows` or `.audio-sdk/FMOD/linux`. Populate that repository with
 `scripts/ci/StageAudioSDKs.py`; it stages FMOD headers, link/runtime libraries and licence files.
 
-Asterwave is checked out separately at the exact revision in `scripts/dependencies/Asterwave.json`
-using the read-only `ASTERWAVE_TOKEN` secret; `LUX_ASTERWAVE_ROOT` selects that checkout.
-Generation verifies its pin and source layout offline. Fork pull requests have no access to
-these secrets and stop at the dependency access check.
+For Debug and Release, Asterwave is checked out separately at the exact revision in
+`scripts/dependencies/Asterwave.json` using the read-only `ASTERWAVE_TOKEN` secret;
+`LUX_ASTERWAVE_ROOT` selects that checkout. Generation verifies its pin and source layout offline.
+Dist needs no Asterwave token. Fork pull requests have no access to these secrets and stop at the
+dependency access check.
 
-CI retains build/test logs but publishes no editor/runtime binaries, packages or releases. The
-private Asterwave implementation is statically linked, so removing DLLs cannot remove it from
-an executable. Upstream licence/provenance records remain unchanged.
+CI retains build/test logs but publishes no editor/runtime binaries, packages or releases. Debug and
+Release statically link the private Asterwave implementation, so removing DLLs cannot remove it from
+those executables. Upstream licence/provenance records remain unchanged.
 
 Note the branch globs: CI matches `features/**`, so a branch named `feature/foo` (singular) will
 **not** be built.

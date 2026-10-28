@@ -56,6 +56,14 @@ OPTIONS = [
         "default": False,
     },
     {
+        "key": "raytraced-audio",
+        "kind": "premake",
+        "flag": "raytraced-audio",
+        "label": "Asterwave ray-traced audio",
+        "description": "needs the private Core/vendor/Asterwave checkout; exported games then contain it",
+        "default": False,
+    },
+    {
         "key": "skip-submodules",
         "kind": "script",
         "label": "Skip submodule update",

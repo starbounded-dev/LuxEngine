@@ -173,7 +173,8 @@ namespace Lux {
 	// targets; adding a source does not create another ray caster. Target connections can include
 	// reflected paths, so this result differs from the engine's direct-path occlusion query.
 	//
-	// Asterwave is a required static build dependency; scene simulation can be disabled by settings.
+	// Asterwave is opt-in (premake --raytraced-audio). Without it RaytracedAudioSceneStub.cpp replaces
+	// RaytracedAudioScene.cpp: IsAvailable() is false and every call is a no-op.
 	class RaytracedAudioScene : public RefCounted
 	{
 	public:

@@ -88,7 +88,9 @@ function ValidateAudioSDK()
 			error("Required audio SDK file missing: " .. file .. ". Set LUX_FMOD_SDK to a complete SDK package root.")
 		end
 	end
-	ValidateAsterwaveSource()
+	if _OPTIONS["raytraced-audio"] then
+		ValidateAsterwaveSource()
+	end
 end
 
 -- Utility function for converting the first character to uppercase
@@ -224,11 +226,12 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
 		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
 	} or nil,
-	-- Built from the pinned private C++ source by the Asterwave Premake project.
-	Asterwave = {
+	-- Opt-in with "--raytraced-audio". Built from the pinned private C++ source by the Asterwave
+	-- Premake project and linked statically, so every exported game of that build contains it.
+	Asterwave = _OPTIONS["raytraced-audio"] and {
 		LibName = "Asterwave",
 		IncludeDir = AsterwaveRoot .. "/include",
-	},
+	} or nil,
 	-- Required audio backend. Two entries because FMOD ships the Studio
 	-- API as a separate library layered on the Core one: Studio owns the events and banks the game
 	-- actually plays, and creates a Core system internally for the low-level work (3D listener,

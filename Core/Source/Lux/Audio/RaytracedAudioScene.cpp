@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
 
+#include "Lux/Audio/AsterwaveMaterials.h"
 #include "Lux/Core/Timer.h"
 #include <asterwave/simulation.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -31,6 +32,10 @@ namespace Lux
 		constexpr int kAmbientPermeationRayCount = 128;
 		constexpr int kAmbientPermeationBounceCount = 4;
 		constexpr int kDefaultVisualisationIntervalMs = 100;
+		constexpr int kCustomMaterialBase = 1000;
+		// Keep 30 / metres representable without changing the authored or serialized value.
+		const float kMinimumNativeTransmission = std::nextafter(30.0f / std::numeric_limits<float>::max(),
+			std::numeric_limits<float>::infinity());
 
 		asterwave::Vec3 ToAsterwave(const glm::vec3& value)
 		{
@@ -120,6 +125,38 @@ namespace Lux
 		{
 			return static_cast<int>(std::min(value, static_cast<uint64_t>(std::numeric_limits<int>::max())));
 		}
+	}
+
+	int AcousticMaterialID(AcousticMaterial material)
+	{
+		return kCustomMaterialBase + (IsValidAcousticMaterial(material) ? static_cast<int>(material) : 0);
+	}
+
+	bool ConfigureAcousticMaterials(asterwave::World& world, const AcousticMaterialSettings& settings)
+	{
+		if (!settings.Validate())
+			return false;
+		for (size_t i = 0; i < AcousticMaterialCount; ++i)
+		{
+			const auto material = static_cast<AcousticMaterial>(i);
+			const auto properties = settings.Overrides[i].Enabled ? settings.Overrides[i].Properties : GetDefaultAcousticMaterialProperties(material);
+			try
+			{
+				// Legacy projects permit flat loss above one. Native transmission multiplies by
+				// (1 - loss), so saturate complete loss instead of generating negative energy.
+				world.set_material(AcousticMaterialID(material), asterwave::MaterialProperties(
+					properties.AbsorptionLF, properties.AbsorptionHF, properties.Scattering,
+					std::max(properties.TransmissionLF, kMinimumNativeTransmission),
+					std::max(properties.TransmissionHF, kMinimumNativeTransmission),
+					std::min(properties.FlatTransmissionLF, 1.0f), std::min(properties.FlatTransmissionHF, 1.0f)));
+			}
+			catch (const std::exception& error)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot configure Asterwave material {0}: {1}", AcousticMaterialNames[i], error.what());
+				return false;
+			}
+		}
+		return true;
 	}
 
 	struct RaytracedAudioScene::Impl

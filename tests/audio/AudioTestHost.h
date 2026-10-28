@@ -4,15 +4,10 @@
 #include "Lux/Audio/AudioAccessibility.h"
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <cassert>
-#include <iostream>
+#include "AudioTestLog.h"
 // Only host setup is replaced: production surface/event code drives the real FMOD Studio SDK.
 namespace Lux
 {
-	std::shared_ptr<spdlog::logger> Log::s_CoreLogger = spdlog::stdout_color_mt("test");
-	std::shared_ptr<spdlog::logger> Log::s_ClientLogger = Log::s_CoreLogger;
-	std::shared_ptr<spdlog::logger> Log::s_EditorConsoleLogger = Log::s_CoreLogger;
 	FMOD::System* AudioEngine::s_Engine = nullptr;
 	FMOD::Studio::System* AudioEngine::s_StudioSystem = nullptr;
 	int TestRealVoices = 64;
@@ -91,13 +86,6 @@ namespace Lux
 		return text;
 	}
 } // namespace Lux
-using namespace Lux;
-void Near(float a, float b)
-{
-	if (std::abs(a - b) >= 0.0001f)
-		std::cerr << "Expected " << b << ", got " << a << std::endl;
-	assert(std::abs(a - b) < 0.0001f);
-}
 void Tick()
 {
 	auto* s = AudioEngine::GetStudioSystem();

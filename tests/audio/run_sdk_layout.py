@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Test FMOD layouts and pinned Asterwave source validation without private dependencies."""
+"""Test FMOD layouts and pinned Asterwave source validation without private dependencies.
+Asterwave is opt-in: its source is validated only with --raytraced-audio, and a default generation
+must succeed with no Asterwave checkout at all."""
 from pathlib import Path
 import json
 import os
@@ -60,7 +62,8 @@ def main():
         manifest_path.parent.mkdir(parents=True)
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         probe = work / "probe.lua"
-        probe.write_text('include "Dependencies.lua"\n'
+        probe.write_text('newoption { trigger = "raytraced-audio", description = "Build Asterwave" }\n'
+                         'include "Dependencies.lua"\n'
                          'newaction { trigger = "check-audio-sdk", description = "Validate audio sources",\n'
                          'execute = function() ValidateAudioSDK(); print("SDK_LAYOUT_OK"); end }\n', encoding="utf-8")
         common = [fmod / "api/core/inc/fmod.hpp", fmod / "api/studio/inc/fmod_studio.hpp"]
@@ -75,10 +78,10 @@ def main():
         environment = dict(os.environ, LUX_FMOD_SDK=str(fmod), LUX_ASTERWAVE_ROOT=str(source))
 
         for platform, files in platforms.items():
-            command = [str(premake), "--file=" + str(probe), "--os=" + platform, "check-audio-sdk"]
+            command = [str(premake), "--file=" + str(probe), "--os=" + platform, "--raytraced-audio", "check-audio-sdk"]
 
-            def check(expected_error=None):
-                result = subprocess.run(command, cwd=work, env=environment, capture_output=True, text=True)
+            def check(expected_error=None, arguments=command):
+                result = subprocess.run(arguments, cwd=work, env=environment, capture_output=True, text=True)
                 output = (result.stdout + result.stderr).replace("\\", "/")
                 if expected_error is None:
                     assert result.returncode == 0 and "SDK_LAYOUT_OK" in output, output
@@ -118,7 +121,14 @@ def main():
             untracked.unlink()
             check()
             FetchAsterwave.fetch(source, manifest)  # An already pinned checkout needs no network.
-            print(f"PASS: {platform}: FMOD and Asterwave files, spaced paths, exact pin, dirty/untracked refusal")
+
+            # Without the option nothing of Asterwave is read: a missing checkout still generates.
+            hidden = work / "Asterwave hidden"
+            source.rename(hidden)
+            check(arguments=[argument for argument in command if argument != "--raytraced-audio"])
+            check(source / manifest["sources"][0])
+            hidden.rename(source)
+            print(f"PASS: {platform}: FMOD and Asterwave files, spaced paths, exact pin, dirty/untracked refusal, opt-in")
 
         expect_python_error(lambda: FetchAsterwave.fetch(ROOT, manifest), "Refusing to replace")
         expect_python_error(lambda: FetchAsterwave.fetch(ROOT / "Core/PrivateSourceNotIgnored", manifest), "gitignored")

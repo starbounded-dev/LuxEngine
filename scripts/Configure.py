@@ -205,7 +205,11 @@ def warn_missing_fmod_sdk(config, root):
 
 
 def warn_missing_asterwave(config, root):
-    """Validate the pinned source without network access; Premake enforces the same contract."""
+    """Validate the pinned source without network access; Premake enforces the same contract.
+    Asterwave is opt-in, so there is nothing to check unless raytraced-audio is selected."""
+    if not config.enabled("raytraced-audio"):
+        return True
+
     try:
         FetchAsterwave.validate_checkout(FetchAsterwave.source_root(root), FetchAsterwave.load_manifest(root))
         return True
@@ -214,6 +218,6 @@ def warn_missing_asterwave(config, root):
         print(f"{Style.BRIGHT}{Back.RED} Asterwave source unavailable {Style.RESET_ALL}")
         print(str(error))
         print("Run python scripts/FetchAsterwave.py, or set LUX_ASTERWAVE_ROOT to a clean checkout at the pinned revision.")
-        print(f"{Fore.YELLOW}Asterwave is required; project generation will fail until its source is ready.{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}raytraced-audio is selected; project generation will fail until its source is ready.{Style.RESET_ALL}")
         print("")
         return False

@@ -1,4 +1,4 @@
-#include "AudioTestHost.h"
+#include "AudioTestLog.h"
 #include "Lux/Audio/AudioOcclusion.h"
 #include "Lux/Serialization/FileStream.h"
 #include "Lux/Serialization/Yaml.h"
@@ -90,10 +90,11 @@ int main(int argc, char** argv)
 	}
 
 	// Walls add up; crossings outside the segment do not count.
-	hits = { { 10, 2.0f, false }, { 10, 2.3f, true }, { 20, 6.0f, false }, { 10, 12.0f, false }, { 10, 12.3f, true } };
+	hits = { { 10, 2.0f, false }, { 10, 2.1f, true }, { 20, 6.0f, false }, { 10, 12.0f, false }, { 10, 12.3f, true } };
 	occlusion.Evaluate(from, to, hits, path);
 	assert(path.Walls.size() == 2 && path.Walls[0].Start < path.Walls[1].Start);
-	Near(path.LossLF, SolidLoss(AcousticMaterial::Brick, 0.3f) + FlatLoss(AcousticMaterial::Plaster));
+	assert(SolidLoss(AcousticMaterial::Brick, 0.1f) + FlatLoss(AcousticMaterial::Plaster) < 60.0f);
+	Near(path.LossLF, SolidLoss(AcousticMaterial::Brick, 0.1f) + FlatLoss(AcousticMaterial::Plaster));
 
 	hits.clear();
 	for (int i = 0; i < 20; ++i)

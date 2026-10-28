@@ -40,9 +40,11 @@ an editor feature to work. Every feature is judged against this:
 - **Built in first.** Implement it in the engine, or compile in a small vendored library with a
   permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
 - **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
-  the bundled shader compiler (shaderc/glslang), FMOD, and statically linked Asterwave. Building on those adds
-  nothing for the user to install. Asterwave is a private source dependency whose upstream licence
-  remains unchanged; it is not covered by the permissive-library rule above.
+  the bundled shader compiler (shaderc/glslang), and FMOD. Building on those adds nothing for the
+  user to install. Asterwave is an opt-in private source dependency (`--raytraced-audio`, off by
+  default) whose upstream licence remains unchanged; it is not covered by the permissive-library rule
+  above, and nothing may require it. `docs/AUDIO_NATIVE_BACKEND_PLAN.md` replaces FMOD with vendored
+  miniaudio.
 - **No new mandatory installs for game makers.** No required language servers, external IDEs,
   Node/Python runtimes, package managers, or online services. If an external tool is genuinely
   unavoidable, it is optional, auto-detected, degrades gracefully when missing, and the choice is
@@ -225,8 +227,10 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Required FMOD Core/Studio playback and statically linked native Asterwave acoustics via `AudioEngine`, `AudioEventInstance`, `AudioListener`, and `RaytracedAudioScene`.
-- Asterwave is fetched at the private revision in `scripts/dependencies/Asterwave.json` into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`); no Asterwave DLL/shared object is deployed.
+- Required FMOD Core/Studio playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`; engine occlusion (`AudioOcclusion`) and reverb zones work in every build.
+- Asterwave ray-traced acoustics (`RaytracedAudioScene`) are opt-in with premake `--raytraced-audio`. Without it, `RaytracedAudioSceneStub.cpp` makes `IsAvailable()` false. With it, the private revision in `scripts/dependencies/Asterwave.json` is fetched into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`) and linked statically, so exported games contain it.
+- Default acoustic-material coefficients are LuxEngine's own (`AcousticMaterial.cpp`, from published data and the mass law), not Asterwave presets.
+- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`.
 - Native shared ownership is confined to `RaytracedAudioScene::Impl` for Asterwave emitters/mesh geometry required by its API. Engine objects continue using `Ref`/`Scope`.
 
 ### Threading

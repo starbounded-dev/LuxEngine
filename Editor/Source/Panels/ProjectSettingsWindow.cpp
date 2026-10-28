@@ -7,6 +7,7 @@
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
+#include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/ImGui/AudioWidgets.h"
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "RuntimeExportUtils.h"
@@ -654,14 +655,17 @@ namespace Lux {
 			"Layered keeps both. Prefer zones reduces Asterwave ReverbSend by active snapshot coverage. Prefer Asterwave suppresses zone snapshots while valid Asterwave ambience is available.", false))
 			m_Dirty = true;
 
+		// The setting is kept either way; a build without --raytraced-audio plays it as engine raycasts.
 		static const char* occlusionSources[] = { "Engine raycasts", "Asterwave (raytraced)" };
-		if (ImGuiEx::PropertyDropdown("Occlusion", occlusionSources, 2, audioSettings.Occlusion.Source,
-			"What drives each event's Occlusion parameter. Engine casts rays from the listener through acoustic mesh colliders and closed portals, using each acoustic material's transmission. Asterwave uses the completed ray-traced per-source result. Applies on the next Play.", false))
+		static const char* occlusionSourcesWithoutAsterwave[] = { "Engine raycasts", "Asterwave (not in this build; uses engine)" };
+		if (ImGuiEx::PropertyDropdown("Occlusion", RaytracedAudioScene::IsAvailable() ? occlusionSources : occlusionSourcesWithoutAsterwave, 2,
+			audioSettings.Occlusion.Source,
+			"What drives each event's Occlusion parameter. Engine casts rays from the listener through acoustic mesh colliders and closed portals, using each acoustic material's transmission. Asterwave uses the completed ray-traced per-source result and needs a --raytraced-audio build. Applies on the next Play.", false))
 			m_Dirty = true;
 		if (audioSettings.Occlusion.Source == AudioOcclusionSource::Engine)
 		{
 			if (ImGuiEx::PropertySlider("Occlusion Strength", audioSettings.Occlusion.Strength, 0.0f, 4.0f,
-				"Scales every wall's loss. 1 follows the acoustic material data (a 0.3 m brick wall is about 18 dB).", false))
+				"Scales every wall's loss. 1 follows the acoustic material data (a 0.3 m brick wall is about 50 dB).", false))
 				m_Dirty = true;
 			if (ImGuiEx::Property("Occlusion Rate (Hz)", audioSettings.Occlusion.UpdateRateHz, 1.0f, 1.0f, 120.0f,
 				"How often each source's path is recast. The result is smoothed between casts.", false))
@@ -905,14 +909,13 @@ namespace Lux {
 		}
 		if (ImGuiEx::PropertyGridHeader("Acoustic Materials", false))
 		{
-			ImGui::TextWrapped("Applied on the next Play session and included in runtime exports. Presets are starting points; tune them for your game's scale.");
+			ImGui::TextWrapped("Applied on the next Play session and included in runtime exports. Defaults come from published absorption data and the mass law; they are starting points, so tune them for your game's scale.");
 			for (size_t i = 0; i < AcousticMaterialCount; ++i)
 			{
 				ImGuiEx::ScopedID id(static_cast<int>(i));
 				if (!ImGui::TreeNode(AcousticMaterialNames[i]))
 					continue;
 				const auto material = static_cast<AcousticMaterial>(i);
-				ImGui::Text("Asterwave base preset: %s", AcousticMaterialPresetName(material));
 				auto& entry = audioSettings.AcousticMaterials.Overrides[i];
 				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Override Preset", entry.Enabled))

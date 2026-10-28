@@ -6,81 +6,88 @@
 
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include <asterwave/simulation.hpp>
 #include "Lux/Serialization/Yaml.h"
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace Lux
 {
 	namespace
 	{
-		constexpr int kCustomMaterialBase = 1000;
-		// Keep 30 / metres representable without changing the authored or serialized value.
-		const float kMinimumNativeTransmission = std::nextafter(30.0f / std::numeric_limits<float>::max(),
-			std::numeric_limits<float>::infinity());
-		constexpr std::array<asterwave::MaterialType, AcousticMaterialCount> kPresets = {
-			asterwave::MaterialType::Concrete,
-			asterwave::MaterialType::Brick,
-			asterwave::MaterialType::Cloth,
-			asterwave::MaterialType::Cloth,
-			asterwave::MaterialType::Concrete,
-			asterwave::MaterialType::ConcretePolished,
-			asterwave::MaterialType::Dirt,
-			asterwave::MaterialType::Glass,
-			asterwave::MaterialType::Grass,
-			asterwave::MaterialType::Gravel,
-			asterwave::MaterialType::Marble,
-			asterwave::MaterialType::Metal,
-			asterwave::MaterialType::Gyprock,
-			asterwave::MaterialType::WoodIndoor,
-			asterwave::MaterialType::Rock,
-			asterwave::MaterialType::Snow,
-			asterwave::MaterialType::Mud,
-			asterwave::MaterialType::Water,
-			asterwave::MaterialType::WoodOutdoor,
-			asterwave::MaterialType::WoodIndoor,
-			asterwave::MaterialType::Tile,
-			asterwave::MaterialType::Cloth,
-			asterwave::MaterialType::Leaf,
-		};
-		constexpr std::array<const char*, AcousticMaterialCount> kPresetNames = {
-			"Concrete",
-			"Brick",
-			"Cloth",
-			"Cloth",
-			"Concrete",
-			"ConcretePolished",
-			"Dirt",
-			"Glass",
-			"Grass",
-			"Gravel",
-			"Marble",
-			"Metal",
-			"Gyprock",
-			"WoodIndoor",
-			"Rock",
-			"Snow",
-			"Mud",
-			"Water",
-			"WoodOutdoor",
-			"WoodIndoor",
-			"Tile",
-			"Cloth",
-			"Leaf",
+		// LuxEngine's own default coefficients, derived from published acoustics data. Each row holds the
+		// published inputs; Derive() turns them into engine properties.
+		//
+		// Absorption: random-incidence octave-band coefficients; LF averages 125 and 250 Hz, HF averages
+		// 2 and 4 kHz. Unmarked rows come from https://sengpielaudio.com/calculator-RT60Coeff.htm.
+		// "estimate" rows have no measured octave-band source and follow the trend for that surface.
+		// Scattering: estimates that grow with surface roughness, from 0.05 (smooth) to 0.7 (foliage).
+		// Transmission: the field-incidence mass law, TL = 20 log10(m'' f) - 47 dB with m'' = density *
+		// thickness in kg/m^2, at 125 Hz (LF) and 2 kHz (HF) for a typical construction thickness. Solids
+		// lose 30 dB per transmission distance, so distance = 30 * thickness / TL; a thin (one-sided)
+		// surface of the material loses the energy fraction 1 - 10^(-TL / 10). Foliage scatters through
+		// its volume instead, so ISO 9613-2's foliage attenuation per metre replaces the mass law.
+		struct PublishedMaterial
+		{
+			float Absorption125, Absorption250, Absorption2000, Absorption4000;
+			float Scattering;
+			float Density;   // kg/m^3
+			float Thickness; // m
+			float AttenuationLF = 0.0f, AttenuationHF = 0.0f; // dB/m, used instead of the mass law when set
 		};
 
-		AcousticMaterialProperties ReadProperties(const asterwave::MaterialProperties& source)
+		constexpr float kMassLawOffsetDb = 47.0f;
+		constexpr float kLowBandHz = 125.0f;
+		constexpr float kHighBandHz = 2000.0f;
+		constexpr float kMinimumLossDb = 1.0f; // light porous layers fall below the mass law's range
+		constexpr float kLossPerTransmissionDistanceDb = 30.0f;
+
+		constexpr std::array<PublishedMaterial, AcousticMaterialCount> kPublished = { {
+			{ 0.10f, 0.05f, 0.09f, 0.08f, 0.10f, 2300.0f, 0.30f },             // Default: as Concrete
+			{ 0.03f, 0.03f, 0.05f, 0.07f, 0.10f, 1800.0f, 0.30f },             // Brick: unglazed
+			{ 0.02f, 0.06f, 0.60f, 0.65f, 0.10f, 200.0f, 0.01f },              // Carpet: on concrete
+			{ 0.14f, 0.35f, 0.70f, 0.65f, 0.10f, 610.0f, 0.001f },             // Cloth: 18 oz/sq yd molleton curtain
+			{ 0.10f, 0.05f, 0.09f, 0.08f, 0.10f, 2300.0f, 0.30f },             // Concrete: block, painted
+			{ 0.01f, 0.01f, 0.02f, 0.02f, 0.05f, 2300.0f, 0.30f },             // ConcretePolished: concrete or tile
+			{ 0.15f, 0.25f, 0.60f, 0.60f, 0.40f, 1600.0f, 1.0f },              // Dirt: estimate, porous ground
+			{ 0.35f, 0.25f, 0.07f, 0.04f, 0.05f, 2500.0f, 0.006f },            // Glass: window
+			{ 0.15f, 0.30f, 0.80f, 0.85f, 0.50f, 1600.0f, 1.0f },              // Grass: estimate, grass over soil
+			{ 0.25f, 0.60f, 0.70f, 0.70f, 0.40f, 1600.0f, 1.0f },              // Gravel: loose, moist (Egan; 1 kHz value carried up)
+			{ 0.01f, 0.01f, 0.02f, 0.02f, 0.05f, 2700.0f, 0.30f },             // Marble: marble/tile
+			{ 0.03f, 0.03f, 0.03f, 0.03f, 0.05f, 7850.0f, 0.003f },            // Metal: estimate, steel sheet
+			{ 0.013f, 0.015f, 0.04f, 0.05f, 0.05f, 800.0f, 0.0125f },          // Plaster: smooth; transmission as 12.5 mm gypsum board
+			{ 0.02f, 0.03f, 0.03f, 0.02f, 0.05f, 1300.0f, 0.005f },            // Plastic: vinyl tile on concrete
+			{ 0.02f, 0.02f, 0.05f, 0.05f, 0.30f, 2600.0f, 1.0f },              // Rock: limestone wall (pyroomacoustics materials.json)
+			{ 0.75f, 0.75f, 0.75f, 0.75f, 0.50f, 300.0f, 1.0f },               // Snow: broadband 0.75 (Engineering ToolBox)
+			{ 0.15f, 0.25f, 0.60f, 0.60f, 0.40f, 1600.0f, 1.0f },              // Soil: estimate, porous ground
+			{ 0.008f, 0.008f, 0.020f, 0.025f, 0.05f, 1000.0f, 1.0f },          // Water: water or ice surface
+			{ 0.15f, 0.11f, 0.06f, 0.07f, 0.10f, 600.0f, 0.04f },              // Wood: on joists
+			{ 0.28f, 0.22f, 0.10f, 0.11f, 0.10f, 600.0f, 0.0095f },            // WoodThin: 3/8 in plywood panel
+			{ 0.01f, 0.01f, 0.02f, 0.02f, 0.05f, 2300.0f, 0.01f },             // Ceramic: marble/tile
+			{ 0.04f, 0.04f, 0.10f, 0.10f, 0.10f, 1200.0f, 0.005f },            // Rubber: 5 mm on concrete (pyroomacoustics materials.json)
+			{ 0.05f, 0.10f, 0.30f, 0.35f, 0.70f, 0.0f, 1.0f, 0.03f, 0.08f },   // Foliage: estimate absorption; ISO 9613-2 attenuation
+		} };
+		// A missing row would be zero-filled and silently derive nonsense; every row has a thickness.
+		static_assert(kPublished[AcousticMaterialCount - 1].Thickness > 0.0f, "kPublished needs one row per AcousticMaterial");
+
+		float TransmissionLossDb(const PublishedMaterial& source, float hz, float attenuation)
 		{
+			if (attenuation > 0.0f)
+				return attenuation * source.Thickness;
+			return std::max(20.0f * std::log10(source.Density * source.Thickness * hz) - kMassLawOffsetDb, kMinimumLossDb);
+		}
+
+		AcousticMaterialProperties Derive(const PublishedMaterial& source)
+		{
+			const float lossLF = TransmissionLossDb(source, kLowBandHz, source.AttenuationLF);
+			const float lossHF = TransmissionLossDb(source, kHighBandHz, source.AttenuationHF);
 			AcousticMaterialProperties properties;
-			properties.AbsorptionLF = source.AbsorptionLF();
-			properties.AbsorptionHF = source.AbsorptionHF();
-			properties.Scattering = source.Scattering();
-			properties.TransmissionLF = source.TransmissionLF();
-			properties.TransmissionHF = source.TransmissionHF();
-			properties.FlatTransmissionLF = source.FlatTransmissionLF();
-			properties.FlatTransmissionHF = source.FlatTransmissionHF();
+			properties.AbsorptionLF = 0.5f * (source.Absorption125 + source.Absorption250);
+			properties.AbsorptionHF = 0.5f * (source.Absorption2000 + source.Absorption4000);
+			properties.Scattering = source.Scattering;
+			properties.TransmissionLF = kLossPerTransmissionDistanceDb * source.Thickness / lossLF;
+			properties.TransmissionHF = kLossPerTransmissionDistanceDb * source.Thickness / lossHF;
+			properties.FlatTransmissionLF = 1.0f - std::pow(10.0f, -lossLF / 10.0f);
+			properties.FlatTransmissionHF = 1.0f - std::pow(10.0f, -lossHF / 10.0f);
 			return properties;
 		}
 	}
@@ -137,49 +144,11 @@ namespace Lux
 		static const auto s_Defaults = []()
 		{
 			std::array<AcousticMaterialProperties, AcousticMaterialCount> result{};
-			const auto presets = asterwave::DefaultMaterials();
 			for (size_t i = 0; i < result.size(); ++i)
-				result[i] = ReadProperties(presets[static_cast<size_t>(kPresets[i])]);
+				result[i] = Derive(kPublished[i]);
 			return result;
 		}();
 		return s_Defaults[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
-	}
-
-	const char* AcousticMaterialPresetName(AcousticMaterial material)
-	{
-		return kPresetNames[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
-	}
-
-	int AcousticMaterialID(AcousticMaterial material)
-	{
-		return kCustomMaterialBase + (IsValidAcousticMaterial(material) ? static_cast<int>(material) : 0);
-	}
-
-	bool ConfigureAcousticMaterials(asterwave::World& world, const AcousticMaterialSettings& settings)
-	{
-		if (!settings.Validate())
-			return false;
-		for (size_t i = 0; i < AcousticMaterialCount; ++i)
-		{
-			const auto material = static_cast<AcousticMaterial>(i);
-			const auto properties = settings.Overrides[i].Enabled ? settings.Overrides[i].Properties : GetDefaultAcousticMaterialProperties(material);
-			try
-			{
-				// Legacy projects permit flat loss above one. Native transmission multiplies by
-				// (1 - loss), so saturate complete loss instead of generating negative energy.
-				world.set_material(AcousticMaterialID(material), asterwave::MaterialProperties(
-					properties.AbsorptionLF, properties.AbsorptionHF, properties.Scattering,
-					std::max(properties.TransmissionLF, kMinimumNativeTransmission),
-					std::max(properties.TransmissionHF, kMinimumNativeTransmission),
-					std::min(properties.FlatTransmissionLF, 1.0f), std::min(properties.FlatTransmissionHF, 1.0f)));
-			}
-			catch (const std::exception& error)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot configure Asterwave material {0}: {1}", AcousticMaterialNames[i], error.what());
-				return false;
-			}
-		}
-		return true;
 	}
 
 	void AcousticMaterialSettings::SerializeYAML(Yaml::Writer& out) const

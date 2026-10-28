@@ -869,11 +869,11 @@ namespace Lux {
 			AudioPerformance::SubmitScene(m_RaytracedAudioScene ? m_RaytracedAudioScene->GetRaytracingTimeMilliseconds() : 0,
 				GetCulledAudioSourceCount(), m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning());
 
-			if (m_RaytracedAudioScene)
 			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::RaytracedAudioScene Scope", 0xFF7200);
+				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::Acoustics Scope", 0xFF7200);
 
-				// The batch is joined above. OnUpdate below launches the next Asterwave batch.
+				// The Asterwave batch, when there is one, is joined above; OnUpdate below launches the next.
+				const bool raytraced = static_cast<bool>(m_RaytracedAudioScene);
 
 				// This integration simulates one acoustic listener. Match the dominant mixer listener,
 				// using the character's position for acoustic paths when attenuation is detached.
@@ -881,11 +881,12 @@ namespace Lux {
 				const AudioListenerState* primaryListener = GetPrimaryAudioListener();
 				const auto& listener = primaryListener ? *primaryListener : fallback;
 				const glm::vec3 acousticListener = listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position;
-				m_RaytracedAudioScene->SetListener(acousticListener, listener.Forward);
+				if (raytraced)
+					m_RaytracedAudioScene->SetListener(acousticListener, listener.Forward);
 				if (m_OcclusionSource == AudioOcclusionSource::Engine)
 					UpdateAudioOcclusion(static_cast<float>(ts), acousticListener);
 
-				const RaytracedAudioAmbience ambience = m_RaytracedAudioScene->GetAmbience();
+				const RaytracedAudioAmbience ambience = raytraced ? m_RaytracedAudioScene->GetAmbience() : RaytracedAudioAmbience{};
 				m_LastAudioAmbience = ambience;
 
 				m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& asc)
@@ -895,16 +896,20 @@ namespace Lux {
 
 						if (!asc.Event.IsValid() || !asc.Enabled || IsInactive(entityHandle) || IsAudioSourceCulled(entityID))
 						{
-							m_RaytracedAudioScene->DestroyEmitter(entityID);
+							if (raytraced)
+								m_RaytracedAudioScene->DestroyEmitter(entityID);
 							m_AppliedAudioOcclusion.erase(entityID);
 							return;
 						}
 
-						m_RaytracedAudioScene->CreateEmitter(entityID);
-						m_RaytracedAudioScene->SetEmitterPosition(entityID, glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]));
-						m_RaytracedAudioScene->SetEmitterMaxVolume(entityID, asc.Config.VolumeMultiplier);
-
-						const RaytracedAudioResult result = m_RaytracedAudioScene->GetResult(entityID);
+						RaytracedAudioResult result;
+						if (raytraced)
+						{
+							m_RaytracedAudioScene->CreateEmitter(entityID);
+							m_RaytracedAudioScene->SetEmitterPosition(entityID, glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]));
+							m_RaytracedAudioScene->SetEmitterMaxVolume(entityID, asc.Config.VolumeMultiplier);
+							result = m_RaytracedAudioScene->GetResult(entityID);
+						}
 						// Clear stale sends when Asterwave has no result, so zone fallback cannot double the reverb.
 						AudioEventAcoustics acoustics;
 						if (m_OcclusionSource == AudioOcclusionSource::Engine)
@@ -917,7 +922,8 @@ namespace Lux {
 							instance->SetAcoustics(acoustics);
 					});
 
-				m_RaytracedAudioScene->OnUpdate(ts);
+				if (raytraced)
+					m_RaytracedAudioScene->OnUpdate(ts);
 			}
 		}
 		else if (m_IsPaused)
@@ -1738,8 +1744,7 @@ namespace Lux {
 
 	void Scene::SyncAudioGeometry(bool initial)
 	{
-		if (!m_RaytracedAudioScene || !m_RaytracedAudioScene->IsRunning())
-			return;
+		// Engine occlusion reads these inputs every frame; Asterwave also mirrors them below.
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_AudioGeometryInputs.clear();
 		for (auto handle : m_Registry.view<TransformComponent, MeshColliderComponent>())
@@ -1774,6 +1779,8 @@ namespace Lux {
 			input.Open = portal.Open;
 			m_AudioGeometryInputs.push_back(input);
 		}
+		if (!m_RaytracedAudioScene || !m_RaytracedAudioScene->IsRunning())
+			return;
 		m_AudioGeometry.Sync(m_AudioGeometryInputs, *m_RaytracedAudioScene,
 			[this](const auto& input, auto& geometry) { return BuildAcousticGeometry(input, geometry); },
 			initial ? SIZE_MAX : 8, initial ? SIZE_MAX : 65536);
@@ -1781,17 +1788,24 @@ namespace Lux {
 
 	void Scene::OnRaytracedAudioStart()
 	{
-		// Asterwave is built in. Keep availability handling aligned with the backend stats contract.
-		if (!RaytracedAudioScene::IsAvailable())
-			return;
-
-		m_RaytracedAudioScene = Ref<RaytracedAudioScene>::Create(this);
 		const auto project = Project::GetActive();
 		const AcousticMaterialSettings materials = project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{};
-		m_RaytracedAudioScene->Start(materials);
 		const AudioOcclusionSettings occlusion = project ? project->GetConfig().Audio.Occlusion : AudioOcclusionSettings{};
 		m_OcclusionSource = occlusion.Source;
 		m_AudioOcclusion.Configure(materials, occlusion);
+
+		// Asterwave is opt-in (--raytraced-audio). Without it engine occlusion and reverb zones carry
+		// the scene, and a project that asks for raytraced occlusion falls back to engine raycasts.
+		if (RaytracedAudioScene::IsAvailable())
+		{
+			m_RaytracedAudioScene = Ref<RaytracedAudioScene>::Create(this);
+			m_RaytracedAudioScene->Start(materials);
+		}
+		else if (m_OcclusionSource == AudioOcclusionSource::Raytraced)
+		{
+			LUX_CORE_WARN_TAG("Audio", "Raytraced occlusion needs a build with --raytraced-audio; using engine raycasts");
+			m_OcclusionSource = AudioOcclusionSource::Engine;
+		}
 
 		SyncAudioGeometry(true);
 	}
@@ -1849,7 +1863,12 @@ namespace Lux {
 
 	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)
 	{
-		m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, [this](UUID entity) { return m_AudioGeometry.GetPortalOpen(entity); });
+		// While Asterwave runs, portals use the Open it last applied so both paths agree; without it the
+		// authored Open is used directly.
+		if (m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning())
+			m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, [this](UUID entity) { return m_AudioGeometry.GetPortalOpen(entity); });
+		else
+			m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, {});
 
 		m_AudioOcclusionSources.clear();
 		m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)

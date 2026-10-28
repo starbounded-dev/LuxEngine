@@ -54,7 +54,7 @@ build glue; licensed SDK packages and the Asterwave checkout stay outside tracke
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
 | **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
 | **FMOD Engine** | 2.03.x (Core + Studio APIs) | Audio playback — **required, not optional** | [fmod.com](https://www.fmod.com/download) |
-| **Asterwave source** | Exact revision in `scripts/dependencies/Asterwave.json` | Native C++20 ray-traced acoustics, compiled statically | Private `starbounded-dev/asterwave` repository; `python scripts/FetchAsterwave.py` |
+| **Asterwave source** *(optional)* | Exact revision in `scripts/dependencies/Asterwave.json` | Opt-in ray-traced acoustics (`--raytraced-audio`), compiled statically; default builds don't need it | Private `starbounded-dev/asterwave` repository; `python scripts/FetchAsterwave.py` |
 
 You also want the **FMOD Studio** authoring tool (same 2.03.x family) to author and build banks, and its command-line tool `fmodstudiocl` if you want the editor to rebuild banks on Play.
 
@@ -64,28 +64,30 @@ LuxEngine's Apache-2.0 licence covers LuxEngine's own source. FMOD remains gover
 [licence terms](https://www.fmod.com/licensing). Asterwave is a private native source translation
 whose upstream Vercidium Audio licence and provenance records remain in force; its name and static
 linkage do not grant new redistribution rights or make it an Apache-2.0 library. Read the licence
-and provenance files in the pinned Asterwave checkout and [NOTICE](NOTICE).
+and provenance files in the pinned Asterwave checkout and [NOTICE](NOTICE). Asterwave is only built
+with `--raytraced-audio`; leave that option off for builds you ship.
 
-FMOD and Asterwave are included in every exported game's audio stack. Check the applicable
-licences and attribution requirements before distribution. CI publishes build/test logs only: a
-statically linked Asterwave implementation cannot be removed by stripping a runtime DLL.
+FMOD is included in every exported game's audio stack, and Asterwave is too when the build used
+`--raytraced-audio`. Check the applicable licences and attribution requirements before distribution.
+CI publishes build/test logs only: a statically linked Asterwave implementation cannot be removed by
+stripping a runtime DLL.
 
 A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is created at API 1.2); the 1.4 SDK is a build/tooling dependency.
 
 ### Installing the audio dependencies
 
-Premake validates FMOD headers/libraries and the exact local Asterwave revision/source layout
-at generation time. Generation performs no network fetch. Missing or mismatched dependencies
-fail before compilation.
+Premake validates FMOD headers/libraries at generation time and, with `--raytraced-audio`, the exact
+local Asterwave revision/source layout. Generation performs no network fetch. Missing or mismatched
+dependencies fail before compilation.
 
 **Default locations:**
 
 ```
 Core/vendor/FMOD/<any-subdirectory>/     e.g. Core/vendor/FMOD/fmodstudioapi20314linux/
-Core/vendor/Asterwave/                 pinned private source checkout
+Core/vendor/Asterwave/                 pinned private source checkout (only with --raytraced-audio)
 ```
 
-Fetch Asterwave explicitly using Git credentials with read access to its private repository:
+To build with Asterwave, fetch it explicitly using Git credentials with read access to its private repository:
 
 ```bash
 python scripts/FetchAsterwave.py
@@ -323,7 +325,8 @@ Binaries land in `bin/<Config>-<os>-x86_64/<Project>/`, e.g. `bin/Release-linux-
 | `--no-tracy` | Build without Tracy instrumentation (smaller, faster to link) |
 | `--no-aftermath` | Build without the Nvidia Aftermath GPU crash tracker |
 | `--discord` | Enable the Discord Social SDK integration (needs `Core/vendor/discord_social_sdk/`) |
-| `--fmod`, `--raytraced-audio` | Accepted for compatibility; FMOD and Asterwave are always required |
+| `--raytraced-audio` | Build the opt-in Asterwave ray-traced acoustics (needs the private source; exported games then contain it) |
+| `--fmod` | Accepted for compatibility; FMOD is always required |
 
 On Windows these are offered as checkboxes by `Setup.bat`; on Linux pass them via `LUX_PREMAKE_OPTIONS` or directly to `premake5`.
 

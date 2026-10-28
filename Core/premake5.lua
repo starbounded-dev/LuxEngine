@@ -70,6 +70,14 @@ project "Core"
 		removefiles { "Source/Lux/Platform/Vulkan/Debug/**.cpp" }
 	end
 
+	-- Asterwave is opt-in: whatever this build links ships inside exported games. Without it the stub
+	-- backend reports RaytracedAudioScene::IsAvailable() == false; engine occlusion is unaffected.
+	if _OPTIONS["raytraced-audio"] then
+		removefiles { "Source/Lux/Audio/RaytracedAudioSceneStub.cpp" }
+	else
+		removefiles { "Source/Lux/Audio/RaytracedAudioScene.cpp" }
+	end
+
 	includedirs { "Source/", "vendor/", }
 
 	IncludeDependencies()
@@ -84,7 +92,7 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	do -- Asterwave acoustics are required.
+	if _OPTIONS["raytraced-audio"] then
 		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
 	end
 

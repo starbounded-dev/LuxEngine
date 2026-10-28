@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Audio/AsterwaveMaterials.h"
 #include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/Serialization/Yaml.h"
 #include <asterwave/simulation.hpp>
@@ -316,7 +317,8 @@ namespace
 
 		const auto sealed = TwoRooms(listener, { 4, 1.7f, 3 }, false);
 		CHECK(sealed.OcclusionGainLF < 0.3f);
-		CHECK(sealed.OcclusionGainHF < sealed.OcclusionGainLF);
+		// Mass-law concrete can block both bands completely; highs are never louder than lows.
+		CHECK(sealed.OcclusionGainHF <= sealed.OcclusionGainLF);
 
 		// No direct line through the doorway; reflected paths through it still carry the sound.
 		const auto doorway = TwoRooms(listener, { 4, 1.7f, 3 }, true);
