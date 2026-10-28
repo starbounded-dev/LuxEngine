@@ -787,7 +787,9 @@ thread. Joining before mutation and teardown is mandatory. This integration sele
 listener: highest
 weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
 The listener casts rays; audio sources are zero-ray targets. `IsAvailable()` is always true in
-this required built-in backend. Debug stats report Asterwave product version 0.1.0.
+this required built-in backend. Debug stats report Asterwave product version 0.2.0.
+Asterwave catches a throwing callback or custom formula and keeps simulating; the world is named
+`Asterwave` and its `LogError` hook sends those reports to `LUX_CORE_ERROR_TAG("Audio", ...)`.
 
 The adapter caps source volume at unity for native acoustic energy; FMOD retains the authored
 playback volume, including boosts. Authored material values and their serialized forms also stay

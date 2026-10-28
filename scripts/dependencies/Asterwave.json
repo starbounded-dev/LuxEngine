@@ -1,6 +1,6 @@
 {
   "repository": "starbounded-dev/asterwave",
-  "revision": "7eec9389bcff9db833a19f6683767e9479d1d1b0",
+  "revision": "0cf46d9de4c9477cdf345af6165446af3d222b47",
   "sources": [
     "src/acoustics.cpp",
     "src/geometry.cpp",

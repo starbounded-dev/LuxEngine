@@ -254,6 +254,9 @@ namespace Lux
 		try
 		{
 			m_Impl->World = CreateScope<asterwave::World>();
+			// A throwing callback is caught by Asterwave and reported here instead of stderr
+			m_Impl->World->Name = "Asterwave";
+			m_Impl->World->LogError = [](const std::string& message) { LUX_CORE_ERROR_TAG("Audio", "{0}", message); };
 			if (!ConfigureAcousticMaterials(*m_Impl->World, materials))
 			{
 				Stop();
@@ -703,7 +706,7 @@ namespace Lux
 		RaytracedAudioStats stats;
 		stats.Available = true;
 		stats.VersionMajor = 0;
-		stats.VersionMinor = 1;
+		stats.VersionMinor = 2;
 		stats.VersionPatch = 0;
 #if defined(LUX_DIST)
 		stats.ProductionBuild = true;

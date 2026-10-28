@@ -150,7 +150,7 @@ namespace
 		CHECK(rays.RayCount == 32 && rays.BounceCount == 3 && rays.Bounces.size() == 96);
 		CHECK(std::none_of(rays.Bounces.begin(), rays.Bounces.end(), [](const auto& bounce) { return bounce.Hit; }));
 		const auto stats = scene.GetStats();
-		CHECK(stats.VersionMajor == 0 && stats.VersionMinor == 1 && stats.VersionPatch == 0);
+		CHECK(stats.VersionMajor == 0 && stats.VersionMinor == 2 && stats.VersionPatch == 0);
 		CHECK(stats.RaysCastThisFrame > 0 && stats.WorkItemCount > 0 && stats.MaximumConcurrencyLevel > 0);
 		CHECK(stats.RaytracingTimeMs >= 0 && stats.MainThreadTimeMs >= 0 && stats.LatencyMs >= 0);
 
