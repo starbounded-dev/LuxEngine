@@ -16,8 +16,8 @@ Written 2026-10-28 from `feature/asterwave-audio` at `1c07162`.
 - **Success criteria:**
   1. A clean checkout builds and runs the Editor and Lux-Runtime with no FMOD SDK. Together with
      the separate Asterwave-optional work, it needs no private dependency at all.
-  2. The sample project's two events (`Fart`, `Music`) are Sound assets authored in the editor,
-     and they play.
+  2. The sample project's two events (`Fart`, `Music`) are Sound assets authored in the editor's
+     panels, and they play. No step in authoring them uses another application.
   3. The music director, dialogue and subtitles, accessibility mixer, zones, snapshots and reverb,
      physics audio and engine occlusion all work on the native backend.
   4. The headless audio tests pass with no audio device.
@@ -37,6 +37,16 @@ Written 2026-10-28 from `feature/asterwave-audio` at `1c07162`.
   - The audio API stays main-thread only.
   - Must work under both threading policies (Linux defaults to single-threaded).
   - No new install for game makers.
+- **Built into the editor:** "I want this directly implemented into LuxEngine, not a separate app;
+  it's in the panels." Every authoring task happens in LuxEngine editor panels, with no external
+  tool:
+  - importing audio;
+  - building sounds;
+  - the mix and snapshots;
+  - music tempo and markers;
+  - dialogue clips;
+  - auditioning;
+  - meters.
 - **The user's decisions (2026-10-28):**
   - Use editor-built Sound assets.
   - Keep FMOD behind a build switch until the native backend reaches parity.
@@ -47,7 +57,8 @@ Written 2026-10-28 from `feature/asterwave-audio` at `1c07162`.
 
 | Decision | Choice | Consequence |
 |---|---|---|
-| Authoring model | **User:** Sound assets (`.lsound`) authored in the editor. Buses and snapshots live in Project Settings. | The FMOD Studio app is no longer needed. LuxEngine owns containers, parameters and the mixer. |
+| Authoring model | **User:** everything is authored in editor panels:<br>• Sound assets (`.lsound`) in a Sound Editor panel<br>• the mix in an Audio Mixer panel, saved with the project<br>• no separate app | The FMOD Studio app is no longer needed. LuxEngine owns containers, parameters and the mixer. |
+| Editor surfaces | A Sound Editor panel and an Audio Mixer panel, both dockable. They follow the existing `MaterialEditorPanel` pattern: registered with `AddPanel`, and the Sound Editor opens from the Content Browser through `RegisterItemActivateCallbackForType`. | One familiar workflow. No authoring stays in Project Settings except project-wide defaults. |
 | Transition | **User:** a premake switch, `--audio-backend=fmod\|native`. FMOD stays the default until Phase 9. | Two implementations of the same engine-facing classes exist until Phase 10. Shared tests run on both. |
 | Parity before deletion | **User:** music, dialogue, accessibility, zones/snapshots/reverb. | FMOD is deleted only after Phase 9 verifies all four. |
 | Migration | **User:** sample project only, re-authored by hand. | No `.fspro` importer. FMOD references in other projects show the existing legacy-audio style warning. |
@@ -93,8 +104,9 @@ FMOD SDK is not in this container.
 ## Part 1 — Design
 
 ```
- Editor                      Project Settings › Mixer          .lsound (Sound asset)
- Sound editor ──edits──►     buses · effects · snapshots       clips · containers · params · tempo
+ Editor panels:              Audio Mixer panel                 .lsound (Sound asset)
+ Sound Editor ──edits──►     buses · effects · snapshots       clips · containers · params · tempo
+ Content Browser (import)    (saved in the project)
                                      │                                   │
                                      ▼                                   ▼
  ┌───────────────────────── AudioEngine (static facade) ─────────────────────────────┐
@@ -137,7 +149,7 @@ the render-thread policy.
 | System | Audio (Core). It depends on Asset, Project and Core. Scene owns playback (unchanged). No Renderer dependency. |
 | Renderer | None. Zone and portal lines already go through `FrameRenderPacket::AudioZoneLines`. |
 | Serialization | New Sound asset YAML and pack serializer. An `AudioEventRef.Sound` key (missing → 0). `ProjectAudioSettings::Mixer` in YAML plus runtime project format **26**; older formats use the default mixer. An asset-pack version bump for audio bytes; old packs load but report that a re-export is needed. |
-| Editor | Sound editor panel (**NEW**) and a Mixer section in Project Settings. The event picker lists Sound assets. Content Browser gets "Create Sound". Every UI phase carries an ImGui verification step. |
+| Editor | **NEW** panels:<br>• Sound Editor (`Panels/SoundEditor/`)<br>• Audio Mixer (`Panels/AudioMixerPanel`)<br>Content Browser: drag-and-drop audio import, "Create Sound", waveform thumbnails. The inspector's event picker lists Sound assets and has an "Edit" button that opens the Sound Editor. The existing Audio Debugger stays. Every UI phase carries an ImGui verification step. |
 | Scripting | The C# API keeps its shape. `Audio.Play`/`PlayOneShot` accept a Sound handle or asset path. `event:/` paths and `Audio.LoadBank` log a migration error on the native backend and are removed in Phase 10. |
 | Runtime and Dist | miniaudio is static. Audio bytes travel in the pack. Dist has no Sound editor and no ImGui. |
 | Linux | miniaudio loads ALSA, PulseAudio or JACK with `dlopen` at runtime, so there is no build-time library. Desktop Linux already has PulseAudio or PipeWire. |
@@ -277,11 +289,23 @@ auditioned in the editor.
   - **Data:** a stream-or-decode flag.
   - **Parameters:** continuous ranges or labels, with curves on volume, pitch, low-pass,
     high-pass, send and layer volume.
-- `Editor/Source/Panels/SoundEditorPanel` — **NEW**, through the editor panel playbook
-  (`EditorPanel`, `AddPanel`, menu toggle, regenerate):
-  - container tree, clip list, curve editor;
-  - an audition voice owned by the panel, not by a scene.
-- Content Browser — "Create Sound from selection".
+- `Editor/Source/Panels/SoundEditor/SoundEditorPanel` — **NEW** dockable panel, modelled on
+  `Panels/MaterialEditor/MaterialEditorPanel`. It goes through the editor panel playbook
+  (`EditorPanel`, `AddPanel` under `PanelCategory::View`, menu toggle, regenerate). It contains:
+  - a container tree (add, remove, reorder, nest);
+  - a clip list with a waveform view, start offset and loop-region handles;
+  - property fields and a parameter curve editor;
+  - transport (play, stop, loop) with a live parameter slider to hear curves change;
+  - an audition voice owned by the panel, not by a scene, so it works in edit mode.
+  - Edits use the editor's undo, and save the `.lsound` as other assets do.
+- Opening it:
+  - double-click a `.lsound` in the Content Browser (`RegisterItemActivateCallbackForType`);
+  - the inspector's "Edit" button next to any Sound picker.
+- Content Browser:
+  - Dropping `.wav`, `.ogg`, `.mp3` or `.flac` files imports them as `AudioFile` assets.
+  - "Create Sound" from one file or a selection makes a Random container of those clips.
+  - Audio files and Sounds get waveform thumbnails (**NEW** thumbnailer, like
+    `MaterialThumbnailer`).
 
 **Verification**
 - Physics audio tests are ported to native and pass (`Surface` switch; `Speed`, `Weight` and
@@ -300,7 +324,7 @@ with pitch variation.
 
 ### Phase 4 — Mixer: buses, effects, snapshots, zones and reverb
 
-**Goal:** the mix is authored in Project Settings; zones, snapshots and reverb work natively.
+**Goal:** the mix is authored in an Audio Mixer panel; zones, snapshots and reverb work natively.
 
 **Changes**
 - `ProjectAudioSettings::Mixer` — **NEW:**
@@ -318,13 +342,26 @@ with pitch variation.
 - `ZoneReverbMode` is unchanged.
 - **Precedence rule (from Unity's documented pitfall):** a value set from script on a bus property
   overrides snapshots until it is cleared. `ClearBusVolume` is **NEW**.
+- `Editor/Source/Panels/AudioMixerPanel` — **NEW** dockable panel (View → Audio Mixer). It edits
+  `ProjectAudioSettings::Mixer` with undo and saves with the project. It shows:
+  - a fader strip per bus: volume, mute and solo, live peak/RMS meters during Play;
+  - the bus tree, with add, rename, reparent and delete;
+  - each bus's effect chain, with add, reorder and bypass;
+  - reverb returns;
+  - a snapshot list: edit overrides, and preview each snapshot's intensity live in edit mode or
+    Play.
+- Project Settings keeps only a link to the panel.
 
 **Verification**
 - Zone tests ported: ambience enter and exit, snapshot coalescing, intensity blending, portal
   transfer.
 - An offline render measures the reverb decay of the built-in reverb at three settings.
-- Project Settings ImGui verification across bus add, remove, rename and reparent, and snapshot
-  editing.
+- Audio Mixer panel ImGui verification:
+  - stable `PushID` per bus and effect;
+  - `###` on renamable bus labels;
+  - every scope closed on every path.
+  Drive bus add, remove, rename and reparent, effect reorder and bypass, snapshot editing and
+  preview, and meters in Play.
 
 **Docs:** Architecture 2.10 (zones and snapshots, project format 26); a `Threading.md` note on
 meters.
@@ -373,6 +410,12 @@ work natively, with transitions more precise than today.
 **Changes**
 - Sound tempo map — **NEW:** BPM, time signature, beat offset, named markers (`Section:` prefix
   kept).
+- Sound Editor timeline view for music Sounds:
+  - waveform with a bar/beat grid;
+  - draggable markers and tempo settings;
+  - play from cursor and loop the selected region;
+  - a test transition button that plays the quantized switch to another bed;
+  - this view gets its own ImGui verification pass.
 - Native `DrainTimelineNotifications` computes beats, bars and markers from the voice's PCM cursor
   on the main thread.
 - Quantized transitions schedule the next bed with `ma_sound_set_start_time_in_pcm_frames` on the
@@ -397,7 +440,8 @@ work natively, with transitions more precise than today.
 - A line's event is a Sound with a **NEW** "clip slot". `SetProgrammerSound` becomes
   `SetClipOverride(AssetHandle)`, checked before `Start`. Subtitle duration comes from the clip
   length.
-- Project Settings and the dialogue editor pick a clip per language.
+- The existing dialogue line editor (in Project Settings today) gains a clip picker per language, accepts audio files dropped
+  from the Content Browser, and gets a play button per line.
 
 **Verification**
 - Dialogue tests ported: queue, interrupt, drop modes, barks and cooldowns, locale fallback,
