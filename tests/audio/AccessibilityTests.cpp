@@ -79,7 +79,7 @@ int main(int argc, char** argv)
 	}
 
 	FMOD::ChannelGroup* master = nullptr;
-	assert(AudioEngine::GetEngine()->getMasterChannelGroup(&master) == FMOD_OK);
+	assert(FMODInternal::GetCoreSystem()->getMasterChannelGroup(&master) == FMOD_OK);
 	int originalDSPs = 0;
 	assert(master->getNumDSPs(&originalDSPs) == FMOD_OK);
 	int owner = 0;
@@ -106,8 +106,8 @@ int main(int argc, char** argv)
 	Near(threshold, -24);
 	FMOD::Studio::Bus* musicBus = nullptr;
 	FMOD::Studio::Bus* dialogueBus = nullptr;
-	assert(AudioEngine::GetStudioSystem()->getBus("bus:/Music", &musicBus) == FMOD_OK);
-	assert(AudioEngine::GetStudioSystem()->getBus("bus:/Dialogue", &dialogueBus) == FMOD_OK);
+	assert(FMODInternal::GetStudioSystem()->getBus("bus:/Music", &musicBus) == FMOD_OK);
+	assert(FMODInternal::GetStudioSystem()->getBus("bus:/Dialogue", &dialogueBus) == FMOD_OK);
 	FMOD::ChannelGroup* musicGroup = nullptr;
 	FMOD::ChannelGroup* dialogueGroup = nullptr;
 	assert(musicBus->getChannelGroup(&musicGroup) == FMOD_OK && dialogueBus->getChannelGroup(&dialogueGroup) == FMOD_OK);

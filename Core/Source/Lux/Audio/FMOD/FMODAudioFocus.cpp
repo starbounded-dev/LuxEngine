@@ -2,8 +2,9 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "AudioEngine.h"
-#include "AudioPerformance.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioPerformance.h"
+#include "FMODInternal.h"
 #include <fmod.hpp>
 #include <fmod_errors.h>
 
@@ -17,7 +18,7 @@ namespace Lux
 
 	void AudioEngine::SetApplicationFocused(bool focused)
 	{
-		auto* core = GetEngine();
+		auto* core = FMODInternal::GetCoreSystem();
 		if (!core)
 			return;
 		const int muted = !focused && AudioPerformance::GetSettings().MuteWhenUnfocused;

@@ -70,10 +70,10 @@ int main(int argc, char** argv)
 	assert(event && event->Start());
 	event->SetPaused(true);
 	FMOD::Studio::Bus* bus = nullptr;
-	assert(AudioEngine::GetStudioSystem()->getBus("bus:/Music", &bus) == FMOD_OK);
+	assert(FMODInternal::GetStudioSystem()->getBus("bus:/Music", &bus) == FMOD_OK);
 	assert(bus->setMute(true) == FMOD_OK);
 	FMOD::ChannelGroup* master = nullptr;
-	assert(AudioEngine::GetEngine()->getMasterChannelGroup(&master) == FMOD_OK);
+	assert(FMODInternal::GetCoreSystem()->getMasterChannelGroup(&master) == FMOD_OK);
 	for (bool focused : { false, true, false, true })
 	{
 		AudioEngine::SetApplicationFocused(focused);

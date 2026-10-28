@@ -2,9 +2,10 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "AudioEngine.h"
-#include "AudioAccessibility.h"
-#include "AudioPerformance.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioAccessibility.h"
+#include "Lux/Audio/AudioPerformance.h"
+#include "FMODInternal.h"
 
 #include "Lux/Project/Project.h"
 
@@ -20,6 +21,8 @@ namespace Lux {
 	namespace {
 
 		constexpr int kMaxChannels = 512;
+		FMOD::System* s_Engine = nullptr;
+		FMOD::Studio::System* s_StudioSystem = nullptr;
 		bool s_LiveUpdateEnabled = false;
 		std::vector<FMOD::Studio::Bank*> s_Banks;
 		std::vector<std::filesystem::path> s_BankPaths;
@@ -50,8 +53,15 @@ namespace Lux {
 		}
 	}
 
-	FMOD::System* AudioEngine::s_Engine;
-	FMOD::Studio::System* AudioEngine::s_StudioSystem;
+	FMOD::Studio::System* FMODInternal::GetStudioSystem()
+	{
+		return s_StudioSystem;
+	}
+
+	FMOD::System* FMODInternal::GetCoreSystem()
+	{
+		return s_Engine;
+	}
 
 	void AudioEngine::Init()
 	{
@@ -438,7 +448,7 @@ namespace Lux {
 		return GuidToString(guid);
 	}
 
-	FMOD_RESULT AudioEngine::LockBusChannelGroup(FMOD::Studio::Bus* bus)
+	FMOD_RESULT FMODInternal::LockBusChannelGroup(FMOD::Studio::Bus* bus)
 	{
 		if (!bus)
 			return FMOD_ERR_INVALID_PARAM;
@@ -456,7 +466,7 @@ namespace Lux {
 		return FMOD_OK;
 	}
 
-	FMOD_RESULT AudioEngine::UnlockBusChannelGroup(FMOD::Studio::Bus* bus)
+	FMOD_RESULT FMODInternal::UnlockBusChannelGroup(FMOD::Studio::Bus* bus)
 	{
 		auto it = s_BusLocks.find(bus);
 		if (it == s_BusLocks.end())

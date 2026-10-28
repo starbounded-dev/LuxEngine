@@ -2,14 +2,20 @@
 #include "lpch.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioAccessibility.h"
+#include "Lux/Audio/FMOD/FMODInternal.h"
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
 #include "AudioTestLog.h"
 // Only host setup is replaced: production surface/event code drives the real FMOD Studio SDK.
 namespace Lux
 {
-	FMOD::System* AudioEngine::s_Engine = nullptr;
-	FMOD::Studio::System* AudioEngine::s_StudioSystem = nullptr;
+	namespace
+	{
+		FMOD::System* s_Engine = nullptr;
+		FMOD::Studio::System* s_StudioSystem = nullptr;
+	}
+	FMOD::Studio::System* FMODInternal::GetStudioSystem() { return s_StudioSystem; }
+	FMOD::System* FMODInternal::GetCoreSystem() { return s_Engine; }
 	int TestRealVoices = 64;
 	std::unordered_map<FMOD::Studio::Bus*, uint32_t> TestBusLocks;
 	void AudioEngine::Init()
@@ -42,7 +48,7 @@ namespace Lux
 		return r == FMOD_OK;
 	}
 	// Mirrors the production reference count: accessibility and performance can lock one bus.
-	FMOD_RESULT AudioEngine::LockBusChannelGroup(FMOD::Studio::Bus* bus)
+	FMOD_RESULT FMODInternal::LockBusChannelGroup(FMOD::Studio::Bus* bus)
 	{
 		if (!bus)
 			return FMOD_ERR_INVALID_PARAM;
@@ -59,7 +65,7 @@ namespace Lux
 		++count;
 		return FMOD_OK;
 	}
-	FMOD_RESULT AudioEngine::UnlockBusChannelGroup(FMOD::Studio::Bus* bus)
+	FMOD_RESULT FMODInternal::UnlockBusChannelGroup(FMOD::Studio::Bus* bus)
 	{
 		auto it = TestBusLocks.find(bus);
 		if (it == TestBusLocks.end())
@@ -88,14 +94,14 @@ namespace Lux
 } // namespace Lux
 void Tick()
 {
-	auto* s = AudioEngine::GetStudioSystem();
+	auto* s = FMODInternal::GetStudioSystem();
 	assert(s->update() == FMOD_OK);
 	assert(s->flushCommands() == FMOD_OK);
 }
 FMOD::Studio::EventDescription* Desc(const char* path)
 {
 	FMOD::Studio::EventDescription* d = nullptr;
-	assert(AudioEngine::GetStudioSystem()->getEvent(path, &d) == FMOD_OK);
+	assert(FMODInternal::GetStudioSystem()->getEvent(path, &d) == FMOD_OK);
 	return d;
 }
 FMOD::Studio::EventInstance* Only(const char* path)

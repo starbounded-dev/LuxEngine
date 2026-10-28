@@ -2,8 +2,9 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "AudioAccessibilityMixer.h"
-#include "AudioEngine.h"
+#include "Lux/Audio/AudioAccessibilityMixer.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "FMODInternal.h"
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
 #include <fmod_errors.h>
@@ -58,7 +59,7 @@ namespace Lux
 				Check(bus.Gain->release(), "release bus gain");
 			}
 			if (bus.Studio)
-				Check(AudioEngine::UnlockBusChannelGroup(bus.Studio), "unlock bus");
+				Check(FMODInternal::UnlockBusChannelGroup(bus.Studio), "unlock bus");
 			bus = {};
 		}
 		for (auto* dsp : { m_Impl->Mono, m_Impl->Compressor })
@@ -78,8 +79,8 @@ namespace Lux
 	bool AudioAccessibilityMixer::Configure(const AudioAccessibilityConfig& config)
 	{
 		Reset();
-		auto* studio = AudioEngine::GetStudioSystem();
-		auto* core = AudioEngine::GetEngine();
+		auto* studio = FMODInternal::GetStudioSystem();
+		auto* core = FMODInternal::GetCoreSystem();
 		if (!studio || !core || !config.Validate())
 			return false;
 		m_Impl->Duck = config.DescriptionDuck;
@@ -109,7 +110,7 @@ namespace Lux
 				success = false;
 				continue;
 			}
-			if (!Check(AudioEngine::LockBusChannelGroup(studioBus), "lock category bus"))
+			if (!Check(FMODInternal::LockBusChannelGroup(studioBus), "lock category bus"))
 			{
 				success = false;
 				continue;

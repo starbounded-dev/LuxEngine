@@ -3,10 +3,11 @@
 
 #include "lpch.h"
 #include <mutex>
-#include "AudioEventInstance.h"
+#include "Lux/Audio/AudioEventInstance.h"
 
-#include "AudioEngine.h"
-#include "AudioAccessibility.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioAccessibility.h"
+#include "FMODInternal.h"
 
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
@@ -207,6 +208,19 @@ namespace Lux {
 
 	} // namespace
 
+	struct AudioEventInstance::Impl
+	{
+		FMOD::Studio::EventInstance* Instance = nullptr;
+		// The snapshot Intensity parameter, resolved and validated on first use.
+		bool SnapshotIntensityValidated = false;
+		FMOD_STUDIO_PARAMETER_ID SnapshotIntensity{};
+	};
+
+	AudioEventInstance::AudioEventInstance(Scope<Impl> impl, const std::string& guid, uint64_t generation)
+		: m_Impl(std::move(impl)), m_Guid(guid), m_Generation(generation)
+	{
+	}
+
 	std::vector<AudioEventNotification> AudioEventInstance::DrainNotifications()
 	{
 		std::vector<AudioEventNotification> result;
@@ -243,8 +257,8 @@ namespace Lux {
 			state.Timeline |= timeline;
 			timeline = state.Timeline;
 		}
-		return CheckResult(m_Instance->setUserData(reinterpret_cast<void*>(static_cast<uintptr_t>(m_CallbackToken))), "set callback token") &&
-			CheckResult(m_Instance->setCallback(AudioCallback, FMOD_STUDIO_EVENT_CALLBACK_STOPPED | FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER |
+		return CheckResult(m_Impl->Instance->setUserData(reinterpret_cast<void*>(static_cast<uintptr_t>(m_CallbackToken))), "set callback token") &&
+			CheckResult(m_Impl->Instance->setCallback(AudioCallback, FMOD_STUDIO_EVENT_CALLBACK_STOPPED | FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER |
 				FMOD_STUDIO_EVENT_CALLBACK_STARTED | FMOD_STUDIO_EVENT_CALLBACK_START_FAILED | FMOD_STUDIO_EVENT_CALLBACK_SOUND_PLAYED |
 				FMOD_STUDIO_EVENT_CALLBACK_CREATE_PROGRAMMER_SOUND | FMOD_STUDIO_EVENT_CALLBACK_DESTROY_PROGRAMMER_SOUND |
 				(timeline ? FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_BEAT : 0)), "set callback");
@@ -281,31 +295,31 @@ namespace Lux {
 		if (priority < 0 || priority > 256)
 			return CheckResult(FMOD_ERR_INVALID_PARAM, "priority must be in [0, 256]");
 		return IsValid() &&
-			CheckResult(m_Instance->setProperty(FMOD_STUDIO_EVENT_PROPERTY_CHANNELPRIORITY, static_cast<float>(priority)), "set priority");
+			CheckResult(m_Impl->Instance->setProperty(FMOD_STUDIO_EVENT_PROPERTY_CHANNELPRIORITY, static_cast<float>(priority)), "set priority");
 	}
 	int AudioEventInstance::GetPriority() const
 	{
 		float priority = 128;
 		if (IsValid())
-			CheckResult(m_Instance->getProperty(FMOD_STUDIO_EVENT_PROPERTY_CHANNELPRIORITY, &priority), "get priority");
+			CheckResult(m_Impl->Instance->getProperty(FMOD_STUDIO_EVENT_PROPERTY_CHANNELPRIORITY, &priority), "get priority");
 		return static_cast<int>(priority);
 	}
 	float AudioEventInstance::GetMaximumDistance() const
 	{
 		float minimum = 0, maximum = 0;
-		return IsValid() && CheckResult(m_Instance->getMinMaxDistance(&minimum, &maximum), "get distance range") ? maximum : 0;
+		return IsValid() && CheckResult(m_Impl->Instance->getMinMaxDistance(&minimum, &maximum), "get distance range") ? maximum : 0;
 	}
 	bool AudioEventInstance::IsVirtual() const
 	{
 		bool result = false;
-		return IsValid() && CheckResult(m_Instance->isVirtual(&result), "get virtualization state") && result;
+		return IsValid() && CheckResult(m_Impl->Instance->isVirtual(&result), "get virtualization state") && result;
 	}
 
 	bool AudioEventInstance::Is3D() const
 	{
 		FMOD::Studio::EventDescription* description = nullptr;
 		bool spatial = false;
-		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+		return IsValid() && CheckResult(m_Impl->Instance->getDescription(&description), "get description") &&
 			CheckResult(description->is3D(&spatial), "get spatial state") && spatial;
 	}
 
@@ -313,7 +327,7 @@ namespace Lux {
 	{
 		FMOD::Studio::EventDescription* description = nullptr;
 		bool oneShot = false;
-		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+		return IsValid() && CheckResult(m_Impl->Instance->getDescription(&description), "get description") &&
 			   CheckResult(description->isOneshot(&oneShot), "get one-shot state") && oneShot;
 	}
 
@@ -321,7 +335,7 @@ namespace Lux {
 	{
 		FMOD::Studio::EventDescription* description = nullptr;
 		bool snapshot = false;
-		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+		return IsValid() && CheckResult(m_Impl->Instance->getDescription(&description), "get description") &&
 			CheckResult(description->isSnapshot(&snapshot), "get snapshot state") && snapshot;
 	}
 
@@ -329,45 +343,43 @@ namespace Lux {
 	{
 		if (!IsValid())
 			return false;
-		if (!std::isfinite(intensity) || intensity < 0.0f || intensity > 1.0f || (!m_SnapshotIntensityValidated && !IsSnapshot()))
+		if (!std::isfinite(intensity) || intensity < 0.0f || intensity > 1.0f || (!m_Impl->SnapshotIntensityValidated && !IsSnapshot()))
 			return CheckResult(FMOD_ERR_INVALID_PARAM, "snapshot intensity requires a snapshot and a value in [0, 1]");
-		if (!m_SnapshotIntensityValidated)
+		if (!m_Impl->SnapshotIntensityValidated)
 		{
 			FMOD::Studio::EventDescription* description = nullptr;
 			FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
-			if (!CheckResult(m_Instance->getDescription(&description), "get snapshot description") ||
+			if (!CheckResult(m_Impl->Instance->getDescription(&description), "get snapshot description") ||
 				!CheckResult(description->getParameterDescriptionByName("Intensity", &parameter),
 					"expose the snapshot Intensity dial as a 0–100 parameter in FMOD Studio"))
 				return false;
 			if (parameter.minimum != 0.0f || parameter.maximum != 100.0f ||
 				(parameter.flags & (FMOD_STUDIO_PARAMETER_READONLY | FMOD_STUDIO_PARAMETER_GLOBAL | FMOD_STUDIO_PARAMETER_DISCRETE | FMOD_STUDIO_PARAMETER_LABELED)))
 				return CheckResult(FMOD_ERR_INVALID_PARAM, "snapshot Intensity must be a local continuous writable 0–100 parameter");
-			m_SnapshotIntensityID[0] = parameter.id.data1;
-			m_SnapshotIntensityID[1] = parameter.id.data2;
-			m_SnapshotIntensityValidated = true;
+			m_Impl->SnapshotIntensity = parameter.id;
+			m_Impl->SnapshotIntensityValidated = true;
 		}
-		const FMOD_STUDIO_PARAMETER_ID id{ m_SnapshotIntensityID[0], m_SnapshotIntensityID[1] };
-		return CheckResult(m_Instance->setParameterByID(id, intensity * 100.0f, true), "set snapshot intensity");
+		return CheckResult(m_Impl->Instance->setParameterByID(m_Impl->SnapshotIntensity, intensity * 100.0f, true), "set snapshot intensity");
 	}
 
 	float AudioEventInstance::GetParameter(const std::string& name) const
 	{
 		float value = 0.0f;
 		if (IsValid())
-			CheckResult(m_Instance->getParameterByName(name.c_str(), &value), ("get parameter: " + name).c_str());
+			CheckResult(m_Impl->Instance->getParameterByName(name.c_str(), &value), ("get parameter: " + name).c_str());
 		return value;
 	}
 
 	bool AudioEventInstance::SetParameterLabel(const std::string& name, const std::string& label)
 	{
-		return IsValid() && CheckResult(m_Instance->setParameterByNameWithLabel(name.c_str(), label.c_str()), "set parameter label");
+		return IsValid() && CheckResult(m_Impl->Instance->setParameterByNameWithLabel(name.c_str(), label.c_str()), "set parameter label");
 	}
 
 	int AudioEventInstance::GetTimelinePosition() const
 	{
 		int position = 0;
 		if (IsValid())
-			CheckResult(m_Instance->getTimelinePosition(&position), "get timeline position");
+			CheckResult(m_Impl->Instance->getTimelinePosition(&position), "get timeline position");
 		return position;
 	}
 
@@ -375,19 +387,19 @@ namespace Lux {
 	{
 		FMOD::Studio::EventDescription* description = nullptr;
 		int length = 0;
-		return IsValid() && CheckResult(m_Instance->getDescription(&description), "get description") &&
+		return IsValid() && CheckResult(m_Impl->Instance->getDescription(&description), "get description") &&
 			CheckResult(description->getLength(&length), "get timeline length") ? length : 0;
 	}
 
 	void AudioEventInstance::SetTimelinePosition(int milliseconds)
 	{
 		if (IsValid())
-			CheckResult(m_Instance->setTimelinePosition(std::max(0, milliseconds)), "set timeline position");
+			CheckResult(m_Impl->Instance->setTimelinePosition(std::max(0, milliseconds)), "set timeline position");
 	}
 
 	Ref<AudioEventInstance> AudioEventInstance::Create(const std::string& eventGuid)
 	{
-		FMOD::Studio::System* studio = AudioEngine::GetStudioSystem();
+		FMOD::Studio::System* studio = FMODInternal::GetStudioSystem();
 		if (eventGuid.empty())
 			return nullptr;
 		if (!studio)
@@ -423,7 +435,9 @@ namespace Lux {
 			return nullptr;
 		}
 
-		return Ref<AudioEventInstance>::Create(instance, resolved, AudioEngine::GetEventGeneration());
+		auto impl = CreateScope<Impl>();
+		impl->Instance = instance;
+		return Ref<AudioEventInstance>::Create(std::move(impl), resolved, AudioEngine::GetEventGeneration());
 	}
 
 	AudioEventInstance::~AudioEventInstance()
@@ -438,16 +452,16 @@ namespace Lux {
 		// Stop before release so a still-audible instance does not keep its resources alive past the
 		// scene that owned it. FMOD_STUDIO_STOP_IMMEDIATE rather than ALLOWFADEOUT: this runs during
 		// teardown, where a fade would outlive the thing being torn down.
-		CheckResult(m_Instance->stop(FMOD_STUDIO_STOP_IMMEDIATE), "stop during destruction");
-		CheckResult(m_Instance->release(), "release");
-		m_Instance = nullptr;
+		CheckResult(m_Impl->Instance->stop(FMOD_STUDIO_STOP_IMMEDIATE), "stop during destruction");
+		CheckResult(m_Impl->Instance->release(), "release");
+		m_Impl->Instance = nullptr;
 	}
 
 	bool AudioEventInstance::IsValid() const
 	{
 		// Do not call into a handle from a released system, even to ask FMOD whether it is valid.
-		return m_Instance && AudioEngine::HasInitializedEngine()
-			&& m_Generation == AudioEngine::GetEventGeneration() && m_Instance->isValid();
+		return m_Impl && m_Impl->Instance && AudioEngine::HasInitializedEngine()
+			&& m_Generation == AudioEngine::GetEventGeneration() && m_Impl->Instance->isValid();
 	}
 
 	bool AudioEventInstance::CheckResult(int result, const char* operation) const
@@ -469,7 +483,7 @@ namespace Lux {
 		if (!IsValid() || IsPlaying() || key.empty() || key.size() > 512 || key.find('\0') != std::string::npos)
 			return CheckResult(FMOD_ERR_INVALID_PARAM, "programmer sound requires an unstarted event and a valid audio-table key");
 		FMOD_STUDIO_SOUND_INFO info{};
-		if (!CheckResult(AudioEngine::GetStudioSystem()->getSoundInfo(key.c_str(), &info), "resolve programmer sound key") || !MonitorPlayback())
+		if (!CheckResult(FMODInternal::GetStudioSystem()->getSoundInfo(key.c_str(), &info), "resolve programmer sound key") || !MonitorPlayback())
 			return false;
 		std::scoped_lock lock(s_NotificationMutex);
 		s_CallbackStates.at(m_CallbackToken).ProgrammerKey = key;
@@ -498,7 +512,7 @@ namespace Lux {
 			if (auto it = s_CallbackStates.find(m_CallbackToken); it != s_CallbackStates.end())
 				it->second.Playback = {};
 		}
-		const auto result = m_Instance->start();
+		const auto result = m_Impl->Instance->start();
 		if (result != FMOD_OK)
 		{
 			std::scoped_lock lock(s_NotificationMutex);
@@ -511,7 +525,7 @@ namespace Lux {
 	void AudioEventInstance::Stop(bool allowFadeOut)
 	{
 		if (IsValid())
-			CheckResult(m_Instance->stop(allowFadeOut ? FMOD_STUDIO_STOP_ALLOWFADEOUT : FMOD_STUDIO_STOP_IMMEDIATE), "stop");
+			CheckResult(m_Impl->Instance->stop(allowFadeOut ? FMOD_STUDIO_STOP_ALLOWFADEOUT : FMOD_STUDIO_STOP_IMMEDIATE), "stop");
 	}
 
 	void AudioEventInstance::SetPaused(bool paused)
@@ -520,7 +534,7 @@ namespace Lux {
 			return;
 		m_Paused = paused;
 		if (IsValid())
-			CheckResult(m_Instance->setPaused(m_Paused || m_ScenePaused), "set pause");
+			CheckResult(m_Impl->Instance->setPaused(m_Paused || m_ScenePaused), "set pause");
 	}
 
 	void AudioEventInstance::SetScenePaused(bool paused)
@@ -529,7 +543,7 @@ namespace Lux {
 			return;
 		m_ScenePaused = paused;
 		if (IsValid())
-			CheckResult(m_Instance->setPaused(m_Paused || m_ScenePaused), "set scene pause");
+			CheckResult(m_Impl->Instance->setPaused(m_Paused || m_ScenePaused), "set scene pause");
 	}
 
 	bool AudioEventInstance::IsPlaying() const
@@ -538,7 +552,7 @@ namespace Lux {
 			return false;
 
 		FMOD_STUDIO_PLAYBACK_STATE state = FMOD_STUDIO_PLAYBACK_STOPPED;
-		if (!CheckResult(m_Instance->getPlaybackState(&state), "query playback state"))
+		if (!CheckResult(m_Impl->Instance->getPlaybackState(&state), "query playback state"))
 			return false;
 
 		// SUSTAINING counts as playing: the event is holding on a sustain point waiting for a key-off,
@@ -585,7 +599,7 @@ namespace Lux {
 		attributes.velocity = ToFMOD(velocity);
 		attributes.forward = ToFMOD(glm::vec3(direction));
 		attributes.up = ToFMOD(glm::vec3(glm::normalize(normal)));
-		if (CheckResult(m_Instance->set3DAttributes(&attributes), "set 3D attributes"))
+		if (CheckResult(m_Impl->Instance->set3DAttributes(&attributes), "set 3D attributes"))
 			m_Position = position;
 	}
 
@@ -593,7 +607,7 @@ namespace Lux {
 	{
 		if (IsValid())
 		{
-			if (CheckResult(std::isfinite(volume) ? m_Instance->setVolume(std::max(volume, 0.0f)) : FMOD_ERR_INVALID_FLOAT, "set volume"))
+			if (CheckResult(std::isfinite(volume) ? m_Impl->Instance->setVolume(std::max(volume, 0.0f)) : FMOD_ERR_INVALID_FLOAT, "set volume"))
 				m_Volume = std::max(volume, 0.0f);
 		}
 	}
@@ -601,7 +615,7 @@ namespace Lux {
 	void AudioEventInstance::SetPitch(float pitch)
 	{
 		if (IsValid())
-			CheckResult(std::isfinite(pitch) ? m_Instance->setPitch(std::max(pitch, 0.0f)) : FMOD_ERR_INVALID_FLOAT, "set pitch");
+			CheckResult(std::isfinite(pitch) ? m_Impl->Instance->setPitch(std::max(pitch, 0.0f)) : FMOD_ERR_INVALID_FLOAT, "set pitch");
 	}
 
 	bool AudioEventInstance::SetParameter(const std::string& name, float value)
@@ -609,7 +623,7 @@ namespace Lux {
 		if (!IsValid())
 			return false;
 
-		return CheckResult(std::isfinite(value) ? m_Instance->setParameterByName(name.c_str(), value) : FMOD_ERR_INVALID_FLOAT, name.c_str());
+		return CheckResult(std::isfinite(value) ? m_Impl->Instance->setParameterByName(name.c_str(), value) : FMOD_ERR_INVALID_FLOAT, name.c_str());
 	}
 
 	void AudioEventInstance::SetAcoustics(const AudioEventAcoustics& acoustics)
@@ -622,7 +636,7 @@ namespace Lux {
 		// These parameters are opt-in; an absent one is expected. Other failures are reported.
 		const auto setOptional = [&](const char* name, float value)
 		{
-			const FMOD_RESULT result = std::isfinite(value) ? m_Instance->setParameterByName(name, value) : FMOD_ERR_INVALID_FLOAT;
+			const FMOD_RESULT result = std::isfinite(value) ? m_Impl->Instance->setParameterByName(name, value) : FMOD_ERR_INVALID_FLOAT;
 			if (result != FMOD_ERR_EVENT_NOTFOUND)
 				CheckResult(result, name);
 		};

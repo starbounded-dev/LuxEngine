@@ -31,7 +31,8 @@ asset serializers are substituted; playback/contact implementations and SDK call
 Music checks cover state/intensity/layers without restart, stinger type validation, all queued
 transition boundaries, main-thread callbacks, stale notification batches, callback reentrancy,
 pause/resume, bank invalidation/recreation, fades, and destruction. `AudioTestHost.h` supplies the
-shared minimal FMOD host; the production director and event wrapper are linked unchanged.
+shared minimal FMOD host: it defines the `FMODInternal` system getters and bus locks in place of
+`Audio/FMOD/FMODAudioEngine.cpp`; the production director and event wrapper are linked unchanged.
 
 Accessibility checks use Music/SFX/Dialogue buses created by `AuthorFixture.js`; regenerate older
 fixtures. They cover default/invalid/bounded configuration, player preference replacement/reload,

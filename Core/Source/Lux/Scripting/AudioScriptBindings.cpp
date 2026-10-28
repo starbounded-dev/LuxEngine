@@ -795,7 +795,7 @@ namespace Lux
 		{
 			if (!AudioScene())
 				return false;
-			if (AudioEngine::GetStudioSystem())
+			if (AudioEngine::HasInitializedEngine())
 				return true;
 			LUX_CORE_ERROR_TAG("Audio", "Mixer controls require an initialized FMOD Studio backend");
 			return false;

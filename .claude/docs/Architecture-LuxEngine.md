@@ -101,7 +101,7 @@ graph TB
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
 | Scripting | `Core/Source/Lux/Scripting/` | `ScriptEngine.h`, `ScriptGlue.h`, `ScriptBuilder.h` |
 | Assets | `Core/Source/Lux/Asset/` | `AssetManager.h`, `Asset.h`, `AssetTypes.h` |
-| Audio | `Core/Source/Lux/Audio/` | `AudioEngine.h`, `AudioEventInstance.h`, `RaytracedAudioScene.h` |
+| Audio | `Core/Source/Lux/Audio/` (+ `FMOD/` backend) | `AudioEngine.h`, `AudioEventInstance.h`, `RaytracedAudioScene.h` |
 | Editor framework | `Core/Source/Lux/Editor/` | `EditorPanel.h`, `PanelManager.h`, `EditorCamera.h`, `SelectionManager.h` |
 | Editor app | `Editor/Source/` | `EditorLayer.h`, `Panels/` |
 | ImGui | `Core/Source/Lux/ImGui/` | `ImGuiEx.h`, `ImGuiUtilities.h`, `Colors.h` |
@@ -753,11 +753,27 @@ the managed handlers; `ShutdownInput` drops the type before assembly unload.
 
 ### 2.10 Audio
 
-**Native backend (planned, Phase 0 only):** `docs/AUDIO_NATIVE_BACKEND_PLAN.md` replaces FMOD with
+**Native backend (planned, Phases 0–1 done):** `docs/AUDIO_NATIVE_BACKEND_PLAN.md` replaces FMOD with
 miniaudio and editor-authored Sound assets. Phase 0 vendored miniaudio 0.11.25 with stb_vorbis and its
 reverb node under `Core/vendor/miniaudio` (`README.lux.md` records the commit and licences). Only the
 offline harness `tests/audio/native` compiles it; no engine project links it yet. Until Phase 2 adds
 `--audio-backend`, everything below describes the FMOD path that ships.
+
+**Backend boundary (Phase 1):** no header outside `Audio/FMOD/` names an FMOD type or includes an
+FMOD header. `Audio/FMOD/` holds the FMOD implementations of the neutral classes:
+`FMODAudioEngine.cpp`, `FMODAudioEventInstance.cpp`, `FMODAudioEventParameters.cpp`, `FMODAudioFocus.cpp`,
+`FMODAudioAccessibilityMixer.cpp`, `FMODAudioPerformance.cpp`, plus the SDK halves of three split classes
+(`FMODAudioListener.cpp` = `Apply`, `FMODAudioFileUtils.cpp` = `GetFileInfo(path)`,
+`FMODAudioValidation.cpp` = `ValidateBanks`). The backend-free halves stay in `AudioListener.cpp`,
+`AudioFileUtils.cpp` and `AudioValidation.cpp`. Backend code reaches the Studio/Core systems and
+the reference-counted bus locks through the private `FMOD/FMODInternal.h` (`FMODInternal::`
+namespace); nothing outside `Audio/FMOD/` and the FMOD test host may include it. `AudioEventInstance`
+holds a `Scope<Impl>` defined in `FMODAudioEventInstance.cpp` (event pointer and cached snapshot
+`Intensity` parameter id). Engine code that used to describe events itself now calls
+`AudioEngine::GetEventParameter` (`AudioEventParameterInfo`: range, default, discrete/labeled; read-only,
+automatic and global parameters are rejected) and `GetEventParameterLabel`. The initialized check is
+`AudioEngine::HasInitializedEngine()`. Bank, bus-path and `event:/` concepts are still FMOD Studio's
+in the neutral API; Phase 2 adds the second implementation behind it.
 
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
 `AudioEventInstance` owns Studio event handles. `AudioSourceComponent` remains the entity-facing
@@ -1141,7 +1157,7 @@ defaults. Player preferences live separately under persistent storage, keyed by 
 name, and are saved explicitly with `FileSystem::ReplaceFileAtomically` after writing a complete temporary file.
 
 `AudioAccessibilityMixer` owns FMOD gain DSPs on mapped Studio buses plus mono/compressor DSPs on
-Core master output. Setup locks channel groups (through `AudioEngine::LockBusChannelGroup`, see
+Core master output. Setup locks channel groups (through `FMODInternal::LockBusChannelGroup`, see
 below) and flushes commands once; bank revision changes
 reconfigure the cached graph. `AudioEngine::UnloadAllBanks` releases it before unloading banks.
 Player gains multiply authored/gameplay volumes. Mapped non-master buses must not contain each other.
@@ -1200,7 +1216,7 @@ and runtime format 23 (bounded YAML block after accessibility; older versions us
 (nonblocking, valid with release SDKs) and configured bus input peak/RMS every 250 ms. It owns locked Studio bus groups
 and one pass-through fader DSP per metered bus (inserted at index 1, directly behind the head DSP),
 detaching and releasing them before bank unload. **Every Studio bus lock goes through
-`AudioEngine::Lock/UnlockBusChannelGroup`**, which reference-counts per bus: Studio's own locks are not
+`FMODInternal::Lock/UnlockBusChannelGroup`**, which reference-counts per bus: Studio's own locks are not
 counted, so the mixer and this monitor both locking `bus:/` failed with `FMOD_ERR_ALREADY_LOCKED`
 (and the bus lost its metering), and a direct unlock would drop the other holder's group.
 `UnloadAllBanks` forgets the counts after both holders reset. **Never enable metering on a DSP Studio created:**
@@ -1541,7 +1557,7 @@ luxengine/
 │   │       ├── Physics2D/         # Box2D
 │   │       ├── Scripting/         # ScriptEngine, ScriptGlue, ScriptBuilder, ScriptEntityStorage
 │   │       ├── Asset/             # AssetManager facade, AssetManager/, AssetSystem/, serializers
-│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, RaytracedAudioScene
+│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, RaytracedAudioScene; FMOD/ backend
 │   │       ├── Editor/            # EditorPanel, PanelManager, EditorCamera, SelectionManager,
 │   │       │                      #   SceneHierarchyPanel, EditorConsole/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo

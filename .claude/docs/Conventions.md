@@ -373,6 +373,14 @@ one-line constant.
 backend, which would come through NRI's D3D11/D3D12 support; the reserved `RHIDevice` branches and
 guarded D3D includes are in `Renderer/RHI/RHIDevice.h`. **Do not sweep them as dead code.**
 
+### Audio backend types stay in `Audio/FMOD/`
+
+Engine and editor code talks to `AudioEngine`, `AudioEventInstance` and the other `Audio/` headers,
+which name no FMOD type. Only `Core/Source/Lux/Audio/FMOD/*.cpp` (and the FMOD test host in
+`tests/audio/`) include `<fmod*.h*>` or the private `FMOD/FMODInternal.h`. A feature that needs a new
+SDK query gets a neutral `AudioEngine` operation implemented under `Audio/FMOD/`, the way
+`GetEventParameter` was, so the planned native backend can implement the same call.
+
 ### Renderer vocabulary lives in `Renderer/RHI/RHITypes.h`
 
 Name `ShaderStage`, `TextureDimension`, `TextureSubresourceRange`, `GPUQueue`, `ResourceState` and

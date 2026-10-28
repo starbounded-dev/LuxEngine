@@ -6,28 +6,20 @@
 #include "AudioEngine.h"
 #include "Lux/Scene/Components.h"
 #include <cmath>
-#include <fmod_studio.hpp>
-#include <fmod_errors.h>
 namespace Lux
 {
 	namespace
 	{
-		FMOD::Studio::EventDescription* Parameter(const std::string& guid, const std::string& name,
-			FMOD_STUDIO_PARAMETER_DESCRIPTION& parameter, bool& warned)
+		bool Parameter(const std::string& guid, const std::string& name, AudioEventParameterInfo& parameter, bool& warned)
 		{
-			FMOD_GUID id{};
-			FMOD::Studio::EventDescription* description = nullptr;
-			auto* studio = AudioEngine::GetStudioSystem();
-			if (studio && FMOD::Studio::parseID(guid.c_str(), &id) == FMOD_OK && studio->getEventByID(&id, &description) == FMOD_OK &&
-				description->getParameterDescriptionByName(name.c_str(), &parameter) == FMOD_OK &&
-				!(parameter.flags & (FMOD_STUDIO_PARAMETER_READONLY | FMOD_STUDIO_PARAMETER_AUTOMATIC | FMOD_STUDIO_PARAMETER_GLOBAL)))
-				return description;
+			if (AudioEngine::GetEventParameter(guid, name, parameter))
+				return true;
 			if (!warned)
 			{
 				warned = true;
 				LUX_CORE_ERROR_TAG("Audio", "Event {} has no writable local parameter '{}'; check the banks and use global controls for global parameters", guid, name);
 			}
-			return nullptr;
+			return false;
 		}
 	}
 	bool AudioSourcePlayback::OutOfRange(const glm::vec3& position, float maximum, const AudioListener::States& listeners, bool wasCulled)
@@ -206,7 +198,7 @@ namespace Lux
 	}
 	bool AudioSourcePlayback::SetParameter(const std::string& name, float value)
 	{
-		FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
+		AudioEventParameterInfo parameter;
 		if (!std::isfinite(value))
 		{
 			if (!m_ParameterWarning)
@@ -218,32 +210,31 @@ namespace Lux
 		}
 		if (!Parameter(m_Guid, name, parameter, m_ParameterWarning))
 			return false;
-		value = std::clamp(value, parameter.minimum, parameter.maximum);
-		if (parameter.flags & (FMOD_STUDIO_PARAMETER_DISCRETE | FMOD_STUDIO_PARAMETER_LABELED))
+		value = std::clamp(value, parameter.Minimum, parameter.Maximum);
+		if (parameter.Discrete || parameter.Labeled)
 			value = std::round(value);
 		if (m_Instance && !m_Instance->SetParameter(name, value))
 			return false;
-		m_Parameters[parameter.name] = value;
-		m_Labels.erase(parameter.name);
+		m_Parameters[parameter.Name] = value;
+		m_Labels.erase(parameter.Name);
 		return true;
 	}
 	float AudioSourcePlayback::GetParameter(const std::string& name) const
 	{
 		if (m_Instance)
 			return m_Instance->GetParameter(name);
-		FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
+		AudioEventParameterInfo parameter;
 		if (!Parameter(m_Guid, name, parameter, m_ParameterWarning))
 			return 0.0f;
-		const auto found = m_Parameters.find(parameter.name);
-		return found != m_Parameters.end() ? found->second : parameter.defaultvalue;
+		const auto found = m_Parameters.find(parameter.Name);
+		return found != m_Parameters.end() ? found->second : parameter.Default;
 	}
 	bool AudioSourcePlayback::SetParameterLabel(const std::string& name, const std::string& value)
 	{
-		FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
-		auto* description = Parameter(m_Guid, name, parameter, m_ParameterWarning);
-		if (!description)
+		AudioEventParameterInfo parameter;
+		if (!Parameter(m_Guid, name, parameter, m_ParameterWarning))
 			return false;
-		if (!(parameter.flags & FMOD_STUDIO_PARAMETER_LABELED))
+		if (!parameter.Labeled)
 		{
 			if (!m_ParameterWarning)
 			{
@@ -252,32 +243,24 @@ namespace Lux
 			}
 			return false;
 		}
-		for (int index = 0; index <= parameter.maximum - parameter.minimum; ++index)
+		for (int index = 0; index <= parameter.Maximum - parameter.Minimum; ++index)
 		{
-			char label[1024]{};
-			int required = 0;
-			auto result = description->getParameterLabelByName(name.c_str(), index, label, sizeof(label), &required);
-			std::string extended;
-			if (result == FMOD_ERR_TRUNCATED && required > 0)
-			{
-				extended.resize(static_cast<size_t>(required));
-				result = description->getParameterLabelByName(name.c_str(), index, extended.data(), required, nullptr);
-			}
-			if (result != FMOD_OK)
+			std::string label, error;
+			if (!AudioEngine::GetEventParameterLabel(m_Guid, name, index, label, error))
 			{
 				if (!m_ParameterWarning)
 				{
 					m_ParameterWarning = true;
-					LUX_CORE_ERROR_TAG("Audio", "Cannot read parameter '{}' label: {}", name, FMOD_ErrorString(result));
+					LUX_CORE_ERROR_TAG("Audio", "Cannot read parameter '{}' label: {}", name, error);
 				}
 				return false;
 			}
-			if (value == (extended.empty() ? label : extended.c_str()))
+			if (value == label)
 			{
 				if (m_Instance && !m_Instance->SetParameterLabel(name, value))
 					return false;
-				m_Labels[parameter.name] = value;
-				m_Parameters[parameter.name] = parameter.minimum + index;
+				m_Labels[parameter.Name] = value;
+				m_Parameters[parameter.Name] = parameter.Minimum + index;
 				return true;
 			}
 		}

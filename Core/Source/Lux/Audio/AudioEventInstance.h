@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Lux/Core/Base.h"
 #include "Lux/Core/Ref.h"
 
 #include <string>
@@ -10,8 +11,6 @@
 #include <unordered_set>
 #include <vector>
 #include <glm/glm.hpp>
-
-namespace FMOD { namespace Studio { class EventInstance; } }
 
 namespace Lux {
 
@@ -121,19 +120,19 @@ namespace Lux {
 		static constexpr const char* kReverbSendParameter = "ReverbSend";
 
 	private:
+		// Backend-private state (the SDK handle and its cached lookups), defined by the backend.
+		struct Impl;
+
 		friend class Ref<AudioEventInstance>;
-		AudioEventInstance(FMOD::Studio::EventInstance* instance, const std::string& guid, uint64_t generation)
-			: m_Instance(instance), m_Guid(guid), m_Generation(generation) {}
+		AudioEventInstance(Scope<Impl> impl, const std::string& guid, uint64_t generation);
 		bool ConfigureCallbacks(uint64_t scriptHandle, bool timeline);
 		bool CheckResult(int result, const char* operation) const;
 
-		FMOD::Studio::EventInstance* m_Instance = nullptr;
+		Scope<Impl> m_Impl;
 		std::string m_Guid;
 		uint64_t m_Generation = 0;
 		uint64_t m_CallbackToken = 0;
 		mutable std::unordered_set<std::string> m_ReportedErrors;
-		bool m_SnapshotIntensityValidated = false;
-		uint32_t m_SnapshotIntensityID[2]{};
 		glm::vec3 m_Position{ 0.0f };
 		float m_Volume = 1.0f;
 		bool m_AccessibilitySuppressed = false;

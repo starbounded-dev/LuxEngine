@@ -271,6 +271,44 @@ FMOD as the default and adds a native build job from Phase 2 on.
 
 **Rollback:** revert the commit.
 
+**Status (2026-10-28): done in code; build and FMOD suite still to run.**
+
+- **Moved into `Audio/FMOD/`:**
+  - `AudioEngine`, `AudioEventInstance`, `AudioFocus`, `AudioAccessibilityMixer` and
+    `AudioPerformance`, each as `FMOD<Name>.cpp`.
+  - The SDK halves of three classes, as new files: `FMODAudioListener.cpp` (`Apply`),
+    `FMODAudioFileUtils.cpp` (`GetFileInfo(path)`) and `FMODAudioValidation.cpp` (`ValidateBanks`).
+    The SDK-free halves stay where they were.
+- **Private header:** `FMOD/FMODInternal.h` holds the Studio/Core system getters and the
+  reference-counted bus locks, in `Lux::FMODInternal`.
+- **Event handles:** `AudioEventInstance` holds a `Scope<Impl>` instead of the FMOD pointer.
+- **Smaller than planned:**
+  - Every caller of the removed accessors except `AudioSourcePlayback` was FMOD implementation
+    code, and it moved into the folder.
+  - So the only new neutral operations are `AudioEngine::GetEventParameter` and
+    `GetEventParameterLabel` (new `FMODAudioEventParameters.cpp`), which `AudioSourcePlayback` uses.
+  - Bus gain/mute, an effects hook and meters were not needed. Phase 2 adds them if the native
+    backend's callers need them.
+  - `AudioScriptBindings` uses the existing `AudioEngine::HasInitializedEngine()` rather than a new
+    `IsInitialized`.
+- **Grep:**
+  - No header outside `Audio/FMOD/` includes an FMOD header or names an FMOD type.
+  - `grep -rl "fmod" --include=*.h` still matches comments that name the `fmodstudiocl` tool, in
+    `Project.h`, `AudioBankBuilder.h` and `AudioEngine.h`. Bank building is FMOD Studio tooling
+    and goes in Phase 10.
+- **Checked here:** with stand-in FMOD declaration headers, `clang++ -fsyntax-only` compiled:
+  - every `Audio/FMOD/*.cpp`;
+  - all 34 engine and editor `.cpp` files that include the audio headers (directly or through
+    `Scene.h`, `DialogueDirector.h`, `MusicDirector.h`, `AudioZoneSystem.h`, `PhysicsAudioSystem.h`,
+    `AudioSourcePlayback.h` or `AudioDebugPanel.h`);
+  - the FMOD tests.
+
+  The same check compiled the unmodified code, and caught an error that was planted on purpose.
+- **Not verified here:**
+  - premake generation, which is needed because files moved;
+  - the Windows/Linux builds;
+  - `tests/audio/run.py`, which needs the FMOD SDK.
+
 ### Phase 2 — Native vertical slice behind `--audio-backend=native`
 
 **Goal:** in a native build, a Sound asset assigned to an `AudioSourceComponent` plays in 3D,

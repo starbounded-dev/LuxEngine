@@ -301,7 +301,7 @@ entry blocks everything queued behind it, so a deferred dispatch must always be 
 ## FMOD callbacks
 
 Studio callbacks copy stopped, marker, and beat data into bounded mutex-protected queues in
-`AudioEventInstance`. Callback userdata is a never-reused token, not a pointer to an engine owner;
+`AudioEventInstance` (FMOD side: `Audio/FMOD/FMODAudioEventInstance.cpp`). Callback userdata is a never-reused token, not a pointer to an engine owner;
 destruction removes the token's state before releasing the SDK instance. No Scene, ECS, Coral,
 ImGui, or scene playback mutation runs in these callbacks. Programmer-sound callbacks are the
 SDK-required exception for sound ownership: CREATE resolves a copied audio-table key using the

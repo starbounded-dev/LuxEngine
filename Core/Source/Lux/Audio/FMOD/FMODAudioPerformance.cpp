@@ -2,8 +2,9 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "AudioPerformance.h"
-#include "AudioEngine.h"
+#include "Lux/Audio/AudioPerformance.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "FMODInternal.h"
 #include <fmod.hpp>
 #include <fmod_studio.hpp>
 #include <fmod_errors.h>
@@ -97,7 +98,7 @@ namespace Lux
 				Check(bus.Meter->release(), "release bus input meter");
 			}
 			if (bus.Studio)
-				Check(AudioEngine::UnlockBusChannelGroup(bus.Studio), "unlock metered bus");
+				Check(FMODInternal::UnlockBusChannelGroup(bus.Studio), "unlock metered bus");
 		}
 		s_Buses.clear();
 		s_Meters.clear();
@@ -128,8 +129,8 @@ namespace Lux
 	void AudioPerformance::Update()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		auto* studio = AudioEngine::GetStudioSystem();
-		auto* core = AudioEngine::GetEngine();
+		auto* studio = FMODInternal::GetStudioSystem();
+		auto* core = FMODInternal::GetCoreSystem();
 		if (!s_Configured || !studio || !core)
 			return;
 		const auto now = std::chrono::steady_clock::now();
@@ -146,7 +147,7 @@ namespace Lux
 				s_Meters.push_back({ path, limit });
 				auto& bus = s_Buses.emplace_back();
 				FMOD::Studio::Bus* candidate = nullptr;
-				if (Check(studio->getBus(path.c_str(), &candidate), "resolve budget bus") && candidate && Check(AudioEngine::LockBusChannelGroup(candidate), "lock budget bus"))
+				if (Check(studio->getBus(path.c_str(), &candidate), "resolve budget bus") && candidate && Check(FMODInternal::LockBusChannelGroup(candidate), "lock budget bus"))
 					bus.Studio = candidate;
 			}
 			Check(studio->flushCommands(), "prepare budget bus groups");

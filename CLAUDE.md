@@ -230,7 +230,7 @@ premake5.lua           # Workspace definition
 - Required FMOD Core/Studio playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`; engine occlusion (`AudioOcclusion`) and reverb zones work in every build.
 - Asterwave ray-traced acoustics (`RaytracedAudioScene`) are opt-in with premake `--raytraced-audio`. Without it, `RaytracedAudioSceneStub.cpp` makes `IsAvailable()` false. With it, the private revision in `scripts/dependencies/Asterwave.json` is fetched into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`) and linked statically, so exported games contain it.
 - Default acoustic-material coefficients are LuxEngine's own (`AcousticMaterial.cpp`, from published data and the mass law), not Asterwave presets.
-- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`.
+- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type.
 - Native shared ownership is confined to `RaytracedAudioScene::Impl` for Asterwave emitters/mesh geometry required by its API. Engine objects continue using `Ref`/`Scope`.
 
 ### Threading

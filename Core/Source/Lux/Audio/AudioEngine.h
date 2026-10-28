@@ -10,16 +10,11 @@
 #include <string>
 #include <vector>
 
-#include <fmod_common.h>
-
-namespace FMOD {
-	class System;
-	namespace Studio { class System; class Bus; }
-}
-
+// No FMOD type appears here: the FMOD backend lives in Audio/FMOD/ (FMODInternal.h is its private
+// header), so another backend can implement this interface.
 namespace Lux {
 
-	// Read-only FMOD playback statistics for editor tooling.
+	// Read-only backend playback statistics for editor tooling.
 	struct AudioEngineStats
 	{
 		const char* BackendName = "None";
@@ -75,6 +70,17 @@ namespace Lux {
 		bool IsSnapshot = false;
 	};
 
+	// A writable local parameter authored on an event (not read-only, automatic or global).
+	struct AudioEventParameterInfo
+	{
+		std::string Name;    // the canonical authored name, which may differ in case from the lookup
+		float Minimum = 0.0f;
+		float Maximum = 0.0f;
+		float Default = 0.0f;
+		bool Discrete = false;
+		bool Labeled = false;
+	};
+
 	class AudioEngine
 	{
 	public:
@@ -127,27 +133,22 @@ namespace Lux {
 		static bool SetBusVolume(const std::string& busPath, float volume);
 		static float GetBusVolume(const std::string& busPath);
 
-		// Reference-counted Studio::Bus::lockChannelGroup. Studio locks are not counted, so two
-		// systems locking the same bus (the accessibility mixer and the performance monitor both
-		// use "bus:/") would fail with FMOD_ERR_ALREADY_LOCKED, and the first unlock would pull the
-		// group out from under the other. Every bus lock goes through these. Main thread only;
-		// UnloadAllBanks releases its holders first and then forgets any remaining counts.
-		static FMOD_RESULT LockBusChannelGroup(FMOD::Studio::Bus* bus);
-		static FMOD_RESULT UnlockBusChannelGroup(FMOD::Studio::Bus* bus);
+		// --- Event parameters -------------------------------------------------------------------
+		//
+		// Looks up a writable local parameter of the event with this GUID in the loaded banks.
+		// False when the event or parameter is absent, or the parameter is read-only, automatic or
+		// global. Main thread only.
+		static bool GetEventParameter(const std::string& eventGuid, const std::string& name, AudioEventParameterInfo& outInfo);
+		// The label at index (0 = the parameter's minimum) of a labelled event parameter. On failure
+		// outError describes why.
+		static bool GetEventParameterLabel(const std::string& eventGuid, const std::string& name, int index,
+			std::string& outLabel, std::string& outError);
 
-		// Studio-owned Core system, used for metadata, statistics and accessibility DSP processing.
-		static FMOD::System* GetEngine() { return s_Engine; }
-
-		// The Studio system, which owns banks, events and buses. Null when FMOD failed to
-		// initialize.
-		static FMOD::Studio::System* GetStudioSystem() { return s_StudioSystem; }
 		static bool ShuttingDownEngine() { return s_ShuttingDown; }
 
 		static bool HasInitializedEngine() { return s_HasInitializedAudioEngine; }
 
 	private:
-		static FMOD::System* s_Engine;
-		static FMOD::Studio::System* s_StudioSystem;
 		inline static bool s_HasInitializedAudioEngine = false;
 		inline static bool s_ShuttingDown = false;
 		static bool RefreshBankEvents();
