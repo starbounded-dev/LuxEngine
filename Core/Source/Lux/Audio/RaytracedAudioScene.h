@@ -17,6 +17,8 @@ namespace Lux {
 	struct AcousticGeometry
 	{
 		AcousticMaterial Material = AcousticMaterial::Default;
+		// Three positions per triangle, counter-clockwise seen from outside like rendered meshes.
+		// A closed mesh is a solid; the adapter converts the winding to Asterwave's.
 		std::vector<glm::vec3> Triangles;
 	};
 
@@ -104,7 +106,7 @@ namespace Lux {
 	struct RaytracedAudioBounce
 	{
 		glm::vec3 Position{ 0.0f };
-		glm::vec3 Normal{ 0.0f };   // surface normal at the bounce, already normalised by Asterwave
+		glm::vec3 Normal{ 0.0f };   // unit surface normal at the bounce, facing the side the ray arrived from
 
 		// Explicit native hit state. A miss ends its ray; later slots in that ray are unused.
 		bool Hit = false;

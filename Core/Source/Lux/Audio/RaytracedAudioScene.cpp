@@ -167,13 +167,20 @@ namespace Lux
 			node.Max = glm::vec3(std::numeric_limits<float>::lowest());
 			std::vector<asterwave::Vec3> vertices;
 			vertices.reserve(geometry.Triangles.size());
-			for (const auto& position : geometry.Triangles)
+			for (size_t triangle = 0; triangle < geometry.Triangles.size(); triangle += 3)
 			{
-				if (!Finite(position))
-					throw std::invalid_argument("non-finite acoustic vertex");
-				node.Min = glm::min(node.Min, position);
-				node.Max = glm::max(node.Max, position);
-				vertices.push_back(ToAsterwave(position));
+				// Asterwave's one-sided queries treat clockwise as the outside, the reverse of engine
+				// meshes. Unreversed, every solid is inside out: no bounce sees its target and walls
+				// are measured from their far faces.
+				for (const size_t corner : { triangle, triangle + 2, triangle + 1 })
+				{
+					const glm::vec3& position = geometry.Triangles[corner];
+					if (!Finite(position))
+						throw std::invalid_argument("non-finite acoustic vertex");
+					node.Min = glm::min(node.Min, position);
+					node.Max = glm::max(node.Max, position);
+					vertices.push_back(ToAsterwave(position));
+				}
 			}
 			auto mesh = std::make_shared<asterwave::MeshGeometry>(vertices, asterwave::AABB{ ToAsterwave(node.Min), ToAsterwave(node.Max) });
 			node.Primitive = std::make_shared<asterwave::MeshPrimitive>(std::move(mesh));
@@ -207,7 +214,15 @@ namespace Lux
 			}
 			Visualisation.Bounces.resize(data.size());
 			for (size_t i = 0; i < data.size(); ++i)
-				Visualisation.Bounces[i] = { FromAsterwave(data[i].Position), FromAsterwave(data[i].Normal), data[i].Hit };
+			{
+				auto& bounce = Visualisation.Bounces[i];
+				bounce = { FromAsterwave(data[i].Position), FromAsterwave(data[i].Normal), data[i].Hit };
+				// Mesh hits report the triangle normal, which points along the arriving ray. Overlays
+				// need the side the ray arrived on, whichever way the surface is wound.
+				const glm::vec3 from = i % static_cast<size_t>(bounces) != 0 ? Visualisation.Bounces[i - 1].Position : BatchListenerPosition;
+				if (glm::dot(bounce.Normal, bounce.Position - from) > 0.0f)
+					bounce.Normal = -bounce.Normal;
+			}
 			Visualisation.Origin = BatchListenerPosition;
 			Visualisation.BounceCount = bounces;
 			Visualisation.RayCount = static_cast<int>(data.size() / static_cast<size_t>(bounces));

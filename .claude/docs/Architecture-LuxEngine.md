@@ -776,8 +776,11 @@ sources do not write legacy keys. Looping is authored in the event timeline.
 `Scope<Impl>` and owns its native `World` through `Scope`. Only the private adapter uses
 Asterwave-required shared ownership for native emitters and mesh geometry; this narrow vendor
 boundary exception does not change engine `Ref`/`Scope` ownership rules. Runtime start
-mirrors mesh-collider triangles into Asterwave primitives owned by that scene. Each frame joins the
-previous Asterwave batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
+mirrors mesh-collider triangles into Asterwave primitives owned by that scene. `AcousticGeometry`
+triangles are counter-clockwise from outside, like rendered meshes; the adapter reverses each one
+because Asterwave's one-sided queries treat clockwise as the outside. Unreversed, every solid is
+inside out: occlusion never finds line of sight and walls are measured from their far faces.
+Each frame joins the previous Asterwave batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
 and source emitter positions, reads completed results, then launches the next batch with
 `OnUpdate` (`World::update`). `World::wait` joins and publishes results on the calling main
 thread. Joining before mutation and teardown is mandatory. This integration selects one acoustic
@@ -1258,7 +1261,9 @@ readout and material-tinted bounces, and restores the previous settings when tur
 `ShowAllZones` draws every zone and portal through `Scene::ForEachAudioZoneLine` (the same line
 generator the selection-only `FrameRenderPacket::AudioZoneLines` capture uses), brightened by live
 zone weight or portal Open and labelled with it. `ColorBouncesByMaterial` probes each Asterwave bounce with
-one short `PhysicsScene::CastRay` into the surface and tints it by that entity's effective acoustic
+one short `PhysicsScene::CastRay` into the surface along the bounce normal, which the adapter turns
+toward the side the ray arrived from (Asterwave reports the raw triangle normal, pointing along the
+ray), and tints it by that entity's effective acoustic
 tag (overlay only; costs a raycast per bounce while shown). The room readout
 (`EditorLayer::UI_RoomAcousticsReadout`) shows `Scene::GetLastAudioAmbience()`: the listener ambience
 the scene copies inside the Asterwave join window, so ImGui never reads Asterwave's live buffers.

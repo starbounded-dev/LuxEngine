@@ -23,6 +23,10 @@ namespace
 {
 	using namespace Lux;
 
+	// A cube from -1 to 1, wound counter-clockwise seen from outside like engine meshes.
+	constexpr int kCubeIndices[] = { 0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2,
+		1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3 };
+
 	void Check(bool condition, const char* expression, int line)
 	{
 		if (!condition)
@@ -45,8 +49,7 @@ namespace
 
 	AcousticGeometry Room()
 	{
-		constexpr int indices[] = { 0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2,
-			1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3 };
+		const auto& indices = kCubeIndices;
 		AcousticGeometry geometry;
 		geometry.Triangles.reserve(72);
 		for (size_t i = 0; i < std::size(indices); i += 3)
@@ -54,6 +57,16 @@ namespace
 			for (const int index : { indices[i], indices[i + 1], indices[i + 2], indices[i], indices[i + 2], indices[i + 1] })
 				geometry.Triangles.emplace_back(index & 1 ? 1 : -1, index & 2 ? 1 : -1, index & 4 ? 1 : -1);
 		}
+		return geometry;
+	}
+
+	// Single-sided like a mesh collider, so a wall is a closed solid rather than two coincident shells.
+	AcousticGeometry SolidBox()
+	{
+		AcousticGeometry geometry;
+		geometry.Triangles.reserve(std::size(kCubeIndices));
+		for (const int index : kCubeIndices)
+			geometry.Triangles.emplace_back(index & 1 ? 1 : -1, index & 2 ? 1 : -1, index & 4 ? 1 : -1);
 		return geometry;
 	}
 
@@ -211,6 +224,8 @@ namespace
 			const auto local = glm::vec3(inverse * glm::vec4(bounce.Position, 1));
 			Near(std::max({ std::abs(local.x), std::abs(local.y), std::abs(local.z) }), 1.0f, 0.002f);
 			CHECK(std::isfinite(bounce.Normal.x) && std::isfinite(bounce.Normal.y) && std::isfinite(bounce.Normal.z));
+			// The overlay probes into the surface along -Normal, so it must face the arriving ray.
+			CHECK(glm::dot(bounce.Normal, bounce.Position - rays.Origin) < 0);
 		}
 		CHECK(hits == static_cast<size_t>(rays.RayCount));
 
@@ -252,6 +267,61 @@ namespace
 		Near(scene.GetAmbience().ReturnedPercent, 0);
 		scene.Stop();
 	}
+
+	// Two 8 x 4 x 8 m rooms along X with 0.3 m concrete walls, sharing the wall at x = 0.
+	RaytracedAudioResult TwoRooms(const glm::vec3& listener, const glm::vec3& source, bool door)
+	{
+		RaytracedAudioScene scene(nullptr);
+		scene.Start();
+		const auto box = SolidBox();
+		uint64_t id = 1;
+		const auto wall = [&](const glm::vec3& center, const glm::vec3& halfExtents)
+		{
+			CHECK(scene.SetGeometry(id++, box, glm::scale(glm::translate(glm::mat4(1), center), halfExtents), false));
+		};
+		wall({ 0, -0.15f, 0 }, { 8.3f, 0.15f, 4.3f });
+		wall({ 0, 4.15f, 0 }, { 8.3f, 0.15f, 4.3f });
+		wall({ 0, 2, -4.15f }, { 8.3f, 2, 0.15f });
+		wall({ 0, 2, 4.15f }, { 8.3f, 2, 0.15f });
+		wall({ -8.15f, 2, 0 }, { 0.15f, 2, 4 });
+		wall({ 8.15f, 2, 0 }, { 0.15f, 2, 4 });
+		if (door)
+		{
+			// A 1 m doorway, 2.2 m high, centred in the shared wall.
+			wall({ 0, 2, -2.25f }, { 0.15f, 2, 1.75f });
+			wall({ 0, 2, 2.25f }, { 0.15f, 2, 1.75f });
+			wall({ 0, 3.1f, 0 }, { 0.15f, 0.9f, 0.5f });
+		}
+		else
+		{
+			// Mirrored, as an entity with negative scale would be; the wall must stay solid.
+			wall({ 0, 2, 0 }, { -0.15f, 2, 4 });
+		}
+		scene.SetListener(listener, { 1, 0, 0 });
+		scene.CreateEmitter(1);
+		scene.SetEmitterPosition(1, source);
+		Tick(scene);
+		Tick(scene);
+		const auto result = scene.GetResult(1);
+		CHECK(result.Valid);
+		scene.Stop();
+		return result;
+	}
+
+	void WallOcclusion()
+	{
+		const glm::vec3 listener{ -4, 1.7f, -3 };
+		const auto sameRoom = TwoRooms(listener, { -6, 1.7f, 2 }, false);
+		CHECK(sameRoom.OcclusionGainLF > 0.95f);
+
+		const auto sealed = TwoRooms(listener, { 4, 1.7f, 3 }, false);
+		CHECK(sealed.OcclusionGainLF < 0.3f);
+		CHECK(sealed.OcclusionGainHF < sealed.OcclusionGainLF);
+
+		// No direct line through the doorway; reflected paths through it still carry the sound.
+		const auto doorway = TwoRooms(listener, { 4, 1.7f, 3 }, true);
+		CHECK(doorway.OcclusionGainLF > 0.9f);
+	}
 }
 
 int main()
@@ -262,7 +332,8 @@ int main()
 		Materials();
 		SceneLifecycle();
 		GeometryAndReverb();
-		std::cout << "PASS: Asterwave scene lifecycle, native results, materials/YAML, transformed geometry, reverb and visualisation\n";
+		WallOcclusion();
+		std::cout << "PASS: Asterwave scene lifecycle, native results, materials/YAML, transformed geometry, reverb, visualisation and wall occlusion\n";
 	}
 	catch (const std::exception& error)
 	{
