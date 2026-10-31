@@ -1021,6 +1021,15 @@ between acoustic updates. All of this remains on main under both threading polic
 This contract does not yet implement propagation, reverb or GPU dispatch. The existing
 engine material accessor remains available as the Phase 1 default-value comparison oracle.
 
+**CPU geometry groundwork (migration Phase 2, in progress):** Soundwave's `Grid` owns validated
+world-space triangles and a deterministic spatial hierarchy, built transactionally from an owned
+snapshot. Its const segment trace uses caller-owned hit storage, reports entry/exit winding,
+preserves stable instance/surface/material/portal data and can exclude the source instance.
+Concurrent readers share no mutable scratch. `Settings` bounds reflection/opening/bounce work,
+strength and authored absorption. These are library-only groundwork; Scene does not consume them
+yet, settings are not yet serialized, and propagation/echogram/GPU dispatch remain unimplemented.
+The independent test runner exercises the hierarchy and immutable readers on both platforms.
+
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no
 `Application`, scene or renderer and reuses the runtime player's deployed libraries through the verification

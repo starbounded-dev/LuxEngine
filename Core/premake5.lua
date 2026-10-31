@@ -54,6 +54,7 @@ project "Core"
 
 		"vendor/soundwave/include/**.h",
 		"vendor/soundwave/src/**.cpp",
+		"vendor/soundwave/src/**.h",
 
 		"vendor/meshoptimizer/**.h",
 		"vendor/meshoptimizer/**.cpp",

@@ -34,3 +34,26 @@ This migration-only comparison still requires the existing acoustic dependency. 
 same integration assertions through `python tests/audio/run.py`.
 
 Full engine builds, runtime checks and the migration gates remain separate requirements.
+
+## CPU geometry groundwork (Phase 2 in progress)
+
+`Grid` owns world-space triangles and a deterministic median-split spatial hierarchy. Stable
+instance IDs, submesh/surface IDs, material tags and portal flags survive capture. `Build` validates
+the snapshot transactionally: invalid geometry does not replace the last valid one. The explicit
+limit is 1,048,576 triangles. Zero-area and numerically degenerate triangles are rejected.
+
+`Trace` walks the hierarchy without allocating traversal storage, returns ordered entry/exit
+triangle hits, supports source-instance exclusion, and retains the caller's hit-vector capacity.
+Use one hit vector per reader. Endpoints are excluded; an optional margin in metres excludes
+touching endpoints on reflection legs. Invalid rays return false, not an unobstructed success.
+Hits on shared face diagonals are intentionally retained for the later crossing walk to merge.
+Triangle intersection uses wide intermediates to avoid overflow on finite large geometry.
+
+`Settings` defines bounded reflection depth, opening samples, bounce/candidate work, direct-path
+strength and a fraction of authored material absorption. These types are independent library
+groundwork: they are not yet serialized, exposed in the editor or consumed by Scene. Propagation
+candidate generation, the crossing walk, engine integration and GPU execution remain unfinished.
+
+The independent runner now also executes `SoundwaveGeometryTests`: analytic solid distances and
+winding, shared-edge hits, inside-solid rays, source exclusion, transactional replacement,
+deterministic hierarchy coverage, invalid inputs, large geometry and concurrent immutable readers.
