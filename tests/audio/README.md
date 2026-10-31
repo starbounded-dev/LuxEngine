@@ -99,3 +99,6 @@ The Linux CI Debug build runs this same complete suite after its dependencies an
 Core/Editor compilation. Engine builds and final artifact verification still run afterward.
 For that ordering locally, use `LUX_RUN_AUDIO_TESTS=1 ./scripts/Linux-Build.sh debug`.
 Each compiler invocation checks its output's size and timestamp before the suite uses it.
+
+The Linux occlusion case links its production dependencies with the same minimal logger-host
+scope as the Windows check; other suite cases retain the full playback host.

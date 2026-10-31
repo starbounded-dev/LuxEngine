@@ -242,7 +242,13 @@ def main():
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "geometry-test"], cwd=ROOT / "Core")
     run([directory / "geometry-test"], timeout=60)
-    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", *audio_objects, *yaml, *libraries,
+    # This test has a minimal logger host, matching the Windows occlusion check. Link its
+    # production dependencies only; unrelated mixer globals require the full playback host.
+    occlusion_objects = [objects[name] for name in (
+        "AcousticPath", "AcousticMaterialSettings", "AudioOcclusion", "AudioOcclusionSettings",
+        "AcousticMaterial", "AudioGeometrySystem", "RaytracedAudioScene", "UUID", "Ref",
+        "FileStream", "StreamWriter", "StreamReader")]
+    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", *occlusion_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "occlusion-test"], cwd=ROOT / "Core")
     run([directory / "occlusion-test", directory], timeout=30)
