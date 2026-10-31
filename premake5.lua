@@ -182,6 +182,7 @@ group "Tools"
 	include "Editor"
 	if os.target() == "windows" then
 		include "Watchdog"
+		include "tools/AudioBankValidation"
 	end
 group ""
 

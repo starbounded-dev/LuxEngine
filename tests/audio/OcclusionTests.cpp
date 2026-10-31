@@ -1,11 +1,66 @@
-#include "AudioTestHost.h"
+#include "lpch.h"
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <cassert>
+#include <iostream>
 #include "Lux/Audio/AudioOcclusion.h"
 #include "Lux/Serialization/FileStream.h"
 #include "Lux/Serialization/Yaml.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <bit>
+
+namespace Lux
+{
+	std::shared_ptr<spdlog::logger> Log::s_CoreLogger = spdlog::stdout_color_mt("occlusion-test");
+	std::shared_ptr<spdlog::logger> Log::s_ClientLogger = Log::s_CoreLogger;
+	std::shared_ptr<spdlog::logger> Log::s_EditorConsoleLogger = Log::s_CoreLogger;
+}
+using namespace Lux;
 
 namespace
 {
+	void Near(float actual, float expected)
+	{
+		if (std::abs(actual - expected) >= 0.0001f)
+			std::cerr << "Expected " << expected << ", got " << actual << std::endl;
+		assert(std::abs(actual - expected) < 0.0001f);
+	}
+	void SameBits(float actual, float expected)
+	{
+		assert(std::bit_cast<uint32_t>(actual) == std::bit_cast<uint32_t>(expected));
+	}
+
+	void CheckMeasurement(const AudioOcclusionPath& path)
+	{
+		const auto& measurement = path.Measurement;
+		assert(measurement.Crossings.size() == path.Walls.size() && measurement.Bounces == 0);
+		SameBits(measurement.Distance, glm::distance(path.From, path.To));
+		SameBits(measurement.From.X, path.From.x);
+		SameBits(measurement.From.Y, path.From.y);
+		SameBits(measurement.From.Z, path.From.z);
+		SameBits(measurement.To.X, path.To.x);
+		SameBits(measurement.To.Y, path.To.y);
+		SameBits(measurement.To.Z, path.To.z);
+		float lossLF = 0.0f, lossHF = 0.0f;
+		for (size_t i = 0; i < path.Walls.size(); ++i)
+		{
+			const auto& wall = path.Walls[i];
+			const auto& crossing = measurement.Crossings[i];
+			assert(crossing.Material == static_cast<Soundwave::MaterialTag>(wall.Material));
+			assert(crossing.OneSided == wall.Flat && crossing.Portal == wall.Portal);
+			SameBits(crossing.Start, wall.Start);
+			SameBits(crossing.End, wall.End);
+			SameBits(crossing.LossLF, wall.LossLF);
+			SameBits(crossing.LossHF, wall.LossHF);
+			lossLF += wall.LossLF;
+			lossHF += wall.LossHF;
+		}
+		SameBits(measurement.LossLF, std::min(lossLF, 60.0f));
+		SameBits(measurement.LossHF, std::min(lossHF, 60.0f));
+		SameBits(path.LossLF, measurement.LossLF);
+		SameBits(path.LossHF, measurement.LossHF);
+		SameBits(measurement.GainLF(), std::pow(10.0f, -path.LossLF / 20.0f));
+	}
+
 	float SolidLoss(AcousticMaterial material, float thickness)
 	{
 		return 30.0f * thickness / GetDefaultAcousticMaterialProperties(material).TransmissionLF;
@@ -49,6 +104,20 @@ int main(int argc, char** argv)
 		assert(!copied.Deserialize(reader));
 	}
 
+	// The old engine accessor is an independent baseline until its Phase 7 removal.
+	for (size_t i = 0; i < AcousticMaterialCount; ++i)
+	{
+		const auto expected = GetDefaultAcousticMaterialProperties(static_cast<AcousticMaterial>(i));
+		const auto& actual = Soundwave::GetDefaultMaterialProperties(static_cast<Soundwave::MaterialTag>(i));
+		SameBits(actual.AbsorptionLF, expected.AbsorptionLF);
+		SameBits(actual.AbsorptionHF, expected.AbsorptionHF);
+		SameBits(actual.Scattering, expected.Scattering);
+		SameBits(actual.TransmissionLF, expected.TransmissionLF);
+		SameBits(actual.TransmissionHF, expected.TransmissionHF);
+		SameBits(actual.FlatTransmissionLF, expected.FlatTransmissionLF);
+		SameBits(actual.FlatTransmissionHF, expected.FlatTransmissionHF);
+	}
+
 	AudioOcclusion occlusion;
 	occlusion.Configure({});
 	std::vector<AudioGeometryInput> geometry(2);
@@ -63,11 +132,13 @@ int main(int argc, char** argv)
 	AudioOcclusionPath path;
 	std::vector<AudioOcclusionHit> hits;
 	occlusion.Evaluate(from, to, hits, path);
+	CheckMeasurement(path);
 	assert(path.Walls.empty() && path.LossLF == 0.0f);
 
 	// Unsorted input, a duplicate entry/exit from a shared edge, and a non-acoustic entity.
 	hits = { { 10, 4.3f, true }, { 99, 2.0f, false }, { 10, 4.0f, false }, { 10, 4.0005f, false }, { 10, 4.3005f, true } };
 	occlusion.Evaluate(from, to, hits, path);
+	CheckMeasurement(path);
 	assert(path.Walls.size() == 1 && !path.Walls[0].Flat && !path.Walls[0].Portal);
 	assert(path.Walls[0].Entity == 10 && path.Walls[0].Material == AcousticMaterial::Brick);
 	Near(path.Walls[0].Start, 4.0f);
@@ -78,6 +149,7 @@ int main(int argc, char** argv)
 
 	hits = { { 10, 4.0f, false }, { 10, 4.6f, true } };
 	occlusion.Evaluate(from, to, hits, path);
+	CheckMeasurement(path);
 	assert(path.LossLF > thinLoss);
 
 	// A single crossing is a one-sided surface, from either side.
@@ -85,6 +157,7 @@ int main(int argc, char** argv)
 	{
 		hits = { { 20, 5.0f, exit } };
 		occlusion.Evaluate(from, to, hits, path);
+		CheckMeasurement(path);
 		assert(path.Walls.size() == 1 && path.Walls[0].Flat);
 		Near(path.LossLF, FlatLoss(AcousticMaterial::Plaster));
 	}
@@ -92,6 +165,7 @@ int main(int argc, char** argv)
 	// Walls add up; crossings outside the segment do not count.
 	hits = { { 10, 2.0f, false }, { 10, 2.3f, true }, { 20, 6.0f, false }, { 10, 12.0f, false }, { 10, 12.3f, true } };
 	occlusion.Evaluate(from, to, hits, path);
+	CheckMeasurement(path);
 	assert(path.Walls.size() == 2 && path.Walls[0].Start < path.Walls[1].Start);
 	Near(path.LossLF, SolidLoss(AcousticMaterial::Brick, 0.3f) + FlatLoss(AcousticMaterial::Plaster));
 
@@ -102,6 +176,7 @@ int main(int argc, char** argv)
 		hits.push_back({ 10, 0.4f * i + 0.35f, true });
 	}
 	occlusion.Evaluate(from, to, hits, path);
+	CheckMeasurement(path);
 	assert(path.LossLF == 60.0f);
 
 	// A portal shutter turned so its 0.1 m thickness faces the path, which passes 0.3 m off centre.
@@ -114,17 +189,19 @@ int main(int argc, char** argv)
 	const glm::vec3 offsetFrom(0.0f, 0.0f, -0.3f);
 	const glm::vec3 offsetTo(10.0f, 0.0f, -0.3f);
 	float open = 0.0f;
-	occlusion.SetGeometry(std::span(&portal, 1), [&](UUID entity) { assert(entity == 30); return open; });
+	occlusion.SetGeometry(std::span(&portal, 1), [&](Lux::UUID entity) { assert(entity == 30); return open; });
 	hits.clear();
 	occlusion.Evaluate(offsetFrom, offsetTo, hits, path);
+	CheckMeasurement(path);
 	assert(path.Walls.size() == 1 && path.Walls[0].Portal && path.Walls[0].Material == AcousticMaterial::Wood);
 	Near(path.Walls[0].End - path.Walls[0].Start, 0.1f);
 	Near(path.Walls[0].Start, 6.95f);
 	for (float value : { 0.5f, 1.0f })
 	{
 		open = value;
-		occlusion.SetGeometry(std::span(&portal, 1), [&](UUID) { return open; });
+		occlusion.SetGeometry(std::span(&portal, 1), [&](Lux::UUID) { return open; });
 		occlusion.Evaluate(offsetFrom, offsetTo, hits, path);
+		CheckMeasurement(path);
 		assert(path.Walls.empty());
 	}
 
@@ -132,10 +209,10 @@ int main(int argc, char** argv)
 	occlusion.SetGeometry(geometry, {});
 	std::vector<AudioOcclusion::Source> sources;
 	for (int i = 0; i < 40; ++i)
-		sources.push_back({ static_cast<UUID>(1000 + i), glm::vec3(10.0f, 0.0f, 0.0f) });
+		sources.push_back({ static_cast<Lux::UUID>(1000 + i), glm::vec3(10.0f, 0.0f, 0.0f) });
 	int casts = 0;
 	bool wall = true;
-	auto cast = [&](UUID, const glm::vec3&, const glm::vec3&, std::vector<AudioOcclusionHit>& out)
+	auto cast = [&](Lux::UUID, const glm::vec3&, const glm::vec3&, std::vector<AudioOcclusionHit>& out)
 		{
 			++casts;
 			if (wall)
@@ -176,6 +253,7 @@ int main(int argc, char** argv)
 	occlusion.SetGeometry(geometry, {});
 	hits = { { 10, 4.0f, false }, { 10, 4.3f, true }, { 20, 6.0f, false } };
 	occlusion.Evaluate(from, to, hits, path);
+	CheckMeasurement(path);
 	Near(path.LossLF, 0.5f * (SolidLoss(AcousticMaterial::Brick, 0.3f) + FlatLoss(AcousticMaterial::Plaster)));
 	casts = 0;
 	occlusion.Update(0.016f, from, sources, cast);

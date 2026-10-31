@@ -165,6 +165,10 @@ Dependencies = {
 		LibName = "Coral.Native",
 		IncludeDir = "%{wks.location}/Core/vendor/Coral/Coral.Native/Include",
 	},
+	-- Soundwave sources are archived into Core; only its public include root crosses the seam.
+	Soundwave = {
+		IncludeDir = "%{wks.location}/Core/vendor/soundwave/include",
+	},
 	FastNoise = {
 		IncludeDir = "%{wks.location}/Core/vendor/FastNoise",
 	},

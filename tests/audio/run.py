@@ -63,7 +63,7 @@ def fixture(directory):
     alsa.write_text("pcm.!default { type null }\nctl.!default { type hw card 0 }\n")
     environment = dict(os.environ, QT_QPA_PLATFORM="minimal", ALSA_CONFIG_PATH=str(alsa))
     with (directory / "fixture-build.log").open("w") as log:
-        run(["fmodstudiocl", "-build", "-ignore-warnings", "-log-dir", directory,
+        run([os.environ.get("FMODSTUDIOCLI", "fmodstudiocl"), "-build", "-ignore-warnings", "-log-dir", directory,
              "-script", TESTS / "AuthorFixture.js", target / "SampleProject.fspro"],
             env=environment, stdout=log, stderr=subprocess.STDOUT, timeout=30)
     if "[script-error]" in (directory / "fixture-build.log").read_text():
@@ -164,14 +164,14 @@ def main():
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
-    sources = ["Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = ["vendor/soundwave/src/AcousticPath", "vendor/soundwave/src/AcousticMaterialSettings", "Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
-               "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader"]
+               "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
     objects = {}
     for source in sources:
         obj = directory / (Path(source).name + ".o")
         with (directory / (obj.stem + ".log")).open("w") as log:
-            run(["clang++", *flags, "-c", (source if source.startswith("Platform/") else "Source/Lux/" + source) + ".cpp", "-o", obj],
+            run(["clang++", *flags, "-c", (source if source.startswith(("Platform/", "vendor/")) else "Source/Lux/" + source) + ".cpp", "-o", obj],
                 cwd=ROOT / "Core", stdout=log, stderr=subprocess.STDOUT)
         objects[Path(source).name] = obj
     run(["clang++", *flags, TESTS / "FileStreamTests.cpp", objects["FileStream"],
@@ -186,14 +186,15 @@ def main():
          jolt, "-pthread", "-Wl,--gc-sections", "-o", directory / "jolt-test"], cwd=ROOT / "Core")
     run([directory / "jolt-test"], timeout=30)
     banks = args.banks.resolve() if args.banks else fixture(directory)
-    fmod = ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux/api"
-    libraries = [ROOT / "Core/vendor/VA_RAY/3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
-    # Lux::Yaml and the rapidyaml implementation unit (docs/YAML_MIGRATION_PLAN.md).
-    yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / name for name in ("Yaml.o", "ryml.o")]
+    fmod = Path(os.environ.get("LUX_FMOD_SDK", ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux")) / "api"
+    va = Path(os.environ.get("LUX_VA_SDK", ROOT / "Core/vendor/VA_RAY"))
+    libraries = [va / "3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
+    # Build the YAML implementation with the same flags as these tests, without stale engine objects.
+    yaml = [objects[name] for name in ("Yaml", "ryml")]
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)
-    audio_objects = [obj for name, obj in objects.items() if name not in ("JoltContactListener", "AssetPackSerializer", "AudioAccessibilityWidgets", "ImGuiUtilities")]
+    audio_objects = [obj for name, obj in objects.items() if name not in ("JoltContactListener", "AssetPackSerializer", "AudioAccessibilityWidgets", "ImGuiUtilities", "Yaml", "ryml")]
     run(["clang++", *flags, TESTS / "PhysicsAudioTests.cpp", *audio_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "audio-test"], cwd=ROOT / "Core")

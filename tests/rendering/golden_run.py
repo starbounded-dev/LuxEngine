@@ -97,9 +97,11 @@ def run_capture(label_dir, name, scene, options, args, selftest):
     command, cwd = editor_command(args.config)
     log_path = label_dir / f"{name}.log"
     started = time.monotonic()
+    exit_code = None
     with open(log_path, "w", encoding="utf-8", errors="replace") as log:
         try:
-            subprocess.run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout, check=False)
+            completed = subprocess.run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout, check=False)
+            exit_code = completed.returncode
             timed_out = False
         except subprocess.TimeoutExpired:
             timed_out = True
@@ -112,6 +114,14 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         status = lines[0] if lines else "CRASHED"
         reason = lines[1] if len(lines) > 1 else ""
 
+    if timed_out:
+        reason = "Editor did not complete the capture before the timeout"
+    elif exit_code != 0:
+        status = "CRASHED"
+        reason = f"Editor exited with code {exit_code} (0x{exit_code & 0xffffffff:08X})"
+    elif status == "CRASHED":
+        reason = "Editor exited with code 0 before writing capture status"
+
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
     validation_lines = len(VALIDATION_LINE.findall(log_text))
     validation_ids = sorted(set(VALIDATION_ID.findall(log_text)))
@@ -122,6 +132,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "options": options,
         "status": status,
         "reason": reason,
+        "exitCode": exit_code,
         "seconds": round(elapsed, 1),
         "validationMessages": validation_lines,
         "validationIds": validation_ids,

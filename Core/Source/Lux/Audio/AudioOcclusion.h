@@ -8,6 +8,7 @@
 #include "AudioOcclusionSettings.h"
 #include "Lux/Core/UUID.h"
 #include <glm/glm.hpp>
+#include <soundwave/AcousticPath.h>
 #include <array>
 #include <functional>
 #include <span>
@@ -48,6 +49,8 @@ namespace Lux
 		float LossLF = 0.0f; // dB, sum over walls, capped
 		float LossHF = 0.0f;
 		std::vector<AudioOcclusionWall> Walls;
+		// The library owns the reduction; Walls retains entity IDs for the editor overlay.
+		Soundwave::Path Measurement;
 	};
 
 	// Engine-side occlusion from raycasts through the acoustic geometry. It stands in for VA's

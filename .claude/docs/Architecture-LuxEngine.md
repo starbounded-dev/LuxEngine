@@ -1009,6 +1009,23 @@ format **25**'s bounded, length-prefixed YAML block after the format-23 performa
 16–24 load with defaults. Bank validation warns when an audio source's event has no `Occlusion`
 parameter, since walls then cannot muffle it.
 
+**Soundwave contract (migration Phase 1):** `Core/vendor/soundwave/` is an Apache-2.0 source
+library compiled into `Core`, without Lux headers or a separate DLL. `Dependencies.lua` owns
+its include root; Core's source glob and NoPCH filter compile it. `AudioOcclusion::Configure`
+maps enabled engine overrides or the library's literal LF/HF defaults into its material rows.
+`Evaluate` keeps its entity-bearing walls for the editor, sorts them once, then fills
+`AudioOcclusionPath::Measurement` (`Soundwave::Path`) in exactly that order. Soundwave owns
+solid/flat loss helpers, the fixed-order reduction, the 60 dB cap and linear gains; `Update`
+uses the measurement's LF gain before existing smoothing. Both vectors retain capacity
+between acoustic updates. All of this remains on main under both threading policies.
+This contract does not yet implement propagation, reverb or GPU dispatch. The existing
+engine material accessor remains available as the Phase 1 default-value comparison oracle.
+
+**Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
+`AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no
+`Application`, scene or renderer and reuses the runtime player's deployed libraries through the verification
+script's child PATH. It does not replace `ValidateProject`'s collection of asset references.
+
 **Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
 VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
 `AudioSurfaceComponent` on the same entity overrides that tag, including an explicit Default;

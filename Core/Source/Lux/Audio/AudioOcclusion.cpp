@@ -11,25 +11,10 @@ namespace Lux
 {
 	namespace
 	{
-		// VA defines a material's transmission distance as the thickness that leaves 0.1% of the
-		// energy (vaMaterialConvertMetersToTransmission), i.e. a 30 dB loss.
-		constexpr float k_TransmissionLossDb = 30.0f;
-		constexpr float k_MinTransmissionMetres = 0.001f;
-		constexpr float k_MaxLossDb = 60.0f;
 		// Coplanar or shared-edge triangles report the same crossing more than once.
 		constexpr float k_HitMergeDistance = 0.001f;
 		// Parameter smoothing so a wall edge sliding across the path does not click the filter.
 		constexpr float k_SmoothingSeconds = 0.1f;
-
-		float FlatLossDb(float energyFraction)
-		{
-			return -10.0f * std::log10(std::max(1.0f - energyFraction, 1e-6f));
-		}
-
-		float GainFromLossDb(float lossDb)
-		{
-			return std::pow(10.0f, -lossDb / 20.0f);
-		}
 
 		// Segment against the unit box [-1, 1]^3 in box space. Returns the entry/exit fractions.
 		bool IntersectUnitBox(const glm::vec3& from, const glm::vec3& to, float& outEnter, float& outExit)
@@ -68,10 +53,14 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Invalid occlusion settings; using defaults");
 			m_Settings = {};
 		}
+		static_assert(AcousticMaterialCount == Soundwave::kMaterialTagCount);
 		for (size_t i = 0; i < AcousticMaterialCount; ++i)
 		{
 			const AcousticMaterialOverride& entry = materials.Overrides[i];
-			m_Properties[i] = entry.Enabled ? entry.Properties : GetDefaultAcousticMaterialProperties(static_cast<AcousticMaterial>(i));
+			const Soundwave::MaterialProperties& defaults = Soundwave::GetDefaultMaterialProperties(static_cast<Soundwave::MaterialTag>(i));
+			m_Properties[i] = entry.Enabled ? entry.Properties : AcousticMaterialProperties{
+				defaults.AbsorptionLF, defaults.AbsorptionHF, defaults.Scattering, defaults.TransmissionLF,
+				defaults.TransmissionHF, defaults.FlatTransmissionLF, defaults.FlatTransmissionHF };
 		}
 	}
 
@@ -116,15 +105,14 @@ namespace Lux
 		wall.Portal = portal;
 		if (flat)
 		{
-			wall.LossLF = m_Settings.Strength * FlatLossDb(properties.FlatTransmissionLF);
-			wall.LossHF = m_Settings.Strength * FlatLossDb(properties.FlatTransmissionHF);
+			wall.LossLF = m_Settings.Strength * Soundwave::FlatLossDb(properties.FlatTransmissionLF);
+			wall.LossHF = m_Settings.Strength * Soundwave::FlatLossDb(properties.FlatTransmissionHF);
 		}
 		else
 		{
 			const float thickness = end - start;
-			const float lossPerMetre = m_Settings.Strength * k_TransmissionLossDb;
-			wall.LossLF = lossPerMetre * thickness / std::max(properties.TransmissionLF, k_MinTransmissionMetres);
-			wall.LossHF = lossPerMetre * thickness / std::max(properties.TransmissionHF, k_MinTransmissionMetres);
+			wall.LossLF = Soundwave::SolidLossDb(thickness, properties.TransmissionLF, m_Settings.Strength);
+			wall.LossHF = Soundwave::SolidLossDb(thickness, properties.TransmissionHF, m_Settings.Strength);
 		}
 	}
 
@@ -137,6 +125,7 @@ namespace Lux
 		outPath.Walls.clear();
 
 		const float length = glm::distance(from, to);
+		outPath.Measurement.Reset({ from.x, from.y, from.z }, { to.x, to.y, to.z }, length);
 		if (length <= k_HitMergeDistance)
 			return;
 
@@ -194,13 +183,15 @@ namespace Lux
 		}
 
 		std::sort(outPath.Walls.begin(), outPath.Walls.end(), [](const AudioOcclusionWall& a, const AudioOcclusionWall& b) { return a.Start < b.Start; });
+		// Adapt after the oracle's single sort: a second unstable sort could reorder equal starts.
 		for (const AudioOcclusionWall& wall : outPath.Walls)
 		{
-			outPath.LossLF += wall.LossLF;
-			outPath.LossHF += wall.LossHF;
+			outPath.Measurement.AddCrossing({ static_cast<Soundwave::MaterialTag>(wall.Material),
+				wall.Start, wall.End, wall.LossLF, wall.LossHF, wall.Flat, wall.Portal });
 		}
-		outPath.LossLF = std::min(outPath.LossLF, k_MaxLossDb);
-		outPath.LossHF = std::min(outPath.LossHF, k_MaxLossDb);
+		outPath.Measurement.Finalize();
+		outPath.LossLF = outPath.Measurement.LossLF;
+		outPath.LossHF = outPath.Measurement.LossHF;
 	}
 
 	void AudioOcclusion::Update(float timestep, const glm::vec3& listener, std::span<const Source> sources, const RayCaster& cast)
@@ -232,7 +223,7 @@ namespace Lux
 			if (cast)
 				cast(source.Entity, listener, source.Position, m_Hits);
 			Evaluate(listener, source.Position, m_Hits, state.Path);
-			state.TargetGainLF = GainFromLossDb(state.Path.LossLF);
+			state.TargetGainLF = state.Path.Measurement.GainLF();
 			if (!state.Evaluated)
 				state.GainLF = state.TargetGainLF;
 			state.Evaluated = true;

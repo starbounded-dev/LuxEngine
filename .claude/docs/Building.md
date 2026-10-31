@@ -172,6 +172,30 @@ default constructors aside) without a `<summary>`, or a doc comment on something
 runs the check after the Windows Release build, so a public ScriptCore change needs its `///` comment
 and the regenerated pages in the same commit.
 
+### Soundwave source library
+
+`Core/vendor/soundwave/include` is registered in `Dependencies.lua`. Its `src/**.cpp` files
+compile directly into `Core` with `NoPCH`, so they include no engine headers and add no DLL
+or separate link input. New files still require regeneration on both platforms.
+
+### Acoustic verification commands
+
+`scripts/Lux-BuildTest.ps1` regenerates the Visual Studio solution, builds Debug/Release/Dist and
+checks nonempty Core/Runtime artifacts against their source timestamps, plus Editor in Debug/Release.
+The solution intentionally excludes Editor in Dist; an older Dist Editor binary is not evidence.
+It also runs the independent Soundwave and production occlusion checks. An x64 Visual Studio
+developer prompt can run these individually with `tests/audio/run_soundwave.py` and
+`tests/audio/run_occlusion_windows.py`.
+
+`Lux-AudioBankValidation` is a Windows developer console target under `tools/AudioBankValidation/`.
+`scripts/Validate-AudioBanks.ps1` supplies the editor's deployed-library directory through the child
+process PATH and calls the production NOSOUND bank validator without starting an application or
+renderer. This is a built-bank catalog check, not collection of a project's serialized references.
+It adds no files to exported games. `scripts/Lux-GoldenRun.ps1` wraps the existing renderer capture
+runner with fresh-artifact and zero-validation checks; `scripts/lm9-golden-run.py` is a compatibility
+entry point to that same runner. Golden summaries record the editor exit code, including crashes
+after a status file was written.
+
 ### Vendored-submodule workarounds live in `premake5.lua`, not in the submodules
 
 Three deliberate hacks, all documented inline — don't "fix" them by editing the submodule, because

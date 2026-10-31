@@ -52,6 +52,9 @@ project "Core"
 
 		"vendor/FastNoise/**.cpp",
 
+		"vendor/soundwave/include/**.h",
+		"vendor/soundwave/src/**.cpp",
+
 		"vendor/meshoptimizer/**.h",
 		"vendor/meshoptimizer/**.cpp",
 
@@ -99,7 +102,7 @@ project "Core"
 		defines { "LUX_ENABLE_FMOD" }
 	end
 
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
 	flags { "NoPCH" }
 
 	filter "system:windows"

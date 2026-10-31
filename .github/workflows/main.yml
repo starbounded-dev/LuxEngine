@@ -381,8 +381,26 @@ jobs:
           # pipefail so a build failure is not masked by tee's exit status.
           set -o pipefail
           mkdir -p logs
+          touch logs/linux-build-start
           ./scripts/Linux-Build.sh ${{ matrix.configuration }} 2>&1 \
             | tee "logs/Build-${{ matrix.configuration }}.log"
+
+      - name: Soundwave and full audio regression checks
+        if: matrix.configuration == 'Debug'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/audio/run_soundwave.py --output bin/audio-tests/soundwave
+          python3 tests/audio/run.py --banks tests/audio/fixtures/banks --output bin/audio-tests/full
+
+      - name: Upload audio verification logs
+        if: always() && matrix.configuration == 'Debug'
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-verification-linux
+          path: |
+            bin/audio-tests/**/*.log
+          if-no-files-found: ignore
 
       # The build script is `set -e`, but assert the artifacts exist so a step that silently
       # produces nothing cannot pass.
@@ -390,11 +408,11 @@ jobs:
         run: |
           out="bin/${{ matrix.configuration }}-linux-x86_64"
           fail=0
-          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
-            if [ -x "$f" ]; then
+          for f in "$out/Core/libCore.a" "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
+            if [ -s "$f" ] && [ "$f" -nt logs/linux-build-start ]; then
               echo "ok   $f"
             else
-              echo "MISSING $f"; fail=1
+              echo "MISSING, EMPTY OR STALE $f"; fail=1
             fi
           done
           exit $fail

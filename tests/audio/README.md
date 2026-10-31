@@ -1,13 +1,38 @@
 # Headless audio regression tests
 
-On Linux, regenerate `Core/Makefile`, build the Release Core objects (for `Lux::Yaml` and rapidyaml) and Debug Jolt,
+The independent Soundwave contract checks run on Windows (an x64 MSVC developer prompt)
+and Linux with a C++20 compiler, without audio SDKs, banks or a renderer:
+
+```sh
+python tests/audio/run_soundwave.py
+```
+
+They check loss/gain compatibility with the original scalar formulas, ordered reduction,
+caps, path reset/reuse and material validation. This is a narrow library check, not the
+full audio-suite or engine-build gate below. `OcclusionTests.cpp` additionally compares
+every authored default against the original engine accessor and checks the engine adapter.
+
+Windows can run `python tests/audio/run_occlusion_windows.py` from an x64 MSVC developer prompt
+(after project generation). It compiles the production occlusion/settings/geometry/material units
+and executes the same integration assertions without the full FMOD playback test host.
+
+`scripts/Lux-BuildTest.ps1` regenerates and builds Debug/Release/Dist, checks Core/Runtime/Editor
+artifact timestamps (Editor is intentionally excluded in Dist), then runs both Windows checks.
+`scripts/Validate-AudioBanks.ps1` uses the production validator's separate NOSOUND bank catalog host.
+It does not collect project references; editor/export validation remains responsible for those.
+`scripts/Lux-GoldenRun.ps1 -Label soundwave-check` captures the audio demo through the existing
+renderer runner and rejects missing/stale artifacts or Vulkan validation output.
+
+On Linux, regenerate `Core/Makefile` and build Debug Jolt and ImGui,
 then run from the repository root:
 
 ```sh
 python tests/audio/run.py
 ```
 
-Requires `clang++`, the repository's FMOD and VA SDKs, and `fmodstudiocl`. The runner compiles production
+Requires `clang++` and the repository's FMOD and VA SDKs (including the `LUX_FMOD_SDK` and
+`LUX_VA_SDK` overrides used by CI). `fmodstudiocl` is required only when generating banks;
+`FMODSTUDIOCLI` may select its executable path. YAML implementation objects are compiled afresh. The runner compiles production
 code with Debug assertions, creates a disposable copy of the sample FMOD project in `/tmp`, and
 uses FMOD's no-sound output. It does not alter the sample project or require a renderer/audio device.
 Logs and artifacts are retained in the printed temporary directory. `--output /tmp/my-audio-tests`
@@ -62,3 +87,6 @@ and real FMOD output mute without changing authored bus mute or scripted event p
 Run `python3 tests/audio/run_sdk_layout.py` to exercise Premake's Windows/Linux SDK overrides,
 paths with spaces, and each missing header/link/runtime file. It uses disposable empty files to
 validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.
+
+CI uses `--banks tests/audio/fixtures/banks` to run the complete suite without installing FMOD Studio.
+See that fixture directory's README for provenance and regeneration.
