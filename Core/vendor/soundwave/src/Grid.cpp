@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <map>
 #include <numeric>
+#include <tuple>
 #include <utility>
 
 namespace Lux::Soundwave
@@ -15,6 +17,14 @@ namespace Lux::Soundwave
 	{
 		constexpr std::uint32_t kLeafTriangles = 4;
 		constexpr float kBarycentricEpsilon = 1e-6f;
+		constexpr float kCoplanarCosine = 1.0f - 1e-5f;
+		using EdgeKey = std::array<float, 6>;
+		EdgeKey Key(Position a, Position b)
+		{
+			if (std::tie(b.X, b.Y, b.Z) < std::tie(a.X, a.Y, a.Z))
+				std::swap(a, b);
+			return { a.X,a.Y,a.Z,b.X,b.Y,b.Z };
+		}
 		struct PrecisePosition { double X, Y, Z; };
 		PrecisePosition Difference(Position a, Position b)
 		{
@@ -27,6 +37,27 @@ namespace Lux::Soundwave
 		double Dot(PrecisePosition a, PrecisePosition b)
 		{
 			return a.X * b.X + a.Y * b.Y + a.Z * b.Z;
+		}
+		double SegmentDistanceSquared(Position point, Position a, Position b)
+		{
+			const auto edge = Difference(b, a), offset = Difference(point, a);
+			const double lengthSquared = Dot(edge, edge);
+			const double t = lengthSquared == 0 ? 0 : std::clamp(Dot(offset, edge) / lengthSquared, 0.0, 1.0);
+			const PrecisePosition rest{ offset.X - t * edge.X, offset.Y - t * edge.Y, offset.Z - t * edge.Z };
+			return Dot(rest, rest);
+		}
+		double SurfaceDistanceSquared(Position point, const Triangle& triangle)
+		{
+			const auto normal = Cross(Difference(triangle.B, triangle.A), Difference(triangle.C, triangle.A));
+			if (Dot(Cross(Difference(triangle.B, triangle.A), Difference(point, triangle.A)), normal) >= 0 &&
+				Dot(Cross(Difference(triangle.C, triangle.B), Difference(point, triangle.B)), normal) >= 0 &&
+				Dot(Cross(Difference(triangle.A, triangle.C), Difference(point, triangle.C)), normal) >= 0)
+			{
+				const double distance = Dot(Difference(point, triangle.A), normal);
+				return distance * distance / Dot(normal, normal);
+			}
+			return std::min({ SegmentDistanceSquared(point, triangle.A, triangle.B),
+				SegmentDistanceSquared(point, triangle.B, triangle.C), SegmentDistanceSquared(point, triangle.C, triangle.A) });
 		}
 
 		Bounds TriangleBounds(const Triangle& triangle)
@@ -114,9 +145,61 @@ namespace Lux::Soundwave
 		{
 			built.m_Nodes.reserve(triangles.size() * 2 - 1);
 			built.BuildNode(0, static_cast<std::uint32_t>(triangles.size()));
+			built.BuildEdges();
 		}
 		*this = std::move(built);
 		return GeometryError::None;
+	}
+
+	void Grid::BuildEdges()
+	{
+		struct Adjacency
+		{
+			std::uint32_t First = 0, Second = kInvalidGeometryIndex, Count = 0, Index = kInvalidGeometryIndex;
+			Position Normal;
+			bool Coplanar = false;
+		};
+		std::map<EdgeKey, Adjacency> edges;
+		for (std::uint32_t i = 0; i < m_Triangles.size(); ++i)
+		{
+			const auto& triangle = m_Triangles[i];
+			const Position normal = Math::Unit(Math::Cross(Math::Subtract(triangle.B, triangle.A), Math::Subtract(triangle.C, triangle.A)));
+			for (const auto& key : { Key(triangle.A, triangle.B), Key(triangle.B, triangle.C), Key(triangle.C, triangle.A) })
+			{
+				auto& adjacent = edges[key];
+				if (!adjacent.Count)
+				{
+					adjacent.First = i;
+					adjacent.Normal = normal;
+				}
+				else if (adjacent.Count == 1)
+				{
+					adjacent.Second = i;
+					adjacent.Coplanar = std::abs(Math::Dot(adjacent.Normal, normal)) >= kCoplanarCosine;
+				}
+				++adjacent.Count;
+			}
+		}
+		for (auto& [key, adjacent] : edges)
+		{
+			if (adjacent.Count > 2)
+			{
+				++m_Topology.NonManifoldEdges;
+				continue;
+			}
+			if (adjacent.Count == 2 && adjacent.Coplanar)
+				continue; // a material seam or triangle diagonal cannot diffract sound
+			adjacent.Index = static_cast<std::uint32_t>(m_Edges.size());
+			m_Edges.push_back({ {key[0],key[1],key[2]}, {key[3],key[4],key[5]}, adjacent.First, adjacent.Second });
+			if (adjacent.Count == 1)
+				++m_Topology.BoundaryEdges;
+			else
+				++m_Topology.CreaseEdges;
+		}
+		m_TriangleEdges.reserve(m_Triangles.size());
+		for (const auto& triangle : m_Triangles)
+			m_TriangleEdges.push_back({ edges.at(Key(triangle.A, triangle.B)).Index,
+				edges.at(Key(triangle.B, triangle.C)).Index, edges.at(Key(triangle.C, triangle.A)).Index });
 	}
 
 	std::uint32_t Grid::BuildNode(std::uint32_t first, std::uint32_t count)
@@ -150,6 +233,44 @@ namespace Lux::Soundwave
 		m_Nodes[index].Count = 0;
 		m_Nodes[index].Right = right;
 		return index;
+	}
+
+	bool Grid::HasSurfaceClearance(Position point, float radius, std::uint64_t ignoredInstance, bool& clear) const
+	{
+		clear = false;
+		if (!Math::Finite(point) || !std::isfinite(radius) || radius < 0)
+			return false;
+		const double radiusSquared = static_cast<double>(radius) * radius;
+		std::array<std::uint32_t, 32> stack{};
+		std::uint32_t pending = m_Nodes.empty() ? 0u : 1u;
+		while (pending)
+		{
+			const auto index = stack[--pending];
+			const auto& node = m_Nodes[index];
+			double boxDistance = 0;
+			for (std::uint32_t axis = 0; axis < 3; ++axis)
+			{
+				const double p = Math::Component(point, axis), low = Math::Component(node.Box.Min, axis), high = Math::Component(node.Box.Max, axis);
+				const double delta = p < low ? low - p : (p > high ? p - high : 0);
+				boxDistance += delta * delta;
+			}
+			if (boxDistance > radiusSquared)
+				continue;
+			if (!node.Count)
+			{
+				stack[pending++] = node.Right;
+				stack[pending++] = index + 1;
+				continue;
+			}
+			for (auto i = node.First; i < node.First + node.Count; ++i)
+			{
+				const auto& triangle = m_Triangles[m_Order[i]];
+				if (triangle.Instance != ignoredInstance && SurfaceDistanceSquared(point, triangle) <= radiusSquared)
+					return true;
+			}
+		}
+		clear = true;
+		return true;
 	}
 
 	bool Grid::Trace(const Position& from, const Position& to, std::uint64_t ignoredInstance,

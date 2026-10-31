@@ -26,7 +26,7 @@ def main():
     library = ROOT / "Core/vendor/soundwave"
     sources = sorted((library / "src").glob("*.cpp"))
     msvc = Path(compiler).name.lower() in ("cl", "cl.exe")
-    for test in ("SoundwaveTests", "SoundwaveGeometryTests", "SoundwaveSolveTests"):
+    for test in ("SoundwaveTests", "SoundwaveGeometryTests", "SoundwaveSolveTests", "SoundwavePropagationTests"):
         # Each build gets a new artifact; an old executable cannot satisfy a no-op compiler.
         started = time.time_ns()
         executable = output / (test + "-" + str(started) + (".exe" if os.name == "nt" else ""))

@@ -25,7 +25,7 @@ namespace Lux::Soundwave
 
 	enum class EvaluationError : std::uint8_t
 	{
-		None, InvalidSettings, InvalidMaterials, InvalidRay, InvalidPortal
+		None, InvalidSettings, InvalidMaterials, InvalidRay, InvalidPortal, NumericalFailure
 	};
 
 	// Caller-owned reusable scratch. One instance per concurrent solve. World data,
@@ -57,4 +57,51 @@ namespace Lux::Soundwave
 	[[nodiscard]] EvaluationError EvaluateDirect(const Grid& grid, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, DirectScratch& scratch, Path& output);
+
+	enum class PathKind : std::uint8_t { Reflection, Opening };
+	struct PropagationPath
+	{
+		PathKind Kind = PathKind::Reflection;
+		std::array<Position, kMaximumInteractions + 2> Points{};
+		std::uint32_t PointCount = 0;
+		std::uint32_t Reflections = 0, Diffractions = 0;
+		float Distance = 0, GainLF = 0, GainHF = 0;
+	};
+	struct SolveDiagnostics
+	{
+		std::uint32_t PreparationNodes = 0, Work = 0, VisibilityRays = 0;
+		std::uint32_t ReflectionPaths = 0, OpeningPaths = 0;
+		bool WorkLimited = false, PathsLimited = false;
+	};
+	struct SolveResult
+	{
+		Path Direct;
+		std::vector<PropagationPath> Indirect;
+		PropagationPath AudibleOpening;
+		bool HasAudibleOpening = false;
+		float OcclusionGainLF = 1, OcclusionGainHF = 1;
+		SolveDiagnostics Diagnostics;
+	};
+	struct SolveScratch
+	{
+		struct Visit { std::uint32_t Node; double Score; };
+		struct EdgeCandidate { std::uint32_t Index; float T, Score; };
+		struct OpeningNode { Position Point; std::uint32_t EdgeIndex; };
+		struct SearchState { std::uint32_t Node, Depth, Parent; float Distance, Score; };
+		DirectScratch Direct;
+		std::vector<RayHit> Hits;
+		std::vector<Visit> NodeHeap;
+		std::vector<std::uint32_t> Triangles, EdgeIndices, SearchHeap;
+		std::vector<EdgeCandidate> Edges;
+		std::vector<OpeningNode> Openings;
+		std::vector<SearchState> States;
+		std::vector<float> BestDistance;
+	};
+
+	// CPU reference. Reflection paths feed the later echogram; visible edge routes can
+	// improve dry audibility. It never changes the direct-only measurement. Work/path
+	// exhaustion is observable in Diagnostics, and retained results are conservative.
+	[[nodiscard]] EvaluationError Solve(const Grid& grid, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, SolveResult& output);
 }

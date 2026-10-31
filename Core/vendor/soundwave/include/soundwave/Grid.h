@@ -4,6 +4,7 @@
 #pragma once
 
 #include "soundwave/AcousticPath.h"
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -33,6 +34,20 @@ namespace Lux::Soundwave
 		bool Exit = false;
 	};
 
+	inline constexpr std::uint32_t kInvalidGeometryIndex = UINT32_MAX;
+	struct Edge
+	{
+		Position A, B;
+		std::uint32_t Triangle0 = kInvalidGeometryIndex;
+		std::uint32_t Triangle1 = kInvalidGeometryIndex; // absent on a boundary
+	};
+	struct TopologyStats
+	{
+		std::uint32_t BoundaryEdges = 0;
+		std::uint32_t CreaseEdges = 0;
+		std::uint32_t NonManifoldEdges = 0;
+	};
+
 	enum class GeometryError : std::uint8_t
 	{
 		None, TooManyTriangles, InvalidIdentity, InvalidMaterial, NonFinite, Degenerate
@@ -59,15 +74,25 @@ namespace Lux::Soundwave
 		// direct paths use zero. False means invalid input, never "an unobstructed path".
 		bool Trace(const Position& from, const Position& to, std::uint64_t ignoredInstance,
 			std::vector<RayHit>& hits, float endpointMargin = 0.0f) const;
+		// Distance from triangle surfaces, not a point-in-solid classifier. Used for
+		// off-surface diffraction candidates before testing their free-space legs.
+		[[nodiscard]] bool HasSurfaceClearance(Position point, float radius, std::uint64_t ignoredInstance, bool& clear) const;
 		std::span<const Triangle> GetTriangles() const { return m_Triangles; }
 		std::span<const Node> GetNodes() const { return m_Nodes; }
 		std::span<const std::uint32_t> GetTriangleOrder() const { return m_Order; }
+		std::span<const Edge> GetEdges() const { return m_Edges; }
+		std::span<const std::array<std::uint32_t, 3>> GetTriangleEdges() const { return m_TriangleEdges; }
+		const TopologyStats& GetTopologyStats() const { return m_Topology; }
 
 	private:
 		std::uint32_t BuildNode(std::uint32_t first, std::uint32_t count);
+		void BuildEdges();
 		std::vector<Triangle> m_Triangles;
 		std::vector<Node> m_Nodes;
 		std::vector<std::uint32_t> m_Order;
+		std::vector<Edge> m_Edges;
+		std::vector<std::array<std::uint32_t, 3>> m_TriangleEdges;
+		TopologyStats m_Topology;
 	};
 
 }

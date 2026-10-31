@@ -8,6 +8,7 @@
 
 namespace Lux::Soundwave
 {
+	inline constexpr std::uint32_t kMaximumInteractions = 16;
 
 	// Work limits are part of the reference algorithm, not elapsed-time cutoffs. Validation
 	// and GPU execution must enumerate the same candidates in the same order.
@@ -17,6 +18,8 @@ namespace Lux::Soundwave
 		std::uint32_t OpeningGridSize = 8;
 		std::uint32_t MaxBounces = 2;
 		std::uint32_t CandidateBudget = 4096;
+		std::uint32_t PathBudget = 64;
+		std::uint32_t OpeningNodeBudget = 128;
 		float Strength = 1.0f;
 		// Fraction of the authored material absorption applied at a reflection. This does
 		// not apply another distance fade to the direct signal.
@@ -24,9 +27,10 @@ namespace Lux::Soundwave
 
 		bool Validate() const
 		{
-			return MaxBounces >= 1 && MaxBounces <= 16 && ReflectionDepth <= MaxBounces &&
+			return MaxBounces >= 1 && MaxBounces <= kMaximumInteractions && ReflectionDepth <= MaxBounces &&
 				OpeningGridSize >= 1 && OpeningGridSize <= 32 && CandidateBudget >= 1 &&
-				CandidateBudget <= 65536 && std::isfinite(Strength) && Strength >= 0.0f &&
+				CandidateBudget <= 65536 && PathBudget >= 1 && PathBudget <= 4096 &&
+				OpeningNodeBudget >= 1 && OpeningNodeBudget <= 2048 && std::isfinite(Strength) && Strength >= 0.0f &&
 				Strength <= 4.0f && std::isfinite(Absorption) && Absorption >= 0.0f && Absorption <= 1.0f;
 		}
 	};

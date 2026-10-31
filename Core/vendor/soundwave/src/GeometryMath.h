@@ -18,6 +18,13 @@ namespace Lux::Soundwave::Math
 		return { a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X };
 	}
 	inline float Length(Position a) { return std::sqrt(Dot(a, a)); }
+	inline Position Unit(Position a)
+	{
+		const double length = std::sqrt(static_cast<double>(a.X) * a.X + static_cast<double>(a.Y) * a.Y + static_cast<double>(a.Z) * a.Z);
+		if (length == 0 || !std::isfinite(length))
+			return {};
+		return { static_cast<float>(a.X / length), static_cast<float>(a.Y / length), static_cast<float>(a.Z / length) };
+	}
 	inline bool Finite(Position a) { return std::isfinite(a.X) && std::isfinite(a.Y) && std::isfinite(a.Z); }
 	inline float Component(Position a, std::uint32_t axis) { return axis == 0 ? a.X : (axis == 1 ? a.Y : a.Z); }
 	inline Position Min(Position a, Position b)

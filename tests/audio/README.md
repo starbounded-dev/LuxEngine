@@ -108,3 +108,9 @@ analytic shutter clipping (including endpoints inside volumes), material/strengt
 invalid input, output aliasing and scratch reuse. `OcclusionTests.cpp` additionally compares the
 new evaluator bit-for-bit with production AudioOcclusion on captured box triangles and transformed
 portal opening states. It does not yet prove reflection/opening propagation or Scene integration.
+
+`SoundwavePropagationTests.cpp` adds independent CPU image-source/edge-route checks: analytic
+reflection gains, authored absorption/scattering, blocked legs, third-bounce traversal, thick
+corners and off-axis doorways, sealed closed-door rejection, deterministic output and explicit
+work/path limits. The independent runner builds all kernel sources and these checks without SDKs.
+They do not replace Scene/Play/runtime verification for the completed Phase 2 integration.

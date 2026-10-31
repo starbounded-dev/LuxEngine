@@ -3,6 +3,7 @@
 
 #include "soundwave/Solve.h"
 #include "GeometryMath.h"
+#include "SolveInternal.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -79,6 +80,28 @@ namespace Lux::Soundwave
 				SolidLossDb(end - start, properties.TransmissionHF, strength);
 			scratch.Walls.push_back({ crossing, instance });
 		}
+	}
+
+	Detail::Visibility Detail::SegmentVisible(const Grid& grid, std::span<const PortalBox> portals,
+		Position from, Position to, std::uint64_t sourceInstance, std::vector<RayHit>& hits, float margin)
+	{
+		if (!grid.Trace(from, to, sourceInstance, hits, margin))
+			return Visibility::Invalid;
+		// Boolean visibility does not double-price a portal. Its captured triangles
+		// and analytic volume both block, including numerical edge/tangent cases.
+		if (!hits.empty())
+			return Visibility::Blocked;
+		const float length = Math::Length(Math::Subtract(to, from));
+		for (const auto& portal : portals)
+		{
+			const Position a = InBox(portal, from), b = InBox(portal, to);
+			if (!Math::Finite(a) || !Math::Finite(b) || !Math::Finite(Math::Subtract(b, a)))
+				return Visibility::Invalid;
+			float start = 0, end = 0;
+			if (ClipBox(a, b, start, end) && end * length > margin && start * length < length - margin)
+				return Visibility::Blocked;
+		}
+		return Visibility::Clear;
 	}
 
 	MaterialTable DefaultMaterials()

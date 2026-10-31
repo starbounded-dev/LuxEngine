@@ -93,6 +93,13 @@ int main()
 	Check(!grid.Trace({ std::numeric_limits<float>::infinity(),0,0 }, {}, 0, hits) && hits.empty(),
 		"invalid ray reported an unobstructed success");
 	Check(!grid.Trace({}, { 2,0,0 }, 0, hits, -1), "negative endpoint margin accepted");
+	bool clear = true;
+	Check(grid.HasSurfaceClearance({1,0,0}, 0.001f, 0, clear) && !clear,
+		"opening candidate on another solid's face was treated as free space");
+	Check(grid.HasSurfaceClearance({1.01f,0,0}, 0.001f, 0, clear) && clear, "off-surface clearance query failed");
+	Check(grid.HasSurfaceClearance({1.0005f,1.0005f,0}, 0.001f, 0, clear) && !clear, "near-edge surface distance ignored");
+	Check(grid.HasSurfaceClearance({1,0,0}, 0.001f, 42, clear) && clear, "surface clearance ignored source exclusion");
+	Check(!grid.HasSurfaceClearance({}, -1, 0, clear) && !clear, "invalid clearance query returned free space");
 
 	// Failed builds retain a usable previous snapshot, including when the input aliases it.
 	Check(grid.Build(grid.GetTriangles()) == GeometryError::None, "self-snapshot rebuild invalidated its own input");

@@ -1027,7 +1027,8 @@ snapshot. Its const segment trace uses caller-owned hit storage, reports entry/e
 preserves stable instance/surface/material/portal data and can exclude the source instance.
 Concurrent readers share no mutable scratch. `Settings` bounds reflection/opening/bounce work,
 strength and authored absorption. These are library-only groundwork; Scene does not consume them
-yet, settings are not yet serialized, and propagation/echogram/GPU dispatch remain unimplemented.
+yet, settings are not yet serialized, and echogram/GPU dispatch remain unimplemented.
+Independent propagation is described below.
 The independent test runner exercises the hierarchy and immutable readers on both platforms.
 `Solve.h/.cpp` now adds the independent `EvaluateDirect` crossing walk. It pairs hits per
 instance, merges shared-edge duplicates at 1 mm, preserves unmatched-face semantics, and prices
@@ -1039,6 +1040,18 @@ an explicit nodiscard error and clear the attempted output; the future engine ca
 retain its last valid result. Scratch and crossing capacity survive updates. Scene still does not
 call this new evaluator. The production comparison test checks its values bit-for-bit against
 AudioOcclusion for all material tags/strengths and transformed portal opening states.
+
+**Independent CPU propagation (migration Phase 2, in progress):** `Solve` keeps the direct
+measurement unchanged and emits visible image-source reflections plus sampled edge-opening paths.
+`Grid` builds edge adjacency once with its hierarchy; coplanar diagonals are not diffraction edges,
+and omitted non-manifold edges are counted. Opening nodes must have surface clearance and all
+legs must be visible, preventing a graph segment between two points on opposite wall faces from
+passing inside the solid. Portal triangles and analytic volume clipping both block visibility.
+Specular energy uses authored absorption/scattering; opening attenuation uses a documented Fresnel
+approximation and relative extra-path spreading, without another direct distance fade. Work,
+path storage and graph nodes are bounded and truncation is explicit. Path points/lengths/band gains
+and the strongest audible LF opening path remain observable. This is not yet called by Scene;
+render-mesh capture, settings serialization/editor authoring and Phase 2 runtime verification remain.
 
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no

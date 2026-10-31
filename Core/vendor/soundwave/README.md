@@ -19,7 +19,7 @@ The include root is registered in `Dependencies.lua`.
 
 `Path` owns CPU storage. It is not a GPU upload layout: neither `std::vector` nor C++ structure
 padding is a shader-buffer contract. The GPU implementation is a later migration phase.
-Propagation, reflections, echograms and GPU execution are not implemented by this initial contract.
+This initial contract remains the scalar/direct compatibility layer; the independent CPU solver is described below.
 
 ## Verification
 
@@ -52,7 +52,7 @@ Triangle intersection uses wide intermediates to avoid overflow on finite large 
 `Settings` defines bounded reflection depth, opening samples, bounce/candidate work, direct-path
 strength and a fraction of authored material absorption. These types are independent library
 groundwork: they are not yet serialized, exposed in the editor or consumed by Scene. Propagation
-candidate generation, engine integration and GPU execution remain unfinished.
+engine integration and GPU execution remain unfinished; independent candidate propagation is described below.
 
 The independent runner now also executes `SoundwaveGeometryTests`: analytic solid distances and
 winding, shared-edge hits, inside-solid rays, source exclusion, transactional replacement,
@@ -73,8 +73,52 @@ handle it and retain the last valid result; attempted output is cleared. Endpoin
 before reset, allowing re-evaluation from a Path's own saved endpoints. Reuse `DirectScratch`
 per reader and reuse the output Path to retain their vector capacities.
 
-This is a direct measurement, not the complete propagation solver. Reflection/opening candidate
-generation and engine settings/Scene integration remain unfinished. The independent direct tests
+This direct measurement is reused by the independent propagation solver below. Engine settings/Scene integration remain unfinished. The independent direct tests
 cover frozen material formulas, solids/overlaps/thin walls, analytic shutters, source exclusion,
 affine transforms, invalid data, aliasing and scratch reuse. LuxEngine's production oracle test
 also compares all 23 tags, strengths, reversed/inside-solid rays and transformed shutter states.
+
+## Independent CPU propagation (Phase 2 in progress)
+
+`Solve` combines the unchanged direct measurement with bounded indirect candidates. `Grid::Build`
+now caches boundary/crease edge adjacency and per-triangle edge indices. Exact coincident vertices
+are stitched across instance boundaries; coplanar diagonals/material seams are excluded. Non-manifold
+edges are excluded from diffraction and counted in `TopologyStats`. Preparation uses the hierarchy
+to select a bounded nearby triangle pool, with explicit truncation diagnostics.
+
+Specular paths use image sources, reconstruct each bounce onto an actual triangle, require the
+neighbouring legs on the same side, then test every leg for visibility. Authored LF/HF absorption
+and scattering split specular energy. The traversal honors `ReflectionDepth`/`MaxBounces` through
+16 interactions; it has no hidden two-bounce cap. Reflection paths do not boost dry occlusion.
+
+Opening candidates sample cached edges at a distance-minimizing apex and the authored grid samples,
+with radial offsets into surrounding space. Every candidate requires at least 1 mm clearance from
+all triangle surfaces, and every graph leg must be clear. This matters at shared door/wall faces:
+two points exactly on opposite faces would otherwise form an undetected segment inside a solid.
+Analytic portal volumes and captured triangles both block boolean visibility. A bounded graph
+search retains one shortest-distance state per node/depth and rejects repeated edges and unnecessary
+bends. It is an approximation, not exhaustive wave propagation or all possible mixed paths.
+
+Edge attenuation uses the Fresnel knife-edge approximation in ITU-R P.526-6 eq. 17, evaluated with
+acoustic wavelength (343 m/s, 250 Hz LF and 4 kHz HF). The small-angle excess-path relation supplies
+the diffraction parameter; applying successive losses at bends is an approximation for complex
+wedges. No radio free-space-loss or terrain/earth model is used. Relative extra-path spreading is
+normalized to the source/listener distance with a 1 m near-field reference; the direct signal retains
+FMOD's authored distance fade. Only a better visible opening route can raise the dry LF/HF gains.
+
+`SolveResult` retains path kind, points, length, band gains and interaction counts for diagnostics
+and the later echogram. The LF route driving dry audibility is retained separately even if path
+storage is full. `CandidateBudget`, `PathBudget` and `OpeningNodeBudget` bound work/storage;
+`SolveDiagnostics` reports truncation and counts. Reuse `SolveScratch` and result storage per reader.
+Invalid numerical work returns an explicit error instead of creating an unoccluded result.
+
+`SoundwavePropagationTests` checks an analytic reflection/energy, absorption/scattering, blocked
+legs, third-bounce paths, thick-corner and off-axis doorway audibility, sealed closed-door rejection,
+direct-only equality, deterministic results and low-budget behavior. This remains library work:
+Scene integration, render-mesh capture, settings serialization/editor controls and the complete
+Phase 2 runtime gates are unfinished. Echogram, GPU execution, air/caustic reach and SDK removal
+remain later phases.
+
+Public mathematical references (no imported implementation):
+- https://research.cs.aalto.fi/acoustics/virtual-acoustics/research/room-acoustics-modeling/69-geometrical-acoustics.html
+- https://www.itu.int/dms_pubrec/itu-r/rec/p/r-rec-p.526-6-199910-s%21%21pdf-e.pdf
