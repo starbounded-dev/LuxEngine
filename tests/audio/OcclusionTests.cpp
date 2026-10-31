@@ -7,6 +7,7 @@
 #include "Lux/Serialization/Yaml.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <bit>
+#include <soundwave/Solve.h>
 
 namespace Lux
 {
@@ -70,6 +71,111 @@ namespace
 	{
 		return -10.0f * std::log10(1.0f - GetDefaultAcousticMaterialProperties(material).FlatTransmissionLF);
 	}
+	void CheckSoundwaveDirectOracle()
+	{
+		Soundwave::Grid grid;
+		Soundwave::DirectScratch scratch;
+		Soundwave::Path actual;
+		Soundwave::Settings kernelSettings;
+		kernelSettings.ReflectionDepth = 0;
+		kernelSettings.OpeningGridSize = 1;
+		kernelSettings.MaxBounces = 1;
+		const auto materials = Soundwave::DefaultMaterials();
+		AudioOcclusion oracle;
+		AudioOcclusionPath expected;
+		AcousticGeometry unitBox;
+		AudioGeometrySystem::BuildPortal(unitBox);
+		std::vector<Soundwave::Triangle> triangles;
+		std::vector<AudioOcclusionHit> hits;
+		std::vector<Soundwave::RayHit> rawHits;
+		const auto position = [](const glm::vec3& p) { return Soundwave::Position{ p.x,p.y,p.z }; };
+		const auto compare = [&](const glm::vec3& from, const glm::vec3& to, std::span<const Soundwave::PortalBox> portals)
+		{
+			assert(grid.Trace(position(from), position(to), 0, rawHits));
+			hits.clear();
+			for (const auto& hit : rawHits)
+				hits.push_back({ grid.GetTriangles()[hit.TriangleIndex].Instance, hit.Distance, hit.Exit });
+			oracle.Evaluate(from, to, hits, expected);
+			assert(Soundwave::EvaluateDirect(grid, portals, materials, kernelSettings, position(from), position(to), 0, scratch, actual) ==
+				Soundwave::EvaluationError::None);
+			CheckMeasurement(expected);
+			SameBits(actual.Distance, expected.Measurement.Distance);
+			SameBits(actual.LossLF, expected.LossLF);
+			SameBits(actual.LossHF, expected.LossHF);
+			SameBits(actual.GainLF(), expected.Measurement.GainLF());
+			assert(actual.Crossings.size() == expected.Walls.size());
+			for (size_t i = 0; i < actual.Crossings.size(); ++i)
+			{
+				const auto& a = actual.Crossings[i];
+				const auto& b = expected.Walls[i];
+				SameBits(a.Start, b.Start);
+				SameBits(a.End, b.End);
+				SameBits(a.LossLF, b.LossLF);
+				SameBits(a.LossHF, b.LossHF);
+				assert(a.Material == static_cast<Soundwave::MaterialTag>(b.Material) && a.OneSided == b.Flat && a.Portal == b.Portal);
+			}
+		};
+		AudioGeometryInput mesh;
+		mesh.Entity = 10;
+		for (size_t tag = 0; tag < AcousticMaterialCount; ++tag)
+		{
+			mesh.Material = static_cast<AcousticMaterial>(tag);
+			triangles.clear();
+			for (size_t i = 0; i < unitBox.Triangles.size(); i += 3)
+			{
+				const auto point = [&](size_t index) { return position(unitBox.Triangles[index] * glm::vec3(0.125f,1,1)); };
+				triangles.push_back({ point(i), point(i + 1), point(i + 2), 10,0,static_cast<Soundwave::MaterialTag>(tag),false });
+			}
+			assert(grid.Build(triangles) == Soundwave::GeometryError::None);
+			for (float strength : { 0.0f, 0.125f, 1.0f, 2.75f, 4.0f })
+			{
+				AudioOcclusionSettings settings;
+				settings.Strength = kernelSettings.Strength = strength;
+				oracle.Configure({}, settings);
+				oracle.SetGeometry({ &mesh,1 }, {});
+				compare({ -1,0,0 }, { 1,0,0 }, {});
+				compare({ 1,0,0 }, { -1,0,0 }, {});
+				compare({ 0,0,0 }, { 1,0,0 }, {});
+			}
+		}
+		assert(grid.Build({}) == Soundwave::GeometryError::None);
+		AudioGeometryInput portal;
+		portal.Entity = 42;
+		portal.Portal = true;
+		portal.Mode = AcousticGeometryMode::Dynamic;
+		portal.HalfExtents = { 0.75f,1.5f,0.125f };
+		portal.Transform = glm::translate(glm::mat4(1), { 3.5f,-1.25f,2.0f }) *
+			glm::rotate(glm::mat4(1), glm::radians(27.0f), glm::vec3(0,0,1));
+		AudioOcclusionSettings settings;
+		settings.Strength = kernelSettings.Strength = 0.5f;
+		oracle.Configure({}, settings);
+		std::vector<Soundwave::PortalBox> boxes;
+		for (float extent : { 0.75f,0.315f })
+		{
+			portal.HalfExtents.x = extent;
+			for (float open : { 0.0f,0.25f,0.5f,0.75f,1.0f })
+			{
+				portal.Open = open;
+				oracle.SetGeometry({ &portal,1 }, [open](Lux::UUID) { return open; });
+				boxes.clear();
+				const glm::mat4 applied = AudioGeometrySystem::PortalTransform(portal);
+				if (open < 1)
+				{
+					Soundwave::PortalBox box;
+					box.Instance = 42;
+					const glm::mat4 inverse = glm::inverse(applied);
+					for (uint32_t c = 0; c < 4; ++c)
+						for (uint32_t r = 0; r < 4; ++r)
+							box.WorldToBox[c * 4 + r] = inverse[c][r];
+					boxes.push_back(box);
+				}
+				compare(glm::vec3(portal.Transform * glm::vec4(-2,0,0,1)), glm::vec3(portal.Transform * glm::vec4(2,0,0,1)), boxes);
+				compare(glm::vec3(applied * glm::vec4(-0.5f,0,0,1)), glm::vec3(applied * glm::vec4(0.5f,0,0,1)), boxes);
+				compare(glm::vec3(applied[3]), glm::vec3(portal.Transform * glm::vec4(2,0,0,1)), boxes);
+			}
+		}
+		std::cout << "PASS: CPU direct kernel matches production oracle bit-for-bit for 23 materials, strengths, reversed/inside solids and transformed portal opening states\n";
+	}
 }
 
 int main(int argc, char** argv)
@@ -103,6 +209,8 @@ int main(int argc, char** argv)
 		FileStreamReader reader(file);
 		assert(!copied.Deserialize(reader));
 	}
+
+	CheckSoundwaveDirectOracle();
 
 	// The old engine accessor is an independent baseline until its Phase 7 removal.
 	for (size_t i = 0; i < AcousticMaterialCount; ++i)

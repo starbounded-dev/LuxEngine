@@ -186,7 +186,7 @@ def main():
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
     flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
-    sources = ["vendor/soundwave/src/AcousticPath", "vendor/soundwave/src/AcousticMaterialSettings", "Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = ["vendor/soundwave/src/AcousticPath", "vendor/soundwave/src/AcousticMaterialSettings", "vendor/soundwave/src/Grid", "vendor/soundwave/src/Solve", "Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
     objects = {}
@@ -245,7 +245,7 @@ def main():
     # This test has a minimal logger host, matching the Windows occlusion check. Link its
     # production dependencies only; unrelated mixer globals require the full playback host.
     occlusion_objects = [objects[name] for name in (
-        "AcousticPath", "AcousticMaterialSettings", "AudioOcclusion", "AudioOcclusionSettings",
+        "AcousticPath", "AcousticMaterialSettings", "Grid", "Solve", "AudioOcclusion", "AudioOcclusionSettings",
         "AcousticMaterial", "AudioGeometrySystem", "RaytracedAudioScene", "UUID", "Ref",
         "FileStream", "StreamWriter", "StreamReader")]
     run(["clang++", *flags, TESTS / "OcclusionTests.cpp", *occlusion_objects, *yaml, *libraries,

@@ -47,8 +47,8 @@ def main():
         "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial",
         "Audio/AudioGeometrySystem", "Serialization/FileStream", "Serialization/StreamReader",
         "Serialization/StreamWriter", "Serialization/Yaml", "Core/UUID", "Core/Ref", "Audio/RaytracedAudioScene")]
-    sources += [core / "vendor/rapidyaml/ryml.cpp", core / "vendor/soundwave/src/AcousticPath.cpp",
-                core / "vendor/soundwave/src/AcousticMaterialSettings.cpp"]
+    sources += [core / "vendor/rapidyaml/ryml.cpp"]
+    sources += sorted((core / "vendor/soundwave/src").glob("*.cpp"))
     va_include = next(path for path in includes if path.as_posix().endswith("/3d/native/include"))
     native = va_include.parent
     libraries = [native / "production/windows/vaudionative.lib"]

@@ -102,3 +102,9 @@ Each compiler invocation checks its output's size and timestamp before the suite
 
 The Linux occlusion case links its production dependencies with the same minimal logger-host
 scope as the Windows check; other suite cases retain the full playback host.
+
+The Phase 2 `SoundwaveSolveTests.cpp` independently exercises the CPU direct crossing walk and
+analytic shutter clipping (including endpoints inside volumes), material/strength arithmetic,
+invalid input, output aliasing and scratch reuse. `OcclusionTests.cpp` additionally compares the
+new evaluator bit-for-bit with production AudioOcclusion on captured box triangles and transformed
+portal opening states. It does not yet prove reflection/opening propagation or Scene integration.

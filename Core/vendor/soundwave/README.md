@@ -52,8 +52,29 @@ Triangle intersection uses wide intermediates to avoid overflow on finite large 
 `Settings` defines bounded reflection depth, opening samples, bounce/candidate work, direct-path
 strength and a fraction of authored material absorption. These types are independent library
 groundwork: they are not yet serialized, exposed in the editor or consumed by Scene. Propagation
-candidate generation, the crossing walk, engine integration and GPU execution remain unfinished.
+candidate generation, engine integration and GPU execution remain unfinished.
 
 The independent runner now also executes `SoundwaveGeometryTests`: analytic solid distances and
 winding, shared-edge hits, inside-solid rays, source exclusion, transactional replacement,
 deterministic hierarchy coverage, invalid inputs, large geometry and concurrent immutable readers.
+
+## CPU direct measurement (Phase 2 in progress)
+
+`EvaluateDirect` in `Solve.h/.cpp` pairs solid hits per instance, merges shared-edge duplicates
+within 1 mm, treats unmatched entry/exit faces as thin surfaces, and applies the existing scalar
+material loss arithmetic in a fixed crossing order. The entry material prices a paired solid.
+`DefaultMaterials` provides an owned table for project overrides. `PortalBox` carries an applied,
+column-major world-to-unit-box inverse, so clipping measures world-space thickness even when
+both endpoints are inside a shutter. Matching portal triangles are excluded from duplicate loss.
+The engine adapter remains responsible for passing the last applied opening transform.
+
+`EvaluationError` reports invalid settings, materials, rays or portal transforms. Callers must
+handle it and retain the last valid result; attempted output is cleared. Endpoint values are copied
+before reset, allowing re-evaluation from a Path's own saved endpoints. Reuse `DirectScratch`
+per reader and reuse the output Path to retain their vector capacities.
+
+This is a direct measurement, not the complete propagation solver. Reflection/opening candidate
+generation and engine settings/Scene integration remain unfinished. The independent direct tests
+cover frozen material formulas, solids/overlaps/thin walls, analytic shutters, source exclusion,
+affine transforms, invalid data, aliasing and scratch reuse. LuxEngine's production oracle test
+also compares all 23 tags, strengths, reversed/inside-solid rays and transformed shutter states.

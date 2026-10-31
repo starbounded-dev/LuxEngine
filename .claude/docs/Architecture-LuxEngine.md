@@ -1029,6 +1029,16 @@ Concurrent readers share no mutable scratch. `Settings` bounds reflection/openin
 strength and authored absorption. These are library-only groundwork; Scene does not consume them
 yet, settings are not yet serialized, and propagation/echogram/GPU dispatch remain unimplemented.
 The independent test runner exercises the hierarchy and immutable readers on both platforms.
+`Solve.h/.cpp` now adds the independent `EvaluateDirect` crossing walk. It pairs hits per
+instance, merges shared-edge duplicates at 1 mm, preserves unmatched-face semantics, and prices
+the entry material using the Phase 1 loss helpers. Applied portal transforms cross the seam as
+column-major `PortalBox` values, with analytic clipping for segments partly or wholly inside
+the shutter. Matching portal triangles are not charged again. Endpoint inputs are copied before
+reset so a previous Path can supply its own From/To. Settings/material/ray/portal failures return
+an explicit nodiscard error and clear the attempted output; the future engine caller must log and
+retain its last valid result. Scratch and crossing capacity survive updates. Scene still does not
+call this new evaluator. The production comparison test checks its values bit-for-bit against
+AudioOcclusion for all material tags/strengths and transformed portal opening states.
 
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no
