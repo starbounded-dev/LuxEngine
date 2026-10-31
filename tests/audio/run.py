@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -15,7 +16,17 @@ ROOT = Path(__file__).resolve().parents[2]
 TESTS = Path(__file__).resolve().parent
 
 def run(command, **kwargs):
-    subprocess.run(list(map(str, command)), check=True, **kwargs)
+    command = list(map(str, command))
+    started = time.time_ns()
+    subprocess.run(command, check=True, **kwargs)
+    if "-o" in command:
+        output = Path(command[command.index("-o") + 1])
+        if not output.is_absolute():
+            output = Path(kwargs.get("cwd", Path.cwd())) / output
+        artifact = output.stat()
+        if artifact.st_size == 0 or artifact.st_mtime_ns < started - 2_000_000_000:
+            raise RuntimeError(f"Compiler produced a missing, empty or stale artifact: {output}")
+        print(f"Verified fresh compile artifact: {output} ({artifact.st_mtime_ns})", flush=True)
 
 def fixture(directory):
     target = directory / "fixture"

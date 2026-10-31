@@ -417,6 +417,9 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
   `Dependencies.lua` reads it for Core's Vulkan headers and libraries.
 - `VULKAN_VERSION`, `PREMAKE_VERSION` — override the pins in `scripts/Linux-Fetch.sh`.
 - `BUILD_CONFIG`, `JOBS` — consumed by `scripts/Linux-Build.sh`.
+- `LUX_RUN_AUDIO_TESTS=1`: optional Debug verification in `scripts/Linux-Build.sh`: runs the
+  complete audio suite after dependency builds and before Core/Editor, then continues the full
+  engine build. CI enables it for Debug. Compiled test outputs are checked for freshness.
 - `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image
   capture`). Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
   commits.

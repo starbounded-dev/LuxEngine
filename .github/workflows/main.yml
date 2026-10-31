@@ -377,6 +377,8 @@ jobs:
       # native engine, and the sample game's scripts.
       - name: Build
         shell: bash
+        env:
+          LUX_RUN_AUDIO_TESTS: ${{ matrix.configuration == 'Debug' && '1' || '0' }}
         run: |
           # pipefail so a build failure is not masked by tee's exit status.
           set -o pipefail
@@ -384,14 +386,6 @@ jobs:
           touch logs/linux-build-start
           ./scripts/Linux-Build.sh ${{ matrix.configuration }} 2>&1 \
             | tee "logs/Build-${{ matrix.configuration }}.log"
-
-      - name: Soundwave and full audio regression checks
-        if: matrix.configuration == 'Debug'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 tests/audio/run_soundwave.py --output bin/audio-tests/soundwave
-          python3 tests/audio/run.py --banks tests/audio/fixtures/banks --output bin/audio-tests/full
 
       - name: Upload audio verification logs
         if: always() && matrix.configuration == 'Debug'

@@ -1,2 +1,5 @@
 # Batch labels and goto misbehave in LF-only files; check them out with CRLF everywhere.
 *.bat text eol=crlf
+
+# This script is verified and run from Linux/WSL as well as clean CI checkouts.
+/scripts/Linux-Build.sh text eol=lf

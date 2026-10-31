@@ -94,3 +94,8 @@ See that fixture directory's README for provenance and regeneration.
 Dialogue programmer-sound tests use `event:/Character/Dialogue` and the `welcome`/`goodbye`
 audio-table keys authored into the fixture Master bank. They exercise real FMOD callbacks and
 source duration with existing sample audio, without depending on optional FMOD SDK example banks.
+
+The Linux CI Debug build runs this same complete suite after its dependencies and before
+Core/Editor compilation. Engine builds and final artifact verification still run afterward.
+For that ordering locally, use `LUX_RUN_AUDIO_TESTS=1 ./scripts/Linux-Build.sh debug`.
+Each compiler invocation checks its output's size and timestamp before the suite uses it.

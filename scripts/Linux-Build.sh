@@ -209,6 +209,19 @@ step "Building engine ($BUILD_CONFIG, -j$JOBS)"
 # shellcheck disable=SC2086  # PREMAKE_OPTIONS is a deliberately word-split flag list.
 "$PREMAKE" gmake2 --cc=clang $PREMAKE_OPTIONS
 make -j"$JOBS" config="$CONFIG" Dependencies Dependencies/Renderer "$@"
+
+# Optional CI verification uses the generated Core flags and the just-built Jolt/ImGui libraries.
+# Run it before Core/Editor so a failing audio regression is reported promptly.
+if [ "${LUX_RUN_AUDIO_TESTS:-0}" = "1" ]; then
+	if [ "$CONFIG" != "debug" ]; then
+		echo "LUX_RUN_AUDIO_TESTS requires the Debug configuration."
+		exit 1
+	fi
+	step "Running Soundwave and full audio regression checks"
+	python3 tests/audio/run_soundwave.py --output bin/audio-tests/soundwave
+	python3 tests/audio/run.py --banks tests/audio/fixtures/banks --output bin/audio-tests/full
+fi
+
 make -j"$JOBS" -C Core -f Makefile config="$CONFIG"
 make -j"$JOBS" -C Editor -f Makefile config="$CONFIG"
 make -j"$JOBS" -C Lux-Runtime -f Makefile config="$CONFIG"
