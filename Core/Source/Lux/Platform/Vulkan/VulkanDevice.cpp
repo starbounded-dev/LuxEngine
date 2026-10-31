@@ -612,6 +612,8 @@ namespace Lux {
 			.setDualSrcBlend(true)
 			.setIndependentBlend(true)
 			.setFillModeNonSolid(true)
+			// Shadow pancaking uses depth-clamped pipelines; NRI cannot enable this for our wrapped device.
+			.setDepthClamp(physicalDeviceFeatures2.features.depthClamp)
 			.setWideLines(true)
 			.setPipelineStatisticsQuery(true);
 

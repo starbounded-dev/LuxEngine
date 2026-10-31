@@ -649,6 +649,10 @@ context see the same device NRI drives.
   can use implicitly (and the 1.1/1.2 bits the descriptor work will need) whenever supported, and
   the KHR extensions on 1.3 devices. **Do not use an NRI `DeviceDesc` feature that
   `VulkanDevice` does not enable**; add it there first.
+- **Depth-clamped shadows.** Device creation enables the queried core `depthClamp` feature.
+  Directional-shadow pancaking requests this raster state; NRI cannot enable a feature on the
+  Vulkan device Lux already created. The SPIR-V input parser also permits a final operand-free
+  instruction without indexing past its vector (including with Debug checked containers).
 - **Extensions NRI expects in pairs.** NRI creates its own devices with some extensions together
   and loads their functions as if they always were: with `VK_KHR_ray_tracing_pipeline` it loads
   `vkCmdTraceRaysIndirect2KHR` from `VK_KHR_ray_tracing_maintenance1`, and `nriCreateDeviceFromVKDevice`

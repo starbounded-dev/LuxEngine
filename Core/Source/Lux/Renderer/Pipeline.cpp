@@ -100,7 +100,8 @@ namespace Lux {
 				const uint32_t opcode = spirv[word] & 0xFFFFu;
 				if (wordCount == 0 || word + wordCount > spirv.size())
 					return std::nullopt;
-				const uint32_t* operands = &spirv[word + 1];
+				// A final operand-free instruction may end at size(); form a legal one-past pointer.
+				const uint32_t* operands = spirv.data() + word + 1;
 
 				if (opcode == k_OpEntryPoint && wordCount >= 4 && operands[0] == k_ExecutionModelVertex)
 				{
