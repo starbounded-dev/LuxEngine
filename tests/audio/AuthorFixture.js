@@ -69,3 +69,11 @@ for(var i=0;i<events.length;i++) {
  curve.addAutomationPoint(0,0);curve.addAutomationPoint(1,0);
 }
 studio.project.save();
+
+// Reject a fixture whose inherited instruments contradict the regression contract.
+var expectedOneShot={SurfaceHit:true,SurfaceMotion:false,MusicBed:false,MusicOther:false,MusicStinger:true};
+for(var i=0;i<events.length;i++) {
+ var e=events[i];
+ if(Object.prototype.hasOwnProperty.call(expectedOneShot,e.name) && e.isOneShot()!=expectedOneShot[e.name])
+  throw new Error('Fixture event '+e.name+' has the wrong one-shot type');
+}

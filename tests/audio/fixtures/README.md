@@ -3,7 +3,10 @@
 `banks/Master.bank` and `banks/Master.strings.bank` are test data generated on 2026-10-31
 by FMOD Studio 2.03.14 from the repository's `Editor/LuxSampleProject/Assets/Audio/SampleProject`
 and `tests/audio/AuthorFixture.js`. They contain the SurfaceHit/SurfaceMotion and music events,
-parameters and buses described in `tests/audio/README.md`. They contain no SDK libraries or code.
+parameters and buses described in `tests/audio/README.md`. The generator selects the Fart
+seed by name and disables inherited instrument loops for the hit/stinger one-shots.
+`AuthorFixture.js` rejects incorrect event playback types before a fixture is accepted.
+The banks contain no SDK libraries or code.
 
 The recipe copies the sample authoring project to a disposable directory before editing it.
 To regenerate, run Python from the repository root with FMOD Studio's command-line application

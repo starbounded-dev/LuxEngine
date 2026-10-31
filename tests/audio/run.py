@@ -21,7 +21,9 @@ def fixture(directory):
     target = directory / "fixture"
     source = ROOT / "Editor/LuxSampleProject/Assets/Audio/SampleProject"
     shutil.copytree(source, target, ignore=shutil.ignore_patterns(".cache", ".user", "Build"))
-    event_file = next((target / "Metadata/Event").glob("*.xml"))
+    # Select a stable seed instead of depending on directory enumeration order.
+    event_file = next(path for path in sorted((target / "Metadata/Event").glob("*.xml"))
+                      if ET.parse(path).getroot().find("object[@class='Event']/property[@name='name']/value").text == "Fart")
     tree = ET.parse(event_file)
     objects = tree.getroot()
     event = objects.find("object[@class='Event']")
@@ -40,6 +42,10 @@ def fixture(directory):
     cloned = ET.fromstring(text)
     cloned.find("object[@class='Event']/property[@name='name']/value").text = "SurfaceHit"
     cloned.find("object[@class='EventAutomatableProperties']/property[@name='isPersistent']/value").text = "false"
+    # Persistence and instrument looping are independent: the sample's MultiSound loops.
+    # Hit and stinger clones must contain finite instruments to be genuine one-shots.
+    for looping in cloned.findall(".//property[@name='looping']/value"):
+        looping.text = "false"
     ET.ElementTree(cloned).write(target / "Metadata/Event" / (ids[event.attrib["id"]] + ".xml"), encoding="UTF-8", xml_declaration=True)
     # Separate 2D scores/stinger retain the same source sound, in a disposable project only.
     for name in ("MusicBed", "MusicOther", "MusicStinger"):
