@@ -165,10 +165,10 @@ int main(int argc, char** argv)
 	assert(!director.IsActive(beforeReload) && !director.IsActive(pendingReload));
 	director.Clear();
 
-	// Real SDK audio-table banks exercise programmer CREATE/DESTROY and source duration.
+	// Authored audio-table banks exercise real FMOD programmer CREATE/DESTROY and source duration.
 	AudioEngine::Init();
 	const std::filesystem::path media = argv[2];
-	for (const auto* name : { "Master.bank", "Master.strings.bank", "SFX.bank", "Dialogue_EN.bank" })
+	for (const auto* name : { "Master.bank", "Master.strings.bank" })
 		assert(AudioEngine::LoadBank(media / name));
 	auto programmer = Ref<DialogueTable>::Create();
 	auto& spoken = programmer->Lines["welcome"];

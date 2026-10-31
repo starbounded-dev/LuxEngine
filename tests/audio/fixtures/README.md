@@ -8,6 +8,10 @@ seed by name and disables inherited instrument loops for the hit/stinger one-sho
 `AuthorFixture.js` rejects incorrect event playback types before a fixture is accepted.
 The banks contain no SDK libraries or code.
 
+The same Master bank contains `event:/Character/Dialogue` with a programmer instrument and an
+audio table keyed by `welcome` and `goodbye`. Both keys reuse the repository's existing
+`fart-01.wav` as non-speech callback test data. No SDK example banks are required.
+
 The recipe copies the sample authoring project to a disposable directory before editing it.
 To regenerate, run Python from the repository root with FMOD Studio's command-line application
 on PATH (or its path in `FMODSTUDIOCLI`):

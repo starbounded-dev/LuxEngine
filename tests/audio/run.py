@@ -21,6 +21,11 @@ def fixture(directory):
     target = directory / "fixture"
     source = ROOT / "Editor/LuxSampleProject/Assets/Audio/SampleProject"
     shutil.copytree(source, target, ignore=shutil.ignore_patterns(".cache", ".user", "Build"))
+    # Programmer-sound tests use our sample audio, independent of optional SDK examples.
+    programmer_audio = target / "ProgrammerAudio"
+    programmer_audio.mkdir()
+    for key in ("welcome", "goodbye"):
+        shutil.copy2(target / "Assets/FX/Effects/fart-01.wav", programmer_audio / (key + ".wav"))
     # Select a stable seed instead of depending on directory enumeration order.
     event_file = next(path for path in sorted((target / "Metadata/Event").glob("*.xml"))
                       if ET.parse(path).getroot().find("object[@class='Event']/property[@name='name']/value").text == "Fart")
@@ -212,7 +217,7 @@ def main():
     run(["clang++", *flags, TESTS / "DialogueTests.cpp", *audio_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "dialogue-test"], cwd=ROOT / "Core")
-    run([directory / "dialogue-test", banks, fmod / "studio/examples/media", directory], timeout=60)
+    run([directory / "dialogue-test", banks, banks, directory], timeout=60)
     run(["clang++", *flags, TESTS / "AccessibilityTests.cpp", *audio_objects, objects["AudioAccessibilityWidgets"], objects["ImGuiUtilities"],
          ROOT / "Core/vendor/imgui/bin/Debug-linux-x86_64/ImGui/libImGui.a", *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",

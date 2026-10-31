@@ -90,3 +90,7 @@ validate discovery rules, not a Windows compilation or hardware test. Console ch
 
 CI uses `--banks tests/audio/fixtures/banks` to run the complete suite without installing FMOD Studio.
 See that fixture directory's README for provenance and regeneration.
+
+Dialogue programmer-sound tests use `event:/Character/Dialogue` and the `welcome`/`goodbye`
+audio-table keys authored into the fixture Master bank. They exercise real FMOD callbacks and
+source duration with existing sample audio, without depending on optional FMOD SDK example banks.
