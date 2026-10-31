@@ -1367,6 +1367,9 @@ capture body sequence IDs/subshape IDs, UUIDs, contact position, masses, estimat
 slip/roll speeds under a queue mutex. They never read ECS, acquire body locks or call FMOD.
 `DrainContactEvents` swaps reusable vectors after simulation; simulation-only scenes drain without
 playback. Speculative contacts are silent, and Persist can supply the first real impact.
+A solid/sensor change can retain the same Jolt contact key: the listener ends the previous
+collision/trigger lifetime before beginning the new one, under the same queue mutex. This stops
+scrape/roll audio when a touching body becomes a trigger and lets collisions restart when it changes back.
 
 `SceneAudioSurfaces.cpp` resolves contact IDs and material/table overrides on the main thread.
 The scene-owned `PhysicsAudioSystem` owns impact/footstep instances, cooldowns, contact state and

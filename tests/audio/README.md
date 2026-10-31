@@ -47,7 +47,7 @@ that script.
 
 Checks cover surface-table YAML/defaults/invalid input, impact cooldowns, compound-contact
 coalescing, footstep parameters, pause, event-type validation, bank reload, fade completion,
-entity cleanup, real Jolt worker contacts, masses/impulse estimates, sensors, body removal/sleep,
+entity cleanup, real Jolt worker contacts, masses/impulse estimates, solid/sensor transitions in both directions, body removal/sleep,
 file-stream failures, packed surface-table truncation and asset-pack error propagation. Only application host setup and failing
 asset serializers are substituted; playback/contact implementations and SDK calls are real.
 
