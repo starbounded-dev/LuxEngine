@@ -469,3 +469,17 @@ Vulkan probe in one invocation. These switches only change disposable CI orchest
 The runtime CI services create their private XDG runtime directory before exporting it to
 subsequent steps: .NET's NuGet named mutexes use that directory during managed builds, before
 the native window/audio test starts. An exported but nonexistent directory fails those builds.
+
+### Linux exported runtime cannot find a vendored shared library
+
+Every Linux Lux-Runtime configuration runs `scripts/Stage-LinuxRuntimeLibraries.sh` after linking
+and explicit audio-library deployment. It uses the build system's bash/ldd/coreutils to copy only
+the resolved Assimp/Aftermath/Vulkan-SDK shared-library closure into the runtime's `lib/`, keeping
+loader filenames and dereferencing input symlinks. It checks resolution again with only that
+directory in LD_LIBRARY_PATH and fails on unresolved or unstaged vendored libraries. It does not
+copy all Vulkan tooling, replace system desktop libraries, or run tools during editor export.
+
+Regenerate projects after the premake change and rebuild Lux-Runtime. Export copies staged
+shared objects into the package's `lib/` and stops on copy/enumeration failure. Native acoustic
+package checks use only that package directory for LD_LIBRARY_PATH; build-tree paths cannot hide
+missing dependencies. A build or Play pass alone does not prove the exported loader path works.

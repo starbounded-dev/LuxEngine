@@ -199,7 +199,8 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",
                 "LUX_THREADING_POLICY": threading.capitalize()})
     if os.name != "nt":
-        env["LD_LIBRARY_PATH"] = str(package/"lib") + ":" + env.get("LD_LIBRARY_PATH", "")
+        # Build-tree paths must not hide a missing packaged shared library.
+        env["LD_LIBRARY_PATH"] = str(package/"lib")
     started = time.time_ns()
     log_path = capture/"FMODDemo.runtime.log"
     with log_path.open("w", encoding="utf-8") as log:

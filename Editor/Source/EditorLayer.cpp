@@ -4693,22 +4693,36 @@ namespace Lux {
 		case RuntimeExportStep::Executable:
 		{
 			if (!CopyFileIfExists(runtimeExe, exportedExe, true))
+			{
 				LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
+				return false;
+			}
 
 			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
 			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
 			{
 #ifdef LUX_PLATFORM_LINUX
 				const std::filesystem::path libDir = exportRoot / "lib";
-				std::filesystem::create_directories(libDir, ec);
-				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
+				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })
 				{
-					if (!entry.is_regular_file(ec))
-						continue;
+					for (std::filesystem::directory_iterator it(sourceDirectory, ec), end; !ec && it != end; it.increment(ec))
+					{
+						const bool regularFile = it->is_regular_file(ec);
+						if (ec)
+							break;
+						if (!regularFile)
+							continue;
 
-					const std::string filename = entry.path().filename().string();
-					if (filename.find(".so") != std::string::npos)
-						CopyFileIfExists(entry.path(), libDir / entry.path().filename());
+						const std::string filename = it->path().filename().string();
+						if (filename.find(".so") != std::string::npos &&
+							!CopyFileIfExists(it->path(), libDir / it->path().filename(), true))
+							return false;
+					}
+					if (ec)
+					{
+						LUX_CORE_ERROR_TAG("Project", "Cannot enumerate runtime libraries at '{}': {}", sourceDirectory.string(), ec.message());
+						return false;
+					}
 				}
 #else
 				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))

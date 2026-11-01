@@ -189,3 +189,10 @@ project "Lux-Runtime"
 		defines { "LUX_DIST" }
 
 		ProcessDependencies("Dist")
+
+	-- Stage the resolved vendored ELF closure after all configuration-specific copies.
+	filter "system:linux"
+		postbuildcommands {
+			'bash "%{wks.location}/scripts/Stage-LinuxRuntimeLibraries.sh" "%{cfg.buildtarget.abspath}" "%{cfg.targetdir}/lib"',
+		}
+	filter {}

@@ -236,3 +236,7 @@ and normal process exit; it does not require a console message. Dist omits the c
 and logging preferences cannot determine whether acoustic verification passed. Publication
 failure remains a missing/stale-marker failure, with native errors reported through the normal
 tagged logger.
+
+Linux package launches set LD_LIBRARY_PATH to the package's `lib/` only. Rebuild Lux-Runtime
+after project regeneration so its post-build shared-library staging has run; normal export must
+carry that staged closure. Inherited Assimp or Vulkan-SDK paths cannot mask an incomplete package.

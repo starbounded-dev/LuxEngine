@@ -883,6 +883,11 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   from `UpdateRuntimeBuild`, so the overlay's bar advances between steps; the asset pack is one
   step and holds the frame while it builds. The Project Settings Build buttons use the same job,
   so one build runs at a time; they do not lock the editor.
+  Linux runtime post-build invokes `scripts/Stage-LinuxRuntimeLibraries.sh` to stage the resolved
+  vendored ELF dependency closure in its `lib/` directory. Export copies shared objects from
+  both that directory and the runtime root, preserving loader filenames and checking copy and
+  enumeration failures. The staging helper runs only while building the engine; export itself
+  invokes no dependency-inspection tool. Audio deployment remains explicitly validated.
 - Viewport transform gizmos operate on world matrices and convert edits back through the parent
   transform. Translation, rotation, and scale have separate snap increments (also available with Ctrl).
   The six-axis view widget uses `EditorCamera::SetOrbitState`; camera view construction uses the
