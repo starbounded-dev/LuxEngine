@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler", default=os.environ.get("CXX"), help="C++ compiler (one executable path)")
     parser.add_argument("--output", type=Path, help="Directory for the executable and build log")
+    parser.add_argument("--sanitize-address", action="store_true", help="instrument the library and checks with AddressSanitizer")
     args = parser.parse_args()
     compiler = args.compiler or next((path for name in ("cl", "clang++", "g++") if (path := shutil.which(name))), None)
     if not compiler:
@@ -37,6 +38,8 @@ def main():
         else:
             command = [compiler, "-std=c++20", "-Wall", "-Wextra", "-Werror", "-ffp-contract=off", "-pthread",
                        "-I" + str(library / "include"), *test_sources, "-o", executable]
+        if args.sanitize_address:
+            command += ["/fsanitize=address"] if msvc else ["-fsanitize=address", "-fno-omit-frame-pointer"]
         print("Soundwave test artifacts:", output, flush=True)
         with (output / (test + "-build.log")).open("w", encoding="utf-8") as log:
             subprocess.run(list(map(str, command)), cwd=output, check=True, stdout=log, stderr=subprocess.STDOUT)

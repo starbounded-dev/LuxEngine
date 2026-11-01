@@ -24,11 +24,12 @@ if [ -n "${BUILD_CONFIG+set}" ]
 	then
 		case "$1" in
 			debug|Debug)     export BUILD_CONFIG=Debug ;;
+			debug-as|Debug-AS) export BUILD_CONFIG=Debug-AS ;;
 			release|Release) export BUILD_CONFIG=Release ;;
 			dist|Dist)       export BUILD_CONFIG=Dist ;;
 			*)
 				echo "Unknown config: $1"
-				echo "Usage: $0 [debug|release|dist]"
+				echo "Usage: $0 [debug|debug-as|release|dist]"
 				exit 1
 				;;
 		esac
@@ -38,12 +39,14 @@ if [ -n "${BUILD_CONFIG+set}" ]
 		echo "  1) Debug"
 		echo "  2) Release"
 		echo "  3) Dist"
-		printf "Choice [1-3]: "
+		echo "  4) Debug-AS (AddressSanitizer)"
+		printf "Choice [1-4]: "
 		read choice
 		case "$choice" in
 			1) export BUILD_CONFIG=Debug ;;
 			2) export BUILD_CONFIG=Release ;;
 			3) export BUILD_CONFIG=Dist ;;
+			4) export BUILD_CONFIG=Debug-AS ;;
 			*)
 				echo "Invalid choice"
 				exit 1
@@ -213,13 +216,17 @@ make -j"$JOBS" config="$CONFIG" Dependencies Dependencies/Renderer "$@"
 # Optional CI verification uses the generated Core flags and the just-built Jolt/ImGui libraries.
 # Run it before Core/Editor so a failing audio regression is reported promptly.
 if [ "${LUX_RUN_AUDIO_TESTS:-0}" = "1" ]; then
-	if [ "$CONFIG" != "debug" ]; then
-		echo "LUX_RUN_AUDIO_TESTS requires the Debug configuration."
+	if [ "$CONFIG" != "debug" ] && [ "$CONFIG" != "debug-as" ]; then
+		echo "LUX_RUN_AUDIO_TESTS requires Debug or Debug-AS."
 		exit 1
 	fi
-	step "Running Soundwave and full audio regression checks"
-	python3 tests/audio/run_soundwave.py --output bin/audio-tests/soundwave
-	python3 tests/audio/run.py --banks tests/audio/fixtures/banks --output bin/audio-tests/full
+	step "Running Soundwave and full audio regression checks ($BUILD_CONFIG)"
+	if [ "$CONFIG" = "debug-as" ]; then
+		python3 tests/audio/run_soundwave.py --sanitize-address --output bin/audio-tests/soundwave
+	else
+		python3 tests/audio/run_soundwave.py --output bin/audio-tests/soundwave
+	fi
+	python3 tests/audio/run.py --config "$CONFIG" --banks tests/audio/fixtures/banks --output bin/audio-tests/full
 fi
 
 make -j"$JOBS" -C Core -f Makefile config="$CONFIG"

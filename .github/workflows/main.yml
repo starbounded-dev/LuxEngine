@@ -292,7 +292,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [Debug, Release, Dist]
+        configuration: [Debug, Debug-AS, Release, Dist]
 
     steps:
       - name: Checkout repository
@@ -348,7 +348,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang llvm make pkg-config \
+            clang llvm libclang-rt-dev make pkg-config \
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
@@ -378,7 +378,7 @@ jobs:
       - name: Build
         shell: bash
         env:
-          LUX_RUN_AUDIO_TESTS: ${{ matrix.configuration == 'Debug' && '1' || '0' }}
+          LUX_RUN_AUDIO_TESTS: ${{ (matrix.configuration == 'Debug' || matrix.configuration == 'Debug-AS') && '1' || '0' }}
         run: |
           # pipefail so a build failure is not masked by tee's exit status.
           set -o pipefail
@@ -388,12 +388,13 @@ jobs:
             | tee "logs/Build-${{ matrix.configuration }}.log"
 
       - name: Upload audio verification logs
-        if: always() && matrix.configuration == 'Debug'
+        if: always() && (matrix.configuration == 'Debug' || matrix.configuration == 'Debug-AS')
         uses: actions/upload-artifact@v4
         with:
-          name: audio-verification-linux
+          name: audio-verification-linux-${{ matrix.configuration }}
           path: |
             bin/audio-tests/**/*.log
+            logs/Build-${{ matrix.configuration }}.log
           if-no-files-found: ignore
 
       # The build script is `set -e`, but assert the artifacts exist so a step that silently
@@ -409,6 +410,13 @@ jobs:
               echo "MISSING, EMPTY OR STALE $f"; fail=1
             fi
           done
+          if [ "${{ matrix.configuration }}" = "Debug-AS" ] && [ "$fail" = "0" ]; then
+            nm --undefined-only "$out/Core/libCore.a" > logs/core-asan-symbols.txt
+            nm "$out/Lux-Runtime/Lux-Runtime" > logs/runtime-asan-symbols.txt
+            grep -E '__asan_(report_|load|store)' logs/core-asan-symbols.txt > /dev/null
+            grep '__asan_init$' logs/runtime-asan-symbols.txt > /dev/null
+            echo "Verified AddressSanitizer instrumentation in Core and Lux-Runtime"
+          fi
           exit $fail
 
       # Unlike Windows, the Linux build output holds only the executable, and the binary is

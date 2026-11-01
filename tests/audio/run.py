@@ -174,6 +174,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--banks", type=Path, help="Existing fixture banks; otherwise build a disposable FMOD project")
     parser.add_argument("--output", type=Path, help="Keep logs, objects and fixture in this directory")
+    parser.add_argument("--config", choices=("debug", "debug-as"), default="debug", help="matching generated native configuration and dependencies")
     args = parser.parse_args()
     directory = args.output or Path(tempfile.mkdtemp(prefix="lux-audio-tests-"))
     directory.mkdir(parents=True, exist_ok=True)
@@ -181,11 +182,19 @@ def main():
     print("Test artifacts:", directory, flush=True)
     makefile = (ROOT / "Core/Makefile").read_text()
     # Each config block holds nested ifeq/endif (CC/CXX/AR defaults); end at the next config.
-    debug = makefile.split("ifeq ($(config),debug)", 1)[1].split("else ifeq ($(config),", 1)[0]
-    flags = shlex.split(re.search(r"^DEFINES \+= (.*)$", debug, re.M)[1])
+    marker = f"ifeq ($(config),{args.config})"
+    if marker not in makefile:
+        raise RuntimeError(f"Core/Makefile has no {args.config} configuration; regenerate gmake2 projects first")
+    configuration = makefile.split(marker, 1)[1].split("else ifeq ($(config),", 1)[0]
+    flags = shlex.split(re.search(r"^DEFINES \+= (.*)$", configuration, re.M)[1])
     flags = [flag for flag in flags if not flag.startswith(("-DTRACY", "-DLUX_TRACK_MEMORY"))]
-    flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", debug, re.M)[1])
+    flags += shlex.split(re.search(r"^INCLUDES \+= (.*)$", configuration, re.M)[1])
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
+    if args.config == "debug-as":
+        if not re.search(r"^ALL_CXXFLAGS[^\n]*-fsanitize=address", configuration, re.M):
+            raise RuntimeError("Generated Core Debug-AS compilation is not instrumented with AddressSanitizer")
+        flags += ["-fsanitize=address", "-fno-omit-frame-pointer"]
+    native_configuration = "Debug-AS" if args.config == "debug-as" else "Debug"
     # Compile and link the same complete kernel set; adding a stage must not leave
     # an independent list of undefined symbols in the focused occlusion executable.
     kernel_sources = sorted((ROOT / "Core/vendor/soundwave/src").glob("*.cpp"))
@@ -199,6 +208,14 @@ def main():
             run(["clang++", *flags, "-c", (source if source.startswith(("Platform/", "vendor/")) else "Source/Lux/" + source) + ".cpp", "-o", obj],
                 cwd=ROOT / "Core", stdout=log, stderr=subprocess.STDOUT)
         objects[Path(source).name] = obj
+    if args.config == "debug-as":
+        symbols = subprocess.run(["nm", "--undefined-only", str(objects["AudioAcoustics"])],
+                                 capture_output=True, text=True, check=True).stdout
+        instrumented = sorted({line.split()[-1] for line in symbols.splitlines() if re.search(r"__asan_(report_|load|store)", line)})
+        if not instrumented:
+            raise RuntimeError("Production AudioAcoustics.o contains no AddressSanitizer memory-access instrumentation")
+        (directory / "asan-audio-acoustics.log").write_text("\n".join(instrumented) + "\n", encoding="utf-8")
+        print("Verified AddressSanitizer memory-access instrumentation: production AudioAcoustics.o", flush=True)
     run(["clang++", *flags, TESTS / "FileStreamTests.cpp", objects["FileStream"],
          "-pthread", "-Wl,--gc-sections", "-o", directory / "stream-test"], cwd=ROOT / "Core")
     run([directory / "stream-test", directory], timeout=30)
@@ -206,7 +223,7 @@ def main():
          *[objects[name] for name in ("AssetPackSerializer", "FileStream", "StreamWriter", "StreamReader", "UUID", "Ref")],
          "-pthread", "-Wl,--gc-sections", "-o", directory / "pack-test"], cwd=ROOT / "Core")
     run([directory / "pack-test", directory], timeout=30)
-    jolt = ROOT / "Core/vendor/JoltPhysics/bin/Debug-linux-x86_64/JoltPhysics/libJoltPhysics.a"
+    jolt = ROOT / f"Core/vendor/JoltPhysics/bin/{native_configuration}-linux-x86_64/JoltPhysics/libJoltPhysics.a"
     run(["clang++", *flags, TESTS / "JoltContactTests.cpp", objects["JoltContactListener"], objects["UUID"],
          jolt, "-pthread", "-Wl,--gc-sections", "-o", directory / "jolt-test"], cwd=ROOT / "Core")
     run([directory / "jolt-test"], timeout=30)
@@ -233,7 +250,7 @@ def main():
          "-o", directory / "dialogue-test"], cwd=ROOT / "Core")
     run([directory / "dialogue-test", banks, banks, directory], timeout=60)
     run(["clang++", *flags, TESTS / "AccessibilityTests.cpp", *audio_objects, objects["AudioAccessibilityWidgets"], objects["ImGuiUtilities"],
-         ROOT / "Core/vendor/imgui/bin/Debug-linux-x86_64/ImGui/libImGui.a", *yaml, *libraries,
+         ROOT / f"Core/vendor/imgui/bin/{native_configuration}-linux-x86_64/ImGui/libImGui.a", *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "accessibility-test"], cwd=ROOT / "Core")
     run([directory / "accessibility-test", banks, directory], timeout=60)

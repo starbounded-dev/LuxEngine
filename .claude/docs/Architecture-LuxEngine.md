@@ -1165,6 +1165,15 @@ round-trip, then restores the original context. It edits local settings only. Th
 a fresh PASS artifact in addition to normal capture/Play success. This automated control check does
 not substitute for a complete visual panel walkthrough or runtime/export validation.
 
+**Linux lifetime verification:** the Linux CI matrix includes Debug-AS in addition to
+Debug/Release/Dist. Native compile/link sanitization is inherited from the workspace.
+`Linux-Build.sh debug-as` builds matching dependencies and runs the full audio checks when
+`LUX_RUN_AUDIO_TESTS=1`; the runner selects that configuration’s generated defines/includes
+and Jolt/ImGui archives, instruments its own source compilations/links, and verifies ASan
+memory-access symbols in the real AudioAcoustics object. CI also checks instrumentation in
+the built Core archive and Runtime binary. Thus a Debug-AS label alone cannot satisfy the
+lifetime gate. The same real-job ownership/publication tests run without a separate mock adapter.
+
 **Native Scene verification:** `tests/audio/run_scene_acoustics.py` builds isolated project
 fixtures around the real Sponza model and uses normal Play/Stop with pinned listener/source UUIDs.
 All Sponza submeshes also feed the existing physics-ray oracle; the optional Play artifact records

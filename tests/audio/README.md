@@ -30,6 +30,22 @@ then run from the repository root:
 python tests/audio/run.py
 ```
 
+For Linux AddressSanitizer lifetime coverage, use the existing Ubuntu 26.04 CI environment
+or a matching development machine:
+
+```sh
+LUX_RUN_AUDIO_TESTS=1 scripts/Linux-Build.sh debug-as
+# Or, after generating/building Debug-AS dependencies:
+python tests/audio/run_soundwave.py --sanitize-address
+python tests/audio/run.py --config debug-as --banks tests/audio/fixtures/banks
+```
+
+Debug-AS uses its own Jolt/ImGui archives and instruments both production objects and test
+hosts. The full runner rejects a generated Core configuration without sanitizer compile flags
+and verifies ASan memory-access symbols in `AudioAcoustics.o`. The ordinary Debug command
+retains its previous behavior. CI uploads separate Debug/Debug-AS audio logs; no leak/error
+suppression is added. The pure-library tests need no engine SDKs, including with sanitization.
+
 Requires `clang++` and the repository's FMOD and VA SDKs (including the `LUX_FMOD_SDK` and
 `LUX_VA_SDK` overrides used by CI). `fmodstudiocl` is required only when generating banks;
 `FMODSTUDIOCLI` may select its executable path. YAML implementation objects are compiled afresh. The runner compiles production

@@ -88,6 +88,10 @@ workspace "Lux"
 		sanitize { "Address" }
 		flags { "NoRuntimeChecks", "NoIncrementalLink" }
 
+	filter { "system:linux", "configurations:Debug-AS", "language:C++ or language:C" }
+		sanitize { "Address" }
+		buildoptions { "-fno-omit-frame-pointer" }
+
 	filter "configurations:Release"
 		optimize "On"
 		symbols "Default"

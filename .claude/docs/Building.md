@@ -51,6 +51,7 @@ run the editor. Platform is **x64**.
 
 ```bash
 scripts/Linux-Build.sh          # prompts for a config, or: Linux-Build.sh release
+LUX_RUN_AUDIO_TESTS=1 scripts/Linux-Build.sh debug-as  # instrumented build and audio checks
 scripts/Linux-Run.sh            # rebuilds if needed, then runs the editor
 scripts/Linux-RunRuntime.sh     # standalone runtime player
 scripts/Linux-RenderDoc.sh      # the editor inside RenderDoc (LUX_RENDERDOC=1 Linux-Run.sh)
@@ -96,6 +97,21 @@ FP divide-by-zero/invalid/overflow as a hardware exception on physics worker thr
 catching NaN/Inf bugs while developing, but it turns any degenerate physics state (not necessarily
 an engine bug — Jolt's own math is written to tolerate producing Inf/NaN internally) into a hard
 crash. Keep it **Debug-only**; do not add it back to `Release` or `Dist`.
+
+Linux `Debug-AS` enables `-fsanitize=address` for native C/C++ compilation and executable
+linking, with frame pointers retained. It uses its own `Debug-AS-linux-x86_64` dependency and
+engine output directories. The Linux build/run helpers accept `debug-as`; no new Premake option
+is needed. Clang requires matching compiler-rt development libraries; Ubuntu CI installs
+[libclang-rt-dev](https://packages.ubuntu.com/resolute/libclang-rt-dev). These are developer
+build tools, not game runtime prerequisites.
+
+With `LUX_RUN_AUDIO_TESTS=1`, Debug and Debug-AS both run the independent Soundwave checks
+and the complete headless audio suite before the engine build. Debug-AS instruments those
+test compilations/links too, uses matching Jolt/ImGui archives, and checks the production
+`AudioAcoustics.o` for ASan memory-access instrumentation. CI builds Core, Editor and Runtime
+in this additional Linux configuration, verifies fresh artifacts, and inspects Core/Runtime
+sanitizer symbols. Audio logs have separate per-configuration artifact names. No sanitizer
+errors or leak reports are suppressed by this gate.
 
 `LUX_CORE_VERIFY` is enabled in **every** config (`LUX_ENABLE_VERIFY` is unconditional in
 `Assert.h`) — it is the assert that survives into Dist.

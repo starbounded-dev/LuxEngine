@@ -458,3 +458,9 @@ the borrowed local Grid pointers in InstancedGrid. Cache-only templates retire u
 reference counts; that does not wait for or read worker mutable data. A restarted Scene creates
 fresh templates, while detached old jobs keep their own captured templates. The zero-worker
 policy runs this same preparation inline. No GPU work or new runtime wait is added.
+
+Linux `Debug-AS` builds and `tests/audio/run.py --config debug-as` instrument the actual
+AudioAcoustics/JobSystem code and real-worker ownership tests with AddressSanitizer. The
+runner checks memory-access instrumentation in the production object before executing the
+tests, including detached mesh-owner and Clear/publication/coalescing cases under worker and
+inline policies. This gate adds no production synchronization or alternate lifetime path.
