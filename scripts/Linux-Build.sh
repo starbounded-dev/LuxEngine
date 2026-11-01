@@ -213,8 +213,12 @@ step "Building engine ($BUILD_CONFIG, -j$JOBS)"
 "$PREMAKE" gmake2 --cc=clang $PREMAKE_OPTIONS
 make -j"$JOBS" config="$CONFIG" Dependencies Dependencies/Renderer "$@"
 
+make -j"$JOBS" -C Core -f Makefile config="$CONFIG"
+make -j"$JOBS" -C Editor -f Makefile config="$CONFIG"
+make -j"$JOBS" -C Lux-Runtime -f Makefile config="$CONFIG"
+
 # Optional CI verification uses the generated Core flags and the just-built Jolt/ImGui libraries.
-# Run it before Core/Editor so a failing audio regression is reported promptly.
+# Build the actual engine first so sanitizer regression failures still leave native artifacts to inspect.
 if [ "${LUX_RUN_AUDIO_TESTS:-0}" = "1" ]; then
 	if [ "$CONFIG" != "debug" ] && [ "$CONFIG" != "debug-as" ]; then
 		echo "LUX_RUN_AUDIO_TESTS requires Debug or Debug-AS."
@@ -229,9 +233,6 @@ if [ "${LUX_RUN_AUDIO_TESTS:-0}" = "1" ]; then
 	python3 tests/audio/run.py --config "$CONFIG" --banks tests/audio/fixtures/banks --output bin/audio-tests/full
 fi
 
-make -j"$JOBS" -C Core -f Makefile config="$CONFIG"
-make -j"$JOBS" -C Editor -f Makefile config="$CONFIG"
-make -j"$JOBS" -C Lux-Runtime -f Makefile config="$CONFIG"
 
 # ---------------------------------------------------------------------------
 # The sample game's scripts are a standalone premake workspace, so the root generation above

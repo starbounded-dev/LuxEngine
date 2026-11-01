@@ -8,6 +8,17 @@ on:
         type: boolean
         required: false
         default: false
+      linux_audio_check:
+        description: Run one Linux audio gate instead of the full native matrix
+        type: choice
+        required: false
+        default: 'off'
+        options: ['off', runtime, debug-as]
+      soundwave_cases:
+        description: Space-separated native scene cases for the Linux runtime gate
+        type: string
+        required: false
+        default: corner
   push:
     branches:
       - master
@@ -122,6 +133,7 @@ jobs:
 
   build:
     needs: version
+    if: ${{ !inputs.linux_audio_check || inputs.linux_audio_check == 'off' }}
     runs-on: windows-2025
     strategy:
       fail-fast: false
@@ -357,7 +369,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [Debug, Debug-AS, Release, Dist]
+        configuration: ${{ fromJSON(inputs.linux_audio_check == 'debug-as' && '["Debug-AS"]' || inputs.linux_audio_check == 'runtime' && '["Debug"]' || '["Debug", "Debug-AS", "Release", "Dist"]') }}
 
     steps:
       - name: Checkout repository
@@ -427,6 +439,21 @@ jobs:
           fi
           llvm-ar --version | head -1
 
+      - name: Install native runtime test services
+        if: inputs.linux_audio_check == 'runtime'
+        run: |
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml pulseaudio pulseaudio-utils
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          drivers = list(Path('/usr/share/vulkan/icd.d').glob('*lvp*.json'))
+          if len(drivers) != 1:
+              raise RuntimeError(f'Expected one lavapipe driver manifest, found {drivers}')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'VK_DRIVER_FILES={drivers[0]}\n')
+              env.write(f'XDG_RUNTIME_DIR={os.environ["RUNNER_TEMP"]}/soundwave-runtime-xdg\n')
+          PY
+
       # Sets VULKAN_SDK, which Dependencies.lua and Linux-Build.sh both honour in preference
       # to the (gitignored) vendored SDK path.
       - name: Install Vulkan SDK
@@ -465,6 +492,7 @@ jobs:
       # The build script is `set -e`, but assert the artifacts exist so a step that silently
       # produces nothing cannot pass.
       - name: Verify build output
+        if: ${{ !cancelled() }}
         run: |
           out="bin/${{ matrix.configuration }}-linux-x86_64"
           fail=0
@@ -483,6 +511,49 @@ jobs:
             echo "Verified AddressSanitizer instrumentation in Core and Lux-Runtime"
           fi
           exit $fail
+
+      - name: Verify native Play export and packaged player
+        if: inputs.linux_audio_check == 'runtime'
+        shell: bash
+        env:
+          LUX_SOUNDWAVE_CASES: ${{ inputs.soundwave_cases }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_RUNTIME_DIR" logs
+          chmod 700 "$XDG_RUNTIME_DIR"
+          pulseaudio --start --exit-idle-time=-1 --log-target=file:logs/pulseaudio.log
+          pactl load-module module-null-sink sink_name=soundwave-test
+          read -r -a scene_cases <<< "$LUX_SOUNDWAVE_CASES"
+          if [ "${#scene_cases[@]}" = "0" ]; then
+            echo "::error::At least one Soundwave scene case is required."
+            exit 1
+          fi
+          xvfb-run -a -s '-screen 0 1280x720x24' python3 -u tests/audio/run_scene_acoustics.py \
+            --config debug --threading single --export-runtime --cases "${scene_cases[@]}" --timeout 900 \
+            2>&1 | tee logs/soundwave-native-runtime.log
+
+      - name: Upload native runtime evidence
+        if: always() && inputs.linux_audio_check == 'runtime'
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundwave-native-linux-runtime
+          path: |
+            logs/soundwave-native-runtime.log
+            logs/pulseaudio.log
+            bin/golden/**/*.log
+            bin/golden/**/*.yaml
+            bin/golden/**/*.status
+            bin/golden/**/summary.json
+            bin/soundwave-scene-tests/**/results.json
+          if-no-files-found: warn
+
+      - name: Upload native sanitizer symbol evidence
+        if: always() && matrix.configuration == 'Debug-AS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundwave-native-linux-asan-symbols
+          path: logs/*-asan-symbols.txt
+          if-no-files-found: warn
 
       # Unlike Windows, the Linux build output holds only the executable, and the binary is
       # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled

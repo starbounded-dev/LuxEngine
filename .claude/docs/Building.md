@@ -449,3 +449,16 @@ installs tools only on its disposable CI runner, accesses no licensed audio SDK 
 Vulkan summary/full-feature evidence. It checks the core features unconditionally requested by
 VulkanDevice before attempting a native player check on CI. Passing the probe proves neither
 engine startup nor audio playback/export, and cannot substitute for the real runtime gate.
+
+Manual `linux_audio_check=runtime` selects only the Linux Debug job and drives the actual
+Sponza Play/export/player runner under Xvfb/lavapipe and a PulseAudio null sink. `soundwave_cases`
+is a space-separated list accepted by the native runner (default `corner`). The normal build,
+full audio regressions, export validations and native report checks still apply; the CI job
+uploads only logs/reports, never licensed SDK libraries or complete game packages. This tests
+correctness on software Vulkan, not GPU performance or Phase 4 hardware parity.
+
+Manual `linux_audio_check=debug-as` selects only the Linux Debug-AS job. Native Core/Editor/Runtime
+build before optional audio regressions; a regression failure still fails the job, while the
+fresh-artifact and native sanitizer-symbol check runs afterward to retain independent evidence.
+The ordinary push/PR/default manual matrix is unchanged. Use either audio mode or the standalone
+Vulkan probe in one invocation. These switches only change disposable CI orchestration.
