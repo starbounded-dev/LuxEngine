@@ -1019,7 +1019,16 @@ These hooks provide evidence only for the implemented stages, not GPU/reverb com
 owns the main-thread capture cache and `AudioAcoustics` owns prepared snapshots and UUID source
 states. Both start independently of VA availability. Scene always applies Soundwave's smoothed LF
 gain to `AudioEventAcoustics::OcclusionGainLF`; the legacy Source selector still loads/saves until
-Phase 6, but no longer selects playback. VA still supplies the existing reverb send until Phase 3.
+Phase 6, but no longer selects playback. Since Phase 3 `ReverbSend` is Soundwave's too:
+`Soundwave::EvaluateReverb` bounces `ReverbRays` deterministic rays (Fibonacci sphere, up to
+`ReverbBounces` specular hits) from the listener, estimates the 60 dB decay Sabine-style from
+absorption plus escaped rays per metre travelled, and maps it to
+`(1 - escaped) * (1 - exp(-decay / ReverbReferenceSeconds))`. `AudioAcoustics` runs it as a JobSystem
+job over the published snapshot Refs and copied values when geometry or settings change or the
+listener moves over 1 m, one job in flight; main polls it and smooths the send (0.5 s). Scene
+multiplies that send by the zone system's raytraced-reverb gain, and zones treat a completed
+measurement as "raytraced reverb valid". Bank validation warns when an occludable event lacks a
+`ReverbSend` parameter. The three reverb rows live in the project audio block's `Kernel` map.
 The C# contract is unchanged. This CPU integration is a reference milestone, not the shipping
 fallback: Phase 4 must replace its execution with the required GPU stages.
 
@@ -1308,7 +1317,7 @@ independently owned and can still interact with zone snapshots under FMOD's aver
 
 Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale source VA `ReverbSend`
 by one minus active zone snapshot coverage), or PreferRaytraced (suppress zone snapshots while
-VA ambience is valid, falling back to zones otherwise). This policy leaves VA occlusion and zone
+a Soundwave reverb measurement exists, falling back to zones otherwise). This policy leaves VA occlusion and zone
 ambience beds independent. The latest joined VA validity is retained while paused. Runtime format
 19 adds one validated mode byte after the version-18 materials block; versions 16–18 use Layered.
 

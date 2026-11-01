@@ -443,6 +443,12 @@ Phase 2 execution, with explicit readiness/failure diagnostics; it does not auth
 CPU fallback. Phase 4 still requires render-thread compute submission and nonblocking readback.
 The legacy VA join remains only in the existing SDK reverb path until that migration removes it.
 
+Phase 3's listener reverb (`Soundwave::EvaluateReverb`) is one more AudioAcoustics JobSystem job:
+it captures the published snapshot Refs plus copies of the exclusion list, material table,
+settings and listener, runs at most one at a time at the `UpdateRateHz` cadence, and publishes
+through the same release/acquire Done flag polled on main. No ECS access, no wait, and Clear
+detaches it like the geometry job. Under the zero-worker policy it runs inline on main.
+
 At application shutdown (not a scene transition), layers first stop their producers and detach
 their scenes, then Application drains JobSystem before renderer teardown. After the remaining
 audio/physics/font producers stop, it replays Renderer::ExecuteBackgroundThreadSubmits on main

@@ -196,6 +196,10 @@ concurrent readers and transactional invalid transforms/material maps. Its large
 translated reflection and open/closed moving-door checks exercise the propagation solver through
 the instanced GeometryView. Scene now captures shared local meshes; broad scene/runtime/export validation remains a separate gate.
 
+`SoundwaveReverbTests.cpp` checks the listener reverb measurement: deterministic repeats, a closed
+marble room near Sabine's decay, a closed corridor shorter than that room, open corridor ends
+shorter still, a carpeted room far drier, and open ground with no send at all.
+
 The production adapter tests also detach a blocked job retaining a shared mesh owner, drop the
 Scene/caller refs, and prove the owner survives until the worker finishes. Inline publication
 checks two transformed instances share twelve stored triangles, reject an ownerless replacement

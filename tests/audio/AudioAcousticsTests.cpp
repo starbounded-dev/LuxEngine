@@ -217,6 +217,23 @@ void RunAudioAcousticsTests()
 		Drain(audio);
 		assert(audio.GetDiagnostics().Ready && audio.Update(0.1f, listener, std::span(sources).first(1)));
 		assert(audio.GetGainLF(100) <= 0.001001f);
+		// One slab in open space: the reverb measurement publishes on the next update and stays mostly dry.
+		assert(audio.Update(0.1f, listener, std::span(sources).first(1)) && audio.GetReverb() &&
+			audio.GetDiagnostics().ReverbMeasurements == 1 && audio.GetReverbSend() < 0.2f);
+		// Inside a closed room the same material rings, and the send follows.
+		assert(audio.RequestGeometry(2, [](auto& input, auto&)
+		{
+			constexpr int indices[] = {0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2, 1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3};
+			const auto point = [](int i) { return Soundwave::Position{i & 1 ? 5.0f : -5.0f,i & 2 ? 4.0f : -1.0f,i & 4 ? 5.0f : -5.0f}; };
+			for (int i = 0; i < 36; i += 3)
+				input.Triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),10,0,0,false});
+			return true;
+		}, {}));
+		Drain(audio);
+		assert(audio.Update(0.1f, listener, {}) && audio.Update(10.0f, listener, {}) &&
+			audio.GetDiagnostics().ReverbMeasurements == 2 && audio.GetReverb()->EscapedFraction == 0 && audio.GetReverbSend() > 0.2f);
+		audio.Clear();
+		assert(!audio.GetReverb() && audio.GetReverbSend() == 0);
 	}
 	{
 		std::atomic<bool> destroyed{false};

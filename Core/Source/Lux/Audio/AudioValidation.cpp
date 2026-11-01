@@ -152,6 +152,9 @@ namespace Lux
 			FMOD_STUDIO_PARAMETER_DESCRIPTION occlusion{};
 			if (reference.Occludable && !snapshot && event->getParameterDescriptionByName("Occlusion", &occlusion) != FMOD_OK)
 				Issue(report, false, reference.Location, "Event has no Occlusion parameter, so walls will not muffle it; add a local 0-1 Occlusion parameter driving a filter in FMOD Studio");
+			FMOD_STUDIO_PARAMETER_DESCRIPTION reverb{};
+			if (reference.Occludable && !snapshot && event->getParameterDescriptionByName("ReverbSend", &reverb) != FMOD_OK)
+				Issue(report, false, reference.Location, "Event has no ReverbSend parameter, so rooms will not change its reverb; add a local 0-1 ReverbSend parameter driving a send to a reverb bus in FMOD Studio");
 		}
 		report.ReferencedEvents = used.size();
 		for (const auto& [guid, event] : catalog)

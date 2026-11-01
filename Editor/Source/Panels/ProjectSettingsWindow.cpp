@@ -92,7 +92,8 @@ namespace Lux {
 
 		enum class AcousticControl : size_t
 		{
-			Strength, Rate, Sources, Bounces, Depth, Openings, Absorption, Candidates, Paths, Nodes, Compare, Count
+			Strength, Rate, Sources, Bounces, Depth, Openings, Absorption, Candidates, Paths, Nodes, Compare,
+			ReverbRays, ReverbBounces, ReverbReference, Count
 		};
 		using AcousticControlIDs = std::array<ImGuiID, static_cast<size_t>(AcousticControl::Count)>;
 
@@ -134,6 +135,12 @@ namespace Lux {
 				"Maximum opening graph nodes per source update. Exhaustion is reported.", false));
 			record(AcousticControl::Compare, ImGuiEx::Property("Compare Engine Ray", settings.CompareRaycast,
 				"Also run the existing physics-ray occlusion as a diagnostic oracle. Soundwave continues to drive playback.", false));
+			record(AcousticControl::ReverbRays, ImGuiEx::Property("Reverb Rays", settings.ReverbRays, 16u, 4096u,
+				"Rays bounced around the listener to measure the space. More rays give a steadier reverb send.", false));
+			record(AcousticControl::ReverbBounces, ImGuiEx::Property("Reverb Bounces", settings.ReverbBounces, 1u, 64u,
+				"Surface hits followed per reverb ray before it stops.", false));
+			record(AcousticControl::ReverbReference, ImGuiEx::Property("Reverb Reference Decay (s)", settings.ReverbReferenceSeconds, 0.05f, 0.1f, 10.0f,
+				"A space that takes this long to fall 60 dB gets a 63% reverb send. Lower values make rooms wetter.", false));
 			ImGuiEx::EndPropertyGrid();
 			if (!changed)
 				return false;
@@ -147,6 +154,9 @@ namespace Lux {
 			settings.CandidateBudget = std::clamp(settings.CandidateBudget, 1u, 65536u);
 			settings.PathBudget = std::clamp(settings.PathBudget, 1u, 4096u);
 			settings.OpeningNodeBudget = std::clamp(settings.OpeningNodeBudget, 1u, 2048u);
+			settings.ReverbRays = std::clamp(settings.ReverbRays, 16u, 4096u);
+			settings.ReverbBounces = std::clamp(settings.ReverbBounces, 1u, 64u);
+			settings.ReverbReferenceSeconds = std::clamp(settings.ReverbReferenceSeconds, 0.1f, 10.0f);
 			if (!settings.Validate())
 			{
 				settings = before;
@@ -260,11 +270,15 @@ namespace Lux {
 		edit(AcousticControl::Candidates,"4321");
 		edit(AcousticControl::Paths,"11");
 		edit(AcousticControl::Nodes,"111");
+		edit(AcousticControl::ReverbRays,"512");
+		edit(AcousticControl::ReverbBounces,"9");
+		edit(AcousticControl::ReverbReference,"2.5");
 		ImGui::ActivateItemByID(ids[static_cast<size_t>(AcousticControl::Compare)]);
 		frame();
 		check(settings.CompareRaycast && settings.Strength == 0.5f && settings.UpdateRateHz == 73 && settings.CastBudget == 7 &&
 			settings.MaxBounces == 3 && settings.ReflectionDepth == 3 && settings.OpeningGridSize == 12 && settings.Absorption == 0.25f &&
-			settings.CandidateBudget == 4321 && settings.PathBudget == 11 && settings.OpeningNodeBudget == 111,
+			settings.CandidateBudget == 4321 && settings.PathBudget == 11 && settings.OpeningNodeBudget == 111 &&
+			settings.ReverbRays == 512 && settings.ReverbBounces == 9 && settings.ReverbReferenceSeconds == 2.5f,
 			"Audio controls did not apply their typed values or comparison toggle");
 		Yaml::Writer out;
 		settings.SerializeYAML(out);
@@ -272,7 +286,8 @@ namespace Lux {
 		check(restored.DeserializeYAML(Yaml::Load(out.c_str())) && restored.Strength == 0.5f && restored.UpdateRateHz == 73 &&
 			restored.CastBudget == 7 && restored.MaxBounces == 3 && restored.ReflectionDepth == 3 && restored.OpeningGridSize == 12 &&
 			restored.Absorption == 0.25f && restored.CandidateBudget == 4321 && restored.PathBudget == 11 &&
-			restored.OpeningNodeBudget == 111 && restored.CompareRaycast, "Edited acoustic controls did not survive serialization");
+			restored.OpeningNodeBudget == 111 && restored.CompareRaycast && restored.ReverbRays == 512 && restored.ReverbBounces == 9 &&
+			restored.ReverbReferenceSeconds == 2.5f, "Edited acoustic controls did not survive serialization");
 		edit(AcousticControl::Bounces,"1");
 		check(settings.MaxBounces == 1 && settings.ReflectionDepth == 1, "Lowering bounces did not limit reflection depth");
 		edit(AcousticControl::Depth,"0");
@@ -287,8 +302,12 @@ namespace Lux {
 		edit(AcousticControl::Candidates,"999999");
 		edit(AcousticControl::Paths,"999999");
 		edit(AcousticControl::Nodes,"999999");
+		edit(AcousticControl::ReverbRays,"999999");
+		edit(AcousticControl::ReverbBounces,"999");
+		edit(AcousticControl::ReverbReference,"999");
 		check(settings.MaxBounces == Soundwave::kMaximumInteractions && settings.OpeningGridSize == 32 &&
-			settings.CandidateBudget == 65536 && settings.PathBudget == 4096 && settings.OpeningNodeBudget == 2048,
+			settings.CandidateBudget == 65536 && settings.PathBudget == 4096 && settings.OpeningNodeBudget == 2048 &&
+			settings.ReverbRays == 4096 && settings.ReverbBounces == 64 && settings.ReverbReferenceSeconds == 10,
 			"Typed work limits bypassed kernel bounds");
 		edit(AcousticControl::Sources,"0");
 		edit(AcousticControl::Rate,"999");

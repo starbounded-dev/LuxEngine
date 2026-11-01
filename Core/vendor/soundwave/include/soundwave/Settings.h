@@ -24,9 +24,16 @@ namespace Lux::Soundwave
 		// Fraction of the authored material absorption applied at a reflection. This does
 		// not apply another distance fade to the direct signal.
 		float Absorption = 1.0f;
+		// Listener reverb: rays bounced through the space, and the decay that maps to a full send.
+		std::uint32_t ReverbRays = 256;
+		std::uint32_t ReverbBounces = 16;
+		float ReverbReferenceSeconds = 1.5f; // decay giving a send of 1 - 1/e
 
 		bool Validate() const
 		{
+			if (ReverbRays < 16 || ReverbRays > 4096 || ReverbBounces < 1 || ReverbBounces > 64 ||
+				!std::isfinite(ReverbReferenceSeconds) || ReverbReferenceSeconds < 0.1f || ReverbReferenceSeconds > 10.0f)
+				return false;
 			return MaxBounces >= 1 && MaxBounces <= kMaximumInteractions && ReflectionDepth <= MaxBounces &&
 				OpeningGridSize >= 1 && OpeningGridSize <= 32 && CandidateBudget >= 1 &&
 				CandidateBudget <= 65536 && PathBudget >= 1 && PathBudget <= 4096 &&

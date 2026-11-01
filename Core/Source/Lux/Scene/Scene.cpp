@@ -920,7 +920,8 @@ namespace Lux {
 			if (m_RaytracedAudioScene)
 				m_RaytracedAudioScene->WaitForResults();
 			SyncAudioGeometry();
-			UpdateAudioZones(static_cast<float>(ts), m_RaytracedAudioScene && m_RaytracedAudioScene->GetAmbience().Valid);
+			// Soundwave's reverb from the previous update; zones layer over it as they did over VA's.
+			UpdateAudioZones(static_cast<float>(ts), m_SceneAcoustics.GetKernel().GetReverb() != nullptr);
 			AudioPerformance::SubmitScene(m_RaytracedAudioScene ? m_RaytracedAudioScene->GetRaytracingTimeMilliseconds() : 0,
 				GetCulledAudioSourceCount(), m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning());
 
@@ -966,8 +967,7 @@ namespace Lux {
 				}
 				AudioEventAcoustics acoustics;
 				acoustics.OcclusionGainLF = m_SceneAcoustics.GetKernel().GetGainLF(id);
-				// Geometry-derived Soundwave reverb replaces this legacy send in Phase 3.
-				acoustics.ReverbSend = m_LastAudioAmbience.Valid ? m_LastAudioAmbience.ReturnedPercent * m_AudioZones.GetRaytracedReverbGain() : 0;
+				acoustics.ReverbSend = m_SceneAcoustics.GetKernel().GetReverbSend() * m_AudioZones.GetRaytracedReverbGain();
 				m_AppliedAudioOcclusion[id] = acoustics.OcclusionGainLF;
 				if (auto instance = GetRuntimeEventInstance(id))
 					instance->SetAcoustics(acoustics);

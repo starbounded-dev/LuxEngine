@@ -234,6 +234,13 @@ very end of the work — decided by nobody in that session, and not this plan's 
   bank validation warning where an event has no `ReverbSend` bus (today only `Occlusion` warns —
   § 2.10:1009; new validation is required here, § 9.6).
 - **Done when:** reverb varies with the space, and a project without a reverb bus is *told* so.
+- **Landed (2026-11-01):** `Core/vendor/soundwave/Reverb.h/.cpp`. Two choices differ from the text
+  above: the measurement is **listener-centred** (one per listener position, scaled by the
+  zone gain as VA's send was), not one echogram per zone; and the decay comes straight from the ray
+  statistics (Sabine over losses per metre, escape = open window), so **no histogram is stored** —
+  add one when the Phase 6 path overlay needs to draw it. Proven by `SoundwaveReverbTests.cpp`
+  (stone room 2.04 s vs Sabine 1.99 s, closed corridor 1.12 s, open corridor 0.67 s, carpet 0.23 s,
+  open ground dry). Not yet driven in Play.
 
 ### Phase 4 — The kernel runs on the GPU compute pipeline, verified against its CPU twin
 

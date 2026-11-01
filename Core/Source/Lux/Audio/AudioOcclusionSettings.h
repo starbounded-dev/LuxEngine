@@ -27,6 +27,9 @@ namespace Lux
 		uint32_t PathBudget = 64;
 		uint32_t OpeningNodeBudget = 128;
 		float Absorption = 1.0f; // fraction of authored material absorption applied at a reflection
+		uint32_t ReverbRays = 256;     // listener reverb rays per measurement
+		uint32_t ReverbBounces = 16;
+		float ReverbReferenceSeconds = 1.5f; // decay time that gives a strong (63%) reverb send
 		bool CompareRaycast = false; // temporary engine-oracle diagnostics, never a playback mode
 		Soundwave::Settings GetKernelSettings() const;
 		bool Validate() const;

@@ -12,6 +12,8 @@ namespace Lux
 	namespace
 	{
 		constexpr float kSmoothingSeconds = 0.1f;
+		constexpr float kReverbSmoothingSeconds = 0.5f;
+		constexpr float kReverbMoveMetres = 1.0f; // listener travel that triggers a new measurement
 		bool Finite(Soundwave::Position point)
 		{
 			return std::isfinite(point.X) && std::isfinite(point.Y) && std::isfinite(point.Z);
@@ -354,7 +356,62 @@ namespace Lux
 			it->second.GainHF += (it->second.TargetHF - it->second.GainHF) * smoothing;
 			++it;
 		}
+		if (ready)
+			UpdateReverb(timestep, listener);
 		return true;
+	}
+
+	void AudioAcoustics::UpdateReverb(float timestep, Soundwave::Position listener)
+	{
+		if (m_ReverbPending && m_ReverbPending->Done.load(std::memory_order_acquire))
+		{
+			const auto error = m_ReverbPending->Error;
+			if (error == Soundwave::EvaluationError::None)
+			{
+				m_Reverb = m_ReverbPending->Result;
+				m_ReverbTarget = m_Reverb.Send;
+				if (!m_ReverbValid)
+					m_ReverbSend = m_ReverbTarget;
+				m_ReverbValid = true;
+				++m_ReverbMeasurements;
+			}
+			else if (m_ReverbError != error)
+				LUX_CORE_ERROR_TAG("Audio", "Soundwave reverb measurement failed (error {}); retaining the last valid send",
+					static_cast<uint32_t>(error));
+			m_ReverbError = error;
+			m_ReverbPending = nullptr;
+		}
+		m_ReverbSend += (m_ReverbTarget - m_ReverbSend) * (1.0f - std::exp(-timestep / kReverbSmoothingSeconds));
+		m_SinceReverb += timestep;
+		const auto moved = Soundwave::Position{ listener.X - m_ReverbListener.X, listener.Y - m_ReverbListener.Y, listener.Z - m_ReverbListener.Z };
+		const bool stale = !m_ReverbAttempted || m_ReverbGeometry != m_GeometryGeneration || m_ReverbSettings != m_SettingsGeneration ||
+			moved.X * moved.X + moved.Y * moved.Y + moved.Z * moved.Z > kReverbMoveMetres * kReverbMoveMetres;
+		// Same cadence as source solves, so a swinging door cannot start a measurement every frame.
+		if (m_ReverbPending || !stale || (m_ReverbAttempted && m_SinceReverb < 1.0f / m_Settings.UpdateRateHz))
+			return;
+		m_SinceReverb = 0;
+		m_ReverbAttempted = true;
+		m_ReverbGeometry = m_GeometryGeneration;
+		m_ReverbSettings = m_SettingsGeneration;
+		m_ReverbListener = listener;
+		m_ReverbPending = Ref<ReverbJob>::Create();
+		// Only immutable snapshot Refs and copied values cross to the worker.
+		JobSystem::Submit([job = m_ReverbPending, snapshots = m_Snapshots, excluded = m_Excluded, materials = m_Materials,
+			settings = m_KernelSettings, listener]() mutable
+		{
+			LUX_PROFILE_SCOPE("Soundwave::MeasureReverb");
+			try
+			{
+				std::vector<Soundwave::RayHit> hits;
+				job->Error = Soundwave::EvaluateReverb(Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded),
+					materials, settings, listener, hits, job->Result);
+			}
+			catch (const std::exception&)
+			{
+				job->Error = Soundwave::EvaluationError::NumericalFailure;
+			}
+			job->Done.store(true, std::memory_order_release);
+		});
 	}
 
 	float AudioAcoustics::GetGainLF(UUID source) const
@@ -378,6 +435,7 @@ namespace Lux
 		result.GeometryGeneration = m_GeometryGeneration;
 		result.Evaluations = m_Evaluations;
 		result.SolveFailures = m_SolveFailures;
+		result.ReverbMeasurements = m_ReverbMeasurements;
 		result.StaticTriangles = m_Snapshots[0] ? m_Snapshots[0]->Grid.GetTriangleCount() : 0;
 		result.MovingTriangles = m_Snapshots[1] ? m_Snapshots[1]->Grid.GetTriangleCount() : 0;
 		result.StaticInertTriangles = m_Snapshots[0] ? m_Snapshots[0]->Grid.GetInertTriangleCount() : 0;
@@ -410,6 +468,13 @@ namespace Lux
 		m_Sources.clear();
 		m_HasActiveInstances = false;
 		m_NextSource = 0;
+		m_ReverbPending = nullptr;
+		m_Reverb = {};
+		m_ReverbListener = {};
+		m_ReverbError = Soundwave::EvaluationError::None;
+		m_ReverbGeometry = m_ReverbSettings = m_ReverbMeasurements = 0;
+		m_ReverbSend = m_ReverbTarget = m_SinceReverb = 0;
+		m_ReverbValid = m_ReverbAttempted = false;
 		m_UpdateIndex = m_GeometryGeneration = m_Evaluations = m_SolveFailures = 0;
 	}
 }

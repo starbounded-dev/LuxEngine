@@ -22,8 +22,9 @@ namespace Lux
 		constexpr uint32_t kMaximumCastBudget = 1024;
 		constexpr float kMaximumStrength = 4.0f;
 		constexpr uint32_t kKernelSettingsVersion = 1;
-		constexpr std::array<std::string_view, 9> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
-			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast" };
+		constexpr std::array<std::string_view, 12> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
+			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast", "ReverbRays", "ReverbBounces",
+			"ReverbReferenceSeconds" };
 
 		const char* SourceName(AudioOcclusionSource source)
 		{
@@ -55,6 +56,9 @@ namespace Lux
 		settings.OpeningNodeBudget = OpeningNodeBudget;
 		settings.Strength = Strength;
 		settings.Absorption = Absorption;
+		settings.ReverbRays = ReverbRays;
+		settings.ReverbBounces = ReverbBounces;
+		settings.ReverbReferenceSeconds = ReverbReferenceSeconds;
 		return settings;
 	}
 	bool AudioOcclusionSettings::Validate() const
@@ -80,6 +84,9 @@ namespace Lux
 		out << Yaml::Key << "OpeningNodeBudget" << Yaml::Value << OpeningNodeBudget;
 		out << Yaml::Key << "Absorption" << Yaml::Value << Absorption;
 		out << Yaml::Key << "CompareRaycast" << Yaml::Value << CompareRaycast;
+		out << Yaml::Key << "ReverbRays" << Yaml::Value << ReverbRays;
+		out << Yaml::Key << "ReverbBounces" << Yaml::Value << ReverbBounces;
+		out << Yaml::Key << "ReverbReferenceSeconds" << Yaml::Value << ReverbReferenceSeconds;
 		out << Yaml::EndMap;
 		out << Yaml::EndMap;
 	}
@@ -129,6 +136,12 @@ namespace Lux
 						parsed.Absorption = kernel["Absorption"].as<float>();
 					if (kernel["CompareRaycast"])
 						parsed.CompareRaycast = kernel["CompareRaycast"].as<bool>();
+					if (kernel["ReverbRays"])
+						parsed.ReverbRays = kernel["ReverbRays"].as<uint32_t>();
+					if (kernel["ReverbBounces"])
+						parsed.ReverbBounces = kernel["ReverbBounces"].as<uint32_t>();
+					if (kernel["ReverbReferenceSeconds"])
+						parsed.ReverbReferenceSeconds = kernel["ReverbReferenceSeconds"].as<float>();
 				}
 			}
 			if (!parsed.Validate())
