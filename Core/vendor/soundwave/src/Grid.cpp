@@ -237,6 +237,12 @@ namespace Lux::Soundwave
 
 	bool Grid::HasSurfaceClearance(Position point, float radius, std::uint64_t ignoredInstance, bool& clear) const
 	{
+		return ClearanceInternal(point, radius, ignoredInstance, clear, {});
+	}
+
+	bool Grid::ClearanceInternal(Position point, float radius, std::uint64_t ignoredInstance, bool& clear,
+		std::span<const std::uint64_t> excluded) const
+	{
 		clear = false;
 		if (!Math::Finite(point) || !std::isfinite(radius) || radius < 0)
 			return false;
@@ -265,7 +271,8 @@ namespace Lux::Soundwave
 			for (auto i = node.First; i < node.First + node.Count; ++i)
 			{
 				const auto& triangle = m_Triangles[m_Order[i]];
-				if (triangle.Instance != ignoredInstance && SurfaceDistanceSquared(point, triangle) <= radiusSquared)
+				if (triangle.Instance != ignoredInstance && !std::binary_search(excluded.begin(), excluded.end(), triangle.Instance) &&
+					SurfaceDistanceSquared(point, triangle) <= radiusSquared)
 					return true;
 			}
 		}
@@ -277,6 +284,26 @@ namespace Lux::Soundwave
 		std::vector<RayHit>& hits, float endpointMargin) const
 	{
 		hits.clear();
+		if (!AppendTrace(from, to, ignoredInstance, hits, endpointMargin, 0, {}))
+			return false;
+		std::sort(hits.begin(), hits.end(), [this](const RayHit& a, const RayHit& b)
+		{
+			if (a.Distance != b.Distance)
+				return a.Distance < b.Distance;
+			const auto& x = m_Triangles[a.TriangleIndex];
+			const auto& y = m_Triangles[b.TriangleIndex];
+			if (x.Instance != y.Instance)
+				return x.Instance < y.Instance;
+			if (a.Exit != b.Exit)
+				return a.Exit < b.Exit;
+			return a.TriangleIndex < b.TriangleIndex;
+		});
+		return true;
+	}
+
+	bool Grid::AppendTrace(Position from, Position to, std::uint64_t ignoredInstance, std::vector<RayHit>& hits,
+		float endpointMargin, std::uint32_t triangleOffset, std::span<const std::uint64_t> excluded) const
+	{
 		if (!Math::Finite(from) || !Math::Finite(to) || !std::isfinite(endpointMargin) || endpointMargin < 0.0f)
 			return false;
 		const Position delta = Math::Subtract(to, from);
@@ -306,26 +333,14 @@ namespace Lux::Soundwave
 			{
 				const std::uint32_t triangleIndex = m_Order[i];
 				const Triangle& triangle = m_Triangles[triangleIndex];
-				if (triangle.Instance == ignoredInstance)
+				if (triangle.Instance == ignoredInstance || std::binary_search(excluded.begin(), excluded.end(), triangle.Instance))
 					continue;
 				float distance = 0.0f;
 				bool exit = false;
 				if (IntersectTriangle(triangle, from, direction, distance, exit) && distance > endpointMargin && distance < length - endpointMargin)
-					hits.push_back({ distance, triangleIndex, exit });
+					hits.push_back({ distance, triangleIndex + triangleOffset, exit });
 			}
 		}
-		std::sort(hits.begin(), hits.end(), [this](const RayHit& a, const RayHit& b)
-		{
-			if (a.Distance != b.Distance)
-				return a.Distance < b.Distance;
-			const auto& ta = m_Triangles[a.TriangleIndex];
-			const auto& tb = m_Triangles[b.TriangleIndex];
-			if (ta.Instance != tb.Instance)
-				return ta.Instance < tb.Instance;
-			if (a.Exit != b.Exit)
-				return a.Exit < b.Exit;
-			return a.TriangleIndex < b.TriangleIndex;
-		});
 		return true;
 	}
 

@@ -210,6 +210,75 @@ int main(int argc, char** argv)
 		assert(!copied.Deserialize(reader));
 	}
 
+
+	// The existing binary format is a length-delimited YAML block. Old blocks without
+	// Kernel still load; versioned rows round-trip through both project and export paths.
+	const std::string oldBlock = "{ Source: Engine, UpdateRateHz: 12, CastBudget: 7, Strength: 0.25 }";
+	{
+		FileStreamWriter writer(file);
+		writer.WriteRaw<uint32_t>(static_cast<uint32_t>(oldBlock.size()));
+		assert(writer.WriteData(oldBlock.data(), oldBlock.size()));
+	}
+	{
+		FileStreamReader reader(file);
+		assert(copied.Deserialize(reader) && copied.UpdateRateHz == 12 && copied.CastBudget == 7 &&
+			copied.ReflectionDepth == 2 && copied.OpeningGridSize == 8 && copied.MaxBounces == 2);
+	}
+	AudioOcclusionSettings authored;
+	assert(authored.DeserializeYAML(Yaml::Load(
+		"{ Strength: 0.75, Kernel: { Version: 1, ReflectionDepth: 3, OpeningGridSize: 12, MaxBounces: 4, "
+		"CandidateBudget: 1234, PathBudget: 20, OpeningNodeBudget: 48, Absorption: 0.35, CompareRaycast: true } }")));
+	const auto checkAuthored = [&](const AudioOcclusionSettings& actual)
+	{
+		assert(actual.ReflectionDepth == 3 && actual.OpeningGridSize == 12 && actual.MaxBounces == 4 &&
+			actual.CandidateBudget == 1234 && actual.PathBudget == 20 && actual.OpeningNodeBudget == 48 && actual.CompareRaycast);
+		SameBits(actual.Absorption, 0.35f);
+		const auto kernel = actual.GetKernelSettings();
+		assert(kernel.Validate() && kernel.ReflectionDepth == 3 && kernel.OpeningGridSize == 12 && kernel.MaxBounces == 4 &&
+			kernel.CandidateBudget == 1234 && kernel.PathBudget == 20 && kernel.OpeningNodeBudget == 48);
+		SameBits(kernel.Absorption, actual.Absorption);
+		SameBits(kernel.Strength, 0.75f);
+	};
+	checkAuthored(authored);
+	Yaml::Writer settingsYaml;
+	authored.SerializeYAML(settingsYaml);
+	assert(copied.DeserializeYAML(Yaml::Load(settingsYaml.c_str())));
+	checkAuthored(copied);
+	{
+		FileStreamWriter writer(file);
+		assert(authored.Serialize(writer));
+	}
+	{
+		FileStreamReader reader(file);
+		assert(copied.Deserialize(reader));
+	}
+	checkAuthored(copied);
+	for (const char* kernel : { "~", "[1,2]", "{ Version: 2 }", "{ Version: text }", "{ MaxBounces: -1 }",
+		"{ MaxBounces: 17 }", "{ ReflectionDepth: 3, MaxBounces: 2 }", "{ OpeningGridSize: 0 }",
+		"{ OpeningGridSize: 33 }", "{ CandidateBudget: 0 }", "{ PathBudget: 4097 }", "{ OpeningNodeBudget: 2049 }",
+		"{ Absorption: .nan }", "{ Absorption: -0.1 }", "{ Absorption: 1.1 }", "{ Absorption: text }",
+		"{ CompareRaycast: maybe }", "{ ReflectionDepth: ~ }", "{ PathBudget: [1,2] }",
+		"{ MaxBounce: 2 }", "{ MaxBounces: 2, MaxBounces: 3 }" })
+	{
+		const auto text = std::string("Kernel: ") + kernel;
+		assert(!copied.DeserializeYAML(Yaml::Load(text)));
+		checkAuthored(copied); // rejection is transactional
+		{
+			FileStreamWriter writer(file);
+			writer.WriteRaw<uint32_t>(static_cast<uint32_t>(text.size()));
+			assert(writer.WriteData(text.data(), text.size()));
+		}
+		{
+			FileStreamReader reader(file);
+			assert(!copied.Deserialize(reader));
+		}
+		checkAuthored(copied);
+	}
+	assert(copied.DeserializeYAML(Yaml::Load("Kernel: {}")) && copied.ReflectionDepth == 2 && !copied.CompareRaycast);
+	assert(copied.DeserializeYAML(Yaml::Load("Kernel: { ReflectionDepth: 0, OpeningGridSize: 1, MaxBounces: 1 }")) &&
+		copied.GetKernelSettings().Validate() && copied.ReflectionDepth == 0);
+	std::cout << "PASS: versioned kernel settings, old project/export defaults, strict validation and transactional round trips\n";
+
 	CheckSoundwaveDirectOracle();
 
 	// The old engine accessor is an independent baseline until its Phase 7 removal.

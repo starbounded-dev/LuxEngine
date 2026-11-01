@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2025-2026 starbounded-dev
 
-#include <soundwave/Grid.h>
+#include <soundwave/Solve.h>
+#include <bit>
 #include <soundwave/Settings.h>
 #include <algorithm>
 #include <atomic>
@@ -161,5 +162,92 @@ int main()
 		hits[0].Distance == 1e15f, "large finite triangle silently became transparent");
 	Check(grid.Build({}) == GeometryError::None && grid.GetNodes().empty() && grid.GetTriangles().empty(),
 		"empty replacement retained stale geometry");
+
+	// Composite queries retain global triangle/edge IDs without copying a static room
+	// when its moving objects change. Different BVH shapes must still price the same ray.
+	Grid fixed, moving, flattened;
+	std::vector<Triangle> fixedTriangles, movingTriangles;
+	Box(fixedTriangles, 10, 0);
+	for (std::uint32_t i = 0; i < 12; ++i)
+		Box(movingTriangles, 20 + i, 4.0f + static_cast<float>(i) * 4.0f);
+	Check(fixed.Build(fixedTriangles) == GeometryError::None && moving.Build(movingTriangles) == GeometryError::None,
+		"composite geometry failed to build");
+	GeometryView view(fixed, &moving);
+	triangles = fixedTriangles;
+	triangles.insert(triangles.end(), movingTriangles.begin(), movingTriangles.end());
+	Check(flattened.Build(triangles) == GeometryError::None && view.IsValid(), "composite view invalid");
+	std::vector<RayHit> compositeHits;
+	Check(view.Trace({-2,0,0}, {51,0,0}, 0, compositeHits) && flattened.Trace({-2,0,0}, {51,0,0}, 0, hits) &&
+		hits.size() == compositeHits.size(), "composite trace differs from flattened geometry");
+	for (std::size_t i = 0; i < hits.size(); ++i)
+		Check(hits[i].Distance == compositeHits[i].Distance && hits[i].TriangleIndex == compositeHits[i].TriangleIndex &&
+			hits[i].Exit == compositeHits[i].Exit, "composite hit global ordering differs");
+	std::vector<std::uint32_t> nodes, covered;
+	for (auto root : view.GetRoots())
+		if (root != kInvalidGeometryIndex)
+			nodes.push_back(root);
+	while (!nodes.empty())
+	{
+		const auto index = nodes.back();
+		nodes.pop_back();
+		const auto node = view.GetNode(index);
+		if (!node.Count)
+		{
+			nodes.push_back(index + 1);
+			nodes.push_back(node.Right);
+		}
+		else
+			for (auto i = node.First; i < node.First + node.Count; ++i)
+				covered.push_back(view.TriangleAtOrder(i));
+	}
+	std::sort(covered.begin(), covered.end());
+	Check(covered.size() == triangles.size(), "composite hierarchy lost leaf coverage");
+	for (std::uint32_t i = 0; i < covered.size(); ++i)
+	{
+		Check(covered[i] == i && view.GetTriangle(i).Instance == triangles[i].Instance, "composite hierarchy index wrong");
+		for (auto edgeIndex : view.GetTriangleEdges(i))
+		{
+			if (edgeIndex == kInvalidGeometryIndex)
+				continue; // coplanar face diagonal
+			Check(edgeIndex < view.GetEdgeCount(), "composite crease edge missing");
+			const auto edge = view.GetEdge(edgeIndex);
+			Check(edge.Triangle0 == i || edge.Triangle1 == i, "composite edge points to wrong snapshot");
+		}
+	}
+	DirectScratch directScratch;
+	Path direct, flatDirect;
+	settings = {};
+	settings.Strength = 0.001f;
+	Check(EvaluateDirect(view, {}, DefaultMaterials(), settings, {-2,0,0}, {51,0,0}, 0, directScratch, direct) == EvaluationError::None &&
+		EvaluateDirect(flattened, {}, DefaultMaterials(), settings, {-2,0,0}, {51,0,0}, 0, directScratch, flatDirect) == EvaluationError::None &&
+		std::bit_cast<std::uint32_t>(direct.GainLF()) == std::bit_cast<std::uint32_t>(flatDirect.GainLF()) &&
+		direct.Crossings.size() == flatDirect.Crossings.size(), "composite direct loss changed floating point reduction");
+	const std::array<std::uint64_t, 2> excluded{10, 20};
+	GeometryView removed(fixed, &moving, excluded);
+	Check(removed.Trace({-2,0,0}, {51,0,0}, 0, hits) && hits.size() == compositeHits.size() - 8,
+		"deleted instances remain in composite trace");
+	Check(removed.HasSurfaceClearance({1,0,0}, 0.001f, 0, clear) && clear &&
+		view.HasSurfaceClearance({1,0,0}, 0.001f, 0, clear) && !clear,
+		"deletion mask not applied to surface clearance");
+	PortalBox removedPortal;
+	removedPortal.Instance = 10;
+	Check(EvaluateDirect(view, {&removedPortal,1}, DefaultMaterials(), settings, {-2,0,0}, {2,0,0}, 10, directScratch, direct) == EvaluationError::None &&
+		direct.Crossings.size() == 1, "composite view changed analytic shutter precedence over ray source exclusion");
+	Check(EvaluateDirect(removed, {&removedPortal,1}, DefaultMaterials(), settings, {-2,0,0}, {2,0,0}, 0, directScratch, direct) == EvaluationError::None &&
+		direct.Crossings.empty(), "deleted portal still prices its analytic box");
+	const std::array<std::uint64_t, 2> unsorted{20,10}, duplicate{10,10};
+	GeometryView invalid(fixed, &moving, unsorted), repeated(fixed, &moving, duplicate), self(fixed, &fixed);
+	Check(!invalid.IsValid() && !repeated.IsValid() && !self.IsValid() &&
+		!invalid.Trace({-2,0,0}, {2,0,0}, 0, hits) && hits.empty(), "invalid composite view accepted");
+	Check(EvaluateDirect(invalid, {}, DefaultMaterials(), settings, {-2,0,0}, {2,0,0}, 0, directScratch, direct) == EvaluationError::InvalidGeometry,
+		"invalid geometry view silently returned unoccluded success");
+	const auto* retainedStatic = fixed.GetTriangles().data();
+	Check(moving.Build({}) == GeometryError::None && fixed.GetTriangles().data() == retainedStatic &&
+		GeometryView(fixed, &moving).Trace({-2,0,0}, {51,0,0}, 0, hits) && hits.size() == 4,
+		"moving replacement rebuilt or discarded static geometry");
+	Grid empty;
+	Check(GeometryView(empty, &fixed).Trace({-2,0,0}, {2,0,0}, 0, hits) && hits.size() == 4,
+		"moving-only scene failed with empty static root");
+
 	std::cout << "PASS: deterministic hierarchy, analytic triangle hits, solid winding, source exclusion, transactional geometry, settings and concurrent readers\n";
 }

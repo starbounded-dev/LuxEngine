@@ -5,6 +5,6 @@
 namespace Lux::Soundwave::Detail
 {
 	enum class Visibility { Clear, Blocked, Invalid };
-	Visibility SegmentVisible(const Grid& grid, std::span<const PortalBox> portals,
+	Visibility SegmentVisible(const GeometryView& grid, std::span<const PortalBox> portals,
 		Position from, Position to, std::uint64_t sourceInstance, std::vector<RayHit>& hits, float margin);
 }

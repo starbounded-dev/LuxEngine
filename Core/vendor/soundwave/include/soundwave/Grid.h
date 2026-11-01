@@ -58,6 +58,7 @@ namespace Lux::Soundwave
 	// deterministic and uses the same triangle indices that later GPU stages can upload.
 	class Grid
 	{
+		friend class GeometryView;
 	public:
 		static constexpr std::uint32_t MaximumTriangles = 1u << 20;
 		struct Node
@@ -85,6 +86,10 @@ namespace Lux::Soundwave
 		const TopologyStats& GetTopologyStats() const { return m_Topology; }
 
 	private:
+		bool AppendTrace(Position from, Position to, std::uint64_t ignoredInstance, std::vector<RayHit>& hits,
+			float endpointMargin, std::uint32_t triangleOffset, std::span<const std::uint64_t> excluded) const;
+		bool ClearanceInternal(Position point, float radius, std::uint64_t ignoredInstance, bool& clear,
+			std::span<const std::uint64_t> excluded) const;
 		std::uint32_t BuildNode(std::uint32_t first, std::uint32_t count);
 		void BuildEdges();
 		std::vector<Triangle> m_Triangles;

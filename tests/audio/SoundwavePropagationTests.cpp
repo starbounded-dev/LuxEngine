@@ -151,6 +151,8 @@ int main()
 	settings.ReflectionDepth = 0;
 	Check(Solve(grid, {}, materials, settings, {1,0,-1}, {-1,0,-1}, 0, scratch, result) == EvaluationError::None &&
 		result.OcclusionGainLF > result.Direct.GainLF() * 5 && result.HasAudibleOpening, "off-axis doorway did not become audible");
+	Grid staticRoom;
+	Check(staticRoom.Build(geometry) == GeometryError::None, "static room capture failed");
 	Box(geometry, {-0.1f,-2,-0.5f}, {0.1f,1,0.5f}, 99, true);
 	Check(grid.Build(geometry) == GeometryError::None, "closed door geometry invalid");
 	PortalBox door;
@@ -170,6 +172,24 @@ int main()
 	Check(closedError == EvaluationError::None &&
 		result.Diagnostics.OpeningPaths == 0 && !result.HasAudibleOpening && result.OcclusionGainLF <= 0.001001f,
 		"sealed closed door leaked through an internal edge or seam");
+
+	Grid movingDoor;
+	std::vector<Triangle> doorTriangles;
+	Box(doorTriangles, {-0.1f,-2,-0.5f}, {0.1f,1,0.5f}, 99, true);
+	Check(movingDoor.Build(doorTriangles) == GeometryError::None, "moving door snapshot invalid");
+	GeometryView closedRoom(staticRoom, &movingDoor);
+	Check(Solve(closedRoom, {&door,1}, materials, settings, {1,0,-1}, {-1,0,-1}, 0, scratch, result) == EvaluationError::None &&
+		!result.HasAudibleOpening && result.OcclusionGainLF <= 0.001001f,
+		"separate moving door snapshot leaked through static frame edges");
+	const std::array<std::uint64_t, 1> deletedDoor{99};
+	GeometryView openRoom(staticRoom, &movingDoor, deletedDoor);
+	Check(Solve(openRoom, {&door,1}, materials, settings, {1,0,-1}, {-1,0,-1}, 0, scratch, result) == EvaluationError::None &&
+		result.HasAudibleOpening && result.OcclusionGainLF > 0.005f,
+		"removing door did not restore audible route across both snapshots");
+	Check(movingDoor.Build({}) == GeometryError::None &&
+		Solve(GeometryView(staticRoom, &movingDoor), {}, materials, settings, {1,0,-1}, {-1,0,-1}, 0, scratch, result) == EvaluationError::None &&
+		result.HasAudibleOpening, "replaced moving snapshot left a stale analytic shutter or topology");
+
 	settings.CandidateBudget = 4;
 	Check(Solve(grid, {&door,1}, materials, settings, {1,0,-1}, {-1,0,-1}, 0, scratch, result) == EvaluationError::None &&
 		result.Diagnostics.Work <= 4 && result.Diagnostics.WorkLimited && result.OcclusionGainLF <= 0.001001f,

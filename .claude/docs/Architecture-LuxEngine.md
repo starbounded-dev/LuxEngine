@@ -1026,8 +1026,8 @@ world-space triangles and a deterministic spatial hierarchy, built transactional
 snapshot. Its const segment trace uses caller-owned hit storage, reports entry/exit winding,
 preserves stable instance/surface/material/portal data and can exclude the source instance.
 Concurrent readers share no mutable scratch. `Settings` bounds reflection/opening/bounce work,
-strength and authored absorption. These are library-only groundwork; Scene does not consume them
-yet, settings are not yet serialized, and echogram/GPU dispatch remain unimplemented.
+strength and authored absorption. Scene does not consume them
+yet; engine settings persistence is described below, and echogram/GPU dispatch remain unimplemented.
 Independent propagation is described below.
 The independent test runner exercises the hierarchy and immutable readers on both platforms.
 `Solve.h/.cpp` now adds the independent `EvaluateDirect` crossing walk. It pairs hits per
@@ -1051,7 +1051,26 @@ Specular energy uses authored absorption/scattering; opening attenuation uses a 
 approximation and relative extra-path spreading, without another direct distance fade. Work,
 path storage and graph nodes are bounded and truncation is explicit. Path points/lengths/band gains
 and the strongest audible LF opening path remain observable. This is not yet called by Scene;
-render-mesh capture, settings serialization/editor authoring and Phase 2 runtime verification remain.
+render-mesh capture, editor authoring and Phase 2 runtime verification remain.
+
+**Static/moving snapshot seam (migration Phase 2, in progress):** `Soundwave::GeometryView`
+borrows a fixed Grid, an optional moving Grid and a sorted/unique UUID exclusion span. It exposes
+both hierarchies as a single deterministic triangle/node/edge index space without merging or
+copying geometry. Both `Solve` and `EvaluateDirect` accept the view; single-Grid overloads wrap it.
+All queries, candidate preparation and analytic portal clipping honor the mask. The caller owns
+and freezes the grids/exclusions through a solve and creates a fresh view after replacement.
+Topology remains per snapshot; deletion-exposed edges appear after a rebuild. This is a library
+seam for the forthcoming worker-prepared Scene snapshots, not an installed Scene job or GPU path.
+
+**Kernel settings persistence (migration Phase 2, in progress):** `AudioOcclusionSettings` now
+owns reflection depth, opening samples, bounce/candidate/path/node limits, absorption and a
+temporary `CompareRaycast` diagnostic flag. `GetKernelSettings` maps them into the library Settings,
+using the existing Strength field. `Audio.Occlusion.Kernel.Version: 1` gates the nested YAML map;
+missing rows use defaults. Invalid/unknown/duplicate rows or unsupported versions fail with a
+tagged error and preserve the previous settings. Runtime uses its existing bounded length-prefixed
+YAML block, so old blocks without Kernel load unchanged. No global binary layout changes. Project
+serialization already delegates to this type in both directions; editor controls and Scene
+playback consumption remain unfinished. The legacy Source field remains until Phase 6.
 
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no

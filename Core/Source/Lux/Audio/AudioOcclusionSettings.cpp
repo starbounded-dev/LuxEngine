@@ -6,7 +6,12 @@
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
 #include "Lux/Serialization/Yaml.h"
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <string_view>
+#include <soundwave/Settings.h>
+#include <set>
 namespace Lux
 {
 	namespace
@@ -16,17 +21,47 @@ namespace Lux
 		constexpr float kMaximumRateHz = 120.0f;
 		constexpr uint32_t kMaximumCastBudget = 1024;
 		constexpr float kMaximumStrength = 4.0f;
+		constexpr uint32_t kKernelSettingsVersion = 1;
+		constexpr std::array<std::string_view, 9> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
+			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast" };
 
 		const char* SourceName(AudioOcclusionSource source)
 		{
 			return source == AudioOcclusionSource::Raytraced ? "Raytraced" : "Engine";
 		}
+		void ValidateKernelKeys(const Yaml::Node& node)
+		{
+			if (!node.IsMap())
+				throw std::runtime_error("Kernel must be a settings map");
+			std::set<std::string> seen;
+			for (const auto& entry : node)
+			{
+				const auto name = entry.first.as<std::string>();
+				if (std::find(kKernelKeys.begin(), kKernelKeys.end(), name) == kKernelKeys.end())
+					throw std::runtime_error("unknown Kernel key '" + name + "'");
+				if (!seen.insert(name).second)
+					throw std::runtime_error("duplicate Kernel key '" + name + "'");
+			}
+		}
+	}
+	Soundwave::Settings AudioOcclusionSettings::GetKernelSettings() const
+	{
+		Soundwave::Settings settings;
+		settings.ReflectionDepth = ReflectionDepth;
+		settings.OpeningGridSize = OpeningGridSize;
+		settings.MaxBounces = MaxBounces;
+		settings.CandidateBudget = CandidateBudget;
+		settings.PathBudget = PathBudget;
+		settings.OpeningNodeBudget = OpeningNodeBudget;
+		settings.Strength = Strength;
+		settings.Absorption = Absorption;
+		return settings;
 	}
 	bool AudioOcclusionSettings::Validate() const
 	{
 		return Source <= AudioOcclusionSource::Raytraced && std::isfinite(UpdateRateHz) && UpdateRateHz >= kMinimumRateHz &&
 			UpdateRateHz <= kMaximumRateHz && CastBudget > 0 && CastBudget <= kMaximumCastBudget && std::isfinite(Strength) &&
-			Strength >= 0.0f && Strength <= kMaximumStrength;
+			Strength >= 0.0f && Strength <= kMaximumStrength && GetKernelSettings().Validate();
 	}
 	void AudioOcclusionSettings::SerializeYAML(Yaml::Writer& out) const
 	{
@@ -35,6 +70,17 @@ namespace Lux
 		out << Yaml::Key << "UpdateRateHz" << Yaml::Value << UpdateRateHz;
 		out << Yaml::Key << "CastBudget" << Yaml::Value << CastBudget;
 		out << Yaml::Key << "Strength" << Yaml::Value << Strength;
+		out << Yaml::Key << "Kernel" << Yaml::Value << Yaml::BeginMap;
+		out << Yaml::Key << "Version" << Yaml::Value << kKernelSettingsVersion;
+		out << Yaml::Key << "ReflectionDepth" << Yaml::Value << ReflectionDepth;
+		out << Yaml::Key << "OpeningGridSize" << Yaml::Value << OpeningGridSize;
+		out << Yaml::Key << "MaxBounces" << Yaml::Value << MaxBounces;
+		out << Yaml::Key << "CandidateBudget" << Yaml::Value << CandidateBudget;
+		out << Yaml::Key << "PathBudget" << Yaml::Value << PathBudget;
+		out << Yaml::Key << "OpeningNodeBudget" << Yaml::Value << OpeningNodeBudget;
+		out << Yaml::Key << "Absorption" << Yaml::Value << Absorption;
+		out << Yaml::Key << "CompareRaycast" << Yaml::Value << CompareRaycast;
+		out << Yaml::EndMap;
 		out << Yaml::EndMap;
 	}
 	bool AudioOcclusionSettings::DeserializeYAML(const Yaml::Node& node)
@@ -62,6 +108,28 @@ namespace Lux
 					parsed.CastBudget = node["CastBudget"].as<uint32_t>();
 				if (node["Strength"])
 					parsed.Strength = node["Strength"].as<float>();
+				if (const auto kernel = node["Kernel"])
+				{
+					ValidateKernelKeys(kernel);
+					if (kernel["Version"] && kernel["Version"].as<uint32_t>() != kKernelSettingsVersion)
+						throw std::runtime_error("unsupported Kernel settings version");
+					if (kernel["ReflectionDepth"])
+						parsed.ReflectionDepth = kernel["ReflectionDepth"].as<uint32_t>();
+					if (kernel["OpeningGridSize"])
+						parsed.OpeningGridSize = kernel["OpeningGridSize"].as<uint32_t>();
+					if (kernel["MaxBounces"])
+						parsed.MaxBounces = kernel["MaxBounces"].as<uint32_t>();
+					if (kernel["CandidateBudget"])
+						parsed.CandidateBudget = kernel["CandidateBudget"].as<uint32_t>();
+					if (kernel["PathBudget"])
+						parsed.PathBudget = kernel["PathBudget"].as<uint32_t>();
+					if (kernel["OpeningNodeBudget"])
+						parsed.OpeningNodeBudget = kernel["OpeningNodeBudget"].as<uint32_t>();
+					if (kernel["Absorption"])
+						parsed.Absorption = kernel["Absorption"].as<float>();
+					if (kernel["CompareRaycast"])
+						parsed.CompareRaycast = kernel["CompareRaycast"].as<bool>();
+				}
 			}
 			if (!parsed.Validate())
 				throw std::runtime_error("values are out of range");

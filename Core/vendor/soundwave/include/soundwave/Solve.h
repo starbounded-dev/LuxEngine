@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "soundwave/Grid.h"
+#include "soundwave/GeometryView.h"
 #include "soundwave/Settings.h"
 #include <array>
 
@@ -25,7 +25,7 @@ namespace Lux::Soundwave
 
 	enum class EvaluationError : std::uint8_t
 	{
-		None, InvalidSettings, InvalidMaterials, InvalidRay, InvalidPortal, NumericalFailure
+		None, InvalidSettings, InvalidMaterials, InvalidRay, InvalidPortal, NumericalFailure, InvalidGeometry
 	};
 
 	// Caller-owned reusable scratch. One instance per concurrent solve. World data,
@@ -55,6 +55,9 @@ namespace Lux::Soundwave
 	// output and returns a required error; callers must retain their last valid result.
 	// A matching PortalBox replaces that portal's triangle crossings with analytic clipping.
 	[[nodiscard]] EvaluationError EvaluateDirect(const Grid& grid, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, DirectScratch& scratch, Path& output);
+	[[nodiscard]] EvaluationError EvaluateDirect(const GeometryView& geometry, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, DirectScratch& scratch, Path& output);
 
@@ -102,6 +105,9 @@ namespace Lux::Soundwave
 	// improve dry audibility. It never changes the direct-only measurement. Work/path
 	// exhaustion is observable in Diagnostics, and retained results are conservative.
 	[[nodiscard]] EvaluationError Solve(const Grid& grid, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, SolveResult& output);
+	[[nodiscard]] EvaluationError Solve(const GeometryView& geometry, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, SolveResult& output);
 }

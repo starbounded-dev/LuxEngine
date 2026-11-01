@@ -114,3 +114,11 @@ reflection gains, authored absorption/scattering, blocked legs, third-bounce tra
 corners and off-axis doorways, sealed closed-door rejection, deterministic output and explicit
 work/path limits. The independent runner builds all kernel sources and these checks without SDKs.
 They do not replace Scene/Play/runtime verification for the completed Phase 2 integration.
+
+The geometry checks also compare a static/moving `GeometryView` with flattened geometry,
+including bitwise direct loss, combined BVH/edge indices, masks and moving-only scenes. The
+propagation checks close an independently captured moving door against a static frame, remove
+it through the exclusion list and replace its grid without rebuilding the room. Kernel settings
+checks run the production YAML/runtime serializers: old blocks, nondefault values, all new
+fields, strict type/range/version/key checks and transactional rejection. Scene authoring and
+Play/runtime consumption are separate Phase 2 gates still to be implemented.

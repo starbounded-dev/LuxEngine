@@ -82,7 +82,7 @@ namespace Lux::Soundwave
 		}
 	}
 
-	Detail::Visibility Detail::SegmentVisible(const Grid& grid, std::span<const PortalBox> portals,
+	Detail::Visibility Detail::SegmentVisible(const GeometryView& grid, std::span<const PortalBox> portals,
 		Position from, Position to, std::uint64_t sourceInstance, std::vector<RayHit>& hits, float margin)
 	{
 		if (!grid.Trace(from, to, sourceInstance, hits, margin))
@@ -94,6 +94,8 @@ namespace Lux::Soundwave
 		const float length = Math::Length(Math::Subtract(to, from));
 		for (const auto& portal : portals)
 		{
+			if (!grid.IsInstanceActive(portal.Instance))
+				continue;
 			const Position a = InBox(portal, from), b = InBox(portal, to);
 			if (!Math::Finite(a) || !Math::Finite(b) || !Math::Finite(Math::Subtract(b, a)))
 				return Visibility::Invalid;
@@ -116,11 +118,20 @@ namespace Lux::Soundwave
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, DirectScratch& scratch, Path& output)
 	{
+		return EvaluateDirect(GeometryView(grid), portals, materials, settings, listener, source, sourceInstance, scratch, output);
+	}
+
+	EvaluationError EvaluateDirect(const GeometryView& grid, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, DirectScratch& scratch, Path& output)
+	{
 		output.Reset({}, {}, 0);
 		scratch.Hits.clear();
 		scratch.OpenSolids.clear();
 		scratch.Walls.clear();
 		scratch.PortalInstances.clear();
+		if (!grid.IsValid())
+			return EvaluationError::InvalidGeometry;
 		if (!settings.Validate())
 			return EvaluationError::InvalidSettings;
 		for (const auto& material : materials)
@@ -150,7 +161,7 @@ namespace Lux::Soundwave
 			return EvaluationError::InvalidRay;
 		for (const RayHit& hit : scratch.Hits)
 		{
-			const Triangle& triangle = grid.GetTriangles()[hit.TriangleIndex];
+			const Triangle& triangle = grid.GetTriangle(hit.TriangleIndex);
 			if (triangle.Portal && std::binary_search(scratch.PortalInstances.begin(), scratch.PortalInstances.end(), triangle.Instance))
 				continue;
 			auto open = std::find_if(scratch.OpenSolids.begin(), scratch.OpenSolids.end(),
@@ -181,6 +192,8 @@ namespace Lux::Soundwave
 			AddWall(scratch, materials, settings.Strength, entry.Instance, entry.Material, entry.Start, entry.Start, true, entry.Portal);
 		for (const PortalBox& portal : portals)
 		{
+			if (!grid.IsInstanceActive(portal.Instance))
+				continue;
 			float start = 0, end = 0;
 			if (ClipBox(InBox(portal, listener), InBox(portal, source), start, end))
 				AddWall(scratch, materials, settings.Strength, portal.Instance, portal.Material, start * length, end * length, false, true);

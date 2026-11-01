@@ -46,7 +46,7 @@ namespace Lux::Soundwave
 
 		struct Context
 		{
-			const Grid& World;
+			const GeometryView& World;
 			std::span<const PortalBox> Portals;
 			const MaterialTable& Materials;
 			const Settings& Config;
@@ -137,16 +137,18 @@ namespace Lux::Soundwave
 			auto& scratch = context.Scratch;
 			scratch.NodeHeap.clear();
 			scratch.Triangles.clear();
-			if (context.World.GetNodes().empty())
+			if (context.World.GetNodeCount() == 0)
 				return;
 			const auto compare = [](const auto& a, const auto& b) { return a.Score != b.Score ? a.Score > b.Score : a.Node > b.Node; };
 			const auto push = [&](std::uint32_t node)
 			{
-				const auto& box = context.World.GetNodes()[node].Box;
+				const auto& box = context.World.GetNode(node).Box;
 				scratch.NodeHeap.push_back({ node, BoxDistance(box, context.Listener) + BoxDistance(box, context.Source) });
 				std::push_heap(scratch.NodeHeap.begin(), scratch.NodeHeap.end(), compare);
 			};
-			push(0);
+			for (auto root : context.World.GetRoots())
+				if (root != kInvalidGeometryIndex)
+					push(root);
 			const auto maximum = std::max(4u, context.Config.CandidateBudget / 8);
 			while (!scratch.NodeHeap.empty() && scratch.Triangles.size() < maximum &&
 				context.Result.Diagnostics.PreparationNodes < context.Config.CandidateBudget * kPreparationNodesPerWork)
@@ -155,7 +157,7 @@ namespace Lux::Soundwave
 				std::pop_heap(scratch.NodeHeap.begin(), scratch.NodeHeap.end(), compare);
 				const auto index = scratch.NodeHeap.back().Node;
 				scratch.NodeHeap.pop_back();
-				const auto& node = context.World.GetNodes()[index];
+				const auto& node = context.World.GetNode(index);
 				if (!node.Count)
 				{
 					push(index + 1);
@@ -164,13 +166,14 @@ namespace Lux::Soundwave
 				}
 				for (std::uint32_t i = node.First; i < node.First + node.Count && scratch.Triangles.size() < maximum; ++i)
 				{
-					const auto triangle = context.World.GetTriangleOrder()[i];
-					if (context.World.GetTriangles()[triangle].Instance != context.SourceInstance)
+					const auto triangle = context.World.TriangleAtOrder(i);
+					if (context.World.GetTriangle(triangle).Instance != context.SourceInstance &&
+						context.World.IsInstanceActive(context.World.GetTriangle(triangle).Instance))
 						scratch.Triangles.push_back(triangle);
 				}
 			}
 			context.Result.Diagnostics.WorkLimited |= !scratch.NodeHeap.empty() ||
-				(scratch.Triangles.size() == maximum && context.World.GetTriangles().size() > maximum);
+				(scratch.Triangles.size() == maximum && context.World.GetTriangleCount() > maximum);
 		}
 
 		void Reflections(Context& context)
@@ -199,13 +202,13 @@ namespace Lux::Soundwave
 					{
 						if (i && sequence[i] == sequence[i - 1])
 							valid = false;
-						images[i + 1] = Mirror(images[i], context.World.GetTriangles()[pool[sequence[i]]]);
+						images[i + 1] = Mirror(images[i], context.World.GetTriangle(pool[sequence[i]]));
 						if (!Math::Finite(images[i + 1]))
 							context.Invalid = true;
 					}
 					for (std::uint32_t i = 0; valid && i < depth; ++i)
 					{
-						const auto& triangle = context.World.GetTriangles()[pool[sequence[depth - i - 1]]];
+						const auto& triangle = context.World.GetTriangle(pool[sequence[depth - i - 1]]);
 						const auto normal = Normal(triangle);
 						const Position current = path.Points[i], delta = Math::Subtract(images[depth - i], current);
 						const float denominator = Math::Dot(delta, normal);
@@ -220,7 +223,7 @@ namespace Lux::Soundwave
 					float energyLF = 1, energyHF = 1;
 					for (std::uint32_t i = 1; valid && i <= depth; ++i)
 					{
-						const auto& triangle = context.World.GetTriangles()[pool[sequence[depth - i]]];
+						const auto& triangle = context.World.GetTriangle(pool[sequence[depth - i]]);
 						const auto normal = Normal(triangle);
 						const float before = Math::Dot(Math::Subtract(path.Points[i - 1], triangle.A), normal);
 						const float after = Math::Dot(Math::Subtract(path.Points[i + 1], triangle.A), normal);
@@ -278,14 +281,14 @@ namespace Lux::Soundwave
 			scratch.Edges.clear();
 			scratch.Openings.clear();
 			for (auto triangle : scratch.Triangles)
-				for (auto edge : context.World.GetTriangleEdges()[triangle])
+				for (auto edge : context.World.GetTriangleEdges(triangle))
 					if (edge != kInvalidGeometryIndex)
 						scratch.EdgeIndices.push_back(edge);
 			std::sort(scratch.EdgeIndices.begin(), scratch.EdgeIndices.end());
 			scratch.EdgeIndices.erase(std::unique(scratch.EdgeIndices.begin(), scratch.EdgeIndices.end()), scratch.EdgeIndices.end());
 			for (auto index : scratch.EdgeIndices)
 			{
-				const auto& edge = context.World.GetEdges()[index];
+				const auto& edge = context.World.GetEdge(index);
 				const float t = ApexT(edge, context.Listener, context.Source);
 				const auto point = Math::Add(edge.A, Math::Scale(Math::Subtract(edge.B, edge.A), t));
 				scratch.Edges.push_back({ index,t,Distance(context.Listener, point) + Distance(point, context.Source) });
@@ -295,7 +298,7 @@ namespace Lux::Soundwave
 			for (std::uint32_t sample = 0; sample <= context.Config.OpeningGridSize; ++sample)
 				for (const auto& candidate : scratch.Edges)
 				{
-					const auto& edge = context.World.GetEdges()[candidate.Index];
+					const auto& edge = context.World.GetEdge(candidate.Index);
 					const auto axis = Math::Unit(Math::Subtract(edge.B, edge.A));
 					const auto helper = std::abs(axis.Y) < 0.9f ? Position{0,1,0} : Position{1,0,0};
 					const auto u = Math::Unit(Math::Cross(axis, helper)), v = Math::Cross(axis, u);
@@ -415,6 +418,13 @@ namespace Lux::Soundwave
 	}
 
 	EvaluationError Solve(const Grid& grid, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, SolveResult& output)
+	{
+		return Solve(GeometryView(grid), portals, materials, settings, listener, source, sourceInstance, scratch, output);
+	}
+
+	EvaluationError Solve(const GeometryView& grid, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, SolveResult& output)
 	{

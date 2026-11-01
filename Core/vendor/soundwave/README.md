@@ -51,7 +51,7 @@ Triangle intersection uses wide intermediates to avoid overflow on finite large 
 
 `Settings` defines bounded reflection depth, opening samples, bounce/candidate work, direct-path
 strength and a fraction of authored material absorption. These types are independent library
-groundwork: they are not yet serialized, exposed in the editor or consumed by Scene. Propagation
+types; the engine now serializes them as described below. They are not yet exposed in the editor or consumed by Scene. Propagation
 engine integration and GPU execution remain unfinished; independent candidate propagation is described below.
 
 The independent runner now also executes `SoundwaveGeometryTests`: analytic solid distances and
@@ -73,7 +73,7 @@ handle it and retain the last valid result; attempted output is cleared. Endpoin
 before reset, allowing re-evaluation from a Path's own saved endpoints. Reuse `DirectScratch`
 per reader and reuse the output Path to retain their vector capacities.
 
-This direct measurement is reused by the independent propagation solver below. Engine settings/Scene integration remain unfinished. The independent direct tests
+This direct measurement is reused by the independent propagation solver below. Scene integration remains unfinished. The independent direct tests
 cover frozen material formulas, solids/overlaps/thin walls, analytic shutters, source exclusion,
 affine transforms, invalid data, aliasing and scratch reuse. LuxEngine's production oracle test
 also compares all 23 tags, strengths, reversed/inside-solid rays and transformed shutter states.
@@ -115,10 +115,41 @@ Invalid numerical work returns an explicit error instead of creating an unocclud
 `SoundwavePropagationTests` checks an analytic reflection/energy, absorption/scattering, blocked
 legs, third-bounce paths, thick-corner and off-axis doorway audibility, sealed closed-door rejection,
 direct-only equality, deterministic results and low-budget behavior. This remains library work:
-Scene integration, render-mesh capture, settings serialization/editor controls and the complete
+Scene integration, render-mesh capture, editor controls and the complete
 Phase 2 runtime gates are unfinished. Echogram, GPU execution, air/caustic reach and SDK removal
 remain later phases.
 
 Public mathematical references (no imported implementation):
 - https://research.cs.aalto.fi/acoustics/virtual-acoustics/research/room-acoustics-modeling/69-geometrical-acoustics.html
 - https://www.itu.int/dms_pubrec/itu-r/rec/p/r-rec-p.526-6-199910-s%21%21pdf-e.pdf
+
+## Static and moving snapshots (Phase 2 integration groundwork)
+
+`GeometryView` borrows one fixed `Grid`, an optional moving `Grid`, and a sorted, unique
+instance-exclusion span. It allocates no geometry and renumbers the two hierarchies, triangle
+orders and edge references into one deterministic index space. `EvaluateDirect` and `Solve`
+accept this view; their original single-Grid overloads remain available. Replacing the moving
+snapshot does not rebuild or copy the static hierarchy. An exclusion removes an instance from
+traces, clearance tests, reflection/opening preparation and analytic portal clipping immediately.
+
+The caller must own both grids and the exclusion storage, keeping them immutable throughout
+each query/solve. Create a fresh view after replacing a grid; cached counts cannot follow a
+mutated grid. The same grid supplied twice or unsorted/duplicate exclusions make a view invalid;
+solves return `InvalidGeometry`, and queries fail explicitly. Topology is cached within each
+grid, not stitched between the two layers; every accepted path is still checked against both.
+Raw geometry accessors preserve snapshot data; the solver applies instance masks during queries
+and candidate preparation. A deletion can expose additional edges only after topology is rebuilt.
+
+Tests compare composite and flattened direct results bit-for-bit, cover hierarchy/edge index
+translation and moving-only scenes, and exercise a separate closed door against its static frame.
+Removing the shutter via the exclusion list restores the opening route, including its analytic box.
+These checks do not establish that Scene owns or updates these snapshots yet.
+
+LuxEngine stores these authored values in `Audio.Occlusion.Kernel` with `Version: 1`:
+reflection depth, opening grid size, bounce/candidate/path/node limits, absorption and the
+temporary `CompareRaycast` diagnostic flag. The existing outer `Strength` row remains authoritative.
+`AudioOcclusionSettings::GetKernelSettings` maps them to the standalone value type without
+duplicating strength. Missing rows load struct defaults; malformed, unsupported-version, unknown,
+duplicate and out-of-range kernel rows are rejected transactionally with a tagged error.
+The runtime block remains the existing bounded length-prefixed YAML representation, so old
+blocks without `Kernel` still load. Scene playback and editor controls are not connected yet.
