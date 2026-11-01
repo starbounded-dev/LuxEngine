@@ -87,6 +87,7 @@ namespace Lux {
 		// Only consulted when vsyncEnabled is false: picks IMMEDIATE over MAILBOX.
 		bool preferImmediatePresentMode = false;
 		bool enableRayTracingExtensions = false;
+		// Request a dedicated async queue when available; ordinary compute uses graphics.
 		bool enableComputeQueue = false;
 		bool enableCopyQueue = false;
 

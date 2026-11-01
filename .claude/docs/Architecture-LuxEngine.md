@@ -255,7 +255,11 @@ not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
-`VulkanDevice` created. It never owns them. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+`VulkanDevice` created. It never owns them. The primary graphics family must also support
+compute (and presentation for a window). A requested dedicated compute family is optional;
+when absent it is not created or exposed as an NRI queue, and command buffers use the existing
+graphics-queue path. Queue-family discovery starts fresh for each candidate device, so indices
+from another adapter cannot leak into selection. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. Every
 submission goes through `RHIQueueTimeline` (`Renderer/RHI/RHIQueueTimeline.h`, created by
 `Window::CreateRHIDevice` after `RHIDevice::Init`): one NRI timeline fence per queue, submissions

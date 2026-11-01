@@ -754,7 +754,11 @@ context see the same device NRI drives.
   passed with the submission that needs it: the swapchain hands out its acquire semaphore once per
   frame (`TakeAcquireSemaphore`), to the first command buffer that draws to the back buffer, and
   `Present` waits for it itself when nothing did, in the signal-only submission that also signals
-  the present semaphore. A queue the device does not have (no compute family) records on graphics.
+  the present semaphore. A queue the device does not have (no dedicated compute family) records on graphics.
+  Device selection requires the primary graphics family to support compute and presentation
+  (presentation is omitted for headless devices). Dedicated compute/transfer families are
+  optional and remain absent in NRI when unavailable; they are never aliases of graphics.
+  Candidate-device queue discovery is local and publishes only the selected device's indices.
 - **Recording.** Every draw, dispatch, barrier, copy, clear, upload, readback, query and marker is
   recorded with NRI (NRI migration Phases 9-13).
   - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` hand out the open
