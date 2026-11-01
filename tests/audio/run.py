@@ -233,6 +233,16 @@ def main():
     libraries = [va / "3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     # Build the YAML implementation with the same flags as these tests, without stale engine objects.
     yaml = [objects[name] for name in ("Yaml", "ryml")]
+    if args.config == "debug-as":
+        # Verify the changed worker/snapshot ownership independently of the outgoing
+        # SDK's preset-world allocations. The complete AS audio suite still runs
+        # below, with leak detection enabled; this does not suppress its failures.
+        lifetime_objects = [objects[path.stem] for path in kernel_sources] + [objects[name] for name in (
+            "AudioAcoustics", "JobSystem", "AudioOcclusionSettings", "AcousticMaterial", "UUID", "Ref")]
+        run(["clang++", *flags, TESTS / "AudioAcousticsTestMain.cpp", TESTS / "AudioAcousticsTests.cpp",
+             *lifetime_objects, *yaml, "-Wl,--gc-sections", "-pthread", "-o", directory / "soundwave-lifetime-test"],
+            cwd=ROOT / "Core")
+        run([directory / "soundwave-lifetime-test"], timeout=30)
     # This test has a minimal logger host, matching the Windows occlusion check. Link its
     # production dependencies only; unrelated mixer globals require the full playback host.
     occlusion_objects = [objects[path.stem] for path in kernel_sources] + [objects[name] for name in (
