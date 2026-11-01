@@ -24,11 +24,24 @@ newoption {
 
 newoption {
 	trigger = "fmod",
-	description = "Compatibility option: FMOD is always required"
+	description = "Compatibility option: selects the default FMOD audio backend"
+}
+
+-- FMOD stays the default until the native backend reaches parity (docs/AUDIO_NATIVE_BACKEND_PLAN.md).
+-- Native compiles the vendored miniaudio instead and needs no audio SDK.
+newoption {
+	trigger = "audio-backend",
+	value = "BACKEND",
+	description = "Audio backend to compile",
+	allowed = {
+		{ "fmod", "FMOD Studio (default; needs the FMOD Engine SDK)" },
+		{ "native", "Built-in miniaudio backend (experimental)" },
+	},
+	default = "fmod",
 }
 
 include "Dependencies.lua"
--- Required on every target; validation includes both link inputs and deployed libraries.
+-- Validates the selected backend's SDK (FMOD only) and, when requested, the Asterwave checkout.
 ValidateAudioSDK()
 
 workspace "Lux"

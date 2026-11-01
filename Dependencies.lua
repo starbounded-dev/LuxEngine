@@ -1,8 +1,15 @@
 include "./vendor/premake_customization/ordered_pairs.lua"
 
+-- Selected with --audio-backend (declared in premake5.lua). Native needs no FMOD SDK at all, so
+-- nothing below looks for one unless FMOD is selected.
+AudioBackend = _OPTIONS["audio-backend"] or "fmod"
+if AudioBackend ~= "fmod" and AudioBackend ~= "native" then
+	error("Unknown audio backend '" .. AudioBackend .. "': use --audio-backend=fmod or --audio-backend=native.")
+end
+
 -- One SDK root drives headers, link inputs, validation and deployed libraries.
-FMODSDKRoot = os.getenv("LUX_FMOD_SDK")
-if not FMODSDKRoot then
+FMODSDKRoot = AudioBackend == "fmod" and os.getenv("LUX_FMOD_SDK") or nil
+if AudioBackend == "fmod" and not FMODSDKRoot then
 	local candidates = os.matchdirs("Core/vendor/FMOD/*")
 	table.sort(candidates)
 	local matches = {}
@@ -17,7 +24,9 @@ if not FMODSDKRoot then
 	end
 	FMODSDKRoot = matches[1] or (os.target() == "windows" and "Core/vendor/FMOD/FMOD Studio API Windows" or "Core/vendor/FMOD/fmodstudioapi20314linux")
 end
-FMODSDKRoot = path.getabsolute(FMODSDKRoot)
+if FMODSDKRoot then
+	FMODSDKRoot = path.getabsolute(FMODSDKRoot)
+end
 AsterwaveRoot = path.getabsolute(os.getenv("LUX_ASTERWAVE_ROOT") or "Core/vendor/Asterwave")
 local manifestFile = assert(io.open(path.join(_SCRIPT_DIR, "scripts/dependencies/Asterwave.json"), "r"))
 AsterwaveManifest = json.decode(manifestFile:read("*a"))
@@ -69,6 +78,15 @@ function ValidateAsterwaveSource()
 end
 
 function ValidateAudioSDK()
+	if AudioBackend == "fmod" then
+		ValidateFMODSDK()
+	end
+	if _OPTIONS["raytraced-audio"] then
+		ValidateAsterwaveSource()
+	end
+end
+
+function ValidateFMODSDK()
 	local files = {
 		FMODSDKRoot .. "/api/core/inc/fmod.hpp",
 		FMODSDKRoot .. "/api/studio/inc/fmod_studio.hpp"
@@ -87,9 +105,6 @@ function ValidateAudioSDK()
 		if not os.isfile(file) then
 			error("Required audio SDK file missing: " .. file .. ". Set LUX_FMOD_SDK to a complete SDK package root.")
 		end
-	end
-	if _OPTIONS["raytraced-audio"] then
-		ValidateAsterwaveSource()
 	end
 end
 
@@ -232,7 +247,7 @@ Dependencies = {
 		LibName = "Asterwave",
 		IncludeDir = AsterwaveRoot .. "/include",
 	} or nil,
-	-- Required audio backend. Two entries because FMOD ships the Studio
+	-- The default audio backend (--audio-backend=fmod). Two entries because FMOD ships the Studio
 	-- API as a separate library layered on the Core one: Studio owns the events and banks the game
 	-- actually plays, and creates a Core system internally for the low-level work (3D listener,
 	-- reverb, CPU stats). Both must be linked - Studio alone does not resolve.
@@ -243,14 +258,20 @@ Dependencies = {
 	--
 	-- Package roots are discovered or explicitly configured above. Generation verifies every
 	-- header, import library and deployed DLL/so for the target platform.
-	FMOD = {
+	FMOD = AudioBackend == "fmod" and {
 		Windows = { LibName = "fmod_vc", IncludeDir = FMODSDKRoot .. "/api/core/inc", LibDir = FMODSDKRoot .. "/api/core/lib/x64/" },
 		Linux = { LibName = "fmod", IncludeDir = FMODSDKRoot .. "/api/core/inc", LibDir = FMODSDKRoot .. "/api/core/lib/x86_64/" },
-	},
-	FMODStudio = {
+	} or nil,
+	FMODStudio = AudioBackend == "fmod" and {
 		Windows = { LibName = "fmodstudio_vc", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x64/" },
 		Linux = { LibName = "fmodstudio", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x86_64/" },
-	},
+	} or nil,
+	-- The native backend (--audio-backend=native). Header-only, public domain or MIT-0: Core compiles
+	-- its single implementation unit (Audio/Native/MiniaudioImplementation.c), so nothing is linked
+	-- or deployed. Linux loads ALSA/PulseAudio/JACK with dlopen at runtime.
+	Miniaudio = AudioBackend == "native" and {
+		IncludeDir = "%{wks.location}/Core/vendor/miniaudio",
+	} or nil,
 	ACL = {
 		IncludeDir = "%{wks.location}/Core/vendor/acl/include"
 	},

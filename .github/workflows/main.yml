@@ -364,3 +364,183 @@ jobs:
           name: build-logs-linux-${{ matrix.configuration }}
           path: logs/*.log
           if-no-files-found: ignore
+
+  # The native audio backend (--audio-backend=native, docs/AUDIO_NATIVE_BACKEND_PLAN.md) needs no
+  # private dependency: no FMOD SDK and no Asterwave, so these jobs read no secrets and also run for
+  # fork pull requests. Debug only while FMOD remains the default backend.
+  build-native-windows:
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: '3.11'
+
+      - name: Test acoustics and native audio
+        shell: bash
+        run: |
+          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build bin/acoustics-tests --config Debug
+          ctest --test-dir bin/acoustics-tests -C Debug --output-on-failure
+          cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build bin/native-audio-tests --config Debug
+          ctest --test-dir bin/native-audio-tests -C Debug --output-on-failure
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
+        with:
+          vulkan_version: 1.4.335.0
+          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+          install_swiftshader: false
+          install_lavapipe: false
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: 'x64'
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Setup
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: |
+          cd scripts
+          python Setup.py ${{ env.PREMAKE_GENERATOR }} native-audio
+
+      - name: Prepare logs
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: New-Item -ItemType Directory -Force logs
+
+      - name: Build
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: |
+          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=Debug" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-Native-Debug.log;verbosity=normal"
+
+      - name: Verify build output
+        shell: pwsh
+        run: |
+          $output = "bin/Debug-windows-x86_64"
+          foreach ($file in @("Editor/Editor.exe", "Lux-Runtime/Lux-Runtime.exe")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $output $file) -PathType Leaf)) {
+              throw "Missing build output: $output/$file"
+            }
+          }
+          # The native backend deploys no audio libraries.
+          $fmod = Get-ChildItem -Path $output -Recurse -Filter "fmod*.dll" -ErrorAction SilentlyContinue
+          if ($fmod) {
+            throw "FMOD libraries in a native audio build: $($fmod.FullName -join ', ')"
+          }
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-native-windows
+          path: logs/*.log
+          if-no-files-found: ignore
+
+  build-native-linux:
+    runs-on: ubuntu-26.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: '3.11'
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # Same packages as build-linux.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang llvm make pkg-config \
+            libgtk-3-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
+            libdw-dev libunwind-dev libtbb-dev zlib1g-dev
+          if ! command -v llvm-ar >/dev/null 2>&1; then
+            sudo ln -sf "$(ls -1 /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/bin/llvm-ar
+          fi
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
+        with:
+          vulkan_version: 1.4.335.0
+          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      - name: Test acoustics and native audio
+        shell: bash
+        run: |
+          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build bin/acoustics-tests --config Debug
+          ctest --test-dir bin/acoustics-tests -C Debug --output-on-failure
+          cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE=Debug
+          cmake --build bin/native-audio-tests --config Debug
+          ctest --test-dir bin/native-audio-tests -C Debug --output-on-failure
+
+      - name: Build
+        shell: bash
+        env:
+          LUX_PREMAKE_OPTIONS: --audio-backend=native
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          ./scripts/Linux-Build.sh Debug 2>&1 | tee "logs/Build-Native-Debug.log"
+
+      - name: Verify build output
+        run: |
+          out="bin/Debug-linux-x86_64"
+          fail=0
+          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
+            if [ -x "$f" ]; then
+              echo "ok   $f"
+            else
+              echo "MISSING $f"; fail=1
+            fi
+          done
+          # The native backend deploys and links no audio libraries.
+          if find "$out" -name 'libfmod*' | grep -q .; then
+            echo "FMOD libraries in a native audio build"; fail=1
+          fi
+          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
+            if [ -x "$f" ] && readelf -d "$f" | grep -q 'libfmod'; then
+              echo "$f links FMOD"; fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-native-linux
+          path: logs/*.log
+          if-no-files-found: ignore

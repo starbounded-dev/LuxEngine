@@ -7,6 +7,7 @@
 #include "../ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AudioEngine.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/Colors.h"
@@ -348,6 +349,11 @@ namespace Lux {
 		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Prefab
 			&& ImGui::MenuItem("Create Variant"))
 			actionResult.Set(ContentBrowserAction::CreateVariant, true);
+
+		// Sound assets are what the native audio backend plays; the FMOD build plays Studio events.
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Audio
+			&& AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Create Sound"))
+			actionResult.Set(ContentBrowserAction::CreateSound, true);
 
 		if (ImGui::MenuItem("Delete"))
 			actionResult.Set(ContentBrowserAction::OpenDeleteDialogue, true);

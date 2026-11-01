@@ -258,20 +258,26 @@ namespace Lux {
 				const float step = std::isfinite(component.FadeTime) && component.FadeTime > 0.0f ? dt / component.FadeTime : 1.0f;
 				zone.Weight += std::clamp(input.Target - zone.Weight, -step, step);
 			}
-			if (zone.Ambience.Reference != component.AmbienceEvent.Guid)
+			if (!zone.AmbienceEvent.SameAssignment(component.AmbienceEvent))
+			{
+				zone.AmbienceEvent = component.AmbienceEvent;
+				zone.AmbienceReference = component.AmbienceEvent.GetReference();
+			}
+			if (zone.Ambience.Reference != zone.AmbienceReference)
 				zone.Ambience = {};
 			if (zone.Weight > 0.0f)
-				Prepare(zone.Ambience, component.AmbienceEvent.Guid, false);
+				Prepare(zone.Ambience, zone.AmbienceReference, false);
 			if (zone.Ambience.Instance)
 			{
 				zone.Ambience.Instance->Set3DAttributes(glm::vec3(input.Volume.Transform[3]), glm::vec3(0.0f), glm::vec3(0, 0, -1), glm::vec3(0, 1, 0));
 				zone.Ambience.Instance->SetVolume(std::isfinite(component.Volume) ? zone.Weight * std::max(0.0f, component.Volume) : 0.0f);
 				Play(zone.Ambience, zone.Weight, paused);
 			}
-			if (zone.SnapshotReference != component.Snapshot.Guid)
+			if (!zone.SnapshotEvent.SameAssignment(component.Snapshot))
 			{
-				zone.SnapshotReference = component.Snapshot.Guid;
-				zone.SnapshotKey = Utils::String::ToLowerCopy(component.Snapshot.Guid);
+				zone.SnapshotEvent = component.Snapshot;
+				zone.SnapshotReference = component.Snapshot.GetReference();
+				zone.SnapshotKey = Utils::String::ToLowerCopy(zone.SnapshotReference);
 			}
 			if (!zone.SnapshotKey.empty())
 			{

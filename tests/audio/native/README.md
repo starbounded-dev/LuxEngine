@@ -1,8 +1,9 @@
-# Native audio backend checks (Phase 0)
+# Native audio backend checks
 
-Offline checks and a benchmark for the vendored miniaudio (`Core/vendor/miniaudio`), from
-`docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phase 0. They need no FMOD SDK, no Asterwave and no sound card:
-`ma_engine` runs with `noDevice` and the tests read its output directly.
+Offline checks for the native audio backend (`docs/AUDIO_NATIVE_BACKEND_PLAN.md`): the vendored
+miniaudio on its own (Phase 0), and the engine's backend in `Core/Source/Lux/Audio/Native` (Phase 2).
+They need no FMOD SDK, no Asterwave and no sound card: `ma_engine` runs with `noDevice` and the tests
+read its output directly.
 
 ```sh
 cmake -S tests/audio/native -B build/native-audio -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -18,6 +19,26 @@ ctest --test-dir build/native-audio --output-on-failure
 - the low-pass node used for occlusion;
 - the reverb node's tail;
 - sample-accurate scheduled starts.
+
+`lux_native_backend_tests` drives the engine's own API (`AudioEngine`, `AudioEventInstance`,
+`AudioListener`) and measures the rendered PCM. Only the host is replaced: an offline engine config
+and an in-memory Sound table stand in for the project and its asset manager, and mono tones are
+written at the test's frequencies. It checks:
+- reference resolution (`AudioEventRef`, the Sound handle in decimal) and both YAML forms, including
+  byte-identical output when no Sound is assigned;
+- Sound YAML defaults, roundtrip and rejection of invalid values;
+- panning from the source and listener positions, inverse and linear distance attenuation;
+- attenuation targets, normalized listener weights and the neutral listener;
+- occlusion gain and its low-pass, the exact bypass when unoccluded, 2D voices unaffected;
+- Sound, instance and master bus volume, bus mute and focus mute;
+- scene pause layered over script pause, and Start while paused;
+- end-of-playback notifications, restart, stop, looping timelines, pitch, unsupported calls, and
+  shutdown with wrappers still held;
+- audio file metadata without an engine.
+
+It compiles the backend's own miniaudio unit (`Audio/Native/MiniaudioImplementation.c`), never the
+Phase 0 `lux_miniaudio` library: the engine raises `MA_ENGINE_MAX_LISTENERS`, which changes
+miniaudio's struct sizes.
 
 Two programs are run by hand:
 

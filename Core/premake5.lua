@@ -78,6 +78,13 @@ project "Core"
 		removefiles { "Source/Lux/Audio/RaytracedAudioScene.cpp" }
 	end
 
+	-- One header set, two implementations: exactly one backend folder is compiled (--audio-backend).
+	if AudioBackend == "native" then
+		removefiles { "Source/Lux/Audio/FMOD/**" }
+	else
+		removefiles { "Source/Lux/Audio/Native/**" }
+	end
+
 	includedirs { "Source/", "vendor/", }
 
 	IncludeDependencies()
@@ -96,11 +103,15 @@ project "Core"
 		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
 	end
 
-	do -- FMOD is required.
+	if AudioBackend == "fmod" then
 		defines { "LUX_ENABLE_FMOD" }
 	end
 
 	filter "files:vendor/FastNoise/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	flags { "NoPCH" }
+
+	-- miniaudio's implementation unit is C and must not see the C++ precompiled header.
+	filter "files:Source/Lux/Audio/Native/MiniaudioImplementation.c"
 	flags { "NoPCH" }
 
 	filter "system:windows"

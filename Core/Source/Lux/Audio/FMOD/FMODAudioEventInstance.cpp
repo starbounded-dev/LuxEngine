@@ -414,7 +414,11 @@ namespace Lux {
 		FMOD_GUID guid{};
 		if (!ParseGuid(resolved, guid))
 		{
-			LUX_CORE_ERROR_TAG("Audio", "'{0}' is not a valid event GUID", eventGuid);
+			// A Sound asset handle (decimal), as Lux.Audio.PlayOneShot(Sound) passes it.
+			if (std::all_of(resolved.begin(), resolved.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+				LUX_CORE_ERROR_TAG("Audio", "'{0}' is a Sound asset; Sounds play on the native audio backend (premake --audio-backend=native)", eventGuid);
+			else
+				LUX_CORE_ERROR_TAG("Audio", "'{0}' is not a valid event GUID", eventGuid);
 			return nullptr;
 		}
 

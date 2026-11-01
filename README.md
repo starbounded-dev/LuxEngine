@@ -53,7 +53,7 @@ build glue; licensed SDK packages and the Asterwave checkout stay outside tracke
 |---|---|---|---|
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
 | **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
-| **FMOD Engine** | 2.03.x (Core + Studio APIs) | Audio playback — **required, not optional** | [fmod.com](https://www.fmod.com/download) |
+| **FMOD Engine** | 2.03.x (Core + Studio APIs) | Audio playback — **required by the default audio backend**; the experimental `--audio-backend=native` build needs none | [fmod.com](https://www.fmod.com/download) |
 | **Asterwave source** *(optional)* | Exact revision in `scripts/dependencies/Asterwave.json` | Opt-in ray-traced acoustics (`--raytraced-audio`), compiled statically; default builds don't need it | Private `starbounded-dev/asterwave` repository; `python scripts/FetchAsterwave.py` |
 
 You also want the **FMOD Studio** authoring tool (same 2.03.x family) to author and build banks, and its command-line tool `fmodstudiocl` if you want the editor to rebuild banks on Play.
@@ -326,7 +326,8 @@ Binaries land in `bin/<Config>-<os>-x86_64/<Project>/`, e.g. `bin/Release-linux-
 | `--no-aftermath` | Build without the Nvidia Aftermath GPU crash tracker |
 | `--discord` | Enable the Discord Social SDK integration (needs `Core/vendor/discord_social_sdk/`) |
 | `--raytraced-audio` | Build the opt-in Asterwave ray-traced acoustics (needs the private source; exported games then contain it) |
-| `--fmod` | Accepted for compatibility; FMOD is always required |
+| `--audio-backend=native` | Experimental built-in audio backend (miniaudio, editor-authored Sound assets) instead of FMOD; needs no FMOD SDK. Runtime export is not supported on it yet |
+| `--fmod` | Accepted for compatibility; selects the default FMOD backend |
 
 On Windows these are offered as checkboxes by `Setup.bat`; on Linux pass them via `LUX_PREMAKE_OPTIONS` or directly to `premake5`.
 

@@ -30,6 +30,7 @@ namespace Lux::AssetExtensions
 			{ ".lsurfaces", AssetType::AudioSurfaceTable },
 		{ ".ldialogue", AssetType::DialogueTable },
 			{ ".lsoundc", AssetType::SoundConfig },
+			{ ".lsound", AssetType::Sound },
 			{ ".fbx", AssetType::MeshSource },
 			{ ".gltf", AssetType::MeshSource },
 			{ ".glb", AssetType::MeshSource },
@@ -84,6 +85,7 @@ namespace Lux::AssetExtensions
 			case AssetType::Material:        return ".lmat";
 			case AssetType::AudioSurfaceTable: return ".lsurfaces";
 			case AssetType::SoundConfig:     return ".lsoundc";
+			case AssetType::Sound:           return ".lsound";
 			case AssetType::Skeleton:        return ".lskel";
 			case AssetType::Animation:       return ".lanim";
 			case AssetType::AnimationGraph:  return ".lanimgraph";

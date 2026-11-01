@@ -131,6 +131,7 @@ Linux binary. `scripts/Linux-Build.sh` downloads a pinned, checksum-verified bui
 - `--no-tracy` — exclude Tracy profiler (useful to reduce link times)
 - `--no-aftermath` — exclude Nvidia Aftermath GPU crash tracker
 - `--discord` — enable Discord Social SDK integration (requires `Core/vendor/discord_social_sdk/`)
+- `--audio-backend=native` — experimental built-in audio backend (miniaudio) instead of FMOD; needs no FMOD SDK
 
 **Build configs:** `debug`, `debug-as` (AddressSanitizer), `release`, `dist`
 
@@ -227,10 +228,10 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Required FMOD Core/Studio playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`; engine occlusion (`AudioOcclusion`) and reverb zones work in every build.
+- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented by one backend chosen with premake `--audio-backend`: `fmod` (default, FMOD Core/Studio, `Audio/FMOD/`) or `native` (experimental, vendored miniaudio and `.lsound` Sound assets, `Audio/Native/`). Editor code asks `AudioEngine::GetBackend()`; the backend defines are Core-only. Engine occlusion (`AudioOcclusion`) and reverb zones work in every build.
 - Asterwave ray-traced acoustics (`RaytracedAudioScene`) are opt-in with premake `--raytraced-audio`. Without it, `RaytracedAudioSceneStub.cpp` makes `IsAvailable()` false. With it, the private revision in `scripts/dependencies/Asterwave.json` is fetched into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`) and linked statically, so exported games contain it.
 - Default acoustic-material coefficients are LuxEngine's own (`AcousticMaterial.cpp`, from published data and the mass law), not Asterwave presets.
-- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type.
+- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type; Phase 2 added the native backend behind `--audio-backend=native` (tested in `tests/audio/native`).
 - Native shared ownership is confined to `RaytracedAudioScene::Impl` for Asterwave emitters/mesh geometry required by its API. Engine objects continue using `Ref`/`Scope`.
 
 ### Threading

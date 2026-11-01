@@ -648,10 +648,17 @@ namespace Lux {
 			source.ScriptPaused = false;
 			if (!source.Enabled || IsInactive(handle))
 				continue;
+			const bool nativeAudio = AudioEngine::GetBackend() == AudioBackend::Native;
 			if (source.Event.IsValid())
 				GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
 			else if (source.LegacyAudio)
-				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign an FMOD Studio event to its Audio Source", static_cast<uint64_t>(entity.GetUUID()), static_cast<uint64_t>(source.LegacyAudio));
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign {2} to its Audio Source", static_cast<uint64_t>(entity.GetUUID()),
+					static_cast<uint64_t>(source.LegacyAudio), nativeAudio ? "a Sound" : "an FMOD Studio event");
+			else if (source.Event.HasReference())
+				// Assigned for the other backend only, so silent in this build.
+				LUX_CORE_WARN_TAG("Audio", "Entity {0}'s Audio Source has {1} but no {2}, so it is silent with the {3} audio backend",
+					static_cast<uint64_t>(entity.GetUUID()), nativeAudio ? "an FMOD event" : "a Sound", nativeAudio ? "Sound" : "FMOD event",
+					nativeAudio ? "native" : "FMOD");
 		}
 
 		// A duplicated director must never produce a second bed. Choose a stable owner and report it.
@@ -673,7 +680,7 @@ namespace Lux {
 			if (!config.InitialState.empty())
 				m_Music.SetState(config.InitialState);
 			if (m_Music.SetIntensity(config.Intensity) && config.PlayOnAwake && config.Event.IsValid())
-				m_Music.Play(config.Event.Guid);
+				m_Music.Play(config.Event.GetReference());
 		}
 
 		// Scripting: instantiate every script entity and fire OnCreate.

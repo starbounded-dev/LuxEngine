@@ -187,7 +187,11 @@ def warn_missing_discord_sdk(config, root):
 
 
 def warn_missing_fmod_sdk(config, root):
-    """Preliminary discovery; Premake validates the selected target's complete SDK layout."""
+    """Preliminary discovery; Premake validates the selected target's complete SDK layout.
+    The native audio backend uses no FMOD SDK, so there is nothing to check when it is selected."""
+    if config.enabled("native-audio"):
+        return True
+
     override = os.getenv("LUX_FMOD_SDK")
     candidates = [override] if override else glob.glob(os.path.join(root, "Core", "vendor", "FMOD", "*"))
     library = "x64/fmod_vc.lib" if os.name == "nt" else "x86_64/libfmod.so"

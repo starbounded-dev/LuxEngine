@@ -961,6 +961,11 @@ namespace Lux {
 	// a way to rebuild without entering Play.
 	void ProjectSettingsWindow::RenderAudioBankStatus()
 	{
+		if (AudioEngine::GetBackend() == AudioBackend::Native)
+		{
+			ImGui::TextDisabled("This build uses the native audio backend: it plays Sound assets and builds no FMOD banks.");
+			return;
+		}
 		const std::filesystem::path studioProject = m_Project->GetStudioProjectPath();
 		if (studioProject.empty())
 		{

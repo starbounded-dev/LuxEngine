@@ -356,7 +356,7 @@ namespace Lux
 			auto event = AudioEventInstance::Create(text);
 			if (!event || (snapshot ? !event->SetSnapshotIntensity(0.0f) : event->IsSnapshot() || event->IsOneShot()))
 				return false;
-			target = { event->GetReference(), {}, {} };
+			target = AudioEventRef::FromReference(event->GetReference());
 			return true;
 		}
 
@@ -538,7 +538,7 @@ namespace Lux
 			auto probe = AudioEventInstance::Create(reference);
 			if (!probe)
 				return;
-			source->Event = {probe->GetReference(), {}, {}};
+			source->Event = AudioEventRef::FromReference(probe->GetReference());
 			AudioScene()->GetAudioSourcePlayback(id);
 		}
 

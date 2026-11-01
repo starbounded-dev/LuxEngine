@@ -31,24 +31,25 @@ namespace Lux {
 		Duplicate = BIT(12),
 		StartRenaming = BIT(13),
 		Activated = BIT(14),
-		CreateVariant = BIT(15)
+		CreateVariant = BIT(15),
+		CreateSound = BIT(16)
 	};
 
 	struct CBItemActionResult
 	{
-		uint16_t Field = 0;
+		uint32_t Field = 0;
 
 		void Set(ContentBrowserAction flag, bool value)
 		{
 			if (value)
-				Field |= static_cast<uint16_t>(flag);
+				Field |= static_cast<uint32_t>(flag);
 			else
-				Field &= ~static_cast<uint16_t>(flag);
+				Field &= ~static_cast<uint32_t>(flag);
 		}
 
 		bool IsSet(ContentBrowserAction flag) const
 		{
-			return (Field & static_cast<uint16_t>(flag)) != 0;
+			return (Field & static_cast<uint32_t>(flag)) != 0;
 		}
 	};
 

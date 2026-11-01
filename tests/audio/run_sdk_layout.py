@@ -63,6 +63,8 @@ def main():
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
         probe = work / "probe.lua"
         probe.write_text('newoption { trigger = "raytraced-audio", description = "Build Asterwave" }\n'
+                         'newoption { trigger = "audio-backend", value = "BACKEND", description = "Audio backend",\n'
+                         'allowed = { { "fmod", "FMOD" }, { "native", "miniaudio" } } }\n'
                          'include "Dependencies.lua"\n'
                          'newaction { trigger = "check-audio-sdk", description = "Validate audio sources",\n'
                          'execute = function() ValidateAudioSDK(); print("SDK_LAYOUT_OK"); end }\n', encoding="utf-8")
@@ -128,7 +130,16 @@ def main():
             check(arguments=[argument for argument in command if argument != "--raytraced-audio"])
             check(source / manifest["sources"][0])
             hidden.rename(source)
-            print(f"PASS: {platform}: FMOD and Asterwave files, spaced paths, exact pin, dirty/untracked refusal, opt-in")
+
+            # The native audio backend needs no FMOD SDK at all; the default backend still does.
+            hidden_sdk = work / "FMOD SDK hidden"
+            fmod.rename(hidden_sdk)
+            native = command[:-1] + ["--audio-backend=native", command[-1]]
+            check(arguments=native)
+            check(arguments=[argument for argument in native if argument != "--raytraced-audio"])
+            check(fmod / "api/core/inc/fmod.hpp")
+            hidden_sdk.rename(fmod)
+            print(f"PASS: {platform}: FMOD and Asterwave files, spaced paths, exact pin, dirty/untracked refusal, opt-in, native without FMOD")
 
         expect_python_error(lambda: FetchAsterwave.fetch(ROOT, manifest), "Refusing to replace")
         expect_python_error(lambda: FetchAsterwave.fetch(ROOT / "Core/PrivateSourceNotIgnored", manifest), "gitignored")

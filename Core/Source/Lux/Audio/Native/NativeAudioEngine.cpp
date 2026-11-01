@@ -1,0 +1,348 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+#include "lpch.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioAccessibility.h"
+#include "Lux/Audio/AudioListener.h"
+#include "Lux/Audio/AudioPerformance.h"
+#include "NativeInternal.h"
+#include "Miniaudio.h"
+
+#include <algorithm>
+#include <cmath>
+#include <unordered_set>
+
+namespace Lux {
+
+	static_assert(MA_ENGINE_MAX_LISTENERS == AudioListener::MaxListeners, "one miniaudio listener per engine slot");
+
+	namespace {
+
+		ma_resource_manager s_ResourceManager;
+		ma_engine s_Engine;
+		bool s_EngineReady = false;
+		NativeInternal::ListenerSet s_Listeners;
+
+		// The endpoint volume combines the master bus controls with the focus mute, so neither
+		// overrides the other.
+		float s_MasterVolume = 1.0f;
+		bool s_MasterMuted = false;
+		bool s_FocusMuted = false;
+		std::unordered_set<std::string> s_ReportedBuses;
+		bool s_ReportedBanks = false;
+
+		const std::vector<AudioBankInfo> s_NoBanks;
+		const std::vector<AudioEventInfo> s_NoEvents;
+
+		void ApplyEndpointVolume()
+		{
+			if (!s_EngineReady)
+				return;
+			const ma_result result = ma_engine_set_volume(&s_Engine, s_MasterMuted || s_FocusMuted ? 0.0f : s_MasterVolume);
+			if (result != MA_SUCCESS)
+				LUX_CORE_ERROR_TAG("Audio", "Cannot set the master output volume: {}", ma_result_description(result));
+		}
+
+		// Phase 2 mixes everything through the master bus; authored buses arrive with the native mixer.
+		bool IsMasterBus(const std::string& path)
+		{
+			if (path == "bus:/")
+				return true;
+			if (s_ReportedBuses.insert(path).second)
+				LUX_CORE_WARN_TAG("Audio", "Bus '{}' does not exist: the native backend mixes every sound through bus:/ until it has a mixer", path);
+			return false;
+		}
+
+		void ReportBanks()
+		{
+			if (!s_ReportedBanks)
+			{
+				s_ReportedBanks = true;
+				LUX_CORE_WARN_TAG("Audio", "FMOD banks are not used by the native audio backend; assign Sound assets instead");
+			}
+		}
+
+		bool Finite(const glm::vec3& value)
+		{
+			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+		}
+	}
+
+	ma_engine* NativeInternal::GetEngine()
+	{
+		return s_EngineReady ? &s_Engine : nullptr;
+	}
+
+	const NativeInternal::ListenerSet& NativeInternal::GetListeners()
+	{
+		return s_Listeners;
+	}
+
+	void AudioEngine::Init()
+	{
+		LUX_PROFILE_FUNCTION("AudioEngine::Init");
+
+		if (s_HasInitializedAudioEngine)
+			return;
+
+		s_ShuttingDown = false;
+		const auto config = NativeInternal::GetEngineConfig();
+		if (!AudioPerformance::Configure(config.Performance))
+			return;
+
+		// No job threads: clips decode synchronously on the calling (main) thread when an instance is
+		// created, and instances of one clip share the decoded data. Streaming comes with a stream
+		// option and its own thread.
+		ma_resource_manager_config resources = ma_resource_manager_config_init();
+		resources.jobThreadCount = 0;
+		ma_result result = ma_resource_manager_init(&resources, &s_ResourceManager);
+		if (result != MA_SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Failed to initialize the native audio resource manager: {}", ma_result_description(result));
+			return;
+		}
+
+		ma_engine_config engine = ma_engine_config_init();
+		engine.pResourceManager = &s_ResourceManager;
+		engine.listenerCount = AudioListener::MaxListeners;
+		engine.noDevice = config.NoDevice ? MA_TRUE : MA_FALSE;
+		engine.channels = config.Channels;
+		engine.sampleRate = config.SampleRate;
+		result = ma_engine_init(&engine, &s_Engine);
+		if (result != MA_SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Failed to initialize the native audio engine: {}", ma_result_description(result));
+			ma_resource_manager_uninit(&s_ResourceManager);
+			return;
+		}
+
+		s_EngineReady = true;
+		s_HasInitializedAudioEngine = true;
+		s_MasterVolume = 1.0f;
+		s_MasterMuted = s_FocusMuted = false;
+		s_ReportedBuses.clear();
+		s_ReportedBanks = false;
+		s_Listeners = {};
+		for (uint32_t index = 0; index < AudioListener::MaxListeners; ++index)
+			ma_engine_listener_set_enabled(&s_Engine, index, index == 0 ? MA_TRUE : MA_FALSE);
+		ApplyEndpointVolume();
+
+		// Logged on success too: "did audio come up, and with what" is the first question when a
+		// project is silent.
+		LUX_CORE_INFO_TAG("Audio", "Native audio (miniaudio {}) initialized ({} Hz, {} channels{})", MA_VERSION_STRING,
+			ma_engine_get_sample_rate(&s_Engine), ma_engine_get_channels(&s_Engine), config.NoDevice ? ", no device" : "");
+	}
+
+	void AudioEngine::Shutdown()
+	{
+		LUX_PROFILE_FUNCTION("AudioEngine::Shutdown");
+
+		s_ShuttingDown = true;
+		s_HasInitializedAudioEngine = false;
+		AudioPerformance::Reset();
+		AudioAccessibility::ReleaseMixer();
+		// Advance before freeing, so a wrapper someone still holds can never reach a freed voice.
+		++s_EventGeneration;
+		++s_BankRevision;
+		NativeInternal::ReleaseVoices();
+		if (s_EngineReady)
+		{
+			ma_engine_uninit(&s_Engine);
+			ma_resource_manager_uninit(&s_ResourceManager);
+			s_EngineReady = false;
+		}
+	}
+
+	AudioEngineStats AudioEngine::GetStats()
+	{
+		AudioEngineStats stats;
+		stats.BackendName = "miniaudio";
+		stats.Initialized = s_HasInitializedAudioEngine;
+		if (!s_HasInitializedAudioEngine)
+			return stats;
+		stats.VersionMajor = MA_VERSION_MAJOR;
+		stats.VersionMinor = MA_VERSION_MINOR;
+		stats.VersionPatch = MA_VERSION_REVISION;
+		stats.SampleRate = static_cast<int>(ma_engine_get_sample_rate(&s_Engine));
+		// Mixer CPU and memory are not measured yet, so report them as unavailable rather than zero.
+		stats.HasMixerStats = false;
+		stats.PlayingEventInstances = NativeInternal::CountPlayingVoices();
+		return stats;
+	}
+
+	void AudioEngine::Update()
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		if (!s_HasInitializedAudioEngine)
+			return;
+		NativeInternal::PollVoices();
+		AudioPerformance::Update();
+	}
+
+	void AudioEngine::SetApplicationFocused(bool focused)
+	{
+		const bool muted = !focused && AudioPerformance::GetSettings().MuteWhenUnfocused;
+		if (muted == s_FocusMuted)
+			return;
+		s_FocusMuted = muted;
+		ApplyEndpointVolume();
+	}
+
+	bool AudioEngine::LoadBank(const std::filesystem::path&)
+	{
+		ReportBanks();
+		return false;
+	}
+
+	bool AudioEngine::LoadBanks(const std::filesystem::path&)
+	{
+		ReportBanks();
+		return false;
+	}
+
+	bool AudioEngine::LoadRuntimeBanks(const std::filesystem::path&, const AudioBankManifest& manifest)
+	{
+		if (!manifest.Validate())
+			return false;
+		if (!HasInitializedEngine())
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot start runtime audio: native audio initialization failed");
+			return false;
+		}
+		// An FMOD export's banks are skipped, not fatal: the game runs, and its Sound assets play.
+		if (!manifest.Banks.empty())
+			ReportBanks();
+		return true;
+	}
+
+	void AudioEngine::UnloadAllBanks()
+	{
+		// No banks to unload; keep the reset side effects callers rely on, and retry failed lookups.
+		AudioPerformance::Reset();
+		AudioAccessibility::ReleaseMixer();
+		++s_BankRevision;
+	}
+
+	const std::vector<AudioBankInfo>& AudioEngine::GetLoadedBanks()
+	{
+		return s_NoBanks;
+	}
+
+	const std::vector<AudioEventInfo>& AudioEngine::GetEvents()
+	{
+		return s_NoEvents;
+	}
+
+	bool AudioEngine::SetBusMuted(const std::string& path, bool muted)
+	{
+		if (!IsMasterBus(path))
+			return false;
+		s_MasterMuted = muted;
+		ApplyEndpointVolume();
+		return true;
+	}
+
+	bool AudioEngine::SetVCAVolume(const std::string& path, float)
+	{
+		if (s_ReportedBuses.insert(path).second)
+			LUX_CORE_WARN_TAG("Audio", "VCA '{}' does not exist: the native backend has no VCAs until it has a mixer", path);
+		return false;
+	}
+
+	bool AudioEngine::SetGlobalParameter(const std::string& name, float)
+	{
+		if (s_ReportedBuses.insert("parameter:" + name).second)
+			LUX_CORE_WARN_TAG("Audio", "Global parameter '{}' does not exist: Sounds have no parameters yet", name);
+		return false;
+	}
+
+	float AudioEngine::GetGlobalParameter(const std::string& name)
+	{
+		if (s_ReportedBuses.insert("parameter:" + name).second)
+			LUX_CORE_WARN_TAG("Audio", "Global parameter '{}' does not exist: Sounds have no parameters yet", name);
+		return 0.0f;
+	}
+
+	bool AudioEngine::SetBusVolume(const std::string& busPath, float volume)
+	{
+		if (!std::isfinite(volume))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Bus volume must be finite");
+			return false;
+		}
+		if (!IsMasterBus(busPath))
+			return false;
+		s_MasterVolume = std::max(volume, 0.0f);
+		ApplyEndpointVolume();
+		return true;
+	}
+
+	float AudioEngine::GetBusVolume(const std::string& busPath)
+	{
+		return busPath == "bus:/" ? s_MasterVolume : 0.0f;
+	}
+
+	bool AudioEngine::GetEventParameter(const std::string&, const std::string&, AudioEventParameterInfo&)
+	{
+		return false; // Sounds have no parameters yet.
+	}
+
+	bool AudioEngine::GetEventParameterLabel(const std::string&, const std::string&, int, std::string&, std::string& outError)
+	{
+		outError = "Sounds have no parameters yet";
+		return false;
+	}
+
+	void AudioListener::Apply(const States& listeners)
+	{
+		LUX_PROFILE_FUNCTION("AudioListener::Apply");
+		if (!s_EngineReady)
+			return;
+
+		const auto isActive = [](const AudioListenerState& state)
+		{
+			return std::isfinite(state.Weight) && state.Weight > 0.0f && Finite(state.Position) && Finite(state.Forward)
+				&& Finite(state.Up) && Finite(state.Velocity) && (!state.UseAttenuationPosition || Finite(state.AttenuationPosition));
+		};
+		float totalWeight = 0.0f;
+		for (const auto& listener : listeners)
+		{
+			if (isActive(listener))
+				totalWeight += std::clamp(listener.Weight, 0.0f, 1.0f);
+		}
+
+		s_Listeners.Count = 0;
+		for (uint32_t index = 0; index < MaxListeners; ++index)
+		{
+			const auto& state = listeners[index];
+			const bool active = isActive(state);
+			ma_engine_listener_set_enabled(&s_Engine, index, active ? MA_TRUE : MA_FALSE);
+			if (!active)
+				continue;
+			ma_engine_listener_set_position(&s_Engine, index, state.Position.x, state.Position.y, state.Position.z);
+			ma_engine_listener_set_direction(&s_Engine, index, state.Forward.x, state.Forward.y, state.Forward.z);
+			ma_engine_listener_set_world_up(&s_Engine, index, state.Up.x, state.Up.y, state.Up.z);
+			ma_engine_listener_set_velocity(&s_Engine, index, state.Velocity.x, state.Velocity.y, state.Velocity.z);
+			auto& listener = s_Listeners.Listeners[s_Listeners.Count++];
+			listener.Index = index;
+			// Normalized like the FMOD bridge, so weights sum to 1 and a lone listener counts in full.
+			listener.Weight = std::clamp(state.Weight, 0.0f, 1.0f) / totalWeight;
+			listener.AttenuationPoint = state.UseAttenuationPosition ? state.AttenuationPosition : state.Position;
+		}
+
+		// No active listener: a neutral listener at the origin, so a deleted camera cannot leave a
+		// stale position behind.
+		if (s_Listeners.Count == 0)
+		{
+			ma_engine_listener_set_enabled(&s_Engine, 0, MA_TRUE);
+			ma_engine_listener_set_position(&s_Engine, 0, 0.0f, 0.0f, 0.0f);
+			ma_engine_listener_set_direction(&s_Engine, 0, 0.0f, 0.0f, -1.0f);
+			ma_engine_listener_set_world_up(&s_Engine, 0, 0.0f, 1.0f, 0.0f);
+			ma_engine_listener_set_velocity(&s_Engine, 0, 0.0f, 0.0f, 0.0f);
+			s_Listeners.Listeners[0] = {};
+			s_Listeners.Count = 1;
+		}
+		NativeInternal::RefreshVoices();
+	}
+}

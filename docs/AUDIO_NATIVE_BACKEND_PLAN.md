@@ -366,6 +366,65 @@ Do not reuse the legacy `SoundConfig` (`.lsoundc`) type.
 
 **Rollback:** the toggle defaults to `fmod`; revert the native folder.
 
+**Status (2026-11-01): done in code; editor build, listening checks and C# still to run.**
+
+- **Build switch:**
+  - `--audio-backend=fmod|native`, default `fmod`; checklist key `native-audio`.
+  - Native skips FMOD discovery, validation, links and deployed libraries, and adds the miniaudio
+    include directory. `Core/premake5.lua` compiles exactly one backend folder.
+  - CI adds `build-native-windows` and `build-native-linux` (Debug, no secrets; they fail if any FMOD
+    library is deployed or linked).
+- **Native backend (`Audio/Native/`):** every function the FMOD folder defines, with the private
+  `NativeInternal.h` and `Miniaudio.h`. `Miniaudio.h` sets `MA_ENGINE_MAX_LISTENERS` to 8, so all
+  units must include miniaudio through it.
+- **Sound asset:** the full playbook. Content Browser **New → Sound** and **Create Sound** on an audio
+  file (native builds), the Sound Configuration icon, and C# `Lux.Sound` fields with
+  `Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`.
+- **References:** `AudioEventRef` gains `Sound`, and each backend defines `IsValid` / `GetReference` /
+  `FromReference`. `AudioEventRefSerializer` is used by scenes and both tables. `Sound` is written
+  only when set, so FMOD-only files do not change.
+- **Changed from the plan:**
+  - **No streaming thread yet.** A clip is decoded on the main thread when an instance is created,
+    and instances share it. The `AudioStreaming` thread comes with Phase 3's stream option, which
+    needs it.
+  - **End of playback is polled, not called back.** `AudioEngine::Update` reads miniaudio's atomic end
+    flag, so the audio thread writes no mailbox and takes no lock.
+  - **Listener weights:** distance gain is the weighted average over normalized listener weights.
+    That is what FMOD's "closest listeners up to 100%" gives once the bridge normalizes, as it does.
+    miniaudio pans toward the listener contributing most.
+  - **Occlusion:** gain plus a one-pole low-pass at `max(125 Hz, 20 kHz × gain)`. `ReverbSend` is
+    stored for Phase 4's reverb return.
+  - **Pickers:** the surface, music and dialogue pickers list Sounds on native, as planned. What those
+    features need from a Sound (parameters, timelines, programmer sounds) fails with a one-time
+    message until its phase. Zone pickers stay FMOD-only until Phase 4.
+  - **Export:** runtime export is blocked on native until Phase 8. The editor skips the FMOD bank
+    pipeline.
+- **Found by the tests:**
+  - miniaudio's attenuation model `none` also switches off panning. Voices use its inverse model with
+    equal minimum and maximum distance, which returns exactly 1.
+  - miniaudio's pan law plays a sound straight ahead at half the near-side level per channel, by
+    upstream design. A test pins it; judge it in the listening check.
+- **Checked here:**
+  - `tests/audio/native` passes under GCC and Clang, Release and Debug ASan/UBSan, and 20 repeated
+    runs. The new `lux_native_backend_tests` runs 11 groups of checks through the engine API (see
+    its README).
+  - Every Core and Editor source compiled with `clang++` in both configurations: 201 FMOD and 211
+    native files. The other 21 stop on SDK headers this container lacks (Vulkan, shaderc, implot,
+    X11), in both configurations.
+  - A symbol check found every audio-class symbol referenced in either configuration defined there.
+    The native objects reference no FMOD symbol, and the check fails as expected when one definition
+    is removed.
+  - The FMOD suite's test programs compile, and their Lux symbols resolve against `run.py`'s objects.
+    The generated music serialization test runs and passes.
+  - `tests/audio/acoustics` passes with and without Asterwave.
+- **Not verified here:**
+  - premake generation and `run_sdk_layout.py` (the container may not run a downloaded premake);
+  - the Windows/Linux engine builds in either configuration;
+  - `tests/audio/run.py` (needs the FMOD SDK);
+  - the C# changes (no .NET SDK);
+  - the editor checks above: the sample clip playing, panning and muffled behind a wall, and a scene
+    reopening in the other build.
+
 ### Phase 3 — Sound authoring breadth and the Sound editor
 
 **Goal:** Sounds can express what the sample, surfaces and ambience need, and are authored and

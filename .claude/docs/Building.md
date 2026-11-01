@@ -121,7 +121,7 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
 | `--raytraced-audio` | Opt-in Asterwave ray-traced acoustics. Adds the `Asterwave` static-library project, links it into Editor and Lux-Runtime, defines `LUX_ENABLE_RAYTRACED_AUDIO` for Core, and makes generation validate the pinned private checkout. Without it, `RaytracedAudioSceneStub.cpp` replaces the adapter and no Asterwave source is needed. Every game exported from a build with it contains Asterwave, so leave it off for builds you ship. |
-| Audio dependencies (required) | FMOD Core + Studio SDK is always linked; `--fmod` remains accepted for command compatibility. |
+| `--audio-backend=fmod\|native` | Selects the audio backend (default `fmod`; checklist key `native-audio`, flag `audio-backend=native`). `fmod` links FMOD Core + Studio, validates the SDK, defines `LUX_ENABLE_FMOD` for Core and compiles `Audio/FMOD/`. `native` compiles `Audio/Native/` and the vendored miniaudio instead (its one implementation unit, `Audio/Native/MiniaudioImplementation.c`, is `NoPCH`), needs no FMOD SDK, and deploys no audio libraries. Exactly one backend folder is compiled (`Core/premake5.lua` `removefiles`). The native backend is experimental until it reaches parity (`docs/AUDIO_NATIVE_BACKEND_PLAN.md`); runtime export is blocked on it for now. `--fmod` remains accepted for command compatibility and changes nothing. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
 `skip-vulkan-check`, `skip-scripts`.
@@ -263,6 +263,15 @@ configuration and Editor and Lux-Runtime link it statically. There is no acousti
 and no .NET delegation. Keep Asterwave's private source and unchanged upstream licence/provenance
 records out of the public engine tree; its source availability does not make it permissively licensed.
 
+### Switching `--audio-backend`, or "unresolved external" for an `AudioEngine` / `AudioEventInstance` function
+
+The backend is chosen at generation time. After changing it, regenerate with the same option on
+*every* generation (like the other premake flags), then rebuild Core: a project generated for one
+backend compiles that backend's folder only. A native build that cannot find `miniaudio.h` was
+generated without `--audio-backend=native`. Native code includes miniaudio only through
+`Audio/Native/Miniaudio.h`, never `<miniaudio.h>` directly: the wrapper sets
+`MA_ENGINE_MAX_LISTENERS`, which changes miniaudio's struct sizes.
+
 ### FMOD build fails with `fmod.hpp: No such file or directory`
 
 Extract the native FMOD Engine SDK beneath `Core/vendor/FMOD/`, or set `LUX_FMOD_SDK` to its
@@ -359,7 +368,12 @@ establish support for untested older distributions.
 
 Before building, every job runs the renderer-free harnesses: `tests/audio/acoustics` (stub backend,
 engine material defaults and engine occlusion, plus the Asterwave adapter where its source was checked
-out) and `tests/audio/native` (the vendored miniaudio's offline decode/render checks).
+out) and `tests/audio/native` (the vendored miniaudio's offline decode/render checks, and the engine's
+native backend driven through `AudioEngine`/`AudioEventInstance`).
+
+`build-native-windows` and `build-native-linux` build Debug with `--audio-backend=native` (Windows
+passes `native-audio` to `Setup.py`). They read no secrets, so they also run for fork pull requests,
+and the verify step fails if an FMOD library is deployed or linked.
 
 **Audio inputs come from private repositories.** FMOD is staged into `.audio-sdk/` from
 `AUDIO_SDK_REPOSITORY` using the read-only `AUDIO_SDK_TOKEN` secret. `LUX_FMOD_SDK` selects

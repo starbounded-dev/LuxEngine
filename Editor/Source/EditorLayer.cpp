@@ -4233,6 +4233,12 @@ namespace Lux {
 
 	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
 	{
+		// Asset packs do not carry Sound audio yet, and export would deploy FMOD's libraries.
+		if (AudioEngine::GetBackend() == AudioBackend::Native)
+		{
+			m_RuntimeExportError = "Export blocked: runtime export is not supported on the native audio backend yet. Export from an FMOD build (the default premake --audio-backend=fmod).";
+			return false;
+		}
 		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
 		{
 			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
@@ -5576,7 +5582,8 @@ namespace Lux {
 	void EditorLayer::RebuildAudioBanksIfNeeded()
 	{
 		Ref<Project> project = Project::GetActive();
-		if (!project)
+		// Banks are FMOD Studio output; the native backend plays Sound assets.
+		if (!project || AudioEngine::GetBackend() == AudioBackend::Native)
 			return;
 
 		const std::filesystem::path studioProject = project->GetStudioProjectPath();
@@ -5605,7 +5612,7 @@ namespace Lux {
 	void EditorLayer::LoadAudioBanksForActiveProject()
 	{
 		Ref<Project> project = Project::GetActive();
-		if (!project)
+		if (!project || AudioEngine::GetBackend() == AudioBackend::Native)
 			return;
 
 		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();

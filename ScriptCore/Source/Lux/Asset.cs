@@ -55,4 +55,13 @@ namespace Lux
 		public Scene() { }
 		internal Scene(ulong handle) : base(handle) { }
 	}
+
+	/// <summary>A Sound asset (.lsound), played by the native audio backend. Pass it to
+	/// <see cref="Audio.PlayOneShot(Sound)"/> or <see cref="Audio.CreateInstance(Sound)"/>.</summary>
+	[EditorAssignable]
+	public class Sound : AssetRef
+	{
+		public Sound() { }
+		internal Sound(ulong handle) : base(handle) { }
+	}
 }

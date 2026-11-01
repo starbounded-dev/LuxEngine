@@ -42,7 +42,10 @@ namespace Lux {
 		AudioProject,
 		AudioBank,
 		AudioSurfaceTable,
-		DialogueTable
+		DialogueTable,
+		// An editor-authored sound (.lsound) for the native audio backend. Appended, like every type,
+		// so existing numeric values are unchanged.
+		Sound
 	};
 
 	namespace Utils {
@@ -74,6 +77,7 @@ namespace Lux {
 			if (assetType == "DialogueTable")       return AssetType::DialogueTable;
 			if (assetType == "AudioSurfaceTable")   return AssetType::AudioSurfaceTable;
 			if (assetType == "AudioBank")           return AssetType::AudioBank;
+			if (assetType == "Sound")               return AssetType::Sound;
 
 			return AssetType::None;
 		}
@@ -106,6 +110,7 @@ namespace Lux {
 			case AssetType::DialogueTable:      return "DialogueTable";
 			case AssetType::AudioSurfaceTable: return "AudioSurfaceTable";
 			case AssetType::AudioBank:           return "AudioBank";
+			case AssetType::Sound:               return "Sound";
 			}
 
 			LUX_CORE_ASSERT(false, "Unknown Asset Type");

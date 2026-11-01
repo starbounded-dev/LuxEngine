@@ -63,8 +63,8 @@ profiles, YAML round trips, effective runtime budgets, explicit Studio target ar
 and real FMOD output mute without changing authored bus mute or scripted event pause.
 
 Run `python3 tests/audio/run_sdk_layout.py` to exercise Premake's Windows/Linux SDK overrides,
-paths with spaces, each missing FMOD header/link/runtime file, and the Asterwave source
-layout/revision. It uses disposable fixtures to validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.
+paths with spaces, each missing FMOD header/link/runtime file, the Asterwave source
+layout/revision, and that `--audio-backend=native` generates with no FMOD SDK present. It uses disposable fixtures to validate discovery rules, not a Windows compilation or hardware test. Console checks are on hold.
 
 ## Acoustics checks without FMOD
 
@@ -80,8 +80,8 @@ cmake --build bin/acoustics-tests --config Debug
 ctest --test-dir bin/acoustics-tests -C Debug --output-on-failure
 ```
 
-`tests/audio/native` holds the Phase 0 miniaudio checks for the planned native backend; see its
-README.
+`tests/audio/native` holds the miniaudio checks and the engine's native backend tests
+(`--audio-backend=native`); see its README. They need no FMOD SDK.
 
 These commands describe the verification path; a passing run establishes only the exercised
 adapter/geometry contracts, not listening quality or full editor/runtime behavior. The complete

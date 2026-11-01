@@ -7,6 +7,7 @@
 #include "SceneHierarchyPanel.h"
 
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/Sound.h"
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
@@ -1321,6 +1322,39 @@ namespace Lux {
 
 	void SceneHierarchyPanel::DrawAudioEventPicker(AudioSourceComponent& component, const std::vector<UUID>& selectedEntities)
 	{
+		// The native backend plays Sound assets. The FMOD event stays on the component for the FMOD
+		// build, shown for reference; each build's picker edits only its own field.
+		if (AudioEngine::GetBackend() == AudioBackend::Native)
+		{
+			AssetHandle sound = component.Event.Sound;
+			const bool mixed = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+			{
+				return AssetHandle(entity.GetComponent<AudioSourceComponent>().Event.Sound);
+			});
+			ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixed);
+			if (ImGuiEx::PropertyAssetReference<Sound>("Sound", sound, "The Sound asset this source plays. Create one from an audio file in the Content Browser."))
+			{
+				component.Event.Sound = sound;
+				ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [sound](AudioSourceComponent& audioComponent, Entity)
+				{
+					audioComponent.Event.Sound = sound;
+				});
+			}
+			ImGui::PopItemFlag();
+			if (!component.Event.Guid.empty())
+			{
+				ImGuiEx::ShiftCursor(10.0f, 9.0f);
+				ImGui::TextUnformatted("FMOD Event");
+				ImGui::NextColumn();
+				ImGuiEx::ShiftCursorY(4.0f);
+				ImGui::TextDisabled("%s", component.Event.Path.empty() ? component.Event.Guid.c_str() : component.Event.Path.c_str());
+				ImGuiEx::SetTooltip("Kept for the FMOD build. This build plays the Sound above.");
+				ImGui::NextColumn();
+				ImGuiEx::Draw::Underline();
+			}
+			return;
+		}
+
 		const std::vector<AudioEventInfo>& events = AudioEngine::GetEvents();
 
 		// Resolve the assignment against what is actually loaded. A stored event whose GUID is not
@@ -1414,11 +1448,18 @@ namespace Lux {
 
 				ImGui::Separator();
 
+				// Clears only the FMOD event: a Sound assigned in the native build stays.
+				const auto assignEvent = [](AudioEventRef& target, const AudioEventRef& picked)
+				{
+					target.Guid = picked.Guid;
+					target.Path = picked.Path;
+					target.BankName = picked.BankName;
+				};
 				if (ImGui::Selectable("None", !component.Event.IsValid()))
 				{
-					component.Event = {};
+					assignEvent(component.Event, {});
 					ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities,
-						[](AudioSourceComponent& audioComponent, Entity) { audioComponent.Event = {}; });
+						[assignEvent](AudioSourceComponent& audioComponent, Entity) { assignEvent(audioComponent.Event, {}); });
 				}
 
 				int shown = 0;
@@ -1436,9 +1477,9 @@ namespace Lux {
 					if (ImGui::Selectable(info.Path.c_str(), info.Guid == assignedGuid))
 					{
 						AudioEventRef picked{ info.Guid, info.Path, info.BankName };
-						component.Event = picked;
+						assignEvent(component.Event, picked);
 						ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities,
-							[picked](AudioSourceComponent& audioComponent, Entity) { audioComponent.Event = picked; });
+							[assignEvent, picked](AudioSourceComponent& audioComponent, Entity) { assignEvent(audioComponent.Event, picked); });
 					}
 
 					if (ImGui::IsItemHovered())
@@ -3267,9 +3308,11 @@ namespace Lux {
 
 				DrawAudioParameterOverrides(component);
 
+				const bool nativeAudio = AudioEngine::GetBackend() == AudioBackend::Native;
 				if (component.LegacyAudio && !component.Event.IsValid())
-					ImGui::TextWrapped("Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Author an FMOD Studio event and assign it above.", static_cast<unsigned long long>(component.LegacyAudio));
-				ImGui::TextDisabled("Looping and spatialization are authored in FMOD Studio.");
+					ImGui::TextWrapped(nativeAudio ? "Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Create a Sound from it and assign it above."
+						: "Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Author an FMOD Studio event and assign it above.", static_cast<unsigned long long>(component.LegacyAudio));
+				ImGui::TextDisabled(nativeAudio ? "Looping and spatialization are set on the Sound." : "Looping and spatialization are authored in FMOD Studio.");
 
 				if (isMultiEdit)
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
@@ -3282,7 +3325,7 @@ namespace Lux {
 				auto reference = first.Event;
 				const bool mixedEvent = IsSelectionInconsistent<std::string>(m_Context, selected, [](Entity entity)
 				{
-					return entity.GetComponent<MusicDirectorComponent>().Event.Guid;
+					return entity.GetComponent<MusicDirectorComponent>().Event.GetReference();
 				});
 				if (ImGuiEx::SurfaceEventPicker("Music Event", reference, false, mixedEvent, true))
 					ApplyToSelection<MusicDirectorComponent>(m_Context, selected, [&reference](MusicDirectorComponent& component, Entity)
@@ -3435,11 +3478,15 @@ namespace Lux {
 					const char* preview = mixed ? "Multiple values" : reference.Guid.empty() ? "None" : reference.Path.empty() ? reference.Guid.c_str() : reference.Path.c_str();
 					if (ImGui::BeginCombo(label, preview))
 					{
+						// FMOD events only; a Sound assigned in the native build stays.
 						auto assign = [&](const AudioEventRef& value)
 						{
 							ApplyToSelection<AudioZoneComponent>(m_Context, selected, [member, &value](AudioZoneComponent& component, Entity)
 							{
-								component.*member = value;
+								auto& target = component.*member;
+								target.Guid = value.Guid;
+								target.Path = value.Path;
+								target.BankName = value.BankName;
 							});
 						};
 						if (ImGui::Selectable("None", reference.Guid.empty()))
@@ -3528,7 +3575,7 @@ namespace Lux {
 					auto reference = firstComponent.*member;
 					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selectedEntities, [member](Entity entity)
 					{
-						return (entity.GetComponent<AudioSurfaceComponent>().*member).Guid;
+						return (entity.GetComponent<AudioSurfaceComponent>().*member).GetReference();
 					});
 					if (ImGuiEx::SurfaceEventPicker(label, reference, true, mixed))
 						ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [member, &reference](AudioSurfaceComponent& component, Entity)

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Coral.Managed.Interop;
 
 namespace Lux
@@ -64,6 +65,24 @@ namespace Lux
 			Finite(position.X); Finite(position.Y); Finite(position.Z);
 			using NativeString reference = String(eventRef);
 			InternalCalls.Audio_CreateInstance(reference, true, &position);
+		}
+
+		/// <summary>Plays a Sound asset once (native audio backend). It must not loop.</summary>
+		public static void PlayOneShot(Sound sound) => PlayOneShot(SoundReference(sound));
+
+		/// <summary>Plays a Sound asset once at a world position (native audio backend). It must not loop.</summary>
+		public static void PlayOneShot(Sound sound, Vector3 position) => PlayOneShot(SoundReference(sound), position);
+
+		/// <summary>Creates an explicitly owned instance of a Sound asset (native audio backend).</summary>
+		public static EventInstance CreateInstance(Sound sound) => CreateInstance(SoundReference(sound));
+
+		// The native backend resolves a Sound by its handle in decimal, the same string scenes store.
+		internal static string SoundReference(Sound sound)
+		{
+			ArgumentNullException.ThrowIfNull(sound);
+			if (sound.Handle == 0)
+				throw new ArgumentException("No Sound asset is assigned.", nameof(sound));
+			return sound.Handle.ToString(CultureInfo.InvariantCulture);
 		}
 
 		public static EventInstance CreateInstance(string eventRef)

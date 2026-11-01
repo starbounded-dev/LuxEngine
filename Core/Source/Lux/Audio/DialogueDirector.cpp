@@ -88,7 +88,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Dialogue '{}' has an unavailable speaker or default translation", key);
 			return voice;
 		}
-		auto instance = AudioEventInstance::Create(line->second.Event.Guid);
+		auto instance = AudioEventInstance::Create(line->second.Event.GetReference());
 		if (!instance)
 			return voice;
 		if (instance->IsSnapshot() || !instance->IsOneShot())

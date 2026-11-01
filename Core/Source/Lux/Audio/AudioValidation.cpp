@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AudioValidation.h"
+#include "AudioEngine.h"
 #include "AudioSurfaceTable.h"
 #include "DialogueTable.h"
 #include "Lux/Scene/Scene.h"
@@ -55,8 +56,12 @@ namespace Lux
 				if (const auto* source = entity.TryGetComponent<AudioSourceComponent>())
 				{
 					if (!source->Event.IsValid())
-						Issue(collected, source->LegacyAudio != 0, location, source->LegacyAudio ?
-							"Legacy audio source cannot play; assign an FMOD event" : "Audio source has no FMOD event assigned");
+					{
+						const bool native = AudioEngine::GetBackend() == AudioBackend::Native;
+						Issue(collected, source->LegacyAudio != 0, location, source->LegacyAudio
+							? (native ? "Legacy audio source cannot play; assign a Sound" : "Legacy audio source cannot play; assign an FMOD event")
+							: (native ? "Audio source has no Sound assigned" : "Audio source has no FMOD event assigned"));
+					}
 					add(source->Event, location, AudioReferenceKind::Event, true);
 					if (source->Priority < 0 || source->Priority > 256)
 						Issue(collected, true, location, "Audio priority must be between 0 and 256");

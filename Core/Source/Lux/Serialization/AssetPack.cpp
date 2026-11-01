@@ -56,6 +56,7 @@ namespace Lux
 				case AssetType::Audio:
 				case AssetType::DialogueTable:
 				case AssetType::AudioSurfaceTable:
+				case AssetType::Sound:
 					return true;
 				default:
 					return false;

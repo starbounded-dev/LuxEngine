@@ -101,7 +101,7 @@ graph TB
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
 | Scripting | `Core/Source/Lux/Scripting/` | `ScriptEngine.h`, `ScriptGlue.h`, `ScriptBuilder.h` |
 | Assets | `Core/Source/Lux/Asset/` | `AssetManager.h`, `Asset.h`, `AssetTypes.h` |
-| Audio | `Core/Source/Lux/Audio/` (+ `FMOD/` backend) | `AudioEngine.h`, `AudioEventInstance.h`, `RaytracedAudioScene.h` |
+| Audio | `Core/Source/Lux/Audio/` (+ one backend: `FMOD/` or `Native/`) | `AudioEngine.h`, `AudioEventInstance.h`, `AudioEventRef.h`, `Sound.h`, `RaytracedAudioScene.h` |
 | Editor framework | `Core/Source/Lux/Editor/` | `EditorPanel.h`, `PanelManager.h`, `EditorCamera.h`, `SelectionManager.h` |
 | Editor app | `Editor/Source/` | `EditorLayer.h`, `Panels/` |
 | ImGui | `Core/Source/Lux/ImGui/` | `ImGuiEx.h`, `ImGuiUtilities.h`, `Colors.h` |
@@ -753,11 +753,13 @@ the managed handlers; `ShutdownInput` drops the type before assembly unload.
 
 ### 2.10 Audio
 
-**Native backend (planned, Phases 0–1 done):** `docs/AUDIO_NATIVE_BACKEND_PLAN.md` replaces FMOD with
-miniaudio and editor-authored Sound assets. Phase 0 vendored miniaudio 0.11.25 with stb_vorbis and its
-reverb node under `Core/vendor/miniaudio` (`README.lux.md` records the commit and licences). Only the
-offline harness `tests/audio/native` compiles it; no engine project links it yet. Until Phase 2 adds
-`--audio-backend`, everything below describes the FMOD path that ships.
+**Two backends, one interface.** Premake's `--audio-backend` compiles exactly one implementation of
+the audio headers: `fmod` (the default, `Audio/FMOD/`) or `native` (experimental, `Audio/Native/`,
+miniaudio 0.11.25 vendored under `Core/vendor/miniaudio`, `README.lux.md` records the commit and
+licences). `docs/AUDIO_NATIVE_BACKEND_PLAN.md` drives the native backend to parity, then deletes
+FMOD; Phases 0–2 are done. Editor code asks `AudioEngine::GetBackend()` (`AudioBackend::FMOD` /
+`Native`); the backend defines are Core-only. Unless a paragraph names the native backend, the rest
+of this section describes the FMOD path, which is what ships.
 
 **Backend boundary (Phase 1):** no header outside `Audio/FMOD/` names an FMOD type or includes an
 FMOD header. `Audio/FMOD/` holds the FMOD implementations of the neutral classes:
@@ -773,7 +775,74 @@ holds a `Scope<Impl>` defined in `FMODAudioEventInstance.cpp` (event pointer and
 `AudioEngine::GetEventParameter` (`AudioEventParameterInfo`: range, default, discrete/labeled; read-only,
 automatic and global parameters are rejected) and `GetEventParameterLabel`. The initialized check is
 `AudioEngine::HasInitializedEngine()`. Bank, bus-path and `event:/` concepts are still FMOD Studio's
-in the neutral API; Phase 2 adds the second implementation behind it.
+in the neutral API.
+
+**References for both backends (Phase 2).** `AudioEventRef` holds the FMOD `Guid` (with advisory
+`Path`/`BankName`) **and** `Sound`, a Sound asset handle, so a scene or table saved by either build
+keeps the other's assignment. Each backend defines what it plays: `IsValid()` (a GUID for FMOD, a
+Sound for native), `GetReference()` (the string `AudioEventInstance::Create` resolves: the GUID, or
+the Sound handle in decimal) and `FromReference()` (`FMOD/FMODAudioBackend.cpp`,
+`Native/NativeAudioBackend.cpp`, which also define `GetBackend`). `HasReference()` (either field) is
+for build-independent data checks such as `DialogueTable::Validate`; `SameAssignment()` compares
+fields so per-frame change checks (`AudioSourcePlayback`, `AudioZoneSystem`, `PhysicsAudioSystem`)
+allocate nothing. `AudioEventRefSerializer` is the one YAML form, used by `SceneSerializer`,
+`DialogueTable` and `AudioSurfaceTable`: the map form `{ Guid, Path, BankName, Sound }` and the flat
+`EventGuid`/`EventPath`/`EventBank`/`EventSound` keys `AudioSourceComponent` has always used. `Sound`
+is written only when set, so FMOD-only files are byte-for-byte unchanged and older builds ignore the
+key. Each build's pickers edit only their own field (`ImGuiEx::SurfaceEventPicker` lists Sound
+assets on native and FMOD events otherwise; the Audio Source inspector shows a Sound field on native,
+with any FMOD event shown read-only).
+
+**Sound assets (Phase 2).** `Sound` (`Audio/Sound.h`, `AssetType::Sound`, `.lsound`) is the native
+backend's playable asset, in the plan's minimal form: one `Clip` (an `Audio` asset), `Bus`
+(`bus:/...`; everything mixes through the master until the mixer exists), linear `Volume` (0–4),
+`Pitch` (above 0, up to 4), `Loop`, and `Spatial` (3D on/off, `SoundAttenuation`
+None/Inverse/Linear with miniaudio's formulas, min/max distance, rolloff). `SoundSerializer` writes
+bounded YAML (64 KiB at save, load, pack write and pack read), registers the clip as a dependency
+and is packable. Instances read the asset when created, so an edit applies to the next instance.
+The Content Browser offers **New → Sound** and **Create Sound** on an audio file (native builds
+only); there is no Sound editor panel yet, so other settings are edited in the YAML. C# scripts can
+declare `Lux.Sound` fields (`DataType::Sound`, editor-assignable like `Prefab`) and call
+`Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`, which pass the handle as the reference. The
+FMOD build reports such a reference as a Sound that needs the native backend.
+
+**Native backend (Phase 2 vertical slice).** `Audio/Native/` implements every function the FMOD
+folder does. Its private headers are `NativeInternal.h` (engine access, Sound resolution, listener
+set, voice registry) and `Miniaudio.h`, the only way native code includes miniaudio: it sets
+`MA_ENGINE_MAX_LISTENERS` to 8 (one per engine listener slot), which changes miniaudio's struct
+sizes, so every unit must agree. `MiniaudioImplementation.c` is miniaudio's single implementation
+unit (with stb_vorbis). `AudioEngine::Init` takes the active project's budgets
+(`NativeAudioEngineConfig.cpp`) and starts `ma_engine` on the default device, with a resource manager
+that has no job threads: a clip is decoded on the main thread when an instance is created, and
+instances of one clip share the decoded data. `NativeSoundResolver.cpp` turns a reference (a decimal
+handle, or a Sound path relative to Assets in the editor) into the Sound and its clip file; the
+native tests replace both of those files.
+
+Each `AudioEventInstance` voice is an `ma_sound` feeding a per-voice `VoiceNode` and then the
+endpoint. The engine computes distance gain itself: per active listener, `Attenuate(distance to its
+attenuation point)`, weighted by listener weights normalized to sum to 1 (FMOD's "closest listeners
+up to 100%" rule with every listener counted, as the FMOD bridge normalizes too), times Sound and
+instance volume and occlusion. miniaudio only pans, toward the listener contributing most; its
+attenuation model must not be `none`, which skips panning, so voices use its inverse model with
+equal minimum and maximum distance (exactly 1). miniaudio's pan law plays a sound straight ahead at
+half the near-side level per channel; that is upstream behaviour, pinned by a test. `SetAcoustics`
+applies `OcclusionGainLF` as gain and a one-pole low-pass (6 dB/octave, the mass-law slope) at
+`max(125 Hz, 20 kHz × gain)`; unoccluded at unity gain the node copies its input exactly. 2D voices
+are never occluded or attenuated. `ReverbSend` is stored for the mixer's reverb return. Pause is
+layered (`ma_sound_stop` keeps the cursor); `Start` restarts like FMOD; a finished voice is never
+resumed. `AudioEngine::Update` polls miniaudio's end flag and publishes stopped status and script
+notifications. Shutdown advances the event generation, then frees every voice before the engine, so
+wrappers held past it are inert. The master bus (`bus:/`) has volume and mute; focus mute combines
+with them on the endpoint.
+
+Not native yet, and reported once rather than per call: Sound parameters, snapshots, music timeline
+notifications, programmer sounds, other buses and VCAs, global parameters, voice virtualization
+(priority is stored), mixer CPU/memory statistics (`HasMixerStats` false), bus meters and the
+accessibility mixer (captions and cues work; category gains, mono and compression do not).
+`AudioValidation::ValidateBanks` validates Sounds instead of banks (each reference resolves to a Sound
+with a decodable clip and the right loop kind; unreferenced Sounds are listed). The editor skips the
+FMOD bank pipeline, Project Settings says so, and runtime export is blocked until asset packs carry
+Sound audio. A Lux-Runtime built native skips an export's FMOD bank manifest with a warning.
 
 FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
 `AudioEventInstance` owns Studio event handles. `AudioSourceComponent` remains the entity-facing
@@ -1044,7 +1113,7 @@ PlayOnAwake; a completed one-shot is not restarted on the next frame. Emitters f
 their basis orthonormalized for scaled/sheared transforms. Scene pause is layered over the caller's
 pause state, so resuming the editor does not unpause a gameplay-paused event. Event components participate in ray-traced acoustics.
 
-`AudioEventRef` persists GUID, advisory path and bank name; `ParameterOverrides` persists name/value
+`AudioEventRef` persists GUID, advisory path, bank name and (when set) the native Sound handle; `ParameterOverrides` persists name/value
 pairs through scene/prefab serialization and undo snapshots. Runtime instances are never serialized
 or shared by scene copies. The picker follows a new selection/assignment, then preserves the chosen
 bank filter while browsing. Events without a strings-bank label display their GUID; path buffers are
@@ -1557,7 +1626,7 @@ luxengine/
 │   │       ├── Physics2D/         # Box2D
 │   │       ├── Scripting/         # ScriptEngine, ScriptGlue, ScriptBuilder, ScriptEntityStorage
 │   │       ├── Asset/             # AssetManager facade, AssetManager/, AssetSystem/, serializers
-│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, RaytracedAudioScene; FMOD/ backend
+│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, Sound, RaytracedAudioScene; FMOD/ or Native/ backend
 │   │       ├── Editor/            # EditorPanel, PanelManager, EditorCamera, SelectionManager,
 │   │       │                      #   SceneHierarchyPanel, EditorConsole/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo

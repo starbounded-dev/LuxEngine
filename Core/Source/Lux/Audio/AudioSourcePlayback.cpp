@@ -58,11 +58,12 @@ namespace Lux
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const auto revision = AudioEngine::GetBankRevision();
-		if (m_Guid != source.Event.Guid)
+		if (!m_Event.SameAssignment(source.Event))
 		{
 			Stop(false);
 			m_Instance = nullptr;
-			m_Guid = source.Event.Guid;
+			m_Event = source.Event;
+			m_Reference = source.Event.GetReference();
 			m_AwakeHandled = m_Metadata = m_Attempted = m_Culled = m_ParameterWarning = false;
 			m_Parameters.clear();
 			m_Labels.clear();
@@ -93,10 +94,10 @@ namespace Lux
 			m_WantsPlayback = m_Started = false;
 		}
 		bool created = false;
-		if (!m_Metadata && !m_Attempted && !m_Guid.empty())
+		if (!m_Metadata && !m_Attempted && !m_Reference.empty())
 		{
 			m_Attempted = true;
-			m_Instance = AudioEventInstance::Create(m_Guid);
+			m_Instance = AudioEventInstance::Create(m_Reference);
 			if (m_Instance)
 			{
 				m_Metadata = true;
@@ -148,7 +149,7 @@ namespace Lux
 		}
 		if (!m_Instance && m_Metadata)
 		{
-			m_Instance = AudioEventInstance::Create(m_Guid);
+			m_Instance = AudioEventInstance::Create(m_Reference);
 			created = true;
 			if (!m_Instance)
 				m_Metadata = false; // Retry only when banks/reference change.
@@ -204,11 +205,11 @@ namespace Lux
 			if (!m_ParameterWarning)
 			{
 				m_ParameterWarning = true;
-				LUX_CORE_ERROR_TAG("Audio", "Event {} parameter '{}' must be finite", m_Guid, name);
+				LUX_CORE_ERROR_TAG("Audio", "Event {} parameter '{}' must be finite", m_Reference, name);
 			}
 			return false;
 		}
-		if (!Parameter(m_Guid, name, parameter, m_ParameterWarning))
+		if (!Parameter(m_Reference, name, parameter, m_ParameterWarning))
 			return false;
 		value = std::clamp(value, parameter.Minimum, parameter.Maximum);
 		if (parameter.Discrete || parameter.Labeled)
@@ -224,7 +225,7 @@ namespace Lux
 		if (m_Instance)
 			return m_Instance->GetParameter(name);
 		AudioEventParameterInfo parameter;
-		if (!Parameter(m_Guid, name, parameter, m_ParameterWarning))
+		if (!Parameter(m_Reference, name, parameter, m_ParameterWarning))
 			return 0.0f;
 		const auto found = m_Parameters.find(parameter.Name);
 		return found != m_Parameters.end() ? found->second : parameter.Default;
@@ -232,21 +233,21 @@ namespace Lux
 	bool AudioSourcePlayback::SetParameterLabel(const std::string& name, const std::string& value)
 	{
 		AudioEventParameterInfo parameter;
-		if (!Parameter(m_Guid, name, parameter, m_ParameterWarning))
+		if (!Parameter(m_Reference, name, parameter, m_ParameterWarning))
 			return false;
 		if (!parameter.Labeled)
 		{
 			if (!m_ParameterWarning)
 			{
 				m_ParameterWarning = true;
-				LUX_CORE_ERROR_TAG("Audio", "Event {} parameter '{}' does not have labels", m_Guid, name);
+				LUX_CORE_ERROR_TAG("Audio", "Event {} parameter '{}' does not have labels", m_Reference, name);
 			}
 			return false;
 		}
 		for (int index = 0; index <= parameter.Maximum - parameter.Minimum; ++index)
 		{
 			std::string label, error;
-			if (!AudioEngine::GetEventParameterLabel(m_Guid, name, index, label, error))
+			if (!AudioEngine::GetEventParameterLabel(m_Reference, name, index, label, error))
 			{
 				if (!m_ParameterWarning)
 				{
@@ -267,7 +268,7 @@ namespace Lux
 		if (!m_ParameterWarning)
 		{
 			m_ParameterWarning = true;
-			LUX_CORE_ERROR_TAG("Audio", "Unknown label '{}' for event {} parameter '{}'", value, m_Guid, name);
+			LUX_CORE_ERROR_TAG("Audio", "Unknown label '{}' for event {} parameter '{}'", value, m_Reference, name);
 		}
 		return false;
 	}

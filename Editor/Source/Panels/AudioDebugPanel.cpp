@@ -565,7 +565,15 @@ namespace Lux {
 				ImGui::TextUnformatted(name.c_str());
 
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextUnformatted((asc.Event.IsValid() ? (asc.Event.Path.empty() ? asc.Event.Guid.c_str() : asc.Event.Path.c_str()) : "<unassigned>"));
+				if (!asc.Event.IsValid())
+					ImGui::TextUnformatted("<unassigned>");
+				else if (AudioEngine::GetBackend() == AudioBackend::Native)
+				{
+					const std::string sound = Project::GetEditorAssetManager()->GetMetadata(asc.Event.Sound).FilePath.stem().string();
+					ImGui::TextUnformatted(sound.empty() ? std::to_string(static_cast<uint64_t>(asc.Event.Sound)).c_str() : sound.c_str());
+				}
+				else
+					ImGui::TextUnformatted(asc.Event.Path.empty() ? asc.Event.Guid.c_str() : asc.Event.Path.c_str());
 
 				const glm::vec3 sourcePosition = glm::vec3(m_Context->GetWorldSpaceTransformMatrix(entity)[3]);
 

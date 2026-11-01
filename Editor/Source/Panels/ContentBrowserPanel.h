@@ -249,6 +249,8 @@ namespace Lux {
 		AssetHandle CreateMaterialAsset();
 		AssetHandle CreateAudioSurfaceTable();
 		AssetHandle CreateDialogueTable();
+		// A Sound playing clip (an Audio asset), or an empty one when clip is 0. Named after the clip.
+		AssetHandle CreateSoundAsset(AssetHandle clip = 0);
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;

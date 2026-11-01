@@ -10,9 +10,14 @@
 #include <string>
 #include <vector>
 
-// No FMOD type appears here: the FMOD backend lives in Audio/FMOD/ (FMODInternal.h is its private
-// header), so another backend can implement this interface.
+// No backend type appears here. Exactly one implementation is compiled, chosen by premake's
+// --audio-backend: Audio/FMOD/ (default, FMODInternal.h is its private header) or Audio/Native/
+// (miniaudio, NativeInternal.h).
 namespace Lux {
+
+	// The playback backend this build compiled. Editor code asks AudioEngine::GetBackend() instead of
+	// testing a define: the backend defines are set for Core only.
+	enum class AudioBackend { FMOD, Native };
 
 	// Read-only backend playback statistics for editor tooling.
 	struct AudioEngineStats
@@ -84,6 +89,8 @@ namespace Lux {
 	class AudioEngine
 	{
 	public:
+		static AudioBackend GetBackend();
+
 		static void Init();
 		static void Shutdown();
 

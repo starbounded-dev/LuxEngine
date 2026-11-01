@@ -64,6 +64,14 @@ OPTIONS = [
         "default": False,
     },
     {
+        "key": "native-audio",
+        "kind": "premake",
+        "flag": "audio-backend=native",
+        "label": "Native audio backend (experimental)",
+        "description": "built-in miniaudio instead of FMOD; needs no FMOD SDK",
+        "default": False,
+    },
+    {
         "key": "skip-submodules",
         "kind": "script",
         "label": "Skip submodule update",

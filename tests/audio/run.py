@@ -77,6 +77,7 @@ def music_serialization_source(directory):
     output = directory / "music-serialization.cpp"
     output.write_text("""#include "lpch.h"
 #include "Lux/Scene/Components.h"
+#include "Lux/Audio/AudioEventRefSerializer.h"
 #include "Lux/Serialization/Yaml.h"
 #include <cassert>
 #include <iostream>
@@ -137,7 +138,8 @@ def source_serialization_source(directory):
     deserialize = source.split('if (const auto audioSource = entity["AudioSourceComponent"])', 1)[1].split('if (const auto audioListener = entity["AudioListenerComponent"])', 1)[0]
     output = directory / "source-serialization.cpp"
     output.write_text("\n".join([
-        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"', '#include "Lux/Serialization/Yaml.h"',
+        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"', '#include "Lux/Audio/AudioEventRefSerializer.h"',
+        '#include "Lux/Serialization/Yaml.h"',
         'struct FakeEntity { AudioSourceComponent Source;',
         'template<typename T> T& GetComponent() { return Source; }',
         'template<typename T> T& AddComponent() { return Source; } };',
@@ -166,7 +168,7 @@ def main():
     flags += ["-std=c++20", "-O0", "-g", "-ffunction-sections", "-fdata-sections"]
     # Asterwave is opt-in (--raytraced-audio); follow whatever the generated makefiles chose.
     raytraced = "-DLUX_ENABLE_RAYTRACED_AUDIO" in flags
-    sources = ["Audio/FMOD/FMODAudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/FMOD/FMODAudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/FMOD/FMODAudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene" if raytraced else "Audio/RaytracedAudioSceneStub", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/FMOD/FMODAudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/FMOD/FMODAudioEventInstance", "Audio/FMOD/FMODAudioEventParameters", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = ["Audio/FMOD/FMODAudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/FMOD/FMODAudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/FMOD/FMODAudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene" if raytraced else "Audio/RaytracedAudioSceneStub", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/FMOD/FMODAudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/FMOD/FMODAudioEventInstance", "Audio/FMOD/FMODAudioEventParameters", "Audio/FMOD/FMODAudioBackend", "Audio/AudioEventRefSerializer", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader"]
     objects = {}
@@ -194,7 +196,7 @@ def main():
         libraries.insert(0, ROOT / "bin/Debug-linux-x86_64/Asterwave/libAsterwave.a")
     # Lux::Yaml and the rapidyaml implementation unit (docs/YAML_MIGRATION_PLAN.md).
     yaml = [ROOT / "bin-int/Release-linux-x86_64/Core" / name for name in ("Yaml.o", "ryml.o")]
-    run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
+    run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], objects["UUID"], objects["AudioEventRefSerializer"], objects["FMODAudioBackend"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)
     audio_objects = [obj for name, obj in objects.items() if name not in ("JoltContactListener", "AssetPackSerializer", "AudioAccessibilityWidgets", "ImGuiUtilities")]

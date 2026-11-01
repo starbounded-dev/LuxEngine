@@ -55,7 +55,7 @@ project "Lux-Runtime"
 		end
 
 		-- Validated SDK roots are shared with the linker configuration.
-		do -- FMOD is required.
+		if AudioBackend == "fmod" then -- the native backend deploys no audio libraries
 			postbuildcommands {
 				'{COPY} "' .. FMODSDKRoot .. '/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
 				'{COPY} "' .. FMODSDKRoot .. '/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
@@ -111,7 +111,7 @@ project "Lux-Runtime"
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
 
 		-- See the Editor project for why {COPYFILE} + the exact SONAME, not a {COPY} glob.
-		do -- FMOD is required.
+		if AudioBackend == "fmod" then -- the native backend deploys no audio libraries
 			postbuildcommands {
 				'{MKDIR} "%{cfg.targetdir}/lib"',
 				'{COPYFILE} "' .. FMODSDKRoot .. '/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',

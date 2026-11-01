@@ -45,6 +45,7 @@ including Jolt and Asterwave, have their own scheduling and are not controlled b
 | **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct NRI calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
 | **Asterwave internal workers** | Trace the native world's immutable batch snapshots | ECS, ImGui, engine mutation. `World::wait` joins and publishes results/callbacks on the main thread |
+| **miniaudio device thread** (`--audio-backend=native` only) | Run the node graph: decoded voice data, the spatializer, each voice's `VoiceNode` (reads its two atomics) | ECS, Coral, assets, ImGui, engine locks. Voices are created, released and polled on the main thread (§ Native audio backend) |
 | **VR head tracker** (`LuxOpticTracker`, "Head Tracker", only while a `VRSession` exists) | Blocking HID reads (100 ms timeout) and writing the latest pose under its mutex; logging | Everything else: no ECS, assets, ImGui, `Renderer::Submit` or NRI. It runs under **both** policies, because it never touches the engine |
 | **spdlog flusher** (`spdlog::flush_every`, started by `Log::Init`) | Flushing the registered loggers once a second, so a custom sink's `flush_()` runs off the logging thread | Anything engine-side |
 | **Editor build worker** (`RuntimeExport::RuntimeBuildJob`, "Runtime Build", only while a build runs) | The blocking MSBuild/make/dotnet subprocess for Lux-Runtime and script builds, on paths the main thread resolved in `Start`; file-existence checks; logging | `Project` (including `Project::GetActive()`), ImGui, ECS, assets, `Renderer::Submit`. It is a `Lux::Thread`, not a job, so it runs off the main thread under **both** policies. The main thread collects the result with `Poll()` at the top of `EditorLayer::OnImGuiRender` and resumes a waiting export there |
@@ -414,11 +415,19 @@ SDK mixer/streaming work and timeline callbacks continue while unfocused. No pla
 directly invokes audio, scripts or ECS. Profile selection and bank rebuild/reload remain main-thread
 operations; console suspend/resume integration is deferred.
 
-## Native audio backend (Phase 0)
+## Native audio backend (`--audio-backend=native`)
 
-The vendored miniaudio (`Core/vendor/miniaudio`) is compiled only by `tests/audio/native` so far, and
-its tests render offline on the calling thread (`noDevice`). When Phase 2 links it into the engine,
-`docs/AUDIO_NATIVE_BACKEND_PLAN.md § Part 1 › Threads` governs: engine audio calls stay main-thread;
-the device callback is a vendor thread like FMOD's mixer; the resource manager is pumped from a named
-`Lux::Thread`; node attach/detach happens only on the main thread because detach blocks on the audio
-thread.
+The native backend (`Core/Source/Lux/Audio/Native/`, miniaudio) adds exactly one thread, and it is
+miniaudio's: the **device callback**, which runs the node graph like FMOD's mixer thread. It reads
+only miniaudio state and each voice's `VoiceNode` parameters, two relaxed `std::atomic<float>`s
+(target gain and occlusion cutoff) written on the main thread; its ramp and filter state are touched
+only by that callback. It takes no engine lock and never reaches the ECS, Coral, assets or ImGui.
+
+Everything else is main-thread, the same contract as FMOD's: every `AudioEngine`, `AudioEventInstance`
+and `AudioListener` call; voice creation, which decodes the clip synchronously on the main thread
+through a resource manager with **no job threads** (a stream option will move this to a named
+`Lux::Thread`); node attach and detach (`ma_sound_uninit`/`ma_node_uninit` wait for the callback to
+release the voice); and end-of-playback, which `AudioEngine::Update` detects by polling miniaudio's
+atomic end flag, then publishes to playback status and the script mailbox. So the native mailboxes
+need no mutex and nothing is written from the audio thread. Both `ThreadingPolicy` values behave the
+same: the device thread belongs to miniaudio, not to the render-thread policy.

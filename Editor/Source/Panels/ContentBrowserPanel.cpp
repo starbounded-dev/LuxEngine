@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
 #include "Lux/Audio/DialogueTable.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/Sound.h"
 #include <fstream>
 #include "ContentBrowserPanel.h"
 
@@ -248,6 +250,8 @@ namespace Lux {
 								CreateAudioSurfaceTable();
 							if (ImGui::MenuItem("Dialogue Table"))
 								CreateDialogueTable();
+							if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound"))
+								CreateSoundAsset();
 
 							ImGui::EndMenu();
 						}
@@ -712,6 +716,8 @@ namespace Lux {
 				CreateAudioSurfaceTable();
 			if (ImGui::MenuItem("Dialogue Table"))
 				CreateDialogueTable();
+			if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound"))
+				CreateSoundAsset();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import…"))
 			{
@@ -891,6 +897,13 @@ namespace Lux {
 			if (result.IsSet(ContentBrowserAction::CreateVariant) && item->GetType() == ContentBrowserItem::ItemType::Asset)
 			{
 				CreatePrefabVariant(item->GetID());
+				break;
+			}
+
+			// Creating the Sound refreshes the item list too.
+			if (result.IsSet(ContentBrowserAction::CreateSound) && item->GetType() == ContentBrowserItem::ItemType::Asset)
+			{
+				CreateSoundAsset(item->GetID());
 				break;
 			}
 		}
@@ -1487,6 +1500,37 @@ namespace Lux {
 		return handle;
 	}
 
+	AssetHandle ContentBrowserPanel::CreateSoundAsset(AssetHandle clip)
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+		Sound sound;
+		std::string name = "New Sound";
+		if (clip && AssetManager::GetAssetType(clip) == AssetType::Audio)
+		{
+			sound.Clip = clip;
+			name = Project::GetEditorAssetManager()->GetMetadata(clip).FilePath.stem().string();
+		}
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / (name + ".lsound"));
+		std::ofstream file(path);
+		file << sound.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Could not create sound '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
 	AssetHandle ContentBrowserPanel::CreateMaterialAsset()
 	{
 		if (!m_CurrentDirectory)
@@ -1563,6 +1607,7 @@ namespace Lux {
 		case AssetType::AudioBank: return EditorResources::AudioIcon;
 		case AssetType::DialogueTable:
 		case AssetType::AudioSurfaceTable: return EditorResources::AudioIcon;
+		case AssetType::Sound: return EditorResources::SoundConfigFileIcon;
 		case AssetType::ScriptFile: return EditorResources::CSFileIcon;
 		case AssetType::Font: return EditorResources::FontFileIcon;
 		case AssetType::Animation: return EditorResources::AnimationFileIcon;

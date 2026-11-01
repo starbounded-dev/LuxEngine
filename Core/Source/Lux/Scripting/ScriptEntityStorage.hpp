@@ -49,7 +49,8 @@ namespace Lux {
 		StaticMesh,
 		Material,
 		Texture2D,
-		Scene
+		Scene,
+		Sound
 	};
 
 	inline uint64_t DataTypeSize(DataType type)
@@ -77,6 +78,7 @@ namespace Lux {
 			case DataType::Material: return sizeof(UUID);
 			case DataType::Texture2D: return sizeof(UUID);
 			case DataType::Scene: return sizeof(UUID);
+			case DataType::Sound: return sizeof(UUID);
 		}
 
 		return 0;
@@ -107,6 +109,7 @@ namespace Lux {
 			case DataType::Material: return "Material";
 			case DataType::Texture2D: return "Texture2D";
 			case DataType::Scene: return "Scene";
+			case DataType::Sound: return "Sound";
 		}
 		return "Float";
 	}
@@ -134,6 +137,7 @@ namespace Lux {
 		if (str == "Material") return DataType::Material;
 		if (str == "Texture2D") return DataType::Texture2D;
 		if (str == "Scene") return DataType::Scene;
+		if (str == "Sound") return DataType::Sound;
 		return DataType::Float;
 	}
 
@@ -272,6 +276,7 @@ namespace Lux {
 				case DataType::Material:   return true;
 				case DataType::Texture2D:  return true;
 				case DataType::Scene:      return true;
+				case DataType::Sound:      return true;
 				default:                   return false;
 			}
 		}
