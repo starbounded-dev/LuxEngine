@@ -18,6 +18,10 @@
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 
+#include "Lux/Scene/SceneAudioVerification.h"
+#include "Lux/Core/Events/ApplicationEvent.h"
+#include "Lux/Utilities/FileSystem.h"
+#include <fstream>
 #include <format>
 
 namespace Lux
@@ -26,6 +30,8 @@ namespace Lux
 	{
 		constexpr const char* s_RuntimeProjectFile = "Project.luxruntime";
 		constexpr const char* s_RuntimeAssetPackFile = "AssetPack.lap";
+		constexpr uint32_t k_AudioVerificationWarmupFrames = 120;
+		constexpr uint32_t k_AudioVerificationTimeoutFrames = 6000;
 
 		std::filesystem::path ResolveRuntimeProjectFile(const std::filesystem::path& projectPath)
 		{
@@ -48,6 +54,8 @@ namespace Lux
 
 	void RuntimeLayer::OnAttach()
 	{
+		if (FileSystem::HasEnvironmentVariable("LUX_RUNTIME_AUDIO_REPORT"))
+			m_AudioVerificationPath = FileSystem::GetEnvironmentVariable("LUX_RUNTIME_AUDIO_REPORT");
 		if (!OpenProject())
 		{
 			Application::Get().Close();
@@ -322,6 +330,41 @@ namespace Lux
 
 		DrawRuntimeOverlay();
 		SubmitFinalImageToSwapChain();
+		UpdateAudioVerification();
+	}
+
+	void RuntimeLayer::UpdateAudioVerification()
+	{
+		if (m_AudioVerificationPath.empty() || ++m_AudioVerificationFrames < k_AudioVerificationWarmupFrames)
+			return;
+		std::string report, error;
+		auto status = CaptureSceneAudioVerification(*m_RuntimeScene, report, error);
+		if (status == SceneAudioVerificationStatus::Pending)
+		{
+			if (m_AudioVerificationFrames < k_AudioVerificationTimeoutFrames)
+				return;
+			status = SceneAudioVerificationStatus::Failed;
+			error = "Runtime Soundwave geometry did not become ready before the frame limit";
+		}
+		if (status == SceneAudioVerificationStatus::Passed)
+		{
+			std::ofstream file(m_AudioVerificationPath, std::ios::trunc);
+			file << report;
+			file.flush();
+			if (!file.good())
+				error = "Could not write runtime acoustic report: " + m_AudioVerificationPath.string();
+		}
+		std::ofstream marker(m_AudioVerificationPath.string() + ".status", std::ios::trunc);
+		marker << (error.empty() ? "OK" : "FAILED") << "\n" << error << "\n";
+		marker.flush();
+		if (!marker.good())
+			error = "Could not write runtime acoustic status: " + m_AudioVerificationPath.string();
+		if (!error.empty())
+			LUX_CORE_ERROR_TAG("Audio", "Runtime acoustic verification failed: {}", error);
+		else
+			LUX_CORE_INFO_TAG("Audio", "Runtime acoustic verification passed: {}", m_AudioVerificationPath.string());
+		m_AudioVerificationPath.clear();
+		Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 	}
 
 	void RuntimeLayer::SubmitFinalImageToSwapChain()

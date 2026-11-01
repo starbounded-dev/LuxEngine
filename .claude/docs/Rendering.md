@@ -1365,3 +1365,15 @@ outlined through the collider pass. The renderer knows only indices; which categ
 | `Renderer::Submit`'s three-way thread branch collapsed or bypassed | Corrupted single-producer command queue |
 | New consumer queue without `ConsumePendingUpload` / `QueueWaitForCommandList` | Reads of un-uploaded memory |
 | `ImGui::` call inside a `Renderer::Submit` lambda | ImGui is built on the main thread only |
+
+For actual package/player acoustic checks, add `--export-runtime` to
+`tests/audio/run_scene_acoustics.py`. Golden capture's `--export-dir` sets
+`LUX_GOLDEN_EXPORT_DIR`; after capture/Play stops it drives the normal validated exporter and
+writes fresh `<name>.export.yaml` package/executable paths before status completion. It does
+not open Explorer or skip bank/asset/shader validation. Each automated destination is empty.
+The runner launches that actual executable from its package, setting `LUX_RUNTIME_AUDIO_REPORT`.
+The runtime writes the shared Scene/FMOD YAML plus `.status` after 120 rendered frames once
+geometry is ready (failure after 6000 frames), then closes normally. Missing/stale evidence,
+nonzero process exit, acoustic mismatch and Vulkan validation messages fail the check.
+The packaged runtime is selected with `--runtime-config debug|release|dist`; native artifacts
+must be built first. This is correctness evidence, not an acoustic GPU or performance gate.

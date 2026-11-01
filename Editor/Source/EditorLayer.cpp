@@ -757,6 +757,23 @@ namespace Lux {
 			OpenScene(handle);
 			return m_EditorScene != previousScene;
 		};
+		goldenHooks.StartRuntimeExport = [this](const std::filesystem::path& folder, std::string& error)
+		{
+			ExportRuntimeNow(folder);
+			error = m_RuntimeExportError;
+			return m_PendingRuntimeExport.has_value();
+		};
+		goldenHooks.PollRuntimeExport = [this](std::filesystem::path& root, std::filesystem::path& executable, std::string& error)
+		{
+			if (m_PendingRuntimeExport)
+				return false;
+			root = m_LastRuntimeExportRoot;
+			executable = m_LastRuntimeExportExecutable;
+			error = m_RuntimeExportError;
+			if (root.empty() && error.empty())
+				error = "Runtime export stopped before producing a package";
+			return true;
+		};
 		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
 		ContentBrowserPanel::SetThumbnailWorkPaused(m_GoldenCapture != nullptr);
 
@@ -4399,6 +4416,8 @@ namespace Lux {
 
 		if (++pending.NextStep == static_cast<uint32_t>(RuntimeExportStep::Count))
 		{
+			m_LastRuntimeExportRoot = pending.ExportRoot;
+			m_LastRuntimeExportExecutable = pending.ExportedExe;
 			m_PendingRuntimeExport.reset();
 			m_ShowRuntimeExportWindow = false;
 		}
@@ -4417,9 +4436,23 @@ namespace Lux {
 		m_ShowRuntimeExportWindow = true;
 	}
 
-	void EditorLayer::ExportRuntimeNow()
+	void EditorLayer::ExportRuntimeNow(const std::filesystem::path& targetFolder)
 	{
 		m_RuntimeExportError.clear();
+		m_LastRuntimeExportRoot.clear();
+		m_LastRuntimeExportExecutable.clear();
+		if (!targetFolder.empty())
+		{
+			std::error_code ec;
+			const bool exists = std::filesystem::exists(targetFolder, ec);
+			const bool empty = !exists || std::filesystem::is_empty(targetFolder, ec);
+			if (ec || !targetFolder.is_absolute() || !empty)
+			{
+				m_RuntimeExportError = "Automated export requires an absolute, empty destination: " + targetFolder.string();
+				LUX_CORE_ERROR_TAG("Editor", "{}", m_RuntimeExportError);
+				return;
+			}
+		}
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
@@ -4433,7 +4466,8 @@ namespace Lux {
 		SaveScene();
 		SaveProject();
 
-		const std::filesystem::path selectedFolder = FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str());
+		const std::filesystem::path selectedFolder = targetFolder.empty()
+			? FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str()) : targetFolder;
 		if (selectedFolder.empty())
 			return;
 
@@ -4475,6 +4509,7 @@ namespace Lux {
 		// UpdateRuntimeBuild writes the export once any build has finished.
 		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings, audioBanks };
 		m_PendingRuntimeExport->Writing = !buildRuntime && !buildScripts;
+		m_PendingRuntimeExport->OpenFolderWhenDone = targetFolder.empty();
 	}
 
 	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
@@ -4768,7 +4803,8 @@ namespace Lux {
 #endif
 
 			LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
-			FileSystem::OpenDirectoryInExplorer(exportRoot);
+			if (pending.OpenFolderWhenDone)
+				FileSystem::OpenDirectoryInExplorer(exportRoot);
 			return true;
 		}
 

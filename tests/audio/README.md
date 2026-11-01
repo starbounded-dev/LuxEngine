@@ -161,7 +161,8 @@ Sponza has neighboring open arches: five authored partitions seal the tested bay
 back, floor and ceiling so the closed control tests a sealed doorway. The original Sponza arch
 and pillar geometry remains present and determines the open route. Materials are explicitly
 opaque and work/node limits are authored at their maximum; truncation stays visible in artifacts.
-These checks do not prove performance, all routes at default budgets, runtime export or GPU parity.
+Without `--export-runtime`, these checks cover Play only. They do not prove performance,
+all routes at default budgets or GPU parity.
 
 Fixtures live under `bin/soundwave-scene-tests/<unique-run>/`; native capture evidence lives under
 `bin/golden/<run>-<case>/`. The script copies the project/registry, scene, compiled script module
@@ -201,3 +202,26 @@ keep a very small valid face ray-visible, count exact local/world-zero faces, re
 policies transactionally, and assert that collapsed primitives produce neither false paths nor
 invalid/divide-by-zero floating operations. The original strict geometry tests remain unchanged.
 Linux compilation and focused occlusion linking derive kernel objects from the same source list.
+
+To exercise the real export and packaged player as well as Play:
+
+```sh
+python tests/audio/run_scene_acoustics.py --config debug --export-runtime --cases corner doorway-open doorway-closed direct-blocked direct-clear
+```
+
+`--runtime-config` selects the exported Debug/Release/Dist binary (default: `--config`).
+The fixture registry contains only its copied scene and no unrelated sample prefabs; export
+still performs its full bank/project validation. ScriptModulePath is empty because the fixture
+has no script components. The ordinary exporter writes assets, banks, binary project, runtime,
+resources and shader pack into a unique empty test destination. It then launches that exact
+package and checks the same actual FMOD parameter and geometry/oracle controls, plus raw gain,
+direct float-bit and opening-path parity with Play. Reports/logs live beside the golden artifacts.
+The optional native report is inert without LUX_RUNTIME_AUDIO_REPORT and advances through
+normal frames, never waiting on jobs or GPU. Native builds and fresh timestamp checks remain
+separate gates. Passing this check establishes only the implemented reference path.
+
+In Linux Debug-AS, `AudioAcousticsTestMain.cpp` also runs the existing production adapter
+worker/inline ownership cases in an executable with no legacy SDK dependency. Its production
+objects retain AddressSanitizer instrumentation. This runs before the complete instrumented
+occlusion/audio suite, whose SDK leak failures remain failures with no suppression. A focused
+lifetime pass alone does not establish a passing full Debug-AS engine/audio gate.

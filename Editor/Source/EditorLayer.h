@@ -122,7 +122,7 @@ namespace Lux
 		// Export... in the export window. It starts m_PendingRuntimeExport: a Lux-Runtime or script
 		// build on m_RuntimeBuildJob when one is stale, then the writing steps, one per frame from
 		// UpdateRuntimeBuild, while UI_RuntimeExportProgress locks the editor.
-		void ExportRuntimeNow();
+		void ExportRuntimeNow(const std::filesystem::path& targetFolder = {});
 		bool ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks);
 		enum class RuntimeExportStep : uint8_t
 		{
@@ -397,6 +397,7 @@ namespace Lux
 		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;
 		std::string m_RuntimeExportError;
+		std::filesystem::path m_LastRuntimeExportRoot, m_LastRuntimeExportExecutable;
 		// The export in progress, with the settings Export was clicked with. While it exists the export
 		// overlay locks the editor.
 		struct PendingRuntimeExport
@@ -407,6 +408,7 @@ namespace Lux
 			AudioBankManifest AudioBanks;
 			// False while its build runs. Then one RuntimeExportStep per frame, so the overlay redraws.
 			bool Writing = false;
+			bool OpenFolderWhenDone = true;
 			uint32_t NextStep = 0;
 			// Resolved by RuntimeExportStep::Prepare for the steps after it.
 			std::filesystem::path RuntimeExe;

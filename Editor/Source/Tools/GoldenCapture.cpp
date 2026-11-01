@@ -18,17 +18,14 @@
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
+#include "Lux/Scene/SceneAudioVerification.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Serialization/Yaml.h"
-#include "Lux/Audio/AudioEngine.h"
-#include "Lux/Audio/AudioEventInstance.h"
-#include <fmod_studio.hpp>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
-#include <bit>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -37,8 +34,6 @@
 namespace Lux {
 
 	namespace {
-
-		constexpr float k_AcousticTransportTolerance = 0.00001f;
 
 		// Matches tests/rendering/golden_compare.py. Little-endian, 32 bytes, followed by
 		// Width * Height * BytesPerPixel texel bytes with no row padding.
@@ -169,6 +164,7 @@ namespace Lux {
 	{
 		m_OutputDirectory = GetEnv("LUX_GOLDEN_DIR");
 		m_ProjectPath = GetEnv("LUX_GOLDEN_PROJECT");
+		m_ExportDirectory = GetEnv("LUX_GOLDEN_EXPORT_DIR");
 		m_ScenePath = GetEnv("LUX_GOLDEN_SCENE");
 		m_Name = GetEnv("LUX_GOLDEN_NAME");
 		if (m_Name.empty())
@@ -334,6 +330,26 @@ namespace Lux {
 				m_Stage = Stage::WarmUp;
 				break;
 			}
+			case Stage::ExportRuntime:
+			{
+				std::filesystem::path root, executable;
+				std::string error;
+				if (!m_Hooks.PollRuntimeExport(root, executable, error))
+					break;
+				if (!error.empty())
+				{
+					Finish(false, error);
+					break;
+				}
+				Yaml::Writer out;
+				out << Yaml::BeginMap << Yaml::Key << "Root" << Yaml::Value << root.string()
+					<< Yaml::Key << "Executable" << Yaml::Value << executable.string() << Yaml::EndMap;
+				std::ofstream file(m_OutputDirectory / (m_Name + ".export.yaml"), std::ios::trunc);
+				file << out.c_str();
+				file.flush();
+				Finish(file.good(), "Runtime export metadata write");
+				break;
+			}
 			default:
 				break;
 		}
@@ -346,7 +362,7 @@ namespace Lux {
 
 	void GoldenCapture::ConfigureFrame(Scene& scene, EditorCamera& camera, SceneRenderer& renderer)
 	{
-		if (m_Stage == Stage::OpenProject || m_Stage == Stage::OpenScene || m_Stage == Stage::Done)
+		if (m_Stage == Stage::OpenProject || m_Stage == Stage::OpenScene || m_Stage == Stage::ExportRuntime || m_Stage == Stage::Done)
 			return;
 
 		if (m_SceneFrames == 0)
@@ -688,115 +704,17 @@ namespace Lux {
 
 	void GoldenCapture::VerifyAudio(Scene& scene)
 	{
-		const auto& kernel = scene.GetAudioAcoustics();
-		const auto stats = kernel.GetDiagnostics();
-		if (!scene.IsRunning() || stats.GeometryFailed || stats.SolveFailures)
-		{
-			Finish(false, "Soundwave Play verification failed: scene not running or acoustic preparation/solve failed");
+		std::string report, error;
+		const auto status = CaptureSceneAudioVerification(scene, report, error);
+		if (status == SceneAudioVerificationStatus::Pending)
 			return;
-		}
-		if (!stats.Ready)
-			return;
-		if (!stats.Evaluations)
+		if (status == SceneAudioVerificationStatus::Failed)
 		{
-			Finish(false, "Play verification needs an enabled audio source with a valid event reference");
-			return;
-		}
-		Yaml::Writer out;
-		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave CPU reference";
-		out << Yaml::Key << "StaticTriangles" << Yaml::Value << stats.StaticTriangles;
-		out << Yaml::Key << "MovingTriangles" << Yaml::Value << stats.MovingTriangles;
-		out << Yaml::Key << "StaticInertTriangles" << Yaml::Value << stats.StaticInertTriangles;
-		out << Yaml::Key << "MovingInertTriangles" << Yaml::Value << stats.MovingInertTriangles;
-		out << Yaml::Key << "StaticStoredTriangles" << Yaml::Value << stats.StaticStoredTriangles;
-		out << Yaml::Key << "MovingStoredTriangles" << Yaml::Value << stats.MovingStoredTriangles;
-		out << Yaml::Key << "StaticMeshInstances" << Yaml::Value << stats.StaticMeshInstances;
-		out << Yaml::Key << "MovingMeshInstances" << Yaml::Value << stats.MovingMeshInstances;
-		out << Yaml::Key << "GeometryGeneration" << Yaml::Value << stats.GeometryGeneration;
-		out << Yaml::Key << "Evaluations" << Yaml::Value << stats.Evaluations;
-		out << Yaml::Key << "EngineRayComparison" << Yaml::Value << kernel.IsRaycastComparisonEnabled();
-		out << Yaml::Key << "Sources" << Yaml::Value << Yaml::BeginSeq;
-		uint32_t checkedParameters = 0;
-		for (auto handle : scene.GetAllEntitiesWith<AudioSourceComponent>())
-		{
-			Entity entity{handle,&scene};
-			const UUID id = entity.GetUUID();
-			const auto* result = kernel.GetResult(id);
-			auto instance = scene.GetRuntimeEventInstance(id);
-			if (!result || !instance || !instance->IsValid())
-				continue;
-			const float gain = kernel.GetGainLF(id), applied = scene.GetAudioSourceOcclusion(id);
-			if (!std::isfinite(gain) || std::abs(gain - applied) > k_AcousticTransportTolerance)
-			{
-				Finish(false, std::format("Soundwave LF gain did not reach Scene source {}", static_cast<uint64_t>(id)));
-				return;
-			}
-			out << Yaml::BeginMap << Yaml::Key << "Name" << Yaml::Value << entity.GetComponent<TagComponent>().Tag;
-			out << Yaml::Key << "UUID" << Yaml::Value << id;
-			out << Yaml::Key << "OcclusionGainLF" << Yaml::Value << gain;
-			out << Yaml::Key << "DirectGainLF" << Yaml::Value << result->Direct.GainLF();
-			out << Yaml::Key << "DirectGainLFBits" << Yaml::Value << std::bit_cast<uint32_t>(result->Direct.GainLF());
-			out << Yaml::Key << "RawGainLF" << Yaml::Value << result->OcclusionGainLF;
-			out << Yaml::Key << "Listener" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq
-				<< result->Direct.From.X << result->Direct.From.Y << result->Direct.From.Z << Yaml::EndSeq;
-			out << Yaml::Key << "Source" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq
-				<< result->Direct.To.X << result->Direct.To.Y << result->Direct.To.Z << Yaml::EndSeq;
-			if (kernel.IsRaycastComparisonEnabled())
-			{
-				const auto* oracle = scene.GetAudioOcclusion().GetPath(id);
-				if (!oracle)
-				{
-					Finish(false, std::format("Engine-ray comparison path missing for source {}", static_cast<uint64_t>(id)));
-					return;
-				}
-				out << Yaml::Key << "EngineRayGainLF" << Yaml::Value << oracle->Measurement.GainLF();
-				out << Yaml::Key << "EngineRayGainLFBits" << Yaml::Value << std::bit_cast<uint32_t>(oracle->Measurement.GainLF());
-				out << Yaml::Key << "EngineRayWalls" << Yaml::Value << static_cast<uint32_t>(oracle->Walls.size());
-			}
-			out << Yaml::Key << "ReflectionPaths" << Yaml::Value << result->Diagnostics.ReflectionPaths;
-			out << Yaml::Key << "OpeningPaths" << Yaml::Value << result->Diagnostics.OpeningPaths;
-			out << Yaml::Key << "Work" << Yaml::Value << result->Diagnostics.Work;
-			out << Yaml::Key << "WorkLimited" << Yaml::Value << result->Diagnostics.WorkLimited;
-			out << Yaml::Key << "PathsLimited" << Yaml::Value << result->Diagnostics.PathsLimited;
-			if (result->HasAudibleOpening)
-			{
-				out << Yaml::Key << "AudibleOpening" << Yaml::Value << Yaml::BeginMap;
-				out << Yaml::Key << "GainLF" << Yaml::Value << result->AudibleOpening.GainLF;
-				out << Yaml::Key << "Points" << Yaml::Value << Yaml::BeginSeq;
-				for (uint32_t i = 0; i < result->AudibleOpening.PointCount; ++i)
-				{
-					const auto point = result->AudibleOpening.Points[i];
-					out << Yaml::Flow << Yaml::BeginSeq << point.X << point.Y << point.Z << Yaml::EndSeq;
-				}
-				out << Yaml::EndSeq << Yaml::EndMap;
-			}
-			const auto& event = entity.GetComponent<AudioSourceComponent>().Event;
-			FMOD_GUID guid{};
-			FMOD::Studio::EventDescription* description = nullptr;
-			FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
-			if (auto* studio = AudioEngine::GetStudioSystem(); studio && FMOD::Studio::parseID(event.Guid.c_str(), &guid) == FMOD_OK &&
-				studio->getEventByID(&guid, &description) == FMOD_OK &&
-				description->getParameterDescriptionByName(AudioEventInstance::kOcclusionParameter, &parameter) == FMOD_OK)
-			{
-				const float value = instance->GetParameter(AudioEventInstance::kOcclusionParameter);
-				if (!std::isfinite(value) || std::abs(value - std::clamp(1.0f - gain, 0.0f, 1.0f)) > k_AcousticTransportTolerance)
-				{
-					Finish(false, std::format("Soundwave LF gain did not reach FMOD source {}", static_cast<uint64_t>(id)));
-					return;
-				}
-				out << Yaml::Key << "FMODOcclusion" << Yaml::Value << value;
-				++checkedParameters;
-			}
-			out << Yaml::EndMap;
-		}
-		out << Yaml::EndSeq << Yaml::Key << "CheckedFMODParameters" << Yaml::Value << checkedParameters << Yaml::EndMap;
-		if (!checkedParameters || (!stats.StaticTriangles && !stats.MovingTriangles))
-		{
-			Finish(false, "Play verification needs acoustic render geometry and a live event exposing Occlusion");
+			Finish(false, error);
 			return;
 		}
 		std::ofstream file(m_OutputDirectory / (m_Name + ".audio.yaml"), std::ios::trunc);
-		file << out.c_str();
+		file << report;
 		file.flush();
 		if (!file.good())
 		{
@@ -826,13 +744,25 @@ namespace Lux {
 	{
 		if (m_Stage == Stage::Done)
 			return;
-		m_Stage = Stage::Done;
 		RestoreMovedEntities();
 		if (m_PlayStarted)
 		{
 			m_PlayStarted = false;
 			m_Hooks.StopPlay();
 		}
+
+		if (success && !m_ExportDirectory.empty() && m_Stage != Stage::ExportRuntime)
+		{
+			std::string error;
+			if (m_Hooks.StartRuntimeExport && m_Hooks.PollRuntimeExport && m_Hooks.StartRuntimeExport(m_ExportDirectory, error))
+			{
+				m_Stage = Stage::ExportRuntime;
+				return;
+			}
+			Finish(false, error.empty() ? "Could not start runtime export" : error);
+			return;
+		}
+		m_Stage = Stage::Done;
 
 		// golden_run.py reads this marker to tell a finished capture from a crash or timeout.
 		std::ofstream file(m_OutputDirectory / (m_Name + ".status"), std::ios::trunc);

@@ -990,6 +990,20 @@ authors the filters, sends and reverb buses. VA's other bands and EAX measuremen
 outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
 expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
 
+**Native acoustic verification:** `SceneAudioVerification` is a Core-owned main-thread
+report over a running Scene's acoustic diagnostics, physics comparison and actual FMOD
+parameters. It returns Pending/Passed/Failed with owned YAML/error strings and never waits.
+GoldenCapture and the opt-in RuntimeLayer report use the same check; Core has no editor-app
+dependency. `LUX_GOLDEN_EXPORT_DIR` starts the existing validated EditorLayer export after
+Play/Stop and image capture. It polls the normal build/export state, records the resulting
+package/executable paths, and then finishes. Automated destinations must be absolute and
+empty; normal interactive exports retain their folder dialog and completion behavior.
+`LUX_RUNTIME_AUDIO_REPORT` enables a player report after normal rendered frames, then queues
+normal application close. It loads the binary project, packaged banks and AssetPack with
+the normal runtime asset manager and compacted mesh CPU data; it is inert without that opt-in.
+The fixture runner compares the packaged player's raw gains/direct bits/opening paths with
+Play. These hooks provide evidence only for the implemented stages, not GPU/reverb completion.
+
 **Soundwave CPU reference integration (migration Phase 2, in progress):** `SceneAudioAcoustics`
 owns the main-thread capture cache and `AudioAcoustics` owns prepared snapshots and UUID source
 states. Both start independently of VA availability. Scene always applies Soundwave's smoothed LF

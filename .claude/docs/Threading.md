@@ -21,7 +21,7 @@ to move between them.
 
 The runtime (`Lux-Runtime`) also defaults to `Multi`, overridable per project.
 
-The environment variable `LUX_THREADING_POLICY` (`Single` / `Multi`) overrides the editor setting
+The environment variable `LUX_THREADING_POLICY` (`Single` / `Multi`) overrides the editor/runtime setting
 for one launch and is never saved; `tests/rendering/threading_ab.py` uses it to compare the two.
 
 So on Windows, main and render are **different threads**, and cross-thread reasoning is required.
@@ -464,3 +464,10 @@ AudioAcoustics/JobSystem code and real-worker ownership tests with AddressSaniti
 runner checks memory-access instrumentation in the production object before executing the
 tests, including detached mesh-owner and Clear/publication/coalescing cases under worker and
 inline policies. This gate adds no production synchronization or alternate lifetime path.
+
+SceneAudioVerification and RuntimeLayer's opt-in acoustic capture run on main after ordinary
+Scene updates/render submissions. Pending geometry advances through normal frames; there is
+no JobSystem/GPU wait, cross-thread Scene access or callback into destroyed Scene state.
+GoldenCapture starts export after restoring/stopping Play and polls its existing main-thread
+state machine; RuntimeBuildJob keeps its existing worker ownership. Player completion queues
+WindowCloseEvent instead of tearing down render/scene owners in the reporting call.

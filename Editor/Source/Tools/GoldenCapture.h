@@ -47,6 +47,7 @@ namespace Lux {
 	//                           the capture could happen and captures K frames later, while the
 	//                           renderer still treats them as settling: their shadows must be there.
 	//   LUX_GOLDEN_PLAY         "1" enters normal Play and verifies Soundwave/FMOD LF values
+	//   LUX_GOLDEN_EXPORT_DIR   optional empty parent folder for normal runtime export after capture
 	//   LUX_GOLDEN_SELFTEST     "1" also runs RenderGraph::RunValidationSelfTests
 	//   LUX_GOLDEN_EXIT         "0" keeps the editor open afterwards (default: close)
 	//
@@ -62,6 +63,9 @@ namespace Lux {
 			std::function<void()> StopPlay;
 			std::function<void(const std::filesystem::path&)> OpenProject;
 			std::function<bool(const std::filesystem::path&)> OpenScene;   // absolute scene file path
+			std::function<bool(const std::filesystem::path&, std::string&)> StartRuntimeExport;
+			// False while work is pending; true with package paths or an error at completion.
+			std::function<bool(std::filesystem::path&, std::filesystem::path&, std::string&)> PollRuntimeExport;
 		};
 
 		// Null unless LUX_GOLDEN_DIR is set.
@@ -90,6 +94,7 @@ namespace Lux {
 			WarmUp,
 			WaitForReadback,
 			Perf,
+			ExportRuntime,
 			Done
 		};
 
@@ -123,6 +128,7 @@ namespace Lux {
 
 		std::filesystem::path m_OutputDirectory;
 		std::filesystem::path m_ProjectPath;
+		std::filesystem::path m_ExportDirectory;
 		std::filesystem::path m_ScenePath;
 		std::string m_Name;
 		glm::uvec2 m_Size = { 1280, 720 };

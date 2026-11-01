@@ -59,7 +59,7 @@ def box(identity, name, low, high, cube):
     return result
 
 
-def make_fixture(directory, case_name, case, base_project, demo, source_assets, handles):
+def make_fixture(directory, case_name, case, base_project, demo, source_assets, handles, target_config="debug"):
     assets = directory/"Assets"
     assets.mkdir(parents=True)
     for original in source_assets.iterdir():
@@ -70,6 +70,13 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
             directory_link(original, destination)
         else:
             shutil.copy2(original, destination)
+    # Only the copied scene belongs to this fixture. Export validates every registered
+    # scene/prefab, so remove unrelated sample entries rather than weakening validation.
+    registry_path = assets/"AssetRegistry.lzr"
+    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    registry["Assets"] = [row for row in registry["Assets"] if row["Type"] not in ("Scene", "Prefab")
+                          or row["FilePath"].replace("\\", "/") == "Scenes/FMODDemo.luxscene"]
+    registry_path.write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
     (assets/"Scenes").mkdir()
     # Assimp rewrites generated .lmat files alongside an imported model. Copy these
     # model folders rather than linking them, including their referenced textures.
@@ -120,6 +127,11 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     config = project["Project"]
     config.update({"Name": "Soundwave Sponza " + case_name, "AssetDirectory": "Assets", "AssetRegistry": "Assets/AssetRegistry.lzr",
                    "AutoSave": False, "StartScene": "Scenes/FMODDemo.luxscene"})
+    config["RuntimeExport"].update({"GameName": "Soundwave-" + case_name, "TargetConfig": target_config.capitalize(),
+                                    "WindowWidth": 1280, "WindowHeight": 720, "Fullscreen": False, "VSync": False})
+    # No script components are present in these fixtures; do not request an unrelated
+    # sample script build when exercising the normal export preflight.
+    config["ScriptModulePath"] = ""
     audio = config["Audio"]
     audio["RebuildBanksOnPlay"] = False
     audio["EnableLiveUpdate"] = False
@@ -162,9 +174,54 @@ def verify(data, case, triangle_counts):
     return {key: source[key] for key in ("DirectGainLF", "RawGainLF", "OcclusionGainLF", "EngineRayGainLF", "OpeningPaths", "WorkLimited")}
 
 
+def verify_export(capture, destination, case, triangle_counts, timeout, threading):
+    metadata = yaml.safe_load((capture/"FMODDemo.export.yaml").read_text(encoding="utf-8"))
+    package, executable = Path(metadata["Root"]).resolve(), Path(metadata["Executable"]).resolve()
+    require(package.is_relative_to(destination.resolve()) and executable.parent == package,
+            "Export metadata points outside the isolated destination")
+    for path in (executable, package/"Assets/Project.luxruntime", package/"Assets/AssetPack.lap", package/"Assets/ShaderPack.lsp"):
+        require(path.is_file() and path.stat().st_size > 0, f"Missing exported artifact: {path}")
+    report_path = capture/"FMODDemo.runtime-audio.yaml"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("LUX_GOLDEN_")}
+    env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",
+                "LUX_THREADING_POLICY": threading.capitalize()})
+    if os.name != "nt":
+        env["LD_LIBRARY_PATH"] = str(package/"lib") + ":" + env.get("LD_LIBRARY_PATH", "")
+    started = time.time_ns()
+    log_path = capture/"FMODDemo.runtime.log"
+    with log_path.open("w", encoding="utf-8") as log:
+        result = subprocess.run([str(executable), "--project=" + str(package)], cwd=package, env=env,
+                                stdout=log, stderr=subprocess.STDOUT, timeout=timeout, check=False)
+    require(result.returncode == 0, f"Exported runtime failed with {result.returncode}; see {log_path}")
+    # One freshness check for this process execution and its two native outputs.
+    for path in (report_path, Path(str(report_path) + ".status")):
+        artifact = path.stat()
+        require(artifact.st_size > 0 and artifact.st_mtime_ns >= started - 2_000_000_000,
+                f"Empty or stale runtime verification artifact: {path}")
+    require(Path(str(report_path) + ".status").read_text(encoding="utf-8").splitlines()[0] == "OK",
+            "Runtime acoustic verification failed")
+    log = log_path.read_text(encoding="utf-8", errors="replace")
+    require("Vulkan validation error" not in log and "Vulkan validation warning" not in log and
+            "Vulkan performance validation" not in log, "Exported runtime reported Vulkan validation messages")
+    require("Runtime acoustic verification passed:" in log and "Runtime acoustic verification failed:" not in log,
+            "Runtime did not confirm successful report/status publication")
+    data = yaml.safe_load(report_path.read_text(encoding="utf-8"))
+    verified = verify(data, case, triangle_counts)
+    play = yaml.safe_load((capture/"FMODDemo.audio.yaml").read_text(encoding="utf-8"))
+    # Pinned scenes settle to the same reference result; compare raw solver output
+    # rather than frame-rate-dependent smoothing during startup.
+    for key in ("DirectGainLFBits", "EngineRayGainLFBits", "OpeningPaths"):
+        require(data["Sources"][0][key] == play["Sources"][0][key], f"Play/runtime mismatch: {key}")
+    require(abs(data["Sources"][0]["RawGainLF"] - play["Sources"][0]["RawGainLF"]) < 0.00001,
+            "Play/runtime raw acoustic gains differ")
+    return {"package": str(package), "report": str(report_path), "values": verified}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", choices=("debug", "release"), default="debug")
+    parser.add_argument("--export-runtime", action="store_true", help="export each isolated project normally, run the packaged game and verify its real acoustic/FMOD values")
+    parser.add_argument("--runtime-config", choices=("debug", "release", "dist"), help="exported runtime configuration (defaults to --config)")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--threading", choices=("single", "multi"), default="multi")
     parser.add_argument("--timeout", type=int, default=900)
@@ -191,11 +248,15 @@ def main():
     try:
         for name in args.cases:
             case = CASES[name]
-            fixture = make_fixture(run/name, name, case, project, demo, sample/"Assets", handles)
+            fixture = make_fixture(run/name, name, case, project, demo, sample/"Assets", handles, args.runtime_config or args.config)
             label = run_id + "-" + name
-            subprocess.run([sys.executable, str(ROOT/"tests/rendering/golden_run.py"), "--config", args.config, "--project", str(fixture),
-                            "--label", label, "--scenes", "FMODDemo", "--play", "--threading", args.threading,
-                            "--frame", "2", "--perf-frames", "1", "--perf-warmup", "0", "--timeout", str(args.timeout)], cwd=ROOT, check=True)
+            destination = run/name/"export"
+            command = [sys.executable, str(ROOT/"tests/rendering/golden_run.py"), "--config", args.config, "--project", str(fixture),
+                       "--label", label, "--scenes", "FMODDemo", "--play", "--threading", args.threading,
+                       "--frame", "2", "--perf-frames", "1", "--perf-warmup", "0", "--timeout", str(args.timeout)]
+            if args.export_runtime:
+                command += ["--export-dir", str(destination)]
+            subprocess.run(command, cwd=ROOT, check=True)
             capture = ROOT/"bin/golden"/label
             artifact = capture/"FMODDemo.audio.yaml"
             # golden_run already checked this run's final artifact timestamp once.
@@ -203,6 +264,8 @@ def main():
             require(summary["runs"][0]["validationMessages"] == 0, "Native run reported Vulkan validation messages")
             results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts)
             results[name]["capture"] = str(capture)
+            if args.export_runtime:
+                results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading)
             print(name + ": PASS " + json.dumps(results[name]), flush=True)
             (run/"results.json").write_text(json.dumps(results, indent=2)+"\n", encoding="utf-8")
     finally:

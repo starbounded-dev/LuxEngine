@@ -83,6 +83,8 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "LUX_GOLDEN_PLAY": "1" if args.play else "0",
         "LUX_SKIP_BUILD": "1",
     })
+    # Set explicitly so a parent process cannot accidentally request another export.
+    env["LUX_GOLDEN_EXPORT_DIR"] = str((args.export_dir / name).resolve()) if args.export_dir else ""
     # The runner kills an editor that times out; that is not a crash to report with a dialog.
     env["LUX_NO_WATCHDOG"] = "1"
     if args.threading:
@@ -137,6 +139,14 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         except (OSError, RuntimeError) as error:
             status, reason = "FAILED", str(error)
 
+    if args.export_dir and status == "OK":
+        try:
+            artifact = (label_dir / f"{name}.export.yaml").stat()
+            if artifact.st_size == 0 or artifact.st_mtime_ns < started_wall - 2_000_000_000:
+                raise RuntimeError("empty or stale runtime export metadata")
+        except (OSError, RuntimeError) as error:
+            status, reason = "FAILED", str(error)
+
     if args.audio_settings_ui and status == "OK":
         try:
             artifact = ui_path.stat()
@@ -156,6 +166,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "name": name,
         "scene": scene,
         "play": args.play,
+        "exportDirectory": str(args.export_dir) if args.export_dir else None,
         "audioSettingsUI": args.audio_settings_ui,
         "options": options,
         "status": status,
@@ -279,6 +290,7 @@ def main():
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--scenes", type=lambda s: [x for x in s.split(",") if x], default=DEFAULT_SCENES)
     parser.add_argument("--play", action="store_true", help="enter normal Play and verify Soundwave LF reaches Scene and authored FMOD parameters")
+    parser.add_argument("--export-dir", type=Path, help="export through the normal editor pipeline after capture into this empty parent/name folder")
     parser.add_argument("--audio-settings-ui", action="store_true",
                         help="exercise actual Soundwave numeric controls, bounds, toggle and settings serialization before editor frames")
     parser.add_argument("--features", action="store_true", help="also capture the first scene once per feature variant")
