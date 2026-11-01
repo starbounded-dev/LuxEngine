@@ -1029,8 +1029,8 @@ Reference solves run on main until Phase 4, at UpdateRateHz (1-120), with round-
 0.1 s. Errors preserve the last valid path and gains. Geometry readiness/backlog/failure counts,
 path diagnostics and gains are observable through Scene::GetAudioAcoustics. `CompareRaycast`
 optionally runs Scene::UpdateAudioOcclusion using the existing physics raycast and scalar model;
-the oracle does not drive playback. The complete Phase 2 Sponza/doorway, editor authoring and
-runtime/export validation gates remain outstanding.
+the oracle does not drive playback. Project Settings authoring is described below; the complete
+Phase 2 Sponza/doorway and runtime/export validation gates remain outstanding.
 
 **Shared Scene meshes (migration Phase 2, in progress):** Scene capture now caches one
 local Grid per retained MeshSource pointer and selected-submesh layout. The worker bakes each
@@ -1112,7 +1112,7 @@ Specular energy uses authored absorption/scattering; opening attenuation uses a 
 approximation and relative extra-path spreading, without another direct distance fade. Work,
 path storage and graph nodes are bounded and truncation is explicit. Path points/lengths/band gains
 and the strongest audible LF opening path remain observable. Scene now calls this through its CPU reference adapter;
-editor authoring and full Phase 2 runtime verification remain.
+editor authoring is implemented below; full Phase 2 runtime verification remains.
 
 **Static/moving snapshot seam (migration Phase 2, in progress):** `Soundwave::GeometryView`
 borrows a fixed Grid, an optional moving Grid and a sorted/unique UUID exclusion span. It exposes
@@ -1146,8 +1146,19 @@ using the existing Strength field. `Audio.Occlusion.Kernel.Version: 1` gates the
 missing rows use defaults. Invalid/unknown/duplicate rows or unsupported versions fail with a
 tagged error and preserve the previous settings. Runtime uses its existing bounded length-prefixed
 YAML block, so old blocks without Kernel load unchanged. No global binary layout changes. Project
-serialization already delegates to this type in both directions; Scene consumes the values,
-while editor controls remain unfinished. The legacy Source field remains until Phase 6.
+serialization already delegates to this type in both directions; Scene consumes the values.
+Project Settings > Audio exposes strength, rate, source/work/path/node budgets, maximum bounces,
+reflection depth, opening samples, absorption and Compare Engine Ray. Changes use the existing
+project dirty/save flow and apply on next Play/runtime startup. Numeric text edits are clamped to
+the serializer bounds; lowering maximum bounces also limits reflection depth. The legacy Source
+field still round-trips until Phase 6, but is no longer presented as a playback choice.
+
+`golden_run.py --audio-settings-ui` runs the same acoustic controls in an isolated ImGui context
+at EditorLayer::OnAttach, before startup ImGui/render frames. It drives actual numeric text input
+and the comparison toggle, checks IDs/scopes, dirty results, direct-only settings, bounds and YAML
+round-trip, then restores the original context. It edits local settings only. The runner requires
+a fresh PASS artifact in addition to normal capture/Play success. This automated control check does
+not substitute for a complete visual panel walkthrough or runtime/export validation.
 
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no

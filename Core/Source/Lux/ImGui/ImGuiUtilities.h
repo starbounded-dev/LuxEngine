@@ -781,7 +781,8 @@ namespace Lux::ImGuiEx {
 				ImGui::FocusWindow(window);
 				g.ActiveIdUsingNavDirMask = (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
 				if (temp_input_allowed)
-					if ((clicked && g.IO.KeyCtrl) || double_clicked)
+					if ((clicked && g.IO.KeyCtrl) || double_clicked ||
+						(g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_PreferInput)))
 						temp_input_is_active = true;
 			}
 

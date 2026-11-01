@@ -265,6 +265,9 @@ Markdown text (headings, lists, tables, code blocks with Copy, links) renders wi
 `ImGuiEx::RenderMarkdown` (`ImGuiMarkdown.h`), and a help icon that opens a manual page is
 `ImGuiEx::DocsButton` (`Editor/EditorDocs.h`).
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
+`ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
+as Ctrl-click/double-click to enter numeric text. Text can bypass drag bounds unless AlwaysClamp
+is used; authored settings panels must clamp or reject edited values before marking data dirty.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.

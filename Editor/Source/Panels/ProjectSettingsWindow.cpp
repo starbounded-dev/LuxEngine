@@ -7,6 +7,8 @@
 #include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
+#include "Lux/Serialization/Yaml.h"
+#include <soundwave/Settings.h>
 #include "Lux/ImGui/AudioWidgets.h"
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "RuntimeExportUtils.h"
@@ -23,6 +25,8 @@
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <array>
+#include <set>
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
@@ -86,6 +90,73 @@ namespace Lux {
 		}
 
 
+		enum class AcousticControl : size_t
+		{
+			Strength, Rate, Sources, Bounces, Depth, Openings, Absorption, Candidates, Paths, Nodes, Compare, Count
+		};
+		using AcousticControlIDs = std::array<ImGuiID, static_cast<size_t>(AcousticControl::Count)>;
+
+		bool DrawAcousticControls(AudioOcclusionSettings& settings, AcousticControlIDs* ids = nullptr)
+		{
+			const ImGuiEx::ScopedID scope("SoundwaveSettings");
+			const auto before = settings;
+			bool changed = false;
+			const auto record = [&](AcousticControl control, bool edited)
+			{
+				changed |= edited;
+				if (ids)
+					(*ids)[static_cast<size_t>(control)] = ImGui::GetItemID();
+			};
+			ImGui::TextUnformatted("Soundwave acoustics");
+			ImGui::TextWrapped("Applies on the next Play session and in runtime builds.");
+			ImGuiEx::BeginPropertyGrid();
+			record(AcousticControl::Strength, ImGuiEx::Property("Transmission Strength", settings.Strength, 0.05f, 0.0f, 4.0f,
+				"Scales authored wall loss in decibels. 1 uses each material's LF/HF transmission.", false));
+			record(AcousticControl::Rate, ImGuiEx::Property("Acoustic Rate (Hz)", settings.UpdateRateHz, 1.0f, 1.0f, 120.0f,
+				"How often each source is solved. Gains interpolate between completed updates.", false));
+			record(AcousticControl::Sources, ImGuiEx::Property("Sources per Frame", settings.CastBudget, 1u, 1024u,
+				"Maximum source solves in a frame. Remaining sources take turns in later frames.", false));
+			record(AcousticControl::Bounces, ImGuiEx::Property("Maximum Bounces", settings.MaxBounces, 1u, Soundwave::kMaximumInteractions,
+				"Maximum reflection or opening interactions along a candidate path. Lowering this also limits reflection depth.", false));
+			settings.MaxBounces = std::clamp(settings.MaxBounces, 1u, Soundwave::kMaximumInteractions);
+			settings.ReflectionDepth = std::min(settings.ReflectionDepth, settings.MaxBounces);
+			record(AcousticControl::Depth, ImGuiEx::Property("Reflection Depth", settings.ReflectionDepth, 0u, settings.MaxBounces,
+				"Specular reflection depth, up to Maximum Bounces. Zero disables reflections.", false));
+			record(AcousticControl::Openings, ImGuiEx::Property("Opening Samples", settings.OpeningGridSize, 1u, 32u,
+				"Samples along boundary and crease edges. 1 with depth 0 and bounces 1 selects the direct-only reference.", false));
+			record(AcousticControl::Absorption, ImGuiEx::Property("Reflection Absorption", settings.Absorption, 0.05f, 0.0f, 1.0f,
+				"Fraction of authored material absorption applied at each reflection. Does not add distance attenuation to the direct signal.", false));
+			record(AcousticControl::Candidates, ImGuiEx::Property("Candidate Work Budget", settings.CandidateBudget, 1u, 65536u,
+				"Bounded indirect search work per source update. Exhaustion is reported in path diagnostics.", false));
+			record(AcousticControl::Paths, ImGuiEx::Property("Stored Path Budget", settings.PathBudget, 1u, 4096u,
+				"Maximum stored indirect paths per source. The strongest audible opening is retained separately.", false));
+			record(AcousticControl::Nodes, ImGuiEx::Property("Opening Node Budget", settings.OpeningNodeBudget, 1u, 2048u,
+				"Maximum opening graph nodes per source update. Exhaustion is reported.", false));
+			record(AcousticControl::Compare, ImGuiEx::Property("Compare Engine Ray", settings.CompareRaycast,
+				"Also run the existing physics-ray occlusion as a diagnostic oracle. Soundwave continues to drive playback.", false));
+			ImGuiEx::EndPropertyGrid();
+			if (!changed)
+				return false;
+			// Temporary numeric input can bypass a drag widget's range. Keep authored data valid.
+			settings.Strength = std::clamp(settings.Strength, 0.0f, 4.0f);
+			settings.UpdateRateHz = std::clamp(settings.UpdateRateHz, 1.0f, 120.0f);
+			settings.CastBudget = std::clamp(settings.CastBudget, 1u, 1024u);
+			settings.ReflectionDepth = std::min(settings.ReflectionDepth, settings.MaxBounces);
+			settings.OpeningGridSize = std::clamp(settings.OpeningGridSize, 1u, 32u);
+			settings.Absorption = std::clamp(settings.Absorption, 0.0f, 1.0f);
+			settings.CandidateBudget = std::clamp(settings.CandidateBudget, 1u, 65536u);
+			settings.PathBudget = std::clamp(settings.PathBudget, 1u, 4096u);
+			settings.OpeningNodeBudget = std::clamp(settings.OpeningNodeBudget, 1u, 2048u);
+			if (!settings.Validate())
+			{
+				settings = before;
+				ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError), "Acoustic values must be finite and within the displayed limits.");
+				LUX_CORE_WARN_TAG("Audio", "Rejected invalid acoustic settings input; previous settings preserved");
+				return false;
+			}
+			return true;
+		}
+
 		using RuntimeExport::FileExists;
 		using RuntimeExport::FindRepositoryRootFrom;
 		using RuntimeExport::GetRuntimeExecutablePath;
@@ -97,6 +168,135 @@ namespace Lux {
 			RuntimeExportTarget::Release,
 			RuntimeExportTarget::Dist
 		};
+	}
+
+	bool ProjectSettingsWindow::RunAcousticSettingsSelfTests(std::vector<std::string>& failures)
+	{
+		ImGuiContext* previous = ImGui::GetCurrentContext();
+		struct ContextGuard
+		{
+			ImGuiContext* Previous;
+			ImGuiContext* Test;
+			~ContextGuard()
+			{
+				ImGui::DestroyContext(Test);
+				ImGui::SetCurrentContext(Previous);
+			}
+		} guard{previous,ImGui::CreateContext()};
+		ImGui::SetCurrentContext(guard.Test);
+		auto& io = ImGui::GetIO();
+		io.IniFilename = nullptr;
+		io.LogFilename = nullptr;
+		io.DisplaySize = {1200,1000};
+		io.DeltaTime = 1.0f/60.0f;
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		io.ConfigInputTrickleEventQueue = false;
+		unsigned char* pixels = nullptr;
+		int width = 0, height = 0;
+		io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);
+		const auto check = [&](bool condition, const std::string& message)
+		{
+			if (!condition)
+				failures.push_back(message);
+		};
+		check(pixels && width > 0 && height > 0, "Audio settings test font atlas failed");
+		AudioOcclusionSettings settings;
+		AcousticControlIDs ids{};
+		uint32_t edits = 0;
+		const auto frame = [&]()
+		{
+			ImGui::NewFrame();
+			ImGui::SetNextWindowPos({0,0});
+			ImGui::SetNextWindowSize({1100,950});
+			ImGui::SetNextWindowFocus();
+			ImGui::Begin("Audio settings self-test",nullptr,ImGuiWindowFlags_NoSavedSettings);
+			if (DrawAcousticControls(settings,&ids))
+				++edits;
+			std::set<ImGuiID> unique(ids.begin(),ids.end());
+			check(unique.size() == ids.size() && !unique.contains(0), "Audio control IDs collide or are missing");
+			ImGui::End();
+			ImGui::Render();
+			check(guard.Test->ErrorCountCurrentFrame == 0 && guard.Test->DebugDrawIdConflictsCount == 0,
+				"ImGui reported an audio settings scope or ID conflict");
+		};
+		frame();
+		frame();
+		const auto edit = [&](AcousticControl control, const char* text)
+		{
+			const auto id = ids[static_cast<size_t>(control)];
+			const auto previousEdits = edits;
+			ImGui::ActivateItemByID(id);
+			guard.Test->NavNextActivateFlags |= ImGuiActivateFlags_PreferInput;
+			frame();
+			check(guard.Test->ActiveId == id && guard.Test->TempInputId == id, "Could not activate acoustic numeric text input");
+			io.AddKeyEvent(ImGuiMod_Ctrl,true);
+			io.AddKeyEvent(ImGuiKey_A,true);
+			frame();
+			io.AddKeyEvent(ImGuiKey_A,false);
+			io.AddKeyEvent(ImGuiMod_Ctrl,false);
+			io.AddInputCharactersUTF8(text);
+			frame();
+			io.AddKeyEvent(ImGuiKey_Enter,true);
+			frame();
+			io.AddKeyEvent(ImGuiKey_Enter,false);
+			frame();
+			check(edits > previousEdits, "Audio numeric edit did not mark project settings dirty");
+			check(settings.Validate(), "Audio numeric edit left invalid authored settings");
+		};
+		const auto originalIDs = ids;
+		settings.Source = AudioOcclusionSource::Raytraced;
+		frame();
+		check(ids == originalIDs, "Legacy VA selection hid or changed the kernel controls");
+		settings.Source = AudioOcclusionSource::Engine;
+		frame();
+		check(ids == originalIDs, "Legacy engine selection changed the kernel controls");
+		edit(AcousticControl::Strength,"0.5");
+		edit(AcousticControl::Rate,"73");
+		edit(AcousticControl::Sources,"7");
+		edit(AcousticControl::Bounces,"3");
+		edit(AcousticControl::Depth,"3");
+		edit(AcousticControl::Openings,"12");
+		edit(AcousticControl::Absorption,"0.25");
+		edit(AcousticControl::Candidates,"4321");
+		edit(AcousticControl::Paths,"11");
+		edit(AcousticControl::Nodes,"111");
+		ImGui::ActivateItemByID(ids[static_cast<size_t>(AcousticControl::Compare)]);
+		frame();
+		check(settings.CompareRaycast && settings.Strength == 0.5f && settings.UpdateRateHz == 73 && settings.CastBudget == 7 &&
+			settings.MaxBounces == 3 && settings.ReflectionDepth == 3 && settings.OpeningGridSize == 12 && settings.Absorption == 0.25f &&
+			settings.CandidateBudget == 4321 && settings.PathBudget == 11 && settings.OpeningNodeBudget == 111,
+			"Audio controls did not apply their typed values or comparison toggle");
+		Yaml::Writer out;
+		settings.SerializeYAML(out);
+		AudioOcclusionSettings restored;
+		check(restored.DeserializeYAML(Yaml::Load(out.c_str())) && restored.Strength == 0.5f && restored.UpdateRateHz == 73 &&
+			restored.CastBudget == 7 && restored.MaxBounces == 3 && restored.ReflectionDepth == 3 && restored.OpeningGridSize == 12 &&
+			restored.Absorption == 0.25f && restored.CandidateBudget == 4321 && restored.PathBudget == 11 &&
+			restored.OpeningNodeBudget == 111 && restored.CompareRaycast, "Edited acoustic controls did not survive serialization");
+		edit(AcousticControl::Bounces,"1");
+		check(settings.MaxBounces == 1 && settings.ReflectionDepth == 1, "Lowering bounces did not limit reflection depth");
+		edit(AcousticControl::Depth,"0");
+		edit(AcousticControl::Openings,"1");
+		check(settings.ReflectionDepth == 0 && settings.OpeningGridSize == 1 && settings.MaxBounces == 1,
+			"Direct-only comparison profile is unreachable through the controls");
+		ImGui::ActivateItemByID(ids[static_cast<size_t>(AcousticControl::Compare)]);
+		frame();
+		check(!settings.CompareRaycast, "Comparison toggle could not be turned off");
+		edit(AcousticControl::Bounces,"999");
+		edit(AcousticControl::Openings,"999");
+		edit(AcousticControl::Candidates,"999999");
+		edit(AcousticControl::Paths,"999999");
+		edit(AcousticControl::Nodes,"999999");
+		check(settings.MaxBounces == Soundwave::kMaximumInteractions && settings.OpeningGridSize == 32 &&
+			settings.CandidateBudget == 65536 && settings.PathBudget == 4096 && settings.OpeningNodeBudget == 2048,
+			"Typed work limits bypassed kernel bounds");
+		edit(AcousticControl::Sources,"0");
+		edit(AcousticControl::Rate,"999");
+		edit(AcousticControl::Strength,"999");
+		edit(AcousticControl::Absorption,"999");
+		check(settings.CastBudget == 1 && settings.UpdateRateHz == 120 && settings.Strength == 4 && settings.Absorption == 1,
+			"Typed scalar/source limits bypassed validation");
+		return failures.empty();
 	}
 
 	ProjectSettingsWindow::ProjectSettingsWindow(RuntimeExport::RuntimeBuildJob& runtimeBuildJob)
@@ -654,23 +854,6 @@ namespace Lux {
 			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
 			m_Dirty = true;
 
-		static const char* occlusionSources[] = { "Engine raycasts", "VA (raytraced)" };
-		if (ImGuiEx::PropertyDropdown("Occlusion", occlusionSources, 2, audioSettings.Occlusion.Source,
-			"What drives each event's Occlusion parameter. Engine casts rays from the listener through acoustic mesh colliders and closed portals, using each acoustic material's transmission. VA occlusion does not yet respond to geometry in the current SDK. Applies on the next Play.", false))
-			m_Dirty = true;
-		if (audioSettings.Occlusion.Source == AudioOcclusionSource::Engine)
-		{
-			if (ImGuiEx::PropertySlider("Occlusion Strength", audioSettings.Occlusion.Strength, 0.0f, 4.0f,
-				"Scales every wall's loss. 1 follows the acoustic material data (a 0.3 m brick wall is about 18 dB).", false))
-				m_Dirty = true;
-			if (ImGuiEx::Property("Occlusion Rate (Hz)", audioSettings.Occlusion.UpdateRateHz, 1.0f, 1.0f, 120.0f,
-				"How often each source's path is recast. The result is smoothed between casts.", false))
-				m_Dirty = true;
-			if (ImGuiEx::Property("Occlusion Casts / Frame", audioSettings.Occlusion.CastBudget, 1u, 1024u,
-				"Most sources recast in one frame. Sources beyond the budget wait for the next frame.", false))
-				m_Dirty = true;
-		}
-
 		bool liveUpdate = audioSettings.EnableLiveUpdate;
 		if (ImGuiEx::Property("Live Update", liveUpdate,
 			"Lets the FMOD Studio application connect to the running editor and mix in real time. Takes effect the next time the project is opened, since the audio engine is initialised then."))
@@ -680,6 +863,8 @@ namespace Lux {
 		}
 
 		ImGuiEx::EndPropertyGrid();
+
+		m_Dirty |= DrawAcousticControls(audioSettings.Occlusion);
 
 		ImGui::Spacing();
 		if (audioSettings.SurfaceTable && ImGuiEx::PropertyGridHeader("Surface Sounds", false))

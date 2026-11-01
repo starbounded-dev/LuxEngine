@@ -91,6 +91,10 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         env["VK_LAYER_ENABLES"] = "VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
         env["VK_KHRONOS_VALIDATION_VALIDATE_SYNC"] = "true"
 
+    ui_path = label_dir / f"{name}.audio-settings-ui.txt"
+    if args.audio_settings_ui:
+        env["LUX_AUDIO_SETTINGS_SELFTEST"] = str(ui_path.resolve())
+
     status_path = label_dir / f"{name}.status"
     if status_path.exists():
         status_path.unlink()
@@ -133,6 +137,17 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         except (OSError, RuntimeError) as error:
             status, reason = "FAILED", str(error)
 
+    if args.audio_settings_ui and status == "OK":
+        try:
+            artifact = ui_path.stat()
+            if artifact.st_size == 0 or artifact.st_mtime_ns < started_wall - 2_000_000_000:
+                raise RuntimeError("empty or stale acoustic settings UI artifact")
+            report = ui_path.read_text(encoding="utf-8").strip()
+            if report != "PASS":
+                raise RuntimeError(f"acoustic settings UI check failed: {report}")
+        except (OSError, RuntimeError, UnicodeError) as error:
+            status, reason = "FAILED", str(error)
+
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
     validation_lines = len(VALIDATION_LINE.findall(log_text))
     validation_ids = sorted(set(VALIDATION_ID.findall(log_text)))
@@ -141,6 +156,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "name": name,
         "scene": scene,
         "play": args.play,
+        "audioSettingsUI": args.audio_settings_ui,
         "options": options,
         "status": status,
         "reason": reason,
@@ -263,6 +279,8 @@ def main():
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--scenes", type=lambda s: [x for x in s.split(",") if x], default=DEFAULT_SCENES)
     parser.add_argument("--play", action="store_true", help="enter normal Play and verify Soundwave LF reaches Scene and authored FMOD parameters")
+    parser.add_argument("--audio-settings-ui", action="store_true",
+                        help="exercise actual Soundwave numeric controls, bounds, toggle and settings serialization before editor frames")
     parser.add_argument("--features", action="store_true", help="also capture the first scene once per feature variant")
     parser.add_argument("--options", default="", help="renderer options for every run, e.g. MeshLODs=0,SSR=0 (LUX_GOLDEN_OPTIONS)")
     parser.add_argument("--size", default="1280x720")

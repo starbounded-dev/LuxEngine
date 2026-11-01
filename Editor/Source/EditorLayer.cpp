@@ -440,6 +440,23 @@ namespace Lux {
 	void EditorLayer::OnAttach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
+		// Explicit developer probe, before the first startup ImGui/render frame. It
+		// uses an isolated context and local settings; no user project is edited.
+		if (FileSystem::HasEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST"))
+		{
+			std::vector<std::string> failures;
+			const bool passed = ProjectSettingsWindow::RunAcousticSettingsSelfTests(failures);
+			const auto path = FileSystem::GetEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST");
+			std::ofstream report(path,std::ios::trunc);
+			report << (passed ? "PASS" : "FAIL") << '\n';
+			for (const auto& failure : failures)
+				report << failure << '\n';
+			report.flush();
+			if (!passed || !report.good())
+				LUX_CORE_ERROR_TAG("Editor", "Acoustic settings UI self-test failed; report '{}'", path);
+			else
+				LUX_CORE_INFO_TAG("Editor", "Acoustic settings UI self-test passed; report '{}'", path);
+		}
 
 		// Per-user, like App.lsettings. ImGui reads the ini lazily on its first frame, so this has to
 		// come before the startup splash draws one; it keeps a pointer, hence the member string.

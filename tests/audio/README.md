@@ -120,8 +120,9 @@ including bitwise direct loss, combined BVH/edge indices, masks and moving-only 
 propagation checks close an independently captured moving door against a static frame, remove
 it through the exclusion list and replace its grid without rebuilding the room. Kernel settings
 checks run the production YAML/runtime serializers: old blocks, nondefault values, all new
-fields, strict type/range/version/key checks and transactional rejection. Scene authoring and
-Play/runtime consumption are separate Phase 2 gates still to be implemented.
+fields, strict type/range/version/key checks and transactional rejection. Scene/Play transport
+and project authoring checks are described below; complete runtime/export and Scene corner/doorway
+validation remain separate Phase 2 gates.
 
 
 `AudioAcousticsTests.cpp` runs the production adapter with the real JobSystem, including blocked
@@ -131,6 +132,17 @@ budget fairness, smoothing, pruning and both worker/inline policies. The standar
 Linux occlusion runners include these checks. Actual Scene render-mesh capture and FMOD output
 are checked separately with `tests/rendering/golden_run.py --config debug --scenes FMODDemo --play`.
 The optional Play artifact does not establish Sponza corner/doorway behavior or GPU parity.
+
+Add `--audio-settings-ui` to run the shared Project Settings acoustic controls before the first
+editor frame. The isolated ImGui context drives numeric text input and both comparison toggle
+states, tests legacy Source independence, dirty results, all bounds, the direct-only profile and
+YAML round-trip. The runner requires a fresh `<scene>.audio-settings-ui.txt` containing PASS.
+No project file is edited. This exercises actual widgets in the native editor, but does not
+claim a complete visual panel walkthrough. For example:
+
+```sh
+python tests/rendering/golden_run.py --config debug --label acoustic-authoring --scenes FMODDemo --play --audio-settings-ui
+```
 
 `SoundwaveInstanceTests.cpp` checks shared local meshes and virtual hierarchy/edge indices,
 world-space trace/direct parity for mirrors, shear and nonuniform scale, deletion/source masks,
