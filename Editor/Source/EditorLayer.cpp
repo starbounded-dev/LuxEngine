@@ -59,6 +59,7 @@
 #include "Panels/ProfilerPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
+#include "Panels/SoundEditor/SoundEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -101,6 +102,7 @@ namespace Lux {
 #define GAME_VIEW_PANEL_ID "GameViewPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
+#define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
@@ -426,6 +428,19 @@ namespace Lux {
 		};
 		m_SceneHierarchyPanel->SetOpenMaterialCallback(openMaterialEditor);
 
+		Ref<SoundEditorPanel> soundEditorPanel = m_PanelManager->AddPanel<SoundEditorPanel>(PanelCategory::View, SOUND_EDITOR_PANEL_ID, "Sound Editor", false);
+		soundEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+		auto openSoundEditor = [this, soundEditorPanel](AssetHandle soundHandle) mutable
+		{
+			soundEditorPanel->OpenSound(soundHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SOUND_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+		m_SceneHierarchyPanel->SetOpenSoundCallback(openSoundEditor);
+
 		// Reads AudioEngine / RaytracedAudioScene directly and takes its scene from
 		// PanelManager::SetSceneContext; the handle is kept only so OnOverlayRender can read the
 		// panel's 3D visualisation settings.
@@ -585,6 +600,11 @@ namespace Lux {
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [openMaterialEditor](const AssetMetadata& metadata) mutable
 			{
 				openMaterialEditor(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Sound, [openSoundEditor](const AssetMetadata& metadata) mutable
+			{
+				openSoundEditor(metadata.Handle);
 			});
 
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)

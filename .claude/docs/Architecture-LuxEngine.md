@@ -624,6 +624,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
+  SoundEditor (`SoundEditor/`),
   LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,
   GameView.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
@@ -650,6 +651,19 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   stale material thumbnail at a time for the Content Browser, reading pixels back **on the render
   thread** (`Renderer::Submit`) and handing CPU pixels to `ThumbnailCache::SetThumbnailPixels`, so it
   never does a main-thread GPU readback.
+- Sound editing (`Panels/SoundEditor/`): `SoundEditorPanel` (View → Sound Editor) edits `Sound`
+  assets in tabs with explicit Save/Revert, the same way: widgets change the loaded asset, and each
+  finished edit (a `SoundState` snapshot of every authored field, valid or not) is one closure
+  command via `PushUndoCommand`. Save is refused while `Sound::Validate` fails or the YAML exceeds
+  `Sound::MaxFileBytes`. Tree edits go through `Sound::AddNode`/`WrapNode`/`RemoveNode` and parameter
+  renames and removals through `RenameParameterUses`/`RemoveParameterUses`, which the native tests
+  cover. Clips show `AudioFileUtils::GetWaveform` peaks (native only; decoded once per clip on the
+  main thread and cached) with draggable start-offset and loop-region handles; curves are edited on
+  a canvas (double-click adds, drag moves, right-click removes). Play auditions a 2D copy of the
+  Sound with handle 0 (outside its instance limit, cooldown and sequence step) through
+  `AudioEventInstance::Create(const Ref<Sound>&)`, owned by the panel so it plays in edit mode;
+  parameter sliders drive it live. It opens from a Content Browser double-click (`AssetType::Sound`)
+  and from the Audio Source inspector's Edit Sound button (`SceneHierarchyPanel::SetOpenSoundCallback`).
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
 - **No-project state + splash.** `SplashScreen` (`Editor/Source/SplashScreen.{h,cpp}`, callbacks only,

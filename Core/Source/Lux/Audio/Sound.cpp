@@ -176,6 +176,115 @@ namespace Lux
 		return it != Parameters.end() ? &*it : nullptr;
 	}
 
+	std::vector<int> Sound::GetParents() const
+	{
+		std::vector<int> parents(Nodes.size(), -1);
+		for (size_t index = 0; index < Nodes.size(); ++index)
+		{
+			for (const uint32_t child : Nodes[index].Children)
+			{
+				if (child < parents.size())
+					parents[child] = static_cast<int>(index);
+			}
+		}
+		return parents;
+	}
+
+	uint32_t Sound::AddNode(uint32_t parent, SoundNodeType type)
+	{
+		SoundNode node;
+		node.Type = type;
+		Nodes.push_back(std::move(node));
+		const auto index = static_cast<uint32_t>(Nodes.size() - 1);
+		Nodes[parent].Children.push_back(index);
+		return index;
+	}
+
+	uint32_t Sound::WrapNode(uint32_t index, SoundNodeType type)
+	{
+		SoundNode container;
+		container.Type = type;
+		if (index == 0)
+		{
+			SoundNode root = Nodes[0];
+			Nodes.push_back(std::move(root));
+			container.Children = { static_cast<uint32_t>(Nodes.size() - 1) };
+			Nodes[0] = std::move(container);
+			return 0;
+		}
+		const int parent = GetParents()[index];
+		container.Children = { index };
+		Nodes.push_back(std::move(container));
+		const auto wrapped = static_cast<uint32_t>(Nodes.size() - 1);
+		if (parent >= 0)
+		{
+			auto& siblings = Nodes[static_cast<size_t>(parent)].Children;
+			std::replace(siblings.begin(), siblings.end(), index, wrapped);
+		}
+		return wrapped;
+	}
+
+	void Sound::RemoveNode(uint32_t index)
+	{
+		if (index == 0 || index >= Nodes.size())
+			return;
+		const int parent = GetParents()[index];
+		std::vector<bool> removed(Nodes.size(), false);
+		std::vector<uint32_t> pending{ index };
+		while (!pending.empty())
+		{
+			const uint32_t next = pending.back();
+			pending.pop_back();
+			if (next >= removed.size() || removed[next])
+				continue;
+			removed[next] = true;
+			pending.insert(pending.end(), Nodes[next].Children.begin(), Nodes[next].Children.end());
+		}
+		if (parent >= 0)
+			std::erase(Nodes[static_cast<size_t>(parent)].Children, index);
+
+		std::vector<uint32_t> renumbered(Nodes.size(), 0);
+		std::vector<SoundNode> kept;
+		for (size_t node = 0; node < Nodes.size(); ++node)
+		{
+			if (removed[node])
+				continue;
+			renumbered[node] = static_cast<uint32_t>(kept.size());
+			kept.push_back(std::move(Nodes[node]));
+		}
+		for (auto& node : kept)
+		{
+			std::erase_if(node.Children, [&](uint32_t child) { return child >= removed.size() || removed[child]; });
+			for (auto& child : node.Children)
+				child = renumbered[child];
+		}
+		Nodes = std::move(kept);
+	}
+
+	void Sound::RenameParameterUses(const std::string& from, const std::string& to)
+	{
+		for (auto& node : Nodes)
+		{
+			if (Utils::String::EqualsIgnoreCase(node.SwitchParameter, from))
+				node.SwitchParameter = to;
+			for (auto& curve : node.Curves)
+			{
+				if (Utils::String::EqualsIgnoreCase(curve.Parameter, from))
+					curve.Parameter = to;
+			}
+		}
+	}
+
+	void Sound::RemoveParameterUses(const std::string& name)
+	{
+		for (auto& node : Nodes)
+		{
+			if (Utils::String::EqualsIgnoreCase(node.SwitchParameter, name))
+				node.SwitchParameter.clear();
+			std::erase_if(node.Curves, [&](const SoundCurve& curve) { return Utils::String::EqualsIgnoreCase(curve.Parameter, name); });
+		}
+	}
+
 	bool Sound::Validate(std::string* error) const
 	{
 		if (Bus.empty() || Bus.size() > kMaxBusBytes || !Bus.starts_with("bus:/") || Bus.find('\0') != std::string::npos)

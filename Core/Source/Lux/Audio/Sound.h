@@ -28,6 +28,8 @@ namespace Lux
 		float MinDistance = 1.0f;    // metres; full volume up to here
 		float MaxDistance = 50.0f;   // metres; attenuation stops here, and distance culling uses it
 		float Rolloff = 1.0f;
+
+		bool operator==(const SoundSpatialSettings&) const = default;
 	};
 
 	// What a Sound node does with its children when the Sound starts.
@@ -70,6 +72,7 @@ namespace Lux
 		std::vector<std::string> Labels;
 
 		bool IsLabeled() const { return !Labels.empty(); }
+		bool operator==(const SoundParameter&) const = default;
 	};
 
 	// A piecewise-linear map from a parameter's value to a target value, held flat beyond its first
@@ -81,6 +84,7 @@ namespace Lux
 		std::vector<glm::vec2> Points;   // (parameter value, target value)
 
 		float Evaluate(float value) const;
+		bool operator==(const SoundCurve&) const = default;
 	};
 
 	struct SoundNode
@@ -109,6 +113,8 @@ namespace Lux
 		float VolumeVariation = 0.0f;   // dB, 0 to 24: each start lowers the volume by up to this much
 		float PitchVariation = 0.0f;    // semitones, 0 to 12: each start shifts the pitch by up to this much either way
 		std::vector<SoundCurve> Curves;
+
+		bool operator==(const SoundNode&) const = default;
 	};
 
 	// A sound authored in the editor and played by the native audio backend (.lsound): a tree of
@@ -125,6 +131,7 @@ namespace Lux
 		static constexpr uint32_t MaxParameters = 32;
 		static constexpr uint32_t MaxInstanceLimit = 256;
 		static constexpr uint32_t MaxDepth = 64;   // nodes on the path from the root to any node
+		static constexpr size_t MaxFileBytes = 64 * 1024;   // the serialized YAML, at save, load and in packs
 
 		std::vector<SoundNode> Nodes{ SoundNode{} };   // one empty clip until authored
 		std::vector<SoundParameter> Parameters;
@@ -147,6 +154,21 @@ namespace Lux
 		// Every clip handle in the tree, once each, in node order.
 		std::vector<AssetHandle> GetClips() const;
 		const SoundParameter* FindParameter(const std::string& name) const;
+
+		// Tree editing, as the Sound editor does it. Indices are into Nodes; the root stays at 0.
+		// The parent of each node, or -1 for the root (and for a node no container lists).
+		std::vector<int> GetParents() const;
+		// Appends a node of the type as the parent's last child, and returns its index.
+		uint32_t AddNode(uint32_t parent, SoundNodeType type);
+		// Puts a new container where the node was, with the node as its only child, and returns the
+		// container's index. Wrapping the root moves the old root to the end.
+		uint32_t WrapNode(uint32_t index, SoundNodeType type);
+		// Removes a node (not the root) and everything under it, renumbering the rest.
+		void RemoveNode(uint32_t index);
+		// Renames a parameter's uses in switches and curves (the parameter itself is the caller's).
+		void RenameParameterUses(const std::string& from, const std::string& to);
+		// Clears switches on, and removes curves of, a parameter.
+		void RemoveParameterUses(const std::string& name);
 
 		// Writes the first problem to error, when given. An unassigned clip or an empty container is
 		// valid while authoring; playing it reports the problem.

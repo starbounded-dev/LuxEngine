@@ -35,6 +35,7 @@ namespace Lux {
 
 		// Invoked by the material slots' Edit buttons; the editor opens the Material Editor.
 		void SetOpenMaterialCallback(std::function<void(AssetHandle)> callback) { m_OpenMaterialCallback = std::move(callback); }
+		void SetOpenSoundCallback(std::function<void(AssetHandle)> callback) { m_OpenSoundCallback = std::move(callback); }
 	private:
 		void PruneInvalidSelection();
 		void QueueEntityDeletion(const std::vector<UUID>& entityIDs);
@@ -70,6 +71,7 @@ namespace Lux {
 		bool m_ActivateSearchWidget = false;
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
+		std::function<void(AssetHandle)> m_OpenSoundCallback;
 
 		static SelectionContext s_ActiveSelectionContext;
 	};

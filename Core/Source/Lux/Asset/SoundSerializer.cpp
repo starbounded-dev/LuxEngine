@@ -14,7 +14,7 @@ namespace Lux
 	namespace
 	{
 		// A Sound is a few hundred bytes; the cap only stops a damaged or hostile file.
-		constexpr uint64_t k_MaxSoundBytes = 64 * 1024;
+		constexpr uint64_t k_MaxSoundBytes = Sound::MaxFileBytes;
 
 		bool ReadSoundFile(const AssetMetadata& metadata, std::string& outText)
 		{
@@ -63,7 +63,12 @@ namespace Lux
 		file << text;
 		file.flush();
 		if (!file)
+		{
 			LUX_CORE_ERROR_TAG("Audio", "Failed to save sound '{}'", metadata.FilePath.string());
+			return;
+		}
+		// An edit may have added or removed clips.
+		RegisterClips(*sound, metadata.Handle);
 	}
 
 	bool SoundSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

@@ -21,6 +21,7 @@
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Serialization/Yaml.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -349,6 +350,33 @@ namespace
 		CHECK(defaults.FromYAML("Sound: { Version: 1 }") && defaults.Bus == "bus:/" && defaults.Spatial.Enabled && defaults.Nodes[0].Clip == 0
 			&& !defaults.Loops() && defaults.GetClips().empty());
 		CHECK(Sound::CreateForClip(5)->Nodes[0].Clip == 5);
+
+		// Tree editing, as the Sound editor does it: every result is a valid tree.
+		Sound edited = *Sound::CreateForClip(5);
+		CHECK(edited.WrapNode(0, SoundNodeType::Random) == 0); // the root clip moves under a new Random root
+		CHECK(edited.Nodes.size() == 2 && edited.Nodes[0].Type == SoundNodeType::Random && edited.Nodes[0].Children == std::vector<uint32_t>{ 1 }
+			&& edited.Nodes[1].Clip == 5 && edited.Validate());
+		const uint32_t layer = edited.AddNode(0, SoundNodeType::Layer);
+		const uint32_t a = edited.AddNode(layer, SoundNodeType::Clip), b = edited.AddNode(layer, SoundNodeType::Clip);
+		edited.Nodes[a].Clip = 6;
+		edited.Nodes[b].Clip = 7;
+		CHECK(edited.Validate() && edited.GetParents() == std::vector<int>({ -1, 0, 0, 2, 2 }));
+		const uint32_t wrapped = edited.WrapNode(a, SoundNodeType::Sequence);
+		CHECK(edited.Nodes[layer].Children == std::vector<uint32_t>({ wrapped, b }) && edited.Nodes[wrapped].Children == std::vector<uint32_t>{ a }
+			&& edited.Validate());
+		edited.RemoveNode(layer); // the layer, its sequence and both clips go; indices close up
+		CHECK(edited.Nodes.size() == 2 && edited.Nodes[0].Children == std::vector<uint32_t>{ 1 } && edited.Nodes[1].Clip == 5 && edited.Validate());
+		edited.RemoveNode(0); // the root stays
+		CHECK(edited.Nodes.size() == 2);
+		edited.Parameters = { { "Surface", 0.0f, 1.0f, 0.0f, { "Grass", "Stone" } } };
+		edited.Nodes[0].Type = SoundNodeType::Switch;
+		edited.Nodes[0].SwitchParameter = "surface";
+		edited.Nodes[1].Curves.push_back({ "SURFACE", SoundCurveTarget::Volume, { { 0.0f, 1.0f } } });
+		edited.Parameters[0].Name = "Ground";
+		edited.RenameParameterUses("Surface", "Ground");
+		CHECK(edited.Nodes[0].SwitchParameter == "Ground" && edited.Nodes[1].Curves[0].Parameter == "Ground" && edited.Validate());
+		edited.RemoveParameterUses("ground");
+		CHECK(edited.Nodes[0].SwitchParameter.empty() && edited.Nodes[1].Curves.empty());
 
 		// Depth: a chain of 64 nodes is valid, 65 is not.
 		Sound chain;
@@ -1014,7 +1042,16 @@ namespace
 		const auto ogg = AudioFileUtils::GetFileInfo(std::filesystem::path(LUX_NATIVE_AUDIO_FIXTURES) / "tone.ogg");
 		CHECK(ogg && ogg->SamplingRate == 48000 && ogg->NumChannels == 2);
 		CHECK(!AudioFileUtils::GetFileInfo(s_Directory / "missing.wav"));
-		std::puts("PASS: audio file metadata without an engine");
+		// Waveform peaks: a constant-level tone peaks at its amplitude in every slice.
+		const auto tone = WriteTone("waveform.wav", 500.0, 0.5, 0.5);
+		const auto peaks = AudioFileUtils::GetWaveform(tone, 100);
+		CHECK(peaks && peaks->size() == 100);
+		for (const float peak : *peaks)
+			CHECK_NEAR(peak, 0.5, 0.01);
+		CHECK(!AudioFileUtils::GetWaveform(tone, 0) && !AudioFileUtils::GetWaveform(s_Directory / "missing.wav", 100));
+		const auto stereo = AudioFileUtils::GetWaveform(std::filesystem::path(LUX_NATIVE_AUDIO_FIXTURES) / "tone.ogg", 16);
+		CHECK(stereo && stereo->size() == 16 && *std::min_element(stereo->begin(), stereo->end()) > 0.1f);
+		std::puts("PASS: audio file metadata and waveform peaks without an engine");
 	}
 }
 

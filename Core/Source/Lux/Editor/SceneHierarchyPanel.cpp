@@ -1341,6 +1341,14 @@ namespace Lux {
 				});
 			}
 			ImGui::PopItemFlag();
+			if (m_OpenSoundCallback && !mixed && sound && AssetManager::GetAssetType(sound) == AssetType::Sound)
+			{
+				ImGui::NextColumn();
+				ImGuiEx::ShiftCursorY(4.0f);
+				if (ImGui::SmallButton(std::format("{}  Edit Sound##edit_audio_source_sound", LUX_ICON_PENCIL).c_str()))
+					m_OpenSoundCallback(sound);
+				ImGui::NextColumn();
+			}
 			if (!component.Event.Guid.empty())
 			{
 				ImGuiEx::ShiftCursor(10.0f, 9.0f);

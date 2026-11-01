@@ -468,7 +468,7 @@ auditioned in the editor.
 
 **Docs:** Architecture 2.10 (Sound model).
 
-**Status — model and playback done (3a, 3b); the Sound editor (3c) and Content Browser work (3d) are
+**Status — model, playback and the Sound editor done (3a–3c); the Content Browser work (3d) is
 next.**
 - **Model:** as planned. Curves live on any node, so "layer volume" is a Volume curve on a Layer's
   child. Sequence steps are shared by every instance of a Sound. Parameter names compare
@@ -478,6 +478,14 @@ next.**
   node gained a one-pole high-pass. `AudioEngine::GetEventParameter`/`GetEventParameterLabel` answer
   from the Sound. `AudioEventInstance::Create(const Ref<Sound>&)` plays an in-memory Sound for the
   editor's audition (FMOD refuses it).
+- **Sound editor:** `Editor/Source/Panels/SoundEditor/SoundEditorPanel` as planned (tabs, tree with
+  add, wrap, reorder and remove, clip waveform with start-offset and loop handles, parameters, curve
+  canvas, audition with live parameter sliders, undo, Save/Revert). Tree editing lives on `Sound`
+  (`AddNode`, `WrapNode`, `RemoveNode`, parameter renames), where the native tests cover it. The
+  audition is 2D and ignores the Sound's limits and cooldown. Waveforms come from
+  `AudioFileUtils::GetWaveform` (native only). Saving re-registers the Sound's clip dependencies.
+  Not verified here: driving the panel in the editor (no display), so the ImGui checks were done by
+  reading the code.
 - **Streaming:** the `AudioStreaming` `Lux::Thread` runs the resource manager's jobs; it is stopped
   after the voices at shutdown, or by its owner's destructor at exit.
 - **Found by the tests:**

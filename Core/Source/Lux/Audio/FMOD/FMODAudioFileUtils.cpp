@@ -47,4 +47,9 @@ namespace Lux::AudioFileUtils
 		return AudioFileInfo{ frames / static_cast<double>(sampleRate), static_cast<uint32_t>(sampleRate),
 			static_cast<uint16_t>(bits), static_cast<uint16_t>(channels), size };
 	}
+
+	std::optional<std::vector<float>> GetWaveform(const std::filesystem::path&, uint32_t)
+	{
+		return {}; // waveforms belong to the Sound editor, which is for the native backend
+	}
 }

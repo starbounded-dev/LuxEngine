@@ -5,6 +5,8 @@
 #include "Lux/Audio/AudioFileUtils.h"
 #include "Miniaudio.h"
 
+#include <algorithm>
+#include <cmath>
 #include <type_traits>
 
 namespace Lux::AudioFileUtils
@@ -49,5 +51,53 @@ namespace Lux::AudioFileUtils
 		}
 		return AudioFileInfo{ static_cast<double>(frames) / sampleRate, sampleRate,
 			static_cast<uint16_t>(ma_get_bytes_per_sample(format) * 8), static_cast<uint16_t>(channels), size };
+	}
+
+	std::optional<std::vector<float>> GetWaveform(const std::filesystem::path& filepath, uint32_t buckets)
+	{
+		constexpr uint32_t kMaxBuckets = 65536;
+		constexpr ma_uint64 kChunkFrames = 4096;
+		if (buckets == 0 || buckets > kMaxBuckets)
+			return {};
+		// Float at the file's own channel count and rate: peaks are measured, not resampled.
+		const ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
+		ma_decoder decoder;
+		ma_result result = OpenDecoder(filepath.c_str(), &config, &decoder);
+		if (result != MA_SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot read the waveform of '{0}': {1}", filepath.string(), ma_result_description(result));
+			return {};
+		}
+		ma_uint32 channels = 0;
+		ma_uint64 length = 0;
+		result = ma_decoder_get_data_format(&decoder, nullptr, &channels, nullptr, nullptr, 0);
+		if (result == MA_SUCCESS)
+			result = ma_decoder_get_length_in_pcm_frames(&decoder, &length);
+		if (result != MA_SUCCESS || channels == 0 || length == 0)
+		{
+			ma_decoder_uninit(&decoder);
+			LUX_CORE_ERROR_TAG("Audio", "Cannot read the waveform of '{0}': {1}", filepath.string(),
+				result != MA_SUCCESS ? ma_result_description(result) : "it has no audio");
+			return {};
+		}
+		std::vector<float> peaks(buckets, 0.0f);
+		std::vector<float> chunk(kChunkFrames * channels);
+		ma_uint64 position = 0;
+		while (position < length)
+		{
+			ma_uint64 read = 0;
+			result = ma_decoder_read_pcm_frames(&decoder, chunk.data(), kChunkFrames, &read);
+			for (ma_uint64 frame = 0; frame < read; ++frame)
+			{
+				const size_t bucket = static_cast<size_t>(std::min<ma_uint64>((position + frame) * buckets / length, buckets - 1));
+				for (ma_uint32 channel = 0; channel < channels; ++channel)
+					peaks[bucket] = std::max(peaks[bucket], std::min(1.0f, std::abs(chunk[frame * channels + channel])));
+			}
+			position += read;
+			if (result != MA_SUCCESS || read == 0)
+				break; // MA_AT_END, or a decode error part way: show what was read
+		}
+		ma_decoder_uninit(&decoder);
+		return peaks;
 	}
 }
