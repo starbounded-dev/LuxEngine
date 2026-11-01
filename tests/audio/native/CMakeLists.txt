@@ -63,8 +63,13 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Audio/AudioBankManifest.cpp"
     "${LUX_SOURCE}/Audio/AudioEventRefSerializer.cpp"
     "${LUX_SOURCE}/Audio/Sound.cpp"
+    "${LUX_SOURCE}/Audio/PhysicsAudioSystem.cpp"
+    "${LUX_SOURCE}/Audio/AudioSurfaceTable.cpp"
+    "${LUX_SOURCE}/Audio/AcousticMaterial.cpp"
     "${LUX_SOURCE}/Core/UUID.cpp"
     "${LUX_SOURCE}/Core/Ref.cpp"
+    "${LUX_SOURCE}/Utilities/StringUtils.cpp"
+    $<IF:$<BOOL:${WIN32}>,${LUX_ROOT}/Core/Platform/Windows/WindowsThread.cpp,${LUX_ROOT}/Core/Platform/Linux/LinuxThread.cpp>
     "${LUX_SOURCE}/Serialization/Yaml.cpp"
     "${LUX_SOURCE}/Serialization/StreamWriter.cpp"
     "${LUX_SOURCE}/Serialization/StreamReader.cpp"
@@ -75,6 +80,7 @@ target_include_directories(lux_native_backend_tests PRIVATE
     "${LUX_ROOT}/Core/vendor/glm"
     "${LUX_ROOT}/Core/vendor/spdlog/include"
     "${LUX_ROOT}/Core/vendor/rapidyaml"
+    "${LUX_ROOT}/Core/vendor" # choc, as StringUtils.cpp includes it
     "${MINIAUDIO_ROOT}"
     "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_compile_definitions(lux_native_backend_tests PRIVATE

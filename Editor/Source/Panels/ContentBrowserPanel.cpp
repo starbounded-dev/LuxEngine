@@ -1508,7 +1508,7 @@ namespace Lux {
 		std::string name = "New Sound";
 		if (clip && AssetManager::GetAssetType(clip) == AssetType::Audio)
 		{
-			sound.Clip = clip;
+			sound.Nodes.front().Clip = clip;
 			name = Project::GetEditorAssetManager()->GetMetadata(clip).FilePath.stem().string();
 		}
 		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / (name + ".lsound"));

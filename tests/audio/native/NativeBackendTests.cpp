@@ -18,6 +18,7 @@
 #include "Lux/Audio/Sound.h"
 #include "Lux/Audio/Native/NativeInternal.h"
 #include "Lux/Audio/Native/Miniaudio.h"
+#include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Serialization/Yaml.h"
 
 #include <cmath>
@@ -28,6 +29,7 @@
 #include <functional>
 #include <map>
 #include <numbers>
+#include <thread>
 
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); std::exit(EXIT_FAILURE); } } while (0)
 #define CHECK_NEAR(value, expected, tolerance) do { const double v_ = (value), e_ = (expected); if (!(std::abs(v_ - e_) <= (tolerance))) { \
@@ -43,12 +45,8 @@ namespace
 	std::filesystem::path s_Directory;
 	Lux::AudioPerformanceSettings s_Performance;
 
-	struct Entry
-	{
-		Lux::Ref<Lux::Sound> Asset;
-		std::filesystem::path Clip;
-	};
-	std::map<uint64_t, Entry> s_Sounds;
+	std::map<uint64_t, Lux::Ref<Lux::Sound>> s_Sounds;
+	std::map<uint64_t, std::filesystem::path> s_Clips;
 	uint64_t s_NextHandle = 1000;
 }
 
@@ -65,7 +63,7 @@ namespace Lux
 		return config;
 	}
 
-	bool NativeInternal::ResolveSound(const std::string& reference, ResolvedSound& outSound, std::string& outError)
+	bool NativeInternal::ResolveSound(const std::string& reference, Ref<Sound>& outSound, std::string& outError)
 	{
 		uint64_t handle = 0;
 		const auto it = ParseHandle(reference, handle) ? s_Sounds.find(handle) : s_Sounds.end();
@@ -74,8 +72,19 @@ namespace Lux
 			outError = "not in the test table";
 			return false;
 		}
-		outSound.Asset = it->second.Asset;
-		outSound.Clip = it->second.Clip;
+		outSound = it->second;
+		return true;
+	}
+
+	bool NativeInternal::ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError)
+	{
+		const auto it = s_Clips.find(static_cast<uint64_t>(clip));
+		if (it == s_Clips.end())
+		{
+			outError = "clip not in the test table";
+			return false;
+		}
+		outPath = it->second;
 		return true;
 	}
 
@@ -105,16 +114,50 @@ namespace
 		return path;
 	}
 
+	// An audio asset handle for a file.
+	AssetHandle AddClip(const std::filesystem::path& file)
+	{
+		const uint64_t handle = s_NextHandle++;
+		s_Clips[handle] = file;
+		return handle;
+	}
+
+	// A Sound in the table; its root node plays the clip when one is given.
 	std::string AddSound(const std::filesystem::path& clip, const std::function<void(Sound&)>& configure = {})
 	{
 		auto sound = Ref<Sound>::Create();
 		sound->Handle = s_NextHandle++;
-		sound->Clip = 1; // any audio asset; the table supplies the file
+		if (!clip.empty())
+			sound->Nodes.front().Clip = AddClip(clip);
 		if (configure)
 			configure(*sound);
-		CHECK(sound->Validate());
-		s_Sounds[static_cast<uint64_t>(sound->Handle)] = { sound, clip };
+		std::string error;
+		if (!sound->Validate(&error))
+			std::fprintf(stderr, "invalid test sound: %s\n", error.c_str());
+		CHECK(error.empty());
+		s_Sounds[static_cast<uint64_t>(sound->Handle)] = sound;
 		return std::to_string(static_cast<uint64_t>(sound->Handle));
+	}
+
+	SoundNode ClipNode(AssetHandle clip, const std::function<void(SoundNode&)>& configure = {})
+	{
+		SoundNode node;
+		node.Clip = clip;
+		if (configure)
+			configure(node);
+		return node;
+	}
+
+	// A root container of the given type over clip children.
+	void Container(Sound& sound, SoundNodeType type, std::vector<SoundNode> children)
+	{
+		sound.Nodes.assign(1, SoundNode{});
+		sound.Nodes[0].Type = type;
+		for (auto& child : children)
+		{
+			sound.Nodes[0].Children.push_back(static_cast<uint32_t>(sound.Nodes.size()));
+			sound.Nodes.push_back(std::move(child));
+		}
 	}
 
 	std::vector<float> Render(uint64_t frames)
@@ -127,7 +170,9 @@ namespace
 			const uint64_t count = std::min(kBlock, frames - done);
 			ma_uint64 read = 0;
 			CHECK(ma_engine_read_pcm_frames(engine, pcm.data() + done * 2, count, &read) == MA_SUCCESS);
-			CHECK(read == count);
+			// With nothing attached to the endpoint miniaudio renders nothing (a device fills silence);
+			// the buffer is already zero.
+			CHECK(read == count || read == 0);
 			done += count;
 		}
 		return pcm;
@@ -241,28 +286,108 @@ namespace
 		const auto old = Yaml::Load("Event: { Guid: '{1}', Path: event:/A, BankName: B }");
 		CHECK(AudioEventRefSerializer::Read(old["Event"]).Sound == 0 && AudioEventRefSerializer::Read(old["Event"]).Guid == "{1}");
 
+		// Version 2: every field of the tree survives a roundtrip, and writing it again is identical.
 		Sound sound;
-		sound.Clip = 77;
 		sound.Bus = "bus:/SFX";
 		sound.Volume = 0.5f;
 		sound.Pitch = 1.25f;
-		sound.Loop = true;
 		sound.Spatial = { false, SoundAttenuation::Linear, 2.0f, 30.0f, 0.5f };
+		sound.InstanceLimit = 4;
+		sound.Steal = SoundStealPolicy::Quietest;
+		sound.Cooldown = 0.25f;
+		sound.Stream = true;
+		sound.Parameters = { { "Speed", 0.0f, 10.0f, 2.5f, {} }, { "Surface", 0.0f, 2.0f, 1.0f, { "Grass", "Stone", "Water" } } };
+		Container(sound, SoundNodeType::Layer, {});
+		sound.Nodes[0].Name = "Root";
+		sound.Nodes[0].Curves.push_back({ "Speed", SoundCurveTarget::Volume, { { 0.0f, 1.0f }, { 10.0f, 0.5f } } });
+		sound.Nodes[0].Children = { 1, 2 };
+		SoundNode random;
+		random.Type = SoundNodeType::Random;
+		random.AvoidRepeat = true;
+		random.Children = { 3, 4 };
+		random.VolumeVariation = 6.0f;
+		random.PitchVariation = 2.0f;
+		SoundNode surface;
+		surface.Type = SoundNodeType::Switch;
+		surface.SwitchParameter = "Surface";
+		surface.Children = { 5 };
+		surface.Curves.push_back({ "Speed", SoundCurveTarget::LowPass, { { 0.0f, 500.0f }, { 5.0f, 8000.0f } } });
+		surface.Curves.push_back({ "Speed", SoundCurveTarget::HighPass, { { 0.0f, 20.0f } } });
+		sound.Nodes.push_back(random);
+		sound.Nodes.push_back(surface);
+		sound.Nodes.push_back(ClipNode(77, [](SoundNode& n) { n.Weight = 3.0f; n.StartOffset = 0.5f; }));
+		sound.Nodes.push_back(ClipNode(78, [](SoundNode& n) { n.Loop = true; n.HasLoopRegion = true; n.LoopStart = 0.25f; n.LoopEnd = 1.5f; n.Volume = 0.75f; n.Pitch = 0.5f; }));
+		sound.Nodes.push_back(ClipNode(78, [](SoundNode& n) { n.Name = "Step"; }));
+		std::string error;
+		CHECK(sound.Validate(&error));
 		Sound restored;
 		CHECK(restored.FromYAML(sound.ToYAML()));
-		CHECK(restored.Clip == 77 && restored.Bus == "bus:/SFX" && restored.Volume == 0.5f && restored.Pitch == 1.25f && restored.Loop
-			&& !restored.Spatial.Enabled && restored.Spatial.Attenuation == SoundAttenuation::Linear && restored.Spatial.MinDistance == 2.0f
-			&& restored.Spatial.MaxDistance == 30.0f && restored.Spatial.Rolloff == 0.5f);
+		CHECK(restored.ToYAML() == sound.ToYAML());
+		CHECK(restored.Bus == "bus:/SFX" && restored.Volume == 0.5f && restored.Pitch == 1.25f && !restored.Spatial.Enabled
+			&& restored.Spatial.Attenuation == SoundAttenuation::Linear && restored.Spatial.MinDistance == 2.0f && restored.Spatial.MaxDistance == 30.0f
+			&& restored.Spatial.Rolloff == 0.5f && restored.InstanceLimit == 4 && restored.Steal == SoundStealPolicy::Quietest
+			&& restored.Cooldown == 0.25f && restored.Stream && restored.Loops());
+		CHECK(restored.Nodes.size() == 6 && restored.Nodes[2].SwitchParameter == "Surface" && restored.Nodes[1].AvoidRepeat
+			&& restored.Nodes[4].HasLoopRegion && restored.Nodes[4].LoopEnd == 1.5f && restored.Nodes[3].Weight == 3.0f
+			&& restored.Nodes[2].Curves.size() == 2 && restored.Nodes[2].Curves[1].Target == SoundCurveTarget::HighPass);
+		CHECK(restored.Parameters.size() == 2 && restored.Parameters[1].Labels.size() == 3 && restored.Parameters[1].Maximum == 2.0f
+			&& restored.Parameters[0].Default == 2.5f);
+		CHECK(restored.GetClips() == std::vector<AssetHandle>({ 77, 78 }));
+		CHECK(restored.FindParameter("speed") == &restored.Parameters[0] && !restored.FindParameter("Pace"));
+
+		// Curves are piecewise linear and flat outside their points.
+		const SoundCurve& lowPass = restored.Nodes[2].Curves[0];
+		CHECK_NEAR(lowPass.Evaluate(-1.0f), 500.0, 0.0);
+		CHECK_NEAR(lowPass.Evaluate(2.5f), 4250.0, 1e-3);
+		CHECK_NEAR(lowPass.Evaluate(99.0f), 8000.0, 0.0);
+
+		// Version 1 (Phase 2's single clip) becomes a root clip node.
+		Sound migrated;
+		CHECK(migrated.FromYAML("Sound: { Version: 1, Clip: 77, Loop: true, Volume: 0.5 }"));
+		CHECK(migrated.Nodes.size() == 1 && migrated.Nodes[0].Clip == 77 && migrated.Nodes[0].Loop && migrated.Volume == 0.5f && migrated.Loops());
 		Sound defaults;
-		CHECK(defaults.FromYAML("Sound: { Version: 1 }") && defaults.Bus == "bus:/" && defaults.Spatial.Enabled && defaults.Clip == 0);
-		for (const char* bad : { "Sound: { Pitch: 0 }", "Sound: { Volume: 5 }", "Sound: { Bus: SFX }", "Sound: { Version: 2 }",
-			"Sound: { Spatial: { MinDistance: 10, MaxDistance: 5 } }", "Sound: { Spatial: { Attenuation: Cubic } }", "Other: {}", "Sound: [1]" })
+		CHECK(defaults.FromYAML("Sound: { Version: 1 }") && defaults.Bus == "bus:/" && defaults.Spatial.Enabled && defaults.Nodes[0].Clip == 0
+			&& !defaults.Loops() && defaults.GetClips().empty());
+		CHECK(Sound::CreateForClip(5)->Nodes[0].Clip == 5);
+
+		// Depth: a chain of 64 nodes is valid, 65 is not.
+		Sound chain;
+		chain.Nodes.assign(64, SoundNode{});
+		for (uint32_t i = 0; i + 1 < 64; ++i)
+		{
+			chain.Nodes[i].Type = SoundNodeType::Layer;
+			chain.Nodes[i].Children = { i + 1 };
+		}
+		CHECK(chain.Validate());
+		chain.Nodes.back().Type = SoundNodeType::Layer;
+		chain.Nodes.back().Children = { 64 };
+		chain.Nodes.push_back(SoundNode{});
+		CHECK(!chain.Validate(&error) && error.find("deeper") != std::string::npos);
+
+		for (const char* bad : { "Sound: { Pitch: 0 }", "Sound: { Volume: 5 }", "Sound: { Bus: SFX }", "Sound: { Version: 3 }",
+			"Sound: { Spatial: { MinDistance: 10, MaxDistance: 5 } }", "Sound: { Spatial: { Attenuation: Cubic } }", "Other: {}", "Sound: [1]",
+			"Sound: { Version: 2 }", "Sound: { Version: 2, Nodes: [] }", "Sound: { Version: 2, Nodes: [{ Type: Blend }] }",
+			"Sound: { Version: 2, Steal: Newest, Nodes: [{ Type: Clip }] }", "Sound: { Version: 2, Cooldown: 61, Nodes: [{ Type: Clip }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Layer, Children: [1] }, { Type: Clip, Children: [0] }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Layer, Children: [1, 1] }, { Type: Clip }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Layer, Children: [2] }, { Type: Clip }, { Type: Clip }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Layer, Children: [5] }, { Type: Clip }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Clip, Children: [1] }, { Type: Clip }] }",
+			"Sound: { Version: 2, Parameters: [{ Name: A }, { Name: a }], Nodes: [{ Type: Clip }] }",
+			"Sound: { Version: 2, Parameters: [{ Name: A, Minimum: 1, Maximum: 1 }], Nodes: [{ Type: Clip }] }",
+			"Sound: { Version: 2, Parameters: [{ Name: A, Labels: [X, X] }], Nodes: [{ Type: Clip }] }",
+			"Sound: { Version: 2, Parameters: [{ Name: A }], Nodes: [{ Type: Switch, SwitchParameter: A, Children: [1] }, { Type: Clip }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Clip, Curves: [{ Parameter: Missing, Target: Volume, Points: [[0, 1]] }] }] }",
+			"Sound: { Version: 2, Parameters: [{ Name: A }], Nodes: [{ Type: Clip, Curves: [{ Parameter: A, Target: Volume, Points: [[1, 1], [0, 1]] }] }] }",
+			"Sound: { Version: 2, Parameters: [{ Name: A }], Nodes: [{ Type: Clip, Curves: [{ Parameter: A, Target: LowPass, Points: [[0, 5]] }] }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Clip, LoopRegion: [2, 1] }] }",
+			"Sound: { Version: 2, Nodes: [{ Type: Clip, VolumeVariation: 30 }] }" })
 		{
 			Sound target = restored;
 			CHECK(!target.FromYAML(bad));
-			CHECK(target.Clip == 77 && target.Bus == "bus:/SFX"); // a failed load changes nothing
+			CHECK(target.ToYAML() == restored.ToYAML()); // a failed load changes nothing
 		}
-		std::puts("PASS: Sound YAML and both AudioEventRef forms roundtrip; output without a Sound is unchanged");
+		std::puts("PASS: Sound YAML v2 tree and v1 migration, validation, curves, and both AudioEventRef forms roundtrip");
 	}
 
 	void TestCurves()
@@ -305,7 +430,7 @@ namespace
 	{
 		Start();
 		const auto tone = WriteTone("pan.wav", 500.0, 1.0);
-		const auto flat = AddSound(tone, [](Sound& s) { s.Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
+		const auto flat = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
 		const Level right = PlayAt(flat, { 2.0f, 0.0f, 0.0f });
 		const Level left = PlayAt(flat, { -2.0f, 0.0f, 0.0f });
 		const Level front = PlayAt(flat, { 0.0f, 0.0f, -2.0f });
@@ -317,11 +442,11 @@ namespace
 		// the side (its own comment calls out the loss). Pinned so an update that changes it is noticed.
 		CHECK_NEAR(front.Left / right.Right, 0.5, 0.01);
 
-		const auto inverse = AddSound(tone, [](Sound& s) { s.Loop = true; });
+		const auto inverse = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; });
 		const Level oneMetre = PlayAt(inverse, { 0.0f, 0.0f, -1.0f });
 		const Level fourMetres = PlayAt(inverse, { 0.0f, 0.0f, -4.0f });
 		CHECK_NEAR(fourMetres.Left / oneMetre.Left, 0.25, 0.002);
-		const auto linear = AddSound(tone, [](Sound& s) { s.Loop = true; s.Spatial.Attenuation = SoundAttenuation::Linear; s.Spatial.MaxDistance = 11.0f; });
+		const auto linear = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Attenuation = SoundAttenuation::Linear; s.Spatial.MaxDistance = 11.0f; });
 		CHECK_NEAR(PlayAt(linear, { 0.0f, 0.0f, -6.0f }).Left / PlayAt(linear, { 0.0f, 0.0f, -1.0f }).Left, 0.5, 0.002);
 
 		// Panning follows the listener: moving it past the source swaps the sides.
@@ -336,7 +461,7 @@ namespace
 	{
 		Start();
 		const auto tone = WriteTone("listeners.wav", 500.0, 1.0);
-		const auto sound = AddSound(tone, [](Sound& s) { s.Loop = true; });
+		const auto sound = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; });
 		const glm::vec3 source{ 0.0f, 0.0f, -4.0f };
 		const double alone = PlayAt(sound, source).Left;
 
@@ -367,8 +492,8 @@ namespace
 	void TestOcclusion()
 	{
 		Start();
-		const auto low = AddSound(WriteTone("low.wav", 100.0, 1.0), [](Sound& s) { s.Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
-		const auto high = AddSound(WriteTone("high.wav", 10000.0, 1.0), [](Sound& s) { s.Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
+		const auto low = AddSound(WriteTone("low.wav", 100.0, 1.0), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
+		const auto high = AddSound(WriteTone("high.wav", 10000.0, 1.0), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
 		const glm::vec3 front{ 0.0f, 0.0f, -2.0f };
 		const auto occlude = [](float gain) { return [gain](AudioEventInstance& instance) { instance.SetAcoustics({ gain, 0.0f }); }; };
 		const double lowOpen = PlayAt(low, front).Left;
@@ -383,7 +508,7 @@ namespace
 		CHECK_NEAR(lowRatio, 0.25, 0.003);
 		CHECK_NEAR(highRatio, 0.25 * 0.48, 0.01);
 		// 2D voices are never occluded.
-		const auto flat = AddSound(WriteTone("flat.wav", 100.0, 1.0), [](Sound& s) { s.Loop = true; s.Spatial.Enabled = false; });
+		const auto flat = AddSound(WriteTone("flat.wav", 100.0, 1.0), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
 		const double flatOpen = PlayAt(flat, front).Left;
 		CHECK_NEAR(PlayAt(flat, { 0.0f, 0.0f, -500.0f }, occlude(0.1f)).Left / flatOpen, 1.0, 1e-6);
 		AudioEngine::Shutdown();
@@ -395,8 +520,8 @@ namespace
 		s_Performance.MuteWhenUnfocused = true;
 		Start();
 		const auto tone = WriteTone("volume.wav", 500.0, 1.0);
-		const auto sound = AddSound(tone, [](Sound& s) { s.Loop = true; s.Spatial.Enabled = false; });
-		const auto quiet = AddSound(tone, [](Sound& s) { s.Loop = true; s.Spatial.Enabled = false; s.Volume = 0.5f; });
+		const auto sound = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
+		const auto quiet = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Volume = 0.5f; });
 		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
 		const double full = PlayAt(sound, front).Left;
 		CHECK(full > 0.3);
@@ -471,7 +596,7 @@ namespace
 		CHECK(notifications.size() == 1 && notifications[0].Handle == 42);
 
 		// A loop keeps playing, and its timeline wraps.
-		const auto loop = AddSound(WriteTone("loop.wav", 500.0, 0.5), [](Sound& s) { s.Loop = true; s.Spatial.Enabled = false; });
+		const auto loop = AddSound(WriteTone("loop.wav", 500.0, 0.5), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
 		auto looping = AudioEventInstance::Create(loop);
 		CHECK(looping && !looping->IsOneShot() && looping->GetLength() == 500);
 		looping->SetTimelinePosition(250);
@@ -507,6 +632,380 @@ namespace
 		std::puts("PASS: one-shot end notifications, restart, stop, looping timeline, pitch, unsupported calls, shutdown safety");
 	}
 
+	// Starts an instance and returns the longest clip the start chose: the tests tell children apart
+	// by their clips' lengths.
+	int Chosen(AudioEventInstance& instance)
+	{
+		CHECK(instance.Start());
+		return static_cast<int>(std::lround(instance.GetPlaybackStatus().Duration * 1000.0f));
+	}
+
+	Ref<AudioEventInstance> Monitored(const std::string& reference)
+	{
+		auto instance = AudioEventInstance::Create(reference);
+		CHECK(instance && instance->MonitorPlayback());
+		return instance;
+	}
+
+	void TestContainers()
+	{
+		Start();
+		NativeInternal::SeedRandom(7);
+		const AssetHandle short_ = AddClip(WriteTone("c100.wav", 500.0, 0.1));
+		const AssetHandle medium = AddClip(WriteTone("c200.wav", 500.0, 0.2));
+		const AssetHandle long_ = AddClip(WriteTone("c300.wav", 500.0, 0.3));
+		const auto flat = [](Sound& s) { s.Spatial.Enabled = false; };
+
+		// Random: by weight, and a weight of 0 is never chosen.
+		const auto weighted = AddSound({}, [&](Sound& s) { flat(s); Container(s, SoundNodeType::Random,
+			{ ClipNode(short_, [](SoundNode& n) { n.Weight = 3.0f; }), ClipNode(medium), ClipNode(long_, [](SoundNode& n) { n.Weight = 0.0f; }) }); });
+		auto random = Monitored(weighted);
+		std::map<int, int> counts;
+		for (int i = 0; i < 400; ++i)
+			++counts[Chosen(*random)];
+		CHECK(counts[300] == 0 && counts[100] + counts[200] == 400);
+		CHECK(counts[100] > 260 && counts[100] < 340); // 300 expected; 4 standard deviations is 35
+
+		// Avoid repeat: never the same child twice in a row, and every child still plays.
+		const auto varied = AddSound({}, [&](Sound& s) { flat(s); Container(s, SoundNodeType::Random, { ClipNode(short_), ClipNode(medium), ClipNode(long_) });
+			s.Nodes[0].AvoidRepeat = true; });
+		auto avoiding = Monitored(varied);
+		counts.clear();
+		int previous = 0;
+		for (int i = 0; i < 90; ++i)
+		{
+			const int chosen = Chosen(*avoiding);
+			CHECK(chosen != previous);
+			previous = chosen;
+			++counts[chosen];
+		}
+		CHECK(counts.size() == 3 && counts[100] > 10 && counts[200] > 10 && counts[300] > 10);
+
+		// Sequence: each start plays the next child, and every instance of the Sound shares the step.
+		const auto stepped = AddSound({}, [&](Sound& s) { flat(s); Container(s, SoundNodeType::Sequence, { ClipNode(short_), ClipNode(medium), ClipNode(long_) }); });
+		auto first = Monitored(stepped), second = Monitored(stepped);
+		CHECK(Chosen(*first) == 100 && Chosen(*first) == 200 && Chosen(*second) == 300 && Chosen(*first) == 100);
+		CHECK(first->GetLength() == 300); // the longest clip it can play, before and after starting
+
+		// Switch: the labelled parameter's value picks the child, case-insensitively by name.
+		const auto switched = AddSound({}, [&](Sound& s) { flat(s);
+			s.Parameters = { { "Surface", 0.0f, 2.0f, 1.0f, { "Grass", "Stone", "Water" } } };
+			Container(s, SoundNodeType::Switch, { ClipNode(short_), ClipNode(medium), ClipNode(long_) });
+			s.Nodes[0].SwitchParameter = "Surface"; });
+		auto surface = Monitored(switched);
+		CHECK(Chosen(*surface) == 200); // the default label
+		CHECK(surface->SetParameterLabel("surface", "Water") && Chosen(*surface) == 300 && surface->GetParameter("SURFACE") == 2.0f);
+		CHECK(surface->SetParameter("Surface", 7.0f) && surface->GetParameter("Surface") == 2.0f); // clamped
+		CHECK(surface->SetParameter("Surface", 0.4f) && surface->GetParameter("Surface") == 0.0f && Chosen(*surface) == 100); // rounded
+		CHECK(!surface->SetParameterLabel("Surface", "Lava") && !surface->SetParameter("Speed", 1.0f));
+		AudioEventParameterInfo info;
+		CHECK(AudioEngine::GetEventParameter(switched, "SURFACE", info) && info.Name == "Surface" && info.Labeled && info.Discrete
+			&& info.Minimum == 0.0f && info.Maximum == 2.0f && info.Default == 1.0f);
+		std::string label, error;
+		CHECK(AudioEngine::GetEventParameterLabel(switched, "Surface", 2, label, error) && label == "Water");
+		CHECK(!AudioEngine::GetEventParameterLabel(switched, "Surface", 3, label, error) && !error.empty());
+		CHECK(!AudioEngine::GetEventParameter(switched, "Speed", info));
+
+		// Let the one-shots above finish before measuring levels.
+		Render(kRate / 2);
+		CHECK(NativeInternal::CountPlayingVoices() > 0);
+		AudioEngine::Update();
+		CHECK(NativeInternal::CountPlayingVoices() == 0);
+
+		// Layer: every child together. Two copies of one tone in phase are twice as loud as one.
+		const AssetHandle loop = AddClip(WriteTone("layer.wav", 500.0, 0.5));
+		const auto looped = [](SoundNode& n) { n.Loop = true; };
+		const auto single = AddSound({}, [&](Sound& s) { flat(s); Container(s, SoundNodeType::Layer, { ClipNode(loop, looped) }); });
+		const auto doubled = AddSound({}, [&](Sound& s) { flat(s); Container(s, SoundNodeType::Layer, { ClipNode(loop, looped), ClipNode(loop, looped) }); });
+		const double one = PlayAt(single, glm::vec3(0.0f)).Left;
+		CHECK(one > 0.3);
+		CHECK_NEAR(PlayAt(doubled, glm::vec3(0.0f)).Left / one, 2.0, 1e-4);
+
+		// Node volumes multiply down the path.
+		const auto nested = AddSound({}, [&](Sound& s) { flat(s); s.Volume = 0.5f;
+			Container(s, SoundNodeType::Layer, { ClipNode(loop, [](SoundNode& n) { n.Loop = true; n.Volume = 0.5f; }) }); s.Nodes[0].Volume = 0.8f; });
+		CHECK_NEAR(PlayAt(nested, glm::vec3(0.0f)).Left / one, 0.2, 1e-4);
+
+		// What cannot play reports and refuses to start: an unassigned clip, or no child with weight.
+		const auto empty = AddSound({}, flat);
+		CHECK(!AudioEventInstance::Create(empty)->Start());
+		const auto weightless = AddSound({}, [&](Sound& s) { flat(s); Container(s, SoundNodeType::Random, { ClipNode(short_, [](SoundNode& n) { n.Weight = 0.0f; }) }); });
+		CHECK(!AudioEventInstance::Create(weightless)->Start());
+		AudioEngine::Shutdown();
+		std::puts("PASS: random by weight, avoid-repeat, step sequence, switch by label, layers, node volumes, unplayable trees refused");
+	}
+
+	void TestCurvesAndVariation()
+	{
+		Start();
+		NativeInternal::SeedRandom(11);
+		const auto tone = WriteTone("curve.wav", 500.0, 1.0);
+		const auto distance = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false;
+			s.Parameters = { { "Distance", 0.0f, 1.0f, 0.0f, {} } };
+			s.Nodes[0].Curves.push_back({ "Distance", SoundCurveTarget::Volume, { { 0.0f, 1.0f }, { 1.0f, 0.25f } } }); });
+		auto instance = Play(distance, glm::vec3(0.0f));
+		const double full = Measure().Left;
+		CHECK(instance->SetParameter("distance", 1.0f)); // applies to a playing voice
+		CHECK_NEAR(Measure().Left / full, 0.25, 1e-4);
+		CHECK(instance->SetParameter("Distance", 0.5f));
+		CHECK_NEAR(Measure().Left / full, 0.625, 1e-4);
+		instance->Stop();
+
+		// Filter curves: a low-pass at 5 kHz costs a 10 kHz tone about 6.4 dB, as occlusion does; a
+		// high-pass at 10 kHz all but removes 100 Hz, and one at 20 Hz leaves 10 kHz alone.
+		const auto filtered = [](float lowPass, float highPass)
+		{
+			return [=](Sound& s)
+			{
+				s.Nodes[0].Loop = true;
+				s.Spatial.Enabled = false;
+				s.Parameters = { { "Any", 0.0f, 1.0f, 0.0f, {} } };
+				if (lowPass > 0.0f)
+					s.Nodes[0].Curves.push_back({ "Any", SoundCurveTarget::LowPass, { { 0.0f, lowPass } } });
+				if (highPass > 0.0f)
+					s.Nodes[0].Curves.push_back({ "Any", SoundCurveTarget::HighPass, { { 0.0f, highPass } } });
+			};
+		};
+		const auto high = WriteTone("curve-high.wav", 10000.0, 1.0), low = WriteTone("curve-low.wav", 100.0, 1.0);
+		const double highOpen = PlayAt(AddSound(high, filtered(0.0f, 0.0f)), glm::vec3(0.0f)).Left;
+		const double lowOpen = PlayAt(AddSound(low, filtered(0.0f, 0.0f)), glm::vec3(0.0f)).Left;
+		CHECK_NEAR(PlayAt(AddSound(high, filtered(5000.0f, 0.0f)), glm::vec3(0.0f)).Left / highOpen, 0.48, 0.01);
+		CHECK(PlayAt(AddSound(low, filtered(0.0f, 10000.0f)), glm::vec3(0.0f)).Left / lowOpen < 0.05);
+		CHECK_NEAR(PlayAt(AddSound(high, filtered(0.0f, 20.0f)), glm::vec3(0.0f)).Left / highOpen, 1.0, 0.01);
+
+		// A pitch curve: at 2x the 0.1 s clip ends within 0.06 s.
+		const auto shot = AddSound(WriteTone("curve-shot.wav", 500.0, 0.1), [](Sound& s) { s.Spatial.Enabled = false;
+			s.Parameters = { { "Rate", 0.0f, 1.0f, 0.0f, {} } };
+			s.Nodes[0].Curves.push_back({ "Rate", SoundCurveTarget::Pitch, { { 0.0f, 1.0f }, { 1.0f, 2.0f } } }); });
+		auto fast = AudioEventInstance::Create(shot);
+		CHECK(fast->SetParameter("Rate", 1.0f) && fast->Start());
+		Render(kRate * 6 / 100);
+		CHECK(!fast->IsPlaying());
+
+		// Volume variation lowers each start by up to its decibels, and differs between starts.
+		const auto varied = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Nodes[0].VolumeVariation = 12.0f; });
+		double quietest = 1.0, loudest = 0.0;
+		for (int i = 0; i < 16; ++i)
+		{
+			const double ratio = PlayAt(varied, glm::vec3(0.0f)).Left / full;
+			CHECK(ratio > 0.25 - 1e-4 && ratio < 1.0 + 1e-4);
+			quietest = std::min(quietest, ratio);
+			loudest = std::max(loudest, ratio);
+		}
+		CHECK(loudest / quietest > 1.5);
+		AudioEngine::Shutdown();
+		std::puts("PASS: volume, pitch, low-pass and high-pass curves, live parameter changes, volume variation");
+	}
+
+	void TestLimits()
+	{
+		Start();
+		const auto tone = WriteTone("limit.wav", 500.0, 1.0);
+		const auto limited = [](SoundStealPolicy steal)
+		{
+			return [=](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.InstanceLimit = 2; s.Steal = steal; };
+		};
+
+		const auto oldest = AddSound(tone, limited(SoundStealPolicy::Oldest));
+		auto a = Monitored(oldest), b = Monitored(oldest), c = Monitored(oldest);
+		CHECK(a->Start());
+		Render(kBlock);
+		CHECK(b->Start());
+		Render(kBlock);
+		CHECK(c->Start() && !a->IsPlaying() && a->GetPlaybackStatus().Stopped && b->IsPlaying() && c->IsPlaying());
+		CHECK(b->Start() && b->IsPlaying() && c->IsPlaying()); // restarting a playing instance takes no new slot
+		for (auto* instance : { a.Raw(), b.Raw(), c.Raw() })
+			instance->Stop();
+
+		const auto quietest = AddSound(tone, limited(SoundStealPolicy::Quietest));
+		a = Monitored(quietest), b = Monitored(quietest), c = Monitored(quietest);
+		b->SetVolume(0.2f);
+		CHECK(a->Start() && b->Start() && c->Start() && a->IsPlaying() && !b->IsPlaying() && c->IsPlaying());
+		for (auto* instance : { a.Raw(), c.Raw() })
+			instance->Stop();
+
+		const auto refuse = AddSound(tone, limited(SoundStealPolicy::None));
+		a = Monitored(refuse), b = Monitored(refuse), c = Monitored(refuse);
+		CHECK(a->Start() && b->Start() && !c->Start() && a->IsPlaying() && b->IsPlaying() && !c->IsPlaying());
+		a->Stop();
+		CHECK(c->Start()); // a slot is free again
+		b->Stop();
+		c->Stop();
+
+		// Cooldown: a start sooner than the cooldown after the last start is refused. It is measured in
+		// real time, which keeps running while nothing plays.
+		const auto cooled = AddSound(tone, [](Sound& s) { s.Spatial.Enabled = false; s.Cooldown = 0.2f; });
+		a = Monitored(cooled), b = Monitored(cooled);
+		CHECK(a->Start() && !b->Start());
+		a->Stop();
+		CHECK(!b->Start());
+		std::this_thread::sleep_for(std::chrono::milliseconds(250));
+		CHECK(b->Start());
+		AudioEngine::Shutdown();
+		std::puts("PASS: instance limits with oldest, quietest and no stealing; cooldown");
+	}
+
+	void TestStreaming()
+	{
+		Start();
+		// Longer than miniaudio's one-second stream pages, so playing it needs the streaming thread
+		// to read pages while the voice plays.
+		const auto tone = WriteTone("stream.wav", 500.0, 2.5);
+		const auto streamed = AddSound(tone, [](Sound& s) { s.Spatial.Enabled = false; s.Stream = true; });
+		auto instance = Monitored(streamed);
+		CHECK(instance->GetLength() == 2500 && instance->Start());
+		const uint64_t blocks = kRate * 5 / 2 / kBlock;
+		for (uint64_t block = 0; block < blocks; ++block)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1)); // a tenth of real time
+			CHECK(Rms(Render(kBlock), 0) > 0.3);
+		}
+		Render(kBlock * 2);
+		AudioEngine::Update();
+		CHECK(!instance->IsPlaying() && instance->GetPlaybackStatus().Stopped);
+
+		// Every frame of a clip plays, streamed or decoded: the last block of the 2.5 s clip is full.
+		for (const bool stream : { true, false })
+		{
+			const auto whole = AddSound(tone, [=](Sound& s) { s.Spatial.Enabled = false; s.Stream = stream; });
+			auto voice = Play(whole, glm::vec3(0.0f));
+			for (uint64_t block = 0; block + 1 < blocks; ++block)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1)); // time for the streaming thread
+				Render(kBlock);
+			}
+			const auto tail = Render(kBlock * 2);
+			int last = -1;
+			for (int frame = 0; frame < static_cast<int>(kBlock * 2); ++frame)
+				last = tail[frame * 2] != 0.0f ? frame : last;
+			CHECK(last == static_cast<int>(kBlock) - 1); // the clip's last frame is the block's last
+		}
+
+		// Seeking a stream, and shutting down with streams still open.
+		const auto looped = AddSound(tone, [](Sound& s) { s.Spatial.Enabled = false; s.Stream = true; s.Nodes[0].Loop = true; });
+		auto first = Play(looped, glm::vec3(0.0f)), second = Play(looped, glm::vec3(0.0f));
+		first->SetTimelinePosition(2000);
+		Render(kBlock); // the voice applies the seek, and the streaming thread loads the page
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		Render(kBlock);
+		const int position = first->GetTimelinePosition();
+		CHECK(position >= 2010 && position <= 2020);
+		AudioEngine::Shutdown();
+		CHECK(!first->IsValid() && !second->IsValid());
+		std::puts("PASS: streamed Sounds play through page loads, seek, and shut down cleanly");
+	}
+
+	// Level of the mix over the next 100 ms (no settle: one-shots are short).
+	double Level100()
+	{
+		return Rms(Render(kRate / 10), 0);
+	}
+
+	// PhysicsAudioSystem against native Sounds, as tests/audio/PhysicsAudioTests.cpp does against FMOD:
+	// a Surface switch picks the clip, and Impulse, Speed and Weight curves set the volume.
+	void TestPhysicsAudio()
+	{
+		Start();
+		// The surface labels are the acoustic material names, so a material's index is its label.
+		SoundParameter surface{ "Surface", 0.0f, static_cast<float>(AcousticMaterialCount - 1), 0.0f, {} };
+		for (const char* name : AcousticMaterialNames)
+			surface.Labels.push_back(name);
+		const AssetHandle shortClip = AddClip(WriteTone("surface-short.wav", 500.0, 0.2));
+		const AssetHandle longClip = AddClip(WriteTone("surface-long.wav", 500.0, 0.6));
+		const AssetHandle loopClip = AddClip(WriteTone("surface-loop.wav", 500.0, 0.5));
+		const auto bySurface = [&](Sound& s, bool loop)
+		{
+			s.Spatial.Enabled = false;
+			s.Parameters.push_back(surface);
+			std::vector<SoundNode> children;
+			for (size_t material = 0; material < AcousticMaterialCount; ++material)
+			{
+				// Metal and Grass are told apart by length: 0.2 s and 0.6 s.
+				const AssetHandle clip = loop ? loopClip : material == static_cast<size_t>(AcousticMaterial::Grass) ? longClip : shortClip;
+				children.push_back(ClipNode(clip, [=](SoundNode& n) { n.Loop = loop; }));
+			}
+			Container(s, SoundNodeType::Switch, std::move(children));
+			s.Nodes[0].SwitchParameter = "Surface";
+		};
+		const auto hit = AddSound({}, [&](Sound& s)
+		{
+			bySurface(s, false);
+			s.Parameters.push_back({ "Impulse", 0.0f, 10.0f, 0.0f, {} });
+			s.Parameters.push_back({ "Speed", 0.0f, 10.0f, 0.0f, {} });
+			s.Parameters.push_back({ "Weight", 0.0f, 100.0f, 0.0f, {} });
+			s.Nodes[0].Curves.push_back({ "Impulse", SoundCurveTarget::Volume, { { 0.0f, 1.0f }, { 2.0f, 0.5f }, { 4.0f, 1.0f } } });
+			s.Nodes[0].Curves.push_back({ "Weight", SoundCurveTarget::Volume, { { 0.0f, 1.0f }, { 80.0f, 0.8f } } });
+			s.Nodes[0].Curves.push_back({ "Speed", SoundCurveTarget::Volume, { { 0.0f, 1.0f }, { 4.0f, 0.5f } } });
+		});
+		const auto motion = AddSound({}, [&](Sound& s)
+		{
+			bySurface(s, true);
+			s.Parameters.push_back({ "Speed", 0.0f, 10.0f, 0.0f, {} });
+			s.Nodes[0].Curves.push_back({ "Speed", SoundCurveTarget::Volume, { { 0.0f, 0.0f }, { 6.0f, 1.0f } } });
+		});
+		const double full = PlayAt(AddSound(WriteTone("surface-ref.wav", 500.0, 1.0), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; }),
+			glm::vec3(0.0f)).Left;
+
+		AudioSurfaceTable table;
+		PhysicsAudioSystem system;
+		PhysicsAudioContact contact;
+		contact.Key = { 1, 2, 3, 4 };
+		contact.Owner = 10;
+		contact.Other = 20;
+		contact.Impulse = 2.0f;
+		contact.SlipSpeed = 3.0f;
+		contact.Material = AcousticMaterial::Metal;
+		contact.Sounds.Impact = AudioEventRef::FromReference(hit);
+		contact.Sounds.Scrape = AudioEventRef::FromReference(motion);
+		system.Contact(contact, table);
+		CHECK(NativeInternal::CountPlayingVoices() == 1);
+		CHECK_NEAR(Level100() / full, 0.5, 1e-3); // the Impulse curve at 2
+		system.Contact(contact, table); // the same manifold again: no second impact
+		CHECK(NativeInternal::CountPlayingVoices() == 1);
+		Render(kRate / 5);
+		AudioEngine::Update();
+		CHECK(NativeInternal::CountPlayingVoices() == 0); // Metal is the 0.2 s clip
+
+		// A new manifold starts the shared scrape loop, whose Speed curve sets its volume.
+		contact.Key[2] = 5;
+		system.Contact(contact, table);
+		system.Update(0.0f, false, table);
+		CHECK(system.GetContactCount() == 2 && NativeInternal::CountPlayingVoices() == 1); // the impact is cooling down
+		Render(kSettle);
+		CHECK_NEAR(Level100() / full, 0.5, 1e-3);
+		contact.SlipSpeed = 6.0f;
+		system.Contact(contact, table);
+		system.Update(0.0f, false, table);
+		Render(kSettle);
+		CHECK_NEAR(Level100() / full, 1.0, 1e-3);
+		system.Update(1.0f, true, table); // paused: silent, and the cooldown does not advance
+		CHECK(Level100() == 0.0);
+		system.Update(0.4f, false, table);
+		contact.Key[2] = 7;
+		system.Contact(contact, table);
+		CHECK(NativeInternal::CountPlayingVoices() == 2); // the cooldown passed: a second impact
+		system.Remove(20);
+		CHECK(system.GetContactCount() == 0);
+		Render(kBlock);
+		AudioEngine::Update();
+		CHECK(NativeInternal::CountPlayingVoices() == 0);
+
+		// Footsteps: Surface picks the 0.6 s Grass clip; Speed 4 and Weight 80 scale it by 0.5 x 0.8.
+		CHECK(system.Footstep(10, AudioEventRef::FromReference(hit), AcousticMaterial::Grass, glm::vec3(0.0f), 4.0f, 80.0f));
+		CHECK_NEAR(Level100() / full, 0.4, 1e-3);
+		Render(kRate * 4 / 10);
+		AudioEngine::Update();
+		CHECK(NativeInternal::CountPlayingVoices() == 1);
+		Render(kRate / 5);
+		AudioEngine::Update();
+		CHECK(NativeInternal::CountPlayingVoices() == 0);
+		CHECK(!system.Footstep(10, AudioEventRef::FromReference(motion), AcousticMaterial::Grass, glm::vec3(0.0f), 4.0f, 80.0f)); // a loop
+		CHECK(!system.Footstep(10, AudioEventRef::FromReference(hit), AcousticMaterial::Grass, glm::vec3(0.0f), NAN, 80.0f));
+		system.Clear();
+		AudioEngine::Shutdown();
+		std::puts("PASS: physics audio on native Sounds: Surface switch, Impulse/Speed/Weight curves, scrape loop, cooldown, footsteps");
+	}
+
 	void TestFileInfo()
 	{
 		const auto info = AudioFileUtils::GetFileInfo(std::filesystem::path(LUX_NATIVE_AUDIO_FIXTURES) / "tone.wav");
@@ -533,6 +1032,11 @@ int main(int argc, char** argv)
 	TestVolumeAndBuses();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
+	TestContainers();
+	TestCurvesAndVariation();
+	TestLimits();
+	TestStreaming();
+	TestPhysicsAudio();
 	TestFileInfo();
 	std::puts("All native backend checks passed");
 	return 0;

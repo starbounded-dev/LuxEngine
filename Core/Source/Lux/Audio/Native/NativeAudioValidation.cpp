@@ -32,20 +32,32 @@ namespace Lux
 		std::set<std::filesystem::path> checkedClips;
 		for (const auto& reference : references)
 		{
-			NativeInternal::ResolvedSound sound;
+			Ref<Sound> sound;
 			std::string error;
 			if (!NativeInternal::ResolveSound(reference.Event.GetReference(), sound, error))
 			{
 				Issue(report, true, reference.Location, "Sound is unavailable: " + error);
 				continue;
 			}
-			used.insert(static_cast<uint64_t>(sound.Asset->Handle));
+			used.insert(static_cast<uint64_t>(sound->Handle));
+			if (!sound->Validate(&error))
+				Issue(report, true, reference.Location, "Sound is invalid: " + error);
 			if (reference.Kind == AudioReferenceKind::Snapshot)
 				Issue(report, true, reference.Location, "Snapshots are not supported by the native backend yet");
-			else if (reference.Kind == AudioReferenceKind::Loop && !sound.Asset->Loop)
+			else if (reference.Kind == AudioReferenceKind::Loop && !sound->Loops())
 				Issue(report, true, reference.Location, "Referenced sound must loop");
-			if (checkedClips.insert(sound.Clip).second && !AudioFileUtils::GetFileInfo(sound.Clip))
-				Issue(report, true, reference.Location, "Sound clip cannot be decoded: " + sound.Clip.string());
+			const bool unassigned = std::any_of(sound->Nodes.begin(), sound->Nodes.end(),
+				[](const SoundNode& node) { return node.Type == SoundNodeType::Clip && !node.Clip; });
+			if (unassigned)
+				Issue(report, true, reference.Location, "Sound has a clip node with no audio clip assigned");
+			for (const AssetHandle clip : sound->GetClips())
+			{
+				std::filesystem::path file;
+				if (!NativeInternal::ResolveClip(clip, file, error))
+					Issue(report, true, reference.Location, "Sound clip is unavailable: " + error);
+				else if (checkedClips.insert(file).second && !AudioFileUtils::GetFileInfo(file))
+					Issue(report, true, reference.Location, "Sound clip cannot be decoded: " + file.string());
+			}
 		}
 		report.ReferencedEvents = used.size();
 		const auto catalog = AssetManager::GetAllAssetsWithType<Sound>();

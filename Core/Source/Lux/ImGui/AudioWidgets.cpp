@@ -72,7 +72,7 @@ namespace Lux::ImGuiEx
 		{
 			ScopedID id(label);
 			bool changed = false;
-			const auto fits = [&](const Sound& sound) { return sound.Loop != oneShot && (!require2D || !sound.Spatial.Enabled); };
+			const auto fits = [&](const Sound& sound) { return sound.Loops() != oneShot && (!require2D || !sound.Spatial.Enabled); };
 			const AssetHandle assigned = reference.Sound;
 			const Ref<Sound> assignedSound = LoadSound(assigned);
 			const std::string preview = mixed ? "Multiple values" : !assigned ? "None" : SoundName(assigned);

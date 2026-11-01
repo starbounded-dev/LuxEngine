@@ -34,16 +34,15 @@ namespace Lux::NativeInternal {
 	// Null before AudioEngine::Init succeeds and after Shutdown.
 	ma_engine* GetEngine();
 
-	// A Sound ready to play: its settings, its handle and the absolute path of its clip.
-	struct ResolvedSound
-	{
-		Ref<Sound> Asset;
-		std::filesystem::path Clip;
-	};
 	// Resolves a playback reference: a Sound asset handle in decimal (AudioEventRef::GetReference) or
 	// a Sound's path relative to the project's Assets directory. False with the reason in outError.
 	// Defined in NativeSoundResolver.cpp against the asset manager; the native tests define their own.
-	bool ResolveSound(const std::string& reference, ResolvedSound& outSound, std::string& outError);
+	bool ResolveSound(const std::string& reference, Ref<Sound>& outSound, std::string& outError);
+	// The absolute path of a clip (an Audio asset). Defined beside ResolveSound.
+	bool ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError);
+
+	// Seeds the generator Random containers and variations draw from (the tests make choices repeatable).
+	void SeedRandom(uint32_t seed);
 
 	// A decimal asset handle: digits only and nonzero.
 	bool ParseHandle(const std::string& reference, uint64_t& outHandle);
@@ -64,7 +63,7 @@ namespace Lux::NativeInternal {
 	const ListenerSet& GetListeners();
 
 	// Voices (AudioEventInstance) live on the main thread; the engine drives them through these.
-	// Recomputes every 3D voice's distance gain and panning listener after a listener change.
+	// Recomputes every voice's gain, pitch, filters and panning listener after a listener change.
 	void RefreshVoices();
 	// Publishes end-of-playback to playback status and the script mailbox.
 	void PollVoices();

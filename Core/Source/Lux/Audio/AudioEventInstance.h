@@ -14,6 +14,8 @@
 
 namespace Lux {
 
+	class Sound;
+
 	// Ray-traced measurements consumed by authored Studio parameters.
 	struct AudioEventAcoustics
 	{
@@ -58,6 +60,9 @@ namespace Lux {
 		// not in any loaded bank, which is the normal outcome for a scene saved against banks that
 		// have not been built yet.
 		static Ref<AudioEventInstance> Create(const std::string& eventGuid);
+		// An instance of a Sound held in memory, such as the Sound editor's unsaved edits. Native
+		// backend only; the FMOD build refuses it.
+		static Ref<AudioEventInstance> Create(const Ref<Sound>& sound);
 
 		const std::string& GetReference() const { return m_Guid; }
 		bool IsOneShot() const;

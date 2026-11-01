@@ -468,6 +468,28 @@ auditioned in the editor.
 
 **Docs:** Architecture 2.10 (Sound model).
 
+**Status — model and playback done (3a, 3b); the Sound editor (3c) and Content Browser work (3d) are
+next.**
+- **Model:** as planned. Curves live on any node, so "layer volume" is a Volume curve on a Layer's
+  child. Sequence steps are shared by every instance of a Sound. Parameter names compare
+  case-insensitively, as FMOD's do. YAML version 2; version 1 Sounds load as a root clip node. Trees
+  are limited to 1024 nodes, 64 levels and 256 clips per start.
+- **Playback:** each start resolves the tree to leaf clips, one `ma_sound` and `VoiceNode` each; the
+  node gained a one-pole high-pass. `AudioEngine::GetEventParameter`/`GetEventParameterLabel` answer
+  from the Sound. `AudioEventInstance::Create(const Ref<Sound>&)` plays an in-memory Sound for the
+  editor's audition (FMOD refuses it).
+- **Streaming:** the `AudioStreaming` `Lux::Thread` runs the resource manager's jobs; it is stopped
+  after the voices at shutdown, or by its owner's destructor at exit.
+- **Found by the tests:**
+  - miniaudio 0.11.25 drops the last 192 frames of a clip decoded in its file's 16-bit format. The
+    resource manager now decodes to float, as `ma_engine`'s own does. This affected Phase 2 too.
+  - miniaudio's engine time stops while nothing plays, so cooldowns use a steady clock and stealing
+    uses start order.
+  - Restarting a voice re-decoded its clip; decoded clips now stay registered until shutdown.
+- **Checked here:** `tests/audio/native` under GCC, Clang and ASan/UBSan, 20 repeated runs and 4
+  parallel runs; every Core and Editor source compiled in both configurations (201 FMOD, 211 native;
+  the same 21 stop on SDK headers this container lacks).
+
 **Exit criteria:** tests pass; the sample `Fart` re-authored as a random container of one clip
 with pitch variation.
 

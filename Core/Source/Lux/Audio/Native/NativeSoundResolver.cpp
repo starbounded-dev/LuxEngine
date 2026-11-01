@@ -39,7 +39,7 @@ namespace Lux
 		}
 	}
 
-	bool NativeInternal::ResolveSound(const std::string& reference, ResolvedSound& outSound, std::string& outError)
+	bool NativeInternal::ResolveSound(const std::string& reference, Ref<Sound>& outSound, std::string& outError)
 	{
 		if (!Project::GetAssetManager())
 		{
@@ -54,30 +54,38 @@ namespace Lux
 			outError = "it is not a Sound asset";
 			return false;
 		}
-		const auto sound = AssetManager::GetAsset<Sound>(handle);
-		if (!sound)
+		outSound = AssetManager::GetAsset<Sound>(handle);
+		if (!outSound)
 		{
 			outError = "the Sound could not be loaded";
 			return false;
 		}
-		if (!sound->Clip || !AssetManager::IsAssetHandleValid(sound->Clip) || AssetManager::GetAssetType(sound->Clip) != AssetType::Audio)
+		return true;
+	}
+
+	bool NativeInternal::ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError)
+	{
+		if (!Project::GetAssetManager())
 		{
-			outError = "the Sound has no audio clip assigned";
+			outError = "no project is open";
 			return false;
 		}
-		std::filesystem::path clip;
+		if (!clip || !AssetManager::IsAssetHandleValid(clip) || AssetManager::GetAssetType(clip) != AssetType::Audio)
+		{
+			outError = "clip " + std::to_string(static_cast<uint64_t>(clip)) + " is not an audio asset";
+			return false;
+		}
+		outPath.clear();
 		if (auto* editor = dynamic_cast<EditorAssetManager*>(Project::GetAssetManager().Raw()))
-			clip = editor->GetFileSystemPath(sound->Clip);
-		else if (const auto file = AssetManager::GetAsset<AudioFile>(sound->Clip))
-			clip = Project::GetActiveAssetDirectory() / file->FilePath; // loose files until asset packs carry audio
+			outPath = editor->GetFileSystemPath(clip);
+		else if (const auto file = AssetManager::GetAsset<AudioFile>(clip))
+			outPath = Project::GetActiveAssetDirectory() / file->FilePath; // loose files until asset packs carry audio
 		std::error_code error;
-		if (clip.empty() || !std::filesystem::is_regular_file(clip, error))
+		if (outPath.empty() || !std::filesystem::is_regular_file(outPath, error))
 		{
-			outError = "its clip file is missing: " + clip.string();
+			outError = "the clip file is missing: " + outPath.string();
 			return false;
 		}
-		outSound.Asset = sound;
-		outSound.Clip = std::move(clip);
 		return true;
 	}
 

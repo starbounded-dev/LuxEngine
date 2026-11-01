@@ -444,6 +444,12 @@ namespace Lux {
 		return Ref<AudioEventInstance>::Create(std::move(impl), resolved, AudioEngine::GetEventGeneration());
 	}
 
+	Ref<AudioEventInstance> AudioEventInstance::Create(const Ref<Sound>&)
+	{
+		LUX_CORE_ERROR_TAG("Audio", "Sound assets play on the native audio backend (premake --audio-backend=native)");
+		return nullptr;
+	}
+
 	AudioEventInstance::~AudioEventInstance()
 	{
 		{

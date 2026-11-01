@@ -34,10 +34,11 @@ namespace Lux
 			return true;
 		}
 
-		void RegisterClip(const Sound& sound, AssetHandle handle)
+		void RegisterClips(const Sound& sound, AssetHandle handle)
 		{
 			AssetManager::DeregisterDependencies(handle);
-			AssetManager::RegisterDependency(sound.Clip, handle);
+			for (const AssetHandle clip : sound.GetClips())
+				AssetManager::RegisterDependency(clip, handle);
 		}
 	}
 
@@ -74,7 +75,7 @@ namespace Lux
 		if (!sound->FromYAML(text))
 			return false;
 		sound->Handle = metadata.Handle;
-		RegisterClip(*sound, metadata.Handle);
+		RegisterClips(*sound, metadata.Handle);
 		asset = sound;
 		return true;
 	}
@@ -84,7 +85,7 @@ namespace Lux
 		std::string text;
 		Sound sound;
 		if (ReadSoundFile(metadata, text) && sound.FromYAML(text))
-			RegisterClip(sound, metadata.Handle);
+			RegisterClips(sound, metadata.Handle);
 	}
 
 	bool SoundSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const

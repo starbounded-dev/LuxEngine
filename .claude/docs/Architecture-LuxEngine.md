@@ -793,15 +793,26 @@ key. Each build's pickers edit only their own field (`ImGuiEx::SurfaceEventPicke
 assets on native and FMOD events otherwise; the Audio Source inspector shows a Sound field on native,
 with any FMOD event shown read-only).
 
-**Sound assets (Phase 2).** `Sound` (`Audio/Sound.h`, `AssetType::Sound`, `.lsound`) is the native
-backend's playable asset, in the plan's minimal form: one `Clip` (an `Audio` asset), `Bus`
-(`bus:/...`; everything mixes through the master until the mixer exists), linear `Volume` (0–4),
-`Pitch` (above 0, up to 4), `Loop`, and `Spatial` (3D on/off, `SoundAttenuation`
-None/Inverse/Linear with miniaudio's formulas, min/max distance, rolloff). `SoundSerializer` writes
-bounded YAML (64 KiB at save, load, pack write and pack read), registers the clip as a dependency
-and is packable. Instances read the asset when created, so an edit applies to the next instance.
+**Sound assets (Phases 2–3).** `Sound` (`Audio/Sound.h`, `AssetType::Sound`, `.lsound`) is the
+native backend's playable asset: a tree of `SoundNode`s (`Nodes[0]` is the root; each other node has
+exactly one parent) plus `Parameters`, `Bus` (`bus:/...`; everything mixes through the master until
+the mixer exists), linear `Volume` (0–4), `Pitch` (above 0, up to 4), `Spatial` (3D on/off,
+`SoundAttenuation` None/Inverse/Linear with miniaudio's formulas, min/max distance, rolloff),
+`InstanceLimit` with `SoundStealPolicy` Oldest/Quietest/None, `Cooldown` (seconds) and `Stream`.
+Node types: **Clip** (an `Audio` asset with start offset, loop and optional loop region), **Random**
+(one child by `Weight`, optional avoid-repeat), **Sequence** (one child, the next each start; the
+step is shared by every instance of the Sound), **Layer** (all children) and **Switch** (the child at
+a labelled parameter's index). Every node has volume, pitch, volume variation (dB, each start lowers
+by up to it) and pitch variation (semitones, either way), and `SoundCurve`s mapping a parameter to
+Volume/Pitch (multiplied down the path), LowPass (lowest wins), HighPass (highest wins) or Send.
+`SoundParameter`s are continuous or labelled (values are label indices); names compare
+case-insensitively, like FMOD's. A Sound loops when any clip loops (`Loops()`). YAML is version 2;
+version 1 (Phase 2's single `Clip`/`Loop`) loads as a root clip node. `Validate` bounds every value
+and rejects malformed trees. `SoundSerializer` writes bounded YAML (64 KiB at save, load, pack write
+and pack read), registers every clip as a dependency and is packable. Each instance copies the Sound
+when created, so an edit applies to the next instance.
 The Content Browser offers **New → Sound** and **Create Sound** on an audio file (native builds
-only); there is no Sound editor panel yet, so other settings are edited in the YAML. C# scripts can
+only). C# scripts can
 declare `Lux.Sound` fields (`DataType::Sound`, editor-assignable like `Prefab`) and call
 `Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`, which pass the handle as the reference. The
 FMOD build reports such a reference as a Sound that needs the native backend.
@@ -813,13 +824,27 @@ set, voice registry) and `Miniaudio.h`, the only way native code includes miniau
 sizes, so every unit must agree. `MiniaudioImplementation.c` is miniaudio's single implementation
 unit (with stb_vorbis). `AudioEngine::Init` takes the active project's budgets
 (`NativeAudioEngineConfig.cpp`) and starts `ma_engine` on the default device, with a resource manager
-that has no job threads: a clip is decoded on the main thread when an instance is created, and
-instances of one clip share the decoded data. `NativeSoundResolver.cpp` turns a reference (a decimal
-handle, or a Sound path relative to Assets in the editor) into the Sound and its clip file; the
-native tests replace both of those files.
+that has no miniaudio job threads and decodes to float (16-bit decoded data loses the last 192 frames
+of every clip in miniaudio 0.11.25): a clip is decoded on the main thread the first time it plays and
+stays registered with the resource manager until shutdown, so instances and restarts share it.
+Streamed Sounds (`MA_SOUND_FLAG_STREAM`) post page jobs that the engine's `AudioStreaming` thread runs
+(see `Threading.md`). `NativeSoundResolver.cpp` turns a reference (a decimal handle, or a Sound path
+relative to Assets in the editor) into the Sound (`ResolveSound`) and a clip handle into its file
+(`ResolveClip`); the native tests replace both of those files and `NativeAudioEngineConfig.cpp`.
+`AudioEventInstance::Create(const Ref<Sound>&)` plays an in-memory Sound (the Sound editor's
+audition); the FMOD build refuses it.
 
-Each `AudioEventInstance` voice is an `ma_sound` feeding a per-voice `VoiceNode` and then the
-endpoint. The engine computes distance gain itself: per active listener, `Attenuate(distance to its
+Each `AudioEventInstance::Start` resolves the tree into leaf clips (Random and Switch pick, Sequence
+steps, Layers multiply; at most 256 clips and 64 levels), rolls each leaf's variation, and gives each
+leaf an `ma_sound` feeding its own `VoiceNode` and then the endpoint. A leaf's gain, pitch and filters
+combine the values and curves of every node on its path with the instance's volume, pitch, distance
+gain and occlusion, and are recomputed when a parameter, position, listener or acoustics change.
+`SetParameter` clamps (and rounds labelled values); `SetParameterLabel` selects by label;
+`AudioEngine::GetEventParameter`/`GetEventParameterLabel` answer from the Sound. Before a start,
+`GetLength` is the longest clip (from the files' headers) and a timeline position is held for the
+start. The instance limit counts the Sound's playing instances and steals the first started or the
+quietest, or refuses; the cooldown is measured on a steady clock (miniaudio's engine time stops while
+nothing plays) and a refused start returns false without an error. The engine computes distance gain itself: per active listener, `Attenuate(distance to its
 attenuation point)`, weighted by listener weights normalized to sum to 1 (FMOD's "closest listeners
 up to 100%" rule with every listener counted, as the FMOD bridge normalizes too), times Sound and
 instance volume and occlusion. miniaudio only pans, toward the listener contributing most; its
@@ -828,19 +853,20 @@ equal minimum and maximum distance (exactly 1). miniaudio's pan law plays a soun
 half the near-side level per channel; that is upstream behaviour, pinned by a test. `SetAcoustics`
 applies `OcclusionGainLF` as gain and a one-pole low-pass (6 dB/octave, the mass-law slope) at
 `max(125 Hz, 20 kHz × gain)`; unoccluded at unity gain the node copies its input exactly. 2D voices
-are never occluded or attenuated. `ReverbSend` is stored for the mixer's reverb return. Pause is
+are never occluded or attenuated. The same node applies the Sound's HighPass curves as a one-pole
+high-pass. `ReverbSend` (and the Send curve) are stored for the mixer's reverb return. Pause is
 layered (`ma_sound_stop` keeps the cursor); `Start` restarts like FMOD; a finished voice is never
 resumed. `AudioEngine::Update` polls miniaudio's end flag and publishes stopped status and script
 notifications. Shutdown advances the event generation, then frees every voice before the engine, so
 wrappers held past it are inert. The master bus (`bus:/`) has volume and mute; focus mute combines
 with them on the endpoint.
 
-Not native yet, and reported once rather than per call: Sound parameters, snapshots, music timeline
+Not native yet, and reported once rather than per call: snapshots, music timeline
 notifications, programmer sounds, other buses and VCAs, global parameters, voice virtualization
 (priority is stored), mixer CPU/memory statistics (`HasMixerStats` false), bus meters and the
 accessibility mixer (captions and cues work; category gains, mono and compression do not).
-`AudioValidation::ValidateBanks` validates Sounds instead of banks (each reference resolves to a Sound
-with a decodable clip and the right loop kind; unreferenced Sounds are listed). The editor skips the
+`AudioValidation::ValidateBanks` validates Sounds instead of banks (each reference resolves to a valid Sound
+whose clips are all assigned and decodable, with the right loop kind; unreferenced Sounds are listed). The editor skips the
 FMOD bank pipeline, Project Settings says so, and runtime export is blocked until asset packs carry
 Sound audio. A Lux-Runtime built native skips an export's FMOD bank manifest with a warning.
 

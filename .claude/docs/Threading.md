@@ -417,17 +417,25 @@ operations; console suspend/resume integration is deferred.
 
 ## Native audio backend (`--audio-backend=native`)
 
-The native backend (`Core/Source/Lux/Audio/Native/`, miniaudio) adds exactly one thread, and it is
-miniaudio's: the **device callback**, which runs the node graph like FMOD's mixer thread. It reads
-only miniaudio state and each voice's `VoiceNode` parameters, two relaxed `std::atomic<float>`s
-(target gain and occlusion cutoff) written on the main thread; its ramp and filter state are touched
-only by that callback. It takes no engine lock and never reaches the ECS, Coral, assets or ImGui.
+The native backend (`Core/Source/Lux/Audio/Native/`, miniaudio) adds two threads:
+
+- miniaudio's **device callback**, which runs the node graph like FMOD's mixer thread. It reads only
+  miniaudio state and each leaf's `VoiceNode` parameters, three relaxed `std::atomic<float>`s (target
+  gain, low-pass and high-pass cutoff) written on the main thread; its ramp and filter state are
+  touched only by that callback. It takes no engine lock and never reaches the ECS, Coral, assets or
+  ImGui.
+- **`AudioStreaming`**, a `Lux::Thread` started by `AudioEngine::Init` (`NativeAudioEngine.cpp`). It
+  only runs `ma_resource_manager_process_next_job`, which blocks until streamed Sounds post a job
+  (open, read the next page, seek, close) and returns `MA_CANCELLED` for the quit job. `Shutdown`
+  releases every voice first, because closing a stream waits for this thread to run the close job,
+  then posts the quit job and joins it; the owner's destructor does the same if the process exits
+  without `Shutdown`. It touches only miniaudio's resource manager.
 
 Everything else is main-thread, the same contract as FMOD's: every `AudioEngine`, `AudioEventInstance`
-and `AudioListener` call; voice creation, which decodes the clip synchronously on the main thread
-through a resource manager with **no job threads** (a stream option will move this to a named
-`Lux::Thread`); node attach and detach (`ma_sound_uninit`/`ma_node_uninit` wait for the callback to
-release the voice); and end-of-playback, which `AudioEngine::Update` detects by polling miniaudio's
-atomic end flag, then publishes to playback status and the script mailbox. So the native mailboxes
+and `AudioListener` call; Sound tree resolution, random choices and sequence steps; decoding a clip,
+synchronously on the main thread the first time it plays (it then stays registered until shutdown);
+node attach and detach (`ma_sound_uninit`/`ma_node_uninit` wait for the callback to release the
+voice); and end-of-playback, which `AudioEngine::Update` detects by polling miniaudio's atomic end
+flag, then publishes to playback status and the script mailbox. So the native mailboxes
 need no mutex and nothing is written from the audio thread. Both `ThreadingPolicy` values behave the
 same: the device thread belongs to miniaudio, not to the render-thread policy.
