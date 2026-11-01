@@ -3,6 +3,7 @@
 
 #include "soundwave/Grid.h"
 #include "GeometryMath.h"
+#include "GeometryQueries.h"
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -16,7 +17,6 @@ namespace Lux::Soundwave
 	namespace
 	{
 		constexpr std::uint32_t kLeafTriangles = 4;
-		constexpr float kBarycentricEpsilon = 1e-6f;
 		constexpr float kCoplanarCosine = 1.0f - 1e-5f;
 		using EdgeKey = std::array<float, 6>;
 		EdgeKey Key(Position a, Position b)
@@ -25,40 +25,6 @@ namespace Lux::Soundwave
 				std::swap(a, b);
 			return { a.X,a.Y,a.Z,b.X,b.Y,b.Z };
 		}
-		struct PrecisePosition { double X, Y, Z; };
-		PrecisePosition Difference(Position a, Position b)
-		{
-			return { static_cast<double>(a.X) - b.X, static_cast<double>(a.Y) - b.Y, static_cast<double>(a.Z) - b.Z };
-		}
-		PrecisePosition Cross(PrecisePosition a, PrecisePosition b)
-		{
-			return { a.Y * b.Z - a.Z * b.Y, a.Z * b.X - a.X * b.Z, a.X * b.Y - a.Y * b.X };
-		}
-		double Dot(PrecisePosition a, PrecisePosition b)
-		{
-			return a.X * b.X + a.Y * b.Y + a.Z * b.Z;
-		}
-		double SegmentDistanceSquared(Position point, Position a, Position b)
-		{
-			const auto edge = Difference(b, a), offset = Difference(point, a);
-			const double lengthSquared = Dot(edge, edge);
-			const double t = lengthSquared == 0 ? 0 : std::clamp(Dot(offset, edge) / lengthSquared, 0.0, 1.0);
-			const PrecisePosition rest{ offset.X - t * edge.X, offset.Y - t * edge.Y, offset.Z - t * edge.Z };
-			return Dot(rest, rest);
-		}
-		double SurfaceDistanceSquared(Position point, const Triangle& triangle)
-		{
-			const auto normal = Cross(Difference(triangle.B, triangle.A), Difference(triangle.C, triangle.A));
-			if (Dot(Cross(Difference(triangle.B, triangle.A), Difference(point, triangle.A)), normal) >= 0 &&
-				Dot(Cross(Difference(triangle.C, triangle.B), Difference(point, triangle.B)), normal) >= 0 &&
-				Dot(Cross(Difference(triangle.A, triangle.C), Difference(point, triangle.C)), normal) >= 0)
-			{
-				const double distance = Dot(Difference(point, triangle.A), normal);
-				return distance * distance / Dot(normal, normal);
-			}
-			return std::min({ SegmentDistanceSquared(point, triangle.A, triangle.B),
-				SegmentDistanceSquared(point, triangle.B, triangle.C), SegmentDistanceSquared(point, triangle.C, triangle.A) });
-		}
 
 		Bounds TriangleBounds(const Triangle& triangle)
 		{
@@ -66,57 +32,7 @@ namespace Lux::Soundwave
 				Math::Max(triangle.A, Math::Max(triangle.B, triangle.C)) };
 		}
 
-		bool Intersects(const Bounds& box, Position from, Position direction, float length)
-		{
-			float start = 0.0f, end = length;
-			for (std::uint32_t axis = 0; axis < 3; ++axis)
-			{
-				const float origin = Math::Component(from, axis);
-				const float delta = Math::Component(direction, axis);
-				const float low = Math::Component(box.Min, axis), high = Math::Component(box.Max, axis);
-				if (delta == 0.0f)
-				{
-					if (origin < low || origin > high)
-						return false;
-					continue;
-				}
-				const float a = (low - origin) / delta, b = (high - origin) / delta;
-				start = std::max(start, std::min(a, b));
-				end = std::min(end, std::max(a, b));
-				if (start > end)
-					return false;
-			}
-			return true;
-		}
 
-		bool IntersectTriangle(const Triangle& triangle, Position from, Position direction, float& distance, bool& exit)
-		{
-			// Wide intermediates prevent a valid large triangle's determinant numerator
-			// overflowing into a silent miss. Geometry and returned distances stay floats.
-			const PrecisePosition edge1 = Difference(triangle.B, triangle.A);
-			const PrecisePosition edge2 = Difference(triangle.C, triangle.A);
-			const PrecisePosition ray{ direction.X, direction.Y, direction.Z };
-			const PrecisePosition p = Cross(ray, edge2);
-			const double determinant = Dot(edge1, p);
-			if (determinant == 0.0)
-				return false;
-			const double inverse = 1.0 / determinant;
-			const PrecisePosition offset = Difference(from, triangle.A);
-			const double u = Dot(offset, p) * inverse;
-			if (u < -kBarycentricEpsilon || u > 1.0f + kBarycentricEpsilon)
-				return false;
-			const PrecisePosition q = Cross(offset, edge1);
-			const double v = Dot(ray, q) * inverse;
-			if (v < -kBarycentricEpsilon || u + v > 1.0f + kBarycentricEpsilon)
-				return false;
-			const double hitDistance = Dot(edge2, q) * inverse;
-			if (!std::isfinite(hitDistance) || hitDistance > std::numeric_limits<float>::max() ||
-				hitDistance < std::numeric_limits<float>::lowest())
-				return false;
-			distance = static_cast<float>(hitDistance);
-			exit = determinant < 0.0f;
-			return std::isfinite(distance);
-		}
 	}
 
 	GeometryError Grid::Build(std::span<const Triangle> triangles)
@@ -212,7 +128,7 @@ namespace Lux::Soundwave
 			box.Min = Math::Min(box.Min, next.Min);
 			box.Max = Math::Max(box.Max, next.Max);
 		}
-		m_Nodes.push_back({ box, first, count, 0 });
+		m_Nodes.push_back({ box, first, count });
 		if (count <= kLeafTriangles)
 			return index;
 		const Position extent = Math::Subtract(box.Max, box.Min);
@@ -231,6 +147,7 @@ namespace Lux::Soundwave
 		BuildNode(first, leftCount);
 		const std::uint32_t right = BuildNode(first + leftCount, count - leftCount);
 		m_Nodes[index].Count = 0;
+		m_Nodes[index].Left = index + 1;
 		m_Nodes[index].Right = right;
 		return index;
 	}
@@ -265,14 +182,14 @@ namespace Lux::Soundwave
 			if (!node.Count)
 			{
 				stack[pending++] = node.Right;
-				stack[pending++] = index + 1;
+				stack[pending++] = node.Left;
 				continue;
 			}
 			for (auto i = node.First; i < node.First + node.Count; ++i)
 			{
 				const auto& triangle = m_Triangles[m_Order[i]];
 				if (triangle.Instance != ignoredInstance && !std::binary_search(excluded.begin(), excluded.end(), triangle.Instance) &&
-					SurfaceDistanceSquared(point, triangle) <= radiusSquared)
+					Queries::SurfaceDistanceSquared(point, triangle) <= radiusSquared)
 					return true;
 			}
 		}
@@ -321,12 +238,12 @@ namespace Lux::Soundwave
 		{
 			const std::uint32_t index = stack[--pending];
 			const Node& node = m_Nodes[index];
-			if (!Intersects(node.Box, from, direction, length))
+			if (!Queries::Intersects(node.Box, from, direction, length))
 				continue;
 			if (!node.Count)
 			{
 				stack[pending++] = node.Right;
-				stack[pending++] = index + 1;
+				stack[pending++] = node.Left;
 				continue;
 			}
 			for (std::uint32_t i = node.First; i < node.First + node.Count; ++i)
@@ -337,7 +254,7 @@ namespace Lux::Soundwave
 					continue;
 				float distance = 0.0f;
 				bool exit = false;
-				if (IntersectTriangle(triangle, from, direction, distance, exit) && distance > endpointMargin && distance < length - endpointMargin)
+				if (Queries::IntersectTriangle(triangle, from, direction, distance, exit) && distance > endpointMargin && distance < length - endpointMargin)
 					hits.push_back({ distance, triangleIndex + triangleOffset, exit });
 			}
 		}

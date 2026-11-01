@@ -160,8 +160,9 @@ namespace Lux::Soundwave
 				const auto& node = context.World.GetNode(index);
 				if (!node.Count)
 				{
-					push(index + 1);
-					push(node.Right);
+					push(node.Left);
+					if (node.Right != kInvalidGeometryIndex)
+						push(node.Right);
 					continue;
 				}
 				for (std::uint32_t i = node.First; i < node.First + node.Count && scratch.Triangles.size() < maximum; ++i)

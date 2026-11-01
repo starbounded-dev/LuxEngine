@@ -131,3 +131,10 @@ budget fairness, smoothing, pruning and both worker/inline policies. The standar
 Linux occlusion runners include these checks. Actual Scene render-mesh capture and FMOD output
 are checked separately with `tests/rendering/golden_run.py --config debug --scenes FMODDemo --play`.
 The optional Play artifact does not establish Sponza corner/doorway behavior or GPU parity.
+
+`SoundwaveInstanceTests.cpp` checks shared local meshes and virtual hierarchy/edge indices,
+world-space trace/direct parity for mirrors, shear and nonuniform scale, deletion/source masks,
+concurrent readers and transactional invalid transforms/material maps. Its large case retains one
+6,144-triangle mesh and 359 top-level nodes for 1,105,920 logical triangles. Independent thick-corner,
+translated reflection and open/closed moving-door checks exercise the propagation solver through
+the instanced GeometryView. Scene capture conversion and large-scene Play remain separate gates.

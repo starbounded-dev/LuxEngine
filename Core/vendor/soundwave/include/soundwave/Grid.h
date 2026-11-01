@@ -66,7 +66,7 @@ namespace Lux::Soundwave
 			Bounds Box;
 			std::uint32_t First = 0;
 			std::uint32_t Count = 0; // nonzero: leaf range in GetTriangleOrder()
-			std::uint32_t Right = 0; // internal: left is the next node
+			std::uint32_t Left = kInvalidGeometryIndex, Right = kInvalidGeometryIndex; // internal children
 		};
 
 		// Transactional: an invalid replacement leaves the previous geometry intact.

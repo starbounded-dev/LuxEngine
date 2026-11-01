@@ -193,7 +193,7 @@ int main()
 		const auto node = view.GetNode(index);
 		if (!node.Count)
 		{
-			nodes.push_back(index + 1);
+			nodes.push_back(node.Left);
 			nodes.push_back(node.Right);
 		}
 		else

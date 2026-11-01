@@ -1096,6 +1096,22 @@ and freezes the grids/exclusions through a solve and creates a fresh view after 
 Topology remains per snapshot; deletion-exposed edges appear after a rebuild. This is a library
 seam used by the worker-prepared Scene snapshots above; it does not implement a GPU path.
 
+**Shared mesh hierarchy (migration Phase 2, in progress):** `InstancedGrid` borrows local
+immutable Grids and owns copied instance transforms/material maps plus a top-level BVH.
+It exposes transformed triangles, edges and mesh nodes through virtual global indices;
+the per-mesh triangle limit remains unchanged, while aggregate indices are checked for
+overflow. Build validates transformed surfaces transactionally on a preparation worker.
+The caller retains the local Grids through every reader. `GeometryView` accepts either
+raw or instanced static/moving pairs and returns triangles by value. `Grid::Node` now
+uses explicit Left/Right child indices; an absent child is kInvalidGeometryIndex.
+Shared internal GeometryQueries preserve the existing world-space triangle arithmetic;
+mirrors preserve winding/edge adjacency and nonuniform clearance is measured in world
+space. Topology remains per mesh, with surface/leg checks enforcing sealed-door blocking.
+Independent tests cover more than one million logical triangles without duplicated
+mesh storage, transformed direct parity, concurrent readers and open/closed doorways.
+Scene capture still expands world triangles until its next integration step; the large
+engine scene is not yet verified through this API.
+
 **Kernel settings persistence (migration Phase 2, in progress):** `AudioOcclusionSettings` now
 owns reflection depth, opening samples, bounce/candidate/path/node limits, absorption and a
 temporary `CompareRaycast` diagnostic flag. `GetKernelSettings` maps them into the library Settings,

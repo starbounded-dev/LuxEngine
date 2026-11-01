@@ -153,3 +153,34 @@ duplicating strength. Missing rows load struct defaults; malformed, unsupported-
 duplicate and out-of-range kernel rows are rejected transactionally with a tagged error.
 The runtime block remains the existing bounded length-prefixed YAML representation, so old
 blocks without `Kernel` still load. Scene now consumes the saved settings for CPU reference playback; editor controls remain unfinished.
+
+## Shared mesh instances (Phase 2 in progress)
+
+`InstancedGrid` borrows immutable local `Grid` meshes and owns copied transforms, sparse
+surface material overrides and a deterministic top-level hierarchy. Repeated instances share
+triangles, mesh nodes and edge topology. The per-mesh limit stays 1,048,576 triangles;
+the aggregate virtual triangle/node/edge spaces must each fit below `UINT32_MAX`.
+No more than 1,048,576 instances are accepted. All count/transform/material failures are
+explicit and replacement is transactional. Build validates transformed triangles on the
+preparation worker, including finite transforms that collapse after float rounding.
+
+`GeometryView` accepts either raw grids or instanced grids for its static/moving pair.
+Triangle access returns a value; hierarchy nodes now expose explicit `Left` and `Right`
+indices, with `kInvalidGeometryIndex` for absent children. Virtual leaves refer to shared
+local mesh nodes and are transformed on demand. Mirrored transforms preserve winding
+and triangle-edge adjacency. Conservative world bounds include transform rounding.
+Tracing and clearance use the same world-space triangle math as the original Grid;
+they do not compare distances computed in differently scaled local coordinate systems.
+
+The caller must keep every referenced local Grid alive and immutable for the entire
+snapshot and its readers. `GeometryInstance::Instance == 0` preserves original triangle
+identity/material/portal data. Nonzero instances replace identity and portal flags;
+their sparse sorted, unique surface overrides replace matching materials. There is no
+topology stitching between separate mesh instances; surface-clearance and leg-visibility
+checks still prevent accepted opening routes through touching walls or a closed door.
+
+The independent instance test checks bitwise direct gains against expanded transformed
+geometry, mirrors/shear/nonuniform scales, masks, concurrent readers, invalid replacement,
+over one million logical triangles with shared storage, a thick corner, a translated
+reflection, and an off-axis doorway with a sealed moving-door control. Scene mesh capture
+still needs conversion to this API; this alone does not resolve the engine stress test.
