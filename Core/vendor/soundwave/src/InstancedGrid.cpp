@@ -3,6 +3,7 @@
 
 #include "soundwave/InstancedGrid.h"
 #include "GeometryMath.h"
+#include "GeometryQueries.h"
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -52,8 +53,19 @@ namespace Lux::Soundwave
 				magnitude += std::max(std::abs(a), std::abs(b));
 			}
 			const double error = magnitude * kTransformRounding + std::numeric_limits<float>::denorm_min() * 8.0;
-			lower[row] = std::nextafter(static_cast<float>(low - error), -std::numeric_limits<float>::infinity());
-			upper[row] = std::nextafter(static_cast<float>(high + error), std::numeric_limits<float>::infinity());
+			const double minimum = low - error, maximum = high + error;
+			const double limit = std::numeric_limits<float>::max();
+			const float infinity = std::numeric_limits<float>::infinity();
+			// Reject before an overflowing conversion/nextafter can trip the engine's
+			// floating exception policy. Build reports these invalid bounds explicitly.
+			if (!(minimum > -limit && maximum < limit))
+				return {{-infinity,-infinity,-infinity},{infinity,infinity,infinity}};
+			lower[row] = static_cast<float>(minimum);
+			upper[row] = static_cast<float>(maximum);
+			if (lower[row] == -std::numeric_limits<float>::max() || upper[row] == std::numeric_limits<float>::max())
+				return {{-infinity,-infinity,-infinity},{infinity,infinity,infinity}};
+			lower[row] = std::nextafter(lower[row], -infinity);
+			upper[row] = std::nextafter(upper[row], infinity);
 		}
 		return { {lower[0],lower[1],lower[2]}, {upper[0],upper[1],upper[2]} };
 	}
@@ -100,10 +112,15 @@ namespace Lux::Soundwave
 				const auto a = Transform(data, triangle.A), b = Transform(data, triangle.B), c = Transform(data, triangle.C);
 				if (!Math::Finite(a) || !Math::Finite(b) || !Math::Finite(c))
 					return InstanceError::NonFinite;
-				const auto normal = Math::Cross(Math::Subtract(b, a), Math::Subtract(c, a));
-				const double squared = static_cast<double>(normal.X) * normal.X + static_cast<double>(normal.Y) * normal.Y + static_cast<double>(normal.Z) * normal.Z;
-				if (!Math::Finite(normal) || squared <= 1e-20)
-					return InstanceError::Degenerate;
+				if (value.Geometry->GetDegeneratePolicy() == DegeneratePolicy::Reject)
+				{
+					const auto normal = Math::Cross(Math::Subtract(b, a), Math::Subtract(c, a));
+					const double squared = static_cast<double>(normal.X) * normal.X + static_cast<double>(normal.Y) * normal.Y + static_cast<double>(normal.Z) * normal.Z;
+					if (!Math::Finite(normal) || squared <= 1e-20)
+						return InstanceError::Degenerate;
+				}
+				if (!Queries::HasArea({a,b,c}))
+					++built.m_InertTriangles;
 			}
 			built.m_Instances.push_back(std::move(data));
 		}

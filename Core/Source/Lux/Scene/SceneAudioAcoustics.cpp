@@ -21,10 +21,21 @@ namespace Lux
 			glm::mat4 Transform{1};
 			Soundwave::MaterialTag Material = 0;
 		};
+		struct SharedMesh : AudioAcoustics::MeshGeometry
+		{
+			Ref<MeshSource> Source;
+			std::vector<SurfaceCapture> Surfaces;
+			uint32_t ExpectedSurfaces = 0;
+			bool Box = false, Prepared = false;
+			std::string Error;
+			// Only the adapter's serialized preparation jobs read/write Prepared and Grid.
+			// Main may retain/drop this Ref, but never inspects worker preparation state.
+			bool Prepare(std::string& error);
+		};
 		struct MeshCapture : RefCounted
 		{
 			AudioGeometryInput Description;
-			Ref<MeshSource> Mesh;
+			Ref<SharedMesh> Geometry;
 			std::vector<SurfaceCapture> Surfaces;
 			uint32_t ExpectedSurfaces = 0;
 		};
@@ -37,12 +48,79 @@ namespace Lux
 			return value >= 0 && value < static_cast<int32_t>(Soundwave::kMaterialTagCount) ?
 				static_cast<Soundwave::MaterialTag>(value) : 255;
 		}
+		bool SharedMesh::Prepare(std::string& error)
+		{
+			if (!Prepared)
+			{
+				std::vector<Soundwave::Triangle> triangles;
+				if (Box)
+				{
+					constexpr int indices[] = {0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2,
+						1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3};
+					const auto point = [](int i) { return Soundwave::Position{i & 1 ? 1.0f : -1.0f,i & 2 ? 1.0f : -1.0f,i & 4 ? 1.0f : -1.0f}; };
+					for (int i = 0; i < 36; i += 3)
+						triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),1,0,0,false});
+				}
+				else if (!Source || Surfaces.empty() || Surfaces.size() != ExpectedSurfaces)
+					Error = "missing mesh or invalid selected submeshes";
+				else
+				{
+					for (const auto& surface : Surfaces)
+					{
+						const uint64_t first = surface.BaseIndex / 3, end = first + surface.IndexCount / 3;
+						if (surface.BaseIndex % 3 || surface.IndexCount % 3 || end > Source->GetIndices().size())
+						{
+							Error = std::format("invalid submesh {} indices", surface.Index);
+							break;
+						}
+						if (end - first > Soundwave::Grid::MaximumTriangles - triangles.size())
+						{
+							Error = "shared Soundwave mesh exceeds the per-mesh triangle limit";
+							break;
+						}
+						const bool reverse = glm::determinant(glm::dmat3(surface.Transform)) < 0;
+						for (uint64_t i = first; i < end; ++i)
+						{
+							const auto& index = Source->GetIndices()[i];
+							std::array<Soundwave::Position,3> points;
+							uint32_t v = 0;
+							for (const auto j : {index.V1,index.V2,index.V3})
+							{
+								const uint64_t vertex = static_cast<uint64_t>(surface.BaseVertex) + j;
+								if (vertex >= Source->GetVertexCount())
+								{
+									Error = std::format("invalid vertex in submesh {}", surface.Index);
+									break;
+								}
+								points[v++] = Position(glm::vec3(surface.Transform * glm::vec4(Source->GetVertexPosition(vertex),1)));
+							}
+							if (!Error.empty())
+								break;
+							triangles.push_back({points[0],points[reverse ? 2 : 1],points[reverse ? 1 : 2],1,surface.Index,0,false});
+						}
+						if (!Error.empty())
+							break;
+					}
+				}
+				if (Error.empty())
+				{
+					const auto result = Grid.Build(triangles, Box ? Soundwave::DegeneratePolicy::Reject : Soundwave::DegeneratePolicy::Retain);
+					if (result != Soundwave::GeometryError::None)
+						Error = std::format("invalid shared mesh geometry (error {})", static_cast<uint32_t>(result));
+					else if (Grid.GetTopologyStats().InertTriangles)
+						LUX_CORE_WARN_TAG("Audio", "Soundwave mesh {} retains {} zero-area render triangles as inert geometry",
+							Source ? static_cast<uint64_t>(Source->Handle) : 0, Grid.GetTopologyStats().InertTriangles);
+				}
+				Prepared = true;
+			}
+			error = Error;
+			return Error.empty();
+		}
 		AudioAcoustics::Builder Builder(std::vector<Ref<MeshCapture>> captures)
 		{
 			return [captures = std::move(captures)](AudioAcoustics::GeometryInput& output, std::string& error)
 			{
-				constexpr int boxIndices[] = {0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2,
-					1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3};
+				output.Meshes.reserve(captures.size());
 				for (const auto& capture : captures)
 				{
 					const auto& input = capture->Description;
@@ -51,71 +129,48 @@ namespace Lux
 						error = std::format("invalid transform/material/portal on entity {}", static_cast<uint64_t>(input.Entity));
 						return false;
 					}
+					if (input.Portal && input.Open >= 1)
+						continue;
+					auto geometry = capture->Geometry;
+					if (!geometry || !geometry->Prepare(error))
+					{
+						error = std::format("{} for asset {} on entity {}", error.empty() ? "missing shared mesh" : error,
+							input.Mesh, static_cast<uint64_t>(input.Entity));
+						return false;
+					}
+					AudioAcoustics::MeshInstance instance;
+					instance.Geometry = geometry;
+					instance.Description.Instance = input.Entity;
+					instance.Description.Portal = input.Portal;
+					const auto world = input.Portal ? AudioGeometrySystem::PortalTransform(input) : input.Transform;
+					for (uint32_t c = 0; c < 4; ++c)
+						for (uint32_t r = 0; r < 4; ++r)
+							instance.Description.LocalToWorld[c*4+r] = world[c][r];
 					if (input.Portal)
 					{
-						if (input.Open >= 1)
-							continue;
-						if (output.Triangles.size() > Soundwave::Grid::MaximumTriangles - 12)
-						{
-							error = "Soundwave geometry layer exceeds the triangle limit";
-							return false;
-						}
-						const auto world = AudioGeometrySystem::PortalTransform(input);
 						Soundwave::PortalBox portal;
 						portal.Instance = input.Entity;
 						portal.Material = static_cast<Soundwave::MaterialTag>(input.Material);
 						const auto inverse = glm::inverse(world);
 						for (uint32_t c = 0; c < 4; ++c)
 							for (uint32_t r = 0; r < 4; ++r)
-								portal.WorldToBox[c * 4 + r] = inverse[c][r];
+								portal.WorldToBox[c*4+r] = inverse[c][r];
 						output.Portals.push_back(portal);
-						const auto point = [&](int i) { return Position(glm::vec3(world * glm::vec4(i & 1 ? 1 : -1,i & 2 ? 1 : -1,i & 4 ? 1 : -1,1))); };
-						const bool reverse = glm::determinant(glm::dmat3(world)) < 0;
-						for (int i = 0; i < 36; i += 3)
-							output.Triangles.push_back({point(boxIndices[i]),point(boxIndices[i + (reverse ? 2 : 1)]),
-								point(boxIndices[i + (reverse ? 1 : 2)]),input.Entity,0,portal.Material,true});
-						continue;
+						instance.Description.Materials.push_back({0,portal.Material});
 					}
-					if (!capture->Mesh || capture->Surfaces.empty() || capture->Surfaces.size() != capture->ExpectedSurfaces)
+					else
 					{
-						error = std::format("missing mesh or invalid selected submeshes for asset {} on entity {}", input.Mesh, static_cast<uint64_t>(input.Entity));
-						return false;
+						for (const auto& surface : capture->Surfaces)
+							instance.Description.Materials.push_back({surface.Index,surface.Material});
+						std::sort(instance.Description.Materials.begin(), instance.Description.Materials.end(),
+							[](const auto& a, const auto& b) { return a.Surface < b.Surface; });
+						// Repeated submesh selections retain all primitive IDs but need only
+						// one identical override. Conflicting rows remain invalid to the kernel.
+						auto& materials = instance.Description.Materials;
+						materials.erase(std::unique(materials.begin(), materials.end(), [](const auto& a, const auto& b)
+							{ return a.Surface == b.Surface && a.Material == b.Material; }), materials.end());
 					}
-					const auto& mesh = *capture->Mesh;
-					for (const auto& surface : capture->Surfaces)
-					{
-						const uint64_t first = surface.BaseIndex / 3, end = first + surface.IndexCount / 3;
-						if (surface.BaseIndex % 3 || surface.IndexCount % 3 || end > mesh.GetIndices().size())
-						{
-							error = std::format("invalid submesh {} indices on entity {}", surface.Index, static_cast<uint64_t>(input.Entity));
-							return false;
-						}
-						const auto world = input.Transform * surface.Transform;
-						if (end - first > Soundwave::Grid::MaximumTriangles - output.Triangles.size())
-						{
-							error = "Soundwave geometry layer exceeds the triangle limit";
-							return false;
-						}
-						const bool reverse = glm::determinant(glm::dmat3(world)) < 0;
-						for (uint64_t i = first; i < end; ++i)
-						{
-							const auto& index = mesh.GetIndices()[i];
-							std::array<Soundwave::Position, 3> points;
-							uint32_t v = 0;
-							for (const auto j : {index.V1,index.V2,index.V3})
-							{
-								const uint64_t vertex = static_cast<uint64_t>(surface.BaseVertex) + j;
-								if (vertex >= mesh.GetVertexCount())
-								{
-									error = std::format("invalid vertex in submesh {} on entity {}", surface.Index, static_cast<uint64_t>(input.Entity));
-									return false;
-								}
-								points[v++] = Position(glm::vec3(world * glm::vec4(mesh.GetVertexPosition(vertex),1)));
-							}
-							output.Triangles.push_back({points[0],points[reverse ? 2 : 1],points[reverse ? 1 : 2],
-								input.Entity,surface.Index,surface.Material,false});
-						}
-					}
+					output.Meshes.push_back(std::move(instance));
 				}
 				return true;
 			};
@@ -136,6 +191,9 @@ namespace Lux
 			uint64_t AssetGeneration = 0, TableRevision = 0;
 		};
 		std::map<uint64_t, Entry> Entries;
+		using MeshKey = std::pair<uintptr_t,std::vector<uint32_t>>;
+		std::map<MeshKey, Ref<SharedMesh>> Meshes;
+		Ref<SharedMesh> PortalMesh;
 		std::vector<uint64_t> Active;
 		uint64_t Revision = 0;
 		float SinceGeometryRequest = 0, GeometryInterval = 0.05f;
@@ -161,6 +219,19 @@ namespace Lux
 			return;
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_Kernel.PollGeometry();
+		bool needsGeometry = false;
+		for (auto handle : scene.m_Registry.view<TransformComponent, AudioSourceComponent>())
+		{
+			const auto& audio = scene.m_Registry.get<AudioSourceComponent>(handle);
+			if (audio.Event.IsValid() && audio.Enabled && !scene.IsInactive(handle) &&
+				!scene.IsAudioSourceCulled(Entity{handle,&scene}.GetUUID()))
+			{
+				needsGeometry = true;
+				break;
+			}
+		}
+		if (!needsGeometry)
+			return; // retain immutable caches for sources that become audible again
 		bool dirty[2]{m_Data->Dirty[0],m_Data->Dirty[1]};
 		const bool due = !m_Data->Revision || m_Data->SinceGeometryRequest >= m_Data->GeometryInterval;
 		for (auto& [id, entry] : m_Data->Entries)
@@ -248,9 +319,30 @@ namespace Lux
 					dirty[entry.Capture->Description.Mode == AcousticGeometryMode::Dynamic ? 1 : 0] = true;
 				Ref<MeshCapture> next = Ref<MeshCapture>::Create();
 				next->Description = input;
-				next->Mesh = entry.Mesh;
 			next->ExpectedSurfaces = static_cast<uint32_t>(entry.Selected.size());
 				next->Surfaces = !surfaces.empty() || metadata ? std::move(surfaces) : entry.Capture->Surfaces;
+				if (input.Portal)
+				{
+					if (!m_Data->PortalMesh)
+					{
+						m_Data->PortalMesh = Ref<SharedMesh>::Create();
+						m_Data->PortalMesh->Box = true;
+					}
+					next->Geometry = m_Data->PortalMesh;
+				}
+				else
+				{
+					const Data::MeshKey key{reinterpret_cast<uintptr_t>(entry.Mesh.Raw()),entry.Selected};
+					auto& shared = m_Data->Meshes[key];
+					if (!shared)
+					{
+						shared = Ref<SharedMesh>::Create();
+						shared->Source = entry.Mesh;
+						shared->Surfaces = next->Surfaces;
+						shared->ExpectedSurfaces = next->ExpectedSurfaces;
+					}
+					next->Geometry = shared;
+				}
 				entry.Capture = next;
 				dirty[input.Mode == AcousticGeometryMode::Dynamic ? 1 : 0] = true;
 			}
@@ -302,6 +394,9 @@ namespace Lux
 				dirty[pair.second.Capture->Description.Mode == AcousticGeometryMode::Dynamic ? 1 : 0] = true;
 			return true;
 		});
+		// Old jobs/snapshots retain their own refs; retire an unused template only after
+		// every captured owner has released it. No wait or worker-state read is needed.
+		std::erase_if(m_Data->Meshes, [](const auto& pair) { return pair.second->GetRefCount() == 1; });
 		m_Data->Active.clear();
 		std::array<std::vector<Ref<MeshCapture>>, 2> captures;
 		for (const auto& [id, entry] : m_Data->Entries)
@@ -345,6 +440,8 @@ namespace Lux
 	{
 		m_Kernel.Clear();
 		m_Data->Entries.clear();
+		m_Data->Meshes.clear();
+		m_Data->PortalMesh = nullptr;
 		m_Data->Active.clear();
 		m_Data->Revision = 0;
 		m_Data->SinceGeometryRequest = 0;

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <bit>
 #include <cmath>
+#include <cfenv>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -289,6 +290,52 @@ int main()
 	Check(Solve(GeometryView(room),{},materials,settings,{-1,1.7f,0},{1,1.7f,0},0,solveScratch,result) == EvaluationError::None &&
 		result.Diagnostics.ReflectionPaths == 1 && std::abs(result.Indirect[0].Points[1].Y - 0.7f) < 1e-5f &&
 		std::abs(result.Indirect[0].GainLF - std::sqrt(0.4f)) < 1e-5f, "translated instance reflection changed analytic solution");
+	// Render-asset pole primitives retain their original triangle IDs. Exact zero
+	// area is inert; a valid small face is kept until world rounding really collapses it.
+	{
+		const std::array<Triangle,3> primitives{{
+			{{0,0,0},{1,0,0},{0,1e-14f,0},1,0,0,false},
+			{{0,0,0},{0,0,0},{0,0,0},1,0,0,false},
+			{{0,-2,-2},{0,2,-2},{0,0,2},1,0,0,false}}};
+		Grid rendered;
+		Check(rendered.Build(primitives) == GeometryError::Degenerate, "strict reference minimum-area policy changed");
+		Check(rendered.Build(primitives,DegeneratePolicy::Retain) == GeometryError::None &&
+			rendered.GetTriangles().size() == 3 && rendered.GetTopologyStats().InertTriangles == 1,
+			"render primitives were dropped or zero-area count is wrong");
+		Check(rendered.Trace({0.25f,2.5e-15f,1},{0.25f,2.5e-15f,-1},0,hits) &&
+			hits.size() == 1 && hits[0].TriangleIndex == 0 && hits[0].Distance == 1,
+			"small valid render face became transparent");
+		GeometryInstance translated;
+		translated.Geometry = &rendered;
+		translated.Instance = 700;
+		translated.LocalToWorld[13] = 1;
+		InstancedGrid renderWorld;
+		Check(renderWorld.Build({&translated,1}) == InstanceError::None && renderWorld.GetTriangleCount() == 3 &&
+			renderWorld.GetInertTriangleCount() == 2, "world-collapsed primitive count wrong");
+		GeometryView renderView(renderWorld);
+		std::feclearexcept(FE_ALL_EXCEPT);
+		bool clear = false;
+		Check(renderView.Trace({-2,1.2f,0},{2,1.2f,0},0,hits) && hits.size() == 1 && hits[0].TriangleIndex == 2,
+			"valid render surface lost its ID or became transparent");
+		Check(renderView.HasSurfaceClearance({0.25f,1,0},0.001f,0,clear) && clear,
+			"collapsed render primitive obstructed clearance");
+		Check(std::fetestexcept(FE_INVALID|FE_DIVBYZERO) == 0, "inert primitive raised an invalid floating operation");
+		settings.ReflectionDepth = 1;
+		settings.MaxBounces = 1;
+		settings.OpeningGridSize = 1;
+		Check(Solve(renderView,{},materials,settings,{-1,1.2f,0},{1,1.2f,0},0,solveScratch,result) == EvaluationError::None &&
+			result.Indirect.empty(), "inert primitive fabricated an indirect path");
+		GeometryInstance huge;
+		huge.Geometry = &mesh;
+		huge.Instance = 780;
+		huge.LocalToWorld[0] = std::numeric_limits<float>::max();
+		std::feclearexcept(FE_ALL_EXCEPT);
+		Check(renderWorld.Build({&huge,1}) == InstanceError::NonFinite && renderWorld.GetTriangleCount() == 3 &&
+			std::fetestexcept(FE_OVERFLOW|FE_INVALID|FE_DIVBYZERO) == 0,
+			"invalid finite transform trapped before transactional rejection");
+		Check(rendered.Build(primitives,static_cast<DegeneratePolicy>(255)) == GeometryError::InvalidPolicy &&
+			rendered.GetTriangles().size() == 3, "invalid render primitive policy replaced the previous grid");
+	}
 	Check(large.Build({}) == InstanceError::None && large.GetNodeCount() == 0 && large.GetTriangleCount() == 0, "empty instance replacement retained data");
 	std::cout << "Soundwave instance checks passed (1,105,920 logical triangles, shared storage).\n";
 }

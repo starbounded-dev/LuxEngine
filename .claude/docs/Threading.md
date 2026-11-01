@@ -449,3 +449,12 @@ audio/physics/font producers stop, it replays Renderer::ExecuteBackgroundThreadS
 before Renderer::Shutdown drains GPU release queues. Thus a worker holding the final MeshSource
 ref cannot enqueue a GPU free after the renderer has retired its queues. Runtime scene Clear
 still performs no join, and the acoustic update path adds no GPU/main-thread wait.
+
+Soundwave Scene mesh templates retain immutable MeshSource CPU data and selected submesh
+layouts on main. Only the adapter's serialized geometry jobs prepare/read their Prepared state
+and local Grid until publication. Main never probes in-progress preparation state. A completed
+snapshot retains mesh owners with Ref, so replacing captures or clearing a Scene cannot dangle
+the borrowed local Grid pointers in InstancedGrid. Cache-only templates retire using atomic
+reference counts; that does not wait for or read worker mutable data. A restarted Scene creates
+fresh templates, while detached old jobs keep their own captured templates. The zero-worker
+policy runs this same preparation inline. No GPU work or new runtime wait is added.

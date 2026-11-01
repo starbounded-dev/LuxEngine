@@ -27,6 +27,15 @@ namespace
 		for (int i = 0; i < 36; i += 3)
 			input.Triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),10,0,0,false});
 	}
+	struct MeshOwner : AudioAcoustics::MeshGeometry
+	{
+		std::atomic<bool>* Destroyed = nullptr;
+		~MeshOwner() override
+		{
+			if (Destroyed)
+				Destroyed->store(true);
+		}
+	};
 	void Drain(AudioAcoustics& audio)
 	{
 		const auto deadline = std::chrono::steady_clock::now() + 5s;
@@ -169,6 +178,36 @@ void RunAudioAcousticsTests()
 		Drain(audio);
 		assert(audio.GetDiagnostics().Ready && audio.GetDiagnostics().StaticTriangles == 0);
 	}
+	{
+		std::atomic<bool> destroyed{false};
+		AudioAcoustics audio;
+		auto owner = Ref<MeshOwner>::Create();
+		owner->Destroyed = &destroyed;
+		AudioAcoustics::GeometryInput raw;
+		Wall(raw);
+		assert(owner->Grid.Build(raw.Triangles) == Soundwave::GeometryError::None);
+		auto gate = Ref<Gate>::Create();
+		assert(audio.RequestGeometry(1, [owner,gate](auto& input, auto&) mutable
+		{
+			gate->Started.release();
+			gate->Release.acquire();
+			AudioAcoustics::MeshInstance instance;
+			instance.Geometry = owner;
+			instance.Description.Instance = 10;
+			input.Meshes.push_back(std::move(instance));
+			return true;
+		}, empty));
+		audio.PollGeometry();
+		assert(gate->Started.try_acquire_for(5s));
+		owner = nullptr;
+		audio.Clear();
+		assert(!destroyed && !audio.GetDiagnostics().Ready);
+		gate->Release.release();
+		JobSystem::Submit([gate]() mutable { gate->Finished.release(); });
+		assert(gate->Finished.try_acquire_for(5s) && destroyed);
+		audio.PollGeometry();
+		assert(!audio.GetDiagnostics().Ready);
+	}
 	JobSystem::Shutdown();
 	JobSystem::Init(0);
 	{
@@ -179,6 +218,46 @@ void RunAudioAcousticsTests()
 		assert(audio.GetDiagnostics().Ready && audio.Update(0.1f, listener, std::span(sources).first(1)));
 		assert(audio.GetGainLF(100) <= 0.001001f);
 	}
+	{
+		std::atomic<bool> destroyed{false};
+		AudioAcoustics audio;
+		assert(audio.Configure(materials, settings));
+		auto owner = Ref<MeshOwner>::Create();
+		owner->Destroyed = &destroyed;
+		AudioAcoustics::GeometryInput raw;
+		Wall(raw);
+		assert(owner->Grid.Build(raw.Triangles) == Soundwave::GeometryError::None);
+		const std::array<uint64_t,2> instances{10,20};
+		assert(audio.SetActiveInstances(instances));
+		assert(audio.RequestGeometry(1, [owner](auto& input, auto&)
+		{
+			for (uint32_t i = 0; i < 2; ++i)
+			{
+				AudioAcoustics::MeshInstance instance;
+				instance.Geometry = owner;
+				instance.Description.Instance = i ? 20 : 10;
+				instance.Description.LocalToWorld[12] = static_cast<float>(i)*8;
+				input.Meshes.push_back(std::move(instance));
+			}
+			return true;
+		}, empty));
+		owner = nullptr;
+		Drain(audio);
+		assert(!destroyed && audio.GetDiagnostics().Ready && audio.GetDiagnostics().StaticTriangles == 24 &&
+			audio.GetDiagnostics().StaticStoredTriangles == 12 && audio.GetDiagnostics().StaticMeshInstances == 2);
+		assert(audio.Update(0.1f,listener,std::span(sources).first(1)) && audio.GetGainLF(100) <= 0.001001f);
+		// Invalid instance replacement retains the published geometry and its mesh owner.
+		assert(audio.RequestGeometry(2, [](auto& input, auto&)
+		{
+			input.Meshes.emplace_back();
+			return true;
+		}, {}));
+		Drain(audio);
+		assert(audio.GetDiagnostics().GeometryFailed && !destroyed && audio.GetDiagnostics().StaticTriangles == 24);
+		assert(audio.RequestGeometry(3, empty, {}));
+		Drain(audio);
+		assert(!audio.GetDiagnostics().GeometryFailed && audio.GetDiagnostics().StaticTriangles == 0 && destroyed);
+	}
 	JobSystem::Shutdown();
-	std::cout << "PASS: Soundwave worker ownership, nonblocking publication/clear, coalescing, layer migration, retries, source cadence/budget/smoothing and last-valid results under both job policies\n";
+	std::cout << "PASS: Soundwave worker ownership, nonblocking publication/clear, coalescing, layer migration, retries, source cadence/budget/smoothing, last-valid results, shared-mesh storage and detached mesh ownership under both job policies\n";
 }

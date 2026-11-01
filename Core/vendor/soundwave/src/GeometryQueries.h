@@ -22,6 +22,19 @@ namespace Lux::Soundwave::Queries
 	{
 		return a.X * b.X + a.Y * b.Y + a.Z * b.Z;
 	}
+	inline bool HasArea(const Triangle& triangle)
+	{
+		const auto normal = Cross(Difference(triangle.B, triangle.A), Difference(triangle.C, triangle.A));
+		return Dot(normal, normal) > 0;
+	}
+	inline Position Normal(const Triangle& triangle)
+	{
+		const auto wide = Cross(Difference(triangle.B, triangle.A), Difference(triangle.C, triangle.A));
+		const double length = std::sqrt(Dot(wide, wide));
+		if (length == 0)
+			return {};
+		return {static_cast<float>(wide.X/length),static_cast<float>(wide.Y/length),static_cast<float>(wide.Z/length)};
+	}
 	inline double SegmentDistanceSquared(Position point, Position a, Position b)
 	{
 		const auto edge = Difference(b, a), offset = Difference(point, a);
@@ -33,6 +46,8 @@ namespace Lux::Soundwave::Queries
 	inline double SurfaceDistanceSquared(Position point, const Triangle& triangle)
 	{
 		const auto normal = Cross(Difference(triangle.B, triangle.A), Difference(triangle.C, triangle.A));
+		if (Dot(normal,normal) == 0)
+			return std::numeric_limits<double>::infinity();
 		if (Dot(Cross(Difference(triangle.B, triangle.A), Difference(point, triangle.A)), normal) >= 0 &&
 			Dot(Cross(Difference(triangle.C, triangle.B), Difference(point, triangle.B)), normal) >= 0 &&
 			Dot(Cross(Difference(triangle.A, triangle.C), Difference(point, triangle.C)), normal) >= 0)
@@ -69,6 +84,8 @@ namespace Lux::Soundwave::Queries
 
 	inline bool IntersectTriangle(const Triangle& triangle, Position from, Position direction, float& distance, bool& exit)
 	{
+		if (!HasArea(triangle))
+			return false;
 		// Wide intermediates prevent a valid large triangle's determinant numerator
 		// overflowing into a silent miss. Geometry and returned distances stay floats.
 		const PrecisePosition edge1 = Difference(triangle.B, triangle.A);

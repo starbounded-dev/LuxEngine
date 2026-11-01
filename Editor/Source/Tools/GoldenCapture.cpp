@@ -439,7 +439,7 @@ namespace Lux {
 			LUX_CORE_WARN_TAG("Editor", "[GoldenCapture] camera pose does not reproduce the scene camera's direction exactly; the capture is still deterministic");
 	}
 
-	void GoldenCapture::EndFrame(const Ref<SceneRenderer>& renderer)
+	void GoldenCapture::EndFrame(const Ref<SceneRenderer>& renderer, Ref<Scene> scene)
 	{
 		switch (m_Stage)
 		{
@@ -522,6 +522,25 @@ namespace Lux {
 
 				if (m_PerfSamples >= m_PerfFrames || m_PerfFramesSeen >= m_PerfFrames * 4)
 				{
+					// Recheck once at completion: the first ready snapshot is insufficient
+					// evidence for later movement or failures. Retain Scene through StopPlay.
+					if (m_Play)
+					{
+						if (!scene)
+						{
+							Finish(false, "No running Scene at final Soundwave verification");
+							return;
+						}
+						m_AudioVerified = false;
+						VerifyAudio(*scene);
+						if (m_Stage == Stage::Done)
+							return;
+						if (!m_AudioVerified)
+						{
+							Finish(false, "Soundwave geometry is not ready at final Play verification");
+							return;
+						}
+					}
 					WritePerf();
 					Finish(true, {});
 				}
@@ -686,6 +705,12 @@ namespace Lux {
 		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave CPU reference";
 		out << Yaml::Key << "StaticTriangles" << Yaml::Value << stats.StaticTriangles;
 		out << Yaml::Key << "MovingTriangles" << Yaml::Value << stats.MovingTriangles;
+		out << Yaml::Key << "StaticInertTriangles" << Yaml::Value << stats.StaticInertTriangles;
+		out << Yaml::Key << "MovingInertTriangles" << Yaml::Value << stats.MovingInertTriangles;
+		out << Yaml::Key << "StaticStoredTriangles" << Yaml::Value << stats.StaticStoredTriangles;
+		out << Yaml::Key << "MovingStoredTriangles" << Yaml::Value << stats.MovingStoredTriangles;
+		out << Yaml::Key << "StaticMeshInstances" << Yaml::Value << stats.StaticMeshInstances;
+		out << Yaml::Key << "MovingMeshInstances" << Yaml::Value << stats.MovingMeshInstances;
 		out << Yaml::Key << "GeometryGeneration" << Yaml::Value << stats.GeometryGeneration;
 		out << Yaml::Key << "Evaluations" << Yaml::Value << stats.Evaluations;
 		out << Yaml::Key << "Sources" << Yaml::Value << Yaml::BeginSeq;

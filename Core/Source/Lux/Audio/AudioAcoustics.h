@@ -22,9 +22,22 @@ namespace Lux
 	class AudioAcoustics
 	{
 	public:
+		// Built before publication, then immutable. Scene mesh templates derive from this
+		// owner so a published snapshot retains the shared local Grid through every read.
+		struct MeshGeometry : RefCounted
+		{
+			Soundwave::Grid Grid;
+		};
+		struct MeshInstance
+		{
+			Ref<MeshGeometry> Geometry;
+			// Geometry is rebound to the retained owner's Grid by the preparation job.
+			Soundwave::GeometryInstance Description;
+		};
 		struct GeometryInput
 		{
-			std::vector<Soundwave::Triangle> Triangles;
+			std::vector<Soundwave::Triangle> Triangles; // compatibility/reference world triangles
+			std::vector<MeshInstance> Meshes;
 			std::vector<Soundwave::PortalBox> Portals;
 		};
 		using Builder = std::function<bool(GeometryInput&, std::string& error)>;
@@ -37,6 +50,8 @@ namespace Lux
 		{
 			uint64_t GeometryGeneration = 0, Evaluations = 0, SolveFailures = 0;
 			uint32_t StaticTriangles = 0, MovingTriangles = 0, ExcludedInstances = 0, PendingLayers = 0;
+			uint32_t StaticInertTriangles = 0, MovingInertTriangles = 0;
+			uint32_t StaticStoredTriangles = 0, MovingStoredTriangles = 0, StaticMeshInstances = 0, MovingMeshInstances = 0;
 			bool Ready = false, GeometryFailed = false;
 		};
 
@@ -60,7 +75,10 @@ namespace Lux
 	private:
 		struct Snapshot : RefCounted
 		{
-			Soundwave::Grid Grid;
+			std::vector<Ref<MeshGeometry>> Meshes;
+			Soundwave::Grid Raw;
+			Soundwave::InstancedGrid Grid;
+			uint32_t StoredTriangles = 0;
 			std::vector<Soundwave::PortalBox> Portals;
 			std::vector<uint64_t> Instances;
 		};
@@ -90,7 +108,7 @@ namespace Lux
 		std::array<uint64_t, 2> m_FailureLayerRevisions{};
 		Ref<Job> m_Pending;
 		uint64_t m_RequestedRevision = 0, m_FailedRevision = 0, m_LastAttemptedRevision = 0;
-		Soundwave::Grid m_Empty;
+		Soundwave::InstancedGrid m_Empty;
 		Soundwave::MaterialTable m_Materials;
 		AudioOcclusionSettings m_Settings;
 		Soundwave::Settings m_KernelSettings;

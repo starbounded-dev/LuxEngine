@@ -35,8 +35,11 @@ namespace Lux::Soundwave
 
 	}
 
-	GeometryError Grid::Build(std::span<const Triangle> triangles)
+	GeometryError Grid::Build(std::span<const Triangle> triangles, DegeneratePolicy policy)
 	{
+		if (policy != DegeneratePolicy::Reject && policy != DegeneratePolicy::Retain)
+			return GeometryError::InvalidPolicy;
+		std::uint32_t inert = 0;
 		if (triangles.size() > MaximumTriangles)
 			return GeometryError::TooManyTriangles;
 		for (const Triangle& triangle : triangles)
@@ -47,13 +50,20 @@ namespace Lux::Soundwave
 				return GeometryError::InvalidMaterial;
 			if (!Math::Finite(triangle.A) || !Math::Finite(triangle.B) || !Math::Finite(triangle.C))
 				return GeometryError::NonFinite;
-			const Position normal = Math::Cross(Math::Subtract(triangle.B, triangle.A), Math::Subtract(triangle.C, triangle.A));
-			const double areaSquared = static_cast<double>(normal.X) * normal.X +
-				static_cast<double>(normal.Y) * normal.Y + static_cast<double>(normal.Z) * normal.Z;
-			if (!Math::Finite(normal) || areaSquared <= 1e-20)
-				return GeometryError::Degenerate;
+			if (policy == DegeneratePolicy::Reject)
+			{
+				const Position normal = Math::Cross(Math::Subtract(triangle.B, triangle.A), Math::Subtract(triangle.C, triangle.A));
+				const double areaSquared = static_cast<double>(normal.X) * normal.X +
+					static_cast<double>(normal.Y) * normal.Y + static_cast<double>(normal.Z) * normal.Z;
+				if (!Math::Finite(normal) || areaSquared <= 1e-20)
+					return GeometryError::Degenerate;
+			}
+			if (!Queries::HasArea(triangle))
+				++inert;
 		}
 		Grid built;
+		built.m_DegeneratePolicy = policy;
+		built.m_Topology.InertTriangles = inert;
 		built.m_Triangles.assign(triangles.begin(), triangles.end());
 		built.m_Order.resize(triangles.size());
 		std::iota(built.m_Order.begin(), built.m_Order.end(), 0u);
@@ -79,7 +89,9 @@ namespace Lux::Soundwave
 		for (std::uint32_t i = 0; i < m_Triangles.size(); ++i)
 		{
 			const auto& triangle = m_Triangles[i];
-			const Position normal = Math::Unit(Math::Cross(Math::Subtract(triangle.B, triangle.A), Math::Subtract(triangle.C, triangle.A)));
+			if (!Queries::HasArea(triangle))
+				continue;
+			const Position normal = Queries::Normal(triangle);
 			for (const auto& key : { Key(triangle.A, triangle.B), Key(triangle.B, triangle.C), Key(triangle.C, triangle.A) })
 			{
 				auto& adjacent = edges[key];
@@ -112,10 +124,15 @@ namespace Lux::Soundwave
 			else
 				++m_Topology.CreaseEdges;
 		}
-		m_TriangleEdges.reserve(m_Triangles.size());
-		for (const auto& triangle : m_Triangles)
-			m_TriangleEdges.push_back({ edges.at(Key(triangle.A, triangle.B)).Index,
-				edges.at(Key(triangle.B, triangle.C)).Index, edges.at(Key(triangle.C, triangle.A)).Index });
+		m_TriangleEdges.resize(m_Triangles.size(), {kInvalidGeometryIndex,kInvalidGeometryIndex,kInvalidGeometryIndex});
+		for (std::size_t i = 0; i < m_Triangles.size(); ++i)
+		{
+			const auto& triangle = m_Triangles[i];
+			if (!Queries::HasArea(triangle))
+				continue;
+			m_TriangleEdges[i] = {edges.at(Key(triangle.A, triangle.B)).Index,
+				edges.at(Key(triangle.B, triangle.C)).Index, edges.at(Key(triangle.C, triangle.A)).Index};
+		}
 	}
 
 	std::uint32_t Grid::BuildNode(std::uint32_t first, std::uint32_t count)

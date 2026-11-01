@@ -182,5 +182,25 @@ checks still prevent accepted opening routes through touching walls or a closed 
 The independent instance test checks bitwise direct gains against expanded transformed
 geometry, mirrors/shear/nonuniform scales, masks, concurrent readers, invalid replacement,
 over one million logical triangles with shared storage, a thick corner, a translated
-reflection, and an off-axis doorway with a sealed moving-door control. Scene mesh capture
-still needs conversion to this API; this alone does not resolve the engine stress test.
+reflection, and an off-axis doorway with a sealed moving-door control. Scene now captures shared meshes through this API. A controlled Benchmark Play run retained
+all 6,914 render-mesh/portal instances, published 1,062 moving instances, and solved 8,556,859
+logical triangles from 272,383 stored triangles counted by layer, with zero Vulkan validation
+messages. The original scene bytes were restored. This is CPU reference integration evidence,
+not a performance, GPU, runtime-export or completed Phase 2 claim.
+
+### Render primitives with zero area
+
+`Grid::Build` defaults to `DegeneratePolicy::Reject`, preserving the original strict
+minimum-area validation used by the reference/oracle input. Scene render meshes explicitly
+select `Retain`: every triangle and its index remains stored, every nonzero surface is kept
+regardless of size, and exact zero-area triangles are counted in `TopologyStats::InertTriangles`.
+They cannot produce intersections, clearance obstacles or indirect candidates. Normals use
+wide intermediate arithmetic, and clearance never divides by a zero-area normal.
+
+Instanced grids inherit this policy from each shared mesh and count zero-area world primitives
+after float transformation in `GetInertTriangleCount`. A small valid face can become exactly
+zero-area at a translated world position; the world counter makes that observable while IDs
+remain stable. Collapsed edges cannot generate opening samples. Strict meshes still reject
+collapsed replacements transactionally. NaNs, infinities, invalid identities/materials and
+index overflow remain errors under both policies. The Scene logs local zero-area counts once
+per prepared mesh and exposes per-layer world counts in its diagnostics/Play artifacts.

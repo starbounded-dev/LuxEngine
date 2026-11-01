@@ -921,7 +921,7 @@ namespace Lux {
 		}
 
 		if (m_GoldenCapture)
-			m_GoldenCapture->EndFrame(m_SceneRenderer);
+			m_GoldenCapture->EndFrame(m_SceneRenderer, m_ActiveScene);
 	}
 
 	void EditorLayer::OnImGuiRender()

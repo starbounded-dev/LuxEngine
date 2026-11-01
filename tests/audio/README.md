@@ -137,4 +137,15 @@ world-space trace/direct parity for mirrors, shear and nonuniform scale, deletio
 concurrent readers and transactional invalid transforms/material maps. Its large case retains one
 6,144-triangle mesh and 359 top-level nodes for 1,105,920 logical triangles. Independent thick-corner,
 translated reflection and open/closed moving-door checks exercise the propagation solver through
-the instanced GeometryView. Scene capture conversion and large-scene Play remain separate gates.
+the instanced GeometryView. Scene now captures shared local meshes; broad scene/runtime/export validation remains a separate gate.
+
+The production adapter tests also detach a blocked job retaining a shared mesh owner, drop the
+Scene/caller refs, and prove the owner survives until the worker finishes. Inline publication
+checks two transformed instances share twelve stored triangles, reject an ownerless replacement
+without losing the last valid snapshot, and release the mesh on a valid empty replacement.
+
+The instance checks also preserve every render primitive ID under an explicit retention policy,
+keep a very small valid face ray-visible, count exact local/world-zero faces, reject unsupported
+policies transactionally, and assert that collapsed primitives produce neither false paths nor
+invalid/divide-by-zero floating operations. The original strict geometry tests remain unchanged.
+Linux compilation and focused occlusion linking derive kernel objects from the same source list.

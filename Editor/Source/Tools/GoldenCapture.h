@@ -76,7 +76,7 @@ namespace Lux {
 		// Call after the editor applied its per-frame renderer options, before rendering.
 		void ConfigureFrame(Scene& scene, EditorCamera& camera, SceneRenderer& renderer);
 		// Call after the frame's render work has been submitted.
-		void EndFrame(const Ref<SceneRenderer>& renderer);
+		void EndFrame(const Ref<SceneRenderer>& renderer, Ref<Scene> scene);
 
 		// Editor overlays (icons, gizmos, audio visualisation) depend on user preferences and
 		// animate, so a capture leaves them out.

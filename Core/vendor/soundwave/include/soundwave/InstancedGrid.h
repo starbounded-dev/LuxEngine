@@ -41,6 +41,7 @@ namespace Lux::Soundwave
 		std::uint32_t GetStoredNodeCount() const { return static_cast<std::uint32_t>(m_Nodes.size()); }
 		std::uint32_t GetTriangleCount() const { return m_TriangleCount; }
 		std::uint32_t GetNodeCount() const { return m_NodeCount; }
+		std::uint32_t GetInertTriangleCount() const { return m_InertTriangles; }
 		std::uint32_t GetEdgeCount() const { return m_EdgeCount; }
 		Triangle GetTriangle(std::uint32_t index) const;
 		Grid::Node GetNode(std::uint32_t index) const;
@@ -63,6 +64,6 @@ namespace Lux::Soundwave
 		std::vector<InstanceData> m_Instances;
 		std::vector<Grid::Node> m_Nodes;
 		std::vector<std::uint32_t> m_Order;
-		std::uint32_t m_TriangleCount = 0, m_NodeCount = 0, m_EdgeCount = 0;
+		std::uint32_t m_TriangleCount = 0, m_NodeCount = 0, m_EdgeCount = 0, m_InertTriangles = 0;
 	};
 }

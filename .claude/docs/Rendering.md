@@ -556,8 +556,9 @@ python3 tests/rendering/threading_ab.py                                   # buil
   editor Play/Stop lifecycle. It additionally requires a ready Soundwave snapshot, completed source
   solves, nonempty render geometry and at least one live event exposing Occlusion. Before capture,
   it compares the smoothed gain with Scene's applied value and reads FMOD's actual authored
-  Occlusion parameter. `<name>.audio.yaml` records the UUID/name, gains, path counts and geometry
-  counts; the runner requires a fresh nonempty artifact. This verifies the current CPU reference
+  Occlusion parameter. It rechecks once at completion, retaining the running Scene through
+  verification/StopPlay, so later movement or preparation failures cannot pass using initial readiness. `<name>.audio.yaml` records the UUID/name, gains, path counts and geometry
+  counts (logical/stored/inert triangles and mesh instances); the runner requires a fresh nonempty artifact. This verifies the current CPU reference
   path only. Moving gameplay is not an image-determinism baseline; normal image captures stay in
   Edit mode. Play must not poll/wait on a worker/GPU to make a capture ready; normal frames advance.
 - **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features

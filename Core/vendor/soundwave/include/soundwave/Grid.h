@@ -45,13 +45,18 @@ namespace Lux::Soundwave
 	{
 		std::uint32_t BoundaryEdges = 0;
 		std::uint32_t CreaseEdges = 0;
-		std::uint32_t NonManifoldEdges = 0;
+		std::uint32_t NonManifoldEdges = 0, InertTriangles = 0;
 	};
 
 	enum class GeometryError : std::uint8_t
 	{
-		None, TooManyTriangles, InvalidIdentity, InvalidMaterial, NonFinite, Degenerate
+		None, TooManyTriangles, InvalidIdentity, InvalidMaterial, NonFinite, Degenerate, InvalidPolicy
 	};
+
+	// Render assets can contain zero-area pole/seam primitives. Retain keeps their IDs,
+	// counts exact zero-area triangles and preserves every nonzero surface, however small.
+	// Reject preserves the original strict minimum-area validation for reference inputs.
+	enum class DegeneratePolicy : std::uint8_t { Reject, Retain };
 
 	// Immutable between Build calls. Build on an owned worker snapshot, then publish the
 	// complete value. Concurrent readers use their own hit/scratch storage. The hierarchy is
@@ -70,7 +75,8 @@ namespace Lux::Soundwave
 		};
 
 		// Transactional: an invalid replacement leaves the previous geometry intact.
-		GeometryError Build(std::span<const Triangle> triangles);
+		GeometryError Build(std::span<const Triangle> triangles, DegeneratePolicy policy = DegeneratePolicy::Reject);
+		DegeneratePolicy GetDegeneratePolicy() const { return m_DegeneratePolicy; }
 		// Endpoint margin is in metres. A reflection leg excludes its touching endpoints;
 		// direct paths use zero. False means invalid input, never "an unobstructed path".
 		bool Trace(const Position& from, const Position& to, std::uint64_t ignoredInstance,
@@ -98,6 +104,7 @@ namespace Lux::Soundwave
 		std::vector<Edge> m_Edges;
 		std::vector<std::array<std::uint32_t, 3>> m_TriangleEdges;
 		TopologyStats m_Topology;
+		DegeneratePolicy m_DegeneratePolicy = DegeneratePolicy::Reject;
 	};
 
 }

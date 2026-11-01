@@ -1032,13 +1032,40 @@ optionally runs Scene::UpdateAudioOcclusion using the existing physics raycast a
 the oracle does not drive playback. The complete Phase 2 Sponza/doorway, editor authoring and
 runtime/export validation gates remain outstanding.
 
-**Phase 2 stress limit still outstanding:** the initial Scene adapter expands render instances
-into world triangles. Benchmark exceeds the current per-layer Grid limit; capture reports an
-error and retains its last valid snapshot. Shared-mesh instance capture/traversal is required
-before completing Phase 2's broad scene coverage. Raising the limit or omitting meshes is not
-the intended solution. The full source-free Benchmark Play capture also exceeded its default
-capture frame budget; the short failure-path run verifies explicit rejection and safe teardown,
-not a completed stress-scene acoustic solve.
+**Shared Scene meshes (migration Phase 2, in progress):** Scene capture now caches one
+local Grid per retained MeshSource pointer and selected-submesh layout. The worker bakes each
+submesh's local transform once, then publishes actor transforms/material overrides as instances.
+Material edits and moving an actor reuse that local hierarchy/topology. Portals share a local
+unit box while retaining the applied analytic inverse. Mesh templates have worker-only preparation
+state: the adapter serializes its preparation jobs, main publishes after release/acquire Done,
+and no main code reads Prepared/Grid until a completed snapshot owns it. A different Scene owns
+different templates. Clear detaches old jobs without sharing their mutable preparation state
+with a restarted scene. Published snapshots retain each shared MeshGeometry with Ref; the raw
+triangle reference input remains supported as an identity instance owned by its snapshot.
+Unused cache-only templates retire after captured/snapshot owners release them.
+
+Render sources explicitly build with DegeneratePolicy::Retain: primitive IDs stay intact,
+nonzero surfaces have no minimum-area cutoff, and exact zero-area pole/seam faces are counted
+as inert. Strict reference/raw inputs keep the original rejection rule. The library skips
+zero-area intersections, clearance divisions and indirect candidates, uses wide normals,
+and rejects nonfinite input under both policies. Instanced grids count world-zero primitives
+after float transformation, so rounding a small face away stays observable. Template preparation
+logs local zero-area counts once; Scene diagnostics/Play artifacts expose static/moving counts. Repeated selected submeshes retain primitive IDs while identical
+surface overrides are deduplicated; conflicting rows still fail validation.
+
+Scene skips geometry capture while there are no eligible audio sources, retaining immutable
+caches for later reactivation. Diagnostics distinguish logical triangles from stored local
+triangles and report mesh instance counts; Play artifacts record all three. The per-mesh cap
+stays unchanged and aggregate virtual index overflow is rejected transactionally. The previous
+Benchmark cap rejection and timeout records describe the older expanded capture. A controlled
+Play run with an authored FMOD source/listener now covers all 6,914 render-mesh/portal instances,
+8,556,859 logical triangles, 272,383 stored triangles counted by layer and 1,062 moving instances.
+It publishes later geometry generations, verifies final FMOD transport and exits normally with
+zero Vulkan validation messages. The temporary source/listener are removed by byte-exact scene
+restoration. This Debug validation run is not performance or runtime/export evidence. The local-template transform followed by actor
+transform has two float stages, so it need not reproduce the last bits of a precombined actor /
+submesh matrix. The direct world-triangle oracle still retains its frozen arithmetic, and the
+GPU implementation must match this CPU reference within the authored tolerance.
 
 Settings persist under Audio.Occlusion in YAML and runtime format 25's existing bounded,
 length-prefixed YAML block; formats 16-24 use defaults. Bank validation still warns on missing
@@ -1057,7 +1084,7 @@ This contract does not yet implement propagation, reverb or GPU dispatch. The ex
 engine material accessor remains available as the Phase 1 default-value comparison oracle.
 
 **CPU geometry groundwork (migration Phase 2, in progress):** Soundwave's `Grid` owns validated
-world-space triangles and a deterministic spatial hierarchy, built transactionally from an owned
+triangles in the caller's coordinate space and a deterministic spatial hierarchy, built transactionally from an owned
 snapshot. Its const segment trace uses caller-owned hit storage, reports entry/exit winding,
 preserves stable instance/surface/material/portal data and can exclude the source instance.
 Concurrent readers share no mutable scratch. `Settings` bounds reflection/opening/bounce work,
@@ -1109,8 +1136,8 @@ mirrors preserve winding/edge adjacency and nonuniform clearance is measured in 
 space. Topology remains per mesh, with surface/leg checks enforcing sealed-door blocking.
 Independent tests cover more than one million logical triangles without duplicated
 mesh storage, transformed direct parity, concurrent readers and open/closed doorways.
-Scene capture still expands world triangles until its next integration step; the large
-engine scene is not yet verified through this API.
+Scene now captures retained shared meshes through this API; broad scene and runtime/export
+verification remain outstanding.
 
 **Kernel settings persistence (migration Phase 2, in progress):** `AudioOcclusionSettings` now
 owns reflection depth, opening samples, bounce/candidate/path/node limits, absorption and a

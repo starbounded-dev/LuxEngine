@@ -143,22 +143,61 @@ namespace Lux
 						break;
 					}
 					Ref<Snapshot> snapshot = Ref<Snapshot>::Create();
-					const auto error = snapshot->Grid.Build(input.Triangles);
+					const auto error = snapshot->Raw.Build(input.Triangles);
 					if (error != Soundwave::GeometryError::None)
 					{
 						job->Error = std::format("invalid triangle snapshot (error {})", static_cast<uint32_t>(error));
 						break;
 					}
+					std::vector<Soundwave::GeometryInstance> instances;
+					instances.reserve(input.Meshes.size() + 1);
+					if (!input.Triangles.empty())
+					{
+						Soundwave::GeometryInstance raw;
+						raw.Geometry = &snapshot->Raw;
+						instances.push_back(std::move(raw));
+					}
+					std::vector<const Soundwave::Grid*> stored;
+					for (auto& mesh : input.Meshes)
+					{
+						if (!mesh.Geometry)
+						{
+							job->Error = "missing shared mesh owner";
+							break;
+						}
+						mesh.Description.Geometry = &mesh.Geometry->Grid;
+						stored.push_back(mesh.Description.Geometry);
+						if (mesh.Description.Instance)
+							snapshot->Instances.push_back(mesh.Description.Instance);
+						else
+							for (const auto& triangle : mesh.Geometry->Grid.GetTriangles())
+								snapshot->Instances.push_back(triangle.Instance);
+						instances.push_back(std::move(mesh.Description));
+						snapshot->Meshes.push_back(std::move(mesh.Geometry));
+					}
+					if (!job->Error.empty())
+						break;
+					const auto instanceError = snapshot->Grid.Build(instances);
+					if (instanceError != Soundwave::InstanceError::None)
+					{
+						job->Error = std::format("invalid shared-mesh snapshot (error {})", static_cast<uint32_t>(instanceError));
+						break;
+					}
+					std::sort(stored.begin(), stored.end(), std::less<const Soundwave::Grid*>{});
+					stored.erase(std::unique(stored.begin(), stored.end()), stored.end());
+					snapshot->StoredTriangles = static_cast<uint32_t>(input.Triangles.size());
+					for (const auto* grid : stored)
+						snapshot->StoredTriangles += static_cast<uint32_t>(grid->GetTriangles().size());
 					snapshot->Portals = std::move(input.Portals);
 					Soundwave::DirectScratch scratch;
 					Soundwave::Path path;
-					if (Soundwave::EvaluateDirect(snapshot->Grid, snapshot->Portals, Soundwave::DefaultMaterials(), {}, {}, {}, 0,
-						scratch, path) != Soundwave::EvaluationError::None)
+					if (Soundwave::EvaluateDirect(Soundwave::GeometryView(snapshot->Grid), snapshot->Portals,
+						Soundwave::DefaultMaterials(), {}, {}, {}, 0, scratch, path) != Soundwave::EvaluationError::None)
 					{
 						job->Error = "invalid portal snapshot";
 						break;
 					}
-					for (const auto& triangle : snapshot->Grid.GetTriangles())
+					for (const auto& triangle : snapshot->Raw.GetTriangles())
 						snapshot->Instances.push_back(triangle.Instance);
 					for (const auto& portal : snapshot->Portals)
 						snapshot->Instances.push_back(portal.Instance);
@@ -169,6 +208,8 @@ namespace Lux
 				if (job->Error.empty() && job->Result[0] && job->Result[1])
 				{
 					job->FailedLayers = 3;
+					if (!Soundwave::GeometryView(job->Result[0]->Grid, &job->Result[1]->Grid).IsValid())
+						job->Error = "combined shared-mesh snapshot exceeds its index space";
 					const auto& a = job->Result[0]->Instances;
 					const auto& b = job->Result[1]->Instances;
 					for (const auto id : a)
@@ -337,8 +378,14 @@ namespace Lux
 		result.GeometryGeneration = m_GeometryGeneration;
 		result.Evaluations = m_Evaluations;
 		result.SolveFailures = m_SolveFailures;
-		result.StaticTriangles = m_Snapshots[0] ? static_cast<uint32_t>(m_Snapshots[0]->Grid.GetTriangles().size()) : 0;
-		result.MovingTriangles = m_Snapshots[1] ? static_cast<uint32_t>(m_Snapshots[1]->Grid.GetTriangles().size()) : 0;
+		result.StaticTriangles = m_Snapshots[0] ? m_Snapshots[0]->Grid.GetTriangleCount() : 0;
+		result.MovingTriangles = m_Snapshots[1] ? m_Snapshots[1]->Grid.GetTriangleCount() : 0;
+		result.StaticInertTriangles = m_Snapshots[0] ? m_Snapshots[0]->Grid.GetInertTriangleCount() : 0;
+		result.MovingInertTriangles = m_Snapshots[1] ? m_Snapshots[1]->Grid.GetInertTriangleCount() : 0;
+		result.StaticStoredTriangles = m_Snapshots[0] ? m_Snapshots[0]->StoredTriangles : 0;
+		result.MovingStoredTriangles = m_Snapshots[1] ? m_Snapshots[1]->StoredTriangles : 0;
+		result.StaticMeshInstances = m_Snapshots[0] ? m_Snapshots[0]->Grid.GetInstanceCount() : 0;
+		result.MovingMeshInstances = m_Snapshots[1] ? m_Snapshots[1]->Grid.GetInstanceCount() : 0;
 		result.ExcludedInstances = static_cast<uint32_t>(m_Excluded.size());
 		result.Ready = m_Snapshots[0] && m_Snapshots[1];
 		for (uint32_t i = 0; i < 2; ++i)

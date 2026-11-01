@@ -4,6 +4,7 @@
 #include "soundwave/Solve.h"
 #include "SolveInternal.h"
 #include "GeometryMath.h"
+#include "GeometryQueries.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -25,7 +26,7 @@ namespace Lux::Soundwave
 		float Distance(Position a, Position b) { return Math::Length(Math::Subtract(a, b)); }
 		Position Normal(const Triangle& triangle)
 		{
-			return Math::Unit(Math::Cross(Math::Subtract(triangle.B, triangle.A), Math::Subtract(triangle.C, triangle.A)));
+			return Queries::Normal(triangle);
 		}
 		Position Mirror(Position point, const Triangle& triangle)
 		{
@@ -168,8 +169,8 @@ namespace Lux::Soundwave
 				for (std::uint32_t i = node.First; i < node.First + node.Count && scratch.Triangles.size() < maximum; ++i)
 				{
 					const auto triangle = context.World.TriangleAtOrder(i);
-					if (context.World.GetTriangle(triangle).Instance != context.SourceInstance &&
-						context.World.IsInstanceActive(context.World.GetTriangle(triangle).Instance))
+					const auto surface = context.World.GetTriangle(triangle);
+					if (surface.Instance != context.SourceInstance && context.World.IsInstanceActive(surface.Instance) && Queries::HasArea(surface))
 						scratch.Triangles.push_back(triangle);
 				}
 			}
@@ -290,6 +291,8 @@ namespace Lux::Soundwave
 			for (auto index : scratch.EdgeIndices)
 			{
 				const auto& edge = context.World.GetEdge(index);
+				if (edge.A.X == edge.B.X && edge.A.Y == edge.B.Y && edge.A.Z == edge.B.Z)
+					continue;
 				const float t = ApexT(edge, context.Listener, context.Source);
 				const auto point = Math::Add(edge.A, Math::Scale(Math::Subtract(edge.B, edge.A), t));
 				scratch.Edges.push_back({ index,t,Distance(context.Listener, point) + Distance(point, context.Source) });
