@@ -233,6 +233,16 @@ def main():
     libraries = [va / "3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     # Build the YAML implementation with the same flags as these tests, without stale engine objects.
     yaml = [objects[name] for name in ("Yaml", "ryml")]
+    # This test has a minimal logger host, matching the Windows occlusion check. Link its
+    # production dependencies only; unrelated mixer globals require the full playback host.
+    occlusion_objects = [objects[path.stem] for path in kernel_sources] + [objects[name] for name in (
+        "AudioAcoustics", "JobSystem", "AudioOcclusion", "AudioOcclusionSettings",
+        "AcousticMaterial", "AudioGeometrySystem", "RaytracedAudioScene", "UUID", "Ref",
+        "FileStream", "StreamWriter", "StreamReader")]
+    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", TESTS / "AudioAcousticsTests.cpp", *occlusion_objects, *yaml, *libraries,
+         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+         "-o", directory / "occlusion-test"], cwd=ROOT / "Core")
+    run([directory / "occlusion-test", directory], timeout=30)
     run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)
@@ -262,16 +272,6 @@ def main():
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "geometry-test"], cwd=ROOT / "Core")
     run([directory / "geometry-test"], timeout=60)
-    # This test has a minimal logger host, matching the Windows occlusion check. Link its
-    # production dependencies only; unrelated mixer globals require the full playback host.
-    occlusion_objects = [objects[path.stem] for path in kernel_sources] + [objects[name] for name in (
-        "AudioAcoustics", "JobSystem", "AudioOcclusion", "AudioOcclusionSettings",
-        "AcousticMaterial", "AudioGeometrySystem", "RaytracedAudioScene", "UUID", "Ref",
-        "FileStream", "StreamWriter", "StreamReader")]
-    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", TESTS / "AudioAcousticsTests.cpp", *occlusion_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "occlusion-test"], cwd=ROOT / "Core")
-    run([directory / "occlusion-test", directory], timeout=30)
     run(["clang++", *flags, "-I" + str(TESTS), source_serialization_source(directory), *audio_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
          "-o", directory / "source-serialization-test"], cwd=ROOT / "Core")

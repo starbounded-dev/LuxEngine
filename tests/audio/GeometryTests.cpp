@@ -4,8 +4,21 @@
 #include "Lux/Scene/Components.h"
 #include <glm/gtc/matrix_transform.hpp>
 
+namespace
+{
+	struct WorldPoolLifetime
+	{
+		~WorldPoolLifetime()
+		{
+			RaytracedAudioScene::ShutdownWorldPool();
+		}
+	};
+}
+
 int main()
 {
+	// Match Application teardown: destroy all scene owners before the process pool.
+	const WorldPoolLifetime worldPoolLifetime;
 	RaytracedAudioScene world(nullptr);
 	world.Start();
 	assert(world.IsRunning());

@@ -45,6 +45,10 @@ hosts. The full runner rejects a generated Core configuration without sanitizer 
 and verifies ASan memory-access symbols in `AudioAcoustics.o`. The ordinary Debug command
 retains its previous behavior. CI uploads separate Debug/Debug-AS audio logs; no leak/error
 suppression is added. The pure-library tests need no engine SDKs, including with sanitization.
+The real-worker Soundwave ownership checks run before the legacy playback/geometry cases,
+so a later backend failure does not hide their result. The legacy geometry host releases its
+process world pool after all scene owners, matching Application shutdown; stopping a scene
+alone may retain a world for reuse.
 
 Requires `clang++` and the repository's FMOD and VA SDKs (including the `LUX_FMOD_SDK` and
 `LUX_VA_SDK` overrides used by CI). `fmodstudiocl` is required only when generating banks;
