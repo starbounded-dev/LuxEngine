@@ -166,13 +166,17 @@ all routes at default budgets or GPU parity.
 
 Fixtures live under `bin/soundwave-scene-tests/<unique-run>/`; native capture evidence lives under
 `bin/golden/<run>-<case>/`. The script copies the project/registry, scene, compiled script module
-and Sponza/default model folders (the importer rewrites generated materials), with directory
-links for other existing assets/banks. It checks original project/scene/registry/model bytes on
-exit. Golden fixtures do not enter recent-project history. Geometry counts come from the actual
+and Sponza/default model folders (the importer rewrites generated materials). Audio authoring
+files are copied too, excluding generated Build directories; the committed regression banks
+from `tests/audio/fixtures/banks` are copied into that fixture's Build/Desktop. Both desktop
+profiles select that owned location. Other existing asset directories use links. The runner
+checks original project/scene/registry/model and committed bank bytes on exit. Golden fixtures do
+not enter recent-project history. Geometry counts come from the actual
 glTF index accessors, including the sample cube’s 156 triangles; the portal uses the kernel’s
 procedural twelve-triangle box. PyYAML is required only for this developer runner. Use `--cases`
-to select named cases, or `--threading single` to exercise the inline policy. Native Editor and
-the ordinary sample banks must already be built; each capture’s existing timestamp gate runs once.
+to select named cases, or `--threading single` to exercise the inline policy. Native Editor
+must already be built, along with the selected runtime when exporting. The committed banks work
+on a clean checkout without FMOD Studio or local sample Build outputs; each capture’s existing timestamp gate runs once.
 
 Add `--audio-settings-ui` to run the shared Project Settings acoustic controls before the first
 editor frame. The isolated ImGui context drives numeric text input and both comparison toggle

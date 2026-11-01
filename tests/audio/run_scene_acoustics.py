@@ -63,13 +63,20 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     assets = directory/"Assets"
     assets.mkdir(parents=True)
     for original in source_assets.iterdir():
-        if original.name in ("Scenes", "Cache", "Scripts", "Meshes"):
+        if original.name in ("Scenes", "Cache", "Scripts", "Meshes", "Audio"):
             continue
         destination = assets/original.name
         if original.is_dir():
             directory_link(original, destination)
         else:
             shutil.copy2(original, destination)
+    # Build outputs in the sample authoring tree are ignored local files. Use the
+    # committed authored banks in an owned Audio directory, never a linked input.
+    shutil.copytree(source_assets/"Audio", assets/"Audio", ignore=shutil.ignore_patterns("Build"))
+    bank_directory = assets/"Audio/SampleProject/Build/Desktop"
+    bank_directory.mkdir(parents=True)
+    for name in ("Master.bank", "Master.strings.bank"):
+        shutil.copy2(ROOT/"tests/audio/fixtures/banks"/name, bank_directory/name)
     # Only the copied scene belongs to this fixture. Export validates every registered
     # scene/prefab, so remove unrelated sample entries rather than weakening validation.
     registry_path = assets/"AssetRegistry.lzr"
@@ -133,6 +140,12 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     # sample script build when exercising the normal export preflight.
     config["ScriptModulePath"] = ""
     audio = config["Audio"]
+    audio["StudioProjectPath"] = "Audio/SampleProject/SampleProject.fspro"
+    audio["StudioPlatform"] = "Desktop"
+    audio["StudioBankOutputPath"] = "Build/Desktop"
+    for platform in ("Windows", "Linux"):
+        audio.setdefault(platform, {})["BankOutputPath"] = "Build/Desktop"
+        audio[platform]["StudioPlatform"] = "Desktop"
     audio["RebuildBanksOnPlay"] = False
     audio["EnableLiveUpdate"] = False
     audio["AcousticMaterials"] = {"Default": {"AbsorptionLF": 0.2, "AbsorptionHF": 0.7, "Scattering": 0.1,
@@ -227,6 +240,7 @@ def main():
     sample = ROOT/"Editor/LuxSampleProject"
     project_path, demo_path, registry_path = sample/"LuxSample.luxproj", sample/"Assets/Scenes/FMODDemo.luxscene", sample/"Assets/AssetRegistry.lzr"
     inputs = [project_path, demo_path, registry_path]
+    inputs.extend((ROOT/"tests/audio/fixtures/banks").glob("*.bank"))
     for model in ("Sponza", "Default"):
         inputs.extend(path for path in (sample/"Assets/Meshes/Source"/model).rglob("*") if path.is_file())
     original = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}

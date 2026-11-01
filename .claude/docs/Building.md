@@ -455,7 +455,10 @@ Sponza Play/export/player runner under Xvfb/lavapipe and a PulseAudio null sink.
 is a space-separated list accepted by the native runner (default `corner`). The normal build,
 full audio regressions, export validations and native report checks still apply; the CI job
 uploads only logs/reports, never licensed SDK libraries or complete game packages. This tests
-correctness on software Vulkan, not GPU performance or Phase 4 hardware parity.
+correctness on software Vulkan, not GPU performance or Phase 4 hardware parity. The native
+fixture copies committed `tests/audio/fixtures/banks` into its own Audio authoring tree and pins
+both desktop bank paths to that location. Ignored sample Build directories are not prerequisites;
+the runner never writes banks through an Audio directory link into the original project.
 
 Manual `linux_audio_check=debug-as` selects only the Linux Debug-AS job. Native Core/Editor/Runtime
 build before optional audio regressions; a regression failure still fails the job, while the
