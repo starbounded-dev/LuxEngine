@@ -439,3 +439,13 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 - `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image
   capture`). `LUX_GOLDEN_PLAY=1` enters normal Play and adds fresh Soundwave/Scene/FMOD gain evidence. Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
   commits.
+
+### Linux CI Vulkan capability probe
+
+The existing Build LuxEngine workflow accepts a manual `linux_vulkan_probe=true` input. It
+runs only an Ubuntu 26.04 Xvfb/lavapipe capability probe; normal build jobs are skipped for
+that explicit invocation. Push/PR/default manual builds retain the ordinary matrix. The probe
+installs tools only on its disposable CI runner, accesses no licensed audio SDK and uploads
+Vulkan summary/full-feature evidence. It checks the core features unconditionally requested by
+VulkanDevice before attempting a native player check on CI. Passing the probe proves neither
+engine startup nor audio playback/export, and cannot substitute for the real runtime gate.
