@@ -240,3 +240,7 @@ tagged logger.
 Linux package launches set LD_LIBRARY_PATH to the package's `lib/` only. Rebuild Lux-Runtime
 after project regeneration so its post-build shared-library staging has run; normal export must
 carry that staged closure. Inherited Assimp or Vulkan-SDK paths cannot mask an incomplete package.
+For Linux Debug package checks, the runner gives Vulkan an isolated copy of the installed SDK's
+Khronos validation manifest with its DSO path made absolute. Validation remains enabled and all
+other manifest settings are preserved; the SDK itself is unchanged. LD_LIBRARY_PATH still names
+only the package's lib directory. Release/Dist use their normal layer-free launch configuration.

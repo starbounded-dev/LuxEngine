@@ -43,10 +43,17 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.linux_vulkan_probe
     runs-on: ubuntu-26.04
     steps:
+      - name: Checkout the native launch helper
+        uses: actions/checkout@v6.0.2
+        with:
+          sparse-checkout: tests/audio/run_scene_acoustics.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Install Vulkan probe tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml
 
       - name: Select the software Vulkan driver
         shell: bash
@@ -57,9 +64,54 @@ jobs:
           drivers = list(Path('/usr/share/vulkan/icd.d').glob('*lvp*.json'))
           if len(drivers) != 1:
               raise RuntimeError(f'Expected one lavapipe driver manifest, found {drivers}')
+          runtime_directory = Path(os.environ['RUNNER_TEMP']) / 'soundwave-vulkan-xdg'
+          runtime_directory.mkdir(mode=0o700, exist_ok=True)
+          runtime_directory.chmod(0o700)
           with open(os.environ['GITHUB_ENV'], 'a') as env:
               env.write(f'VK_DRIVER_FILES={drivers[0]}\n')
-              env.write(f'XDG_RUNTIME_DIR={os.environ["RUNNER_TEMP"]}/soundwave-vulkan-xdg\n')
+              env.write(f'XDG_RUNTIME_DIR={runtime_directory}\n')
+          PY
+
+      - name: Install the validation SDK for the isolated launch probe
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
+        with:
+          vulkan_version: 1.4.335.0
+          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      - name: Probe isolated Debug validation loading
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('scene_acoustics', 'tests/audio/run_scene_acoustics.py')
+          helper = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(helper)
+          package_lib = Path('logs/package-lib').resolve()
+          package_lib.mkdir(parents=True)
+          loader = Path(os.environ['VULKAN_SDK']) / 'lib/libvulkan.so.1'
+          shutil.copy2(loader, package_lib / loader.name)
+          environment = dict(os.environ, LD_LIBRARY_PATH=str(package_lib))
+          manifest = helper.prepare_linux_validation(environment, Path('logs/runtime-validation'))
+          result = subprocess.run(['xvfb-run', '-a', '-s', '-screen 0 1280x720x24', 'vulkaninfo', '--summary'],
+                                  env=environment, text=True, capture_output=True, timeout=120)
+          cube = subprocess.run(['xvfb-run', '-a', '-s', '-screen 0 1280x720x24', 'vkcube', '--validate', '--c', '2'],
+                                env=environment, text=True, capture_output=True, timeout=120)
+          report = result.stdout + result.stderr + cube.stdout + cube.stderr
+          Path('logs/vulkan-runtime-validation.txt').write_text(report)
+          print(report)
+          if result.returncode or cube.returncode or 'VK_LAYER_KHRONOS_validation' not in report:
+              raise RuntimeError(f'Isolated validation-layer probe failed: info={result.returncode}, cube={cube.returncode}; {manifest}')
+          if any(marker in report for marker in ('VUID-', 'Validation Error', 'Validation Warning', 'UNASSIGNED-', 'SYNC-', 'BestPractices-')):
+              raise RuntimeError('Validation messages in isolated layer probe')
+          print('PASS: Vulkan validation loads with package-only LD_LIBRARY_PATH')
           PY
 
       - name: Probe presentation and required core features
@@ -94,7 +146,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soundwave-linux-vulkan-probe
-          path: logs/vulkan-*.txt
+          path: |
+            logs/vulkan-*.txt
+            logs/runtime-validation/*.json
           if-no-files-found: warn
 
   # The build's version string, 2026.N-<7-char commit>: the series from Version.h
@@ -547,6 +601,7 @@ jobs:
             bin/golden/**/*.yaml
             bin/golden/**/*.status
             bin/golden/**/summary.json
+            bin/golden/**/vulkan-validation/*.json
             bin/soundwave-scene-tests/**/results.json
           if-no-files-found: warn
 

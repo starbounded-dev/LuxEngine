@@ -187,7 +187,28 @@ def verify(data, case, triangle_counts):
     return {key: source[key] for key in ("DirectGainLF", "RawGainLF", "OcclusionGainLF", "EngineRayGainLF", "OpeningPaths", "WorkLimited")}
 
 
-def verify_export(capture, destination, case, triangle_counts, timeout, threading):
+def prepare_linux_validation(environment, directory):
+    # A layer manifest can name only a DSO basename, which normally needs SDK/lib in
+    # LD_LIBRARY_PATH. Pin just this tool to an absolute path instead: game-library
+    # resolution must remain isolated to the package. Never change validation settings.
+    sdk = Path(environment.get("VULKAN_SDK") or ROOT/"Core/vendor/VulkanSDK/x86_64")
+    source = sdk/"share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json"
+    description = json.loads(source.read_text(encoding="utf-8"))
+    layer = description["layer"]
+    require(layer["name"] == "VK_LAYER_KHRONOS_validation", f"Unexpected validation manifest: {source}")
+    library = Path(layer["library_path"])
+    if not library.is_absolute():
+        library = (sdk/"lib"/library) if library.parent == Path(".") else (source.parent/library)
+    require(library.is_file(), f"Vulkan validation library is missing: {library}")
+    layer["library_path"] = str(library.resolve())
+    directory.mkdir(parents=True, exist_ok=True)
+    manifest = directory/source.name
+    manifest.write_text(json.dumps(description, indent=2)+"\n", encoding="utf-8")
+    environment["VK_LAYER_PATH"] = str(directory.resolve())
+    return manifest
+
+
+def verify_export(capture, destination, case, triangle_counts, timeout, threading, runtime_config):
     metadata = yaml.safe_load((capture/"FMODDemo.export.yaml").read_text(encoding="utf-8"))
     package, executable = Path(metadata["Root"]).resolve(), Path(metadata["Executable"]).resolve()
     require(package.is_relative_to(destination.resolve()) and executable.parent == package,
@@ -201,6 +222,8 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     if os.name != "nt":
         # Build-tree paths must not hide a missing packaged shared library.
         env["LD_LIBRARY_PATH"] = str(package/"lib")
+        if runtime_config == "debug":
+            prepare_linux_validation(env, capture/"vulkan-validation")
     started = time.time_ns()
     log_path = capture/"FMODDemo.runtime.log"
     with log_path.open("w", encoding="utf-8") as log:
@@ -278,7 +301,7 @@ def main():
             results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts)
             results[name]["capture"] = str(capture)
             if args.export_runtime:
-                results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading)
+                results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading, args.runtime_config or args.config)
             print(name + ": PASS " + json.dumps(results[name]), flush=True)
             (run/"results.json").write_text(json.dumps(results, indent=2)+"\n", encoding="utf-8")
     finally:

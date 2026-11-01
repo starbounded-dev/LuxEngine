@@ -483,3 +483,11 @@ Regenerate projects after the premake change and rebuild Lux-Runtime. Export cop
 shared objects into the package's `lib/` and stops on copy/enumeration failure. Native acoustic
 package checks use only that package directory for LD_LIBRARY_PATH; build-tree paths cannot hide
 missing dependencies. A build or Play pass alone does not prove the exported loader path works.
+
+Linux Debug package verification still enables Vulkan validation. Its developer runner writes a
+capture-local copy of the SDK Khronos layer manifest with an absolute library path and sets
+VK_LAYER_PATH to it. Only that diagnostic tool is resolved from the SDK; LD_LIBRARY_PATH remains
+the package's lib directory, so SDK paths cannot hide missing game dependencies. Source SDK
+manifests/settings are untouched. Release/Dist package checks need no validation-layer override.
+The manual Linux Vulkan probe now exercises this exact helper and loader setup before engine
+compilation, without fetching private audio SDKs; its manifest and tool output are retained.
