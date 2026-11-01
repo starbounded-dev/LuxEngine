@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Entity.h"
+#include "SceneAudioAcoustics.h"
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
@@ -340,9 +341,9 @@ namespace Lux {
 		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		AudioOcclusion m_AudioOcclusion;
-		AudioOcclusionSource m_OcclusionSource = AudioOcclusionSource::Engine;
-		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // written in the VA join window
-		RaytracedAudioAmbience m_LastAudioAmbience;               // written in the VA join window
+		SceneAudioAcoustics m_SceneAcoustics;
+		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // Soundwave gains applied on main
+		RaytracedAudioAmbience m_LastAudioAmbience;               // completed legacy reverb batch
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;
@@ -404,6 +405,7 @@ namespace Lux {
 		int32_t GetRenderMaterialAcousticTag(Entity entity, const MeshColliderComponent& collider) const;
 		// Last engine occlusion paths per source, for editor overlays. Main thread, read-only.
 		const AudioOcclusion& GetAudioOcclusion() const { return m_AudioOcclusion; }
+		const AudioAcoustics& GetAudioAcoustics() const { return m_SceneAcoustics.GetKernel(); }
 
 		// The live voice playing for an entity, or null when it has none. Editor tooling only -
 		// gameplay drives sources through the component, not by reaching in here.
@@ -414,6 +416,7 @@ namespace Lux {
 
 	private:
 		friend class Entity;
+		friend class SceneAudioAcoustics;
 		friend class SceneSerializer;
 		friend class SceneHierarchyPanel;
 	};

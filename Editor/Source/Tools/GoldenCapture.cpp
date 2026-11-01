@@ -19,6 +19,10 @@
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Utilities/FileSystem.h"
+#include "Lux/Serialization/Yaml.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/AudioEventInstance.h"
+#include <fmod_studio.hpp>
 
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -32,6 +36,8 @@
 namespace Lux {
 
 	namespace {
+
+		constexpr float k_AcousticTransportTolerance = 0.00001f;
 
 		// Matches tests/rendering/golden_compare.py. Little-endian, 32 bytes, followed by
 		// Width * Height * BytesPerPixel texel bytes with no row padding.
@@ -183,6 +189,7 @@ namespace Lux {
 		m_PerfFrames = GetEnvUInt("LUX_GOLDEN_PERF_FRAMES", m_PerfFrames);
 		m_PerfWarmupFrames = GetEnvUInt("LUX_GOLDEN_PERF_WARMUP", m_PerfWarmupFrames);
 		m_RunSelfTest = ParseBool(GetEnv("LUX_GOLDEN_SELFTEST"));
+		m_Play = ParseBool(GetEnv("LUX_GOLDEN_PLAY"));
 		m_ExitWhenDone = GetEnv("LUX_GOLDEN_EXIT") != "0";
 		ParseOptions(GetEnv("LUX_GOLDEN_OPTIONS"));
 		if (const auto it = m_Options.find("MoveEntities"); it != m_Options.end())
@@ -309,6 +316,20 @@ namespace Lux {
 					Finish(false, std::format("could not open scene '{}'", absoluteScene.string()));
 					break;
 				}
+				if (m_Play)
+				{
+					if (!m_Hooks.StartPlay || !m_Hooks.StopPlay)
+					{
+						Finish(false, "Play verification hooks are not installed");
+						break;
+					}
+					if (!m_Hooks.StartPlay())
+					{
+						Finish(false, "The editor could not enter Play for audio verification");
+						break;
+					}
+					m_PlayStarted = true;
+				}
 				m_Stage = Stage::WarmUp;
 				break;
 			}
@@ -324,7 +345,7 @@ namespace Lux {
 
 	void GoldenCapture::ConfigureFrame(Scene& scene, EditorCamera& camera, SceneRenderer& renderer)
 	{
-		if (m_Stage == Stage::OpenProject || m_Stage == Stage::OpenScene)
+		if (m_Stage == Stage::OpenProject || m_Stage == Stage::OpenScene || m_Stage == Stage::Done)
 			return;
 
 		if (m_SceneFrames == 0)
@@ -339,8 +360,11 @@ namespace Lux {
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw);
 		ApplyOptions(renderer);
 
+
 		if (m_MoveEntityCount > 0)
 			MoveEntities(scene);
+		if (m_Play && m_Stage == Stage::WarmUp && m_SceneFrames >= m_MinFrames && !m_AudioVerified)
+			VerifyAudio(scene); // Last: failure can stop Play and release this Scene.
 	}
 
 	void GoldenCapture::MoveEntities(Scene& scene)
@@ -429,7 +453,7 @@ namespace Lux {
 
 				// With MoveEntities, capture only on a frame rendered at the loop's start (the original pose).
 				const bool atRestPose = m_MoveEntityCount == 0 || m_MovePhase == 0;
-				const bool canCapture = m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
+				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
 				if (m_MoveEntityCount > 0 && m_MoveStopFrames > 0)
 				{
 					// MoveStop: stop on a rest-pose frame, then capture exactly MoveStop frames later.
@@ -642,6 +666,86 @@ namespace Lux {
 		file << json;
 	}
 
+	void GoldenCapture::VerifyAudio(Scene& scene)
+	{
+		const auto& kernel = scene.GetAudioAcoustics();
+		const auto stats = kernel.GetDiagnostics();
+		if (!scene.IsRunning() || stats.GeometryFailed || stats.SolveFailures)
+		{
+			Finish(false, "Soundwave Play verification failed: scene not running or acoustic preparation/solve failed");
+			return;
+		}
+		if (!stats.Ready)
+			return;
+		if (!stats.Evaluations)
+		{
+			Finish(false, "Play verification needs an enabled audio source with a valid event reference");
+			return;
+		}
+		Yaml::Writer out;
+		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave CPU reference";
+		out << Yaml::Key << "StaticTriangles" << Yaml::Value << stats.StaticTriangles;
+		out << Yaml::Key << "MovingTriangles" << Yaml::Value << stats.MovingTriangles;
+		out << Yaml::Key << "GeometryGeneration" << Yaml::Value << stats.GeometryGeneration;
+		out << Yaml::Key << "Evaluations" << Yaml::Value << stats.Evaluations;
+		out << Yaml::Key << "Sources" << Yaml::Value << Yaml::BeginSeq;
+		uint32_t checkedParameters = 0;
+		for (auto handle : scene.GetAllEntitiesWith<AudioSourceComponent>())
+		{
+			Entity entity{handle,&scene};
+			const UUID id = entity.GetUUID();
+			const auto* result = kernel.GetResult(id);
+			auto instance = scene.GetRuntimeEventInstance(id);
+			if (!result || !instance || !instance->IsValid())
+				continue;
+			const float gain = kernel.GetGainLF(id), applied = scene.GetAudioSourceOcclusion(id);
+			if (!std::isfinite(gain) || std::abs(gain - applied) > k_AcousticTransportTolerance)
+			{
+				Finish(false, std::format("Soundwave LF gain did not reach Scene source {}", static_cast<uint64_t>(id)));
+				return;
+			}
+			out << Yaml::BeginMap << Yaml::Key << "Name" << Yaml::Value << entity.GetComponent<TagComponent>().Tag;
+			out << Yaml::Key << "UUID" << Yaml::Value << id;
+			out << Yaml::Key << "OcclusionGainLF" << Yaml::Value << gain;
+			out << Yaml::Key << "DirectGainLF" << Yaml::Value << result->Direct.GainLF();
+			out << Yaml::Key << "ReflectionPaths" << Yaml::Value << result->Diagnostics.ReflectionPaths;
+			out << Yaml::Key << "OpeningPaths" << Yaml::Value << result->Diagnostics.OpeningPaths;
+			const auto& event = entity.GetComponent<AudioSourceComponent>().Event;
+			FMOD_GUID guid{};
+			FMOD::Studio::EventDescription* description = nullptr;
+			FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
+			if (auto* studio = AudioEngine::GetStudioSystem(); studio && FMOD::Studio::parseID(event.Guid.c_str(), &guid) == FMOD_OK &&
+				studio->getEventByID(&guid, &description) == FMOD_OK &&
+				description->getParameterDescriptionByName(AudioEventInstance::kOcclusionParameter, &parameter) == FMOD_OK)
+			{
+				const float value = instance->GetParameter(AudioEventInstance::kOcclusionParameter);
+				if (!std::isfinite(value) || std::abs(value - std::clamp(1.0f - gain, 0.0f, 1.0f)) > k_AcousticTransportTolerance)
+				{
+					Finish(false, std::format("Soundwave LF gain did not reach FMOD source {}", static_cast<uint64_t>(id)));
+					return;
+				}
+				out << Yaml::Key << "FMODOcclusion" << Yaml::Value << value;
+				++checkedParameters;
+			}
+			out << Yaml::EndMap;
+		}
+		out << Yaml::EndSeq << Yaml::Key << "CheckedFMODParameters" << Yaml::Value << checkedParameters << Yaml::EndMap;
+		if (!checkedParameters || (!stats.StaticTriangles && !stats.MovingTriangles))
+		{
+			Finish(false, "Play verification needs acoustic render geometry and a live event exposing Occlusion");
+			return;
+		}
+		std::ofstream file(m_OutputDirectory / (m_Name + ".audio.yaml"), std::ios::trunc);
+		file << out.c_str();
+		file.flush();
+		if (!file.good())
+		{
+			Finish(false, "Could not write Soundwave Play evidence");
+			return;
+		}
+		m_AudioVerified = true;
+	}
+
 	void GoldenCapture::RunSelfTest() const
 	{
 		std::vector<std::string> failures;
@@ -664,6 +768,11 @@ namespace Lux {
 			return;
 		m_Stage = Stage::Done;
 		RestoreMovedEntities();
+		if (m_PlayStarted)
+		{
+			m_PlayStarted = false;
+			m_Hooks.StopPlay();
+		}
 
 		// golden_run.py reads this marker to tell a finished capture from a crash or timeout.
 		std::ofstream file(m_OutputDirectory / (m_Name + ".status"), std::ios::trunc);

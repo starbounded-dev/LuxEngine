@@ -727,6 +727,8 @@ namespace Lux {
 		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 
 		GoldenCapture::Hooks goldenHooks;
+		goldenHooks.StartPlay = [this]() { OnScenePlay(); return m_SceneState == SceneState::Play; };
+		goldenHooks.StopPlay = [this]() { OnSceneStop(); };
 		goldenHooks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 		goldenHooks.OpenScene = [this](const std::filesystem::path& path)
 		{

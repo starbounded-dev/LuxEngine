@@ -150,6 +150,10 @@ namespace Lux {
 			delete layer;
 		}
 
+		// Scene teardown detaches owned preparation jobs. Join the existing pool here,
+		// while mesh refs and their deferred GPU frees still have a live renderer.
+		JobSystem::Shutdown();
+
 		// Rumble and adaptive-trigger effects persist on the controller; clear them before exiting.
 		Input::ShutdownGamepadOutput();
 
@@ -161,11 +165,12 @@ namespace Lux {
 		RaytracedAudioScene::ShutdownWorldPool();
 		AudioEngine::Shutdown();
 
+		// Worker-side mesh destruction queues resource frees through the background
+		// handoff. All producers have stopped; replay it before renderer queues retire.
+		Renderer::ExecuteBackgroundThreadSubmits();
 		Renderer::Shutdown();
 
 		DiscordSocial::Shutdown();
-
-		JobSystem::Shutdown();
 
 		delete m_Profiler;
 		m_Profiler = nullptr;

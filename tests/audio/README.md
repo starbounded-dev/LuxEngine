@@ -122,3 +122,12 @@ it through the exclusion list and replace its grid without rebuilding the room. 
 checks run the production YAML/runtime serializers: old blocks, nondefault values, all new
 fields, strict type/range/version/key checks and transactional rejection. Scene authoring and
 Play/runtime consumption are separate Phase 2 gates still to be implemented.
+
+
+`AudioAcousticsTests.cpp` runs the production adapter with the real JobSystem, including blocked
+worker publication/clear, detached scene lifetimes, latest-request coalescing, atomic geometry
+layer migration, failed capture/retry and last-valid source results. It exercises source cadence,
+budget fairness, smoothing, pruning and both worker/inline policies. The standard Windows and
+Linux occlusion runners include these checks. Actual Scene render-mesh capture and FMOD output
+are checked separately with `tests/rendering/golden_run.py --config debug --scenes FMODDemo --play`.
+The optional Play artifact does not establish Sponza corner/doorway behavior or GPU parity.

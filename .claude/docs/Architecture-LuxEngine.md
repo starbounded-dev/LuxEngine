@@ -990,24 +990,59 @@ authors the filters, sends and reverb buses. VA's other bands and EAX measuremen
 outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
 expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
 
-**Engine occlusion:** VA's per-source occlusion does not respond to geometry (`docs/vercidium-repro`),
-so `ProjectAudioSettings::Occlusion` (`AudioOcclusionSettings`) selects what drives each event's
-Studio `Occlusion` parameter: `Engine` (default, including projects saved before the setting) or
-`Raytraced` (VA). The source is read at Play start. With Engine, `Scene`'s scene-owned
-`AudioOcclusion` runs after the VA join: `Scene::UpdateAudioOcclusion` feeds it the frame's
-`m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied Open)
-and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider and
-every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
-30 dB per tag `TransmissionLF` metres (VA's own definition); unpaired crossings are one-sided
-surfaces costing the tag's flat energy fraction. Losses are scaled by `Strength` (0–4), summed,
-capped at 60 dB, and become a linear gain on `AudioEventAcoustics::OcclusionGainLF`. Each source is
-recast at `UpdateRateHz` (1–120), round-robin within `CastBudget` (1–1024) casts per update; it
-snaps on its first result and is then smoothed over 0.1 s. It runs while the VA scene exists,
-which is every Play session (`RaytracedAudioScene::IsAvailable` is unconditional). Settings persist
-under `Audio.Occlusion` in YAML (missing → defaults; invalid values fail the load) and as runtime
-format **25**'s bounded, length-prefixed YAML block after the format-23 performance block; formats
-16–24 load with defaults. Bank validation warns when an audio source's event has no `Occlusion`
-parameter, since walls then cannot muffle it.
+**Soundwave CPU reference integration (migration Phase 2, in progress):** `SceneAudioAcoustics`
+owns the main-thread capture cache and `AudioAcoustics` owns prepared snapshots and UUID source
+states. Both start independently of VA availability. Scene always applies Soundwave's smoothed LF
+gain to `AudioEventAcoustics::OcclusionGainLF`; the legacy Source selector still loads/saves until
+Phase 6, but no longer selects playback. VA still supplies the existing reverb send until Phase 3.
+The C# contract is unchanged. This CPU integration is a reference milestone, not the shipping
+fallback: Phase 4 must replace its execution with the required GPU stages.
+
+Capture currently uses visible, active StaticMeshComponent render meshes and the StaticMesh asset's selected submeshes, with
+per-submesh material-table resolution. AudioSurface overrides the tag; otherwise collider material
+authoring can override/inherit the render tag. Geometry itself comes from the render MeshSource,
+not collision triangles. Existing collider motion authoring is respected; uncollided render meshes
+start in the static layer and promote to moving when their transform changes. Disabled collider
+acoustics exclude that render mesh. Enabled portals replace their entity's render capture with the
+applied shutter box and disappear at Open=1. The old physics raycast retains its collider inputs
+only for comparison. A low-detail render mesh therefore has the plan's documented acoustic cost.
+
+Mesh refs and material/submesh descriptors are cached using AssetManager::GetDataGeneration,
+material-table revision and live retained material tags; asset resolution and surface descriptor
+capture do not repeat while unchanged. Captured MeshSource positions/indices are the retained CPU
+data (also available in runtime builds); workers receive owned refs plus transforms/tags by value,
+never Scene/ECS or live material pointers. Negative transforms reverse triangle winding. Geometry
+capture requests follow UpdateRateHz; main polls completion without waiting. Deletions/disabled
+instances mask old snapshots immediately while replacements prepare.
+
+One JobSystem job builds the dirty static/moving layers, reusing the untouched snapshot, and the
+pair publishes atomically. This prevents duplicate instances during a layer migration. Completed
+movement publishes even if newer movement is queued, so continuous motion cannot starve results.
+Requests coalesce by dirty layer. Invalid capture, hierarchy or portals retain the last valid pair,
+report a tagged error and expose failure state. A failed layer is retried when its own captured input changes; unrelated movement does not repeatedly rebuild/log that invalid input. Clear releases scene ownership without joining;
+captured Ref job state remains alive until its worker finishes. The all-inline JobSystem policy
+uses the same completion/publication path. Application drains the job pool after layer detach
+and replays its background resource frees before renderer shutdown (Threading.md).
+
+Reference solves run on main until Phase 4, at UpdateRateHz (1-120), with round-robin CastBudget
+(1-1024) and retained scratch/results. First valid gain snaps; subsequent gains interpolate over
+0.1 s. Errors preserve the last valid path and gains. Geometry readiness/backlog/failure counts,
+path diagnostics and gains are observable through Scene::GetAudioAcoustics. `CompareRaycast`
+optionally runs Scene::UpdateAudioOcclusion using the existing physics raycast and scalar model;
+the oracle does not drive playback. The complete Phase 2 Sponza/doorway, editor authoring and
+runtime/export validation gates remain outstanding.
+
+**Phase 2 stress limit still outstanding:** the initial Scene adapter expands render instances
+into world triangles. Benchmark exceeds the current per-layer Grid limit; capture reports an
+error and retains its last valid snapshot. Shared-mesh instance capture/traversal is required
+before completing Phase 2's broad scene coverage. Raising the limit or omitting meshes is not
+the intended solution. The full source-free Benchmark Play capture also exceeded its default
+capture frame budget; the short failure-path run verifies explicit rejection and safe teardown,
+not a completed stress-scene acoustic solve.
+
+Settings persist under Audio.Occlusion in YAML and runtime format 25's existing bounded,
+length-prefixed YAML block; formats 16-24 use defaults. Bank validation still warns on missing
+Occlusion parameters. Kernel settings schema details are below.
 
 **Soundwave contract (migration Phase 1):** `Core/vendor/soundwave/` is an Apache-2.0 source
 library compiled into `Core`, without Lux headers or a separate DLL. `Dependencies.lua` owns
@@ -1026,8 +1061,8 @@ world-space triangles and a deterministic spatial hierarchy, built transactional
 snapshot. Its const segment trace uses caller-owned hit storage, reports entry/exit winding,
 preserves stable instance/surface/material/portal data and can exclude the source instance.
 Concurrent readers share no mutable scratch. `Settings` bounds reflection/opening/bounce work,
-strength and authored absorption. Scene does not consume them
-yet; engine settings persistence is described below, and echogram/GPU dispatch remain unimplemented.
+strength and authored absorption. Scene capture and CPU reference consumption are described above;
+echogram/GPU dispatch remain unimplemented.
 Independent propagation is described below.
 The independent test runner exercises the hierarchy and immutable readers on both platforms.
 `Solve.h/.cpp` now adds the independent `EvaluateDirect` crossing walk. It pairs hits per
@@ -1036,9 +1071,8 @@ the entry material using the Phase 1 loss helpers. Applied portal transforms cro
 column-major `PortalBox` values, with analytic clipping for segments partly or wholly inside
 the shutter. Matching portal triangles are not charged again. Endpoint inputs are copied before
 reset so a previous Path can supply its own From/To. Settings/material/ray/portal failures return
-an explicit nodiscard error and clear the attempted output; the future engine caller must log and
-retain its last valid result. Scratch and crossing capacity survive updates. Scene still does not
-call this new evaluator. The production comparison test checks its values bit-for-bit against
+an explicit nodiscard error and clear the attempted output; the engine adapter logs and
+retains its last valid result. Scratch and crossing capacity survive updates. Scene calls it through the CPU reference adapter. The production comparison test checks its values bit-for-bit against
 AudioOcclusion for all material tags/strengths and transformed portal opening states.
 
 **Independent CPU propagation (migration Phase 2, in progress):** `Solve` keeps the direct
@@ -1050,8 +1084,8 @@ passing inside the solid. Portal triangles and analytic volume clipping both blo
 Specular energy uses authored absorption/scattering; opening attenuation uses a documented Fresnel
 approximation and relative extra-path spreading, without another direct distance fade. Work,
 path storage and graph nodes are bounded and truncation is explicit. Path points/lengths/band gains
-and the strongest audible LF opening path remain observable. This is not yet called by Scene;
-render-mesh capture, editor authoring and Phase 2 runtime verification remain.
+and the strongest audible LF opening path remain observable. Scene now calls this through its CPU reference adapter;
+editor authoring and full Phase 2 runtime verification remain.
 
 **Static/moving snapshot seam (migration Phase 2, in progress):** `Soundwave::GeometryView`
 borrows a fixed Grid, an optional moving Grid and a sorted/unique UUID exclusion span. It exposes
@@ -1060,7 +1094,7 @@ copying geometry. Both `Solve` and `EvaluateDirect` accept the view; single-Grid
 All queries, candidate preparation and analytic portal clipping honor the mask. The caller owns
 and freezes the grids/exclusions through a solve and creates a fresh view after replacement.
 Topology remains per snapshot; deletion-exposed edges appear after a rebuild. This is a library
-seam for the forthcoming worker-prepared Scene snapshots, not an installed Scene job or GPU path.
+seam used by the worker-prepared Scene snapshots above; it does not implement a GPU path.
 
 **Kernel settings persistence (migration Phase 2, in progress):** `AudioOcclusionSettings` now
 owns reflection depth, opening samples, bounce/candidate/path/node limits, absorption and a
@@ -1069,8 +1103,8 @@ using the existing Strength field. `Audio.Occlusion.Kernel.Version: 1` gates the
 missing rows use defaults. Invalid/unknown/duplicate rows or unsupported versions fail with a
 tagged error and preserve the previous settings. Runtime uses its existing bounded length-prefixed
 YAML block, so old blocks without Kernel load unchanged. No global binary layout changes. Project
-serialization already delegates to this type in both directions; editor controls and Scene
-playback consumption remain unfinished. The legacy Source field remains until Phase 6.
+serialization already delegates to this type in both directions; Scene consumes the values,
+while editor controls remain unfinished. The legacy Source field remains until Phase 6.
 
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no
@@ -1080,7 +1114,7 @@ script's child PATH. It does not replace `ValidateProject`'s collection of asset
 **Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
 VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
 `AudioSurfaceComponent` on the same entity overrides that tag, including an explicit Default;
-without a mesh collider it is metadata only. Both tags survive scene snapshots, copy/duplicate,
+without a mesh collider it also tags captured StaticMesh render geometry. Both tags survive scene snapshots, copy/duplicate,
 prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
 through `MeshColliderComponent.Material` and `AudioSurfaceComponent.Material` as read-only queries.
 Physics friction/density/restitution remain independent. A render material can carry an acoustic

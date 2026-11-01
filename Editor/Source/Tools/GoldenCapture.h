@@ -29,7 +29,7 @@ namespace Lux {
 	// resolution and option set, waits for asset streaming to go idle, writes the final image and
 	// averaged timings to LUX_GOLDEN_DIR, and closes.
 	//
-	// Environment (see .claude/docs/Rendering.md § Golden image capture):
+	// Environment (see .claude/docs/Rendering.md Â§ Golden image capture):
 	//   LUX_GOLDEN_DIR          output directory; unset = the tool does nothing
 	//   LUX_GOLDEN_SCENE        scene path relative to the project's asset directory (required)
 	//   LUX_GOLDEN_PROJECT      .luxproj to open first (optional; default: whatever the editor opens)
@@ -46,6 +46,7 @@ namespace Lux {
 	//                           MoveStop=K (with MoveEntities) stops them at the loop's start once
 	//                           the capture could happen and captures K frames later, while the
 	//                           renderer still treats them as settling: their shadows must be there.
+	//   LUX_GOLDEN_PLAY         "1" enters normal Play and verifies Soundwave/FMOD LF values
 	//   LUX_GOLDEN_SELFTEST     "1" also runs RenderGraph::RunValidationSelfTests
 	//   LUX_GOLDEN_EXIT         "0" keeps the editor open afterwards (default: close)
 	//
@@ -57,6 +58,8 @@ namespace Lux {
 	public:
 		struct Hooks
 		{
+			std::function<bool()> StartPlay;
+			std::function<void()> StopPlay;
 			std::function<void(const std::filesystem::path&)> OpenProject;
 			std::function<bool(const std::filesystem::path&)> OpenScene;   // absolute scene file path
 		};
@@ -112,6 +115,7 @@ namespace Lux {
 		void AccumulatePerf(const SceneRenderer& renderer);
 		void WritePerf() const;
 		void RunSelfTest() const;
+		void VerifyAudio(Scene& scene);
 		void Finish(bool success, const std::string& reason);
 
 	private:
@@ -129,6 +133,7 @@ namespace Lux {
 		// Frames rendered after the readback (which blocks the queue) before timing starts.
 		uint32_t m_PerfWarmupFrames = 30;
 		bool m_RunSelfTest = false;
+		bool m_Play = false, m_PlayStarted = false, m_AudioVerified = false;
 		bool m_ExitWhenDone = true;
 		std::map<std::string, std::string> m_Options;
 

@@ -80,6 +80,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "LUX_GOLDEN_PERF_WARMUP": str(args.perf_warmup),
         "LUX_GOLDEN_OPTIONS": options,
         "LUX_GOLDEN_SELFTEST": "1" if selftest else "0",
+        "LUX_GOLDEN_PLAY": "1" if args.play else "0",
         "LUX_SKIP_BUILD": "1",
     })
     # The runner kills an editor that times out; that is not a crash to report with a dialog.
@@ -97,6 +98,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
     command, cwd = editor_command(args.config)
     log_path = label_dir / f"{name}.log"
     started = time.monotonic()
+    started_wall = time.time_ns()
     exit_code = None
     with open(log_path, "w", encoding="utf-8", errors="replace") as log:
         try:
@@ -122,6 +124,15 @@ def run_capture(label_dir, name, scene, options, args, selftest):
     elif status == "CRASHED":
         reason = "Editor exited with code 0 before writing capture status"
 
+    if args.play and status == "OK":
+        audio_path = label_dir / f"{name}.audio.yaml"
+        try:
+            artifact = audio_path.stat()
+            if artifact.st_size == 0 or artifact.st_mtime_ns < started_wall - 2_000_000_000:
+                raise RuntimeError("empty or stale Soundwave Play artifact")
+        except (OSError, RuntimeError) as error:
+            status, reason = "FAILED", str(error)
+
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
     validation_lines = len(VALIDATION_LINE.findall(log_text))
     validation_ids = sorted(set(VALIDATION_ID.findall(log_text)))
@@ -129,6 +140,7 @@ def run_capture(label_dir, name, scene, options, args, selftest):
     result = {
         "name": name,
         "scene": scene,
+        "play": args.play,
         "options": options,
         "status": status,
         "reason": reason,
@@ -250,6 +262,7 @@ def main():
     parser.add_argument("--config", default="release", choices=["debug", "release", "dist"])
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--scenes", type=lambda s: [x for x in s.split(",") if x], default=DEFAULT_SCENES)
+    parser.add_argument("--play", action="store_true", help="enter normal Play and verify Soundwave LF reaches Scene and authored FMOD parameters")
     parser.add_argument("--features", action="store_true", help="also capture the first scene once per feature variant")
     parser.add_argument("--options", default="", help="renderer options for every run, e.g. MeshLODs=0,SSR=0 (LUX_GOLDEN_OPTIONS)")
     parser.add_argument("--size", default="1280x720")

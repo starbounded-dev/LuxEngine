@@ -42,9 +42,9 @@ def main():
                and not value.startswith(("TRACY", "LUX_TRACK_MEMORY"))]
     # Compile actual production units; function sections discard unrelated engine entry points.
     # No acoustic computation or material accessor is replaced by a test double.
-    sources = [ROOT / "tests/audio/OcclusionTests.cpp"]
+    sources = [ROOT / "tests/audio/OcclusionTests.cpp", ROOT / "tests/audio/AudioAcousticsTests.cpp"]
     sources += [core / "Source/Lux" / (value + ".cpp") for value in (
-        "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial",
+        "Audio/AudioAcoustics", "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial",
         "Audio/AudioGeometrySystem", "Serialization/FileStream", "Serialization/StreamReader",
         "Serialization/StreamWriter", "Serialization/Yaml", "Core/UUID", "Core/Ref", "Audio/RaytracedAudioScene")]
     sources += [core / "vendor/rapidyaml/ryml.cpp"]

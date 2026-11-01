@@ -51,7 +51,7 @@ Triangle intersection uses wide intermediates to avoid overflow on finite large 
 
 `Settings` defines bounded reflection depth, opening samples, bounce/candidate work, direct-path
 strength and a fraction of authored material absorption. These types are independent library
-types; the engine now serializes them as described below. They are not yet exposed in the editor or consumed by Scene. Propagation
+types; the engine now serializes them as described below. They are consumed by the engine CPU reference adapter; editor controls remain unfinished. Propagation
 engine integration and GPU execution remain unfinished; independent candidate propagation is described below.
 
 The independent runner now also executes `SoundwaveGeometryTests`: analytic solid distances and
@@ -73,7 +73,7 @@ handle it and retain the last valid result; attempted output is cleared. Endpoin
 before reset, allowing re-evaluation from a Path's own saved endpoints. Reuse `DirectScratch`
 per reader and reuse the output Path to retain their vector capacities.
 
-This direct measurement is reused by the independent propagation solver below. Scene integration remains unfinished. The independent direct tests
+This direct measurement is reused by the independent propagation solver below. Scene now uses the CPU reference adapter; complete Phase 2 verification remains unfinished. The independent direct tests
 cover frozen material formulas, solids/overlaps/thin walls, analytic shutters, source exclusion,
 affine transforms, invalid data, aliasing and scratch reuse. LuxEngine's production oracle test
 also compares all 23 tags, strengths, reversed/inside-solid rays and transformed shutter states.
@@ -115,7 +115,7 @@ Invalid numerical work returns an explicit error instead of creating an unocclud
 `SoundwavePropagationTests` checks an analytic reflection/energy, absorption/scattering, blocked
 legs, third-bounce paths, thick-corner and off-axis doorway audibility, sealed closed-door rejection,
 direct-only equality, deterministic results and low-budget behavior. This remains library work:
-Scene integration, render-mesh capture, editor controls and the complete
+Editor controls and the complete
 Phase 2 runtime gates are unfinished. Echogram, GPU execution, air/caustic reach and SDK removal
 remain later phases.
 
@@ -143,7 +143,7 @@ and candidate preparation. A deletion can expose additional edges only after top
 Tests compare composite and flattened direct results bit-for-bit, cover hierarchy/edge index
 translation and moving-only scenes, and exercise a separate closed door against its static frame.
 Removing the shutter via the exclusion list restores the opening route, including its analytic box.
-These checks do not establish that Scene owns or updates these snapshots yet.
+Scene now owns and prepares these snapshots through SceneAudioAcoustics/AudioAcoustics; full Phase 2 runtime and GPU gates remain separate.
 
 LuxEngine stores these authored values in `Audio.Occlusion.Kernel` with `Version: 1`:
 reflection depth, opening grid size, bounce/candidate/path/node limits, absorption and the
@@ -152,4 +152,4 @@ temporary `CompareRaycast` diagnostic flag. The existing outer `Strength` row re
 duplicating strength. Missing rows load struct defaults; malformed, unsupported-version, unknown,
 duplicate and out-of-range kernel rows are rejected transactionally with a tagged error.
 The runtime block remains the existing bounded length-prefixed YAML representation, so old
-blocks without `Kernel` still load. Scene playback and editor controls are not connected yet.
+blocks without `Kernel` still load. Scene now consumes the saved settings for CPU reference playback; editor controls remain unfinished.

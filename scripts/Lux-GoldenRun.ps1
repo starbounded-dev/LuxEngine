@@ -9,6 +9,7 @@ param(
 	[string] $Scenes = 'FMODDemo',
 	[ValidateSet('Single', 'Multi')]
 	[string] $Threading = 'Multi',
+	[switch] $Play,
 	[ValidateRange(1, 3600)]
 	[int] $TimeoutSeconds = 180
 )
@@ -17,7 +18,9 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $runnerPath = Join-Path $repositoryRoot 'tests\rendering\golden_run.py'
 $started = [DateTime]::UtcNow
-& python $runnerPath --label $Label --config $Configuration.ToLowerInvariant() --scenes $Scenes --threading $Threading.ToLowerInvariant() --timeout $TimeoutSeconds
+$playArguments = @()
+if ($Play) { $playArguments += '--play' }
+& python $runnerPath @playArguments --label $Label --config $Configuration.ToLowerInvariant() --scenes $Scenes --threading $Threading.ToLowerInvariant() --timeout $TimeoutSeconds
 if ($LASTEXITCODE -ne 0) { throw "Golden capture failed: $Label" }
 $outputRoot = Join-Path $repositoryRoot "bin\golden\$Label"
 $summaryPath = Join-Path $outputRoot 'summary.json'

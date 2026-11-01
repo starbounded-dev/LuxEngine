@@ -552,6 +552,14 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 python3 tests/rendering/threading_ab.py                                   # build, then Single vs Multi
 ```
 
+- **Play/audio verification:** `--play` (or `scripts/Lux-GoldenRun.ps1 -Play`) uses the normal
+  editor Play/Stop lifecycle. It additionally requires a ready Soundwave snapshot, completed source
+  solves, nonempty render geometry and at least one live event exposing Occlusion. Before capture,
+  it compares the smoothed gain with Scene's applied value and reads FMOD's actual authored
+  Occlusion parameter. `<name>.audio.yaml` records the UUID/name, gains, path counts and geometry
+  counts; the runner requires a fresh nonempty artifact. This verifies the current CPU reference
+  path only. Moving gameplay is not an image-determinism baseline; normal image captures stay in
+  Edit mode. Play must not poll/wait on a worker/GPU to make a capture ready; normal frames advance.
 - **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features
   scene (area-light slots over glossy strips, glass in front of a grid wall, bright emitters), which
   `python3 scripts/GenerateBenchmarkScenes.py --scene features` regenerates without touching Benchmark.

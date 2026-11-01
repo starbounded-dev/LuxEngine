@@ -178,6 +178,8 @@ namespace
 	}
 }
 
+void RunAudioAcousticsTests();
+
 int main(int argc, char** argv)
 {
 	assert(argc == 2);
@@ -280,6 +282,7 @@ int main(int argc, char** argv)
 	std::cout << "PASS: versioned kernel settings, old project/export defaults, strict validation and transactional round trips\n";
 
 	CheckSoundwaveDirectOracle();
+	RunAudioAcousticsTests();
 
 	// The old engine accessor is an independent baseline until its Phase 7 removal.
 	for (size_t i = 0; i < AcousticMaterialCount; ++i)

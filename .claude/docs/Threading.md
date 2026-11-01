@@ -424,3 +424,28 @@ master output group's mute; it never changes Studio bus state, event pause flags
 SDK mixer/streaming work and timeline callbacks continue while unfocused. No platform callback
 directly invokes audio, scripts or ECS. Profile selection and bank rebuild/reload remain main-thread
 operations; console suspend/resume integration is deferred.
+
+
+### Soundwave preparation during migration Phase 2
+
+SceneAudioAcoustics reads Scene/ECS and resolves assets on main. Captures hold MeshSource refs
+(published, retained CPU positions/indices) and copied submesh ranges/transforms/material tags.
+AudioAcoustics submits owned captures to JobSystem::Submit; workers build hierarchy/topology and
+validate portals without ECS access or Renderer::Submit. Main only loads a release/acquire Done
+flag and publishes the completed static/moving pair. It never waits or spins on a job. Coalescing
+retains the latest dirty-layer captures, while a completed moving snapshot still publishes.
+Failed capture revisions stay latched until the failing layer changes; unrelated movement keeps its latest queued capture without rebuilding the same bad data.
+Scene teardown detaches its Ref to pending state; workers finish using their own refs. There is
+no worker callback into Scene. JobSystem's existing inline policy follows the same path.
+
+The CPU reference solve and UUID source interpolation currently run on main. This is temporary
+Phase 2 execution, with explicit readiness/failure diagnostics; it does not authorize a shipping
+CPU fallback. Phase 4 still requires render-thread compute submission and nonblocking readback.
+The legacy VA join remains only in the existing SDK reverb path until that migration removes it.
+
+At application shutdown (not a scene transition), layers first stop their producers and detach
+their scenes, then Application drains JobSystem before renderer teardown. After the remaining
+audio/physics/font producers stop, it replays Renderer::ExecuteBackgroundThreadSubmits on main
+before Renderer::Shutdown drains GPU release queues. Thus a worker holding the final MeshSource
+ref cannot enqueue a GPU free after the renderer has retired its queues. Runtime scene Clear
+still performs no join, and the acoustic update path adds no GPU/main-thread wait.

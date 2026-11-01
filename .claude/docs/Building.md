@@ -421,5 +421,5 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
   complete audio suite after dependency builds and before Core/Editor, then continues the full
   engine build. CI enables it for Debug. Compiled test outputs are checked for freshness.
 - `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image
-  capture`). Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
+  capture`). `LUX_GOLDEN_PLAY=1` enters normal Play and adds fresh Soundwave/Scene/FMOD gain evidence. Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
   commits.
