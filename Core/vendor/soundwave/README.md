@@ -204,3 +204,18 @@ remain stable. Collapsed edges cannot generate opening samples. Strict meshes st
 collapsed replacements transactionally. NaNs, infinities, invalid identities/materials and
 index overflow remain errors under both policies. The Scene logs local zero-area counts once
 per prepared mesh and exposes per-layer world counts in its diagnostics/Play artifacts.
+
+### Bounded opening frontier
+
+Opening search caches visibility from each sampled node to the source once per solve.
+A completed route is validated and retained when discovered, before further blocked graph
+expansions can consume the remaining work. At the last permitted interaction, nodes that
+cannot see the source are skipped. All accepted legs still pass the same triangle and
+analytic-portal visibility checks, including the check against unnecessary bends.
+The candidate, node, interaction and stored-path limits are unchanged; incomplete searches
+remain explicitly reported. This changes which indirect routes survive a bounded search,
+not the direct crossing arithmetic or its reduction order.
+
+The detailed-wall test complements the existing corner, doorway and sealed-door controls.
+LuxEngine's separate native Sponza runner checks the real imported scene and physics-ray
+oracle; standalone tests alone do not establish Scene playback, runtime export or GPU parity.

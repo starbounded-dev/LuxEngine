@@ -3864,7 +3864,8 @@ namespace Lux {
 
 	void EditorLayer::AddRecentProject(const std::filesystem::path& projectPath)
 	{
-		if (!m_UserPreferences)
+		// Capture fixtures are temporary projects, not user recent-project choices.
+		if (!m_UserPreferences || FileSystem::HasEnvironmentVariable("LUX_GOLDEN_DIR"))
 			return;
 
 		const std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);

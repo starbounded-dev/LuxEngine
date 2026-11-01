@@ -561,6 +561,12 @@ python3 tests/rendering/threading_ab.py                                   # buil
   counts (logical/stored/inert triangles and mesh instances); the runner requires a fresh nonempty artifact. This verifies the current CPU reference
   path only. Moving gameplay is not an image-determinism baseline; normal image captures stay in
   Edit mode. Play must not poll/wait on a worker/GPU to make a capture ready; normal frames advance.
+  With the authored Compare Engine Ray option, audio evidence also records oracle/direct float
+  bits, endpoints, work/path limits and the strongest opening route; a missing oracle fails capture.
+  `tests/audio/run_scene_acoustics.py` uses this path for isolated Sponza corner, off-axis
+  doorway, closed-portal and direct-only controls. It copies generated model/material inputs and
+  verifies originals are unchanged. Capture fixture projects are excluded from recent-project
+  history. Its short Debug captures establish correctness, not frame-budget performance.
 - **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features
   scene (area-light slots over glossy strips, glass in front of a grid wall, bright emitters), which
   `python3 scripts/GenerateBenchmarkScenes.py --scene features` regenerates without touching Benchmark.

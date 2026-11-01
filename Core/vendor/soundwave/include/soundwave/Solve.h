@@ -97,6 +97,7 @@ namespace Lux::Soundwave
 		std::vector<std::uint32_t> Triangles, EdgeIndices, SearchHeap;
 		std::vector<EdgeCandidate> Edges;
 		std::vector<OpeningNode> Openings;
+		std::vector<std::uint8_t> SourceVisible;
 		std::vector<SearchState> States;
 		std::vector<float> BestDistance;
 	};

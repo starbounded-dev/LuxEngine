@@ -139,6 +139,36 @@ int main()
 		result.Indirect.empty() && result.OcclusionGainLF == result.Direct.GainLF() && result.Diagnostics.PreparationNodes == 0,
 		"direct-only comparison mode changed gain or performed candidate preparation");
 
+	// The same closed wall with a detailed render tessellation must not let early
+	// blocked graph expansions starve reachable terminal candidates of their work.
+	geometry.clear();
+	Box(geometry, {-0.1f,-2,-2}, {0.1f,2,0}, 2);
+	for (int level = 0; level < 3; ++level)
+	{
+		std::vector<Triangle> subdivided;
+		subdivided.reserve(geometry.size() * 4);
+		const auto midpoint = [](Position a, Position b)
+		{
+			return Position{(a.X+b.X)*0.5f,(a.Y+b.Y)*0.5f,(a.Z+b.Z)*0.5f};
+		};
+		for (const auto& triangle : geometry)
+		{
+			const auto ab = midpoint(triangle.A,triangle.B), bc = midpoint(triangle.B,triangle.C), ca = midpoint(triangle.C,triangle.A);
+			for (const auto& childPoints : {std::array{triangle.A,ab,ca},std::array{ab,triangle.B,bc},
+				std::array{ca,bc,triangle.C},std::array{ab,bc,ca}})
+				subdivided.push_back({childPoints[0],childPoints[1],childPoints[2],triangle.Instance,0,0,false});
+		}
+		geometry.swap(subdivided);
+	}
+	settings = {};
+	settings.ReflectionDepth = 0;
+	settings.CandidateBudget = 65536;
+	settings.OpeningNodeBudget = 2048;
+	Check(grid.Build(geometry) == GeometryError::None && geometry.size() == 768, "detailed corner fixture invalid");
+	Check(Solve(grid, {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, result) == EvaluationError::None &&
+		result.HasAudibleOpening && result.OcclusionGainLF > 0.01f && result.Diagnostics.Work <= settings.CandidateBudget,
+		"detailed corner graph starved a visible route within its authored work limit");
+
 	// A sealed enclosure prevents a route around the ends of this internal wall. The
 	// doorway is off the direct ray, so audibility must come from a genuine opening path.
 	geometry.clear();

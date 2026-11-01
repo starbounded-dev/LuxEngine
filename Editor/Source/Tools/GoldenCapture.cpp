@@ -28,6 +28,7 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -713,6 +714,7 @@ namespace Lux {
 		out << Yaml::Key << "MovingMeshInstances" << Yaml::Value << stats.MovingMeshInstances;
 		out << Yaml::Key << "GeometryGeneration" << Yaml::Value << stats.GeometryGeneration;
 		out << Yaml::Key << "Evaluations" << Yaml::Value << stats.Evaluations;
+		out << Yaml::Key << "EngineRayComparison" << Yaml::Value << kernel.IsRaycastComparisonEnabled();
 		out << Yaml::Key << "Sources" << Yaml::Value << Yaml::BeginSeq;
 		uint32_t checkedParameters = 0;
 		for (auto handle : scene.GetAllEntitiesWith<AudioSourceComponent>())
@@ -733,8 +735,41 @@ namespace Lux {
 			out << Yaml::Key << "UUID" << Yaml::Value << id;
 			out << Yaml::Key << "OcclusionGainLF" << Yaml::Value << gain;
 			out << Yaml::Key << "DirectGainLF" << Yaml::Value << result->Direct.GainLF();
+			out << Yaml::Key << "DirectGainLFBits" << Yaml::Value << std::bit_cast<uint32_t>(result->Direct.GainLF());
+			out << Yaml::Key << "RawGainLF" << Yaml::Value << result->OcclusionGainLF;
+			out << Yaml::Key << "Listener" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq
+				<< result->Direct.From.X << result->Direct.From.Y << result->Direct.From.Z << Yaml::EndSeq;
+			out << Yaml::Key << "Source" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq
+				<< result->Direct.To.X << result->Direct.To.Y << result->Direct.To.Z << Yaml::EndSeq;
+			if (kernel.IsRaycastComparisonEnabled())
+			{
+				const auto* oracle = scene.GetAudioOcclusion().GetPath(id);
+				if (!oracle)
+				{
+					Finish(false, std::format("Engine-ray comparison path missing for source {}", static_cast<uint64_t>(id)));
+					return;
+				}
+				out << Yaml::Key << "EngineRayGainLF" << Yaml::Value << oracle->Measurement.GainLF();
+				out << Yaml::Key << "EngineRayGainLFBits" << Yaml::Value << std::bit_cast<uint32_t>(oracle->Measurement.GainLF());
+				out << Yaml::Key << "EngineRayWalls" << Yaml::Value << static_cast<uint32_t>(oracle->Walls.size());
+			}
 			out << Yaml::Key << "ReflectionPaths" << Yaml::Value << result->Diagnostics.ReflectionPaths;
 			out << Yaml::Key << "OpeningPaths" << Yaml::Value << result->Diagnostics.OpeningPaths;
+			out << Yaml::Key << "Work" << Yaml::Value << result->Diagnostics.Work;
+			out << Yaml::Key << "WorkLimited" << Yaml::Value << result->Diagnostics.WorkLimited;
+			out << Yaml::Key << "PathsLimited" << Yaml::Value << result->Diagnostics.PathsLimited;
+			if (result->HasAudibleOpening)
+			{
+				out << Yaml::Key << "AudibleOpening" << Yaml::Value << Yaml::BeginMap;
+				out << Yaml::Key << "GainLF" << Yaml::Value << result->AudibleOpening.GainLF;
+				out << Yaml::Key << "Points" << Yaml::Value << Yaml::BeginSeq;
+				for (uint32_t i = 0; i < result->AudibleOpening.PointCount; ++i)
+				{
+					const auto point = result->AudibleOpening.Points[i];
+					out << Yaml::Flow << Yaml::BeginSeq << point.X << point.Y << point.Z << Yaml::EndSeq;
+				}
+				out << Yaml::EndSeq << Yaml::EndMap;
+			}
 			const auto& event = entity.GetComponent<AudioSourceComponent>().Event;
 			FMOD_GUID guid{};
 			FMOD::Studio::EventDescription* description = nullptr;

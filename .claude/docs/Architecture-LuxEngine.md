@@ -1029,8 +1029,9 @@ Reference solves run on main until Phase 4, at UpdateRateHz (1-120), with round-
 0.1 s. Errors preserve the last valid path and gains. Geometry readiness/backlog/failure counts,
 path diagnostics and gains are observable through Scene::GetAudioAcoustics. `CompareRaycast`
 optionally runs Scene::UpdateAudioOcclusion using the existing physics raycast and scalar model;
-the oracle does not drive playback. Project Settings authoring is described below; the complete
-Phase 2 Sponza/doorway and runtime/export validation gates remain outstanding.
+the oracle does not drive playback. Project Settings authoring and native Sponza controls are
+described below. Broader render coverage, Linux engine sanitizer and full runtime/export gates
+remain outstanding for Phase 2.
 
 **Shared Scene meshes (migration Phase 2, in progress):** Scene capture now caches one
 local Grid per retained MeshSource pointer and selected-submesh layout. The worker bakes each
@@ -1111,8 +1112,12 @@ passing inside the solid. Portal triangles and analytic volume clipping both blo
 Specular energy uses authored absorption/scattering; opening attenuation uses a documented Fresnel
 approximation and relative extra-path spreading, without another direct distance fade. Work,
 path storage and graph nodes are bounded and truncation is explicit. Path points/lengths/band gains
-and the strongest audible LF opening path remain observable. Scene now calls this through its CPU reference adapter;
-editor authoring is implemented below; full Phase 2 runtime verification remains.
+and the strongest audible LF opening path remain observable. Opening search caches source visibility
+per node, retains completed routes at discovery, and skips source-hidden final-interaction nodes.
+Thus blocked graph fan-out cannot defer an already completed route until its work is exhausted.
+All visibility, interaction and work limits remain enforced; direct arithmetic is unchanged.
+Scene calls this through its CPU reference adapter; editor authoring is implemented below.
+Full Phase 2 runtime/export verification remains.
 
 **Static/moving snapshot seam (migration Phase 2, in progress):** `Soundwave::GeometryView`
 borrows a fixed Grid, an optional moving Grid and a sorted/unique UUID exclusion span. It exposes
@@ -1159,6 +1164,19 @@ and the comparison toggle, checks IDs/scopes, dirty results, direct-only setting
 round-trip, then restores the original context. It edits local settings only. The runner requires
 a fresh PASS artifact in addition to normal capture/Play success. This automated control check does
 not substitute for a complete visual panel walkthrough or runtime/export validation.
+
+**Native Scene verification:** `tests/audio/run_scene_acoustics.py` builds isolated project
+fixtures around the real Sponza model and uses normal Play/Stop with pinned listener/source UUIDs.
+All Sponza submeshes also feed the existing physics-ray oracle; the optional Play artifact records
+raw and applied LF, direct/oracle float bits, endpoints, work/path truncation and audible route
+points. A missing requested comparison path fails capture. Corner/open-archway cases must improve
+on the blocked ray and reach FMOD; closed/direct-only controls must not acquire an opening route.
+Five partitions isolate one actual arch bay from neighboring open arches for its closed portal
+control. Fixtures author opaque material coefficients and explicit maximum search budgets.
+Counts derive from model accessors rather than assuming a primitive cube. The runner copies
+imported model/material files and verifies original project, scene, registry and model bytes.
+Capture projects do not enter user recent-project history. This is a developer correctness gate;
+it does not establish performance, default-budget completeness, exported runtime or GPU parity.
 
 **Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
 `AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no

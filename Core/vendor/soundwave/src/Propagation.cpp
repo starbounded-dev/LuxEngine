@@ -385,19 +385,33 @@ namespace Lux::Soundwave
 				const auto& y = scratch.States[b];
 				return x.Score != y.Score ? x.Score > y.Score : a > b;
 			};
-			const auto push = [&](std::uint32_t node, std::uint32_t depth, std::uint32_t parent, float distance)
+			const auto push = [&](std::uint32_t node, std::uint32_t depth, std::uint32_t parent, float distance, bool terminal)
 			{
 				auto& best = scratch.BestDistance[static_cast<std::size_t>(depth) * count + node];
 				if (distance >= best)
 					return;
 				best = distance;
-				scratch.SearchHeap.push_back(static_cast<std::uint32_t>(scratch.States.size()));
+				const auto index = static_cast<std::uint32_t>(scratch.States.size());
 				scratch.States.push_back({ node,depth,parent,distance,distance + Distance(scratch.Openings[node].Point, context.Source) });
-				std::push_heap(scratch.SearchHeap.begin(), scratch.SearchHeap.end(), compare);
+				// A completed route must not wait behind cheaper blocked expansions until
+				// their fan-out spends the entire budget. Every leg has already been tested.
+				if (terminal)
+					OpeningPath(context, index);
+				else
+				{
+					scratch.SearchHeap.push_back(index);
+					std::push_heap(scratch.SearchHeap.begin(), scratch.SearchHeap.end(), compare);
+				}
 			};
-			for (std::uint32_t i = 0; i < count && context.Result.Diagnostics.Work < context.Limit; ++i)
+			// The final leg depends only on the sampled node, not on which search state
+			// reaches it. Cache it once, including nodes hidden from the listener.
+			scratch.SourceVisible.assign(count, 0);
+			for (std::uint32_t i = 0; i < count && context.Result.Diagnostics.Work < context.Limit && !context.Invalid; ++i)
+			{
+				scratch.SourceVisible[i] = context.Visible(scratch.Openings[i].Point, context.Source, 0);
 				if (context.Visible(context.Listener, scratch.Openings[i].Point, 0))
-					push(i, 1, kInvalidGeometryIndex, Distance(context.Listener, scratch.Openings[i].Point));
+					push(i, 1, kInvalidGeometryIndex, Distance(context.Listener, scratch.Openings[i].Point), scratch.SourceVisible[i] != 0);
+			}
 			while (!scratch.SearchHeap.empty() && context.Result.Diagnostics.Work < context.Limit && !context.Invalid)
 			{
 				std::pop_heap(scratch.SearchHeap.begin(), scratch.SearchHeap.end(), compare);
@@ -405,16 +419,17 @@ namespace Lux::Soundwave
 				scratch.SearchHeap.pop_back();
 				const auto state = scratch.States[index]; // pushes below may reallocate States
 				const auto& node = scratch.Openings[state.Node];
-				if (context.Visible(node.Point, context.Source, 0))
-					OpeningPath(context, index);
-				else if (state.Depth < context.Config.MaxBounces)
+				if (state.Depth < context.Config.MaxBounces)
 					for (std::uint32_t next = 0; next < count && context.Result.Diagnostics.Work < context.Limit; ++next)
 					{
+						// At the interaction limit only a source-visible node can finish.
+						if (state.Depth + 1 == context.Config.MaxBounces && !scratch.SourceVisible[next])
+							continue;
 						bool repeated = false;
 						for (auto prior = index; prior != kInvalidGeometryIndex; prior = scratch.States[prior].Parent)
 							repeated |= scratch.Openings[scratch.States[prior].Node].EdgeIndex == scratch.Openings[next].EdgeIndex;
 						if (!repeated && context.Visible(node.Point, scratch.Openings[next].Point, 0))
-							push(next, state.Depth + 1, index, state.Distance + Distance(node.Point, scratch.Openings[next].Point));
+							push(next, state.Depth + 1, index, state.Distance + Distance(node.Point, scratch.Openings[next].Point), scratch.SourceVisible[next] != 0);
 					}
 			}
 			context.Result.Diagnostics.WorkLimited |= !scratch.SearchHeap.empty();

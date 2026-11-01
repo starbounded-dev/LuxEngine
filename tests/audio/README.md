@@ -131,7 +131,27 @@ layer migration, failed capture/retry and last-valid source results. It exercise
 budget fairness, smoothing, pruning and both worker/inline policies. The standard Windows and
 Linux occlusion runners include these checks. Actual Scene render-mesh capture and FMOD output
 are checked separately with `tests/rendering/golden_run.py --config debug --scenes FMODDemo --play`.
-The optional Play artifact does not establish Sponza corner/doorway behavior or GPU parity.
+The optional demo Play artifact does not establish Sponza corner/doorway behavior or GPU parity.
+
+The explicit native Scene cases use `python tests/audio/run_scene_acoustics.py --config debug`.
+They load the actual Sponza render source, pin the listener/source, enable the existing physics-ray
+oracle over all model submeshes and verify the real FMOD Occlusion parameter. Cases cover a pillar
+corner, an off-axis archway, its closed portal control and blocked/clear direct-only profiles.
+Sponza has neighboring open arches: five authored partitions seal the tested bay at its sides,
+back, floor and ceiling so the closed control tests a sealed doorway. The original Sponza arch
+and pillar geometry remains present and determines the open route. Materials are explicitly
+opaque and work/node limits are authored at their maximum; truncation stays visible in artifacts.
+These checks do not prove performance, all routes at default budgets, runtime export or GPU parity.
+
+Fixtures live under `bin/soundwave-scene-tests/<unique-run>/`; native capture evidence lives under
+`bin/golden/<run>-<case>/`. The script copies the project/registry, scene, compiled script module
+and Sponza/default model folders (the importer rewrites generated materials), with directory
+links for other existing assets/banks. It checks original project/scene/registry/model bytes on
+exit. Golden fixtures do not enter recent-project history. Geometry counts come from the actual
+glTF index accessors, including the sample cube’s 156 triangles; the portal uses the kernel’s
+procedural twelve-triangle box. PyYAML is required only for this developer runner. Use `--cases`
+to select named cases, or `--threading single` to exercise the inline policy. Native Editor and
+the ordinary sample banks must already be built; each capture’s existing timestamp gate runs once.
 
 Add `--audio-settings-ui` to run the shared Project Settings acoustic controls before the first
 editor frame. The isolated ImGui context drives numeric text input and both comparison toggle
