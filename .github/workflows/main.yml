@@ -449,6 +449,9 @@ jobs:
           drivers = list(Path('/usr/share/vulkan/icd.d').glob('*lvp*.json'))
           if len(drivers) != 1:
               raise RuntimeError(f'Expected one lavapipe driver manifest, found {drivers}')
+          runtime_directory = Path(os.environ['RUNNER_TEMP']) / 'soundwave-runtime-xdg'
+          runtime_directory.mkdir(mode=0o700, exist_ok=True)
+          runtime_directory.chmod(0o700)
           with open(os.environ['GITHUB_ENV'], 'a') as env:
               env.write(f'VK_DRIVER_FILES={drivers[0]}\n')
               env.write(f'XDG_RUNTIME_DIR={os.environ["RUNNER_TEMP"]}/soundwave-runtime-xdg\n')

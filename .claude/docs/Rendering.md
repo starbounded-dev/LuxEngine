@@ -1377,3 +1377,10 @@ geometry is ready (failure after 6000 frames), then closes normally. Missing/sta
 nonzero process exit, acoustic mismatch and Vulkan validation messages fail the check.
 The packaged runtime is selected with `--runtime-config debug|release|dist`; native artifacts
 must be built first. This is correctness evidence, not an acoustic GPU or performance gate.
+
+Runtime acoustic completion uses a staged `.status.tmp` file atomically replaced onto the
+final `.status` path after the report is written. The runner checks fresh report/status files
+and normal process exit; it does not require a console message. Dist omits the console sink,
+and logging preferences cannot determine whether acoustic verification passed. Publication
+failure remains a missing/stale-marker failure, with native errors reported through the normal
+tagged logger.

@@ -462,3 +462,7 @@ build before optional audio regressions; a regression failure still fails the jo
 fresh-artifact and native sanitizer-symbol check runs afterward to retain independent evidence.
 The ordinary push/PR/default manual matrix is unchanged. Use either audio mode or the standalone
 Vulkan probe in one invocation. These switches only change disposable CI orchestration.
+
+The runtime CI services create their private XDG runtime directory before exporting it to
+subsequent steps: .NET's NuGet named mutexes use that directory during managed builds, before
+the native window/audio test starts. An exported but nonexistent directory fails those builds.

@@ -203,8 +203,6 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     log = log_path.read_text(encoding="utf-8", errors="replace")
     require("Vulkan validation error" not in log and "Vulkan validation warning" not in log and
             "Vulkan performance validation" not in log, "Exported runtime reported Vulkan validation messages")
-    require("Runtime acoustic verification passed:" in log and "Runtime acoustic verification failed:" not in log,
-            "Runtime did not confirm successful report/status publication")
     data = yaml.safe_load(report_path.read_text(encoding="utf-8"))
     verified = verify(data, case, triangle_counts)
     play = yaml.safe_load((capture/"FMODDemo.audio.yaml").read_text(encoding="utf-8"))

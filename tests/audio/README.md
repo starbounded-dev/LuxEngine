@@ -225,3 +225,10 @@ worker/inline ownership cases in an executable with no legacy SDK dependency. It
 objects retain AddressSanitizer instrumentation. This runs before the complete instrumented
 occlusion/audio suite, whose SDK leak failures remain failures with no suppression. A focused
 lifetime pass alone does not establish a passing full Debug-AS engine/audio gate.
+
+Runtime acoustic completion uses a staged `.status.tmp` file atomically replaced onto the
+final `.status` path after the report is written. The runner checks fresh report/status files
+and normal process exit; it does not require a console message. Dist omits the console sink,
+and logging preferences cannot determine whether acoustic verification passed. Publication
+failure remains a missing/stale-marker failure, with native errors reported through the normal
+tagged logger.

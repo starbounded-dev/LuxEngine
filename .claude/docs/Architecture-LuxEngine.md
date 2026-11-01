@@ -1002,7 +1002,9 @@ empty; normal interactive exports retain their folder dialog and completion beha
 normal application close. It loads the binary project, packaged banks and AssetPack with
 the normal runtime asset manager and compacted mesh CPU data; it is inert without that opt-in.
 The fixture runner compares the packaged player's raw gains/direct bits/opening paths with
-Play. These hooks provide evidence only for the implemented stages, not GPU/reverb completion.
+Play. Completion is an atomically published status file after the report, independent of console
+sinks and logging preferences (Dist has no console sink). Missing/stale markers fail verification.
+These hooks provide evidence only for the implemented stages, not GPU/reverb completion.
 
 **Soundwave CPU reference integration (migration Phase 2, in progress):** `SceneAudioAcoustics`
 owns the main-thread capture cache and `AudioAcoustics` owns prepared snapshots and UUID source

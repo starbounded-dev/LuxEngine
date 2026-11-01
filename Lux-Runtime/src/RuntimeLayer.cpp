@@ -354,14 +354,20 @@ namespace Lux
 			if (!file.good())
 				error = "Could not write runtime acoustic report: " + m_AudioVerificationPath.string();
 		}
-		std::ofstream marker(m_AudioVerificationPath.string() + ".status", std::ios::trunc);
+		const std::filesystem::path statusPath = m_AudioVerificationPath.string() + ".status";
+		const std::filesystem::path stagedStatus = statusPath.string() + ".tmp";
+		std::ofstream marker(stagedStatus, std::ios::trunc);
 		marker << (error.empty() ? "OK" : "FAILED") << "\n" << error << "\n";
-		marker.flush();
-		if (!marker.good())
-			error = "Could not write runtime acoustic status: " + m_AudioVerificationPath.string();
+		marker.close();
+		const bool markerWritten = marker.good();
+		if (!markerWritten)
+			error = "Could not write runtime acoustic status: " + statusPath.string();
+		// Completion is a file protocol, independent of console sinks (absent in Dist).
+		// Failed publication leaves no fresh completion marker; the helper reports why.
+		const bool published = markerWritten && FileSystem::ReplaceFileAtomically(stagedStatus, statusPath);
 		if (!error.empty())
 			LUX_CORE_ERROR_TAG("Audio", "Runtime acoustic verification failed: {}", error);
-		else
+		else if (published)
 			LUX_CORE_INFO_TAG("Audio", "Runtime acoustic verification passed: {}", m_AudioVerificationPath.string());
 		m_AudioVerificationPath.clear();
 		Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
