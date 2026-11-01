@@ -25,6 +25,8 @@ namespace Lux::AssetExtensions
 			{ ".hdr", AssetType::EnvMap },
 			{ ".wav", AssetType::Audio },
 			{ ".ogg", AssetType::Audio },
+			{ ".mp3", AssetType::Audio },
+			{ ".flac", AssetType::Audio },
 			{ ".fspro", AssetType::AudioProject },
 			{ ".bank", AssetType::AudioBank },
 			{ ".lsurfaces", AssetType::AudioSurfaceTable },

@@ -5,11 +5,13 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Editor/EditorPanel.h"
+#include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Project/Project.h"
 
 #include "ContentBrowser/ContentBrowserItem.h"
 #include "ThumbnailCache.h"
 #include "MaterialEditor/MaterialThumbnailer.h"
+#include "ContentBrowser/WaveformThumbnailer.h"
 
 #include <functional>
 #include <limits>
@@ -165,6 +167,9 @@ namespace Lux {
 		size_t GetSelectionCount() const { return m_SelectedItems.SelectionCount(); }
 		const AssetHandle* GetSelectionData() const { return m_SelectedItems.SelectionData(); }
 		AssetHandle GetSelection(size_t index) const { return m_SelectedItems[index]; }
+		// The audio clips a "Create Sound" on this item applies to: the selection when the item is in
+		// it, else the item alone.
+		std::vector<AssetHandle> GetSoundClips(AssetHandle item) const;
 		AssetHandle GetSelectionAnchor() const { return m_SelectionAnchor; }
 
 		void SelectItem(AssetHandle handle);
@@ -226,6 +231,7 @@ namespace Lux {
 
 		bool OnKeyPressedEvent(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
+		bool OnFilesDropped(WindowDropEvent& e);
 
 		void PasteCopiedAssets();
 		void RenderDeleteDialogue();
@@ -250,7 +256,8 @@ namespace Lux {
 		AssetHandle CreateAudioSurfaceTable();
 		AssetHandle CreateDialogueTable();
 		// A Sound playing clip (an Audio asset), or an empty one when clip is 0. Named after the clip.
-		AssetHandle CreateSoundAsset(AssetHandle clip = 0);
+		// One clip makes a Sound playing it; several make a Random container of them.
+		AssetHandle CreateSoundAsset(const std::vector<AssetHandle>& clips = {});
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;
@@ -259,6 +266,7 @@ namespace Lux {
 		Ref<Project> m_Project;
 		Ref<ThumbnailCache> m_ThumbnailCache;
 		Ref<MaterialThumbnailer> m_MaterialThumbnailer; // created on the first material thumbnail
+		Ref<WaveformThumbnailer> m_WaveformThumbnailer; // created on the first audio or Sound thumbnail
 
 		std::map<std::string, Ref<Texture2D>> m_AssetIconMap;
 

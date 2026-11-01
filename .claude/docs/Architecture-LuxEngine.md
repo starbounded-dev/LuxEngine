@@ -826,7 +826,15 @@ and rejects malformed trees. `SoundSerializer` writes bounded YAML (64 KiB at sa
 and pack read), registers every clip as a dependency and is packable. Each instance copies the Sound
 when created, so an edit applies to the next instance.
 The Content Browser offers **New → Sound** and **Create Sound** on an audio file (native builds
-only). C# scripts can
+only); with several audio files selected it makes one Sound with a Random root (avoid-repeat) over
+them, refused if the file would exceed `Sound::MaxFileBytes`. `.wav`, `.ogg`, `.mp3` and `.flac` are
+`Audio` assets. Files dropped on the editor window (GLFW's drop callback raises `WindowDropEvent`;
+`PanelManager` forwards it) are copied into the Content Browser's open folder and imported, as the
+Import menu does; unknown types are skipped with a warning. Audio files and Sounds get waveform
+thumbnails from `WaveformThumbnailer` (`Panels/ContentBrowser/`): one file at a time is decoded by
+`AudioFileUtils::GetWaveform` in a `JobSystem::Submit` job, then rasterized on the main thread into
+`ThumbnailCache::SetThumbnailPixels` (a Sound shows its first clip, in the accent colour); the FMOD
+build draws none. C# scripts can
 declare `Lux.Sound` fields (`DataType::Sound`, editor-assignable like `Prefab`) and call
 `Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`, which pass the handle as the reference. The
 FMOD build reports such a reference as a Sound that needs the native backend.

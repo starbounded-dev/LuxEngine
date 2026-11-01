@@ -209,6 +209,11 @@ Two cores are reserved for the main and render threads, leaving headroom for Jol
 synchronisation. The current production use is `Scene::SyncRenderScene`'s world-transform
 computation (`Scene.cpp`), which writes only per-item output slots.
 
+The editor's `WaveformThumbnailer` (`Editor/Source/Panels/ContentBrowser/`) `Submit`s one job at a
+time: it decodes one audio file with miniaudio into a `Ref`-owned result and sets an atomic `Done`,
+touching nothing else; the main thread polls `Done` and does the rest. The job owns its result, so
+`Clear()` or destroying the thumbnailer while it runs is safe.
+
 Because `ParallelFor` also executes on the calling thread, it is **not** a place to block: a job that
 waits on the main thread deadlocks.
 

@@ -18,13 +18,13 @@ namespace Lux::AudioFileUtils
 
 	bool IsValidAudioFile(const std::filesystem::path& filepath)
 	{
-		// TODO: 1. get list of supported formats; 2. optionally open the file and read metadata
-
-		if (Utils::String::EqualsIgnoreCase(filepath.extension().string(), ".wav"))
-			return true;
-		else if (Utils::String::EqualsIgnoreCase(filepath.extension().string(), ".ogg"))
-			return true;
-
+		// The formats both backends decode (FMOD, and miniaudio with stb_vorbis).
+		const std::string extension = filepath.extension().string();
+		for (const char* supported : { ".wav", ".ogg", ".mp3", ".flac" })
+		{
+			if (Utils::String::EqualsIgnoreCase(extension, supported))
+				return true;
+		}
 		return false;
 	}
 

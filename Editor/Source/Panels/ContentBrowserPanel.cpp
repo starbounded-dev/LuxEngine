@@ -48,7 +48,9 @@ namespace Lux {
 			AssetType::Mesh,
 			AssetType::MeshSource,
 			AssetType::StaticMesh,
-			AssetType::EnvMap
+			AssetType::EnvMap,
+			AssetType::Audio,
+			AssetType::Sound
 		};
 
 		bool IsThumbnailSupported(AssetType type)
@@ -326,6 +328,8 @@ namespace Lux {
 			m_ThumbnailCache->OnUpdate();
 			if (m_MaterialThumbnailer)
 				m_MaterialThumbnailer->OnUpdate(*m_ThumbnailCache);
+			if (m_WaveformThumbnailer)
+				m_WaveformThumbnailer->OnUpdate(*m_ThumbnailCache);
 		}
 	}
 
@@ -334,6 +338,44 @@ namespace Lux {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event) { return OnKeyPressedEvent(event); });
 		dispatcher.Dispatch<MouseButtonPressedEvent>([this](MouseButtonPressedEvent& event) { return OnMouseButtonPressed(event); });
+		dispatcher.Dispatch<WindowDropEvent>([this](WindowDropEvent& event) { return OnFilesDropped(event); });
+	}
+
+	// Files dropped on the editor window are copied into the open folder and imported, like Import.
+	bool ContentBrowserPanel::OnFilesDropped(WindowDropEvent& e)
+	{
+		if (!m_Project || !m_CurrentDirectory || !Project::GetEditorAssetManager())
+			return false;
+		const std::filesystem::path destinationDirectory = Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath;
+		size_t imported = 0;
+		for (const auto& source : e.GetPaths())
+		{
+			std::error_code error;
+			if (!std::filesystem::is_regular_file(source, error))
+			{
+				LUX_CORE_WARN_TAG("Editor", "Not imported: '{}' is not a file", source.string());
+				continue;
+			}
+			if (Project::GetEditorAssetManager()->GetAssetTypeFromPath(source) == AssetType::None)
+			{
+				LUX_CORE_WARN_TAG("Editor", "Not imported: '{}' is not a type of file the engine uses", source.filename().string());
+				continue;
+			}
+			const std::filesystem::path destination = MakeUniqueDuplicatePath(destinationDirectory / source.filename());
+			if (!FileSystem::Copy(source, destination))
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Could not copy '{}' into the project", source.string());
+				continue;
+			}
+			CopyImportedMeshDependencies(source, destinationDirectory);
+			if (Project::GetEditorAssetManager()->ImportAsset(destination))
+				++imported;
+		}
+		if (imported == 0)
+			return false;
+		LUX_CORE_INFO_TAG("Editor", "Imported {} dropped file(s) into '{}'", imported, m_CurrentDirectory->FilePath.generic_string());
+		Refresh();
+		return true;
 	}
 
 	void ContentBrowserPanel::OnProjectChanged(const Ref<Project>& project)
@@ -347,6 +389,7 @@ namespace Lux {
 		m_PreviousDirectory.reset();
 		m_ThumbnailCache.reset();
 		m_MaterialThumbnailer.reset();
+		m_WaveformThumbnailer.reset();
 		m_BreadCrumbData.clear();
 		ClearSelections();
 		memset(m_SearchBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
@@ -607,6 +650,8 @@ namespace Lux {
 			m_ThumbnailCache->Clear();
 			if (m_MaterialThumbnailer)
 				m_MaterialThumbnailer->Clear();
+			if (m_WaveformThumbnailer)
+				m_WaveformThumbnailer->Clear();
 		}
 		ImGuiEx::SetTooltip("Clear thumbnail cache");
 
@@ -903,7 +948,7 @@ namespace Lux {
 			// Creating the Sound refreshes the item list too.
 			if (result.IsSet(ContentBrowserAction::CreateSound) && item->GetType() == ContentBrowserItem::ItemType::Asset)
 			{
-				CreateSoundAsset(item->GetID());
+				CreateSoundAsset(GetSoundClips(item->GetID()));
 				break;
 			}
 		}
@@ -1500,16 +1545,50 @@ namespace Lux {
 		return handle;
 	}
 
-	AssetHandle ContentBrowserPanel::CreateSoundAsset(AssetHandle clip)
+	std::vector<AssetHandle> ContentBrowserPanel::GetSoundClips(AssetHandle item) const
+	{
+		std::vector<AssetHandle> clips;
+		if (!m_SelectedItems.IsSelected(item))
+			return { item };
+		for (size_t index = 0; index < m_SelectedItems.SelectionCount(); ++index)
+		{
+			const AssetHandle selected = m_SelectedItems[index];
+			if (AssetManager::GetAssetType(selected) == AssetType::Audio)
+				clips.push_back(selected);
+		}
+		return clips;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateSoundAsset(const std::vector<AssetHandle>& clips)
 	{
 		if (!m_CurrentDirectory)
 			return 0;
 		Sound sound;
 		std::string name = "New Sound";
-		if (clip && AssetManager::GetAssetType(clip) == AssetType::Audio)
+		std::vector<AssetHandle> audio;
+		for (const AssetHandle clip : clips)
 		{
-			sound.Nodes.front().Clip = clip;
-			name = Project::GetEditorAssetManager()->GetMetadata(clip).FilePath.stem().string();
+			if (clip && AssetManager::GetAssetType(clip) == AssetType::Audio)
+				audio.push_back(clip);
+		}
+		if (audio.size() == 1)
+			sound.Nodes.front().Clip = audio.front();
+		else if (audio.size() > 1)
+		{
+			// A Random container of the clips: the usual way to vary footsteps, impacts and barks.
+			sound.Nodes.front().Type = SoundNodeType::Random;
+			sound.Nodes.front().AvoidRepeat = true;
+			for (const AssetHandle clip : audio)
+				sound.Nodes[sound.AddNode(0, SoundNodeType::Clip)].Clip = clip;
+		}
+		if (!audio.empty())
+			name = Project::GetEditorAssetManager()->GetMetadata(audio.front()).FilePath.stem().string();
+		std::string error;
+		if (!sound.Validate(&error) || sound.ToYAML().size() > Sound::MaxFileBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot make one Sound of {} clips: {}", audio.size(),
+				error.empty() ? "it would be larger than the 64 KiB a Sound file may be; select fewer" : error);
+			return 0;
 		}
 		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / (name + ".lsound"));
 		std::ofstream file(path);
@@ -1983,12 +2062,19 @@ namespace Lux {
 
 		Ref<Texture2D> thumbnail = m_ThumbnailCache->GetOrCreateThumbnail(metadata.FilePath);
 
-		// The cache only generates image thumbnails itself; materials are rendered.
+		// The cache only generates image thumbnails itself; materials are rendered, and audio files
+		// and Sounds drawn from their waveforms.
 		if (!thumbnail && metadata.Type == AssetType::Material)
 		{
 			if (!m_MaterialThumbnailer)
 				m_MaterialThumbnailer = Ref<MaterialThumbnailer>::Create();
 			m_MaterialThumbnailer->Request(handle);
+		}
+		if (!thumbnail && (metadata.Type == AssetType::Audio || metadata.Type == AssetType::Sound))
+		{
+			if (!m_WaveformThumbnailer)
+				m_WaveformThumbnailer = Ref<WaveformThumbnailer>::Create();
+			m_WaveformThumbnailer->Request(handle);
 		}
 
 		return thumbnail;

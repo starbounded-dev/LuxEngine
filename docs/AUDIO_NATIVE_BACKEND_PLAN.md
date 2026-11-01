@@ -468,8 +468,7 @@ auditioned in the editor.
 
 **Docs:** Architecture 2.10 (Sound model).
 
-**Status — model, playback and the Sound editor done (3a–3c); the Content Browser work (3d) is
-next.**
+**Status — done (3a–3d).**
 - **Model:** as planned. Curves live on any node, so "layer volume" is a Volume curve on a Layer's
   child. Sequence steps are shared by every instance of a Sound. Parameter names compare
   case-insensitively, as FMOD's do. YAML version 2; version 1 Sounds load as a root clip node. Trees
@@ -486,6 +485,11 @@ next.**
   `AudioFileUtils::GetWaveform` (native only). Saving re-registers the Sound's clip dependencies.
   Not verified here: driving the panel in the editor (no display), so the ImGui checks were done by
   reading the code.
+- **Content Browser:** `.mp3` and `.flac` are Audio assets. The editor had no OS file drop, so one
+  was added: GLFW's drop callback raises `WindowDropEvent`, and the Content Browser copies and
+  imports any known asset type into its open folder. "Create Sound" on a selection of audio files
+  makes one Sound with an avoid-repeat Random root. `WaveformThumbnailer` draws audio and Sound
+  thumbnails, decoding one file at a time as a JobSystem job.
 - **Streaming:** the `AudioStreaming` `Lux::Thread` runs the resource manager's jobs; it is stopped
   after the voices at shutdown, or by its owner's destructor at exit.
 - **Found by the tests:**
