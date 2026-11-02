@@ -98,11 +98,20 @@ namespace Lux::NativeInternal {
 	// Publishes end-of-playback to playback status and the script mailbox.
 	void PollVoices();
 	int CountPlayingVoices();
+	// Keeps at most realVoices voices mixing: the rest, lowest priority first (higher Priority
+	// number) then quietest, go virtual - stopped, their time still passing - and resume where they
+	// would be when room frees up. Returns how many are virtual. Main thread, at 4 Hz.
+	int ApplyVoiceBudget(uint32_t realVoices);
 	// Playing voices whose Sound plays into this bus or one below it ("bus:/" counts every voice).
 	int CountPlayingVoicesOn(const std::string& busPath);
 	// The bus's loudest sample since the last read and its latest block RMS, both linear, measured
 	// after its volume (the master: before accessibility processing). False for an unknown bus.
 	bool ReadBusMeter(const std::string& busPath, float& outPeak, float& outRMS);
+	// The device callback's mixing time as a share of the audio it produced, since the last call, in
+	// percent. False without a device (NoDevice renders) or before the device has run.
+	bool ReadAudioLoad(float& outPercent);
+	// Memory held by decoded clips (as float samples) and packed clips' encoded bytes.
+	uint64_t GetClipMemoryBytes();
 	// Stops and frees every voice's miniaudio objects, before the engine is torn down. The
 	// wrappers stay alive but invalid, exactly as FMOD's generation check leaves them.
 	void ReleaseVoices();

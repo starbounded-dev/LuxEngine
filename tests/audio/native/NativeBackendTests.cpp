@@ -957,7 +957,11 @@ namespace
 		};
 		auto first = Play(sfx, front);
 		Render(kSettle);
+		// No device here, so no CPU figure; the clip's decoded samples count as memory (1 s, mono, float).
+		const auto& stats = AudioPerformance::GetStats();
 		const AudioBusMeter bus = meter("bus:/SFX");
+		CHECK(!stats.MixerAvailable && stats.MemoryAvailable);
+		CHECK_NEAR(stats.MemoryMiB, kRate * sizeof(float) / (1024.0 * 1024.0), 1e-4);
 		CHECK(bus.Available && bus.Voices == 1 && !bus.Exceeded);
 		CHECK_NEAR(bus.Peak, 0.5, 0.01);
 		CHECK_NEAR(bus.RMS, 0.5 / std::sqrt(2.0), 0.01);
@@ -1043,6 +1047,27 @@ namespace
 		CHECK(events[2].IsBeat && events[2].Position == 3000 && !events[3].IsBeat && events[3].Marker == "Hit");
 		CHECK(events[5].IsBeat && events[5].Bar == 1 && events[5].Beat == 1 && events[5].Position == 0);
 		instance->Stop(false);
+
+		// A loop region wraps the timeline to the region's start: 1-3 s loops, so after 3 s the next
+		// beat is the one at 1 s (bar 1, beat 3), not 0 s.
+		const auto region = AddSound(WriteTone("music-region.wav", 500.0, 4.0), [](Sound& s)
+		{
+			s.Nodes[0].Loop = true;
+			s.Nodes[0].HasLoopRegion = true;
+			s.Nodes[0].LoopStart = 1.0f;
+			s.Nodes[0].LoopEnd = 3.0f;
+			s.Spatial.Enabled = false;
+			s.Tempo = { 120.0f, 4, 4, 0.0f };
+		});
+		auto looped = AudioEventInstance::Create(region);
+		CHECK(looped && looped->EnableTimelineNotifications() && looped->Start());
+		at = 0.0;
+		renderTo(2.9, at);
+		looped->DrainTimelineNotifications();
+		renderTo(3.1, at);
+		events = looped->DrainTimelineNotifications();
+		CHECK(events.size() == 1 && events[0].Position == 1000 && events[0].Bar == 1 && events[0].Beat == 3);
+		looped->Stop(false);
 
 		// The music director: a NextBar transition switches beds on the bar line, not before.
 		MusicDirector director;
@@ -1134,6 +1159,56 @@ namespace
 		AudioEngine::Shutdown();
 		s_PackedClips.clear();
 		std::puts("PASS: packed clips: played from memory like the file, decoded when streaming, length, re-registered after restart, bad data refused");
+	}
+
+	void TestVoiceBudget()
+	{
+		s_Performance.RealVoices = 2;
+		Start();
+		const auto tone = AddSound(WriteTone("budget.wav", 500.0, 1.0), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		auto single = Play(tone, front);
+		const double one = Measure().Left;
+		single->Stop(false);
+		// Three in phase over a budget of two: the lowest priority (highest number) goes virtual.
+		std::array<Ref<AudioEventInstance>, 3> voices;
+		const int priorities[] = { 10, 20, 200 };
+		for (size_t i = 0; i < voices.size(); ++i)
+		{
+			voices[i] = AudioEventInstance::Create(tone);
+			CHECK(voices[i]->SetPriority(priorities[i]) && voices[i]->Start());
+		}
+		AudioPerformance::Update();
+		CHECK(AudioPerformance::GetStats().VirtualVoices == 1 && AudioPerformance::GetStats().RealVoices == 2 && AudioPerformance::GetStats().VoicesExceeded);
+		CHECK(!voices[0]->IsVirtual() && !voices[1]->IsVirtual() && voices[2]->IsVirtual() && voices[2]->IsPlaying());
+		CHECK_NEAR(Measure().Left / one, 2.0, 0.01);                // two mixing, not three
+		// Room frees up: it resumes where its time has reached, still in step with the others.
+		voices[0]->Stop(false);
+		AudioPerformance::Update();
+		CHECK(!voices[2]->IsVirtual() && AudioPerformance::GetStats().VirtualVoices == 0);
+		CHECK(std::abs(voices[2]->GetTimelinePosition() - voices[1]->GetTimelinePosition()) <= 15);
+		CHECK_NEAR(Measure().Left / one, 2.0, 0.02);
+		voices[1]->Stop(false);
+		voices[2]->Stop(false);
+
+		// A one-shot whose time runs out while virtual has ended when it would have.
+		s_Performance.RealVoices = 1;
+		AudioEngine::Shutdown();
+		Start();
+		auto bed = AudioEventInstance::Create(tone);
+		CHECK(bed->SetPriority(0) && bed->Start());
+		const auto hit = AddSound(WriteTone("budget-hit.wav", 500.0, 0.2), [](Sound& s) { s.Spatial.Enabled = false; });
+		auto shot = AudioEventInstance::Create(hit);
+		CHECK(shot->SetPriority(255) && shot->Start());
+		AudioPerformance::Update();
+		CHECK(shot->IsVirtual());
+		Render(kRate / 2);
+		bed->Stop(false);
+		AudioPerformance::Update();
+		CHECK(!shot->IsPlaying() && !shot->IsVirtual());
+		AudioEngine::Shutdown();
+		s_Performance = {};
+		std::puts("PASS: voice budget: lowest priority virtual, silent while virtual, resumes in step, a one-shot that ran out has ended");
 	}
 
 	void TestPauseLayering()
@@ -1644,6 +1719,7 @@ int main(int argc, char** argv)
 	TestMusicTimeline();
 	TestDialogueClips();
 	TestPackedClips();
+	TestVoiceBudget();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();

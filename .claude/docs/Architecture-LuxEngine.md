@@ -1099,6 +1099,13 @@ manager (`ma_resource_manager_register_encoded_data`), measuring its length from
 plays it as a file, decoded even when it streams. The mixer is runtime project format 30.
 Export skips FMOD bank preparation on native, and `RuntimeExport::ShipsLibrary` keeps an earlier FMOD
 build's libraries in the shared output folder out of a native export.
+**Native budgets (Phase 5d):** `AudioPerformance::Update` (4 Hz) applies the global voice budget:
+`NativeInternal::ApplyVoiceBudget` keeps `RealVoices` voices mixing, by priority (lower number first),
+then loudness, then start order. The rest go virtual: their clips stop, engine time keeps counting,
+and they resume where they would be (wrapped in their loop), or end if a one-shot ran out. CPU is the
+device callback's mixing time over the audio it produced (the engine's device uses a timed copy of
+its data callback; unavailable without a device). Memory is decoded clips as float samples plus
+packed clips' encoded bytes. The timeline wraps at a clip's loop region.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

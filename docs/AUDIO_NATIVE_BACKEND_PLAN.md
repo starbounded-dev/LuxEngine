@@ -614,7 +614,9 @@ per-bus voice counts and budget warnings. Native meters are post-fader (FMOD's a
 **5c validation done:** Sounds and clips as before, plus the mixer: its own validity, configured
 (accessibility and budget) buses, snapshot references by ID, Sounds on a bus the mixer lacks, and the
 shipped clip bytes in place of bank bytes. Not run on the sample project here (needs the editor).
-Left: audio CPU and memory figures, and priority virtualization under the global voice budget.
+**5d done:** audio CPU (timed device callback), clip memory, and priority virtualization under
+the global voice budget, with native tests (the CPU figure needs a real device, so it is untested).
+Left: validation on the sample project (needs the editor).
 
 ### Phase 6 — Music director
 
@@ -648,8 +650,8 @@ work natively, with transitions more precise than today.
 **Status — 6a done:** tempo map and markers on Sounds (Sound Editor "Music" section), native
 beat/bar/marker notifications from the cursor, and a native test that drives `MusicDirector`
 through a NextBar transition. Left: the timeline view (waveform grid, draggable markers, test
-transition), sample-accurate transitions with `ma_sound_set_start_time_in_pcm_frames`, loop-region
-wrap, and porting the FMOD music tests.
+transition), sample-accurate transitions with `ma_sound_set_start_time_in_pcm_frames`, and porting
+the FMOD music tests. Loop regions now wrap the timeline (tested).
 
 ### Phase 7 — Dialogue and subtitles
 

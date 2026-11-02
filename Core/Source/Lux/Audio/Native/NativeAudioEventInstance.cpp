@@ -143,6 +143,7 @@ namespace Lux {
 			float VariationGain = 1.0f, VariationPitch = 1.0f;
 			bool Loop = false;
 			float StartOffset = 0.0f;
+			ma_uint64 LoopBegin = 0, LoopEnd = 0;   // the frames a loop region wraps between; End 0 is the whole clip
 			uint32_t ClipSampleRate = 0;
 			ma_uint64 ClipFrames = 0;
 			float CurrentGain = 0.0f;   // last target gain, for the quietest-instance steal policy
@@ -156,6 +157,8 @@ namespace Lux {
 			uint64_t SoundHandle = 0;            // the asset's handle; 0 for an in-memory Sound
 			uint64_t SnapshotId = 0;             // a mixer snapshot instead of a Sound: no leaves, never ends
 			uint64_t ClipOverride = 0;           // an audio asset every clip node plays instead (SetClipOverride)
+			bool Virtual = false;                // over the voice budget: stopped, its time still passing
+			ma_uint64 VirtualSince = 0;          // engine time (frames) when it went virtual
 			// Music timeline (EnableTimelineNotifications): beats and markers from the Sound's tempo map,
 			// found from the first clip's cursor on the main thread.
 			bool Timeline = false;
@@ -208,6 +211,7 @@ namespace Lux {
 		std::set<std::filesystem::path> s_DecodedClips;
 		// Packed clips registered as encoded data, holding their bytes alive while registered.
 		std::map<std::filesystem::path, Ref<AudioFile>> s_PackedClips;
+		uint64_t s_ClipMemoryBytes = 0; // decoded clips (float samples) and packed clips' encoded bytes
 
 		bool ReportOnce(const std::string& key, const std::string& message)
 		{
@@ -278,8 +282,8 @@ namespace Lux {
 
 		bool AllAtEnd(NativeVoice& voice)
 		{
-			if (voice.SnapshotId)
-				return false;
+			if (voice.SnapshotId || voice.Virtual)
+				return false; // a virtual voice ends when ApplyVoiceBudget finds its time has run out
 			return std::all_of(voice.Leaves.begin(), voice.Leaves.end(), [](const Scope<Leaf>& leaf) { return LeafAtEnd(*leaf); });
 		}
 
@@ -434,10 +438,7 @@ namespace Lux {
 		}
 
 		// Catches the timeline up to the playback cursor. A cursor behind the last one means the clip
-		// looped: the tail of the clip, then its start.
-		// shortcut: a loop region wraps to its start, but this assumes a wrap to 0; tempo-mapped music
-		// with a loop region reports the beats before the region once per loop, until regions are
-		// tracked here.
+		// looped: the rest of the loop (its region's end, or the clip's), then from where it wraps to.
 		void AdvanceTimeline(NativeVoice& voice)
 		{
 			if (!voice.Timeline || !voice.Live() || !voice.Started || voice.Leaves.empty())
@@ -450,11 +451,12 @@ namespace Lux {
 			if (!leaf.ClipSampleRate || ma_sound_get_cursor_in_pcm_frames(leaf.Sound.get(), &cursor) != MA_SUCCESS)
 				return;
 			const double now = static_cast<double>(cursor) / leaf.ClipSampleRate;
-			const double length = static_cast<double>(leaf.ClipFrames) / leaf.ClipSampleRate;
+			const double end = static_cast<double>(leaf.LoopEnd ? leaf.LoopEnd : leaf.ClipFrames) / leaf.ClipSampleRate;
+			const double begin = static_cast<double>(leaf.LoopBegin) / leaf.ClipSampleRate;
 			if (now + 1.0e-6 < voice.TimelineSeconds)
 			{
-				EmitTimeline(voice, voice.TimelineSeconds, length - 1.0e-9); // a beat on the end is the next loop's first
-				EmitTimeline(voice, -1.0, now);
+				EmitTimeline(voice, voice.TimelineSeconds, end - 1.0e-9); // a beat on the end is the next loop's first
+				EmitTimeline(voice, begin > 0.0 ? begin - 1.0e-6 : -1.0, now);
 			}
 			else
 				EmitTimeline(voice, voice.TimelineSeconds, now);
@@ -487,7 +489,8 @@ namespace Lux {
 		{
 			// miniaudio's stop keeps the cursor, so it is a pause. Never resume a finished clip:
 			// starting one at its end restarts it from the beginning.
-			if (!voice.Live() || !voice.Started)
+			// A virtual voice stays stopped; ApplyVoiceBudget starts it again unless it is paused.
+			if (!voice.Live() || !voice.Started || voice.Virtual)
 				return MA_SUCCESS;
 			ma_result result = MA_SUCCESS;
 			for (auto& leaf : voice.Leaves)
@@ -648,6 +651,8 @@ namespace Lux {
 					return registered;
 				}
 				s_DecodedClips.insert(file);
+				if (const auto info = AudioFileUtils::GetFileInfo(file))
+					s_ClipMemoryBytes += static_cast<uint64_t>(info->Duration * info->SamplingRate) * info->NumChannels * sizeof(float);
 			}
 
 			const uint32_t channels = ma_engine_get_channels(engine);
@@ -695,7 +700,11 @@ namespace Lux {
 			{
 				const ma_uint64 begin = frameAt(clip.LoopStart), end = frameAt(clip.LoopEnd);
 				if (begin < end)
+				{
 					result = ma_data_source_set_loop_point_in_pcm_frames(ma_sound_get_data_source(leaf.Sound.get()), begin, end);
+					leaf.LoopBegin = begin;
+					leaf.LoopEnd = end;
+				}
 			}
 			if (result == MA_SUCCESS && clip.StartOffset > 0.0f)
 				result = ma_sound_seek_to_pcm_frame(leaf.Sound.get(), frameAt(clip.StartOffset));
@@ -830,15 +839,22 @@ namespace Lux {
 		if (ma_decoder_init_memory(clip->EncodedData.data(), clip->EncodedData.size(), &config, &decoder) != MA_SUCCESS)
 			return false;
 		ma_uint64 frames = 0;
-		ma_uint32 sampleRate = 0;
-		if (ma_decoder_get_data_format(&decoder, nullptr, nullptr, &sampleRate, nullptr, 0) == MA_SUCCESS
+		ma_uint32 sampleRate = 0, channels = 0;
+		if (ma_decoder_get_data_format(&decoder, nullptr, &channels, &sampleRate, nullptr, 0) == MA_SUCCESS
 			&& ma_decoder_get_length_in_pcm_frames(&decoder, &frames) == MA_SUCCESS && sampleRate)
 			clip->Duration = static_cast<double>(frames) / sampleRate;
+		// Played decoded, beside the encoded bytes the pack delivered.
+		s_ClipMemoryBytes += clip->EncodedData.size() + frames * channels * sizeof(float);
 		ma_decoder_uninit(&decoder);
 		if (RegisterEncoded(ma_engine_get_resource_manager(engine), name.c_str(), clip->EncodedData) != MA_SUCCESS)
 			return false;
 		s_PackedClips[name] = clip;
 		return true;
+	}
+
+	uint64_t NativeInternal::GetClipMemoryBytes()
+	{
+		return s_ClipMemoryBytes;
 	}
 
 	bool NativeInternal::IsPackedClip(const std::filesystem::path& path)
@@ -857,6 +873,90 @@ namespace Lux {
 			playing += busPath == "bus:/" || bus == busPath || bus.rfind(busPath + "/", 0) == 0;
 		}
 		return playing;
+	}
+
+	int NativeInternal::ApplyVoiceBudget(uint32_t realVoices)
+	{
+		ma_engine* engine = NativeInternal::GetEngine();
+		if (!engine)
+			return 0;
+		const ma_uint64 now = ma_engine_get_time_in_pcm_frames(engine);
+		const ma_uint32 engineRate = ma_engine_get_sample_rate(engine);
+		// Where a leaf would be after a virtual spell: its cursor plus the time passed, wrapped in its
+		// loop; past the end of a one-shot means it has finished.
+		const auto resume = [&](NativeVoice& voice)
+		{
+			const double seconds = static_cast<double>(now - voice.VirtualSince) / engineRate;
+			bool playing = false;
+			for (auto& leaf : voice.Leaves)
+			{
+				ma_uint64 cursor = 0;
+				ma_sound_get_cursor_in_pcm_frames(leaf->Sound.get(), &cursor);
+				ma_uint64 target = cursor + static_cast<ma_uint64>(seconds * leaf->ClipSampleRate);
+				if (leaf->Loop)
+				{
+					const ma_uint64 end = leaf->LoopEnd ? leaf->LoopEnd : leaf->ClipFrames;
+					const ma_uint64 begin = leaf->LoopEnd ? leaf->LoopBegin : 0;
+					if (end > begin && target >= end)
+						target = begin + (target - end) % (end - begin);
+				}
+				else if (target >= leaf->ClipFrames)
+					continue;
+				ma_sound_seek_to_pcm_frame(leaf->Sound.get(), target);
+				if (!voice.Paused)
+					ma_sound_start(leaf->Sound.get());
+				playing = true;
+			}
+			voice.Virtual = false;
+			if (!playing)
+			{
+				ReleaseLeaves(voice);
+				MarkStopped(voice);
+			}
+		};
+
+		std::vector<NativeVoice*> candidates;
+		for (NativeVoice* voice : s_Voices)
+		{
+			if (voice->Live() && voice->Started && !voice->SnapshotId && !voice->Leaves.empty() && (voice->Virtual || !AllAtEnd(*voice)))
+				candidates.push_back(voice);
+		}
+		const auto loudness = [](const NativeVoice* voice)
+		{
+			float loudest = 0.0f;
+			for (const auto& leaf : voice->Leaves)
+				loudest = std::max(loudest, leaf->CurrentGain);
+			return loudest;
+		};
+		// Most important first: higher priority (lower number), then louder, then started earlier.
+		std::stable_sort(candidates.begin(), candidates.end(), [&](const NativeVoice* a, const NativeVoice* b)
+		{
+			if (a->Priority != b->Priority)
+				return a->Priority < b->Priority;
+			if (loudness(a) != loudness(b))
+				return loudness(a) > loudness(b);
+			return a->StartOrder < b->StartOrder;
+		});
+		int virtualCount = 0;
+		for (size_t i = 0; i < candidates.size(); ++i)
+		{
+			NativeVoice& voice = *candidates[i];
+			if (i < realVoices)
+			{
+				if (voice.Virtual)
+					resume(voice);
+				continue;
+			}
+			if (!voice.Virtual)
+			{
+				for (auto& leaf : voice.Leaves)
+					ma_sound_stop(leaf->Sound.get());
+				voice.Virtual = true;
+				voice.VirtualSince = now;
+			}
+			++virtualCount;
+		}
+		return virtualCount;
 	}
 
 	int NativeInternal::CountPlayingVoices()
@@ -886,6 +986,7 @@ namespace Lux {
 				UnregisterData(ma_engine_get_resource_manager(engine), name.c_str());
 		}
 		s_PackedClips.clear();
+		s_ClipMemoryBytes = 0;
 		s_LastStart.clear();
 	}
 
@@ -1089,7 +1190,7 @@ namespace Lux {
 
 	bool AudioEventInstance::IsVirtual() const
 	{
-		return false;
+		return IsValid() && m_Impl->Virtual;
 	}
 
 	bool AudioEventInstance::Is3D() const
@@ -1306,6 +1407,7 @@ namespace Lux {
 		// The timeline starts just before where playback starts, so a beat on the first sample is reported.
 		voice.TimelineQueue.clear();
 		voice.TimelineSeconds = -1.0;
+		voice.Virtual = false;
 		if (!voice.Leaves.empty() && voice.Leaves.front()->ClipSampleRate)
 		{
 			ma_uint64 cursor = 0;

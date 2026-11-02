@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <unordered_set>
 
@@ -29,6 +30,20 @@ namespace Lux {
 		ma_resource_manager s_ResourceManager;
 		JPL::Engine s_Engine; // empty until Init; the wrapper's nodes reach it through JPL::GetMiniaudioEngine
 		bool s_EngineReady = false;
+		// Device callback timing, written by the audio thread and taken by AudioPerformance at 4 Hz.
+		std::atomic<uint64_t> s_MixNanoseconds{ 0 }, s_AudioFrames{ 0 };
+		std::atomic<bool> s_DeviceRan{ false };
+
+		// The engine's own device callback (it only reads the engine), timed.
+		void TimedDataCallback(ma_device* device, void* output, const void*, ma_uint32 frames)
+		{
+			const auto start = std::chrono::steady_clock::now();
+			ma_engine_read_pcm_frames(static_cast<ma_engine*>(device->pUserData), output, frames, nullptr);
+			const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+			s_MixNanoseconds.fetch_add(static_cast<uint64_t>(elapsed), std::memory_order_relaxed);
+			s_AudioFrames.fetch_add(frames, std::memory_order_relaxed);
+			s_DeviceRan.store(true, std::memory_order_relaxed);
+		}
 
 		// The mixer: one sound group per bus below the master (which is the engine endpoint), and the
 		// reverb return. Built by Init from the project's mixer; voices are released before them.
@@ -606,6 +621,17 @@ namespace Lux {
 		return true;
 	}
 
+	bool NativeInternal::ReadAudioLoad(float& outPercent)
+	{
+		if (!s_EngineReady || !s_DeviceRan.load(std::memory_order_relaxed))
+			return false;
+		const uint64_t busy = s_MixNanoseconds.exchange(0, std::memory_order_relaxed);
+		const uint64_t frames = s_AudioFrames.exchange(0, std::memory_order_relaxed);
+		const double audioNanoseconds = static_cast<double>(frames) * 1.0e9 / ma_engine_get_sample_rate(s_Engine.get());
+		outPercent = audioNanoseconds > 0.0 ? static_cast<float>(100.0 * static_cast<double>(busy) / audioNanoseconds) : 0.0f;
+		return true;
+	}
+
 	bool NativeInternal::HasMixerBus(const std::string& path)
 	{
 		return s_EngineReady && (path == "bus:/" || s_Buses.contains(path));
@@ -707,6 +733,10 @@ namespace Lux {
 		engine.pResourceManager = &s_ResourceManager;
 		engine.listenerCount = AudioListener::MaxListeners;
 		engine.noDevice = config.NoDevice ? MA_TRUE : MA_FALSE;
+		if (!config.NoDevice)
+			engine.dataCallback = TimedDataCallback;
+		s_MixNanoseconds = s_AudioFrames = 0;
+		s_DeviceRan = false;
 		engine.channels = config.Channels;
 		engine.sampleRate = config.SampleRate;
 		result = s_Engine.emplace(&engine);
