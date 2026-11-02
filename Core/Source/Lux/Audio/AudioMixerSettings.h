@@ -17,6 +17,7 @@ namespace Lux {
 		std::string Path;
 		float Volume = 1.0f; // linear, 0-4
 		bool Muted = false;
+		bool operator==(const AudioMixerBus&) const = default;
 	};
 
 	// The built-in reverb return every voice sends to (Soundwave's ReverbSend plus a Sound's Send
@@ -27,6 +28,7 @@ namespace Lux {
 		float Damping = 0.5f;  // 0-1
 		float Width = 1.0f;    // 0-1
 		float Volume = 1.0f;   // 0-4, the return's level
+		bool operator==(const AudioReverbReturnSettings&) const = default;
 	};
 
 	// The project's mix for the native backend; the FMOD backend authors its mix in FMOD Studio and
@@ -35,6 +37,7 @@ namespace Lux {
 	{
 		std::vector<AudioMixerBus> Buses = DefaultBuses(); // never lists the master "bus:/"
 		AudioReverbReturnSettings Reverb;
+		bool operator==(const AudioMixerSettings&) const = default;
 
 		// Music, SFX, Dialogue and Ambience: the default accessibility bus mappings.
 		static std::vector<AudioMixerBus> DefaultBuses();

@@ -105,6 +105,22 @@ progress.
 
 ---
 
+## Audio Mixer
+
+View → Audio Mixer edits the project's mixer for the native backend (`--audio-backend=native`; an FMOD
+build mixes in FMOD Studio and shows a note instead). Defaults: Music, SFX, Dialogue and Ambience
+under the master.
+
+| Control | What it does |
+|---|---|
+| Bus table | Every bus by depth, with a linear volume (0–4, its dB beside it) and Mute. Both apply live while the native engine runs |
+| Add Child / Rename / Remove | Act on the selected bus. Rename moves the buses below it too; Remove deletes them. Sounds on a missing bus play through the master |
+| Reverb Return | Room size, damping, width and return volume of the built-in reverb every voice sends to (Soundwave's ReverbSend plus Send curves) |
+| Apply | Restarts the audio engine so bus layout and reverb changes take effect; disabled during Play |
+| Save Project | Writes the mixer to the `.luxproj` (`Audio.Mixer`) |
+
+Each completed edit is one undo step. A Sound picks its bus in the Sound Editor (`Bus`).
+
 ## Project Settings → Audio
 
 Open with **View → Project Settings**, then the **Audio** section. Settings are saved with the

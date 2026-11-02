@@ -65,6 +65,7 @@
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
 #include "Panels/SoundEditor/SoundEditorPanel.h"
+#include "Panels/AudioMixerPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -108,6 +109,7 @@ namespace Lux {
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
 #define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
+#define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
 #define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
@@ -522,6 +524,12 @@ namespace Lux {
 				panelData->IsOpen = true;
 		};
 		m_SceneHierarchyPanel->SetOpenSoundCallback(openSoundEditor);
+
+		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
+		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
 
 		// Reads AudioEngine / the scene's Soundwave state directly and takes its scene from
 		// PanelManager::SetSceneContext; the handle is kept only so OnOverlayRender can read the

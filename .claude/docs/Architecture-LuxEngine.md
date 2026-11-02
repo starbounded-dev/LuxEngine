@@ -836,6 +836,11 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   stale material thumbnail at a time for the Content Browser, reading pixels back **on the render
   thread** (`Renderer::Submit`) and handing CPU pixels to `ThumbnailCache::SetThumbnailPixels`, so it
   never does a main-thread GPU readback.
+- Mixer editing (`Panels/AudioMixerPanel`): View → Audio Mixer edits `ProjectAudioSettings::Mixer` in
+  place; each finished edit is one `PushUndoCommand` step of whole-mixer snapshots. Volume and mute
+  reach the running native engine (`AudioEngine::SetBusVolume`/`SetBusMuted`); layout and reverb
+  changes need `Apply`, which restarts the audio engine outside Play. Add/rename/remove are validated
+  whole with `AudioMixerSettings::Validate` before they replace the mix.
 - Sound editing (`Panels/SoundEditor/`): `SoundEditorPanel` (View → Sound Editor) edits `Sound`
   assets in tabs with explicit Save/Revert, the same way: widgets change the loaded asset, and each
   finished edit (a `SoundState` snapshot of every authored field, valid or not) is one closure
