@@ -91,8 +91,10 @@ namespace Lux
 			const UUID id = entity.GetUUID();
 			const auto* result = kernel.GetResult(id);
 			auto instance = scene.GetRuntimeEventInstance(id);
-			if (!result || !instance || !instance->IsValid())
+			if (!instance || !instance->IsValid())
 				continue;
+			if (!result)
+				return SceneAudioVerificationStatus::Pending; // its first solve batch is still on a worker
 			const float gain = kernel.GetGainLF(id), applied = scene.GetAudioSourceOcclusion(id);
 			if (!std::isfinite(gain) || std::abs(gain - applied) > k_AcousticTransportTolerance)
 			{
