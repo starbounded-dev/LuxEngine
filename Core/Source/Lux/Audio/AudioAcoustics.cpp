@@ -17,6 +17,7 @@ namespace Lux
 		// A GPU measurement normally returns in FramesInFlight frames; this many updates without it
 		// means frames are not rendering (minimized, paused) and is reported, not waited on.
 		constexpr uint32_t kReverbStallUpdates = 30;
+		constexpr float kReflattenSeconds = 1.0f;
 		bool Finite(Soundwave::Position point)
 		{
 			return std::isfinite(point.X) && std::isfinite(point.Y) && std::isfinite(point.Z);
@@ -431,7 +432,10 @@ namespace Lux
 		if (m_FlattenPending && m_FlattenPending->Done.load(std::memory_order_acquire))
 		{
 			if (m_FlattenPending->Result)
+			{
 				m_Flat = m_FlattenPending->Result;
+				m_ReverbGeometry = 0; // measure again on the fresh upload
+			}
 			else
 				LUX_CORE_ERROR_TAG("Audio", "Soundwave could not flatten acoustic geometry for the GPU; retaining the last upload");
 			m_FlattenPending = nullptr;
@@ -459,9 +463,9 @@ namespace Lux
 				Soundwave::ReverbResult result;
 				const auto error = Soundwave::FinishReverb(m_ReverbRays, m_ReverbRequestSettings, result);
 				PublishReverb(error, result);
-#ifndef LUX_DIST
+#ifdef LUX_DEBUG
 				// Decision 10's validation: the same measurement on the CPU reference, off main.
-				if (error == Soundwave::EvaluationError::None && !m_ReverbCheckPending && m_ReverbGeometry == m_GeometryGeneration)
+				if (error == Soundwave::EvaluationError::None && !m_ReverbCheckPending && m_Flat->Generation == m_GeometryGeneration)
 				{
 					m_ReverbCheckGpu = result;
 					m_ReverbCheckGeometry = m_GeometryGeneration;
@@ -493,37 +497,40 @@ namespace Lux
 		}
 		m_ReverbSend += (m_ReverbTarget - m_ReverbSend) * (1.0f - std::exp(-timestep / kReverbSmoothingSeconds));
 		m_SinceReverb += timestep;
+		m_SinceFlatten += timestep;
+		// Reverb is a room average: changed geometry is re-flattened and re-uploaded at most once a
+		// second, or a moving door would re-upload the whole scene at the acoustic rate. The GPU
+		// measures on the last upload meanwhile.
+		if (m_ReverbBackend && !m_FlattenPending &&
+			(!m_Flat || (m_Flat->Generation != m_GeometryGeneration && m_SinceFlatten >= kReflattenSeconds)))
+		{
+			m_SinceFlatten = 0;
+			m_FlattenPending = Ref<FlattenJob>::Create();
+			JobSystem::Submit([job = m_FlattenPending, snapshots = m_Snapshots, excluded = m_Excluded, generation = m_GeometryGeneration]() mutable
+			{
+				LUX_PROFILE_SCOPE("Soundwave::FlattenGeometry");
+				try
+				{
+					auto geometry = Ref<ReverbBackend::Geometry>::Create();
+					geometry->Generation = generation;
+					if (Soundwave::Flatten(Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded), geometry->Flat))
+						job->Result = geometry;
+				}
+				catch (const std::exception&)
+				{
+					job->Result = nullptr;
+				}
+				job->Done.store(true, std::memory_order_release);
+			});
+		}
 		const auto moved = Soundwave::Position{ listener.X - m_ReverbListener.X, listener.Y - m_ReverbListener.Y, listener.Z - m_ReverbListener.Z };
 		const bool stale = !m_ReverbAttempted || m_ReverbGeometry != m_GeometryGeneration || m_ReverbSettings != m_SettingsGeneration ||
 			moved.X * moved.X + moved.Y * moved.Y + moved.Z * moved.Z > kReverbMoveMetres * kReverbMoveMetres;
 		// Same cadence as source solves, so a swinging door cannot start a measurement every frame.
 		if (m_ReverbPending || m_ReverbOnGpu || !stale || (m_ReverbAttempted && m_SinceReverb < 1.0f / m_Settings.UpdateRateHz))
 			return;
-		if (m_ReverbBackend && (!m_Flat || m_Flat->Generation != m_GeometryGeneration))
-		{
-			// Measure once this geometry generation is flattened; the previous send stays meanwhile.
-			if (!m_FlattenPending)
-			{
-				m_FlattenPending = Ref<FlattenJob>::Create();
-				JobSystem::Submit([job = m_FlattenPending, snapshots = m_Snapshots, excluded = m_Excluded, generation = m_GeometryGeneration]() mutable
-				{
-					LUX_PROFILE_SCOPE("Soundwave::FlattenGeometry");
-					try
-					{
-						auto geometry = Ref<ReverbBackend::Geometry>::Create();
-						geometry->Generation = generation;
-						if (Soundwave::Flatten(Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded), geometry->Flat))
-							job->Result = geometry;
-					}
-					catch (const std::exception&)
-					{
-						job->Result = nullptr;
-					}
-					job->Done.store(true, std::memory_order_release);
-				});
-			}
-			return;
-		}
+		if (m_ReverbBackend && !m_Flat)
+			return; // the first upload is still being prepared
 		m_SinceReverb = 0;
 		m_ReverbAttempted = true;
 		m_ReverbGeometry = m_GeometryGeneration;

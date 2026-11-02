@@ -17,19 +17,8 @@ namespace Lux
 	{
 		constexpr uint32_t kGroupSize = 64; // SoundwaveReverb.glsl local_size_x
 
-		// SoundwaveReverb.glsl's request block and per-ray output.
-		struct alignas(16) ReverbRequest
-		{
-			float Listener[4];
-			uint32_t Config[4];
-			float Params[4];
-			float Materials[Soundwave::kMaterialTagCount][4];
-		};
-		struct GpuRay
-		{
-			float Absorbed, Travelled;
-			uint32_t Hits, Traces; // bit 31 = escaped
-		};
+		using ReverbRequest = Soundwave::FlatReverbRequest;
+		using GpuRay = Soundwave::FlatReverbRay;
 
 		Ref<StorageBuffer> Upload(Ref<RenderCommandBuffer> commands, const void* data, size_t bytes, const char* name)
 		{

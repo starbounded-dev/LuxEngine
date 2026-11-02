@@ -4606,7 +4606,8 @@ namespace Lux {
 							continue;
 
 						const std::string filename = it->path().filename().string();
-						if (filename.find(".so") != std::string::npos &&
+						// A build folder from before Vercidium's removal can still hold its library; it must never ship.
+						if (filename.find(".so") != std::string::npos && filename.find("vaudionative") == std::string::npos &&
 							!CopyFileIfExists(it->path(), libDir / it->path().filename(), true))
 							return false;
 					}
@@ -4623,6 +4624,8 @@ namespace Lux {
 						continue;
 
 					const std::filesystem::path extension = entry.path().extension();
+					if (entry.path().stem() == "vaudionative")
+						continue; // a stale pre-removal build artifact; it must never ship
 					if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
 						CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
 				}

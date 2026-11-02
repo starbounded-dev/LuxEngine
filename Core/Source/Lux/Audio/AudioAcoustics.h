@@ -96,7 +96,7 @@ namespace Lux
 		float GetReverbSend() const { return m_ReverbSend; }
 		// The last completed measurement; nullptr before one exists.
 		const Soundwave::ReverbResult* GetReverb() const { return m_ReverbValid ? &m_Reverb : nullptr; }
-		// Validation builds (not Dist): the CPU reference re-measures each GPU result on a worker.
+		// Debug builds: the CPU reference re-measures each GPU result on a worker.
 		// Null until one has; first = GPU, second = CPU, same listener and geometry.
 		const std::pair<Soundwave::ReverbResult, Soundwave::ReverbResult>* GetReverbCheck() const { return m_ReverbCheckValid ? &m_ReverbCheck : nullptr; }
 		Diagnostics GetDiagnostics() const;
@@ -188,6 +188,7 @@ namespace Lux
 		std::vector<Soundwave::ReverbRay> m_ReverbRays;
 		Soundwave::Settings m_ReverbRequestSettings;
 		uint32_t m_ReverbWaitUpdates = 0;
+		float m_SinceFlatten = 0;
 		bool m_ReverbOnGpu = false, m_ReverbStalled = false;
 		Soundwave::ReverbResult m_Reverb;
 		Soundwave::Position m_ReverbListener;

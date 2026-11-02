@@ -22,7 +22,21 @@ namespace Lux::Soundwave
 		float C[3]; std::uint32_t Pad;
 		std::uint32_t InstanceLow, InstanceHigh, Pad0, Pad1;
 	};
+	// SoundwaveReverb.glsl's request block and per-ray output (std430).
+	struct alignas(16) FlatReverbRequest
+	{
+		float Listener[4];
+		std::uint32_t Config[4]; // rays, bounces, root 0, root 1
+		float Params[4];         // x = absorption fraction
+		float Materials[kMaterialTagCount][4]; // absorption LF, absorption HF, scattering
+	};
+	struct FlatReverbRay
+	{
+		float Absorbed, Travelled;
+		std::uint32_t Hits, Traces; // Traces bit 31 = escaped
+	};
 	static_assert(sizeof(FlatNode) == 48 && sizeof(FlatTriangle) == 64);
+	static_assert(sizeof(FlatReverbRequest) == 48 + 16 * kMaterialTagCount && sizeof(FlatReverbRay) == 16);
 
 	inline constexpr std::uint32_t kFlatActive = 1, kFlatPortal = 2;
 

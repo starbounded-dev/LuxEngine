@@ -243,7 +243,9 @@ if [ -f "$SAMPLE_SCRIPTS/premake5.lua" ]; then
 	step "Building sample project scripts ($BUILD_CONFIG)"
 	"$SAMPLE_SCRIPTS/Linux-GenProjects.sh" >/dev/null
 	# C# has no sanitizer build; the sample workspace defines only Debug, Release and Dist.
-	dotnet build -c "${BUILD_CONFIG/Debug-AS/Debug}" --property WarningLevel=0 "$SAMPLE_SCRIPTS/LuxSample.csproj"
+	SCRIPT_CONFIG=$BUILD_CONFIG
+	[ "$BUILD_CONFIG" = "Debug-AS" ] && SCRIPT_CONFIG=Debug
+	dotnet build -c "$SCRIPT_CONFIG" --property WarningLevel=0 "$SAMPLE_SCRIPTS/LuxSample.csproj"
 fi
 
 # ---------------------------------------------------------------------------

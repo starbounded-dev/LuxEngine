@@ -216,15 +216,8 @@ namespace
 		return words;
 	}
 
-	// The request block of SoundwaveReverb.glsl.
-	struct alignas(16) ReverbRequest
-	{
-		float Listener[4];
-		uint32_t Config[4];
-		float Params[4];
-		float Materials[kMaterialTagCount][4];
-	};
-	struct GpuReverbRay { float Absorbed, Travelled; uint32_t Hits, Traces; };
+	using ReverbRequest = FlatReverbRequest;
+	using GpuReverbRay = FlatReverbRay;
 
 	double DecibelGap(double a, double b)
 	{
