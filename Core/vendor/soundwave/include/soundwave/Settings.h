@@ -28,11 +28,17 @@ namespace Lux::Soundwave
 		std::uint32_t ReverbRays = 256;
 		std::uint32_t ReverbBounces = 16;
 		float ReverbReferenceSeconds = 1.5f; // decay giving a send of 1 - 1/e
+		// Air absorption in dB per 100 m (about ISO 9613-1 at 20 C, 50 % RH). Charged only on path
+		// length beyond the direct path and on reverb rays: the backend's distance fade owns the rest.
+		float AirAbsorptionLF = 0.1f;
+		float AirAbsorptionHF = 2.5f;
 
 		bool Validate() const
 		{
+			const auto air = [](float value) { return std::isfinite(value) && value >= 0.0f && value <= 20.0f; };
 			if (ReverbRays < 16 || ReverbRays > 4096 || ReverbBounces < 1 || ReverbBounces > 64 ||
-				!std::isfinite(ReverbReferenceSeconds) || ReverbReferenceSeconds < 0.1f || ReverbReferenceSeconds > 10.0f)
+				!std::isfinite(ReverbReferenceSeconds) || ReverbReferenceSeconds < 0.1f || ReverbReferenceSeconds > 10.0f ||
+				!air(AirAbsorptionLF) || !air(AirAbsorptionHF))
 				return false;
 			return MaxBounces >= 1 && MaxBounces <= kMaximumInteractions && ReflectionDepth <= MaxBounces &&
 				OpeningGridSize >= 1 && OpeningGridSize <= 32 && CandidateBudget >= 1 &&

@@ -22,9 +22,9 @@ namespace Lux
 		constexpr uint32_t kMaximumCastBudget = 1024;
 		constexpr float kMaximumStrength = 4.0f;
 		constexpr uint32_t kKernelSettingsVersion = 1;
-		constexpr std::array<std::string_view, 12> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
+		constexpr std::array<std::string_view, 14> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
 			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast", "ReverbRays", "ReverbBounces",
-			"ReverbReferenceSeconds" };
+			"ReverbReferenceSeconds", "AirAbsorptionLF", "AirAbsorptionHF" };
 
 		void ValidateKernelKeys(const Yaml::Node& node)
 		{
@@ -55,6 +55,8 @@ namespace Lux
 		settings.ReverbRays = ReverbRays;
 		settings.ReverbBounces = ReverbBounces;
 		settings.ReverbReferenceSeconds = ReverbReferenceSeconds;
+		settings.AirAbsorptionLF = AirAbsorptionLF;
+		settings.AirAbsorptionHF = AirAbsorptionHF;
 		return settings;
 	}
 	bool AudioOcclusionSettings::Validate() const
@@ -82,6 +84,8 @@ namespace Lux
 		out << Yaml::Key << "ReverbRays" << Yaml::Value << ReverbRays;
 		out << Yaml::Key << "ReverbBounces" << Yaml::Value << ReverbBounces;
 		out << Yaml::Key << "ReverbReferenceSeconds" << Yaml::Value << ReverbReferenceSeconds;
+		out << Yaml::Key << "AirAbsorptionLF" << Yaml::Value << AirAbsorptionLF;
+		out << Yaml::Key << "AirAbsorptionHF" << Yaml::Value << AirAbsorptionHF;
 		out << Yaml::EndMap;
 		out << Yaml::EndMap;
 	}
@@ -134,6 +138,10 @@ namespace Lux
 						parsed.ReverbBounces = kernel["ReverbBounces"].as<uint32_t>();
 					if (kernel["ReverbReferenceSeconds"])
 						parsed.ReverbReferenceSeconds = kernel["ReverbReferenceSeconds"].as<float>();
+					if (kernel["AirAbsorptionLF"])
+						parsed.AirAbsorptionLF = kernel["AirAbsorptionLF"].as<float>();
+					if (kernel["AirAbsorptionHF"])
+						parsed.AirAbsorptionHF = kernel["AirAbsorptionHF"].as<float>();
 				}
 			}
 			if (!parsed.Validate())

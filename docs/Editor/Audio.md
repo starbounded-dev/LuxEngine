@@ -53,7 +53,7 @@ Sections, in draw order:
 | **Banks** | Every loaded bank — name, event count, kind |
 | **Events** | Searchable table of events the loaded banks describe — path, kind, GUID |
 | **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
-| **Sources** | Per-source table: entity, event, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle |
+| **Sources** | Per-source table: entity, event, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle, and *Paths* (`3R 1O x2`: reflections, openings, deepest bounce; `!` when a work or path budget ran out) |
 | **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, memory, per-bus input peak/RMS in dBFS |
 | **Audio Validation** | The project's validation results — missing events, wrong event kinds, corrupt banks |
 
@@ -138,7 +138,9 @@ wall is about 18 dB), and adds reflection and doorway routes so a source around 
 audible. *Transmission Strength* scales every wall; *Acoustic Rate* and *Sources per Frame* bound the
 cost; *Maximum Bounces*, *Reflection Depth*, *Opening Samples* and the work budgets bound the search.
 *Reverb Rays*, *Reverb Bounces* and *Reverb Reference Decay* control the listener reverb
-measurement. *Compare Engine Ray* also runs the old physics-ray occlusion as a diagnostic. Applies on
+measurement. *Air Absorption LF/HF* (dB per 100 m) darken reflected and doorway sound over their
+extra length and shorten the reverb; FMOD's distance fade still owns how a source fades with
+distance, so nothing is faded twice. *Compare Engine Ray* also runs the old physics-ray occlusion as a diagnostic. Applies on
 the next Play. Projects saved with the old *Engine raycasts / VA (raytraced)* choice load unchanged
 and play on Soundwave. The Audio Debugger's validation warns about source events with no
 `Occlusion` or `ReverbSend` parameter.

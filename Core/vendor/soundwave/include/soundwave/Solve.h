@@ -74,6 +74,8 @@ namespace Lux::Soundwave
 	{
 		std::uint32_t PreparationNodes = 0, Work = 0, VisibilityRays = 0;
 		std::uint32_t ReflectionPaths = 0, OpeningPaths = 0;
+		// Stored paths by their interaction count (reflections + diffractions).
+		std::array<std::uint32_t, kMaximumInteractions + 1> PathsByInteractions{};
 		bool WorkLimited = false, PathsLimited = false;
 	};
 	struct SolveResult

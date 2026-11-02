@@ -285,6 +285,7 @@ int main()
 	Check(room.Build({&preserved,1}) == InstanceError::None, "translated reflection floor invalid");
 	settings.ReflectionDepth = settings.MaxBounces = 1;
 	settings.OpeningGridSize = 1;
+	settings.AirAbsorptionLF = settings.AirAbsorptionHF = 0; // pins the analytic reflection, not the air model
 	materials[0].Scattering = 0;
 	materials[0].AbsorptionLF = 0.2f;
 	Check(Solve(GeometryView(room),{},materials,settings,{-1,1.7f,0},{1,1.7f,0},0,solveScratch,result) == EvaluationError::None &&

@@ -93,7 +93,7 @@ namespace Lux {
 		enum class AcousticControl : size_t
 		{
 			Strength, Rate, Sources, Bounces, Depth, Openings, Absorption, Candidates, Paths, Nodes, Compare,
-			ReverbRays, ReverbBounces, ReverbReference, Count
+			ReverbRays, ReverbBounces, ReverbReference, AirLF, AirHF, Count
 		};
 		using AcousticControlIDs = std::array<ImGuiID, static_cast<size_t>(AcousticControl::Count)>;
 
@@ -141,6 +141,10 @@ namespace Lux {
 				"Surface hits followed per reverb ray before it stops.", false));
 			record(AcousticControl::ReverbReference, ImGuiEx::Property("Reverb Reference Decay (s)", settings.ReverbReferenceSeconds, 0.05f, 0.1f, 10.0f,
 				"A space that takes this long to fall 60 dB gets a 63% reverb send. Lower values make rooms wetter.", false));
+			record(AcousticControl::AirLF, ImGuiEx::Property("Air Absorption LF (dB/100 m)", settings.AirAbsorptionLF, 0.05f, 0.0f, 20.0f,
+				"Low-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. FMOD's distance fade still owns the direct sound.", false));
+			record(AcousticControl::AirHF, ImGuiEx::Property("Air Absorption HF (dB/100 m)", settings.AirAbsorptionHF, 0.05f, 0.0f, 20.0f,
+				"High-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. 2.5 is about 20 C at 50% humidity.", false));
 			ImGuiEx::EndPropertyGrid();
 			if (!changed)
 				return false;
@@ -157,6 +161,8 @@ namespace Lux {
 			settings.ReverbRays = std::clamp(settings.ReverbRays, 16u, 4096u);
 			settings.ReverbBounces = std::clamp(settings.ReverbBounces, 1u, 64u);
 			settings.ReverbReferenceSeconds = std::clamp(settings.ReverbReferenceSeconds, 0.1f, 10.0f);
+			settings.AirAbsorptionLF = std::clamp(settings.AirAbsorptionLF, 0.0f, 20.0f);
+			settings.AirAbsorptionHF = std::clamp(settings.AirAbsorptionHF, 0.0f, 20.0f);
 			if (!settings.Validate())
 			{
 				settings = before;
@@ -266,12 +272,15 @@ namespace Lux {
 		edit(AcousticControl::ReverbRays,"512");
 		edit(AcousticControl::ReverbBounces,"9");
 		edit(AcousticControl::ReverbReference,"2.5");
+		edit(AcousticControl::AirLF,"0.4");
+		edit(AcousticControl::AirHF,"6");
 		ImGui::ActivateItemByID(ids[static_cast<size_t>(AcousticControl::Compare)]);
 		frame();
 		check(settings.CompareRaycast && settings.Strength == 0.5f && settings.UpdateRateHz == 73 && settings.CastBudget == 7 &&
 			settings.MaxBounces == 3 && settings.ReflectionDepth == 3 && settings.OpeningGridSize == 12 && settings.Absorption == 0.25f &&
 			settings.CandidateBudget == 4321 && settings.PathBudget == 11 && settings.OpeningNodeBudget == 111 &&
-			settings.ReverbRays == 512 && settings.ReverbBounces == 9 && settings.ReverbReferenceSeconds == 2.5f,
+			settings.ReverbRays == 512 && settings.ReverbBounces == 9 && settings.ReverbReferenceSeconds == 2.5f &&
+			settings.AirAbsorptionLF == 0.4f && settings.AirAbsorptionHF == 6.0f,
 			"Audio controls did not apply their typed values or comparison toggle");
 		Yaml::Writer out;
 		settings.SerializeYAML(out);
@@ -280,7 +289,7 @@ namespace Lux {
 			restored.CastBudget == 7 && restored.MaxBounces == 3 && restored.ReflectionDepth == 3 && restored.OpeningGridSize == 12 &&
 			restored.Absorption == 0.25f && restored.CandidateBudget == 4321 && restored.PathBudget == 11 &&
 			restored.OpeningNodeBudget == 111 && restored.CompareRaycast && restored.ReverbRays == 512 && restored.ReverbBounces == 9 &&
-			restored.ReverbReferenceSeconds == 2.5f, "Edited acoustic controls did not survive serialization");
+			restored.ReverbReferenceSeconds == 2.5f && restored.AirAbsorptionLF == 0.4f && restored.AirAbsorptionHF == 6.0f, "Edited acoustic controls did not survive serialization");
 		edit(AcousticControl::Bounces,"1");
 		check(settings.MaxBounces == 1 && settings.ReflectionDepth == 1, "Lowering bounces did not limit reflection depth");
 		edit(AcousticControl::Depth,"0");
@@ -298,9 +307,12 @@ namespace Lux {
 		edit(AcousticControl::ReverbRays,"999999");
 		edit(AcousticControl::ReverbBounces,"999");
 		edit(AcousticControl::ReverbReference,"999");
+		edit(AcousticControl::AirLF,"999");
+		edit(AcousticControl::AirHF,"999");
 		check(settings.MaxBounces == Soundwave::kMaximumInteractions && settings.OpeningGridSize == 32 &&
 			settings.CandidateBudget == 65536 && settings.PathBudget == 4096 && settings.OpeningNodeBudget == 2048 &&
-			settings.ReverbRays == 4096 && settings.ReverbBounces == 64 && settings.ReverbReferenceSeconds == 10,
+			settings.ReverbRays == 4096 && settings.ReverbBounces == 64 && settings.ReverbReferenceSeconds == 10 &&
+			settings.AirAbsorptionLF == 20 && settings.AirAbsorptionHF == 20,
 			"Typed work limits bypassed kernel bounds");
 		edit(AcousticControl::Sources,"0");
 		edit(AcousticControl::Rate,"999");

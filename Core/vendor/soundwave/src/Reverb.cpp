@@ -18,6 +18,21 @@ namespace Lux::Soundwave
 		constexpr float kEscapeDistance = 200.0f;
 		constexpr float kGoldenAngle = 2.39996323f;
 		constexpr float kMaxDecaySeconds = 10.0f; // a lossless closed room rings at most this long
+		constexpr double kNepersPerDecibel = 0.23025851; // ln(10) / 10, energy
+
+		// Cosine-weighted direction about a unit normal from a fixed hash of (ray, bounce), so the
+		// scattered share of a reflection spreads the same way on every run.
+		Position Diffuse(Position normal, std::uint32_t ray, std::uint32_t bounce)
+		{
+			std::uint32_t h = ray * 0x9E3779B1u ^ (bounce + 1) * 0x85EBCA77u;
+			h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+			const float u = static_cast<float>(h & 0xFFFFu) / 65536.0f, v = static_cast<float>(h >> 16) / 65536.0f;
+			const Position helper = std::abs(normal.X) < 0.9f ? Position{ 1, 0, 0 } : Position{ 0, 1, 0 };
+			const Position tangent = Math::Unit(Math::Cross(helper, normal)), bitangent = Math::Cross(normal, tangent);
+			const float radius = std::sqrt(u), angle = 6.28318531f * v;
+			return Math::Add(Math::Add(Math::Scale(tangent, radius * std::cos(angle)), Math::Scale(bitangent, radius * std::sin(angle))),
+				Math::Scale(normal, std::sqrt(std::max(0.0f, 1.0f - u))));
+		}
 	}
 
 	EvaluationError EvaluateReverb(const GeometryView& geometry, const MaterialTable& materials,
@@ -69,16 +84,22 @@ namespace Lux::Soundwave
 				++hitCount;
 				// Restart just off the surface on the incoming side. An endpoint margin alone lets a
 				// corner bounce skip the adjacent face and leak out through the seam.
-				const float side = Math::Dot(direction, normal) > 0 ? -kSurfaceMargin : kSurfaceMargin;
-				origin = Math::Add(Math::Add(origin, Math::Scale(direction, hit.Distance)), Math::Scale(normal, side));
-				direction = Math::Subtract(direction, Math::Scale(normal, 2.0f * Math::Dot(direction, normal)));
+				const Position outward = Math::Dot(direction, normal) > 0 ? Math::Scale(normal, -1.0f) : normal;
+				origin = Math::Add(Math::Add(origin, Math::Scale(direction, hit.Distance)), Math::Scale(outward, kSurfaceMargin));
+				const Position specular = Math::Subtract(direction, Math::Scale(normal, 2.0f * Math::Dot(direction, normal)));
+				// The surface's Scattering share leaves diffusely instead of as a mirror.
+				direction = Math::Unit(Math::Add(Math::Scale(specular, 1.0f - material.Scattering),
+					Math::Scale(Diffuse(outward, ray, bounce), material.Scattering)));
+				if (Math::Dot(direction, direction) == 0)
+					direction = specular;
 			}
 		}
 
 		output.Traces = traces;
 		output.EscapedFraction = static_cast<float>(escaped) / static_cast<float>(rays);
 		output.MeanFreePath = hitCount ? static_cast<float>(travelled / hitCount) : 0.0f;
-		const double lossPerMetre = travelled > 0 ? (absorbed + escaped) / travelled : 0.0;
+		const double air = 0.005 * (static_cast<double>(settings.AirAbsorptionLF) + settings.AirAbsorptionHF) * kNepersPerDecibel; // per metre
+		const double lossPerMetre = travelled > 0 ? (absorbed + escaped) / travelled + air : 0.0;
 		if (travelled <= 0)
 			output.DecaySeconds = 0; // nothing to reflect from
 		else if (lossPerMetre <= 0)

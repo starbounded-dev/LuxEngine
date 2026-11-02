@@ -52,6 +52,8 @@ int main()
 	settings.ReflectionDepth = 1;
 	settings.MaxBounces = 1;
 	settings.OpeningGridSize = 1;
+	// Pin the reflection arithmetic first; air absorption is checked on its own below.
+	settings.AirAbsorptionLF = settings.AirAbsorptionHF = 0;
 	MaterialTable materials = DefaultMaterials();
 	materials[0].Scattering = 0;
 	materials[0].AbsorptionLF = 0.2f;
@@ -81,6 +83,19 @@ int main()
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, result) == EvaluationError::None, "scattering solve failed");
 	Near(result.Indirect[0].GainLF, reflection.GainLF * 0.5f, "specular energy was not split by scattering");
 	materials[0].Scattering = 0;
+	Check(result.Diagnostics.PathsByInteractions[1] == 1 && result.Diagnostics.PathsByInteractions[0] == 0,
+		"single reflection not counted by its interaction count");
+
+	// Air absorption charges only the reflection's length beyond the direct path; the direct
+	// signal is the backend's distance fade and is never charged twice.
+	settings.AirAbsorptionLF = 0.1f;
+	settings.AirAbsorptionHF = 2.5f;
+	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, result) == EvaluationError::None, "air solve failed");
+	const float excess = std::sqrt(8.0f) - 2.0f;
+	Near(result.Indirect[0].GainHF, reflection.GainHF * GainFromLossDb(excess * 0.025f), "HF air absorption on the excess path wrong");
+	Near(result.Indirect[0].GainLF, reflection.GainLF * GainFromLossDb(excess * 0.001f), "LF air absorption on the excess path wrong");
+	Check(result.OcclusionGainLF == 1 && result.OcclusionGainHF == 1, "air absorption faded the clear direct path");
+	settings.AirAbsorptionLF = settings.AirAbsorptionHF = 0;
 
 	PortalBox legBlocker;
 	legBlocker.Instance = 9;
@@ -101,6 +116,15 @@ int main()
 		"multi-bounce image-source solve failed");
 	Check(std::any_of(result.Indirect.begin(), result.Indirect.end(), [](const auto& path) { return path.Reflections == 3; }),
 		"reflection traversal silently capped depth at two");
+	// Each bounce setting is observable: depth N stores paths with exactly N interactions and none deeper.
+	for (std::uint32_t depth = 1; depth <= 4; ++depth)
+	{
+		settings.ReflectionDepth = settings.MaxBounces = depth;
+		Check(Solve(grid, {}, materials, settings, {-0.5f,0,0}, {0.5f,0,0}, 0, scratch, result) == EvaluationError::None &&
+			result.Diagnostics.PathsByInteractions[depth] > 0 && (depth == kMaximumInteractions || result.Diagnostics.PathsByInteractions[depth + 1] == 0),
+			"bounce count is not measurable in diagnostics");
+	}
+	settings.ReflectionDepth = settings.MaxBounces = 3;
 	settings.PathBudget = 1;
 	Check(Solve(grid, {}, materials, settings, {-0.5f,0,0}, {0.5f,0,0}, 0, scratch, result) == EvaluationError::None &&
 		result.Indirect.size() == 1 && result.Diagnostics.PathsLimited, "path storage limit was silent or ignored");

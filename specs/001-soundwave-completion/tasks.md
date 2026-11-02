@@ -39,10 +39,10 @@ US5 path overlay.
 
 **Independent test**: `run_soundwave.py` shows a 60 m courtyard source audible and distinct results for bounces 1–4.
 
-- [ ] T014 [US4] Add `AirAbsorptionLF`/`AirAbsorptionHF` ("float dB/100 m", range "0–20", defaults "0.1" / "2.5") to Core/vendor/soundwave/include/soundwave/Settings.h; apply to indirect extra length in Core/vendor/soundwave/src/Propagation.cpp and ray length in Reverb.cpp
-- [ ] T015 [US4] Split reflected energy by surface `Scattering` in Core/vendor/soundwave/src/Propagation.cpp (specular share on the mirror path) and add per-bounce path counts to `SolveDiagnostics` in Solve.h
-- [ ] T016 [US4] Add the two rows to Core/Source/Lux/Audio/AudioOcclusionSettings.h/.cpp (YAML keys per contracts/audio-settings.md) and Editor/Source/Panels/ProjectSettingsWindow.cpp with self-test edits
-- [ ] T017 [US4] Library tests: courtyard 60 m and bounce counts in tests/audio/SoundwavePropagationTests.cpp; air absorption in tests/audio/SoundwaveReverbTests.cpp
+- [x] T014 [US4] Add `AirAbsorptionLF`/`AirAbsorptionHF` ("float dB/100 m", range "0–20", defaults "0.1" / "2.5") to Core/vendor/soundwave/include/soundwave/Settings.h; apply to indirect extra length in Core/vendor/soundwave/src/Propagation.cpp and ray length in Reverb.cpp
+- [x] T015 [US4] Split reflected energy by surface `Scattering` in Core/vendor/soundwave/src/Propagation.cpp (specular share on the mirror path) and add per-bounce path counts to `SolveDiagnostics` in Solve.h
+- [x] T016 [US4] Add the two rows to Core/Source/Lux/Audio/AudioOcclusionSettings.h/.cpp (YAML keys per contracts/audio-settings.md) and Editor/Source/Panels/ProjectSettingsWindow.cpp with self-test edits
+- [x] T017 [US4] Library tests: courtyard 60 m and bounce counts in tests/audio/SoundwavePropagationTests.cpp; air absorption in tests/audio/SoundwaveReverbTests.cpp
 
 ## Phase 6: US3 — GPU solve (P2)
 

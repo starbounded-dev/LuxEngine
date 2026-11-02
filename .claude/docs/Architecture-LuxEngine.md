@@ -1020,6 +1020,16 @@ listener moves over 1 m, one job in flight; main polls it and smooths the send (
 multiplies that send by the zone system's raytraced-reverb gain, and zones treat a completed
 measurement as "raytraced reverb valid". Bank validation warns when an occludable event lacks a
 `ReverbSend` parameter. The three reverb rows live in the project audio block's `Kernel` map.
+
+**Air absorption, scattering, bounce diagnostics (plan Phase 5):** `AirAbsorptionLF/HF` (dB per
+100 m, defaults 0.1 / 2.5, range 0–20, `Kernel` map) charge reflection and opening paths only on
+their length beyond the direct path, and add their energy loss per metre to the reverb estimate.
+The direct path is never charged: FMOD's distance fade owns loudness over distance (user decision,
+2026-11-01), so a distant source cannot be faded twice. Reflections keep the specular
+`(1 - Scattering)` share; reverb rays leave each surface as that share's mirror ray blended with a
+deterministic cosine-weighted direction for the `Scattering` share. `SolveDiagnostics::
+PathsByInteractions` counts stored paths by reflections + diffractions; the Audio Debugger's Paths
+column shows reflection/opening counts and the deepest interaction per source.
 The C# contract is unchanged. This CPU integration is a reference milestone, not the shipping
 fallback: Phase 4 must replace its execution with the required GPU stages.
 

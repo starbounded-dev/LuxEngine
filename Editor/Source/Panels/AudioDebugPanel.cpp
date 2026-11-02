@@ -424,7 +424,7 @@ namespace Lux {
 		if (listener)
 			ImGui::TextDisabled("Distances use the dominant listener's attenuation target when enabled.");
 
-		if (ImGui::BeginTable("##audio_debugger_sources", 8, tableFlags, ImVec2(0.0f, 260.0f)))
+		if (ImGui::BeginTable("##audio_debugger_sources", 9, tableFlags, ImVec2(0.0f, 260.0f)))
 		{
 			ImGui::TableSetupColumn("Entity");
 			ImGui::TableSetupColumn("Event");
@@ -435,6 +435,8 @@ namespace Lux {
 			ImGui::TableSetupColumn("Gain HF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			// Soundwave measurement, not an applied Studio filter amount.
 			ImGui::TableSetupColumn("Muffle", ImGuiTableColumnFlags_WidthFixed, 70.0f);
+			// Stored reflection/opening routes and the deepest interaction count among them.
+			ImGui::TableSetupColumn("Paths", ImGuiTableColumnFlags_WidthFixed, 90.0f);
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableHeadersRow();
 
@@ -454,7 +456,8 @@ namespace Lux {
 				const AudioSourceComponent& asc = view.get<AudioSourceComponent>(entityHandle);
 
 				// No result yet is the "not simulated" state the columns below render as kNoValue.
-				const bool simulated = acoustics.GetResult(entity.GetUUID()) != nullptr;
+				const Soundwave::SolveResult* solved = acoustics.GetResult(entity.GetUUID());
+				const bool simulated = solved != nullptr;
 				const float gainLF = acoustics.GetGainLF(entity.GetUUID()), gainHF = acoustics.GetGainHF(entity.GetUUID());
 
 				ImGui::TableNextRow();
@@ -498,6 +501,20 @@ namespace Lux {
 				ImGui::TableSetColumnIndex(7);
 				simulated ? ImGui::Text("%.3f", RelativeHighFrequencyLoss(gainLF, gainHF))
 					: ImGui::TextDisabled("%s", kNoValue);
+
+				ImGui::TableSetColumnIndex(8);
+				if (simulated)
+				{
+					const auto& counts = solved->Diagnostics.PathsByInteractions;
+					size_t deepest = 0;
+					for (size_t i = 0; i < counts.size(); ++i)
+						if (counts[i])
+							deepest = i;
+					ImGui::Text("%uR %uO x%zu%s", solved->Diagnostics.ReflectionPaths, solved->Diagnostics.OpeningPaths, deepest,
+						solved->Diagnostics.WorkLimited || solved->Diagnostics.PathsLimited ? " !" : "");
+				}
+				else
+					ImGui::TextDisabled("%s", kNoValue);
 			}
 
 			ImGui::EndTable();

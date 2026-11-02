@@ -110,6 +110,7 @@ namespace Lux::Soundwave
 					return;
 				}
 				Result.Indirect.push_back(path);
+				++Result.Diagnostics.PathsByInteractions[std::min(path.Reflections + path.Diffractions, kMaximumInteractions)];
 				if (path.Kind == PathKind::Opening)
 					++Result.Diagnostics.OpeningPaths;
 				else
@@ -119,6 +120,11 @@ namespace Lux::Soundwave
 			{
 				// Relative excess-path spreading only; the direct signal keeps FMOD's fade.
 				return std::min(1.0f, std::max(Result.Direct.Distance, kReferenceDistance) / std::max(distance, kReferenceDistance));
+			}
+			// Air absorption on the excess length only, for the same reason as Spread.
+			float Air(float distance, float decibelsPer100m) const
+			{
+				return GainFromLossDb(std::max(0.0f, distance - Result.Direct.Distance) * decibelsPer100m * 0.01f);
 			}
 		};
 
@@ -241,8 +247,8 @@ namespace Lux::Soundwave
 					}
 					if (valid)
 					{
-						path.GainLF = std::sqrt(energyLF) * context.Spread(path.Distance);
-						path.GainHF = std::sqrt(energyHF) * context.Spread(path.Distance);
+						path.GainLF = std::sqrt(energyLF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionLF);
+						path.GainHF = std::sqrt(energyHF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionHF);
 						context.Accept(path);
 					}
 					for (std::uint32_t digit = depth; digit > 0; --digit)
@@ -367,8 +373,8 @@ namespace Lux::Soundwave
 			}
 			for (std::uint32_t i = 1; i < path.PointCount; ++i)
 				path.Distance += Distance(path.Points[i - 1], path.Points[i]);
-			path.GainLF = GainFromLossDb(lossLF) * context.Spread(path.Distance);
-			path.GainHF = GainFromLossDb(lossHF) * context.Spread(path.Distance);
+			path.GainLF = GainFromLossDb(lossLF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionLF);
+			path.GainHF = GainFromLossDb(lossHF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionHF);
 			context.Accept(path);
 		}
 		void Openings(Context& context)
