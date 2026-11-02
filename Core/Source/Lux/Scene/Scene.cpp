@@ -2160,6 +2160,9 @@ namespace Lux {
 		m_SceneAcoustics.Sync(*this);
 		LUX_PROFILE_FUNCTION_AUTO;
 		m_AudioGeometryInputs.clear();
+		// These inputs feed only the physics-ray comparison; without it this per-collider capture is waste.
+		if (!m_SceneAcoustics.GetKernel().IsRaycastComparisonEnabled())
+			return;
 		for (auto handle : m_Registry.view<TransformComponent, MeshColliderComponent>())
 		{
 			Entity entity{ handle, this };
