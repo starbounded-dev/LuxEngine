@@ -155,6 +155,7 @@ namespace Lux {
 			Ref<Sound> Definition;               // a private copy: edits to the asset apply to the next instance
 			uint64_t SoundHandle = 0;            // the asset's handle; 0 for an in-memory Sound
 			uint64_t SnapshotId = 0;             // a mixer snapshot instead of a Sound: no leaves, never ends
+			uint64_t ClipOverride = 0;           // an audio asset every clip node plays instead (SetClipOverride)
 			// Music timeline (EnableTimelineNotifications): beats and markers from the Sound's tempo map,
 			// found from the first clip's cursor on the main thread.
 			bool Timeline = false;
@@ -615,7 +616,7 @@ namespace Lux {
 				leaf.VariationPitch *= VariationPitch(sound.Nodes[index].PitchVariation);
 			}
 			std::filesystem::path file;
-			if (!NativeInternal::ResolveClip(clip.Clip, file, outError))
+			if (!NativeInternal::ResolveClip(voice.ClipOverride ? AssetHandle(voice.ClipOverride) : clip.Clip, file, outError))
 				return MA_DOES_NOT_EXIST;
 			if (!sound.Stream && !s_DecodedClips.contains(file))
 			{
@@ -980,7 +981,19 @@ namespace Lux {
 
 	bool AudioEventInstance::SetProgrammerSound(const std::string&)
 	{
-		return CheckResult(MA_NOT_IMPLEMENTED, "programmer sound (dialogue clips are not supported by the native backend yet)");
+		return CheckResult(MA_NOT_IMPLEMENTED, "programmer sound (the native backend plays dialogue through clip overrides)");
+	}
+
+	bool AudioEventInstance::SetClipOverride(UUID clip)
+	{
+		if (!IsValid() || m_Impl->SnapshotId || m_Impl->Started)
+			return CheckResult(MA_INVALID_OPERATION, "clip override (needs an unstarted Sound instance)");
+		std::filesystem::path file;
+		std::string error;
+		if (clip != 0 && !NativeInternal::ResolveClip(AssetHandle(clip), file, error))
+			return CheckResult(MA_DOES_NOT_EXIST, ("clip override: " + error).c_str());
+		m_Impl->ClipOverride = static_cast<uint64_t>(clip);
+		return true;
 	}
 
 	AudioPlaybackStatus AudioEventInstance::GetPlaybackStatus() const

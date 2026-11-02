@@ -22,6 +22,7 @@
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Audio/AudioAccessibilityMixer.h"
 #include "Lux/Audio/MusicDirector.h"
+#include "Lux/Audio/DialogueTable.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1052,6 +1053,43 @@ namespace
 		std::puts("PASS: music timeline: tempo map YAML, beats and markers from the cursor, sequence before drain, loop wrap, NextBar transition on the bar line");
 	}
 
+	void TestDialogueClips()
+	{
+		// A translation's clip saves with the table and loads back.
+		DialogueTable table;
+		DialogueLine line;
+		line.Event.Sound = 77;
+		line.Translations["en"] = { "Hello", "Ana", "", 1234 };
+		line.Translations["fr"] = { "Bonjour", "Ana", "hello_fr", 0 };
+		table.Lines["greeting"] = line;
+		DialogueTable loaded;
+		CHECK(loaded.FromYAML(table.ToYAML()));
+		CHECK(loaded.Lines["greeting"].Translations["en"].Clip == 1234 && loaded.Lines["greeting"].Translations["fr"].Clip == 0
+			&& loaded.Lines["greeting"].Translations["fr"].AudioKey == "hello_fr");
+
+		// A clip override replaces the line Sound's clip: its level, and its length for the subtitle.
+		Start();
+		const auto placeholder = AddSound(WriteTone("line-placeholder.wav", 500.0, 0.5, 0.5), [](Sound& s) { s.Spatial.Enabled = false; });
+		const AssetHandle recording = AddClip(WriteTone("line-en.wav", 500.0, 1.25, 0.25));
+		auto plain = AudioEventInstance::Create(placeholder);
+		CHECK(plain->MonitorPlayback() && plain->Start());
+		const double placeholderLevel = Measure().Left;
+		CHECK_NEAR(plain->GetPlaybackStatus().Duration, 0.5, 1e-3);
+		plain->Stop(false);
+		auto spoken = AudioEventInstance::Create(placeholder);
+		CHECK(spoken->MonitorPlayback() && spoken->SetClipOverride(recording) && spoken->Start());
+		CHECK_NEAR(Measure().Left / placeholderLevel, 0.5, 2e-3);
+		const auto status = spoken->GetPlaybackStatus();
+		CHECK(status.Started && status.SoundStarted);
+		CHECK_NEAR(status.Duration, 1.25, 1e-3);
+		CHECK(!spoken->SetClipOverride(recording));                   // only before Start
+		spoken->Stop(false);
+		auto missing = AudioEventInstance::Create(placeholder);
+		CHECK(!missing->SetClipOverride(424242) && !missing->SetProgrammerSound("hello_fr"));
+		AudioEngine::Shutdown();
+		std::puts("PASS: dialogue clips: table YAML, clip override level and subtitle length, before-start rule, missing clip");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1558,6 +1596,7 @@ int main(int argc, char** argv)
 	TestAccessibility();
 	TestMeters();
 	TestMusicTimeline();
+	TestDialogueClips();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();

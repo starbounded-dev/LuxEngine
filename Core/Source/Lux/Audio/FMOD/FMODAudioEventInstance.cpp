@@ -488,6 +488,11 @@ namespace Lux {
 		return ConfigureCallbacks(0, false);
 	}
 
+	bool AudioEventInstance::SetClipOverride(UUID)
+	{
+		return CheckResult(FMOD_ERR_UNSUPPORTED, "clip override (the FMOD build plays dialogue through audio-table keys)");
+	}
+
 	bool AudioEventInstance::SetProgrammerSound(const std::string& key)
 	{
 		if (!IsValid() || IsPlaying() || key.empty() || key.size() > 512 || key.find('\0') != std::string::npos)

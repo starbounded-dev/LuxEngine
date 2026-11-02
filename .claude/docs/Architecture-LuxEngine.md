@@ -1086,6 +1086,11 @@ current one, on the main thread when `DrainTimelineNotifications` or `GetTimelin
 latter catches up first, so `MusicDirector` transitions count only events after the request. A
 cursor behind the last means the clip looped (a beat on the clip's end is the next loop's first).
 Transitions are still applied on the main thread at the drain that sees the boundary.
+**Native dialogue (Phase 7a):** `DialogueTranslation::Clip` (an audio asset, YAML `Clip`) is the native
+counterpart of `AudioKey`. `DialogueDirector` calls `AudioEventInstance::SetClipOverride` on native
+(every clip node of the line's Sound plays that asset; refused after Start and by FMOD) and
+`SetProgrammerSound` on FMOD. The subtitle's duration is the override clip's length. Project
+Settings shows a Clip picker per language in the native build and the audio-table key in FMOD's.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

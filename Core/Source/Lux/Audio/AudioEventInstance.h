@@ -94,6 +94,9 @@ namespace Lux {
 		void SuppressAccessibility(bool suppressed) { m_AccessibilitySuppressed = suppressed; }
 		bool MonitorPlayback();
 		bool SetProgrammerSound(const std::string& key);
+		// Native: every clip of this instance's Sound plays this audio asset instead (a dialogue line's
+		// translation), set before Start. The FMOD build refuses it; it uses SetProgrammerSound.
+		bool SetClipOverride(UUID clip);
 		AudioPlaybackStatus GetPlaybackStatus() const;
 		bool Start();
 		void Stop(bool allowFadeOut = true);

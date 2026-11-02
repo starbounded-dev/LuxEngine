@@ -674,6 +674,11 @@ wrap, and porting the FMOD music tests.
 
 **Rollback:** the legacy key keeps the FMOD build working.
 
+**Status — 7a done:** per-language `Clip` on translations, `SetClipOverride`, the director choosing
+per backend, a Clip picker in the dialogue editor, and a native test (table YAML, override level and
+subtitle length). Left: dropping audio files onto a line, a play button per line, and porting the
+FMOD dialogue tests (queue, interrupt, barks, locale fallback, teardown).
+
 ### Phase 8 — Runtime export and Lux-Runtime
 
 **Goal:** an exported native game plays its audio from the pack with no loose files and no FMOD.

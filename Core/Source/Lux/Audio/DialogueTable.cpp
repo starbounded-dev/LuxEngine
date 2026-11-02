@@ -77,7 +77,10 @@ namespace Lux
 				out << Yaml::Key << language << Yaml::BeginMap;
 				out << Yaml::Key << "Text" << Yaml::Value << translation.Text;
 				out << Yaml::Key << "SpeakerName" << Yaml::Value << translation.SpeakerName;
-				out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey << Yaml::EndMap;
+				out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey;
+				if (translation.Clip != 0)
+					out << Yaml::Key << "Clip" << Yaml::Value << static_cast<uint64_t>(translation.Clip);
+				out << Yaml::EndMap;
 			}
 			out << Yaml::EndMap << Yaml::EndMap;
 		}
@@ -125,6 +128,7 @@ namespace Lux
 						value.Text = localized.second["Text"].as<std::string>("");
 						value.SpeakerName = localized.second["SpeakerName"].as<std::string>("");
 						value.AudioKey = localized.second["AudioKey"].as<std::string>("");
+						value.Clip = localized.second["Clip"].as<uint64_t>(0);
 					}
 				}
 			}

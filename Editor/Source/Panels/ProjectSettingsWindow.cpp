@@ -977,7 +977,14 @@ namespace Lux {
 							ImGuiEx::BeginPropertyGrid();
 							ImGuiEx::PropertyMultiline("Text", translation.Text, "Localized subtitle", false);
 							ImGuiEx::Property("Speaker Name", translation.SpeakerName, "Empty uses the speaker entity name.", false);
-							ImGuiEx::Property("Audio Table Key", translation.AudioKey, "FMOD audio-table key. Use unique keys per language when loading their banks together.", false);
+							if (AudioEngine::GetBackend() == AudioBackend::Native)
+							{
+								AssetHandle clip = translation.Clip;
+								if (ImGuiEx::PropertyAssetReference<AudioFile>("Clip", clip, "This language's recording; it replaces the clips of the line's Sound. The subtitle lasts as long as the clip.", nullptr, {}, false))
+									translation.Clip = clip;
+							}
+							else
+								ImGuiEx::Property("Audio Table Key", translation.AudioKey, "FMOD audio-table key. Use unique keys per language when loading their banks together.", false);
 							ImGuiEx::EndPropertyGrid();
 							if (locale != table->DefaultLanguage && ImGui::Button("Remove Translation"))
 								removeLanguage = locale;
