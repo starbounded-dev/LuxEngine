@@ -67,6 +67,11 @@ vetoed.
 | 19 | Air absorption | **Wanted (user: "i want air absorption")** — but the double-counting model is **unanswered** (§ 1, open) | Absorption is in scope; which attenuation is authoritative still decides whether distant sources fade once or twice |
 | 20 | Vendor-folder deletion | **Not a disclosure act — `Core/vendor/VA_RAY/` is gitignored and was never in the repo** (`.gitignore:18`; `git ls-files` returns 0 tracked files there) | Replaces the old risk 9.5; the deletion is a local, untracked cleanup |
 
+**Answered 2026-11-01 (user, Spec Kit `specs/001-soundwave-completion`):** air absorption only
+darkens occlusion/reverb energy along the path (mostly HF) and FMOD's distance fade stays
+authoritative for loudness; `origin/feature/asterwave-audio` is **superseded** and stays unmerged.
+The items below are kept for the record.
+
 **Unanswered — these still gate their phases (asked in plain words, never answered):**
 
 - **Air absorption vs the backend's distance fade** (three options were re-worded for the user;
