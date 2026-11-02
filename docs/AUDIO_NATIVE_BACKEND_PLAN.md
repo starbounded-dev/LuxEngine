@@ -702,6 +702,12 @@ FMOD dialogue tests (queue, interrupt, barks, locale fallback, teardown).
 
 **Rollback:** the FMOD export path is unchanged.
 
+**Status — 8a done (code):** clip bytes in native asset packs (no VFS: miniaudio's registered encoded
+data), packed-clip playback with a native test, the mixer as runtime project format 30, export
+unblocked on native with no bank step and no FMOD libraries. Not verified: an exported native game
+running in Lux-Runtime; the sample still uses FMOD events, so that check follows Phase 9's
+migration. Streamed music decodes from memory instead of streaming from the pack.
+
 ### Phase 9 — Flip the default and migrate the sample
 
 **Goal:** native is the default and the sample project uses no FMOD.

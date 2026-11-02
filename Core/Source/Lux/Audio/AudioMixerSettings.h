@@ -12,6 +12,8 @@
 namespace Lux {
 
 	namespace Yaml { class Writer; class Node; }
+	class StreamReader;
+	class StreamWriter;
 
 	enum class AudioMixerEffectType : uint8_t { LowPass, HighPass, PeakingEQ, Delay, Compressor };
 
@@ -104,6 +106,9 @@ namespace Lux {
 		void SerializeYAML(Yaml::Writer& out) const;
 		// Missing keys use defaults; on any error the settings are unchanged and false is returned.
 		bool DeserializeYAML(const Yaml::Node& node);
+		// The runtime project's block: a length-prefixed YAML text of at most 64 KiB.
+		bool Serialize(StreamWriter& stream) const;
+		bool Deserialize(StreamReader& stream);
 	};
 
 }

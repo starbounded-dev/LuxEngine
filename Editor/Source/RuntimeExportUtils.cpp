@@ -7,6 +7,7 @@
 #include "Lux/Core/Assert.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Audio/AudioBankBuilder.h"
+#include "Lux/Audio/AudioEngine.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Utilities/FileSystem.h"
 
@@ -16,6 +17,14 @@
 #include <fstream>
 
 namespace Lux::RuntimeExport {
+
+	bool ShipsLibrary(const std::string& filename)
+	{
+		if (filename.find("vaudionative") != std::string::npos)
+			return false;
+		const bool fmod = filename.starts_with("fmod") || filename.starts_with("libfmod");
+		return !fmod || AudioEngine::GetBackend() == AudioBackend::FMOD;
+	}
 
 	bool PrepareAudioBanks(const Project& project, AudioBankManifest& manifest)
 	{

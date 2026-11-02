@@ -918,6 +918,8 @@ namespace Lux
 		WriteSceneRendererRuntimeSettings(serializer, m_Project->GetConfig().SceneRenderer);
 		serializer.WriteString(m_Project->GetConfig().Name);
 		serializer.WriteString(m_Project->GetConfig().ScriptModulePath.generic_string());
+		if (!m_Project->GetConfig().Audio.Mixer.Serialize(serializer))
+			return false;
 
 		if (!serializer.IsStreamGood())
 		{
@@ -1266,6 +1268,9 @@ namespace Lux
 			if (!scriptModulePath.empty())
 				config.ScriptModulePath = scriptModulePath;
 		}
+		config.Audio.Mixer = {};
+		if (projectInfo.HeaderData.Version >= 30 && !config.Audio.Mixer.Deserialize(stream))
+			return false;
 
 		// A short file fails its reads (no assert since 2026-10-26); refuse it rather than run on half a config.
 		if (!stream.IsStreamGood())

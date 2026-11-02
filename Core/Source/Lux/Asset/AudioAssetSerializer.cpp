@@ -4,7 +4,9 @@
 #include "lpch.h"
 #include "AudioAssetSerializer.h"
 
+#include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioFileUtils.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "Lux/Project/Project.h"
 
 namespace Lux
@@ -45,6 +47,21 @@ namespace Lux
 
 		outInfo.Offset = stream.GetStreamPosition();
 		stream.WriteString(metadata.FilePath.generic_string());
+		// The native backend ships the audio itself: the encoded file follows its path. FMOD plays banks,
+		// so its packs keep only the path. Packs read either form: data follows when the entry is longer.
+		if (AudioEngine::GetBackend() == AudioBackend::Native)
+		{
+			const auto file = Project::GetEditorAssetManager()->GetFileSystemPath(metadata);
+			Buffer bytes = FileSystem::ReadBytes(file);
+			if (!bytes.Data || bytes.Size == 0)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot pack audio '{}': the file cannot be read", file.string());
+				return false;
+			}
+			stream.WriteRaw<uint64_t>(bytes.Size);
+			stream.WriteData(reinterpret_cast<const char*>(bytes.Data), bytes.Size);
+			bytes.Release();
+		}
 		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
 		return true;
 	}
@@ -57,6 +74,20 @@ namespace Lux
 
 		Ref<AudioFile> audioFile = Ref<AudioFile>::Create();
 		stream.ReadString(audioFile->FilePath);
+		const uint64_t consumed = stream.GetStreamPosition() - assetInfo.PackedOffset;
+		if (consumed + sizeof(uint64_t) <= assetInfo.PackedSize)
+		{
+			uint64_t size = 0;
+			stream.ReadRaw<uint64_t>(size);
+			if (size == 0 || consumed + sizeof(uint64_t) + size > assetInfo.PackedSize)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Audio asset {} in the pack is truncated", static_cast<uint64_t>(assetInfo.PackedOffset));
+				return nullptr;
+			}
+			audioFile->EncodedData.resize(size);
+			stream.ReadData(reinterpret_cast<char*>(audioFile->EncodedData.data()), size);
+			audioFile->FileSize = size;
+		}
 		return audioFile;
 	}
 }

@@ -1091,6 +1091,14 @@ counterpart of `AudioKey`. `DialogueDirector` calls `AudioEventInstance::SetClip
 (every clip node of the line's Sound plays that asset; refused after Start and by FMOD) and
 `SetProgrammerSound` on FMOD. The subtitle's duration is the override clip's length. Project
 Settings shows a Clip picker per language in the native build and the audio-table key in FMOD's.
+**Native runtime export (Phase 8a):** a native build packs each Audio asset's encoded file after its
+path (`AudioAssetSerializer`; FMOD packs keep the path only, and a reader takes bytes only when the
+entry is longer than its path, so either pack loads). At runtime `ResolveClip` names a packed clip
+`luxpack/<handle><ext>` and `RegisterPackedClip` registers its bytes with miniaudio's resource
+manager (`ma_resource_manager_register_encoded_data`), measuring its length from memory; a Sound
+plays it as a file, decoded even when it streams. The mixer is runtime project format 30.
+Export skips FMOD bank preparation on native, and `RuntimeExport::ShipsLibrary` keeps an earlier FMOD
+build's libraries in the shared output folder out of a native export.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

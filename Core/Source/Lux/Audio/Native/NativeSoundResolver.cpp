@@ -79,7 +79,20 @@ namespace Lux
 		if (auto* editor = dynamic_cast<EditorAssetManager*>(Project::GetAssetManager().Raw()))
 			outPath = editor->GetFileSystemPath(clip);
 		else if (const auto file = AssetManager::GetAsset<AudioFile>(clip))
-			outPath = Project::GetActiveAssetDirectory() / file->FilePath; // loose files until asset packs carry audio
+		{
+			if (!file->EncodedData.empty())
+			{
+				// Played from the pack's bytes, under a name that keeps the extension miniaudio decodes by.
+				outPath = std::filesystem::path("luxpack") / (std::to_string(static_cast<uint64_t>(clip)) + std::filesystem::path(file->FilePath).extension().string());
+				if (!NativeInternal::RegisterPackedClip(outPath, file))
+				{
+					outError = "the packed clip cannot be decoded: " + file->FilePath;
+					return false;
+				}
+				return true;
+			}
+			outPath = Project::GetActiveAssetDirectory() / file->FilePath; // an older pack: loose files beside it
+		}
 		std::error_code error;
 		if (outPath.empty() || !std::filesystem::is_regular_file(outPath, error))
 		{

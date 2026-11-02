@@ -76,6 +76,9 @@ namespace Lux {
 		uint16_t NumChannels = 0;
 		uint64_t FileSize = 0;
 		std::string FilePath;
+		// The encoded file (WAV, Ogg, MP3, FLAC) when it came from a native-backend asset pack; empty in
+		// the editor, which reads FilePath. The native backend plays it from memory.
+		std::vector<uint8_t> EncodedData;
 
 		AudioFile() = default;
 		AudioFile(double duration, uint32_t samplingRate, uint16_t bitDepth, uint16_t numChannels, uint64_t fileSize)

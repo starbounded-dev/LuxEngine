@@ -43,6 +43,10 @@ namespace Lux::RuntimeExport {
 
 	// Export preparation runs once on the main thread when an export starts, never per frame.
 	bool PrepareAudioBanks(const Project& project, AudioBankManifest& manifest);
+	// Whether a library from the runtime build folder ships with an export. Both audio backends
+	// build into the same folder, so a native export skips FMOD's libraries an earlier FMOD build left,
+	// and no export ships Vercidium's from before its removal.
+	bool ShipsLibrary(const std::string& filename);
 	bool CopyAudioBanks(const Project& project, const AudioBankManifest& manifest, const std::filesystem::path& assets);
 	bool CopyAudioLibraries(const std::filesystem::path& runtimeDirectory, const std::filesystem::path& exportRoot);
 

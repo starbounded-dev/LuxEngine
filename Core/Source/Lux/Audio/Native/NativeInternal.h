@@ -62,8 +62,14 @@ namespace Lux::NativeInternal {
 	// a Sound's path relative to the project's Assets directory. False with the reason in outError.
 	// Defined in NativeSoundResolver.cpp against the asset manager; the native tests define their own.
 	bool ResolveSound(const std::string& reference, Ref<Sound>& outSound, std::string& outError);
-	// The absolute path of a clip (an Audio asset). Defined beside ResolveSound.
+	// The path of a clip (an Audio asset). Defined beside ResolveSound. A clip from an asset pack has
+	// no file: its path is a "luxpack/" name RegisterPackedClip has given its bytes.
 	bool ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError);
+
+	// Registers a packed clip's encoded bytes with the resource manager under name (once; the asset is
+	// kept alive until the engine releases its voices). False when miniaudio refuses them.
+	bool RegisterPackedClip(const std::filesystem::path& name, Ref<AudioFile> clip);
+	bool IsPackedClip(const std::filesystem::path& path);
 
 	// Seeds the generator Random containers and variations draw from (the tests make choices repeatable).
 	void SeedRandom(uint32_t seed);

@@ -3,6 +3,8 @@
 
 #include "lpch.h"
 #include "AudioMixerSettings.h"
+#include "Lux/Serialization/StreamReader.h"
+#include "Lux/Serialization/StreamWriter.h"
 #include "Lux/Serialization/Yaml.h"
 
 #include <algorithm>
@@ -15,6 +17,7 @@ namespace Lux {
 	namespace {
 		constexpr const char* kMaster = "bus:/";
 		constexpr float kMaxVolume = 4.0f;
+		constexpr uint32_t kMaxRuntimeBytes = 64 * 1024;
 
 		bool InRange(float value, float low, float high)
 		{
@@ -305,4 +308,49 @@ namespace Lux {
 		}
 	}
 
+
+	bool AudioMixerSettings::Serialize(StreamWriter& stream) const
+	{
+		std::string error;
+		if (!Validate(&error))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot export an invalid mixer: {}", error);
+			return false;
+		}
+		Yaml::Writer out;
+		SerializeYAML(out);
+		const std::string text = out.c_str();
+		if (text.size() > kMaxRuntimeBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "The mixer exceeds 64 KiB");
+			return false;
+		}
+		stream.WriteRaw<uint32_t>(static_cast<uint32_t>(text.size()));
+		return stream.WriteData(text.data(), text.size()) && stream.IsStreamGood();
+	}
+
+	bool AudioMixerSettings::Deserialize(StreamReader& stream)
+	{
+		uint32_t size = 0;
+		if (!stream.ReadData(reinterpret_cast<char*>(&size), sizeof(size)) || size == 0 || size > kMaxRuntimeBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid runtime mixer length");
+			return false;
+		}
+		std::string text(size, '\0');
+		if (!stream.ReadData(text.data(), text.size()))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Truncated runtime mixer");
+			return false;
+		}
+		try
+		{
+			return DeserializeYAML(Yaml::Load(text));
+		}
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Invalid runtime mixer: {}", error.what());
+			return false;
+		}
+	}
 }

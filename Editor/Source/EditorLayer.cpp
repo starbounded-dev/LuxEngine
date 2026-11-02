@@ -4434,13 +4434,10 @@ namespace Lux {
 
 	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
 	{
-		// Asset packs do not carry Sound audio yet, and export would deploy FMOD's libraries.
+		// The native backend packs each clip's audio into the asset pack and plays no banks.
 		if (AudioEngine::GetBackend() == AudioBackend::Native)
-		{
-			m_RuntimeExportError = "Export blocked: runtime export is not supported on the native audio backend yet. Export from an FMOD build (the default premake --audio-backend=fmod).";
-			return false;
-		}
-		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
+			audioBanks = {};
+		else if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
 		{
 			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
 			return false;
@@ -4640,8 +4637,7 @@ namespace Lux {
 							continue;
 
 						const std::string filename = it->path().filename().string();
-						// A build folder from before Vercidium's removal can still hold its library; it must never ship.
-						if (filename.find(".so") != std::string::npos && filename.find("vaudionative") == std::string::npos &&
+						if (filename.find(".so") != std::string::npos && RuntimeExport::ShipsLibrary(filename) &&
 							!CopyFileIfExists(it->path(), libDir / it->path().filename(), true))
 							return false;
 					}
@@ -4658,8 +4654,8 @@ namespace Lux {
 						continue;
 
 					const std::filesystem::path extension = entry.path().extension();
-					if (entry.path().stem() == "vaudionative")
-						continue; // a stale pre-removal build artifact; it must never ship
+					if (!RuntimeExport::ShipsLibrary(entry.path().filename().string()))
+						continue;
 					if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
 						CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
 				}

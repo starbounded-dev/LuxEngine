@@ -52,6 +52,7 @@ namespace
 
 	std::map<uint64_t, Lux::Ref<Lux::Sound>> s_Sounds;
 	std::map<uint64_t, std::filesystem::path> s_Clips;
+	std::map<uint64_t, Lux::Ref<Lux::AudioFile>> s_PackedClips; // as a runtime asset pack delivers them
 	uint64_t s_NextHandle = 1000;
 }
 
@@ -84,6 +85,17 @@ namespace Lux
 
 	bool NativeInternal::ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError)
 	{
+		// The runtime resolver's packed branch (NativeSoundResolver.cpp), over the test table.
+		if (const auto packed = s_PackedClips.find(static_cast<uint64_t>(clip)); packed != s_PackedClips.end())
+		{
+			outPath = std::filesystem::path("luxpack") / (std::to_string(packed->first) + ".wav");
+			if (!NativeInternal::RegisterPackedClip(outPath, packed->second))
+			{
+				outError = "the packed clip cannot be decoded";
+				return false;
+			}
+			return true;
+		}
 		const auto it = s_Clips.find(static_cast<uint64_t>(clip));
 		if (it == s_Clips.end())
 		{
@@ -1090,6 +1102,40 @@ namespace
 		std::puts("PASS: dialogue clips: table YAML, clip override level and subtitle length, before-start rule, missing clip");
 	}
 
+	void TestPackedClips()
+	{
+		// A clip delivered as encoded bytes (a native asset pack) plays like its file, decoded from memory
+		// even when the Sound streams, reports its length, and is released with the engine.
+		const auto file = WriteTone("packed.wav", 500.0, 0.75);
+		std::ifstream in(file, std::ios::binary);
+		auto packed = Ref<AudioFile>::Create();
+		packed->EncodedData.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		CHECK(!packed->EncodedData.empty());
+		const uint64_t handle = s_NextHandle++;
+		s_PackedClips[handle] = packed;
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		const auto loose = AddSound(file, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
+		const auto fromPack = AddSound({}, [handle](Sound& s) { s.Nodes[0].Clip = handle; s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Stream = true; });
+		for (int run = 0; run < 2; ++run)                          // twice: shutdown unregisters, a restart registers again
+		{
+			Start();
+			const double expected = PlayAt(loose, front).Left;
+			CHECK(expected > 0.3);
+			CHECK_NEAR(PlayAt(fromPack, front).Left / expected, 1.0, 1e-4);
+			auto instance = AudioEventInstance::Create(fromPack);
+			CHECK(instance && instance->GetLength() == 750);
+			CHECK_NEAR(packed->Duration, 0.75, 1e-3);
+			AudioEngine::Shutdown();
+		}
+		packed->EncodedData = { 1, 2, 3, 4 };                         // not audio
+		Start();
+		auto broken = AudioEventInstance::Create(fromPack);
+		CHECK(broken && !broken->Start());
+		AudioEngine::Shutdown();
+		s_PackedClips.clear();
+		std::puts("PASS: packed clips: played from memory like the file, decoded when streaming, length, re-registered after restart, bad data refused");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1597,6 +1643,7 @@ int main(int argc, char** argv)
 	TestMeters();
 	TestMusicTimeline();
 	TestDialogueClips();
+	TestPackedClips();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();
