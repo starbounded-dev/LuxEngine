@@ -41,6 +41,16 @@ namespace Lux {
 		};
 		std::map<std::string, MixerBus> s_Buses;
 		ReverbResource s_Reverb;
+		std::vector<AudioMixerSnapshot> s_SnapshotDefinitions;
+		struct ActiveSnapshot
+		{
+			const void* Instance = nullptr;
+			const AudioMixerSnapshot* Definition = nullptr;
+			float Intensity = 0.0f;
+			uint64_t Order = 0; // start order, which breaks priority ties
+		};
+		std::vector<ActiveSnapshot> s_ActiveSnapshots;
+		uint64_t s_SnapshotOrder = 0;
 		// Runs the resource manager's jobs, which only streamed Sounds post: reading the next pages of
 		// a stream from disk, and opening and closing streams. Stopped by Shutdown, or at exit when the
 		// process ends without it, since destroying a running thread terminates the program.
@@ -105,9 +115,37 @@ namespace Lux {
 			return nullptr;
 		}
 
-		void ApplyBusVolume(MixerBus& bus)
+		// The bus's own volume, moved toward the winning active snapshot's override by its intensity.
+		void ApplyBusVolume(const std::string& path, MixerBus& bus)
 		{
-			ma_sound_group_set_volume(bus.Group.get(), bus.Muted ? 0.0f : bus.Volume);
+			float volume = bus.Volume;
+			const ActiveSnapshot* winner = nullptr;
+			const AudioMixerBus* winning = nullptr;
+			for (const ActiveSnapshot& active : s_ActiveSnapshots)
+			{
+				if (active.Intensity <= 0.0f)
+					continue;
+				const auto& overrides = active.Definition->Buses;
+				const auto it = std::find_if(overrides.begin(), overrides.end(), [&](const AudioMixerBus& entry) { return entry.Path == path; });
+				if (it == overrides.end())
+					continue;
+				if (!winner || active.Definition->Priority > winner->Definition->Priority
+					|| (active.Definition->Priority == winner->Definition->Priority && active.Order > winner->Order))
+				{
+					winner = &active;
+					winning = &*it;
+				}
+			}
+			if (winner)
+				volume += (winning->Volume - volume) * winner->Intensity;
+			ma_sound_group_set_volume(bus.Group.get(), bus.Muted ? 0.0f : volume);
+		}
+
+		void ApplyBusVolumes()
+		{
+			for (auto& [path, bus] : s_Buses)
+				if (bus.Group)
+					ApplyBusVolume(path, bus);
 		}
 
 		// Parents are listed before children (AudioMixerSettings::Validate), so each parent exists. A bus
@@ -134,8 +172,9 @@ namespace Lux {
 				}
 				bus.Volume = settings.Volume;
 				bus.Muted = settings.Muted;
-				ApplyBusVolume(bus);
+				ApplyBusVolume(settings.Path, bus);
 			}
+			s_SnapshotDefinitions = mixer.Snapshots;
 			// miniaudio's reverb (verblib, Freeverb-based) takes mono or stereo only.
 			const ma_uint32 channels = ma_engine_get_channels(engine);
 			if (channels > 2)
@@ -168,6 +207,8 @@ namespace Lux {
 
 		void ReleaseMixer()
 		{
+			s_ActiveSnapshots.clear();
+			s_SnapshotDefinitions.clear();
 			s_Reverb.clear();
 			// Children before parents: a group detaches from its parent when it is uninitialized.
 			for (auto it = s_Buses.rbegin(); it != s_Buses.rend(); ++it)
@@ -207,6 +248,33 @@ namespace Lux {
 	ma_node* NativeInternal::GetReverbReturn()
 	{
 		return s_EngineReady ? s_Reverb.get() : nullptr;
+	}
+
+	bool NativeInternal::IsMixerSnapshot(uint64_t id)
+	{
+		return s_EngineReady && std::any_of(s_SnapshotDefinitions.begin(), s_SnapshotDefinitions.end(),
+			[&](const AudioMixerSnapshot& snapshot) { return static_cast<uint64_t>(snapshot.ID) == id; });
+	}
+
+	void NativeInternal::SetSnapshotState(const void* instance, uint64_t id, bool active, float intensity)
+	{
+		const auto it = std::find_if(s_ActiveSnapshots.begin(), s_ActiveSnapshots.end(), [&](const ActiveSnapshot& entry) { return entry.Instance == instance; });
+		if (!active)
+		{
+			if (it != s_ActiveSnapshots.end())
+				s_ActiveSnapshots.erase(it);
+		}
+		else if (it != s_ActiveSnapshots.end())
+			it->Intensity = intensity;
+		else
+		{
+			const auto definition = std::find_if(s_SnapshotDefinitions.begin(), s_SnapshotDefinitions.end(),
+				[&](const AudioMixerSnapshot& snapshot) { return static_cast<uint64_t>(snapshot.ID) == id; });
+			if (definition == s_SnapshotDefinitions.end())
+				return;
+			s_ActiveSnapshots.push_back({ instance, &*definition, intensity, ++s_SnapshotOrder });
+		}
+		ApplyBusVolumes();
 	}
 
 	const NativeInternal::ListenerSet& NativeInternal::GetListeners()
@@ -402,7 +470,7 @@ namespace Lux {
 		if (!bus)
 			return false;
 		bus->Muted = muted;
-		ApplyBusVolume(*bus);
+		ApplyBusVolume(path, *bus);
 		return true;
 	}
 
@@ -444,7 +512,7 @@ namespace Lux {
 		if (!bus)
 			return false;
 		bus->Volume = std::max(volume, 0.0f);
-		ApplyBusVolume(*bus);
+		ApplyBusVolume(busPath, *bus);
 		return true;
 	}
 

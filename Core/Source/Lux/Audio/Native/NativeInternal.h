@@ -41,6 +41,11 @@ namespace Lux::NativeInternal {
 	ma_node* GetBusInput(const std::string& path);
 	// The built-in reverb return's input, where voices send; null without one (more than 2 output channels).
 	ma_node* GetReverbReturn();
+	// Whether id names a snapshot of the running mixer (AudioMixerSnapshot::ID).
+	bool IsMixerSnapshot(uint64_t id);
+	// One snapshot instance's contribution: started (active) at an intensity, or removed. Bus
+	// volumes follow at once. Main thread.
+	void SetSnapshotState(const void* instance, uint64_t id, bool active, float intensity);
 
 	// Resolves a playback reference: a Sound asset handle in decimal (AudioEventRef::GetReference) or
 	// a Sound's path relative to the project's Assets directory. False with the reason in outError.

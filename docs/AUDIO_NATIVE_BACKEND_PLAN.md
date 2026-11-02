@@ -557,8 +557,13 @@ meters.
 - **4b reverb return:** `ma_reverb_node` into the master; every voice node's second output sends
   Soundwave's `ReverbSend` plus Send curves to it. Soundwave reverb is now audible on native.
 - Owned through MiniaudioCpp (`Core/vendor/MiniaudioCpp`).
-- **Left:** bus effect chains, snapshots and zone mapping, VCAs and global parameters,
-  `ClearBusVolume`, runtime format 26, and the Audio Mixer panel.
+- **4c snapshots:** named, prioritized bus-volume overrides in the mixer, referenced by ID through
+  `AudioEventRef::Sound`; zones drive them unchanged. Zone inspector pickers work in the native build
+  (looping Sound for ambience, mixer snapshot). Audio Mixer panel edits buses, reverb and snapshots
+  with undo and a live preview.
+- **Left:** bus effect chains, VCAs and global parameters, `ClearBusVolume` (script values over
+  snapshots), runtime format 26, and porting the zone tests (the snapshot test drives the zone's call
+  sequence directly).
 
 **Exit criteria:** zone tests green on native.
 

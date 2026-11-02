@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "Lux/Core/UUID.h"
+
 #include <string>
 #include <vector>
 
@@ -31,12 +33,26 @@ namespace Lux {
 		bool operator==(const AudioReverbReturnSettings&) const = default;
 	};
 
+	// A named mix change zones and scripts blend in. Intensity 0-1 moves each listed bus from its own
+	// volume toward the snapshot's; where active snapshots list the same bus, the highest Priority
+	// wins (the one started last on a tie). A zone or script refers to it by ID, through the slot an
+	// AudioEventRef uses for a Sound (AudioEventRef::Sound), so references survive renames.
+	struct AudioMixerSnapshot
+	{
+		UUID ID;
+		std::string Name;
+		int Priority = 0;
+		std::vector<AudioMixerBus> Buses; // Path and Volume of each override; Muted is unused
+		bool operator==(const AudioMixerSnapshot&) const = default;
+	};
+
 	// The project's mix for the native backend; the FMOD backend authors its mix in FMOD Studio and
 	// ignores this. Main thread; read once by AudioEngine::Init.
 	struct AudioMixerSettings
 	{
 		std::vector<AudioMixerBus> Buses = DefaultBuses(); // never lists the master "bus:/"
 		AudioReverbReturnSettings Reverb;
+		std::vector<AudioMixerSnapshot> Snapshots;
 		bool operator==(const AudioMixerSettings&) const = default;
 
 		// Music, SFX, Dialogue and Ambience: the default accessibility bus mappings.
@@ -45,7 +61,8 @@ namespace Lux {
 		static std::string ParentPath(const std::string& path);
 
 		// Paths are "bus:/" plus '/'-separated nonempty names, unique, each with its parent listed
-		// before it; values are finite and in range. outError names the first problem.
+		// before it; values are finite and in range. Snapshots have unique nonzero IDs and nonempty
+		// unique names, and override listed buses once each. outError names the first problem.
 		bool Validate(std::string* outError = nullptr) const;
 		void SerializeYAML(Yaml::Writer& out) const;
 		// Missing keys use defaults; on any error the settings are unchanged and false is returned.

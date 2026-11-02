@@ -116,10 +116,12 @@ under the master.
 | Bus table | Every bus by depth, with a linear volume (0–4, its dB beside it) and Mute. Both apply live while the native engine runs |
 | Add Child / Rename / Remove | Act on the selected bus. Rename moves the buses below it too; Remove deletes them. Sounds on a missing bus play through the master |
 | Reverb Return | Room size, damping, width and return volume of the built-in reverb every voice sends to (Soundwave's ReverbSend plus Send curves) |
-| Apply | Restarts the audio engine so bus layout and reverb changes take effect; disabled during Play |
+| Snapshots | Add, rename and remove named mix changes; each has a priority and per-bus volume overrides. Preview Intensity auditions the selected one live |
+| Apply | Restarts the audio engine so bus layout, reverb and snapshot changes take effect; disabled during Play |
 | Save Project | Writes the mixer to the `.luxproj` (`Audio.Mixer`) |
 
-Each completed edit is one undo step. A Sound picks its bus in the Sound Editor (`Bus`).
+Each completed edit is one undo step. A Sound picks its bus in the Sound Editor (`Bus`). An Audio Zone's
+Snapshot picker lists these snapshots in the native build; the zone's weight is the snapshot's intensity.
 
 ## Project Settings → Audio
 

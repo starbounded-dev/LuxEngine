@@ -1062,6 +1062,12 @@ endpoint, which keeps the master volume and focus mute) and the reverb return, m
 node has two outputs: the dry signal into its Sound's bus, and a post-fader send into the return at
 `ReverbSend` (Soundwave) plus the Sound's Send curves, clamped to 1 and ramped per block.
 `SetBusVolume`/`SetBusMuted`/`GetBusVolume` reach any mixer bus. The FMOD backend ignores the mixer.
+**Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
+overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
+makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),
+so `AudioZoneSystem` drives native snapshots with the same calls as FMOD's. A started snapshot
+moves each listed bus from its own volume toward the override by `SetSnapshotIntensity`; the highest
+priority (then the latest start) wins a bus. Definitions are copied at Init.
 The runtime package does not carry it yet (native export is Phase 8).
 
 **Native backend (Phase 2 vertical slice).** `Audio/Native/` implements every function the FMOD

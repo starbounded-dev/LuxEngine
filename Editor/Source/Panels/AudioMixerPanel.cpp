@@ -49,8 +49,18 @@ namespace Lux
 		m_Project = project;
 		m_Committed = project ? project->GetConfig().Audio.Mixer : AudioMixerSettings{};
 		m_Selected = kMaster;
+		m_SelectedSnapshot = 0;
 		m_Error.clear();
 		m_Dirty = m_NeedsRestart = false;
+		StopPreview();
+	}
+
+	void AudioMixerPanel::StopPreview()
+	{
+		if (m_Preview)
+			m_Preview->Stop(false);
+		m_Preview = nullptr;
+		m_PreviewIntensity = 0.0f;
 	}
 
 	AudioMixerSettings* AudioMixerPanel::GetMixer()
@@ -75,7 +85,8 @@ namespace Lux
 		std::vector<std::string> before;
 		for (const auto& bus : current->Buses)
 			before.push_back(bus.Path);
-		const bool reverbChanged = !(current->Reverb == mixer.Reverb);
+		// The engine copies reverb settings and snapshots at Init, so changing them needs Apply.
+		const bool reverbChanged = !(current->Reverb == mixer.Reverb) || current->Snapshots != mixer.Snapshots;
 		*current = mixer;
 		m_Committed = mixer;
 		m_Dirty = true;
@@ -123,6 +134,8 @@ namespace Lux
 		UI_SelectedBus(*mixer);
 		ImGui::Spacing();
 		UI_Reverb(*mixer);
+		ImGui::Spacing();
+		UI_Snapshots(*mixer);
 		CommitEdits();
 		ImGui::End();
 	}
@@ -141,6 +154,7 @@ namespace Lux
 		{
 			// The native engine builds its buses at Init. Restarting releases every voice (their
 			// wrappers stay safely invalid, as after a project switch).
+			StopPreview();
 			AudioEngine::Shutdown();
 			AudioEngine::Init();
 			m_NeedsRestart = false;
@@ -236,9 +250,14 @@ namespace Lux
 			// The bus and every bus below it move to the new name.
 			AudioMixerSettings candidate = mixer;
 			const std::string renamed = ChildPath(AudioMixerSettings::ParentPath(m_Selected), name);
-			for (AudioMixerBus& bus : candidate.Buses)
+			const auto rename = [&](AudioMixerBus& bus)
+			{
 				if (IsInside(bus.Path, m_Selected))
 					bus.Path = renamed + bus.Path.substr(m_Selected.size());
+			};
+			std::for_each(candidate.Buses.begin(), candidate.Buses.end(), rename);
+			for (AudioMixerSnapshot& snapshot : candidate.Snapshots)
+				std::for_each(snapshot.Buses.begin(), snapshot.Buses.end(), rename);
 			if (tryApply(std::move(candidate)))
 			{
 				m_Selected = renamed;
@@ -252,7 +271,10 @@ namespace Lux
 		if (ImGui::Button("Remove"))
 		{
 			AudioMixerSettings candidate = mixer;
-			std::erase_if(candidate.Buses, [&](const AudioMixerBus& bus) { return IsInside(bus.Path, m_Selected); });
+			const auto removed = [&](const AudioMixerBus& bus) { return IsInside(bus.Path, m_Selected); };
+			std::erase_if(candidate.Buses, removed);
+			for (AudioMixerSnapshot& snapshot : candidate.Snapshots)
+				std::erase_if(snapshot.Buses, removed);
 			if (tryApply(std::move(candidate)))
 				m_Selected = kMaster;
 		}
@@ -273,6 +295,145 @@ namespace Lux
 		ImGuiEx::PropertySlider("Width", mixer.Reverb.Width, 0.0f, 1.0f, "Stereo spread of the tail.", false);
 		ImGuiEx::PropertySlider("Return Volume", mixer.Reverb.Volume, 0.0f, 4.0f, "The return's level into the master.", false);
 		ImGuiEx::EndPropertyGrid();
+		ImGui::TreePop();
+	}
+
+	void AudioMixerPanel::UI_Snapshots(AudioMixerSettings& mixer)
+	{
+		if (!ImGuiEx::PropertyGridHeader("Snapshots", true))
+			return;
+		ImGui::TextWrapped("A zone or script blends a snapshot in by intensity (0-1): each listed bus moves from its own volume toward the snapshot's. Where active snapshots list the same bus, the higher priority wins.");
+
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::InputTextWithHint("##snapshot_name", "Snapshot name", m_SnapshotNameBuffer, sizeof(m_SnapshotNameBuffer));
+		const std::string name = m_SnapshotNameBuffer;
+		auto selected = std::find_if(mixer.Snapshots.begin(), mixer.Snapshots.end(), [&](const AudioMixerSnapshot& entry) { return entry.ID == m_SelectedSnapshot; });
+		const auto tryApply = [&](AudioMixerSettings candidate)
+		{
+			if (!candidate.Validate(&m_Error))
+				return false;
+			m_Error.clear();
+			mixer = std::move(candidate);
+			return true;
+		};
+		ImGui::SameLine();
+		ImGui::BeginDisabled(name.empty());
+		if (ImGui::Button("Add Snapshot"))
+		{
+			AudioMixerSettings candidate = mixer;
+			AudioMixerSnapshot snapshot;
+			snapshot.ID = UUID();
+			snapshot.Name = name;
+			candidate.Snapshots.push_back(snapshot);
+			if (tryApply(std::move(candidate)))
+			{
+				m_SelectedSnapshot = snapshot.ID;
+				m_SnapshotNameBuffer[0] = '\0';
+			}
+		}
+		ImGui::SameLine();
+		ImGui::BeginDisabled(selected == mixer.Snapshots.end());
+		if (ImGui::Button("Rename##snapshot"))
+		{
+			AudioMixerSettings candidate = mixer;
+			for (AudioMixerSnapshot& entry : candidate.Snapshots)
+				if (entry.ID == m_SelectedSnapshot)
+					entry.Name = name;
+			if (tryApply(std::move(candidate)))
+				m_SnapshotNameBuffer[0] = '\0';
+		}
+		ImGui::EndDisabled();
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(selected == mixer.Snapshots.end());
+		if (ImGui::Button("Remove##snapshot"))
+		{
+			StopPreview();
+			AudioMixerSettings candidate = mixer;
+			std::erase_if(candidate.Snapshots, [&](const AudioMixerSnapshot& entry) { return entry.ID == m_SelectedSnapshot; });
+			if (tryApply(std::move(candidate)))
+				m_SelectedSnapshot = 0;
+		}
+		ImGui::EndDisabled();
+		ImGui::SetItemTooltip("Zones that use this snapshot keep its ID and show it as missing.");
+
+		for (const AudioMixerSnapshot& entry : mixer.Snapshots)
+		{
+			ImGuiEx::ScopedID id(&entry);
+			if (ImGui::Selectable(entry.Name.c_str(), entry.ID == m_SelectedSnapshot) && entry.ID != m_SelectedSnapshot)
+			{
+				StopPreview();
+				m_SelectedSnapshot = entry.ID;
+			}
+		}
+		selected = std::find_if(mixer.Snapshots.begin(), mixer.Snapshots.end(), [&](const AudioMixerSnapshot& entry) { return entry.ID == m_SelectedSnapshot; });
+		if (selected == mixer.Snapshots.end())
+		{
+			ImGui::TreePop();
+			return;
+		}
+
+		AudioMixerSnapshot& snapshot = *selected;
+		ImGui::Separator();
+		ImGui::SetNextItemWidth(120.0f);
+		ImGui::InputInt("Priority", &snapshot.Priority);
+		if (ImGui::BeginTable("##snapshot_buses", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+		{
+			ImGui::TableSetupColumn("Override", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+			ImGui::TableSetupColumn("Bus", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+			ImGui::TableSetupColumn("Volume", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+			ImGui::TableHeadersRow();
+			for (const AudioMixerBus& bus : mixer.Buses)
+			{
+				ImGui::PushID(bus.Path.c_str());
+				const auto it = std::find_if(snapshot.Buses.begin(), snapshot.Buses.end(), [&](const AudioMixerBus& entry) { return entry.Path == bus.Path; });
+				bool overridden = it != snapshot.Buses.end();
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				if (ImGui::Checkbox("##override", &overridden))
+				{
+					if (overridden)
+						snapshot.Buses.push_back({ bus.Path, bus.Volume });
+					else
+						snapshot.Buses.erase(it);
+				}
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(bus.Path.c_str());
+				ImGui::TableNextColumn();
+				const auto entry = std::find_if(snapshot.Buses.begin(), snapshot.Buses.end(), [&](const AudioMixerBus& e) { return e.Path == bus.Path; });
+				if (entry != snapshot.Buses.end())
+				{
+					ImGui::SetNextItemWidth(-1.0f);
+					ImGui::SliderFloat("##volume", &entry->Volume, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				}
+				ImGui::PopID();
+			}
+			ImGui::EndTable();
+		}
+
+		// Preview: plays the snapshot the running engine has (after Apply), live in edit mode or Play.
+		const bool canPreview = AudioEngine::GetBackend() == AudioBackend::Native && AudioEngine::HasInitializedEngine() && !m_NeedsRestart;
+		ImGui::BeginDisabled(!canPreview);
+		ImGui::SetNextItemWidth(200.0f);
+		if (ImGui::SliderFloat("Preview Intensity", &m_PreviewIntensity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+		{
+			if (m_PreviewIntensity <= 0.0f)
+				StopPreview();
+			else
+			{
+				if (!m_Preview || !m_Preview->IsValid())
+				{
+					m_Preview = AudioEventInstance::Create(std::to_string(static_cast<uint64_t>(snapshot.ID)));
+					if (m_Preview && !m_Preview->Start())
+						m_Preview = nullptr;
+				}
+				if (m_Preview)
+					m_Preview->SetSnapshotIntensity(m_PreviewIntensity);
+			}
+		}
+		ImGui::EndDisabled();
+		if (!canPreview)
+			ImGui::SetItemTooltip(m_NeedsRestart ? "Apply first: the running engine has the previous snapshots." : "Previews need the native backend.");
 		ImGui::TreePop();
 	}
 }

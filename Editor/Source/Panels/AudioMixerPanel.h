@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioMixerSettings.h"
 #include "Lux/Editor/EditorPanel.h"
 
@@ -38,6 +39,8 @@ namespace Lux
 		void UI_Buses(AudioMixerSettings& mixer);
 		void UI_SelectedBus(AudioMixerSettings& mixer);
 		void UI_Reverb(AudioMixerSettings& mixer);
+		void UI_Snapshots(AudioMixerSettings& mixer);
+		void StopPreview();
 
 		Ref<Project> m_Project;
 		Ref<Scene> m_Context;
@@ -48,5 +51,9 @@ namespace Lux
 		std::string m_Error;
 		bool m_Dirty = false;               // unsaved project changes
 		bool m_NeedsRestart = false;        // structural changes the running engine does not have yet
+		uint64_t m_SelectedSnapshot = 0;
+		char m_SnapshotNameBuffer[64] = {};
+		Ref<AudioEventInstance> m_Preview;  // the selected snapshot, auditioned at m_PreviewIntensity
+		float m_PreviewIntensity = 0.0f;
 	};
 }

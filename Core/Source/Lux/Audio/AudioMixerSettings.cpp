@@ -55,6 +55,23 @@ namespace Lux {
 		if (!InRange(Reverb.RoomSize, 0.0f, 1.0f) || !InRange(Reverb.Damping, 0.0f, 1.0f) || !InRange(Reverb.Width, 0.0f, 1.0f)
 			|| !InRange(Reverb.Volume, 0.0f, kMaxVolume))
 			return fail("reverb return room size, damping and width must be 0-1, and its volume 0-4");
+		std::set<uint64_t> ids;
+		std::set<std::string> names;
+		for (const AudioMixerSnapshot& snapshot : Snapshots)
+		{
+			if (static_cast<uint64_t>(snapshot.ID) == 0 || !ids.insert(static_cast<uint64_t>(snapshot.ID)).second)
+				return fail("snapshot '" + snapshot.Name + "' needs a unique ID");
+			if (snapshot.Name.empty() || !names.insert(snapshot.Name).second)
+				return fail("snapshot names must be nonempty and unique ('" + snapshot.Name + "')");
+			std::set<std::string> overridden;
+			for (const AudioMixerBus& bus : snapshot.Buses)
+			{
+				if (bus.Path == kMaster || !seen.contains(bus.Path) || !overridden.insert(bus.Path).second)
+					return fail("snapshot '" + snapshot.Name + "' overrides '" + bus.Path + "', which is not a mixer bus or is listed twice");
+				if (!InRange(bus.Volume, 0.0f, kMaxVolume))
+					return fail("snapshot '" + snapshot.Name + "' volume for '" + bus.Path + "' must be 0-4");
+			}
+		}
 		return true;
 	}
 
@@ -77,6 +94,25 @@ namespace Lux {
 		out << Yaml::Key << "Width" << Yaml::Value << Reverb.Width;
 		out << Yaml::Key << "Volume" << Yaml::Value << Reverb.Volume;
 		out << Yaml::EndMap;
+		out << Yaml::Key << "Snapshots" << Yaml::Value << Yaml::BeginSeq;
+		for (const AudioMixerSnapshot& snapshot : Snapshots)
+		{
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "ID" << Yaml::Value << static_cast<uint64_t>(snapshot.ID);
+			out << Yaml::Key << "Name" << Yaml::Value << snapshot.Name;
+			out << Yaml::Key << "Priority" << Yaml::Value << snapshot.Priority;
+			out << Yaml::Key << "Buses" << Yaml::Value << Yaml::BeginSeq;
+			for (const AudioMixerBus& bus : snapshot.Buses)
+			{
+				out << Yaml::Flow << Yaml::BeginMap;
+				out << Yaml::Key << "Path" << Yaml::Value << bus.Path;
+				out << Yaml::Key << "Volume" << Yaml::Value << bus.Volume;
+				out << Yaml::EndMap;
+			}
+			out << Yaml::EndSeq;
+			out << Yaml::EndMap;
+		}
+		out << Yaml::EndSeq;
 		out << Yaml::EndMap;
 	}
 
@@ -109,6 +145,24 @@ namespace Lux {
 					parsed.Reverb.Damping = reverb["Damping"].as<float>(parsed.Reverb.Damping);
 					parsed.Reverb.Width = reverb["Width"].as<float>(parsed.Reverb.Width);
 					parsed.Reverb.Volume = reverb["Volume"].as<float>(parsed.Reverb.Volume);
+				}
+				if (const auto snapshots = node["Snapshots"])
+				{
+					if (!snapshots.IsSequence())
+						throw std::runtime_error("Snapshots must be a list");
+					for (const auto& entry : snapshots)
+					{
+						AudioMixerSnapshot snapshot;
+						snapshot.ID = entry["ID"].as<uint64_t>();
+						snapshot.Name = entry["Name"].as<std::string>();
+						snapshot.Priority = entry["Priority"].as<int>(0);
+						if (const auto buses = entry["Buses"])
+						{
+							for (const auto& bus : buses)
+								snapshot.Buses.push_back({ bus["Path"].as<std::string>(), bus["Volume"].as<float>(1.0f) });
+						}
+						parsed.Snapshots.push_back(std::move(snapshot));
+					}
 				}
 			}
 			std::string error;

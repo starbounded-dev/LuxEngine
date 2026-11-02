@@ -3578,6 +3578,56 @@ namespace Lux {
 				{
 					ImGuiEx::ScopedID id(label);
 					const auto& reference = first.*member;
+					if (AudioEngine::GetBackend() == AudioBackend::Native)
+					{
+						// The native build plays a looping Sound for ambience and a mixer snapshot by ID,
+						// both in the reference's Sound slot; the FMOD GUID stays for the FMOD build.
+						const bool mixedNative = IsSelectionInconsistent<uint64_t>(m_Context, selected, [member](Entity entity)
+						{
+							return static_cast<uint64_t>((entity.GetComponent<AudioZoneComponent>().*member).Sound);
+						});
+						AudioEventRef value = reference;
+						bool changed = false;
+						if (!snapshot)
+							changed = ImGuiEx::SurfaceEventPicker(label, value, false, mixedNative);
+						else
+						{
+							const auto project = Project::GetActive();
+							static const std::vector<AudioMixerSnapshot> s_None;
+							const auto& snapshots = project ? project->GetConfig().Audio.Mixer.Snapshots : s_None;
+							const auto assigned = std::find_if(snapshots.begin(), snapshots.end(), [&](const AudioMixerSnapshot& entry) { return entry.ID == value.Sound; });
+							const std::string preview = mixedNative ? "Multiple values" : value.Sound == 0 ? "None"
+								: assigned != snapshots.end() ? assigned->Name : "Missing snapshot";
+							if (ImGui::BeginCombo(label, preview.c_str()))
+							{
+								if (ImGui::Selectable("None", value.Sound == 0))
+								{
+									value.Sound = 0;
+									changed = true;
+								}
+								for (const AudioMixerSnapshot& entry : snapshots)
+								{
+									ImGuiEx::ScopedID snapshotID(&entry);
+									if (ImGui::Selectable(entry.Name.c_str(), entry.ID == value.Sound))
+									{
+										value.Sound = entry.ID;
+										changed = true;
+									}
+								}
+								if (snapshots.empty())
+									ImGui::TextDisabled("No snapshots. Add one in View > Audio Mixer.");
+								ImGui::EndCombo();
+							}
+						}
+						if (changed)
+						{
+							ApplyToSelection<AudioZoneComponent>(m_Context, selected, [member, &value](AudioZoneComponent& component, Entity)
+							{
+								(component.*member).Sound = value.Sound;
+							});
+						}
+						return;
+					}
 					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selected, [member](Entity entity)
 					{
 						return (entity.GetComponent<AudioZoneComponent>().*member).Guid;
@@ -3615,7 +3665,9 @@ namespace Lux {
 				};
 				picker("Ambience Event", &AudioZoneComponent::AmbienceEvent, false);
 				picker("Snapshot", &AudioZoneComponent::Snapshot, true);
-				ImGui::TextWrapped("Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. Expose the snapshot Intensity dial as a 0-100 parameter in FMOD Studio.");
+				ImGui::TextWrapped(AudioEngine::GetBackend() == AudioBackend::Native
+					? "Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. The zone weight is the snapshot's intensity (View > Audio Mixer)."
+					: "Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. Expose the snapshot Intensity dial as a 0-100 parameter in FMOD Studio.");
 				if (first.Shape == AudioZoneShape::Collider)
 					ImGui::TextWrapped("Collider mode supports exactly one box, sphere or capsule on this entity. Mesh and 2D colliders are unsupported.");
 				if (m_Context->IsRunning() && selected.size() == 1)

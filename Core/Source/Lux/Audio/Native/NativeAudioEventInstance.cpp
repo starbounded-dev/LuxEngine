@@ -153,6 +153,8 @@ namespace Lux {
 		{
 			Ref<Sound> Definition;               // a private copy: edits to the asset apply to the next instance
 			uint64_t SoundHandle = 0;            // the asset's handle; 0 for an in-memory Sound
+			uint64_t SnapshotId = 0;             // a mixer snapshot instead of a Sound: no leaves, never ends
+			float SnapshotIntensity = 1.0f;
 			std::vector<float> ParameterValues;  // indexed like Definition->Parameters
 			std::vector<Scope<Leaf>> Leaves;     // what the last start resolved to
 			bool Ready = false;                  // created against a live engine and not yet released
@@ -248,6 +250,8 @@ namespace Lux {
 
 		bool AllAtEnd(NativeVoice& voice)
 		{
+			if (voice.SnapshotId)
+				return false;
 			return std::all_of(voice.Leaves.begin(), voice.Leaves.end(), [](const Scope<Leaf>& leaf) { return LeafAtEnd(*leaf); });
 		}
 
@@ -708,6 +712,17 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Audio", "Cannot create sound {0}: native audio is not initialized", eventGuid);
 			return nullptr;
 		}
+		uint64_t snapshot = 0;
+		if (NativeInternal::ParseHandle(eventGuid, snapshot) && NativeInternal::IsMixerSnapshot(snapshot))
+		{
+			// A snapshot plays no clip; an empty Sound keeps every voice path valid.
+			auto impl = CreateScope<Impl>();
+			impl->Definition = Ref<Sound>::Create();
+			impl->SnapshotId = snapshot;
+			impl->Ready = true;
+			s_Voices.push_back(impl.get());
+			return Ref<AudioEventInstance>::Create(std::move(impl), eventGuid, AudioEngine::GetEventGeneration());
+		}
 		Ref<Sound> sound;
 		std::string error;
 		if (!NativeInternal::ResolveSound(eventGuid, sound, error))
@@ -750,6 +765,8 @@ namespace Lux {
 		s_CallbackStates.erase(m_CallbackToken);
 		if (!m_Impl)
 			return;
+		if (m_Impl->SnapshotId && IsValid())
+			NativeInternal::SetSnapshotState(m_Impl.get(), m_Impl->SnapshotId, false, 0.0f);
 		ReleaseLeaves(*m_Impl);
 		std::erase(s_Voices, static_cast<NativeVoice*>(m_Impl.get()));
 	}
@@ -872,17 +889,26 @@ namespace Lux {
 
 	bool AudioEventInstance::IsOneShot() const
 	{
-		return IsValid() && !m_Impl->Definition->Loops();
+		return IsValid() && !m_Impl->SnapshotId && !m_Impl->Definition->Loops();
 	}
 
 	bool AudioEventInstance::IsSnapshot() const
 	{
-		return false;
+		return IsValid() && m_Impl->SnapshotId != 0;
 	}
 
-	bool AudioEventInstance::SetSnapshotIntensity(float)
+	bool AudioEventInstance::SetSnapshotIntensity(float intensity)
 	{
-		return IsValid() && CheckResult(MA_NOT_IMPLEMENTED, "snapshot intensity (snapshots are not supported by the native backend yet)");
+		if (!IsValid())
+			return false;
+		if (!m_Impl->SnapshotId)
+			return CheckResult(MA_INVALID_OPERATION, "snapshot intensity (this is a Sound, not a mixer snapshot)");
+		if (!std::isfinite(intensity) || intensity < 0.0f || intensity > 1.0f)
+			return CheckResult(MA_INVALID_ARGS, "snapshot intensity (must be 0-1)");
+		m_Impl->SnapshotIntensity = intensity;
+		if (m_Impl->Started)
+			NativeInternal::SetSnapshotState(m_Impl.get(), m_Impl->SnapshotId, true, intensity);
+		return true;
 	}
 
 	float AudioEventInstance::GetParameter(const std::string& name) const
@@ -973,6 +999,12 @@ namespace Lux {
 		if (!IsValid())
 			return false;
 		NativeVoice& voice = *m_Impl;
+		if (voice.SnapshotId)
+		{
+			voice.Started = true;
+			NativeInternal::SetSnapshotState(&voice, voice.SnapshotId, true, voice.SnapshotIntensity);
+			return true;
+		}
 		const Sound& sound = *voice.Definition;
 		ma_engine* engine = NativeInternal::GetEngine();
 		const auto now = std::chrono::steady_clock::now();
@@ -1080,6 +1112,8 @@ namespace Lux {
 		// Sounds author no fade yet, so a fade-out stop is immediate too.
 		if (!IsValid() || !m_Impl->Started)
 			return;
+		if (m_Impl->SnapshotId)
+			NativeInternal::SetSnapshotState(m_Impl.get(), m_Impl->SnapshotId, false, 0.0f);
 		ReleaseLeaves(*m_Impl);
 		MarkStopped(*m_Impl);
 	}

@@ -644,6 +644,63 @@ namespace
 		std::puts("PASS: mixer settings validation and YAML, bus volume and mute, nested buses, unknown bus fallback, reverb return tail");
 	}
 
+	void TestSnapshots()
+	{
+		// Settings: snapshot IDs and names are unique, and they override existing buses once each.
+		AudioMixerSettings settings;
+		settings.Snapshots = { { 501, "Underwater", 0, { { "bus:/SFX", 0.0f } } } };
+		CHECK(settings.Validate());
+		settings.Snapshots.push_back({ 501, "Other" });
+		CHECK(!settings.Validate());
+		settings.Snapshots.back() = { 502, "Underwater" };
+		CHECK(!settings.Validate());
+		settings.Snapshots.back() = { 502, "Bad", 0, { { "bus:/Nope", 0.5f } } };
+		CHECK(!settings.Validate());
+		settings.Snapshots.back() = { 502, "Combat", 1, { { "bus:/SFX", 0.5f } } };
+		CHECK(settings.Validate());
+		Yaml::Writer out;
+		settings.SerializeYAML(out);
+		AudioMixerSettings loaded;
+		CHECK(loaded.DeserializeYAML(Yaml::Load(out.c_str())) && loaded == settings);
+
+		// The calls zones make (AudioZoneSystem::Prepare/Play): create from the reference, intensity 0,
+		// start, then the zone weight as intensity.
+		s_Mixer = settings;
+		Start();
+		const auto tone = WriteTone("snapshot.wav", 500.0, 1.0);
+		const auto sfx = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = "bus:/SFX"; });
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		auto voice = Play(sfx, front);
+		const auto level = [&] { return Measure().Left; };
+		const double full = level();
+		CHECK(full > 0.3);
+		auto underwater = AudioEventInstance::Create("501");
+		CHECK(underwater && underwater->IsSnapshot() && !underwater->IsOneShot());
+		CHECK(underwater->SetSnapshotIntensity(0.0f) && underwater->Start() && underwater->IsPlaying());
+		CHECK_NEAR(level() / full, 1.0, 1e-3);
+		CHECK(underwater->SetSnapshotIntensity(0.5f));
+		CHECK_NEAR(level() / full, 0.5, 2e-3);    // halfway from 1 to 0
+		CHECK(underwater->SetSnapshotIntensity(1.0f));
+		CHECK(level() < 1e-4);
+		// A higher priority wins the bus while active; stopping it hands the bus back.
+		auto combat = AudioEventInstance::Create("502");
+		CHECK(combat && combat->Start());
+		CHECK_NEAR(level() / full, 0.5, 2e-3);
+		combat->Stop(false);
+		CHECK(level() < 1e-4);
+		// Releasing an active snapshot removes it; the bus's own volume still applies under snapshots.
+		underwater = nullptr;
+		CHECK_NEAR(level() / full, 1.0, 1e-3);
+		CHECK(AudioEngine::SetBusVolume("bus:/SFX", 0.5f));
+		CHECK(combat->Start() && combat->SetSnapshotIntensity(0.5f));
+		CHECK_NEAR(level() / full, 0.5, 2e-3);    // 0.5 toward 0.5 stays 0.5
+		CHECK(!combat->SetSnapshotIntensity(1.5f) && !voice->SetSnapshotIntensity(0.5f) && !voice->IsSnapshot());
+		voice->Stop(false);
+		AudioEngine::Shutdown();
+		s_Mixer = {};
+		std::puts("PASS: mixer snapshots: validation and YAML, intensity blend, priority, stop and release, zone call sequence");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1144,6 +1201,7 @@ int main(int argc, char** argv)
 	TestOcclusion();
 	TestVolumeAndBuses();
 	TestMixer();
+	TestSnapshots();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();
