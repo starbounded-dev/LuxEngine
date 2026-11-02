@@ -5,12 +5,35 @@
 
 #include "Lux/Core/UUID.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace Lux {
 
 	namespace Yaml { class Writer; class Node; }
+
+	enum class AudioMixerEffectType : uint8_t { LowPass, HighPass, PeakingEQ, Delay, Compressor };
+
+	// One stage of a bus's effect chain, applied in list order after the bus volume. Each type reads
+	// only its own fields; a bypassed stage is left out of the chain.
+	struct AudioMixerEffect
+	{
+		AudioMixerEffectType Type = AudioMixerEffectType::LowPass;
+		bool Bypass = false;
+		float FrequencyHz = 1000.0f;  // LowPass/HighPass cutoff, PeakingEQ centre; 20-20000
+		float GainDb = 0.0f;          // PeakingEQ boost or cut; -24-24
+		float Q = 0.707f;             // PeakingEQ width; 0.1-10
+		float DelaySeconds = 0.25f;   // Delay; 0.001-2
+		float Feedback = 0.3f;        // Delay decay per repeat; 0-0.95
+		float Wet = 0.5f;             // Delay wet level; 0-1 (the dry signal passes at 1)
+		float ThresholdDb = -18.0f;   // Compressor; -60-0
+		float Ratio = 4.0f;           // Compressor; 1-20
+		float AttackMs = 10.0f;       // Compressor; 0.1-500
+		float ReleaseMs = 100.0f;     // Compressor; 1-5000
+		float MakeupDb = 0.0f;        // Compressor; 0-24
+		bool operator==(const AudioMixerEffect&) const = default;
+	};
 
 	// One mixer bus. A bus plays into its parent, named by the path: "bus:/SFX/Steps" plays into
 	// "bus:/SFX", and every top-level bus into the master "bus:/".
@@ -19,6 +42,7 @@ namespace Lux {
 		std::string Path;
 		float Volume = 1.0f; // linear, 0-4
 		bool Muted = false;
+		std::vector<AudioMixerEffect> Effects; // unused in snapshot overrides
 		bool operator==(const AudioMixerBus&) const = default;
 	};
 
@@ -57,6 +81,8 @@ namespace Lux {
 
 		// Music, SFX, Dialogue and Ambience: the default accessibility bus mappings.
 		static std::vector<AudioMixerBus> DefaultBuses();
+		static constexpr size_t kMaxEffects = 8; // per bus
+		static const char* EffectName(AudioMixerEffectType type);
 		// "bus:/X" -> "bus:/", "bus:/X/Y" -> "bus:/X".
 		static std::string ParentPath(const std::string& path);
 

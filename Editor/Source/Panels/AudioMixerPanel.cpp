@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <optional>
 
 namespace Lux
 {
@@ -82,21 +83,23 @@ namespace Lux
 		AudioMixerSettings* current = GetMixer();
 		if (!current)
 			return;
-		std::vector<std::string> before;
-		for (const auto& bus : current->Buses)
-			before.push_back(bus.Path);
-		// The engine copies reverb settings and snapshots at Init, so changing them needs Apply.
-		const bool reverbChanged = !(current->Reverb == mixer.Reverb) || current->Snapshots != mixer.Snapshots;
+		// Volume and mute apply live; the engine builds everything else (layout, effects, reverb,
+		// snapshots) at Init, so any other change needs Apply.
+		const auto layout = [](AudioMixerSettings settings)
+		{
+			for (AudioMixerBus& bus : settings.Buses)
+			{
+				bus.Volume = 1.0f;
+				bus.Muted = false;
+			}
+			return settings;
+		};
+		m_NeedsRestart |= !(layout(*current) == layout(mixer));
 		*current = mixer;
 		m_Committed = mixer;
 		m_Dirty = true;
-		std::vector<std::string> after;
 		for (const auto& bus : mixer.Buses)
-		{
-			after.push_back(bus.Path);
 			ApplyLive(bus);
-		}
-		m_NeedsRestart |= before != after || reverbChanged;
 	}
 
 	void AudioMixerPanel::CommitEdits()
@@ -282,6 +285,82 @@ namespace Lux
 		ImGui::SetItemTooltip("Removes the bus and every bus below it. Sounds on a removed bus play through the master.");
 		if (!m_Error.empty())
 			ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", m_Error.c_str());
+
+		// The selected bus's effect chain, in order after its volume.
+		const auto bus = std::find_if(mixer.Buses.begin(), mixer.Buses.end(), [&](const AudioMixerBus& entry) { return entry.Path == m_Selected; });
+		if (bus == mixer.Buses.end())
+			return;
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Effects (applied top to bottom; changes need Apply)");
+		auto& effects = bus->Effects;
+		std::optional<size_t> moveUp, remove;
+		for (size_t index = 0; index < effects.size(); ++index)
+		{
+			AudioMixerEffect& effect = effects[index];
+			ImGui::PushID(static_cast<int>(index));
+			ImGui::Separator();
+			ImGui::TextUnformatted(AudioMixerSettings::EffectName(effect.Type));
+			ImGui::SameLine();
+			ImGui::Checkbox("Bypass", &effect.Bypass);
+			ImGui::SameLine();
+			ImGui::BeginDisabled(index == 0);
+			if (ImGui::SmallButton("Up"))
+				moveUp = index;
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::BeginDisabled(index + 1 == effects.size());
+			if (ImGui::SmallButton("Down"))
+				moveUp = index + 1;
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Remove"))
+				remove = index;
+			ImGui::BeginDisabled(effect.Bypass);
+			switch (effect.Type)
+			{
+				case AudioMixerEffectType::LowPass:
+				case AudioMixerEffectType::HighPass:
+					ImGui::SliderFloat("Cutoff (Hz)", &effect.FrequencyHz, 20.0f, 20000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					break;
+				case AudioMixerEffectType::PeakingEQ:
+					ImGui::SliderFloat("Frequency (Hz)", &effect.FrequencyHz, 20.0f, 20000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Gain (dB)", &effect.GainDb, -24.0f, 24.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Q", &effect.Q, 0.1f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					break;
+				case AudioMixerEffectType::Delay:
+					ImGui::SliderFloat("Time (s)", &effect.DelaySeconds, 0.001f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Feedback", &effect.Feedback, 0.0f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Wet", &effect.Wet, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+					break;
+				case AudioMixerEffectType::Compressor:
+					ImGui::SliderFloat("Threshold (dB)", &effect.ThresholdDb, -60.0f, 0.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Ratio", &effect.Ratio, 1.0f, 20.0f, "%.1f:1", ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Attack (ms)", &effect.AttackMs, 0.1f, 500.0f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Release (ms)", &effect.ReleaseMs, 1.0f, 5000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					ImGui::SliderFloat("Makeup (dB)", &effect.MakeupDb, 0.0f, 24.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+					break;
+			}
+			ImGui::EndDisabled();
+			ImGui::PopID();
+		}
+		// Applied after the loop, so no widget above refers to a moved or erased element.
+		if (moveUp)
+			std::swap(effects[*moveUp - 1], effects[*moveUp]);
+		if (remove)
+			effects.erase(effects.begin() + static_cast<std::ptrdiff_t>(*remove));
+
+		static const char* s_EffectTypes[] = { "Low-pass", "High-pass", "Peaking EQ", "Delay", "Compressor" };
+		ImGui::SetNextItemWidth(160.0f);
+		ImGui::Combo("##effect_type", &m_NewEffectType, s_EffectTypes, IM_ARRAYSIZE(s_EffectTypes));
+		ImGui::SameLine();
+		ImGui::BeginDisabled(effects.size() >= AudioMixerSettings::kMaxEffects);
+		if (ImGui::Button("Add Effect"))
+		{
+			AudioMixerEffect effect;
+			effect.Type = static_cast<AudioMixerEffectType>(m_NewEffectType);
+			effects.push_back(effect);
+		}
+		ImGui::EndDisabled();
 	}
 
 	void AudioMixerPanel::UI_Reverb(AudioMixerSettings& mixer)

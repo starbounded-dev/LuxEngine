@@ -5,7 +5,9 @@
 #include "AudioMixerSettings.h"
 #include "Lux/Serialization/Yaml.h"
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <set>
 
 namespace Lux {
@@ -18,6 +20,29 @@ namespace Lux {
 		{
 			return std::isfinite(value) && value >= low && value <= high;
 		}
+
+		constexpr const char* kEffectNames[] = { "LowPass", "HighPass", "PeakingEQ", "Delay", "Compressor" };
+
+		bool ValidEffect(const AudioMixerEffect& effect)
+		{
+			if (static_cast<size_t>(effect.Type) >= std::size(kEffectNames))
+				return false;
+			switch (effect.Type)
+			{
+				case AudioMixerEffectType::LowPass:
+				case AudioMixerEffectType::HighPass:   return InRange(effect.FrequencyHz, 20.0f, 20000.0f);
+				case AudioMixerEffectType::PeakingEQ:  return InRange(effect.FrequencyHz, 20.0f, 20000.0f) && InRange(effect.GainDb, -24.0f, 24.0f) && InRange(effect.Q, 0.1f, 10.0f);
+				case AudioMixerEffectType::Delay:      return InRange(effect.DelaySeconds, 0.001f, 2.0f) && InRange(effect.Feedback, 0.0f, 0.95f) && InRange(effect.Wet, 0.0f, 1.0f);
+				case AudioMixerEffectType::Compressor: return InRange(effect.ThresholdDb, -60.0f, 0.0f) && InRange(effect.Ratio, 1.0f, 20.0f)
+					&& InRange(effect.AttackMs, 0.1f, 500.0f) && InRange(effect.ReleaseMs, 1.0f, 5000.0f) && InRange(effect.MakeupDb, 0.0f, 24.0f);
+			}
+			return false;
+		}
+	}
+
+	const char* AudioMixerSettings::EffectName(AudioMixerEffectType type)
+	{
+		return static_cast<size_t>(type) < std::size(kEffectNames) ? kEffectNames[static_cast<size_t>(type)] : "Unknown";
 	}
 
 	std::vector<AudioMixerBus> AudioMixerSettings::DefaultBuses()
@@ -51,6 +76,11 @@ namespace Lux {
 				return fail("bus '" + bus.Path + "' is listed before its parent '" + ParentPath(bus.Path) + "'");
 			if (!InRange(bus.Volume, 0.0f, kMaxVolume))
 				return fail("bus '" + bus.Path + "' volume must be 0-4");
+			if (bus.Effects.size() > kMaxEffects)
+				return fail("bus '" + bus.Path + "' has more than 8 effects");
+			for (const AudioMixerEffect& effect : bus.Effects)
+				if (!ValidEffect(effect))
+					return fail("bus '" + bus.Path + "' has a " + EffectName(effect.Type) + " effect with a value out of range");
 		}
 		if (!InRange(Reverb.RoomSize, 0.0f, 1.0f) || !InRange(Reverb.Damping, 0.0f, 1.0f) || !InRange(Reverb.Width, 0.0f, 1.0f)
 			|| !InRange(Reverb.Volume, 0.0f, kMaxVolume))
@@ -81,10 +111,47 @@ namespace Lux {
 		out << Yaml::Key << "Buses" << Yaml::Value << Yaml::BeginSeq;
 		for (const AudioMixerBus& bus : Buses)
 		{
-			out << Yaml::Flow << Yaml::BeginMap;
+			out << Yaml::BeginMap;
 			out << Yaml::Key << "Path" << Yaml::Value << bus.Path;
 			out << Yaml::Key << "Volume" << Yaml::Value << bus.Volume;
 			out << Yaml::Key << "Muted" << Yaml::Value << bus.Muted;
+			if (!bus.Effects.empty())
+			{
+				out << Yaml::Key << "Effects" << Yaml::Value << Yaml::BeginSeq;
+				for (const AudioMixerEffect& effect : bus.Effects)
+				{
+					// Only the fields this type reads, so a file shows what each stage does.
+					out << Yaml::Flow << Yaml::BeginMap;
+					out << Yaml::Key << "Type" << Yaml::Value << EffectName(effect.Type);
+					out << Yaml::Key << "Bypass" << Yaml::Value << effect.Bypass;
+					switch (effect.Type)
+					{
+						case AudioMixerEffectType::LowPass:
+						case AudioMixerEffectType::HighPass:
+							out << Yaml::Key << "FrequencyHz" << Yaml::Value << effect.FrequencyHz;
+							break;
+						case AudioMixerEffectType::PeakingEQ:
+							out << Yaml::Key << "FrequencyHz" << Yaml::Value << effect.FrequencyHz;
+							out << Yaml::Key << "GainDb" << Yaml::Value << effect.GainDb;
+							out << Yaml::Key << "Q" << Yaml::Value << effect.Q;
+							break;
+						case AudioMixerEffectType::Delay:
+							out << Yaml::Key << "DelaySeconds" << Yaml::Value << effect.DelaySeconds;
+							out << Yaml::Key << "Feedback" << Yaml::Value << effect.Feedback;
+							out << Yaml::Key << "Wet" << Yaml::Value << effect.Wet;
+							break;
+						case AudioMixerEffectType::Compressor:
+							out << Yaml::Key << "ThresholdDb" << Yaml::Value << effect.ThresholdDb;
+							out << Yaml::Key << "Ratio" << Yaml::Value << effect.Ratio;
+							out << Yaml::Key << "AttackMs" << Yaml::Value << effect.AttackMs;
+							out << Yaml::Key << "ReleaseMs" << Yaml::Value << effect.ReleaseMs;
+							out << Yaml::Key << "MakeupDb" << Yaml::Value << effect.MakeupDb;
+							break;
+					}
+					out << Yaml::EndMap;
+				}
+				out << Yaml::EndSeq;
+			}
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;
@@ -136,6 +203,33 @@ namespace Lux {
 						bus.Path = entry["Path"].as<std::string>();
 						bus.Volume = entry["Volume"].as<float>(bus.Volume);
 						bus.Muted = entry["Muted"].as<bool>(bus.Muted);
+						if (const auto effects = entry["Effects"])
+						{
+							if (!effects.IsSequence())
+								throw std::runtime_error("Effects must be a list");
+							for (const auto& item : effects)
+							{
+								AudioMixerEffect effect;
+								const std::string type = item["Type"].as<std::string>();
+								const auto known = std::find(std::begin(kEffectNames), std::end(kEffectNames), type);
+								if (known == std::end(kEffectNames))
+									throw std::runtime_error("unknown effect type '" + type + "'");
+								effect.Type = static_cast<AudioMixerEffectType>(known - std::begin(kEffectNames));
+								effect.Bypass = item["Bypass"].as<bool>(effect.Bypass);
+								effect.FrequencyHz = item["FrequencyHz"].as<float>(effect.FrequencyHz);
+								effect.GainDb = item["GainDb"].as<float>(effect.GainDb);
+								effect.Q = item["Q"].as<float>(effect.Q);
+								effect.DelaySeconds = item["DelaySeconds"].as<float>(effect.DelaySeconds);
+								effect.Feedback = item["Feedback"].as<float>(effect.Feedback);
+								effect.Wet = item["Wet"].as<float>(effect.Wet);
+								effect.ThresholdDb = item["ThresholdDb"].as<float>(effect.ThresholdDb);
+								effect.Ratio = item["Ratio"].as<float>(effect.Ratio);
+								effect.AttackMs = item["AttackMs"].as<float>(effect.AttackMs);
+								effect.ReleaseMs = item["ReleaseMs"].as<float>(effect.ReleaseMs);
+								effect.MakeupDb = item["MakeupDb"].as<float>(effect.MakeupDb);
+								bus.Effects.push_back(effect);
+							}
+						}
 						parsed.Buses.push_back(std::move(bus));
 					}
 				}

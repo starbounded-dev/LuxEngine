@@ -33,12 +33,175 @@ namespace Lux {
 		// reverb return. Built by Init from the project's mixer; voices are released before them.
 		using GroupResource = JPL::Internal::CResource<ma_sound_group, ma_sound_group_init, JPL::Internal::impl::uninit<ma_sound_group_uninit>>;
 		using ReverbResource = JPL::Internal::CResource<ma_reverb_node, ma_reverb_node_init, JPL::Internal::impl::uninit<ma_reverb_node_uninit>>;
+		using PeakResource = JPL::Internal::CResource<ma_peak_node, ma_peak_node_init, JPL::Internal::impl::uninit<ma_peak_node_uninit>>;
+
+		// A feed-forward compressor: a peak envelope (attack/release) above the threshold is reduced by
+		// the ratio, then the makeup gain applies. Settings are fixed when the mixer is built.
+		struct CompressorNode
+		{
+			ma_node_base Base;   // first: miniaudio passes &Base as the node
+			float ThresholdDb = -18.0f, Slope = 0.75f, MakeupDb = 0.0f;
+			float AttackCoefficient = 0.0f, ReleaseCoefficient = 0.0f;
+			float Envelope = 0.0f; // audio thread only
+			static constexpr ma_uint32 FLAGS = 0;
+
+			void Process(JPL::ProcessCallbackData& data)
+			{
+				const ma_uint32 frames = data.GetOutputFrameCount();
+				const auto input = data.GetInputBuffer(0);
+				const float* in = input.data.data;
+				float* out = data.GetOutputBuffer(0).data.data;
+				const uint32_t channels = input.getNumChannels();
+				for (ma_uint32 frame = 0; frame < frames; ++frame)
+				{
+					float level = 0.0f;
+					for (uint32_t channel = 0; channel < channels; ++channel)
+						level = std::max(level, std::abs(in[frame * channels + channel]));
+					const float coefficient = level > Envelope ? AttackCoefficient : ReleaseCoefficient;
+					Envelope = coefficient * Envelope + (1.0f - coefficient) * level;
+					const float levelDb = 20.0f * std::log10(std::max(Envelope, 1.0e-9f));
+					const float reductionDb = levelDb > ThresholdDb ? (ThresholdDb - levelDb) * Slope : 0.0f;
+					const float gain = std::pow(10.0f, (reductionDb + MakeupDb) / 20.0f);
+					for (uint32_t channel = 0; channel < channels; ++channel)
+						out[frame * channels + channel] = in[frame * channels + channel] * gain;
+				}
+			}
+		};
+
+		// An echo: the dry signal passes at unity, and each repeat comes back DelaySeconds later at Wet,
+		// fading by Feedback. (miniaudio's ma_delay either drops the dry signal or, started at once,
+		// echoes nothing without feedback.) The buffer is sized before the node is attached.
+		struct DelayNode
+		{
+			ma_node_base Base;   // first: miniaudio passes &Base as the node
+			std::vector<float> Buffer; // frames x channels; audio thread only once attached
+			size_t Cursor = 0;
+			float Wet = 0.5f, Feedback = 0.3f;
+			static constexpr ma_uint32 FLAGS = MA_NODE_FLAG_CONTINUOUS_PROCESSING | MA_NODE_FLAG_ALLOW_NULL_INPUT; // the tail outlives the input
+
+			void Process(JPL::ProcessCallbackData& data)
+			{
+				const ma_uint32 frames = data.GetOutputFrameCount();
+				const auto output = data.GetOutputBuffer(0);
+				float* out = output.data.data;
+				const uint32_t channels = output.getNumChannels();
+				const float* in = data.IsNullInput() ? nullptr : data.GetInputBuffer(0).data.data;
+				const size_t length = Buffer.size() / channels;
+				for (ma_uint32 frame = 0; frame < frames; ++frame)
+				{
+					for (uint32_t channel = 0; channel < channels; ++channel)
+					{
+						const float sample = in ? in[frame * channels + channel] : 0.0f;
+						float& stored = Buffer[Cursor * channels + channel];
+						const float delayed = stored;
+						out[frame * channels + channel] = sample + delayed * Wet;
+						stored = sample + delayed * Feedback;
+					}
+					Cursor = (Cursor + 1) % length;
+				}
+			}
+		};
+
+		// One built effect stage; exactly one of its resources is set.
+		struct BusEffect
+		{
+			JPL::Internal::LPFNode LowPass;
+			JPL::Internal::HPFNode HighPass;
+			PeakResource Peak;
+			JPL::TBaseNode<DelayNode> Delay;
+			JPL::TBaseNode<CompressorNode> Compressor;
+
+			ma_node* Node()
+			{
+				if (LowPass) return LowPass.get();
+				if (HighPass) return HighPass.get();
+				if (Peak) return Peak.get();
+				if (Delay) return Delay.get();
+				return Compressor ? Compressor.get() : nullptr;
+			}
+		};
+
 		struct MixerBus
 		{
 			GroupResource Group;
+			std::vector<Scope<BusEffect>> Effects; // in chain order, between the group and its parent
 			float Volume = 1.0f;
 			bool Muted = false;
 		};
+
+		// A resource whose init failed was never initialized, so it is freed without its uninit.
+		template<typename Resource>
+		ma_result Emplaced(Resource& resource, ma_result result)
+		{
+			if (result != MA_SUCCESS)
+				Scope<std::remove_pointer_t<decltype(resource.get())>>(resource.release());
+			return result;
+		}
+
+		Scope<BusEffect> CreateEffect(ma_engine* engine, const AudioMixerEffect& settings)
+		{
+			const ma_uint32 channels = ma_engine_get_channels(engine), sampleRate = ma_engine_get_sample_rate(engine);
+			ma_node_graph* graph = ma_engine_get_node_graph(engine);
+			const ma_allocation_callbacks* allocation = &JPL::gEngineAllocationCallbacks;
+			auto effect = CreateScope<BusEffect>();
+			ma_result result = MA_SUCCESS;
+			switch (settings.Type)
+			{
+				case AudioMixerEffectType::LowPass:
+				{
+					const ma_lpf_node_config config = ma_lpf_node_config_init(channels, sampleRate, settings.FrequencyHz, 2);
+					result = Emplaced(effect->LowPass, effect->LowPass.emplace(graph, &config, allocation));
+					break;
+				}
+				case AudioMixerEffectType::HighPass:
+				{
+					const ma_hpf_node_config config = ma_hpf_node_config_init(channels, sampleRate, settings.FrequencyHz, 2);
+					result = Emplaced(effect->HighPass, effect->HighPass.emplace(graph, &config, allocation));
+					break;
+				}
+				case AudioMixerEffectType::PeakingEQ:
+				{
+					const ma_peak_node_config config = ma_peak_node_config_init(channels, sampleRate, settings.GainDb, settings.Q, settings.FrequencyHz);
+					result = Emplaced(effect->Peak, effect->Peak.emplace(graph, &config, allocation));
+					break;
+				}
+				case AudioMixerEffectType::Delay:
+				{
+					if (!effect->Delay.Init(JPL::NodeLayout().WithInputs(channels).WithOutputs(channels)))
+					{
+						result = MA_ERROR;
+						break;
+					}
+					DelayNode& node = *effect->Delay;
+					const auto frames = std::max<size_t>(static_cast<size_t>(settings.DelaySeconds * static_cast<float>(sampleRate)), 1);
+					node.Buffer.assign(frames * channels, 0.0f);
+					node.Wet = settings.Wet;
+					node.Feedback = settings.Feedback;
+					break;
+				}
+				case AudioMixerEffectType::Compressor:
+				{
+					if (!effect->Compressor.Init(JPL::NodeLayout().WithInputs(channels).WithOutputs(channels)))
+					{
+						result = MA_ERROR;
+						break;
+					}
+					CompressorNode& node = *effect->Compressor;
+					node.ThresholdDb = settings.ThresholdDb;
+					node.Slope = 1.0f - 1.0f / settings.Ratio;
+					node.MakeupDb = settings.MakeupDb;
+					node.AttackCoefficient = std::exp(-1.0f / (settings.AttackMs * 0.001f * static_cast<float>(sampleRate)));
+					node.ReleaseCoefficient = std::exp(-1.0f / (settings.ReleaseMs * 0.001f * static_cast<float>(sampleRate)));
+					break;
+				}
+			}
+			if (result != MA_SUCCESS)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot create a {} effect: {}", AudioMixerSettings::EffectName(settings.Type), ma_result_description(result));
+				return nullptr;
+			}
+			return effect;
+		}
 		std::map<std::string, MixerBus> s_Buses;
 		ReverbResource s_Reverb;
 		std::vector<AudioMixerSnapshot> s_SnapshotDefinitions;
@@ -173,6 +336,28 @@ namespace Lux {
 				bus.Volume = settings.Volume;
 				bus.Muted = settings.Muted;
 				ApplyBusVolume(settings.Path, bus);
+				// The chain sits between the bus and where it plays: group -> effects -> parent. Attaching
+				// the group's output to the first stage replaces its attachment to the parent.
+				ma_node* output = bus.Group.get();
+				for (const AudioMixerEffect& effectSettings : settings.Effects)
+				{
+					if (effectSettings.Bypass)
+						continue;
+					Scope<BusEffect> effect = CreateEffect(engine, effectSettings);
+					if (!effect)
+						continue;
+					if (ma_node_attach_output_bus(output, 0, effect->Node(), 0) == MA_SUCCESS)
+					{
+						output = effect->Node();
+						bus.Effects.push_back(std::move(effect));
+					}
+				}
+				if (output != bus.Group.get())
+				{
+					ma_node* destination = parentGroup ? static_cast<ma_node*>(parentGroup) : ma_engine_get_endpoint(engine);
+					if (const ma_result attached = ma_node_attach_output_bus(output, 0, destination, 0); attached != MA_SUCCESS)
+						LUX_CORE_ERROR_TAG("Audio", "Cannot connect bus '{}' effects: {}", settings.Path, ma_result_description(attached));
+				}
 			}
 			s_SnapshotDefinitions = mixer.Snapshots;
 			// miniaudio's reverb (verblib, Freeverb-based) takes mono or stereo only.
@@ -212,7 +397,10 @@ namespace Lux {
 			s_Reverb.clear();
 			// Children before parents: a group detaches from its parent when it is uninitialized.
 			for (auto it = s_Buses.rbegin(); it != s_Buses.rend(); ++it)
+			{
 				it->second.Group.clear();
+				it->second.Effects.clear();
+			}
 			s_Buses.clear();
 		}
 

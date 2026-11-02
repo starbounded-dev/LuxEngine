@@ -701,6 +701,92 @@ namespace
 		std::puts("PASS: mixer snapshots: validation and YAML, intensity blend, priority, stop and release, zone call sequence");
 	}
 
+	void TestEffects()
+	{
+		using Type = AudioMixerEffectType;
+		const auto effect = [](Type type, const std::function<void(AudioMixerEffect&)>& configure = {})
+		{
+			AudioMixerEffect stage;
+			stage.Type = type;
+			if (configure)
+				configure(stage);
+			return stage;
+		};
+		// Settings: values in range, at most 8 stages, YAML round trip of every type.
+		AudioMixerSettings settings;
+		settings.Buses = { { "bus:/SFX" } };
+		settings.Buses[0].Effects = { effect(Type::LowPass), effect(Type::HighPass), effect(Type::PeakingEQ), effect(Type::Delay), effect(Type::Compressor) };
+		settings.Buses[0].Effects[1].Bypass = true;
+		CHECK(settings.Validate());
+		Yaml::Writer out;
+		settings.SerializeYAML(out);
+		AudioMixerSettings loaded;
+		CHECK(loaded.DeserializeYAML(Yaml::Load(out.c_str())) && loaded == settings);
+		settings.Buses[0].Effects[0].FrequencyHz = 5.0f;
+		CHECK(!settings.Validate());
+		settings.Buses[0].Effects.assign(9, effect(Type::LowPass));
+		CHECK(!settings.Validate());
+		CHECK(!loaded.DeserializeYAML(Yaml::Load("Buses: [{Path: 'bus:/A', Effects: [{Type: Flanger}]}]")));
+
+		const auto low = WriteTone("fx-low.wav", 100.0, 1.0);
+		const auto mid = WriteTone("fx-mid.wav", 500.0, 1.0);
+		const auto high = WriteTone("fx-high.wav", 10000.0, 1.0);
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		const auto onBus = [](const std::filesystem::path& tone, const char* bus)
+		{
+			return AddSound(tone, [bus](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = bus; });
+		};
+		// Each case: the level of a tone through an SFX chain over the same tone on the master.
+		const auto ratio = [&](const std::vector<AudioMixerEffect>& chain, const std::filesystem::path& tone)
+		{
+			s_Mixer.Buses = { { "bus:/SFX" } };
+			s_Mixer.Buses[0].Effects = chain;
+			Start();
+			const double dry = PlayAt(onBus(tone, "bus:/"), front).Left;
+			const double wet = PlayAt(onBus(tone, "bus:/SFX"), front).Left;
+			AudioEngine::Shutdown();
+			return wet / dry;
+		};
+		const auto lowPass = std::vector{ effect(Type::LowPass, [](AudioMixerEffect& e) { e.FrequencyHz = 1000.0f; }) };
+		CHECK_NEAR(ratio(lowPass, low), 1.0, 0.02);
+		CHECK(ratio(lowPass, high) < 0.05);                      // second order: about -40 dB a decade
+		const auto highPass = std::vector{ effect(Type::HighPass, [](AudioMixerEffect& e) { e.FrequencyHz = 1000.0f; }) };
+		CHECK(ratio(highPass, low) < 0.05);
+		CHECK_NEAR(ratio(highPass, high), 1.0, 0.02);
+		const auto peak = std::vector{ effect(Type::PeakingEQ, [](AudioMixerEffect& e) { e.FrequencyHz = 500.0f; e.GainDb = 12.0f; e.Q = 1.0f; }) };
+		CHECK_NEAR(ratio(peak, mid), std::pow(10.0, 12.0 / 20.0), 0.1);
+		CHECK_NEAR(ratio(peak, low), 1.0, 0.25);                 // far from the centre
+		auto bypassed = lowPass;
+		bypassed[0].Bypass = true;
+		CHECK_NEAR(ratio(bypassed, high), 1.0, 1e-4);
+		// -6 dBFS peaks over a -20 dB threshold at 4:1 lose (20 - 6) * 3/4 = 10.5 dB.
+		const auto compressor = std::vector{ effect(Type::Compressor, [](AudioMixerEffect& e) { e.ThresholdDb = -20.0f; e.Ratio = 4.0f; e.AttackMs = 1.0f; e.ReleaseMs = 50.0f; }) };
+		CHECK_NEAR(ratio(compressor, mid), std::pow(10.0, -10.5 / 20.0), 0.05);
+		auto makeup = compressor;
+		makeup[0].MakeupDb = 6.0f;
+		CHECK_NEAR(ratio(makeup, mid) / ratio(compressor, mid), std::pow(10.0, 6.0 / 20.0), 0.02);
+
+		// The delay repeats a short hit after it has ended.
+		const auto hit = WriteTone("fx-hit.wav", 500.0, 0.05);
+		const auto echo = [&](float wet)
+		{
+			s_Mixer.Buses = { { "bus:/SFX" } };
+			s_Mixer.Buses[0].Effects = { effect(Type::Delay, [wet](AudioMixerEffect& e) { e.DelaySeconds = 0.2f; e.Feedback = 0.0f; e.Wet = wet; }) };
+			Start();
+			auto instance = Play(AddSound(hit, [](Sound& s) { s.Spatial.Enabled = false; s.Bus = "bus:/SFX"; }), front);
+			Render(kRate / 10);                                     // the hit, and silence until 100 ms
+			const double before = Rms(Render(kRate / 10), 0);       // 100-200 ms: nothing yet
+			const double repeat = Rms(Render(kRate / 10), 0);       // 200-300 ms: the echo
+			AudioEngine::Shutdown();
+			return std::pair{ before, repeat };
+		};
+		const auto [quiet, repeated] = echo(1.0f);
+		CHECK(quiet < 1e-6 && repeated > 0.05);
+		CHECK(echo(0.0f).second < 1e-6);
+		s_Mixer = {};
+		std::puts("PASS: bus effects: validation and YAML, low/high-pass, peaking EQ, bypass, compressor and makeup, delay echo");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1202,6 +1288,7 @@ int main(int argc, char** argv)
 	TestVolumeAndBuses();
 	TestMixer();
 	TestSnapshots();
+	TestEffects();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();

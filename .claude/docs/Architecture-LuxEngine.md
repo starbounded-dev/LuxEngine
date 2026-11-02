@@ -1062,6 +1062,12 @@ endpoint, which keeps the master volume and focus mute) and the reverb return, m
 node has two outputs: the dry signal into its Sound's bus, and a post-fader send into the return at
 `ReverbSend` (Soundwave) plus the Sound's Send curves, clamped to 1 and ramped per block.
 `SetBusVolume`/`SetBusMuted`/`GetBusVolume` reach any mixer bus. The FMOD backend ignores the mixer.
+**Bus effects (Phase 4d):** each `AudioMixerBus::Effects` stage (up to 8; bypassed stages are left out)
+is built at Init between the bus group and its parent: miniaudio's second-order `ma_lpf_node`/
+`ma_hpf_node` and `ma_peak_node`, and two MiniaudioCpp `TBaseNode`s of our own in
+`NativeAudioEngine.cpp`: `DelayNode` (dry at unity plus `Wet` repeats with `Feedback`; miniaudio's
+`ma_delay` drops the dry signal or echoes nothing without feedback) and `CompressorNode` (peak
+envelope, ratio above the threshold, makeup). Settings are fixed until the engine restarts.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

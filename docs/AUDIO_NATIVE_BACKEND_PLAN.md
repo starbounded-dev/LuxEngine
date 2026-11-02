@@ -561,7 +561,9 @@ meters.
   `AudioEventRef::Sound`; zones drive them unchanged. Zone inspector pickers work in the native build
   (looping Sound for ambience, mixer snapshot). Audio Mixer panel edits buses, reverb and snapshots
   with undo and a live preview.
-- **Left:** bus effect chains, VCAs and global parameters, `ClearBusVolume` (script values over
+- **4d effects:** per-bus chains of low-pass, high-pass, peaking EQ (miniaudio nodes), delay and
+  compressor (our own nodes), edited in the Audio Mixer panel; offline-render tests for each.
+- **Left:** VCAs and global parameters, `ClearBusVolume` (script values over
   snapshots), runtime format 26, and porting the zone tests (the snapshot test drives the zone's call
   sequence directly).
 
