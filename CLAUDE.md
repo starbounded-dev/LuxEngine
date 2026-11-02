@@ -81,6 +81,13 @@ Three task skills sit around that loop:
 
 The shared rule list lives in `.claude/skills/send-pr/SKILL.md` and is used by all three.
 
+**Spec Kit** (`specify` CLI, Claude integration, bash scripts) is also set up, as an alternative to
+`/plan-le` for spec-driven features: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
+`/speckit-tasks` → `/speckit-implement`. Its constitution, `.specify/memory/constitution.md`, sums
+up this file and `.claude/docs/` and ranks below them. Feature specs land in `specs/NNN-name/` and
+are point-in-time records, like `docs/*_PLAN.md`. The `speckit-*` skills are generated: refresh
+them with `specify integration upgrade`, don't hand-edit them.
+
 ---
 
 ## Architecture Doc Maintenance

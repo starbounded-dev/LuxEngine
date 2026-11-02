@@ -3,3 +3,6 @@
 
 # This script is verified and run from Linux/WSL as well as clean CI checkouts.
 /scripts/Linux-Build.sh text eol=lf
+
+# Spec Kit scripts are run by bash on Windows (Git Bash) and Linux; CRLF breaks them.
+/.specify/scripts/bash/*.sh text eol=lf

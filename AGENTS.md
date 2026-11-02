@@ -45,6 +45,9 @@ shader.** Reusing a slot with a differently-named buffer silently corrupts anoth
 
 - Before multi-file or multi-session work, or when asked for a plan, use the `plan-le` skill. It
   plans only and does not edit engine code.
+- For spec-driven features, the Spec Kit skills (`speckit-specify` → `speckit-plan` →
+  `speckit-tasks` → `speckit-implement`) are an alternative; their constitution is
+  `.specify/memory/constitution.md`, which ranks below this file and `.claude/docs/`.
 - For substantive coding, use the repository `dev` skill once before editing.
 - For performance questions (low FPS, hitches, slow loads, optimization), use `profile` — measure
   before changing anything.
