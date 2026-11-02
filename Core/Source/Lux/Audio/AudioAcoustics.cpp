@@ -436,6 +436,20 @@ namespace Lux
 				LUX_CORE_ERROR_TAG("Audio", "Soundwave could not flatten acoustic geometry for the GPU; retaining the last upload");
 			m_FlattenPending = nullptr;
 		}
+		if (m_ReverbCheckPending && m_ReverbCheckPending->Done.load(std::memory_order_acquire))
+		{
+			if (m_ReverbCheckPending->Error == Soundwave::EvaluationError::None && m_ReverbCheckGeometry == m_GeometryGeneration)
+			{
+				m_ReverbCheck = { m_ReverbCheckGpu, m_ReverbCheckPending->Result };
+				m_ReverbCheckValid = true;
+				const auto gap = [](float a, float b) { return a == b ? 0.0f : std::abs(20.0f * std::log10(std::max(a, 1e-6f) / std::max(b, 1e-6f))); };
+				const float sendGap = gap(m_ReverbCheck.first.Send, m_ReverbCheck.second.Send);
+				const float decayGap = gap(m_ReverbCheck.first.DecaySeconds, m_ReverbCheck.second.DecaySeconds);
+				if (sendGap > 0.5f || decayGap > 0.5f)
+					LUX_CORE_ERROR_TAG("Audio", "Soundwave GPU reverb differs from the CPU reference by {:.3f} dB (send) / {:.3f} dB (decay)", sendGap, decayGap);
+			}
+			m_ReverbCheckPending = nullptr;
+		}
 		if (m_ReverbOnGpu)
 		{
 			if (m_ReverbBackend->Poll(m_ReverbRays))
@@ -443,7 +457,33 @@ namespace Lux
 				m_ReverbOnGpu = m_ReverbStalled = false;
 				m_ReverbWaitUpdates = 0;
 				Soundwave::ReverbResult result;
-				PublishReverb(Soundwave::FinishReverb(m_ReverbRays, m_ReverbRequestSettings, result), result);
+				const auto error = Soundwave::FinishReverb(m_ReverbRays, m_ReverbRequestSettings, result);
+				PublishReverb(error, result);
+#ifndef LUX_DIST
+				// Decision 10's validation: the same measurement on the CPU reference, off main.
+				if (error == Soundwave::EvaluationError::None && !m_ReverbCheckPending && m_ReverbGeometry == m_GeometryGeneration)
+				{
+					m_ReverbCheckGpu = result;
+					m_ReverbCheckGeometry = m_GeometryGeneration;
+					m_ReverbCheckPending = Ref<ReverbJob>::Create();
+					JobSystem::Submit([job = m_ReverbCheckPending, snapshots = m_Snapshots, excluded = m_Excluded, materials = m_Materials,
+						settings = m_ReverbRequestSettings, listener = m_ReverbListener]() mutable
+					{
+						LUX_PROFILE_SCOPE("Soundwave::CheckReverb");
+						try
+						{
+							std::vector<Soundwave::RayHit> hits;
+							job->Error = Soundwave::EvaluateReverb(Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded),
+								materials, settings, listener, hits, job->Result);
+						}
+						catch (const std::exception&)
+						{
+							job->Error = Soundwave::EvaluationError::NumericalFailure;
+						}
+						job->Done.store(true, std::memory_order_release);
+					});
+				}
+#endif
 			}
 			else if (++m_ReverbWaitUpdates == kReverbStallUpdates)
 			{
@@ -589,6 +629,8 @@ namespace Lux
 		m_SolvePending = nullptr;
 		m_ReverbOnGpu = m_ReverbStalled = false;
 		m_ReverbWaitUpdates = 0;
+		m_ReverbCheckPending = nullptr;
+		m_ReverbCheckValid = false;
 		m_UpdateIndex = m_GeometryGeneration = m_Evaluations = m_SolveFailures = 0;
 	}
 }

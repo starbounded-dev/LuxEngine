@@ -161,6 +161,9 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
 
 def verify(data, case, triangle_counts):
     require(data["EngineRayComparison"], "Engine-ray comparison did not run")
+    require(data.get("ReverbOn") == "GPU" and data.get("ReverbMeasurements", 0) > 0,
+            f"Listener reverb did not run on the GPU: {data.get('ReverbOn')} x{data.get('ReverbMeasurements')}")
+    require(0 <= data["ReverbSend"] <= 1 and data["ReverbDecaySeconds"] >= 0, "Listener reverb values out of range")
     expected = triangle_counts["Sponza"] + (5*triangle_counts["Default"] if case.get("bay") else 0)
     require(data["StaticTriangles"] == expected, f"Sponza/partition geometry missing: {data['StaticTriangles']} != {expected}")
     require(data["MovingTriangles"] == (12 if case.get("closed") else 0), "Portal shutter capture disagrees with the authored state")
@@ -249,6 +252,9 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
         require(data["Sources"][0][key] == play["Sources"][0][key], f"Play/runtime mismatch: {key}")
     require(abs(data["Sources"][0]["RawGainLF"] - play["Sources"][0]["RawGainLF"]) < 0.00001,
             "Play/runtime raw acoustic gains differ")
+    # Same listener, geometry and kernel: the GPU reverb must agree between Play and the package.
+    require(abs(data["ReverbDecaySeconds"] - play["ReverbDecaySeconds"]) <= 0.01 * max(play["ReverbDecaySeconds"], 0.01),
+            "Play/runtime listener reverb differs")
     return {"package": str(package), "report": str(report_path), "values": verified}
 
 

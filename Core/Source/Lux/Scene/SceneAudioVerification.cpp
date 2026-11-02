@@ -36,7 +36,13 @@ namespace Lux
 			error = "Soundwave Scene verification failed: scene not running or acoustic preparation/solve failed";
 			return SceneAudioVerificationStatus::Failed;
 		}
-		if (!stats.Ready)
+		if (stats.ReverbStalled)
+		{
+			error = "Soundwave reverb stalled: its GPU measurement never returned";
+			return SceneAudioVerificationStatus::Failed;
+		}
+		// The listener reverb lands a few frames after geometry (GPU readback or CPU job).
+		if (!stats.Ready || !stats.ReverbMeasurements || !kernel.GetReverb())
 			return SceneAudioVerificationStatus::Pending;
 		if (!stats.Evaluations)
 		{
@@ -44,7 +50,28 @@ namespace Lux
 			return SceneAudioVerificationStatus::Failed;
 		}
 		Yaml::Writer out;
-		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave CPU reference";
+		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave";
+		out << Yaml::Key << "ReverbOn" << Yaml::Value << (stats.ReverbOnGpu ? "GPU" : "CPU");
+		out << Yaml::Key << "ReverbMeasurements" << Yaml::Value << stats.ReverbMeasurements;
+		out << Yaml::Key << "ReverbDecaySeconds" << Yaml::Value << kernel.GetReverb()->DecaySeconds;
+		out << Yaml::Key << "ReverbSend" << Yaml::Value << kernel.GetReverb()->Send;
+		out << Yaml::Key << "ReverbEscapedFraction" << Yaml::Value << kernel.GetReverb()->EscapedFraction;
+		if (const auto* check = kernel.GetReverbCheck())
+		{
+			const auto gap = [](float a, float b) { return a == b ? 0.0f : std::abs(20.0f * std::log10(std::max(a, 1e-6f) / std::max(b, 1e-6f))); };
+			const float sendGap = gap(check->first.Send, check->second.Send), decayGap = gap(check->first.DecaySeconds, check->second.DecaySeconds);
+			out << Yaml::Key << "ReverbCheck" << Yaml::Value << Yaml::BeginMap;
+			out << Yaml::Key << "GpuSend" << Yaml::Value << check->first.Send << Yaml::Key << "CpuSend" << Yaml::Value << check->second.Send;
+			out << Yaml::Key << "GpuDecaySeconds" << Yaml::Value << check->first.DecaySeconds << Yaml::Key << "CpuDecaySeconds" << Yaml::Value << check->second.DecaySeconds;
+			out << Yaml::Key << "GpuTraces" << Yaml::Value << check->first.Traces << Yaml::Key << "CpuTraces" << Yaml::Value << check->second.Traces;
+			out << Yaml::Key << "SendGapDb" << Yaml::Value << sendGap << Yaml::Key << "DecayGapDb" << Yaml::Value << decayGap;
+			out << Yaml::EndMap;
+			if (sendGap > 0.5f || decayGap > 0.5f)
+			{
+				error = std::format("Soundwave GPU reverb differs from the CPU reference by {:.3f} dB (send) / {:.3f} dB (decay)", sendGap, decayGap);
+				return SceneAudioVerificationStatus::Failed;
+			}
+		}
 		out << Yaml::Key << "StaticTriangles" << Yaml::Value << stats.StaticTriangles;
 		out << Yaml::Key << "MovingTriangles" << Yaml::Value << stats.MovingTriangles;
 		out << Yaml::Key << "StaticInertTriangles" << Yaml::Value << stats.StaticInertTriangles;

@@ -20,6 +20,7 @@ namespace Lux
 	public:
 		// Null when the shader is not in the library (the CPU job is used instead).
 		static Ref<AudioAcousticKernel> Create();
+		~AudioAcousticKernel() override; // members are only forward-declared here
 		bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
 			const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) override;
 		bool Poll(std::vector<Soundwave::ReverbRay>& rays) override;

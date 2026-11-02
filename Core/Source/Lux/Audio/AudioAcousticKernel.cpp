@@ -38,7 +38,7 @@ namespace Lux
 			// Vulkan has no empty buffers; a scene without geometry binds one empty record.
 			const auto size = static_cast<uint32_t>(std::max<size_t>(bytes, 64));
 			auto buffer = StorageBuffer::Create(size, spec);
-			if (bytes)
+			if (data && bytes) // request and ray buffers are only allocated here
 				buffer->SetData(commands, data, static_cast<uint32_t>(bytes));
 			return buffer;
 		}
@@ -54,6 +54,8 @@ namespace Lux
 		std::atomic<uint64_t> Ready{ 0 };
 		std::atomic<bool> PollQueued{ false }; // at most one check queued, even while frames do not render
 	};
+
+	AudioAcousticKernel::~AudioAcousticKernel() = default;
 
 	Ref<AudioAcousticKernel> AudioAcousticKernel::Create()
 	{
