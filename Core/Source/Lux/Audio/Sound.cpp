@@ -301,6 +301,17 @@ namespace Lux
 			return Fail(error, "the instance limit must be at most 256 (0 is unlimited)");
 		if (!Finite(Cooldown) || Cooldown < 0.0f || Cooldown > kMaxCooldown)
 			return Fail(error, "the cooldown must be between 0 and 60 seconds");
+		if (!Finite(Tempo.BPM) || (Tempo.BPM != 0.0f && (Tempo.BPM < 20.0f || Tempo.BPM > 400.0f)))
+			return Fail(error, "the tempo must be 0 (none) or 20-400 BPM");
+		if (Tempo.BeatsPerBar < 1 || Tempo.BeatsPerBar > 32 || (Tempo.BeatUnit != 1 && Tempo.BeatUnit != 2 && Tempo.BeatUnit != 4 && Tempo.BeatUnit != 8 && Tempo.BeatUnit != 16))
+			return Fail(error, "the time signature must be 1-32 beats over 1, 2, 4, 8 or 16");
+		if (!Finite(Tempo.Offset) || Tempo.Offset < 0.0f || Tempo.Offset > 60.0f)
+			return Fail(error, "the beat offset must be 0-60 seconds");
+		if (Markers.size() > 256)
+			return Fail(error, "a sound has at most 256 markers");
+		for (const auto& marker : Markers)
+			if (marker.Name.empty() || !Finite(marker.Seconds) || marker.Seconds < 0.0f)
+				return Fail(error, "markers need a name and a time of 0 seconds or later");
 
 		if (Parameters.size() > MaxParameters)
 			return Fail(error, "a sound has at most 32 parameters");
@@ -409,6 +420,27 @@ namespace Lux
 		out << Yaml::Key << "Steal" << Yaml::Value << SoundStealPolicyName(Steal);
 		out << Yaml::Key << "Cooldown" << Yaml::Value << Cooldown;
 		out << Yaml::Key << "Stream" << Yaml::Value << Stream;
+		if (Tempo.BPM > 0.0f)
+		{
+			out << Yaml::Key << "Tempo" << Yaml::Value << Yaml::Flow << Yaml::BeginMap;
+			out << Yaml::Key << "BPM" << Yaml::Value << Tempo.BPM;
+			out << Yaml::Key << "BeatsPerBar" << Yaml::Value << Tempo.BeatsPerBar;
+			out << Yaml::Key << "BeatUnit" << Yaml::Value << Tempo.BeatUnit;
+			out << Yaml::Key << "Offset" << Yaml::Value << Tempo.Offset;
+			out << Yaml::EndMap;
+		}
+		if (!Markers.empty())
+		{
+			out << Yaml::Key << "Markers" << Yaml::Value << Yaml::BeginSeq;
+			for (const auto& marker : Markers)
+			{
+				out << Yaml::Flow << Yaml::BeginMap;
+				out << Yaml::Key << "Name" << Yaml::Value << marker.Name;
+				out << Yaml::Key << "Seconds" << Yaml::Value << marker.Seconds;
+				out << Yaml::EndMap;
+			}
+			out << Yaml::EndSeq;
+		}
 		out << Yaml::Key << "Spatial" << Yaml::BeginMap;
 		out << Yaml::Key << "Enabled" << Yaml::Value << Spatial.Enabled;
 		out << Yaml::Key << "Attenuation" << Yaml::Value << SoundAttenuationName(Spatial.Attenuation);
@@ -499,6 +531,20 @@ namespace Lux
 				throw std::runtime_error("unknown steal policy");
 			parsed.Cooldown = node["Cooldown"].as<float>(parsed.Cooldown);
 			parsed.Stream = node["Stream"].as<bool>(parsed.Stream);
+			if (const auto tempo = node["Tempo"])
+			{
+				parsed.Tempo.BPM = tempo["BPM"].as<float>(0.0f);
+				parsed.Tempo.BeatsPerBar = tempo["BeatsPerBar"].as<uint32_t>(4);
+				parsed.Tempo.BeatUnit = tempo["BeatUnit"].as<uint32_t>(4);
+				parsed.Tempo.Offset = tempo["Offset"].as<float>(0.0f);
+			}
+			if (const auto markers = node["Markers"])
+			{
+				if (!markers.IsSequence())
+					throw std::runtime_error("Markers must be a list");
+				for (const auto& marker : markers)
+					parsed.Markers.push_back({ marker["Name"].as<std::string>(""), marker["Seconds"].as<float>(0.0f) });
+			}
 			if (const auto spatial = node["Spatial"])
 			{
 				if (!spatial.IsMap())
@@ -616,6 +662,8 @@ namespace Lux
 			Steal = parsed.Steal;
 			Cooldown = parsed.Cooldown;
 			Stream = parsed.Stream;
+			Tempo = parsed.Tempo;
+			Markers = std::move(parsed.Markers);
 			return true;
 		}
 		catch (const std::exception& error)

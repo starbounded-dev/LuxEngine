@@ -16,12 +16,14 @@
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
+#include <imgui/misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <cmath>
 #include <format>
 #include <iterator>
 #include <limits>
+#include <optional>
 
 namespace Lux
 {
@@ -155,6 +157,8 @@ namespace Lux
 		state.Steal = sound.Steal;
 		state.Cooldown = sound.Cooldown;
 		state.Stream = sound.Stream;
+		state.Tempo = sound.Tempo;
+		state.Markers = sound.Markers;
 		return state;
 	}
 
@@ -170,6 +174,8 @@ namespace Lux
 		sound.Steal = Steal;
 		sound.Cooldown = Cooldown;
 		sound.Stream = Stream;
+		sound.Tempo = Tempo;
+		sound.Markers = Markers;
 	}
 
 	// -- Documents -------------------------------------------------------------------------------
@@ -703,7 +709,7 @@ namespace Lux
 			ImGuiEx::BeginPropertyGrid();
 			edited |= ImGuiEx::Property("Volume", sound.Volume, 0.01f, 0.0f, 4.0f, "Linear gain; 1 plays the clips as recorded.", false);
 			edited |= ImGuiEx::Property("Pitch", sound.Pitch, 0.01f, 0.01f, 4.0f, "Playback rate; 2 is an octave up and twice as fast.", false);
-			edited |= ImGuiEx::Property("Bus", sound.Bus, "Where it mixes (bus:/...). Every bus plays through the master until the mixer exists.", false);
+			edited |= ImGuiEx::Property("Bus", sound.Bus, "The mixer bus it plays into (bus:/..., View > Audio Mixer). A bus the mixer lacks plays through the master.", false);
 			edited |= ImGuiEx::Property("Stream", sound.Stream, "Read from disk while playing instead of decoding into memory first. For music and long ambience.", false);
 			edited |= ImGuiEx::Property("Instance Limit", sound.InstanceLimit, 0u, Sound::MaxInstanceLimit, "Most instances playing at once; 0 is unlimited.", false);
 			if (sound.InstanceLimit > 0)
@@ -727,6 +733,47 @@ namespace Lux
 				edited |= ImGuiEx::Property("Rolloff", sound.Spatial.Rolloff, 0.01f, 0.0f, 10.0f, "How quickly it falls off; 1 is natural.", false);
 			}
 			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		// The beat grid and markers the music director syncs transitions to (MusicSync).
+		if (ImGuiEx::PropertyGridHeader("Music", false))
+		{
+			ImGuiEx::BeginPropertyGrid();
+			edited |= ImGuiEx::Property("Tempo (BPM)", sound.Tempo.BPM, 0.1f, 0.0f, 400.0f, "Beats per minute of the first clip; 0 reports no beats. Music beds use 20-400.", false);
+			if (sound.Tempo.BPM > 0.0f)
+			{
+				edited |= ImGuiEx::Property("Beats per Bar", sound.Tempo.BeatsPerBar, 1u, 32u, "The time signature's upper number.", false);
+				edited |= ImGuiEx::Property("Beat Unit", sound.Tempo.BeatUnit, 1u, 16u, "The time signature's lower number: 1, 2, 4, 8 or 16.", false);
+				edited |= ImGuiEx::Property("First Beat (s)", sound.Tempo.Offset, 0.001f, 0.0f, 60.0f, "Seconds into the clip where beat 1 of bar 1 falls.", false);
+			}
+			ImGuiEx::EndPropertyGrid();
+			std::optional<size_t> removed;
+			for (size_t index = 0; index < sound.Markers.size(); ++index)
+			{
+				SoundMarker& marker = sound.Markers[index];
+				ImGui::PushID(static_cast<int>(index));
+				ImGui::SetNextItemWidth(160.0f);
+				edited |= ImGui::InputText("##marker_name", &marker.Name);
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(90.0f);
+				edited |= ImGui::DragFloat("s##marker_time", &marker.Seconds, 0.01f, 0.0f, 3600.0f, "%.3f");
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Remove"))
+					removed = index;
+				ImGui::PopID();
+			}
+			if (removed)
+			{
+				sound.Markers.erase(sound.Markers.begin() + static_cast<std::ptrdiff_t>(*removed));
+				edited = true;
+			}
+			if (ImGui::Button("Add Marker") && sound.Markers.size() < 256)
+			{
+				sound.Markers.push_back({ "Section:New", 0.0f });
+				edited = true;
+			}
+			ImGui::SetItemTooltip("NextMarker transitions sync to any marker, NextSection to names starting \"Section:\".");
 			ImGui::TreePop();
 		}
 	}

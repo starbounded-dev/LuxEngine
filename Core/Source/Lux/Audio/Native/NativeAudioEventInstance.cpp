@@ -155,6 +155,12 @@ namespace Lux {
 			Ref<Sound> Definition;               // a private copy: edits to the asset apply to the next instance
 			uint64_t SoundHandle = 0;            // the asset's handle; 0 for an in-memory Sound
 			uint64_t SnapshotId = 0;             // a mixer snapshot instead of a Sound: no leaves, never ends
+			// Music timeline (EnableTimelineNotifications): beats and markers from the Sound's tempo map,
+			// found from the first clip's cursor on the main thread.
+			bool Timeline = false;
+			uint64_t TimelineSequence = 0;
+			double TimelineSeconds = -1.0;       // the cursor last reported; below 0 before the first event
+			std::vector<AudioTimelineNotification> TimelineQueue;
 			float SnapshotIntensity = 1.0f;
 			std::vector<float> ParameterValues;  // indexed like Definition->Parameters
 			std::vector<Scope<Leaf>> Leaves;     // what the last start resolved to
@@ -350,6 +356,88 @@ namespace Lux {
 			ma_sound_set_position(leaf.Sound.get(), voice.Position.x, voice.Position.y, voice.Position.z);
 			ma_sound_set_velocity(leaf.Sound.get(), voice.Velocity.x, voice.Velocity.y, voice.Velocity.z);
 			ma_sound_set_direction(leaf.Sound.get(), voice.Direction.x, voice.Direction.y, voice.Direction.z);
+		}
+
+		// Queues the beats and markers with from < time <= to, in time order (a beat before a marker at
+		// the same time).
+		void EmitTimeline(NativeVoice& voice, double from, double to)
+		{
+			const Sound& sound = *voice.Definition;
+			struct Event
+			{
+				double Time;
+				int64_t Beat;              // the beat's index from the first, or -1 for a marker
+				const SoundMarker* Marker;
+			};
+			std::vector<Event> events;
+			if (sound.Tempo.BPM > 0.0f)
+			{
+				const double spacing = 60.0 / sound.Tempo.BPM, offset = sound.Tempo.Offset;
+				int64_t beat = std::max<int64_t>(0, static_cast<int64_t>(std::floor((from - offset) / spacing)) + 1);
+				// A long gap (a hitch) reports at most a bar's worth of the latest beats.
+				for (int count = 0; offset + static_cast<double>(beat) * spacing <= to && count < 1024; ++beat, ++count)
+				{
+					const double time = offset + static_cast<double>(beat) * spacing;
+					if (time > from)
+						events.push_back({ time, beat, nullptr });
+				}
+			}
+			for (const SoundMarker& marker : sound.Markers)
+				if (marker.Seconds > from && marker.Seconds <= to)
+					events.push_back({ marker.Seconds, -1, &marker });
+			std::stable_sort(events.begin(), events.end(), [](const Event& a, const Event& b)
+			{
+				return a.Time < b.Time || (a.Time == b.Time && a.Beat >= 0 && b.Beat < 0);
+			});
+			for (const Event& event : events)
+			{
+				if (voice.TimelineQueue.size() >= kNotificationCapacity)
+					break;
+				AudioTimelineNotification notification;
+				notification.Sequence = ++voice.TimelineSequence;
+				notification.Position = static_cast<int>(std::lround(event.Time * 1000.0));
+				if (event.Beat >= 0)
+				{
+					const auto perBar = static_cast<int64_t>(sound.Tempo.BeatsPerBar);
+					notification.IsBeat = true;
+					notification.Bar = static_cast<int>(event.Beat / perBar) + 1;
+					notification.Beat = static_cast<int>(event.Beat % perBar) + 1;
+					notification.Tempo = sound.Tempo.BPM;
+					notification.TimeSignatureUpper = static_cast<int>(sound.Tempo.BeatsPerBar);
+					notification.TimeSignatureLower = static_cast<int>(sound.Tempo.BeatUnit);
+				}
+				else
+					notification.Marker = event.Marker->Name;
+				voice.TimelineQueue.push_back(std::move(notification));
+			}
+		}
+
+		// Catches the timeline up to the playback cursor. A cursor behind the last one means the clip
+		// looped: the tail of the clip, then its start.
+		// shortcut: a loop region wraps to its start, but this assumes a wrap to 0; tempo-mapped music
+		// with a loop region reports the beats before the region once per loop, until regions are
+		// tracked here.
+		void AdvanceTimeline(NativeVoice& voice)
+		{
+			if (!voice.Timeline || !voice.Live() || !voice.Started || voice.Leaves.empty())
+				return;
+			const Sound& sound = *voice.Definition;
+			if (sound.Tempo.BPM <= 0.0f && sound.Markers.empty())
+				return;
+			Leaf& leaf = *voice.Leaves.front();
+			ma_uint64 cursor = 0;
+			if (!leaf.ClipSampleRate || ma_sound_get_cursor_in_pcm_frames(leaf.Sound.get(), &cursor) != MA_SUCCESS)
+				return;
+			const double now = static_cast<double>(cursor) / leaf.ClipSampleRate;
+			const double length = static_cast<double>(leaf.ClipFrames) / leaf.ClipSampleRate;
+			if (now + 1.0e-6 < voice.TimelineSeconds)
+			{
+				EmitTimeline(voice, voice.TimelineSeconds, length - 1.0e-9); // a beat on the end is the next loop's first
+				EmitTimeline(voice, -1.0, now);
+			}
+			else
+				EmitTimeline(voice, voice.TimelineSeconds, now);
+			voice.TimelineSeconds = now;
 		}
 
 		CallbackState* State(uint64_t token)
@@ -844,7 +932,7 @@ namespace Lux {
 		if (!IsValid())
 			return false;
 		if (timeline)
-			return CheckResult(MA_NOT_IMPLEMENTED, "music timeline notifications (not supported by the native backend yet)");
+			m_Impl->Timeline = true;
 		if (!m_CallbackToken)
 		{
 			if (!s_NextCallbackToken)
@@ -870,12 +958,19 @@ namespace Lux {
 
 	std::vector<AudioTimelineNotification> AudioEventInstance::DrainTimelineNotifications()
 	{
-		return {};
+		if (!IsValid())
+			return {};
+		AdvanceTimeline(*m_Impl);
+		return std::exchange(m_Impl->TimelineQueue, {});
 	}
 
+	// Caught up first, so a transition queued between drains counts only events after the request.
 	uint64_t AudioEventInstance::GetTimelineSequence() const
 	{
-		return 0;
+		if (!IsValid())
+			return 0;
+		AdvanceTimeline(*m_Impl);
+		return m_Impl->TimelineSequence;
 	}
 
 	bool AudioEventInstance::MonitorPlayback()
@@ -1035,6 +1130,8 @@ namespace Lux {
 		}
 		for (auto& leaf : m_Impl->Leaves)
 			SeekLeaf(*leaf, milliseconds);
+		m_Impl->TimelineSeconds = milliseconds / 1000.0 - 1.0e-6;
+		m_Impl->TimelineQueue.clear();
 	}
 
 	bool AudioEventInstance::Start()
@@ -1131,6 +1228,15 @@ namespace Lux {
 			if (!error.empty() && m_ReportedErrors.emplace("start: " + error).second)
 				LUX_CORE_ERROR_TAG("Audio", "Sound {0} cannot start: {1}", m_Guid, error);
 			return error.empty() ? CheckResult(result, "start") : false;
+		}
+		// The timeline starts just before where playback starts, so a beat on the first sample is reported.
+		voice.TimelineQueue.clear();
+		voice.TimelineSeconds = -1.0;
+		if (!voice.Leaves.empty() && voice.Leaves.front()->ClipSampleRate)
+		{
+			ma_uint64 cursor = 0;
+			if (ma_sound_get_cursor_in_pcm_frames(voice.Leaves.front()->Sound.get(), &cursor) == MA_SUCCESS && cursor > 0)
+				voice.TimelineSeconds = static_cast<double>(cursor) / voice.Leaves.front()->ClipSampleRate - 1.0e-6;
 		}
 		voice.Started = true;
 		voice.StartOrder = ++s_StartOrder;

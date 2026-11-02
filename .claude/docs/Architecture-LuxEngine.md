@@ -1079,6 +1079,13 @@ applies `AudioAccessibilityMixer`'s mono fold and compression (Reduced -12 dB 3:
 10/150 ms, as the FMOD presets) through atomics. Category gains multiply the mapped bus's volume
 (the master's endpoint volume for `bus:/`) on top of the mix, snapshots and gameplay values; dialogue
 boost and the description duck follow the FMOD rules. `Reset` clears all of it.
+**Native music timeline (Phase 6a):** `Sound::Tempo` (BPM, beats per bar, beat unit, first-beat
+offset) and `Sound::Markers`. With `EnableTimelineNotifications`, the voice reports beats (bars and
+beats from 1, as FMOD) and markers between the last reported cursor of its first clip and the
+current one, on the main thread when `DrainTimelineNotifications` or `GetTimelineSequence` runs; the
+latter catches up first, so `MusicDirector` transitions count only events after the request. A
+cursor behind the last means the clip looped (a beat on the clip's end is the next loop's first).
+Transitions are still applied on the main thread at the drain that sees the boundary.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

@@ -63,6 +63,7 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Audio/AudioListener.cpp"
     "${LUX_SOURCE}/Audio/AudioPerformanceSettings.cpp"
     "${LUX_SOURCE}/Audio/AudioMixerSettings.cpp"
+    "${LUX_SOURCE}/Audio/MusicDirector.cpp"
     "${LUX_SOURCE}/Audio/AudioAccessibilitySettings.cpp"
     "${LUX_SOURCE}/Audio/DialogueTable.cpp" # AudioAccessibilitySettings validates languages through it
     "${LUX_SOURCE}/Audio/Native/NativeAudioAccessibilityMixer.cpp"

@@ -90,6 +90,26 @@ namespace Lux
 		bool operator==(const SoundCurve&) const = default;
 	};
 
+	// A named point on a music Sound's timeline; the music director's NextMarker syncs to it, and
+	// NextSection to names starting "Section:" (as FMOD markers).
+	struct SoundMarker
+	{
+		std::string Name;
+		float Seconds = 0.0f;
+		bool operator==(const SoundMarker&) const = default;
+	};
+
+	// A music Sound's beat grid: beats every 60 / BPM seconds from Offset, BeatsPerBar to a bar. The
+	// native backend reports beats and markers from it (AudioEventInstance::DrainTimelineNotifications).
+	struct SoundTempo
+	{
+		float BPM = 0.0f;           // 0: no beats; otherwise 20-400
+		uint32_t BeatsPerBar = 4;   // 1-32
+		uint32_t BeatUnit = 4;      // the time signature's lower number: 1, 2, 4, 8 or 16
+		float Offset = 0.0f;        // seconds to the first beat, 0-60
+		bool operator==(const SoundTempo&) const = default;
+	};
+
 	struct SoundNode
 	{
 		SoundNodeType Type = SoundNodeType::Clip;
@@ -148,6 +168,8 @@ namespace Lux
 		SoundStealPolicy Steal = SoundStealPolicy::Oldest;
 		float Cooldown = 0.0f;       // seconds, 0 to 60: a start sooner than this after the last one is refused
 		bool Stream = false;         // read from disk while playing instead of decoding into memory first
+		SoundTempo Tempo;
+		std::vector<SoundMarker> Markers; // at most 256, by any order of time
 
 		// A Sound playing one clip, the form "Create Sound" gives an audio file.
 		static Ref<Sound> CreateForClip(AssetHandle clip);

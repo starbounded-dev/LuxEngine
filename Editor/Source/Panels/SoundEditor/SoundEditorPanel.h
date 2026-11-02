@@ -48,6 +48,8 @@ namespace Lux
 			SoundStealPolicy Steal = SoundStealPolicy::Oldest;
 			float Cooldown = 0.0f;
 			bool Stream = false;
+			SoundTempo Tempo;
+			std::vector<SoundMarker> Markers;
 
 			bool operator==(const SoundState&) const = default;
 

@@ -21,7 +21,7 @@
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Audio/AudioAccessibilityMixer.h"
-#include "Lux/Audio/AudioPerformance.h"
+#include "Lux/Audio/MusicDirector.h"
 
 #include <algorithm>
 #include <cmath>
@@ -964,6 +964,94 @@ namespace
 		std::puts("PASS: bus meters: peak and RMS of a known sine, peak hold and reset, inclusive voice counts, bus voice budget");
 	}
 
+	void TestMusicTimeline()
+	{
+		// Settings: the tempo map validates and round-trips.
+		Sound check;
+		check.Tempo = { 120.0f, 4, 4, 0.0f };
+		check.Markers = { { "Section:Chorus", 1.25f } };
+		std::string error;
+		CHECK(check.Validate(&error));
+		Sound copy;
+		CHECK(copy.FromYAML(check.ToYAML()) && copy.Tempo == check.Tempo && copy.Markers == check.Markers);
+		check.Tempo.BPM = 5.0f;
+		CHECK(!check.Validate(&error));
+		check.Tempo = { 120.0f, 4, 3, 0.0f };
+		CHECK(!check.Validate(&error));
+
+		Start();
+		const auto bed = [&](const char* name, double hz)
+		{
+			return AddSound(WriteTone(name, hz, 4.0), [](Sound& s)
+			{
+				s.Nodes[0].Loop = true;
+				s.Spatial.Enabled = false;
+				s.Tempo = { 120.0f, 4, 4, 0.0f };    // a beat every 0.5 s, a bar every 2 s
+				s.Markers = { { "Section:Chorus", 1.25f }, { "Hit", 3.0f } };
+			});
+		};
+		const auto a = bed("music-a.wav", 500.0), b = bed("music-b.wav", 700.0);
+		const auto renderTo = [&](double seconds, double& at, const std::function<void()>& each = {})
+		{
+			while (at + 1e-9 < seconds)
+			{
+				Render(kBlock);
+				at += static_cast<double>(kBlock) / kRate;
+				if (each)
+					each();
+			}
+		};
+
+		// Beats and markers from the cursor, in order, with FMOD's numbering (bars and beats from 1).
+		auto instance = AudioEventInstance::Create(a);
+		CHECK(instance && instance->EnableTimelineNotifications() && instance->Start());
+		double at = 0.0;
+		renderTo(1.1, at);
+		auto events = instance->DrainTimelineNotifications();
+		CHECK(events.size() == 3);
+		for (int i = 0; i < 3; ++i)
+		{
+			CHECK(events[i].IsBeat && events[i].Sequence == static_cast<uint64_t>(i + 1) && events[i].Bar == 1 && events[i].Beat == i + 1);
+			CHECK(events[i].Position == i * 500 && events[i].Tempo == 120.0f && events[i].TimeSignatureUpper == 4 && events[i].TimeSignatureLower == 4);
+		}
+		renderTo(1.3, at);
+		events = instance->DrainTimelineNotifications();
+		CHECK(events.size() == 1 && !events[0].IsBeat && events[0].Marker == "Section:Chorus" && events[0].Position == 1250 && events[0].Sequence == 4);
+		// The sequence counts events before they are drained (a transition request between drains).
+		renderTo(1.6, at);
+		CHECK(instance->GetTimelineSequence() == 5);
+		events = instance->DrainTimelineNotifications();
+		CHECK(events.size() == 1 && events[0].Sequence == 5 && events[0].Beat == 4);
+		// Through the loop: bar 2, the Hit marker after its beat, then bar 1 again, with no beat at 4 s.
+		renderTo(4.1, at);
+		events = instance->DrainTimelineNotifications();
+		CHECK(events.size() == 6);
+		CHECK(events[0].Bar == 2 && events[0].Beat == 1 && events[0].Position == 2000);
+		CHECK(events[2].IsBeat && events[2].Position == 3000 && !events[3].IsBeat && events[3].Marker == "Hit");
+		CHECK(events[5].IsBeat && events[5].Bar == 1 && events[5].Beat == 1 && events[5].Position == 0);
+		instance->Stop(false);
+
+		// The music director: a NextBar transition switches beds on the bar line, not before.
+		MusicDirector director;
+		std::vector<std::string> markers;
+		director.SetMarkerCallback([&](const std::string& marker) { markers.push_back(marker); });
+		CHECK(director.Play(a));
+		const auto update = [&] { director.Update(false); };
+		at = 0.0;
+		renderTo(0.7, at, update);
+		CHECK(director.GetReference() == a && director.GetCurrentBar() == 1 && director.GetCurrentBeat() == 2);
+		CHECK(director.QueueTransition(b, MusicSync::NextBar));
+		renderTo(1.95, at, update);
+		CHECK(director.GetReference() == a);
+		CHECK(markers.size() == 1 && markers[0] == "Section:Chorus");
+		renderTo(2.05, at, update);
+		CHECK(director.GetReference() == b);
+		director.Stop(false);
+		director.Clear();
+		AudioEngine::Shutdown();
+		std::puts("PASS: music timeline: tempo map YAML, beats and markers from the cursor, sequence before drain, loop wrap, NextBar transition on the bar line");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1039,7 +1127,7 @@ namespace
 
 		// What Sounds cannot do yet fails without touching the voice.
 		CHECK(!instance->SetParameter("Speed", 1.0f) && !instance->SetSnapshotIntensity(0.5f) && !instance->SetProgrammerSound("key")
-			&& !instance->EnableTimelineNotifications() && !instance->IsVirtual());
+			&& instance->EnableTimelineNotifications() && !instance->IsVirtual());
 		CHECK(instance->SetPriority(12) && instance->GetPriority() == 12 && !instance->SetPriority(300));
 
 		// Shutdown frees every voice; wrappers held past it are inert, and a new engine starts clean.
@@ -1469,6 +1557,7 @@ int main(int argc, char** argv)
 	TestVCAsAndGlobals();
 	TestAccessibility();
 	TestMeters();
+	TestMusicTimeline();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();
