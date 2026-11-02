@@ -1073,6 +1073,12 @@ envelope, ratio above the threshold, makeup). Settings are fixed until the engin
 `SoundParameter` marked `Global` reads one engine-wide value by name (case-insensitive), set by
 `SetGlobalParameter` and held to each Sound's range; instances cannot set it, and values clear with
 the engine.
+**Native accessibility (Phase 5a):** a `MasterNode` (MiniaudioCpp) sits between everything the master
+bus mixes and the device; top-level buses, the reverb return and master-bus voices play into it. It
+applies `AudioAccessibilityMixer`'s mono fold and compression (Reduced -12 dB 3:1, Night -24 dB 6:1,
+10/150 ms, as the FMOD presets) through atomics. Category gains multiply the mapped bus's volume
+(the master's endpoint volume for `bus:/`) on top of the mix, snapshots and gameplay values; dialogue
+boost and the description duck follow the FMOD rules. `Reset` clears all of it.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

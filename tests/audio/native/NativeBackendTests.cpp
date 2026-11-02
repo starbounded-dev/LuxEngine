@@ -20,6 +20,7 @@
 #include "Lux/Audio/Native/Miniaudio.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Serialization/Yaml.h"
+#include "Lux/Audio/AudioAccessibilityMixer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -852,6 +853,79 @@ namespace
 		std::puts("PASS: VCAs over bus volume, global parameters across Sounds, range clamp, live change, instance writes refused");
 	}
 
+	void TestAccessibility()
+	{
+		Start();
+		const auto tone = WriteTone("access.wav", 500.0, 1.0);
+		const auto onBus = [&](const char* bus) { return AddSound(tone, [bus](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = bus; }); };
+		const auto master = onBus("bus:/"), sfx = onBus("bus:/SFX"), dialogue = onBus("bus:/Dialogue");
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		const double full = PlayAt(master, front).Left;
+
+		AudioAccessibilityConfig config;
+		config.BusPaths[static_cast<size_t>(AudioCategory::SFX)] = "bus:/SFX";
+		config.BusPaths[static_cast<size_t>(AudioCategory::Dialogue)] = "bus:/Dialogue";
+		AudioAccessibilityMixer mixer;
+		CHECK(mixer.Configure(config) && mixer.HasBus(AudioCategory::Master) && mixer.HasBus(AudioCategory::SFX) && !mixer.HasBus(AudioCategory::Music));
+		AudioAccessibilityPreferences preferences;
+		preferences.Volumes[static_cast<size_t>(AudioCategory::SFX)] = 0.5f;
+		CHECK(mixer.Apply(preferences, false));
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 0.5, 2e-3);
+		// Independent of the mix and of gameplay: a bus volume multiplies with the category gain.
+		CHECK(AudioEngine::SetBusVolume("bus:/SFX", 0.5f));
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 0.25, 2e-3);
+		CHECK(AudioEngine::ClearBusVolume("bus:/SFX"));
+		preferences.Volumes[static_cast<size_t>(AudioCategory::Master)] = 0.5f;
+		CHECK(mixer.Apply(preferences, false));
+		CHECK_NEAR(PlayAt(master, front).Left / full, 0.5, 2e-3);
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 0.25, 2e-3);
+		preferences.Volumes = { 1, 1, 1, 1, 1, 1 };
+		preferences.DialogueBoost = 2.0f;
+		CHECK(mixer.Apply(preferences, true));                    // describing: everything but dialogue and master ducks
+		CHECK_NEAR(PlayAt(dialogue, front).Left / full, 2.0, 4e-3);
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, config.DescriptionDuck, 2e-3);
+		preferences.DialogueBoost = 1.0f;
+
+		// Mono folds a sound panned hard left into both channels.
+		const auto panned = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Attenuation = SoundAttenuation::None; });
+		const glm::vec3 left{ -5.0f, 0.0f, 0.0f };
+		CHECK(mixer.Apply(preferences, false));
+		const Level stereo = PlayAt(panned, left);
+		CHECK(stereo.Left > 2.0 * stereo.Right);
+		preferences.Mono = true;
+		CHECK(mixer.Apply(preferences, false));
+		const Level mono = PlayAt(panned, left);
+		CHECK_NEAR(mono.Left, mono.Right, 1e-6);
+		CHECK_NEAR(mono.Left, (stereo.Left + stereo.Right) / 2.0, 0.02);
+		preferences.Mono = false;
+
+		// Compression: Full leaves the level alone, Reduced (-12 dB, 3:1) and Night (-24 dB, 6:1) cut a
+		// -6 dBFS tone by up to (12 - 6) * 2/3 = 4 dB and (24 - 6) * 5/6 = 15 dB; the 10 ms attack
+		// envelope sits a little below the sine's peaks, so the measured cut is somewhat smaller.
+		const auto range = [&](AudioDynamicRange dynamicRange)
+		{
+			preferences.DynamicRange = dynamicRange;
+			CHECK(mixer.Apply(preferences, false));
+			return PlayAt(master, front).Left / full;
+		};
+		CHECK_NEAR(range(AudioDynamicRange::Full), 1.0, 1e-4);
+		const double reducedDb = 20.0 * std::log10(range(AudioDynamicRange::Reduced));
+		const double nightDb = 20.0 * std::log10(range(AudioDynamicRange::Night));
+		CHECK(reducedDb < -2.5 && reducedDb > -4.5);
+		CHECK(nightDb < -11.0 && nightDb > -15.5);
+
+		// Reset hands everything back.
+		mixer.Reset();
+		CHECK(!mixer.HasBus(AudioCategory::SFX));
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 1.0, 1e-3);
+		CHECK_NEAR(PlayAt(master, front).Left / full, 1.0, 1e-3);
+		config.BusPaths[static_cast<size_t>(AudioCategory::Music)] = "bus:/NotInTheMixer";
+		CHECK(!mixer.Configure(config) && mixer.HasBus(AudioCategory::SFX) && !mixer.HasBus(AudioCategory::Music));
+		mixer.Reset();
+		AudioEngine::Shutdown();
+		std::puts("PASS: accessibility: category gains over bus volumes, master gain, dialogue boost, description duck, mono fold, compression presets, reset");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1355,6 +1429,7 @@ int main(int argc, char** argv)
 	TestSnapshots();
 	TestEffects();
 	TestVCAsAndGlobals();
+	TestAccessibility();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();

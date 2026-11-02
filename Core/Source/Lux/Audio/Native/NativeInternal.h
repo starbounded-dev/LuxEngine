@@ -6,6 +6,7 @@
 // Private to the native backend (Audio/Native/). Engine code outside this folder talks to
 // AudioEngine and AudioEventInstance; nothing outside it and the native tests may include this.
 
+#include "Lux/Audio/AudioAccessibilitySettings.h"
 #include "Lux/Audio/AudioMixerSettings.h"
 #include "Lux/Audio/AudioPerformanceSettings.h"
 #include "Lux/Audio/Sound.h"
@@ -50,6 +51,12 @@ namespace Lux::NativeInternal {
 	float GetGlobalParameterValue(const std::string& name, float fallback);
 	void SetGlobalParameterValue(const std::string& name, float value);
 	void ClearGlobalParameters();
+	// The accessibility mixer's controls: a gain per bus on top of its mix volume ("bus:/" is the
+	// master), and mono fold and compression on the master output. Reset clears all three.
+	bool HasMixerBus(const std::string& path);
+	void SetAccessibilityGain(const std::string& path, float gain);
+	void SetAccessibilityProcessing(bool mono, AudioDynamicRange range);
+	void ResetAccessibility();
 
 	// Resolves a playback reference: a Sound asset handle in decimal (AudioEventRef::GetReference) or
 	// a Sound's path relative to the project's Assets directory. False with the reason in outError.

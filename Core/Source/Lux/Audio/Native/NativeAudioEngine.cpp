@@ -16,6 +16,7 @@
 #include <map>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <unordered_set>
 
@@ -101,6 +102,66 @@ namespace Lux {
 				}
 			}
 		};
+
+		// The master output stage, between everything the master bus mixes and the device: the
+		// accessibility mixer's mono fold and compression (AudioDynamicRange presets, as FMOD's).
+		// Both off copies its input exactly.
+		struct MasterNode
+		{
+			ma_node_base Base;   // first: miniaudio passes &Base as the node
+			std::atomic<bool> Mono{ false }, Compress{ false };
+			std::atomic<float> ThresholdDb{ -12.0f }, Slope{ 1.0f - 1.0f / 3.0f };
+			float AttackCoefficient = 0.0f, ReleaseCoefficient = 0.0f;
+			float Envelope = 0.0f; // audio thread only
+			static constexpr ma_uint32 FLAGS = 0;
+
+			void Process(JPL::ProcessCallbackData& data)
+			{
+				const ma_uint32 frames = data.GetOutputFrameCount();
+				const auto input = data.GetInputBuffer(0);
+				const float* in = input.data.data;
+				float* out = data.GetOutputBuffer(0).data.data;
+				const uint32_t channels = input.getNumChannels();
+				const bool mono = Mono.load(std::memory_order_relaxed), compress = Compress.load(std::memory_order_relaxed);
+				const float threshold = ThresholdDb.load(std::memory_order_relaxed), slope = Slope.load(std::memory_order_relaxed);
+				for (ma_uint32 frame = 0; frame < frames; ++frame)
+				{
+					const float* source = in + frame * channels;
+					float* target = out + frame * channels;
+					float sum = 0.0f, level = 0.0f;
+					for (uint32_t channel = 0; channel < channels; ++channel)
+					{
+						sum += source[channel];
+						level = std::max(level, std::abs(source[channel]));
+					}
+					float gain = 1.0f;
+					if (compress)
+					{
+						const float coefficient = level > Envelope ? AttackCoefficient : ReleaseCoefficient;
+						Envelope = coefficient * Envelope + (1.0f - coefficient) * level;
+						const float levelDb = 20.0f * std::log10(std::max(Envelope, 1.0e-9f));
+						if (levelDb > threshold)
+							gain = std::pow(10.0f, (threshold - levelDb) * slope / 20.0f);
+					}
+					for (uint32_t channel = 0; channel < channels; ++channel)
+						target[channel] = (mono ? sum / static_cast<float>(channels) : source[channel]) * gain;
+				}
+			}
+		};
+		JPL::TBaseNode<MasterNode> s_Master;
+		std::map<std::string, float> s_AccessibilityGains; // by bus path; "bus:/" is the master
+
+		float AccessibilityGain(const std::string& path)
+		{
+			const auto it = s_AccessibilityGains.find(path);
+			return it != s_AccessibilityGains.end() ? it->second : 1.0f;
+		}
+
+		// Where the master bus mixes: the master stage, or the device when it could not be built.
+		ma_node* MasterInput(ma_engine* engine)
+		{
+			return s_Master ? static_cast<ma_node*>(s_Master.get()) : ma_engine_get_endpoint(engine);
+		}
 
 		// One built effect stage; exactly one of its resources is set.
 		struct BusEffect
@@ -270,7 +331,7 @@ namespace Lux {
 		{
 			if (!s_EngineReady)
 				return;
-			const ma_result result = ma_engine_set_volume(s_Engine.get(), s_MasterMuted || s_FocusMuted ? 0.0f : s_MasterVolume);
+			const ma_result result = ma_engine_set_volume(s_Engine.get(), s_MasterMuted || s_FocusMuted ? 0.0f : s_MasterVolume * AccessibilityGain("bus:/"));
 			if (result != MA_SUCCESS)
 				LUX_CORE_ERROR_TAG("Audio", "Cannot set the master output volume: {}", ma_result_description(result));
 		}
@@ -288,7 +349,7 @@ namespace Lux {
 		// The bus's own volume, moved toward the winning active snapshot's override by its intensity.
 		void ApplyBusVolume(const std::string& path, MixerBus& bus)
 		{
-			float volume = bus.Volume;
+			float volume = bus.Volume * AccessibilityGain(path);
 			if (bus.ScriptVolume)
 			{
 				for (const auto& [vcaPath, vca] : s_VCAs)
@@ -315,7 +376,7 @@ namespace Lux {
 				}
 			}
 			if (winner)
-				volume += (winning->Volume - volume) * winner->Intensity;
+				volume += (winning->Volume * AccessibilityGain(path) - volume) * winner->Intensity;
 			for (const auto& [vcaPath, vca] : s_VCAs)
 				if (std::find(vca.Buses.begin(), vca.Buses.end(), path) != vca.Buses.end())
 					volume *= vca.Volume;
@@ -333,6 +394,19 @@ namespace Lux {
 		// that fails to build is reported, and its sounds and children play through the master instead.
 		void BuildMixer(ma_engine* engine, const AudioMixerSettings& mixer)
 		{
+			const ma_uint32 outputChannels = ma_engine_get_channels(engine);
+			if (s_Master.Init(JPL::NodeLayout().WithInputs(outputChannels).WithOutputs(outputChannels))
+				&& ma_node_attach_output_bus(s_Master.get(), 0, ma_engine_get_endpoint(engine), 0) == MA_SUCCESS)
+			{
+				const float rate = static_cast<float>(ma_engine_get_sample_rate(engine));
+				s_Master->AttackCoefficient = std::exp(-1.0f / (0.010f * rate));  // 10 ms
+				s_Master->ReleaseCoefficient = std::exp(-1.0f / (0.150f * rate)); // 150 ms
+			}
+			else
+			{
+				s_Master.clear();
+				LUX_CORE_ERROR_TAG("Audio", "Cannot create the master output stage; mono and compression are unavailable");
+			}
 			std::string error;
 			if (!mixer.Validate(&error))
 			{
@@ -351,6 +425,9 @@ namespace Lux {
 					LUX_CORE_ERROR_TAG("Audio", "Cannot create bus '{}': {}", settings.Path, ma_result_description(result));
 					continue;
 				}
+				// A top-level group plays into the master stage instead of straight to the device.
+				if (!parentGroup)
+					ma_node_attach_output_bus(bus.Group.get(), 0, MasterInput(engine), 0);
 				bus.Volume = settings.Volume;
 				bus.Muted = settings.Muted;
 				ApplyBusVolume(settings.Path, bus);
@@ -372,7 +449,7 @@ namespace Lux {
 				}
 				if (output != bus.Group.get())
 				{
-					ma_node* destination = parentGroup ? static_cast<ma_node*>(parentGroup) : ma_engine_get_endpoint(engine);
+					ma_node* destination = parentGroup ? static_cast<ma_node*>(parentGroup) : MasterInput(engine);
 					if (const ma_result attached = ma_node_attach_output_bus(output, 0, destination, 0); attached != MA_SUCCESS)
 						LUX_CORE_ERROR_TAG("Audio", "Cannot connect bus '{}' effects: {}", settings.Path, ma_result_description(attached));
 				}
@@ -400,7 +477,7 @@ namespace Lux {
 				LUX_CORE_ERROR_TAG("Audio", "Cannot create the reverb return: {}", ma_result_description(result));
 				return;
 			}
-			result = ma_node_attach_output_bus(s_Reverb.get(), 0, ma_engine_get_endpoint(engine), 0);
+			result = ma_node_attach_output_bus(s_Reverb.get(), 0, MasterInput(engine), 0);
 			if (result == MA_SUCCESS)
 				result = ma_node_set_output_bus_volume(s_Reverb.get(), 0, mixer.Reverb.Volume);
 			if (result != MA_SUCCESS)
@@ -424,6 +501,8 @@ namespace Lux {
 				it->second.Effects.clear();
 			}
 			s_Buses.clear();
+			s_AccessibilityGains.clear();
+			s_Master.clear(); // last: everything above played into it
 		}
 
 		void ReportBanks()
@@ -452,7 +531,40 @@ namespace Lux {
 			return nullptr;
 		if (MixerBus* bus = FindBus(path))
 			return bus->Group.get();
-		return ma_engine_get_endpoint(s_Engine.get());
+		return MasterInput(s_Engine.get());
+	}
+
+	bool NativeInternal::HasMixerBus(const std::string& path)
+	{
+		return s_EngineReady && (path == "bus:/" || s_Buses.contains(path));
+	}
+
+	void NativeInternal::SetAccessibilityGain(const std::string& path, float gain)
+	{
+		s_AccessibilityGains[path] = std::max(gain, 0.0f);
+		if (path == "bus:/")
+			ApplyEndpointVolume();
+		else if (const auto bus = s_Buses.find(path); bus != s_Buses.end() && bus->second.Group)
+			ApplyBusVolume(path, bus->second);
+	}
+
+	void NativeInternal::SetAccessibilityProcessing(bool mono, AudioDynamicRange range)
+	{
+		if (!s_Master)
+			return;
+		const bool night = range == AudioDynamicRange::Night;
+		s_Master->ThresholdDb.store(night ? -24.0f : -12.0f, std::memory_order_relaxed);
+		s_Master->Slope.store(1.0f - 1.0f / (night ? 6.0f : 3.0f), std::memory_order_relaxed);
+		s_Master->Compress.store(range != AudioDynamicRange::Full, std::memory_order_relaxed);
+		s_Master->Mono.store(mono, std::memory_order_relaxed);
+	}
+
+	void NativeInternal::ResetAccessibility()
+	{
+		s_AccessibilityGains.clear();
+		ApplyEndpointVolume();
+		ApplyBusVolumes();
+		SetAccessibilityProcessing(false, AudioDynamicRange::Full);
 	}
 
 	ma_node* NativeInternal::GetReverbReturn()
