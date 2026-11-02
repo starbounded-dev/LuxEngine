@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "SceneSerializer.h"
 
 #include "Components.h"
@@ -2090,13 +2091,11 @@ namespace Lux {
 		return ok;
 	}
 
-	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
+	bool SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		Yaml::Writer out;
 		SerializeToYAML(out);
-
-		std::ofstream fout(filepath);
-		fout << out.c_str();
+		return FileSystem::WriteFileAtomically(filepath, out.c_str());
 	}
 
 	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)

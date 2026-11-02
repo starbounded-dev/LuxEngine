@@ -5608,7 +5608,11 @@ namespace Lux {
 	void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
 	{
 		SceneSerializer serializer(scene);
-		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
+		if (!serializer.Serialize(Project::GetActiveAssetDirectory() / path))
+		{
+			LUX_CONSOLE_LOG_ERROR("Could not save scene '{}'; the file on disk is unchanged.", path.string());
+			return;
+		}
 
 		// Their field values are saved back as loaded, so nothing is lost, but they cannot be
 		// edited until the assembly has the class; say so, as saving used to drop them silently.

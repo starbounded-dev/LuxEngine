@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "MaterialSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -670,14 +671,8 @@ namespace Lux
 		if (Utils::String::TrimWhitespace(ReadMaterialYAML(metadata)) == Utils::String::TrimWhitespace(serializedMaterial))
 			return;
 
-		std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
-		if (!fout.is_open())
-		{
-			LUX_CORE_ERROR("MaterialSerializer: Could not open '{}' for writing", metadata.FilePath.string());
-			return;
-		}
-
-		fout << serializedMaterial;
+		if (!FileSystem::WriteFileAtomically(Project::GetEditorAssetManager()->GetFileSystemPath(metadata), serializedMaterial))
+			LUX_CORE_ERROR("MaterialSerializer: Could not write '{}'", metadata.FilePath.string());
 	}
 
 	bool MaterialSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

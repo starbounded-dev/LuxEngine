@@ -54,6 +54,30 @@ namespace Lux {
 		return scene;
 	}
 
+	// A script can keep an Entity after it was destroyed. Every entity binding is registered through
+	// this check, so a stale ID logs an error and returns a default value instead of the binding
+	// dereferencing an empty Entity (a crash in Release, where GetEntity's assert is compiled out).
+	template<auto Function>
+	struct EntityCall;
+	template<typename Result, typename... Args, Result(*Function)(uint64_t, Args...)>
+	struct EntityCall<Function>
+	{
+		static Result Invoke(uint64_t entityID, Args... args)
+		{
+			Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+			if (!scene || !scene->GetEntityByUUID(entityID))
+			{
+				LUX_CONSOLE_LOG_ERROR("A script used entity {} after it was destroyed (or it never existed)", entityID);
+				if constexpr (std::is_void_v<Result>)
+					return;
+				else
+					return Result{};
+			}
+			return Function(entityID, args...);
+		}
+	};
+#define LUX_ADD_ENTITY_CALL(Name) coreAssembly.AddInternalCall("Lux.InternalCalls", #Name, reinterpret_cast<void*>(&EntityCall<&Name>::Invoke))
+
 	static Entity GetEntity(uint64_t entityID)
 	{
 		Entity entity = GetScene()->GetEntityByUUID(entityID);
@@ -753,139 +777,139 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Input_ResetGamepadLights);
 
 		LUX_ADD_INTERNAL_CALL(Scene_CreateEntity);
-		LUX_ADD_INTERNAL_CALL(Scene_DestroyEntity);
+		LUX_ADD_ENTITY_CALL(Scene_DestroyEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
 		LUX_ADD_INTERNAL_CALL(Gizmos_DrawLine);
 
-		LUX_ADD_INTERNAL_CALL(GetScriptInstance);
-		LUX_ADD_INTERNAL_CALL(Entity_HasComponent);
-		LUX_ADD_INTERNAL_CALL(Entity_AddComponent);
-		LUX_ADD_INTERNAL_CALL(Entity_RemoveComponent);
+		LUX_ADD_ENTITY_CALL(GetScriptInstance);
+		LUX_ADD_ENTITY_CALL(Entity_HasComponent);
+		LUX_ADD_ENTITY_CALL(Entity_AddComponent);
+		LUX_ADD_ENTITY_CALL(Entity_RemoveComponent);
 		LUX_ADD_INTERNAL_CALL(Entity_FindEntityByName);
-		LUX_ADD_INTERNAL_CALL(Entity_GetName);
-		LUX_ADD_INTERNAL_CALL(Entity_SetName);
-		LUX_ADD_INTERNAL_CALL(Entity_GetParent);
-		LUX_ADD_INTERNAL_CALL(Entity_SetParent);
-		LUX_ADD_INTERNAL_CALL(Entity_GetChildren);
+		LUX_ADD_ENTITY_CALL(Entity_GetName);
+		LUX_ADD_ENTITY_CALL(Entity_SetName);
+		LUX_ADD_ENTITY_CALL(Entity_GetParent);
+		LUX_ADD_ENTITY_CALL(Entity_SetParent);
+		LUX_ADD_ENTITY_CALL(Entity_GetChildren);
 
-		LUX_ADD_INTERNAL_CALL(TransformComponent_GetTranslation);
-		LUX_ADD_INTERNAL_CALL(TransformComponent_SetTranslation);
-		LUX_ADD_INTERNAL_CALL(TransformComponent_GetRotation);
-		LUX_ADD_INTERNAL_CALL(TransformComponent_SetRotation);
-		LUX_ADD_INTERNAL_CALL(TransformComponent_GetScale);
-		LUX_ADD_INTERNAL_CALL(TransformComponent_SetScale);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetTranslation);
+		LUX_ADD_ENTITY_CALL(TransformComponent_SetTranslation);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetRotation);
+		LUX_ADD_ENTITY_CALL(TransformComponent_SetRotation);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetScale);
+		LUX_ADD_ENTITY_CALL(TransformComponent_SetScale);
 
-		LUX_ADD_INTERNAL_CALL(TagComponent_GetTag);
-		LUX_ADD_INTERNAL_CALL(TagComponent_SetTag);
+		LUX_ADD_ENTITY_CALL(TagComponent_GetTag);
+		LUX_ADD_ENTITY_CALL(TagComponent_SetTag);
 
-		LUX_ADD_INTERNAL_CALL(SpriteRendererComponent_GetColor);
-		LUX_ADD_INTERNAL_CALL(SpriteRendererComponent_SetColor);
-		LUX_ADD_INTERNAL_CALL(SpriteRendererComponent_GetTilingFactor);
-		LUX_ADD_INTERNAL_CALL(SpriteRendererComponent_SetTilingFactor);
-		LUX_ADD_INTERNAL_CALL(SpriteRendererComponent_GetTexture);
-		LUX_ADD_INTERNAL_CALL(SpriteRendererComponent_SetTexture);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetColor);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetColor);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetTilingFactor);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetTilingFactor);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetTexture);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetTexture);
 
-		LUX_ADD_INTERNAL_CALL(CircleRendererComponent_GetColor);
-		LUX_ADD_INTERNAL_CALL(CircleRendererComponent_SetColor);
-		LUX_ADD_INTERNAL_CALL(CircleRendererComponent_GetThickness);
-		LUX_ADD_INTERNAL_CALL(CircleRendererComponent_SetThickness);
-		LUX_ADD_INTERNAL_CALL(CircleRendererComponent_GetFade);
-		LUX_ADD_INTERNAL_CALL(CircleRendererComponent_SetFade);
+		LUX_ADD_ENTITY_CALL(CircleRendererComponent_GetColor);
+		LUX_ADD_ENTITY_CALL(CircleRendererComponent_SetColor);
+		LUX_ADD_ENTITY_CALL(CircleRendererComponent_GetThickness);
+		LUX_ADD_ENTITY_CALL(CircleRendererComponent_SetThickness);
+		LUX_ADD_ENTITY_CALL(CircleRendererComponent_GetFade);
+		LUX_ADD_ENTITY_CALL(CircleRendererComponent_SetFade);
 
-		LUX_ADD_INTERNAL_CALL(CameraComponent_GetPrimary);
-		LUX_ADD_INTERNAL_CALL(CameraComponent_SetPrimary);
+		LUX_ADD_ENTITY_CALL(CameraComponent_GetPrimary);
+		LUX_ADD_ENTITY_CALL(CameraComponent_SetPrimary);
 
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyLinearImpulse);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyLinearImpulseToCenter);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyForce);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyForceToCenter);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_ApplyTorque);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetLinearVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_SetLinearVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetAngularVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_SetAngularVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetPosition);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_SetPosition);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetRotation);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_SetRotation);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetMass);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetGravityScale);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_SetGravityScale);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_GetType);
-		LUX_ADD_INTERNAL_CALL(RigidBody2DComponent_SetType);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_ApplyLinearImpulse);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_ApplyLinearImpulseToCenter);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_ApplyForce);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_ApplyForceToCenter);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_ApplyTorque);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetLinearVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_SetLinearVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetAngularVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_SetAngularVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetPosition);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_SetPosition);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetRotation);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_SetRotation);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetMass);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetGravityScale);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_SetGravityScale);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_GetType);
+		LUX_ADD_ENTITY_CALL(RigidBody2DComponent_SetType);
 
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetOffset);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_SetOffset);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetSize);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_SetSize);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetDensity);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_SetDensity);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetFriction);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_SetFriction);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_GetRestitution);
-		LUX_ADD_INTERNAL_CALL(BoxCollider2DComponent_SetRestitution);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetOffset);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetOffset);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetSize);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetSize);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetDensity);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetDensity);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetFriction);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetFriction);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetRestitution);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetRestitution);
 
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetOffset);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_SetOffset);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetRadius);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_SetRadius);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetDensity);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_SetDensity);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetFriction);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_SetFriction);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_GetRestitution);
-		LUX_ADD_INTERNAL_CALL(CircleCollider2DComponent_SetRestitution);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetOffset);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetOffset);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetRadius);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetRadius);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetDensity);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetDensity);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetFriction);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetFriction);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetRestitution);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetRestitution);
 
-		LUX_ADD_INTERNAL_CALL(TextComponent_GetText);
-		LUX_ADD_INTERNAL_CALL(TextComponent_SetText);
-		LUX_ADD_INTERNAL_CALL(TextComponent_GetColor);
-		LUX_ADD_INTERNAL_CALL(TextComponent_SetColor);
-		LUX_ADD_INTERNAL_CALL(TextComponent_GetKerning);
-		LUX_ADD_INTERNAL_CALL(TextComponent_SetKerning);
-		LUX_ADD_INTERNAL_CALL(TextComponent_GetLineSpacing);
-		LUX_ADD_INTERNAL_CALL(TextComponent_SetLineSpacing);
-		LUX_ADD_INTERNAL_CALL(TextComponent_GetMaxWidth);
-		LUX_ADD_INTERNAL_CALL(TextComponent_SetMaxWidth);
+		LUX_ADD_ENTITY_CALL(TextComponent_GetText);
+		LUX_ADD_ENTITY_CALL(TextComponent_SetText);
+		LUX_ADD_ENTITY_CALL(TextComponent_GetColor);
+		LUX_ADD_ENTITY_CALL(TextComponent_SetColor);
+		LUX_ADD_ENTITY_CALL(TextComponent_GetKerning);
+		LUX_ADD_ENTITY_CALL(TextComponent_SetKerning);
+		LUX_ADD_ENTITY_CALL(TextComponent_GetLineSpacing);
+		LUX_ADD_ENTITY_CALL(TextComponent_SetLineSpacing);
+		LUX_ADD_ENTITY_CALL(TextComponent_GetMaxWidth);
+		LUX_ADD_ENTITY_CALL(TextComponent_SetMaxWidth);
 
 		// 3D physics
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_AddForce);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_AddForceAtLocation);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_AddTorque);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetLinearVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetLinearVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetAngularVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetAngularVelocity);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetTranslation);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetTranslation);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetRotation);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetRotation);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_GetMass);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetMass);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetGravityEnabled);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_IsSleeping);
-		LUX_ADD_INTERNAL_CALL(RigidBodyComponent_SetSleepState);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_AddForce);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_AddForceAtLocation);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_AddTorque);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_GetLinearVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetLinearVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_GetAngularVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetAngularVelocity);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_GetTranslation);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetTranslation);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_GetRotation);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetRotation);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_GetMass);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetMass);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetGravityEnabled);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_IsSleeping);
+		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetSleepState);
 
-		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_Move);
-		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_Jump);
-		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_IsGrounded);
-		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_GetLinearVelocity);
-		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_SetLinearVelocity);
-		LUX_ADD_INTERNAL_CALL(CharacterControllerComponent_SetGravityEnabled);
+		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_Move);
+		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_Jump);
+		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_IsGrounded);
+		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_GetLinearVelocity);
+		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_SetLinearVelocity);
+		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_SetGravityEnabled);
 
-		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_GetHalfSize);
-		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_SetHalfSize);
-		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_GetOffset);
-		LUX_ADD_INTERNAL_CALL(BoxColliderComponent_SetOffset);
-		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_GetRadius);
-		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_SetRadius);
-		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_GetOffset);
-		LUX_ADD_INTERNAL_CALL(SphereColliderComponent_SetOffset);
-		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_GetRadius);
-		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_SetRadius);
-		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_GetHalfHeight);
-		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_SetHalfHeight);
-		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_GetOffset);
-		LUX_ADD_INTERNAL_CALL(CapsuleColliderComponent_SetOffset);
+		LUX_ADD_ENTITY_CALL(BoxColliderComponent_GetHalfSize);
+		LUX_ADD_ENTITY_CALL(BoxColliderComponent_SetHalfSize);
+		LUX_ADD_ENTITY_CALL(BoxColliderComponent_GetOffset);
+		LUX_ADD_ENTITY_CALL(BoxColliderComponent_SetOffset);
+		LUX_ADD_ENTITY_CALL(SphereColliderComponent_GetRadius);
+		LUX_ADD_ENTITY_CALL(SphereColliderComponent_SetRadius);
+		LUX_ADD_ENTITY_CALL(SphereColliderComponent_GetOffset);
+		LUX_ADD_ENTITY_CALL(SphereColliderComponent_SetOffset);
+		LUX_ADD_ENTITY_CALL(CapsuleColliderComponent_GetRadius);
+		LUX_ADD_ENTITY_CALL(CapsuleColliderComponent_SetRadius);
+		LUX_ADD_ENTITY_CALL(CapsuleColliderComponent_GetHalfHeight);
+		LUX_ADD_ENTITY_CALL(CapsuleColliderComponent_SetHalfHeight);
+		LUX_ADD_ENTITY_CALL(CapsuleColliderComponent_GetOffset);
+		LUX_ADD_ENTITY_CALL(CapsuleColliderComponent_SetOffset);
 	}
 
 	void ScriptGlue::RegisterGlue(Coral::ManagedAssembly& coreAssembly)

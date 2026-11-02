@@ -854,14 +854,8 @@ namespace Lux
 				return;
 		}
 
-		std::ofstream fout(assetRegistryPath);
-		if (!fout.is_open())
-		{
+		if (!FileSystem::WriteFileAtomically(assetRegistryPath, out.c_str()))
 			LUX_CORE_ERROR("Failed to write asset registry '{}'", assetRegistryPath.string());
-			return;
-		}
-
-		fout << out.c_str();
 	}
 
 	void EditorAssetManager::RegisterAssetDependencies(const Ref<Asset>& asset)

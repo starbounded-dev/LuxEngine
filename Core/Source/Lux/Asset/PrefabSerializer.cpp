@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "PrefabSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -38,8 +39,8 @@ namespace Lux
 			sceneYaml += '\n';
 		sceneYaml += "BasePrefab: " + std::to_string(static_cast<uint64_t>(basePrefab)) + "\n";
 
-		std::ofstream fout(path);
-		fout << sceneYaml;
+		if (!FileSystem::WriteFileAtomically(path, sceneYaml))
+			LUX_CORE_ERROR_TAG("Asset", "Could not save prefab '{}'; the file on disk is unchanged", path.string());
 	}
 
 	void PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const

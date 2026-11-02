@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "ProjectSerializer.h"
 
 #include "ProjectRuntimeFormat.h"
@@ -826,11 +827,8 @@ namespace Lux
 		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(filepath);
-		std::ofstream fout(filepath);
-		if (!fout.is_open())
+		if (!FileSystem::WriteFileAtomically(filepath, out.c_str()))
 			return false;
-
-		fout << out.c_str();
 		m_Project->OnSerialized();
 		return true;
 	}

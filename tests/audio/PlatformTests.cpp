@@ -4,6 +4,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Serialization/FileStream.h"
 #include "Lux/Serialization/Yaml.h"
+#include "Lux/Utilities/FileSystem.h"
 #include <fstream>
 
 int main(int argc, char** argv)
@@ -90,5 +91,17 @@ int main(int argc, char** argv)
 	event = nullptr;
 	AudioPerformance::Reset();
 	AudioEngine::Shutdown();
-	std::cout << "PASS: desktop profiles/defaults, packaged settings, build target quoting and independent focus mute\n";
+
+	// Shell quoting: a crafted file name stays one literal argument for /bin/sh.
+	assert(FileSystem::QuoteShellArgument("a'b$(touch x)`y`") == "'a'\\''b$(touch x)`y`'");
+	// Atomic writes: a successful save replaces the file; a failed one leaves the old file intact.
+	const auto saved = output / "atomic save.yaml";
+	assert(FileSystem::WriteFileAtomically(saved, "first\n") && FileSystem::WriteFileAtomically(saved, "second\n"));
+	{
+		std::ifstream file(saved);
+		const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		assert(text == "second\n" && !std::filesystem::exists(saved.string() + ".tmp"));
+	}
+	assert(!FileSystem::WriteFileAtomically(output / "missing directory" / "scene.yaml", "lost\n"));
+	std::cout << "PASS: desktop profiles/defaults, packaged settings, build target quoting, independent focus mute, shell quoting and atomic saves\n";
 }
