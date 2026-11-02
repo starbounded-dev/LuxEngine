@@ -2,6 +2,8 @@
 // Copyright (c) 2025-2026 starbounded-dev
 #include "lpch.h"
 #include "SceneAudioAcoustics.h"
+#include "Lux/Audio/AudioAcousticKernel.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Scene.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Renderer/Mesh.h"
@@ -210,7 +212,11 @@ namespace Lux
 		Clear();
 		m_Configured = m_Kernel.Configure(materials, settings);
 		if (m_Configured)
+		{
 			m_Data->GeometryInterval = 1.0f / settings.UpdateRateHz;
+			// The listener reverb's rays run on the GPU when the renderer has the kernel loaded.
+			m_Kernel.SetReverbBackend(Renderer::GetShaderLibrary() ? Ref<AudioAcoustics::ReverbBackend>(AudioAcousticKernel::Create()) : nullptr);
+		}
 		return m_Configured;
 	}
 	void SceneAudioAcoustics::Sync(Scene& scene)
@@ -439,6 +445,7 @@ namespace Lux
 	void SceneAudioAcoustics::Clear()
 	{
 		m_Kernel.Clear();
+		m_Kernel.SetReverbBackend(nullptr); // GPU buffers retire with the scene's acoustics
 		m_Data->Entries.clear();
 		m_Data->Meshes.clear();
 		m_Data->PortalMesh = nullptr;

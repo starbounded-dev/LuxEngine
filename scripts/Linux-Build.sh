@@ -242,7 +242,8 @@ SAMPLE_SCRIPTS="$LUX_DIR/Editor/LuxSampleProject/Assets/Scripts"
 if [ -f "$SAMPLE_SCRIPTS/premake5.lua" ]; then
 	step "Building sample project scripts ($BUILD_CONFIG)"
 	"$SAMPLE_SCRIPTS/Linux-GenProjects.sh" >/dev/null
-	dotnet build -c "$BUILD_CONFIG" --property WarningLevel=0 "$SAMPLE_SCRIPTS/LuxSample.csproj"
+	# C# has no sanitizer build; the sample workspace defines only Debug, Release and Dist.
+	dotnet build -c "${BUILD_CONFIG/Debug-AS/Debug}" --property WarningLevel=0 "$SAMPLE_SCRIPTS/LuxSample.csproj"
 fi
 
 # ---------------------------------------------------------------------------

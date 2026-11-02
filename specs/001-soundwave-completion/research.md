@@ -41,6 +41,17 @@ All items below were checked against the tree at `03588551` on 2026-11-01.
 - **Alternatives:** GPU ray service fed by a CPU search (rejected: the search is sequential, every
   step would wait a round trip); ray-tracing pipelines (Decision 8: documented future path).
 
+## R3b — Revised 2026-11-02 after reading the full solver (user decision)
+
+- **Finding:** almost all of the 2.1 ms per source is the propagation search (thousands of
+  sequential visibility traces driven by priority heaps). A line-by-line GLSL twin would run that
+  search on one GPU thread per source: slower than a CPU core, and on the graphics queue it would
+  stall rendered frames by tens of milliseconds.
+- **Decision (user):** the listener reverb (4 ms, embarrassingly parallel) runs on the GPU; the
+  per-source solve runs on a JobSystem worker. A separate GPU direct walk was dropped as pure
+  duplication (the worker solve already computes it; 1 of ~2,800 traces).
+- **Follow-up:** a parallel GPU search (workgroup per source) needs the candidate order redefined.
+
 ## R4 — Vercidium removal surface (Phase 7)
 
 Tracked files referencing it (excluding `docs/vercidium-repro/`, `specs/`):

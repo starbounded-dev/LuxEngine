@@ -1021,6 +1021,18 @@ multiplies that send by the zone system's raytraced-reverb gain, and zones treat
 measurement as "raytraced reverb valid". Bank validation warns when an occludable event lacks a
 `ReverbSend` parameter. The three reverb rows live in the project audio block's `Kernel` map.
 
+**Workers and the GPU (plan Phase 4, as decided 2026-11-02):** per-source `Solve` runs on a
+JobSystem worker (one batch in flight, published by `AudioAcoustics::PollSolves`); the listener
+reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
+`AudioAcousticKernel` (`Core/Source/Lux/Audio/`, renderer-side) and injected by
+`SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)
+the CPU job measures instead; the same `FinishReverb` reduces CPU or GPU rays in ray order.
+`Soundwave::Flatten` copies the published view (exclusions baked in) into std430 records the
+shader reads. `tests/audio/run_soundwave_gpu.py` checks the engine shader against the CPU on a
+real Vulkan device (≤ 0.5 dB; measured 0.009 dB on an RTX 4070 Ti). The user chose workers rather
+than a GPU propagation search: the search is serial and heap-driven, so a GPU twin would run one
+thread per source and stall frames; a parallel GPU search is a documented follow-up.
+
 **Air absorption, scattering, bounce diagnostics (plan Phase 5):** `AirAbsorptionLF/HF` (dB per
 100 m, defaults 0.1 / 2.5, range 0–20, `Kernel` map) charge reflection and opening paths only on
 their length beyond the direct path, and add their energy loss per metre to the reverb estimate.

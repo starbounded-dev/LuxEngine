@@ -367,10 +367,14 @@ namespace Lux {
 			DrawStat("Excluded Instances", static_cast<int>(stats.ExcludedInstances));
 			DrawStat("Pending Geometry Layers", static_cast<int>(stats.PendingLayers));
 			DrawStat("Geometry Generation", static_cast<int>(stats.GeometryGeneration));
-			DrawStat("Source Solves", static_cast<int>(stats.Evaluations));
+			DrawStat("Source Solves Run", static_cast<int>(stats.Evaluations));
 			if (stats.SolveFailures)
 				DrawStatColored("Solve Failures", std::to_string(stats.SolveFailures).c_str(), kWarnColor);
 			DrawStat("Reverb Measurements", static_cast<int>(stats.ReverbMeasurements));
+			DrawStat("Reverb Rays On", stats.ReverbOnGpu ? "GPU" : "CPU worker");
+			if (stats.ReverbStalled)
+				DrawStatColored("Reverb", "Stalled (frames not rendering)", kWarnColor);
+			DrawStat("Source Solves", stats.SolvesPending ? "Batch on worker" : "Idle");
 			ImGui::EndTable();
 		}
 

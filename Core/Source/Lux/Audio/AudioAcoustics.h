@@ -6,6 +6,7 @@
 #include "AudioOcclusionSettings.h"
 #include "Lux/Core/Ref.h"
 #include "Lux/Core/UUID.h"
+#include <soundwave/Flatten.h>
 #include <soundwave/Reverb.h>
 #include <array>
 #include <atomic>
@@ -17,8 +18,9 @@
 
 namespace Lux
 {
-	// Scene-owned CPU reference adapter. Main owns scheduling and publication; builders
-	// run through JobSystem with captured values/Refs only, never Scene/ECS pointers.
+	// Scene-owned acoustics adapter. Main owns scheduling and publication; geometry builds, source
+	// solves and reverb run through JobSystem (or the GPU) with captured values/Refs only, never
+	// Scene/ECS pointers, and main never waits for them.
 	class AudioAcoustics
 	{
 	public:
@@ -53,7 +55,25 @@ namespace Lux
 			uint32_t StaticInertTriangles = 0, MovingInertTriangles = 0;
 			uint32_t StaticStoredTriangles = 0, MovingStoredTriangles = 0, StaticMeshInstances = 0, MovingMeshInstances = 0;
 			bool Ready = false, GeometryFailed = false;
+			bool ReverbOnGpu = false, ReverbStalled = false, SolvesPending = false;
 		};
+		// Where the listener reverb's rays run. Without one (headless tests, no GPU) a JobSystem
+		// job measures on the CPU; with one, FinishReverb reduces the returned rays on main.
+		struct ReverbBackend : RefCounted
+		{
+			struct Geometry : RefCounted
+			{
+				Soundwave::FlatGeometry Flat;
+				uint64_t Generation = 0;
+			};
+			// Main thread. Records one measurement over geometry; false when it cannot.
+			virtual bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
+				const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) = 0;
+			// Main thread, never waits: true once that measurement's rays reached the CPU.
+			virtual bool Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
+		};
+		// Kept across Clear(); the owner replaces or drops it.
+		void SetReverbBackend(Ref<ReverbBackend> backend) { m_ReverbBackend = std::move(backend); }
 
 		AudioAcoustics();
 		bool Configure(const AcousticMaterialSettings& materials, const AudioOcclusionSettings& settings);
@@ -64,7 +84,11 @@ namespace Lux
 		void PollGeometry();
 		// Current live UUIDs mask deleted/disabled geometry even before a rebuild finishes.
 		[[nodiscard]] bool SetActiveInstances(std::span<const uint64_t> instances);
+		// Selects due sources and solves them on a worker. Results publish in PollSolves, which this
+		// calls; with the inline job policy that is the same update, otherwise a later one.
 		[[nodiscard]] bool Update(float timestep, Soundwave::Position listener, std::span<const Source> sources);
+		// Main thread: publishes a finished solve batch, if any. Never waits.
+		void PollSolves();
 		float GetGainLF(UUID source) const;
 		float GetGainHF(UUID source) const;
 		const Soundwave::SolveResult* GetResult(UUID source) const;
@@ -97,7 +121,7 @@ namespace Lux
 		};
 		struct SourceState
 		{
-			Soundwave::SolveResult Result, Attempt;
+			Soundwave::SolveResult Result;
 			float GainLF = 1, GainHF = 1, TargetLF = 1, TargetHF = 1, SinceEvaluation = 0;
 			uint64_t SeenUpdate = 0, GeometryGeneration = 0, SettingsGeneration = 0;
 			Soundwave::EvaluationError LastError = Soundwave::EvaluationError::None;
@@ -109,7 +133,26 @@ namespace Lux
 			Soundwave::ReverbResult Result;
 			Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 		};
+		struct SolveJob : RefCounted
+		{
+			struct Item
+			{
+				UUID Entity = 0;
+				Soundwave::Position Position;
+				Soundwave::SolveResult Result;
+				Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
+			};
+			std::atomic<bool> Done{ false };
+			std::vector<Item> Items;
+			Soundwave::SolveScratch Scratch;
+		};
+		struct FlattenJob : RefCounted
+		{
+			std::atomic<bool> Done{ false };
+			Ref<ReverbBackend::Geometry> Result;
+		};
 		void UpdateReverb(float timestep, Soundwave::Position listener);
+		void PublishReverb(Soundwave::EvaluationError error, const Soundwave::ReverbResult& result);
 		void RefreshGeometryView();
 		bool CanPrepare() const;
 		std::array<Ref<Snapshot>, 2> m_Snapshots;
@@ -119,7 +162,6 @@ namespace Lux
 		std::array<uint64_t, 2> m_FailureLayerRevisions{};
 		Ref<Job> m_Pending;
 		uint64_t m_RequestedRevision = 0, m_FailedRevision = 0, m_LastAttemptedRevision = 0;
-		Soundwave::InstancedGrid m_Empty;
 		Soundwave::MaterialTable m_Materials;
 		AudioOcclusionSettings m_Settings;
 		Soundwave::Settings m_KernelSettings;
@@ -130,7 +172,15 @@ namespace Lux
 		uint64_t m_UpdateIndex = 0, m_GeometryGeneration = 0, m_SettingsGeneration = 0;
 		uint64_t m_Evaluations = 0, m_SolveFailures = 0;
 		size_t m_NextSource = 0;
+		Ref<SolveJob> m_SolvePending;
 		Ref<ReverbJob> m_ReverbPending;
+		Ref<ReverbBackend> m_ReverbBackend;
+		Ref<FlattenJob> m_FlattenPending;
+		Ref<ReverbBackend::Geometry> m_Flat;
+		std::vector<Soundwave::ReverbRay> m_ReverbRays;
+		Soundwave::Settings m_ReverbRequestSettings;
+		uint32_t m_ReverbWaitUpdates = 0;
+		bool m_ReverbOnGpu = false, m_ReverbStalled = false;
 		Soundwave::ReverbResult m_Reverb;
 		Soundwave::Position m_ReverbListener;
 		Soundwave::EvaluationError m_ReverbError = Soundwave::EvaluationError::None;

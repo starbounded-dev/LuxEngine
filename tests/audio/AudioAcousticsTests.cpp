@@ -48,6 +48,20 @@ namespace
 		} while (std::chrono::steady_clock::now() < deadline);
 		assert(false && "Soundwave worker did not finish");
 	}
+	// Threaded policy: a solve batch publishes on a later update. Poll (never join) until it has.
+	template<typename Sources>
+	bool SettledUpdate(AudioAcoustics& audio, float timestep, Soundwave::Position listener, const Sources& sources)
+	{
+		const bool updated = audio.Update(timestep, listener, std::span<const AudioAcoustics::Source>(sources));
+		const auto deadline = std::chrono::steady_clock::now() + 5s;
+		while (audio.GetDiagnostics().SolvesPending)
+		{
+			audio.PollSolves();
+			assert(std::chrono::steady_clock::now() < deadline && "Soundwave solve worker did not finish");
+			std::this_thread::yield();
+		}
+		return updated;
+	}
 }
 
 void RunAudioAcousticsTests()
@@ -85,30 +99,30 @@ void RunAudioAcousticsTests()
 		assert(gate->Started.try_acquire_for(5s));
 		// Worker is blocked and cannot finish. Poll/Update must return without joining it.
 		audio.PollGeometry();
-		assert(audio.Update(0.01f, listener, sources) && !audio.GetDiagnostics().Ready && !audio.GetResult(100));
+		assert(SettledUpdate(audio, 0.01f, listener, sources) && !audio.GetDiagnostics().Ready && !audio.GetResult(100));
 		assert(audio.RequestGeometry(2, {}, [&](auto&, auto&) { ++skippedBuilds; return true; }));
 		assert(audio.RequestGeometry(3, {}, [&](auto&, auto&) { ++latestBuilds; return true; }));
 		gate->Release.release();
 		Drain(audio);
 		assert(audio.GetDiagnostics().Ready && fixedBuilds == 1 && skippedBuilds == 0 && latestBuilds == 1);
 		assert(audio.GetDiagnostics().StaticTriangles == 12 && audio.GetDiagnostics().MovingTriangles == 0);
-		assert(audio.Update(0.01f, listener, sources));
+		assert(SettledUpdate(audio, 0.01f, listener, sources));
 		assert(audio.GetResult(100) && !audio.GetResult(101) && !audio.GetResult(102));
 		assert(audio.GetGainLF(100) <= 0.001001f);
-		assert(audio.Update(0, listener, sources) && audio.GetResult(101) && !audio.GetResult(102));
-		assert(audio.Update(0, listener, sources) && audio.GetResult(102));
+		assert(SettledUpdate(audio, 0, listener, sources) && audio.GetResult(101) && !audio.GetResult(102));
+		assert(SettledUpdate(audio, 0, listener, sources) && audio.GetResult(102));
 		const auto evaluations = audio.GetDiagnostics().Evaluations;
-		assert(audio.Update(0.01f, listener, sources) && audio.GetDiagnostics().Evaluations == evaluations);
+		assert(SettledUpdate(audio, 0.01f, listener, sources) && audio.GetDiagnostics().Evaluations == evaluations);
 		assert(audio.SetActiveInstances({}));
-		assert(audio.Update(0, listener, sources) && audio.GetResult(100)->OcclusionGainLF == 1 && audio.GetGainLF(100) < 0.01f);
-		assert(audio.Update(0.05f, listener, sources) && audio.GetGainLF(100) > 0.001f && audio.GetGainLF(100) < 1);
+		assert(SettledUpdate(audio, 0, listener, sources) && audio.GetResult(100)->OcclusionGainLF == 1 && audio.GetGainLF(100) < 0.01f);
+		assert(SettledUpdate(audio, 0.05f, listener, sources) && audio.GetGainLF(100) > 0.001f && audio.GetGainLF(100) < 1);
 		assert(audio.SetActiveInstances(live));
 		// Migration is one publication. Same UUID in old static and new moving storage
 		// must never be queried together or charged twice.
 		assert(audio.RequestGeometry(4, empty, [](auto& input, auto&) { Wall(input); return true; }));
 		Drain(audio);
 		assert(audio.GetDiagnostics().StaticTriangles == 0 && audio.GetDiagnostics().MovingTriangles == 12);
-		assert(audio.Update(0.1f, listener, std::span(sources).first(1)) && audio.GetResult(100)->Direct.Crossings.size() == 1);
+		assert(SettledUpdate(audio, 0.1f, listener, std::span(sources).first(1)) && audio.GetResult(100)->Direct.Crossings.size() == 1);
 		assert(!audio.GetResult(101) && audio.GetGainLF(102) == 1);
 		std::atomic<int> failures{0};
 		assert(audio.RequestGeometry(5, [&](auto&, auto& error) { ++failures; error = "intentional test failure"; return false; }, {}));
@@ -124,26 +138,26 @@ void RunAudioAcousticsTests()
 		assert(audio.RequestGeometry(7, empty, {}));
 		Drain(audio);
 		assert(!audio.GetDiagnostics().GeometryFailed && audio.GetDiagnostics().MovingTriangles == 0);
-		assert(audio.Update(0.1f, listener, std::span(sources).first(1)));
+		assert(SettledUpdate(audio, 0.1f, listener, std::span(sources).first(1)));
 		const auto savedDistance = audio.GetResult(100)->Direct.Distance;
 		sources[0].Position = {std::numeric_limits<float>::max(),0,0};
-		assert(audio.Update(0.1f, listener, std::span(sources).first(1)) && audio.GetDiagnostics().SolveFailures == 1 &&
+		assert(SettledUpdate(audio, 0.1f, listener, std::span(sources).first(1)) && audio.GetDiagnostics().SolveFailures == 1 &&
 			audio.GetResult(100)->Direct.Distance == savedDistance);
 		sources[0].Position = {2,0,0};
-		assert(audio.Update(0.1f, listener, std::span(sources).first(1)));
+		assert(SettledUpdate(audio, 0.1f, listener, std::span(sources).first(1)));
 		auto invalid = settings;
 		invalid.CandidateBudget = 0;
 		assert(!audio.Configure(materials, invalid));
-		assert(!audio.Update(-1, listener, sources));
+		assert(!SettledUpdate(audio, -1, listener, sources));
 		sources[1].Entity = 100;
-		assert(!audio.Update(0.1f, listener, sources));
+		assert(!SettledUpdate(audio, 0.1f, listener, sources));
 		const std::array<uint64_t, 2> duplicate{10,10};
 		assert(!audio.SetActiveInstances(duplicate));
 		assert(!audio.RequestGeometry(6, empty, empty));
 		const std::array<AudioAcoustics::Source, 1> invalidSource{{{103,{std::numeric_limits<float>::max(),0,0}}}};
-		assert(audio.Update(0.1f, listener, invalidSource));
+		assert(SettledUpdate(audio, 0.1f, listener, invalidSource));
 		const auto invalidAttempts = audio.GetDiagnostics().Evaluations;
-		assert(!audio.GetResult(103) && audio.Update(0, listener, invalidSource) && audio.GetDiagnostics().Evaluations == invalidAttempts);
+		assert(!audio.GetResult(103) && SettledUpdate(audio, 0, listener, invalidSource) && audio.GetDiagnostics().Evaluations == invalidAttempts);
 
 		const auto wall = [](auto& input, auto&) { Wall(input); return true; };
 		assert(audio.RequestGeometry(8, wall, wall));
@@ -233,6 +247,48 @@ void RunAudioAcousticsTests()
 			audio.GetDiagnostics().ReverbMeasurements == 2 && audio.GetReverb()->EscapedFraction == 0 && audio.GetReverbSend() > 0.2f);
 		audio.Clear();
 		assert(!audio.GetReverb() && audio.GetReverbSend() == 0);
+	}
+	{
+		// A reverb backend gets the flattened current geometry and its returned rays are reduced on
+		// main; one that never returns is reported as stalled instead of waited on.
+		struct FakeBackend : AudioAcoustics::ReverbBackend
+		{
+			uint32_t Dispatches = 0, Polls = 0, Triangles = 0;
+			bool Returns = true;
+			bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position, const Soundwave::Settings&, const Soundwave::MaterialTable&) override
+			{
+				++Dispatches;
+				Triangles = static_cast<uint32_t>(geometry->Flat.Triangles.size());
+				Polls = 0;
+				return true;
+			}
+			bool Poll(std::vector<Soundwave::ReverbRay>& rays) override
+			{
+				if (!Returns || ++Polls < 3)
+					return false;
+				rays.assign(256, { 0.3f, 4.0f, 1, 2, 0 }); // a closed room: no ray escapes
+				return true;
+			}
+		};
+		auto backend = Ref<FakeBackend>::Create();
+		AudioAcoustics audio;
+		assert(audio.Configure(materials, settings));
+		audio.SetReverbBackend(backend);
+		assert(audio.RequestGeometry(1, [](auto& input, auto&) { Wall(input); return true; }, empty));
+		Drain(audio);
+		for (int i = 0; i < 6; ++i)
+			assert(audio.Update(0.1f, listener, {}));
+		Soundwave::ReverbResult expected;
+		const std::vector<Soundwave::ReverbRay> rays(256, { 0.3f, 4.0f, 1, 2, 0 });
+		assert(Soundwave::FinishReverb(rays, settings.GetKernelSettings(), expected) == Soundwave::EvaluationError::None);
+		assert(backend->Dispatches == 1 && backend->Triangles == 12 && audio.GetReverb() &&
+			audio.GetReverb()->Send == expected.Send && audio.GetDiagnostics().ReverbOnGpu && !audio.GetDiagnostics().ReverbStalled);
+		backend->Returns = false;
+		assert(audio.RequestGeometry(2, [](auto& input, auto&) { Wall(input); return true; }, {}));
+		Drain(audio);
+		for (int i = 0; i < 40; ++i)
+			assert(audio.Update(0.1f, listener, {}));
+		assert(backend->Dispatches == 2 && audio.GetDiagnostics().ReverbStalled && audio.GetReverb()->Send == expected.Send);
 	}
 	{
 		std::atomic<bool> destroyed{false};

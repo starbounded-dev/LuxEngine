@@ -48,11 +48,11 @@ US5 path overlay.
 
 **Independent test**: headless parity run prints max |ΔdB| ≤ 0.5 over the library scenes.
 
-- [ ] T018 [US3] Flatten a `GeometryView` to world-space node/triangle arrays in Core/vendor/soundwave/src/Flatten.cpp (+ include/soundwave/Flatten.h), with a library test
-- [ ] T019 [US3] GLSL twin: Core/vendor/soundwave/shaders/Soundwave.glslh (trace, direct walk, propagation, reverb) and Soundwave.glsl (one invocation per source)
-- [ ] T020 [US3] `AudioAcousticKernel` in Core/Source/Lux/Audio/AudioAcousticKernel.h/.cpp: pipeline + buffers built once, upload per geometry generation, dispatch via Renderer::Submit, ring readback (ClusterCounterReadback pattern), stall count
-- [ ] T021 [US3] Switch AudioAcoustics to GPU results when the kernel is ready; CPU stays for tests/comparison; Core/Source/Lux/Audio/AudioAcoustics.cpp
-- [ ] T022 [US3] Parity test CPU vs GPU ≤ 0.5 dB in the headless harness (headless-harness/ or tests/audio/)
+- [x] T018 [US3] Flatten a `GeometryView` to world-space node/triangle arrays in Core/vendor/soundwave/src/Flatten.cpp (+ include/soundwave/Flatten.h), with a library test
+- [x] T019 [US3] GLSL twin of the reverb: Editor/Resources/Shaders/Include/GLSL/Soundwave.glslh (traversal) and SoundwaveReverb.glsl (one invocation per ray). Direct walk and propagation stay CPU, on workers (user decision 2026-11-02, see research R3b)
+- [x] T020 [US3] `AudioAcousticKernel` in Core/Source/Lux/Audio/AudioAcousticKernel.h/.cpp: pipeline + buffers built once, upload per geometry generation, dispatch via Renderer::Submit, ring readback (ClusterCounterReadback pattern), stall count
+- [x] T021 [US3] AudioAcoustics: GPU reverb through the ReverbBackend hook (CPU job fallback) and per-source Solve on a JobSystem worker; Core/Source/Lux/Audio/AudioAcoustics.cpp
+- [x] T022 [US3] Parity test CPU vs GPU ≤ 0.5 dB on a real Vulkan device: tests/audio/run_soundwave_gpu.py + SoundwaveGpuParity.cpp
 
 ## Phase 7: US5 — Path overlay (P3)
 
@@ -60,8 +60,8 @@ US5 path overlay.
 
 ## Phase 8: Polish
 
-- [ ] T024 Docs: .claude/docs/Architecture-LuxEngine.md § 2.10 rewrite, Threading.md, Rendering.md, Building.md, CLAUDE.md, AGENTS.md, .specify/memory/constitution.md (PATCH), README.md, NOTICE, docs/AUDIO_*.md, docs/Editor/{Audio,Panels}.md, Editor/LuxSampleProject/FMOD_SETUP.md, tests/audio/README.md
-- [ ] T025 Mark plan status in docs/AUDIO_ACOUSTICS_PLAN.md; `/cr`; commit and push per stage
+- [x] T024 Docs: .claude/docs/Architecture-LuxEngine.md § 2.10 rewrite, Threading.md, Rendering.md, Building.md, CLAUDE.md, AGENTS.md, .specify/memory/constitution.md (PATCH), README.md, NOTICE, docs/AUDIO_*.md, docs/Editor/{Audio,Panels}.md, Editor/LuxSampleProject/FMOD_SETUP.md, tests/audio/README.md
+- [x] T025 Mark plan status in docs/AUDIO_ACOUSTICS_PLAN.md; `/cr`; commit and push per stage
 
 ## Dependencies
 

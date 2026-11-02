@@ -1,7 +1,17 @@
 # Acoustic Kernel Plan — Soundwave: the acoustics Vercidium Audio gives LuxEngine, rebuilt in the engine
 
-**Status: planning only. No engine code is changed by this document. Decisions 1-4 and the
-deferred 5-6 are answered and recorded here; four items are still unanswered (§ 1, "unanswered").**
+**Status (2026-11-02): implemented through Phase 7, tracked in Spec Kit
+`specs/001-soundwave-completion/` (spec, plan, research, tasks).** Phases 1-3 landed earlier on
+this branch. Phase 7 + the Phase 6 file migration: Vercidium Audio is gone from build, link,
+deploy, CI and tests; `Occlusion.Source` loads ignored and is never written. Phase 5: air
+absorption (excess length only, user decision), scattered reverb rays, per-bounce diagnostics.
+Phase 4, **as revised by the user on 2026-11-02**: the listener reverb runs on the GPU
+(`SoundwaveReverb.glsl`, checked against the CPU on a real device), and the per-source search runs
+on JobSystem workers instead of a GPU twin (research R3b explains why). Phase 6's path overlay is
+the existing occlusion overlay, now drawing Soundwave's direct, reflection and opening routes.
+**Not verified here:** Linux builds (CI), Play in the editor and a packaged-runtime listening pass,
+which need the editor launched. Open follow-up: a parallel GPU propagation search.
+The original planning text below is kept as the record of the decisions.
 
 > **Fold note (2026-10-31).** The 2026-10-30 session that took the user's answers wrote nothing to
 > disk: all 72 of its tool calls were read/grep/glob, and it ended mid-write with "I ran out of room

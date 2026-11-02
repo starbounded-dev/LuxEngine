@@ -431,10 +431,21 @@ Failed capture revisions stay latched until the failing layer changes; unrelated
 Scene teardown detaches its Ref to pending state; workers finish using their own refs. There is
 no worker callback into Scene. JobSystem's existing inline policy follows the same path.
 
-The CPU reference solve and UUID source interpolation currently run on main. This is temporary
-Phase 2 execution, with explicit readiness/failure diagnostics; it does not authorize a shipping
-CPU fallback. Phase 4 still requires render-thread compute submission and nonblocking readback.
+Per-source solves run on a JobSystem worker: `AudioAcoustics::Update` selects the due batch on
+main (same budget and cadence rules) and submits one job holding copies plus immutable snapshot
+Refs; `PollSolves` publishes it on main. One batch is in flight; under the inline policy it
+publishes in the same update, otherwise in a later one. Gain interpolation stays on main.
 Vercidium Audio and its worker join are gone (2026-11-02); no acoustic code waits on another thread.
+
+The listener reverb's rays run on the GPU when `SceneAudioAcoustics` injects an
+`AudioAcousticKernel` (renderer present, `SoundwaveReverb` loaded). Main flattens the current
+geometry on a worker (`Soundwave::Flatten`, once per geometry generation), then records the
+dispatch through `Renderer::Submit` on the kernel's own `RenderCommandBuffer` (graphics queue),
+including a copy of the rays into a `CPUAccess::Read` buffer. A render-thread lambda maps that
+buffer only once `RT_GetFrameNumber() >= recorded + FramesInFlight` (RT_BeginFrame has waited for
+the recording frame) and publishes through an atomic; main polls it and runs `FinishReverb`. No
+thread waits on the GPU. Updates without a result are counted: 30 report `ReverbStalled` (frames
+not rendering). Single-threaded Linux runs the same lambdas inline at render time.
 
 Phase 3's listener reverb (`Soundwave::EvaluateReverb`) is one more AudioAcoustics JobSystem job:
 it captures the published snapshot Refs plus copies of the exclusion list, material table,

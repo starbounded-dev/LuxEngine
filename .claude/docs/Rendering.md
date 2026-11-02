@@ -53,6 +53,12 @@ object is `Renderer/RHI/RHIShader`, descriptor sets `Renderer/DescriptorSetManag
 
 ## Invariant 1 — `(set, binding)` is a GLOBAL namespace
 
+Claimed outside the renderer passes: **set 1, bindings 30–34** — Soundwave's acoustic compute
+(`SoundwaveNodes`, `SoundwaveOrder`, `SoundwaveTriangles`, `SoundwaveReverbRequest`,
+`SoundwaveReverbRays`; `Include/GLSL/Soundwave.glslh`, `SoundwaveReverb.glsl`). Its pass is built
+when acoustic geometry changes, not per frame, and records on its own command buffer
+(`AudioAcousticKernel`, see `Threading.md` § Acoustic geometry).
+
 **This is the highest-consequence rule in the renderer.**
 
 `VulkanShaderCompiler`'s reflection keeps *process-global* registries of uniform buffers and storage
