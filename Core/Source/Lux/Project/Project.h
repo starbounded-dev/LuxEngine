@@ -6,6 +6,7 @@
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Audio/AudioAccessibilitySettings.h"
 #include "Lux/Audio/AudioPerformanceSettings.h"
+#include "Lux/Audio/AudioMixerSettings.h"
 #include "Lux/Audio/AudioOcclusionSettings.h"
 
 #include "Lux/Audio/AudioZoneSettings.h"
@@ -65,6 +66,9 @@ namespace Lux
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 		AudioOcclusionSettings Occlusion;
+		// The native backend's buses and reverb return (FMOD authors its mix in Studio).
+		// shortcut: YAML only; the runtime package gains it with native export (plan Phase 8).
+		AudioMixerSettings Mixer;
 
 		// The FMOD Studio project (.fspro) that authors this game's audio, relative to the asset
 		// directory. Sound designers work in the Studio app; the engine consumes only the banks it

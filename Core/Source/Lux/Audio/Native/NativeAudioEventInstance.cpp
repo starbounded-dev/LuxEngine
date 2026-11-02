@@ -39,15 +39,17 @@ namespace Lux {
 		// ramped across each block so listener movement and parameter changes do not click, then a
 		// one-pole low-pass (occlusion and LowPass curves) and a one-pole high-pass (HighPass curves).
 		// One pole falls 6 dB per octave, the slope of the mass law through a wall. With both filters
-		// off at unity gain the node copies its input exactly.
+		// off at unity gain output 0 copies its input exactly. Output 1 is the post-fader send to the
+		// reverb return (Soundwave's ReverbSend plus Send curves), ramped the same way.
 		struct VoiceNode
 		{
 			ma_node_base Base;   // first: miniaudio passes &Base as the node
 			std::atomic<float> TargetGain{ 1.0f };
+			std::atomic<float> TargetSend{ 0.0f };
 			std::atomic<float> LowPassHz{ kOpenCutoffHz };
 			std::atomic<float> HighPassHz{ 0.0f };
 			// Audio thread only.
-			float Gain = 1.0f;
+			float Gain = 1.0f, Send = 0.0f;
 			bool Primed = false;
 			float SampleRate = 48000.0f;
 			uint32_t Channels = 2;
@@ -66,12 +68,16 @@ namespace Lux {
 			const ma_uint32 frames = data.GetOutputFrameCount();
 			const float* input = data.GetInputBuffer(0).data.data;
 			float* output = data.GetOutputBuffer(0).data.data;
+			float* sendOutput = data.GetOutputBuffer(1).data.data;
 			const uint32_t channels = voice.Channels;
 			const float target = voice.TargetGain.load(std::memory_order_relaxed);
 			// The first block starts at its gain: a voice set up quiet must not begin with a ramp from 1.
 			const float start = voice.Primed ? voice.Gain : target;
+			const float sendTarget = voice.TargetSend.load(std::memory_order_relaxed);
+			const float sendStart = voice.Primed ? voice.Send : sendTarget;
 			voice.Primed = true;
 			const float step = frames > 0 ? (target - start) / static_cast<float>(frames) : 0.0f;
+			const float sendStep = frames > 0 ? (sendTarget - sendStart) / static_cast<float>(frames) : 0.0f;
 			const float lowCutoff = voice.LowPassHz.load(std::memory_order_relaxed);
 			const float highCutoff = voice.HighPassHz.load(std::memory_order_relaxed);
 			const bool lowPass = lowCutoff < kOpenCutoffHz;
@@ -81,6 +87,7 @@ namespace Lux {
 			for (ma_uint32 frame = 0; frame < frames; ++frame)
 			{
 				const float gain = start + step * static_cast<float>(frame + 1);
+				const float send = gain * (sendStart + sendStep * static_cast<float>(frame + 1));
 				for (uint32_t channel = 0; channel < channels; ++channel)
 				{
 					float sample = input[frame * channels + channel];
@@ -110,9 +117,11 @@ namespace Lux {
 						high = 0.0f;
 					}
 					output[frame * channels + channel] = sample * gain;
+					sendOutput[frame * channels + channel] = sample * send;
 				}
 			}
 			voice.Gain = target;
+			voice.Send = sendTarget;
 		}
 
 #ifdef LUX_PLATFORM_WINDOWS
@@ -284,6 +293,7 @@ namespace Lux {
 			leaf.Output->TargetGain.store(leaf.CurrentGain, std::memory_order_relaxed);
 			leaf.Output->LowPassHz.store(lowPass, std::memory_order_relaxed);
 			leaf.Output->HighPassHz.store(highPass, std::memory_order_relaxed);
+			leaf.Output->TargetSend.store(std::clamp(voice.ReverbSend + send, 0.0f, 1.0f), std::memory_order_relaxed);
 			ma_sound_set_pitch(leaf.Sound.get(), std::clamp(pitch * voice.InstancePitch, kMinPitch, kMaxPitch));
 		}
 
@@ -515,14 +525,18 @@ namespace Lux {
 			}
 
 			const uint32_t channels = ma_engine_get_channels(engine);
-			ma_result result = leaf.Output.Init(JPL::NodeLayout().WithInputs(channels).WithOutputs(channels)) ? MA_SUCCESS : MA_ERROR;
+			ma_result result = leaf.Output.Init(JPL::NodeLayout().WithInputs(channels).WithOutputs({ channels, channels })) ? MA_SUCCESS : MA_ERROR;
 			if (result == MA_SUCCESS)
 			{
 				// Set before attaching: the audio thread cannot reach the node until then.
 				leaf.Output->Channels = channels;
 				leaf.Output->SampleRate = static_cast<float>(ma_engine_get_sample_rate(engine));
-				result = ma_node_attach_output_bus(leaf.Output.get(), 0, ma_engine_get_endpoint(engine), 0);
+				result = ma_node_attach_output_bus(leaf.Output.get(), 0, NativeInternal::GetBusInput(sound.Bus), 0);
 			}
+			// Without a reverb return the send output stays unattached and is never pulled.
+			if (result == MA_SUCCESS)
+				if (ma_node* reverb = NativeInternal::GetReverbReturn())
+					result = ma_node_attach_output_bus(leaf.Output.get(), 1, reverb, 0);
 			if (result == MA_SUCCESS)
 			{
 				// Decoded into memory and shared while any instance of the clip lives, or streamed from

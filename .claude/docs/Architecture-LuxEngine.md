@@ -1018,8 +1018,8 @@ with any FMOD event shown read-only).
 
 **Sound assets (Phases 2–3).** `Sound` (`Audio/Sound.h`, `AssetType::Sound`, `.lsound`) is the
 native backend's playable asset: a tree of `SoundNode`s (`Nodes[0]` is the root; each other node has
-exactly one parent) plus `Parameters`, `Bus` (`bus:/...`; everything mixes through the master until
-the mixer exists), linear `Volume` (0–4), `Pitch` (above 0, up to 4), `Spatial` (3D on/off,
+exactly one parent) plus `Parameters`, `Bus` (`bus:/...`, a bus of the project's mixer; an unknown bus plays through
+the master, reported once), linear `Volume` (0–4), `Pitch` (above 0, up to 4), `Spatial` (3D on/off,
 `SoundAttenuation` None/Inverse/Linear with miniaudio's formulas, min/max distance, rolloff),
 `InstanceLimit` with `SoundStealPolicy` Oldest/Quietest/None, `Cooldown` (seconds) and `Stream`.
 Node types: **Clip** (an `Audio` asset with start offset, loop and optional loop region), **Random**
@@ -1047,6 +1047,17 @@ build draws none. C# scripts can
 declare `Lux.Sound` fields (`DataType::Sound`, editor-assignable like `Prefab`) and call
 `Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`, which pass the handle as the reference. The
 FMOD build reports such a reference as a Sound that needs the native backend.
+
+**Native mixer (Phase 4a/4b).** `ProjectAudioSettings::Mixer` (`AudioMixerSettings`, YAML `Audio.Mixer`;
+missing means the default `Music`, `SFX`, `Dialogue`, `Ambience` buses) lists buses below the master by
+path, each with volume and mute; a bus plays into the parent its path names, and `Validate` requires
+parents first. `AudioEngine::Init` builds one `ma_sound_group` per bus (the master is the engine
+endpoint, which keeps the master volume and focus mute) and the reverb return, miniaudio's
+`ma_reverb_node` (verblib) into the master with dry 0, skipped above 2 output channels. Each voice
+node has two outputs: the dry signal into its Sound's bus, and a post-fader send into the return at
+`ReverbSend` (Soundwave) plus the Sound's Send curves, clamped to 1 and ramped per block.
+`SetBusVolume`/`SetBusMuted`/`GetBusVolume` reach any mixer bus. The FMOD backend ignores the mixer.
+The runtime package does not carry it yet (native export is Phase 8).
 
 **Native backend (Phase 2 vertical slice).** `Audio/Native/` implements every function the FMOD
 folder does. Its private headers are `NativeInternal.h` (engine access, Sound resolution, listener

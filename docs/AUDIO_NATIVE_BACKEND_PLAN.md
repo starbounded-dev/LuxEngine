@@ -551,6 +551,15 @@ with pitch variation.
 **Docs:** Architecture 2.10 (zones and snapshots, project format 26); a `Threading.md` note on
 meters.
 
+**Status — 4a/4b done.**
+- **4a buses:** `AudioMixerSettings` (YAML `Audio.Mixer`, default `Music`/`SFX`/`Dialogue`/`Ambience`),
+  one `ma_sound_group` per bus, nested by path; `SetBusVolume`, `SetBusMuted`, `GetBusVolume`.
+- **4b reverb return:** `ma_reverb_node` into the master; every voice node's second output sends
+  Soundwave's `ReverbSend` plus Send curves to it. Soundwave reverb is now audible on native.
+- Owned through MiniaudioCpp (`Core/vendor/MiniaudioCpp`).
+- **Left:** bus effect chains, snapshots and zone mapping, VCAs and global parameters,
+  `ClearBusVolume`, runtime format 26, and the Audio Mixer panel.
+
 **Exit criteria:** zone tests green on native.
 
 **Rollback:** the mixer block is additive; an old project gets the default mixer.

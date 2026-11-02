@@ -6,6 +6,7 @@
 // Private to the native backend (Audio/Native/). Engine code outside this folder talks to
 // AudioEngine and AudioEventInstance; nothing outside it and the native tests may include this.
 
+#include "Lux/Audio/AudioMixerSettings.h"
 #include "Lux/Audio/AudioPerformanceSettings.h"
 #include "Lux/Audio/Sound.h"
 
@@ -17,6 +18,7 @@
 #include <string>
 
 struct ma_engine;
+typedef void ma_node;
 
 namespace Lux::NativeInternal {
 
@@ -26,6 +28,7 @@ namespace Lux::NativeInternal {
 		uint32_t Channels = 0;     // 0 = the output device's; required with NoDevice
 		uint32_t SampleRate = 0;   // 0 = the output device's; required with NoDevice
 		AudioPerformanceSettings Performance;
+		AudioMixerSettings Mixer;
 	};
 	// What AudioEngine::Init starts with: the active project's settings and the default output device.
 	// Defined in NativeAudioEngineConfig.cpp; the native tests define their own (no device).
@@ -33,6 +36,11 @@ namespace Lux::NativeInternal {
 
 	// Null before AudioEngine::Init succeeds and after Shutdown.
 	ma_engine* GetEngine();
+	// The node a voice on this bus plays into: the bus's group, or the endpoint for the master and for
+	// a bus the mixer does not have (reported once). Null without an engine.
+	ma_node* GetBusInput(const std::string& path);
+	// The built-in reverb return's input, where voices send; null without one (more than 2 output channels).
+	ma_node* GetReverbReturn();
 
 	// Resolves a playback reference: a Sound asset handle in decimal (AudioEventRef::GetReference) or
 	// a Sound's path relative to the project's Assets directory. False with the reason in outError.

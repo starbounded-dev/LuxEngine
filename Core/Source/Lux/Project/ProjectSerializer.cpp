@@ -767,6 +767,8 @@ namespace Lux
 				out << Yaml::Key << "ZoneReverbMode" << Yaml::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
 				out << Yaml::Key << "Occlusion" << Yaml::Value;
 				config.Audio.Occlusion.SerializeYAML(out);
+				out << Yaml::Key << "Mixer" << Yaml::Value;
+				config.Audio.Mixer.SerializeYAML(out);
 				out << Yaml::EndMap;
 			}
 
@@ -1051,6 +1053,8 @@ namespace Lux
 			if (!config.Audio.AcousticMaterials.DeserializeYAML(audioNode["AcousticMaterials"]))
 				return false;
 			if (!config.Audio.Occlusion.DeserializeYAML(audioNode["Occlusion"]))
+				return false;
+			if (!config.Audio.Mixer.DeserializeYAML(audioNode["Mixer"]))
 				return false;
 		}
 

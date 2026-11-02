@@ -136,7 +136,7 @@ namespace Lux
 		std::vector<SoundNode> Nodes{ SoundNode{} };   // one empty clip until authored
 		std::vector<SoundParameter> Parameters;
 
-		std::string Bus = "bus:/";   // where it mixes; every bus plays through the master until the mixer exists
+		std::string Bus = "bus:/";   // the mixer bus it plays into (ProjectAudioSettings::Mixer); unknown buses use the master
 		float Volume = 1.0f;         // linear gain, 0 to 4
 		float Pitch = 1.0f;          // playback rate, above 0 and up to 4
 		SoundSpatialSettings Spatial;

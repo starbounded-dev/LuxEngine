@@ -14,7 +14,10 @@ namespace Lux
 	{
 		EngineConfig config;
 		if (const auto project = Project::GetActive())
+		{
 			config.Performance = project->GetAudioPerformance();
+			config.Mixer = project->GetConfig().Audio.Mixer;
+		}
 		return config;
 	}
 }

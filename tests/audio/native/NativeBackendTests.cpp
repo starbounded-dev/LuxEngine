@@ -45,6 +45,7 @@ namespace
 
 	std::filesystem::path s_Directory;
 	Lux::AudioPerformanceSettings s_Performance;
+	Lux::AudioMixerSettings s_Mixer;
 
 	std::map<uint64_t, Lux::Ref<Lux::Sound>> s_Sounds;
 	std::map<uint64_t, std::filesystem::path> s_Clips;
@@ -61,6 +62,7 @@ namespace Lux
 		config.Channels = 2;
 		config.SampleRate = kRate;
 		config.Performance = s_Performance;
+		config.Mixer = s_Mixer;
 		return config;
 	}
 
@@ -445,7 +447,7 @@ namespace
 		CHECK(AudioEngine::GetLoadedBanks().empty() && AudioEngine::GetEvents().empty());
 		AudioEventParameterInfo parameter;
 		CHECK(!AudioEngine::GetEventParameter("1", "Speed", parameter));
-		CHECK(!AudioEngine::SetBusVolume("bus:/SFX", 0.5f) && !AudioEngine::SetVCAVolume("vca:/Music", 0.5f));
+		CHECK(!AudioEngine::SetBusVolume("bus:/NotInTheMixer", 0.5f) && !AudioEngine::SetVCAVolume("vca:/Music", 0.5f));
 		CHECK(AudioEngine::LoadRuntimeBanks("Assets", {}));
 		CHECK(!AudioEngine::LoadBanks("Build/Desktop"));
 		CHECK(!AudioEventInstance::Create("event:/Door") && !AudioEventInstance::Create("424242") && !AudioEventInstance::Create(""));
@@ -567,6 +569,79 @@ namespace
 		AudioEngine::Shutdown();
 		s_Performance = {};
 		std::puts("PASS: Sound and instance volume, master bus volume and mute, focus mute");
+	}
+
+	void TestMixer()
+	{
+		// Settings: parents before children, unique well-formed paths, values in range, YAML round trip.
+		AudioMixerSettings settings;
+		CHECK(settings.Validate() && settings.Buses.size() == 4);
+		CHECK(AudioMixerSettings::ParentPath("bus:/SFX") == "bus:/" && AudioMixerSettings::ParentPath("bus:/SFX/Steps") == "bus:/SFX");
+		settings.Buses = { { "bus:/SFX/Steps" }, { "bus:/SFX" } };
+		CHECK(!settings.Validate());
+		settings.Buses = { { "bus:/SFX" }, { "bus:/SFX" } };
+		CHECK(!settings.Validate());
+		for (const char* bad : { "bus:/", "bus:/SFX/", "bus://SFX", "SFX" })
+		{
+			settings.Buses = { { bad } };
+			CHECK(!settings.Validate());
+		}
+		settings.Buses = { { "bus:/SFX", 0.25f, true }, { "bus:/SFX/Steps", 4.0f } };
+		settings.Reverb.RoomSize = 0.3f;
+		CHECK(settings.Validate());
+		Yaml::Writer out;
+		settings.SerializeYAML(out);
+		AudioMixerSettings loaded;
+		CHECK(loaded.DeserializeYAML(Yaml::Load(out.c_str())));
+		CHECK(loaded.Buses.size() == 2 && loaded.Buses[1].Path == "bus:/SFX/Steps" && loaded.Buses[0].Muted && loaded.Buses[0].Volume == 0.25f);
+		CHECK(loaded.Reverb.RoomSize == 0.3f);
+		CHECK(!loaded.DeserializeYAML(Yaml::Load("Buses: [{Path: 'bus:/A', Volume: 9}]")) && loaded.Buses.size() == 2);
+
+		// Bus volume and mute reach only that bus's sounds.
+		Start();
+		const auto tone = WriteTone("mixer.wav", 500.0, 1.0);
+		const auto master = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
+		const auto sfx = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = "bus:/SFX"; });
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		const double full = PlayAt(master, front).Left;
+		CHECK(full > 0.3);
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 1.0, 1e-4);
+		CHECK(AudioEngine::SetBusVolume("bus:/SFX", 0.5f) && AudioEngine::GetBusVolume("bus:/SFX") == 0.5f);
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 0.5, 1e-3);
+		CHECK_NEAR(PlayAt(master, front).Left / full, 1.0, 1e-4);
+		CHECK(AudioEngine::SetBusMuted("bus:/SFX", true));
+		CHECK(PlayAt(sfx, front).Left == 0.0);
+		CHECK(AudioEngine::SetBusMuted("bus:/SFX", false) && AudioEngine::SetBusVolume("bus:/SFX", 1.0f));
+		CHECK(!AudioEngine::SetBusVolume("bus:/Missing", 0.5f) && AudioEngine::GetBusVolume("bus:/Missing") == 0.0f);
+		AudioEngine::Shutdown();
+
+		// Nested buses multiply; a sound on a bus the mixer lacks plays through the master.
+		s_Mixer.Buses = { { "bus:/SFX", 0.5f }, { "bus:/SFX/Steps", 0.5f } };
+		Start();
+		const auto steps = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = "bus:/SFX/Steps"; });
+		const auto lost = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = "bus:/Nope"; });
+		CHECK_NEAR(PlayAt(steps, front).Left / full, 0.25, 1e-3);
+		CHECK_NEAR(PlayAt(lost, front).Left / full, 1.0, 1e-4);
+		AudioEngine::Shutdown();
+
+		// The reverb return: a short hit leaves a tail after it ends only when it is sent.
+		s_Mixer = {};
+		Start();
+		const auto hit = AddSound(WriteTone("hit.wav", 500.0, 0.05), [](Sound& s) { s.Spatial.Enabled = false; });
+		const auto tail = [&](float send)
+		{
+			auto instance = Play(hit, front);
+			instance->SetAcoustics({ 1.0f, send });
+			Render(kRate / 10);                // the 50 ms hit, and its end
+			const double level = Rms(Render(kRate / 10), 0);
+			instance->Stop(false);
+			Render(kRate);                     // let any tail die before the next case
+			return level;
+		};
+		CHECK(tail(0.0f) < 1e-6);
+		CHECK(tail(1.0f) > 1e-3);
+		AudioEngine::Shutdown();
+		std::puts("PASS: mixer settings validation and YAML, bus volume and mute, nested buses, unknown bus fallback, reverb return tail");
 	}
 
 	void TestPauseLayering()
@@ -1068,6 +1143,7 @@ int main(int argc, char** argv)
 	TestListeners();
 	TestOcclusion();
 	TestVolumeAndBuses();
+	TestMixer();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();

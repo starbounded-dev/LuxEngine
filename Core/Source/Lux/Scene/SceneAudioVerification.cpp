@@ -10,6 +10,7 @@
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioEventInstance.h"
+#include "Lux/Audio/AudioPerformance.h"
 #ifdef LUX_ENABLE_FMOD
 #include "Lux/Audio/FMOD/FMODInternal.h" // verification reads the authored Studio parameter
 #include <fmod_studio.hpp>
@@ -56,6 +57,13 @@ namespace Lux
 		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave";
 		out << Yaml::Key << "ReverbOn" << Yaml::Value << (stats.ReverbOnGpu ? "GPU" : "CPU");
 		out << Yaml::Key << "ReverbMeasurements" << Yaml::Value << stats.ReverbMeasurements;
+		// Audio budget evidence from the last 4 Hz sample. A session over budget also logs
+		// "Soundwave acoustics (ms) budget exceeded" once.
+		const AudioPerformanceStats& performance = AudioPerformance::GetStats();
+		out << Yaml::Key << "AcousticsMilliseconds" << Yaml::Value << performance.RaytracingMilliseconds;
+		out << Yaml::Key << "AcousticsBudgetMilliseconds" << Yaml::Value << AudioPerformance::GetSettings().RaytracingMilliseconds;
+		out << Yaml::Key << "AcousticsBudgetExceeded" << Yaml::Value << performance.RaytracingExceeded;
+		out << Yaml::Key << "AudioCPUPercent" << Yaml::Value << performance.CPUPercent;
 		out << Yaml::Key << "ReverbDecaySeconds" << Yaml::Value << kernel.GetReverb()->DecaySeconds;
 		out << Yaml::Key << "ReverbSend" << Yaml::Value << kernel.GetReverb()->Send;
 		out << Yaml::Key << "ReverbEscapedFraction" << Yaml::Value << kernel.GetReverb()->EscapedFraction;

@@ -11,6 +11,9 @@
 #include "Miniaudio.h"
 
 #include <MiniaudioCpp/MiniaudioWrappers.h>
+#include <extras/nodes/ma_reverb_node/ma_reverb_node.h>
+
+#include <map>
 
 #include <algorithm>
 #include <cmath>
@@ -25,6 +28,19 @@ namespace Lux {
 		ma_resource_manager s_ResourceManager;
 		JPL::Engine s_Engine; // empty until Init; the wrapper's nodes reach it through JPL::GetMiniaudioEngine
 		bool s_EngineReady = false;
+
+		// The mixer: one sound group per bus below the master (which is the engine endpoint), and the
+		// reverb return. Built by Init from the project's mixer; voices are released before them.
+		using GroupResource = JPL::Internal::CResource<ma_sound_group, ma_sound_group_init, JPL::Internal::impl::uninit<ma_sound_group_uninit>>;
+		using ReverbResource = JPL::Internal::CResource<ma_reverb_node, ma_reverb_node_init, JPL::Internal::impl::uninit<ma_reverb_node_uninit>>;
+		struct MixerBus
+		{
+			GroupResource Group;
+			float Volume = 1.0f;
+			bool Muted = false;
+		};
+		std::map<std::string, MixerBus> s_Buses;
+		ReverbResource s_Reverb;
 		// Runs the resource manager's jobs, which only streamed Sounds post: reading the next pages of
 		// a stream from disk, and opening and closing streams. Stopped by Shutdown, or at exit when the
 		// process ends without it, since destroying a running thread terminates the program.
@@ -79,14 +95,84 @@ namespace Lux {
 				LUX_CORE_ERROR_TAG("Audio", "Cannot set the master output volume: {}", ma_result_description(result));
 		}
 
-		// Phase 2 mixes everything through the master bus; authored buses arrive with the native mixer.
-		bool IsMasterBus(const std::string& path)
+		// A bus below the master, or null (reported once) when the mixer has no such bus.
+		MixerBus* FindBus(const std::string& path)
 		{
-			if (path == "bus:/")
-				return true;
-			if (s_ReportedBuses.insert(path).second)
-				LUX_CORE_WARN_TAG("Audio", "Bus '{}' does not exist: the native backend mixes every sound through bus:/ until it has a mixer", path);
-			return false;
+			if (const auto it = s_Buses.find(path); it != s_Buses.end() && it->second.Group)
+				return &it->second;
+			if (path != "bus:/" && s_ReportedBuses.insert(path).second)
+				LUX_CORE_WARN_TAG("Audio", "Bus '{}' is not in the project's mixer; its sounds play through bus:/", path);
+			return nullptr;
+		}
+
+		void ApplyBusVolume(MixerBus& bus)
+		{
+			ma_sound_group_set_volume(bus.Group.get(), bus.Muted ? 0.0f : bus.Volume);
+		}
+
+		// Parents are listed before children (AudioMixerSettings::Validate), so each parent exists. A bus
+		// that fails to build is reported, and its sounds and children play through the master instead.
+		void BuildMixer(ma_engine* engine, const AudioMixerSettings& mixer)
+		{
+			std::string error;
+			if (!mixer.Validate(&error))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid mixer, using the master bus only: {}", error);
+				return;
+			}
+			for (const AudioMixerBus& settings : mixer.Buses)
+			{
+				MixerBus& bus = s_Buses[settings.Path];
+				const auto parent = s_Buses.find(AudioMixerSettings::ParentPath(settings.Path));
+				ma_sound_group* parentGroup = parent != s_Buses.end() ? parent->second.Group.get() : nullptr;
+				const ma_result result = bus.Group.emplace(engine, 0u, parentGroup);
+				if (result != MA_SUCCESS)
+				{
+					Scope<ma_sound_group>(bus.Group.release()); // never initialized, so it must not be uninitialized
+					LUX_CORE_ERROR_TAG("Audio", "Cannot create bus '{}': {}", settings.Path, ma_result_description(result));
+					continue;
+				}
+				bus.Volume = settings.Volume;
+				bus.Muted = settings.Muted;
+				ApplyBusVolume(bus);
+			}
+			// miniaudio's reverb (verblib, Freeverb-based) takes mono or stereo only.
+			const ma_uint32 channels = ma_engine_get_channels(engine);
+			if (channels > 2)
+			{
+				LUX_CORE_WARN_TAG("Audio", "No reverb return: it supports 1-2 output channels, the device has {}", channels);
+				return;
+			}
+			ma_reverb_node_config config = ma_reverb_node_config_init(channels, ma_engine_get_sample_rate(engine));
+			config.roomSize = mixer.Reverb.RoomSize;
+			config.damping = mixer.Reverb.Damping;
+			config.width = mixer.Reverb.Width;
+			config.wetVolume = 1.0f;
+			config.dryVolume = 0.0f; // a return: voices keep their dry signal on their own bus
+			ma_result result = s_Reverb.emplace(ma_engine_get_node_graph(engine), &config, &JPL::gEngineAllocationCallbacks);
+			if (result != MA_SUCCESS)
+			{
+				Scope<ma_reverb_node>(s_Reverb.release());
+				LUX_CORE_ERROR_TAG("Audio", "Cannot create the reverb return: {}", ma_result_description(result));
+				return;
+			}
+			result = ma_node_attach_output_bus(s_Reverb.get(), 0, ma_engine_get_endpoint(engine), 0);
+			if (result == MA_SUCCESS)
+				result = ma_node_set_output_bus_volume(s_Reverb.get(), 0, mixer.Reverb.Volume);
+			if (result != MA_SUCCESS)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Cannot connect the reverb return: {}", ma_result_description(result));
+				s_Reverb.clear();
+			}
+		}
+
+		void ReleaseMixer()
+		{
+			s_Reverb.clear();
+			// Children before parents: a group detaches from its parent when it is uninitialized.
+			for (auto it = s_Buses.rbegin(); it != s_Buses.rend(); ++it)
+				it->second.Group.clear();
+			s_Buses.clear();
 		}
 
 		void ReportBanks()
@@ -107,6 +193,20 @@ namespace Lux {
 	ma_engine* NativeInternal::GetEngine()
 	{
 		return s_EngineReady ? s_Engine.get() : nullptr;
+	}
+
+	ma_node* NativeInternal::GetBusInput(const std::string& path)
+	{
+		if (!s_EngineReady)
+			return nullptr;
+		if (MixerBus* bus = FindBus(path))
+			return bus->Group.get();
+		return ma_engine_get_endpoint(s_Engine.get());
+	}
+
+	ma_node* NativeInternal::GetReverbReturn()
+	{
+		return s_EngineReady ? s_Reverb.get() : nullptr;
 	}
 
 	const NativeInternal::ListenerSet& NativeInternal::GetListeners()
@@ -158,6 +258,7 @@ namespace Lux {
 		JPL::GetMiniaudioEngine = [](void*) -> JPL::Engine& { return s_Engine; };
 		// The wrapper allocates its nodes through these; empty callbacks make every allocation fail.
 		JPL::gEngineAllocationCallbacks = s_Engine->allocationCallbacks;
+		BuildMixer(s_Engine.get(), config.Mixer);
 		JPL::Trace = [](const char* message) { LUX_CORE_INFO_TAG("Audio", "MiniaudioCpp: {}", message); };
 #if defined(JPL_ENABLE_ASSERTS) || defined(JPL_ENABLE_ENSURE)
 		// Logged, never a breakpoint: the wrapper's checks report failures the caller then handles.
@@ -202,6 +303,7 @@ namespace Lux {
 		if (s_EngineReady)
 		{
 			s_Streaming.Stop();
+			ReleaseMixer();
 			s_Engine.clear();
 			ma_resource_manager_uninit(&s_ResourceManager);
 			s_EngineReady = false;
@@ -290,10 +392,17 @@ namespace Lux {
 
 	bool AudioEngine::SetBusMuted(const std::string& path, bool muted)
 	{
-		if (!IsMasterBus(path))
+		if (path == "bus:/")
+		{
+			s_MasterMuted = muted;
+			ApplyEndpointVolume();
+			return true;
+		}
+		MixerBus* bus = FindBus(path);
+		if (!bus)
 			return false;
-		s_MasterMuted = muted;
-		ApplyEndpointVolume();
+		bus->Muted = muted;
+		ApplyBusVolume(*bus);
 		return true;
 	}
 
@@ -325,16 +434,26 @@ namespace Lux {
 			LUX_CORE_ERROR_TAG("Audio", "Bus volume must be finite");
 			return false;
 		}
-		if (!IsMasterBus(busPath))
+		if (busPath == "bus:/")
+		{
+			s_MasterVolume = std::max(volume, 0.0f);
+			ApplyEndpointVolume();
+			return true;
+		}
+		MixerBus* bus = FindBus(busPath);
+		if (!bus)
 			return false;
-		s_MasterVolume = std::max(volume, 0.0f);
-		ApplyEndpointVolume();
+		bus->Volume = std::max(volume, 0.0f);
+		ApplyBusVolume(*bus);
 		return true;
 	}
 
 	float AudioEngine::GetBusVolume(const std::string& busPath)
 	{
-		return busPath == "bus:/" ? s_MasterVolume : 0.0f;
+		if (busPath == "bus:/")
+			return s_MasterVolume;
+		const MixerBus* bus = FindBus(busPath);
+		return bus ? bus->Volume : 0.0f;
 	}
 
 	bool AudioEngine::GetEventParameter(const std::string& eventGuid, const std::string& name, AudioEventParameterInfo& outInfo)

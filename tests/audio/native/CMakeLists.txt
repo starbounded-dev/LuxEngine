@@ -62,6 +62,7 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_ROOT}/Core/vendor/MiniaudioCpp/src/ErrorReporting.cpp"
     "${LUX_SOURCE}/Audio/AudioListener.cpp"
     "${LUX_SOURCE}/Audio/AudioPerformanceSettings.cpp"
+    "${LUX_SOURCE}/Audio/AudioMixerSettings.cpp"
     "${LUX_SOURCE}/Audio/AudioBankManifest.cpp"
     "${LUX_SOURCE}/Audio/AudioEventRefSerializer.cpp"
     "${LUX_SOURCE}/Audio/Sound.cpp"
