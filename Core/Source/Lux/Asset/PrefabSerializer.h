@@ -19,6 +19,10 @@ namespace Lux
 		virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
 		virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
+		// In the pack a prefab is its scene's YAML, like a scene, so scripts can spawn it in a build.
+		virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+		virtual Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
 		// The single prefab-write path: the scene YAML plus an optional top-level BasePrefab key
 		// (written only for variants). All prefab saves route through here so the base link survives.
 		static void WritePrefabFile(const std::filesystem::path& path, const Ref<Scene>& scene, AssetHandle basePrefab);

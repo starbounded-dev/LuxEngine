@@ -6,6 +6,7 @@
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Audio/AudioValidation.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
@@ -15,6 +16,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/ShaderPack.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Serialization/AssetPack.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Social/DiscordSocial.h"
@@ -24,6 +26,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <fstream>
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Core/Math/AABB.h"
@@ -40,6 +43,7 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Utilities/CommandLineParser.h"
@@ -57,6 +61,7 @@
 #include "Lux/Renderer/DebugPalette.h"
 #include "Lux/Physics/PhysicsScene.h"
 #include "Panels/ProfilerPanel.h"
+#include "Panels/HelpPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
 #include "Panels/SoundEditor/SoundEditorPanel.h"
@@ -103,6 +108,7 @@ namespace Lux {
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
 #define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
+#define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
@@ -110,6 +116,61 @@ namespace Lux {
 		std::string GetRecentProjectKey(size_t index)
 		{
 			return "RecentProjects." + std::to_string(index);
+		}
+
+		// The C# project a new game's scripts build with (Project::GetScriptProjectPath; built by
+		// ScriptBuilder from Project Settings and the runtime export). It compiles Source/, writes the
+		// module where ProjectConfig::ScriptModulePath points (Scripts/Binaries), keeps intermediates
+		// in the project's Cache so generated .cs files stay out of the asset registry, and references
+		// the ScriptCore and Coral assemblies this editor loads, so nothing else needs installing.
+		bool WriteScriptProject(const std::filesystem::path& csprojPath, const std::string& name)
+		{
+			const std::filesystem::path editorDirectory = FileSystem::GetWorkingDirectory();
+			const std::string scriptCore = std::filesystem::absolute(editorDirectory / "Resources" / "Scripts" / "ScriptCore.dll").string();
+			const std::string coral = std::filesystem::absolute(editorDirectory / "DotNet" / "Coral.Managed.dll").string();
+			const std::string project = std::format(R"(<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>{0}</AssemblyName>
+    <RootNamespace>{0}</RootNamespace>
+    <Configurations>Debug;Release;Dist</Configurations>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>Binaries\</OutputPath>
+    <IntermediateOutputPath>..\..\Cache\ScriptBuild\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Source\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="ScriptCore">
+      <HintPath>{1}</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Coral.Managed">
+      <HintPath>{2}</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
+)", name, scriptCore, coral);
+
+			std::ofstream stream(csprojPath, std::ios::binary | std::ios::trunc);
+			stream << project;
+			stream.close();
+			if (!stream)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Could not write the script project '{}'", csprojPath.string());
+				return false;
+			}
+			return true;
 		}
 
 		std::filesystem::path NormalizeProjectPath(const std::filesystem::path& path)
@@ -381,6 +442,23 @@ namespace Lux {
 	void EditorLayer::OnAttach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
+		// Explicit developer probe, before the first startup ImGui/render frame. It
+		// uses an isolated context and local settings; no user project is edited.
+		if (FileSystem::HasEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST"))
+		{
+			std::vector<std::string> failures;
+			const bool passed = ProjectSettingsWindow::RunAcousticSettingsSelfTests(failures);
+			const auto path = FileSystem::GetEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST");
+			std::ofstream report(path,std::ios::trunc);
+			report << (passed ? "PASS" : "FAIL") << '\n';
+			for (const auto& failure : failures)
+				report << failure << '\n';
+			report.flush();
+			if (!passed || !report.good())
+				LUX_CORE_ERROR_TAG("Editor", "Acoustic settings UI self-test failed; report '{}'", path);
+			else
+				LUX_CORE_INFO_TAG("Editor", "Acoustic settings UI self-test passed; report '{}'", path);
+		}
 
 		// Per-user, like App.lsettings. ImGui reads the ini lazily on its first frame, so this has to
 		// come before the startup splash draws one; it keeps a pointer, hence the member string.
@@ -415,6 +493,10 @@ namespace Lux {
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
+		// The offline manual. Inspector help buttons (Core) reach it through EditorDocs.
+		m_HelpPanel = m_PanelManager->AddPanel<HelpPanel>(PanelCategory::View, HELP_PANEL_ID, "Help", false);
+		EditorDocs::SetOpenTopicHandler([this](std::string_view topic) { OpenHelpTopic(topic); });
+
 		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, MATERIAL_EDITOR_PANEL_ID, "Material Editor", false);
 		materialEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
 		{
@@ -441,7 +523,7 @@ namespace Lux {
 		};
 		m_SceneHierarchyPanel->SetOpenSoundCallback(openSoundEditor);
 
-		// Reads AudioEngine / RaytracedAudioScene directly and takes its scene from
+		// Reads AudioEngine / the scene's Soundwave state directly and takes its scene from
 		// PanelManager::SetSceneContext; the handle is kept only so OnOverlayRender can read the
 		// panel's 3D visualisation settings.
 		m_AudioDebugPanel = m_PanelManager->AddPanel<AudioDebugPanel>(PanelCategory::View, "AudioDebugPanel", "Audio Debugger", false);
@@ -514,6 +596,22 @@ namespace Lux {
 		// Command palette (Ctrl+Shift+P) — populated after every panel exists so panel toggles resolve.
 		m_CommandPalette = CreateScope<CommandPalette>();
 		RegisterCommands();
+
+		m_ToolHost = CreateScope<EditorToolHost>();
+		m_ToolHost->SetUndoHook([this](const std::string& label, const std::vector<UUID>& entities, bool sceneWide)
+		{
+			// Committed at once, so each tool request is its own undo step.
+			EditorStack& stack = EditorStack::Get();
+			if (sceneWide)
+				stack.MarkSceneEdited();
+			else
+				stack.MarkEntitiesEdited(entities);
+			stack.ConsumeSceneEdit();
+			stack.ConsumeLabel();
+			m_PendingUndoLabel = label;
+			CommitSceneSnapshot();
+			stack.ClearEditScope();
+		});
 
 		{
 			SplashScreen::Callbacks splashCallbacks;
@@ -666,6 +764,8 @@ namespace Lux {
 		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 
 		GoldenCapture::Hooks goldenHooks;
+		goldenHooks.StartPlay = [this]() { OnScenePlay(); return m_SceneState == SceneState::Play; };
+		goldenHooks.StopPlay = [this]() { OnSceneStop(); };
 		goldenHooks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 		goldenHooks.OpenScene = [this](const std::filesystem::path& path)
 		{
@@ -677,7 +777,25 @@ namespace Lux {
 			OpenScene(handle);
 			return m_EditorScene != previousScene;
 		};
+		goldenHooks.StartRuntimeExport = [this](const std::filesystem::path& folder, std::string& error)
+		{
+			ExportRuntimeNow(folder);
+			error = m_RuntimeExportError;
+			return m_PendingRuntimeExport.has_value();
+		};
+		goldenHooks.PollRuntimeExport = [this](std::filesystem::path& root, std::filesystem::path& executable, std::string& error)
+		{
+			if (m_PendingRuntimeExport)
+				return false;
+			root = m_LastRuntimeExportRoot;
+			executable = m_LastRuntimeExportExecutable;
+			error = m_RuntimeExportError;
+			if (root.empty() && error.empty())
+				error = "Runtime export stopped before producing a package";
+			return true;
+		};
 		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
+		ContentBrowserPanel::SetThumbnailWorkPaused(m_GoldenCapture != nullptr);
 
 		// The splash stays up through the first frames (UI_StartupSplashHandOff), so the main window
 		// appears with the editor already drawn in it.
@@ -690,6 +808,8 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		m_GoldenCapture.reset();
 		SaveEditorPreferences();
+		if (m_PanelManager)
+			m_PanelManager->Serialize();
 
 		// The build subprocess cannot be interrupted, and its worker writes into m_RuntimeBuildJob.
 		m_PendingRuntimeExport.reset();
@@ -728,6 +848,8 @@ namespace Lux {
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
 		m_ProfilerPanel.reset();
+		EditorDocs::SetOpenTopicHandler(nullptr);
+		m_HelpPanel.reset();
 		m_AudioDebugPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
@@ -748,6 +870,9 @@ namespace Lux {
 		// With no project open the start screen replaces the viewport, so there is nothing to render.
 		if (!m_ActiveScene || !m_EditorViewport || !Project::GetActive())
 			return;
+
+		// Compiles changed material graphs into the surface shaders; cheap when nothing changed.
+		MaterialGraphRegistry::Update();
 
 		if (m_GoldenCapture)
 			m_GoldenCapture->ConfigureViewport(*m_EditorViewport);
@@ -850,7 +975,7 @@ namespace Lux {
 		}
 
 		if (m_GoldenCapture)
-			m_GoldenCapture->EndFrame(m_SceneRenderer);
+			m_GoldenCapture->EndFrame(m_SceneRenderer, m_ActiveScene);
 	}
 
 	void EditorLayer::OnImGuiRender()
@@ -958,6 +1083,15 @@ namespace Lux {
 			// After the panels have drawn (and possibly signalled an edit), decide whether to record
 			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
 			PollSceneEditForUndo();
+
+			// Tool requests run against the scene the user sees, and only between the user's own
+			// edits, so a tool edit never merges into (or splits) a user's undo step.
+			if (m_ToolHost)
+			{
+				m_ToolHost->SetScene(m_ActiveScene, m_SceneState == SceneState::Edit);
+				if (!m_UndoCommitPending && !EditorStack::Get().HasPendingSceneEdit() && !ImGui::IsAnyItemActive())
+					m_ToolHost->ProcessQueue();
+			}
 			UI_UndoToast();
 			UI_ScriptToast();
 			UI_PrefabEditBanner();
@@ -1329,6 +1463,8 @@ namespace Lux {
 		// Tools
 		add("ImGui Metrics", "Tools", "", [this] { m_ShowImGuiMetrics = true; });
 		add("ImGui Style Editor", "Tools", "", [this] { m_ShowImGuiStyleEditor = true; });
+		add("Manual", "Help", "F1", [this] { OpenHelpTopic(HelpPanel::HomeTopic); });
+		add("Getting Started: Your First Game", "Help", "", [this] { OpenHelpTopic("getting-started/first-game"); });
 		add("Open User Data Folder", "Help", "", [] { FileSystem::OpenDirectoryInExplorer(FileSystem::GetPersistentStoragePath()); });
 		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
 	}
@@ -1397,6 +1533,7 @@ namespace Lux {
 				auto& prefabComponent = linked.AddOrReplaceComponent<PrefabComponent>();
 				prefabComponent.PrefabID = handle;
 				prefabComponent.EntityID = prefabUUID;
+				prefabComponent.Tracked = sourceUUID == entity.GetUUID(); // the root keeps the instance's records
 			}
 			EditorStack::Get().MarkSceneEdited("Create Prefab");
 			LUX_CONSOLE_LOG_INFO("Created prefab '{}'", relativePath.generic_string());
@@ -1544,6 +1681,34 @@ namespace Lux {
 				if (ImGui::MenuItem("Reset Layout"))
 					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
 
+				if (ImGui::BeginMenu("Layouts"))
+				{
+					const std::vector<std::string> layouts = GetSavedLayouts();
+					for (const std::string& layout : layouts)
+					{
+						if (ImGui::MenuItem(layout.c_str()))
+							LoadLayout(layout);
+					}
+					if (layouts.empty())
+						ImGui::MenuItem("No saved layouts", nullptr, false, false);
+					ImGui::Separator();
+					if (ImGui::MenuItem("Save Layout..."))
+						m_OpenSaveLayoutPopup = true;
+					if (ImGui::BeginMenu("Delete Layout", !layouts.empty()))
+					{
+						for (const std::string& layout : layouts)
+						{
+							if (ImGui::MenuItem(layout.c_str()))
+							{
+								std::error_code error;
+								std::filesystem::remove_all(FileSystem::GetPersistentStoragePath() / "Layouts" / layout, error);
+							}
+						}
+						ImGui::EndMenu();
+					}
+					ImGui::EndMenu();
+				}
+
 				if (ImGui::BeginMenu("Camera Bookmarks"))
 				{
 					for (int slot = 1; slot <= 9; slot++)
@@ -1617,6 +1782,11 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Help"))
 			{
+				if (ImGui::MenuItem("Manual", "F1"))
+					OpenHelpTopic(HelpPanel::HomeTopic);
+				if (ImGui::MenuItem("Getting Started"))
+					OpenHelpTopic("getting-started/first-game");
+				ImGui::Separator();
 				if (ImGui::MenuItem("Splash Screen") && m_SplashScreen)
 					m_SplashScreen->Open();
 				if (ImGui::MenuItem("Open User Data Folder"))
@@ -1633,6 +1803,91 @@ namespace Lux {
 		}
 
 		ImGui::EndGroup();
+
+		UI_SaveLayoutPopup();
+	}
+
+	std::vector<std::string> EditorLayer::GetSavedLayouts() const
+	{
+		std::vector<std::string> layouts;
+		std::error_code error;
+		for (const auto& entry : std::filesystem::directory_iterator(FileSystem::GetPersistentStoragePath() / "Layouts", error))
+		{
+			if (entry.is_directory() && std::filesystem::exists(entry.path() / "imgui.ini"))
+				layouts.push_back(entry.path().filename().string());
+		}
+		std::ranges::sort(layouts);
+		return layouts;
+	}
+
+	void EditorLayer::SaveLayout(const std::string& name)
+	{
+		const std::filesystem::path directory = FileSystem::GetPersistentStoragePath() / "Layouts" / name;
+		std::error_code error;
+		std::filesystem::create_directories(directory, error);
+		if (error)
+		{
+			LUX_CONSOLE_LOG_ERROR("Couldn't save layout '{}': {}", name, error.message());
+			return;
+		}
+
+		ImGui::SaveIniSettingsToDisk((directory / "imgui.ini").string().c_str());
+		m_PanelManager->Serialize(directory / "Panels.yaml");
+		LUX_CONSOLE_LOG_INFO("Saved layout '{}'", name);
+	}
+
+	void EditorLayer::LoadLayout(const std::string& name)
+	{
+		const std::filesystem::path directory = FileSystem::GetPersistentStoragePath() / "Layouts" / name;
+		std::ifstream ini(directory / "imgui.ini", std::ios::binary);
+		if (!ini)
+		{
+			LUX_CONSOLE_LOG_ERROR("Layout '{}' is missing its imgui.ini", name);
+			return;
+		}
+
+		ImGuiLayer::QueueIniSettingsLoad(std::string(std::istreambuf_iterator<char>(ini), {}));
+		if (std::filesystem::exists(directory / "Panels.yaml"))
+			m_PanelManager->Deserialize(directory / "Panels.yaml");
+	}
+
+	void EditorLayer::UI_SaveLayoutPopup()
+	{
+		if (m_OpenSaveLayoutPopup)
+		{
+			ImGui::OpenPopup("Save Layout");
+			m_OpenSaveLayoutPopup = false;
+		}
+
+		if (!ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+
+		if (ImGui::IsWindowAppearing())
+			ImGui::SetKeyboardFocusHere();
+		const bool entered = ImGui::InputText("Name", m_LayoutNameBuffer, sizeof(m_LayoutNameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
+
+		// The name is a folder name: no path separators or characters Windows rejects.
+		std::string name = m_LayoutNameBuffer;
+		std::erase_if(name, [](char c) { return std::string_view("<>:\"/\\|?*").find(c) != std::string_view::npos || static_cast<unsigned char>(c) < 32; });
+		while (!name.empty() && (name.back() == ' ' || name.back() == '.'))
+			name.pop_back();
+		const bool exists = !name.empty() && std::filesystem::exists(FileSystem::GetPersistentStoragePath() / "Layouts" / name);
+		if (exists)
+			ImGui::TextDisabled("Replaces the saved layout '%s'.", name.c_str());
+
+		ImGui::BeginDisabled(name.empty());
+		const bool save = ImGui::Button("Save") || (entered && !name.empty());
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+			ImGui::CloseCurrentPopup();
+		if (save)
+		{
+			SaveLayout(name);
+			m_LayoutNameBuffer[0] = '\0';
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
 	}
 
 	void EditorLayer::UI_DrawTitlebar()
@@ -2212,7 +2467,7 @@ namespace Lux {
 				bool seeTheSound = m_AudioDebugPanel->IsSeeTheSoundEnabled();
 				if (ImGui::Checkbox("See the Sound", &seeTheSound))
 					m_AudioDebugPanel->SetSeeTheSoundEnabled(seeTheSound);
-				ImGui::SetItemTooltip("Occlusion paths with wall labels, Asterwave rays and emitters, drawn during Play.");
+				ImGui::SetItemTooltip("Soundwave paths with wall labels, zones and emitters, drawn during Play.");
 			}
 			if (m_SceneRenderer)
 			{
@@ -2438,6 +2693,7 @@ namespace Lux {
 			}
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
+		case Key::F1: OpenHelpTopic(HelpPanel::HomeTopic); break;
 		case Key::B: if (control) ToggleEntityBookmark(); break;
 
 		// Undo/redo. Skipped while a text field is active so ImGui's own in-field undo keeps Ctrl+Z.
@@ -3085,101 +3341,11 @@ namespace Lux {
 	{
 		if (!m_AudioDebugPanel || !m_ActiveScene)
 			return;
-
-		Ref<RaytracedAudioScene> raytraced = m_ActiveScene->GetRaytracedAudioScene();
-		if (!raytraced)
-			return;
-
-		// Pushed every frame, whether or not the Audio Debugger is open: entering Play builds a new
-		// RaytracedAudioScene that has never seen these settings. The setter is cheap and idempotent.
 		const AudioVisualisationSettings& settings = m_AudioDebugPanel->GetVisualisationSettings();
-		raytraced->SetVisualisationEnabled(settings.Enabled, settings.RayCount, settings.BounceCount, settings.UpdateIntervalMs);
-		if (!settings.Enabled && !settings.ShowOcclusion && !settings.ShowAllZones)
-			return;
-
-		// Ray-type colours follow the simulation's own semantics rather than the editor theme:
-		// warm for the direct/reverb energy leaving the listener, cool for the surfaces it lands on.
-		constexpr glm::vec4 kRayNearColor{ 1.0f, 0.78f, 0.35f, 0.9f };
-		constexpr glm::vec4 kRayFarColor{ 0.85f, 0.32f, 0.55f, 0.9f };
-		constexpr glm::vec4 kBounceColor{ 0.45f, 0.85f, 1.0f, 1.0f };
-		constexpr glm::vec4 kNormalColor{ 0.35f, 1.0f, 0.6f, 0.9f };
-		constexpr glm::vec4 kListenerColor{ 0.4f, 1.0f, 0.45f, 1.0f };
-		constexpr glm::vec4 kSourceColor{ 1.0f, 0.6f, 0.2f, 1.0f };
-		constexpr glm::vec4 kBoundsColor{ 0.35f, 0.45f, 0.7f, 0.6f };
-
-		const RaytracedAudioStats stats = raytraced->GetStats();
-
-		// How far above and below a bounce point the material probe reaches.
-		constexpr float kBounceProbeDistance = 0.1f;
-		Ref<PhysicsScene> physics = settings.ColorBouncesByMaterial ? m_ActiveScene->GetPhysicsScene() : nullptr;
-
-		RaytracedAudioVisualisation snapshot;
-		if (settings.Enabled)
-			raytraced->GetVisualisation(snapshot);
-
-		if (settings.Enabled && (settings.DrawRayPaths || settings.DrawBouncePoints || settings.DrawNormals))
-		{
-			const int bounceCount = std::max(snapshot.BounceCount, 1);
-			for (int ray = 0; ray < snapshot.RayCount; ray++)
-			{
-				glm::vec3 previous = snapshot.Origin;
-
-				for (int bounce = 0; bounce < bounceCount; bounce++)
-				{
-					const size_t index = (size_t)ray * (size_t)bounceCount + (size_t)bounce;
-					if (index >= snapshot.Bounces.size())
-						break;
-
-					const RaytracedAudioBounce& hit = snapshot.Bounces[index];
-
-					// A ray that hit nothing ends here — its remaining slots are miss placeholders
-					// well outside the world, and connecting to them would fire lines off to
-					// infinity through the viewport.
-					if (!hit.Hit)
-						break;
-
-					if (settings.DrawRayPaths)
-					{
-						// Fade along the path so the listener end reads as the origin and later
-						// bounces recede, which is what makes a few hundred rays legible at once.
-						const float t = bounceCount > 1 ? (float)bounce / (float)(bounceCount - 1) : 0.0f;
-						glm::vec4 color = glm::mix(kRayNearColor, kRayFarColor, t);
-						color.a *= 1.0f - settings.PathFadeStrength * t;
-						m_Renderer2D->DrawLine(previous, hit.Position, color);
-					}
-
-					if (settings.DrawBouncePoints)
-					{
-						glm::vec4 bounceColor = kBounceColor;
-						if (settings.ColorBouncesByMaterial && physics)
-						{
-							// Probe back into the surface the bounce landed on to find what it is.
-							RayCastInfo probe;
-							probe.Origin = hit.Position + hit.Normal * kBounceProbeDistance;
-							probe.Direction = -hit.Normal;
-							probe.MaxDistance = kBounceProbeDistance * 2.0f;
-							SceneQueryHit surface;
-							if (physics->CastRay(&probe, surface))
-							{
-								Entity entity = m_ActiveScene->TryGetEntityWithUUID(surface.HitEntity);
-								const auto* collider = entity ? entity.TryGetComponent<MeshColliderComponent>() : nullptr;
-								if (collider && collider->AcousticMotion != AcousticGeometryMode::Disabled)
-									bounceColor = glm::vec4(DebugCategoryPalette[static_cast<size_t>(m_ActiveScene->ResolveAcousticMaterial(entity))], 1.0f);
-							}
-						}
-						m_Renderer2D->DrawCircle(hit.Position, glm::vec3(0.0f), 0.05f, bounceColor);
-					}
-
-					if (settings.DrawNormals)
-						m_Renderer2D->DrawLine(hit.Position, hit.Position + hit.Normal * settings.NormalLength, kNormalColor);
-
-					previous = hit.Position;
-				}
-			}
-		}
-
 		if (settings.DrawEmitters)
 		{
+			constexpr glm::vec4 kListenerColor{ 0.4f, 1.0f, 0.45f, 1.0f };
+			constexpr glm::vec4 kSourceColor{ 1.0f, 0.6f, 0.2f, 1.0f };
 			// Three rings per emitter so it reads as a sphere from any angle, rather than
 			// disappearing when the camera lines up with a single circle's plane.
 			auto drawEmitterGizmo = [this](const glm::vec3& position, float radius, const glm::vec4& color)
@@ -3188,49 +3354,23 @@ namespace Lux {
 					m_Renderer2D->DrawCircle(position, glm::vec3(glm::half_pi<float>(), 0.0f, 0.0f), radius, color);
 					m_Renderer2D->DrawCircle(position, glm::vec3(0.0f, glm::half_pi<float>(), 0.0f), radius, color);
 				};
-
-			drawEmitterGizmo(stats.ListenerPosition, settings.EmitterRadius, kListenerColor);
-
-			auto sources = m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioSourceComponent>();
-			for (entt::entity entityHandle : sources)
+			if (const AudioListenerState* listener = m_ActiveScene->GetPrimaryAudioListener())
+				drawEmitterGizmo(listener->UseAttenuationPosition ? listener->AttenuationPosition : listener->Position, settings.EmitterRadius, kListenerColor);
+			for (entt::entity entityHandle : m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioSourceComponent>())
 			{
 				Entity entity = { entityHandle, m_ActiveScene.Raw() };
-				const glm::vec3 position = glm::vec3(m_ActiveScene->GetWorldSpaceTransformMatrix(entity)[3]);
-				drawEmitterGizmo(position, settings.EmitterRadius * 0.75f, kSourceColor);
-
-				// A line to the listener makes the occlusion relationship visible: this is the path
-				// the simulation is measuring for that source. The occlusion view draws a richer one.
-				if (!settings.ShowOcclusion)
-					m_Renderer2D->DrawLine(position, stats.ListenerPosition, kSourceColor * glm::vec4(1.0f, 1.0f, 1.0f, 0.35f));
+				drawEmitterGizmo(glm::vec3(m_ActiveScene->GetWorldSpaceTransformMatrix(entity)[3]), settings.EmitterRadius * 0.75f, kSourceColor);
 			}
 		}
-
 		if (settings.ShowOcclusion)
 			DrawAudioOcclusion(view, settings);
 		if (settings.ShowAllZones)
 			DrawAudioZoneWeights(view);
-
-		if (settings.Enabled && settings.DrawWorldBounds && stats.WorldSize.x > 0.0f)
-		{
-			const glm::vec3 min = stats.WorldMin;
-			const glm::vec3 max = stats.WorldMin + stats.WorldSize;
-			const glm::vec3 corners[8] = {
-				{ min.x, min.y, min.z }, { max.x, min.y, min.z }, { max.x, max.y, min.z }, { min.x, max.y, min.z },
-				{ min.x, min.y, max.z }, { max.x, min.y, max.z }, { max.x, max.y, max.z }, { min.x, max.y, max.z },
-			};
-			constexpr int edges[12][2] = {
-				{ 0,1 }, { 1,2 }, { 2,3 }, { 3,0 },
-				{ 4,5 }, { 5,6 }, { 6,7 }, { 7,4 },
-				{ 0,4 }, { 1,5 }, { 2,6 }, { 3,7 },
-			};
-			for (const auto& edge : edges)
-				m_Renderer2D->DrawLine(corners[edge[0]], corners[edge[1]], kBoundsColor);
-		}
 	}
 
-	// Each source's engine occlusion path: listener to source, coloured by how much the walls on it
-	// remove, with every wall's entry and exit marked and labelled. Drawn over the scene so the
-	// part of the path inside a wall stays visible, which is the whole point of the view.
+	// Each source's Soundwave paths: the direct path coloured by how much the walls on it remove,
+	// every wall's entry and exit marked and labelled, and the reflection/opening routes the solve
+	// kept. Drawn over the scene so the part of a path inside a wall stays visible.
 	void EditorLayer::DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings)
 	{
 		constexpr glm::vec4 kClearColor{ 0.4f, 1.0f, 0.45f, 0.95f };
@@ -3243,8 +3383,9 @@ namespace Lux {
 		// Text is depth tested, so a label sits this far in front of the wall face nearest the camera.
 		constexpr float kLabelStandOff = 0.15f;
 		constexpr float kMarkerScale = 0.006f;
+		constexpr glm::vec4 kIndirectAlpha{ 1.0f, 1.0f, 1.0f, 0.45f };
 
-		const AudioOcclusion& occlusion = m_ActiveScene->GetAudioOcclusion();
+		const AudioAcoustics& acoustics = m_ActiveScene->GetAudioAcoustics();
 		const glm::mat3 cameraToWorld = glm::transpose(glm::mat3(view));
 		const glm::vec3 cameraPosition = glm::vec3(glm::inverse(view)[3]);
 		UUID selected = 0;
@@ -3280,22 +3421,31 @@ namespace Lux {
 			const UUID id = Entity{ entityHandle, m_ActiveScene.Raw() }.GetUUID();
 			if (selected && id != selected)
 				continue;
-			const AudioOcclusionPath* path = occlusion.GetPath(id);
-			if (!path)
+			const Soundwave::SolveResult* result = acoustics.GetResult(id);
+			if (!result)
 				continue;
-			const float length = glm::distance(path->From, path->To);
+			const auto point = [](const Soundwave::Position& p) { return glm::vec3(p.X, p.Y, p.Z); };
+			for (const Soundwave::PropagationPath& route : result->Indirect)
+			{
+				const float lossDb = -20.0f * std::log10(std::max(route.GainLF, 1e-6f));
+				for (uint32_t i = 1; i < route.PointCount; ++i)
+					m_Renderer2D->DrawLine(point(route.Points[i - 1]), point(route.Points[i]), lossColor(lossDb) * kIndirectAlpha, true);
+			}
+			const Soundwave::Path* path = &result->Direct;
+			const glm::vec3 from = point(path->From), to = point(path->To);
+			const float length = glm::distance(from, to);
 			if (length <= 0.0f)
 				continue;
-			const glm::vec3 direction = (path->To - path->From) / length;
+			const glm::vec3 direction = (to - from) / length;
 
-			m_Renderer2D->DrawLine(path->From, path->To, lossColor(path->LossLF), true);
-			for (const AudioOcclusionWall& wall : path->Walls)
+			m_Renderer2D->DrawLine(from, to, lossColor(path->LossLF), true);
+			for (const Soundwave::Crossing& wall : path->Crossings)
 			{
-				const glm::vec3 entry = path->From + direction * wall.Start;
-				const glm::vec3 exit = path->From + direction * wall.End;
+				const glm::vec3 entry = from + direction * wall.Start;
+				const glm::vec3 exit = from + direction * wall.End;
 				const glm::vec4 color = wall.Portal ? kPortalColor : kWallColor;
 				drawMarker(entry, color);
-				if (!wall.Flat)
+				if (!wall.OneSided)
 				{
 					drawMarker(exit, color);
 					m_Renderer2D->DrawLine(entry, exit, kBlockedColor, true);
@@ -3303,11 +3453,11 @@ namespace Lux {
 				if (!settings.DrawOcclusionLabels)
 					continue;
 
-				const char* material = AcousticMaterialName(wall.Material);
+				const char* material = AcousticMaterialName(static_cast<AcousticMaterial>(wall.Material));
 				std::string text;
 				if (wall.Portal)
 					text = std::format("Portal ({}) {:.2f} m  -{:.1f} dB", material, wall.End - wall.Start, wall.LossLF);
-				else if (wall.Flat)
+				else if (wall.OneSided)
 					text = std::format("{} surface  -{:.1f} dB", material, wall.LossLF);
 				else
 					text = std::format("{} {:.2f} m  -{:.1f} dB", material, wall.End - wall.Start, wall.LossLF);
@@ -3317,8 +3467,8 @@ namespace Lux {
 
 			if (settings.DrawOcclusionLabels)
 			{
-				const std::string total = path->Walls.empty() ? std::string("clear") : std::format("-{:.1f} dB", path->LossLF);
-				drawLabel(total, path->To + glm::normalize(cameraPosition - path->To) * kLabelStandOff, lossColor(path->LossLF));
+				const std::string total = path->Crossings.empty() ? std::string("clear") : std::format("-{:.1f} dB", path->LossLF);
+				drawLabel(total, to + glm::normalize(cameraPosition - to) * kLabelStandOff, lossColor(path->LossLF));
 			}
 		}
 	}
@@ -3383,13 +3533,13 @@ namespace Lux {
 		}
 	}
 
-	// The listener's room as Asterwave measures it, from the copy the scene takes inside the Asterwave join.
+	// The listener's room as Soundwave last measured it.
 	void EditorLayer::UI_RoomAcousticsReadout()
 	{
 		if (!m_AudioDebugPanel || !m_AudioDebugPanel->GetVisualisationSettings().ShowRoomAcoustics || !m_EditorViewport || !m_EditorViewport->IsVisible() || !m_ActiveScene)
 			return;
-		const RaytracedAudioAmbience& ambience = m_ActiveScene->GetLastAudioAmbience();
-		if (!ambience.Valid)
+		const Soundwave::ReverbResult* reverb = m_ActiveScene->GetAudioAcoustics().GetReverb();
+		if (!reverb)
 			return;
 
 		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
@@ -3401,12 +3551,10 @@ namespace Lux {
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
 		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
 		ImGuiLayer::RequestGlassBackdrop();
-		ImGui::TextUnformatted("Room (Asterwave measured)");
+		ImGui::TextUnformatted("Room (Soundwave)");
 		ImGuiEx::Fonts::PushFont("Mono");
-		ImGui::Text("Returned %5.1f%%  Outside %5.1f%%", ambience.ReturnedPercent * 100.0f, ambience.OutsidePercent * 100.0f);
-		ImGui::Text("Decay    LF %4.2f s  HF %4.2f s", ambience.MeasuredDecayTimeLF, ambience.MeasuredDecayTimeHF);
-		ImGui::Text("Absorb   LF %4.2f    HF %4.2f", ambience.MaterialAbsorptionLF, ambience.MaterialAbsorptionHF);
-		ImGui::Text("Scatter  %4.2f", ambience.MaterialRoughness);
+		ImGui::Text("Decay  %4.2f s   Send %5.1f%%", reverb->DecaySeconds, m_ActiveScene->GetAudioAcoustics().GetReverbSend() * 100.0f);
+		ImGui::Text("Outside %5.1f%%  Free path %4.1f m", reverb->EscapedFraction * 100.0f, reverb->MeanFreePath);
 		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
 	}
@@ -3645,7 +3793,8 @@ namespace Lux {
 
 	void EditorLayer::AddRecentProject(const std::filesystem::path& projectPath)
 	{
-		if (!m_UserPreferences)
+		// Capture fixtures are temporary projects, not user recent-project choices.
+		if (!m_UserPreferences || FileSystem::HasEnvironmentVariable("LUX_GOLDEN_DIR"))
 			return;
 
 		const std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);
@@ -3750,6 +3899,8 @@ namespace Lux {
 		StartupSplash::Report(0.5f, std::format("Loading {}", path.filename().string()));
 		if (Project::Load(path))
 		{
+			// Imported meshes keep their generated LODs in the project's Cache between launches.
+			MeshSource::SetGeometryCacheDirectory(Project::GetActive()->GetCacheDirectory() / "Geometry");
 			AddRecentProject(path);
 			if (m_SplashScreen)
 				m_SplashScreen->Close();
@@ -3802,6 +3953,9 @@ namespace Lux {
 			}
 		}
 
+		if (!WriteScriptProject(assetDirectory / "Scripts" / (name + ".csproj"), name))
+			return false;
+
 		ProjectSerializer serializer(project);
 		if (!serializer.Serialize(projectFilePath))
 		{
@@ -3827,6 +3981,7 @@ namespace Lux {
 		// Drop the scene's references into this project's assets before its asset manager goes away.
 		NewScene();
 		Project::SetActive(nullptr);
+		MeshSource::SetGeometryCacheDirectory({});
 		m_PanelManager->OnProjectChanged(nullptr);
 	}
 
@@ -4173,6 +4328,8 @@ namespace Lux {
 
 		if (++pending.NextStep == static_cast<uint32_t>(RuntimeExportStep::Count))
 		{
+			m_LastRuntimeExportRoot = pending.ExportRoot;
+			m_LastRuntimeExportExecutable = pending.ExportedExe;
 			m_PendingRuntimeExport.reset();
 			m_ShowRuntimeExportWindow = false;
 		}
@@ -4191,9 +4348,23 @@ namespace Lux {
 		m_ShowRuntimeExportWindow = true;
 	}
 
-	void EditorLayer::ExportRuntimeNow()
+	void EditorLayer::ExportRuntimeNow(const std::filesystem::path& targetFolder)
 	{
 		m_RuntimeExportError.clear();
+		m_LastRuntimeExportRoot.clear();
+		m_LastRuntimeExportExecutable.clear();
+		if (!targetFolder.empty())
+		{
+			std::error_code ec;
+			const bool exists = std::filesystem::exists(targetFolder, ec);
+			const bool empty = !exists || std::filesystem::is_empty(targetFolder, ec);
+			if (ec || !targetFolder.is_absolute() || !empty)
+			{
+				m_RuntimeExportError = "Automated export requires an absolute, empty destination: " + targetFolder.string();
+				LUX_CORE_ERROR_TAG("Editor", "{}", m_RuntimeExportError);
+				return;
+			}
+		}
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
@@ -4207,7 +4378,8 @@ namespace Lux {
 		SaveScene();
 		SaveProject();
 
-		const std::filesystem::path selectedFolder = FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str());
+		const std::filesystem::path selectedFolder = targetFolder.empty()
+			? FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str()) : targetFolder;
 		if (selectedFolder.empty())
 			return;
 
@@ -4249,6 +4421,7 @@ namespace Lux {
 		// UpdateRuntimeBuild writes the export once any build has finished.
 		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings, audioBanks };
 		m_PendingRuntimeExport->Writing = !buildRuntime && !buildScripts;
+		m_PendingRuntimeExport->OpenFolderWhenDone = targetFolder.empty();
 	}
 
 	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
@@ -4303,6 +4476,9 @@ namespace Lux {
 		{
 		case RuntimeExportStep::Prepare:
 		{
+			// Every graph in the project, not only the loaded ones, goes into the surface shaders before
+			// the asset pack records graph indices; the shaders recompile before the ShaderPack step.
+			MaterialGraphRegistry::ScanProject();
 			runtimeExe = GetRuntimeExecutablePath(targetConfig);
 			std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
 			if (repositoryRoot.empty())
@@ -4435,22 +4611,37 @@ namespace Lux {
 		case RuntimeExportStep::Executable:
 		{
 			if (!CopyFileIfExists(runtimeExe, exportedExe, true))
+			{
 				LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
+				return false;
+			}
 
 			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
 			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
 			{
 #ifdef LUX_PLATFORM_LINUX
 				const std::filesystem::path libDir = exportRoot / "lib";
-				std::filesystem::create_directories(libDir, ec);
-				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
+				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })
 				{
-					if (!entry.is_regular_file(ec))
-						continue;
+					for (std::filesystem::directory_iterator it(sourceDirectory, ec), end; !ec && it != end; it.increment(ec))
+					{
+						const bool regularFile = it->is_regular_file(ec);
+						if (ec)
+							break;
+						if (!regularFile)
+							continue;
 
-					const std::string filename = entry.path().filename().string();
-					if (filename.find(".so") != std::string::npos)
-						CopyFileIfExists(entry.path(), libDir / entry.path().filename());
+						const std::string filename = it->path().filename().string();
+						// A build folder from before Vercidium's removal can still hold its library; it must never ship.
+						if (filename.find(".so") != std::string::npos && filename.find("vaudionative") == std::string::npos &&
+							!CopyFileIfExists(it->path(), libDir / it->path().filename(), true))
+							return false;
+					}
+					if (ec)
+					{
+						LUX_CORE_ERROR_TAG("Project", "Cannot enumerate runtime libraries at '{}': {}", sourceDirectory.string(), ec.message());
+						return false;
+					}
 				}
 #else
 				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
@@ -4459,6 +4650,8 @@ namespace Lux {
 						continue;
 
 					const std::filesystem::path extension = entry.path().extension();
+					if (entry.path().stem() == "vaudionative")
+						continue; // a stale pre-removal build artifact; it must never ship
 					if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
 						CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
 				}
@@ -4545,7 +4738,8 @@ namespace Lux {
 #endif
 
 			LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
-			FileSystem::OpenDirectoryInExplorer(exportRoot);
+			if (pending.OpenFolderWhenDone)
+				FileSystem::OpenDirectoryInExplorer(exportRoot);
 			return true;
 		}
 
@@ -4607,6 +4801,8 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to open scene asset {0}; scene copy failed.", handle);
 			return;
 		}
+		// Prefabs edited while this scene was closed: their instances catch up with the hierarchy.
+		newScene->SyncAllPrefabInstances();
 
 		ApplyEditorScene(newScene, Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle));
 
@@ -5147,6 +5343,16 @@ namespace Lux {
 		ImGui::End();
 	}
 
+	void EditorLayer::OpenHelpTopic(std::string_view topic)
+	{
+		if (!m_HelpPanel)
+			return;
+
+		m_HelpPanel->OpenTopic(topic);
+		if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(HELP_PANEL_ID)))
+			panelData->IsOpen = true;
+	}
+
 	void EditorLayer::ReloadScriptsWithFeedback()
 	{
 		if (!Project::GetActive())
@@ -5428,7 +5634,11 @@ namespace Lux {
 	void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
 	{
 		SceneSerializer serializer(scene);
-		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
+		if (!serializer.Serialize(Project::GetActiveAssetDirectory() / path))
+		{
+			LUX_CONSOLE_LOG_ERROR("Could not save scene '{}'; the file on disk is unchanged.", path.string());
+			return;
+		}
 
 		// Their field values are saved back as loaded, so nothing is lost, but they cannot be
 		// edited until the assembly has the class; say so, as saving used to drop them silently.

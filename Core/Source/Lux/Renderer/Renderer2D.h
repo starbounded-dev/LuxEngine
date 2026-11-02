@@ -148,6 +148,22 @@ namespace Lux {
 
 		static const uint32_t MaxTextureSlots = 32; // TODO: RenderCaps
 
+		// The textures one vertex chunk's draw binds. Each chunk is one draw with one table, so a
+		// texture that no longer fits moves drawing on to the next chunk (AcquireTextureSlot).
+		struct TextureSlotTable
+		{
+			std::array<Ref<Texture2D>, MaxTextureSlots> Slots;
+			uint32_t Next = 0;
+		};
+
+		// The slot of `texture` in the table of the chunk the next primitive is written to, adding it
+		// there. `indexCount` is that primitive type's running index count; it is moved to the start of
+		// the next chunk when the current table is full. Slots below `firstSlot` are reserved.
+		float AcquireTextureSlot(std::vector<TextureSlotTable>& tables, uint32_t& indexCount, uint32_t firstSlot, const Ref<Texture2D>& texture);
+		// Binds `table` (null: none) to `material`'s texture array on the render thread, in command
+		// order, so each chunk's draw sees its own table; empty slots get the white texture.
+		void SubmitTextureSlots(const Ref<Material>& material, const std::string& arrayName, const TextureSlotTable* table);
+
 		const uint32_t c_MaxVertices;
 		const uint32_t c_MaxIndices;
 
@@ -183,8 +199,7 @@ namespace Lux {
 		std::vector<CircleVertex*> m_CircleVertexBufferPtr;
 		uint32_t m_CircleBufferWriteIndex = 0;
 
-		std::array<Ref<Texture2D>, MaxTextureSlots> m_TextureSlots;
-		uint32_t m_TextureSlotIndex = 1; // 0 = white texture
+		std::vector<TextureSlotTable> m_QuadTextureSlots; // per quad chunk; slot 0 = white texture
 
 		glm::vec4 m_QuadVertexPositions[4];
 
@@ -211,8 +226,7 @@ namespace Lux {
 		std::vector<VertexBufferPerFrame> m_TextVertexBuffers;
 		Ref<IndexBuffer> m_TextIndexBuffer;
 		Ref<Material> m_TextMaterial;
-		std::array<Ref<Texture2D>, MaxTextureSlots> m_FontTextureSlots;
-		uint32_t m_FontTextureSlotIndex = 0;
+		std::vector<TextureSlotTable> m_FontTextureSlots; // per text chunk
 
 		uint32_t m_TextIndexCount = 0;
 		using TextVertexBasePerFrame = std::vector<TextVertex*>;

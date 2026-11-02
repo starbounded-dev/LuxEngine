@@ -22,6 +22,12 @@ layout (push_constant) uniform PushConstants
 
 layout(location = 0) out vec2 OutputTexCoord;
 layout(location = 1) flat out uint OutputObjectIndex;
+// What triplanar mapping and graphs read, as in GBuffer_Static.
+layout(location = 2) out vec3 OutputWorldPosition;
+layout(location = 3) out vec3 OutputNormal;
+layout(location = 4) out mat3 OutputWorldNormals;
+
+#include <QTangent.glslh>
 
 void main()
 {
@@ -31,6 +37,10 @@ void main()
 	// The UVs GBuffer_Static samples, so the shadow is cut from the mask that is drawn.
 	OutputTexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
 	OutputObjectIndex = objectIndex;
+	OutputWorldPosition = (transform * vec4(a_Position, 1.0)).xyz;
+	const mat3 tbn = QTangent_ToTBN(a_QTangent);
+	OutputNormal = mat3(transform) * tbn[2];
+	OutputWorldNormals = mat3(transform) * tbn;
 	gl_Position = u_DirShadow.DirLightMatrices[u_PushConstants.Cascade] * transform * vec4(a_Position, 1.0);
 }
 
@@ -45,9 +55,13 @@ void main()
 #include <Buffers.glslh>
 #include <MaterialScene.glslh>
 #include <Samplers.glslh>
+#include <MaterialCutout.glslh>
 
 layout(location = 0) in vec2 InputTexCoord;
 layout(location = 1) flat in uint InputObjectIndex;
+layout(location = 2) in vec3 InputWorldPosition;
+layout(location = 3) in vec3 InputNormal;
+layout(location = 4) in mat3 InputWorldNormals;
 
 void main()
 {
@@ -57,9 +71,10 @@ void main()
 		return;
 
 	// The mip the light's view of the texture needs; nothing here has to match the camera passes.
-	vec2 uv = GetGPUMaterialUV(gpuMaterial, InputTexCoord);
-	float alpha = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, uv, 0.0).a
-		* GetGPUMaterialOpacity(gpuMaterial, 1.0);
+	// Shadows render without culling, so the face sign is the one the camera passes see for this side.
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	float alpha = LuxMaterialCutoutOpacity(gpuMaterial, InputTexCoord, InputWorldPosition, InputNormal * faceSign,
+		InputWorldNormals * faceSign, InputObjectIndex, 0.0);
 	if (alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 }

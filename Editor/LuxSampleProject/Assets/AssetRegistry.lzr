@@ -32,6 +32,9 @@ Assets:
   - Handle: 1485593981058217637
     FilePath: Environment/pink_sunrise_4k.hdr
     Type: EnvMap
+  - Handle: 1788761484944084081
+    FilePath: Meshes/Source/Materials/Ramp_0_Material_0.lmat
+    Type: Material
   - Handle: 1856441506274553301
     FilePath: Meshes/Source/Sponza/5061699253647017043.png
     Type: Texture
@@ -119,6 +122,9 @@ Assets:
   - Handle: 4617627115470858524
     FilePath: Textures/Checkerboard.png
     Type: Texture
+  - Handle: 4806701982428403362
+    FilePath: Meshes/Source/Materials/HazelText_0_Material_0.lmat
+    Type: Material
   - Handle: 4831308940071205184
     FilePath: Textures/Carpet016/Carpet016_1K-JPG_Color.jpg
     Type: Texture
@@ -242,9 +248,6 @@ Assets:
   - Handle: 8845360671192191215
     FilePath: Meshes/Source/Sponza/4477655471536070370.jpg
     Type: Texture
-  - Handle: 8868489982347245392
-    FilePath: Scripts/Intermediates/Release/LuxSample.AssemblyInfo.cs
-    Type: ScriptFile
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
     Type: Material
@@ -377,9 +380,6 @@ Assets:
   - Handle: 12875916381035008586
     FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_Color.jpg
     Type: Texture
-  - Handle: 12888239829427574556
-    FilePath: Scripts/Intermediates/Release/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
-    Type: ScriptFile
   - Handle: 12947748576387674464
     FilePath: Meshes/Source/Default/Cylinder.gltf
     Type: MeshSource
@@ -446,9 +446,6 @@ Assets:
   - Handle: 15891871588286909990
     FilePath: Audio/SampleProject/SampleProject.fspro
     Type: AudioProject
-  - Handle: 15966242954355821266
-    FilePath: Scripts/Intermediates/Debug/LuxSample.AssemblyInfo.cs
-    Type: ScriptFile
   - Handle: 15983446275544011186
     FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_Color.jpg
     Type: Texture
@@ -926,18 +923,27 @@ Assets:
   - Handle: 16000000000000001017
     FilePath: Materials/RenderFeatures/RF_GlassBall_Rough.lmat
     Type: Material
+  - Handle: 16000000000000001018
+    FilePath: Materials/RenderFeatures/RF_TwoSided.lmat
+    Type: Material
   - Handle: 16078392067688766467
     FilePath: Meshes/Source/Sponza/755318871556304029.jpg
     Type: Texture
+  - Handle: 16200000000000000001
+    FilePath: Scenes/Mirroring.luxscene
+    Type: Scene
+  - Handle: 16200000000000000002
+    FilePath: Scenes/ManyLights.luxscene
+    Type: Scene
+  - Handle: 16200000000000000003
+    FilePath: Scenes/LowSun.luxscene
+    Type: Scene
   - Handle: 16212976273744908290
     FilePath: Textures/Bricks097/Bricks097_1K-JPG_Color.jpg
     Type: Texture
   - Handle: 16270877928576420274
     FilePath: Scenes/LaptopStart.luxscene
     Type: Scene
-  - Handle: 16317874982647590309
-    FilePath: Scripts/Intermediates/Debug/.NETCoreApp,Version=v9.0.AssemblyAttributes.cs
-    Type: ScriptFile
   - Handle: 16610283657387777280
     FilePath: Meshes/Source/Default/Torus.gltf
     Type: MeshSource
@@ -950,6 +956,9 @@ Assets:
   - Handle: 16892774771919552109
     FilePath: Meshes/Source/CubeScene.gltf
     Type: MeshSource
+  - Handle: 17374672823927002992
+    FilePath: Meshes/Source/Default/Materials/Torus_0_Material_0.lmat
+    Type: Material
   - Handle: 17379388545274226483
     FilePath: Environment/birchwood_4k.hdr
     Type: EnvMap

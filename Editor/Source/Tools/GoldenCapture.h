@@ -29,7 +29,7 @@ namespace Lux {
 	// resolution and option set, waits for asset streaming to go idle, writes the final image and
 	// averaged timings to LUX_GOLDEN_DIR, and closes.
 	//
-	// Environment (see .claude/docs/Rendering.md § Golden image capture):
+	// Environment (see .claude/docs/Rendering.md Â§ Golden image capture):
 	//   LUX_GOLDEN_DIR          output directory; unset = the tool does nothing
 	//   LUX_GOLDEN_SCENE        scene path relative to the project's asset directory (required)
 	//   LUX_GOLDEN_PROJECT      .luxproj to open first (optional; default: whatever the editor opens)
@@ -46,6 +46,8 @@ namespace Lux {
 	//                           MoveStop=K (with MoveEntities) stops them at the loop's start once
 	//                           the capture could happen and captures K frames later, while the
 	//                           renderer still treats them as settling: their shadows must be there.
+	//   LUX_GOLDEN_PLAY         "1" enters normal Play and verifies Soundwave/FMOD LF values
+	//   LUX_GOLDEN_EXPORT_DIR   optional empty parent folder for normal runtime export after capture
 	//   LUX_GOLDEN_SELFTEST     "1" also runs RenderGraph::RunValidationSelfTests
 	//   LUX_GOLDEN_EXIT         "0" keeps the editor open afterwards (default: close)
 	//
@@ -57,8 +59,13 @@ namespace Lux {
 	public:
 		struct Hooks
 		{
+			std::function<bool()> StartPlay;
+			std::function<void()> StopPlay;
 			std::function<void(const std::filesystem::path&)> OpenProject;
 			std::function<bool(const std::filesystem::path&)> OpenScene;   // absolute scene file path
+			std::function<bool(const std::filesystem::path&, std::string&)> StartRuntimeExport;
+			// False while work is pending; true with package paths or an error at completion.
+			std::function<bool(std::filesystem::path&, std::filesystem::path&, std::string&)> PollRuntimeExport;
 		};
 
 		// Null unless LUX_GOLDEN_DIR is set.
@@ -73,7 +80,7 @@ namespace Lux {
 		// Call after the editor applied its per-frame renderer options, before rendering.
 		void ConfigureFrame(Scene& scene, EditorCamera& camera, SceneRenderer& renderer);
 		// Call after the frame's render work has been submitted.
-		void EndFrame(const Ref<SceneRenderer>& renderer);
+		void EndFrame(const Ref<SceneRenderer>& renderer, Ref<Scene> scene);
 
 		// Editor overlays (icons, gizmos, audio visualisation) depend on user preferences and
 		// animate, so a capture leaves them out.
@@ -87,6 +94,7 @@ namespace Lux {
 			WarmUp,
 			WaitForReadback,
 			Perf,
+			ExportRuntime,
 			Done
 		};
 
@@ -100,7 +108,7 @@ namespace Lux {
 		{
 			double CPUTime = 0.0;
 			double GPUTime = 0.0;
-			uint32_t Samples = 0;
+			uint32_t Samples = 0;   // frames the pass ran in (some passes run only some frames)
 		};
 
 		void ParseOptions(const std::string& options);
@@ -112,6 +120,7 @@ namespace Lux {
 		void AccumulatePerf(const SceneRenderer& renderer);
 		void WritePerf() const;
 		void RunSelfTest() const;
+		void VerifyAudio(Scene& scene);
 		void Finish(bool success, const std::string& reason);
 
 	private:
@@ -119,6 +128,7 @@ namespace Lux {
 
 		std::filesystem::path m_OutputDirectory;
 		std::filesystem::path m_ProjectPath;
+		std::filesystem::path m_ExportDirectory;
 		std::filesystem::path m_ScenePath;
 		std::string m_Name;
 		glm::uvec2 m_Size = { 1280, 720 };
@@ -126,7 +136,10 @@ namespace Lux {
 		uint32_t m_IdleFramesRequired = 60;
 		uint32_t m_TimeoutFrames = 6000;
 		uint32_t m_PerfFrames = 300;
+		// Frames rendered after the readback (which blocks the queue) before timing starts.
+		uint32_t m_PerfWarmupFrames = 30;
 		bool m_RunSelfTest = false;
+		bool m_Play = false, m_PlayStarted = false, m_AudioVerified = false;
 		bool m_ExitWhenDone = true;
 		std::map<std::string, std::string> m_Options;
 
@@ -134,6 +147,12 @@ namespace Lux {
 		uint32_t m_SceneFrames = 0;
 		uint32_t m_IdleFrames = 0;
 		uint32_t m_PerfSamples = 0;
+		uint32_t m_ReadyAfterFrames = 0;       // scene frames until the capture condition held
+		uint32_t m_PerfWarmupDone = 0;
+		uint32_t m_PerfFramesSeen = 0;         // timed frames, kept or not
+		uint32_t m_LostReadinessFrames = 0;    // timed frames dropped because asset streaming restarted
+		std::vector<double> m_FrameSamples, m_GPUSamples;
+		uint32_t m_ClusterEntries = 0, m_ClusterLightsDropped = 0; // last entries, most dropped in any frame
 
 		struct CameraPose
 		{

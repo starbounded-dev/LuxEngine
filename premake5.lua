@@ -18,11 +18,6 @@ newoption {
 }
 
 newoption {
-	trigger = "raytraced-audio",
-	description = "Build Asterwave ray-traced acoustics (needs the private Core/vendor/Asterwave checkout; exported games then contain it)"
-}
-
-newoption {
 	trigger = "fmod",
 	description = "Compatibility option: selects the default FMOD audio backend"
 }
@@ -41,7 +36,7 @@ newoption {
 }
 
 include "Dependencies.lua"
--- Validates the selected backend's SDK (FMOD only) and, when requested, the Asterwave checkout.
+-- Validates the selected backend's SDK (FMOD only).
 ValidateAudioSDK()
 
 workspace "Lux"
@@ -101,6 +96,10 @@ workspace "Lux"
 		sanitize { "Address" }
 		flags { "NoRuntimeChecks", "NoIncrementalLink" }
 
+	filter { "system:linux", "configurations:Debug-AS", "language:C++ or language:C" }
+		sanitize { "Address" }
+		buildoptions { "-fno-omit-frame-pointer" }
+
 	filter "configurations:Release"
 		optimize "On"
 		symbols "Default"
@@ -123,37 +122,6 @@ workspace "Lux"
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 group "Dependencies"
-	if _OPTIONS["raytraced-audio"] then
-		-- Keep generated project files out of the pinned, clean private checkout. Compile the
-		-- complete native library from the same source list as its standalone CMake target.
-		project "Asterwave"
-			kind "StaticLib"
-			location "bin-int/projects/Asterwave"
-			targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
-			objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
-			includedirs { AsterwaveRoot .. "/include" }
-			floatingpoint "Default"
-			pic "On"
-			for _, source in ipairs(AsterwaveManifest.sources) do
-				files { AsterwaveRoot .. "/" .. source }
-			end
-			for _, source in ipairs(AsterwaveManifest.required_files) do
-				files { AsterwaveRoot .. "/" .. source }
-			end
-			filter "system:windows"
-				systemversion "latest"
-				buildoptions { "/fp:precise", "/utf-8" }
-			filter "configurations:Debug or configurations:Debug-AS"
-				runtime "Debug"
-			filter "configurations:Release or configurations:Dist"
-				runtime "Release"
-				vectorextensions "AVX2"
-				isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
-			filter { "system:windows", "configurations:Debug-AS" }
-				editandcontinue "Off"
-			filter {}
-	end
-
 	include "Core/vendor/Box2D"
 	include "Core/vendor/JoltPhysics/JoltPhysicsPremake.lua"
 	include "Core/vendor/GLFW"
@@ -224,6 +192,10 @@ group ""
 
 group "Tools"
 	include "Editor"
+	if os.target() == "windows" then
+		include "Watchdog"
+		include "tools/AudioBankValidation"
+	end
 group ""
 
 group "Runtime"

@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "SceneSerializer.h"
 
 #include "Components.h"
@@ -316,6 +317,17 @@ namespace Lux {
 				out << Yaml::BeginMap;
 				out << Yaml::Key << "Prefab" << Yaml::Value << prefab.PrefabID;
 				out << Yaml::Key << "Entity" << Yaml::Value << prefab.EntityID;
+				if (prefab.Tracked)
+					out << Yaml::Key << "Tracked" << Yaml::Value << true;
+				for (const auto& [key, ids] : { std::pair{ "Removed", &prefab.RemovedEntities }, std::pair{ "Reparented", &prefab.ReparentedEntities } })
+				{
+					if (ids->empty())
+						continue;
+					out << Yaml::Key << key << Yaml::Value << Yaml::BeginSeq;
+					for (UUID id : *ids)
+						out << (uint64_t)id;
+					out << Yaml::EndSeq;
+				}
 				out << Yaml::EndMap;
 			}
 
@@ -930,6 +942,15 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
 					component.PrefabID = prefab["Prefab"].as<uint64_t>(0);
 					component.EntityID = prefab["Entity"].as<uint64_t>(0);
+					component.Tracked = prefab["Tracked"].as<bool>(false);
+					for (const auto& [key, ids] : { std::pair{ "Removed", &component.RemovedEntities }, std::pair{ "Reparented", &component.ReparentedEntities } })
+					{
+						if (const auto list = prefab[key])
+						{
+							for (const auto id : list)
+								ids->emplace_back(id.as<uint64_t>(0));
+						}
+					}
 				}
 
 				if (const auto transform = entity["TransformComponent"])
@@ -2035,13 +2056,11 @@ namespace Lux {
 		return ok;
 	}
 
-	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
+	bool SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		Yaml::Writer out;
 		SerializeToYAML(out);
-
-		std::ofstream fout(filepath);
-		fout << out.c_str();
+		return FileSystem::WriteFileAtomically(filepath, out.c_str());
 	}
 
 	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)

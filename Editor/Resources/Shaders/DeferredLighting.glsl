@@ -26,6 +26,7 @@ void main()
 #include <Lighting.glslh>
 #include <ShadowMapping.glslh>
 #include <LuxGBuffer.glslh>
+#include <MaterialLobes.glslh>
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in vec2 v_ClipPosition;
@@ -219,7 +220,16 @@ void main()
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
 	vec3 F0 = mix(LuxDielectricF0(gbuffer.Specular), m_Params.Albedo, m_Params.Metalness);
-	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
+
+	// Clearcoat, sheen, subsurface and anisotropy, from this pixel's material row. The anisotropic
+	// tangent comes back from the base colour's alpha (EncodeGBufferTangent).
+	GPUMaterial lobeMaterial = r_GPUMaterials.Materials[gbuffer.MaterialID];
+	vec3 lobeTangent = vec3(0.0);
+	if (HasGPUMaterialFlag(lobeMaterial.Metadata.x, GPU_MATERIAL_FLAG_HAS_ANISOTROPY))
+		lobeTangent = mat3(u_Camera.InverseViewMatrix) * DecodeGBufferTangent(gbuffer.ViewNormal, gbuffer.Opacity);
+	LuxSetupMaterialLobes(lobeMaterial, m_Params.Normal, lobeTangent);
+
+	vec3 Lr = LuxLobeReflection(m_Params.Normal, m_Params.View, m_Params.Roughness);
 
 	// Thin-surface diffuse transmission takes its share t of the diffuse light from reflection (glTF:
 	// mix(diffuse_brdf, diffuse_btdf, t)); specular is unchanged. Diffuse reflection is linear in albedo,
@@ -243,7 +253,8 @@ void main()
 	// occlusion inside the IBL evaluation). Direct light already has shadow-map visibility.
 	float screenSpaceAO = texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
 	float ambientOcclusion = max(gbuffer.AmbientOcclusion, 0.0) * screenSpaceAO;
-	vec3 iblLighting = IBL(F0, Lr, ambientOcclusion) * u_Scene.EnvironmentMapIntensity;
+	vec3 iblLighting = LuxApplyLobesIBL(IBL(F0, Lr, ambientOcclusion), u_EnvRadianceTex, u_EnvIrradianceTex,
+		m_Params.Normal, m_Params.View, u_Scene.EnvironmentMapRotation, ambientOcclusion) * u_Scene.EnvironmentMapIntensity;
 	// Ambient light arriving at the back face, from the irradiance about -N.
 	if (diffuseTransmission > 0.0)
 	{

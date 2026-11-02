@@ -28,6 +28,7 @@
 #include <GLFW/glfw3.h>
 
 #include <cmath>
+#include <optional>
 #include <cstdlib>
 
 // TODO(Yan): WIP
@@ -42,6 +43,8 @@ namespace Lux {
 		constexpr float k_GlassPopupBgAlpha = 0.72f;
 		// The windows that asked for a glass backdrop this frame (RequestGlassBackdrop). Main thread.
 		std::vector<ImGuiID> s_GlassBackdropRequests;
+		// imgui.ini text to load before the next NewFrame (QueueIniSettingsLoad). Main thread.
+		std::optional<std::string> s_PendingIniSettings;
 
 	}
 
@@ -230,7 +233,6 @@ namespace Lux {
 
 	struct ImGuiViewportData : public RefCounted
 	{
-		ImGuiID ViewportID = 0;
 		bool WindowOwned = false;
 		Scope<RHISwapChain> SC;
 		std::unique_ptr<ImGuiRenderer> Renderer;
@@ -251,7 +253,6 @@ namespace Lux {
 	static void ImGuiRenderer_CreateWindow(ImGuiViewport* viewport)
 	{
 		Ref<ImGuiViewportData> data = Ref<ImGuiViewportData>::Create();
-		data->ViewportID = viewport->ID;
 		s_ViewportData[viewport->ID] = data;
 		viewport->RendererUserData = data.Raw();
 
@@ -341,6 +342,12 @@ namespace Lux {
 		ImGui_ImplGlfw_NewFrame();
 		UpdateNavGamepad();
 
+		if (s_PendingIniSettings)
+		{
+			ImGui::LoadIniSettingsFromMemory(s_PendingIniSettings->data(), s_PendingIniSettings->size());
+			s_PendingIniSettings.reset();
+		}
+
 		ImGui::NewFrame();
 		ImGuizmo::BeginFrame();
 
@@ -353,6 +360,12 @@ namespace Lux {
 			m_DimmedPopupBgAlpha = popupAlpha;
 			m_PopupBgDimmed = true;
 		}
+	}
+
+	void ImGuiLayer::QueueIniSettingsLoad(std::string ini)
+	{
+		LUX_CORE_ASSERT(Application::GetMainThreadID() == std::this_thread::get_id());
+		s_PendingIniSettings = std::move(ini);
 	}
 
 	void ImGuiLayer::RequestGlassBackdrop()
@@ -564,15 +577,13 @@ namespace Lux {
 					viewportData->SC->OnResize();
 				viewportData->Renderer->PrepareGlassBackdrops(*snapshot);
 
-				m_PendingRenderTasks.emplace_back([weakViewportData = WeakRef<ImGuiViewportData>(viewportData), viewportID = viewport->ID, snapshot]()
+				m_PendingRenderTasks.emplace_back([weakViewportData = WeakRef<ImGuiViewportData>(viewportData), snapshot]()
 				{
-					// Dead when the viewport was destroyed after this task was queued. The ID check
-					// rejects a new viewport that reused the freed address. Viewports are destroyed
-					// only on the main thread while this thread is idle, so the check cannot race.
-					if (!weakViewportData.IsValid() || weakViewportData->ViewportID != viewportID)
+					// Null when the viewport was destroyed after this task was queued (a new viewport at
+					// the same address is a different object to the WeakRef).
+					Ref<ImGuiViewportData> viewportData = weakViewportData.Lock();
+					if (!viewportData)
 						return;
-
-					const ImGuiViewportData* viewportData = &*weakViewportData;
 
 					if (viewportData->SC->BeginFrame())
 					{

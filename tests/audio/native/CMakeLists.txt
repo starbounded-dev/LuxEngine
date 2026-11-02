@@ -66,6 +66,7 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Audio/PhysicsAudioSystem.cpp"
     "${LUX_SOURCE}/Audio/AudioSurfaceTable.cpp"
     "${LUX_SOURCE}/Audio/AcousticMaterial.cpp"
+    "${LUX_ROOT}/Core/vendor/soundwave/src/AcousticMaterialSettings.cpp" # the default material table
     "${LUX_SOURCE}/Core/UUID.cpp"
     "${LUX_SOURCE}/Core/Ref.cpp"
     "${LUX_SOURCE}/Utilities/StringUtils.cpp"
@@ -82,13 +83,15 @@ target_include_directories(lux_native_backend_tests PRIVATE
     "${LUX_ROOT}/Core/vendor/rapidyaml"
     "${LUX_ROOT}/Core/vendor" # choc, as StringUtils.cpp includes it
     "${MINIAUDIO_ROOT}"
+    "${LUX_ROOT}/Core/vendor/soundwave/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_compile_definitions(lux_native_backend_tests PRIVATE
     SPDLOG_USE_STD_FORMAT NOMINMAX _CRT_SECURE_NO_WARNINGS LUX_DEBUG
     GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE
     LUX_NATIVE_AUDIO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 if(WIN32)
-    target_compile_definitions(lux_native_backend_tests PRIVATE LUX_PLATFORM_WINDOWS)
+    # Premake builds Core with the Unicode character set; WindowsThread.cpp relies on it.
+    target_compile_definitions(lux_native_backend_tests PRIVATE LUX_PLATFORM_WINDOWS UNICODE _UNICODE)
 else()
     target_compile_definitions(lux_native_backend_tests PRIVATE LUX_PLATFORM_LINUX)
 endif()

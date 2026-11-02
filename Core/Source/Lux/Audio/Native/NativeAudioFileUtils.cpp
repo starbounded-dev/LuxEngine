@@ -22,9 +22,33 @@ namespace Lux::AudioFileUtils
 			else
 				return ma_decoder_init_file(path, config, decoder);
 		}
+
+		// Some decoders (Vorbis from a file on Windows) report a length of 0; then count the frames by
+		// decoding once and rewind.
+		ma_result GetLength(ma_decoder* decoder, ma_uint64* length)
+		{
+			ma_result result = ma_decoder_get_length_in_pcm_frames(decoder, length);
+			if (result != MA_SUCCESS || *length != 0)
+				return result;
+			ma_format format = ma_format_unknown;
+			ma_uint32 channels = 0;
+			result = ma_decoder_get_data_format(decoder, &format, &channels, nullptr, nullptr, 0);
+			if (result != MA_SUCCESS)
+				return result;
+			constexpr ma_uint64 kChunkFrames = 4096;
+			std::vector<uint8_t> chunk(kChunkFrames * ma_get_bytes_per_frame(format, channels));
+			ma_uint64 read = 0;
+			do
+			{
+				result = ma_decoder_read_pcm_frames(decoder, chunk.data(), kChunkFrames, &read);
+				*length += read;
+			} while (result == MA_SUCCESS && read != 0);
+			return result == MA_SUCCESS || result == MA_AT_END ? ma_decoder_seek_to_pcm_frame(decoder, 0) : result;
+		}
 	}
 
-	// Reads the header and length only; nothing is decoded and no engine is needed.
+	// Reads the header and length only (decoding only when the format does not store its length);
+	// no engine is needed.
 	std::optional<AudioFileInfo> GetFileInfo(const std::filesystem::path& filepath)
 	{
 		const ma_decoder_config config = ma_decoder_config_init(ma_format_unknown, 0, 0); // the file's own format
@@ -40,7 +64,7 @@ namespace Lux::AudioFileUtils
 		ma_uint64 frames = 0;
 		result = ma_decoder_get_data_format(&decoder, &format, &channels, &sampleRate, nullptr, 0);
 		if (result == MA_SUCCESS)
-			result = ma_decoder_get_length_in_pcm_frames(&decoder, &frames);
+			result = GetLength(&decoder, &frames);
 		ma_decoder_uninit(&decoder);
 		std::error_code ec;
 		const auto size = std::filesystem::file_size(filepath, ec);
@@ -72,7 +96,7 @@ namespace Lux::AudioFileUtils
 		ma_uint64 length = 0;
 		result = ma_decoder_get_data_format(&decoder, nullptr, &channels, nullptr, nullptr, 0);
 		if (result == MA_SUCCESS)
-			result = ma_decoder_get_length_in_pcm_frames(&decoder, &length);
+			result = GetLength(&decoder, &length);
 		if (result != MA_SUCCESS || channels == 0 || length == 0)
 		{
 			ma_decoder_uninit(&decoder);

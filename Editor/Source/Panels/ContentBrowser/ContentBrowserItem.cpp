@@ -360,6 +360,9 @@ namespace Lux {
 			if (ImGui::MenuItem(label.c_str()))
 				actionResult.Set(ContentBrowserAction::CreateSound, true);
 		}
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Material
+			&& ImGui::MenuItem("Create Instance"))
+			actionResult.Set(ContentBrowserAction::CreateVariant, true);
 
 		if (ImGui::MenuItem("Delete"))
 			actionResult.Set(ContentBrowserAction::OpenDeleteDialogue, true);

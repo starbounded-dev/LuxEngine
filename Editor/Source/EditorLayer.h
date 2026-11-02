@@ -30,6 +30,7 @@
 #include "Lux/Renderer/VertexBuffer.h"
 
 #include "entt/entt.hpp"
+#include "Lux/Editor/EditorToolHost.h"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Tools/GoldenCapture.h"
@@ -41,6 +42,7 @@ namespace Lux
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
+	class HelpPanel;
 	class AudioDebugPanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
@@ -93,6 +95,12 @@ namespace Lux
 		void ResetDefaultDockLayout(ImGuiID dockspaceId);
 		void DockViewsWhereLegacyViewportWas();
 		void SetEditorLayoutMode(bool simple);
+		// Named layouts (View > Layouts): a folder per layout under <user data>/Layouts holding the
+		// window and docking settings (imgui.ini) and the panels' open state and remembered state.
+		std::vector<std::string> GetSavedLayouts() const;
+		void SaveLayout(const std::string& name);
+		void LoadLayout(const std::string& name);
+		void UI_SaveLayoutPopup();
 		void UI_TitlebarTransport(float titlebarWidth);
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();
@@ -114,7 +122,7 @@ namespace Lux
 		// Export... in the export window. It starts m_PendingRuntimeExport: a Lux-Runtime or script
 		// build on m_RuntimeBuildJob when one is stale, then the writing steps, one per frame from
 		// UpdateRuntimeBuild, while UI_RuntimeExportProgress locks the editor.
-		void ExportRuntimeNow();
+		void ExportRuntimeNow(const std::filesystem::path& targetFolder = {});
 		bool ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks);
 		enum class RuntimeExportStep : uint8_t
 		{
@@ -183,6 +191,7 @@ namespace Lux
 		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
 		void UI_ScriptToast();                                    // transient C#-reload status overlay
 		void ReloadScriptsWithFeedback();                         // reload C# + sync storage + toast the result
+		void OpenHelpTopic(std::string_view topic);               // shows the Help panel at a manual topic
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
 		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
@@ -254,6 +263,7 @@ namespace Lux
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;
+		Ref<HelpPanel> m_HelpPanel;
 		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
@@ -262,6 +272,9 @@ namespace Lux
 		Ref<GameViewPanel> m_GameViewPanel;
 
 		Scope<CommandPalette> m_CommandPalette;
+		// Scene queries and edits for scripted or external tools; its queue runs after the undo poll,
+		// between user edits, and each completed edit is one undo step.
+		Scope<EditorToolHost> m_ToolHost;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
 		Scope<StartupSplash> m_StartupSplash; // the loading splash: OnAttach, then the first few frames
 
@@ -378,10 +391,13 @@ namespace Lux
 		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
 		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
 		bool m_PendingLayoutReset = false;
+		bool m_OpenSaveLayoutPopup = false;
+		char m_LayoutNameBuffer[64] = {};
 		bool m_LegacyViewportDockChecked = false;
 		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;
 		std::string m_RuntimeExportError;
+		std::filesystem::path m_LastRuntimeExportRoot, m_LastRuntimeExportExecutable;
 		// The export in progress, with the settings Export was clicked with. While it exists the export
 		// overlay locks the editor.
 		struct PendingRuntimeExport
@@ -392,6 +408,7 @@ namespace Lux
 			AudioBankManifest AudioBanks;
 			// False while its build runs. Then one RuntimeExportStep per frame, so the overlay redraws.
 			bool Writing = false;
+			bool OpenFolderWhenDone = true;
 			uint32_t NextStep = 0;
 			// Resolved by RuntimeExportStep::Prepare for the steps after it.
 			std::filesystem::path RuntimeExe;

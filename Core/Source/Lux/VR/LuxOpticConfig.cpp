@@ -222,11 +222,7 @@ namespace Lux {
 		if (!FileSystem::Exists(path.parent_path()))
 			FileSystem::CreateDirectory(path.parent_path());
 
-		std::ofstream file(path);
-		if (file.is_open())
-			file << out.c_str();
-
-		if (!file.good())
+		if (!FileSystem::WriteFileAtomically(path, out.c_str()))
 		{
 			LUX_CORE_ERROR_TAG("VR", "Could not write the headset settings to '{}'.", path.string());
 			return false;

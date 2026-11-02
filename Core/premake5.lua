@@ -52,11 +52,22 @@ project "Core"
 
 		"vendor/FastNoise/**.cpp",
 
+		"vendor/soundwave/include/**.h",
+		"vendor/soundwave/src/**.cpp",
+		"vendor/soundwave/src/**.h",
+
+		"vendor/meshoptimizer/**.h",
+		"vendor/meshoptimizer/**.cpp",
+
 		"vendor/rapidyaml/ryml_all.hpp",
 		"vendor/rapidyaml/ryml.cpp",
 
 		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
-		"vendor/imgui/misc/cpp/imgui_stdlib.h"
+		"vendor/imgui/misc/cpp/imgui_stdlib.h",
+
+		-- Node canvas for the material graph (thedmd/imgui-node-editor, MIT).
+		"vendor/imgui-node-editor/**.h",
+		"vendor/imgui-node-editor/**.cpp"
 	}
 	
 	removefiles {
@@ -68,14 +79,6 @@ project "Core"
 	-- dropped from the build, not just #ifdef'd out. Dist does the same below.
 	if _OPTIONS["no-aftermath"] then
 		removefiles { "Source/Lux/Platform/Vulkan/Debug/**.cpp" }
-	end
-
-	-- Asterwave is opt-in: whatever this build links ships inside exported games. Without it the stub
-	-- backend reports RaytracedAudioScene::IsAvailable() == false; engine occlusion is unaffected.
-	if _OPTIONS["raytraced-audio"] then
-		removefiles { "Source/Lux/Audio/RaytracedAudioSceneStub.cpp" }
-	else
-		removefiles { "Source/Lux/Audio/RaytracedAudioScene.cpp" }
 	end
 
 	-- One header set, two implementations: exactly one backend folder is compiled (--audio-backend).
@@ -99,15 +102,11 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	if _OPTIONS["raytraced-audio"] then
-		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
-	end
-
 	if AudioBackend == "fmod" then
 		defines { "LUX_ENABLE_FMOD" }
 	end
 
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
 	flags { "NoPCH" }
 
 	-- miniaudio's implementation unit is C and must not see the C++ precompiled header.

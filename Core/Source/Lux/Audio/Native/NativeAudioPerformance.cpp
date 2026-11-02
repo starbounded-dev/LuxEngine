@@ -60,7 +60,7 @@ namespace Lux
 		if (s_Stats.RaytracingExceeded && !s_WarnedRaytracing)
 		{
 			s_WarnedRaytracing = true;
-			LUX_CORE_WARN_TAG("Audio", "Asterwave raytracing (ms) budget exceeded: {} (budget {})", s_Stats.RaytracingMilliseconds, s_Settings.RaytracingMilliseconds);
+			LUX_CORE_WARN_TAG("Audio", "Soundwave acoustics (ms) budget exceeded: {} (budget {})", s_Stats.RaytracingMilliseconds, s_Settings.RaytracingMilliseconds);
 		}
 	}
 

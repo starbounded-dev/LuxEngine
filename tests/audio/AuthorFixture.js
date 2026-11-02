@@ -69,3 +69,30 @@ for(var i=0;i<events.length;i++) {
  curve.addAutomationPoint(0,0);curve.addAutomationPoint(1,0);
 }
 studio.project.save();
+
+// Own audio-table data keeps programmer-sound callbacks testable without SDK example banks.
+var fixtureBank=studio.project.model.Bank.findInstances()[0];
+var dialogueTable=studio.project.create('AudioTable');
+dialogueTable.name='Fixture Dialogue';
+dialogueTable.bank=fixtureBank;
+dialogueTable.sourceDirectory=studio.project.filePath.replace(/[^\\/]+$/, '')+'ProgrammerAudio';
+var dialogueFolder=studio.project.create('EventFolder');
+dialogueFolder.name='Character';
+dialogueFolder.folder=studio.project.model.MasterEventFolder.findInstances()[0];
+var dialogueEvent=studio.project.create('Event');
+dialogueEvent.name='Dialogue';
+dialogueEvent.folder=dialogueFolder;
+dialogueEvent.relationships.banks.add(fixtureBank);
+dialogueEvent.mixerInput.output=categories.Dialogue;
+dialogueEvent.addGroupTrack('Programmer Audio').addSound(dialogueEvent.timeline,'ProgrammerSound',0,2);
+if(!dialogueTable.isValid || !dialogueEvent.isValid)
+ throw new Error('Fixture programmer-sound event or audio table is invalid');
+studio.project.save();
+
+// Reject a fixture whose inherited instruments contradict the regression contract.
+var expectedOneShot={SurfaceHit:true,SurfaceMotion:false,MusicBed:false,MusicOther:false,MusicStinger:true};
+for(var i=0;i<events.length;i++) {
+ var e=events[i];
+ if(Object.prototype.hasOwnProperty.call(expectedOneShot,e.name) && e.isOneShot()!=expectedOneShot[e.name])
+  throw new Error('Fixture event '+e.name+' has the wrong one-shot type');
+}

@@ -65,6 +65,8 @@ namespace Lux
 		std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependents;
 		std::unordered_map<AssetHandle, std::unordered_set<AssetHandle>> m_AssetDependencies;
 		std::unordered_set<AssetHandle> m_PendingAssets;
+		// Queued loads that failed: not queued again by GetAssetAsync until ReloadData/ReloadDataAsync.
+		std::unordered_set<AssetHandle> m_FailedAssets;
 
 		mutable std::shared_mutex m_MemoryAssetsMutex;
 		mutable std::shared_mutex m_AssetDependenciesMutex;

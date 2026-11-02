@@ -1,0 +1,109 @@
+#ifndef LUX_MATERIAL_LOBES_GLSLH
+#define LUX_MATERIAL_LOBES_GLSLH
+
+// The advanced lobes of a material row, for the shaders that light a surface: per pixel in deferred
+// lighting (through the G-buffer MaterialID) and in the transparent forward pass. The direct terms are
+// in LuxEvaluateDirectBRDF (PBR.glslh); this sets them up and adds their image-based light.
+
+#include <MaterialScene.glslh>
+#include <PBR.glslh>
+
+// `N` is the world shading normal; `tangent` a world direction along the surface for anisotropy (it
+// need not be unit or orthogonal to N), before the material's rotation.
+void LuxSetupMaterialLobes(GPUMaterial material, vec3 N, vec3 tangent)
+{
+	uint flags = material.Metadata.x;
+	g_LobeFlags = 0u;
+	if (!HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_VALID) || HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_MISSING))
+		return;
+
+	if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_CLEARCOAT))
+	{
+		g_LobeFlags |= LUX_LOBE_CLEARCOAT;
+		g_Clearcoat = material.Lobes.x;
+		g_ClearcoatRoughness = material.Lobes.y;
+	}
+	if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_SHEEN))
+	{
+		g_LobeFlags |= LUX_LOBE_SHEEN;
+		g_SheenColor = material.Sheen.rgb;
+		g_SheenRoughness = material.Sheen.w;
+	}
+	if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_SUBSURFACE))
+	{
+		g_LobeFlags |= LUX_LOBE_SUBSURFACE;
+		g_SubsurfaceColor = material.Subsurface.rgb;
+		g_SubsurfaceThickness = material.Subsurface.w;
+	}
+	if (HasGPUMaterialFlag(flags, GPU_MATERIAL_FLAG_HAS_ANISOTROPY))
+	{
+		vec3 T = tangent - N * dot(N, tangent);
+		if (dot(T, T) > 1e-8)
+		{
+			g_LobeFlags |= LUX_LOBE_ANISOTROPY;
+			g_Anisotropy = material.Lobes.z;
+			g_AnisotropyTangent = normalize(T);
+			g_AnisotropyBitangent = cross(N, g_AnisotropyTangent);
+		}
+	}
+}
+
+// The tangent an anisotropic material uses, from the mesh's tangent frame turned by the material's
+// rotation. For the G-buffer pass and the transparent pass.
+vec3 LuxAnisotropyTangent(GPUMaterial material, vec3 tangent, vec3 bitangent)
+{
+	float rotation = material.Lobes.w;
+	return cos(rotation) * tangent + sin(rotation) * bitangent;
+}
+
+// The reflection direction for image-based light: an anisotropic surface bends it toward the
+// stretch [Revie 2011; Filament]. Plain materials get the mirror reflection.
+vec3 LuxLobeReflection(vec3 N, vec3 V, float roughness)
+{
+	if ((g_LobeFlags & LUX_LOBE_ANISOTROPY) == 0u)
+		return reflect(-V, N);
+
+	vec3 direction = g_Anisotropy >= 0.0 ? g_AnisotropyBitangent : g_AnisotropyTangent;
+	vec3 anisotropicTangent = cross(direction, V);
+	vec3 anisotropicNormal = cross(anisotropicTangent, direction);
+	float bend = abs(g_Anisotropy) * clamp(5.0 * roughness, 0.0, 1.0);
+	vec3 bentNormal = normalize(mix(N, anisotropicNormal, bend));
+	return reflect(-V, bentNormal);
+}
+
+// `baseIBL` is what LuxEvaluateImageBasedLighting returned for the layer under the lobes, before the
+// environment intensity. `ao` occludes the added ambient light as it does the base.
+vec3 LuxApplyLobesIBL(vec3 baseIBL, textureCube envRadiance, textureCube envIrradiance, vec3 N, vec3 V, float envRotation, float ao)
+{
+	if (g_LobeFlags == 0u)
+		return baseIBL;
+
+	vec3 result = baseIBL;
+	float NdotV = max(dot(N, V), 1e-4);
+
+	// Scattered ambient light from the far side.
+	if ((g_LobeFlags & LUX_LOBE_SUBSURFACE) != 0u)
+	{
+		vec3 backIrradiance = SampleLinear(envIrradiance, RotateVectorAboutY(envRotation, -N)).rgb;
+		result += g_SubsurfaceColor * (1.0 - g_SubsurfaceThickness) * backIrradiance * ao;
+	}
+
+	if ((g_LobeFlags & LUX_LOBE_SHEEN) != 0u)
+	{
+		vec3 irradiance = SampleLinear(envIrradiance, RotateVectorAboutY(envRotation, N)).rgb;
+		result = result * LuxSheenScaling() + g_SheenColor * LUX_SHEEN_ALBEDO * irradiance * ao;
+	}
+
+	if ((g_LobeFlags & LUX_LOBE_CLEARCOAT) != 0u)
+	{
+		int mipCount = textureQueryLevels(samplerCube(envRadiance, r_LinearSampler));
+		vec3 R = RotateVectorAboutY(envRotation, reflect(-V, N));
+		vec3 coatRadiance = SampleLinearLOD(envRadiance, R, LuxRoughnessToReflectionMip(g_ClearcoatRoughness, mipCount)).rgb;
+		float Fc = (0.04 + 0.96 * pow(1.0 - NdotV, 5.0)) * g_Clearcoat;
+		result = result * (1.0 - Fc) + coatRadiance * Fc * LuxSpecularOcclusion(NdotV, ao, g_ClearcoatRoughness);
+	}
+
+	return result;
+}
+
+#endif // LUX_MATERIAL_LOBES_GLSLH

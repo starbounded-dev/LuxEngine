@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "ScriptBuilder.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include <cstdlib>
 
@@ -19,8 +20,13 @@ namespace Lux {
 		// Invoke dotnet directly. std::system routes through cmd.exe on Windows and /bin/sh on
 		// Linux; double-quoting the (possibly spaced) path is honoured by both, whereas a PowerShell
 		// wrapper is Windows-only.
+#ifdef LUX_PLATFORM_WINDOWS
+		const std::string project = "\"" + projectPath.string() + "\""; // cmd.exe keeps & and spaces literal in quotes
+#else
+		const std::string project = FileSystem::QuoteShellArgument(projectPath); // /bin/sh expands $() in double quotes
+#endif
 		std::string command =
-			"dotnet build \"" + projectPath.string() + "\""
+			"dotnet build " + project
 			+ " -c " + configuration
 			+ " --nologo --verbosity minimal";
 

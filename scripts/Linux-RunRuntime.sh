@@ -8,11 +8,12 @@ if [ -n "${BUILD_CONFIG+set}" ]
 	then
 		case "$1" in
 			debug|Debug)     export BUILD_CONFIG=Debug ;;
+			debug-as|Debug-AS) export BUILD_CONFIG=Debug-AS ;;
 			release|Release) export BUILD_CONFIG=Release ;;
 			dist|Dist)       export BUILD_CONFIG=Dist ;;
 			*)
 				echo "Unknown config: $1"
-				echo "Usage: $0 [debug|release|dist]"
+				echo "Usage: $0 [debug|debug-as|release|dist]"
 				exit 1
 				;;
 		esac
@@ -22,12 +23,14 @@ if [ -n "${BUILD_CONFIG+set}" ]
 		echo "  1) Debug"
 		echo "  2) Release"
 		echo "  3) Dist"
-		printf "Choice [1-3]: "
+		echo "  4) Debug-AS (AddressSanitizer)"
+		printf "Choice [1-4]: "
 		read choice
 		case "$choice" in
 			1) export BUILD_CONFIG=Debug ;;
 			2) export BUILD_CONFIG=Release ;;
 			3) export BUILD_CONFIG=Dist ;;
+			4) export BUILD_CONFIG=Debug-AS ;;
 			*)
 				echo "Invalid choice"
 				exit 1

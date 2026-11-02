@@ -225,6 +225,7 @@ namespace Lux {
 		shaderc_util::FileFinder fileFinder;
 		fileFinder.search_path().emplace_back("Resources/Shaders/Include/GLSL/"); //Main include directory
 		fileFinder.search_path().emplace_back("Resources/Shaders/Include/Common/"); //Shared include directory
+		fileFinder.search_path().emplace_back("Resources/Cache/Shader/Generated/"); // Per-project generated code (MaterialGraphRegistry)
 		for (auto& [stage, shaderSource] : shaderSources)
 		{
 			shaderc::CompileOptions options;
@@ -259,6 +260,29 @@ namespace Lux {
 			shaderSource = std::string(preProcessingResult.begin(), preProcessingResult.end());
 		}
 		return shaderSources;
+	}
+
+	std::string VulkanShaderCompiler::TryCompileGLSL(const std::string& source, ShaderStage stage)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		static shaderc::Compiler compiler;
+
+		shaderc_util::FileFinder fileFinder;
+		fileFinder.search_path().emplace_back("Resources/Shaders/Include/GLSL/");
+		fileFinder.search_path().emplace_back("Resources/Shaders/Include/Common/");
+		fileFinder.search_path().emplace_back("Resources/Cache/Shader/Generated/");
+
+		shaderc::CompileOptions options;
+		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+		options.SetWarningsAsErrors();
+		options.AddMacroDefinition("__GLSL__");
+		options.AddMacroDefinition(std::string(ShaderUtils::ShaderStageToShaderMacro(stage)));
+		for (const auto& [name, value] : Renderer::GetGlobalShaderMacros())
+			options.AddMacroDefinition(name, value);
+		options.SetIncluder(std::make_unique<GlslIncluder>(&fileFinder));
+
+		const shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(source, ShaderUtils::ShaderStageToShaderC(stage), "generated.glsl", options);
+		return result.GetCompilationStatus() == shaderc_compilation_status_success ? std::string() : result.GetErrorMessage();
 	}
 
 	std::map<ShaderStage, std::string> VulkanShaderCompiler::PreProcessHLSL(const std::string& source)

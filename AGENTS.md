@@ -45,6 +45,9 @@ shader.** Reusing a slot with a differently-named buffer silently corrupts anoth
 
 - Before multi-file or multi-session work, or when asked for a plan, use the `plan-le` skill. It
   plans only and does not edit engine code.
+- For spec-driven features, the Spec Kit skills (`speckit-specify` → `speckit-plan` →
+  `speckit-tasks` → `speckit-implement`) are an alternative; their constitution is
+  `.specify/memory/constitution.md`, which ranks below this file and `.claude/docs/`.
 - For substantive coding, use the repository `dev` skill once before editing.
 - For performance questions (low FPS, hitches, slow loads, optimization), use `profile` — measure
   before changing anything.
@@ -66,9 +69,7 @@ Write code that belongs in a serious long-term engine, not a demo.
 
 - **Self-contained, small, refined.** Game makers should never need to install extra software for
   an editor feature to work: build it in, vendor a small permissively licensed library, or reuse
-  what the editor already requires (.NET SDK, shaderc, FMOD). Asterwave is an opt-in
-  (`--raytraced-audio`) private source dependency with its existing upstream licence, not a
-  permissive-library example, and nothing may require it. Any unavoidable
+  what the editor already requires (.NET SDK, shaderc, FMOD). Any unavoidable
   external tool is optional, auto-detected, and degrades gracefully. Full rule: `CLAUDE.md §
   Product Principle`.
 
@@ -82,9 +83,7 @@ Write code that belongs in a serious long-term engine, not a demo.
   mismatch that will crash on some other driver.
 - **Nothing expensive per frame.** Pipelines, shaders, descriptor layouts, and buffers are cached
   and invalidated, never rebuilt each frame.
-- **Explicit ownership.** `Ref<T>` / `Scope<T>`; no raw `new`/`delete`. The sole native Asterwave
-  shared-ownership exception is confined to `RaytracedAudioScene::Impl` and documented in
-  `Conventions.md`; no `std::shared_ptr` elsewhere in engine code.
+- **Explicit ownership.** `Ref<T>` / `Scope<T>`; no raw `new`/`delete`, no `std::shared_ptr`.
 - **`Core` stays usable without the editor.** `Lux-Runtime` building is the proof.
 - **Complete features.** A feature that only works in one code path is not done: runtime behaviour,
   editor integration, serialization, and safe fallbacks all count.

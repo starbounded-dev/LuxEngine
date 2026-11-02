@@ -27,5 +27,6 @@ namespace Lux
 		std::mutex m_Mutex;
 		std::vector<PhysicsContactEvent> m_Events;
 		std::set<std::array<uint32_t, 4>> m_RealContacts;
+		std::set<std::array<uint32_t, 4>> m_TriggerContacts;
 	};
 }

@@ -1041,6 +1041,7 @@ namespace
 		CHECK_NEAR(info->Duration, 0.5, 1e-9);
 		const auto ogg = AudioFileUtils::GetFileInfo(std::filesystem::path(LUX_NATIVE_AUDIO_FIXTURES) / "tone.ogg");
 		CHECK(ogg && ogg->SamplingRate == 48000 && ogg->NumChannels == 2);
+		CHECK_NEAR(ogg->Duration, 0.5, 0.01); // Vorbis may not store its length; it is counted
 		CHECK(!AudioFileUtils::GetFileInfo(s_Directory / "missing.wav"));
 		// Waveform peaks: a constant-level tone peaks at its amplitude in every slice.
 		const auto tone = WriteTone("waveform.wav", 500.0, 0.5, 0.5);

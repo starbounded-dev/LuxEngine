@@ -10,6 +10,7 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
+#include "Lux/Editor/EditorToolHost.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -720,6 +721,9 @@ namespace Lux {
 			DrawStat("Saved Draws", stats.SavedDraws);
 			DrawStat("Indirect Draws", stats.IndirectDraws);
 			DrawStat("Spot Shadowcasters", stats.SpotlightShadowcasters);
+			DrawStat("Cluster Point Entries", stats.ClusterPointIndicesRequested);
+			DrawStat("Cluster Spot Entries", stats.ClusterSpotIndicesRequested);
+			DrawStat("Cluster Lights Dropped", stats.ClusterPointLightsDropped + stats.ClusterSpotLightsDropped);
 			ImGui::EndTable();
 		}
 
@@ -1073,6 +1077,27 @@ namespace Lux {
 			{
 				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_SerializerSelfTestFailures.size());
 				for (const std::string& failure : m_SerializerSelfTestFailures)
+					ImGui::TextWrapped("%s", failure.c_str());
+			}
+		}
+
+		if (ImGui::Button("Run Editor Tool Host Self Tests"))
+		{
+			m_ToolHostSelfTestFailures.clear();
+			m_ToolHostSelfTestPassed = EditorToolHost::RunSelfTests(&m_ToolHostSelfTestFailures);
+			m_ToolHostSelfTestRan = true;
+		}
+		if (m_ToolHostSelfTestRan)
+		{
+			ImGui::SameLine();
+			if (m_ToolHostSelfTestPassed)
+			{
+				ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "Self tests passed");
+			}
+			else
+			{
+				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_ToolHostSelfTestFailures.size());
+				for (const std::string& failure : m_ToolHostSelfTestFailures)
 					ImGui::TextWrapped("%s", failure.c_str());
 			}
 		}

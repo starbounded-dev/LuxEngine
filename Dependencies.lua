@@ -27,62 +27,10 @@ end
 if FMODSDKRoot then
 	FMODSDKRoot = path.getabsolute(FMODSDKRoot)
 end
-AsterwaveRoot = path.getabsolute(os.getenv("LUX_ASTERWAVE_ROOT") or "Core/vendor/Asterwave")
-local manifestFile = assert(io.open(path.join(_SCRIPT_DIR, "scripts/dependencies/Asterwave.json"), "r"))
-AsterwaveManifest = json.decode(manifestFile:read("*a"))
-manifestFile:close()
-
-local function QuoteGitPath(value)
-	if os.host() == "windows" then
-		-- cmd expands percent variables even inside quotes; reject them instead of validating
-		-- a different directory. Windows filenames cannot contain a double quote.
-		if value:find('["%%\r\n]') then
-			error("Unsupported characters in Asterwave checkout path: " .. value)
-		end
-		return '"' .. value .. '"'
-	end
-	return "'" .. value:gsub("'", "'\\''") .. "'"
-end
-
-local function ReadAsterwaveGit(arguments)
-	local output, exitCode = os.outputof("git -C " .. QuoteGitPath(AsterwaveRoot) .. " " .. arguments)
-	if exitCode ~= 0 then
-		error("Cannot validate Asterwave checkout with Git: " .. AsterwaveRoot .. " (" .. arguments .. ")")
-	end
-	return (output or ""):gsub("%s+$", "")
-end
-
-function ValidateAsterwaveSource()
-	for _, collection in ipairs({ AsterwaveManifest.sources, AsterwaveManifest.required_files }) do
-		for _, file in ipairs(collection) do
-			if not os.isfile(AsterwaveRoot .. "/" .. file) then
-				error("Required Asterwave source file missing: " .. AsterwaveRoot .. "/" .. file .. ". Run python scripts/FetchAsterwave.py or set LUX_ASTERWAVE_ROOT.")
-			end
-		end
-	end
-	local root = path.getabsolute(ReadAsterwaveGit("rev-parse --show-toplevel"))
-	local expectedRoot = AsterwaveRoot
-	if os.host() == "windows" then
-		root, expectedRoot = root:lower(), expectedRoot:lower()
-	end
-	if root ~= expectedRoot then
-		error("Asterwave must be its own Git checkout: " .. AsterwaveRoot)
-	end
-	local revision = ReadAsterwaveGit("rev-parse HEAD")
-	if revision ~= AsterwaveManifest.revision then
-		error("Asterwave revision mismatch: expected " .. AsterwaveManifest.revision .. ", found " .. revision .. ". Run python scripts/FetchAsterwave.py.")
-	end
-	if ReadAsterwaveGit("status --porcelain --untracked-files=all"):find("%S") then
-		error("Asterwave checkout has local changes: " .. AsterwaveRoot .. ". Preserve them separately before using the pinned dependency.")
-	end
-end
 
 function ValidateAudioSDK()
 	if AudioBackend == "fmod" then
 		ValidateFMODSDK()
-	end
-	if _OPTIONS["raytraced-audio"] then
-		ValidateAsterwaveSource()
 	end
 end
 
@@ -224,6 +172,10 @@ Dependencies = {
 		LibName = "Coral.Native",
 		IncludeDir = "%{wks.location}/Core/vendor/Coral/Coral.Native/Include",
 	},
+	-- Soundwave sources are archived into Core; only its public include root crosses the seam.
+	Soundwave = {
+		IncludeDir = "%{wks.location}/Core/vendor/soundwave/include",
+	},
 	FastNoise = {
 		IncludeDir = "%{wks.location}/Core/vendor/FastNoise",
 	},
@@ -240,12 +192,6 @@ Dependencies = {
 	DiscordSocial = _OPTIONS["discord"] and {
 		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
 		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
-	} or nil,
-	-- Opt-in with "--raytraced-audio". Built from the pinned private C++ source by the Asterwave
-	-- Premake project and linked statically, so every exported game of that build contains it.
-	Asterwave = _OPTIONS["raytraced-audio"] and {
-		LibName = "Asterwave",
-		IncludeDir = AsterwaveRoot .. "/include",
 	} or nil,
 	-- The default audio backend (--audio-backend=fmod). Two entries because FMOD ships the Studio
 	-- API as a separate library layered on the Core one: Studio owns the events and banks the game

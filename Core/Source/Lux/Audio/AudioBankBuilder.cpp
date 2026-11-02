@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "AudioBankBuilder.h"
 #include "AudioPerformanceSettings.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include <cstdlib>
 #include <chrono>
@@ -94,28 +95,6 @@ namespace Lux {
 				}
 			}
 			return {};
-		}
-
-		std::string QuoteArgument(const std::filesystem::path& path)
-		{
-#ifdef LUX_PLATFORM_WINDOWS
-			// cmd.exe expands variables even inside quotes. Reject these names instead of running
-			// a different command from the one the user selected.
-			const std::string value = path.string();
-			if (value.find_first_of("\"%!\r\n") != std::string::npos)
-				throw std::invalid_argument("FMOD tool paths cannot contain quotes, %, ! or newlines on Windows");
-			return "\"" + value + "\"";
-#else
-			std::string quoted = "'";
-			for (char character : path.string())
-			{
-				if (character == '\'')
-					quoted += "'\\''";
-				else
-					quoted += character;
-			}
-			return quoted + "'";
-#endif
 		}
 
 		// Newest write time anywhere under a directory. Used on the .fspro's folder, which holds
@@ -265,7 +244,7 @@ namespace Lux {
 		std::string command;
 		try
 		{
-			command = QuoteArgument(tool) + " -build -export-guids -platforms " + QuoteArgument(platform) + " " + QuoteArgument(studioProjectPath);
+			command = FileSystem::QuoteShellArgument(tool) + " -build -export-guids -platforms " + FileSystem::QuoteShellArgument(platform) + " " + FileSystem::QuoteShellArgument(studioProjectPath);
 #ifdef LUX_PLATFORM_WINDOWS
 			// cmd.exe removes the outer quotes when the command starts with a quoted executable.
 			command = "\"" + command + "\"";
@@ -317,9 +296,9 @@ namespace Lux {
 		try
 		{
 #ifdef LUX_PLATFORM_WINDOWS
-			command = "start \"\" " + QuoteArgument(application) + " " + QuoteArgument(path);
+			command = "start \"\" " + FileSystem::QuoteShellArgument(application) + " " + FileSystem::QuoteShellArgument(path);
 #else
-			command = QuoteArgument(application) + " " + QuoteArgument(path) + " >/dev/null 2>&1 &";
+			command = FileSystem::QuoteShellArgument(application) + " " + FileSystem::QuoteShellArgument(path) + " >/dev/null 2>&1 &";
 #endif
 		}
 		catch (const std::invalid_argument& error)

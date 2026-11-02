@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "ProjectSerializer.h"
 
 #include "ProjectRuntimeFormat.h"
@@ -114,6 +115,7 @@ namespace Lux
 				case 2: return "High";
 				case 3: return "Ultra";
 				case 4: return "Cinematic";
+				case 5: return "Custom";
 				default:
 					return "Medium";
 			}
@@ -129,8 +131,15 @@ namespace Lux
 				return 3;
 			if (value == "Cinematic" || value == "4")
 				return 4;
+			if (value == "Custom" || value == "5")
+				return 5;
 			return 1;
 		}
+
+		// In Lux::QualityCategory order.
+		constexpr const char* s_QualityCategoryKeys[ProjectSceneRendererSettings::QualityCategoryCount] = {
+			"Shadows", "AmbientOcclusion", "Reflections", "AntiAliasing", "Textures", "ResolutionScale", "PostProcessing"
+		};
 
 		const char* ShadowResolutionToString(uint32_t resolution)
 		{
@@ -212,6 +221,10 @@ namespace Lux
 			out << Yaml::Key << "Rendering" << Yaml::Value;
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "QualityPreset" << Yaml::Value << QualityPresetToString(settings.QualityPreset);
+			out << Yaml::Key << "QualityCategories" << Yaml::Value << Yaml::BeginMap;
+			for (uint32_t i = 0; i < ProjectSceneRendererSettings::QualityCategoryCount; i++)
+				out << Yaml::Key << s_QualityCategoryKeys[i] << Yaml::Value << QualityPresetToString(settings.QualityCategories[i]);
+			out << Yaml::EndMap;
 			out << Yaml::Key << "FrustumCulling" << Yaml::Value << settings.EnableFrustumCulling;
 			out << Yaml::Key << "OcclusionCulling" << Yaml::Value << settings.EnableOcclusionCulling;
 			out << Yaml::Key << "GPUDrivenRendering" << Yaml::Value << settings.EnableGPUDrivenRendering;
@@ -318,6 +331,12 @@ namespace Lux
 			if (auto rendering = node["Rendering"])
 			{
 				settings.QualityPreset = QualityPresetFromString(rendering["QualityPreset"].as<std::string>(QualityPresetToString(settings.QualityPreset)));
+				// Missing (a project saved before the categories): every category stays Custom.
+				if (auto categories = rendering["QualityCategories"])
+				{
+					for (uint32_t i = 0; i < ProjectSceneRendererSettings::QualityCategoryCount; i++)
+						settings.QualityCategories[i] = QualityPresetFromString(categories[s_QualityCategoryKeys[i]].as<std::string>("Custom"));
+				}
 				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
 				settings.EnableOcclusionCulling = rendering["OcclusionCulling"].as<bool>(settings.EnableOcclusionCulling);
 				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
@@ -808,11 +827,8 @@ namespace Lux
 		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(filepath);
-		std::ofstream fout(filepath);
-		if (!fout.is_open())
+		if (!FileSystem::WriteFileAtomically(filepath, out.c_str()))
 			return false;
-
-		fout << out.c_str();
 		m_Project->OnSerialized();
 		return true;
 	}
@@ -1212,6 +1228,12 @@ namespace Lux
 		Log::SetDefaultTagSettings();
 		uint32_t tagCount = 0;
 		stream.ReadRaw<uint32_t>(tagCount);
+		// Each tag is at least a string length, a flag and a level.
+		if (tagCount > stream.GetRemainingBytes() / (sizeof(size_t) + 2))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Damaged runtime project (log tag count): {0}", filepath.string());
+			return false;
+		}
 		for (uint32_t i = 0; i < tagCount; i++)
 		{
 			std::string name;
@@ -1239,6 +1261,13 @@ namespace Lux
 			stream.ReadString(scriptModulePath);
 			if (!scriptModulePath.empty())
 				config.ScriptModulePath = scriptModulePath;
+		}
+
+		// A short file fails its reads (no assert since 2026-10-26); refuse it rather than run on half a config.
+		if (!stream.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Truncated runtime project: {0}", filepath.string());
+			return false;
 		}
 
 		const std::filesystem::path overridesFile = filepath.parent_path() / "Project.yaml";

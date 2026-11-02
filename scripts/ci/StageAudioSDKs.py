@@ -15,8 +15,7 @@ Example:
         --fmod-linux fmodstudioapi20314linux.tar.gz
 
 Then commit and push <out> to the private repository. Any platform argument may be omitted to
-stage only the other; CI jobs for a missing platform fail at project generation. Asterwave source
-is checked out separately at its tracked revision; use scripts/FetchAsterwave.py for local setup.
+stage only the other; CI jobs for a missing platform fail at project generation.
 """
 
 import argparse

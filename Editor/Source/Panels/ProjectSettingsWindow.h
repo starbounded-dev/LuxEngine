@@ -5,6 +5,8 @@
 
 #include "Lux/Core/Log.h"
 #include "Lux/Editor/EditorPanel.h"
+#include <string>
+#include <vector>
 
 namespace Lux {
 
@@ -20,6 +22,8 @@ namespace Lux {
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
 		virtual void OnClose() override;
+		// Startup-only: requires main thread, before any editor ImGui/render frame.
+		static bool RunAcousticSettingsSelfTests(std::vector<std::string>& failures);
 
 	private:
 		void SyncBuffersFromProject();

@@ -1,7 +1,7 @@
 # Audio accessibility (Phase 12)
 
 Phase 12 adds player preferences, subtitle/caption presentation, visual cues and narration to the
-FMOD-backed engine. Asterwave acoustics continue to run normally. There is no alternate playback backend.
+FMOD-backed engine. Soundwave acoustics continue to run normally.
 
 ## Set up the project
 

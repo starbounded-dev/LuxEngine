@@ -56,14 +56,6 @@ OPTIONS = [
         "default": False,
     },
     {
-        "key": "raytraced-audio",
-        "kind": "premake",
-        "flag": "raytraced-audio",
-        "label": "Asterwave ray-traced audio",
-        "description": "needs the private Core/vendor/Asterwave checkout; exported games then contain it",
-        "default": False,
-    },
-    {
         "key": "native-audio",
         "kind": "premake",
         "flag": "audio-backend=native",

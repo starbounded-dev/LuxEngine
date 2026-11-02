@@ -27,7 +27,14 @@ project "ScriptCore"
 		AppendTargetFrameworkToOutputPath = "false",
 		Nullable = "enable",
 		EnableDynamicLoading = "true",
+		-- ScriptCore.xml feeds the manual's API reference (tools/ScriptApiDocs); its --check reports
+		-- undocumented members, so the per-member CS1591 warnings stay off (below; disablewarnings merges
+		-- with the workspace's 4068, a NoWarn vsprop would be overridden by it).
+		GenerateDocumentationFile = "true",
 	}
+
+	-- 1573: a doc comment may explain only the parameters that need it.
+	disablewarnings { "1591", "1573" }
 
 	files {
 		"Source/**.cs"

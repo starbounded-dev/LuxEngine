@@ -103,7 +103,6 @@ namespace Lux
 		bool Deserialize(StreamReader& stream);
 	};
 
-	// LuxEngine's own defaults, derived from published absorption data and the mass law
-	// (AcousticMaterial.cpp lists the source of every row). Used by engine occlusion and Asterwave.
+	// Soundwave's authored per-tag defaults; project overrides replace them.
 	AcousticMaterialProperties GetDefaultAcousticMaterialProperties(AcousticMaterial material);
 }

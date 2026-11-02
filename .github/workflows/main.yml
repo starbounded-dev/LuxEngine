@@ -2,11 +2,29 @@ name: Build LuxEngine
 
 on:
   workflow_dispatch:
+    inputs:
+      linux_vulkan_probe:
+        description: Probe Linux CI Vulkan capabilities without compiling or accessing audio SDKs
+        type: boolean
+        required: false
+        default: false
+      linux_audio_check:
+        description: Run one Linux audio gate instead of the full native matrix
+        type: choice
+        required: false
+        default: 'off'
+        options: ['off', runtime, debug-as]
+      soundwave_cases:
+        description: Space-separated native scene cases for the Linux runtime gate
+        type: string
+        required: false
+        default: corner
   push:
     branches:
       - master
       - dev
       - 'features/**' # Glob pattern for any branch starting with 'features/'
+      - 'feature/**'
   pull_request:
     branches:
       - master
@@ -22,7 +40,155 @@ permissions:
   contents: read
 
 jobs:
+  linux-vulkan-probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.linux_vulkan_probe
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout the native launch helper
+        uses: actions/checkout@v6.0.2
+        with:
+          sparse-checkout: tests/audio/run_scene_acoustics.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Install Vulkan probe tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml
+
+      - name: Select the software Vulkan driver
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          drivers = list(Path('/usr/share/vulkan/icd.d').glob('*lvp*.json'))
+          if len(drivers) != 1:
+              raise RuntimeError(f'Expected one lavapipe driver manifest, found {drivers}')
+          runtime_directory = Path(os.environ['RUNNER_TEMP']) / 'soundwave-vulkan-xdg'
+          runtime_directory.mkdir(mode=0o700, exist_ok=True)
+          runtime_directory.chmod(0o700)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'VK_DRIVER_FILES={drivers[0]}\n')
+              env.write(f'XDG_RUNTIME_DIR={runtime_directory}\n')
+          PY
+
+      - name: Install the validation SDK for the isolated launch probe
+        uses: jakoch/install-vulkan-sdk-action@v1.4.0
+        with:
+          vulkan_version: 1.4.335.0
+          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      - name: Probe isolated Debug validation loading
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('scene_acoustics', 'tests/audio/run_scene_acoustics.py')
+          helper = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(helper)
+          package_lib = Path('logs/package-lib').resolve()
+          package_lib.mkdir(parents=True)
+          loader = Path(os.environ['VULKAN_SDK']) / 'lib/libvulkan.so.1'
+          shutil.copy2(loader, package_lib / loader.name)
+          environment = dict(os.environ, LD_LIBRARY_PATH=str(package_lib))
+          manifest = helper.prepare_linux_validation(environment, Path('logs/runtime-validation'))
+          result = subprocess.run(['xvfb-run', '-a', '-s', '-screen 0 1280x720x24', 'vulkaninfo', '--summary'],
+                                  env=environment, text=True, capture_output=True, timeout=120)
+          cube = subprocess.run(['xvfb-run', '-a', '-s', '-screen 0 1280x720x24', 'vkcube', '--validate', '--c', '2'],
+                                env=environment, text=True, capture_output=True, timeout=120)
+          report = result.stdout + result.stderr + cube.stdout + cube.stderr
+          Path('logs/vulkan-runtime-validation.txt').write_text(report)
+          print(report)
+          if result.returncode or cube.returncode or 'VK_LAYER_KHRONOS_validation' not in report:
+              raise RuntimeError(f'Isolated validation-layer probe failed: info={result.returncode}, cube={cube.returncode}; {manifest}')
+          if any(marker in report for marker in ('VUID-', 'Validation Error', 'Validation Warning', 'UNASSIGNED-', 'SYNC-', 'BestPractices-')):
+              raise RuntimeError('Validation messages in isolated layer probe')
+          print('PASS: Vulkan validation loads with package-only LD_LIBRARY_PATH')
+          PY
+
+      - name: Probe presentation and required core features
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          xvfb-run -a -s '-screen 0 1280x720x24' vulkaninfo --summary | tee logs/vulkan-summary.txt
+          xvfb-run -a -s '-screen 0 1280x720x24' vulkaninfo > logs/vulkan-capabilities.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          report = Path('logs/vulkan-capabilities.txt').read_text()
+          # These are unconditionally requested by the engine's VulkanDevice.
+          required = ('shaderImageGatherExtended', 'samplerAnisotropy', 'textureCompressionBC', 'tessellationShader',
+                      'geometryShader', 'imageCubeArray', 'dualSrcBlend', 'independentBlend',
+                      'fillModeNonSolid', 'wideLines', 'pipelineStatisticsQuery',
+                      'descriptorIndexing', 'runtimeDescriptorArray', 'descriptorBindingPartiallyBound',
+                      'descriptorBindingVariableDescriptorCount', 'timelineSemaphore',
+                      'shaderSampledImageArrayNonUniformIndexing')
+          missing = [name for name in required if not re.search(r'^\s*' + name + r'\s*=\s*true\s*$', report, re.M)]
+          result = 'Required core feature probe: ' + ('PASS' if not missing else 'FAIL: ' + ', '.join(missing))
+          Path('logs/vulkan-engine-features.txt').write_text(result + '\n')
+          print(result)
+          if missing:
+              raise SystemExit(1)
+          PY
+
+      - name: Upload capability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundwave-linux-vulkan-probe
+          path: |
+            logs/vulkan-*.txt
+            logs/runtime-validation/*.json
+          if-no-files-found: warn
+
+  # The build's version string, 2026.N-<7-char commit>: the series from Version.h
+  # (LUX_VERSION_SERIES), so the binaries, the zips and the release tag (v<version>) agree.
+  version:
+    if: ${{ !inputs.linux_vulkan_probe }}
+    runs-on: ubuntu-latest
+    outputs:
+      series: ${{ steps.version.outputs.series }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout Version.h
+        uses: actions/checkout@v6.0.2
+        with:
+          sparse-checkout: Core/Source/Lux/Core/Version.h
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Compute the version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          series="$(sed -n 's/^#define LUX_VERSION_SERIES "\([^"]*\)".*/\1/p' Core/Source/Lux/Core/Version.h)"
+          # Checked before it reaches a file name, a tag or a header.
+          if ! [[ "$series" =~ ^[0-9]{4}\.[0-9]+$ ]]; then
+            echo "::error::LUX_VERSION_SERIES in Version.h is not YYYY.N: '$series'"
+            exit 1
+          fi
+          version="${series}-${GITHUB_SHA::7}"
+          echo "series=$series" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+
   build:
+    needs: version
+    if: ${{ !inputs.linux_audio_check || inputs.linux_audio_check == 'off' }}
     runs-on: windows-2025
     strategy:
       fail-fast: false
@@ -36,24 +202,23 @@ jobs:
           submodules: recursive
           lfs: true
 
-      # Private dependencies are fetched separately. Each token has read-only contents
-      # access to its own repository. Fork pull requests cannot read these secrets.
-      # Asterwave is opt-in (--raytraced-audio): Debug and Release build it to keep it tested;
-      # Dist is the configuration games ship, so it builds without it.
+      # FMOD is a licensed SDK that must never be committed to this public
+      # repository. It comes from a private repository (repository variable
+      # AUDIO_SDK_REPOSITORY, laid out by scripts/ci/StageAudioSDKs.py), read with a fine-grained
+      # read-only token scoped to that one repository (secret AUDIO_SDK_TOKEN). Pull requests
+      # from forks cannot read secrets, so their builds stop here with an explicit message.
       - name: Check audio SDK access
         shell: pwsh
         env:
           AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
           AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
-          ASTERWAVE_TOKEN: ${{ secrets.ASTERWAVE_TOKEN }}
-          NEEDS_ASTERWAVE: ${{ matrix.configuration != 'Dist' }}
         run: |
-          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY -or ($env:NEEDS_ASTERWAVE -eq 'true' -and -not $env:ASTERWAVE_TOKEN)) {
-            Write-Output "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access, Debug/Release only). Fork pull requests cannot read secrets."
+          if (-not $env:AUDIO_SDK_TOKEN -or -not $env:AUDIO_SDK_REPOSITORY) {
+            Write-Output "::error::The FMOD SDK is unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
             exit 1
           }
 
-      - name: Checkout FMOD SDKs (private)
+      - name: Checkout audio SDKs (private)
         uses: actions/checkout@v6.0.2
         with:
           repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
@@ -66,51 +231,30 @@ jobs:
         run: |
           "LUX_FMOD_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/FMOD/windows')" >> $env:GITHUB_ENV
 
+      # Version.h includes this when present: LUX_VERSION becomes 2026.N-<commit>, printed by
+      # --version and in the startup log.
+      - name: Bake the version string
+        shell: pwsh
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          Set-Content -Path Core/Source/Lux/Core/BuildVersion.h -Encoding utf8 -Value @(
+            "#pragma once",
+            "#define LUX_VERSION `"$env:LUX_BUILD_VERSION`""
+          )
+
       - name: Setup Python
         uses: actions/setup-python@v6.2.0
         with:
           python-version: '3.11'
 
-      - name: Read pinned Asterwave revision
-        if: matrix.configuration != 'Dist'
-        id: asterwave
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os, sys
-          sys.path.insert(0, "scripts")
-          from FetchAsterwave import load_manifest
-          pin = load_manifest()
-          if pin["repository"] != "starbounded-dev/asterwave":
-              raise SystemExit("Unexpected Asterwave repository in manifest")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"revision={pin['revision']}\n")
-          PY
-
-      - name: Checkout pinned Asterwave source (private)
-        if: matrix.configuration != 'Dist'
-        uses: actions/checkout@v6.0.2
-        with:
-          repository: starbounded-dev/asterwave
-          ref: ${{ steps.asterwave.outputs.revision }}
-          token: ${{ secrets.ASTERWAVE_TOKEN }}
-          path: Core/vendor/Asterwave
-          persist-credentials: false
-
-      - name: Validate Asterwave source
-        if: matrix.configuration != 'Dist'
-        run: python scripts/FetchAsterwave.py --check
-
-      # Engine occlusion and material defaults always; the Asterwave adapter only where its source
-      # was checked out. Then the vendored miniaudio checks for the native backend.
-      - name: Test acoustics and native audio
+      # The vendored miniaudio checks for the native backend; they need no audio SDK or device.
+      - name: Test native audio
         shell: bash
         run: |
           config="${{ matrix.configuration }}"
           [ "$config" != "Dist" ] || config=Release
-          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE="$config"
-          cmake --build bin/acoustics-tests --config "$config"
-          ctest --test-dir bin/acoustics-tests -C "$config" --output-on-failure
+          [ "$config" != "Debug-AS" ] || config=Debug
           cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE="$config"
           cmake --build bin/native-audio-tests --config "$config"
           ctest --test-dir bin/native-audio-tests -C "$config" --output-on-failure
@@ -143,7 +287,7 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           cd scripts
-          python Setup.py ${{ env.PREMAKE_GENERATOR }} ${{ matrix.configuration != 'Dist' && 'raytraced-audio' || '' }}
+          python Setup.py ${{ env.PREMAKE_GENERATOR }}
 
       - name: Prepare logs
         working-directory: ${{env.GITHUB_WORKSPACE}}
@@ -163,23 +307,120 @@ jobs:
         run: |
           MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
 
-      - name: Verify build output
-        shell: pwsh
+      # The manual's C# API reference (Editor/Resources/Docs/api) is generated from the built
+      # ScriptCore.dll and its XML docs. Fails when a page is stale (regenerate it with the same
+      # command without --check) or a public member has no <summary>.
+      - name: Check the C# API reference
+        if: matrix.configuration == 'Release'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs --check
+
+      - name: Package editor artifact
+        if: matrix.configuration == 'Release'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
-          $output = "bin/${{ matrix.configuration }}-windows-x86_64"
-          foreach ($file in @("Editor/Editor.exe", "Lux-Runtime/Lux-Runtime.exe")) {
-            if (-not (Test-Path -LiteralPath (Join-Path $output $file) -PathType Leaf)) {
-              throw "Missing build output: $output/$file"
-            }
-          }
-          # Asterwave exists exactly when the configuration opted in; Dist must never contain it.
-          $asterwave = Test-Path -LiteralPath (Join-Path $output "Asterwave/Asterwave.lib") -PathType Leaf
-          if ($asterwave -ne ("${{ matrix.configuration }}" -ne "Dist")) {
-            throw "Asterwave.lib presence ($asterwave) does not match the --raytraced-audio choice for ${{ matrix.configuration }}"
+          $configuration = "${{ matrix.configuration }}"
+          $editorOutput = Join-Path "bin" "$configuration-windows-x86_64\Editor"
+          $artifactRoot = Join-Path "artifacts" "Editor-$configuration"
+          $editorItems = @(
+            "LuxSampleProject",
+            "Resources",
+            "DotNet"
+          )
+
+          # Editor state, not build input: both are regenerated on first run (ApplicationSettings
+          # falls back to defaults when App.lsettings is absent) and are gitignored, so they do
+          # not exist in a clean checkout. Copy them when present, never fail on them.
+          $optionalEditorItems = @(
+            "imgui.ini",
+            "App.lsettings"
+          )
+
+          if (!(Test-Path $editorOutput)) {
+            throw "Editor build output was not found: $editorOutput"
           }
 
-      # Debug and Release link Asterwave statically into both executables. Public artifacts cannot
-      # be made redistributable by stripping separate libraries, so publish build logs only.
+          Remove-Item $artifactRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $artifactRoot | Out-Null
+
+          Copy-Item -Path (Join-Path $editorOutput "*") -Destination $artifactRoot -Recurse -Force
+
+          foreach ($item in $editorItems) {
+            $source = Join-Path "Editor" $item
+            if (!(Test-Path $source)) {
+              throw "Editor artifact input was not found: $source"
+            }
+
+            Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+          }
+
+          foreach ($item in $optionalEditorItems) {
+            $source = Join-Path "Editor" $item
+            if (Test-Path $source) {
+              Copy-Item -Path $source -Destination $artifactRoot -Recurse -Force
+            } else {
+              Write-Host "Skipping optional editor state file (not present): $source"
+            }
+          }
+
+          # FMOD runtime libraries must not be redistributed: artifacts on a public repository are
+          # downloadable by anyone, and the EULA forbids shipping them outside a game build or as
+          # part of an engine.
+          # Users copy the DLLs from their own SDK downloads next to Editor.exe.
+          $audioLibraryPatterns = @("fmod*.dll")
+          Get-ChildItem -Path $artifactRoot -Recurse -File -Include $audioLibraryPatterns |
+            ForEach-Object { Write-Host "Stripping licensed audio library: $($_.FullName)"; Remove-Item $_.FullName -Force }
+
+          $remaining = Get-ChildItem -Path $artifactRoot -Recurse -File -Include $audioLibraryPatterns
+          if ($remaining) {
+            throw "Licensed audio libraries remain in the artifact: $($remaining.FullName -join ', ')"
+          }
+
+          Set-Content -Path (Join-Path $artifactRoot "AUDIO_LIBRARIES_REQUIRED.txt") -Encoding utf8 -Value @(
+            "This build does not include the FMOD runtime libraries (licence restrictions).",
+            "Download the SDK yourself and copy these files next to Editor.exe before running:",
+            "  fmod.dll, fmodstudio.dll  - FMOD Engine SDK: api/core/lib/x64, api/studio/lib/x64"
+          )
+
+      - name: Upload editor artifact
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-${{ matrix.configuration }}
+          path: artifacts/Editor-${{ matrix.configuration }}/
+          if-no-files-found: error
+
+      # The pre-release download: the same package (editor, Resources, DotNet, sample project, no
+      # licensed audio libraries) in one top-level folder.
+      - name: Zip release package
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # From the build output: the package has no FMOD DLLs, which Editor.exe loads at startup.
+          $reported = & "bin\${{ matrix.configuration }}-windows-x86_64\Editor\Editor.exe" --version
+          Write-Host "Editor --version: $reported"
+          if ($LASTEXITCODE -ne 0 -or "$reported" -notlike "*$env:LUX_BUILD_VERSION*") {
+            throw "Editor.exe --version did not report $env:LUX_BUILD_VERSION (exit $LASTEXITCODE)"
+          }
+
+          $editor = Join-Path "artifacts" "Editor-${{ matrix.configuration }}"
+          $name = "LuxEngine-$env:LUX_BUILD_VERSION-windows-x64"
+          Rename-Item $editor $name
+          New-Item -ItemType Directory -Force release | Out-Null
+          7z a -tzip -mx=7 "release/$name.zip" "./artifacts/$name"
+          if ($LASTEXITCODE -ne 0) { throw "7z failed ($LASTEXITCODE)" }
+
+      - name: Upload release package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -189,11 +430,12 @@ jobs:
           if-no-files-found: ignore
 
   build-linux:
+    needs: version
     runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        configuration: [Debug, Release, Dist]
+        configuration: ${{ fromJSON(inputs.linux_audio_check == 'debug-as' && '["Debug-AS"]' || inputs.linux_audio_check == 'runtime' && '["Debug"]' || '["Debug", "Debug-AS", "Release", "Dist"]') }}
 
     steps:
       - name: Checkout repository
@@ -202,22 +444,19 @@ jobs:
           submodules: recursive
           lfs: true
 
-      # See the Windows job: licensed audio SDKs come from a private repository, and only
-      # Debug/Release opt into Asterwave.
+      # See the Windows job: licensed audio SDKs come from a private repository.
       - name: Check audio SDK access
         shell: bash
         env:
           AUDIO_SDK_TOKEN: ${{ secrets.AUDIO_SDK_TOKEN }}
           AUDIO_SDK_REPOSITORY: ${{ vars.AUDIO_SDK_REPOSITORY }}
-          ASTERWAVE_TOKEN: ${{ secrets.ASTERWAVE_TOKEN }}
-          NEEDS_ASTERWAVE: ${{ matrix.configuration != 'Dist' }}
         run: |
-          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ] || { [ "$NEEDS_ASTERWAVE" = true ] && [ -z "$ASTERWAVE_TOKEN" ]; }; then
-            echo "::error::Private audio dependencies are unavailable. Set AUDIO_SDK_REPOSITORY, AUDIO_SDK_TOKEN (FMOD), and ASTERWAVE_TOKEN (read-only starbounded-dev/asterwave access, Debug/Release only). Fork pull requests cannot read secrets."
+          if [ -z "$AUDIO_SDK_TOKEN" ] || [ -z "$AUDIO_SDK_REPOSITORY" ]; then
+            echo "::error::The FMOD SDK is unavailable. Set the repository variable AUDIO_SDK_REPOSITORY and the secret AUDIO_SDK_TOKEN (pull requests from forks cannot read secrets)."
             exit 1
           fi
 
-      - name: Checkout FMOD SDKs (private)
+      - name: Checkout audio SDKs (private)
         uses: actions/checkout@v6.0.2
         with:
           repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
@@ -230,40 +469,13 @@ jobs:
         run: |
           echo "LUX_FMOD_SDK=${GITHUB_WORKSPACE}/.audio-sdk/FMOD/linux" >> "$GITHUB_ENV"
 
-      - name: Setup Python
-        uses: actions/setup-python@v6.2.0
-        with:
-          python-version: '3.11'
-
-      - name: Read pinned Asterwave revision
-        if: matrix.configuration != 'Dist'
-        id: asterwave
+      # See the Windows job.
+      - name: Bake the version string
         shell: bash
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          python - <<'PY'
-          import os, sys
-          sys.path.insert(0, "scripts")
-          from FetchAsterwave import load_manifest
-          pin = load_manifest()
-          if pin["repository"] != "starbounded-dev/asterwave":
-              raise SystemExit("Unexpected Asterwave repository in manifest")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-              output.write(f"revision={pin['revision']}\n")
-          PY
-
-      - name: Checkout pinned Asterwave source (private)
-        if: matrix.configuration != 'Dist'
-        uses: actions/checkout@v6.0.2
-        with:
-          repository: starbounded-dev/asterwave
-          ref: ${{ steps.asterwave.outputs.revision }}
-          token: ${{ secrets.ASTERWAVE_TOKEN }}
-          path: Core/vendor/Asterwave
-          persist-credentials: false
-
-      - name: Validate Asterwave source
-        if: matrix.configuration != 'Dist'
-        run: python scripts/FetchAsterwave.py --check
+          printf '#pragma once\n#define LUX_VERSION "%s"\n' "$LUX_BUILD_VERSION" > Core/Source/Lux/Core/BuildVersion.h
 
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
       - name: Set up .NET 9
@@ -278,11 +490,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang llvm make pkg-config \
+            clang llvm libclang-rt-dev make pkg-config \
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
-            libdw-dev libunwind-dev libtbb-dev zlib1g-dev
+            libdw-dev libunwind-dev libtbb-dev zlib1g-dev zip
 
           # The Dist configuration compiles with -flto, and premake's clang toolset then archives
           # with llvm-ar because GNU ar cannot index LLVM bitcode. Ubuntu ships that binary
@@ -291,6 +503,24 @@ jobs:
             sudo ln -sf "$(ls -1 /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/bin/llvm-ar
           fi
           llvm-ar --version | head -1
+
+      - name: Install native runtime test services
+        if: inputs.linux_audio_check == 'runtime'
+        run: |
+          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml pulseaudio pulseaudio-utils
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          drivers = list(Path('/usr/share/vulkan/icd.d').glob('*lvp*.json'))
+          if len(drivers) != 1:
+              raise RuntimeError(f'Expected one lavapipe driver manifest, found {drivers}')
+          runtime_directory = Path(os.environ['RUNNER_TEMP']) / 'soundwave-runtime-xdg'
+          runtime_directory.mkdir(mode=0o700, exist_ok=True)
+          runtime_directory.chmod(0o700)
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'VK_DRIVER_FILES={drivers[0]}\n')
+              env.write(f'XDG_RUNTIME_DIR={os.environ["RUNNER_TEMP"]}/soundwave-runtime-xdg\n')
+          PY
 
       # Sets VULKAN_SDK, which Dependencies.lua and Linux-Build.sh both honour in preference
       # to the (gitignored) vendored SDK path.
@@ -303,60 +533,239 @@ jobs:
           cache: true
           stripdown: true
 
-      # Engine occlusion and material defaults always; the Asterwave adapter only where its source
-      # was checked out. Then the vendored miniaudio checks for the native backend.
-      - name: Test acoustics and native audio
+      # Single entry point: generates the C# projects, builds the managed assemblies, the
+      # native engine, and the sample game's scripts.
+      # The vendored miniaudio checks for the native backend; they need no audio SDK or device.
+      - name: Test native audio
         shell: bash
         run: |
           config="${{ matrix.configuration }}"
           [ "$config" != "Dist" ] || config=Release
-          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE="$config"
-          cmake --build bin/acoustics-tests --config "$config"
-          ctest --test-dir bin/acoustics-tests -C "$config" --output-on-failure
+          [ "$config" != "Debug-AS" ] || config=Debug
           cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE="$config"
           cmake --build bin/native-audio-tests --config "$config"
           ctest --test-dir bin/native-audio-tests -C "$config" --output-on-failure
 
-      # Single entry point: generates the C# projects, builds the managed assemblies, the
-      # native engine, and the sample game's scripts.
       - name: Build
         shell: bash
         env:
-          LUX_PREMAKE_OPTIONS: ${{ matrix.configuration != 'Dist' && '--raytraced-audio' || '' }}
+          LUX_RUN_AUDIO_TESTS: ${{ (matrix.configuration == 'Debug' || matrix.configuration == 'Debug-AS') && '1' || '0' }}
         run: |
           # pipefail so a build failure is not masked by tee's exit status.
           set -o pipefail
           mkdir -p logs
+          touch logs/linux-build-start
           ./scripts/Linux-Build.sh ${{ matrix.configuration }} 2>&1 \
             | tee "logs/Build-${{ matrix.configuration }}.log"
+
+      - name: Upload audio verification logs
+        if: always() && (matrix.configuration == 'Debug' || matrix.configuration == 'Debug-AS')
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-verification-linux-${{ matrix.configuration }}
+          path: |
+            bin/audio-tests/**/*.log
+            logs/Build-${{ matrix.configuration }}.log
+          if-no-files-found: ignore
 
       # The build script is `set -e`, but assert the artifacts exist so a step that silently
       # produces nothing cannot pass.
       - name: Verify build output
+        if: ${{ !cancelled() }}
         run: |
           out="bin/${{ matrix.configuration }}-linux-x86_64"
           fail=0
-          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
-            if [ -x "$f" ]; then
+          for f in "$out/Core/libCore.a" "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
+            if [ -s "$f" ] && [ "$f" -nt logs/linux-build-start ]; then
               echo "ok   $f"
             else
-              echo "MISSING $f"; fail=1
+              echo "MISSING, EMPTY OR STALE $f"; fail=1
             fi
           done
-          # Asterwave exists exactly when the configuration opted in; Dist must never contain it.
-          has_asterwave=false; [ -f "$out/Asterwave/libAsterwave.a" ] && has_asterwave=true
-          wants_asterwave=true; [ "${{ matrix.configuration }}" = Dist ] && wants_asterwave=false
-          if [ "$has_asterwave" != "$wants_asterwave" ]; then
-            echo "Asterwave library presence ($has_asterwave) does not match the --raytraced-audio choice"; fail=1
+          if [ "${{ matrix.configuration }}" = "Debug-AS" ] && [ "$fail" = "0" ]; then
+            nm --undefined-only "$out/Core/libCore.a" > logs/core-asan-symbols.txt
+            nm "$out/Lux-Runtime/Lux-Runtime" > logs/runtime-asan-symbols.txt
+            grep -E '__asan_(report_|load|store)' logs/core-asan-symbols.txt > /dev/null
+            grep '__asan_init$' logs/runtime-asan-symbols.txt > /dev/null
+            echo "Verified AddressSanitizer instrumentation in Core and Lux-Runtime"
           fi
           exit $fail
 
-      - name: Test dependency layouts
-        if: matrix.configuration == 'Debug'
-        run: python tests/audio/run_sdk_layout.py
+      - name: Verify native Play export and packaged player
+        if: inputs.linux_audio_check == 'runtime'
+        shell: bash
+        env:
+          LUX_SOUNDWAVE_CASES: ${{ inputs.soundwave_cases }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_RUNTIME_DIR" logs
+          chmod 700 "$XDG_RUNTIME_DIR"
+          pulseaudio --start --exit-idle-time=-1 --log-target=file:logs/pulseaudio.log
+          pactl load-module module-null-sink sink_name=soundwave-test
+          read -r -a scene_cases <<< "$LUX_SOUNDWAVE_CASES"
+          if [ "${#scene_cases[@]}" = "0" ]; then
+            echo "::error::At least one Soundwave scene case is required."
+            exit 1
+          fi
+          xvfb-run -a -s '-screen 0 1280x720x24' python3 -u tests/audio/run_scene_acoustics.py \
+            --config debug --threading single --export-runtime --cases "${scene_cases[@]}" --timeout 900 \
+            2>&1 | tee logs/soundwave-native-runtime.log
 
-      # Executables, static libraries, PDBs and source remain on the ephemeral runner.
-      # This public workflow publishes logs only.
+      - name: Upload native runtime evidence
+        if: always() && inputs.linux_audio_check == 'runtime'
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundwave-native-linux-runtime
+          path: |
+            logs/soundwave-native-runtime.log
+            logs/pulseaudio.log
+            bin/golden/**/*.log
+            bin/golden/**/*.yaml
+            bin/golden/**/*.status
+            bin/golden/**/summary.json
+            bin/golden/**/vulkan-validation/*.json
+            bin/soundwave-scene-tests/**/results.json
+          if-no-files-found: warn
+
+      - name: Upload native sanitizer symbol evidence
+        if: always() && matrix.configuration == 'Debug-AS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: soundwave-native-linux-asan-symbols
+          path: logs/*-asan-symbols.txt
+          if-no-files-found: warn
+
+      # Unlike Windows, the Linux build output holds only the executable, and the binary is
+      # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled
+      # into lib/ for the artifact to be runnable at all.
+      - name: Package editor artifact
+        if: matrix.configuration == 'Release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="bin/${{ matrix.configuration }}-linux-x86_64/Editor"
+          root="artifacts/Editor-linux-${{ matrix.configuration }}"
+
+          rm -rf "$root"
+          mkdir -p "$root/lib"
+          cp -a "$out/." "$root/"
+
+          for item in LuxSampleProject Resources DotNet; do
+            if [ ! -e "Editor/$item" ]; then
+              echo "Editor artifact input was not found: Editor/$item" >&2
+              exit 1
+            fi
+            cp -a "Editor/$item" "$root/"
+          done
+
+          # Drop build intermediates and asset caches that the build regenerates. Scripts/Binaries
+          # is deliberately kept - it holds the sample game's compiled script assembly.
+          find "$root/LuxSampleProject" -type d \
+            \( -name Intermediates -o -name obj -o -name Cache \) -prune -exec rm -rf {} + 2>/dev/null || true
+
+          # Editor state, regenerated on first run and gitignored, so absent in a clean checkout.
+          for item in imgui.ini App.lsettings; do
+            [ -e "Editor/$item" ] && cp -a "Editor/$item" "$root/" \
+              || echo "Skipping optional editor state file (not present): Editor/$item"
+          done
+
+          # Bundle only the libraries the binary actually resolves out of our vendored
+          # directories. Globbing every *.so from the Vulkan SDK pulled in ~780 MB of
+          # validation layers and SPIRV tooling that the editor never loads; ldd reports the
+          # full transitive closure, so filtering it keeps exactly what is needed.
+          vendor_dirs=""
+          for dir in "Core/vendor/assimp/bin/linux" \
+                     "Core/vendor/NvidiaAftermath/lib/x64/linux" \
+                     "${VULKAN_SDK:-}/lib"; do
+            if [ -d "$dir" ]; then
+              vendor_dirs="$vendor_dirs $(cd "$dir" && pwd)"
+            fi
+          done
+
+          # So ldd can resolve the vendored libraries, which are not on the default search path.
+          export LD_LIBRARY_PATH="$(echo $vendor_dirs | tr ' ' ':')"
+
+          for lib in $(ldd "$root/Editor" | awk '$3 ~ /^\// {print $3}' | sort -u); do
+            for dir in $vendor_dirs; do
+              case "$lib" in
+                "$dir"/*) cp -aL "$lib" "$root/lib/"; break ;;
+              esac
+            done
+          done
+
+          # FMOD shared libraries must not be redistributed: artifacts on a public repository are
+          # downloadable by anyone, and the EULA forbids shipping them outside a game build or as
+          # part of an engine.
+          # Users copy them from their own SDK downloads into lib/.
+          audio_libs_regex='lib(fmod|fmodstudio)[^/]*\.so'
+          find "$root" \( -type f -o -type l \) -regextype posix-extended -regex ".*/${audio_libs_regex}.*" \
+            -print -delete | sed 's/^/Stripping licensed audio library: /'
+          if find "$root" \( -type f -o -type l \) -regextype posix-extended -regex ".*/${audio_libs_regex}.*" | grep -q .; then
+            echo "Licensed audio libraries remain in the artifact" >&2
+            exit 1
+          fi
+
+          cat > "$root/AUDIO_LIBRARIES_REQUIRED.txt" <<'EOF'
+          This build does not include the FMOD runtime libraries (licence restrictions).
+          Download the SDK yourself and copy these files into lib/ next to the Editor binary before running:
+            libfmod.so.14, libfmodstudio.so.14  - FMOD Engine SDK: api/core/lib/x86_64, api/studio/lib/x86_64
+          EOF
+
+          echo "Bundled $(find "$root/lib" -type f | wc -l) shared libraries ($(du -sh "$root/lib" | cut -f1))."
+
+          # The binary's RPATH is $ORIGIN/lib, so the bundle must resolve with no
+          # LD_LIBRARY_PATH set - otherwise we would ship an artifact that only runs on a
+          # machine that already has these libraries. The stripped audio libraries are the only
+          # permitted gaps.
+          unresolved="$(env -u LD_LIBRARY_PATH ldd "$root/Editor" | grep 'not found' | grep -Ev "$audio_libs_regex" || true)"
+          if [ -n "$unresolved" ]; then
+            echo "Editor artifact has unresolved libraries:" >&2
+            echo "$unresolved" >&2
+            exit 1
+          fi
+
+      - name: Upload editor artifact
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-linux-${{ matrix.configuration }}
+          path: artifacts/Editor-linux-${{ matrix.configuration }}/
+          if-no-files-found: error
+
+      # See the Windows job. Zipped here, not in the release job: artifacts do not keep file
+      # modes, and the zip must keep the executable bit and the lib/ symlinks.
+      - name: Zip release package
+        if: matrix.configuration == 'Release'
+        shell: bash
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          editor="artifacts/Editor-linux-${{ matrix.configuration }}"
+
+          # The package has no FMOD libraries; take them from the SDK checkout.
+          audio_dirs="$(find "$GITHUB_WORKSPACE/.audio-sdk" -name 'libfmod*.so*' -printf '%h\n' | sort -u | paste -sd:)"
+          reported="$(LD_LIBRARY_PATH="$editor/lib:$audio_dirs" "$editor/Editor" --version)"
+          echo "Editor --version: $reported"
+          if [[ "$reported" != *"$LUX_BUILD_VERSION"* ]]; then
+            echo "::error::Editor --version did not report $LUX_BUILD_VERSION"
+            exit 1
+          fi
+
+          name="LuxEngine-${LUX_BUILD_VERSION}-linux-x64"
+          mv "$editor" "artifacts/$name"
+          mkdir -p release
+          (cd artifacts && zip -r -y -q "../release/$name.zip" "$name")
+
+      - name: Upload release package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
@@ -366,7 +775,7 @@ jobs:
           if-no-files-found: ignore
 
   # The native audio backend (--audio-backend=native, docs/AUDIO_NATIVE_BACKEND_PLAN.md) needs no
-  # private dependency: no FMOD SDK and no Asterwave, so these jobs read no secrets and also run for
+  # private dependency: no FMOD SDK, so these jobs read no secrets and also run for
   # fork pull requests. Debug only while FMOD remains the default backend.
   build-native-windows:
     runs-on: windows-2025
@@ -383,12 +792,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Test acoustics and native audio
+      - name: Test native audio
         shell: bash
         run: |
-          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE=Debug
-          cmake --build bin/acoustics-tests --config Debug
-          ctest --test-dir bin/acoustics-tests -C Debug --output-on-failure
           cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE=Debug
           cmake --build bin/native-audio-tests --config Debug
           ctest --test-dir bin/native-audio-tests -C Debug --output-on-failure
@@ -496,12 +902,9 @@ jobs:
           cache: true
           stripdown: true
 
-      - name: Test acoustics and native audio
+      - name: Test native audio
         shell: bash
         run: |
-          cmake -S tests/audio/acoustics -B bin/acoustics-tests -DCMAKE_BUILD_TYPE=Debug
-          cmake --build bin/acoustics-tests --config Debug
-          ctest --test-dir bin/acoustics-tests -C Debug --output-on-failure
           cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE=Debug
           cmake --build bin/native-audio-tests --config Debug
           ctest --test-dir bin/native-audio-tests -C Debug --output-on-failure
@@ -544,3 +947,73 @@ jobs:
           name: build-logs-native-linux
           path: logs/*.log
           if-no-files-found: ignore
+
+  # Every push to dev publishes one pre-release, v2026.N-<commit>, with both platforms' packages,
+  # then deletes all but the 10 newest dev pre-releases of the series (and their tags). Never runs
+  # for pull requests or other branches.
+  release:
+    needs: [version, build, build-linux]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Two quick pushes publish one after the other, so the cleanup never races a publish.
+    concurrency:
+      group: dev-prerelease
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.version.outputs.tag }}
+      SERIES: ${{ needs.version.outputs.series }}
+
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+
+      - name: Publish the pre-release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l release
+          if [ "$(find release -name '*.zip' | wc -l)" -ne 2 ]; then
+            echo "::error::Expected the Windows and Linux packages in release/"
+            exit 1
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # A re-run for the same commit: replace its packages.
+            gh release upload "$TAG" release/*.zip --clobber
+          else
+            # --notes is prepended to the generated notes.
+            gh release create "$TAG" release/*.zip \
+              --target "$GITHUB_SHA" \
+              --prerelease \
+              --generate-notes \
+              --notes "Alpha: the API will change."
+          fi
+
+      - name: Delete old dev pre-releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          keep=10
+          # Only pre-releases tagged exactly v<series>-<7 hex>; nothing else is ever touched. A literal
+          # prefix, not a regex, so the series' dot matches only a dot.
+          prefix="v${SERIES}-"
+
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '.[] | select(.prerelease and (.draft | not)) | [.created_at, .tag_name] | @tsv' \
+            | awk -F '\t' -v prefix="$prefix" \
+                'index($2, prefix) == 1 && substr($2, length(prefix) + 1) ~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/' \
+            | sort -r \
+            | tail -n +$((keep + 1)) \
+            | cut -f2 \
+            | while read -r tag; do
+                echo "Deleting pre-release and tag $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done

@@ -3,64 +3,86 @@
 
 #include "lpch.h"
 
-#include <mutex>
-#include <unordered_set>
+#include <thread>
 
 namespace Lux {
 
 	namespace RefUtils {
 
-		// The live-reference registry is intentionally leaked (heap-allocated, never freed).
-		//
-		// Static Refs — notably Project::s_AssetManager (inline static Ref<AssetManagerBase>) — are
-		// destroyed at program exit, in an order that is undefined across translation units. A plain
-		// `static std::unordered_set` here (or even a non-leaked function-local one) is first *used*
-		// inside main(), so it is destroyed BEFORE those static Refs; their destructors then call
-		// RemoveFromLiveReferences() and erase() into a freed hash table, crashing at shutdown.
-		// Leaking the registry guarantees it outlives every Ref, and constructing it on first use also
-		// avoids the static-initialization-order fiasco in the other direction.
-		//
-		// The lock is load-bearing on reads too: an unsynchronized find() racing a concurrent
-		// insert()/erase() (which can rehash and reallocate the bucket array) reads a half-freed table.
-		// WeakRef::IsValid() calls IsLive() from any thread.
 		namespace
 		{
-			struct LiveReferenceRegistry
+			// Guard is held only around reading Instance and touching the object's count, so a spin is
+			// cheaper than a mutex here and keeps the block small.
+			class ScopedWeakGuard
 			{
-				std::unordered_set<void*> References;
-				std::mutex Mutex;
+			public:
+				explicit ScopedWeakGuard(WeakControlBlock& block)
+					: m_Block(block)
+				{
+					while (m_Block.Guard.test_and_set(std::memory_order_acquire))
+						std::this_thread::yield();
+				}
+
+				~ScopedWeakGuard()
+				{
+					m_Block.Guard.clear(std::memory_order_release);
+				}
+			private:
+				WeakControlBlock& m_Block;
 			};
+		}
 
-			LiveReferenceRegistry& Registry()
+		WeakControlBlock* AcquireWeakControl(const RefCounted& object)
+		{
+			WeakControlBlock* block = object.m_WeakControl.load(std::memory_order_acquire);
+			if (!block)
 			{
-				static LiveReferenceRegistry* s_Registry = new LiveReferenceRegistry();
-				return *s_Registry;
+				// The object keeps one count on its block until it is destroyed (DetachWeakControl).
+				WeakControlBlock* created = lnew WeakControlBlock();
+				created->WeakCount.store(2, std::memory_order_relaxed);
+				created->Instance.store(const_cast<RefCounted*>(&object), std::memory_order_relaxed);
+				if (object.m_WeakControl.compare_exchange_strong(block, created, std::memory_order_acq_rel))
+					return created;
+
+				// Another thread created the block first; `block` is now theirs.
+				ldelete created;
 			}
+
+			block->WeakCount.fetch_add(1, std::memory_order_relaxed);
+			return block;
 		}
 
-		void AddToLiveReferences(void* instance)
+		void ReleaseWeakControl(WeakControlBlock* block)
 		{
-			LiveReferenceRegistry& registry = Registry();
-			std::scoped_lock<std::mutex> lock(registry.Mutex);
-			LUX_CORE_ASSERT(instance);
-			registry.References.insert(instance);
+			if (block && block->WeakCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+				ldelete block;
 		}
 
-		void RemoveFromLiveReferences(void* instance)
+		void DetachWeakControl(const RefCounted& object)
 		{
-			LiveReferenceRegistry& registry = Registry();
-			std::scoped_lock<std::mutex> lock(registry.Mutex);
-			LUX_CORE_ASSERT(instance);
-			LUX_CORE_ASSERT(registry.References.find(instance) != registry.References.end());
-			registry.References.erase(instance);
+			// Runs in ~RefCounted, after the derived destructors but before the memory is freed. A
+			// TryLockWeakControl holding the guard is touching the count, so wait for it; after the
+			// guard is released no lock can reach the object.
+			WeakControlBlock* block = object.m_WeakControl.load(std::memory_order_acquire);
+			{
+				ScopedWeakGuard guard(*block);
+				block->Instance.store(nullptr, std::memory_order_relaxed);
+			}
+			ReleaseWeakControl(block);
 		}
 
-		bool IsLive(void* instance)
+		bool TryLockWeakControl(WeakControlBlock* block)
 		{
-			LiveReferenceRegistry& registry = Registry();
-			std::scoped_lock<std::mutex> lock(registry.Mutex);
-			LUX_CORE_ASSERT(instance);
-			return registry.References.find(instance) != registry.References.end();
+			ScopedWeakGuard guard(*block);
+			RefCounted* instance = block->Instance.load(std::memory_order_relaxed);
+			return instance && instance->TryIncRefCount();
+		}
+
+		bool IsWeakControlAlive(WeakControlBlock* block)
+		{
+			ScopedWeakGuard guard(*block);
+			RefCounted* instance = block->Instance.load(std::memory_order_relaxed);
+			return instance && instance->GetRefCount() > 0;
 		}
 	}
 

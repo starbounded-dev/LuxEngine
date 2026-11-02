@@ -25,7 +25,10 @@ namespace Lux
 		static std::vector<std::filesystem::path> GetReferencedTexturePaths(const std::filesystem::path& path);
 
 	private:
-		void TraverseNodes(Ref<MeshSource> meshSource, aiNode* node, const glm::mat4& parentTransform, uint32_t parentIndex);
+		// `placedSubmeshes` marks submeshes a node already references; a further reference gets a
+		// submesh of its own (see TraverseNodes).
+		void TraverseNodes(Ref<MeshSource> meshSource, aiNode* node, const glm::mat4& parentTransform, uint32_t parentIndex,
+			std::vector<bool>& placedSubmeshes);
 
 		std::filesystem::path m_Path;
 	};

@@ -101,7 +101,7 @@ graph TB
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
 | Scripting | `Core/Source/Lux/Scripting/` | `ScriptEngine.h`, `ScriptGlue.h`, `ScriptBuilder.h` |
 | Assets | `Core/Source/Lux/Asset/` | `AssetManager.h`, `Asset.h`, `AssetTypes.h` |
-| Audio | `Core/Source/Lux/Audio/` (+ one backend: `FMOD/` or `Native/`) | `AudioEngine.h`, `AudioEventInstance.h`, `AudioEventRef.h`, `Sound.h`, `RaytracedAudioScene.h` |
+| Audio | `Core/Source/Lux/Audio/` (+ one backend: `FMOD/` or `Native/`), `Core/vendor/soundwave/` | `AudioEngine.h`, `AudioEventInstance.h`, `AudioEventRef.h`, `Sound.h`, `AudioAcoustics.h`, `soundwave/Solve.h` |
 | Editor framework | `Core/Source/Lux/Editor/` | `EditorPanel.h`, `PanelManager.h`, `EditorCamera.h`, `SelectionManager.h` |
 | Editor app | `Editor/Source/` | `EditorLayer.h`, `Panels/` |
 | ImGui | `Core/Source/Lux/ImGui/` | `ImGuiEx.h`, `ImGuiUtilities.h`, `Colors.h` |
@@ -178,7 +178,8 @@ splash renders ImGui's first frame from inside `OnAttach`, `io.IniFilename` must
 Windows, `$XDG_DATA_HOME/LuxEngine` (default `~/.local/share/LuxEngine`) on Linux. The editor keeps
 everything machine-local there: `App.lsettings` (`ApplicationSpecification::SettingsPath`, which
 defaults to `./App.lsettings` for Lux-Runtime), `imgui.ini` (`io.IniFilename`, set in
-`EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, and `logs/` (the editor
+`EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, `Layouts/<name>/` (saved
+layouts: `imgui.ini` plus `Panels.yaml`), and `logs/` (the editor
 defines `LUX_LOGS_IN_PERSISTENT_STORAGE` before including `EntryPoint.h`; Lux-Runtime logs to
 `./logs`). Every run writes its own `LUX_<date>_<pid>.log` / `APP_<date>_<pid>.log`, so concurrent
 instances don't clobber each other; `Log::Init` keeps the newest 10 sessions. Warnings and errors
@@ -188,6 +189,24 @@ Folder opens the folder. `MigrateLegacyUserData` in `LuxEditorApp.cpp` copies fi
 locations (`./App.lsettings`, `./imgui.ini`, the old `.../Editor` folder) when the new folder lacks
 them. Nothing per-user belongs in the repo.
 
+**Crash watchdog** (Windows, editor only). `Lux-Watchdog.exe` (`Watchdog/`, built into the editor's
+output folder, no engine dependencies) watches the editor from outside. The editor opts in by defining
+`LUX_CRASH_WATCHDOG L"Editor"` before including `EntryPoint.h`, which calls `CrashWatchdog::Start`
+(`Core/Source/Lux/Debug/CrashWatchdog.h`) once logging exists and `MarkCleanExit` as the last thing in
+`Lux::Main`. The two share a named mapping and two events (`CrashWatchdogProtocol.h`, named by the
+editor's PID). An unhandled exception (also `abort`/`std::terminate`, pure-virtual calls and invalid
+CRT parameters, raised as exceptions so they take the same path) signals the watchdog, which writes the
+minidump from outside, then the handler flushes the logs (helper thread, 2 s limit) and the process
+dies. `Application::Run` advances a heartbeat every iteration (it also re-installs the filter, which
+.NET may replace); with hang detection on (the run loop only, not startup or `OnShutdown`) a heartbeat
+still for `Watchdog::HangSeconds` (30) gets a quiet hang dump. A process that ends without
+`MarkCleanExit` gets a report: `CrashReports/<App>-<time>/` under the per-user folder with the dump,
+`report.txt` (exception code and module+offset, or the exit code; the engine log's last lines) and the
+session's logs, and one dialog offering to open it. Newest 10 kept. Fail-fast (`0xC0000409`) and stack
+overflow exits leave a report without a dump. Skipped under a debugger and when `LUX_NO_WATCHDOG` is
+set (the golden runner sets it); `LUX_WATCHDOG_QUIET` suppresses the dialog. Aftermath still covers GPU
+crashes.
+
 **Layers** (`Layer.h`, `LayerStack.h`): `OnAttach` / `OnDetach` / `OnUpdate(Timestep)` /
 `OnImGuiRender` / `OnEvent`. `PushLayer` for regular, `PushOverlay` for top. The editor and the
 runtime each supply one. A layer is on the stack before its `OnAttach` runs, but no layer receives
@@ -196,7 +215,8 @@ members exist (startup frames, and on Wayland `glfwShowWindow`'s roundtrip deliv
 synchronously), so `OnEvent` may assume a fully attached layer.
 
 **Frame loop** — see `.claude/docs/Threading.md § The frame loop` for the exact ordering. Do not add
-per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`.
+per-frame work directly to `Application::Run`; add it to a layer's `OnUpdate`. (The one exception is
+the crash watchdog's heartbeat, which must measure the loop itself.)
 
 **Events** are two-stage: `QueueEvent` / `DispatchEvent<T>` are thread-safe and run by the next
 `ProcessEvents()` on the main thread; `DispatchEvent<T>` additionally waits for `SyncEvents()`,
@@ -235,7 +255,11 @@ not the abstract `Shader`.
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
-`VulkanDevice` created. It never owns them. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
+`VulkanDevice` created. It never owns them. The primary graphics family must also support
+compute (and presentation for a window). A requested dedicated compute family is optional;
+when absent it is not created or exposed as an NRI queue, and command buffers use the existing
+graphics-queue path. Queue-family discovery starts fresh for each candidate device, so indices
+from another adapter cannot leak into selection. `RHIDevice::API()` is every NRI interface Lux uses (`NRIInterface`), `GetQueue(GPUQueue)`
 the NRI queues (null when that family was not created), `GetDesc()` NRI's `DeviceDesc`. Every
 submission goes through `RHIQueueTimeline` (`Renderer/RHI/RHIQueueTimeline.h`, created by
 `Window::CreateRHIDevice` after `RHIDevice::Init`): one NRI timeline fence per queue, submissions
@@ -335,6 +359,46 @@ Structurally:
   `GPUMaterialData` from the asset's values (the shader block is read only for a bare override
   `Material`, with fallbacks). Never read a material uniform with `Material::Get*` without
   `FindUniformDeclaration` first: in Release a missing member is an out-of-bounds read, not an assert.
+- Advanced lobes (clearcoat, sheen, subsurface, anisotropy) are `MaterialSurfaceParameters` values,
+  each off at its default; `MaterialScene` sets a GPU flag only for a lobe that is on, and the
+  shaders evaluate it per pixel (`Rendering.md § The GPU material table`).
+- **Material graphs** (`Renderer/MaterialGraph/`). A `MaterialAsset` may own a `MaterialGraph`
+  (nodes, links, comments; stored in the `.lmat` under `Graph:`), whose `Compile()` emits the body
+  of a GLSL surface function and the parameter layout. All of a project's graphs are compiled
+  into the two surface shaders (`GBuffer_Static`, `HazelPBR_Transparent`), not into per-graph
+  pipelines, so graph materials stay in the single GPU-driven pipeline. `MaterialGraphRegistry`
+  (editor only, main thread, `Update` every frame from `EditorLayer::OnUpdate`) collects the
+  graph-owning materials (`Register` is called by the serializer and may run on the asset worker),
+  test-compiles each function on its own (`VulkanShaderCompiler::TryCompileGLSL`; a graph that fails
+  gets index 0 and renders as the standard material), writes
+  `Resources/Cache/Shader/Generated/MaterialGraphs.glslh` (a third include search path) and reloads
+  the two shaders when it changed. The row carries the graph's 1-based index
+  (`TransmissionTextureIndices.y`) and its parameters (`GraphParameters`), so parameter edits never
+  recompile. Instances share the parent's graph object and override parameters by
+  `Param.<name>` keys. A Material Function node (`SubGraph`) inlines another graph material's graph
+  at compile time (variables prefixed `g<node>_`, Function Input nodes bound to the node's inputs,
+  depth and cycle checked); its pins come from `MaterialGraph::GetPins`, the one source of per-node
+  pins. Asset packs store each graph's parameter layout (`GraphLayout`, `HasPackedParameters`), so
+  the run time never compiles and needs no function graphs. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
+  instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
+  generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
+  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
+- Mesh vertex colours and the second UV set are `MeshSource::m_VertexAttributes` (empty, or one
+  `VertexAttributes` per vertex), filled by `AssimpMeshImporter` when any mesh in the file has colour
+  set 0 or UV set 1, written to asset packs under `MeshSourceFile::HasVertexAttributes` (between the
+  vertex and index sections; older readers ignore it), and uploaded as the attribute stream
+  (`Rendering.md`).
+- **Material instances.** A `MaterialAsset` with a parent (`GetParent`, `.lmat` `Parent:` plus an
+  `Overrides:` list of value keys) takes every value it does not override from the parent chain;
+  transparency (the shader) is never inherited. The instance still holds and saves all its values,
+  so the renderer, `MaterialScene` and asset packs see a plain material, a missing parent leaves the
+  last values, and a pack load drops the parent. `MaterialAsset.cpp`'s `s_InstanceFields` table is the
+  one list of inheritable values (key, compare, copy); a new material value needs an entry there.
+  `InheritFrom` runs on editor load (the serializer loads the parent first, depth-capped) and from
+  `OnDependencyUpdated(parent)` (the parent is a registered dependency);
+  `PropagateToInstances(parent)` re-inherits loaded instances after a live edit (the Material Editor
+  calls it each frame the material changed). Overrides are the values that differ from the parent at
+  the end of an edit (`UpdateOverrides`); `SetParent` refuses a loop.
 - "Lux Standard" inputs live in `MaterialSurfaceParameters` on the asset (emissive colour + map,
   occlusion map + strength, packed-map channel selection, specular, normal strength, height map as
   bump, UV tiling/offset/rotation, alpha mode + cutoff, two-sided, and for transparent materials
@@ -433,6 +497,35 @@ saving a base, `EditorLayer::PropagateToVariants` refreshes each derived variant
 with `OpenScene`); on save it writes the asset and calls `Scene::PropagatePrefabEdits`, which
 refreshes un-overridden instances in the returned scene to the edited prefab's values.
 
+**Prefab structure** (Unity-style overrides): `Scene::SyncPrefabInstance(root, prefabScene)` makes an
+instance follow the prefab's hierarchy: entities the prefab gained are cloned in one at a time
+(`ClonePrefabEntity`, parents first), entities it lost are destroyed after their surviving children move
+up, children follow the prefab's parenting, and siblings follow its order (children the user added keep
+their slots; there is no sibling-reorder UI, so order is never an override). User edits win: the editor records a deleted or moved
+prefab child on the instance root (`Scene::RecordPrefabRemoval` / `RecordPrefabReparent`, called by
+`SceneHierarchyPanel` before the edit) in `PrefabComponent::RemovedEntities` / `ReparentedEntities`
+(serialized as `Removed` / `Reparented`; records about entities the prefab dropped are pruned), and
+instance-added children are never touched. It runs in `PropagatePrefabEdits` before the component pass,
+on `EditorLayer::OpenScene` and in `SceneAssetSerializer::SerializeToAssetPack` (`SyncAllPrefabInstances`,
+through the AssetManager, so prefabs edited while a scene was closed reach it; never inside
+`SceneSerializer::Deserialize`, where a prefab nesting itself would recurse). Variants take the same
+gains, losses, moves and sibling order from the base's old/new difference in `AdoptPrefabBaseEdits`,
+keeping UUIDs. An instance converted from before records existed logs what it took as deleted, and the
+Properties panel's Prefab section offers **Restore** (clears `RemovedEntities`, syncs again).
+**Spawning:** `Scene::Instantiate` during Play or Simulate defers the physics component hooks while the
+hierarchy is copied (`m_SpawningPrefab`; the hooks used to run before an entity's colliders existed), then
+`StartSpawnedHierarchy` creates rigid bodies (static colliders included) and character controllers and, in
+Play, script instances with `OnCreate` (`StartScriptInstance`, shared with `OnRuntimeStart`). C# spawns
+through `Entity.Instantiate(Prefab[, position, rotation])` (`Scene_InstantiatePrefab`). 2D physics bodies
+are not created for spawned prefabs.
+`PrefabComponent::Tracked` (on the root) says the records are kept; an instance saved before they
+existed is converted on its first sync: what it lacks or has moved relative to the prefab it last matched
+(`baseline`: the pre-edit prefab in `PropagatePrefabEdits`, else the current one) becomes records.
+`SyncAllPrefabInstances` first relinks entities still carrying `PrefabID` 0 (`RelinkPrefabInstances`: the
+prefab asset whose scene owns their `EntityID`; prefabs are loaded only when such entities exist).
+Instantiation links every instance entity to the prefab asset (`CreatePrefabEntity(..., prefabID)`;
+the prefab's own entities carry no `PrefabComponent`) and keeps children's prefab-local transforms.
+
 **Switching things off** (Unity's `activeSelf` and per-component `enabled`), two levels:
 
 - *Entity:* `TagComponent::Active`. `false` switches the entity **and every descendant** off. Read it
@@ -481,7 +574,8 @@ orchestrators.
   UUID anywhere that crosses a frame, a file, or a duplication.
 - The registry is **not** thread-safe; mutation is main-thread only.
 - Destroying an entity mid-iteration invalidates views — use `SubmitToDestroyEntity`, which defers
-  into `m_PostUpdateQueue`.
+  into `m_PostUpdateQueue`. C# `Entity.Destroy()` goes through it too (`Scene_DestroyEntity`), so a
+  script's entity is gone, and its `OnDestroy` has run, at the end of the frame.
 - `Scene::Copy` / `CopyTo` back play-mode duplication, scene open (the editor edits a copy of the
   scene asset) and prefab edit mode; a component that isn't copied there silently vanishes on Play.
   They copy the `ScriptStorage` too, so script field values reach Play and survive open → save.
@@ -497,8 +591,34 @@ Layered so the backend can be swapped:
 - `PhysicsSystem` (`PhysicsSystem.h`) — static facade: init/shutdown, mesh cooking, scene factory.
 - `PhysicsScene` / `PhysicsBody` — the world and its bodies (`JoltScene`-equivalent logic in
   `PhysicsScene.cpp`, `JoltBody`).
+- Stepping: `Scene::StepPhysics` asks `PhysicsScene::AdvanceFixedClock(ts)` how many fixed steps
+  are due (project `FixedTimestep`, at most 8 a frame, the excess dropped) and runs that many
+  `SimulateStep(fixedDt)` calls, each one Jolt step with kinematic targets, character controllers and
+  the transform sync. In Play, C# `OnFixedUpdate(fixedDt)` runs before each step, after the frame's
+  `OnUpdate` (`Scene::InvokeScriptFixedUpdate`, same enabled/active/created rules). Contact events
+  still drain once per frame. Box2D (`PhysicsScene2D`) still steps once per frame with the frame time.
 - `PhysicsShapes.h` — box, sphere, capsule, convex mesh, triangle mesh (static only), compound.
-- `CharacterController.h` / `JoltCharacterController`.
+- `CharacterController.h` / `JoltCharacterController` — a `JPH::CharacterVirtual` whose shape is the
+  entity's primitive colliders (`CreateEntityShape`; a 2 m capsule without one; a character entity's
+  colliders get no rigid body). Its inner body (same shape, `CharacterControllerComponent::LayerID`,
+  user data = entity UUID) is what rigid bodies, triggers and queries see. Order per fixed step, as
+  in Jolt's CharacterVirtualTest: kinematic targets, then each controller's `Simulate` (ground velocity,
+  jump, gravity, `Move` displacement, then `ExtendedUpdate` with step-up = Step Offset), then the world
+  step, then `PostSimulate` writes the position to the entity. `PhysicsScene::Stop` and
+  `DestroyCharacterController` call `JoltCharacterController::Destroy()` first, so a controller a script
+  still holds never outlives the Jolt system. A character reports its own contacts (its sweep never reaches
+  `JoltContactListener`, and the inner body reports none with dynamic bodies): after `ExtendedUpdate`, bodies hit
+  this step or resting within twice the character padding are touched; Begin on first touch, End after 3
+  untouched steps (a pushed crate otherwise flickers ~10 Hz), pushed as `PhysicsContactEvent`s keyed
+  `{inner body, other body, ~0, ~0}` into `PhysicsScene::DrainCharacterContactEvents`; `Destroy()` ends them.
+- C# `OnCollisionBegin/End` for 3D: `Scene::DispatchCollisionEvents` (Play, after `UpdatePhysicsAudio`
+  drains the rigid-body events) feeds rigid-body and character events through `ContactPairTracker`, which
+  counts live contact keys per entity pair, so scripts get one Begin when a pair first touches and one End
+  when its last contact goes (Jolt reports every sub-shape pair). Triggers (`RigidBodyComponent::IsTrigger`,
+  Jolt sensors with `mCollideKinematicVsNonDynamic`, so kinematic bodies and character controllers' inner
+  bodies count) come through `JoltContactListener` as `PhysicsContactEvent::Trigger` events, skipped by physics
+  audio and dispatched through a second tracker to C# `OnTriggerBegin/End`. Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
+  scripts at all; only Box2D's `ContactListener2D` called the hooks.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
 - `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
   crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
@@ -518,11 +638,24 @@ No abstraction layer — Box2D is small enough to use directly.
 
 `ScriptEngine` (`Scripting/ScriptEngine.h`) hosts .NET 9 through Coral (`Core/vendor/Coral/`).
 
-- Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`.
+- Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`. The
+  CoreCLR host is per process (it cannot start twice); `Application` brings it up once and each
+  project gets its own collectible `AssemblyLoadContext` (`Project::SetActive` → `Shutdown`,
+  `Initialize`, `LoadProjectAssembly`). Unloading a context (`Shutdown`, `ReloadAppAssembly`) is
+  followed by collect, wait for finalizers, collect, so the old assemblies are freed then and not at
+  some later GC. Measured with a headless loop of 12 project switches, each running a scene with a
+  script and physics: no growth in memory, handles or threads.
 - Assemblies: `LoadProjectAssembly` (editor, from disk), `LoadProjectAssemblyRuntime(Buffer)`
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
+- C# `Gizmos` (`ScriptCore/Source/Lux/Gizmos.cs`; shapes are built from lines in C#) calls
+  `Scene::AddDebugLine`. A line belongs to the phase that drew it: the frame list is cleared when
+  `OnUpdate` runs (collision and trigger callbacks draw into it too), the fixed list before each
+  `OnFixedUpdate` step, and a line with a duration sits in a timed list that ages with frame time; pausing
+  clears nothing, so lines hold still. `CaptureScriptDebugLines` copies them into
+  `FrameRenderPacket::ScriptLines` (runtime and editor packets; nothing in Dist), drawn in the world
+  overlay with the audio-zone lines (`DebugLine::OnTop` = no depth test).
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:
@@ -569,10 +702,38 @@ Rules:
   `MemoryOnly` flag; there isn't one.
 - Engine code must work against **both** managers — no editor-only assumptions.
 - Async: `GetAssetAsync` + `SyncWithAssetThread()`; the worker is `EditorAssetSystem` /
-  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). `EditorAssetManager::GetPendingAsyncLoadCount()`
+  `RuntimeAssetSystem` (see `.claude/docs/Threading.md`). A queued runtime load that fails is
+  reported back (`RetrieveReadyAssets`) and kept as failed: it leaves the pending set, keeps its
+  placeholder, and is not queued again until `ReloadData` / `ReloadDataAsync`. `EditorAssetManager::GetPendingAsyncLoadCount()`
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
+- **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
+  the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
+  submesh descriptor for every further reference: same vertex/index range and material, its own
+  transform, and the node lists the new index. File meshes keep their indices, and an explicit
+  `SubmeshIndices` list also takes the placements of the submeshes it names (`SetSubmeshes`), and every consumer of `submesh.Transform` (retained renderer,
+  collider cooking, acoustic geometry) sees each placement. `MeshSource::BuildRenderGeometry` builds
+  LODs and meshlets once per distinct range and shares them. **Geometry cache:** generated LODs are
+  kept in `MeshSource::SetGeometryCacheDirectory` (the editor sets `<project>/Cache/Geometry` in
+  `OpenProject`, clears it in `CloseProject`; the runtime sets none). The asset pack carries the same bytes:
+  `MeshRuntimeSerializer` appends `MeshSource::ReadBakedLODs()` (the cache file, when it decodes for this
+  geometry) after the index buffer with `MeshFlags::HasBakedLODs`, and the player hands them to
+  `SetBakedLODs`, which the next `BuildRenderGeometry` decodes with the same validation instead of generating
+  (a mismatch generates). Packs without the flag still load and generate. Files are
+  `<stem>-<path hash>-<key>.lgeo`; the key hashes the vertices, indices, submesh ranges, every LOD
+  setting and `MESHOPTIMIZER_VERSION`, so any change misses. Reads validate every range and index
+  (a bad file is a miss, regenerated); writes go through a per-thread temp file and
+  `FileSystem::ReplaceFileAtomically`, then delete that source's older `.lgeo` files. Bump
+  `k_GeometryCacheVersion` when the file layout or LOD generation changes. A mirrored placement (negative
+  determinant) indexes a reversed-winding copy of its range, appended after import, so culling and
+  one-sided collision see it right side out; placements are therefore matched by vertex range, not
+  `BaseIndex`. A mirrored *entity* takes clockwise-front pipelines instead (`MeshKey::Mirrored`,
+  Rendering.md), and its mesh collider keeps the signed scale with its triangles' winding swapped
+  (`JoltShapes.cpp`). `Math::DecomposeTransform` puts a reflection into `scale.x`, so a mirrored
+  matrix decomposes into a proper rotation. `MeshSource::GetBoundingBox` is the
+  union of the placed submesh boxes (`AABB::Transformed`). Fixture:
+  `tests/meshes/SharedMeshNodes.gltf` (three cubes from one mesh).
 - `AssetManagerBase::GetDataGeneration()` (facade `AssetManager::GetDataGeneration()`) is bumped
   whenever a loaded asset's data is replaced: `ReloadData`, an asynchronous load landing in
   `SyncWithAssetThread`, a runtime-pack reload. A cache that holds asset objects by handle compares it
@@ -592,10 +753,18 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
 (`Editor/Source/`).
 
 - `EditorPanel` (`Core/.../Editor/EditorPanel.h`) — `RefCounted` base with `OnImGuiRender(bool&
-  isOpen)`, plus optional `OnEvent`, `OnProjectChanged`, `SetSceneContext`, `OnClose`.
+  isOpen)`, plus optional `OnEvent`, `OnProjectChanged`, `SetSceneContext`, `OnClose`, and
+  `SaveState(Yaml::Writer&)` / `LoadState(const Yaml::Node&)`: what the panel remembers (open
+  sections, current page), written as keys of a `State` map beside its open state.
 - `PanelManager` — `AddPanel<T>(category, strID, isOpenByDefault, args...)`, `GetPanel<T>(strID)`,
-  `RemovePanel`, and `Serialize` / `Deserialize` of open state. Panels are grouped by
-  `PanelCategory`.
+  `RemovePanel`, and `Serialize` / `Deserialize` of open state and panel state, to
+  `EditorLayout.yaml` or a given file. It saves when a panel opens or closes, before reloading on a
+  project change, and in `EditorLayer::OnDetach` (panel state has no other save point). Panels are
+  grouped by `PanelCategory`.
+- Named layouts (View → Layouts, `EditorLayer::SaveLayout` / `LoadLayout`) sit on top of
+  `imgui.ini`, which stays ImGui's own: saving copies the ini (`SaveIniSettingsToDisk`) and the panel
+  file into `Layouts/<name>/`; loading queues the ini with `ImGuiLayer::QueueIniSettingsLoad`, applied
+  just before the next `ImGui::NewFrame` (where docking can rebuild its tree), and loads the panels.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
 - `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo
@@ -622,11 +791,27 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   covers everything. Selection is restored per step; a `UndoHistoryPanel` (View → History) shows the
   stack. Play/Simulate get a separate transient history (discarded on Stop; undo there rebuilds and
   restarts the runtime). Resets on scene load. Full design + phased plan: `docs/Editor/Undo-Redo.md`.
+- `EditorToolHost` (`Core/.../Editor/EditorToolHost.h`, commands in `EditorToolCommands.cpp`) — scene
+  queries and edits for scripted or external tools. Any thread `Submit`s a named command with JSON
+  parameters into a bounded queue (256) and gets a `shared_future<ToolResult>` (Completed / Rejected /
+  Cancelled / Failed, a message, a JSON result). `EditorLayer` owns one, points it at `m_ActiveScene`
+  every frame (editable only in Edit state) and runs `ProcessQueue` right after `PollSceneEditForUndo`,
+  only while no user edit is pending or active, so tool and user edits never share an undo step. A
+  request is checked when it runs, not when it was made: the scene must still be the generation it names
+  (`scene.info` returns it; a different scene object starts a new generation), and mutating commands are
+  rejected while the scene runs. Each completed mutating request goes through the host's undo hook,
+  which `EditorLayer` commits at once as one undo step labelled with the command name. Built-ins:
+  `tools.list`, `scene.info`, `entity.list/get/create/delete/rename/reparent`,
+  `component.add/set/remove`. Component edits are generic: serialize the entity, change the YAML, patch
+  it back with `SceneSerializer::ApplyEntitySnapshots` (the undo path) and serialize again to reject an
+  unknown component or field. Delete and reparent record prefab removals/reparents as the Hierarchy
+  does. Entity IDs travel as strings (a uint64 does not fit a JSON number). No frontend yet: it is the
+  base for automation and tests; `EditorToolHost::RunSelfTests` runs from the Renderer Debugger.
 - Editor app panels (`Editor/Source/Panels/`): ContentBrowser (+ `ContentBrowser/`),
   ApplicationSettings, ProjectSettings, AssetManager, MaterialEditor (+ `MaterialEditor/`),
   SoundEditor (`SoundEditor/`),
   LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,
-  GameView.
+  GameView, Help.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
   `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
   the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;
@@ -666,6 +851,25 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   and from the Audio Source inspector's Edit Sound button (`SceneHierarchyPanel::SetOpenSoundCallback`).
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
+- **The manual (Help).** `Editor/Resources/Docs/**.md` is the user manual for game makers, shipped
+  with the editor and read offline (the contributor docs stay in `docs/Editor/`). A topic is its path
+  without `.md` (`components/physics`); `index` is the start page. `HelpPanel`
+  (`Editor/Source/Panels/HelpPanel.{h,cpp}`, View → Help, **F1**, Help → Manual) reads every page once
+  at construction and shows a section list (folder order `getting-started`, `editor`, `components`,
+  `scripting`), search over titles and text, back/forward, and links resolved relative to the page
+  (then from the root); a missing topic shows a "Page not found" page with suggestions, and a web
+  link is copied instead of opened. Pages render through `ImGuiEx::RenderMarkdown`
+  (`Core/Source/Lux/ImGui/ImGuiMarkdown.h`: parse once into a `MarkdownDocument`, draw every frame).
+  Core code opens a topic with `EditorDocs::OpenTopic` (`Core/Source/Lux/Editor/EditorDocs.h`), whose
+  handler `EditorLayer` installs; `ComponentDocTopic<T>` (`Editor/ComponentDocs.h`) maps a component
+  to its page, and `DrawComponentSection` draws an `ImGuiEx::DocsButton` left of the settings gear
+  for every mapped component. A new component page needs its entry there. Every C# snippet in the
+  manual must compile against ScriptCore.
+- **New projects can build scripts.** `EditorLayer::CreateProject` writes
+  `Assets/Scripts/<Name>.csproj` (`Project::GetScriptProjectPath`): `Source/**.cs`, output in
+  `Scripts/Binaries` (the `ScriptModulePath`), intermediates in `<project>/Cache/ScriptBuild` so
+  generated `.cs` files stay out of the asset registry, and references to this editor's
+  `Resources/Scripts/ScriptCore.dll` and `DotNet/Coral.Managed.dll` by absolute path.
 - **No-project state + splash.** `SplashScreen` (`Editor/Source/SplashScreen.{h,cpp}`, callbacks only,
   like `CommandPalette`) is the Blender-style startup splash and the only UI while
   `Project::GetActive()` is null. In that state `EditorLayer` draws no panels or viewport (the
@@ -693,6 +897,11 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   from `UpdateRuntimeBuild`, so the overlay's bar advances between steps; the asset pack is one
   step and holds the frame while it builds. The Project Settings Build buttons use the same job,
   so one build runs at a time; they do not lock the editor.
+  Linux runtime post-build invokes `scripts/Stage-LinuxRuntimeLibraries.sh` to stage the resolved
+  vendored ELF dependency closure in its `lib/` directory. Export copies shared objects from
+  both that directory and the runtime root, preserving loader filenames and checking copy and
+  enumeration failures. The staging helper runs only while building the engine; export itself
+  invokes no dependency-inspection tool. Audio deployment remains explicitly validated.
 - Viewport transform gizmos operate on world matrices and convert edits back through the parent
   transform. Translation, rotation, and scale have separate snap increments (also available with Ctrl).
   The six-axis view widget uses `EditorCamera::SetOrbitState`; camera view construction uses the
@@ -898,18 +1107,11 @@ component (and C# API), with volume, pitch, play-on-awake, event references and 
 `AudioSource` raw-file voices, direct Core listener updates, the extra Core update pump, and the
 engine-created `Reverb3D` unit are removed. FMOD Core remains a dependency for mixer statistics and
 `AudioFileUtils` metadata inspection (`FMOD_OPENONLY`); inspecting a source asset does not play it.
-FMOD Core/Studio is a required SDK whose shared libraries deploy beside both applications.
-Asterwave is an **opt-in** native C++20 dependency (premake `--raytraced-audio`, off by default).
-When selected it is compiled as a static library into Editor and Lux-Runtime, with no separate
-runtime DLL or shared object, so every game exported from that build contains it; Dist CI builds
-without it. Source comes from the exact private revision in `scripts/dependencies/Asterwave.json`,
-under `Core/vendor/Asterwave` or `LUX_ASTERWAVE_ROOT`. Fetching is explicit; generation validates the
-local checkout offline, and only when the option is selected. Without it `Core/premake5.lua` swaps
-`RaytracedAudioScene.cpp` for `RaytracedAudioSceneStub.cpp`: `IsAvailable()` is false, every call is a
-no-op, `Scene` creates no raytraced scene, and engine occlusion plus reverb zones carry the mix.
-`LUX_ENABLE_RAYTRACED_AUDIO` is defined for Core only when Asterwave is built; the editor checks
-`IsAvailable()` instead. The adapter-only material helpers (`AcousticMaterialID`,
-`ConfigureAcousticMaterials`) live in `Audio/AsterwaveMaterials.h`, defined in the adapter.
+With `--audio-backend=fmod` (the default) FMOD Core/Studio is a required SDK whose shared libraries
+deploy beside both applications; `--audio-backend=native` needs no audio SDK. Acoustics need no SDK
+on either backend: they come from Soundwave, an in-tree Apache-2.0 source library statically linked
+into `Core`, and reach playback through `AudioEventInstance::SetAcoustics` (Studio parameters on
+FMOD, a per-voice low-pass, gain and reverb send on native). Asterwave and Vercidium Audio are gone.
 
 **Legacy scenes:** old `Audio` handles and `Looping` values are retained as migration-only
 `LegacyAudio`/`LegacyLooping`, under their original YAML keys. They survive save, copy, undo and
@@ -918,61 +1120,271 @@ shows an inspector migration warning and reports an error on Play. Assign an aut
 event; the engine cannot infer event GUIDs or recreate Studio authoring from a raw asset. New
 sources do not write legacy keys. Looping is authored in the event timeline.
 
-**Acoustics:** `Scene` owns a `Ref<RaytracedAudioScene>`, which wraps Asterwave behind a
-`Scope<Impl>` and owns its native `World` through `Scope`. Only the private adapter uses
-Asterwave-required shared ownership for native emitters and mesh geometry; this narrow vendor
-boundary exception does not change engine `Ref`/`Scope` ownership rules. Runtime start
-mirrors mesh-collider triangles into Asterwave primitives owned by that scene. `AcousticGeometry`
-triangles are counter-clockwise from outside, like rendered meshes; the adapter reverses each one
-because Asterwave's one-sided queries treat clockwise as the outside. Unreversed, every solid is
-inside out: occlusion never finds line of sight and walls are measured from their far faces.
-Each frame joins the previous Asterwave batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
-and source emitter positions, reads completed results, then launches the next batch with
-`OnUpdate` (`World::update`). `World::wait` joins and publishes results on the calling main
-thread. Joining before mutation and teardown is mandatory. This integration selects one acoustic
-listener: highest
-weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
-The listener casts rays; audio sources are zero-ray targets. `IsAvailable()` is true exactly when
-the build selected `--raytraced-audio`. Debug stats report Asterwave product version 0.2.0.
-Asterwave catches a throwing callback or custom formula and keeps simulating; the world is named
-`Asterwave` and its `LogError` hook sends those reports to `LUX_CORE_ERROR_TAG("Audio", ...)`.
-
-The adapter caps source volume at unity for native acoustic energy; FMOD retains the authored
-playback volume, including boosts. Authored material values and their serialized forms also stay
-unchanged: native flat transmission loss is capped at 1, and extremely small positive transmission
-distances are raised just enough to keep the native `30 / distance` coefficient finite.
+**Acoustics:** `Scene` owns a `SceneAudioAcoustics` (main-thread capture of acoustic geometry) and
+through it an `AudioAcoustics` (prepared snapshots, per-UUID source state, listener reverb). Both
+start on Play. Soundwave simulates one listener: highest weight wins, lowest index breaks ties, and
+an attenuation target overrides its acoustic position. Vercidium Audio was removed on 2026-11-02;
+nothing in the build, deploy or tests references it.
 
 Event components receive `AudioEventAcoustics`: low-frequency direct gain becomes the optional
-Studio parameter `Occlusion` (1 minus gain), and returned energy becomes `ReverbSend`. Studio
-authors the filters, sends and reverb buses. Asterwave's other bands and EAX measurements remain diagnostic
-outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
-expected; other FMOD failures are reported. Standalone scripted events do not register Asterwave emitters.
+Studio parameter `Occlusion` (1 minus gain), and Soundwave's listener reverb send times the zone
+gain becomes `ReverbSend`. Studio authors the filters, sends and reverb buses. The HF gain and the
+path/reverb details remain diagnostic outputs; the engine does not apply a second filter/reverb
+path. Missing optional parameters are expected; other FMOD failures are reported.
 
-**Engine occlusion:** `ProjectAudioSettings::Occlusion` (`AudioOcclusionSettings`) selects what
-drives each event's
-Studio `Occlusion` parameter: `Engine` (default, including projects saved before the setting) or
-`Raytraced` (Asterwave). The source is read at Play start. With Engine, `Scene`'s scene-owned
-`AudioOcclusion` runs after the Asterwave join: `Scene::UpdateAudioOcclusion` feeds it the frame's
-`m_AudioGeometryInputs` (mesh-collider tags and portal boxes, portals at their last applied Open)
-and casts listener→source with `PhysicsScene::CastRayAll`, ignoring the source's own collider and
-every entity that is not acoustic geometry. Paired entry/exit crossings are solids costing
-30 dB per tag `TransmissionLF` metres; unpaired crossings are one-sided
-surfaces costing the tag's flat energy fraction. Losses are scaled by `Strength` (0–4), summed,
-capped at 60 dB, and become a linear gain on `AudioEventAcoustics::OcclusionGainLF`. Each source is
-recast at `UpdateRateHz` (1–120), round-robin within `CastBudget` (1–1024) casts per update; it
-snaps on its first result and is then smoothed over 0.1 s. It runs in every Play session, with or
-without Asterwave: `Scene::SyncAudioGeometry` always gathers the geometry inputs and only mirrors them
-into Asterwave when its scene is running. Without Asterwave, portals use their authored Open, and a
-project set to `Raytraced` logs one warning at Play start and uses `Engine`. Settings persist
-under `Audio.Occlusion` in YAML (missing → defaults; invalid values fail the load) and as runtime
-format **25**'s bounded, length-prefixed YAML block after the format-23 performance block; formats
-16–24 load with defaults. Bank validation warns when an audio source's event has no `Occlusion`
-parameter, since walls then cannot muffle it.
+**Native acoustic verification:** `SceneAudioVerification` is a Core-owned main-thread
+report over a running Scene's acoustic diagnostics, physics comparison and actual FMOD
+parameters. It returns Pending/Passed/Failed with owned YAML/error strings and never waits.
+GoldenCapture and the opt-in RuntimeLayer report use the same check; Core has no editor-app
+dependency. `LUX_GOLDEN_EXPORT_DIR` starts the existing validated EditorLayer export after
+Play/Stop and image capture. It polls the normal build/export state, records the resulting
+package/executable paths, and then finishes. Automated destinations must be absolute and
+empty; normal interactive exports retain their folder dialog and completion behavior.
+`LUX_RUNTIME_AUDIO_REPORT` enables a player report after normal rendered frames, then queues
+normal application close. It loads the binary project, packaged banks and AssetPack with
+the normal runtime asset manager and compacted mesh CPU data; it is inert without that opt-in.
+The fixture runner compares the packaged player's raw gains/direct bits/opening paths with
+Play. Completion is an atomically published status file after the report, independent of console
+sinks and logging preferences (Dist has no console sink). Missing/stale markers fail verification.
+These hooks provide evidence only for the implemented stages, not GPU/reverb completion.
 
-**Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
-Asterwave's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
+**Soundwave CPU reference integration:** `SceneAudioAcoustics` owns the main-thread capture cache
+and `AudioAcoustics` owns prepared snapshots and UUID source states. Scene always applies
+Soundwave's smoothed LF gain to `AudioEventAcoustics::OcclusionGainLF`. The old `Occlusion.Source`
+backend selector is gone: files that still carry `Source: Engine|Raytraced` load with it ignored,
+and saves omit it. `ReverbSend` is Soundwave's too:
+`Soundwave::EvaluateReverb` bounces `ReverbRays` deterministic rays (Fibonacci sphere, up to
+`ReverbBounces` specular hits) from the listener, estimates the 60 dB decay Sabine-style from
+absorption plus escaped rays per metre travelled, and maps it to
+`(1 - escaped) * (1 - exp(-decay / ReverbReferenceSeconds))`. `AudioAcoustics` runs it as a JobSystem
+job over the published snapshot Refs and copied values when geometry or settings change or the
+listener moves over 1 m, one job in flight; main polls it and smooths the send (0.5 s). Scene
+multiplies that send by the zone system's raytraced-reverb gain, and zones treat a completed
+measurement as "raytraced reverb valid". Bank validation warns when an occludable event lacks a
+`ReverbSend` parameter. The three reverb rows live in the project audio block's `Kernel` map.
+
+**Workers and the GPU (plan Phase 4, as decided 2026-11-02):** per-source `Solve` runs on a
+JobSystem worker (one batch in flight, published by `AudioAcoustics::PollSolves`); the listener
+reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
+`AudioAcousticKernel` (`Core/Source/Lux/Audio/`, renderer-side) and injected by
+`SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)
+the CPU job measures instead; the same `FinishReverb` reduces CPU or GPU rays in ray order.
+`Soundwave::Flatten` copies the published view (exclusions baked in) into std430 records the
+shader reads. `tests/audio/run_soundwave_gpu.py` checks the engine shader against the CPU on a
+real Vulkan device (≤ 0.5 dB; measured 0.009 dB on an RTX 4070 Ti). The user chose workers rather
+than a GPU propagation search: the search is serial and heap-driven, so a GPU twin would run one
+thread per source and stall frames; a parallel GPU search is a documented follow-up.
+
+**Air absorption, scattering, bounce diagnostics (plan Phase 5):** `AirAbsorptionLF/HF` (dB per
+100 m, defaults 0.1 / 2.5, range 0–20, `Kernel` map) charge reflection and opening paths only on
+their length beyond the direct path, and add their energy loss per metre to the reverb estimate.
+The direct path is never charged: FMOD's distance fade owns loudness over distance (user decision,
+2026-11-01), so a distant source cannot be faded twice. Reflections keep the specular
+`(1 - Scattering)` share; reverb rays leave each surface as that share's mirror ray blended with a
+deterministic cosine-weighted direction for the `Scattering` share. `SolveDiagnostics::
+PathsByInteractions` counts stored paths by reflections + diffractions; the Audio Debugger's Paths
+column shows reflection/opening counts and the deepest interaction per source.
+The C# contract is unchanged. This CPU integration is a reference milestone, not the shipping
+fallback: Phase 4 must replace its execution with the required GPU stages.
+
+Capture currently uses visible, active StaticMeshComponent render meshes and the StaticMesh asset's selected submeshes, with
+per-submesh material-table resolution. AudioSurface overrides the tag; otherwise collider material
+authoring can override/inherit the render tag. Geometry itself comes from the render MeshSource,
+not collision triangles. Existing collider motion authoring is respected; uncollided render meshes
+start in the static layer and promote to moving when their transform changes. Disabled collider
+acoustics exclude that render mesh. Enabled portals replace their entity's render capture with the
+applied shutter box and disappear at Open=1. The old physics raycast retains its collider inputs
+only for comparison. A low-detail render mesh therefore has the plan's documented acoustic cost.
+
+Mesh refs and material/submesh descriptors are cached using AssetManager::GetDataGeneration,
+material-table revision and live retained material tags; asset resolution and surface descriptor
+capture do not repeat while unchanged. Captured MeshSource positions/indices are the retained CPU
+data (also available in runtime builds); workers receive owned refs plus transforms/tags by value,
+never Scene/ECS or live material pointers. Negative transforms reverse triangle winding. Geometry
+capture requests follow UpdateRateHz; main polls completion without waiting. Deletions/disabled
+instances mask old snapshots immediately while replacements prepare.
+
+One JobSystem job builds the dirty static/moving layers, reusing the untouched snapshot, and the
+pair publishes atomically. This prevents duplicate instances during a layer migration. Completed
+movement publishes even if newer movement is queued, so continuous motion cannot starve results.
+Requests coalesce by dirty layer. Invalid capture, hierarchy or portals retain the last valid pair,
+report a tagged error and expose failure state. A failed layer is retried when its own captured input changes; unrelated movement does not repeatedly rebuild/log that invalid input. Clear releases scene ownership without joining;
+captured Ref job state remains alive until its worker finishes. The all-inline JobSystem policy
+uses the same completion/publication path. Application drains the job pool after layer detach
+and replays its background resource frees before renderer shutdown (Threading.md).
+
+Reference solves run on main until Phase 4, at UpdateRateHz (1-120), with round-robin CastBudget
+(1-1024) and retained scratch/results. First valid gain snaps; subsequent gains interpolate over
+0.1 s. Errors preserve the last valid path and gains. Geometry readiness/backlog/failure counts,
+path diagnostics and gains are observable through Scene::GetAudioAcoustics. `CompareRaycast`
+optionally runs Scene::UpdateAudioOcclusion using the existing physics raycast and scalar model;
+the oracle does not drive playback. Project Settings authoring and native Sponza controls are
+described below. Broader render coverage, Linux engine sanitizer and full runtime/export gates
+remain outstanding for Phase 2.
+
+**Shared Scene meshes (migration Phase 2, in progress):** Scene capture now caches one
+local Grid per retained MeshSource pointer and selected-submesh layout. The worker bakes each
+submesh's local transform once, then publishes actor transforms/material overrides as instances.
+Material edits and moving an actor reuse that local hierarchy/topology. Portals share a local
+unit box while retaining the applied analytic inverse. Mesh templates have worker-only preparation
+state: the adapter serializes its preparation jobs, main publishes after release/acquire Done,
+and no main code reads Prepared/Grid until a completed snapshot owns it. A different Scene owns
+different templates. Clear detaches old jobs without sharing their mutable preparation state
+with a restarted scene. Published snapshots retain each shared MeshGeometry with Ref; the raw
+triangle reference input remains supported as an identity instance owned by its snapshot.
+Unused cache-only templates retire after captured/snapshot owners release them.
+
+Render sources explicitly build with DegeneratePolicy::Retain: primitive IDs stay intact,
+nonzero surfaces have no minimum-area cutoff, and exact zero-area pole/seam faces are counted
+as inert. Strict reference/raw inputs keep the original rejection rule. The library skips
+zero-area intersections, clearance divisions and indirect candidates, uses wide normals,
+and rejects nonfinite input under both policies. Instanced grids count world-zero primitives
+after float transformation, so rounding a small face away stays observable. Template preparation
+logs local zero-area counts once; Scene diagnostics/Play artifacts expose static/moving counts. Repeated selected submeshes retain primitive IDs while identical
+surface overrides are deduplicated; conflicting rows still fail validation.
+
+Scene skips geometry capture while there are no eligible audio sources, retaining immutable
+caches for later reactivation. Diagnostics distinguish logical triangles from stored local
+triangles and report mesh instance counts; Play artifacts record all three. The per-mesh cap
+stays unchanged and aggregate virtual index overflow is rejected transactionally. The previous
+Benchmark cap rejection and timeout records describe the older expanded capture. A controlled
+Play run with an authored FMOD source/listener now covers all 6,914 render-mesh/portal instances,
+8,556,859 logical triangles, 272,383 stored triangles counted by layer and 1,062 moving instances.
+It publishes later geometry generations, verifies final FMOD transport and exits normally with
+zero Vulkan validation messages. The temporary source/listener are removed by byte-exact scene
+restoration. This Debug validation run is not performance or runtime/export evidence. The local-template transform followed by actor
+transform has two float stages, so it need not reproduce the last bits of a precombined actor /
+submesh matrix. The direct world-triangle oracle still retains its frozen arithmetic, and the
+GPU implementation must match this CPU reference within the authored tolerance.
+
+Settings persist under Audio.Occlusion in YAML and runtime format 25's existing bounded,
+length-prefixed YAML block; formats 16-24 use defaults. Bank validation still warns on missing
+Occlusion parameters. Kernel settings schema details are below.
+
+**Soundwave contract (migration Phase 1):** `Core/vendor/soundwave/` is an Apache-2.0 source
+library compiled into `Core`, without Lux headers or a separate DLL. `Dependencies.lua` owns
+its include root; Core's source glob and NoPCH filter compile it. `AudioOcclusion::Configure`
+maps enabled engine overrides or the library's literal LF/HF defaults into its material rows.
+`Evaluate` keeps its entity-bearing walls for the editor, sorts them once, then fills
+`AudioOcclusionPath::Measurement` (`Soundwave::Path`) in exactly that order. Soundwave owns
+solid/flat loss helpers, the fixed-order reduction, the 60 dB cap and linear gains; `Update`
+uses the measurement's LF gain before existing smoothing. Both vectors retain capacity
+between acoustic updates. All of this remains on main under both threading policies.
+This contract does not yet implement propagation, reverb or GPU dispatch. The existing
+engine material accessor remains available as the Phase 1 default-value comparison oracle.
+
+**CPU geometry groundwork (migration Phase 2, in progress):** Soundwave's `Grid` owns validated
+triangles in the caller's coordinate space and a deterministic spatial hierarchy, built transactionally from an owned
+snapshot. Its const segment trace uses caller-owned hit storage, reports entry/exit winding,
+preserves stable instance/surface/material/portal data and can exclude the source instance.
+Concurrent readers share no mutable scratch. `Settings` bounds reflection/opening/bounce work,
+strength and authored absorption. Scene capture and CPU reference consumption are described above;
+echogram/GPU dispatch remain unimplemented.
+Independent propagation is described below.
+The independent test runner exercises the hierarchy and immutable readers on both platforms.
+`Solve.h/.cpp` now adds the independent `EvaluateDirect` crossing walk. It pairs hits per
+instance, merges shared-edge duplicates at 1 mm, preserves unmatched-face semantics, and prices
+the entry material using the Phase 1 loss helpers. Applied portal transforms cross the seam as
+column-major `PortalBox` values, with analytic clipping for segments partly or wholly inside
+the shutter. Matching portal triangles are not charged again. Endpoint inputs are copied before
+reset so a previous Path can supply its own From/To. Settings/material/ray/portal failures return
+an explicit nodiscard error and clear the attempted output; the engine adapter logs and
+retains its last valid result. Scratch and crossing capacity survive updates. Scene calls it through the CPU reference adapter. The production comparison test checks its values bit-for-bit against
+AudioOcclusion for all material tags/strengths and transformed portal opening states.
+
+**Independent CPU propagation (migration Phase 2, in progress):** `Solve` keeps the direct
+measurement unchanged and emits visible image-source reflections plus sampled edge-opening paths.
+`Grid` builds edge adjacency once with its hierarchy; coplanar diagonals are not diffraction edges,
+and omitted non-manifold edges are counted. Opening nodes must have surface clearance and all
+legs must be visible, preventing a graph segment between two points on opposite wall faces from
+passing inside the solid. Portal triangles and analytic volume clipping both block visibility.
+Specular energy uses authored absorption/scattering; opening attenuation uses a documented Fresnel
+approximation and relative extra-path spreading, without another direct distance fade. Work,
+path storage and graph nodes are bounded and truncation is explicit. Path points/lengths/band gains
+and the strongest audible LF opening path remain observable. Opening search caches source visibility
+per node, retains completed routes at discovery, and skips source-hidden final-interaction nodes.
+Thus blocked graph fan-out cannot defer an already completed route until its work is exhausted.
+All visibility, interaction and work limits remain enforced; direct arithmetic is unchanged.
+Scene calls this through its CPU reference adapter; editor authoring is implemented below.
+Full Phase 2 runtime/export verification remains.
+
+**Static/moving snapshot seam (migration Phase 2, in progress):** `Soundwave::GeometryView`
+borrows a fixed Grid, an optional moving Grid and a sorted/unique UUID exclusion span. It exposes
+both hierarchies as a single deterministic triangle/node/edge index space without merging or
+copying geometry. Both `Solve` and `EvaluateDirect` accept the view; single-Grid overloads wrap it.
+All queries, candidate preparation and analytic portal clipping honor the mask. The caller owns
+and freezes the grids/exclusions through a solve and creates a fresh view after replacement.
+Topology remains per snapshot; deletion-exposed edges appear after a rebuild. This is a library
+seam used by the worker-prepared Scene snapshots above; it does not implement a GPU path.
+
+**Shared mesh hierarchy (migration Phase 2, in progress):** `InstancedGrid` borrows local
+immutable Grids and owns copied instance transforms/material maps plus a top-level BVH.
+It exposes transformed triangles, edges and mesh nodes through virtual global indices;
+the per-mesh triangle limit remains unchanged, while aggregate indices are checked for
+overflow. Build validates transformed surfaces transactionally on a preparation worker.
+The caller retains the local Grids through every reader. `GeometryView` accepts either
+raw or instanced static/moving pairs and returns triangles by value. `Grid::Node` now
+uses explicit Left/Right child indices; an absent child is kInvalidGeometryIndex.
+Shared internal GeometryQueries preserve the existing world-space triangle arithmetic;
+mirrors preserve winding/edge adjacency and nonuniform clearance is measured in world
+space. Topology remains per mesh, with surface/leg checks enforcing sealed-door blocking.
+Independent tests cover more than one million logical triangles without duplicated
+mesh storage, transformed direct parity, concurrent readers and open/closed doorways.
+Scene now captures retained shared meshes through this API; broad scene and runtime/export
+verification remain outstanding.
+
+**Kernel settings persistence (migration Phase 2, in progress):** `AudioOcclusionSettings` now
+owns reflection depth, opening samples, bounce/candidate/path/node limits, absorption and a
+temporary `CompareRaycast` diagnostic flag. `GetKernelSettings` maps them into the library Settings,
+using the existing Strength field. `Audio.Occlusion.Kernel.Version: 1` gates the nested YAML map;
+missing rows use defaults. Invalid/unknown/duplicate rows or unsupported versions fail with a
+tagged error and preserve the previous settings. Runtime uses its existing bounded length-prefixed
+YAML block, so old blocks without Kernel load unchanged. No global binary layout changes. Project
+serialization already delegates to this type in both directions; Scene consumes the values.
+Project Settings > Audio exposes strength, rate, source/work/path/node budgets, maximum bounces,
+reflection depth, opening samples, absorption and Compare Engine Ray. Changes use the existing
+project dirty/save flow and apply on next Play/runtime startup. Numeric text edits are clamped to
+the serializer bounds; lowering maximum bounces also limits reflection depth. The legacy Source
+field still round-trips until Phase 6, but is no longer presented as a playback choice.
+
+`golden_run.py --audio-settings-ui` runs the same acoustic controls in an isolated ImGui context
+at EditorLayer::OnAttach, before startup ImGui/render frames. It drives actual numeric text input
+and the comparison toggle, checks IDs/scopes, dirty results, direct-only settings, bounds and YAML
+round-trip, then restores the original context. It edits local settings only. The runner requires
+a fresh PASS artifact in addition to normal capture/Play success. This automated control check does
+not substitute for a complete visual panel walkthrough or runtime/export validation.
+
+**Linux lifetime verification:** the Linux CI matrix includes Debug-AS in addition to
+Debug/Release/Dist. Native compile/link sanitization is inherited from the workspace.
+`Linux-Build.sh debug-as` builds matching dependencies and runs the full audio checks when
+`LUX_RUN_AUDIO_TESTS=1`; the runner selects that configuration’s generated defines/includes
+and Jolt/ImGui archives, instruments its own source compilations/links, and verifies ASan
+memory-access symbols in the real AudioAcoustics object. CI also checks instrumentation in
+the built Core archive and Runtime binary. Thus a Debug-AS label alone cannot satisfy the
+lifetime gate. The same real-job ownership/publication tests run without a separate mock adapter.
+
+**Native Scene verification:** `tests/audio/run_scene_acoustics.py` builds isolated project
+fixtures around the real Sponza model and uses normal Play/Stop with pinned listener/source UUIDs.
+All Sponza submeshes also feed the existing physics-ray oracle; the optional Play artifact records
+raw and applied LF, direct/oracle float bits, endpoints, work/path truncation and audible route
+points. A missing requested comparison path fails capture. Corner/open-archway cases must improve
+on the blocked ray and reach FMOD; closed/direct-only controls must not acquire an opening route.
+Five partitions isolate one actual arch bay from neighboring open arches for its closed portal
+control. Fixtures author opaque material coefficients and explicit maximum search budgets.
+Counts derive from model accessors rather than assuming a primitive cube. The runner copies
+imported model/material files and verifies original project, scene, registry and model bytes.
+Capture projects do not enter user recent-project history. This is a developer correctness gate;
+it does not establish performance, default-budget completeness, exported runtime or GPU parity.
+
+**Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
+`AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no
+`Application`, scene or renderer and reuses the runtime player's deployed libraries through the verification
+script's child PATH. It does not replace `ValidateProject`'s collection of asset references.
+
+**Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags; their index is
+Soundwave's `MaterialTag` (pinned equal by `static_assert`). `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
 `AudioSurfaceComponent` on the same entity overrides that tag, including an explicit Default;
-without a mesh collider it is metadata only. Both tags survive scene snapshots, copy/duplicate,
+without a mesh collider it also tags captured StaticMesh render geometry. Both tags survive scene snapshots, copy/duplicate,
 prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
 through `MeshColliderComponent.Material` and `AudioSurfaceComponent.Material` as read-only queries.
 Physics friction/density/restitution remain independent. A render material can carry an acoustic
@@ -990,52 +1402,39 @@ queries and the editor's material view. The inspector shows the effective tag.
 **Acoustic Materials** (viewport options popup, usable in edit mode and Play) sets
 `SceneRendererOptions::ShowDebugCategories`: `Scene::CaptureAcousticMaterialDebug` replaces the
 collider debug items with every non-Disabled mesh collider and enabled portal shutter (at its current
-Open, in the box Asterwave traces), each tagged with its palette index, and the editor shows a legend of the
+Open, in the shutter box Soundwave clips against), each tagged with its palette index, and the editor shows a legend of the
 tags present. See `Rendering.md` § Editor debug geometry.
 
-**Dynamic geometry and portals (Phase 13):** `Scene::SyncAudioGeometry` captures mesh collider
-metadata and world transforms into a scene-owned `AudioGeometrySystem`. Static/Dynamic/Disabled
-acoustic motion is independent of physics. Static captures its transform; Dynamic tracks hierarchy
-movement; Disabled omits the collider. Local triangle batches include submesh transforms and use
-the same selection rule as physics (valid index selects one; otherwise all). Changed transforms
-and tags update an existing Asterwave primitive; mesh/submesh selection changes rebuild only that node.
-The queue coalesces edits and limits active frames to eight primitive updates, stopping after
-65,536 affected vertices (a soft threshold because a mesh update is indivisible). Startup drains
-all work. Removal bypasses rebuild work. Failed replacements retain the prior geometry and report
-an error; invalid authored inputs are reported and removed. In-place mesh asset hot reload and
-deformation require restarting Play. Per-tag coefficient settings remain captured at Play start.
+**Dynamic geometry and portals (Phase 13):** `SceneAudioAcoustics::Sync` captures acoustic geometry
+(render meshes, AudioSurface overrides, collider motion authoring) and requests static/moving
+snapshot rebuilds from `AudioAcoustics` (see the Soundwave paragraphs above). Static/Dynamic/Disabled
+acoustic motion is independent of physics. `Scene::SyncAudioGeometry` also captures mesh-collider
+and portal inputs for the temporary raycast comparison (`AudioOcclusion`, `CompareRaycast`).
+`AudioGeometrySystem` now holds only the shared input type, `Validate`, `PortalTransform` and
+`BuildPortal`. In-place mesh asset hot reload and deformation require restarting Play. Per-tag
+coefficient settings remain captured at Play start.
 
-`AudioPortalComponent` supplies a local rectangular Asterwave shutter that retracts toward -X as Open
+`AudioPortalComponent` supplies a local rectangular shutter that retracts toward -X as Open
 increases, disappearing at Open=1. It can link two AudioZone entities. `AudioZoneSystem` transfers
 a distance/open-weighted share of each listener's zone weights across those links, normalizing
 outgoing shares and applying only one hop so cycles/multiple openings cannot amplify weight.
-Room transfer uses the shutter's last applied Open while Asterwave is running. Portal references remap
-through duplicate/prefab paths; C# setters and the inspector edit the same component data. Selected
-portal wireframes are copied into `FrameRenderPacket::AudioZoneLines` on the main thread. Asterwave nodes
-and their local bounds/counts are owned by `RaytracedAudioScene`; world bounds expand for movement.
-All geometry mutations occur after the previous Asterwave worker batch joins. See
+Room transfer uses the component's current Open. Portal references remap through duplicate/prefab
+paths; C# setters and the inspector edit the same component data. Selected portal wireframes are
+copied into `FrameRenderPacket::AudioZoneLines` on the main thread. See
 `docs/AUDIO_DYNAMIC_GEOMETRY.md` for authoring, scheduling and acoustic approximation limits.
-
-Each engine tag gets its own Asterwave custom material ID (`1000 + stable tag ID`), so overrides cannot
-leak between tags. **Default coefficients are LuxEngine's own** (`kPublished` in `AcousticMaterial.cpp`),
-used by engine occlusion and Asterwave alike: absorption from published octave-band tables (LF averages
-125/250 Hz, HF averages 2/4 kHz), estimated scattering, and transmission from the field-incidence mass law
-(`TL = 20 log10(m'' f) - 47 dB` at 125 Hz and 2 kHz for each tag's typical thickness, linearised to the
-30 dB-per-distance model; one-sided loss `1 - 10^(-TL/10)`). Foliage uses ISO 9613-2 per-metre
-attenuation instead. The file names the source of every row and marks estimates. Default equals
-Concrete. These are editable starting points, not measurements of every real-world material.
 
 Project Audio settings expose per-tag overrides for LF/HF absorption, scattering, LF/HF
 transmission distance in metres, and LF/HF energy loss on thin/open geometry. Defaults come from
-the engine table above. Absorption/scattering must be finite and in 0..1; transmission distances
+Soundwave's authored table (`soundwave/AcousticMaterialSettings.h`, captured once from the former SDK
+so shipped numbers did not move). Absorption/scattering must be finite and in 0..1; transmission distances
 must be finite and positive; flat losses must be finite and nonnegative. Invalid settings fail
 loading/export with an audio error. YAML writes enabled overrides under `Audio.AcousticMaterials`;
-missing entries use the engine defaults. Runtime format 18 appends a bounded explicit override block after
+missing entries use the authored defaults. Runtime format 18 appends a bounded explicit override block after
 the bank manifest, keeping `ProjectInfo`'s fixed layout unchanged. Formats 16/17 remain readable
 and use default material settings. Unknown or duplicate IDs and truncated blocks fail loading.
 
 **Zones and snapshots (Phase 8):** `Scene` owns `AudioZoneSystem` and supplies resolved volumes
-on the main thread after listener synchronization and the Asterwave join. `AudioZoneComponent` supports
+on the main thread after listener synchronization. `AudioZoneComponent` supports
 box/sphere volumes or exactly one box, sphere or capsule collider on the same entity. Mesh and 2D
 colliders are unsupported; missing/ambiguous primitive colliders and invalid geometry log once
 until corrected. Box dimensions/offsets follow the world transform. Sphere radius uses maximum
@@ -1057,14 +1456,14 @@ multiple instances of the same snapshot, so separate instances would weaken over
 must be exposed from the snapshot dial as a local continuous writable 0–100 Studio parameter.
 `SetSnapshotIntensity` takes normalized 0–1, validates type/range, caches the parameter ID and
 sets intensity before playback. Event volume does not control snapshot intensity. A missing or
-mis-authored snapshot reports an error and does not suppress Asterwave reverb. Snapshot mixer scope,
+mis-authored snapshot reports an error and does not suppress Soundwave reverb. Snapshot mixer scope,
 priority and transition curves remain authored in Studio. Explicit script-created snapshots are
 independently owned and can still interact with zone snapshots under FMOD's averaging rules.
 
-Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale source Asterwave `ReverbSend`
+Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale Soundwave's `ReverbSend`
 by one minus active zone snapshot coverage), or PreferRaytraced (suppress zone snapshots while
-Asterwave ambience is valid, falling back to zones otherwise). This policy leaves Asterwave occlusion and zone
-ambience beds independent. The latest joined Asterwave validity is retained while paused. Runtime format
+a Soundwave reverb measurement exists, falling back to zones otherwise). This policy leaves occlusion and zone
+ambience beds independent. The latest measurement validity is retained while paused. Runtime format
 19 adds one validated mode byte after the version-18 materials block; versions 16–18 use Layered.
 
 Zone data survives scene YAML, runtime scenes, copy/duplicate and prefab operations. The inspector
@@ -1103,10 +1502,8 @@ is the enabled host desktop profile's FMOD output, or the project's default outp
 not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.
 Bank paths inside Assets retain their relative location for scripts; external output is packaged
 under `Assets/Audio/Banks`. Absolute authoring paths are not portable script paths. The `.fspro`
-and source audio are not copied. FMOD Core/Studio shared libraries are required copies, including
-Linux's `lib` subdirectory. Copy failures abort export. Asterwave is statically linked into the
-player, so export does not copy an Asterwave runtime library. Its unchanged upstream licence
-requirements still apply; static linkage does not make it an Apache-2.0 dependency.
+and source audio are not copied. FMOD Core/Studio shared libraries are required copies,
+including Linux's `lib` subdirectory. Copy failures abort export.
 
 The player also requires the shared ImGui fonts and managed host at top-level `Resources/` and
 `DotNet/`. Linux post-build directory copies target their parent to merge correctly on repeat
@@ -1315,6 +1712,9 @@ capture body sequence IDs/subshape IDs, UUIDs, contact position, masses, estimat
 slip/roll speeds under a queue mutex. They never read ECS, acquire body locks or call FMOD.
 `DrainContactEvents` swaps reusable vectors after simulation; simulation-only scenes drain without
 playback. Speculative contacts are silent, and Persist can supply the first real impact.
+A solid/sensor change can retain the same Jolt contact key: the listener ends the previous
+collision/trigger lifetime before beginning the new one, under the same queue mutex. This stops
+scrape/roll audio when a touching body becomes a trigger and lets collisions restart when it changes back.
 
 `SceneAudioSurfaces.cpp` resolves contact IDs and material/table overrides on the main thread.
 The scene-owned `PhysicsAudioSystem` owns impact/footstep instances, cooldowns, contact state and
@@ -1340,10 +1740,10 @@ counted, so the mixer and this monitor both locking `bus:/` failed with `FMOD_ER
 with Live Update on, that makes every later `Studio::System::update` fail with
 `FMOD_ERR_BADCOMMAND` (found on Windows, 2026-09-17). Per-bus voice limits warn once
 per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies
-last-completed Asterwave timing and culled-source counts. Editor panels only read cached telemetry.
+Soundwave's main-thread update time and culled-source counts. Editor panels only read cached telemetry.
 
 `AudioSourceComponent::Priority` (0–256) reaches FMOD's channel-priority property. Opt-in
-`DistanceCulling` releases FMOD instances and Asterwave emitters outside every weighted listener's authored
+`DistanceCulling` releases FMOD instances (and their Soundwave source state) outside every weighted listener's authored
 maximum distance, with 5% inward hysteresis. Continuous sources keep play intent, script
 parameters/labels and layered pauses; while culled and unpaused their timeline advances by the
 scene timestep (× pitch), wrapped over `EventDescription::getLength` since FMOD exposes no loop
@@ -1371,10 +1771,8 @@ may still play after a failed rebuild, with the build failure logged.
 
 Native exports flatten the selected budgets/focus option into format 23's bounded settings block;
 runtime profiles stay disabled and the manifest selects packaged banks. Optional YAML fields keep
-old projects compatible. This is not executable cross-compilation. `LUX_FMOD_SDK` selects FMOD
-headers, link inputs and deployed libraries; `LUX_ASTERWAVE_ROOT` selects the pinned native source
-compiled into the static Asterwave project when `--raytraced-audio` is selected. Generation validates
-the FMOD layout always and the Asterwave checkout only for that option.
+old projects compatible. This is not executable cross-compilation. The FMOD SDK root (`LUX_FMOD_SDK`)
+drives Premake includes, link inputs, deployed libraries and target file validation.
 FMOD packages can also be discovered under `Core/vendor/FMOD/`; ambiguity requires an override.
 
 `MuteWhenUnfocused` defaults false. `Application` pumps Studio even when minimized and determines
@@ -1387,56 +1785,39 @@ and listening verification remain pending. See `docs/AUDIO_DESKTOP_PLATFORMS.md`
 
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
 Audio Debugger, closed by default) renders both halves of the stack. Playback and acoustics use
-read-only accessors — `AudioEngine::GetStats()` and
-`RaytracedAudioScene::GetStats()` / `GetResult()` / `GetAmbience()` / `GetVisualisation()` — alongside
+read-only accessors — `AudioEngine::GetStats()` and the scene's `AudioAcoustics`
+(`GetDiagnostics()`, `GetResult()`, `GetGainLF/HF()`, `GetReverb()`, `GetReverbSend()`) — alongside
 cached performance meters and an explicit validation action. Sources show event names, playback,
-virtual and culled state. The Reverb section shows Asterwave measurements and explains Studio's authored
-parameter path.
+virtual and culled state with Soundwave's gains; the acoustics section shows snapshot counts,
+solves, failures and the listener reverb measurement.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
-called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws ray paths, bounce
-points, surface normals, emitter gizmos and world bounds with the `Renderer2D` that function has
-already set up for the frame. It also pushes the Asterwave visualisation-ray settings to the active scene's
-`RaytracedAudioScene` every frame, so they apply whether or not the panel is open (entering Play builds
-a new Asterwave scene). Splitting it this way keeps the settings next to their UI while the drawing stays
-where a camera is already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a
+called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws emitter gizmos,
+Soundwave paths and zones with the `Renderer2D` that function has already set up for the frame.
+Splitting it this way keeps the settings next to their UI while the drawing stays where a camera is
+already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a
 `Ref<AudioDebugPanel>` *only* for this; `PanelManager` still owns the panel and drives its render and
 scene context.
 
-`ShowOcclusion` is independent of the Asterwave rays (`Enabled`): `EditorLayer::DrawAudioOcclusion` reads
-`Scene::GetAudioOcclusion()` paths, which engine occlusion computes anyway, and draws each source's
-listener→source line coloured by LF loss, wall entry/exit markers and billboard labels (material,
-thickness, dB) plus a per-source total. Lines and markers draw on top of the scene depth; text is
+`ShowOcclusion` (the path overlay): `EditorLayer::DrawAudioOcclusion` reads each source's
+`AudioAcoustics::GetResult` and draws the direct listener→source line coloured by LF loss, wall
+entry/exit markers and billboard labels (material, thickness, dB) plus a per-source total, and the
+reflection/opening routes the solve kept, faded and coloured by their own loss. It reuses the solve's
+results and draws nothing when off. Lines and markers draw on top of the scene depth; text is
 depth-tested (Renderer2D has no on-top text), so labels stand off the wall face nearest the camera.
 "See the Sound" (Audio Debugger and the viewport options popup, outside the Play-suspended debug
-views) is a preset that turns on occlusion paths, labels, Asterwave rays and emitters, all zones, the room
-readout and material-tinted bounces, and restores the previous settings when turned off.
+views) is a preset that turns on paths, labels, emitters, all zones and the room readout, and
+restores the previous settings when turned off.
 
 `ShowAllZones` draws every zone and portal through `Scene::ForEachAudioZoneLine` (the same line
 generator the selection-only `FrameRenderPacket::AudioZoneLines` capture uses), brightened by live
-zone weight or portal Open and labelled with it. `ColorBouncesByMaterial` probes each Asterwave bounce with
-one short `PhysicsScene::CastRay` into the surface along the bounce normal, which the adapter turns
-toward the side the ray arrived from (Asterwave reports the raw triangle normal, pointing along the
-ray), and tints it by that entity's effective acoustic
-tag (overlay only; costs a raycast per bounce while shown). The room readout
-(`EditorLayer::UI_RoomAcousticsReadout`) shows `Scene::GetLastAudioAmbience()`: the listener ambience
-the scene copies inside the Asterwave join window, so ImGui never reads Asterwave's live buffers.
-`World::wait` publishes emitter outputs and callbacks on the main thread; workers only change
-private batch state. `GetResult` and `GetAmbience` therefore read the last published output safely
-on the main thread while the next batch runs. Stats and visualisation are separate completed
-snapshots. Scene accessors retain the values actually applied to the mix for scripts and overlays.
-Overlay ray settings queue until the next idle update; disabling clears displayed rays immediately. C# `AudioSourceComponent.OcclusionGain` returns
-`Scene::GetAudioSourceOcclusion`, the LF gain recorded when it was applied to the event that frame
-(engine or Asterwave, per the project setting; 1 outside Play and while culled).
+zone weight or portal Open and labelled with it. The room readout
+(`EditorLayer::UI_RoomAcousticsReadout`) shows the last completed `Soundwave::ReverbResult` and the
+smoothed send; everything it reads was published on main. C# `AudioSourceComponent.OcclusionGain`
+returns `Scene::GetAudioSourceOcclusion`, the Soundwave LF gain recorded when it was applied to the
+event that frame (1 outside Play and while culled).
 
-Both stats structs expose backend status as data, so editor panels use read-only Core accessors.
-Asterwave timings describe the latest completed batch, not an average; main-thread time includes
-the update and wait calls.
 `AudioEngineStats::HasMixerStats` distinguishes unavailable measurements from a real zero.
-
-`RaytracedAudioScene::Impl` tracks local bounds and triangle counts for static/dynamic geometry;
-the debugger displays those cached counts and the scene queue backlog without traversing native
-geometry from ImGui.
 
 ### 2.11 Input
 
@@ -1474,6 +1855,25 @@ to its recorded values. `Utilities/SerializationMacros.h` provides
 Binary for distribution: `Serialization/AssetPack.{h,cpp}` + `AssetPackFile.h` +
 `AssetPackSerializer`, `ShaderPackFile.h`, and the stream layer (`FileStream`, `MemoryStream`,
 `StreamReader`, `StreamWriter`, `Serialization.h` / `SerializationImpl.h`).
+
+`StreamReader` checks every length and count it reads against `GetRemainingBytes()` (each reader
+reports `GetStreamSize()`): `ReadString`, `ReadBuffer`, `ReadArray` and `ReadMap` return false and leave
+the target empty instead of allocating or looping over what a damaged file claims. That bounds the
+damage, it does not validate the data; `ReadRaw` returns false on a short read and never asserts (a Debug
+player reports a damaged file instead of stopping). `ProjectSerializer::DeserializeRuntime` bounds its log-tag
+count and refuses a truncated file. A pack is
+checked at three levels: `AssetPackSerializer::DeserializeIndex` rejects a short header, bad magic, a
+scene count that cannot fit, null or duplicate handles, and any app-binary, scene or asset range outside
+the file (it logs and returns false; `AssetPack::Load` returns null, no `VERIFY`); `AssetImporter`'s two
+pack dispatchers catch `std::exception` (unparsable YAML, impossible allocations) and fail just that asset;
+and `TextureRuntimeSerializer::DeserializeTexture2D` accepts only a colour format, 1-16384 per side and
+pixels of exactly one mip's size before anything reaches the GPU. Prefabs are packed as their scene's YAML (`PrefabSerializer` pack methods; the root is the parentless
+entity), and a scene's asset list includes asset handles held in script fields (`Scene::GetAssetList`; a
+`Scene` field is a level, not packed with it), so a prefab a script spawns ships with the game. A reader of shipped data validates its own fields: `MeshRuntimeSerializer::DeserializeFromAssetPack`
+reads the entry once (capped at 2 GiB), parses every section, count and string with a bounded reader
+against the bytes actually there, checks submesh ranges, every index against its submesh's vertices
+and every node link, and creates the `MeshSource` and its materials only after all of it passes; a
+bad entry is logged (`AssetManager` tag) and returns null.
 
 Missing keys must deserialize to the struct default. Never hard-fail a load on an absent optional
 field, and never silently drop data on save.
@@ -1531,8 +1931,8 @@ distortion or headset window yet.
 
 ### Smart pointers
 
-`Ref<T>` (intrusive, atomic, `RefCounted`), `WeakRef<T>` (liveness-checked, **no** `Lock()`),
-`Scope<T>` (`std::unique_ptr` alias). Forbidden: raw `new`/`delete`, `std::shared_ptr`,
+`Ref<T>` (intrusive, atomic, `RefCounted`), `WeakRef<T>` (control block per weakly referenced
+object; use it through `Lock()` → `Ref<T>`), `Scope<T>` (`std::unique_ptr` alias). Forbidden: raw `new`/`delete`, `std::shared_ptr`,
 `std::make_shared`. Full rules and the double-free hazard in `Ref::DecRef` are in
 `.claude/docs/Conventions.md`.
 
@@ -1674,7 +2074,7 @@ luxengine/
 │   │       ├── Physics2D/         # Box2D
 │   │       ├── Scripting/         # ScriptEngine, ScriptGlue, ScriptBuilder, ScriptEntityStorage
 │   │       ├── Asset/             # AssetManager facade, AssetManager/, AssetSystem/, serializers
-│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, Sound, RaytracedAudioScene; FMOD/ or Native/ backend
+│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, Sound, AudioAcoustics; FMOD/ or Native/ backend
 │   │       ├── Editor/            # EditorPanel, PanelManager, EditorCamera, SelectionManager,
 │   │       │                      #   SceneHierarchyPanel, EditorConsole/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo

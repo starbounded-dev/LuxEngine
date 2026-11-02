@@ -40,11 +40,8 @@ an editor feature to work. Every feature is judged against this:
 - **Built in first.** Implement it in the engine, or compile in a small vendored library with a
   permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
 - **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
-  the bundled shader compiler (shaderc/glslang), and FMOD. Building on those adds nothing for the
-  user to install. Asterwave is an opt-in private source dependency (`--raytraced-audio`, off by
-  default) whose upstream licence remains unchanged; it is not covered by the permissive-library rule
-  above, and nothing may require it. `docs/AUDIO_NATIVE_BACKEND_PLAN.md` replaces FMOD with vendored
-  miniaudio.
+  the bundled shader compiler (shaderc/glslang), and FMOD. Building on those adds
+  nothing for the user to install.
 - **No new mandatory installs for game makers.** No required language servers, external IDEs,
   Node/Python runtimes, package managers, or online services. If an external tool is genuinely
   unavoidable, it is optional, auto-detected, degrades gracefully when missing, and the choice is
@@ -83,6 +80,13 @@ Three task skills sit around that loop:
   reload), black/garbage output, binding collisions, startup crashes, device-lost.
 
 The shared rule list lives in `.claude/skills/send-pr/SKILL.md` and is used by all three.
+
+**Spec Kit** (`specify` CLI, Claude integration, bash scripts) is also set up, as an alternative to
+`/plan-le` for spec-driven features: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
+`/speckit-tasks` → `/speckit-implement`. Its constitution, `.specify/memory/constitution.md`, sums
+up this file and `.claude/docs/` and ranks below them. Feature specs land in `specs/NNN-name/` and
+are point-in-time records, like `docs/*_PLAN.md`. The `speckit-*` skills are generated: refresh
+them with `specify integration upgrade`, don't hand-edit them.
 
 ---
 
@@ -228,11 +232,8 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented by one backend chosen with premake `--audio-backend`: `fmod` (default, FMOD Core/Studio, `Audio/FMOD/`) or `native` (experimental, vendored miniaudio and `.lsound` Sound assets, `Audio/Native/`). Editor code asks `AudioEngine::GetBackend()`; the backend defines are Core-only. Engine occlusion (`AudioOcclusion`) and reverb zones work in every build.
-- Asterwave ray-traced acoustics (`RaytracedAudioScene`) are opt-in with premake `--raytraced-audio`. Without it, `RaytracedAudioSceneStub.cpp` makes `IsAvailable()` false. With it, the private revision in `scripts/dependencies/Asterwave.json` is fetched into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`) and linked statically, so exported games contain it.
-- Default acoustic-material coefficients are LuxEngine's own (`AcousticMaterial.cpp`, from published data and the mass law), not Asterwave presets.
+- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented by one backend chosen with premake `--audio-backend`: `fmod` (default, FMOD Core/Studio, `Audio/FMOD/`) or `native` (experimental, vendored miniaudio and `.lsound` Sound assets, `Audio/Native/`). Editor code asks `AudioEngine::GetBackend()`; the backend defines are Core-only. Acoustics (occlusion, reverb) come from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`) on either backend, through `AudioEventInstance::SetAcoustics`.
 - The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type; Phase 2 added the native backend behind `--audio-backend=native` (tested in `tests/audio/native`); Phase 3 added the Sound node tree (containers, parameters, curves, limits, streaming) and its playback.
-- Native shared ownership is confined to `RaytracedAudioScene::Impl` for Asterwave emitters/mesh geometry required by its API. Engine objects continue using `Ref`/`Scope`.
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

@@ -72,6 +72,8 @@ namespace Lux {
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
 		std::function<void(AssetHandle)> m_OpenSoundCallback;
+		// A material whose graph parameter was edited here: saved once no widget is active.
+		AssetHandle m_PendingMaterialSave = 0;
 
 		static SelectionContext s_ActiveSelectionContext;
 	};

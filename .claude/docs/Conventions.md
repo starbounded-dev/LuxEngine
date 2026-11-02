@@ -123,10 +123,14 @@ LuxEngine uses its own smart pointers. Headers: `Core/Source/Lux/Core/Ref.h`,
 - **`Ref<T>`** — intrusive, atomically refcounted. `T` must derive from `RefCounted`. Create with
   `Ref<T>::Create(args...)` (or the free `CreateRef<T>(...)`). Cast with `.As<T2>()`; raw access via
   `.Raw()` / `.get()`. Pass by value to share ownership, `const Ref<T>&` to observe.
-- **`WeakRef<T>`** — non-owning, with a liveness check (`IsValid()`), backed by the global live-object
-  registry in `RefUtils`. Note: `WeakRef` does **not** hand back a `Ref` — there is no `Lock()`. It
-  checks liveness and dereferences directly, so it is only safe where the owner cannot die
-  concurrently.
+- **`WeakRef<T>`** — non-owning. Reach the object only through `Lock()`, which returns a `Ref<T>`
+  (null once the object is destroyed or being destroyed) and is safe against another thread
+  releasing the last strong reference at the same moment. There is no `->`: a check followed by a
+  raw access can lose the object in between. `IsValid()` is advisory (pruning lists, asserts). The
+  first `WeakRef` to an object creates its `WeakControlBlock` (`Core/Ref.h`), which outlives the
+  object, so a `WeakRef` never mistakes a new object at a freed address for the old one. A `WeakRef`
+  made from `this` in a constructor reads as dead until a `Ref` owns the object. Don't take `Lock()`
+  inside a lock that the object's destructor also takes: the temporary `Ref` can be the last one.
 - **`Scope<T>`** — alias for `std::unique_ptr<T>`; create with `CreateScope<T>(...)`.
 
 **Why `Ref` deletes off the atomic's own result:** `DecRefCount()` returns the post-decrement value
@@ -137,12 +141,6 @@ by a `GetRefCount() == 0` check — two threads can both observe 0 and double-fr
 **Forbidden in engine code:** raw `new` / `delete`, `std::shared_ptr`, `std::make_shared`. Bare
 `std::unique_ptr` appears in a few places (`Application::m_Window`) but `Scope<T>` is the spelling to
 use.
-
-**Vendor-boundary exception:** `RaytracedAudioScene::Impl` uses the real shared ownership required
-by Asterwave's native emitter and mesh geometry API (batch snapshots can retain those objects).
-Confine `std::shared_ptr` / `std::make_shared` to those native objects inside the private adapter;
-never use no-op deleters to imitate ownership. The adapter and its `World` use `Scope`, and engine
-scene objects continue using `Ref`. This does not permit shared pointers elsewhere in engine code.
 
 `LUX_TRACK_MEMORY` (Debug + Release) routes `Ref<T>::Create` through a tagged allocator
 (`new(typeid(T).name()) T(...)`) for the memory panel. Anything allocating outside `Ref`/`Scope`
@@ -263,7 +261,13 @@ a corrupted style stack, and the scopes make that unrepresentable.
 
 Widgets and layout helpers are in `ImGuiEx.h` / `ImGuiWidgets.h` (property rows, message boxes,
 collapsing headers, `ShiftCursor`, `HelpMarker`, `Draw::Underline`, …); fonts in `ImGuiFonts.h`.
+Markdown text (headings, lists, tables, code blocks with Copy, links) renders with
+`ImGuiEx::RenderMarkdown` (`ImGuiMarkdown.h`), and a help icon that opens a manual page is
+`ImGuiEx::DocsButton` (`Editor/EditorDocs.h`).
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
+`ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
+as Ctrl-click/double-click to enter numeric text. Text can bypass drag bounds unless AlwaysClamp
+is used; authored settings panels must clamp or reject edited values before marking data dirty.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.

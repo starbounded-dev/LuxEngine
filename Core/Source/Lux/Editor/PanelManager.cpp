@@ -105,10 +105,13 @@ namespace Lux {
 				panelData.Panel->OnProjectChanged(project);
 		}
 
+		// Panel state changes are saved on exit, so save them before reloading the file.
+		if (m_LayoutLoaded)
+			Serialize();
 		Deserialize();
 	}
 
-	void PanelManager::Serialize() const
+	void PanelManager::Serialize(const std::filesystem::path& path) const
 	{
 		Yaml::Writer out;
 		out << Yaml::BeginMap;
@@ -123,8 +126,12 @@ namespace Lux {
 					out << Yaml::Key << "ID" << Yaml::Value << panelID;
 					out << Yaml::Key << "Name" << Yaml::Value << panel.Name;
 					out << Yaml::Key << "IsOpen" << Yaml::Value << panel.IsOpen;
+					out << Yaml::Key << "State" << Yaml::Value << Yaml::BeginMap;
+					panel.Panel->SaveState(out);
 					out << Yaml::EndMap;
-					panel.SavedIsOpen = panel.IsOpen;
+					out << Yaml::EndMap;
+					if (path.empty())
+						panel.SavedIsOpen = panel.IsOpen;
 				}
 			}
 		}
@@ -132,15 +139,15 @@ namespace Lux {
 
 		out << Yaml::EndMap;
 
-		std::ofstream fout(FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml");
+		std::ofstream fout(path.empty() ? FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml" : path);
 		fout << out.c_str();
 		fout.close();
 	}
 
-	void PanelManager::Deserialize()
+	void PanelManager::Deserialize(const std::filesystem::path& path)
 	{
 		m_LayoutLoaded = true;
-		std::filesystem::path layoutPath = FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml";
+		const std::filesystem::path layoutPath = path.empty() ? FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml" : path;
 		if (!FileSystem::Exists(layoutPath))
 			return;
 
@@ -164,7 +171,10 @@ namespace Lux {
 				continue;
 
 			panelData->IsOpen = panelNode["IsOpen"].as<bool>(panelData->IsOpen);
-			panelData->SavedIsOpen = panelData->IsOpen;
+			if (path.empty())
+				panelData->SavedIsOpen = panelData->IsOpen;
+			if (Yaml::Node state = panelNode["State"]; state && state.IsMap())
+				panelData->Panel->LoadState(state);
 		}
 	}
 

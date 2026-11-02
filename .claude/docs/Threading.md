@@ -21,7 +21,7 @@ to move between them.
 
 The runtime (`Lux-Runtime`) also defaults to `Multi`, overridable per project.
 
-The environment variable `LUX_THREADING_POLICY` (`Single` / `Multi`) overrides the editor setting
+The environment variable `LUX_THREADING_POLICY` (`Single` / `Multi`) overrides the editor/runtime setting
 for one launch and is never saved; `tests/rendering/threading_ab.py` uses it to compare the two.
 
 So on Windows, main and render are **different threads**, and cross-thread reasoning is required.
@@ -31,7 +31,7 @@ must work under both policies.
 
 `ThreadingPolicy` also gates the `JobSystem`: `Single` initializes it with zero workers, which makes
 every `Submit`/`ParallelFor` run inline. This disables the engine JobSystem as well as the render thread. Third-party internal pools,
-including Jolt and Asterwave, have their own scheduling and are not controlled by that setting.
+such as Jolt's and miniaudio's device thread, have their own scheduling and are not controlled by that setting.
 
 ---
 
@@ -44,7 +44,6 @@ including Jolt and Asterwave, have their own scheduling and are not controlled b
 | **JobSystem workers** | Data-parallel compute over disjoint indices (transform/cull fan-out) | ImGui, NRI, ECS mutation, anything order-dependent |
 | **Asset worker** (`EditorAssetSystem` / `RuntimeAssetSystem`) | File I/O, decode, import; creating GPU resources *via* `Renderer::Submit` | Touching the asset registry directly; ImGui; direct NRI calls |
 | **Jolt's internal pool** | Physics jobs Jolt schedules itself | Anything engine-side |
-| **Asterwave internal workers** | Trace the native world's immutable batch snapshots | ECS, ImGui, engine mutation. `World::wait` joins and publishes results/callbacks on the main thread |
 | **miniaudio device thread** (`--audio-backend=native` only) | Run the node graph: decoded voice data, the spatializer, each voice's `VoiceNode` (reads its two atomics) | ECS, Coral, assets, ImGui, engine locks. Voices are created, released and polled on the main thread (§ Native audio backend) |
 | **VR head tracker** (`LuxOpticTracker`, "Head Tracker", only while a `VRSession` exists) | Blocking HID reads (100 ms timeout) and writing the latest pose under its mutex; logging | Everything else: no ECS, assets, ImGui, `Renderer::Submit` or NRI. It runs under **both** policies, because it never touches the engine |
 | **spdlog flusher** (`spdlog::flush_every`, started by `Log::Init`) | Flushing the registered loggers once a second, so a custom sink's `flush_()` runs off the logging thread | Anything engine-side |
@@ -132,6 +131,12 @@ Why each branch exists:
 
 **Do not "optimise" this into a single unconditional queue write.** Each branch is load-bearing, and
 the failure mode of getting it wrong is a corrupted command buffer, not a clean crash.
+
+The queue (`Renderer/RenderCommandQueue.h`) has no fixed capacity: commands are stored in 4 MiB pages,
+and a frame that fills one continues in the next (kept for later frames), so `Allocate` never fails
+and a payload never moves. Each payload is aligned for its own callable (`alignof(FuncT)`). The
+Profiler panel's "Render Commands" row shows the last frame's usage and the peak
+(`Renderer::GetRenderCommandQueueStats`).
 
 `Renderer::SubmitResourceFree` mirrors the same branching, but the release always lands on the
 render thread, tagged with the render frame number current at that point in the command stream.
@@ -238,13 +243,18 @@ The contract:
   finished queue and commit into the registry.
 - GPU resources created during a background load go through `Renderer::Submit`, which routes them via
   `SubmitBackgroundThreadWork` (see above).
+- Sync drains that deferred work. `SyncWithAssetThread` (editor and runtime) takes the finished list
+  first and then calls `Renderer::ExecuteBackgroundThreadSubmits()` on the main thread. The worker
+  queues an asset's GPU work before it posts the asset, so this queues all of it ahead of any draw
+  that can now see the asset. Without it, an asset synced mid-frame was drawn that frame and its
+  mips or environment-map compute ran the frame after.
 
 `AssetManager::GetAsset<T>(handle)` is synchronous and will load on the calling thread if needed.
 `GetAssetAsync(handle)` returns an `AsyncAssetResult` immediately; pump it with
 `SyncWithAssetThread()`.
 
 **Never mutate the registry from a worker**, and never assume an async result is ready without
-checking — that is the shape of the outstanding asset-upload race noted in project history.
+checking.
 
 ---
 
@@ -301,6 +311,11 @@ event processed until the asset thread has synced its assets back to the main th
 entry blocks everything queued behind it, so a deferred dispatch must always be followed by a
 `SyncEvents()`; the per-frame call guarantees that. Use
 `DispatchEvent<T, /*DispatchImmediately=*/true>` only from the main thread.
+
+**Editor tool requests** (`EditorToolHost`) are a separate, bounded queue: `Submit`/`Cancel` from any
+thread, `ProcessQueue` on the main thread after the undo poll. A caller waits on the returned
+`shared_future`; it must never wait for a result **on the main thread** before `ProcessQueue` has run,
+or it deadlocks. Commands run outside the queue lock, so one may submit or cancel others.
 
 ---
 
@@ -380,34 +395,23 @@ costs nothing in Release.
 
 ## Acoustic geometry and portals
 
-`Scene::SyncAudioGeometry` and its `AudioGeometrySystem` queue are main-thread owned. Runtime
-joins `RaytracedAudioScene::WaitForResults()` before adding, removing, retagging or transforming Asterwave
-primitives or changing world bounds. The next `OnUpdate()` launches workers only after these edits
-and listener/source updates finish. SDK workers receive no ECS pointers. C# portal/motion setters
-edit component data on the main thread; they never mutate Asterwave directly. Pause defers queue work.
-Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so the render thread
-reads neither portal components nor mutable Asterwave geometry. Teardown joins Asterwave before destroying its
-primitives/world and clears the scene's queue. Asterwave is linked statically; these are its native
-C++ workers, with no external runtime library or managed host.
+Acoustic geometry capture (`SceneAudioAcoustics::Sync`, `Scene::SyncAudioGeometry`) is main-thread
+owned; Soundwave's preparation and reverb jobs receive only immutable snapshots (see below). C#
+portal/motion setters edit component data on the main thread. Portal gizmos are captured as
+immutable `FrameRenderPacket::AudioZoneLines`, so the render thread reads no portal components.
+Everything ImGui and C# read (`AudioAcoustics` results, gains, reverb, and
+`Scene::GetAudioSourceOcclusion()`) is published on main.
 
-`World::wait` joins the worker batch and publishes native results and callbacks on the caller's
-main thread. `RaytracedAudioScene` then snapshots stats and visualisation bounces. Native workers
-change private batch state, so `GetResult` and `GetAmbience` safely read the last published output
-on the main thread even while the next batch runs. `Scene::GetLastAudioAmbience()` and
-`Scene::GetAudioSourceOcclusion()` retain values actually applied to the scene's mix. Overlay
-settings queue until the next idle update; disabling clears the displayed rays immediately.
-
-Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the Asterwave join
-and before `OnUpdate()`; in a build without `--raytraced-audio` there is no join and it runs at the same
-point of the scene update. Its Jolt narrow-phase queries run between physics steps (stepping is also
-main-thread), so they need no locking beyond Jolt's own body locks, and nothing is handed to SDK
-or job threads.
+The temporary raycast comparison (`AudioOcclusion`, only with `CompareRaycast`) runs on the main
+thread after the Soundwave update. Its Jolt narrow-phase queries run between physics steps
+(stepping is also main-thread), so they need no locking beyond Jolt's own body locks, and nothing is
+handed to job threads.
 
 ## Audio budgets and validation
 
 `AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls
-only read/mutate the active scene there. Culled Asterwave emitters are removed after joining the previous
-Asterwave batch. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
+only read/mutate the active scene there. A culled source's Soundwave state is pruned on the next
+update. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
 groups and its own meter DSPs are detached and released before bank unload. The SDK mixer owns sample processing. ImGui
 reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
 prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.
@@ -419,6 +423,70 @@ master output group's mute; it never changes Studio bus state, event pause flags
 SDK mixer/streaming work and timeline callbacks continue while unfocused. No platform callback
 directly invokes audio, scripts or ECS. Profile selection and bank rebuild/reload remain main-thread
 operations; console suspend/resume integration is deferred.
+
+
+### Soundwave preparation during migration Phase 2
+
+SceneAudioAcoustics reads Scene/ECS and resolves assets on main. Captures hold MeshSource refs
+(published, retained CPU positions/indices) and copied submesh ranges/transforms/material tags.
+AudioAcoustics submits owned captures to JobSystem::Submit; workers build hierarchy/topology and
+validate portals without ECS access or Renderer::Submit. Main only loads a release/acquire Done
+flag and publishes the completed static/moving pair. It never waits or spins on a job. Coalescing
+retains the latest dirty-layer captures, while a completed moving snapshot still publishes.
+Failed capture revisions stay latched until the failing layer changes; unrelated movement keeps its latest queued capture without rebuilding the same bad data.
+Scene teardown detaches its Ref to pending state; workers finish using their own refs. There is
+no worker callback into Scene. JobSystem's existing inline policy follows the same path.
+
+Per-source solves run on a JobSystem worker: `AudioAcoustics::Update` selects the due batch on
+main (same budget and cadence rules) and submits one job holding copies plus immutable snapshot
+Refs; `PollSolves` publishes it on main. One batch is in flight; under the inline policy it
+publishes in the same update, otherwise in a later one. Gain interpolation stays on main.
+Vercidium Audio and its worker join are gone (2026-11-02); no acoustic code waits on another thread.
+
+The listener reverb's rays run on the GPU when `SceneAudioAcoustics` injects an
+`AudioAcousticKernel` (renderer present, `SoundwaveReverb` loaded). Main flattens the current
+geometry on a worker (`Soundwave::Flatten`, once per geometry generation), then records the
+dispatch through `Renderer::Submit` on the kernel's own `RenderCommandBuffer` (graphics queue),
+including a copy of the rays into a `CPUAccess::Read` buffer. A render-thread lambda maps that
+buffer only once `RT_GetFrameNumber() >= recorded + FramesInFlight` (RT_BeginFrame has waited for
+the recording frame) and publishes through an atomic; main polls it and runs `FinishReverb`. No
+thread waits on the GPU. Updates without a result are counted: 30 report `ReverbStalled` (frames
+not rendering). Single-threaded Linux runs the same lambdas inline at render time.
+
+Phase 3's listener reverb (`Soundwave::EvaluateReverb`) is one more AudioAcoustics JobSystem job:
+it captures the published snapshot Refs plus copies of the exclusion list, material table,
+settings and listener, runs at most one at a time at the `UpdateRateHz` cadence, and publishes
+through the same release/acquire Done flag polled on main. No ECS access, no wait, and Clear
+detaches it like the geometry job. Under the zero-worker policy it runs inline on main.
+
+At application shutdown (not a scene transition), layers first stop their producers and detach
+their scenes, then Application drains JobSystem before renderer teardown. After the remaining
+audio/physics/font producers stop, it replays Renderer::ExecuteBackgroundThreadSubmits on main
+before Renderer::Shutdown drains GPU release queues. Thus a worker holding the final MeshSource
+ref cannot enqueue a GPU free after the renderer has retired its queues. Runtime scene Clear
+still performs no join, and the acoustic update path adds no GPU/main-thread wait.
+
+Soundwave Scene mesh templates retain immutable MeshSource CPU data and selected submesh
+layouts on main. Only the adapter's serialized geometry jobs prepare/read their Prepared state
+and local Grid until publication. Main never probes in-progress preparation state. A completed
+snapshot retains mesh owners with Ref, so replacing captures or clearing a Scene cannot dangle
+the borrowed local Grid pointers in InstancedGrid. Cache-only templates retire using atomic
+reference counts; that does not wait for or read worker mutable data. A restarted Scene creates
+fresh templates, while detached old jobs keep their own captured templates. The zero-worker
+policy runs this same preparation inline. No GPU work or new runtime wait is added.
+
+Linux `Debug-AS` builds and `tests/audio/run.py --config debug-as` instrument the actual
+AudioAcoustics/JobSystem code and real-worker ownership tests with AddressSanitizer. The
+runner checks memory-access instrumentation in the production object before executing the
+tests, including detached mesh-owner and Clear/publication/coalescing cases under worker and
+inline policies. This gate adds no production synchronization or alternate lifetime path.
+
+SceneAudioVerification and RuntimeLayer's opt-in acoustic capture run on main after ordinary
+Scene updates/render submissions. Pending geometry advances through normal frames; there is
+no JobSystem/GPU wait, cross-thread Scene access or callback into destroyed Scene state.
+GoldenCapture starts export after restoring/stopping Play and polls its existing main-thread
+state machine; RuntimeBuildJob keeps its existing worker ownership. Player completion queues
+WindowCloseEvent instead of tearing down render/scene owners in the reporting call.
 
 ## Native audio backend (`--audio-backend=native`)
 

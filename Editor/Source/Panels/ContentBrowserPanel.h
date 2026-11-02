@@ -150,6 +150,9 @@ namespace Lux {
 	public:
 		ContentBrowserPanel();
 
+		// Golden captures: no thumbnail rendering while frames are timed or captured.
+		static void SetThumbnailWorkPaused(bool paused) { s_ThumbnailWorkPaused = paused; }
+
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnEvent(Event& e) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
@@ -210,6 +213,10 @@ namespace Lux {
 			LUX_CORE_ASSERT(s_Instance);
 			return *s_Instance;
 		}
+
+		// Creates "<parent> Instance" next to `parent`: a material instance with no overrides yet.
+		// Registers it, rescans, and starts renaming it. 0 when `parent` is not a loaded material.
+		AssetHandle CreateMaterialInstance(AssetHandle parent);
 
 	private:
 		AssetHandle ProcessDirectory(const std::filesystem::path& directoryPath, const Ref<DirectoryInfo>& parent);
@@ -311,6 +318,8 @@ namespace Lux {
 
 	private:
 		static ContentBrowserPanel* s_Instance;
+
+		inline static bool s_ThumbnailWorkPaused = false;
 	};
 
 }

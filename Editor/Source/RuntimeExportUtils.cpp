@@ -296,20 +296,14 @@ namespace Lux::RuntimeExport {
 		if (ec)
 			return true;
 
-		const std::string sourceOverride = FileSystem::GetEnvironmentVariable("LUX_ASTERWAVE_ROOT");
-		std::filesystem::path asterwaveRoot = sourceOverride.empty()
-			? repositoryRoot / "Core/vendor/Asterwave" : std::filesystem::path(sourceOverride);
-		if (asterwaveRoot.is_relative())
-			asterwaveRoot = repositoryRoot / asterwaveRoot;
-		const std::array<std::filesystem::path, 4> sourceRoots = {
+		const std::array<std::filesystem::path, 3> sourceRoots = {
 			repositoryRoot / "Lux-Runtime",
 			repositoryRoot / "Core" / "Source",
-			asterwaveRoot / "include",
-			asterwaveRoot / "src"
+			repositoryRoot / "Core" / "vendor" / "soundwave"
 		};
-		// The acoustics implementation is linked into the executable. A pin or build-input
-		// change must invalidate an existing runtime just as an engine source change does.
-		for (const auto& relative : { "scripts/dependencies/Asterwave.json", "Dependencies.lua", "premake5.lua", "Core/premake5.lua" })
+		// Soundwave is linked into the executable. A build-input change must invalidate an existing
+		// runtime just as an engine source change does.
+		for (const auto& relative : { "Dependencies.lua", "premake5.lua", "Core/premake5.lua" })
 		{
 			const auto inputTime = std::filesystem::last_write_time(repositoryRoot / relative, ec);
 			if (!ec && inputTime > executableWriteTime)

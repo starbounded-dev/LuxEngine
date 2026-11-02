@@ -11,9 +11,12 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetImporter.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
+#include "Lux/Editor/ComponentDocs.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -448,6 +451,15 @@ namespace Lux {
 			bool resetComponent = false;
 			bool removeComponent = false;
 
+			// The component's manual page, left of the settings gear.
+			if constexpr (!ComponentDocTopic<TComponent>::Topic.empty())
+			{
+				ImGui::SameLine(contentRegionAvailable.x - lineHeight * 2.0f - 7.0f);
+				const ImVec2 docsMin = ImGui::GetCursorScreenPos();
+				ImGuiEx::DocsButton("##ComponentDocs", ComponentDocTopic<TComponent>::Topic, ComponentDocTopic<TComponent>::Title,
+					ImRect(docsMin, ImVec2(docsMin.x + lineHeight, docsMin.y + lineHeight)));
+			}
+
 			ImGui::SameLine(contentRegionAvailable.x - lineHeight - 5.0f);
 			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{ lineHeight, lineHeight }))
 				ImGui::OpenPopup("ComponentSettings");
@@ -628,7 +640,10 @@ namespace Lux {
 		{
 			Entity entity = m_Context->GetEntityByUUID(entityID);
 			if (entity)
+			{
+				Scene::RecordPrefabRemoval(entity); // a prefab child deleted from an instance stays deleted
 				m_Context->DestroyEntity(entity);
+			}
 		}
 
 		if (!queuedDeletions.empty())
@@ -715,7 +730,10 @@ namespace Lux {
 					{
 						Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 						if (draggedEntity)
+						{
+							Scene::RecordPrefabReparent(draggedEntity, {});
 							draggedEntity.SetParent({});
+						}
 					}
 					EditorStack::Get().MarkSceneEdited("Reparent");
 				}
@@ -1115,7 +1133,10 @@ namespace Lux {
 				{
 					Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 					if (draggedEntity && draggedEntity != entity)
+					{
+						Scene::RecordPrefabReparent(draggedEntity, entity);
 						draggedEntity.SetParent(entity);
+					}
 				}
 				EditorStack::Get().MarkSceneEdited("Reparent");
 			}
@@ -1317,6 +1338,59 @@ namespace Lux {
 				ImGui::SameLine();
 			if (ImGui::SmallButton(std::format("{}  Edit {}##edit_material_slot_{}", LUX_ICON_PENCIL, GetAssetDisplayName(materialHandle), slot).c_str()))
 				m_OpenMaterialCallback(materialHandle);
+		}
+
+		// A graph material's exposed parameters, editable here without opening the material. They
+		// belong to the material asset (every entity using it changes), and are saved to it.
+		for (AssetHandle materialHandle : listed)
+		{
+			Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+			Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
+			if (!graph)
+				continue;
+
+			std::vector<MaterialGraphParameter> exposed;
+			for (const MaterialGraphParameter& parameter : graph->GetParameters())
+			{
+				if (parameter.Exposed)
+					exposed.push_back(parameter);
+			}
+			ImGuiEx::ScopedID materialID(static_cast<int>(static_cast<uint64_t>(materialHandle) & 0x7fffffff));
+			if (exposed.empty() || !ImGuiEx::PropertyGridHeader(std::format("{} Parameters", GetAssetDisplayName(materialHandle)), false))
+				continue;
+
+			ImGuiEx::BeginPropertyGrid();
+			for (const MaterialGraphParameter& parameter : exposed)
+			{
+				MaterialGraphParameterValue value = material->GetGraphParameter(parameter);
+				bool changed = false;
+				switch (parameter.Kind)
+				{
+					case MaterialGraphParameterKind::Float:
+						changed = ImGuiEx::Property(parameter.Name.c_str(), value.Value.x, 0.01f, 0.0f, 0.0f, "", false);
+						break;
+					case MaterialGraphParameterKind::Color:
+						changed = ImGuiEx::PropertyColor(parameter.Name.c_str(), value.Value, "", false);
+						break;
+					case MaterialGraphParameterKind::Texture:
+						changed = ImGuiEx::PropertyAssetReference<Texture2D>(parameter.Name.c_str(), value.Texture, "", nullptr, {}, false);
+						break;
+				}
+				if (changed)
+				{
+					material->SetGraphParameter(parameter.Name, value);
+					m_PendingMaterialSave = materialHandle;
+				}
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (m_PendingMaterialSave && !ImGui::IsAnyItemActive())
+		{
+			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(m_PendingMaterialSave))
+				AssetImporter::Serialize(material.As<Asset>());
+			m_PendingMaterialSave = 0;
 		}
 	}
 
@@ -2260,6 +2334,31 @@ namespace Lux {
 							ImGui::EndPopup();
 						}
 					}
+
+					// Prefab children deleted from this instance stay deleted when the prefab changes. An
+					// instance saved before deletions were recorded had its missing children taken as deleted
+					// (Scene::SyncPrefabInstance); Restore brings them back from the prefab.
+					if (Entity instanceRoot = Scene::FindPrefabInstanceRoot(instanceEntity))
+					{
+						const size_t removed = instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.size();
+						if (removed > 0)
+						{
+							ImGui::Spacing();
+							{
+								ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+								ImGui::Text("%zu prefab %s deleted from this instance", removed, removed == 1 ? "child" : "children");
+							}
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Restore##PrefabRemovals"))
+							{
+								const AssetHandle rootPrefabID = instanceRoot.GetComponent<PrefabComponent>().PrefabID;
+								instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.clear();
+								if (Ref<Prefab> rootPrefab = AssetManager::GetAsset<Prefab>(rootPrefabID))
+									m_Context->SyncPrefabInstance(instanceRoot, rootPrefab->GetScene());
+								EditorStack::Get().MarkSceneEdited("Restore Prefab Children");
+							}
+						}
+					}
 				}
 			});
 
@@ -3086,7 +3185,7 @@ namespace Lux {
 						return entity.GetComponent<MeshColliderComponent>().AcousticMotion;
 					});
 					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
-					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from Asterwave.", false))
+					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from acoustics.", false))
 						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [mode](MeshColliderComponent& component, Entity)
 						{
 							component.AcousticMotion = static_cast<AcousticGeometryMode>(mode);
@@ -3594,7 +3693,7 @@ namespace Lux {
 				picker("Footstep Override", &AudioSurfaceComponent::FootstepOverride);
 				picker("Impact Override", &AudioSurfaceComponent::ImpactOverride);
 				ImGui::TextWrapped("Overrides the collider acoustic material and the project surface table events. The collider underfoot "
-								   "supplies footstep overrides. Asterwave material changes apply on Play; physics audio uses current surface tags.");
+								   "supplies footstep overrides. Acoustic material changes apply on Play; physics audio uses current surface tags.");
 			});
 
 		DrawComponentSection<AudioListenerComponent>(m_Context, entityIDs, "Audio Listener", EditorResources::AudioListenerIcon,

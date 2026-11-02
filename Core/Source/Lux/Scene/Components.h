@@ -543,6 +543,13 @@ namespace Lux {
 	{
 		AssetHandle PrefabID = 0;
 		UUID EntityID = 0;
+		// On an instance root only, by prefab entity UUID: children the user deleted from this instance,
+		// and children the user moved (within it or out of it). Scene::SyncPrefabInstance leaves them be.
+		std::vector<UUID> RemovedEntities;
+		std::vector<UUID> ReparentedEntities;
+		// The records above are kept for this instance. False on instances saved before they existed:
+		// their first sync turns what they lack or have moved into records.
+		bool Tracked = false;
 
 		PrefabComponent() = default;
 		PrefabComponent(const PrefabComponent&) = default;

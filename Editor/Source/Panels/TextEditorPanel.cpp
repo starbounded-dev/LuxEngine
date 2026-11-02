@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "TextEditorPanel.h"
 
 #include "Lux/Editor/FontAwesome.h"
@@ -141,21 +142,10 @@ namespace Lux
 		if (doc.Path.empty())
 			return; // untitled: needs a Save As path (wired via the content browser today)
 
-		std::ofstream stream(doc.Path, std::ios::out | std::ios::binary | std::ios::trunc);
-		if (!stream)
+		if (!FileSystem::WriteFileAtomically(doc.Path, doc.Editor.GetText(), true))
 		{
-			LUX_CONSOLE_LOG_ERROR("Beam: could not open '{}' for writing", doc.Path.string());
-			return; // keep Dirty so the user knows the file is not saved
-		}
-
-		const std::string text = doc.Editor.GetText();
-		stream.write(text.data(), static_cast<std::streamsize>(text.size()));
-		stream.flush();
-
-		if (!stream)
-		{
-			LUX_CONSOLE_LOG_ERROR("Beam: failed to write '{}'", doc.Path.string());
-			return; // write/flush failed — leave Dirty set
+			LUX_CONSOLE_LOG_ERROR("Beam: failed to save '{}'; the file on disk is unchanged", doc.Path.string());
+			return; // leave Dirty set so the user knows the file is not saved
 		}
 
 		doc.Dirty = false;

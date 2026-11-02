@@ -1,6 +1,6 @@
 # Desktop audio platforms — Phase 15
 
-Windows and Linux share the FMOD Studio/Core + Asterwave implementation. Console SDK,
+Windows and Linux share the FMOD Studio/Core + Soundwave implementation. Console SDK,
 hardware, suspend/resume and certification integration are **on hold** until access is available.
 There are no console build targets or claims of console readiness in this phase.
 
@@ -14,7 +14,7 @@ There are no console build targets or claims of console readiness in this phase.
    configurations in FMOD Studio. Lux does not create or rename Studio platforms.
 4. Set **Bank Output** to the corresponding output directory, relative to the `.fspro` directory
    (for example `Build/Windows` or `Build/Linux`). The name and directory must match Studio's setup.
-5. Use **Copy Default Budgets** to copy the default voice, CPU, Asterwave, memory, bus and focus settings.
+5. Use **Copy Default Budgets** to copy the default voice, CPU, acoustics, memory, bus and focus settings.
    Then adjust this profile's limits. To add/remove bus paths, change the default bus list and copy
    it again; individual profile bus warning limits can be edited independently.
 6. Optionally enable **Mute When Unfocused**. It defaults off. It mutes output while unfocused or
@@ -43,26 +43,17 @@ cross-compile executables or generate banks automatically during export.
 Use compatible FMOD Studio and Engine SDK versions from the 2.03 family. Current Linux validation
 uses Engine SDK 2.03.14; the installed Studio command-line tool is 2.03.12.
 
-FMOD and Asterwave are required. Extract the native FMOD Engine SDK into a subdirectory of
+FMOD is required. Extract the native FMOD Engine SDK into a subdirectory of
 `Core/vendor/FMOD/`; Premake detects its headers and native link library. Multiple matching SDKs
-require an explicit selection. Asterwave compiles statically from an exact private source revision:
+require an explicit selection. Alternatively, set these environment variables before generation:
 
 ```powershell
-# Fetch with Git credentials that can read the private Asterwave repository.
-python scripts/FetchAsterwave.py
-python scripts/FetchAsterwave.py --check
-
-# Optional alternate dependency locations, selected before generation:
+# Windows: the root contains api/.
 $env:LUX_FMOD_SDK = 'C:\SDKs\FMOD Studio API Windows'
-$env:LUX_ASTERWAVE_ROOT = 'C:\Source\Asterwave'
 # Optional if Studio's command-line tool is not found automatically:
 $env:LUX_FMOD_STUDIO_CL = 'C:\Program Files\FMOD SoundSystem\FMOD Studio 2.03.14\fmodstudiocl.exe'
 .\scripts\Win-GenProjects.bat --last
 ```
-
-The default Asterwave location is `Core/vendor/Asterwave`. Its revision is pinned in
-`scripts/dependencies/Asterwave.json`; `--root PATH` or `LUX_ASTERWAVE_ROOT` selects another
-checkout. Generation checks the local revision and source layout without a network fetch.
 
 Use your actual installation paths. FMOD's root must contain `api/core/inc/fmod.hpp`,
 `api/studio/inc/fmod_studio.hpp`, and these x64 files:
@@ -71,24 +62,23 @@ Use your actual installation paths. FMOD's root must contain `api/core/inc/fmod.
 - `api/studio/lib/x64/fmodstudio_vc.lib` and `fmodstudio.dll`.
 
 Build **Core**, **Editor** and **Lux-Runtime** in the generated Visual Studio solution. Verify fresh
-executable timestamps and that `fmod.dll` and `fmodstudio.dll` were copied beside both applications.
-Asterwave is linked into the applications and has no separate runtime library. Open the project,
-build its selected Studio platform, test event playback and focus changes, then export and launch
-the standalone game independently of the editor.
+executable timestamps and that `fmod.dll` and `fmodstudio.dll` were copied beside
+both applications. Open the project, build its selected Studio platform, test event playback and
+focus changes, then export and launch the standalone game independently of the editor.
 
-Linux accepts the same environment variables with Linux paths. FMOD must provide linkable
-`libfmod.so` / `libfmodstudio.so` and their shipping `.so.14` files; applications receive these
-under `lib/`. Asterwave compiles from the same native source. Regenerate after changing roots.
+Linux accepts the same environment variable with Linux paths. FMOD must provide linkable
+`libfmod.so` / `libfmodstudio.so` and their shipping `.so.14` files. Both applications
+receive the shipping libraries under their `lib/` directory. Regenerate after changing SDK roots.
 
-Generation reports missing files or a mismatched source revision. SDK packages, private source
-and generated paths stay local; their licence/provenance requirements remain unchanged.
-Neither dependency setup nor these desktop profiles require a console SDK.
+Generation reports the exact missing SDK file. SDKs and generated paths stay local; do not commit
+SDK packages. Neither SDK setup nor these desktop profiles require a console SDK.
+
+The native backend (`--audio-backend=native`) needs no FMOD SDK at all; see
+`docs/AUDIO_NATIVE_BACKEND_PLAN.md`.
 
 ## Verification limits
 
-Desktop verification combines native builds, the focused Asterwave adapter fixture, the full
-FMOD suite, Studio target builds, and interactive playback/export checks. See
-`tests/audio/README.md` for the separate commands and prerequisites. Disposable SDK-layout tests
-check required files and paths with spaces; they do not establish native Windows compilation or
-listening quality. An editor playback/listening pass and packaged-game launch still require the
-platform SDK and host. Console work remains deferred.
+Linux native builds, headless FMOD/Soundwave regression tests and real Studio target builds are checked.
+Disposable Windows SDK-layout tests check required files and paths with spaces. A native Windows
+compile, playback/listening pass and packaged-game launch still require the Windows FMOD SDK and
+a Windows host; they cannot be certified by Linux layout tests. Console work remains deferred.
