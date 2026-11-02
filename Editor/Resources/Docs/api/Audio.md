@@ -7,6 +7,12 @@ Gameplay audio. Call on the engine's main thread; handles expire when Play stops
 ## Methods
 
 ```
+public static EventInstance CreateInstance(Sound sound)
+```
+
+Creates an explicitly owned instance of a Sound asset (native audio backend).
+
+```
 public static EventInstance CreateInstance(string eventRef)
 ```
 
@@ -51,6 +57,12 @@ Plays an event once, without position, and lets it release itself.
 - `eventRef`: The event's GUID or path (`event:/...`).
 
 ```
+public static void PlayOneShot(Sound sound)
+```
+
+Plays a Sound asset once (native audio backend). It must not loop.
+
+```
 public static void PlayOneShot(string eventRef, Vector3 position)
 ```
 
@@ -58,6 +70,12 @@ Plays an event once at a world position and lets it release itself.
 
 - `eventRef`: The event's GUID or path (`event:/...`).
 - `position`: Where the sound plays.
+
+```
+public static void PlayOneShot(Sound sound, Vector3 position)
+```
+
+Plays a Sound asset once at a world position (native audio backend). It must not loop.
 
 ```
 public static void SetBusMuted(string busPath, bool muted)
