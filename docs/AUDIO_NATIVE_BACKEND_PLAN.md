@@ -611,8 +611,10 @@ duck, mono fold and compression presets on a master output node, with a native t
 **5b meters done:** a meter node after every bus group (and on the master stage's input) publishes
 peak (held until read) and block RMS atomically; `AudioPerformance` reports them with inclusive
 per-bus voice counts and budget warnings. Native meters are post-fader (FMOD's are bus input).
-Left: audio CPU and memory figures, priority virtualization under the global voice budget, and
-Sound-based validation.
+**5c validation done:** Sounds and clips as before, plus the mixer: its own validity, configured
+(accessibility and budget) buses, snapshot references by ID, Sounds on a bus the mixer lacks, and the
+shipped clip bytes in place of bank bytes. Not run on the sample project here (needs the editor).
+Left: audio CPU and memory figures, and priority virtualization under the global voice budget.
 
 ### Phase 6 — Music director
 
