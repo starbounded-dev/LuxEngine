@@ -531,6 +531,11 @@ namespace Lux {
 		return CheckFMOD(bus->setVolume(std::max(volume, 0.0f)), "Set bus volume failed");
 	}
 
+	bool AudioEngine::ClearBusVolume(const std::string& busPath)
+	{
+		return SetBusVolume(busPath, 1.0f);
+	}
+
 	float AudioEngine::GetBusVolume(const std::string& busPath)
 	{
 		if (!s_StudioSystem)

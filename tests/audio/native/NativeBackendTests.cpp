@@ -695,6 +695,11 @@ namespace
 		CHECK(combat->Start() && combat->SetSnapshotIntensity(0.5f));
 		CHECK_NEAR(level() / full, 0.5, 2e-3);    // 0.5 toward 0.5 stays 0.5
 		CHECK(!combat->SetSnapshotIntensity(1.5f) && !voice->SetSnapshotIntensity(0.5f) && !voice->IsSnapshot());
+		// A volume the game sets owns the bus: snapshots leave it alone until it is cleared.
+		CHECK(combat->SetSnapshotIntensity(1.0f) && AudioEngine::SetBusVolume("bus:/SFX", 1.0f));
+		CHECK_NEAR(level() / full, 1.0, 1e-3);
+		CHECK(AudioEngine::ClearBusVolume("bus:/SFX") && AudioEngine::GetBusVolume("bus:/SFX") == 1.0f);
+		CHECK_NEAR(level() / full, 0.5, 2e-3);    // back under Combat's 0.5
 		voice->Stop(false);
 		AudioEngine::Shutdown();
 		s_Mixer = {};

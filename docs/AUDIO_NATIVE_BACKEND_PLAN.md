@@ -565,8 +565,9 @@ meters.
   compressor (our own nodes), edited in the Audio Mixer panel; offline-render tests for each.
 - **4e VCAs and globals:** mixer VCAs over bus groups; `SoundParameter::Global` with
   `SetGlobalParameter` (Sound Editor "Global" checkbox).
-- **Left:** `ClearBusVolume` (script values over
-  snapshots), runtime format 26, and porting the zone tests (the snapshot test drives the zone's call
+- **4f precedence:** a bus volume a script sets takes the bus over from snapshots until
+  `Audio.ClearBusVolume` hands it back at the project mixer's volume (FMOD: back to 1).
+- **Left:** runtime format 26 (with native export, Phase 8), and porting the zone tests (the snapshot test drives the zone's call
   sequence directly).
 
 **Exit criteria:** zone tests green on native.

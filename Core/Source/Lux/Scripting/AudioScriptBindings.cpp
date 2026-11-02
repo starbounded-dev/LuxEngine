@@ -824,6 +824,11 @@ namespace Lux
 			if (MixerAvailable())
 				AudioEngine::SetBusVolume(name, value);
 		}
+		void Audio_ClearBusVolume(Coral::String name)
+		{
+			if (MixerAvailable())
+				AudioEngine::ClearBusVolume(name);
+		}
 		float Audio_GetBusVolume(Coral::String name)
 		{
 			return MixerAvailable() ? AudioEngine::GetBusVolume(name) : 0.0f;
@@ -1021,6 +1026,7 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ListenerSetTarget", reinterpret_cast<void*>(&Audio_ListenerSetTarget));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetBusVolume", reinterpret_cast<void*>(&Audio_SetBusVolume));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_GetBusVolume", reinterpret_cast<void*>(&Audio_GetBusVolume));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ClearBusVolume", reinterpret_cast<void*>(&Audio_ClearBusVolume));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetBusMuted", reinterpret_cast<void*>(&Audio_SetBusMuted));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetVCAVolume", reinterpret_cast<void*>(&Audio_SetVCAVolume));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SetGlobalParameter", reinterpret_cast<void*>(&Audio_SetGlobalParameter));

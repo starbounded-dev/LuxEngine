@@ -127,6 +127,7 @@ namespace Lux {
 			std::vector<Scope<BusEffect>> Effects; // in chain order, between the group and its parent
 			float Volume = 1.0f;
 			bool Muted = false;
+			bool ScriptVolume = false; // set by SetBusVolume: snapshots leave its volume alone until ClearBusVolume
 		};
 
 		// A resource whose init failed was never initialized, so it is freed without its uninit.
@@ -288,6 +289,14 @@ namespace Lux {
 		void ApplyBusVolume(const std::string& path, MixerBus& bus)
 		{
 			float volume = bus.Volume;
+			if (bus.ScriptVolume)
+			{
+				for (const auto& [vcaPath, vca] : s_VCAs)
+					if (std::find(vca.Buses.begin(), vca.Buses.end(), path) != vca.Buses.end())
+						volume *= vca.Volume;
+				ma_sound_group_set_volume(bus.Group.get(), bus.Muted ? 0.0f : volume);
+				return;
+			}
 			const ActiveSnapshot* winner = nullptr;
 			const AudioMixerBus* winning = nullptr;
 			for (const ActiveSnapshot& active : s_ActiveSnapshots)
@@ -726,6 +735,27 @@ namespace Lux {
 		if (!bus)
 			return false;
 		bus->Volume = std::max(volume, 0.0f);
+		bus->ScriptVolume = true;
+		ApplyBusVolume(busPath, *bus);
+		return true;
+	}
+
+	bool AudioEngine::ClearBusVolume(const std::string& busPath)
+	{
+		if (busPath == "bus:/")
+		{
+			s_MasterVolume = 1.0f;
+			ApplyEndpointVolume();
+			return true;
+		}
+		MixerBus* bus = FindBus(busPath);
+		if (!bus)
+			return false;
+		// The project mixer's current volume, so an edit made since Init is the one restored.
+		const auto mixer = NativeInternal::GetEngineConfig().Mixer;
+		const auto settings = std::find_if(mixer.Buses.begin(), mixer.Buses.end(), [&](const AudioMixerBus& entry) { return entry.Path == busPath; });
+		bus->Volume = settings != mixer.Buses.end() ? settings->Volume : 1.0f;
+		bus->ScriptVolume = false;
 		ApplyBusVolume(busPath, *bus);
 		return true;
 	}

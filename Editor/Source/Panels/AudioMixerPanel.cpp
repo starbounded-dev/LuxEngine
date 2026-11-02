@@ -74,7 +74,9 @@ namespace Lux
 		// The FMOD build mixes in Studio; writing its buses from here would change the authored mix.
 		if (AudioEngine::GetBackend() != AudioBackend::Native || !AudioEngine::HasInitializedEngine())
 			return;
-		AudioEngine::SetBusVolume(bus.Path, bus.Volume);
+		// Clearing applies the edited project volume and keeps the bus under snapshots, as a mix edit
+		// should; SetBusVolume would take it over as gameplay does.
+		AudioEngine::ClearBusVolume(bus.Path);
 		AudioEngine::SetBusMuted(bus.Path, bus.Muted);
 	}
 

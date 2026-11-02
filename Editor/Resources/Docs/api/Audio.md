@@ -7,6 +7,14 @@ Gameplay audio. Call on the engine's main thread; handles expire when Play stops
 ## Methods
 
 ```
+public static void ClearBusVolume(string busPath)
+```
+
+Hands a bus back to the mix after [`Audio.SetBusVolume`](Audio): its volume returns to the project mixer's and snapshots apply to it again (FMOD: back to 1).
+
+- `busPath`: The bus path, `bus:/` for the master bus.
+
+```
 public static EventInstance CreateInstance(Sound sound)
 ```
 

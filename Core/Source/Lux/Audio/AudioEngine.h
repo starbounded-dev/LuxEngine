@@ -137,7 +137,11 @@ namespace Lux {
 		static bool SetVCAVolume(const std::string& path, float volume);
 		static bool SetGlobalParameter(const std::string& name, float value);
 		static float GetGlobalParameter(const std::string& name);
+		// A volume set here is the game's: on the native backend it takes the bus over from mixer
+		// snapshots until ClearBusVolume hands it back at the project mixer's volume. FMOD's
+		// ClearBusVolume sets 1, the authored level.
 		static bool SetBusVolume(const std::string& busPath, float volume);
+		static bool ClearBusVolume(const std::string& busPath);
 		static float GetBusVolume(const std::string& busPath);
 
 		// --- Event parameters -------------------------------------------------------------------

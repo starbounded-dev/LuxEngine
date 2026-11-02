@@ -135,6 +135,13 @@ namespace Lux
 			using NativeString path = String(busPath);
 			InternalCalls.Audio_SetBusVolume(path, volume);
 		}
+		/// <summary>Hands a bus back to the mix after <see cref="SetBusVolume"/>: its volume returns to the project mixer's and snapshots apply to it again (FMOD: back to 1).</summary>
+		/// <param name="busPath">The bus path, <c>bus:/</c> for the master bus.</param>
+		public static void ClearBusVolume(string busPath)
+		{
+			using NativeString path = String(busPath);
+			InternalCalls.Audio_ClearBusVolume(path);
+		}
 		/// <summary>A mixer bus's volume.</summary>
 		/// <param name="busPath">The bus path, <c>bus:/</c> for the master bus.</param>
 		public static float GetBusVolume(string busPath)
