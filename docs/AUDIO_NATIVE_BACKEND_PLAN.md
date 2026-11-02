@@ -607,8 +607,12 @@ meters.
 **Rollback:** per-file revert; FMOD is unaffected.
 
 **Status — 5a accessibility done:** category gains over bus volumes, dialogue boost, description
-duck, mono fold and compression presets on a master output node, with a native test. Left:
-performance meters and voice budgets, and Sound-based validation.
+duck, mono fold and compression presets on a master output node, with a native test.
+**5b meters done:** a meter node after every bus group (and on the master stage's input) publishes
+peak (held until read) and block RMS atomically; `AudioPerformance` reports them with inclusive
+per-bus voice counts and budget warnings. Native meters are post-fader (FMOD's are bus input).
+Left: audio CPU and memory figures, priority virtualization under the global voice budget, and
+Sound-based validation.
 
 ### Phase 6 — Music director
 

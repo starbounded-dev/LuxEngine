@@ -702,6 +702,19 @@ namespace Lux {
 		}
 	}
 
+	int NativeInternal::CountPlayingVoicesOn(const std::string& busPath)
+	{
+		int playing = 0;
+		for (const NativeVoice* voice : s_Voices)
+		{
+			if (!voice->Live() || !voice->Started || voice->SnapshotId)
+				continue;
+			const std::string& bus = voice->Definition->Bus;
+			playing += busPath == "bus:/" || bus == busPath || bus.rfind(busPath + "/", 0) == 0;
+		}
+		return playing;
+	}
+
 	int NativeInternal::CountPlayingVoices()
 	{
 		int playing = 0;

@@ -103,6 +103,50 @@ namespace Lux {
 			}
 		};
 
+		// Measures what passes through it, unchanged: the loudest sample since the main thread last
+		// read it, and the RMS of the latest block. Written by the audio thread, read at 4 Hz on main.
+		struct MeterState
+		{
+			std::atomic<float> Peak{ 0.0f }, RMS{ 0.0f };
+
+			void Measure(const float* samples, size_t count)
+			{
+				float peak = 0.0f;
+				double sum = 0.0;
+				for (size_t i = 0; i < count; ++i)
+				{
+					peak = std::max(peak, std::abs(samples[i]));
+					sum += static_cast<double>(samples[i]) * samples[i];
+				}
+				float held = Peak.load(std::memory_order_relaxed);
+				while (peak > held && !Peak.compare_exchange_weak(held, peak, std::memory_order_relaxed))
+				{
+				}
+				RMS.store(count ? static_cast<float>(std::sqrt(sum / static_cast<double>(count))) : 0.0f, std::memory_order_relaxed);
+			}
+
+			void Read(float& outPeak, float& outRMS)
+			{
+				outPeak = Peak.exchange(0.0f, std::memory_order_relaxed);
+				outRMS = RMS.load(std::memory_order_relaxed);
+			}
+		};
+
+		struct MeterNode
+		{
+			ma_node_base Base;   // first: miniaudio passes &Base as the node
+			MeterState Meter;
+			static constexpr ma_uint32 FLAGS = 0;
+
+			void Process(JPL::ProcessCallbackData& data)
+			{
+				const auto input = data.GetInputBuffer(0);
+				const size_t count = static_cast<size_t>(data.GetOutputFrameCount()) * input.getNumChannels();
+				std::memcpy(data.GetOutputBuffer(0).data.data, input.data.data, count * sizeof(float));
+				Meter.Measure(input.data.data, count);
+			}
+		};
+
 		// The master output stage, between everything the master bus mixes and the device: the
 		// accessibility mixer's mono fold and compression (AudioDynamicRange presets, as FMOD's).
 		// Both off copies its input exactly.
@@ -113,6 +157,7 @@ namespace Lux {
 			std::atomic<float> ThresholdDb{ -12.0f }, Slope{ 1.0f - 1.0f / 3.0f };
 			float AttackCoefficient = 0.0f, ReleaseCoefficient = 0.0f;
 			float Envelope = 0.0f; // audio thread only
+			MeterState Meter;      // the master bus, before accessibility processing
 			static constexpr ma_uint32 FLAGS = 0;
 
 			void Process(JPL::ProcessCallbackData& data)
@@ -122,6 +167,7 @@ namespace Lux {
 				const float* in = input.data.data;
 				float* out = data.GetOutputBuffer(0).data.data;
 				const uint32_t channels = input.getNumChannels();
+				Meter.Measure(in, static_cast<size_t>(frames) * channels);
 				const bool mono = Mono.load(std::memory_order_relaxed), compress = Compress.load(std::memory_order_relaxed);
 				const float threshold = ThresholdDb.load(std::memory_order_relaxed), slope = Slope.load(std::memory_order_relaxed);
 				for (ma_uint32 frame = 0; frame < frames; ++frame)
@@ -185,6 +231,7 @@ namespace Lux {
 		struct MixerBus
 		{
 			GroupResource Group;
+			JPL::TBaseNode<MeterNode> Meter;       // right after the group, before the effects
 			std::vector<Scope<BusEffect>> Effects; // in chain order, between the group and its parent
 			float Volume = 1.0f;
 			bool Muted = false;
@@ -431,9 +478,14 @@ namespace Lux {
 				bus.Volume = settings.Volume;
 				bus.Muted = settings.Muted;
 				ApplyBusVolume(settings.Path, bus);
-				// The chain sits between the bus and where it plays: group -> effects -> parent. Attaching
-				// the group's output to the first stage replaces its attachment to the parent.
+				// The chain sits between the bus and where it plays: group -> meter -> effects -> parent.
+				// Attaching the group's output to the next stage replaces its attachment to the parent.
 				ma_node* output = bus.Group.get();
+				if (bus.Meter.Init(JPL::NodeLayout().WithInputs(outputChannels).WithOutputs(outputChannels))
+					&& ma_node_attach_output_bus(output, 0, bus.Meter.get(), 0) == MA_SUCCESS)
+					output = bus.Meter.get();
+				else
+					bus.Meter.clear();
 				for (const AudioMixerEffect& effectSettings : settings.Effects)
 				{
 					if (effectSettings.Bypass)
@@ -449,6 +501,7 @@ namespace Lux {
 				}
 				if (output != bus.Group.get())
 				{
+					// The group was attached to its parent; the last stage takes its place.
 					ma_node* destination = parentGroup ? static_cast<ma_node*>(parentGroup) : MasterInput(engine);
 					if (const ma_result attached = ma_node_attach_output_bus(output, 0, destination, 0); attached != MA_SUCCESS)
 						LUX_CORE_ERROR_TAG("Audio", "Cannot connect bus '{}' effects: {}", settings.Path, ma_result_description(attached));
@@ -498,6 +551,7 @@ namespace Lux {
 			for (auto it = s_Buses.rbegin(); it != s_Buses.rend(); ++it)
 			{
 				it->second.Group.clear();
+				it->second.Meter.clear();
 				it->second.Effects.clear();
 			}
 			s_Buses.clear();
@@ -532,6 +586,24 @@ namespace Lux {
 		if (MixerBus* bus = FindBus(path))
 			return bus->Group.get();
 		return MasterInput(s_Engine.get());
+	}
+
+	bool NativeInternal::ReadBusMeter(const std::string& busPath, float& outPeak, float& outRMS)
+	{
+		if (!s_EngineReady)
+			return false;
+		if (busPath == "bus:/")
+		{
+			if (!s_Master)
+				return false;
+			s_Master->Meter.Read(outPeak, outRMS);
+			return true;
+		}
+		const auto bus = s_Buses.find(busPath);
+		if (bus == s_Buses.end() || !bus->second.Meter)
+			return false;
+		bus->second.Meter->Meter.Read(outPeak, outRMS);
+		return true;
 	}
 
 	bool NativeInternal::HasMixerBus(const std::string& path)

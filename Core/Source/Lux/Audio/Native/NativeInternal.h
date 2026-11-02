@@ -92,6 +92,11 @@ namespace Lux::NativeInternal {
 	// Publishes end-of-playback to playback status and the script mailbox.
 	void PollVoices();
 	int CountPlayingVoices();
+	// Playing voices whose Sound plays into this bus or one below it ("bus:/" counts every voice).
+	int CountPlayingVoicesOn(const std::string& busPath);
+	// The bus's loudest sample since the last read and its latest block RMS, both linear, measured
+	// after its volume (the master: before accessibility processing). False for an unknown bus.
+	bool ReadBusMeter(const std::string& busPath, float& outPeak, float& outRMS);
 	// Stops and frees every voice's miniaudio objects, before the engine is torn down. The
 	// wrappers stay alive but invalid, exactly as FMOD's generation check leaves them.
 	void ReleaseVoices();

@@ -21,6 +21,7 @@
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Audio/AudioAccessibilityMixer.h"
+#include "Lux/Audio/AudioPerformance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -926,6 +927,43 @@ namespace
 		std::puts("PASS: accessibility: category gains over bus volumes, master gain, dialogue boost, description duck, mono fold, compression presets, reset");
 	}
 
+	void TestMeters()
+	{
+		s_Performance.BusVoices = { { "bus:/", 64 }, { "bus:/SFX", 1 } };
+		Start();
+		const auto tone = WriteTone("meter.wav", 500.0, 1.0);    // amplitude 0.5: peak 0.5, RMS 0.354
+		const auto sfx = AddSound(tone, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = "bus:/SFX"; });
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		const auto meter = [](const std::string& path)
+		{
+			AudioPerformance::Update();
+			const auto& buses = AudioPerformance::GetBuses();
+			const auto it = std::find_if(buses.begin(), buses.end(), [&](const AudioBusMeter& entry) { return entry.Path == path; });
+			CHECK(it != buses.end());
+			return *it;
+		};
+		auto first = Play(sfx, front);
+		Render(kSettle);
+		const AudioBusMeter bus = meter("bus:/SFX");
+		CHECK(bus.Available && bus.Voices == 1 && !bus.Exceeded);
+		CHECK_NEAR(bus.Peak, 0.5, 0.01);
+		CHECK_NEAR(bus.RMS, 0.5 / std::sqrt(2.0), 0.01);
+		CHECK(meter("bus:/SFX").Peak == 0.0f);                    // the peak holds until read, then resets
+		Render(kBlock);
+		const AudioBusMeter master = meter("bus:/");
+		CHECK(master.Available && master.Voices == 1);
+		CHECK_NEAR(master.Peak, 0.5, 0.01);
+		// A second voice on a bus with a limit of 1 exceeds its budget; the master's 64 is fine.
+		auto second = Play(sfx, front);
+		Render(kBlock);
+		CHECK(meter("bus:/SFX").Exceeded && meter("bus:/SFX").Voices == 2 && !meter("bus:/").Exceeded);
+		first->Stop(false);
+		second->Stop(false);
+		AudioEngine::Shutdown();
+		s_Performance = {};
+		std::puts("PASS: bus meters: peak and RMS of a known sine, peak hold and reset, inclusive voice counts, bus voice budget");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1430,6 +1468,7 @@ int main(int argc, char** argv)
 	TestEffects();
 	TestVCAsAndGlobals();
 	TestAccessibility();
+	TestMeters();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();
