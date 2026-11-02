@@ -96,7 +96,8 @@ target_include_directories(lux_native_backend_tests PRIVATE
 target_compile_definitions(lux_native_backend_tests PRIVATE
     SPDLOG_USE_STD_FORMAT NOMINMAX _CRT_SECURE_NO_WARNINGS LUX_DEBUG
     GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE
-    LUX_NATIVE_AUDIO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    LUX_NATIVE_AUDIO_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    LUX_SAMPLE_ASSETS="${LUX_ROOT}/Editor/LuxSampleProject/Assets")
 if(WIN32)
     # Premake builds Core with the Unicode character set; WindowsThread.cpp relies on it.
     target_compile_definitions(lux_native_backend_tests PRIVATE LUX_PLATFORM_WINDOWS UNICODE _UNICODE)

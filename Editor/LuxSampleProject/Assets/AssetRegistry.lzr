@@ -215,6 +215,9 @@ Assets:
   - Handle: 6871589670293342467
     FilePath: Meshes/Source/Sponza/6772804448157695701.jpg
     Type: Texture
+  - Handle: 6962752638689701569
+    FilePath: Audio/SampleProject/Assets/FX/Music/Music_1.mp3
+    Type: Audio
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture
@@ -242,6 +245,9 @@ Assets:
   - Handle: 8727075728022189045
     FilePath: Meshes/Source/Sponza/9916269861720640319.jpg
     Type: Texture
+  - Handle: 8743721474366396702
+    FilePath: Audio/Sounds/Music.lsound
+    Type: Sound
   - Handle: 8771070141657830737
     FilePath: Scripts/Source/FlyCamera.cs
     Type: ScriptFile
@@ -251,6 +257,9 @@ Assets:
   - Handle: 8873821167095533110
     FilePath: Meshes/Source/Sponza/Materials/Sponza_10_Material_10.lmat
     Type: Material
+  - Handle: 9117899157295655424
+    FilePath: Audio/Sounds/Fart.lsound
+    Type: Sound
   - Handle: 9152988350745842542
     FilePath: Meshes/Source/Sponza/11474523244911310074.jpg
     Type: Texture

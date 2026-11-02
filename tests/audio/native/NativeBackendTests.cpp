@@ -1211,6 +1211,45 @@ namespace
 		std::puts("PASS: voice budget: lowest priority virtual, silent while virtual, resumes in step, a one-shot that ran out has ended");
 	}
 
+	void TestSampleProjectSounds()
+	{
+		// The sample project's Sounds load, validate, name registered clips that exist, and play.
+		const std::filesystem::path assets = LUX_SAMPLE_ASSETS;
+		const auto readText = [](const std::filesystem::path& path)
+		{
+			std::ifstream in(path, std::ios::binary);
+			return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		};
+		const auto registry = Yaml::Load(readText(assets / "AssetRegistry.lzr"));
+		std::map<uint64_t, std::pair<std::string, std::string>> registered; // handle -> path, type
+		for (const auto& entry : registry["Assets"])
+			registered[entry["Handle"].as<uint64_t>()] = { entry["FilePath"].as<std::string>(), entry["Type"].as<std::string>() };
+		Start();
+		for (const char* name : { "Audio/Sounds/Fart.lsound", "Audio/Sounds/Music.lsound" })
+		{
+			auto sound = Ref<Sound>::Create();
+			std::string error;
+			CHECK(sound->FromYAML(readText(assets / name)) && sound->Validate(&error));
+			const auto own = std::find_if(registered.begin(), registered.end(), [&](const auto& item) { return item.second.first == name; });
+			CHECK(own != registered.end() && own->second.second == "Sound");
+			sound->Handle = own->first;
+			for (const AssetHandle clip : sound->GetClips())
+			{
+				const auto entry = registered.find(static_cast<uint64_t>(clip));
+				CHECK(entry != registered.end() && entry->second.second == "Audio" && std::filesystem::is_regular_file(assets / entry->second.first));
+				s_Clips[static_cast<uint64_t>(clip)] = assets / entry->second.first;
+			}
+			s_Sounds[own->first] = sound;
+			auto instance = Play(std::to_string(own->first), { 0.0f, 0.0f, -1.0f });
+			CHECK(instance->IsPlaying());
+			const auto pcm = Render(kRate / 4);
+			CHECK(Rms(pcm, 0) > 1e-3);
+			instance->Stop(false);
+		}
+		AudioEngine::Shutdown();
+		std::puts("PASS: sample project Sounds: Fart and Music load, validate, use registered clips that exist, and play");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1720,6 +1759,7 @@ int main(int argc, char** argv)
 	TestDialogueClips();
 	TestPackedClips();
 	TestVoiceBudget();
+	TestSampleProjectSounds();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();
