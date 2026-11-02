@@ -740,6 +740,12 @@ Architecture 2.10, `Building.md`.
 
 **Rollback:** flip the default back.
 
+**Status — sample part 1 done:** `Fart` and `Music` are Sound assets (Fart a Random container with
+pitch variation, the Phase 3 exit criterion), FMODDemo's sources reference them beside their FMOD
+GUIDs, and a native test loads and plays them. Waiting on the user: flipping the default, the scene
+and script renames (`FmodAudioDemo.cs` still plays `event:/Fart` by path), CI changes, and an editor
+run of the native build.
+
 ### Phase 10 — Delete FMOD
 
 **Goal:** no FMOD code, option, library, secret or document remains.
