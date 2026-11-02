@@ -10,13 +10,8 @@ namespace Lux
 	class StreamReader;
 	class StreamWriter;
 
-	// Legacy selector retained for older project/runtime blocks during migration.
-	// Soundwave drives playback regardless; this row is removed in Phase 6.
-	enum class AudioOcclusionSource : uint8_t { Engine, Raytraced };
-
 	struct AudioOcclusionSettings
 	{
-		AudioOcclusionSource Source = AudioOcclusionSource::Engine;
 		float UpdateRateHz = 20.0f;   // how often each source is recast
 		uint32_t CastBudget = 32;     // sources recast per frame at most
 		float Strength = 1.0f;        // scales wall dB loss; 1 uses authored material transmission

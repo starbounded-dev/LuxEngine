@@ -18,11 +18,6 @@ newoption {
 }
 
 newoption {
-	trigger = "raytraced-audio",
-	description = "Compatibility option: Vercidium Audio is always required"
-}
-
-newoption {
 	trigger = "fmod",
 	description = "Compatibility option: FMOD is always required"
 }

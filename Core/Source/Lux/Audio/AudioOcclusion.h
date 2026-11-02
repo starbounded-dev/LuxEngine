@@ -28,7 +28,7 @@ namespace Lux
 	};
 
 	// One obstruction on the path. Solid walls have a thickness (End - Start); flat walls are
-	// one-sided or non-watertight surfaces, which VA also treats as a fixed per-touch loss.
+	// one-sided or non-watertight surfaces, which Soundwave also treats as a fixed per-touch loss.
 	struct AudioOcclusionWall
 	{
 		UUID Entity = 0;
@@ -53,9 +53,9 @@ namespace Lux
 		Soundwave::Path Measurement;
 	};
 
-	// Engine-side occlusion from raycasts through the acoustic geometry. It stands in for VA's
-	// per-source occlusion, which does not respond to geometry (docs/vercidium-repro), and uses
-	// VA's own material semantics so the two agree: TransmissionLF/HF is the thickness that costs
+	// Engine-side occlusion from physics raycasts through the acoustic geometry: the temporary
+	// comparison oracle for Soundwave (CompareRaycast). It uses the same material semantics so the
+	// two agree: TransmissionLF/HF is the thickness that costs
 	// 30 dB, FlatTransmissionLF/HF the energy fraction lost on a one-sided surface.
 	//
 	// Main thread only. The caller supplies the raycast so this stays independent of Physics.
@@ -74,7 +74,7 @@ namespace Lux
 		void Configure(const AcousticMaterialSettings& materials, const AudioOcclusionSettings& settings = {});
 
 		// Acoustic geometry for this update: mesh colliders become materials by entity, portals
-		// become boxes. portalOpen returns the Open that VA last applied for a portal entity.
+		// become boxes. portalOpen, when set, overrides a portal entity's authored Open.
 		void SetGeometry(std::span<const AudioGeometryInput> inputs, const std::function<float(UUID)>& portalOpen);
 
 		// Re-evaluates due sources within the cast budget and smooths every source's gain.

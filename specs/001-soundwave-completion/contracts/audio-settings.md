@@ -23,7 +23,7 @@ Occlusion:
     ReverbBounces: 16
     ReverbReferenceSeconds: 1.5
     AirAbsorptionLF: 0.1   # stage B, dB per 100 m
-    AirAbsorptionHF: 1.0   # stage B
+    AirAbsorptionHF: 2.5   # stage B
 ```
 
 Rules: missing key → default; unknown key → load error (existing); out of range → load error.

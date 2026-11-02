@@ -95,10 +95,6 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	do -- Vercidium Audio is required.
-		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
-	end
-
 	do -- FMOD is required.
 		defines { "LUX_ENABLE_FMOD" }
 	end

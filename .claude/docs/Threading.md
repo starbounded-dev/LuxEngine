@@ -389,30 +389,23 @@ costs nothing in Release.
 
 ## Acoustic geometry and portals
 
-`Scene::SyncAudioGeometry` and its `AudioGeometrySystem` queue are main-thread owned. Runtime
-joins `RaytracedAudioScene::WaitForResults()` before adding, removing, retagging or transforming VA
-primitives or changing world bounds. The next `OnUpdate()` launches workers only after these edits
-and listener/source updates finish. SDK workers receive no ECS pointers. C# portal/motion setters
-edit component data on the main thread; they never mutate VA directly. Pause defers queue work.
-Portal gizmos are captured as immutable `FrameRenderPacket::AudioZoneLines`, so the render thread
-reads neither portal components nor mutable VA geometry. Teardown drains VA before destroying its
-primitives/world and clears the scene's queue.
+Acoustic geometry capture (`SceneAudioAcoustics::Sync`, `Scene::SyncAudioGeometry`) is main-thread
+owned; Soundwave's preparation and reverb jobs receive only immutable snapshots (see below). C#
+portal/motion setters edit component data on the main thread. Portal gizmos are captured as
+immutable `FrameRenderPacket::AudioZoneLines`, so the render thread reads no portal components.
+Everything ImGui and C# read (`AudioAcoustics` results, gains, reverb, and
+`Scene::GetAudioSourceOcclusion()`) is published on main.
 
-`RaytracedAudioScene::GetResult` and `GetAmbience` read SDK buffers that VA's workers write, so they
-are valid only in that window. Code that runs outside it — ImGui panels and overlays, C# scripts —
-reads the copies the scene records inside it: `Scene::GetLastAudioAmbience()` and
-`Scene::GetAudioSourceOcclusion()`.
-
-Engine occlusion (`AudioOcclusion`) runs on the main thread in the same window, after the VA join
-and before `OnUpdate()`. Its Jolt narrow-phase queries run between physics steps (stepping is also
-main-thread), so they need no locking beyond Jolt's own body locks, and nothing is handed to SDK
-or job threads.
+The temporary raycast comparison (`AudioOcclusion`, only with `CompareRaycast`) runs on the main
+thread after the Soundwave update. Its Jolt narrow-phase queries run between physics steps
+(stepping is also main-thread), so they need no locking beyond Jolt's own body locks, and nothing is
+handed to job threads.
 
 ## Audio budgets and validation
 
 `AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls
-only read/mutate the active scene there. Culled VA emitters are removed after joining the previous
-VA batch. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
+only read/mutate the active scene there. A culled source's Soundwave state is pruned on the next
+update. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
 groups and its own meter DSPs are detached and released before bank unload. The SDK mixer owns sample processing. ImGui
 reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
 prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.
@@ -441,7 +434,7 @@ no worker callback into Scene. JobSystem's existing inline policy follows the sa
 The CPU reference solve and UUID source interpolation currently run on main. This is temporary
 Phase 2 execution, with explicit readiness/failure diagnostics; it does not authorize a shipping
 CPU fallback. Phase 4 still requires render-thread compute submission and nonblocking readback.
-The legacy VA join remains only in the existing SDK reverb path until that migration removes it.
+Vercidium Audio and its worker join are gone (2026-11-02); no acoustic code waits on another thread.
 
 Phase 3's listener reverb (`Soundwave::EvaluateReverb`) is one more AudioAcoustics JobSystem job:
 it captures the published snapshot Refs plus copies of the exclusion list, material table,

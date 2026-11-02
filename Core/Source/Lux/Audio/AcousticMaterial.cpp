@@ -6,80 +6,12 @@
 
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include "vaudio.h"
+#include <soundwave/AcousticMaterialSettings.h>
 #include "Lux/Serialization/Yaml.h"
 #include <cmath>
 
 namespace Lux
 {
-	namespace
-	{
-		constexpr int kCustomMaterialBase = 1000;
-		constexpr std::array<VAMaterialType, AcousticMaterialCount> kPresets = {
-			VAMaterialConcrete,
-			VAMaterialBrick,
-			VAMaterialCloth,
-			VAMaterialCloth,
-			VAMaterialConcrete,
-			VAMaterialConcretePolished,
-			VAMaterialDirt,
-			VAMaterialGlass,
-			VAMaterialGrass,
-			VAMaterialGravel,
-			VAMaterialMarble,
-			VAMaterialMetal,
-			VAMaterialGyprock,
-			VAMaterialWoodIndoor,
-			VAMaterialRock,
-			VAMaterialSnow,
-			VAMaterialMud,
-			VAMaterialWater,
-			VAMaterialWoodOutdoor,
-			VAMaterialWoodIndoor,
-			VAMaterialTile,
-			VAMaterialCloth,
-			VAMaterialLeaf,
-		};
-		constexpr std::array<const char*, AcousticMaterialCount> kPresetNames = {
-			"Concrete",
-			"Brick",
-			"Cloth",
-			"Cloth",
-			"Concrete",
-			"ConcretePolished",
-			"Dirt",
-			"Glass",
-			"Grass",
-			"Gravel",
-			"Marble",
-			"Metal",
-			"Gyprock",
-			"WoodIndoor",
-			"Rock",
-			"Snow",
-			"Mud",
-			"Water",
-			"WoodOutdoor",
-			"WoodIndoor",
-			"Tile",
-			"Cloth",
-			"Leaf",
-		};
-
-		AcousticMaterialProperties ReadProperties(VAWorld* world, int id)
-		{
-			AcousticMaterialProperties properties;
-			properties.AbsorptionLF = vaWorldGetMaterialAbsorptionLF(world, id);
-			properties.AbsorptionHF = vaWorldGetMaterialAbsorptionHF(world, id);
-			properties.Scattering = vaWorldGetMaterialScattering(world, id);
-			properties.TransmissionLF = vaWorldGetMaterialTransmissionLF(world, id);
-			properties.TransmissionHF = vaWorldGetMaterialTransmissionHF(world, id);
-			properties.FlatTransmissionLF = vaWorldGetMaterialFlatTransmissionLF(world, id);
-			properties.FlatTransmissionHF = vaWorldGetMaterialFlatTransmissionHF(world, id);
-			return properties;
-		}
-	}
-
 	bool IsValidAcousticMaterial(AcousticMaterial material)
 	{
 		return static_cast<size_t>(material) < AcousticMaterialCount;
@@ -129,66 +61,9 @@ namespace Lux
 
 	AcousticMaterialProperties GetDefaultAcousticMaterialProperties(AcousticMaterial material)
 	{
-		static const auto s_Defaults = []()
-		{
-			std::array<AcousticMaterialProperties, AcousticMaterialCount> result{};
-			VAWorld* world = vaWorldCreate();
-			if (!world)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot read VA material presets: world creation failed");
-				return result;
-			}
-			for (size_t i = 0; i < result.size(); ++i)
-				result[i] = ReadProperties(world, kPresets[i]);
-			vaWorldDestroy(world);
-			return result;
-		}();
-		return s_Defaults[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
-	}
-
-	const char* AcousticMaterialPresetName(AcousticMaterial material)
-	{
-		return kPresetNames[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
-	}
-
-	int AcousticMaterialVAID(AcousticMaterial material)
-	{
-		return kCustomMaterialBase + (IsValidAcousticMaterial(material) ? static_cast<int>(material) : 0);
-	}
-
-	bool ConfigureAcousticMaterials(VAWorld* world, const AcousticMaterialSettings& settings)
-	{
-		if (!settings.Validate())
-			return false;
-		for (size_t i = 0; i < AcousticMaterialCount; ++i)
-		{
-			const int id = AcousticMaterialVAID(static_cast<AcousticMaterial>(i));
-			const auto check = [i](VAResult result)
-			{
-				if (result == VA_SUCCESS || result == VA_UNCHANGED)
-					return true;
-				LUX_CORE_ERROR_TAG("Audio", "Failed to configure VA material {0} (VAResult={1})", AcousticMaterialNames[i], result);
-				return false;
-			};
-			if (!vaWorldHasMaterial(world, id) && !check(vaWorldCreateMaterial(world, id)))
-				return false;
-			const auto properties = settings.Overrides[i].Enabled ? settings.Overrides[i].Properties : ReadProperties(world, kPresets[i]);
-			if (!check(vaWorldSetMaterialAbsorptionLF(world, id, properties.AbsorptionLF)))
-				return false;
-			if (!check(vaWorldSetMaterialAbsorptionHF(world, id, properties.AbsorptionHF)))
-				return false;
-			if (!check(vaWorldSetMaterialScattering(world, id, properties.Scattering)))
-				return false;
-			if (!check(vaWorldSetMaterialTransmissionLF(world, id, properties.TransmissionLF)))
-				return false;
-			if (!check(vaWorldSetMaterialTransmissionHF(world, id, properties.TransmissionHF)))
-				return false;
-			if (!check(vaWorldSetMaterialFlatTransmissionLF(world, id, properties.FlatTransmissionLF)))
-				return false;
-			if (!check(vaWorldSetMaterialFlatTransmissionHF(world, id, properties.FlatTransmissionHF)))
-				return false;
-		}
-		return true;
+		static_assert(AcousticMaterialCount == Soundwave::kMaterialTagCount);
+		const auto& p = Soundwave::GetDefaultMaterialProperties(static_cast<Soundwave::MaterialTag>(IsValidAcousticMaterial(material) ? material : AcousticMaterial::Default));
+		return { p.AbsorptionLF, p.AbsorptionHF, p.Scattering, p.TransmissionLF, p.TransmissionHF, p.FlatTransmissionLF, p.FlatTransmissionHF };
 	}
 
 	void AcousticMaterialSettings::SerializeYAML(Yaml::Writer& out) const

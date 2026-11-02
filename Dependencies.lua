@@ -18,13 +18,11 @@ if not FMODSDKRoot then
 	FMODSDKRoot = matches[1] or (os.target() == "windows" and "Core/vendor/FMOD/FMOD Studio API Windows" or "Core/vendor/FMOD/fmodstudioapi20314linux")
 end
 FMODSDKRoot = path.getabsolute(FMODSDKRoot)
-VASDKRoot = path.getabsolute(os.getenv("LUX_VA_SDK") or "Core/vendor/VA_RAY")
 
 function ValidateAudioSDK()
 	local files = {
 		FMODSDKRoot .. "/api/core/inc/fmod.hpp",
-		FMODSDKRoot .. "/api/studio/inc/fmod_studio.hpp",
-		VASDKRoot .. "/3d/native/include/vaudio.h"
+		FMODSDKRoot .. "/api/studio/inc/fmod_studio.hpp"
 	}
 	local libraries = os.target() == "windows" and {
 		"core/lib/x64/fmod_vc.lib", "core/lib/x64/fmod.dll",
@@ -36,15 +34,9 @@ function ValidateAudioSDK()
 	for _, library in ipairs(libraries) do
 		table.insert(files, FMODSDKRoot .. "/api/" .. library)
 	end
-	if os.target() == "windows" then
-		table.insert(files, VASDKRoot .. "/3d/native/production/windows/vaudionative.lib")
-		table.insert(files, VASDKRoot .. "/3d/native/production/windows/vaudionative.dll")
-	else
-		table.insert(files, VASDKRoot .. "/3d/native/production/linux/libvaudionative.so")
-	end
 	for _, file in ipairs(files) do
 		if not os.isfile(file) then
-			error("Required audio SDK file missing: " .. file .. ". Set LUX_FMOD_SDK / LUX_VA_SDK to complete SDK package roots.")
+			error("Required audio SDK file missing: " .. file .. ". Set LUX_FMOD_SDK to the complete SDK package root.")
 		end
 	end
 end
@@ -186,14 +178,6 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
 		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
 	} or nil,
-	-- Required Vercidium Audio SDK. We link the "production" build
-	-- (no bundled GLFW/debug-visualisation window) on both platforms.
-	-- See Core/vendor/VA_RAY/README.txt.
-	VARay = {
-		IncludeDir = VASDKRoot .. "/3d/native/include",
-		Windows = { LibName = "vaudionative", LibDir = VASDKRoot .. "/3d/native/production/windows/" },
-		Linux = { LibName = "vaudionative", LibDir = VASDKRoot .. "/3d/native/production/linux/" },
-	},
 	-- Required audio backend. Two entries because FMOD ships the Studio
 	-- API as a separate library layered on the Core one: Studio owns the events and banks the game
 	-- actually plays, and creates a Core system internally for the low-level work (3D listener,

@@ -11,7 +11,7 @@
 | Kernel.ReflectionDepth / OpeningGridSize / MaxBounces / CandidateBudget / PathBudget / OpeningNodeBudget / Absorption / CompareRaycast | — | existing | existing | existing |
 | Kernel.ReverbRays / ReverbBounces / ReverbReferenceSeconds | — | 16–4096 / 1–64 / 0.1–10 | 256 / 16 / 1.5 | Phase 3 |
 | Kernel.AirAbsorptionLF | float dB/100 m | 0–20 | 0.1 | B |
-| Kernel.AirAbsorptionHF | float dB/100 m | 0–20 | 1.0 | B |
+| Kernel.AirAbsorptionHF | float dB/100 m | 0–20 | 2.5 | B |
 
 Validation: every row range-checked in `Validate()`; unknown keys rejected (existing rule).
 

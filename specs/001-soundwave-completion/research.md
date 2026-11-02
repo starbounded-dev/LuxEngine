@@ -60,7 +60,7 @@ Historical records (`docs/Lux-Commit-History.json`, `docs/Lux-History-Review.md`
 - **Decision (user, 2026-11-01):** absorption darkens occlusion/reverb energy along the path, mostly
   HF; FMOD's distance fade stays authoritative for loudness. Model: ISO 9613-1-style dB/m per band,
   authored as two project rows `AirAbsorptionLF`/`AirAbsorptionHF` (dB per 100 m; defaults
-  0.1 / 1.0), applied to indirect paths' extra length over the direct path and to reverb ray
+  0.1 / 2.5, roughly ISO 9613-1 at 20 °C, 50 % RH), applied to indirect paths' extra length over the direct path and to reverb ray
   length. The direct path's own distance is never charged — that is FMOD's fade.
 - **Rationale:** charging only the *extra* length is the smallest model that cannot double-fade.
 

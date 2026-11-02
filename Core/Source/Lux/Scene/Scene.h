@@ -44,7 +44,6 @@ namespace Lux {
 	class RenderScene;
 	class SceneRenderer;
 	class AudioEventInstance;
-	class RaytracedAudioScene;
 	class Mesh;
 	class StaticMesh;
 
@@ -121,18 +120,14 @@ namespace Lux {
 		const AudioListenerState* GetPrimaryAudioListener() const;
 		DialogueDirector& GetDialogueDirector() { return m_Dialogue; }
 		MusicDirector& GetMusicDirector() { return m_Music; }
-		size_t GetPendingAudioGeometryCount() const { return m_AudioGeometry.GetPendingCount(); }
 		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
 		AudioZoneVolume GetAudioZoneVolume(Entity entity);
 		// Wire lines of zone volumes and portal boxes, for debug drawing. Main thread.
 		using AudioZoneLineVisitor = std::function<void(Entity entity, const glm::vec3& a, const glm::vec3& b, bool secondary)>;
 		void ForEachAudioZoneLine(const std::function<bool(Entity)>& include, const AudioZoneLineVisitor& visit);
 		// The low-frequency occlusion gain applied to a source's Occlusion parameter (1 = clear),
-		// from whichever source the project selects; 1 when the source is not being simulated.
+		// from Soundwave; 1 when the source is not being simulated.
 		float GetAudioSourceOcclusion(UUID source) const;
-		// The listener's VA ambience as read in the last join window. Safe to read any time on the
-		// main thread, unlike RaytracedAudioScene::GetAmbience, which reads live SDK buffers.
-		const RaytracedAudioAmbience& GetLastAudioAmbience() const { return m_LastAudioAmbience; }
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
@@ -271,8 +266,8 @@ namespace Lux {
 		void OnPhysics2DStop();
 		void OnPhysics3DStart();
 		void OnPhysics3DStop();
-		void OnRaytracedAudioStart();
-		void OnRaytracedAudioStop();
+		void OnAcousticsStart();
+		void OnAcousticsStop();
 		// Steps 3D physics at its fixed rate; with runScripts, C# OnFixedUpdate(fixedDt) runs before each step.
 		void StepPhysics(Timestep ts, bool runScripts = false);
 		void InvokeScriptFixedUpdate(float fixedTimestep);
@@ -282,8 +277,7 @@ namespace Lux {
 		void ReleaseAllRuntimeAudio();
 		void SyncAudioListeners(float timestep);
 		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
-		void SyncAudioGeometry(bool initial = false);
-		bool BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& geometry);
+		void SyncAudioGeometry();
 		void UpdateAudioOcclusion(float timestep, const glm::vec3& listener);
 		void UpdatePhysicsAudio(float timestep);
 		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
@@ -337,13 +331,11 @@ namespace Lux {
 		std::unordered_map<UUID, AudioSourcePlayback> m_RuntimeEventInstances;
 		AudioListener::States m_RuntimeAudioListeners;
 		AudioZoneSystem m_AudioZones;
-		AudioGeometrySystem m_AudioGeometry;
 		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		AudioOcclusion m_AudioOcclusion;
 		SceneAudioAcoustics m_SceneAcoustics;
 		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // Soundwave gains applied on main
-		RaytracedAudioAmbience m_LastAudioAmbience;               // completed legacy reverb batch
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;
@@ -379,7 +371,6 @@ namespace Lux {
 		bool m_AudioZoneRaytracedValid = false;
 		std::vector<AudioZoneInput> m_AudioZoneInputs;
 		uint32_t m_AudioListenerWarnings = 0;
-		Ref<RaytracedAudioScene> m_RaytracedAudioScene;
 
 		// Per-entity C# script field values (serialized with the scene) and live instances.
 		ScriptStorage m_ScriptStorage;
@@ -397,8 +388,6 @@ namespace Lux {
 		// Defined out-of-line (PhysicsScene need not be complete in this header).
 		Ref<PhysicsScene> GetPhysicsScene() const;
 
-		// Defined out-of-line (RaytracedAudioScene need not be complete in this header).
-		Ref<RaytracedAudioScene> GetRaytracedAudioScene() const;
 		// The acoustic tag an entity's geometry uses: its AudioSurfaceComponent, else its mesh
 		// collider's tag, else Default. The one rule for geometry, surface sounds and debug views.
 		AcousticMaterial ResolveAcousticMaterial(Entity entity) const;

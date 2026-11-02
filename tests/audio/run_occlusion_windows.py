@@ -46,27 +46,22 @@ def main():
     sources += [core / "Source/Lux" / (value + ".cpp") for value in (
         "Audio/AudioAcoustics", "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial",
         "Audio/AudioGeometrySystem", "Serialization/FileStream", "Serialization/StreamReader",
-        "Serialization/StreamWriter", "Serialization/Yaml", "Core/UUID", "Core/Ref", "Audio/RaytracedAudioScene")]
+        "Serialization/StreamWriter", "Serialization/Yaml", "Core/UUID", "Core/Ref")]
     sources += [core / "vendor/rapidyaml/ryml.cpp"]
     sources += sorted((core / "vendor/soundwave/src").glob("*.cpp"))
-    va_include = next(path for path in includes if path.as_posix().endswith("/3d/native/include"))
-    native = va_include.parent
-    libraries = [native / "production/windows/vaudionative.lib"]
     started = time.time_ns()
     executable = output / ("occlusion-" + str(started) + ".exe")
     command = [compiler, "/nologo", "/std:c++20", "/EHsc", "/Zc:preprocessor", "/Zc:__cplusplus",
                "/Od", "/MDd", "/MP4", "/Gy", "/Gw", "/fp:precise", "/Y-",
                *["/D" + value for value in defines], *["/I" + str(path) for path in includes],
-               *sources, "/Fe:" + str(executable), "/link", *libraries, "/OPT:REF", "/INCREMENTAL:NO"]
+               *sources, "/Fe:" + str(executable), "/link", "/OPT:REF", "/INCREMENTAL:NO"]
     print("Occlusion test artifacts:", output, flush=True)
     with (output / "build.log").open("w", encoding="utf-8") as log:
         subprocess.run(list(map(str, command)), cwd=output, check=True, stdout=log, stderr=subprocess.STDOUT)
     artifact = executable.stat()
     if artifact.st_size == 0 or artifact.st_mtime_ns < started - 2_000_000_000:
         raise RuntimeError("Compiler did not produce a fresh occlusion executable")
-    environment = dict(os.environ)
-    environment["PATH"] = os.pathsep.join([str(path.parent) for path in libraries] + [environment["PATH"]])
-    subprocess.run([str(executable), str(output)], cwd=output, env=environment, check=True, timeout=30)
+    subprocess.run([str(executable), str(output)], cwd=output, check=True, timeout=30)
     print("Verified fresh artifact:", executable, flush=True)
 
 

@@ -6,6 +6,7 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include "Lux/Scene/Scene.h"
+#include "Lux/Core/Timer.h"
 
 #include "Lux/Asset/AssetManager.h"
 
@@ -13,7 +14,6 @@
 #include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioListener.h"
-#include "Lux/Audio/RaytracedAudioScene.h"
 
 #include "Lux/Core/JobSystem.h"
 #include "Lux/Core/Input.h"
@@ -162,7 +162,7 @@ namespace Lux {
 		m_ScriptStorage.Clear();   // FieldStorage buffers are released by hand
 		OnPhysics2DStop();
 		OnPhysics3DStop();
-		OnRaytracedAudioStop();
+		OnAcousticsStop();
 	}
 
 	template<typename... Component>
@@ -380,8 +380,6 @@ namespace Lux {
 			m_RuntimeEventInstances.erase(event);
 		}
 
-		if (m_RaytracedAudioScene)
-			m_RaytracedAudioScene->DestroyEmitter(entity.GetUUID());
 		m_AppliedAudioOcclusion.erase(entity.GetUUID());
 	}
 
@@ -476,7 +474,7 @@ namespace Lux {
 		{
 			Entity entity{ handle, this };
 			const auto& portal = entity.GetComponent<AudioPortalComponent>();
-			const float open = m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning() ? m_AudioGeometry.GetPortalOpen(entity.GetUUID()) : portal.Open;
+			const float open = portal.Open;
 			m_AudioPortalInputs.push_back({ entity.GetUUID(), portal.ZoneA, portal.ZoneB, GetWorldSpaceTransformMatrix(entity),
 				portal.HalfExtents, open, portal.BlendDistance, portal.Enabled && !IsInactive(handle) });
 		}
@@ -580,7 +578,7 @@ namespace Lux {
 
 		OnPhysics2DStart();
 		OnPhysics3DStart();
-		OnRaytracedAudioStart();
+		OnAcousticsStart();
 		m_PhysicsAudio.Clear();
 		m_Footsteps.clear();
 		m_AudioSurfaceTable = nullptr;
@@ -769,7 +767,7 @@ namespace Lux {
 
 		PhysicsScene2D::SetPlaying(false);
 
-		OnRaytracedAudioStop();
+		OnAcousticsStop();
 		OnPhysics3DStop();
 		OnPhysics2DStop();
 
@@ -916,45 +914,20 @@ namespace Lux {
 					ReleaseRuntimeAudio(entity);
 			}
 
-			// Join before reading VA results; zone evaluation itself also works without VA.
-			if (m_RaytracedAudioScene)
-				m_RaytracedAudioScene->WaitForResults();
 			SyncAudioGeometry();
-			// Soundwave's reverb from the previous update; zones layer over it as they did over VA's.
+			// Soundwave's reverb from the previous update; zones layer over it.
 			UpdateAudioZones(static_cast<float>(ts), m_SceneAcoustics.GetKernel().GetReverb() != nullptr);
-			AudioPerformance::SubmitScene(m_RaytracedAudioScene ? m_RaytracedAudioScene->GetRaytracingTimeMilliseconds() : 0,
-				GetCulledAudioSourceCount(), m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning());
 
 			const AudioListenerState fallback;
 			const AudioListenerState* primaryListener = GetPrimaryAudioListener();
 			const auto& listener = primaryListener ? *primaryListener : fallback;
 			const glm::vec3 acousticListener = listener.UseAttenuationPosition ? listener.AttenuationPosition : listener.Position;
+			Timer acousticsTimer;
 			m_SceneAcoustics.Update(*this, static_cast<float>(ts), {acousticListener.x,acousticListener.y,acousticListener.z});
+			AudioPerformance::SubmitScene(acousticsTimer.ElapsedMillis(), GetCulledAudioSourceCount(), true);
 			if (m_SceneAcoustics.GetKernel().IsRaycastComparisonEnabled())
 				UpdateAudioOcclusion(static_cast<float>(ts), acousticListener);
 
-			if (m_RaytracedAudioScene)
-			{
-				LUX_PROFILE_SCOPE_COLOR("Scene::OnUpdateRuntime::RaytracedAudioScene Scope", 0xFF7200);
-				m_RaytracedAudioScene->SetListener(acousticListener, listener.Forward);
-				m_LastAudioAmbience = m_RaytracedAudioScene->GetAmbience();
-				m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
-				{
-					Entity entity{entityHandle,this};
-					const UUID id = entity.GetUUID();
-					if (!source.Event.IsValid() || !source.Enabled || IsInactive(entityHandle) || IsAudioSourceCulled(id))
-					{
-						m_RaytracedAudioScene->DestroyEmitter(id);
-						return;
-					}
-					m_RaytracedAudioScene->CreateEmitter(id);
-					m_RaytracedAudioScene->SetEmitterPosition(id, glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]));
-					m_RaytracedAudioScene->SetEmitterMaxVolume(id, source.Config.VolumeMultiplier);
-				});
-				m_RaytracedAudioScene->OnUpdate(ts);
-			}
-			else
-				m_LastAudioAmbience = {};
 
 			m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
 			{
@@ -1143,11 +1116,6 @@ namespace Lux {
 	Ref<PhysicsScene> Scene::GetPhysicsScene() const
 	{
 		return m_PhysicsScene;
-	}
-
-	Ref<RaytracedAudioScene> Scene::GetRaytracedAudioScene() const
-	{
-		return m_RaytracedAudioScene;
 	}
 
 	AudioSourcePlayback* Scene::GetAudioSourcePlayback(UUID entityID)
@@ -2187,41 +2155,7 @@ namespace Lux {
 		}
 	}
 
-	bool Scene::BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& batch)
-	{
-		Ref<StaticMesh> staticMesh;
-		Ref<MeshSource> meshSource;
-		if (!input.Mesh || !ResolveStaticMeshDebugAssets(input.Mesh, staticMesh, meshSource))
-			return false;
-		const auto& indices = meshSource->GetIndices();
-		const auto& submeshes = meshSource->GetSubmeshes();
-		const size_t vertexCount = meshSource->GetVertexCount();
-		const bool selected = input.Submesh < submeshes.size();
-		const size_t first = selected ? input.Submesh : 0;
-		const size_t last = selected ? first + 1 : submeshes.size();
-		for (size_t i = first; i < last; ++i)
-		{
-			const auto& submesh = submeshes[i];
-			const uint64_t start = submesh.BaseIndex / 3;
-			const uint64_t end = start + submesh.IndexCount / 3;
-			if (submesh.BaseIndex % 3 || submesh.IndexCount % 3 || end > indices.size())
-				return false;
-			for (uint64_t triangleIndex = start; triangleIndex < end; ++triangleIndex)
-			{
-				const auto& triangle = indices[triangleIndex];
-				for (uint32_t index : { triangle.V1, triangle.V2, triangle.V3 })
-				{
-					const uint64_t vertex = static_cast<uint64_t>(submesh.BaseVertex) + index;
-					if (vertex >= vertexCount)
-						return false;
-					batch.Triangles.push_back(glm::vec3(submesh.Transform * glm::vec4(meshSource->GetVertexPosition(static_cast<uint32_t>(vertex)), 1)));
-				}
-			}
-		}
-		return !batch.Triangles.empty();
-	}
-
-	void Scene::SyncAudioGeometry(bool initial)
+	void Scene::SyncAudioGeometry()
 	{
 		m_SceneAcoustics.Sync(*this);
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -2238,8 +2172,7 @@ namespace Lux {
 			input.Mesh = ResolveMeshColliderHandle(entity, collider);
 			input.Submesh = collider.SubmeshIndex;
 			input.Material = ResolveAcousticMaterial(entity);
-			if (input.Mode != AcousticGeometryMode::Static || !m_AudioGeometry.GetStaticTransform(input.Entity, input.Transform))
-				input.Transform = GetWorldSpaceTransformMatrix(entity);
+			input.Transform = GetWorldSpaceTransformMatrix(entity);
 			m_AudioGeometryInputs.push_back(input);
 		}
 		for (auto handle : m_Registry.view<TransformComponent, AudioPortalComponent>())
@@ -2258,26 +2191,16 @@ namespace Lux {
 			input.Open = portal.Open;
 			m_AudioGeometryInputs.push_back(input);
 		}
-		if (!m_RaytracedAudioScene || !m_RaytracedAudioScene->IsRunning())
-			return;
-		m_AudioGeometry.Sync(m_AudioGeometryInputs, *m_RaytracedAudioScene,
-			[this](const auto& input, auto& geometry) { return BuildAcousticGeometry(input, geometry); },
-			initial ? SIZE_MAX : 8, initial ? SIZE_MAX : 65536);
 	}
 
-	void Scene::OnRaytracedAudioStart()
+	void Scene::OnAcousticsStart()
 	{
 		const auto project = Project::GetActive();
 		const AcousticMaterialSettings materials = project ? project->GetConfig().Audio.AcousticMaterials : AcousticMaterialSettings{};
 		const AudioOcclusionSettings occlusion = project ? project->GetConfig().Audio.Occlusion : AudioOcclusionSettings{};
 		LUX_CORE_VERIFY(m_SceneAcoustics.Start(materials, occlusion), "Cannot start Soundwave with invalid project settings");
 		m_AudioOcclusion.Configure(materials, occlusion);
-		if (RaytracedAudioScene::IsAvailable())
-		{
-			m_RaytracedAudioScene = Ref<RaytracedAudioScene>::Create(this);
-			m_RaytracedAudioScene->Start(materials);
-		}
-		SyncAudioGeometry(true);
+		SyncAudioGeometry();
 	}
 
 	AcousticMaterial Scene::ResolveAcousticMaterial(Entity entity) const
@@ -2333,10 +2256,7 @@ namespace Lux {
 
 	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)
 	{
-		std::function<float(UUID)> appliedOpen;
-		if (m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning())
-			appliedOpen = [this](UUID entity) { return m_AudioGeometry.GetPortalOpen(entity); };
-		m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, appliedOpen);
+		m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, {});
 
 		m_AudioOcclusionSources.clear();
 		m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
@@ -2370,20 +2290,13 @@ namespace Lux {
 			});
 	}
 
-	void Scene::OnRaytracedAudioStop()
+	void Scene::OnAcousticsStop()
 	{
 		m_SceneAcoustics.Clear();
 		m_AudioOcclusion.Clear();
 		m_AppliedAudioOcclusion.clear();
-		m_LastAudioAmbience = {};
-		m_AudioGeometry.Clear();
 		m_AudioGeometryInputs.clear();
 		m_AudioPortalInputs.clear();
-		if (m_RaytracedAudioScene)
-		{
-			m_RaytracedAudioScene->Stop();
-			m_RaytracedAudioScene.reset();
-		}
 	}
 
 	void Scene::StepPhysics(Timestep ts, bool runScripts)
@@ -3466,7 +3379,7 @@ namespace Lux {
 	}
 
 	// Every surface the acoustics see, tinted by its effective tag: mesh colliders that are not
-	// Disabled, plus enabled portal shutters at their current Open (the box VA traces).
+	// Disabled, plus enabled portal shutters at their current Open (the box Soundwave clips against).
 	void Scene::CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const
 	{
 		Scene* scene = const_cast<Scene*>(this);
@@ -3497,7 +3410,7 @@ namespace Lux {
 			input.Mode = AcousticGeometryMode::Dynamic;
 			input.Transform = GetWorldSpaceTransformMatrix(entity);
 			input.HalfExtents = portal.HalfExtents;
-			input.Open = m_RaytracedAudioScene && m_RaytracedAudioScene->IsRunning() ? m_AudioGeometry.GetPortalOpen(entity.GetUUID()) : portal.Open;
+			input.Open = portal.Open;
 			if (!AudioGeometrySystem::Validate(input) || input.Open >= 1.0f)
 				continue;
 

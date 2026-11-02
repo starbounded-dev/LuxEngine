@@ -5,7 +5,6 @@
 
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioValidation.h"
-#include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/Editor/EditorPanel.h"
 
 #include <string>
@@ -17,50 +16,24 @@ namespace Lux {
 	// only Renderer2D with a camera already set up for the frame.
 	struct AudioVisualisationSettings
 	{
-		bool Enabled = false;
-
-		// Passed straight to the SDK. These cost real raytracing work and feed nothing back into
-		// the audio, which is why they are off by default and kept modest when on.
-		int RayCount = 64;
-		int BounceCount = 4;
-		int UpdateIntervalMs = 50;
-
-		bool DrawRayPaths = true;
-		bool DrawBouncePoints = true;
-		bool DrawNormals = false;
-		bool DrawEmitters = true;
-		bool DrawWorldBounds = false;
-
-		float NormalLength = 0.25f;
+		bool DrawEmitters = false;
 		float EmitterRadius = 0.35f;
 
-		// Ray paths fade along their length so the listener end reads as the origin and later
-		// bounces recede, the way Vercidium's own debug view draws them.
-		float PathFadeStrength = 0.75f;
-
-		// Engine occlusion paths: listener->source, coloured by loss, with the walls they cross.
-		// Independent of Enabled because they reuse results the audio already computes.
+		// Soundwave paths: listener->source, coloured by loss, with the walls they cross and the
+		// reflection/opening routes the solve kept. They reuse results the audio already computes.
 		bool ShowOcclusion = false;
 		bool DrawOcclusionLabels = true;
 		bool OcclusionSelectedOnly = false;
 
-		// Every zone and portal with its live weight (not just the selection), a viewport readout of
-		// the listener's measured room acoustics, and VA bounce points tinted by the acoustic
-		// material they landed on (one short raycast per bounce, overlay only).
+		// Every zone and portal with its live weight (not just the selection), and a viewport readout
+		// of the listener's measured room acoustics.
 		bool ShowAllZones = false;
 		bool ShowRoomAcoustics = false;
-		bool ColorBouncesByMaterial = false;
 	};
 
-	// In-editor view of the audio stack: FMOD Studio playback and the
-	// ray-traced acoustics simulation (Vercidium Audio). Pure visualization over data those two
-	// subsystems already expose — AudioEngine::GetStats / GetReverbSnapshot, and
-	// RaytracedAudioScene::GetStats / GetResult / GetAmbience / GetVisualisation. No audio
-	// instrumentation lives here.
-	//
-	// Deliberately free of LUX_ENABLE_FMOD / LUX_ENABLE_RAYTRACED_AUDIO: both are defined only for
-	// the Core project (Core/premake5.lua), so the Editor cannot branch on them. Each backend
-	// identifies itself through its stats struct instead.
+	// In-editor view of the audio stack: FMOD Studio playback and the built-in Soundwave acoustics.
+	// Pure visualization over data those two subsystems already expose — AudioEngine::GetStats and
+	// the scene's AudioAcoustics diagnostics, results and reverb. No audio instrumentation lives here.
 	class AudioDebugPanel : public EditorPanel
 	{
 	public:
@@ -72,7 +45,7 @@ namespace Lux {
 
 		const AudioVisualisationSettings& GetVisualisationSettings() const { return m_Visualisation; }
 
-		// The showcase preset: occlusion paths with labels, VA rays and emitters. Turning it off
+		// The showcase preset: Soundwave paths with labels, zones and emitters. Turning it off
 		// restores whatever the settings were before it was turned on.
 		bool IsSeeTheSoundEnabled() const { return m_SeeTheSound; }
 		void SetSeeTheSoundEnabled(bool enabled);
@@ -86,7 +59,6 @@ namespace Lux {
 		void UI_Playback(const AudioEngineStats& engine);
 		void UI_Events();
 		void UI_Acoustics();
-		void UI_Reverb();
 		void UI_Sources();
 		void UI_Visualisation();
 

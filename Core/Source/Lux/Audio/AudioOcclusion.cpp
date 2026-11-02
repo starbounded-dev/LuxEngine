@@ -132,7 +132,7 @@ namespace Lux
 		std::sort(hits.begin(), hits.end(), [](const AudioOcclusionHit& a, const AudioOcclusionHit& b) { return a.Distance < b.Distance; });
 
 		// Pair each entry with the same entity's next exit to measure a solid's thickness. A crossing
-		// that never pairs is a one-sided or non-watertight surface: VA charges those a flat loss.
+		// that never pairs is a one-sided or non-watertight surface: it is charged a flat loss.
 		m_OpenSolids.clear();
 		for (const AudioOcclusionHit& hit : hits)
 		{

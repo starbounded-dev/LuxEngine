@@ -253,13 +253,6 @@ namespace Lux {
 			check(edits > previousEdits, "Audio numeric edit did not mark project settings dirty");
 			check(settings.Validate(), "Audio numeric edit left invalid authored settings");
 		};
-		const auto originalIDs = ids;
-		settings.Source = AudioOcclusionSource::Raytraced;
-		frame();
-		check(ids == originalIDs, "Legacy VA selection hid or changed the kernel controls");
-		settings.Source = AudioOcclusionSource::Engine;
-		frame();
-		check(ids == originalIDs, "Legacy engine selection changed the kernel controls");
 		edit(AcousticControl::Strength,"0.5");
 		edit(AcousticControl::Rate,"73");
 		edit(AcousticControl::Sources,"7");
@@ -728,7 +721,7 @@ namespace Lux {
 			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "FMOD real voice cap. Lower priority channels virtualize.", false);
 			edited.RealVoices = static_cast<uint32_t>(voices);
 			changed |= ImGuiEx::Property("CPU Warning (%)", edited.CPUPercent, 0.1f, 0.1f, 100.0f, "Warn once when the measured audio CPU exceeds this value.", false);
-			changed |= ImGuiEx::Property("VA Warning (ms)", edited.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "VA worker raytracing time.", false);
+			changed |= ImGuiEx::Property("Acoustics Warning (ms)", edited.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Soundwave main-thread update time.", false);
 			changed |= ImGuiEx::Property("FMOD Memory (MiB)", memory, 1, 65536, "Warning threshold for total FMOD allocations, including banks, samples and mixer overhead.", false);
 			edited.BankMemoryMiB = static_cast<uint32_t>(memory);
 			ImGuiEx::EndPropertyGrid();
@@ -795,7 +788,7 @@ namespace Lux {
 				m_Dirty |= ImGuiEx::Property("Real Voices", profile.Performance.RealVoices, 1u, 512u, "FMOD's global software-channel cap.", false);
 				m_Dirty |= ImGuiEx::Property("FMOD Memory (MiB)", profile.Performance.BankMemoryMiB, 1u, 65536u, "Includes banks, samples and mixer overhead.", false);
 				m_Dirty |= ImGuiEx::Property("CPU Warning (%)", profile.Performance.CPUPercent, 0.1f, 0.1f, 100.0f, "Audio CPU threshold.", false);
-				m_Dirty |= ImGuiEx::Property("VA Warning (ms)", profile.Performance.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Raytracing threshold.", false);
+				m_Dirty |= ImGuiEx::Property("Acoustics Warning (ms)", profile.Performance.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Soundwave update threshold.", false);
 				m_Dirty |= ImGuiEx::Property("Mute When Unfocused", profile.Performance.MuteWhenUnfocused, "Output mute preserves authored bus and gameplay pause state.", false);
 				ImGuiEx::EndPropertyGrid();
 				if (ImGui::SmallButton("Copy Default Budgets"))
@@ -868,9 +861,9 @@ namespace Lux {
 			}
 		}
 
-		static const char* zoneModes[] = { "Layer zones and VA", "Prefer zones", "Prefer VA" };
+		static const char* zoneModes[] = { "Layer zones and Soundwave", "Prefer zones", "Prefer Soundwave" };
 		if (ImGuiEx::PropertyDropdown("Zone Reverb", zoneModes, 3, audioSettings.ZoneReverbMode,
-			"Layered keeps both. Prefer zones reduces VA ReverbSend by active snapshot coverage. Prefer VA suppresses zone snapshots while valid VA ambience is available.", false))
+			"Layered keeps both. Prefer zones reduces Soundwave's ReverbSend by active snapshot coverage. Prefer Soundwave suppresses zone snapshots while a reverb measurement exists.", false))
 			m_Dirty = true;
 
 		bool liveUpdate = audioSettings.EnableLiveUpdate;
@@ -1116,7 +1109,6 @@ namespace Lux {
 				if (!ImGui::TreeNode(AcousticMaterialNames[i]))
 					continue;
 				const auto material = static_cast<AcousticMaterial>(i);
-				ImGui::Text("VA base preset: %s", AcousticMaterialPresetName(material));
 				auto& entry = audioSettings.AcousticMaterials.Overrides[i];
 				ImGuiEx::BeginPropertyGrid();
 				if (ImGuiEx::Property("Override Preset", entry.Enabled))

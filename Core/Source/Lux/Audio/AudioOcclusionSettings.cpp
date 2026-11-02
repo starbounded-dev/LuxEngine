@@ -26,10 +26,6 @@ namespace Lux
 			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast", "ReverbRays", "ReverbBounces",
 			"ReverbReferenceSeconds" };
 
-		const char* SourceName(AudioOcclusionSource source)
-		{
-			return source == AudioOcclusionSource::Raytraced ? "Raytraced" : "Engine";
-		}
 		void ValidateKernelKeys(const Yaml::Node& node)
 		{
 			if (!node.IsMap())
@@ -63,14 +59,13 @@ namespace Lux
 	}
 	bool AudioOcclusionSettings::Validate() const
 	{
-		return Source <= AudioOcclusionSource::Raytraced && std::isfinite(UpdateRateHz) && UpdateRateHz >= kMinimumRateHz &&
+		return std::isfinite(UpdateRateHz) && UpdateRateHz >= kMinimumRateHz &&
 			UpdateRateHz <= kMaximumRateHz && CastBudget > 0 && CastBudget <= kMaximumCastBudget && std::isfinite(Strength) &&
 			Strength >= 0.0f && Strength <= kMaximumStrength && GetKernelSettings().Validate();
 	}
 	void AudioOcclusionSettings::SerializeYAML(Yaml::Writer& out) const
 	{
 		out << Yaml::BeginMap;
-		out << Yaml::Key << "Source" << Yaml::Value << SourceName(Source);
 		out << Yaml::Key << "UpdateRateHz" << Yaml::Value << UpdateRateHz;
 		out << Yaml::Key << "CastBudget" << Yaml::Value << CastBudget;
 		out << Yaml::Key << "Strength" << Yaml::Value << Strength;
@@ -101,12 +96,9 @@ namespace Lux
 					throw std::runtime_error("expected settings map");
 				if (node["Source"])
 				{
+					// Pre-Soundwave files chose a backend here. Soundwave always drives playback now.
 					const std::string source = node["Source"].as<std::string>();
-					if (source == "Engine")
-						parsed.Source = AudioOcclusionSource::Engine;
-					else if (source == "Raytraced")
-						parsed.Source = AudioOcclusionSource::Raytraced;
-					else
+					if (source != "Engine" && source != "Raytraced")
 						throw std::runtime_error("unknown source '" + source + "'");
 				}
 				if (node["UpdateRateHz"])

@@ -198,7 +198,7 @@ def main():
     # Compile and link the same complete kernel set; adding a stage must not leave
     # an independent list of undefined symbols in the focused occlusion executable.
     kernel_sources = sorted((ROOT / "Core/vendor/soundwave/src").glob("*.cpp"))
-    sources = [*("vendor/soundwave/src/" + path.stem for path in kernel_sources), "Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioAcoustics", "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/RaytracedAudioScene", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
+    sources = [*("vendor/soundwave/src/" + path.stem for path in kernel_sources), "Audio/AudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/AudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioAcoustics", "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/AudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/AudioEventInstance", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
                "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
                "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
     objects = {}
@@ -229,14 +229,12 @@ def main():
     run([directory / "jolt-test"], timeout=30)
     banks = args.banks.resolve() if args.banks else fixture(directory)
     fmod = Path(os.environ.get("LUX_FMOD_SDK", ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux")) / "api"
-    va = Path(os.environ.get("LUX_VA_SDK", ROOT / "Core/vendor/VA_RAY"))
-    libraries = [va / "3d/native/production/linux/libvaudionative.so", fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
+    libraries = [fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     # Build the YAML implementation with the same flags as these tests, without stale engine objects.
     yaml = [objects[name] for name in ("Yaml", "ryml")]
     if args.config == "debug-as":
-        # Verify the changed worker/snapshot ownership independently of the outgoing
-        # SDK's preset-world allocations. The complete AS audio suite still runs
-        # below, with leak detection enabled; this does not suppress its failures.
+        # Verify the worker/snapshot ownership on its own first. The complete AS audio
+        # suite still runs below, with leak detection enabled.
         lifetime_objects = [objects[path.stem] for path in kernel_sources] + [objects[name] for name in (
             "AudioAcoustics", "JobSystem", "AudioOcclusionSettings", "AcousticMaterial", "UUID", "Ref")]
         run(["clang++", *flags, TESTS / "AudioAcousticsTestMain.cpp", TESTS / "AudioAcousticsTests.cpp",
@@ -247,7 +245,7 @@ def main():
     # production dependencies only; unrelated mixer globals require the full playback host.
     occlusion_objects = [objects[path.stem] for path in kernel_sources] + [objects[name] for name in (
         "AudioAcoustics", "JobSystem", "AudioOcclusion", "AudioOcclusionSettings",
-        "AcousticMaterial", "AudioGeometrySystem", "RaytracedAudioScene", "UUID", "Ref",
+        "AcousticMaterial", "AudioGeometrySystem", "UUID", "Ref",
         "FileStream", "StreamWriter", "StreamReader")]
     run(["clang++", *flags, TESTS / "OcclusionTests.cpp", TESTS / "AudioAcousticsTests.cpp", *occlusion_objects, *yaml, *libraries,
          *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",

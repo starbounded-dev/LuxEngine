@@ -16,7 +16,6 @@
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
-#include "Lux/Audio/RaytracedAudioScene.h"
 //#include "Lux/Audio/AudioEvents/AudioCommandRegistry.h"
 
 #include "Input.h"
@@ -161,8 +160,6 @@ namespace Lux {
 		//Project::SetActive(nullptr);
 		PhysicsSystem::Shutdown();
 		Font::Shutdown();
-		// Layers and their scene/audio instances have been destroyed above.
-		RaytracedAudioScene::ShutdownWorldPool();
 		AudioEngine::Shutdown();
 
 		// Worker-side mesh destruction queues resource frees through the background

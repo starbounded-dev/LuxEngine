@@ -8,7 +8,6 @@
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Audio/AudioEventInstance.h"
-#include "Lux/Audio/RaytracedAudioScene.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Project/Project.h"
@@ -81,20 +80,15 @@ namespace Lux {
 			return std::format("{} B", bytes);
 		}
 
-		std::string FormatVec3(const glm::vec3& v)
-		{
-			return std::format("{:.2f}, {:.2f}, {:.2f}", v.x, v.y, v.z);
-		}
-
 		// How occluded the source is overall, for the at-a-glance bar. The low band carries the
 		// broadband transmission, so it is the honest single number for "how much is getting
 		// through" — the high band's extra loss is reported separately as muffling.
-		float OcclusionAmount(const RaytracedAudioResult& result)
+		float OcclusionAmount(float gainLF)
 		{
-			return 1.0f - std::clamp(result.OcclusionGainLF, 0.0f, 1.0f);
+			return 1.0f - std::clamp(gainLF, 0.0f, 1.0f);
 		}
 
-		// Relative high-frequency loss measured by VA. Studio controls its audible treatment.
+		// Relative high-frequency loss Soundwave measured. Studio controls its audible treatment.
 		float RelativeHighFrequencyLoss(float gainLF, float gainHF)
 		{
 			constexpr float minAudibleGain = 1e-4f;
@@ -120,7 +114,6 @@ namespace Lux {
 		UI_Validation();
 		UI_Events();
 		UI_Acoustics();
-		UI_Reverb();
 		UI_Sources();
 		UI_Visualisation();
 
@@ -139,7 +132,7 @@ namespace Lux {
 		if (stats.MemoryAvailable)
 			ImGui::Text("FMOD allocated memory: %.2f / %u MiB", stats.MemoryMiB, settings.BankMemoryMiB);
 		if (stats.RaytracingAvailable)
-			ImGui::Text("VA raytracing: %.3f / %.3f ms", stats.RaytracingMilliseconds, settings.RaytracingMilliseconds);
+			ImGui::Text("Soundwave acoustics: %.3f / %.3f ms", stats.RaytracingMilliseconds, settings.RaytracingMilliseconds);
 		if (stats.VoicesExceeded || stats.CPUExceeded || stats.MemoryExceeded || stats.RaytracingExceeded)
 			ImGui::TextColored(kWarnColor, "Audio budget exceeded (details logged once per bank session).");
 		for (const auto& meter : AudioPerformance::GetBuses())
@@ -200,9 +193,7 @@ namespace Lux {
 		if (!ImGuiEx::PropertyGridHeader("Backends", true))
 			return;
 
-		const RaytracedAudioStats acoustics = m_Context && m_Context->GetRaytracedAudioScene()
-			? m_Context->GetRaytracedAudioScene()->GetStats()
-			: RaytracedAudioStats{ .Available = RaytracedAudioScene::IsAvailable() };
+		const bool acousticsReady = m_Context && m_Context->GetAudioAcoustics().GetDiagnostics().Ready;
 
 		if (ImGui::BeginTable("##audio_debugger_backends", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
@@ -213,19 +204,8 @@ namespace Lux {
 				DrawStat("Playback Version", std::format("{}.{:02}.{:02}", engine.VersionMajor, engine.VersionMinor, engine.VersionPatch).c_str());
 			DrawStat("Sample Rate", engine.SampleRate > 0 ? std::format("{} Hz", engine.SampleRate).c_str() : kNoValue);
 
-			DrawStat("Acoustics Backend", "Vercidium Audio");
-			if (acoustics.Available)
-			{
-				DrawStatColored("Acoustics State", acoustics.Running ? "Running" : "Idle (enter Play)",
-					acoustics.Running ? kGoodColor : kOffColor);
-				DrawStat("Acoustics Version", std::format("{}.{}.{} ({})", acoustics.VersionMajor, acoustics.VersionMinor,
-					acoustics.VersionPatch, acoustics.ProductionBuild ? "production" : "development").c_str());
-			}
-			else
-			{
-				// Runtime availability check; VA is a required build dependency.
-				DrawStatColored("Acoustics State", "Not compiled in", kOffColor);
-			}
+			DrawStat("Acoustics Backend", "Soundwave (built in)");
+			DrawStatColored("Acoustics State", acousticsReady ? "Running" : "Idle (enter Play)", acousticsReady ? kGoodColor : kOffColor);
 
 			ImGui::EndTable();
 		}
@@ -363,135 +343,54 @@ namespace Lux {
 
 	void AudioDebugPanel::UI_Acoustics()
 	{
-		if (!ImGuiEx::PropertyGridHeader("Ray-Traced Acoustics", true))
+		if (!ImGuiEx::PropertyGridHeader("Soundwave Acoustics", true))
 			return;
-
-		Ref<RaytracedAudioScene> raytraced = m_Context ? m_Context->GetRaytracedAudioScene() : nullptr;
-		if (!raytraced)
+		const AudioAcoustics::Diagnostics stats = m_Context ? m_Context->GetAudioAcoustics().GetDiagnostics() : AudioAcoustics::Diagnostics{};
+		if (!stats.Ready)
 		{
-			if (!RaytracedAudioScene::IsAvailable())
-				ImGui::TextDisabled("The required Vercidium Audio SDK is unavailable. Check the installed runtime libraries.");
-			else
-				ImGui::TextDisabled("The simulation runs only in Play mode.");
-
+			ImGui::TextDisabled(stats.GeometryFailed ? "Acoustic geometry failed to build; see the log." : "The simulation runs only in Play mode.");
 			ImGui::TreePop();
 			return;
 		}
-
-		const RaytracedAudioStats stats = raytraced->GetStats();
-
 		if (ImGui::BeginTable("##audio_debugger_acoustics_world", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
-			DrawStatColored("Worker Threads", stats.ThreadsRunning ? "Running" : "Idle",
-				stats.ThreadsRunning ? kGoodColor : kOffColor);
-			DrawStat("Emitters (SDK)", stats.EmitterCount);
-			DrawStat("Source Emitters", stats.SourceEmitterCount);
-			DrawStat("Static Primitives", stats.StaticPrimitiveCount);
-			DrawStat("Dynamic Primitives", stats.DynamicPrimitiveCount);
-			DrawStat("Dynamic Triangles", stats.DynamicTriangleCount);
-			DrawStat("Pending Geometry Updates", static_cast<int>(m_Context->GetPendingAudioGeometryCount()));
-
-			// Zero triangles with sources present is the usual reason occlusion stays flat: the
-			// scene has no MeshColliderComponent for OnRaytracedAudioStart to mirror.
-			if (stats.StaticTriangleCount + stats.DynamicTriangleCount == 0)
+			// Zero triangles with sources present is the usual reason occlusion stays flat.
+			if (stats.StaticTriangles + stats.MovingTriangles == 0)
 				DrawStatColored("Acoustic Triangles", "0 (nothing to occlude)", kWarnColor);
 			else
-				DrawStat("Static Triangles", stats.StaticTriangleCount);
-
-			DrawStat("Rays This Frame", stats.RaysCastThisFrame);
-			DrawStat("Grouped EAX Zones", stats.GroupedEAXCount);
-			DrawStat("Work Items", stats.WorkItemCount);
-			DrawStat("Max Concurrency", stats.MaximumConcurrencyLevel);
-			DrawStat("World Min", FormatVec3(stats.WorldMin).c_str());
-			DrawStat("World Size", FormatVec3(stats.WorldSize).c_str());
-			DrawStat("Listener", FormatVec3(stats.ListenerPosition).c_str());
+			{
+				DrawStat("Static Triangles", static_cast<int>(stats.StaticTriangles));
+				DrawStat("Moving Triangles", static_cast<int>(stats.MovingTriangles));
+			}
+			DrawStat("Static Mesh Instances", static_cast<int>(stats.StaticMeshInstances));
+			DrawStat("Moving Mesh Instances", static_cast<int>(stats.MovingMeshInstances));
+			DrawStat("Excluded Instances", static_cast<int>(stats.ExcludedInstances));
+			DrawStat("Pending Geometry Layers", static_cast<int>(stats.PendingLayers));
+			DrawStat("Geometry Generation", static_cast<int>(stats.GeometryGeneration));
+			DrawStat("Source Solves", static_cast<int>(stats.Evaluations));
+			if (stats.SolveFailures)
+				DrawStatColored("Solve Failures", std::to_string(stats.SolveFailures).c_str(), kWarnColor);
+			DrawStat("Reverb Measurements", static_cast<int>(stats.ReverbMeasurements));
 			ImGui::EndTable();
 		}
 
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Ambience (listener)");
-
-		const RaytracedAudioAmbience ambience = raytraced->GetAmbience();
-		if (!ambience.Valid)
+		ImGui::TextUnformatted("Reverb (listener)");
+		const Soundwave::ReverbResult* reverb = m_Context->GetAudioAcoustics().GetReverb();
+		if (!reverb)
+			ImGui::TextDisabled("No reverb measurement yet.");
+		else if (ImGui::BeginTable("##audio_debugger_reverb", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 		{
-			ImGui::TextDisabled("No ambience result yet — the listener has not completed a pass.");
-		}
-		else if (ImGui::BeginTable("##audio_debugger_ambience", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
-		{
-			DrawStat("Ambient Gain LF", (double)ambience.AmbientGainLF, "");
-			DrawStat("Ambient Gain HF", (double)ambience.AmbientGainHF, "");
-			DrawStat("Energy Returned", (double)(ambience.ReturnedPercent * 100.0f), " %");
-
-			// A high outside percentage is the simulation saying "this is outdoors" — worth calling
-			// out, because it explains an otherwise surprisingly dry reverb.
-			DrawStat("Energy Outside", (double)(ambience.OutsidePercent * 100.0f), " %");
-			DrawStat("Measured Decay LF", (double)ambience.MeasuredDecayTimeLF, " s");
-			DrawStat("Measured Decay HF", (double)ambience.MeasuredDecayTimeHF, " s");
-			DrawStat("Material Roughness", (double)ambience.MaterialRoughness, "");
-			DrawStat("Material Absorption LF", (double)ambience.MaterialAbsorptionLF, "");
-			DrawStat("Material Absorption HF", (double)ambience.MaterialAbsorptionHF, "");
+			DrawStat("Decay (60 dB)", (double)reverb->DecaySeconds, " s");
+			DrawStat("Reverb Send", (double)(m_Context->GetAudioAcoustics().GetReverbSend() * 100.0f), " %");
+			// A high outside share is the measurement saying "this is outdoors", which explains a dry reverb.
+			DrawStat("Energy Outside", (double)(reverb->EscapedFraction * 100.0f), " %");
+			DrawStat("Mean Free Path", (double)reverb->MeanFreePath, " m");
+			DrawStat("Rays Traced", static_cast<int>(reverb->Traces));
 			ImGui::EndTable();
 		}
-
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Timings (SDK averages)");
-		if (ImGui::BeginTable("##audio_debugger_acoustics_timings", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
-		{
-			DrawStat("Main Thread", stats.MainThreadTimeMs, " ms");
-			DrawStat("Raytracing", stats.RaytracingTimeMs, " ms");
-			DrawStat("Preparation", stats.PreparationTimeMs, " ms");
-			DrawStat("Analysis", stats.AnalysisTimeMs, " ms");
-			DrawStat("Latency", stats.LatencyMs, " ms");
-			ImGui::EndTable();
-		}
-
-		ImGui::TreePop();
-	}
-
-	void AudioDebugPanel::UI_Reverb()
-	{
-		if (!ImGuiEx::PropertyGridHeader("Reverb", true))
-			return;
-
-		Ref<RaytracedAudioScene> raytraced = m_Context ? m_Context->GetRaytracedAudioScene() : nullptr;
-		const RaytracedAudioReverb reverb = raytraced ? raytraced->GetAmbience().Reverb : RaytracedAudioReverb{};
-
-		if (!reverb.Valid)
-		{
-			ImGui::TextDisabled("No reverb result yet.");
-			ImGui::TreePop();
-			return;
-		}
-
-		ImGui::TextUnformatted("Simulation output (Vercidium EAX)");
-		if (ImGui::BeginTable("##audio_debugger_reverb_va", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
-		{
-			DrawStat("Gain", (double)reverb.Gain, "");
-			DrawStat("Gain LF", (double)reverb.GainLF, "");
-			DrawStat("Gain HF", (double)reverb.GainHF, "");
-			DrawStat("Decay Time", (double)reverb.DecayTime, " s");
-			DrawStat("Decay LF Ratio", (double)reverb.DecayLFRatio, "");
-			DrawStat("Decay HF Ratio", (double)reverb.DecayHFRatio, "");
-			DrawStat("Reflections Gain", (double)reverb.ReflectionsGain, "");
-			DrawStat("Reflections Delay", (double)reverb.ReflectionsDelay, " s");
-			DrawStat("Late Reverb Gain", (double)reverb.LateReverbGain, "");
-			DrawStat("Late Reverb Delay", (double)reverb.LateReverbDelay, " s");
-			DrawStat("Density", (double)reverb.Density, "");
-			DrawStat("Diffusion", (double)reverb.Diffusion, "");
-			DrawStat("Echo Time", (double)reverb.EchoTime, " s");
-			DrawStat("Echo Depth", (double)reverb.EchoDepth, "");
-			DrawStat("Modulation Time", (double)reverb.ModulationTime, " s");
-			DrawStat("Modulation Depth", (double)reverb.ModulationDepth, "");
-			DrawStat("Air Absorption HF", (double)reverb.AirAbsorptionGainHF, "");
-			DrawStat("HF Reference", (double)reverb.HFReference, " Hz");
-			DrawStat("LF Reference", (double)reverb.LFReference, " Hz");
-			DrawStat("Room Rolloff", (double)reverb.RoomRolloffFactor, "");
-			DrawStat("Decay HF Limit", reverb.DecayHFLimit ? "Yes" : "No");
-			ImGui::EndTable();
-		}
-
-		ImGui::Spacing();
-		ImGui::TextWrapped("Studio events receive ReverbSend from VA's returned energy. Author the reverb bus and send automation in FMOD Studio; these EAX measurements are diagnostic only.");
+		ImGui::TextWrapped("Studio events receive Occlusion and ReverbSend from Soundwave. Author the filters, reverb bus and send automation in FMOD Studio.");
 
 		ImGui::TreePop();
 	}
@@ -510,7 +409,7 @@ namespace Lux {
 
 		ImGuiEx::Widgets::SearchWidget(m_SourceSearch, "Search sources...");
 
-		Ref<RaytracedAudioScene> raytraced = m_Context->GetRaytracedAudioScene();
+		const AudioAcoustics& acoustics = m_Context->GetAudioAcoustics();
 
 		constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV
 			| ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
@@ -534,7 +433,7 @@ namespace Lux {
 			ImGui::TableSetupColumn("Occlusion", ImGuiTableColumnFlags_WidthFixed, 110.0f);
 			ImGui::TableSetupColumn("Gain LF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupColumn("Gain HF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-			// VA measurement, not an applied Studio filter amount.
+			// Soundwave measurement, not an applied Studio filter amount.
 			ImGui::TableSetupColumn("Muffle", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupScrollFreeze(0, 1);
 			ImGui::TableHeadersRow();
@@ -554,10 +453,9 @@ namespace Lux {
 				shownCount++;
 				const AudioSourceComponent& asc = view.get<AudioSourceComponent>(entityHandle);
 
-				// GetResult answers an all-defaults (Valid = false) result for an emitter that does
-				// not exist yet or is still initialising, which is exactly the "not simulated"
-				// state the columns below render as kNoValue.
-				const RaytracedAudioResult result = raytraced ? raytraced->GetResult(entity.GetUUID()) : RaytracedAudioResult{};
+				// No result yet is the "not simulated" state the columns below render as kNoValue.
+				const bool simulated = acoustics.GetResult(entity.GetUUID()) != nullptr;
+				const float gainLF = acoustics.GetGainLF(entity.GetUUID()), gainHF = acoustics.GetGainHF(entity.GetUUID());
 
 				ImGui::TableNextRow();
 
@@ -580,9 +478,9 @@ namespace Lux {
 				ImGui::TextUnformatted(m_Context->IsAudioSourceCulled(entity.GetUUID()) ? "Culled" : !event || !event->IsValid() ? "Unavailable" : event->IsPaused() ? "Paused" : event->IsVirtual() ? "Virtual" : event->IsPlaying() ? "Playing" : "Stopped");
 
 				ImGui::TableSetColumnIndex(4);
-				if (result.Valid)
+				if (simulated)
 				{
-					const float occlusion = OcclusionAmount(result);
+					const float occlusion = OcclusionAmount(gainLF);
 					ImGui::ProgressBar(std::clamp(occlusion, 0.0f, 1.0f), ImVec2(-FLT_MIN, 0.0f),
 						std::format("{:.1f}%", occlusion * 100.0f).c_str());
 				}
@@ -592,13 +490,13 @@ namespace Lux {
 				}
 
 				ImGui::TableSetColumnIndex(5);
-				result.Valid ? ImGui::Text("%.4f", result.OcclusionGainLF) : ImGui::TextDisabled("%s", kNoValue);
+				simulated ? ImGui::Text("%.4f", gainLF) : ImGui::TextDisabled("%s", kNoValue);
 
 				ImGui::TableSetColumnIndex(6);
-				result.Valid ? ImGui::Text("%.4f", result.OcclusionGainHF) : ImGui::TextDisabled("%s", kNoValue);
+				simulated ? ImGui::Text("%.4f", gainHF) : ImGui::TextDisabled("%s", kNoValue);
 
 				ImGui::TableSetColumnIndex(7);
-				result.Valid ? ImGui::Text("%.3f", RelativeHighFrequencyLoss(result.OcclusionGainLF, result.OcclusionGainHF))
+				simulated ? ImGui::Text("%.3f", RelativeHighFrequencyLoss(gainLF, gainHF))
 					: ImGui::TextDisabled("%s", kNoValue);
 			}
 
@@ -622,14 +520,14 @@ namespace Lux {
 		if (ImGui::Checkbox("See the Sound", &seeTheSound))
 			SetSeeTheSoundEnabled(seeTheSound);
 		ImGui::SameLine();
-		ImGuiEx::HelpMarker("Showcase preset: occlusion paths with wall labels, VA rays and emitters. "
+		ImGuiEx::HelpMarker("Showcase preset: Soundwave paths with wall labels, zones and emitters. "
 			"Turning it off restores the settings below.");
 
 		ImGui::Checkbox("Show Occlusion Paths", &m_Visualisation.ShowOcclusion);
 		ImGui::SameLine();
 		ImGuiEx::HelpMarker("Draws each source's listener path coloured by how much the walls on it "
-			"remove, and labels each wall with its material, thickness and loss. Uses the engine "
-			"occlusion results, so it costs no extra raycasts; shown in Play with Engine occlusion.");
+			"remove, labels each wall with its material, thickness and loss, and draws the reflection "
+			"and opening routes Soundwave kept. Reuses the solve's results; shown in Play.");
 		// Always drawn, disabled when off, so the grid below keeps a stable ID either way.
 		ImGui::BeginDisabled(!m_Visualisation.ShowOcclusion);
 		ImGuiEx::BeginPropertyGrid();
@@ -640,73 +538,10 @@ namespace Lux {
 
 		ImGuiEx::BeginPropertyGrid();
 		ImGuiEx::Property("All Zones and Portals", m_Visualisation.ShowAllZones, "Every audio zone and portal in Play, brightened by its live weight and labelled with it.");
-		ImGuiEx::Property("Room Acoustics Readout", m_Visualisation.ShowRoomAcoustics, "Viewport readout of the listener's room as VA measures it: returned and escaping energy, decay times, absorption and scattering.");
-		ImGuiEx::Property("Colour Bounces by Material", m_Visualisation.ColorBouncesByMaterial, "Tints each VA bounce point with the acoustic material it landed on. Costs one short raycast per bounce while shown.");
-		ImGuiEx::EndPropertyGrid();
-
-		ImGui::Checkbox("Show VA Rays", &m_Visualisation.Enabled);
-		ImGui::SameLine();
-		ImGuiEx::HelpMarker("Casts extra rays purely for display. They cost real raytracing work and "
-			"feed nothing back into the audio, so leave this off unless you are looking at it.");
-
-		Ref<RaytracedAudioScene> raytraced = m_Context ? m_Context->GetRaytracedAudioScene() : nullptr;
-		if (m_Visualisation.Enabled && !raytraced)
-			ImGui::TextDisabled("Rays are drawn in Play mode, where the simulation runs.");
-
-		ImGui::BeginDisabled(!m_Visualisation.Enabled);
-
-		ImGuiEx::BeginPropertyGrid();
-		ImGuiEx::Property("Ray Count", m_Visualisation.RayCount, 1, 4096);
-		ImGuiEx::Property("Bounce Count", m_Visualisation.BounceCount, 1, 64);
-		ImGuiEx::Property("Update Interval (ms)", m_Visualisation.UpdateIntervalMs, 1, 1000);
-		ImGuiEx::Property("Draw Ray Paths", m_Visualisation.DrawRayPaths);
-		ImGuiEx::Property("Draw Bounce Points", m_Visualisation.DrawBouncePoints);
-		ImGuiEx::Property("Draw Surface Normals", m_Visualisation.DrawNormals);
+		ImGuiEx::Property("Room Acoustics Readout", m_Visualisation.ShowRoomAcoustics, "Viewport readout of the listener's room as Soundwave measures it: decay, reverb send, escaping energy and mean free path.");
 		ImGuiEx::Property("Draw Emitters", m_Visualisation.DrawEmitters);
-		ImGuiEx::Property("Draw World Bounds", m_Visualisation.DrawWorldBounds);
-		ImGuiEx::Property("Normal Length", m_Visualisation.NormalLength, 0.01f, 0.01f, 5.0f);
 		ImGuiEx::Property("Emitter Radius", m_Visualisation.EmitterRadius, 0.01f, 0.01f, 5.0f);
-		ImGuiEx::Property("Path Fade", m_Visualisation.PathFadeStrength, 0.01f, 0.0f, 1.0f);
 		ImGuiEx::EndPropertyGrid();
-
-		ImGui::EndDisabled();
-
-		if (raytraced)
-		{
-			const RaytracedAudioStats stats = raytraced->GetStats();
-
-			RaytracedAudioVisualisation snapshot;
-			raytraced->GetVisualisation(snapshot);
-
-			ImGui::Spacing();
-			if (ImGui::BeginTable("##audio_debugger_visualisation", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
-			{
-				DrawStatColored("SDK State", stats.VisualisationEnabled ? "Casting" : "Off",
-					stats.VisualisationEnabled ? kGoodColor : kOffColor);
-				DrawStat("SDK Ray Count", stats.VisualisationRayCount);
-				DrawStat("SDK Bounce Count", stats.VisualisationBounceCount);
-				DrawStat("Bounces Received", (int)snapshot.Bounces.size());
-				DrawStat("Rays In Snapshot", snapshot.RayCount);
-
-				// Rays arriving but nothing being hit is its own diagnosis — the simulation is
-				// working and the geometry mirror is empty — so the two counts are separate.
-				int hitCount = 0;
-				for (const RaytracedAudioBounce& bounce : snapshot.Bounces)
-					hitCount += bounce.Hit ? 1 : 0;
-
-				if (!snapshot.Bounces.empty() && hitCount == 0)
-					DrawStatColored("Bounces That Hit", "0 (rays hit no geometry)", kWarnColor);
-				else
-					DrawStat("Bounces That Hit", hitCount);
-
-				ImGui::EndTable();
-			}
-
-			// The SDK batches visualisation rays on its own schedule, so an enabled overlay with no
-			// bounces yet is normal for the first interval — but a persistent zero is not.
-			if (m_Visualisation.Enabled && stats.VisualisationEnabled && snapshot.Bounces.empty())
-				ImGui::TextDisabled("Waiting for the first batch of visualisation rays...");
-		}
 
 		ImGui::TreePop();
 	}
@@ -727,13 +562,9 @@ namespace Lux {
 		m_Visualisation.ShowOcclusion = true;
 		m_Visualisation.DrawOcclusionLabels = true;
 		m_Visualisation.OcclusionSelectedOnly = false;
-		m_Visualisation.Enabled = true;
-		m_Visualisation.DrawRayPaths = true;
-		m_Visualisation.DrawBouncePoints = true;
 		m_Visualisation.DrawEmitters = true;
 		m_Visualisation.ShowAllZones = true;
 		m_Visualisation.ShowRoomAcoustics = true;
-		m_Visualisation.ColorBouncesByMaterial = true;
 	}
 
 }

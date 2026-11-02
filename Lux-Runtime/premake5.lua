@@ -52,12 +52,6 @@ project "Lux-Runtime"
 			}
 		end
 
-		do -- Vercidium Audio is required.
-			postbuildcommands {
-				'{COPY} "' .. VASDKRoot .. '/3d/native/production/windows/vaudionative.dll" "%{cfg.targetdir}"',
-			}
-		end
-
 		-- Validated SDK roots are shared with the linker configuration.
 		do -- FMOD is required.
 			postbuildcommands {
@@ -112,14 +106,6 @@ project "Lux-Runtime"
 		-- inserted during LTO's deferred codegen, after Ubuntu ld's default --as-needed
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
-
-		-- vaudionative.so is resolved via the $ORIGIN/lib rpath above, not the default loader path.
-		do -- Vercidium Audio is required.
-			postbuildcommands {
-				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPY} "' .. VASDKRoot .. '/3d/native/production/linux/libvaudionative.so" "%{cfg.targetdir}/lib"',
-			}
-		end
 
 		-- See the Editor project for why {COPYFILE} + the exact SONAME, not a {COPY} glob.
 		do -- FMOD is required.

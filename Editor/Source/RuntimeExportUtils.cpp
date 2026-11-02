@@ -100,11 +100,11 @@ namespace Lux::RuntimeExport {
 #ifdef LUX_PLATFORM_LINUX
 		const auto source = runtimeDirectory / "lib";
 		const auto destination = exportRoot / "lib";
-		constexpr const char* libraries[] = { "libfmod.so.14", "libfmodstudio.so.14", "libvaudionative.so" };
+		constexpr const char* libraries[] = { "libfmod.so.14", "libfmodstudio.so.14" };
 #else
 		const auto& source = runtimeDirectory;
 		const auto& destination = exportRoot;
-		constexpr const char* libraries[] = { "fmod.dll", "fmodstudio.dll", "vaudionative.dll" };
+		constexpr const char* libraries[] = { "fmod.dll", "fmodstudio.dll" };
 #endif
 		for (const char* library : libraries)
 		{

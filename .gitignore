@@ -14,7 +14,7 @@ ScriptCore/Makefile
 # Vendored Vulkan SDK (local install)
 Core/vendor/VulkanSDK/
 
-# Vercidium Audio (VA) raytraced audio SDK - manually fetched, requires accepting Vercidium's EULA
+# Former Vercidium Audio SDK folder: no longer used by the build; a local copy is licensed, never commit it
 Core/vendor/VA_RAY/
 
 # FMOD Engine SDK - manually fetched, requires accepting Firelight Technologies' EULA
@@ -110,7 +110,7 @@ Editor/LuxSampleProject/Assets/Audio/**/.user/
 Editor/LuxSampleProject/Assets/Audio/**/.cache/
 Editor/LuxSampleProject/Assets/Audio/**/Build/
 
-# CI checkout of the private FMOD / Vercidium Audio SDK repository (scripts/ci/StageAudioSDKs.py)
+# CI checkout of the private FMOD SDK repository (scripts/ci/StageAudioSDKs.py)
 .audio-sdk/
 
 # Per-user editor state lives in FileSystem::GetPersistentStoragePath()

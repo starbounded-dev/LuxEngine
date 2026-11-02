@@ -187,14 +187,20 @@ int main(int argc, char** argv)
 
 	// Settings: defaults, rejected values, YAML and bounded binary round trips.
 	AudioOcclusionSettings settings;
-	assert(settings.Validate() && settings.Source == AudioOcclusionSource::Engine && settings.CastBudget == 32);
+	assert(settings.Validate() && settings.CastBudget == 32);
 	// A project saved before the setting has no Occlusion key: the lookup is undefined and loads defaults.
-	assert(settings.DeserializeYAML(Yaml::Load("{ Other: 1 }")["Occlusion"]) && settings.Source == AudioOcclusionSource::Engine);
+	assert(settings.DeserializeYAML(Yaml::Load("{ Other: 1 }")["Occlusion"]) && settings.UpdateRateHz == 20.0f);
 	for (const char* yaml : { "Source: Muffled", "UpdateRateHz: 0", "UpdateRateHz: 500", "CastBudget: 0", "CastBudget: 5000",
 		"Strength: -1", "Strength: .nan", "Strength: 9", "[1, 2]" })
 		assert(!settings.DeserializeYAML(Yaml::Load(yaml)) && settings.UpdateRateHz == 20.0f);
 	assert(settings.DeserializeYAML(Yaml::Load("{ Source: Raytraced, UpdateRateHz: 10, CastBudget: 4, Strength: 0.5 }")));
-	assert(settings.Source == AudioOcclusionSource::Raytraced && settings.UpdateRateHz == 10.0f && settings.CastBudget == 4 && settings.Strength == 0.5f);
+	// A pre-Soundwave file's backend selector loads, is ignored, and is never written back.
+	assert(settings.UpdateRateHz == 10.0f && settings.CastBudget == 4 && settings.Strength == 0.5f);
+	{
+		Yaml::Writer resaved;
+		settings.SerializeYAML(resaved);
+		assert(std::string_view(resaved.c_str()).find("Source") == std::string_view::npos);
+	}
 	const auto file = output / "occlusion-settings.bin";
 	{
 		FileStreamWriter writer(file);
@@ -205,7 +211,7 @@ int main(int argc, char** argv)
 		FileStreamReader reader(file);
 		assert(copied.Deserialize(reader));
 	}
-	assert(copied.Source == settings.Source && copied.UpdateRateHz == 10.0f && copied.CastBudget == 4 && copied.Strength == 0.5f);
+	assert(copied.UpdateRateHz == 10.0f && copied.CastBudget == 4 && copied.Strength == 0.5f);
 	std::filesystem::resize_file(file, std::filesystem::file_size(file) - 1);
 	{
 		FileStreamReader reader(file);

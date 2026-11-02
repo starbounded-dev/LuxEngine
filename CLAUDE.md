@@ -40,7 +40,7 @@ an editor feature to work. Every feature is judged against this:
 - **Built in first.** Implement it in the engine, or compile in a small vendored library with a
   permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
 - **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
-  the bundled shader compiler (shaderc/glslang), FMOD, and Vercidium Audio. Building on those adds
+  the bundled shader compiler (shaderc/glslang), and FMOD. Building on those adds
   nothing for the user to install.
 - **No new mandatory installs for game makers.** No required language servers, external IDEs,
   Node/Python runtimes, package managers, or online services. If an external tool is genuinely
@@ -231,7 +231,7 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Required FMOD Core/Studio playback and Vercidium Audio acoustics via `AudioEngine`, `AudioEventInstance`, `AudioListener`, and `RaytracedAudioScene`.
+- Required FMOD Core/Studio playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`; acoustics (occlusion, reverb) from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`).
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

@@ -69,7 +69,7 @@ Write code that belongs in a serious long-term engine, not a demo.
 
 - **Self-contained, small, refined.** Game makers should never need to install extra software for
   an editor feature to work: build it in, vendor a small permissively licensed library, or reuse
-  what the editor already requires (.NET SDK, shaderc, FMOD, Vercidium Audio). Any unavoidable
+  what the editor already requires (.NET SDK, shaderc, FMOD). Any unavoidable
   external tool is optional, auto-detected, and degrades gracefully. Full rule: `CLAUDE.md §
   Product Principle`.
 

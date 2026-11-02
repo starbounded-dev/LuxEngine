@@ -55,7 +55,6 @@ void RunAudioAcousticsTests()
 	using namespace Lux;
 	using namespace std::chrono_literals;
 	AudioOcclusionSettings settings;
-	settings.Source = AudioOcclusionSource::Raytraced; // legacy selector does not choose CPU reference output
 	settings.ReflectionDepth = 0;
 	settings.OpeningGridSize = 1;
 	settings.MaxBounces = 1;

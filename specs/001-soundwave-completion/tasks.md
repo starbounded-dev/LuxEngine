@@ -8,38 +8,38 @@ US5 path overlay.
 
 ## Phase 1: Setup
 
-- [ ] T001 Record the user's 2026-11-01 answers (air absorption = darken energy only; asterwave branch superseded) in docs/AUDIO_ACOUSTICS_PLAN.md § 1 and § 10.4
+- [x] T001 Record the user's 2026-11-01 answers (air absorption = darken energy only; asterwave branch superseded) in docs/AUDIO_ACOUSTICS_PLAN.md § 1 and § 10.4
 
 ## Phase 2: Foundational
 
-- [ ] T002 Map every consumer of `RaytracedAudioScene`, `m_LastAudioAmbience`, `AudioGeometrySystem` VA calls and `AudioOcclusionSource` (grep Core/ Editor/ tests/) and decide per site: delete, or rewire to `AudioAcoustics`
+- [x] T002 Map every consumer of `RaytracedAudioScene`, `m_LastAudioAmbience`, `AudioGeometrySystem` VA calls and `AudioOcclusionSource` (grep Core/ Editor/ tests/) and decide per site: delete, or rewire to `AudioAcoustics`
 
 ## Phase 3: US2 — Old projects keep working (P1)
 
 **Independent test**: a settings YAML with `Source: Raytraced` loads, plays on Soundwave, re-saves without `Source`.
 
-- [ ] T003 [US2] Remove `AudioOcclusionSource` and `Source` from Core/Source/Lux/Audio/AudioOcclusionSettings.h; reader in AudioOcclusionSettings.cpp accepts `Source: Engine|Raytraced` and ignores it ("accepted and ignored on load, never written"), writer omits it
-- [ ] T004 [US2] Remove `m_OcclusionSource` and its branches from Core/Source/Lux/Scene/Scene.h and Scene.cpp, and the legacy-selection checks from Editor/Source/Panels/ProjectSettingsWindow.cpp self-test
-- [ ] T005 [US2] Update tests/audio/OcclusionTests.cpp so the legacy `Source` key loads, is ignored and is not re-written
+- [x] T003 [US2] Remove `AudioOcclusionSource` and `Source` from Core/Source/Lux/Audio/AudioOcclusionSettings.h; reader in AudioOcclusionSettings.cpp accepts `Source: Engine|Raytraced` and ignores it ("accepted and ignored on load, never written"), writer omits it
+- [x] T004 [US2] Remove `m_OcclusionSource` and its branches from Core/Source/Lux/Scene/Scene.h and Scene.cpp, and the legacy-selection checks from Editor/Source/Panels/ProjectSettingsWindow.cpp self-test
+- [x] T005 [US2] Update tests/audio/OcclusionTests.cpp so the legacy `Source` key loads, is ignored and is not re-written
 
 ## Phase 4: US1 — No Vercidium anywhere (P1)
 
 **Independent test**: with Core/vendor/VA_RAY moved aside, `scripts\Lux-BuildTest.ps1` passes Debug/Release/Dist and the export library list has no VA file.
 
-- [ ] T006 [US1] Delete Core/Source/Lux/Audio/RaytracedAudioScene.h/.cpp and remove every use in Core/Source/Lux/Scene/Scene.h, Scene.cpp, Core/Source/Lux/Core/Application.cpp
-- [ ] T007 [US1] Remove VA-only code from Core/Source/Lux/Audio/AcousticMaterial.h/.cpp and Core/Source/Lux/Audio/AudioGeometrySystem.h/.cpp (keep what Soundwave or portals consume)
-- [ ] T008 [US1] Remove the VA sections from Editor/Source/Panels/AudioDebugPanel.h/.cpp and Editor/Source/EditorLayer.cpp; show Soundwave reverb (decay, send, escaped) and kernel diagnostics instead
-- [ ] T009 [US1] Remove VA rows, `ValidateAudioSDK`, `LUX_ENABLE_RAYTRACED_AUDIO` and copy lines from Dependencies.lua, premake5.lua, Core/premake5.lua, Editor/premake5.lua, Lux-Runtime/premake5.lua
-- [ ] T010 [P] [US1] Remove VA libraries from Editor/Source/RuntimeExportUtils.cpp deploy lists
-- [ ] T011 [P] [US1] Remove VA handling from scripts/Configure.py, scripts/ci/StageAudioSDKs.py, .github/workflows/main.yml, .gitignore
-- [ ] T012 [US1] Drop VA objects and libraries from tests/audio/run.py, tests/audio/run_occlusion_windows.py, tests/audio/run_sdk_layout.py, tests/audio/GeometryTests.cpp
-- [ ] T013 [US1] Regenerate projects and run scripts\Lux-BuildTest.ps1 (Debug, Release, Dist) with Core/vendor/VA_RAY moved aside
+- [x] T006 [US1] Delete Core/Source/Lux/Audio/RaytracedAudioScene.h/.cpp and remove every use in Core/Source/Lux/Scene/Scene.h, Scene.cpp, Core/Source/Lux/Core/Application.cpp
+- [x] T007 [US1] Remove VA-only code from Core/Source/Lux/Audio/AcousticMaterial.h/.cpp and Core/Source/Lux/Audio/AudioGeometrySystem.h/.cpp (keep what Soundwave or portals consume)
+- [x] T008 [US1] Remove the VA sections from Editor/Source/Panels/AudioDebugPanel.h/.cpp and Editor/Source/EditorLayer.cpp; show Soundwave reverb (decay, send, escaped) and kernel diagnostics instead
+- [x] T009 [US1] Remove VA rows, `ValidateAudioSDK`, `LUX_ENABLE_RAYTRACED_AUDIO` and copy lines from Dependencies.lua, premake5.lua, Core/premake5.lua, Editor/premake5.lua, Lux-Runtime/premake5.lua
+- [x] T010 [P] [US1] Remove VA libraries from Editor/Source/RuntimeExportUtils.cpp deploy lists
+- [x] T011 [P] [US1] Remove VA handling from scripts/Configure.py, scripts/ci/StageAudioSDKs.py, .github/workflows/main.yml, .gitignore
+- [x] T012 [US1] Drop VA objects and libraries from tests/audio/run.py, tests/audio/run_occlusion_windows.py, tests/audio/run_sdk_layout.py, tests/audio/GeometryTests.cpp
+- [x] T013 [US1] Regenerate projects and run scripts\Lux-BuildTest.ps1 (Debug, Release, Dist) with Core/vendor/VA_RAY moved aside
 
 ## Phase 5: US4 — Air absorption, bounces, spread (P3, before GPU so the twin ports final maths)
 
 **Independent test**: `run_soundwave.py` shows a 60 m courtyard source audible and distinct results for bounces 1–4.
 
-- [ ] T014 [US4] Add `AirAbsorptionLF`/`AirAbsorptionHF` ("float dB/100 m", range "0–20", defaults "0.1" / "1.0") to Core/vendor/soundwave/include/soundwave/Settings.h; apply to indirect extra length in Core/vendor/soundwave/src/Propagation.cpp and ray length in Reverb.cpp
+- [ ] T014 [US4] Add `AirAbsorptionLF`/`AirAbsorptionHF` ("float dB/100 m", range "0–20", defaults "0.1" / "2.5") to Core/vendor/soundwave/include/soundwave/Settings.h; apply to indirect extra length in Core/vendor/soundwave/src/Propagation.cpp and ray length in Reverb.cpp
 - [ ] T015 [US4] Split reflected energy by surface `Scattering` in Core/vendor/soundwave/src/Propagation.cpp (specular share on the mirror path) and add per-bounce path counts to `SolveDiagnostics` in Solve.h
 - [ ] T016 [US4] Add the two rows to Core/Source/Lux/Audio/AudioOcclusionSettings.h/.cpp (YAML keys per contracts/audio-settings.md) and Editor/Source/Panels/ProjectSettingsWindow.cpp with self-test edits
 - [ ] T017 [US4] Library tests: courtyard 60 m and bounce counts in tests/audio/SoundwavePropagationTests.cpp; air absorption in tests/audio/SoundwaveReverbTests.cpp
@@ -56,7 +56,7 @@ US5 path overlay.
 
 ## Phase 7: US5 — Path overlay (P3)
 
-- [ ] T023 [US5] Draw the selected source's direct/reflection/opening paths with Renderer2D::DrawLine in Editor/Source/EditorLayer.cpp behind a viewport toggle; nothing drawn when off
+- [x] T023 [US5] Draw the selected source's direct/reflection/opening paths with Renderer2D::DrawLine in Editor/Source/EditorLayer.cpp behind a viewport toggle; nothing drawn when off
 
 ## Phase 8: Polish
 

@@ -14,7 +14,7 @@ work.
 
 - Build the feature into the engine, or vendor a small permissively licensed library (MIT / BSD /
   zlib / Apache-2.0) through `Dependencies.lua`.
-- Reuse what the editor already requires: the .NET SDK, shaderc/glslang, FMOD, Vercidium Audio.
+- Reuse what the editor already requires: the .NET SDK, shaderc/glslang, FMOD.
 - No new mandatory installs for game makers. An unavoidable external tool is optional,
   auto-detected, degrades gracefully, and is put to the user before it is planned.
 - One well-made feature beats several half-finished ones. Every plan states what a new dependency
@@ -85,4 +85,4 @@ principle, MINOR for adding one, PATCH for wording) and update the date below. `
 and `/speckit-plan` treat a principle violation as a blocker unless the plan justifies it in its
 Complexity Tracking section.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-01 | **Last Amended**: 2026-11-01
+**Version**: 1.0.1 | **Ratified**: 2026-11-01 | **Last Amended**: 2026-11-02

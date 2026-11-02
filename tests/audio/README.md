@@ -45,13 +45,11 @@ hosts. The full runner rejects a generated Core configuration without sanitizer 
 and verifies ASan memory-access symbols in `AudioAcoustics.o`. The ordinary Debug command
 retains its previous behavior. CI uploads separate Debug/Debug-AS audio logs; no leak/error
 suppression is added. The pure-library tests need no engine SDKs, including with sanitization.
-The real-worker Soundwave ownership checks run before the legacy playback/geometry cases,
-so a later backend failure does not hide their result. The legacy geometry host releases its
-process world pool after all scene owners, matching Application shutdown; stopping a scene
-alone may retain a world for reuse.
+The real-worker Soundwave ownership checks run before the playback/geometry cases, so a later
+backend failure does not hide their result.
 
-Requires `clang++` and the repository's FMOD and VA SDKs (including the `LUX_FMOD_SDK` and
-`LUX_VA_SDK` overrides used by CI). `fmodstudiocl` is required only when generating banks;
+Requires `clang++` and the repository's FMOD SDK (including the `LUX_FMOD_SDK` override used by
+CI). `fmodstudiocl` is required only when generating banks;
 `FMODSTUDIOCLI` may select its executable path. YAML implementation objects are compiled afresh. The runner compiles production
 code with Debug assertions, creates a disposable copy of the sample FMOD project in `/tmp`, and
 uses FMOD's no-sound output. It does not alter the sample project or require a renderer/audio device.
@@ -84,9 +82,8 @@ also exercised headlessly for draw output, clipping and explicit newline limits;
 alongside Debug Jolt before running. Managed payload/ABI/subscription
 tests run separately with `python3 tests/audio/run_managed.py`.
 
-Geometry checks use the real VA world and worker completion, including transform/material updates,
-world-bound growth, static capture, queue budgets/coalescing, removal, nearly open shutters, invalid
-transform recovery, and normalized portal room leakage. Production portal and mesh YAML blocks
+Geometry checks cover shutter geometry and validation (open fraction, NaN rejection) and
+normalized portal room leakage; Soundwave's own snapshot jobs are covered by the ownership checks. Production portal and mesh YAML blocks
 are exercised for round-trip fields, room IDs, legacy defaults and malformed values. Managed tests
 also cover portal dispatch, acoustic mode enum values, invalid inputs and main-thread guards.
 Scene/prefab hierarchy remapping lives in `SceneSerializer::RunRoundTripSelfTests`; it requires a

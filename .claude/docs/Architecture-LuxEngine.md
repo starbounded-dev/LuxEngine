@@ -101,7 +101,7 @@ graph TB
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
 | Scripting | `Core/Source/Lux/Scripting/` | `ScriptEngine.h`, `ScriptGlue.h`, `ScriptBuilder.h` |
 | Assets | `Core/Source/Lux/Asset/` | `AssetManager.h`, `Asset.h`, `AssetTypes.h` |
-| Audio | `Core/Source/Lux/Audio/` | `AudioEngine.h`, `AudioEventInstance.h`, `RaytracedAudioScene.h` |
+| Audio | `Core/Source/Lux/Audio/`, `Core/vendor/soundwave/` | `AudioEngine.h`, `AudioEventInstance.h`, `AudioAcoustics.h`, `soundwave/Solve.h` |
 | Editor framework | `Core/Source/Lux/Editor/` | `EditorPanel.h`, `PanelManager.h`, `EditorCamera.h`, `SelectionManager.h` |
 | Editor app | `Editor/Source/` | `EditorLayer.h`, `Panels/` |
 | ImGui | `Core/Source/Lux/ImGui/` | `ImGuiEx.h`, `ImGuiUtilities.h`, `Colors.h` |
@@ -968,7 +968,8 @@ component (and C# API), with volume, pitch, play-on-awake, event references and 
 `AudioSource` raw-file voices, direct Core listener updates, the extra Core update pump, and the
 engine-created `Reverb3D` unit are removed. FMOD Core remains a dependency for mixer statistics and
 `AudioFileUtils` metadata inspection (`FMOD_OPENONLY`); inspecting a source asset does not play it.
-FMOD and Vercidium Audio are mandatory SDK dependencies, deployed beside both applications.
+FMOD is a mandatory SDK dependency, deployed beside both applications. Acoustics need no SDK: they
+come from Soundwave, an in-tree Apache-2.0 source library statically linked into `Core`.
 
 **Legacy scenes:** old `Audio` handles and `Looping` values are retained as migration-only
 `LegacyAudio`/`LegacyLooping`, under their original YAML keys. They survive save, copy, undo and
@@ -977,27 +978,17 @@ shows an inspector migration warning and reports an error on Play. Assign an aut
 event; the engine cannot infer event GUIDs or recreate Studio authoring from a raw asset. New
 sources do not write legacy keys. Looping is authored in the event timeline.
 
-**Acoustics:** `Scene` owns a `RaytracedAudioScene`, which wraps VA behind a Pimpl. Runtime start
-mirrors mesh-collider triangles into VA primitives owned by that scene. Each frame joins the
-previous VA batch with `WaitForResults`, applies the geometry queue, updates the dominant listener
-and source emitter positions, reads completed results, then launches the next batch with
-`OnUpdate`. Joining before mutation and teardown is mandatory. VA simulates one listener: highest
-weight wins, lowest index breaks ties, and an attenuation target overrides its acoustic position.
-
-**VA worlds are process-level and reused.** `vaWorldDestroy` does not free what a world's updates
-allocated (about 143 MiB per world per Play session, measured 2026-10-27 with the documented shutdown
-and every call returning `VA_SUCCESS`), so `RaytracedAudioScene::Stop` drains and empties its world and
-returns it to a pool (`AcquireWorld`/`ReleaseWorld` in `RaytracedAudioScene.cpp`) instead of destroying
-it; the next `Start` takes it back (clearing pending shutdown; bounds and materials are re-applied). A
-world still holding emitters after teardown (one waiting out a reverb tail) is destroyed rather than
-reused, since its callbacks point into the scene being torn down. `Application::~Application` calls
-`RaytracedAudioScene::ShutdownWorldPool` after the layers are gone.
+**Acoustics:** `Scene` owns a `SceneAudioAcoustics` (main-thread capture of acoustic geometry) and
+through it an `AudioAcoustics` (prepared snapshots, per-UUID source state, listener reverb). Both
+start on Play. Soundwave simulates one listener: highest weight wins, lowest index breaks ties, and
+an attenuation target overrides its acoustic position. Vercidium Audio was removed on 2026-11-02;
+nothing in the build, deploy or tests references it.
 
 Event components receive `AudioEventAcoustics`: low-frequency direct gain becomes the optional
-Studio parameter `Occlusion` (1 minus gain), and returned energy becomes `ReverbSend`. Studio
-authors the filters, sends and reverb buses. VA's other bands and EAX measurements remain diagnostic
-outputs; the engine does not apply a second filter/reverb path. Missing optional parameters are
-expected; other FMOD failures are reported. Standalone scripted events do not register VA emitters.
+Studio parameter `Occlusion` (1 minus gain), and Soundwave's listener reverb send times the zone
+gain becomes `ReverbSend`. Studio authors the filters, sends and reverb buses. The HF gain and the
+path/reverb details remain diagnostic outputs; the engine does not apply a second filter/reverb
+path. Missing optional parameters are expected; other FMOD failures are reported.
 
 **Native acoustic verification:** `SceneAudioVerification` is a Core-owned main-thread
 report over a running Scene's acoustic diagnostics, physics comparison and actual FMOD
@@ -1015,11 +1006,11 @@ Play. Completion is an atomically published status file after the report, indepe
 sinks and logging preferences (Dist has no console sink). Missing/stale markers fail verification.
 These hooks provide evidence only for the implemented stages, not GPU/reverb completion.
 
-**Soundwave CPU reference integration (migration Phase 2, in progress):** `SceneAudioAcoustics`
-owns the main-thread capture cache and `AudioAcoustics` owns prepared snapshots and UUID source
-states. Both start independently of VA availability. Scene always applies Soundwave's smoothed LF
-gain to `AudioEventAcoustics::OcclusionGainLF`; the legacy Source selector still loads/saves until
-Phase 6, but no longer selects playback. Since Phase 3 `ReverbSend` is Soundwave's too:
+**Soundwave CPU reference integration:** `SceneAudioAcoustics` owns the main-thread capture cache
+and `AudioAcoustics` owns prepared snapshots and UUID source states. Scene always applies
+Soundwave's smoothed LF gain to `AudioEventAcoustics::OcclusionGainLF`. The old `Occlusion.Source`
+backend selector is gone: files that still carry `Source: Engine|Raytraced` load with it ignored,
+and saves omit it. `ReverbSend` is Soundwave's too:
 `Soundwave::EvaluateReverb` bounces `ReverbRays` deterministic rays (Fibonacci sphere, up to
 `ReverbBounces` specular hits) from the listener, estimates the 60 dB decay Sabine-style from
 absorption plus escaped rays per metre travelled, and maps it to
@@ -1226,8 +1217,8 @@ it does not establish performance, default-budget completeness, exported runtime
 `Application`, scene or renderer and reuses the runtime player's deployed libraries through the verification
 script's child PATH. It does not replace `ValidateProject`'s collection of asset references.
 
-**Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags, independent of
-VA's enum. `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
+**Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags; their index is
+Soundwave's `MaterialTag` (pinned equal by `static_assert`). `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
 `AudioSurfaceComponent` on the same entity overrides that tag, including an explicit Default;
 without a mesh collider it also tags captured StaticMesh render geometry. Both tags survive scene snapshots, copy/duplicate,
 prefab instantiation/reconciliation and runtime scene serialization. C# exposes the effective tag
@@ -1247,49 +1238,39 @@ queries and the editor's material view. The inspector shows the effective tag.
 **Acoustic Materials** (viewport options popup, usable in edit mode and Play) sets
 `SceneRendererOptions::ShowDebugCategories`: `Scene::CaptureAcousticMaterialDebug` replaces the
 collider debug items with every non-Disabled mesh collider and enabled portal shutter (at its current
-Open, in the box VA traces), each tagged with its palette index, and the editor shows a legend of the
+Open, in the shutter box Soundwave clips against), each tagged with its palette index, and the editor shows a legend of the
 tags present. See `Rendering.md` § Editor debug geometry.
 
-**Dynamic geometry and portals (Phase 13):** `Scene::SyncAudioGeometry` captures mesh collider
-metadata and world transforms into a scene-owned `AudioGeometrySystem`. Static/Dynamic/Disabled
-acoustic motion is independent of physics. Static captures its transform; Dynamic tracks hierarchy
-movement; Disabled omits the collider. Local triangle batches include submesh transforms and use
-the same selection rule as physics (valid index selects one; otherwise all). Changed transforms
-and tags update an existing VA primitive; mesh/submesh selection changes rebuild only that node.
-The queue coalesces edits and limits active frames to eight primitive updates, stopping after
-65,536 affected vertices (a soft threshold because a mesh update is indivisible). Startup drains
-all work. Removal bypasses rebuild work. Failed replacements retain the prior geometry and report
-an error; invalid authored inputs are reported and removed. In-place mesh asset hot reload and
-deformation require restarting Play. Per-tag coefficient settings remain captured at Play start.
+**Dynamic geometry and portals (Phase 13):** `SceneAudioAcoustics::Sync` captures acoustic geometry
+(render meshes, AudioSurface overrides, collider motion authoring) and requests static/moving
+snapshot rebuilds from `AudioAcoustics` (see the Soundwave paragraphs above). Static/Dynamic/Disabled
+acoustic motion is independent of physics. `Scene::SyncAudioGeometry` also captures mesh-collider
+and portal inputs for the temporary raycast comparison (`AudioOcclusion`, `CompareRaycast`).
+`AudioGeometrySystem` now holds only the shared input type, `Validate`, `PortalTransform` and
+`BuildPortal`. In-place mesh asset hot reload and deformation require restarting Play. Per-tag
+coefficient settings remain captured at Play start.
 
-`AudioPortalComponent` supplies a local rectangular VA shutter that retracts toward -X as Open
+`AudioPortalComponent` supplies a local rectangular shutter that retracts toward -X as Open
 increases, disappearing at Open=1. It can link two AudioZone entities. `AudioZoneSystem` transfers
 a distance/open-weighted share of each listener's zone weights across those links, normalizing
 outgoing shares and applying only one hop so cycles/multiple openings cannot amplify weight.
-Room transfer uses the shutter's last applied Open while VA is running. Portal references remap
-through duplicate/prefab paths; C# setters and the inspector edit the same component data. Selected
-portal wireframes are copied into `FrameRenderPacket::AudioZoneLines` on the main thread. VA nodes
-and their local bounds/counts are owned by `RaytracedAudioScene`; world bounds expand for movement.
-All geometry mutations occur after the previous VA worker batch joins. See
+Room transfer uses the component's current Open. Portal references remap through duplicate/prefab
+paths; C# setters and the inspector edit the same component data. Selected portal wireframes are
+copied into `FrameRenderPacket::AudioZoneLines` on the main thread. See
 `docs/AUDIO_DYNAMIC_GEOMETRY.md` for authoring, scheduling and acoustic approximation limits.
-
-Each engine tag gets its own VA custom material ID (`1000 + stable tag ID`), so overrides cannot
-leak between tags that share a preset. Most tags map directly; Default uses Concrete, Carpet and
-Rubber use Cloth, Plaster uses Gyprock, Plastic and WoodThin use WoodIndoor, Soil uses Mud, Wood
-uses WoodOutdoor, Ceramic uses Tile, and Foliage uses Leaf. These are editable starting presets,
-not measured coefficients for every real-world material.
 
 Project Audio settings expose per-tag overrides for LF/HF absorption, scattering, LF/HF
 transmission distance in metres, and LF/HF energy loss on thin/open geometry. Defaults come from
-the installed VA SDK. Absorption/scattering must be finite and in 0..1; transmission distances
+Soundwave's authored table (`soundwave/AcousticMaterialSettings.h`, captured once from the former SDK
+so shipped numbers did not move). Absorption/scattering must be finite and in 0..1; transmission distances
 must be finite and positive; flat losses must be finite and nonnegative. Invalid settings fail
 loading/export with an audio error. YAML writes enabled overrides under `Audio.AcousticMaterials`;
-missing entries use SDK presets. Runtime format 18 appends a bounded explicit override block after
+missing entries use the authored defaults. Runtime format 18 appends a bounded explicit override block after
 the bank manifest, keeping `ProjectInfo`'s fixed layout unchanged. Formats 16/17 remain readable
 and use default material settings. Unknown or duplicate IDs and truncated blocks fail loading.
 
 **Zones and snapshots (Phase 8):** `Scene` owns `AudioZoneSystem` and supplies resolved volumes
-on the main thread after listener synchronization and the VA join. `AudioZoneComponent` supports
+on the main thread after listener synchronization. `AudioZoneComponent` supports
 box/sphere volumes or exactly one box, sphere or capsule collider on the same entity. Mesh and 2D
 colliders are unsupported; missing/ambiguous primitive colliders and invalid geometry log once
 until corrected. Box dimensions/offsets follow the world transform. Sphere radius uses maximum
@@ -1311,14 +1292,14 @@ multiple instances of the same snapshot, so separate instances would weaken over
 must be exposed from the snapshot dial as a local continuous writable 0–100 Studio parameter.
 `SetSnapshotIntensity` takes normalized 0–1, validates type/range, caches the parameter ID and
 sets intensity before playback. Event volume does not control snapshot intensity. A missing or
-mis-authored snapshot reports an error and does not suppress VA reverb. Snapshot mixer scope,
+mis-authored snapshot reports an error and does not suppress Soundwave reverb. Snapshot mixer scope,
 priority and transition curves remain authored in Studio. Explicit script-created snapshots are
 independently owned and can still interact with zone snapshots under FMOD's averaging rules.
 
-Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale source VA `ReverbSend`
+Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale Soundwave's `ReverbSend`
 by one minus active zone snapshot coverage), or PreferRaytraced (suppress zone snapshots while
-a Soundwave reverb measurement exists, falling back to zones otherwise). This policy leaves VA occlusion and zone
-ambience beds independent. The latest joined VA validity is retained while paused. Runtime format
+a Soundwave reverb measurement exists, falling back to zones otherwise). This policy leaves occlusion and zone
+ambience beds independent. The latest measurement validity is retained while paused. Runtime format
 19 adds one validated mode byte after the version-18 materials block; versions 16–18 use Layered.
 
 Zone data survives scene YAML, runtime scenes, copy/duplicate and prefab operations. The inspector
@@ -1357,7 +1338,7 @@ is the enabled host desktop profile's FMOD output, or the project's default outp
 not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.
 Bank paths inside Assets retain their relative location for scripts; external output is packaged
 under `Assets/Audio/Banks`. Absolute authoring paths are not portable script paths. The `.fspro`
-and source audio are not copied. FMOD Core/Studio and VA shared libraries are required copies,
+and source audio are not copied. FMOD Core/Studio shared libraries are required copies,
 including Linux's `lib` subdirectory. Copy failures abort export.
 
 The player also requires the shared ImGui fonts and managed host at top-level `Resources/` and
@@ -1595,10 +1576,10 @@ counted, so the mixer and this monitor both locking `bus:/` failed with `FMOD_ER
 with Live Update on, that makes every later `Studio::System::update` fail with
 `FMOD_ERR_BADCOMMAND` (found on Windows, 2026-09-17). Per-bus voice limits warn once
 per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies
-last-completed VA timing and culled-source counts. Editor panels only read cached telemetry.
+Soundwave's main-thread update time and culled-source counts. Editor panels only read cached telemetry.
 
 `AudioSourceComponent::Priority` (0–256) reaches FMOD's channel-priority property. Opt-in
-`DistanceCulling` releases FMOD instances and VA emitters outside every weighted listener's authored
+`DistanceCulling` releases FMOD instances (and their Soundwave source state) outside every weighted listener's authored
 maximum distance, with 5% inward hysteresis. Continuous sources keep play intent, script
 parameters/labels and layered pauses; while culled and unpaused their timeline advances by the
 scene timestep (× pitch), wrapped over `EventDescription::getLength` since FMOD exposes no loop
@@ -1626,8 +1607,8 @@ may still play after a failed rebuild, with the build failure logged.
 
 Native exports flatten the selected budgets/focus option into format 23's bounded settings block;
 runtime profiles stay disabled and the manifest selects packaged banks. Optional YAML fields keep
-old projects compatible. This is not executable cross-compilation. SDK roots (`LUX_FMOD_SDK`,
-`LUX_VA_SDK`) drive Premake includes, link inputs, deployed libraries and target file validation.
+old projects compatible. This is not executable cross-compilation. The FMOD SDK root (`LUX_FMOD_SDK`)
+drives Premake includes, link inputs, deployed libraries and target file validation.
 FMOD packages can also be discovered under `Core/vendor/FMOD/`; ambiguity requires an override.
 
 `MuteWhenUnfocused` defaults false. `Application` pumps Studio even when minimized and determines
@@ -1640,50 +1621,39 @@ and listening verification remain pending. See `docs/AUDIO_DESKTOP_PLATFORMS.md`
 
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
 Audio Debugger, closed by default) renders both halves of the stack. Playback and acoustics use
-read-only accessors — `AudioEngine::GetStats()` and
-`RaytracedAudioScene::GetStats()` / `GetResult()` / `GetAmbience()` / `GetVisualisation()` — alongside
+read-only accessors — `AudioEngine::GetStats()` and the scene's `AudioAcoustics`
+(`GetDiagnostics()`, `GetResult()`, `GetGainLF/HF()`, `GetReverb()`, `GetReverbSend()`) — alongside
 cached performance meters and an explicit validation action. Sources show event names, playback,
-virtual and culled state. The Reverb section shows VA measurements and explains Studio's authored
-parameter path.
+virtual and culled state with Soundwave's gains; the acoustics section shows snapshot counts,
+solves, failures and the listener reverb measurement.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
-called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws ray paths, bounce
-points, surface normals, emitter gizmos and world bounds with the `Renderer2D` that function has
-already set up for the frame. It also pushes the VA visualisation-ray settings to the active scene's
-`RaytracedAudioScene` every frame, so they apply whether or not the panel is open (entering Play builds
-a new VA scene). Splitting it this way keeps the settings next to their UI while the drawing stays
-where a camera is already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a
+called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws emitter gizmos,
+Soundwave paths and zones with the `Renderer2D` that function has already set up for the frame.
+Splitting it this way keeps the settings next to their UI while the drawing stays where a camera is
+already bound — a panel has no scene camera of its own. Note `EditorLayer` holds a
 `Ref<AudioDebugPanel>` *only* for this; `PanelManager` still owns the panel and drives its render and
 scene context.
 
-`ShowOcclusion` is independent of the VA rays (`Enabled`): `EditorLayer::DrawAudioOcclusion` reads
-`Scene::GetAudioOcclusion()` paths, which engine occlusion computes anyway, and draws each source's
-listener→source line coloured by LF loss, wall entry/exit markers and billboard labels (material,
-thickness, dB) plus a per-source total. Lines and markers draw on top of the scene depth; text is
+`ShowOcclusion` (the path overlay): `EditorLayer::DrawAudioOcclusion` reads each source's
+`AudioAcoustics::GetResult` and draws the direct listener→source line coloured by LF loss, wall
+entry/exit markers and billboard labels (material, thickness, dB) plus a per-source total, and the
+reflection/opening routes the solve kept, faded and coloured by their own loss. It reuses the solve's
+results and draws nothing when off. Lines and markers draw on top of the scene depth; text is
 depth-tested (Renderer2D has no on-top text), so labels stand off the wall face nearest the camera.
 "See the Sound" (Audio Debugger and the viewport options popup, outside the Play-suspended debug
-views) is a preset that turns on occlusion paths, labels, VA rays and emitters, all zones, the room
-readout and material-tinted bounces, and restores the previous settings when turned off.
+views) is a preset that turns on paths, labels, emitters, all zones and the room readout, and
+restores the previous settings when turned off.
 
 `ShowAllZones` draws every zone and portal through `Scene::ForEachAudioZoneLine` (the same line
 generator the selection-only `FrameRenderPacket::AudioZoneLines` capture uses), brightened by live
-zone weight or portal Open and labelled with it. `ColorBouncesByMaterial` probes each VA bounce with
-one short `PhysicsScene::CastRay` into the surface and tints it by that entity's effective acoustic
-tag (overlay only; costs a raycast per bounce while shown). The room readout
-(`EditorLayer::UI_RoomAcousticsReadout`) shows `Scene::GetLastAudioAmbience()`: the listener ambience
-the scene copies inside the VA join window, so ImGui never reads VA's live buffers.
-`RaytracedAudioScene::GetResult`/`GetAmbience` read SDK buffers the VA workers write, so they are
-only valid between `WaitForResults` and `OnUpdate`; anything outside that window (ImGui, scripts)
-reads the scene's copies instead. C# `AudioSourceComponent.OcclusionGain` returns
-`Scene::GetAudioSourceOcclusion`, the LF gain recorded when it was applied to the event that frame
-(engine or VA, per the project setting; 1 outside Play and while culled).
+zone weight or portal Open and labelled with it. The room readout
+(`EditorLayer::UI_RoomAcousticsReadout`) shows the last completed `Soundwave::ReverbResult` and the
+smoothed send; everything it reads was published on main. C# `AudioSourceComponent.OcclusionGain`
+returns `Scene::GetAudioSourceOcclusion`, the Soundwave LF gain recorded when it was applied to the
+event that frame (1 outside Play and while culled).
 
-Both stats structs expose SDK status as data, so editor panels use read-only Core accessors.
 `AudioEngineStats::HasMixerStats` distinguishes unavailable measurements from a real zero.
-
-`RaytracedAudioScene::Impl` tracks local bounds and triangle counts for static/dynamic geometry;
-the debugger displays both counts and the scene queue backlog. The SDK offers no way to read a
-primitive's triangle count back.
 
 ### 2.11 Input
 
@@ -1940,7 +1910,7 @@ luxengine/
 │   │       ├── Physics2D/         # Box2D
 │   │       ├── Scripting/         # ScriptEngine, ScriptGlue, ScriptBuilder, ScriptEntityStorage
 │   │       ├── Asset/             # AssetManager facade, AssetManager/, AssetSystem/, serializers
-│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, RaytracedAudioScene
+│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, AudioAcoustics
 │   │       ├── Editor/            # EditorPanel, PanelManager, EditorCamera, SelectionManager,
 │   │       │                      #   SceneHierarchyPanel, EditorConsole/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo

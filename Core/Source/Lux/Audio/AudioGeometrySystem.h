@@ -3,15 +3,20 @@
 
 #pragma once
 
-#include "RaytracedAudioScene.h"
+#include "AcousticMaterial.h"
 #include "AudioGeometrySettings.h"
-#include <deque>
-#include <functional>
-#include <map>
-#include <span>
+#include "Lux/Core/UUID.h"
+#include <glm/glm.hpp>
+#include <vector>
 
 namespace Lux
 {
+	struct AcousticGeometry
+	{
+		AcousticMaterial Material = AcousticMaterial::Default;
+		std::vector<glm::vec3> Triangles;
+	};
+
 	struct AudioGeometryInput
 	{
 		UUID Entity = 0;
@@ -26,30 +31,12 @@ namespace Lux
 		bool operator==(const AudioGeometryInput& other) const;
 	};
 
-	// Main-thread queue. Coalesces edits and keeps transform-only changes out of mesh construction.
+	// Shared validation and shutter maths for acoustic captures and the raycast comparison.
 	class AudioGeometrySystem
 	{
 	public:
-		using Builder = std::function<bool(const AudioGeometryInput&, AcousticGeometry&)>;
-		void Sync(std::span<const AudioGeometryInput> inputs, RaytracedAudioScene& world, const Builder& builder,
-			size_t primitiveBudget = 8, size_t vertexBudget = 65536);
-		void Clear(); // The scene stops its VA world immediately afterward.
-		size_t GetPendingCount() const { return m_Pending.size(); }
-		float GetPortalOpen(UUID entity) const;
-		bool GetStaticTransform(UUID entity, glm::mat4& transform) const;
 		static bool Validate(const AudioGeometryInput& input);
 		static glm::mat4 PortalTransform(const AudioGeometryInput& input);
 		static void BuildPortal(AcousticGeometry& geometry);
-	private:
-		using Key = std::pair<uint64_t, bool>;
-		struct Entry
-		{
-			UUID Primitive;
-			AudioGeometryInput Desired, Applied;
-			size_t Vertices = 0;
-			bool Seen = false, Queued = false, Exists = false, HasApplied = false;
-		};
-		std::map<Key, Entry> m_Entries;
-		std::deque<Key> m_Pending;
 	};
 }

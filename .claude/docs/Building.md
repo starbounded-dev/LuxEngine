@@ -136,7 +136,7 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
-| Audio SDKs (required) | FMOD Core + Studio and Vercidium Audio are always linked. No fallback backend. Legacy flags remain accepted for command compatibility. |
+| Audio SDK (required) | FMOD Core + Studio are always linked. No fallback backend. `--fmod` remains accepted for command compatibility. Acoustics are the in-tree Soundwave library (`Core/vendor/soundwave/`, globbed into `Core`), so no SDK and no flag. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
 `skip-vulkan-check`, `skip-scripts`.
@@ -292,12 +292,6 @@ project's script solution is generated with `include_options=False` precisely be
 manually and is gitignored (it is very large). Either check it out or re-run generation without the
 option.
 
-### Ray-traced audio build fails with `vaudio.h: No such file or directory`
-
-The SDK is fetched manually (see `Core/vendor/VA_RAY/README.txt`) and is gitignored.
-Extract it into `Core/vendor/VA_RAY/`, or set `LUX_VA_SDK` to the package root containing `3d/`,
-then regenerate. Generation verifies the native target's header, link inputs and runtime libraries.
-
 ### FMOD build fails with `fmod.hpp: No such file or directory`
 
 Extract the native FMOD Engine SDK beneath `Core/vendor/FMOD/`, or set `LUX_FMOD_SDK` to its
@@ -306,7 +300,7 @@ header/library layout rather than folder name; multiple matching packages requir
 override. The same root supplies headers, link inputs and Editor/Runtime post-build copies.
 Windows requires Core/Studio `.lib` and `.dll` files; Linux requires link `.so` files and the
 deployed `.so.14` files. Generation fails with the exact missing path instead of building a
-silent fallback. VA uses `LUX_VA_SDK` similarly. These environment variables must be set in the
+silent fallback. This environment variable must be set in the
 shell that runs generation; generated projects keep the resolved roots until regenerated.
 
 See `docs/AUDIO_DESKTOP_PLATFORMS.md` for setup and project profiles. Linux native builds and
@@ -384,20 +378,16 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 `dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
 
-Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`. 26.04 is
-required, not incidental: Vercidium Audio 1.9.0's `libvaudionative.so` links against glibc 2.43
-(`sqrtf@GLIBC_2.43`), which older runners cannot provide. The same limit applies to Linux machines that
-build or run LuxEngine or its exported games.
+Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`.
 
-**Audio SDKs come from a private repository.** FMOD and Vercidium Audio are licensed and are never
-committed here. Both jobs check out the repository named by the repository variable
+**The audio SDK comes from a private repository.** FMOD is licensed and is never committed here. Both jobs check out the repository named by the repository variable
 `AUDIO_SDK_REPOSITORY` into `.audio-sdk/` using the secret `AUDIO_SDK_TOKEN` (a fine-grained,
 read-only token scoped to that repository), then set `LUX_FMOD_SDK` (`.audio-sdk/FMOD/windows` or
-`.audio-sdk/FMOD/linux`) and `LUX_VA_SDK` (`.audio-sdk/VA_RAY`). Populate that repository with
+`.audio-sdk/FMOD/linux`). Populate that repository with
 `scripts/ci/StageAudioSDKs.py`, which copies only headers, link/runtime libraries and licence files.
 Without the variable and secret — including every pull request from a fork — the job fails at
-"Check audio SDK access". Uploaded editor artifacts are stripped of the FMOD and VA runtime
-libraries, because public artifacts are downloadable by anyone and neither licence permits
+"Check audio SDK access". Uploaded editor artifacts are stripped of the FMOD runtime
+libraries, because public artifacts are downloadable by anyone and the licence does not permit
 redistributing them outside a game build.
 
 Note the branch globs: CI matches `features/**`, so a branch named `feature/foo` (singular) will

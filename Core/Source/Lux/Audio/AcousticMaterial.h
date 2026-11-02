@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <string_view>
 
-struct VAWorld;
 namespace Lux::Yaml { class Node; class Writer; }
 
 namespace Lux
@@ -104,10 +103,6 @@ namespace Lux
 		bool Deserialize(StreamReader& stream);
 	};
 
-	// Cached SDK presets. Engine names absent from VA use the documented nearest preset.
+	// Soundwave's authored per-tag defaults; project overrides replace them.
 	AcousticMaterialProperties GetDefaultAcousticMaterialProperties(AcousticMaterial material);
-	const char* AcousticMaterialPresetName(AcousticMaterial material);
-	// Called only on an idle world. Unique custom IDs prevent overrides leaking to other tags.
-	int AcousticMaterialVAID(AcousticMaterial material);
-	bool ConfigureAcousticMaterials(VAWorld* world, const AcousticMaterialSettings& settings);
 }
