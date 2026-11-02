@@ -10,6 +10,8 @@
 #include "NativeInternal.h"
 #include "Miniaudio.h"
 
+#include <MiniaudioCpp/MiniaudioWrappers.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -52,15 +54,18 @@ namespace Lux {
 			float LowState[MA_MAX_CHANNELS] = {};
 			float HighInput[MA_MAX_CHANNELS] = {};
 			float HighState[MA_MAX_CHANNELS] = {};
+
+			static constexpr ma_uint32 FLAGS = 0;
+			void Process(JPL::ProcessCallbackData& data);
 		};
 		static_assert(std::is_standard_layout_v<VoiceNode>, "VoiceNode is reached through its ma_node_base");
 
-		void ProcessVoice(ma_node* node, const float** framesIn, ma_uint32*, float** framesOut, ma_uint32* frameCountOut)
+		void VoiceNode::Process(JPL::ProcessCallbackData& data)
 		{
-			auto& voice = *reinterpret_cast<VoiceNode*>(node);
-			const ma_uint32 frames = *frameCountOut;
-			const float* input = framesIn[0];
-			float* output = framesOut[0];
+			VoiceNode& voice = *this;
+			const ma_uint32 frames = data.GetOutputFrameCount();
+			const float* input = data.GetInputBuffer(0).data.data;
+			float* output = data.GetOutputBuffer(0).data.data;
 			const uint32_t channels = voice.Channels;
 			const float target = voice.TargetGain.load(std::memory_order_relaxed);
 			// The first block starts at its gain: a voice set up quiet must not begin with a ramp from 1.
@@ -110,15 +115,20 @@ namespace Lux {
 			voice.Gain = target;
 		}
 
-		ma_node_vtable s_VoiceVTable = { ProcessVoice, nullptr, 1, 1, 0 };
+#ifdef LUX_PLATFORM_WINDOWS
+		constexpr auto kInitSoundFromFile = ma_sound_init_from_file_w; // paths outside the ANSI code page
+#else
+		constexpr auto kInitSoundFromFile = ma_sound_init_from_file;
+#endif
+		using SoundResource = JPL::Internal::CResource<ma_sound, kInitSoundFromFile, JPL::Internal::impl::uninit<ma_sound_uninit>>;
 
 		// One clip a voice is playing: its own sound and output stage, and the path of nodes from the
 		// root to it, whose volumes, pitches and curves combine into its gain, pitch and filters.
 		struct Leaf
 		{
-			ma_sound Sound;
-			VoiceNode Output;
-			bool NodeReady = false, SoundReady = false;
+			// Members destroy in reverse: the sound (upstream) detaches before its output node.
+			JPL::TBaseNode<VoiceNode> Output;
+			SoundResource Sound;
 			std::vector<uint32_t> Path;
 			float VariationGain = 1.0f, VariationPitch = 1.0f;
 			bool Loop = false;
@@ -190,17 +200,6 @@ namespace Lux {
 			return std::uniform_real_distribution<float>(0.0f, 1.0f)(s_Random);
 		}
 
-		// miniaudio has narrow and wide file APIs; this picks by the platform's path character type,
-		// so Windows paths outside the ANSI code page still open.
-		template<typename Char>
-		ma_result InitSound(ma_engine* engine, const Char* path, ma_uint32 flags, ma_sound* sound)
-		{
-			if constexpr (std::is_same_v<Char, wchar_t>)
-				return ma_sound_init_from_file_w(engine, path, flags, nullptr, nullptr, sound);
-			else
-				return ma_sound_init_from_file(engine, path, flags, nullptr, nullptr, sound);
-		}
-
 		template<typename Char>
 		ma_result RegisterClip(ma_resource_manager* resources, const Char* path)
 		{
@@ -222,11 +221,8 @@ namespace Lux {
 		void ReleaseLeaf(Leaf& leaf)
 		{
 			// Upstream first: uninitializing detaches, and waits for the audio thread to let go.
-			if (leaf.SoundReady)
-				ma_sound_uninit(&leaf.Sound);
-			if (leaf.NodeReady)
-				ma_node_uninit(&leaf.Output.Base, nullptr);
-			leaf.SoundReady = leaf.NodeReady = false;
+			leaf.Sound.clear();
+			leaf.Output.clear();
 		}
 
 		void ReleaseLeaves(NativeVoice& voice)
@@ -238,7 +234,7 @@ namespace Lux {
 
 		bool LeafAtEnd(Leaf& leaf)
 		{
-			return !leaf.Loop && ma_sound_at_end(&leaf.Sound);
+			return !leaf.Loop && ma_sound_at_end(leaf.Sound.get());
 		}
 
 		bool AllAtEnd(NativeVoice& voice)
@@ -282,13 +278,13 @@ namespace Lux {
 			if (sound.Spatial.Enabled)
 			{
 				lowPass = std::min(lowPass, NativeInternal::OcclusionCutoffHz(occlusion));
-				ma_sound_set_pinned_listener_index(&leaf.Sound, panning);
+				ma_sound_set_pinned_listener_index(leaf.Sound.get(), panning);
 			}
 			leaf.CurrentGain = gain * voice.InstanceVolume * distanceGain * occlusion;
-			leaf.Output.TargetGain.store(leaf.CurrentGain, std::memory_order_relaxed);
-			leaf.Output.LowPassHz.store(lowPass, std::memory_order_relaxed);
-			leaf.Output.HighPassHz.store(highPass, std::memory_order_relaxed);
-			ma_sound_set_pitch(&leaf.Sound, std::clamp(pitch * voice.InstancePitch, kMinPitch, kMaxPitch));
+			leaf.Output->TargetGain.store(leaf.CurrentGain, std::memory_order_relaxed);
+			leaf.Output->LowPassHz.store(lowPass, std::memory_order_relaxed);
+			leaf.Output->HighPassHz.store(highPass, std::memory_order_relaxed);
+			ma_sound_set_pitch(leaf.Sound.get(), std::clamp(pitch * voice.InstancePitch, kMinPitch, kMaxPitch));
 		}
 
 		void RefreshVoice(NativeVoice& voice)
@@ -325,9 +321,9 @@ namespace Lux {
 
 		void PlaceLeaf(const NativeVoice& voice, Leaf& leaf)
 		{
-			ma_sound_set_position(&leaf.Sound, voice.Position.x, voice.Position.y, voice.Position.z);
-			ma_sound_set_velocity(&leaf.Sound, voice.Velocity.x, voice.Velocity.y, voice.Velocity.z);
-			ma_sound_set_direction(&leaf.Sound, voice.Direction.x, voice.Direction.y, voice.Direction.z);
+			ma_sound_set_position(leaf.Sound.get(), voice.Position.x, voice.Position.y, voice.Position.z);
+			ma_sound_set_velocity(leaf.Sound.get(), voice.Velocity.x, voice.Velocity.y, voice.Velocity.z);
+			ma_sound_set_direction(leaf.Sound.get(), voice.Direction.x, voice.Direction.y, voice.Direction.z);
 		}
 
 		CallbackState* State(uint64_t token)
@@ -363,7 +359,7 @@ namespace Lux {
 			{
 				if (LeafAtEnd(*leaf))
 					continue;
-				const ma_result applied = voice.Paused ? ma_sound_stop(&leaf->Sound) : ma_sound_start(&leaf->Sound);
+				const ma_result applied = voice.Paused ? ma_sound_stop(leaf->Sound.get()) : ma_sound_start(leaf->Sound.get());
 				if (applied != MA_SUCCESS)
 					result = applied;
 			}
@@ -518,32 +514,31 @@ namespace Lux {
 				s_DecodedClips.insert(file);
 			}
 
-			uint32_t channels = ma_engine_get_channels(engine);
-			leaf.Output.Channels = channels;
-			leaf.Output.SampleRate = static_cast<float>(ma_engine_get_sample_rate(engine));
-			ma_node_config node = ma_node_config_init();
-			node.vtable = &s_VoiceVTable;
-			node.pInputChannels = &channels;
-			node.pOutputChannels = &channels;
-			ma_result result = ma_node_init(ma_engine_get_node_graph(engine), &node, nullptr, &leaf.Output.Base);
-			leaf.NodeReady = result == MA_SUCCESS;
+			const uint32_t channels = ma_engine_get_channels(engine);
+			ma_result result = leaf.Output.Init(JPL::NodeLayout().WithInputs(channels).WithOutputs(channels)) ? MA_SUCCESS : MA_ERROR;
 			if (result == MA_SUCCESS)
-				result = ma_node_attach_output_bus(&leaf.Output.Base, 0, ma_engine_get_endpoint(engine), 0);
+			{
+				// Set before attaching: the audio thread cannot reach the node until then.
+				leaf.Output->Channels = channels;
+				leaf.Output->SampleRate = static_cast<float>(ma_engine_get_sample_rate(engine));
+				result = ma_node_attach_output_bus(leaf.Output.get(), 0, ma_engine_get_endpoint(engine), 0);
+			}
 			if (result == MA_SUCCESS)
 			{
 				// Decoded into memory and shared while any instance of the clip lives, or streamed from
 				// disk in pages by the engine's streaming thread.
 				const ma_uint32 flags = (sound.Stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE) | MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT
 					| (sound.Spatial.Enabled ? 0u : static_cast<ma_uint32>(MA_SOUND_FLAG_NO_SPATIALIZATION));
-				result = InitSound(engine, file.c_str(), flags, &leaf.Sound);
-				leaf.SoundReady = result == MA_SUCCESS;
+				result = leaf.Sound.emplace(engine, file.c_str(), flags, nullptr, nullptr);
+				if (result != MA_SUCCESS)
+					Scope<ma_sound>(leaf.Sound.release()); // never initialized, so it must not be uninitialized
 			}
 			if (result == MA_SUCCESS)
-				result = ma_node_attach_output_bus(&leaf.Sound, 0, &leaf.Output.Base, 0);
+				result = ma_node_attach_output_bus(leaf.Sound.get(), 0, leaf.Output.get(), 0);
 			if (result == MA_SUCCESS)
-				result = ma_sound_get_data_format(&leaf.Sound, nullptr, nullptr, &leaf.ClipSampleRate, nullptr, 0);
+				result = ma_sound_get_data_format(leaf.Sound.get(), nullptr, nullptr, &leaf.ClipSampleRate, nullptr, 0);
 			if (result == MA_SUCCESS)
-				result = ma_sound_get_length_in_pcm_frames(&leaf.Sound, &leaf.ClipFrames);
+				result = ma_sound_get_length_in_pcm_frames(leaf.Sound.get(), &leaf.ClipFrames);
 			if (result != MA_SUCCESS)
 			{
 				outError = "cannot open '" + file.string() + "': " + ma_result_description(result);
@@ -557,26 +552,26 @@ namespace Lux {
 			{
 				const ma_uint64 begin = frameAt(clip.LoopStart), end = frameAt(clip.LoopEnd);
 				if (begin < end)
-					result = ma_data_source_set_loop_point_in_pcm_frames(ma_sound_get_data_source(&leaf.Sound), begin, end);
+					result = ma_data_source_set_loop_point_in_pcm_frames(ma_sound_get_data_source(leaf.Sound.get()), begin, end);
 			}
 			if (result == MA_SUCCESS && clip.StartOffset > 0.0f)
-				result = ma_sound_seek_to_pcm_frame(&leaf.Sound, frameAt(clip.StartOffset));
+				result = ma_sound_seek_to_pcm_frame(leaf.Sound.get(), frameAt(clip.StartOffset));
 			if (result != MA_SUCCESS)
 			{
 				outError = std::string("cannot set the clip's loop region or start offset: ") + ma_result_description(result);
 				return result;
 			}
-			ma_sound_set_looping(&leaf.Sound, clip.Loop ? MA_TRUE : MA_FALSE);
+			ma_sound_set_looping(leaf.Sound.get(), clip.Loop ? MA_TRUE : MA_FALSE);
 			if (sound.Spatial.Enabled)
 			{
 				// The engine computes distance gain itself (attenuation targets, weighted listeners);
 				// miniaudio only pans. Its model must not be "none", which skips panning too: with equal
 				// minimum and maximum distances its inverse model returns exactly 1. No doppler until
 				// Sounds author it.
-				ma_sound_set_attenuation_model(&leaf.Sound, ma_attenuation_model_inverse);
-				ma_sound_set_min_distance(&leaf.Sound, 1.0f);
-				ma_sound_set_max_distance(&leaf.Sound, 1.0f);
-				ma_sound_set_doppler_factor(&leaf.Sound, 0.0f);
+				ma_sound_set_attenuation_model(leaf.Sound.get(), ma_attenuation_model_inverse);
+				ma_sound_set_min_distance(leaf.Sound.get(), 1.0f);
+				ma_sound_set_max_distance(leaf.Sound.get(), 1.0f);
+				ma_sound_set_doppler_factor(leaf.Sound.get(), 0.0f);
 			}
 			return MA_SUCCESS;
 		}
@@ -593,7 +588,7 @@ namespace Lux {
 			ma_uint64 frame = static_cast<ma_uint64>(std::max(0, milliseconds)) * leaf.ClipSampleRate / 1000;
 			if (leaf.ClipFrames)
 				frame = leaf.Loop ? frame % leaf.ClipFrames : std::min(frame, leaf.ClipFrames);
-			ma_sound_seek_to_pcm_frame(&leaf.Sound, frame);
+			ma_sound_seek_to_pcm_frame(leaf.Sound.get(), frame);
 		}
 
 		// The longest clip the sound can play, in milliseconds, from the files' headers.
@@ -926,7 +921,7 @@ namespace Lux {
 			return std::max(m_Impl->PendingTimeline, 0);
 		Leaf& leaf = *m_Impl->Leaves.front();
 		ma_uint64 cursor = 0;
-		if (!CheckResult(ma_sound_get_cursor_in_pcm_frames(&leaf.Sound, &cursor), "get timeline position"))
+		if (!CheckResult(ma_sound_get_cursor_in_pcm_frames(leaf.Sound.get(), &cursor), "get timeline position"))
 			return 0;
 		return LeafMilliseconds(leaf, cursor);
 	}
@@ -1036,7 +1031,7 @@ namespace Lux {
 			for (auto& leaf : voice.Leaves)
 			{
 				if (result == MA_SUCCESS && !voice.Paused)
-					result = ma_sound_start(&leaf->Sound);
+					result = ma_sound_start(leaf->Sound.get());
 			}
 		}
 		if (result != MA_SUCCESS)

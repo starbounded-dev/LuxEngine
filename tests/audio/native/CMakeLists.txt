@@ -58,6 +58,8 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Audio/Native/NativeAudioBackend.cpp"
     "${LUX_SOURCE}/Audio/Native/NativeAudioPerformance.cpp"
     "${LUX_SOURCE}/Audio/Native/NativeAudioFileUtils.cpp"
+    "${LUX_ROOT}/Core/vendor/MiniaudioCpp/src/MiniaudioWrappers.cpp"
+    "${LUX_ROOT}/Core/vendor/MiniaudioCpp/src/ErrorReporting.cpp"
     "${LUX_SOURCE}/Audio/AudioListener.cpp"
     "${LUX_SOURCE}/Audio/AudioPerformanceSettings.cpp"
     "${LUX_SOURCE}/Audio/AudioBankManifest.cpp"
@@ -84,6 +86,7 @@ target_include_directories(lux_native_backend_tests PRIVATE
     "${LUX_ROOT}/Core/vendor" # choc, as StringUtils.cpp includes it
     "${MINIAUDIO_ROOT}"
     "${LUX_ROOT}/Core/vendor/soundwave/include"
+    "${LUX_ROOT}/Core/vendor/MiniaudioCpp/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_compile_definitions(lux_native_backend_tests PRIVATE
     SPDLOG_USE_STD_FORMAT NOMINMAX _CRT_SECURE_NO_WARNINGS LUX_DEBUG

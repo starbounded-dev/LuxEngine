@@ -1053,7 +1053,12 @@ folder does. Its private headers are `NativeInternal.h` (engine access, Sound re
 set, voice registry) and `Miniaudio.h`, the only way native code includes miniaudio: it sets
 `MA_ENGINE_MAX_LISTENERS` to 8 (one per engine listener slot), which changes miniaudio's struct
 sizes, so every unit must agree. `MiniaudioImplementation.c` is miniaudio's single implementation
-unit (with stb_vorbis). `AudioEngine::Init` takes the active project's budgets
+unit (with stb_vorbis). Ownership goes through MiniaudioCpp (`Core/vendor/MiniaudioCpp`, ISC, compiled
+into Core only with the native backend; its headers also include `Miniaudio.h`): the engine is a
+`JPL::Engine`, each clip's voice node a `JPL::TBaseNode<VoiceNode>` and its sound a `CResource`,
+so releasing a leaf uninitializes the sound before its node. `AudioEngine::Init` points the wrapper's
+globals at the engine (`GetMiniaudioEngine`, `gEngineAllocationCallbacks`) and routes its trace and
+failed checks to the `Audio` log; custom processing nodes for later mixer work derive the same way. `AudioEngine::Init` takes the active project's budgets
 (`NativeAudioEngineConfig.cpp`) and starts `ma_engine` on the default device, with a resource manager
 that has no miniaudio job threads and decodes to float (16-bit decoded data loses the last 192 frames
 of every clip in miniaudio 0.11.25): a clip is decoded on the main thread the first time it plays and

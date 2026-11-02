@@ -218,6 +218,10 @@ Dependencies = {
 	Miniaudio = AudioBackend == "native" and {
 		IncludeDir = "%{wks.location}/Core/vendor/miniaudio",
 	} or nil,
+	-- C++ wrappers over miniaudio (ISC), compiled into Core with the native backend.
+	MiniaudioCpp = AudioBackend == "native" and {
+		IncludeDir = "%{wks.location}/Core/vendor/MiniaudioCpp/include",
+	} or nil,
 	ACL = {
 		IncludeDir = "%{wks.location}/Core/vendor/acl/include"
 	},

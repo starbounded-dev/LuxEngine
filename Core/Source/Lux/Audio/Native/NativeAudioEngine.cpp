@@ -10,6 +10,8 @@
 #include "NativeInternal.h"
 #include "Miniaudio.h"
 
+#include <MiniaudioCpp/MiniaudioWrappers.h>
+
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -21,7 +23,7 @@ namespace Lux {
 	namespace {
 
 		ma_resource_manager s_ResourceManager;
-		ma_engine s_Engine;
+		JPL::Engine s_Engine; // empty until Init; the wrapper's nodes reach it through JPL::GetMiniaudioEngine
 		bool s_EngineReady = false;
 		// Runs the resource manager's jobs, which only streamed Sounds post: reading the next pages of
 		// a stream from disk, and opening and closing streams. Stopped by Shutdown, or at exit when the
@@ -72,7 +74,7 @@ namespace Lux {
 		{
 			if (!s_EngineReady)
 				return;
-			const ma_result result = ma_engine_set_volume(&s_Engine, s_MasterMuted || s_FocusMuted ? 0.0f : s_MasterVolume);
+			const ma_result result = ma_engine_set_volume(s_Engine.get(), s_MasterMuted || s_FocusMuted ? 0.0f : s_MasterVolume);
 			if (result != MA_SUCCESS)
 				LUX_CORE_ERROR_TAG("Audio", "Cannot set the master output volume: {}", ma_result_description(result));
 		}
@@ -104,7 +106,7 @@ namespace Lux {
 
 	ma_engine* NativeInternal::GetEngine()
 	{
-		return s_EngineReady ? &s_Engine : nullptr;
+		return s_EngineReady ? s_Engine.get() : nullptr;
 	}
 
 	const NativeInternal::ListenerSet& NativeInternal::GetListeners()
@@ -145,13 +147,26 @@ namespace Lux {
 		engine.noDevice = config.NoDevice ? MA_TRUE : MA_FALSE;
 		engine.channels = config.Channels;
 		engine.sampleRate = config.SampleRate;
-		result = ma_engine_init(&engine, &s_Engine);
+		result = s_Engine.emplace(&engine);
 		if (result != MA_SUCCESS)
 		{
+			Scope<ma_engine>(s_Engine.release()); // never initialized, so it must not be uninitialized
 			LUX_CORE_ERROR_TAG("Audio", "Failed to initialize the native audio engine: {}", ma_result_description(result));
 			ma_resource_manager_uninit(&s_ResourceManager);
 			return;
 		}
+		JPL::GetMiniaudioEngine = [](void*) -> JPL::Engine& { return s_Engine; };
+		// The wrapper allocates its nodes through these; empty callbacks make every allocation fail.
+		JPL::gEngineAllocationCallbacks = s_Engine->allocationCallbacks;
+		JPL::Trace = [](const char* message) { LUX_CORE_INFO_TAG("Audio", "MiniaudioCpp: {}", message); };
+#if defined(JPL_ENABLE_ASSERTS) || defined(JPL_ENABLE_ENSURE)
+		// Logged, never a breakpoint: the wrapper's checks report failures the caller then handles.
+		JPL::McppAssertFailed = [](const char* expression, const char* message, const char* file, JPL::uint line)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "MiniaudioCpp check failed: {} {} ({}:{})", expression, message ? message : "", file, line);
+			return false;
+		};
+#endif
 		s_Streaming.Start();
 
 		s_EngineReady = true;
@@ -162,13 +177,13 @@ namespace Lux {
 		s_ReportedBanks = false;
 		s_Listeners = {};
 		for (uint32_t index = 0; index < AudioListener::MaxListeners; ++index)
-			ma_engine_listener_set_enabled(&s_Engine, index, index == 0 ? MA_TRUE : MA_FALSE);
+			ma_engine_listener_set_enabled(s_Engine.get(), index, index == 0 ? MA_TRUE : MA_FALSE);
 		ApplyEndpointVolume();
 
 		// Logged on success too: "did audio come up, and with what" is the first question when a
 		// project is silent.
 		LUX_CORE_INFO_TAG("Audio", "Native audio (miniaudio {}) initialized ({} Hz, {} channels{})", MA_VERSION_STRING,
-			ma_engine_get_sample_rate(&s_Engine), ma_engine_get_channels(&s_Engine), config.NoDevice ? ", no device" : "");
+			ma_engine_get_sample_rate(s_Engine.get()), ma_engine_get_channels(s_Engine.get()), config.NoDevice ? ", no device" : "");
 	}
 
 	void AudioEngine::Shutdown()
@@ -187,7 +202,7 @@ namespace Lux {
 		if (s_EngineReady)
 		{
 			s_Streaming.Stop();
-			ma_engine_uninit(&s_Engine);
+			s_Engine.clear();
 			ma_resource_manager_uninit(&s_ResourceManager);
 			s_EngineReady = false;
 		}
@@ -203,7 +218,7 @@ namespace Lux {
 		stats.VersionMajor = MA_VERSION_MAJOR;
 		stats.VersionMinor = MA_VERSION_MINOR;
 		stats.VersionPatch = MA_VERSION_REVISION;
-		stats.SampleRate = static_cast<int>(ma_engine_get_sample_rate(&s_Engine));
+		stats.SampleRate = static_cast<int>(ma_engine_get_sample_rate(s_Engine.get()));
 		// Mixer CPU and memory are not measured yet, so report them as unavailable rather than zero.
 		stats.HasMixerStats = false;
 		stats.PlayingEventInstances = NativeInternal::CountPlayingVoices();
@@ -383,13 +398,13 @@ namespace Lux {
 		{
 			const auto& state = listeners[index];
 			const bool active = isActive(state);
-			ma_engine_listener_set_enabled(&s_Engine, index, active ? MA_TRUE : MA_FALSE);
+			ma_engine_listener_set_enabled(s_Engine.get(), index, active ? MA_TRUE : MA_FALSE);
 			if (!active)
 				continue;
-			ma_engine_listener_set_position(&s_Engine, index, state.Position.x, state.Position.y, state.Position.z);
-			ma_engine_listener_set_direction(&s_Engine, index, state.Forward.x, state.Forward.y, state.Forward.z);
-			ma_engine_listener_set_world_up(&s_Engine, index, state.Up.x, state.Up.y, state.Up.z);
-			ma_engine_listener_set_velocity(&s_Engine, index, state.Velocity.x, state.Velocity.y, state.Velocity.z);
+			ma_engine_listener_set_position(s_Engine.get(), index, state.Position.x, state.Position.y, state.Position.z);
+			ma_engine_listener_set_direction(s_Engine.get(), index, state.Forward.x, state.Forward.y, state.Forward.z);
+			ma_engine_listener_set_world_up(s_Engine.get(), index, state.Up.x, state.Up.y, state.Up.z);
+			ma_engine_listener_set_velocity(s_Engine.get(), index, state.Velocity.x, state.Velocity.y, state.Velocity.z);
 			auto& listener = s_Listeners.Listeners[s_Listeners.Count++];
 			listener.Index = index;
 			// Normalized like the FMOD bridge, so weights sum to 1 and a lone listener counts in full.
@@ -401,11 +416,11 @@ namespace Lux {
 		// stale position behind.
 		if (s_Listeners.Count == 0)
 		{
-			ma_engine_listener_set_enabled(&s_Engine, 0, MA_TRUE);
-			ma_engine_listener_set_position(&s_Engine, 0, 0.0f, 0.0f, 0.0f);
-			ma_engine_listener_set_direction(&s_Engine, 0, 0.0f, 0.0f, -1.0f);
-			ma_engine_listener_set_world_up(&s_Engine, 0, 0.0f, 1.0f, 0.0f);
-			ma_engine_listener_set_velocity(&s_Engine, 0, 0.0f, 0.0f, 0.0f);
+			ma_engine_listener_set_enabled(s_Engine.get(), 0, MA_TRUE);
+			ma_engine_listener_set_position(s_Engine.get(), 0, 0.0f, 0.0f, 0.0f);
+			ma_engine_listener_set_direction(s_Engine.get(), 0, 0.0f, 0.0f, -1.0f);
+			ma_engine_listener_set_world_up(s_Engine.get(), 0, 0.0f, 1.0f, 0.0f);
+			ma_engine_listener_set_velocity(s_Engine.get(), 0, 0.0f, 0.0f, 0.0f);
 			s_Listeners.Listeners[0] = {};
 			s_Listeners.Count = 1;
 		}

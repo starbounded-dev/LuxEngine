@@ -49,6 +49,7 @@ Permissive open-source components
   ImGuizmo                             MIT       Copyright (c) 2016 Cedric Guillemet
   Jolt Physics                         MIT       Copyright (c) 2021 Jorrit Rouwe
   magic_enum                           MIT       Copyright (c) 2019-2022 Daniil Goncharov
+  MiniaudioCpp                         ISC       Copyright (c) 2024 Jaroslav Pevno
   msdf-atlas-gen / msdfgen             MIT       Copyright (c) 2020 Viktor Chlumsky
   FreeType (via msdfgen)               FTL       Copyright (c) 1996-2023 David Turner, Robert Wilhelm, Werner Lemberg
   Native File Dialog Extended          zlib      Copyright (c) Bernard Teo, Michael Labbe
