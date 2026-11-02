@@ -47,10 +47,11 @@ namespace Lux
 		return true;
 	}
 
-	bool MusicDirector::Activate(Ref<AudioEventInstance> instance)
+	bool MusicDirector::Activate(Ref<AudioEventInstance> instance, bool alreadyStarted)
 	{
 		if (!instance || !instance->IsValid())
 			return false;
+		m_PendingScheduled = false;
 		// Commands are ordered: the old bed stops before the new one starts, with no overlapping fade.
 		if (m_Bed)
 			m_Bed->Stop(false);
@@ -59,12 +60,20 @@ namespace Lux
 		m_Stopping = false;
 		m_RetryRevision = AudioEngine::GetBankRevision();
 		m_Beat = m_Bar = 0;
-		if (!m_Bed->Start())
+		if (!alreadyStarted && !m_Bed->Start())
 		{
 			Stop(false);
 			return false;
 		}
 		return true;
+	}
+
+	void MusicDirector::CancelPending()
+	{
+		if (m_PendingScheduled && m_Bed && m_Bed->IsValid())
+			m_Bed->StopAt(UINT64_MAX);
+		m_PendingScheduled = false;
+		m_Pending = nullptr;
 	}
 
 	bool MusicDirector::Play(const std::string& reference)
@@ -118,7 +127,7 @@ namespace Lux
 		m_State = state;
 		// A pending bed must also accept new gameplay state before it can replace the current bed.
 		if (m_Pending && !m_Pending->SetParameterLabel("State", state))
-			m_Pending = nullptr;
+			CancelPending();
 		return true;
 	}
 
@@ -184,9 +193,19 @@ namespace Lux
 		auto instance = Prepare(reference, false);
 		if (!instance)
 			return false;
+		CancelPending(); // a newer request replaces a queued one
 		m_Pending = std::move(instance);
 		m_Sync = sync;
 		m_TransitionAfterSequence = m_Bed->GetTimelineSequence();
+		// Where the backend can schedule on its audio clock (native), the switch lands on the boundary's
+		// exact sample; otherwise the boundary notification below switches beds.
+		m_PendingScheduled = false;
+		if (const uint64_t at = m_Bed->GetNextSyncTime(sync); at && m_Pending->StartAt(at))
+		{
+			m_Bed->StopAt(at);
+			m_PendingScheduled = true;
+			m_PendingStartTime = at;
+		}
 		return true;
 	}
 
@@ -202,7 +221,7 @@ namespace Lux
 			if (!m_Pending->IsValid())
 			{
 				LUX_CORE_WARN_TAG("Audio", "Cancelled queued music transition after bank unload");
-				m_Pending = nullptr;
+				CancelPending();
 			}
 			else
 				m_Pending->SetScenePaused(paused);
@@ -226,6 +245,15 @@ namespace Lux
 			m_Bed->DrainTimelineNotifications();
 			if (!m_Bed->IsPlaying())
 				m_Bed = nullptr;
+			return;
+		}
+		// A scheduled switch has happened on the audio clock once its time passes; take it over then,
+		// before the stopped bed counts as ended, and whatever the boundary notification's timing.
+		if (m_Pending && m_PendingScheduled && m_Bed->GetEngineTime() >= m_PendingStartTime)
+		{
+			m_Bed->DrainTimelineNotifications();
+			auto next = std::move(m_Pending);
+			Activate(std::move(next), true);
 			return;
 		}
 		if (!m_Bed->IsPlaying())
@@ -267,7 +295,7 @@ namespace Lux
 				break;
 			const bool boundary = (notification.IsBeat && (m_Sync == MusicSync::NextBeat || (m_Sync == MusicSync::NextBar && notification.Beat == 1))) ||
 				(!notification.IsBeat && (m_Sync == MusicSync::NextMarker || (m_Sync == MusicSync::NextSection && notification.Marker.starts_with(kSectionPrefix))));
-			if (m_Pending && boundary && notification.Sequence > m_TransitionAfterSequence)
+			if (m_Pending && !m_PendingScheduled && boundary && notification.Sequence > m_TransitionAfterSequence)
 			{
 				auto next = std::move(m_Pending);
 				Activate(std::move(next));

@@ -650,8 +650,8 @@ work natively, with transitions more precise than today.
 **Status — 6a done:** tempo map and markers on Sounds (Sound Editor "Music" section), native
 beat/bar/marker notifications from the cursor, and a native test that drives `MusicDirector`
 through a NextBar transition. Left: the timeline view (waveform grid, draggable markers, test
-transition), sample-accurate transitions with `ma_sound_set_start_time_in_pcm_frames`, and porting
-the FMOD music tests. Loop regions now wrap the timeline (tested).
+transition) and porting the FMOD music tests. Sample-accurate transitions are done: the next bed's
+first sample lands within 1 sample of the bar line (native test). Loop regions now wrap the timeline (tested).
 
 ### Phase 7 — Dialogue and subtitles
 

@@ -49,6 +49,8 @@ namespace Lux {
 		int Error = 0;
 	};
 
+	enum class MusicSync { Immediate, NextBeat, NextBar, NextMarker, NextSection };
+
 	class AudioEventInstance : public RefCounted
 	{
 	public:
@@ -97,6 +99,14 @@ namespace Lux {
 		// Native: every clip of this instance's Sound plays this audio asset instead (a dialogue line's
 		// translation), set before Start. The FMOD build refuses it; it uses SetProgrammerSound.
 		bool SetClipOverride(UUID clip);
+		// Sample-accurate music switches (native): the engine time, in output frames, of this playing
+		// instance's next sync boundary (from its Sound's tempo map and markers), or 0 when the backend
+		// cannot tell or none lies ahead. StartAt starts it with playback beginning at that time; StopAt
+		// ends a playing instance there. The FMOD build answers 0 and refuses both.
+		uint64_t GetNextSyncTime(MusicSync sync) const;
+		uint64_t GetEngineTime() const;
+		bool StartAt(uint64_t engineTime);
+		bool StopAt(uint64_t engineTime);
 		AudioPlaybackStatus GetPlaybackStatus() const;
 		bool Start();
 		void Stop(bool allowFadeOut = true);

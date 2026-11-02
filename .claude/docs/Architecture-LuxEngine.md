@@ -1085,7 +1085,11 @@ beats from 1, as FMOD) and markers between the last reported cursor of its first
 current one, on the main thread when `DrainTimelineNotifications` or `GetTimelineSequence` runs; the
 latter catches up first, so `MusicDirector` transitions count only events after the request. A
 cursor behind the last means the clip looped (a beat on the clip's end is the next loop's first).
-Transitions are still applied on the main thread at the drain that sees the boundary.
+Synchronized transitions are sample-accurate on native: `QueueTransition` asks the bed for
+`GetNextSyncTime` (the boundary on the engine clock, from the position heard since its first sample;
+the clip cursor reads ahead of the output) and schedules `StartAt`/`StopAt` there; `Update` takes the
+new bed over once the time passes, before the stopped bed counts as ended. Cancelling a queued
+transition takes the bed's scheduled stop back. FMOD reports no time and keeps the drain-time switch.
 **Native dialogue (Phase 7a):** `DialogueTranslation::Clip` (an audio asset, YAML `Clip`) is the native
 counterpart of `AudioKey`. `DialogueDirector` calls `AudioEventInstance::SetClipOverride` on native
 (every clip node of the line's Sound plays that asset; refused after Start and by FMOD) and

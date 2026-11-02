@@ -1086,8 +1086,41 @@ namespace
 		CHECK(director.GetReference() == b);
 		director.Stop(false);
 		director.Clear();
+
+		// Sample-accurate: the next bed's first sample lands on the bar line, scheduled on the audio
+		// clock, whenever the main thread notices. The first bed is silent and the next a sine from 0, so
+		// its first nonzero sample is its second: the plan's bound of 1 sample allows it at most 2 frames
+		// after the boundary (measured: 2).
+		const auto silent = AddSound(WriteTone("music-silent.wav", 500.0, 4.0, 0.0), [](Sound& s)
+		{
+			s.Nodes[0].Loop = true;
+			s.Spatial.Enabled = false;
+			s.Tempo = { 120.0f, 4, 4, 0.0f };
+		});
+		MusicDirector precise;
+		CHECK(precise.Play(silent));
+		std::vector<float> recorded;
+		const auto record = [&](double seconds)
+		{
+			while (recorded.size() / 2 < static_cast<size_t>(seconds * kRate))
+			{
+				const auto pcm = Render(kBlock);
+				recorded.insert(recorded.end(), pcm.begin(), pcm.end());
+				precise.Update(false);
+			}
+		};
+		record(0.7);
+		CHECK(precise.QueueTransition(b, MusicSync::NextBar));
+		record(2.2);
+		CHECK(precise.GetReference() == b);
+		size_t first = 0;
+		while (first < recorded.size() / 2 && std::abs(recorded[first * 2]) < 1e-6f)
+			++first;
+		const auto target = static_cast<size_t>(2.0 * kRate);
+		CHECK(first >= target && first <= target + 2);
+		precise.Clear();
 		AudioEngine::Shutdown();
-		std::puts("PASS: music timeline: tempo map YAML, beats and markers from the cursor, sequence before drain, loop wrap, NextBar transition on the bar line");
+		std::puts("PASS: music timeline: tempo map YAML, beats and markers from the cursor, sequence before drain, loop wrap, NextBar transition on the bar line, sample-accurate switch");
 	}
 
 	void TestDialogueClips()

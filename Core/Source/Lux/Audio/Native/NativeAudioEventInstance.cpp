@@ -158,6 +158,9 @@ namespace Lux {
 			uint64_t SnapshotId = 0;             // a mixer snapshot instead of a Sound: no leaves, never ends
 			uint64_t ClipOverride = 0;           // an audio asset every clip node plays instead (SetClipOverride)
 			bool Virtual = false;                // over the voice budget: stopped, its time still passing
+			ma_uint64 ScheduledStart = 0;        // StartAt: the engine time the next Start begins playing at
+			ma_uint64 ScheduledStop = 0;         // StopAt: the engine time playback ends; 0 is none
+			ma_uint64 StartEngineTime = 0;       // the engine time its first sample plays at
 			ma_uint64 VirtualSince = 0;          // engine time (frames) when it went virtual
 			// Music timeline (EnableTimelineNotifications): beats and markers from the Sound's tempo map,
 			// found from the first clip's cursor on the main thread.
@@ -284,6 +287,8 @@ namespace Lux {
 		{
 			if (voice.SnapshotId || voice.Virtual)
 				return false; // a virtual voice ends when ApplyVoiceBudget finds its time has run out
+			if (voice.ScheduledStop && ma_engine_get_time_in_pcm_frames(NativeInternal::GetEngine()) >= voice.ScheduledStop)
+				return true;
 			return std::all_of(voice.Leaves.begin(), voice.Leaves.end(), [](const Scope<Leaf>& leaf) { return LeafAtEnd(*leaf); });
 		}
 
@@ -1146,6 +1151,95 @@ namespace Lux {
 		return CheckResult(MA_NOT_IMPLEMENTED, "programmer sound (the native backend plays dialogue through clip overrides)");
 	}
 
+	uint64_t AudioEventInstance::GetEngineTime() const
+	{
+		ma_engine* engine = NativeInternal::GetEngine();
+		return engine ? ma_engine_get_time_in_pcm_frames(engine) : 0;
+	}
+
+	uint64_t AudioEventInstance::GetNextSyncTime(MusicSync sync) const
+	{
+		if (!IsValid() || !m_Impl->Started || m_Impl->Leaves.empty() || sync == MusicSync::Immediate)
+			return 0;
+		const Sound& sound = *m_Impl->Definition;
+		const Leaf& leaf = *m_Impl->Leaves.front();
+		ma_engine* engine = NativeInternal::GetEngine();
+		const ma_uint64 engineNow = ma_engine_get_time_in_pcm_frames(engine);
+		if (!leaf.ClipSampleRate || engineNow < m_Impl->StartEngineTime || m_Impl->Paused)
+			return 0;
+		// The position heard now, from the engine clock since the first sample: the clip's cursor runs
+		// ahead of the output by the node graph's read-ahead, which would land the switch early.
+		const double rate = leaf.ClipSampleRate;
+		const double end = static_cast<double>(leaf.LoopEnd ? leaf.LoopEnd : leaf.ClipFrames) / rate;
+		const double begin = static_cast<double>(leaf.LoopBegin) / rate;
+		const double pitch = std::max(ma_sound_get_pitch(leaf.Sound.get()), 0.01f);
+		double now = leaf.StartOffset + static_cast<double>(engineNow - m_Impl->StartEngineTime) / ma_engine_get_sample_rate(engine) * pitch;
+		if (leaf.Loop && now >= end && end > begin)
+			now = begin + std::fmod(now - end, end - begin);
+		// The first boundary in (from, to], or a negative time.
+		const auto first = [&](double from, double to)
+		{
+			double best = -1.0;
+			if ((sync == MusicSync::NextBeat || sync == MusicSync::NextBar) && sound.Tempo.BPM > 0.0f)
+			{
+				const double spacing = 60.0 / sound.Tempo.BPM;
+				const int64_t stride = sync == MusicSync::NextBar ? sound.Tempo.BeatsPerBar : 1;
+				int64_t beat = std::max<int64_t>(0, static_cast<int64_t>(std::floor((from - sound.Tempo.Offset) / spacing)) + 1);
+				beat = (beat + stride - 1) / stride * stride;
+				const double time = sound.Tempo.Offset + static_cast<double>(beat) * spacing;
+				if (time > from && time <= to)
+					best = time;
+			}
+			for (const SoundMarker& marker : sound.Markers)
+			{
+				const bool counts = sync == MusicSync::NextMarker || (sync == MusicSync::NextSection && marker.Name.starts_with("Section:"));
+				if (counts && marker.Seconds > from && marker.Seconds <= to && (best < 0.0 || marker.Seconds < best))
+					best = marker.Seconds;
+			}
+			return best;
+		};
+		double ahead = first(now, end - 1.0e-9);
+		if (ahead >= 0.0)
+			ahead -= now;
+		else if (leaf.Loop)
+		{
+			// Past the loop's end: the first boundary after it wraps.
+			const double wrapped = first(begin > 0.0 ? begin - 1.0e-9 : -1.0, now);
+			if (wrapped < 0.0)
+				return 0;
+			ahead = (end - now) + (wrapped - begin);
+		}
+		else
+			return 0;
+		return engineNow + static_cast<uint64_t>(std::llround(ahead / pitch * ma_engine_get_sample_rate(engine)));
+	}
+
+	bool AudioEventInstance::StartAt(uint64_t engineTime)
+	{
+		if (!IsValid() || m_Impl->SnapshotId)
+			return false;
+		const bool started = Start();
+		// Start cleared the schedule, so playback timing is set on the leaves it just created.
+		if (started)
+		{
+			for (auto& leaf : m_Impl->Leaves)
+				ma_sound_set_start_time_in_pcm_frames(leaf->Sound.get(), engineTime);
+			m_Impl->ScheduledStart = engineTime;
+			m_Impl->StartEngineTime = engineTime;
+		}
+		return started;
+	}
+
+	bool AudioEventInstance::StopAt(uint64_t engineTime)
+	{
+		if (!IsValid() || !m_Impl->Started || m_Impl->SnapshotId)
+			return false;
+		for (auto& leaf : m_Impl->Leaves)
+			ma_sound_set_stop_time_in_pcm_frames(leaf->Sound.get(), engineTime);
+		m_Impl->ScheduledStop = engineTime == UINT64_MAX ? 0 : engineTime; // UINT64_MAX takes a scheduled stop back
+		return true;
+	}
+
 	bool AudioEventInstance::SetClipOverride(UUID clip)
 	{
 		if (!IsValid() || m_Impl->SnapshotId || m_Impl->Started)
@@ -1391,6 +1485,8 @@ namespace Lux {
 			RefreshVoice(voice);
 			for (auto& leaf : voice.Leaves)
 			{
+				if (voice.ScheduledStart)
+					ma_sound_set_start_time_in_pcm_frames(leaf->Sound.get(), voice.ScheduledStart);
 				if (result == MA_SUCCESS && !voice.Paused)
 					result = ma_sound_start(leaf->Sound.get());
 			}
@@ -1408,6 +1504,7 @@ namespace Lux {
 		voice.TimelineQueue.clear();
 		voice.TimelineSeconds = -1.0;
 		voice.Virtual = false;
+		voice.ScheduledStart = voice.ScheduledStop = 0;
 		if (!voice.Leaves.empty() && voice.Leaves.front()->ClipSampleRate)
 		{
 			ma_uint64 cursor = 0;
@@ -1415,6 +1512,7 @@ namespace Lux {
 				voice.TimelineSeconds = static_cast<double>(cursor) / voice.Leaves.front()->ClipSampleRate - 1.0e-6;
 		}
 		voice.Started = true;
+		voice.StartEngineTime = ma_engine_get_time_in_pcm_frames(engine);
 		voice.StartOrder = ++s_StartOrder;
 		if (voice.SoundHandle)
 			s_LastStart[voice.SoundHandle] = now;

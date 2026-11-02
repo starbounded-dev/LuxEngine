@@ -488,6 +488,11 @@ namespace Lux {
 		return ConfigureCallbacks(0, false);
 	}
 
+	uint64_t AudioEventInstance::GetNextSyncTime(MusicSync) const { return 0; }
+	uint64_t AudioEventInstance::GetEngineTime() const { return 0; }
+	bool AudioEventInstance::StartAt(uint64_t) { return false; }
+	bool AudioEventInstance::StopAt(uint64_t) { return false; }
+
 	bool AudioEventInstance::SetClipOverride(UUID)
 	{
 		return CheckResult(FMOD_ERR_UNSUPPORTED, "clip override (the FMOD build plays dialogue through audio-table keys)");
