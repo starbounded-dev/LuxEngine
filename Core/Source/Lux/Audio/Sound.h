@@ -70,6 +70,9 @@ namespace Lux
 		float Maximum = 1.0f;
 		float Default = 0.0f;
 		std::vector<std::string> Labels;
+		// One value for every Sound, set by AudioEngine::SetGlobalParameter (as an FMOD global
+		// parameter); Default until it is set. Instances cannot set it.
+		bool Global = false;
 
 		bool IsLabeled() const { return !Labels.empty(); }
 		bool operator==(const SoundParameter&) const = default;

@@ -314,8 +314,14 @@ namespace Lux
 			return;
 		for (const auto& [name, value] : document.AuditionValues)
 		{
-			if (copy->FindParameter(name))
-				m_Audition->SetParameter(name, value);
+			if (const SoundParameter* parameter = copy->FindParameter(name))
+			{
+				// A global parameter has one engine-wide value; the audition sets that.
+				if (parameter->Global)
+					AudioEngine::SetGlobalParameter(name, value);
+				else
+					m_Audition->SetParameter(name, value);
+			}
 		}
 		m_AuditionSound = document.Handle;
 		if (!m_Audition->Start())
@@ -349,7 +355,11 @@ namespace Lux
 	void SoundEditorPanel::SetAuditionParameter(Document& document, const std::string& name, float value)
 	{
 		document.AuditionValues[name] = value;
-		if (m_Audition && m_AuditionSound == document.Handle && m_Audition->IsValid())
+		const Ref<Sound> sound = AssetManager::GetAsset<Sound>(document.Handle);
+		const SoundParameter* parameter = sound ? sound->FindParameter(name) : nullptr;
+		if (parameter && parameter->Global)
+			AudioEngine::SetGlobalParameter(name, value);
+		else if (m_Audition && m_AuditionSound == document.Handle && m_Audition->IsValid())
 			m_Audition->SetParameter(name, value);
 	}
 
@@ -745,6 +755,7 @@ namespace Lux
 				parameter.Name = name;
 				edited = true;
 			}
+			edited |= ImGuiEx::Property("Global", parameter.Global, "One value shared by every Sound with a global parameter of this name, set by game code with Audio.SetGlobalParameter (such as time of day). Instances cannot set it.", false);
 			bool labelled = parameter.IsLabeled();
 			if (ImGuiEx::Property("Labelled", labelled, "Labelled parameters take one of a list of names, such as surfaces; Switch nodes pick children by them.", false))
 			{

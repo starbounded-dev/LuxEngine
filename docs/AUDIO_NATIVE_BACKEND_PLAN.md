@@ -563,7 +563,9 @@ meters.
   with undo and a live preview.
 - **4d effects:** per-bus chains of low-pass, high-pass, peaking EQ (miniaudio nodes), delay and
   compressor (our own nodes), edited in the Audio Mixer panel; offline-render tests for each.
-- **Left:** VCAs and global parameters, `ClearBusVolume` (script values over
+- **4e VCAs and globals:** mixer VCAs over bus groups; `SoundParameter::Global` with
+  `SetGlobalParameter` (Sound Editor "Global" checkbox).
+- **Left:** `ClearBusVolume` (script values over
   snapshots), runtime format 26, and porting the zone tests (the snapshot test drives the zone's call
   sequence directly).
 

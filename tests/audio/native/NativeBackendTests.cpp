@@ -787,6 +787,66 @@ namespace
 		std::puts("PASS: bus effects: validation and YAML, low/high-pass, peaking EQ, bypass, compressor and makeup, delay echo");
 	}
 
+	void TestVCAsAndGlobals()
+	{
+		// Settings: vca:/ plus one unique name, listing existing buses once each.
+		AudioMixerSettings settings;
+		settings.VCAs = { { "vca:/World", { "bus:/SFX", "bus:/Ambience" } } };
+		CHECK(settings.Validate());
+		Yaml::Writer out;
+		settings.SerializeYAML(out);
+		AudioMixerSettings loaded;
+		CHECK(loaded.DeserializeYAML(Yaml::Load(out.c_str())) && loaded == settings);
+		for (const AudioMixerVCA& bad : { AudioMixerVCA{ "vca:/" }, AudioMixerVCA{ "World" }, AudioMixerVCA{ "vca:/A/B" }, AudioMixerVCA{ "vca:/X", { "bus:/Nope" } },
+			AudioMixerVCA{ "vca:/X", { "bus:/SFX", "bus:/SFX" } } })
+		{
+			settings.VCAs = { bad };
+			CHECK(!settings.Validate());
+		}
+
+		// A VCA scales its buses only, on top of each bus's own volume.
+		s_Mixer.VCAs = { { "vca:/World", { "bus:/SFX" } } };
+		Start();
+		const auto tone = WriteTone("vca.wav", 500.0, 1.0);
+		const auto onBus = [&](const char* bus) { return AddSound(tone, [bus](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Bus = bus; }); };
+		const auto sfx = onBus("bus:/SFX"), music = onBus("bus:/Music");
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		const double full = PlayAt(sfx, front).Left;
+		CHECK(AudioEngine::SetVCAVolume("vca:/World", 0.5f));
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 0.5, 2e-3);
+		CHECK_NEAR(PlayAt(music, front).Left / full, 1.0, 1e-3);
+		CHECK(AudioEngine::SetBusVolume("bus:/SFX", 0.5f));
+		CHECK_NEAR(PlayAt(sfx, front).Left / full, 0.25, 2e-3);
+		CHECK(!AudioEngine::SetVCAVolume("vca:/Missing", 0.5f));
+
+		// A global parameter: one value for every Sound that marks a parameter of that name Global.
+		const auto global = [&](float minimum)
+		{
+			return AddSound(tone, [minimum](Sound& s)
+			{
+				s.Nodes[0].Loop = true;
+				s.Spatial.Enabled = false;
+				s.Parameters.push_back({ "TimeOfDay", minimum, 1.0f, 1.0f });
+				s.Parameters.back().Global = true;
+				s.Nodes[0].Curves.push_back({ "TimeOfDay", SoundCurveTarget::Volume, { { 0.0f, 0.0f }, { 1.0f, 1.0f } } });
+			});
+		};
+		const auto day = global(0.0f), clamped = global(0.5f);
+		CHECK_NEAR(PlayAt(day, front).Left / full, 1.0, 2e-3);                 // Default until set
+		CHECK(AudioEngine::SetGlobalParameter("timeofday", 0.25f) && AudioEngine::GetGlobalParameter("TimeOfDay") == 0.25f);
+		CHECK_NEAR(PlayAt(day, front).Left / full, 0.25, 2e-3);
+		CHECK_NEAR(PlayAt(clamped, front).Left / full, 0.5, 2e-3);             // held to this Sound's range
+		auto instance = Play(day, front);
+		CHECK(!instance->SetParameter("TimeOfDay", 1.0f) && instance->GetParameter("TimeOfDay") == 0.25f);
+		CHECK(AudioEngine::SetGlobalParameter("TimeOfDay", 1.0f));            // live on a playing voice
+		CHECK_NEAR(Measure().Left / full, 1.0, 2e-3);
+		instance->Stop(false);
+		AudioEngine::Shutdown();
+		CHECK(AudioEngine::GetGlobalParameter("TimeOfDay") == 0.0f);          // cleared with the engine
+		s_Mixer = {};
+		std::puts("PASS: VCAs over bus volume, global parameters across Sounds, range clamp, live change, instance writes refused");
+	}
+
 	void TestPauseLayering()
 	{
 		Start();
@@ -1289,6 +1349,7 @@ int main(int argc, char** argv)
 	TestMixer();
 	TestSnapshots();
 	TestEffects();
+	TestVCAsAndGlobals();
 	TestPauseLayering();
 	TestPlaybackLifecycle();
 	TestContainers();

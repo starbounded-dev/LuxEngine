@@ -429,6 +429,8 @@ namespace Lux
 				out << Yaml::Key << "Maximum" << Yaml::Value << parameter.Maximum;
 			}
 			out << Yaml::Key << "Default" << Yaml::Value << parameter.Default;
+			if (parameter.Global)
+				out << Yaml::Key << "Global" << Yaml::Value << true;
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;
@@ -541,6 +543,7 @@ namespace Lux
 							parameter.Maximum = entry["Maximum"].as<float>(parameter.Maximum);
 						}
 						parameter.Default = entry["Default"].as<float>(parameter.Minimum);
+						parameter.Global = entry["Global"].as<bool>(false);
 						parsed.Parameters.push_back(std::move(parameter));
 					}
 				}

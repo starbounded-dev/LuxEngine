@@ -213,6 +213,12 @@ namespace Lux {
 			uint64_t Order = 0; // start order, which breaks priority ties
 		};
 		std::vector<ActiveSnapshot> s_ActiveSnapshots;
+		struct VCA
+		{
+			std::vector<std::string> Buses;
+			float Volume = 1.0f;
+		};
+		std::map<std::string, VCA> s_VCAs;
 		uint64_t s_SnapshotOrder = 0;
 		// Runs the resource manager's jobs, which only streamed Sounds post: reading the next pages of
 		// a stream from disk, and opening and closing streams. Stopped by Shutdown, or at exit when the
@@ -301,6 +307,9 @@ namespace Lux {
 			}
 			if (winner)
 				volume += (winning->Volume - volume) * winner->Intensity;
+			for (const auto& [vcaPath, vca] : s_VCAs)
+				if (std::find(vca.Buses.begin(), vca.Buses.end(), path) != vca.Buses.end())
+					volume *= vca.Volume;
 			ma_sound_group_set_volume(bus.Group.get(), bus.Muted ? 0.0f : volume);
 		}
 
@@ -360,6 +369,8 @@ namespace Lux {
 				}
 			}
 			s_SnapshotDefinitions = mixer.Snapshots;
+			for (const AudioMixerVCA& vca : mixer.VCAs)
+				s_VCAs[vca.Path].Buses = vca.Buses;
 			// miniaudio's reverb (verblib, Freeverb-based) takes mono or stereo only.
 			const ma_uint32 channels = ma_engine_get_channels(engine);
 			if (channels > 2)
@@ -394,6 +405,8 @@ namespace Lux {
 		{
 			s_ActiveSnapshots.clear();
 			s_SnapshotDefinitions.clear();
+			s_VCAs.clear();
+			NativeInternal::ClearGlobalParameters();
 			s_Reverb.clear();
 			// Children before parents: a group detaches from its parent when it is uninitialized.
 			for (auto it = s_Buses.rbegin(); it != s_Buses.rend(); ++it)
@@ -662,25 +675,38 @@ namespace Lux {
 		return true;
 	}
 
-	bool AudioEngine::SetVCAVolume(const std::string& path, float)
+	bool AudioEngine::SetVCAVolume(const std::string& path, float volume)
 	{
-		if (s_ReportedBuses.insert(path).second)
-			LUX_CORE_WARN_TAG("Audio", "VCA '{}' does not exist: the native backend has no VCAs until it has a mixer", path);
-		return false;
+		if (!std::isfinite(volume))
+		{
+			LUX_CORE_ERROR_TAG("Audio", "VCA volume must be finite");
+			return false;
+		}
+		const auto vca = s_VCAs.find(path);
+		if (vca == s_VCAs.end())
+		{
+			if (s_ReportedBuses.insert(path).second)
+				LUX_CORE_WARN_TAG("Audio", "VCA '{}' is not in the project's mixer", path);
+			return false;
+		}
+		vca->second.Volume = std::max(volume, 0.0f);
+		ApplyBusVolumes();
+		return true;
 	}
 
-	bool AudioEngine::SetGlobalParameter(const std::string& name, float)
+	// Global parameters need no declaration: any Sound parameter marked Global with this name reads it.
+	bool AudioEngine::SetGlobalParameter(const std::string& name, float value)
 	{
-		if (s_ReportedBuses.insert("parameter:" + name).second)
-			LUX_CORE_WARN_TAG("Audio", "Global parameter '{}' does not exist: the native backend has no global parameters until it has a mixer", name);
-		return false;
+		if (!s_EngineReady || name.empty() || !std::isfinite(value))
+			return false;
+		NativeInternal::SetGlobalParameterValue(name, value);
+		NativeInternal::RefreshVoices();
+		return true;
 	}
 
 	float AudioEngine::GetGlobalParameter(const std::string& name)
 	{
-		if (s_ReportedBuses.insert("parameter:" + name).second)
-			LUX_CORE_WARN_TAG("Audio", "Global parameter '{}' does not exist: the native backend has no global parameters until it has a mixer", name);
-		return 0.0f;
+		return NativeInternal::GetGlobalParameterValue(name, 0.0f);
 	}
 
 	bool AudioEngine::SetBusVolume(const std::string& busPath, float volume)

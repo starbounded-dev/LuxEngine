@@ -102,6 +102,16 @@ namespace Lux {
 					return fail("snapshot '" + snapshot.Name + "' volume for '" + bus.Path + "' must be 0-4");
 			}
 		}
+		std::set<std::string> vcas;
+		for (const AudioMixerVCA& vca : VCAs)
+		{
+			if (vca.Path.size() <= 5 || vca.Path.rfind("vca:/", 0) != 0 || vca.Path.find('/', 5) != std::string::npos || !vcas.insert(vca.Path).second)
+				return fail("VCA '" + vca.Path + "' must be vca:/ and a unique name");
+			std::set<std::string> assigned;
+			for (const std::string& bus : vca.Buses)
+				if (bus == kMaster || !seen.contains(bus) || !assigned.insert(bus).second)
+					return fail("VCA '" + vca.Path + "' lists '" + bus + "', which is not a mixer bus or is listed twice");
+		}
 		return true;
 	}
 
@@ -177,6 +187,15 @@ namespace Lux {
 				out << Yaml::EndMap;
 			}
 			out << Yaml::EndSeq;
+			out << Yaml::EndMap;
+		}
+		out << Yaml::EndSeq;
+		out << Yaml::Key << "VCAs" << Yaml::Value << Yaml::BeginSeq;
+		for (const AudioMixerVCA& vca : VCAs)
+		{
+			out << Yaml::BeginMap;
+			out << Yaml::Key << "Path" << Yaml::Value << vca.Path;
+			out << Yaml::Key << "Buses" << Yaml::Value << vca.Buses;
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;
@@ -256,6 +275,20 @@ namespace Lux {
 								snapshot.Buses.push_back({ bus["Path"].as<std::string>(), bus["Volume"].as<float>(1.0f) });
 						}
 						parsed.Snapshots.push_back(std::move(snapshot));
+					}
+				}
+				if (const auto vcas = node["VCAs"])
+				{
+					if (!vcas.IsSequence())
+						throw std::runtime_error("VCAs must be a list");
+					for (const auto& entry : vcas)
+					{
+						AudioMixerVCA vca;
+						vca.Path = entry["Path"].as<std::string>();
+						if (const auto buses = entry["Buses"])
+							for (const auto& bus : buses)
+								vca.Buses.push_back(bus.as<std::string>());
+						parsed.VCAs.push_back(std::move(vca));
 					}
 				}
 			}

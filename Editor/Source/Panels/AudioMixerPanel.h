@@ -40,6 +40,7 @@ namespace Lux
 		void UI_SelectedBus(AudioMixerSettings& mixer);
 		void UI_Reverb(AudioMixerSettings& mixer);
 		void UI_Snapshots(AudioMixerSettings& mixer);
+		void UI_VCAs(AudioMixerSettings& mixer);
 		void StopPreview();
 
 		Ref<Project> m_Project;
@@ -53,6 +54,7 @@ namespace Lux
 		bool m_NeedsRestart = false;        // structural changes the running engine does not have yet
 		uint64_t m_SelectedSnapshot = 0;
 		int m_NewEffectType = 0;
+		char m_VCANameBuffer[64] = {};
 		char m_SnapshotNameBuffer[64] = {};
 		Ref<AudioEventInstance> m_Preview;  // the selected snapshot, auditioned at m_PreviewIntensity
 		float m_PreviewIntensity = 0.0f;

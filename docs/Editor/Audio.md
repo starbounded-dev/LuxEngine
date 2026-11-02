@@ -116,6 +116,7 @@ under the master.
 | Bus table | Every bus by depth, with a linear volume (0–4, its dB beside it) and Mute. Both apply live while the native engine runs |
 | Add Child / Rename / Remove | Act on the selected bus. Rename moves the buses below it too; Remove deletes them. Sounds on a missing bus play through the master |
 | Effects | The selected bus's chain: low-pass, high-pass, peaking EQ, delay and compressor, applied top to bottom after the bus volume. Add (up to 8), reorder, bypass and remove; changes need Apply |
+| VCAs | Name bus groups for `Audio.SetVCAVolume("vca:/Name", volume)`; tick the buses each one scales |
 | Reverb Return | Room size, damping, width and return volume of the built-in reverb every voice sends to (Soundwave's ReverbSend plus Send curves) |
 | Snapshots | Add, rename and remove named mix changes; each has a priority and per-bus volume overrides. Preview Intensity auditions the selected one live |
 | Apply | Restarts the audio engine so bus layout, reverb and snapshot changes take effect; disabled during Play |

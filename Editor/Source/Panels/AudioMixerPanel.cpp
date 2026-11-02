@@ -139,6 +139,8 @@ namespace Lux
 		UI_Reverb(*mixer);
 		ImGui::Spacing();
 		UI_Snapshots(*mixer);
+		ImGui::Spacing();
+		UI_VCAs(*mixer);
 		CommitEdits();
 		ImGui::End();
 	}
@@ -261,6 +263,10 @@ namespace Lux
 			std::for_each(candidate.Buses.begin(), candidate.Buses.end(), rename);
 			for (AudioMixerSnapshot& snapshot : candidate.Snapshots)
 				std::for_each(snapshot.Buses.begin(), snapshot.Buses.end(), rename);
+			for (AudioMixerVCA& vca : candidate.VCAs)
+				for (std::string& path : vca.Buses)
+					if (IsInside(path, m_Selected))
+						path = renamed + path.substr(m_Selected.size());
 			if (tryApply(std::move(candidate)))
 			{
 				m_Selected = renamed;
@@ -278,6 +284,8 @@ namespace Lux
 			std::erase_if(candidate.Buses, removed);
 			for (AudioMixerSnapshot& snapshot : candidate.Snapshots)
 				std::erase_if(snapshot.Buses, removed);
+			for (AudioMixerVCA& vca : candidate.VCAs)
+				std::erase_if(vca.Buses, [&](const std::string& path) { return IsInside(path, m_Selected); });
 			if (tryApply(std::move(candidate)))
 				m_Selected = kMaster;
 		}
@@ -513,6 +521,56 @@ namespace Lux
 		ImGui::EndDisabled();
 		if (!canPreview)
 			ImGui::SetItemTooltip(m_NeedsRestart ? "Apply first: the running engine has the previous snapshots." : "Previews need the native backend.");
+		ImGui::TreePop();
+	}
+
+	void AudioMixerPanel::UI_VCAs(AudioMixerSettings& mixer)
+	{
+		if (!ImGuiEx::PropertyGridHeader("VCAs", false))
+			return;
+		ImGui::TextWrapped("A VCA scales a group of buses; game code sets its volume with Audio.SetVCAVolume (\"vca:/Name\"). It starts at 1.");
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::InputTextWithHint("##vca_name", "VCA name", m_VCANameBuffer, sizeof(m_VCANameBuffer));
+		const std::string name = m_VCANameBuffer;
+		ImGui::SameLine();
+		ImGui::BeginDisabled(name.empty() || name.find('/') != std::string::npos);
+		if (ImGui::Button("Add VCA"))
+		{
+			AudioMixerSettings candidate = mixer;
+			candidate.VCAs.push_back({ "vca:/" + name });
+			if (candidate.Validate(&m_Error))
+			{
+				m_Error.clear();
+				mixer = std::move(candidate);
+				m_VCANameBuffer[0] = '\0';
+			}
+		}
+		ImGui::EndDisabled();
+		std::optional<size_t> remove;
+		for (size_t index = 0; index < mixer.VCAs.size(); ++index)
+		{
+			AudioMixerVCA& vca = mixer.VCAs[index];
+			ImGui::PushID(static_cast<int>(index));
+			ImGui::Separator();
+			ImGui::TextUnformatted(vca.Path.c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Remove"))
+				remove = index;
+			for (const AudioMixerBus& bus : mixer.Buses)
+			{
+				bool assigned = std::find(vca.Buses.begin(), vca.Buses.end(), bus.Path) != vca.Buses.end();
+				if (ImGui::Checkbox(bus.Path.c_str(), &assigned))
+				{
+					if (assigned)
+						vca.Buses.push_back(bus.Path);
+					else
+						std::erase(vca.Buses, bus.Path);
+				}
+			}
+			ImGui::PopID();
+		}
+		if (remove)
+			mixer.VCAs.erase(mixer.VCAs.begin() + static_cast<std::ptrdiff_t>(*remove));
 		ImGui::TreePop();
 	}
 }

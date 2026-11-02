@@ -1068,6 +1068,11 @@ is built at Init between the bus group and its parent: miniaudio's second-order 
 `NativeAudioEngine.cpp`: `DelayNode` (dry at unity plus `Wet` repeats with `Feedback`; miniaudio's
 `ma_delay` drops the dry signal or echoes nothing without feedback) and `CompressorNode` (peak
 envelope, ratio above the threshold, makeup). Settings are fixed until the engine restarts.
+**VCAs and global parameters (Phase 4e):** `AudioMixerSettings::VCAs` name bus groups (`vca:/Name`);
+`SetVCAVolume` multiplies each listed bus (volumes start at 1 and are gameplay state, not saved). A
+`SoundParameter` marked `Global` reads one engine-wide value by name (case-insensitive), set by
+`SetGlobalParameter` and held to each Sound's range; instances cannot set it, and values clear with
+the engine.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),

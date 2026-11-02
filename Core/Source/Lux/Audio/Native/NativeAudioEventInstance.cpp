@@ -9,6 +9,7 @@
 #include "Lux/Audio/AudioFileUtils.h"
 #include "NativeInternal.h"
 #include "Miniaudio.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include <MiniaudioCpp/MiniaudioWrappers.h>
 
@@ -255,10 +256,21 @@ namespace Lux {
 			return std::all_of(voice.Leaves.begin(), voice.Leaves.end(), [](const Scope<Leaf>& leaf) { return LeafAtEnd(*leaf); });
 		}
 
+		// Keyed by the lower-case name: parameter names compare case-insensitively.
+		std::unordered_map<std::string, float> s_GlobalParameters;
+
 		float ParameterValue(const NativeVoice& voice, const std::string& name)
 		{
 			const SoundParameter* parameter = voice.Definition->FindParameter(name);
-			return parameter ? voice.ParameterValues[static_cast<size_t>(parameter - voice.Definition->Parameters.data())] : 0.0f;
+			if (!parameter)
+				return 0.0f;
+			if (parameter->Global)
+			{
+				// One value for all Sounds, held to this Sound's range.
+				const float value = std::clamp(NativeInternal::GetGlobalParameterValue(parameter->Name, parameter->Default), parameter->Minimum, parameter->Maximum);
+				return parameter->IsLabeled() ? std::round(value) : value;
+			}
+			return voice.ParameterValues[static_cast<size_t>(parameter - voice.Definition->Parameters.data())];
 		}
 
 		void RefreshLeaf(NativeVoice& voice, Leaf& leaf, float distanceGain, uint32_t panning)
@@ -659,6 +671,22 @@ namespace Lux {
 		s_NodeState.clear();
 	}
 
+	float NativeInternal::GetGlobalParameterValue(const std::string& name, float fallback)
+	{
+		const auto it = s_GlobalParameters.find(Utils::String::ToLowerCopy(name));
+		return it != s_GlobalParameters.end() ? it->second : fallback;
+	}
+
+	void NativeInternal::SetGlobalParameterValue(const std::string& name, float value)
+	{
+		s_GlobalParameters[Utils::String::ToLowerCopy(name)] = value;
+	}
+
+	void NativeInternal::ClearGlobalParameters()
+	{
+		s_GlobalParameters.clear();
+	}
+
 	void NativeInternal::RefreshVoices()
 	{
 		for (NativeVoice* voice : s_Voices)
@@ -943,6 +971,8 @@ namespace Lux {
 		const SoundParameter* parameter = m_Impl->Definition->FindParameter(name);
 		if (!parameter)
 			return ReportOnce(m_Guid + '\n' + name, "Sound " + m_Guid + " has no parameter '" + name + "', so setting it does nothing");
+		if (parameter->Global)
+			return ReportOnce(m_Guid + "\nglobal\n" + name, "Parameter '" + name + "' is global; set it with Audio.SetGlobalParameter");
 		if (!std::isfinite(value))
 			return CheckResult(MA_INVALID_ARGS, "set a parameter to a value that is not finite");
 		value = std::clamp(value, parameter->Minimum, parameter->Maximum);

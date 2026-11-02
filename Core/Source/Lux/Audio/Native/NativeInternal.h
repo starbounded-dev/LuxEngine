@@ -46,6 +46,10 @@ namespace Lux::NativeInternal {
 	// One snapshot instance's contribution: started (active) at an intensity, or removed. Bus
 	// volumes follow at once. Main thread.
 	void SetSnapshotState(const void* instance, uint64_t id, bool active, float intensity);
+	// Global parameter values by name (case-insensitive); fallback when one was never set.
+	float GetGlobalParameterValue(const std::string& name, float fallback);
+	void SetGlobalParameterValue(const std::string& name, float value);
+	void ClearGlobalParameters();
 
 	// Resolves a playback reference: a Sound asset handle in decimal (AudioEventRef::GetReference) or
 	// a Sound's path relative to the project's Assets directory. False with the reason in outError.
