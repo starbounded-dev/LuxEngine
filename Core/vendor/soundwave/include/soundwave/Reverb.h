@@ -18,9 +18,23 @@ namespace Lux::Soundwave
 		std::uint32_t Traces = 0;
 	};
 
-	// Deterministic: the ray directions, bounce order and sums are fixed for given inputs,
-	// so a later GPU port can be compared against this result. Portal triangles reflect like
-	// any surface. Failed evaluation clears output and returns an error.
+	// One ray's contribution. The GPU kernel writes exactly this per ray, so CPU and GPU share
+	// FinishReverb and its fixed ray-order reduction.
+	struct ReverbRay
+	{
+		float Absorbed = 0;  // sum of applied absorption over the ray's hits
+		float Travelled = 0; // metres to the last hit
+		std::uint32_t Hits = 0;
+		std::uint32_t Traces = 0;
+		std::uint32_t Escaped = 0; // 1 when the ray left the geometry
+	};
+
+	// Deterministic: the ray directions, bounce order and sums are fixed for given inputs. Portal
+	// triangles reflect like any surface. Failed evaluation clears output and returns an error.
 	[[nodiscard]] EvaluationError EvaluateReverb(const GeometryView& geometry, const MaterialTable& materials,
 		const Settings& settings, Position listener, std::vector<RayHit>& hits, ReverbResult& output);
+	[[nodiscard]] EvaluationError TraceReverbRay(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, Position listener, std::uint32_t ray, std::vector<RayHit>& hits, ReverbRay& output);
+	// Sums rays in index order (doubles), then derives the decay and send.
+	[[nodiscard]] EvaluationError FinishReverb(std::span<const ReverbRay> rays, const Settings& settings, ReverbResult& output);
 }

@@ -33,30 +33,27 @@ namespace Lux::Soundwave
 			return Math::Add(Math::Add(Math::Scale(tangent, radius * std::cos(angle)), Math::Scale(bitangent, radius * std::sin(angle))),
 				Math::Scale(normal, std::sqrt(std::max(0.0f, 1.0f - u))));
 		}
-	}
 
-	EvaluationError EvaluateReverb(const GeometryView& geometry, const MaterialTable& materials,
-		const Settings& settings, Position listener, std::vector<RayHit>& hits, ReverbResult& output)
-	{
-		output = {};
-		if (!settings.Validate())
-			return EvaluationError::InvalidSettings;
-		for (const auto& material : materials)
-			if (!IsValidMaterialProperties(material))
-				return EvaluationError::InvalidMaterials;
-		if (!geometry.IsValid())
-			return EvaluationError::InvalidGeometry;
-		if (!Math::Finite(listener))
-			return EvaluationError::InvalidRay;
-
-		// Sabine's estimator over the ray field: losses per metre travelled. Doubles keep the
-		// sum independent of ray count to within float noise.
-		double absorbed = 0, travelled = 0;
-		std::uint32_t escaped = 0, hitCount = 0, traces = 0;
-		const std::uint32_t rays = settings.ReverbRays;
-		for (std::uint32_t ray = 0; ray < rays; ++ray)
+		EvaluationError ValidateInputs(const GeometryView& geometry, const MaterialTable& materials, const Settings& settings, Position listener)
 		{
+			if (!settings.Validate())
+				return EvaluationError::InvalidSettings;
+			for (const auto& material : materials)
+				if (!IsValidMaterialProperties(material))
+					return EvaluationError::InvalidMaterials;
+			if (!geometry.IsValid())
+				return EvaluationError::InvalidGeometry;
+			if (!Math::Finite(listener))
+				return EvaluationError::InvalidRay;
+			return EvaluationError::None;
+		}
+
+		EvaluationError TraceRay(const GeometryView& geometry, const MaterialTable& materials, const Settings& settings,
+			Position listener, std::uint32_t ray, std::vector<RayHit>& hits, ReverbRay& output)
+		{
+			output = {};
 			// Fibonacci sphere: evenly spread, fixed order.
+			const std::uint32_t rays = settings.ReverbRays;
 			const float z = 1.0f - 2.0f * (static_cast<float>(ray) + 0.5f) / static_cast<float>(rays);
 			const float radius = std::sqrt(std::max(0.0f, 1.0f - z * z));
 			const float angle = kGoldenAngle * static_cast<float>(ray);
@@ -64,13 +61,13 @@ namespace Lux::Soundwave
 			Position origin = listener;
 			for (std::uint32_t bounce = 0; bounce < settings.ReverbBounces; ++bounce)
 			{
-				++traces;
+				++output.Traces;
 				const Position end = Math::Add(origin, Math::Scale(direction, kEscapeDistance));
 				if (!geometry.Trace(origin, end, 0, hits))
 					return EvaluationError::InvalidGeometry;
 				if (hits.empty())
 				{
-					++escaped;
+					output.Escaped = 1;
 					break;
 				}
 				const RayHit& hit = hits.front();
@@ -79,9 +76,9 @@ namespace Lux::Soundwave
 				if (triangle.Material >= materials.size() || !Math::Finite(normal) || Math::Dot(normal, normal) == 0)
 					return EvaluationError::NumericalFailure;
 				const auto& material = materials[triangle.Material];
-				absorbed += settings.Absorption * 0.5 * (static_cast<double>(material.AbsorptionLF) + material.AbsorptionHF);
-				travelled += hit.Distance;
-				++hitCount;
+				output.Absorbed += settings.Absorption * 0.5f * (material.AbsorptionLF + material.AbsorptionHF);
+				output.Travelled += hit.Distance;
+				++output.Hits;
 				// Restart just off the surface on the incoming side. An endpoint margin alone lets a
 				// corner bounce skip the adjacent face and leak out through the seam.
 				const Position outward = Math::Dot(direction, normal) > 0 ? Math::Scale(normal, -1.0f) : normal;
@@ -93,10 +90,42 @@ namespace Lux::Soundwave
 				if (Math::Dot(direction, direction) == 0)
 					direction = specular;
 			}
+			return EvaluationError::None;
 		}
+	}
 
-		output.Traces = traces;
-		output.EscapedFraction = static_cast<float>(escaped) / static_cast<float>(rays);
+	EvaluationError TraceReverbRay(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, Position listener, std::uint32_t ray, std::vector<RayHit>& hits, ReverbRay& output)
+	{
+		output = {};
+		if (const auto error = ValidateInputs(geometry, materials, settings, listener); error != EvaluationError::None)
+			return error;
+		if (ray >= settings.ReverbRays)
+			return EvaluationError::InvalidRay;
+		return TraceRay(geometry, materials, settings, listener, ray, hits, output);
+	}
+
+	EvaluationError FinishReverb(std::span<const ReverbRay> rays, const Settings& settings, ReverbResult& output)
+	{
+		output = {};
+		if (!settings.Validate())
+			return EvaluationError::InvalidSettings;
+		if (rays.size() != settings.ReverbRays)
+			return EvaluationError::InvalidRay;
+		// Sabine's estimator over the ray field: losses per metre travelled, summed in ray order.
+		double absorbed = 0, travelled = 0;
+		std::uint32_t escaped = 0, hitCount = 0;
+		for (const auto& ray : rays)
+		{
+			if (!std::isfinite(ray.Absorbed) || !std::isfinite(ray.Travelled) || ray.Escaped > 1)
+				return EvaluationError::NumericalFailure;
+			absorbed += ray.Absorbed;
+			travelled += ray.Travelled;
+			escaped += ray.Escaped;
+			hitCount += ray.Hits;
+			output.Traces += ray.Traces;
+		}
+		output.EscapedFraction = static_cast<float>(escaped) / static_cast<float>(rays.size());
 		output.MeanFreePath = hitCount ? static_cast<float>(travelled / hitCount) : 0.0f;
 		const double air = 0.005 * (static_cast<double>(settings.AirAbsorptionLF) + settings.AirAbsorptionHF) * kNepersPerDecibel; // per metre
 		const double lossPerMetre = travelled > 0 ? (absorbed + escaped) / travelled + air : 0.0;
@@ -115,5 +144,18 @@ namespace Lux::Soundwave
 			return EvaluationError::NumericalFailure;
 		}
 		return EvaluationError::None;
+	}
+
+	EvaluationError EvaluateReverb(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, Position listener, std::vector<RayHit>& hits, ReverbResult& output)
+	{
+		output = {};
+		if (const auto error = ValidateInputs(geometry, materials, settings, listener); error != EvaluationError::None)
+			return error;
+		std::vector<ReverbRay> rays(settings.ReverbRays);
+		for (std::uint32_t ray = 0; ray < settings.ReverbRays; ++ray)
+			if (const auto error = TraceRay(geometry, materials, settings, listener, ray, hits, rays[ray]); error != EvaluationError::None)
+				return error;
+		return FinishReverb(rays, settings, output);
 	}
 }
