@@ -16,4 +16,15 @@ namespace Lux
 		bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
 		Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
 	};
+
+	// .lbank YAML, stored and bounded the same way as a Sound.
+	class SoundBankSerializer : public AssetSerializer
+	{
+	public:
+		void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+		bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+		void RegisterDependencies(const AssetMetadata& metadata) const override;
+		bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+		Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+	};
 }

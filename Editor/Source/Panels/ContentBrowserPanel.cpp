@@ -6,6 +6,7 @@
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/Sound.h"
+#include "Lux/Audio/SoundBank.h"
 #include <fstream>
 #include "ContentBrowserPanel.h"
 
@@ -254,6 +255,8 @@ namespace Lux {
 								CreateDialogueTable();
 							if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound"))
 								CreateSoundAsset();
+							if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound Bank"))
+								CreateSoundBankAsset();
 
 							ImGui::EndMenu();
 						}
@@ -763,6 +766,8 @@ namespace Lux {
 				CreateDialogueTable();
 			if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound"))
 				CreateSoundAsset();
+			if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound Bank"))
+				CreateSoundBankAsset();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import…"))
 			{
@@ -1613,6 +1618,42 @@ namespace Lux {
 		return handle;
 	}
 
+	AssetHandle ContentBrowserPanel::CreateSoundBankAsset()
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+		// Seeded with the selected Sounds, the way New Sound takes the selected clips.
+		SoundBank bank;
+		for (size_t index = 0; index < m_SelectedItems.SelectionCount(); ++index)
+		{
+			if (AssetManager::GetAssetType(m_SelectedItems[index]) == AssetType::Sound)
+				bank.Add(m_SelectedItems[index]);
+		}
+		if (bank.ToYAML().size() > SoundBank::MaxFileBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot make one Sound Bank of {} Sounds: it would be larger than the 64 KiB a bank file may be", bank.Sounds.size());
+			return 0;
+		}
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / "New Sound Bank.lbank");
+		std::ofstream file(path);
+		file << bank.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Could not create sound bank '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
 	AssetHandle ContentBrowserPanel::CreateMaterialInstance(AssetHandle parentHandle)
 	{
 		Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(parentHandle);
@@ -1724,6 +1765,7 @@ namespace Lux {
 		case AssetType::DialogueTable:
 		case AssetType::AudioSurfaceTable: return EditorResources::AudioIcon;
 		case AssetType::Sound: return EditorResources::SoundConfigFileIcon;
+		case AssetType::SoundBank: return EditorResources::SoundGraphFileIcon;
 		case AssetType::ScriptFile: return EditorResources::CSFileIcon;
 		case AssetType::Font: return EditorResources::FontFileIcon;
 		case AssetType::Animation: return EditorResources::AnimationFileIcon;

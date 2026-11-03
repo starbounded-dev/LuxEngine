@@ -70,6 +70,7 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Audio/AudioBankManifest.cpp"
     "${LUX_SOURCE}/Audio/AudioEventRefSerializer.cpp"
     "${LUX_SOURCE}/Audio/Sound.cpp"
+    "${LUX_SOURCE}/Audio/SoundBank.cpp"
     "${LUX_SOURCE}/Audio/PhysicsAudioSystem.cpp"
     "${LUX_SOURCE}/Audio/AudioSurfaceTable.cpp"
     "${LUX_SOURCE}/Audio/AcousticMaterial.cpp"

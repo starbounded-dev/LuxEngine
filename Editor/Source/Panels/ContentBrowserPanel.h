@@ -265,6 +265,7 @@ namespace Lux {
 		// A Sound playing clip (an Audio asset), or an empty one when clip is 0. Named after the clip.
 		// One clip makes a Sound playing it; several make a Random container of them.
 		AssetHandle CreateSoundAsset(const std::vector<AssetHandle>& clips = {});
+		AssetHandle CreateSoundBankAsset();
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;

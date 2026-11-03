@@ -16,6 +16,7 @@
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Audio/Sound.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Audio/Native/NativeInternal.h"
 #include "Lux/Audio/Native/Miniaudio.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
@@ -433,6 +434,43 @@ namespace
 			CHECK(target.ToYAML() == restored.ToYAML()); // a failed load changes nothing
 		}
 		std::puts("PASS: Sound YAML v2 tree and v1 migration, validation, curves, and both AudioEventRef forms roundtrip");
+	}
+
+	void TestSoundBankAsset()
+	{
+		SoundBank bank;
+		CHECK(!bank.Resident);
+		CHECK(bank.Add(AssetHandle(11)) && bank.Add(AssetHandle(22)));
+		CHECK(!bank.Add(AssetHandle(11)) && !bank.Add(AssetHandle(0)));   // no duplicates, no empty handle
+		CHECK(bank.Sounds.size() == 2 && bank.Contains(AssetHandle(22)));
+		bank.Resident = true;
+
+		SoundBank restored;
+		CHECK(restored.FromYAML(bank.ToYAML()));
+		CHECK(restored.Resident && restored.Sounds == bank.Sounds);
+		CHECK(restored.Remove(AssetHandle(11)) && !restored.Remove(AssetHandle(11)));
+		CHECK(restored.Sounds == std::vector<AssetHandle>{ AssetHandle(22) });
+
+		// A full bank still fits the 64 KiB file limit, and refuses more.
+		SoundBank full;
+		for (uint64_t i = 0; i < SoundBank::MaxSounds; ++i)
+			CHECK(full.Add(AssetHandle(UINT64_MAX - i)));
+		CHECK(!full.Add(AssetHandle(1)));
+		CHECK(full.ToYAML().size() <= SoundBank::MaxFileBytes);
+
+		for (const char* bad : {
+			"SoundBank: { Version: 1, Sounds: [5, 5] }",
+			"SoundBank: { Version: 1, Sounds: [0] }",
+			"SoundBank: { Version: 2, Sounds: [] }",
+			"SoundBank: { Version: 1, Sounds: 5 }",
+			"Sound: { Version: 1 }" })
+		{
+			SoundBank target = bank;
+			CHECK(!target.FromYAML(bad));
+			CHECK(target.ToYAML() == bank.ToYAML()); // a failed load changes nothing
+		}
+		CHECK(restored.FromYAML("SoundBank: { Version: 1 }") && restored.Sounds.empty() && !restored.Resident);
+		std::puts("PASS: SoundBank YAML roundtrip, duplicates and empty handles refused, 2048-Sound limit within 64 KiB");
 	}
 
 	void TestCurves()
@@ -1776,6 +1814,7 @@ int main(int argc, char** argv)
 	std::filesystem::create_directories(s_Directory);
 	TestReferences();
 	TestSerialization();
+	TestSoundBankAsset();
 	TestCurves();
 	TestEngine();
 	TestPanAndAttenuation();

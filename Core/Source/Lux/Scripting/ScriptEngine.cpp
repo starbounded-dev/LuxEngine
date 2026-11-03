@@ -47,6 +47,7 @@ namespace Lux {
 		{ "Lux.Texture2D", DataType::Texture2D },
 		{ "Lux.Scene", DataType::Scene },
 		{ "Lux.Sound", DataType::Sound },
+		{ "Lux.SoundBank", DataType::SoundBank },
 	};
 
 	static void OnCoralMessage(std::string_view message, Coral::MessageLevel level)

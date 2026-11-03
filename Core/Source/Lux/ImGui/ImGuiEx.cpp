@@ -7,6 +7,7 @@
 #include "ImGuiUtilities.h"
 #include "Lux/Scripting/ScriptEngine.h"
 #include "Lux/Audio/Sound.h"
+#include "Lux/Audio/SoundBank.h"
 
 #include <algorithm>
 #include <cctype>
@@ -592,6 +593,19 @@ namespace Lux::ImGuiEx {
 			}
 			break;
 		}
+		case DataType::SoundBank:
+		{
+			if (!sceneContext->IsPlaying())
+			{
+				AssetHandle handle = storage.GetValue<AssetHandle>();
+				if (PropertyAssetReference<SoundBank>(fieldName.data(), handle, "", 0, {}, false))
+				{
+					storage.SetValue(handle);
+					result = true;
+				}
+			}
+			break;
+		}
 		}
 
 		ImGui::PopID();
@@ -1047,6 +1061,12 @@ namespace Lux::ImGuiEx {
 			{
 				AssetHandle handle = storage.GetValue<AssetHandle>(i);
 				PropertyAssetReferenceArray<Sound>(indexString.c_str(), handle, storage, i, elementToRemove);
+				break;
+			}
+			case DataType::SoundBank:
+			{
+				AssetHandle handle = storage.GetValue<AssetHandle>(i);
+				PropertyAssetReferenceArray<SoundBank>(indexString.c_str(), handle, storage, i, elementToRemove);
 				break;
 			}
 			}

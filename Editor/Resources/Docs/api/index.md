@@ -87,6 +87,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [GamepadTrigger](GamepadTrigger) — The left or right trigger, for adaptive trigger effects.
 - [GamepadType](GamepadType) — Which family a gamepad belongs to, to pick its button prompts.
 - [Sound](Sound) — A Sound asset (.lsound), played by the native audio backend.
+- [SoundBank](SoundBank) — A Sound Bank asset (.lbank): Sounds that load and unload together.
 - [SoundCue](SoundCue) — A sound playing near the listener, for drawing visual sound cues.
 - [Subtitle](Subtitle) — A subtitle, caption or description line, for drawing your own subtitle UI.
 - [TriggerEffect](TriggerEffect) — A DualSense adaptive-trigger effect, built with [`TriggerEffect.Resistance`](TriggerEffect), [`TriggerEffect.Weapon`](TriggerEffect), [`TriggerEffect.Vibration`](TriggerEffect) or [`TriggerEffect.Off`](TriggerEffect).

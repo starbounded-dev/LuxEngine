@@ -1041,6 +1041,13 @@ version 1 (Phase 2's single `Clip`/`Loop`) loads as a root clip node. `Validate`
 and rejects malformed trees. `SoundSerializer` writes bounded YAML (64 KiB at save, load, pack write
 and pack read), registers every clip as a dependency and is packable. Each instance copies the Sound
 when created, so an edit applies to the next instance.
+**Sound Banks (spec 002, in progress):** `SoundBank` (`AssetType::SoundBank`, `.lbank`,
+`Audio/SoundBank.h`) lists Sounds (no duplicates or zero handles, at most 2048, `Resident` loads it at
+game start) and replaces FMOD's banks. `SoundBankSerializer` shares `SoundSerializer.cpp`'s bounded-YAML
+helpers (64 KiB, the same pack layout) and registers each Sound as a dependency. It is a script field
+type (`Lux.SoundBank`, `DataType::SoundBank`) and the Content Browser's New › Sound Bank (seeded with
+the selected Sounds). Loading and freeing clips by bank is not wired yet; see
+`specs/002-fmod-replacement/tasks.md`.
 The Content Browser offers **New → Sound** and **Create Sound** on an audio file (native builds
 only); with several audio files selected it makes one Sound with a Random root (avoid-repeat) over
 them, refused if the file would exceed `Sound::MaxFileBytes`. `.wav`, `.ogg`, `.mp3` and `.flac` are

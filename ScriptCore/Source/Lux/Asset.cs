@@ -75,4 +75,12 @@ namespace Lux
 		public Sound() { }
 		internal Sound(ulong handle) : base(handle) { }
 	}
+
+	/// <summary>A Sound Bank asset (.lbank): Sounds that load and unload together.</summary>
+	[EditorAssignable]
+	public class SoundBank : AssetRef
+	{
+		public SoundBank() { }
+		internal SoundBank(ulong handle) : base(handle) { }
+	}
 }

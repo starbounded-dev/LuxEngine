@@ -36,18 +36,23 @@ launches the editor and needs the owner's OK for that run.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T004 Add `AssetType::SoundBank` with its string helpers ("SoundBank") in `Core/Source/Lux/Asset/AssetTypes.h`, and `{ ".lbank", AssetType::SoundBank }` in `Core/Source/Lux/Asset/AssetExtensions.h`
-- [ ] T005 Create the `SoundBank` asset class in `Core/Source/Lux/Audio/SoundBank.h` and `Core/Source/Lux/Audio/SoundBank.cpp`. Fields: `Sounds` (list of `AssetHandle`; "no duplicates; a missing Sound is a validation error") and `Resident` (bool, default `false`: "loaded at game start and never unloaded"). Add `GetStaticType()`, `Add`/`Remove` that keep the list duplicate-free, and `Validate(std::vector<std::string>&)`
-- [ ] T006 Create `SoundBankSerializer` in `Core/Source/Lux/Asset/SoundBankSerializer.h` and `Core/Source/Lux/Asset/SoundBankSerializer.cpp`, following `SoundSerializer.cpp`. YAML keys `Sounds` and `Resident`, "bounded like `.lsound` (64 KiB)" at save, load, pack write and pack read. `RegisterDependencies` lists every Sound; the pack serializer writes the handle list. Register it in `Core/Source/Lux/Asset/AssetImporter.cpp` (`s_Serializers[AssetType::SoundBank]`) and mark it packable in `IsSerializedByAssetPack` in `Core/Source/Lux/Serialization/AssetPack.cpp`
-- [ ] T007 [P] Add **New › Sound Bank** (both menus beside "Sound", line ~255 and ~764) and a `CreateSoundBankAsset()` to `Editor/Source/Panels/ContentBrowserPanel.cpp`, plus a Content Browser icon in `Core/Source/Lux/Editor/EditorResources.h`
-- [ ] T008 [P] Make `SoundBank` a script field type:
+- [x] T004 Add `AssetType::SoundBank` with its string helpers ("SoundBank") in `Core/Source/Lux/Asset/AssetTypes.h`, and `{ ".lbank", AssetType::SoundBank }` in `Core/Source/Lux/Asset/AssetExtensions.h`
+- [x] T005 Create the `SoundBank` asset class in `Core/Source/Lux/Audio/SoundBank.h` and `Core/Source/Lux/Audio/SoundBank.cpp`. Fields: `Sounds` (list of `AssetHandle`; "no duplicates; a missing Sound is a validation error") and `Resident` (bool, default `false`: "loaded at game start and never unloaded"). Add `GetStaticType()`, `Add`/`Remove` that keep the list duplicate-free, and `Validate(std::vector<std::string>&)`
+- [x] T006 Create `SoundBankSerializer` in `Core/Source/Lux/Asset/SoundBankSerializer.h` and `Core/Source/Lux/Asset/SoundBankSerializer.cpp`, following `SoundSerializer.cpp`. YAML keys `Sounds` and `Resident`, "bounded like `.lsound` (64 KiB)" at save, load, pack write and pack read. `RegisterDependencies` lists every Sound; the pack serializer writes the handle list. Register it in `Core/Source/Lux/Asset/AssetImporter.cpp` (`s_Serializers[AssetType::SoundBank]`) and mark it packable in `IsSerializedByAssetPack` in `Core/Source/Lux/Serialization/AssetPack.cpp`
+- [x] T007 [P] Add **New › Sound Bank** (both menus beside "Sound", line ~255 and ~764) and a `CreateSoundBankAsset()` to `Editor/Source/Panels/ContentBrowserPanel.cpp`, plus a Content Browser icon in `Core/Source/Lux/Editor/EditorResources.h`
+- [x] T008 [P] Make `SoundBank` a script field type:
   - `[EditorAssignable] public class SoundBank : AssetRef` in `ScriptCore/Source/Lux/Asset.cs`;
   - `{ "Lux.SoundBank", DataType::SoundBank }` in `Core/Source/Lux/Scripting/ScriptEngine.cpp`;
   - `DataType::SoundBank` in `Core/Source/Lux/Scripting/ScriptEntityStorage.hpp` (size `sizeof(UUID)`, the "SoundBank" string both ways, `FieldUtils::IsAssetType`);
   - scalar and array drawing in `Core/Source/Lux/ImGui/ImGuiEx.cpp`, guarded by `!IsPlaying()` like `Sound`.
-- [ ] T009 Add a native test "sound bank asset": a YAML round trip of `.lbank` (duplicates rejected; `Resident` default `false`; a file over 64 KiB refused) in `tests/audio/native/NativeBackendTests.cpp`. Then run `python scripts/Win-GenProjects.py --last`, `scripts/Lux-BuildTest.ps1 -Configurations Debug`, and the native tests
+- [x] T009 Add a native test "sound bank asset": a YAML round trip of `.lbank` (duplicates rejected; `Resident` default `false`; a file over 64 KiB refused) in `tests/audio/native/NativeBackendTests.cpp`. Then run `python scripts/Win-GenProjects.py --last`, `scripts/Lux-BuildTest.ps1 -Configurations Debug`, and the native tests
 
 **Checkpoint**: `.lbank` assets can be made, saved, packed and assigned to script fields.
+
+**Done (2026-11-03):** as planned, with two deviations. `SoundBankSerializer` lives beside
+`SoundSerializer` in `SoundSerializer.{h,cpp}`, sharing templated helpers instead of a copied file.
+The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate` takes
+`std::string*` like `Sound::Validate`.
 
 ---
 

@@ -36,6 +36,7 @@ namespace Lux
 			s_Serializers[AssetType::AudioSurfaceTable] = CreateScope<AudioSurfaceTableSerializer>();
 			s_Serializers[AssetType::DialogueTable] = CreateScope<DialogueTableSerializer>();
 			s_Serializers[AssetType::Sound] = CreateScope<SoundSerializer>();
+			s_Serializers[AssetType::SoundBank] = CreateScope<SoundBankSerializer>();
 			s_Serializers[AssetType::Audio] = std::make_unique<AudioAssetSerializer>();
 			s_Serializers[AssetType::MeshSource] = std::make_unique<MeshSourceSerializer>();
 			s_Serializers[AssetType::Mesh] = std::make_unique<MeshSerializer>();

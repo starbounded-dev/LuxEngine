@@ -58,6 +58,7 @@ namespace Lux
 				case AssetType::DialogueTable:
 				case AssetType::AudioSurfaceTable:
 				case AssetType::Sound:
+				case AssetType::SoundBank:
 				case AssetType::Prefab:
 					return true;
 				default:

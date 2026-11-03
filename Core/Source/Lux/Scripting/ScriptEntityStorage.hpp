@@ -50,7 +50,8 @@ namespace Lux {
 		Material,
 		Texture2D,
 		Scene,
-		Sound
+		Sound,
+		SoundBank
 	};
 
 	inline uint64_t DataTypeSize(DataType type)
@@ -79,6 +80,7 @@ namespace Lux {
 			case DataType::Texture2D: return sizeof(UUID);
 			case DataType::Scene: return sizeof(UUID);
 			case DataType::Sound: return sizeof(UUID);
+			case DataType::SoundBank: return sizeof(UUID);
 		}
 
 		return 0;
@@ -110,6 +112,7 @@ namespace Lux {
 			case DataType::Texture2D: return "Texture2D";
 			case DataType::Scene: return "Scene";
 			case DataType::Sound: return "Sound";
+			case DataType::SoundBank: return "SoundBank";
 		}
 		return "Float";
 	}
@@ -138,6 +141,7 @@ namespace Lux {
 		if (str == "Texture2D") return DataType::Texture2D;
 		if (str == "Scene") return DataType::Scene;
 		if (str == "Sound") return DataType::Sound;
+		if (str == "SoundBank") return DataType::SoundBank;
 		return DataType::Float;
 	}
 
@@ -277,6 +281,7 @@ namespace Lux {
 				case DataType::Texture2D:  return true;
 				case DataType::Scene:      return true;
 				case DataType::Sound:      return true;
+				case DataType::SoundBank:  return true;
 				default:                   return false;
 			}
 		}
