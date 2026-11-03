@@ -75,6 +75,8 @@ EVENT_MUSIC = "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
 # The native backend's Sound for each event (Assets/Audio/Sounds/Fart.lsound and Music.lsound).
 SOUND_FART = "9117899157295655424"
 EVENT_SOUNDS = {EVENT_FART: SOUND_FART, EVENT_MUSIC: "8743721474366396702"}
+# Assets/Audio/Banks/AudioDemo.lbank: both Sounds, loaded with the scene.
+SOUND_BANK_DEMO = "8412860126786977355"
 
 # Stable id ranges: generated materials and scene entities never collide with editor-made UUIDs
 # in practice, and regenerating keeps every reference valid.
@@ -304,6 +306,7 @@ class Scene:
 		self.next_uuid = uuid_base
 		self.stats: dict[str, int] = {}
 		self.outdoor_zone: Entity | None = None  # set by add_environment; house portals open onto it
+		self.sound_banks: list[str] = []
 
 	def count(self, key: str, amount: int = 1) -> None:
 		self.stats[key] = self.stats.get(key, 0) + amount
@@ -322,7 +325,7 @@ class Scene:
 		return entity
 
 	def write(self, path: Path) -> None:
-		out = [f"Scene: {self.name}", "PostProcess:"]
+		out = [f"Scene: {self.name}", *([f"SoundBanks: [{', '.join(self.sound_banks)}]"] if self.sound_banks else []), "PostProcess:"]
 		out += [f"  {line}" for line in (
 			"Exposure: 1", "ExposureMode: 0", "Aperture: 16", "ShutterSpeed: 0.008", "ISO: 100",
 			"ExposureEV100: 12", "ExposureCompensation: 0", "AutoMinEV100: -2", "AutoMaxEV100: 16",
@@ -941,6 +944,7 @@ def main() -> None:
 	update_registry(materials)
 
 	scene = Scene("Benchmark")
+	scene.sound_banks = [SOUND_BANK_DEMO]
 	add_environment(scene, specials)
 	add_camera(scene)
 	add_plaza(scene, specials, field_materials)

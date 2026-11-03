@@ -41,6 +41,8 @@ namespace Lux
 		void UI_Reverb(AudioMixerSettings& mixer);
 		void UI_Snapshots(AudioMixerSettings& mixer);
 		void UI_VCAs(AudioMixerSettings& mixer);
+		// The open scene's Sound Banks (Scene::GetSoundBanks), edited through the scene's undo.
+		void UI_SceneBanks();
 		void StopPreview();
 
 		Ref<Project> m_Project;

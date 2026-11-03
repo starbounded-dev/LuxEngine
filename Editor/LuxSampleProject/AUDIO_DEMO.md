@@ -45,6 +45,10 @@ record the demo.
    line, or a script's `Sound` field). Scripts play it with `Audio.PlayOneShot(sound)` or
    `Audio.CreateInstance(sound)`.
 4. Shape the mix in **View > Audio Mixer**: buses, effects, reverb, snapshots and VCAs.
+5. Put the Sound in a **Sound Bank** (**New > Sound Bank**, or the Sound Editor's *Sound Banks* section)
+   and list the bank under the mixer's *Scene Sound Banks*. The scene then loads its clips before it
+   plays and frees them when it stops. The demo's `Audio/Banks/AudioDemo.lbank` holds both Sounds.
 
-**File > Export Runtime** packs every Sound and its clips into the game; nothing ships beside it.
+**File > Export Runtime** packs every Sound, bank and clip into the game; nothing ships beside it, and
+long music streams straight from the pack.
 The editor manual's audio chapter (`docs/Editor/Audio.md`) covers each panel in detail.

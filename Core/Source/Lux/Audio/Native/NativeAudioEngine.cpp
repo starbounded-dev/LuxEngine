@@ -722,6 +722,8 @@ namespace Lux {
 		// Decode to float, as ma_engine's own resource manager does: with clips kept in their file's
 		// format (16-bit PCM, say) miniaudio 0.11.25 drops the last 192 frames of every clip.
 		resources.decodedFormat = ma_format_f32;
+		// Packed clips are read in place inside the asset pack; loose files as usual.
+		resources.pVFS = NativeInternal::GetPackVFS();
 		ma_result result = ma_resource_manager_init(&resources, &s_ResourceManager);
 		if (result != MA_SUCCESS)
 		{

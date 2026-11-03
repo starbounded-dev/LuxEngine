@@ -239,6 +239,9 @@ Assets:
   - Handle: 8362594283423097027
     FilePath: Meshes/Source/Sponza/Materials/Sponza_11_Material_11.lmat
     Type: Material
+  - Handle: 8412860126786977355
+    FilePath: Audio/Banks/AudioDemo.lbank
+    Type: SoundBank
   - Handle: 8665842578006325754
     FilePath: Meshes/Source/Sponza/8773302468495022225.jpg
     Type: Texture

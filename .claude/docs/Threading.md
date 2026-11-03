@@ -499,14 +499,18 @@ The native backend (`Core/Source/Lux/Audio/Native/`, miniaudio) adds two threads
   ImGui.
 - **`AudioStreaming`**, a `Lux::Thread` started by `AudioEngine::Init` (`NativeAudioEngine.cpp`). It
   only runs `ma_resource_manager_process_next_job`, which blocks until streamed Sounds post a job
-  (open, read the next page, seek, close) and returns `MA_CANCELLED` for the quit job. `Shutdown`
+  (open, read the next page, seek, close) or a Sound Bank's asynchronous decodes do, and returns
+  `MA_CANCELLED` for the quit job. Its file reads go through the pack VFS (`NativePackVFS.cpp`), which
+  gives every open file its own handle and guards its name table with a mutex, so it shares nothing
+  with the main thread's asset loading. `Shutdown`
   releases every voice first, because closing a stream waits for this thread to run the close job,
   then posts the quit job and joins it; the owner's destructor does the same if the process exits
   without `Shutdown`. It touches only miniaudio's resource manager.
 
 Everything else is main-thread, the same contract as FMOD's: every `AudioEngine`, `AudioEventInstance`
 and `AudioListener` call; Sound tree resolution, random choices and sequence steps; decoding a clip,
-synchronously on the main thread the first time it plays (it then stays registered until shutdown);
+synchronously on the main thread the first time it plays when no loaded Sound Bank decoded it first
+(the clip cache, `NativeClipCache.cpp`, then frees it when no bank or voice holds it);
 node attach and detach (`ma_sound_uninit`/`ma_node_uninit` wait for the callback to release the
 voice); and end-of-playback, which `AudioEngine::Update` detects by polling miniaudio's atomic end
 flag, then publishes to playback status and the script mailbox. So the native mailboxes

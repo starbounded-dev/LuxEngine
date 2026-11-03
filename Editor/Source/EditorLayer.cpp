@@ -66,6 +66,7 @@
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
 #include "Panels/SoundEditor/SoundEditorPanel.h"
 #include "Panels/AudioMixerPanel.h"
+#include "Panels/SoundBankEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -110,6 +111,7 @@ namespace Lux {
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
 #define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
 #define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
+#define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
 #define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
@@ -525,6 +527,18 @@ namespace Lux {
 		};
 		m_SceneHierarchyPanel->SetOpenSoundCallback(openSoundEditor);
 
+		Ref<SoundBankEditorPanel> soundBankEditorPanel = m_PanelManager->AddPanel<SoundBankEditorPanel>(PanelCategory::View, SOUND_BANK_EDITOR_PANEL_ID, "Sound Bank Editor", false);
+		soundBankEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+		auto openSoundBankEditor = [this, soundBankEditorPanel](AssetHandle bankHandle) mutable
+		{
+			soundBankEditorPanel->OpenBank(bankHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SOUND_BANK_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+
 		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
 		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
 		{
@@ -711,6 +725,11 @@ namespace Lux {
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Sound, [openSoundEditor](const AssetMetadata& metadata) mutable
 			{
 				openSoundEditor(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::SoundBank, [openSoundBankEditor](const AssetMetadata& metadata) mutable
+			{
+				openSoundBankEditor(metadata.Handle);
 			});
 
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)

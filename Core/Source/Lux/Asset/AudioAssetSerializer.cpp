@@ -84,8 +84,9 @@ namespace Lux
 				LUX_CORE_ERROR_TAG("Audio", "Audio asset {} in the pack is truncated", static_cast<uint64_t>(assetInfo.PackedOffset));
 				return nullptr;
 			}
-			audioFile->EncodedData.resize(size);
-			stream.ReadData(reinterpret_cast<char*>(audioFile->EncodedData.data()), size);
+			// Left in the pack: the native backend reads it there (NativePackVFS.cpp).
+			audioFile->PackFile = stream.GetPath();
+			audioFile->PackOffset = stream.GetStreamPosition();
 			audioFile->FileSize = size;
 		}
 		return audioFile;

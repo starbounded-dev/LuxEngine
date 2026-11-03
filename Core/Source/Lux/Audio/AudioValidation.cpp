@@ -49,6 +49,11 @@ namespace Lux
 		};
 		const auto scene = [&](Scene& scene)
 		{
+			for (const AssetHandle bank : scene.GetSoundBanks())
+			{
+				if (!AssetManager::IsAssetHandleValid(bank) || AssetManager::GetAssetType(bank) != AssetType::SoundBank)
+					Issue(collected, true, scene.GetName(), "Scene lists Sound Bank " + std::to_string(static_cast<uint64_t>(bank)) + ", which is missing");
+			}
 			for (auto handle : scene.GetAllEntitiesWith<IDComponent>())
 			{
 				Entity entity{ handle, &scene };

@@ -85,6 +85,8 @@ namespace Lux
 		void UI_Tree(Document& document, Sound& sound, bool& edited);
 		void UI_TreeNode(Document& document, const Sound& sound, uint32_t index, uint32_t depth);
 		void UI_SoundProperties(Sound& sound, bool& edited);
+		// The Sound Banks that hold the Sound, and adding it to one (edits and saves the bank).
+		void UI_Banks(AssetHandle sound);
 		void UI_Parameters(Document& document, Sound& sound, bool& edited);
 		void UI_Node(Document& document, Sound& sound, bool& edited);
 		void UI_Clip(SoundNode& node, bool& edited);

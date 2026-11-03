@@ -11,6 +11,7 @@
 #include "Lux/Asset/AssetManager.h"
 
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioListener.h"
@@ -231,6 +232,7 @@ namespace Lux {
 
 		newScene->m_ViewportWidth = other->m_ViewportWidth;
 		newScene->m_ViewportHeight = other->m_ViewportHeight;
+		newScene->m_SoundBanks = other->m_SoundBanks;
 
 		auto& srcSceneRegistry = other->m_Registry;
 		auto& dstSceneRegistry = newScene->m_Registry;
@@ -575,6 +577,12 @@ namespace Lux {
 		AudioScriptBindings::Reset();
 		ScriptGlue::ResetInput();
 		m_IsRunning = true;
+		// Before anything plays: resident banks once per run of the engine, then this scene's own.
+		for (const AssetHandle bank : AssetManager::GetAllAssetsWithType<SoundBank>())
+			if (const auto asset = AssetManager::GetAsset<SoundBank>(bank); asset && asset->Resident)
+				AudioEngine::LoadSoundBank(bank);
+		for (const AssetHandle bank : m_SoundBanks)
+			AudioEngine::LoadSoundBank(bank);
 
 		OnPhysics2DStart();
 		OnPhysics3DStart();
@@ -782,6 +790,9 @@ namespace Lux {
 		OnPhysics2DStop();
 
 		ReleaseAllRuntimeAudio();
+		for (const AssetHandle bank : m_SoundBanks)
+			AudioEngine::UnloadSoundBank(bank);
+		AudioEngine::ReleaseUnusedClips();
 
 		// Scripts' rumble, trigger and light effects must not outlive Play (a trigger would stay stiff in the editor).
 		Input::ResetGamepadTriggerEffects();
@@ -2109,6 +2120,7 @@ namespace Lux {
 		target->m_Name = m_Name;
 		target->m_ViewportWidth = m_ViewportWidth;
 		target->m_ViewportHeight = m_ViewportHeight;
+		target->m_SoundBanks = m_SoundBanks;
 
 		std::unordered_map<UUID, entt::entity> enttMap;
 		auto idView = m_Registry.view<IDComponent>();

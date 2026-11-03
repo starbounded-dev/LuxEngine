@@ -68,62 +68,76 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
 
 ### Tests for User Story 2
 
-- [ ] T010 [US2] Add a native test "sound banks" in `tests/audio/native/NativeBackendTests.cpp`:
+- [x] T010 [US2] Add a native test "sound banks" in `tests/audio/native/NativeBackendTests.cpp`:
   - load bank A (clips X, Y) and bank B (Y, Z);
   - unload A: X is freed, Y stays;
   - play Z, then unload B: Z stays until the voice ends, then it is freed;
   - check `NativeInternal` clip memory at each step.
-- [ ] T011 [US2] Add a native test "pack stream" in `tests/audio/native/NativeBackendTests.cpp`: write a minimal pack that holds a 5-minute WAV, stream it through the pack VFS, and assert audio memory stays under 1 MB and the samples match the source
-- [ ] T012 [US2] Add a native test "pack stream stress" in `tests/audio/native/NativeBackendTests.cpp`: 16 concurrent streams from one pack while another thread reads the same pack file. No read errors, and each stream's samples match
+- [x] T011 [US2] Add a native test "pack stream" in `tests/audio/native/NativeBackendTests.cpp`: write a minimal pack that holds a 5-minute WAV, stream it through the pack VFS, and assert audio memory stays under 1 MB and the samples match the source
+- [x] T012 [US2] Add a native test "pack stream stress" in `tests/audio/native/NativeBackendTests.cpp`: 16 concurrent streams from one pack while another thread reads the same pack file. No read errors, and each stream's samples match
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Add the clip cache to `Core/Source/Lux/Audio/Native/NativeAudioEventInstance.cpp`, with its API in `Core/Source/Lux/Audio/Native/NativeInternal.h`.
+- [x] T013 [US2] Add the clip cache to `Core/Source/Lux/Audio/Native/NativeAudioEventInstance.cpp`, with its API in `Core/Source/Lux/Audio/Native/NativeInternal.h`.
   - Each entry has `Clip`, `BankRefs`, `LiveRefs`, `Resident` and `Bytes`.
   - `Leaf` creation and destruction increment and decrement `LiveRefs`.
   - When both counts reach 0, unregister the clip from miniaudio, clear `AudioFile::EncodedData`, and call `AssetManager::RemoveAsset` on the AudioFile. "A release never runs while `LiveRefs > 0`. It is checked again when the last voice ends."
   - `Bytes` replaces the running `s_ClipMemoryBytes` total.
-- [ ] T014 [US2] Add bank loading to `Core/Source/Lux/Audio/Native/NativeAudioEngine.cpp`, declared in `Core/Source/Lux/Audio/AudioEngine.h`: `LoadSoundBank(AssetHandle)`, `UnloadSoundBank(AssetHandle)` and `IsSoundBankLoaded(AssetHandle)`.
+- [x] T014 [US2] Add bank loading to `Core/Source/Lux/Audio/Native/NativeAudioEngine.cpp`, declared in `Core/Source/Lux/Audio/AudioEngine.h`: `LoadSoundBank(AssetHandle)`, `UnloadSoundBank(AssetHandle)` and `IsSoundBankLoaded(AssetHandle)`.
   - Load and unload are counted per bank.
   - Loading preloads every non-stream clip of the bank's Sounds on the asset thread, and only registers stream clips by their VFS name.
   - Loading and unloading change `BankRefs`.
   - Main thread only; follow `.claude/docs/Threading.md` for the asset-thread handoff.
-- [ ] T015 [US2] Load every `Resident` bank once the project's assets are available and before the start scene runs (`NativeAudioEngine.cpp`, called from the same place runtime audio settings are applied). Never unload them
-- [ ] T016 [US2] Add `Scene::SoundBanks` (a list of `AssetHandle`) to `Core/Source/Lux/Scene/Scene.h`:
+- [x] T015 [US2] Load every `Resident` bank once the project's assets are available and before the start scene runs (`NativeAudioEngine.cpp`, called from the same place runtime audio settings are applied). Never unload them
+- [x] T016 [US2] Add `Scene::SoundBanks` (a list of `AssetHandle`) to `Core/Source/Lux/Scene/Scene.h`:
   - YAML key `SoundBanks` in `Core/Source/Lux/Scene/SceneSerializer.cpp`, beside `PostProcess`, both directions;
   - copied in `Scene::Copy` / `CopyTo` in `Core/Source/Lux/Scene/Scene.cpp`;
   - `OnRuntimeStart` loads the listed banks before scripts' `OnCreate`, and `OnRuntimeStop` unloads them;
   - `Scene::GetAssetList` adds each bank and its Sounds.
-- [ ] T017 [US2] In `NativeAudioEventInstance.cpp`, when a Sound plays and none of its clips is held by a loaded bank, load it on demand. A Debug build logs `Sound <name> played outside any loaded bank` once per Sound
-- [ ] T018 [US2] Pack audio entries, runtime format 31:
+- [x] T017 [US2] In `NativeAudioEventInstance.cpp`, when a Sound plays and none of its clips is held by a loaded bank, load it on demand. A Debug build logs `Sound <name> played outside any loaded bank` once per Sound
+- [x] T018 [US2] Pack audio entries, runtime format 31:
   - each Audio entry gets `Offset`, `Size`, `Extension` and `Stream` in `Core/Source/Lux/Serialization/AssetPackFile.h`;
   - `Core/Source/Lux/Serialization/AssetPackSerializer.cpp` and `Core/Source/Lux/Asset/AudioAssetSerializer.cpp` write them; `Stream` is set when any Sound streams the clip;
   - bump `Core/Source/Lux/Project/ProjectRuntimeFormat.h` to 31;
   - readers for 17–30 keep the bytes-after-path layout.
-- [ ] T019 [US2] Create `Core/Source/Lux/Audio/Native/NativePackVFS.cpp` (declared in `NativeInternal.h`): an `ma_vfs` that opens `luxpack/<handle><ext>` at the entry's offset.
+- [x] T019 [US2] Create `Core/Source/Lux/Audio/Native/NativePackVFS.cpp` (declared in `NativeInternal.h`): an `ma_vfs` that opens `luxpack/<handle><ext>` at the entry's offset.
   - Each open stream gets its own file handle.
   - `read` / `seek` / `tell` are clamped to `[Offset, Offset + Size)`; `info` reports `Size`.
   - Any other name falls through to the default VFS.
   - Install it in the resource manager config in `NativeAudioEngine.cpp`.
-- [ ] T020 [US2] In `Core/Source/Lux/Asset/AudioAssetSerializer.cpp`, fill `EncodedData` only for non-stream entries. In `Core/Source/Lux/Audio/Native/NativeSoundResolver.cpp`, have `ResolveClip` return the `luxpack/` name for stream entries without reading them
-- [ ] T021 [P] [US2] Create the Sound Bank editor panel in `Editor/Source/Panels/SoundBankEditorPanel.h` and `Editor/Source/Panels/SoundBankEditorPanel.cpp`:
+- [x] T020 [US2] In `Core/Source/Lux/Asset/AudioAssetSerializer.cpp`, fill `EncodedData` only for non-stream entries. In `Core/Source/Lux/Audio/Native/NativeSoundResolver.cpp`, have `ResolveClip` return the `luxpack/` name for stream entries without reading them
+- [x] T021 [P] [US2] Create the Sound Bank editor panel in `Editor/Source/Panels/SoundBankEditorPanel.h` and `Editor/Source/Panels/SoundBankEditorPanel.cpp`:
   - add Sounds by drag-and-drop; remove; the Resident toggle;
   - total clip memory; an "unbanked Sounds" list for the project; undo through `EditorStack`.
   - Register it in `Editor/Source/EditorLayer.cpp` like `SoundEditorPanel`, and open it on double-click of an `.lbank`.
   - Audit it against `Conventions.md` § ImGui correctness.
-- [ ] T022 [P] [US2] In `Editor/Source/Panels/SoundEditor/SoundEditorPanel.cpp`, show which banks hold the Sound (or "loads on first play"), with an **Add to bank** picker (FR-004)
-- [ ] T023 [P] [US2] Add a "Scene Sound Banks" section to `Editor/Source/Panels/AudioMixerPanel.cpp` that edits the active scene's `SoundBanks` list, with undo
-- [ ] T024 [US2] Export validation in `Core/Source/Lux/Audio/Native/NativeAudioValidation.cpp`:
+- [x] T022 [P] [US2] In `Editor/Source/Panels/SoundEditor/SoundEditorPanel.cpp`, show which banks hold the Sound (or "loads on first play"), with an **Add to bank** picker (FR-004)
+- [x] T023 [P] [US2] Add a "Scene Sound Banks" section to `Editor/Source/Panels/AudioMixerPanel.cpp` that edits the active scene's `SoundBanks` list, with undo
+- [x] T024 [US2] Export validation in `Core/Source/Lux/Audio/Native/NativeAudioValidation.cpp`:
   - a warning for each Sound a scene references that no bank holds;
   - an error for a bank that names a missing Sound;
   - an error for a scene that lists a missing bank.
-- [ ] T025 [US2] Sample data:
+- [x] T025 [US2] Sample data:
   - create `Editor/LuxSampleProject/Assets/Audio/Banks/AudioDemo.lbank` holding Fart (9117899157295655424) and Music (8743721474366396702), with its registry entry;
   - list it under `SoundBanks` in `Editor/LuxSampleProject/Assets/Scenes/AudioDemo.luxscene` and `Benchmark.luxscene`;
   - add it to `scripts/GenerateBenchmarkScenes.py`.
 - [ ] T026 [US2] Regenerate premake. Run the Debug build, the native tests (T009–T012) and `python tests/yaml/run.py`; update the AudioDemo, Benchmark and registry lines in `tests/yaml/reference.txt`. Update `.claude/docs/Architecture-LuxEngine.md` §2.10 with Sound Banks, the clip cache, the pack VFS and format 31. Then **(editor)** export and run the sample per `quickstart.md` Phases 1–2
 
 **Checkpoint**: banks load and free clips, streamed music reads from the pack, and the sample uses a bank.
+
+**Done (2026-11-03), T010–T025; T026's editor export is still open.** Deviations:
+- **T018:** no format bump. The pack already stores each clip's bytes after its path; the reader now
+  records `AudioFile::PackFile` / `PackOffset` instead of reading them, so formats 17–30 load unchanged.
+- **T013 and T020:** clips never sit in memory as encoded bytes (the VFS reads them in place), so
+  nothing is removed from the asset manager. Decoded clips are held by resource-manager data sources
+  in `NativeClipCache.cpp`, not in `NativeAudioEventInstance.cpp`.
+- **T016:** `Scene::GetAssetList` is unchanged; every scene's pack lists all Sound Banks instead
+  (`AssetPack.cpp`), so Resident banks no scene names ship too.
+- **T015:** Resident banks load in `Scene::OnRuntimeStart`; the clip cache keeps them loaded until
+  shutdown whatever unloads follow.
+- A Sound played outside any loaded bank stays decoded until the scene stops
+  (`AudioEngine::ReleaseUnusedClips`), not until its voice ends, so replaying it does not decode again.
+- The stream memory figure is an upper bound: two pages at the engine rate, in stereo.
 
 ---
 

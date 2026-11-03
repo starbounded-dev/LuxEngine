@@ -178,6 +178,12 @@ namespace Lux {
 		}
 	}
 
+	// Sound Banks belong to the native backend; the FMOD build plays Studio banks instead.
+	bool AudioEngine::LoadSoundBank(UUID) { return false; }
+	void AudioEngine::UnloadSoundBank(UUID) {}
+	bool AudioEngine::IsSoundBankLoaded(UUID) { return false; }
+	void AudioEngine::ReleaseUnusedClips() {}
+
 	bool AudioEngine::LoadBank(const std::filesystem::path& path)
 	{
 		std::error_code ec;

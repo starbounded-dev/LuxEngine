@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "AudioMixerPanel.h"
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/SoundBank.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/Scene.h"
@@ -143,8 +145,63 @@ namespace Lux
 		UI_Snapshots(*mixer);
 		ImGui::Spacing();
 		UI_VCAs(*mixer);
+		ImGui::Spacing();
+		UI_SceneBanks();
 		CommitEdits();
 		ImGui::End();
+	}
+
+	void AudioMixerPanel::UI_SceneBanks()
+	{
+		if (!ImGuiEx::PropertyGridHeader("Scene Sound Banks", false))
+			return;
+		if (!m_Context)
+		{
+			ImGui::TextDisabled("Open a scene to choose the banks it loads.");
+			ImGui::TreePop();
+			return;
+		}
+		ImGui::TextWrapped("Loaded before this scene plays and unloaded when it stops. Resident banks load in every scene on their own.");
+		std::vector<AssetHandle> banks = m_Context->GetSoundBanks();
+		bool changed = false;
+		std::optional<size_t> removed;
+		ImGui::BeginDisabled(m_Context->IsRunning());
+		ImGuiEx::BeginPropertyGrid();
+		for (size_t index = 0; index < banks.size(); ++index)
+		{
+			ImGui::PushID(static_cast<int>(index));
+			if (ImGui::SmallButton("Remove"))
+				removed = index;
+			ImGui::SameLine();
+			AssetHandle handle = banks[index];
+			if (ImGuiEx::PropertyAssetReference<SoundBank>("", handle, "", nullptr, {}, false) && handle
+				&& std::find(banks.begin(), banks.end(), handle) == banks.end())
+			{
+				banks[index] = handle;
+				changed = true;
+			}
+			ImGui::PopID();
+		}
+		AssetHandle added = 0;
+		if (ImGuiEx::PropertyAssetReference<SoundBank>("Add Bank", added, "Drop a Sound Bank here from the Content Browser, or pick one.", nullptr, {}, false)
+			&& added && std::find(banks.begin(), banks.end(), added) == banks.end())
+		{
+			banks.push_back(added);
+			changed = true;
+		}
+		ImGuiEx::EndPropertyGrid();
+		ImGui::EndDisabled();
+		if (removed)
+		{
+			banks.erase(banks.begin() + static_cast<std::ptrdiff_t>(*removed));
+			changed = true;
+		}
+		if (changed)
+		{
+			m_Context->SetSoundBanks(std::move(banks));
+			EditorStack::Get().MarkSceneEdited("Scene Sound Banks");
+		}
+		ImGui::TreePop();
 	}
 
 	void AudioMixerPanel::UI_Toolbar(AudioMixerSettings& mixer)

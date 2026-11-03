@@ -147,6 +147,7 @@ namespace Lux {
 			uint32_t ClipSampleRate = 0;
 			ma_uint64 ClipFrames = 0;
 			float CurrentGain = 0.0f;   // last target gain, for the quietest-instance steal policy
+			std::filesystem::path ClipFile;   // counted in the clip cache while set (NativeInternal::UseClip)
 		};
 
 		// Everything the engine reaches through NativeInternal. The wrapper's Impl is this, so the
@@ -209,13 +210,6 @@ namespace Lux {
 		// which stops while nothing is playing.
 		std::unordered_map<uint64_t, std::chrono::steady_clock::time_point> s_LastStart;
 		uint64_t s_StartOrder = 0;
-		// Clips decoded into memory stay registered with the resource manager until the engine shuts
-		// down, so restarting a voice or creating another instance never decodes the file again.
-		std::set<std::filesystem::path> s_DecodedClips;
-		// Packed clips registered as encoded data, holding their bytes alive while registered.
-		std::map<std::filesystem::path, Ref<AudioFile>> s_PackedClips;
-		uint64_t s_ClipMemoryBytes = 0; // decoded clips (float samples) and packed clips' encoded bytes
-
 		bool ReportOnce(const std::string& key, const std::string& message)
 		{
 			if (s_ReportedProblems.insert(key).second)
@@ -228,47 +222,14 @@ namespace Lux {
 			return std::uniform_real_distribution<float>(0.0f, 1.0f)(s_Random);
 		}
 
-		template<typename Char>
-		ma_result RegisterClip(ma_resource_manager* resources, const Char* path)
-		{
-			if constexpr (std::is_same_v<Char, wchar_t>)
-				return ma_resource_manager_register_file_w(resources, path, MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE);
-			else
-				return ma_resource_manager_register_file(resources, path, MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE);
-		}
-
-		template<typename Char>
-		ma_result RegisterEncoded(ma_resource_manager* resources, const Char* name, const std::vector<uint8_t>& data)
-		{
-			if constexpr (std::is_same_v<Char, wchar_t>)
-				return ma_resource_manager_register_encoded_data_w(resources, name, data.data(), data.size());
-			else
-				return ma_resource_manager_register_encoded_data(resources, name, data.data(), data.size());
-		}
-
-		template<typename Char>
-		void UnregisterData(ma_resource_manager* resources, const Char* name)
-		{
-			if constexpr (std::is_same_v<Char, wchar_t>)
-				ma_resource_manager_unregister_data_w(resources, name);
-			else
-				ma_resource_manager_unregister_data(resources, name);
-		}
-
-		template<typename Char>
-		void UnregisterClip(ma_resource_manager* resources, const Char* path)
-		{
-			if constexpr (std::is_same_v<Char, wchar_t>)
-				ma_resource_manager_unregister_file_w(resources, path);
-			else
-				ma_resource_manager_unregister_file(resources, path);
-		}
-
 		void ReleaseLeaf(Leaf& leaf)
 		{
 			// Upstream first: uninitializing detaches, and waits for the audio thread to let go.
 			leaf.Sound.clear();
 			leaf.Output.clear();
+			if (!leaf.ClipFile.empty())
+				NativeInternal::DropClip(leaf.ClipFile);
+			leaf.ClipFile.clear();
 		}
 
 		void ReleaseLeaves(NativeVoice& voice)
@@ -646,19 +607,10 @@ namespace Lux {
 			std::filesystem::path file;
 			if (!NativeInternal::ResolveClip(voice.ClipOverride ? AssetHandle(voice.ClipOverride) : clip.Clip, file, outError))
 				return MA_DOES_NOT_EXIST;
-			const bool packed = NativeInternal::IsPackedClip(file);
-			if (!packed && !sound.Stream && !s_DecodedClips.contains(file))
-			{
-				const ma_result registered = RegisterClip(ma_engine_get_resource_manager(engine), file.c_str());
-				if (registered != MA_SUCCESS)
-				{
-					outError = "cannot decode '" + file.string() + "': " + ma_result_description(registered);
-					return registered;
-				}
-				s_DecodedClips.insert(file);
-				if (const auto info = AudioFileUtils::GetFileInfo(file))
-					s_ClipMemoryBytes += static_cast<uint64_t>(info->Duration * info->SamplingRate) * info->NumChannels * sizeof(float);
-			}
+			// Decoded once and shared while a bank or a voice holds it, or streamed in pages.
+			if (const int used = NativeInternal::UseClip(file, sound.Stream, voice.SoundHandle, outError); used != MA_SUCCESS)
+				return static_cast<ma_result>(used);
+			leaf.ClipFile = file;
 
 			const uint32_t channels = ma_engine_get_channels(engine);
 			ma_result result = leaf.Output.Init(JPL::NodeLayout().WithInputs(channels).WithOutputs({ channels, channels })) ? MA_SUCCESS : MA_ERROR;
@@ -675,12 +627,9 @@ namespace Lux {
 					result = ma_node_attach_output_bus(leaf.Output.get(), 1, reverb, 0);
 			if (result == MA_SUCCESS)
 			{
-				// Decoded into memory and shared while any instance of the clip lives, or streamed from
-				// disk in pages by the engine's streaming thread.
-				// shortcut: miniaudio streams only from files, so a packed clip decodes even when the Sound
-				// streams; a pack VFS would let long music stream from the pack instead.
-				const bool stream = sound.Stream && !packed;
-				const ma_uint32 flags = (stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE) | MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT
+				// Decoded into memory and shared through the clip cache, or streamed in pages by the
+				// engine's streaming thread, from a file or from inside the pack.
+				const ma_uint32 flags = (sound.Stream ? MA_SOUND_FLAG_STREAM : MA_SOUND_FLAG_DECODE) | MA_SOUND_FLAG_NO_DEFAULT_ATTACHMENT
 					| (sound.Spatial.Enabled ? 0u : static_cast<ma_uint32>(MA_SOUND_FLAG_NO_SPATIALIZATION));
 				result = leaf.Sound.emplace(engine, file.c_str(), flags, nullptr, nullptr);
 				if (result != MA_SUCCESS)
@@ -758,8 +707,8 @@ namespace Lux {
 				std::string error;
 				if (!NativeInternal::ResolveClip(clip, file, error))
 					continue;
-				if (const auto packed = s_PackedClips.find(file); packed != s_PackedClips.end())
-					longest = std::max(longest, packed->second->Duration);
+				if (NativeInternal::IsPackedClip(file))
+					longest = std::max(longest, NativeInternal::GetPackedClipSeconds(file));
 				else if (const auto info = AudioFileUtils::GetFileInfo(file))
 					longest = std::max(longest, info->Duration);
 			}
@@ -829,42 +778,6 @@ namespace Lux {
 			if (voice->Live() && voice->Started && AllAtEnd(*voice))
 				MarkStopped(*voice);
 		}
-	}
-
-	bool NativeInternal::RegisterPackedClip(const std::filesystem::path& name, Ref<AudioFile> clip)
-	{
-		ma_engine* engine = NativeInternal::GetEngine();
-		if (!engine || !clip || clip->EncodedData.empty())
-			return false;
-		if (s_PackedClips.contains(name))
-			return true;
-		// Measured once from memory: a packed clip has no file for AudioFileUtils to read.
-		ma_decoder_config config = ma_decoder_config_init(ma_format_f32, 0, 0);
-		ma_decoder decoder;
-		if (ma_decoder_init_memory(clip->EncodedData.data(), clip->EncodedData.size(), &config, &decoder) != MA_SUCCESS)
-			return false;
-		ma_uint64 frames = 0;
-		ma_uint32 sampleRate = 0, channels = 0;
-		if (ma_decoder_get_data_format(&decoder, nullptr, &channels, &sampleRate, nullptr, 0) == MA_SUCCESS
-			&& ma_decoder_get_length_in_pcm_frames(&decoder, &frames) == MA_SUCCESS && sampleRate)
-			clip->Duration = static_cast<double>(frames) / sampleRate;
-		// Played decoded, beside the encoded bytes the pack delivered.
-		s_ClipMemoryBytes += clip->EncodedData.size() + frames * channels * sizeof(float);
-		ma_decoder_uninit(&decoder);
-		if (RegisterEncoded(ma_engine_get_resource_manager(engine), name.c_str(), clip->EncodedData) != MA_SUCCESS)
-			return false;
-		s_PackedClips[name] = clip;
-		return true;
-	}
-
-	uint64_t NativeInternal::GetClipMemoryBytes()
-	{
-		return s_ClipMemoryBytes;
-	}
-
-	bool NativeInternal::IsPackedClip(const std::filesystem::path& path)
-	{
-		return s_PackedClips.contains(path);
 	}
 
 	int NativeInternal::CountPlayingVoicesOn(const std::string& busPath)
@@ -979,19 +892,8 @@ namespace Lux {
 			ReleaseLeaves(*voice);
 			voice->Ready = voice->Started = false;
 		}
-		if (ma_engine* engine = NativeInternal::GetEngine())
-		{
-			for (const auto& clip : s_DecodedClips)
-				UnregisterClip(ma_engine_get_resource_manager(engine), clip.c_str());
-		}
-		s_DecodedClips.clear();
-		if (ma_engine* engine = NativeInternal::GetEngine())
-		{
-			for (const auto& [name, clip] : s_PackedClips)
-				UnregisterData(ma_engine_get_resource_manager(engine), name.c_str());
-		}
-		s_PackedClips.clear();
-		s_ClipMemoryBytes = 0;
+		NativeInternal::ReleaseClips();
+		NativeInternal::ClearPackedClips();
 		s_LastStart.clear();
 	}
 

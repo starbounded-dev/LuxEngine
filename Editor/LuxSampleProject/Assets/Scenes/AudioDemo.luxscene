@@ -1,4 +1,5 @@
 Scene: Audio Demo
+SoundBanks: [8412860126786977355]
 PostProcess:
   Exposure: 1
   ExposureMode: 0

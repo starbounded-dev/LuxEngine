@@ -1432,6 +1432,13 @@ namespace Lux {
 	static void SerializeSceneMetadata(Yaml::Writer& out, const Ref<Scene>& scene)
 	{
 		out << Yaml::Key << "Scene" << Yaml::Value << scene->GetName();
+		if (!scene->GetSoundBanks().empty())
+		{
+			out << Yaml::Key << "SoundBanks" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
+			for (const AssetHandle bank : scene->GetSoundBanks())
+				out << static_cast<uint64_t>(bank);
+			out << Yaml::EndSeq;
+		}
 
 		// Scene-wide post-processing. Previously authored per PostProcessVolume entity; the
 		// volume system is gone, so it lives here as one block.
@@ -1475,6 +1482,15 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
 			return false;
 		}
+
+		std::vector<AssetHandle> banks;
+		if (const auto list = data["SoundBanks"]; list && list.IsSequence())
+		{
+			for (const auto& bank : list)
+				if (const uint64_t handle = bank.as<uint64_t>(0); handle && std::find(banks.begin(), banks.end(), AssetHandle(handle)) == banks.end())
+					banks.push_back(handle);
+		}
+		scene->SetSoundBanks(std::move(banks));
 
 		// Absent in scenes written before post-processing moved off volumes; those simply
 		// keep the struct defaults.

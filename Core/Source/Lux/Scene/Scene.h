@@ -78,6 +78,10 @@ namespace Lux {
 		PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
 		const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
 		void SetPostProcessSettings(const PostProcessSettings& settings) { m_PostProcessSettings = settings; }
+
+		// The Sound Banks this scene loads before it starts playing and unloads when it stops.
+		const std::vector<AssetHandle>& GetSoundBanks() const { return m_SoundBanks; }
+		void SetSoundBanks(std::vector<AssetHandle> banks) { m_SoundBanks = std::move(banks); }
 		void SetName(const std::string& name) { m_Name = name; }
 
 		Entity CreateEntity(const std::string& name = std::string());
@@ -306,6 +310,7 @@ namespace Lux {
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 
 		PostProcessSettings m_PostProcessSettings;
+		std::vector<AssetHandle> m_SoundBanks;
 
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;

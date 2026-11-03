@@ -126,6 +126,28 @@ under the master.
 Each completed edit is one undo step. A Sound picks its bus in the Sound Editor (`Bus`). An Audio Zone's
 Snapshot picker lists these snapshots in the native build; the zone's weight is the snapshot's intensity.
 
+**Scene Sound Banks** (bottom of the panel) lists the Sound Banks the open scene loads before it plays and
+unloads when it stops. Drop a bank on *Add Bank* or pick one; *Remove* drops a row. It is part of the
+scene: edits go on the scene's undo stack and are saved with the scene. Disabled during Play.
+
+## Sound Banks
+
+A Sound Bank (`.lbank`, Content Browser **New › Sound Bank**, seeded with the selected Sounds) lists
+Sounds that load together, the engine's replacement for FMOD's banks. Double-click one to open the
+**Sound Bank Editor**:
+
+| Control | What it does |
+|---|---|
+| Resident | Load it when the game starts and never unload it: for Sounds every scene uses |
+| Sounds | Drop a Sound on *Add Sound* or pick one; *Remove* drops a row. A Sound may be in several banks |
+| Memory when loaded | The decoded size of its non-streaming Sounds' clips; streamed Sounds hold only stream pages |
+| Sounds in no bank | Every Sound no bank holds, with *Add* to put it in this one |
+
+Edits save at once and are undoable. The Sound Editor's **Sound Banks** section shows which banks hold
+the open Sound and adds it to another. A Sound in no loaded bank still plays: it loads when it first
+plays, which can stall that frame, and a Debug build warns once. Export validation warns about each Sound
+a scene plays that no bank holds, and reports banks or scenes that name missing assets.
+
 ## Project Settings → Audio
 
 Open with **View → Project Settings**, then the **Audio** section. Settings are saved with the

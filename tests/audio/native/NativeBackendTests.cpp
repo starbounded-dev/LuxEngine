@@ -34,6 +34,7 @@
 #include <functional>
 #include <map>
 #include <numbers>
+#include <atomic>
 #include <thread>
 
 #define CHECK(condition) do { if (!(condition)) { std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); std::exit(EXIT_FAILURE); } } while (0)
@@ -53,7 +54,10 @@ namespace
 
 	std::map<uint64_t, Lux::Ref<Lux::Sound>> s_Sounds;
 	std::map<uint64_t, std::filesystem::path> s_Clips;
-	std::map<uint64_t, Lux::Ref<Lux::AudioFile>> s_PackedClips; // as a runtime asset pack delivers them
+	// Clips inside a pack file, as a runtime asset pack delivers them: the file, and where the clip's bytes sit.
+	struct PackedClip { std::filesystem::path Pack; uint64_t Offset = 0, Size = 0; };
+	std::map<uint64_t, PackedClip> s_PackedClips;
+	std::map<uint64_t, Lux::Ref<Lux::SoundBank>> s_Banks;
 	uint64_t s_NextHandle = 1000;
 }
 
@@ -90,7 +94,7 @@ namespace Lux
 		if (const auto packed = s_PackedClips.find(static_cast<uint64_t>(clip)); packed != s_PackedClips.end())
 		{
 			outPath = std::filesystem::path("luxpack") / (std::to_string(packed->first) + ".wav");
-			if (!NativeInternal::RegisterPackedClip(outPath, packed->second))
+			if (!NativeInternal::RegisterPackedClip(outPath, packed->second.Pack, packed->second.Offset, packed->second.Size))
 			{
 				outError = "the packed clip cannot be decoded";
 				return false;
@@ -104,6 +108,18 @@ namespace Lux
 			return false;
 		}
 		outPath = it->second;
+		return true;
+	}
+
+	bool NativeInternal::ResolveSoundBank(AssetHandle bank, Ref<SoundBank>& outBank, std::string& outError)
+	{
+		const auto it = s_Banks.find(static_cast<uint64_t>(bank));
+		if (it == s_Banks.end())
+		{
+			outError = "bank not in the test table";
+			return false;
+		}
+		outBank = it->second;
 		return true;
 	}
 
@@ -156,6 +172,60 @@ namespace
 		CHECK(error.empty());
 		s_Sounds[static_cast<uint64_t>(sound->Handle)] = sound;
 		return std::to_string(static_cast<uint64_t>(sound->Handle));
+	}
+
+	// A bank in the test table over Sound references (AddSound's return values).
+	AssetHandle AddBank(const std::vector<std::string>& sounds)
+	{
+		auto bank = Ref<SoundBank>::Create();
+		bank->Handle = s_NextHandle++;
+		for (const auto& sound : sounds)
+			CHECK(bank->Add(AssetHandle(std::stoull(sound))));
+		s_Banks[static_cast<uint64_t>(bank->Handle)] = bank;
+		return bank->Handle;
+	}
+
+	// Waits for a bank's clips to finish decoding on the streaming thread.
+	bool WaitBankLoaded(AssetHandle bank)
+	{
+		for (int i = 0; i < 2000 && !AudioEngine::IsSoundBankLoaded(bank); ++i)
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		return AudioEngine::IsSoundBankLoaded(bank);
+	}
+
+	// Copies a file into a pack-like file between junk, and returns where its bytes sit.
+	PackedClip PackFile(const std::filesystem::path& file, const std::string& packName)
+	{
+		std::ifstream in(file, std::ios::binary);
+		const std::vector<char> bytes{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+		CHECK(!bytes.empty());
+		PackedClip packed{ s_Directory / packName, 4096, bytes.size() };
+		std::ofstream out(packed.Pack, std::ios::binary);
+		const std::vector<char> junk(4096, '\x5A');
+		out.write(junk.data(), junk.size());
+		out.write(bytes.data(), bytes.size());
+		out.write(junk.data(), 100);   // past the clip: reads must stop at its end
+		CHECK(out.good());
+		return packed;
+	}
+
+	// A long mono 16-bit WAV, written in one go (WriteTone writes sample by sample).
+	std::filesystem::path WriteLongTone(const std::string& name, double hz, double seconds, double amplitude)
+	{
+		const auto path = s_Directory / name;
+		const uint32_t frames = static_cast<uint32_t>(seconds * kRate);
+		std::vector<int16_t> samples(frames);
+		for (uint32_t i = 0; i < frames; ++i)
+			samples[i] = static_cast<int16_t>(std::lround(amplitude * std::sin(2.0 * std::numbers::pi * hz * i / kRate) * 32767.0));
+		std::ofstream out(path, std::ios::binary);
+		const auto u32 = [&](uint32_t value) { out.write(reinterpret_cast<const char*>(&value), 4); };
+		const auto u16 = [&](uint16_t value) { out.write(reinterpret_cast<const char*>(&value), 2); };
+		out.write("RIFF", 4); u32(36 + frames * 2); out.write("WAVEfmt ", 8);
+		u32(16); u16(1); u16(1); u32(kRate); u32(kRate * 2); u16(2); u16(16);
+		out.write("data", 4); u32(frames * 2);
+		out.write(reinterpret_cast<const char*>(samples.data()), samples.size() * sizeof(int16_t));
+		CHECK(out.good());
+		return path;
 	}
 
 	SoundNode ClipNode(AssetHandle clip, const std::function<void(SoundNode&)>& configure = {})
@@ -1200,36 +1270,153 @@ namespace
 
 	void TestPackedClips()
 	{
-		// A clip delivered as encoded bytes (a native asset pack) plays like its file, decoded from memory
-		// even when the Sound streams, reports its length, and is released with the engine.
+		// A clip inside a pack file plays like its loose file, decoded from the pack (and streamed from
+		// it when the Sound streams), reports its length, and is registered again after a restart.
 		const auto file = WriteTone("packed.wav", 500.0, 0.75);
-		std::ifstream in(file, std::ios::binary);
-		auto packed = Ref<AudioFile>::Create();
-		packed->EncodedData.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-		CHECK(!packed->EncodedData.empty());
 		const uint64_t handle = s_NextHandle++;
-		s_PackedClips[handle] = packed;
+		s_PackedClips[handle] = PackFile(file, "packed.lap");
 		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
 		const auto loose = AddSound(file, [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
-		const auto fromPack = AddSound({}, [handle](Sound& s) { s.Nodes[0].Clip = handle; s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Stream = true; });
+		const auto decoded = AddSound({}, [handle](Sound& s) { s.Nodes[0].Clip = handle; s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
+		const auto streamed = AddSound({}, [handle](Sound& s) { s.Nodes[0].Clip = handle; s.Nodes[0].Loop = true; s.Spatial.Enabled = false; s.Stream = true; });
 		for (int run = 0; run < 2; ++run)                          // twice: shutdown unregisters, a restart registers again
 		{
 			Start();
 			const double expected = PlayAt(loose, front).Left;
 			CHECK(expected > 0.3);
-			CHECK_NEAR(PlayAt(fromPack, front).Left / expected, 1.0, 1e-4);
-			auto instance = AudioEventInstance::Create(fromPack);
+			CHECK_NEAR(PlayAt(decoded, front).Left / expected, 1.0, 1e-4);
+			CHECK_NEAR(PlayAt(streamed, front).Left / expected, 1.0, 1e-4);
+			auto instance = AudioEventInstance::Create(streamed);
 			CHECK(instance && instance->GetLength() == 750);
-			CHECK_NEAR(packed->Duration, 0.75, 1e-3);
 			AudioEngine::Shutdown();
 		}
-		packed->EncodedData = { 1, 2, 3, 4 };                         // not audio
+		s_PackedClips[handle].Offset = 1;                           // inside the junk: not audio
 		Start();
-		auto broken = AudioEventInstance::Create(fromPack);
+		auto broken = AudioEventInstance::Create(decoded);
 		CHECK(broken && !broken->Start());
 		AudioEngine::Shutdown();
 		s_PackedClips.clear();
-		std::puts("PASS: packed clips: played from memory like the file, decoded when streaming, length, re-registered after restart, bad data refused");
+		std::puts("PASS: packed clips: decoded and streamed from the pack like the file, length, re-registered after restart, bad data refused");
+	}
+
+	void TestSoundBanks()
+	{
+		// Banks load their clips (decoded off the main thread), count their loads, share clips, and free
+		// a clip once no loaded bank and no playing voice holds it.
+		const auto x = AddSound(WriteTone("bank-x.wav", 300.0, 1.0), [](Sound& s) { s.Spatial.Enabled = false; });
+		const auto y = AddSound(WriteTone("bank-y.wav", 400.0, 1.0), [](Sound& s) { s.Spatial.Enabled = false; });
+		const auto z = AddSound(WriteTone("bank-z.wav", 500.0, 1.0), [](Sound& s) { s.Nodes[0].Loop = true; s.Spatial.Enabled = false; });
+		const auto streamed = AddSound(WriteTone("bank-stream.wav", 600.0, 1.0), [](Sound& s) { s.Stream = true; s.Spatial.Enabled = false; });
+		const AssetHandle a = AddBank({ x, y }), b = AddBank({ y, z, streamed });
+		constexpr uint64_t kClip = 48000 * sizeof(float);   // one second of mono, decoded to float
+		Start();
+		CHECK(NativeInternal::GetClipMemoryBytes() == 0);
+		CHECK(!AudioEngine::IsSoundBankLoaded(a) && !AudioEngine::LoadSoundBank(AssetHandle(424242)));
+
+		CHECK(AudioEngine::LoadSoundBank(a) && WaitBankLoaded(a));
+		CHECK(NativeInternal::GetClipMemoryBytes() == 2 * kClip);
+		CHECK(AudioEngine::LoadSoundBank(b) && WaitBankLoaded(b));
+		CHECK(NativeInternal::GetClipMemoryBytes() == 3 * kClip);    // y once; the streamed clip holds nothing
+
+		CHECK(AudioEngine::LoadSoundBank(a));                         // counted: one unload keeps it
+		AudioEngine::UnloadSoundBank(a);
+		CHECK(AudioEngine::IsSoundBankLoaded(a) && NativeInternal::GetClipMemoryBytes() == 3 * kClip);
+		AudioEngine::UnloadSoundBank(a);
+		CHECK(!AudioEngine::IsSoundBankLoaded(a));
+		CHECK(NativeInternal::GetClipMemoryBytes() == 2 * kClip);    // x freed, y kept by b
+
+		auto playing = Play(z, glm::vec3(0.0f, 0.0f, -1.0f));
+		CHECK(Measure().Left > 0.3);                                  // a preloaded clip plays at once
+		AudioEngine::UnloadSoundBank(b);
+		CHECK(NativeInternal::GetClipMemoryBytes() == kClip);         // y freed; z stays while it plays
+		CHECK(Measure().Left > 0.3);
+		playing->Stop(false);
+		CHECK(NativeInternal::GetClipMemoryBytes() == 0);             // z freed with its last voice
+
+		// A Sound in no loaded bank loads when it plays and stays until unused clips are swept.
+		CHECK(PlayAt(x, glm::vec3(0.0f, 0.0f, -1.0f)).Left > 0.3);
+		CHECK(NativeInternal::GetClipMemoryBytes() == kClip);
+		AudioEngine::ReleaseUnusedClips();
+		CHECK(NativeInternal::GetClipMemoryBytes() == 0);
+
+		const AssetHandle resident = AddBank({ y });
+		s_Banks[static_cast<uint64_t>(resident)]->Resident = true;
+		CHECK(AudioEngine::LoadSoundBank(resident) && WaitBankLoaded(resident));
+		AudioEngine::UnloadSoundBank(resident);                       // ignored: resident until shutdown
+		CHECK(AudioEngine::IsSoundBankLoaded(resident) && NativeInternal::GetClipMemoryBytes() == kClip);
+
+		CHECK(AudioEngine::LoadSoundBank(a) && WaitBankLoaded(a));
+		AudioEngine::Shutdown();                                      // frees everything, banks included
+		Start();
+		CHECK(!AudioEngine::IsSoundBankLoaded(a) && NativeInternal::GetClipMemoryBytes() == 0);
+		AudioEngine::Shutdown();
+		std::puts("PASS: sound banks: counted loads, shared clips, freed when no bank or voice holds them, on-demand clips swept");
+	}
+
+	void TestPackStream()
+	{
+		// Five minutes of music streamed from inside a pack: it plays like the loose file, seeks deep
+		// into the clip, and holds stream pages, not the track.
+		const auto file = WriteLongTone("long.wav", 440.0, 300.0, 0.25);
+		const uint64_t handle = s_NextHandle++;
+		s_PackedClips[handle] = PackFile(file, "long.lap");
+		const auto loose = AddSound(file, [](Sound& s) { s.Stream = true; s.Spatial.Enabled = false; });
+		const auto packed = AddSound({}, [handle](Sound& s) { s.Nodes[0].Clip = handle; s.Stream = true; s.Spatial.Enabled = false; });
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		Start();
+		const double expected = PlayAt(loose, front).Left;
+		CHECK(expected > 0.1);
+		auto instance = Play(packed, front);
+		CHECK(instance->GetLength() == 300000);
+		CHECK_NEAR(Measure().Left / expected, 1.0, 1e-4);
+		CHECK(NativeInternal::GetClipMemoryBytes() < 1024 * 1024);
+		instance->SetTimelinePosition(295000);                        // near the end, past every early page
+		CHECK_NEAR(Measure().Left / expected, 1.0, 1e-4);
+		instance->Stop(false);
+		AudioEngine::Shutdown();
+		s_PackedClips.erase(handle);
+		std::puts("PASS: pack stream: a 5-minute clip streams from the pack like the file, seeks, under 1 MB of clip memory");
+	}
+
+	void TestPackStreamStress()
+	{
+		// Sixteen streams from one pack while another thread reads the same file: every stream reads
+		// its own bytes (the sum is sixteen times one stream, in phase).
+		const auto file = WriteLongTone("stress.wav", 440.0, 10.0, 0.02);
+		const uint64_t handle = s_NextHandle++;
+		s_PackedClips[handle] = PackFile(file, "stress.lap");
+		const auto packed = AddSound({}, [handle](Sound& s) { s.Nodes[0].Clip = handle; s.Stream = true; s.Spatial.Enabled = false; });
+		const glm::vec3 front{ 0.0f, 0.0f, -1.0f };
+		Start();
+		const double single = PlayAt(packed, front).Left;
+		CHECK(single > 0.005);
+		std::atomic<bool> reading{ true };
+		std::thread reader([&]
+		{
+			std::vector<char> buffer(64 * 1024);
+			while (reading)
+			{
+				std::ifstream in(s_PackedClips[handle].Pack, std::ios::binary);
+				while (reading && in.read(buffer.data(), buffer.size())) {}
+			}
+		});
+		std::vector<Ref<AudioEventInstance>> instances;
+		for (int i = 0; i < 16; ++i)
+		{
+			instances.push_back(AudioEventInstance::Create(packed));
+			instances.back()->Set3DAttributes(front, glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		}
+		for (auto& instance : instances)
+			CHECK(instance->StartAt(ma_engine_get_time_in_pcm_frames(NativeInternal::GetEngine()) + kRate / 10));
+		const double all = Measure().Left;
+		reading = false;
+		reader.join();
+		CHECK_NEAR(all / single, 16.0, 16.0 * 1e-3);
+		for (auto& instance : instances)
+			instance->Stop(false);
+		AudioEngine::Shutdown();
+		s_PackedClips.erase(handle);
+		std::puts("PASS: pack stream stress: 16 streams from one pack beside a concurrent reader, each reading its own bytes");
 	}
 
 	void TestVoiceBudget()
@@ -1810,6 +1997,7 @@ namespace
 
 int main(int argc, char** argv)
 {
+	std::setvbuf(stdout, nullptr, _IONBF, 0); // a crash keeps every PASS line before it
 	s_Directory = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path() / "lux-native-backend-tests";
 	std::filesystem::create_directories(s_Directory);
 	TestReferences();
@@ -1830,6 +2018,9 @@ int main(int argc, char** argv)
 	TestMusicTimeline();
 	TestDialogueClips();
 	TestPackedClips();
+	TestSoundBanks();
+	TestPackStream();
+	TestPackStreamStress();
 	TestVoiceBudget();
 	TestSampleProjectSounds();
 	TestPauseLayering();

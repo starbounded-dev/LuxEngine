@@ -4,6 +4,7 @@
 #pragma once
 
 #include "AudioBankManifest.h"
+#include "Lux/Core/UUID.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -101,6 +102,22 @@ namespace Lux {
 		static void Update();
 		// Main thread; output mute is independent of authored bus and gameplay pause state.
 		static void SetApplicationFocused(bool focused);
+
+		// --- Sound Banks (the native backend) ---------------------------------------------------
+		//
+		// A Sound Bank (.lbank) lists Sounds that load and unload together. Loading decodes the
+		// clips of its non-streaming Sounds off the main thread and returns at once; loads are
+		// counted, so a bank stays loaded until every load is matched by an unload; a Resident bank stays
+		// loaded until the engine shuts down, whatever unloads follow. A clip stays in
+		// memory while a loaded bank lists it or a voice plays it. False for an unknown bank. The
+		// handles are Sound Bank asset handles. Main thread only. FMOD builds load nothing.
+		static bool LoadSoundBank(UUID bank);
+		static void UnloadSoundBank(UUID bank);
+		// Loaded, and every clip it decodes is ready (or failed, and was reported).
+		static bool IsSoundBankLoaded(UUID bank);
+		// Frees clips that no loaded bank lists and no voice plays: those Sounds outside any bank
+		// loaded when they first played. Called when a scene stops.
+		static void ReleaseUnusedClips();
 
 		// --- FMOD Studio banks and events -------------------------------------------------------
 		//

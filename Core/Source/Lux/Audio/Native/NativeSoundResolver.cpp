@@ -6,6 +6,7 @@
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Project/Project.h"
 
 // Playback references against the asset manager. Kept out of the playback files so the native
@@ -63,6 +64,27 @@ namespace Lux
 		return true;
 	}
 
+	bool NativeInternal::ResolveSoundBank(AssetHandle bank, Ref<SoundBank>& outBank, std::string& outError)
+	{
+		if (!Project::GetAssetManager())
+		{
+			outError = "no project is open";
+			return false;
+		}
+		if (!bank || !AssetManager::IsAssetHandleValid(bank) || AssetManager::GetAssetType(bank) != AssetType::SoundBank)
+		{
+			outError = "it is not a Sound Bank asset";
+			return false;
+		}
+		outBank = AssetManager::GetAsset<SoundBank>(bank);
+		if (!outBank)
+		{
+			outError = "the Sound Bank could not be loaded";
+			return false;
+		}
+		return true;
+	}
+
 	bool NativeInternal::ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError)
 	{
 		if (!Project::GetAssetManager())
@@ -80,11 +102,11 @@ namespace Lux
 			outPath = editor->GetFileSystemPath(clip);
 		else if (const auto file = AssetManager::GetAsset<AudioFile>(clip))
 		{
-			if (!file->EncodedData.empty())
+			if (!file->PackFile.empty())
 			{
-				// Played from the pack's bytes, under a name that keeps the extension miniaudio decodes by.
+				// Read in place inside the pack, under a name that keeps the extension miniaudio decodes by.
 				outPath = std::filesystem::path("luxpack") / (std::to_string(static_cast<uint64_t>(clip)) + std::filesystem::path(file->FilePath).extension().string());
-				if (!NativeInternal::RegisterPackedClip(outPath, file))
+				if (!NativeInternal::RegisterPackedClip(outPath, file->PackFile, file->PackOffset, file->FileSize))
 				{
 					outError = "the packed clip cannot be decoded: " + file->FilePath;
 					return false;

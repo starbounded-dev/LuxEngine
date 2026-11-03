@@ -20,6 +20,9 @@
 
 struct ma_engine;
 typedef void ma_node;
+typedef void ma_vfs;
+
+namespace Lux { class SoundBank; }
 
 namespace Lux::NativeInternal {
 
@@ -63,13 +66,29 @@ namespace Lux::NativeInternal {
 	// Defined in NativeSoundResolver.cpp against the asset manager; the native tests define their own.
 	bool ResolveSound(const std::string& reference, Ref<Sound>& outSound, std::string& outError);
 	// The path of a clip (an Audio asset). Defined beside ResolveSound. A clip from an asset pack has
-	// no file: its path is a "luxpack/" name RegisterPackedClip has given its bytes.
+	// no file: its path is a "luxpack/" name RegisterPackedClip has pointed into the pack.
 	bool ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError);
+	// A Sound Bank asset. Defined beside ResolveSound; the native tests define their own.
+	bool ResolveSoundBank(AssetHandle bank, Ref<SoundBank>& outBank, std::string& outError);
 
-	// Registers a packed clip's encoded bytes with the resource manager under name (once; the asset is
-	// kept alive until the engine releases its voices). False when miniaudio refuses them.
-	bool RegisterPackedClip(const std::filesystem::path& name, Ref<AudioFile> clip);
+	// The resource manager's file system (NativePackVFS.cpp): "luxpack/" names read a clip in place
+	// inside its pack, any other name a loose file. miniaudio's job threads read through it.
+	ma_vfs* GetPackVFS();
+	// Names a clip that sits at offset, size bytes long, inside the pack file (once per name, until
+	// ClearPackedClips). False, and nothing registered, when the bytes do not decode.
+	bool RegisterPackedClip(const std::filesystem::path& name, const std::filesystem::path& pack, uint64_t offset, uint64_t size);
 	bool IsPackedClip(const std::filesystem::path& path);
+	double GetPackedClipSeconds(const std::filesystem::path& path);
+	void ClearPackedClips();
+
+	// The clip cache (NativeClipCache.cpp), main thread only. A clip stays decoded while a loaded bank
+	// lists it or a voice plays it; one a bank let go of is freed with its last voice, and one only
+	// ever played (in no loaded bank) stays until AudioEngine::ReleaseUnusedClips.
+	// UseClip counts a voice (decoding the clip first unless it streams); DropClip uncounts it.
+	int UseClip(const std::filesystem::path& file, bool stream, uint64_t soundHandle, std::string& outError);
+	void DropClip(const std::filesystem::path& file);
+	// Frees every clip and bank, before the resource manager is torn down.
+	void ReleaseClips();
 
 	// Seeds the generator Random containers and variations draw from (the tests make choices repeatable).
 	void SeedRandom(uint32_t seed);
@@ -110,7 +129,7 @@ namespace Lux::NativeInternal {
 	// The device callback's mixing time as a share of the audio it produced, since the last call, in
 	// percent. False without a device (NoDevice renders) or before the device has run.
 	bool ReadAudioLoad(float& outPercent);
-	// Memory held by decoded clips (as float samples) and packed clips' encoded bytes.
+	// Memory held by decoded clips, plus the pages of the streams playing.
 	uint64_t GetClipMemoryBytes();
 	// Stops and frees every voice's miniaudio objects, before the engine is torn down. The
 	// wrappers stay alive but invalid, exactly as FMOD's generation check leaves them.

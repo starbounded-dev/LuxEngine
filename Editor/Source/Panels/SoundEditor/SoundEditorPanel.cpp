@@ -8,6 +8,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioFileUtils.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
@@ -433,6 +434,7 @@ namespace Lux
 						UI_Node(*document, *sound, edited);
 						UI_Parameters(*document, *sound, edited);
 						UI_SoundProperties(*sound, edited);
+						UI_Banks(document->Handle);
 					}
 					ImGui::EndChild();
 
@@ -776,6 +778,57 @@ namespace Lux
 			ImGui::SetItemTooltip("NextMarker transitions sync to any marker, NextSection to names starting \"Section:\".");
 			ImGui::TreePop();
 		}
+	}
+
+	void SoundEditorPanel::UI_Banks(AssetHandle soundHandle)
+	{
+		if (!ImGuiEx::PropertyGridHeader("Sound Banks", false))
+			return;
+		std::vector<std::pair<std::string, AssetHandle>> holding, others;
+		for (const AssetHandle handle : AssetManager::GetAllAssetsWithType<SoundBank>())
+		{
+			const Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
+			if (!bank)
+				continue;
+			const std::string path = Project::GetEditorAssetManager()->GetMetadata(handle).FilePath.generic_string();
+			(bank->Contains(soundHandle) ? holding : others).emplace_back(path, handle);
+		}
+		std::sort(holding.begin(), holding.end());
+		std::sort(others.begin(), others.end());
+		if (holding.empty())
+			ImGui::TextWrapped("In no Sound Bank: it loads when it first plays, which can stall that frame.");
+		for (const auto& [path, bank] : holding)
+			ImGui::BulletText("%s", path.c_str());
+		ImGui::BeginDisabled(others.empty());
+		if (ImGui::BeginCombo("##add_to_bank", "Add to bank..."))
+		{
+			for (const auto& [path, handle] : others)
+			{
+				if (!ImGui::Selectable(path.c_str()))
+					continue;
+				Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
+				if (!bank || !bank->Add(soundHandle))
+					continue;
+				AssetImporter::Serialize(bank.As<Asset>());
+				if (m_PushUndo)
+				{
+					const auto save = [handle, soundHandle](bool add)
+					{
+						if (Ref<SoundBank> target = AssetManager::GetAsset<SoundBank>(handle))
+						{
+							if (add ? target->Add(soundHandle) : target->Remove(soundHandle))
+								AssetImporter::Serialize(target.As<Asset>());
+						}
+					};
+					m_PushUndo("Sound: add to bank", [save] { save(false); }, [save] { save(true); });
+				}
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::EndDisabled();
+		if (others.empty() && holding.empty())
+			ImGui::TextDisabled("Make one in the Content Browser: New > Sound Bank.");
+		ImGui::TreePop();
 	}
 
 	void SoundEditorPanel::UI_Parameters(Document& document, Sound& sound, bool& edited)

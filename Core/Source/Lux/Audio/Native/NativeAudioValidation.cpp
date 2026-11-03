@@ -5,6 +5,7 @@
 #include "Lux/Audio/AudioValidation.h"
 #include "Lux/Audio/AudioFileUtils.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Project/Project.h"
 #include "NativeInternal.h"
 
@@ -91,13 +92,40 @@ namespace Lux
 		const auto catalog = AssetManager::GetAllAssetsWithType<Sound>();
 		report.CatalogEvents = catalog.size();
 		auto* editor = dynamic_cast<EditorAssetManager*>(Project::GetAssetManager().Raw());
+		const auto name = [editor](AssetHandle handle)
+		{
+			const auto path = editor ? editor->GetMetadata(handle).FilePath.generic_string() : std::string{};
+			return path.empty() ? std::to_string(static_cast<uint64_t>(handle)) : path;
+		};
+
+		// Sound Banks: every listed Sound exists, and every Sound a scene plays is in some bank.
+		std::set<uint64_t> banked;
+		for (const auto handle : AssetManager::GetAllAssetsWithType<SoundBank>())
+		{
+			const Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
+			if (!bank)
+			{
+				Issue(report, true, name(handle), "Sound Bank cannot be loaded");
+				continue;
+			}
+			for (const AssetHandle sound : bank->Sounds)
+			{
+				if (!AssetManager::IsAssetHandleValid(sound) || AssetManager::GetAssetType(sound) != AssetType::Sound)
+					Issue(report, true, name(handle), "Sound Bank lists Sound " + std::to_string(static_cast<uint64_t>(sound)) + ", which is missing");
+				banked.insert(static_cast<uint64_t>(sound));
+			}
+		}
+		for (const auto handle : used)
+		{
+			if (!banked.contains(handle))
+				Issue(report, false, name(AssetHandle(handle)), "Sound is in no Sound Bank: it loads when it first plays, which can stall that frame");
+		}
+
 		for (const auto handle : catalog)
 		{
 			if (used.contains(static_cast<uint64_t>(handle)))
 				continue;
-			const auto path = editor ? editor->GetMetadata(handle).FilePath.generic_string() : std::string{};
-			Issue(report, false, path.empty() ? std::to_string(static_cast<uint64_t>(handle)) : path,
-				"No serialized reference found; verify whether scripts use this sound before removing it");
+			Issue(report, false, name(handle), "No serialized reference found; verify whether scripts use this sound before removing it");
 		}
 		return report;
 	}

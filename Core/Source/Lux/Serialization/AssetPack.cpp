@@ -7,6 +7,7 @@
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/Sound.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Core/Platform.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/Components.h"
@@ -234,6 +235,8 @@ namespace Lux
 		std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
 		const std::unordered_set<AssetHandle> sounds = AssetManager::GetAllAssetsWithType<Sound>();
 		audioFiles.insert(sounds.begin(), sounds.end());
+		const std::unordered_set<AssetHandle> banks = AssetManager::GetAllAssetsWithType<SoundBank>();
+		audioFiles.insert(banks.begin(), banks.end());
 		fullAssetList.insert(audioFiles.begin(), audioFiles.end());
 
 		for (AssetHandle sceneHandle : sceneHandles)

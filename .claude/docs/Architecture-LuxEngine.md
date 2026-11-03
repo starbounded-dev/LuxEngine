@@ -1041,13 +1041,25 @@ version 1 (Phase 2's single `Clip`/`Loop`) loads as a root clip node. `Validate`
 and rejects malformed trees. `SoundSerializer` writes bounded YAML (64 KiB at save, load, pack write
 and pack read), registers every clip as a dependency and is packable. Each instance copies the Sound
 when created, so an edit applies to the next instance.
-**Sound Banks (spec 002, in progress):** `SoundBank` (`AssetType::SoundBank`, `.lbank`,
-`Audio/SoundBank.h`) lists Sounds (no duplicates or zero handles, at most 2048, `Resident` loads it at
-game start) and replaces FMOD's banks. `SoundBankSerializer` shares `SoundSerializer.cpp`'s bounded-YAML
-helpers (64 KiB, the same pack layout) and registers each Sound as a dependency. It is a script field
-type (`Lux.SoundBank`, `DataType::SoundBank`) and the Content Browser's New › Sound Bank (seeded with
-the selected Sounds). Loading and freeing clips by bank is not wired yet; see
-`specs/002-fmod-replacement/tasks.md`.
+**Sound Banks (spec 002):** `SoundBank` (`AssetType::SoundBank`, `.lbank`, `Audio/SoundBank.h`) lists
+Sounds (no duplicates or zero handles, at most 2048) and replaces FMOD's banks. `SoundBankSerializer`
+shares `SoundSerializer.cpp`'s bounded-YAML helpers (64 KiB, the same pack layout) and registers each
+Sound as a dependency. It is a script field type (`Lux.SoundBank`, `DataType::SoundBank`), the Content
+Browser's New › Sound Bank (seeded with the selected Sounds), and the Sound Bank Editor panel.
+`AudioEngine::LoadSoundBank` / `UnloadSoundBank` / `IsSoundBankLoaded` (`NativeClipCache.cpp`) count
+loads per bank; a `Resident` bank, once loaded, stays until shutdown. Loading decodes each non-streaming
+Sound's clips asynchronously on the `AudioStreaming` thread into a resource-manager data source that
+the clip cache holds, so voices share one decoded buffer. The cache counts each clip's bank and voice
+references: a clip a bank lets go of is freed with its last voice, and one played outside any loaded
+bank (decoded on the main thread then, with a Debug warning once per Sound) stays until
+`AudioEngine::ReleaseUnusedClips`. `Scene::GetSoundBanks` (YAML `SoundBanks`, beside `PostProcess`)
+lists the banks `OnRuntimeStart` loads, after every Resident bank and before anything plays;
+`OnRuntimeStop` unloads them and sweeps unused clips. Every scene's asset pack lists all Sound Banks.
+**Packed clips are read in place:** `AudioFile` keeps `PackFile` / `PackOffset` (its bytes still follow
+its path in the pack, so the format is unchanged) and the resource manager's VFS (`NativePackVFS.cpp`)
+opens `luxpack/<handle><ext>` at that offset, one file handle per open, so packed clips decode on the
+streaming thread and streamed Sounds stream straight from `AssetPack.lap`. `GetClipMemoryBytes` is the
+held decoded buffers plus two stream pages per playing stream (an upper bound).
 The Content Browser offers **New → Sound** and **Create Sound** on an audio file (native builds
 only); with several audio files selected it makes one Sound with a Random root (avoid-repeat) over
 them, refused if the file would exceed `Sound::MaxFileBytes`. `.wav`, `.ogg`, `.mp3` and `.flac` are
@@ -1105,11 +1117,10 @@ counterpart of `AudioKey`. `DialogueDirector` calls `AudioEventInstance::SetClip
 `SetProgrammerSound` on FMOD. The subtitle's duration is the override clip's length. Project
 Settings shows a Clip picker per language in the native build and the audio-table key in FMOD's.
 **Native runtime export (Phase 8a):** a native build packs each Audio asset's encoded file after its
-path (`AudioAssetSerializer`; FMOD packs keep the path only, and a reader takes bytes only when the
-entry is longer than its path, so either pack loads). At runtime `ResolveClip` names a packed clip
-`luxpack/<handle><ext>` and `RegisterPackedClip` registers its bytes with miniaudio's resource
-manager (`ma_resource_manager_register_encoded_data`), measuring its length from memory; a Sound
-plays it as a file, decoded even when it streams. The mixer is runtime project format 30.
+path (`AudioAssetSerializer`; FMOD packs keep the path only, and a reader records the bytes' offset
+only when the entry is longer than its path, so either pack loads). At runtime `ResolveClip` names a
+packed clip `luxpack/<handle><ext>` and `RegisterPackedClip` points the pack VFS at it, measuring its
+length through the VFS; a Sound decodes or streams it like a file (Sound Banks above). The mixer is runtime project format 30.
 Every scene's pack lists all Audio and Sound assets (`AssetPack::CreateFromActiveProject`), since
 components, zones, the music director, dialogue and scripts all name them. Export skips FMOD bank
 preparation and `CopyAudioLibraries` on native, and `RuntimeExport::ShipsLibrary` keeps an earlier FMOD

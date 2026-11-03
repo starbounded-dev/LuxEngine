@@ -182,7 +182,7 @@ dc8739f9f4b5aac5 25 2 1 Editor/LuxSampleProject/Assets/Meshes/Source/Sponza/Mate
 1c977fc6fc77debc 25 2 1 Editor/LuxSampleProject/Assets/Meshes/Source/Sponza/Materials/Sponza_9_Material_9.lmat
 e77d54f585d91b70 187 18 18 Editor/LuxSampleProject/Assets/Scenes/AudioTest.luxscene
 8a9cb7a7923c3daf 271698 45068 32540 Editor/LuxSampleProject/Assets/Scenes/Benchmark.luxscene
-7c2b1566d2ccbe6f 1247 161 124 Editor/LuxSampleProject/Assets/Scenes/AudioDemo.luxscene
+ca41dfee4fde41ae 1249 161 125 Editor/LuxSampleProject/Assets/Scenes/AudioDemo.luxscene
 556d9519b78aab1a 227 28 25 Editor/LuxSampleProject/Assets/Scenes/LaptopStart.luxscene
 a1566946e998eee0 280 30 32 Editor/LuxSampleProject/Assets/Scenes/NewSceneSystem.luxscene
 7e6e24ea1a0930c5 343 37 38 Editor/LuxSampleProject/Assets/Scenes/Physics.luxscene
