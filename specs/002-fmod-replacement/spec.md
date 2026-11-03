@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-02
 
-**Status**: Draft — waiting on the owner's choices (plan.md § Decisions)
+**Status**: Planned — the owner chose D1 = B (Lux Sound Banks), D2 = a, D4 = c, defaults for the rest (plan.md § Decisions)
 
 **Input**: "Go over all of the plan, I want to fully replace FMOD, replace the banks, make the banks,
 remove the banks and replace it with something else. I have no idea what we should do, but give me
@@ -102,8 +102,8 @@ drag-and-drop with a play button, and a validation pass over the sample in the e
   is loaded references it.
 - **FR-003**: Streamed clips in an exported game MUST be read in chunks from the export's files,
   never held whole in memory (Decision D2 picks the storage).
-- **FR-004**: Every Sound MUST have a loading behaviour the editor shows and lets the user change.
-  Decision D1 decides whether that is per Sound, per group, or automatic.
+- **FR-004**: The editor MUST show, for every Sound, which Sound Banks hold it, or that it loads on
+  first play, and MUST let the user add it to a bank.
 - **FR-005**: Old projects MUST keep loading. FMOD-only references MUST be reported, and a single
   action MUST remove them (Decision D3).
 - **FR-006**: Script APIs that named FMOD concepts MUST follow Decision D4. Removed APIs MUST fail

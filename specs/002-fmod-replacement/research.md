@@ -131,6 +131,12 @@ Archiving it elsewhere in the repository keeps 7.7 MB that nothing reads.
 **Recommendation: keep every language in the main pack for now** (it works today through
 `DialogueTranslation::Clip`). Per-language packs need D2 b, and can follow when a game needs them.
 
+### Chosen (2026-11-02)
+
+D1 = **B, Lux Sound Banks** (lists inside the one pack, not files of their own); D2 = **a**;
+D3 = **b**; D4 = **c, Sound paths**; D5 = **a**; D6 = **move and delete**; D7 = **b**;
+D8 = **main pack**. The plan, data model and contracts are written for this set.
+
 ## 5. Risks
 
 | Risk | Mitigation |

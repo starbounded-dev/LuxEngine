@@ -21,10 +21,12 @@ Expected: the build reports PASS, and all native tests pass.
 2. Run the export for 30 s. Record clip memory and the first-play frame time from its log and the
    Audio Debugger figures in `report.md`.
 
-## Phase 1: loading model
+## Phase 1: Sound Banks
 
-- The new native test "clip cache" passes. Two scenes: memory rises on load, falls after a switch,
-  and a clip still playing across the switch is not freed (SC-003).
+- The new native test "sound banks" passes. Two banks: memory rises on load and falls on unload, a
+  shared clip survives unloading one bank, and a clip still playing is not freed (SC-003).
+- **(editor)** Make a bank, add the demo Sounds, list it in AudioDemo's scene settings; Play logs no
+  "played outside any loaded bank".
 
 ## Phase 2: streaming
 

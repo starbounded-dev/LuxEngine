@@ -1,35 +1,42 @@
 # Data Model: Full FMOD Replacement
 
-Written for the recommended decisions (D1 = D, D2 = a). The variants for other choices are at the
-end.
+Written for the owner's choices: D1 = B (Lux Sound Banks), D2 = a (inside `AssetPack.lap`), D4 = c
+(Sound paths).
 
-## Sound (existing, `.lsound`): new field
+## SoundBank (new asset, `.lbank`)
 
 | Field | Type | Default | Rules |
 |---|---|---|---|
-| `Loading` | enum `SoundLoading { Preload, OnDemand, Stream }` | `Preload` | YAML key `Loading`; a missing key reads as `Preload`, so older files load unchanged |
+| `Sounds` | list of `AssetHandle` (Sound) | empty | no duplicates; a missing Sound is a validation error |
+| `Resident` | bool | false | loaded at game start and never unloaded |
 
-- **Preload:** the clips load on the asset thread when a scene that references the Sound loads,
-  and stay while any loaded scene or live instance references them.
-- **OnDemand:** the clips load on first play (a Debug build logs the hitch); they are freed like
-  Preload.
-- **Stream:** the clips are paged from the pack while playing (Phase 2); nothing is held beyond
-  miniaudio's page buffers.
-- A clip node's existing `Stream` flag still works. `Loading = Stream` sets it for every clip in
-  the Sound. A node flag of `true` under a Preload Sound streams that one clip.
+- A Sound may be in several banks; its clips stay loaded while any bank holding it is loaded.
+- Loading a bank preloads every non-stream clip of its Sounds on the asset thread. Stream clips are
+  only registered (VFS name), so they cost nothing until they play.
+- The YAML is bounded like `.lsound` (64 KiB). The pack serializer writes the handle list.
+
+## Scene (existing): new field
+
+| Field | Type | Rules |
+|---|---|---|
+| `SoundBanks` | list of `AssetHandle` (SoundBank) | loaded before the scene goes live; unloaded when no loaded scene lists them and no script holds them |
+
+## Sound (existing, `.lsound`)
+
+No new field. A clip node's existing `Stream` flag decides streaming per clip.
 
 ## Clip cache entry (runtime, native backend, new)
 
 | Field | Meaning |
 |---|---|
 | `Clip` | `AssetHandle` of the `AudioFile` |
-| `SceneRefs` | number of loaded scenes whose pack index lists it |
+| `BankRefs` | number of loaded banks whose Sounds use it |
 | `LiveRefs` | number of `Leaf` voices currently using it |
 | `Resident` | registered with miniaudio (encoded bytes or VFS name) |
 | `Bytes` | encoded plus decoded bytes it holds, reported to `AudioPerformance` |
 
-**Lifecycle:** Unloaded → (scene load with Preload, or first play) → Loading (asset thread) →
-Resident → (SceneRefs = 0 and LiveRefs = 0) → Released (unregistered, `EncodedData` freed) →
+**Lifecycle:** Unloaded → (a bank holding it loads, or first play) → Loading (asset thread) →
+Resident → (BankRefs = 0 and LiveRefs = 0) → Released (unregistered, `EncodedData` freed) →
 Unloaded. A release never runs while `LiveRefs > 0`. It is checked again when the last voice ends.
 
 ## Pack audio entry (export, format 31)
@@ -43,6 +50,16 @@ Unloaded. A release never runs while `LiveRefs > 0`. It is checked again when th
 
 Older packs (formats 17–30) carry the bytes after the path, as today. The reader keeps that path.
 
+## Path table (export, D4 = c)
+
+| Field | Meaning |
+|---|---|
+| `Path` | Assets-relative path without extension, `/`-separated, case-sensitive (`Audio/Sounds/Fart`) |
+| `Handle` | the Sound or SoundBank it names |
+
+Written once per pack, for Sound and SoundBank assets only. The editor answers the same lookups from
+`EditorAssetManager`, so scripts behave the same in Play and in an export.
+
 ## Legacy FMOD data (read-only after Phase 6)
 
 | Data | Kept as | Removed by |
@@ -52,10 +69,6 @@ Older packs (formats 17–30) carry the bytes after the path, as today. The read
 | `AudioBankManifest` in runtime project formats 17–30 | read, banks ignored with one warning | — (old exports only) |
 | `.fspro` / `.bank` registry entries | listed as unknown, with a warning | same action |
 
-## Variants
+## Later (not planned now)
 
-- **D1 = B (Sound Banks):** a new asset `SoundBank` (`.lbank`) with `Sounds: [AssetHandle]` and
-  `Resident: bool`. The clip cache's `SceneRefs` becomes `BankRefs`. The pack gets one file per bank.
-- **D1 = C (scene packs):** no new field. The export writes `Audio/<scene>.lap` and
-  `Audio/Shared.lap`; the clip cache counts by scene as above.
-- **D4 = c (string paths):** the pack gains a path table, `Assets-relative path → Sound handle`.
+- Per-bank pack files (DLC, language packs) can reuse the pack audio entry format unchanged.

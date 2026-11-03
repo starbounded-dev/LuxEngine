@@ -39,4 +39,6 @@ luxpack/<AudioFile handle><extension>      e.g. luxpack/6962752638689701569.mp3
 
 - **D2 b:** the same entries and names over `Assets/Audio.lap`.
 - **D2 c:** no VFS; the clips are copied to `Assets/Audio/...` and opened by path.
-- **D1 = B/C:** one pack file per bank or scene, using the same entry format.
+- **Chosen D1 = B with D2 a:** banks are lists inside this pack (a `SoundBank` entry plus the path
+  table, both in [data-model.md](../data-model.md)). Per-bank files can come later with the same
+  entry format.

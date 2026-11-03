@@ -10,29 +10,29 @@
 FMOD is already optional (native audio became the default in Phase 9 of
 `docs/AUDIO_NATIVE_BACKEND_PLAN.md`). This plan removes it completely, and replaces what **banks**
 did with something native. Banks decided what audio is in memory, streamed from their files and
-grouped data for export. The recommended replacement is **no banks**: each Sound gets a loading
-behaviour (Preload / On demand / Stream), clips load with the scenes that reference them and are
-freed when none do, and streamed clips read in chunks straight from the asset pack through a
-miniaudio VFS. Optional Audio Groups can come later. Each choice below has alternatives; the
-phases are written for the recommended set and say what changes if another option is chosen.
+grouped data for export. The owner chose **Lux Sound Banks**: an engine asset (`.lbank`) authored in
+the editor that lists Sounds. Banks load and unload as a unit: at startup if *Resident*, with the
+scenes that list them, or from scripts. A Sound in no loaded bank loads on first play. All audio
+stays inside `AssetPack.lap`, and big tracks stream from it in chunks through a miniaudio VFS.
+Scripts can name Sounds and banks by their asset paths, through a path table shipped in the
+pack.
 
-## Decisions (the owner's to make; details and trade-offs in [research.md](research.md) § 4)
+## Decisions (chosen by the owner on 2026-11-02; trade-offs in [research.md](research.md) § 4)
 
-| # | Question | Options | Recommended |
+| # | Question | Options | Chosen |
 |---|---|---|---|
-| D1 | What replaces banks | A. No banks, per-Sound loading · B. Lux Sound Banks (`.lbank`) · C. Automatic per-scene audio packs · D. A now, optional Audio Groups later | **D** |
+| D1 | What replaces banks | A. No banks, per-Sound loading · B. Lux Sound Banks (`.lbank`) · C. Automatic per-scene audio packs · D. A now, optional Audio Groups later | **B. Lux Sound Banks** |
 | D2 | Where export audio lives and streams from | a. Inside `AssetPack.lap` through a VFS · b. A separate `Audio.lap` · c. Loose files | **a** |
 | D3 | Old FMOD data in projects | a. Read and ignore · b. a + a "Remove FMOD data" action · c. Hard break | **b** |
-| D4 | Script API | a. Remove the FMOD APIs (compile errors that name the replacement) · b. Warning stubs · c. String paths become Sound asset paths, shipped in a table · plus keeping or renaming `EventInstance` | **a, keep `EventInstance`** |
+| D4 | Script API | a. Remove the FMOD APIs (compile errors that name the replacement) · b. Warning stubs · c. String paths become Sound asset paths, shipped in a table · plus keeping or renaming `EventInstance` | **c. Sound paths** (removed FMOD calls fail with a hint; `EventInstance` keeps its name) |
 | D5 | Backend seam | a. Delete `--audio-backend` · b. Keep the seam with one implementation | **a** |
 | D6 | Sample FMOD Studio project | Move its clips to `Assets/Audio/Clips/` and delete the rest · archive it · keep it | **move and delete** |
 | D7 | Live Update replacement | a. None · b. Hot-apply Sound and mixer edits during Play | **b** (if not already live) |
 | D8 | Per-language audio | All languages in the main pack · per-language packs (needs D2 b) | **main pack** |
 
-If D1 is **B** (Sound Banks), Phase 1 is replaced by: an `.lbank` asset type (the six-step asset
-playbook), a bank editor panel, `Audio.LoadBank(SoundBank)` / `UnloadBank`, and one pack file per
-bank (D2 b becomes required). If D1 is **C**, Phase 1 keeps the reference counting, and Phase 2
-writes one audio pack per scene plus a shared pack.
+**B with a:** a bank is a list inside the one pack, not a file of its own. Loading a bank preloads
+its clips from `AssetPack.lap` (or registers its streams through the VFS). Separate per-bank files,
+for DLC or language packs, stay possible later without changing the asset.
 
 ## Technical Context
 
@@ -97,22 +97,30 @@ removes files re-runs `Win-GenProjects.py`.
 - Check whether Sound Editor edits already apply to playing voices (input to D7).
 - **Done when:** decisions are recorded here and the three numbers are in `report.md`.
 
-### Phase 1 — Loading model (D1 = A/D)
-- `Sound` gains `Loading` (Preload / OnDemand / Stream); a node's `Stream` flag stays, and decides
-  per clip ([data-model.md](data-model.md)).
-- A clip cache in the native backend counts references from loaded scenes and live instances. It
-  frees a clip (unregister from miniaudio, drop `EncodedData`) when the count reaches 0, after the
-  last voice using it ends.
-- `RuntimeAssetManager`, on scene change, releases assets the new scene's index does not list.
-  Today nothing is ever released; this is the first release path, scoped to Audio and Sound
-  assets.
-- Preload runs on the asset thread before the scene starts.
+### Phase 1 — Lux Sound Banks (D1 = B)
+- **Asset:** `AssetType::SoundBank`, `.lbank`, through the six-step asset playbook (type and
+  strings, the `SoundBank` class, YAML and pack serializers, `AssetImporter`, `AssetExtensions`,
+  a Content Browser icon). Fields are in [data-model.md](data-model.md): `Sounds`, `Resident`.
+- **Scene:** a scene lists the banks it needs (`Scene.SoundBanks`). They load before the scene goes
+  live and unload when no loaded scene lists them.
+- **Clip cache:** the native backend counts each clip's references from loaded banks and live
+  voices. When both reach 0 it frees the clip (unregister it from miniaudio, drop `EncodedData`),
+  after the last voice using it ends. A Sound in no loaded bank loads on first play, and a Debug
+  build logs "Sound X played outside any loaded bank".
+- **Editor:**
+  - a Sound Bank panel: add Sounds by drag-and-drop, see total memory, find unbanked Sounds;
+  - the bank list in Scene Settings;
+  - the Content Browser's New › Sound Bank.
+- **Validation:**
+  - export warns about Sounds that scenes reference but no bank holds;
+  - errors on a bank that names a missing Sound.
 - **Threads:**
-  - main: scene switch and the release decision;
-  - asset thread: loading;
+  - main: bank load/unload requests and the release decision;
+  - asset thread: reading clips;
   - miniaudio job threads: decoding.
-- **Test:** an offline test with two scenes asserts clip memory rises and falls, and that a clip
-  playing across the switch is not freed.
+- **Test:** an offline test with two banks checks that memory rises on load and falls on unload,
+  that a clip shared by both banks survives unloading one of them, and that a playing clip is not
+  freed.
 
 ### Phase 2 — Streaming from the pack (D2 = a)
 - An `ma_vfs` over `AssetPack.lap`: `luxpack/<handle><ext>` opens the clip's offset and size, with
@@ -136,11 +144,17 @@ removes files re-runs `Win-GenProjects.py`.
   - opening a pre-Phase-9 copy of the sample lists every FMOD reference, and one action leaves zero
     (SC-006, editor OK needed).
 
-### Phase 4 — Script API (D4 = a)
-- Remove `Audio.LoadBank`, the `event:/` string overloads, `AudioSourceComponent.SetEvent(string)`
-  and `Audio.PlaysSoundAssets`, behind `[Obsolete(..., error: true)]` stubs that name the
-  replacement, for one release.
-- `AudioDemo.cs` loses its FMOD branch.
+### Phase 4 — Script API (D4 = c)
+- The pack gains a path table: Assets-relative path (without extension) → Sound or SoundBank handle.
+  The editor resolves the same paths through `EditorAssetManager`.
+- String overloads take Sound paths: `PlayOneShot("Audio/Sounds/Fart")`, `CreateInstance(path)`,
+  `AudioSourceComponent.SetSound(path)`, `AudioZoneComponent.SetAmbience(path)`.
+- `Audio.LoadBank(SoundBank | path)`, `Audio.UnloadBank(...)` and `Audio.IsBankLoaded(...)` work on
+  Sound Banks. An `event:/` string or a `.bank` file path fails with a message that names the
+  replacement.
+- `Audio.PlaysSoundAssets` and `SetEvent(string)` become `[Obsolete(..., error: true)]` for one
+  release.
+- `AudioDemo.cs` loses its FMOD branch and loads a demo bank.
 - Regenerate the API docs (`tools/ScriptApiDocs`, `--check`).
 - **Test:** ScriptCore and the sample scripts build; the API-doc check passes.
 
@@ -149,8 +163,8 @@ removes files re-runs `Win-GenProjects.py`.
   - the Project Settings Studio section and the bank build / "Rebuild Banks On Play";
   - event pickers;
   - the `.fspro` / `.bank` content types.
-- The Audio Debugger's bank list becomes **Loaded clips**: handle, Sound, loading behaviour, memory,
-  streaming, reference count.
+- The Audio Debugger's FMOD bank list becomes **Sound Banks and clips**: each loaded bank with its
+  memory, and each clip with its Sound, memory, streaming state and reference counts.
 - If D7 = b: hot-apply Sound saves and mixer Apply to playing voices.
 - **Test:** build; an ImGui audit (`Conventions.md` § ImGui correctness); an editor pass with the
   owner's OK.
@@ -205,25 +219,28 @@ specs/002-fmod-replacement/
 
 ```text
 Core/Source/Lux/Audio/
-├── Sound.{h,cpp}                    # Loading behaviour (Phase 1)
+├── SoundBank.{h,cpp}                # NEW: the bank asset (Phase 1)
 ├── Native/NativeAudioEventInstance.cpp  # clip cache, release (Phase 1)
 ├── Native/NativePackVFS.cpp         # NEW: ma_vfs over the asset pack (Phase 2)
 ├── AudioBankBuilder.*, AudioBankManifest.* (writer)   # deleted (Phase 6)
 └── FMOD/                            # deleted (Phase 6)
 Core/Source/Lux/Asset/
+├── SoundBankSerializer.{h,cpp}     # NEW (Phase 1)
 ├── AudioAssetSerializer.cpp         # offset and size for stream clips (Phase 2)
 └── AssetManager/RuntimeAssetManager.cpp  # release on scene change (Phase 1)
 Core/Source/Lux/Serialization/AssetPack*.cpp   # audio entries (Phase 2)
 Editor/Source/Panels/
-├── AudioDebugPanel.cpp              # Loaded clips view (Phase 5)
+├── SoundBankEditorPanel.{h,cpp}     # NEW: bank editor (Phase 1)
+├── AudioDebugPanel.cpp              # loaded banks and clips view (Phase 5)
 ├── ProjectSettingsWindow.cpp        # Studio section out, "Remove FMOD data" in (Phases 3, 5)
-└── SoundEditorPanel.cpp             # Loading field (1), timeline view (7)
+└── SoundEditorPanel.cpp             # "in banks" list (1), timeline view (7)
 ScriptCore/Source/Lux/Audio.cs       # D4 (Phase 4)
 tests/audio/native/NativeBackendTests.cpp   # tests for Phases 1–2
 ```
 
-**Structure Decision**: no new project or folder. One new source file (`NativePackVFS.cpp`); the
-rest are edits and deletions in existing files.
+**Structure Decision**: no new project or folder. New files: the SoundBank asset, its serializer,
+its editor panel and `NativePackVFS.cpp`. Premake is regenerated in Phases 1 and 2. The rest are
+edits and deletions in existing files.
 
 ## Complexity Tracking
 
