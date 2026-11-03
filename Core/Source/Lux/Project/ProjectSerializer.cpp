@@ -6,6 +6,7 @@
 #include "ProjectSerializer.h"
 
 #include "ProjectRuntimeFormat.h"
+#include "Lux/Asset/AssetManager/EditorAssetManager.h"
 
 #include "Lux/Core/Log.h"
 #include "Lux/Serialization/FileStream.h"
@@ -920,6 +921,22 @@ namespace Lux
 		serializer.WriteString(m_Project->GetConfig().ScriptModulePath.generic_string());
 		if (!m_Project->GetConfig().Audio.Mixer.Serialize(serializer))
 			return false;
+		// Sounds and Sound Banks by path, for scripts (Audio.PlayOneShot("Audio/Sounds/Fart")).
+		std::map<std::string, uint64_t> audioPaths;
+		if (const auto editor = Project::GetEditorAssetManager())
+		{
+			for (const auto& [handle, metadata] : editor->GetAssetRegistry())
+			{
+				if (metadata.Type == AssetType::Sound || metadata.Type == AssetType::SoundBank)
+					audioPaths[std::filesystem::path(metadata.FilePath).replace_extension().generic_string()] = static_cast<uint64_t>(handle);
+			}
+		}
+		serializer.WriteRaw<uint32_t>(static_cast<uint32_t>(audioPaths.size()));
+		for (const auto& [path, handle] : audioPaths)
+		{
+			serializer.WriteString(path);
+			serializer.WriteRaw<uint64_t>(handle);
+		}
 
 		if (!serializer.IsStreamGood())
 		{
@@ -1271,6 +1288,25 @@ namespace Lux
 		config.Audio.Mixer = {};
 		if (projectInfo.HeaderData.Version >= 30 && !config.Audio.Mixer.Deserialize(stream))
 			return false;
+		config.Audio.AudioAssetPaths.clear();
+		if (projectInfo.HeaderData.Version >= 31)
+		{
+			uint32_t count = 0;
+			stream.ReadRaw<uint32_t>(count);
+			if (count > 1u << 20)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Runtime project lists {} audio paths; the file is damaged", count);
+				return false;
+			}
+			for (uint32_t i = 0; i < count && stream.IsStreamGood(); ++i)
+			{
+				std::string path;
+				uint64_t handle = 0;
+				stream.ReadString(path);
+				stream.ReadRaw<uint64_t>(handle);
+				config.Audio.AudioAssetPaths[path] = handle;
+			}
+		}
 
 		// A short file fails its reads (no assert since 2026-10-26); refuse it rather than run on half a config.
 		if (!stream.IsStreamGood())

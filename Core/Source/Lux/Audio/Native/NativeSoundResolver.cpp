@@ -15,28 +15,43 @@ namespace Lux
 {
 	namespace
 	{
-		// A Sound by handle, or by its path relative to the project's Assets directory (editor only:
-		// asset packs carry handles, not paths).
-		AssetHandle FindSound(const std::string& reference, std::string& outError)
+		// An asset by handle (in decimal), or by its path relative to Assets with or without the
+		// extension: the registry in the editor, the runtime project's path table in a game.
+		AssetHandle FindByReference(const std::string& reference, const char* extension, std::string& outError)
 		{
 			uint64_t handle = 0;
 			if (NativeInternal::ParseHandle(reference, handle))
 				return handle;
 			if (reference.starts_with("event:/") || reference.starts_with("snapshot:/") || reference.starts_with("{"))
 			{
-				outError = "it is an FMOD event reference, and the native backend plays Sound assets";
+				outError = "it is an FMOD event reference; FMOD is gone, assign a Sound asset";
 				return 0;
 			}
-			auto* editor = dynamic_cast<EditorAssetManager*>(Project::GetAssetManager().Raw());
-			if (!editor)
+			if (std::filesystem::path(reference).extension() == ".bank")
 			{
-				outError = "Sound paths resolve only in the editor; reference the Sound asset itself";
+				outError = "it is an FMOD bank; FMOD is gone, make a Sound Bank (New > Sound Bank) and load it by its path";
 				return 0;
 			}
-			const AssetHandle found = editor->GetAssetHandleFromFilePath(reference);
+			std::filesystem::path path(reference);
+			if (path.extension() == extension)
+				path.replace_extension();
+			AssetHandle found = 0;
+			if (auto* editor = dynamic_cast<EditorAssetManager*>(Project::GetAssetManager().Raw()))
+				found = editor->GetAssetHandleFromFilePath(std::filesystem::path(path).concat(extension));
+			else if (const auto project = Project::GetActive())
+			{
+				const auto& paths = project->GetConfig().Audio.AudioAssetPaths;
+				if (const auto it = paths.find(path.generic_string()); it != paths.end())
+					found = it->second;
+			}
 			if (!found)
 				outError = "no asset has that path";
 			return found;
+		}
+
+		AssetHandle FindSound(const std::string& reference, std::string& outError)
+		{
+			return FindByReference(reference, ".lsound", outError);
 		}
 	}
 
@@ -62,6 +77,16 @@ namespace Lux
 			return false;
 		}
 		return true;
+	}
+
+	UUID AudioEngine::FindSoundBank(const std::string& reference)
+	{
+		std::string error;
+		const AssetHandle bank = Project::GetAssetManager() ? FindByReference(reference, ".lbank", error) : AssetHandle(0);
+		if (bank && AssetManager::IsAssetHandleValid(bank) && AssetManager::GetAssetType(bank) == AssetType::SoundBank)
+			return bank;
+		LUX_CORE_ERROR_TAG("Audio", "Cannot find Sound Bank '{}': {}", reference, error.empty() ? "it is not a Sound Bank asset" : error);
+		return 0;
 	}
 
 	bool NativeInternal::ResolveSoundBank(AssetHandle bank, Ref<SoundBank>& outBank, std::string& outError)

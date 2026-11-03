@@ -530,6 +530,11 @@ namespace Lux
 			if (auto* playback = Source(id) ? AudioScene()->GetAudioSourcePlayback(id) : nullptr)
 				playback->SetTimelinePosition(value);
 		}
+		uint64_t Audio_SourceGetSound(uint64_t id)
+		{
+			const auto* source = Source(id);
+			return source ? static_cast<uint64_t>(source->Event.Sound) : 0;
+		}
 		void Audio_SourceSetEvent(uint64_t id, Coral::String reference)
 		{
 			auto* source = Source(id);
@@ -801,27 +806,23 @@ namespace Lux
 			return false;
 		}
 
-		Coral::Bool32 Audio_PlaysSoundAssets()
+		// A Sound Bank by handle (in decimal, as Audio.cs passes a SoundBank) or by its Assets path.
+		Coral::Bool32 Audio_LoadBank(Coral::String reference)
 		{
-			return AudioEngine::GetBackend() == AudioBackend::Native;
+			const UUID bank = AudioEngine::FindSoundBank(reference);
+			return bank && AudioEngine::LoadSoundBank(bank);
 		}
 
-		Coral::Bool32 Audio_LoadBank(Coral::String file)
+		void Audio_UnloadBank(Coral::String reference)
 		{
-			if (!MixerAvailable())
-				return false;
-			std::filesystem::path path = static_cast<std::string>(file);
-			if (path.is_relative())
-			{
-				auto project = Project::GetActive();
-				if (!project)
-				{
-					LUX_CORE_ERROR_TAG("Audio", "Relative bank paths require an active project");
-					return false;
-				}
-				path = project->GetAssetDirectory() / path;
-			}
-			return AudioEngine::LoadBank(path);
+			if (const UUID bank = AudioEngine::FindSoundBank(reference))
+				AudioEngine::UnloadSoundBank(bank);
+		}
+
+		Coral::Bool32 Audio_IsBankLoaded(Coral::String reference)
+		{
+			const UUID bank = AudioEngine::FindSoundBank(reference);
+			return bank && AudioEngine::IsSoundBankLoaded(bank);
 		}
 
 		void Audio_SetBusVolume(Coral::String name, float value)
@@ -986,7 +987,8 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_GetSurfaceMaterial", reinterpret_cast<void*>(&Audio_GetSurfaceMaterial));
 		// Registrations below are kept one-to-one with InternalCalls.cs.
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_LoadBank", reinterpret_cast<void*>(&Audio_LoadBank));
-		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PlaysSoundAssets", reinterpret_cast<void*>(&Audio_PlaysSoundAssets));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_UnloadBank", reinterpret_cast<void*>(&Audio_UnloadBank));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_IsBankLoaded", reinterpret_cast<void*>(&Audio_IsBankLoaded));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_IsMainThread", reinterpret_cast<void*>(&Audio_IsMainThread));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_CreateInstance", reinterpret_cast<void*>(&Audio_CreateInstance));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_IsValid", reinterpret_cast<void*>(&Audio_IsValid));
@@ -1020,6 +1022,7 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceGetTimeline", reinterpret_cast<void*>(&Audio_SourceGetTimeline));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceSetTimeline", reinterpret_cast<void*>(&Audio_SourceSetTimeline));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceSetEvent", reinterpret_cast<void*>(&Audio_SourceSetEvent));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_SourceGetSound", reinterpret_cast<void*>(&Audio_SourceGetSound));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ListenerGetActive", reinterpret_cast<void*>(&Audio_ListenerGetActive));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ListenerSetActive", reinterpret_cast<void*>(&Audio_ListenerSetActive));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_ListenerGetIndex", reinterpret_cast<void*>(&Audio_ListenerGetIndex));

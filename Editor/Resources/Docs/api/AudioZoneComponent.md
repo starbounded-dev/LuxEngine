@@ -22,15 +22,21 @@ Scene-owned ambience and snapshot zone. Properties are main-thread only. Collide
 ## Methods
 
 ```
-public void SetAmbience(string reference)
+public void SetAmbience(string soundPath)
 ```
 
-Assign a looping event GUID/path; an empty string clears it.
+Assigns a looping Sound by its path relative to Assets; an empty string clears it.
+
+```
+public void SetAmbience(Sound sound)
+```
+
+Assigns a looping Sound as the zone's ambience.
 
 ```
 public void SetSnapshot(string reference)
 ```
 
-Assign a snapshot GUID/path with exposed Intensity; an empty string clears it.
+Assigns a mixer snapshot by its ID; an empty string clears it.
 
 [All types](index)

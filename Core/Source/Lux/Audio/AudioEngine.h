@@ -115,6 +115,9 @@ namespace Lux {
 		static void UnloadSoundBank(UUID bank);
 		// Loaded, and every clip it decodes is ready (or failed, and was reported).
 		static bool IsSoundBankLoaded(UUID bank);
+		// A Sound Bank by handle (in decimal) or by its path relative to Assets, with or without the
+		// .lbank extension; 0, with the reason logged, when nothing matches.
+		static UUID FindSoundBank(const std::string& reference);
 		// Frees clips that no loaded bank lists and no voice plays: those Sounds outside any bank
 		// loaded when they first played. Called when a scene stops.
 		static void ReleaseUnusedClips();

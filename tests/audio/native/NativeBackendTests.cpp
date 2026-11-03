@@ -21,6 +21,8 @@
 #include "Lux/Audio/Native/Miniaudio.h"
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Serialization/Yaml.h"
+#include "Lux/Serialization/FileStream.h"
+#include "Lux/Audio/AudioSurfaceTable.h"
 #include "Lux/Audio/AudioAccessibilityMixer.h"
 #include "Lux/Audio/MusicDirector.h"
 #include "Lux/Audio/DialogueTable.h"
@@ -504,6 +506,132 @@ namespace
 			CHECK(target.ToYAML() == restored.ToYAML()); // a failed load changes nothing
 		}
 		std::puts("PASS: Sound YAML v2 tree and v1 migration, validation, curves, and both AudioEventRef forms roundtrip");
+	}
+
+	// Ported from the FMOD suite (tests/audio: AccessibilityTests, DialogueTests, PerformanceTests,
+	// PhysicsAudioTests): the project's audio settings round-trip through YAML and the runtime binary,
+	// refuse bad values without changing, and a short file fails to read. Sounds stand in for events.
+	void TestProjectAudioSettings()
+	{
+		const std::string hit = "9117899157295655424";   // a Sound handle, the key FMOD's event GUID was
+		const auto bin = [](const std::string& name) { return s_Directory / name; };
+
+		AudioAccessibilityConfig config;
+		config.BusPaths[1] = "bus:/Music";
+		config.BusPaths[2] = "bus:/SFX";
+		config.BusPaths[3] = "bus:/Dialogue";
+		config.Defaults.Captions = config.Defaults.VisualCues = true;
+		config.Events[hit].Captions["en"] = "[impact]";
+		config.Events[hit].Captions["fr"] = "[choc]";
+		config.Events[hit].VisualCue = true;
+		config.Events[hit].MaxDistance = 10;
+		config.SpeakerColors["Guard"] = { 0.2f, 0.4f, 0.6f, 1.0f };
+		CHECK(config.Validate());
+		Yaml::Writer yaml;
+		config.SerializeYAML(yaml);
+		AudioAccessibilityConfig restored;
+		CHECK(restored.DeserializeYAML(Yaml::Load(yaml.c_str())));
+		CHECK(restored.Events.at(hit).Captions.at("fr") == "[choc]");
+		CHECK(restored.Defaults.Captions && restored.Defaults.MaxLines == 3);
+		CHECK(!restored.DeserializeYAML(Yaml::Load("Defaults: {MaxLines: 0}")) && restored.Events.contains(hit));
+		CHECK(!restored.DeserializeYAML(Yaml::Load("DescriptionDuck: .nan")));
+		CHECK(!restored.DeserializeYAML(Yaml::Load("Buses: {Master: 'bus:/', Dialogue: 'bus:/'}")));
+		CHECK(!restored.DeserializeYAML(Yaml::Load("Buses: {Music: 'bus:/Music', SFX: 'bus:/Music/SFX'}")));
+		AudioAccessibilityConfig defaults;
+		CHECK(defaults.DeserializeYAML(Yaml::Node()));
+		CHECK(!defaults.Defaults.Mono && defaults.Defaults.Subtitles && defaults.Events.empty());
+		{
+			FileStreamWriter writer(bin("accessibility.bin"));
+			CHECK(config.Serialize(writer));
+			writer.WriteRaw<uint32_t>(0x12345678);
+		}
+		{
+			FileStreamReader reader(bin("accessibility.bin"));
+			AudioAccessibilityConfig read;
+			CHECK(read.Deserialize(reader));
+			uint32_t sentinel = 0;
+			reader.ReadRaw(sentinel);
+			CHECK(sentinel == 0x12345678 && read.Events.at(hit).VisualCue);   // reads exactly its own bytes
+		}
+		{
+			FileStreamWriter writer(bin("bad-accessibility.bin"));
+			writer.WriteRaw<uint32_t>(0xffffffff);
+		}
+		{
+			FileStreamReader reader(bin("bad-accessibility.bin"));
+			CHECK(!restored.Deserialize(reader));
+		}
+
+		auto table = Ref<DialogueTable>::Create();
+		auto& greeting = table->Lines["greeting"];
+		greeting.Event.Sound = std::stoull(hit);
+		greeting.Translations["en"] = { "Hello", "Guard", "" };
+		greeting.Translations["fr"] = { "Bonjour", "Garde", "" };
+		table->Lines["urgent"] = greeting;
+		table->Lines["urgent"].Priority = DialoguePriority::Critical;
+		table->Lines["locked"] = greeting;
+		table->Lines["locked"].Interruptible = false;
+		CHECK(table->Validate());
+		DialogueTable loaded;
+		CHECK(loaded.FromYAML(table->ToYAML()));
+		CHECK(loaded.Lines.at("greeting").Translations.at("fr").Text == "Bonjour" && loaded.Lines.at("greeting").Event.Sound == greeting.Event.Sound);
+		CHECK(!loaded.FromYAML("Version: 999\n") && loaded.Lines.size() == 3);
+		CHECK(!loaded.FromYAML("DefaultLanguage: invalid/code\n"));
+		CHECK(!DialogueTable::ValidLanguage(std::string("en\0x", 4)));
+		DialogueSettings settings;
+		settings.Table = 123;
+		settings.Language = "fr-CA";
+		{
+			FileStreamWriter writer(bin("dialogue-settings.bin"));
+			CHECK(settings.Serialize(writer));
+		}
+		{
+			DialogueSettings read;
+			FileStreamReader reader(bin("dialogue-settings.bin"));
+			CHECK(read.Deserialize(reader) && read.Table == settings.Table && read.Language == settings.Language);
+		}
+		{
+			FileStreamWriter writer(bin("bad-dialogue-settings.bin"));
+			writer.WriteRaw<uint64_t>(0);
+			writer.WriteRaw<uint32_t>(0xffffffff);
+		}
+		{
+			FileStreamReader reader(bin("bad-dialogue-settings.bin"));
+			CHECK(!settings.Deserialize(reader) && settings.Table == 123 && settings.Language == "fr-CA");
+		}
+
+		AudioPerformanceSettings performance;
+		CHECK(performance.Validate() && performance.RealVoices == 64);
+		for (const char* bad : { "RealVoices: 0", "RealVoices: 513", "CPUPercent: .nan", "BankMemoryMiB: -1",
+			"RaytracingMilliseconds: 0", "BusVoices: { 'bus:/': 0 }", "BusVoices: { nonsense: 2 }", "BusVoices: { 'bus:/': 2, 'bus:/': 3 }" })
+			CHECK(!performance.DeserializeYAML(Yaml::Load(bad)) && performance.RealVoices == 64);
+		performance.RealVoices = 32;
+		performance.BusVoices = { { "bus:/", 16 }, { "bus:/SFX", 4 } };
+		const auto file = bin("performance-settings.bin");
+		{
+			FileStreamWriter writer(file);
+			CHECK(performance.Serialize(writer));
+		}
+		AudioPerformanceSettings copied;
+		{
+			FileStreamReader reader(file);
+			CHECK(copied.Deserialize(reader) && copied.RealVoices == 32 && copied.BusVoices == performance.BusVoices);
+		}
+		std::filesystem::resize_file(file, std::filesystem::file_size(file) - 1);
+		{
+			FileStreamReader reader(file);
+			CHECK(!copied.Deserialize(reader));
+		}
+
+		AudioSurfaceTable surfaces;
+		surfaces.Surfaces[2].Impact.Sound = std::stoull(hit);
+		surfaces.ImpactCooldown = 0.3f;
+		AudioSurfaceTable roundtrip;
+		CHECK(roundtrip.FromYAML(surfaces.ToYAML()));
+		CHECK(roundtrip.Surfaces[2].Impact.Sound == surfaces.Surfaces[2].Impact.Sound && roundtrip.ImpactCooldown == 0.3f);
+		CHECK(roundtrip.FromYAML("AudioSurfaceTable: {}") && roundtrip.ImpactCooldown == 0.15f && !roundtrip.Surfaces[2].Impact.HasReference());
+		CHECK(!roundtrip.FromYAML("AudioSurfaceTable: {MinimumImpulse: -.inf}"));
+		std::puts("PASS: project audio settings: accessibility, dialogue, performance and surface tables round-trip and refuse bad data");
 	}
 
 	void TestSoundBankAsset()
@@ -2003,6 +2131,7 @@ int main(int argc, char** argv)
 	TestReferences();
 	TestSerialization();
 	TestSoundBankAsset();
+	TestProjectAudioSettings();
 	TestCurves();
 	TestEngine();
 	TestPanAndAttenuation();

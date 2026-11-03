@@ -57,6 +57,9 @@ namespace Lux
 
 		// Populated only from the binary runtime package, never from editor YAML.
 		AudioBankManifest RuntimeBanks;
+		// Runtime package only: each Sound's and Sound Bank's path relative to Assets, without its
+		// extension and '/'-separated ("Audio/Sounds/Fart"), so scripts can name them by path.
+		std::map<std::string, AssetHandle> AudioAssetPaths;
 		AssetHandle SurfaceTable = 0;
 		DialogueSettings Dialogue;
 		AudioAccessibilityConfig Accessibility;

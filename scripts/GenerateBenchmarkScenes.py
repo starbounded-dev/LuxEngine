@@ -70,11 +70,9 @@ CHECKERBOARD_TEXTURE = 4617627115470858524
 LOGO_TEXTURE = 3523050505664199236
 
 # FMOD Studio events in the sample project's Master bank.
-EVENT_FART = "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
-EVENT_MUSIC = "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
-# The native backend's Sound for each event (Assets/Audio/Sounds/Fart.lsound and Music.lsound).
+# The Sounds the scene plays (Assets/Audio/Sounds/Fart.lsound and Music.lsound).
 SOUND_FART = "9117899157295655424"
-EVENT_SOUNDS = {EVENT_FART: SOUND_FART, EVENT_MUSIC: "8743721474366396702"}
+SOUND_MUSIC = "8743721474366396702"
 # Assets/Audio/Banks/AudioDemo.lbank: both Sounds, loaded with the scene.
 SOUND_BANK_DEMO = "8412860126786977355"
 
@@ -401,16 +399,15 @@ def mesh_collider(entity: Entity, mesh: int, acoustic: str) -> Entity:
 		"CollisionComplexity: 2"])
 
 
-def event_ref(guid: str) -> list[str]:
-	sound = [f"  Sound: {EVENT_SOUNDS[guid]}"] if guid in EVENT_SOUNDS else []
-	return [f"  Guid: {text_value(guid)}", '  Path: ""', '  BankName: ""', *sound]
+def event_ref(sound: str) -> list[str]:
+	return ['  Guid: ""', '  Path: ""', '  BankName: ""', *([f"  Sound: {sound}"] if sound else [])]
 
 
-def audio_source(entity: Entity, event: str, volume: float, play_on_awake: bool, priority: int = 128) -> Entity:
+def audio_source(entity: Entity, sound: str, volume: float, play_on_awake: bool, priority: int = 128) -> Entity:
 	return entity.add("AudioSourceComponent", [
 		f"VolumeMultiplier: {num(volume)}", "PitchMultiplier: 1", f"PlayOnAwake: {boolean(play_on_awake)}",
-		f"Priority: {priority}", "DistanceCulling: true", f"EventGuid: {text_value(event)}", 'EventPath: ""',
-		'EventBank: ""', *([f"EventSound: {EVENT_SOUNDS[event]}"] if event in EVENT_SOUNDS else []), "ParameterOverrides:", "  []"])
+		f"Priority: {priority}", "DistanceCulling: true", 'EventGuid: ""', 'EventPath: ""',
+		'EventBank: ""', *([f"EventSound: {sound}"] if sound else []), "ParameterOverrides:", "  []"])
 
 
 def audio_zone(entity: Entity, half_extents, priority: float, ambience: str = "", volume: float = 1.0) -> Entity:
@@ -525,11 +522,11 @@ def add_plaza(scene: Scene, specials: dict[str, int], field_materials: list[int]
 	emitter = scene.entity("Plaza Emitter - K replays", (0.0, 2.2, 0.0), scale=(1.2, 1.2, 1.2), parent=plaza)
 	static_mesh(emitter, SPHERE, specials["Chrome"], scene)
 	script(emitter, "LuxSample.AudioDemo", [("Sound", "Sound", SOUND_FART), ("PlayOnStart", "Bool", "false"), ("Volume", "Float", "0.6")])
-	audio_source(emitter, EVENT_FART, 0.6, play_on_awake=False)
+	audio_source(emitter, SOUND_FART, 0.6, play_on_awake=False)
 	scene.count("audio sources")
 
 	music = scene.entity("Music Director", (0.0, 4.0, 0.0), parent=plaza)
-	music.add("MusicDirectorComponent", ["Event:", *event_ref(EVENT_MUSIC), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
+	music.add("MusicDirectorComponent", ["Event:", *event_ref(SOUND_MUSIC), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
 
 	for i in range(12):
 		angle = i / 12.0 * math.tau
@@ -600,7 +597,7 @@ def add_sponza(scene: Scene) -> None:
 	static_mesh(sponza, SPONZA, None, scene)
 	mesh_collider(sponza, SPONZA, "Rock")
 	zone = scene.entity("Sponza Audio Zone", (80.0, 7.0, 10.0), parent=folder)
-	audio_zone(zone, (15.0, 7.0, 9.0), priority=5.0, ambience=EVENT_MUSIC, volume=0.35)
+	audio_zone(zone, (15.0, 7.0, 9.0), priority=5.0, ambience=SOUND_MUSIC, volume=0.35)
 	for i in range(24):
 		x = 68.0 + (i % 8) * 3.4
 		z = 6.0 if i < 8 else (14.0 if i < 16 else 10.0)
@@ -647,7 +644,7 @@ def add_house(scene: Scene, parent: Entity, index: int, cx: float, cz: float, sp
 
 	emitter = scene.entity("Emitter", (cx - 2.5, 1.2, cz - 4.5), scale=(0.4, 0.4, 0.4), parent=house)
 	static_mesh(emitter, SPHERE, specials["Chrome"], scene)
-	audio_source(emitter, EVENT_MUSIC, 0.25, play_on_awake=True, priority=64 + index)
+	audio_source(emitter, SOUND_MUSIC, 0.25, play_on_awake=True, priority=64 + index)
 	scene.count("audio sources")
 	light = scene.entity("Ceiling Light", (cx, 2.6, cz - 3.4), parent=house)
 	point_light(light, PALETTE[index % len(PALETTE)], 3.0, 9.0, shadows=True)

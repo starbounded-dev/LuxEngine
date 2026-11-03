@@ -46,27 +46,59 @@ namespace Lux
 				throw new ArgumentOutOfRangeException(nameof(value), "Audio values must be finite.");
 		}
 
-		/// <summary>True when this build plays Sound assets (the native backend), false when it plays FMOD Studio events and banks.</summary>
-		public static bool PlaysSoundAssets => InternalCalls.Audio_PlaysSoundAssets();
+		/// <summary>Always true: the engine plays Sound assets. FMOD is gone.</summary>
+		[Obsolete("FMOD is gone: the engine always plays Sound assets. Remove this check.", true)]
+		public static bool PlaysSoundAssets => true;
 
-		/// <summary>Loads a bank immediately. Relative paths start at the project's Assets directory.
-		/// Call during scene setup; load the master and strings banks before playing event paths.</summary>
-		public static bool LoadBank(string bankFile)
+		/// <summary>Loads a Sound Bank: its Sounds' clips decode in the background, and the call returns at once.
+		/// Loads are counted; match each with <see cref="UnloadBank(SoundBank)"/>. Banks the scene lists load on their own.</summary>
+		/// <returns>False when the bank is unknown.</returns>
+		public static bool LoadBank(SoundBank bank) => LoadBank(BankReference(bank));
+
+		/// <summary>Loads a Sound Bank by its path relative to Assets, with or without <c>.lbank</c>
+		/// (<c>"Audio/Banks/Level1"</c>). FMOD <c>.bank</c> files are refused: make a Sound Bank instead.</summary>
+		/// <returns>False when no Sound Bank has that path.</returns>
+		public static bool LoadBank(string bankPath)
 		{
-			using NativeString file = String(bankFile);
-			return InternalCalls.Audio_LoadBank(file);
+			using NativeString reference = String(bankPath);
+			return InternalCalls.Audio_LoadBank(reference);
 		}
 
-		/// <summary>Plays an event once, without position, and lets it release itself.</summary>
-		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
+		/// <summary>Drops one load of a Sound Bank; its clips are freed once no loaded bank or playing voice holds them.</summary>
+		public static void UnloadBank(SoundBank bank) => UnloadBank(BankReference(bank));
+
+		/// <summary>Drops one load of a Sound Bank, named by its path relative to Assets.</summary>
+		public static void UnloadBank(string bankPath)
+		{
+			using NativeString reference = String(bankPath);
+			InternalCalls.Audio_UnloadBank(reference);
+		}
+
+		/// <summary>True once the bank is loaded and every clip it decodes is ready.</summary>
+		public static bool IsBankLoaded(SoundBank bank)
+		{
+			using NativeString reference = String(BankReference(bank));
+			return InternalCalls.Audio_IsBankLoaded(reference);
+		}
+
+		internal static string BankReference(SoundBank bank)
+		{
+			ArgumentNullException.ThrowIfNull(bank);
+			if (bank.Handle == 0)
+				throw new ArgumentException("No Sound Bank asset is assigned.", nameof(bank));
+			return bank.Handle.ToString(CultureInfo.InvariantCulture);
+		}
+
+		/// <summary>Plays a Sound once, without position, and lets it release itself.</summary>
+		/// <param name="eventRef">The Sound's path relative to Assets, with or without <c>.lsound</c> (<c>"Audio/Sounds/Fart"</c>).</param>
 		public static void PlayOneShot(string eventRef)
 		{
 			using NativeString reference = String(eventRef);
 			InternalCalls.Audio_CreateInstance(reference, true, null);
 		}
 
-		/// <summary>Plays an event once at a world position and lets it release itself.</summary>
-		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
+		/// <summary>Plays a Sound once at a world position and lets it release itself.</summary>
+		/// <param name="eventRef">The Sound's path relative to Assets, with or without <c>.lsound</c>.</param>
 		/// <param name="position">Where the sound plays.</param>
 		public static void PlayOneShot(string eventRef, Vector3 position)
 		{
@@ -75,16 +107,16 @@ namespace Lux
 			InternalCalls.Audio_CreateInstance(reference, true, &position);
 		}
 
-		/// <summary>Plays a Sound asset once (native audio backend). It must not loop.</summary>
+		/// <summary>Plays a Sound asset once. It must not loop.</summary>
 		public static void PlayOneShot(Sound sound) => PlayOneShot(SoundReference(sound));
 
-		/// <summary>Plays a Sound asset once at a world position (native audio backend). It must not loop.</summary>
+		/// <summary>Plays a Sound asset once at a world position. It must not loop.</summary>
 		public static void PlayOneShot(Sound sound, Vector3 position) => PlayOneShot(SoundReference(sound), position);
 
-		/// <summary>Creates an explicitly owned instance of a Sound asset (native audio backend).</summary>
+		/// <summary>Creates an explicitly owned instance of a Sound asset.</summary>
 		public static EventInstance CreateInstance(Sound sound) => CreateInstance(SoundReference(sound));
 
-		// The native backend resolves a Sound by its handle in decimal, the same string scenes store.
+		// The engine resolves a Sound by its handle in decimal, the same string scenes store.
 		internal static string SoundReference(Sound sound)
 		{
 			ArgumentNullException.ThrowIfNull(sound);
@@ -93,16 +125,16 @@ namespace Lux
 			return sound.Handle.ToString(CultureInfo.InvariantCulture);
 		}
 
-		/// <summary>Creates an event you control: start, stop, move and change it, then dispose it.</summary>
-		/// <param name="eventRef">The event's GUID or path (<c>event:/...</c>).</param>
+		/// <summary>Creates a Sound instance you control: start, stop, move and change it, then dispose it.</summary>
+		/// <param name="eventRef">The Sound's path relative to Assets, with or without <c>.lsound</c>.</param>
 		/// <returns>The new instance, not started yet.</returns>
-		/// <exception cref="System.InvalidOperationException">The event could not be created (check the loaded banks).</exception>
+		/// <exception cref="System.InvalidOperationException">No Sound has that path.</exception>
 		public static EventInstance CreateInstance(string eventRef)
 		{
 			using NativeString reference = String(eventRef);
 			ulong handle = InternalCalls.Audio_CreateInstance(reference, false, null);
 			if (handle == 0)
-				throw new InvalidOperationException($"Cannot create audio event '{eventRef}'. Check the audio backend, loaded banks, and runtime scene.");
+				throw new InvalidOperationException($"Cannot create Sound '{eventRef}'. Check the path and the Audio log.");
 			var instance = new EventInstance(handle);
 			Instances[handle] = new WeakReference<EventInstance>(instance);
 			return instance;

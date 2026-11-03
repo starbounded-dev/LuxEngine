@@ -182,6 +182,7 @@ namespace Lux {
 	bool AudioEngine::LoadSoundBank(UUID) { return false; }
 	void AudioEngine::UnloadSoundBank(UUID) {}
 	bool AudioEngine::IsSoundBankLoaded(UUID) { return false; }
+	UUID AudioEngine::FindSoundBank(const std::string&) { return 0; }
 	void AudioEngine::ReleaseUnusedClips() {}
 
 	bool AudioEngine::LoadBank(const std::filesystem::path& path)

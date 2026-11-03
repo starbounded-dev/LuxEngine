@@ -31296,7 +31296,7 @@ Entities:
       PlayOnAwake: true
       Priority: 69
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 8743721474366396702
@@ -31646,7 +31646,7 @@ Entities:
       PlayOnAwake: true
       Priority: 68
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 8743721474366396702
@@ -31996,7 +31996,7 @@ Entities:
       PlayOnAwake: true
       Priority: 67
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 8743721474366396702
@@ -32346,7 +32346,7 @@ Entities:
       PlayOnAwake: true
       Priority: 66
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 8743721474366396702
@@ -32696,7 +32696,7 @@ Entities:
       PlayOnAwake: true
       Priority: 65
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 8743721474366396702
@@ -33046,7 +33046,7 @@ Entities:
       PlayOnAwake: true
       Priority: 64
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 8743721474366396702
@@ -33918,7 +33918,7 @@ Entities:
       FadeTime: 0.5
       Volume: 0.35
       AmbienceEvent:
-        Guid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+        Guid: ""
         Path: ""
         BankName: ""
         Sound: 8743721474366396702
@@ -129099,7 +129099,7 @@ Entities:
       Scale: [1, 1, 1]
     MusicDirectorComponent:
       Event:
-        Guid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+        Guid: ""
         Path: ""
         BankName: ""
         Sound: 8743721474366396702
@@ -129142,7 +129142,7 @@ Entities:
       PlayOnAwake: false
       Priority: 128
       DistanceCulling: true
-      EventGuid: '{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}'
+      EventGuid: ""
       EventPath: ""
       EventBank: ""
       EventSound: 9117899157295655424

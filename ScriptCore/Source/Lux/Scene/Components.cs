@@ -621,13 +621,22 @@ namespace Lux
 			using NativeString nativeLabel = Audio.String(label);
 			InternalCalls.Audio_SourceSetParameterLabel(Entity.ID, parameter, nativeLabel);
 		}
-		/// <summary>Assigns a different event; it plays on the next <see cref="Play"/>.</summary>
-		/// <param name="guidOrPath">The event's GUID or path (<c>event:/...</c>). An unknown event leaves the current one.</param>
-		public void SetEvent(string guidOrPath)
+		/// <summary>The Sound this source plays; setting it takes effect on the next <see cref="Play"/>.</summary>
+		public Sound Sound
 		{
-			using NativeString reference = Audio.String(guidOrPath);
+			get { ulong handle = InternalCalls.Audio_SourceGetSound(Entity.ID); return handle == 0 ? null : new Sound(handle); }
+			set => SetSound(Audio.SoundReference(value));
+		}
+		/// <summary>Assigns a different Sound by its path relative to Assets (<c>"Audio/Sounds/Fart"</c>); it plays on
+		/// the next <see cref="Play"/>. An unknown path leaves the current Sound.</summary>
+		public void SetSound(string soundPath)
+		{
+			using NativeString reference = Audio.String(soundPath);
 			InternalCalls.Audio_SourceSetEvent(Entity.ID, reference);
 		}
+		/// <summary>FMOD events are gone; use <see cref="SetSound(string)"/> or <see cref="Sound"/>.</summary>
+		[System.Obsolete("FMOD events are gone: use SetSound(path) or the Sound property.", true)]
+		public void SetEvent(string guidOrPath) => SetSound(guidOrPath);
 		/// <summary>The event's timeline position in milliseconds; setting it seeks.</summary>
 		/// <exception cref="System.InvalidOperationException">No event is assigned.</exception>
 		public int TimelinePosition
@@ -749,11 +758,13 @@ namespace Lux
 			ArgumentNullException.ThrowIfNull(reference);
 			using NativeString text = reference;
 			if (!InternalCalls.Audio_ZoneSetEvent(Entity.ID, snapshot, text))
-				throw new InvalidOperationException("Zone reference is unavailable or has the wrong type. Check loaded banks and the Audio log.");
+				throw new InvalidOperationException("Zone reference is unavailable or has the wrong type. Check the Sound or snapshot and the Audio log.");
 		}
-		/// <summary>Assign a looping event GUID/path; an empty string clears it.</summary>
-		public void SetAmbience(string reference) => SetEvent(false, reference);
-		/// <summary>Assign a snapshot GUID/path with exposed Intensity; an empty string clears it.</summary>
+		/// <summary>Assigns a looping Sound by its path relative to Assets; an empty string clears it.</summary>
+		public void SetAmbience(string soundPath) => SetEvent(false, soundPath);
+		/// <summary>Assigns a looping Sound as the zone's ambience.</summary>
+		public void SetAmbience(Sound sound) => SetEvent(false, Audio.SoundReference(sound));
+		/// <summary>Assigns a mixer snapshot by its ID; an empty string clears it.</summary>
 		public void SetSnapshot(string reference) => SetEvent(true, reference);
 	}
 }

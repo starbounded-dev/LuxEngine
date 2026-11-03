@@ -8,7 +8,7 @@ Gameplay audio. Call on the engine's main thread; handles expire when Play stops
 
 | Name | Type | Access | Description |
 |---|---|---|---|
-| `PlaysSoundAssets` | `bool` | get | True when this build plays Sound assets (the native backend), false when it plays FMOD Studio events and banks. |
+| `PlaysSoundAssets` | `bool` | get | Always true: the engine plays Sound assets. FMOD is gone. |
 
 ## Methods
 
@@ -24,15 +24,15 @@ Hands a bus back to the mix after [`Audio.SetBusVolume`](Audio): its volume retu
 public static EventInstance CreateInstance(Sound sound)
 ```
 
-Creates an explicitly owned instance of a Sound asset (native audio backend).
+Creates an explicitly owned instance of a Sound asset.
 
 ```
 public static EventInstance CreateInstance(string eventRef)
 ```
 
-Creates an event you control: start, stop, move and change it, then dispose it.
+Creates a Sound instance you control: start, stop, move and change it, then dispose it.
 
-- `eventRef`: The event's GUID or path (`event:/...`).
+- `eventRef`: The Sound's path relative to Assets, with or without `.lsound`.
 
 Returns: The new instance, not started yet.
 
@@ -51,10 +51,26 @@ public static float GetGlobalParameter(string name)
 Reads a global FMOD parameter.
 
 ```
-public static bool LoadBank(string bankFile)
+public static bool IsBankLoaded(SoundBank bank)
 ```
 
-Loads a bank immediately. Relative paths start at the project's Assets directory. Call during scene setup; load the master and strings banks before playing event paths.
+True once the bank is loaded and every clip it decodes is ready.
+
+```
+public static bool LoadBank(SoundBank bank)
+```
+
+Loads a Sound Bank: its Sounds' clips decode in the background, and the call returns at once. Loads are counted; match each with [`Audio.UnloadBank`](Audio). Banks the scene lists load on their own.
+
+Returns: False when the bank is unknown.
+
+```
+public static bool LoadBank(string bankPath)
+```
+
+Loads a Sound Bank by its path relative to Assets, with or without `.lbank` (`"Audio/Banks/Level1"`). FMOD `.bank` files are refused: make a Sound Bank instead.
+
+Returns: False when no Sound Bank has that path.
 
 ```
 public static bool PlayFootstep(Entity character, float speed, float weight = 75f, float probeDistance = 1.2f)
@@ -66,30 +82,30 @@ Queries the walkable 3D collider below a character and plays its surface footste
 public static void PlayOneShot(string eventRef)
 ```
 
-Plays an event once, without position, and lets it release itself.
+Plays a Sound once, without position, and lets it release itself.
 
-- `eventRef`: The event's GUID or path (`event:/...`).
+- `eventRef`: The Sound's path relative to Assets, with or without `.lsound` (`"Audio/Sounds/Fart"`).
 
 ```
 public static void PlayOneShot(Sound sound)
 ```
 
-Plays a Sound asset once (native audio backend). It must not loop.
+Plays a Sound asset once. It must not loop.
 
 ```
 public static void PlayOneShot(string eventRef, Vector3 position)
 ```
 
-Plays an event once at a world position and lets it release itself.
+Plays a Sound once at a world position and lets it release itself.
 
-- `eventRef`: The event's GUID or path (`event:/...`).
+- `eventRef`: The Sound's path relative to Assets, with or without `.lsound`.
 - `position`: Where the sound plays.
 
 ```
 public static void PlayOneShot(Sound sound, Vector3 position)
 ```
 
-Plays a Sound asset once at a world position (native audio backend). It must not loop.
+Plays a Sound asset once at a world position. It must not loop.
 
 ```
 public static void SetBusMuted(string busPath, bool muted)
@@ -129,5 +145,17 @@ public static EventInstance StartSnapshot(string snapshotRef, float intensity = 
 ```
 
 Starts an authored snapshot. Expose its Intensity dial as a continuous 0–100 parameter in Studio. The caller owns the returned instance; Stop fades, Dispose stops immediately.
+
+```
+public static void UnloadBank(SoundBank bank)
+```
+
+Drops one load of a Sound Bank; its clips are freed once no loaded bank or playing voice holds them.
+
+```
+public static void UnloadBank(string bankPath)
+```
+
+Drops one load of a Sound Bank, named by its path relative to Assets.
 
 [All types](index)

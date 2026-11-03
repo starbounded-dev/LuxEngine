@@ -15,6 +15,7 @@ Plays an FMOD Studio event from the entity.
 | `OcclusionGain` | `float` | get | Low-frequency occlusion applied to this source's Occlusion parameter this frame: 1 is a clear path, 0 fully blocked. 1 outside Play and while culled. Read-only; useful for gameplay such as AI hearing. |
 | `Pitch` | `float` | get, set | Pitch multiplier (1 is unchanged). |
 | `Priority` | `int` | get, set | FMOD voice priority: 0 is highest, 256 is lowest. |
+| `Sound` | `Sound` | get, set | The Sound this source plays; setting it takes effect on the next [`AudioSourceComponent.Play`](AudioSourceComponent). |
 | `TimelinePosition` | `int` | get, set | The event's timeline position in milliseconds; setting it seeks. |
 | `Volume` | `float` | get, set | Volume multiplier on top of the event's authored volume (1 is unchanged). |
 
@@ -42,9 +43,7 @@ Stops the event at once and starts it again.
 public void SetEvent(string guidOrPath)
 ```
 
-Assigns a different event; it plays on the next [`AudioSourceComponent.Play`](AudioSourceComponent).
-
-- `guidOrPath`: The event's GUID or path (`event:/...`). An unknown event leaves the current one.
+FMOD events are gone; use [`AudioSourceComponent.SetSound`](AudioSourceComponent) or [`AudioSourceComponent.Sound`](AudioSourceComponent).
 
 ```
 public void SetParameter(string name, float value)
@@ -57,6 +56,12 @@ public void SetParameterLabel(string name, string label)
 ```
 
 Sets a labeled parameter by its label.
+
+```
+public void SetSound(string soundPath)
+```
+
+Assigns a different Sound by its path relative to Assets (`"Audio/Sounds/Fart"`); it plays on the next [`AudioSourceComponent.Play`](AudioSourceComponent). An unknown path leaves the current Sound.
 
 ```
 public void Stop(bool allowFadeOut = true)

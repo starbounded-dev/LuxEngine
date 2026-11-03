@@ -216,7 +216,7 @@ Assets:
     FilePath: Meshes/Source/Sponza/6772804448157695701.jpg
     Type: Texture
   - Handle: 6962752638689701569
-    FilePath: Audio/SampleProject/Assets/FX/Music/Music_1.mp3
+    FilePath: Audio/Clips/Music_1.mp3
     Type: Audio
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
@@ -447,7 +447,7 @@ Assets:
     FilePath: Meshes/Source/Sponza/3827035219084910048.jpg
     Type: Texture
   - Handle: 15477231389038173681
-    FilePath: Audio/fart-01.wav
+    FilePath: Audio/Clips/fart-01.wav
     Type: Audio
   - Handle: 15600021756168062189
     FilePath: Textures/WoodFloor043/WoodFloor043_1K-JPG_AmbientOcclusion.jpg
@@ -455,9 +455,6 @@ Assets:
   - Handle: 15736897142292738885
     FilePath: Meshes/Source/Sponza/Materials/Sponza_19_Material_19.lmat
     Type: Material
-  - Handle: 15891871588286909990
-    FilePath: Audio/SampleProject/SampleProject.fspro
-    Type: AudioProject
   - Handle: 15983446275544011186
     FilePath: Textures/RoofingTiles013A/RoofingTiles013A_1K-JPG_Color.jpg
     Type: Texture

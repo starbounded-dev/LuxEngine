@@ -84,6 +84,7 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Serialization/Yaml.cpp"
     "${LUX_SOURCE}/Serialization/StreamWriter.cpp"
     "${LUX_SOURCE}/Serialization/StreamReader.cpp"
+    "${LUX_SOURCE}/Serialization/FileStream.cpp"
     "${LUX_ROOT}/Core/vendor/rapidyaml/ryml.cpp")
 target_compile_features(lux_native_backend_tests PRIVATE cxx_std_20)
 target_include_directories(lux_native_backend_tests PRIVATE
