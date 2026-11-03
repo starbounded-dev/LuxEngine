@@ -64,6 +64,8 @@ namespace Lux
 		out << Yaml::Key << "AcousticsBudgetMilliseconds" << Yaml::Value << AudioPerformance::GetSettings().RaytracingMilliseconds;
 		out << Yaml::Key << "AcousticsBudgetExceeded" << Yaml::Value << performance.RaytracingExceeded;
 		out << Yaml::Key << "AudioCPUPercent" << Yaml::Value << performance.CPUPercent;
+		if (performance.MemoryAvailable)
+			out << Yaml::Key << "AudioClipMemoryMiB" << Yaml::Value << performance.MemoryMiB;
 		out << Yaml::Key << "ReverbDecaySeconds" << Yaml::Value << kernel.GetReverb()->DecaySeconds;
 		out << Yaml::Key << "ReverbSend" << Yaml::Value << kernel.GetReverb()->Send;
 		out << Yaml::Key << "ReverbEscapedFraction" << Yaml::Value << kernel.GetReverb()->EscapedFraction;

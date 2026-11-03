@@ -24,9 +24,9 @@ launches the editor and needs the owner's OK for that run.
 
 **Purpose**: Measure before changing anything, and settle the open D7 question.
 
-- [ ] T001 **(editor)** Export the sample with `python tests/rendering/golden_run.py --config debug --label base --scenes AudioDemo --export-dir bin/fmodless-base/AudioDemo`, run the export for 30 s, and record in `specs/002-fmod-replacement/report.md`: clip memory before and after a scene switch (`NativeInternal` clip memory, as reported by `Core/Source/Lux/Audio/Native/NativeAudioPerformance.cpp`), the first-play frame time of the Fart Sound, and memory while the music plays
-- [ ] T002 [P] Read `Editor/Source/Panels/SoundEditor/SoundEditorPanel.cpp` (save path) and `Core/Source/Lux/Audio/Native/NativeAudioEventInstance.cpp` (instance creation), and record in `specs/002-fmod-replacement/report.md` whether a Sound saved during Play changes voices already playing. This decides whether T054 is needed (D7)
-- [ ] T003 [P] Record the starting FMOD inventory in `specs/002-fmod-replacement/report.md`: the output of `git grep -il fmod -- Core Editor ScriptCore Lux-Runtime tests scripts .github ':!Core/Source/Lux/Audio/FMOD'`, and the 18 files that call `AudioEngine::GetBackend()`
+- [x] T001 **(editor)** Export the sample with `python tests/rendering/golden_run.py --config debug --label base --scenes AudioDemo --export-dir bin/fmodless-base/AudioDemo`, run the export for 30 s, and record in `specs/002-fmod-replacement/report.md`: clip memory before and after a scene switch (`NativeInternal` clip memory, as reported by `Core/Source/Lux/Audio/Native/NativeAudioPerformance.cpp`), the first-play frame time of the Fart Sound, and memory while the music plays
+- [x] T002 [P] Read `Editor/Source/Panels/SoundEditor/SoundEditorPanel.cpp` (save path) and `Core/Source/Lux/Audio/Native/NativeAudioEventInstance.cpp` (instance creation), and record in `specs/002-fmod-replacement/report.md` whether a Sound saved during Play changes voices already playing. This decides whether T054 is needed (D7)
+- [x] T003 [P] Record the starting FMOD inventory in `specs/002-fmod-replacement/report.md`: the output of `git grep -il fmod -- Core Editor ScriptCore Lux-Runtime tests scripts .github ':!Core/Source/Lux/Audio/FMOD'`, and the 18 files that call `AudioEngine::GetBackend()`
 
 ---
 
