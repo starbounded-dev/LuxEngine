@@ -11,7 +11,7 @@
 
 #include <set>
 
-// Validates Sound assets where the FMOD build validates built banks: every reference resolves to a
+// Validates Sound assets: every reference resolves to a
 // Sound with a decodable clip and the right playback kind, and unreferenced Sounds are listed. The
 // bank directory and bus list do not apply (there are no banks, and every bus is the master).
 namespace Lux
@@ -24,7 +24,7 @@ namespace Lux
 		}
 	}
 
-	// Checks Sounds, clips and the project mixer; the directory is the FMOD bank location and unused.
+	// Checks Sounds, clips, Sound Banks and the project mixer; the directory argument is unused.
 	AudioValidationReport AudioValidation::ValidateBanks(const std::filesystem::path&,
 		const std::vector<AudioValidationReference>& references, const std::vector<std::string>& buses)
 	{

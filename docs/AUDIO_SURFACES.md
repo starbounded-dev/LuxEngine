@@ -1,5 +1,9 @@
 # Surface and physics audio (Phase 9)
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Phase 9 connects 3D Jolt contacts and ground queries to FMOD Studio events. A shared surface table
 maps each `AcousticMaterial` to footstep, impact, scrape and roll sounds. Soundwave uses the
 same material tags for acoustic geometry; FMOD authors the sound and its spatialization.

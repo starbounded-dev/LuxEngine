@@ -740,20 +740,15 @@ namespace Lux
 			{
 				out << Yaml::BeginMap;
 				out << Yaml::Key << "FileStreamingDurationThreshold" << Yaml::Value << config.Audio.FileStreamingDurationThreshold;
-				out << Yaml::Key << "StudioProjectPath" << Yaml::Value << config.Audio.StudioProjectPath.generic_string();
-				if (!IsValidStudioPlatform(config.Audio.StudioPlatform) || !config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
+				if (!config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
 				{
 					LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid desktop audio profiles");
 					return false;
 				}
-				out << Yaml::Key << "StudioPlatform" << Yaml::Value << config.Audio.StudioPlatform;
 				out << Yaml::Key << "Windows" << Yaml::Value;
 				config.Audio.Windows.SerializeYAML(out);
 				out << Yaml::Key << "Linux" << Yaml::Value;
 				config.Audio.Linux.SerializeYAML(out);
-				out << Yaml::Key << "StudioBankOutputPath" << Yaml::Value << config.Audio.StudioBankOutputPath.generic_string();
-				out << Yaml::Key << "RebuildBanksOnPlay" << Yaml::Value << config.Audio.RebuildBanksOnPlay;
-				out << Yaml::Key << "EnableLiveUpdate" << Yaml::Value << config.Audio.EnableLiveUpdate;
 				if (!config.Audio.AcousticMaterials.Validate())
 					return false;
 				out << Yaml::Key << "AcousticMaterials" << Yaml::Value;
@@ -1031,24 +1026,22 @@ namespace Lux
 		config.Audio.Performance = {};
 		config.Audio.Windows = {};
 		config.Audio.Linux = {};
-		config.Audio.StudioPlatform = "Desktop";
 		config.Audio.AcousticMaterials = {};
 		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		config.Audio.Occlusion = {};
 		if (auto audioNode = projectNode["Audio"])
 		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
-			config.Audio.StudioProjectPath = audioNode["StudioProjectPath"].as<std::string>(config.Audio.StudioProjectPath.generic_string());
-			config.Audio.StudioBankOutputPath = audioNode["StudioBankOutputPath"].as<std::string>(config.Audio.StudioBankOutputPath.generic_string());
-			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
-			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
-			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
-			config.Audio.StudioPlatform = audioNode["StudioPlatform"].as<std::string>("Desktop");
-			if (!IsValidStudioPlatform(config.Audio.StudioPlatform))
+			// FMOD-era settings: read past, and gone from the file on the next save.
+			for (const char* key : { "StudioProjectPath", "StudioPlatform", "StudioBankOutputPath", "RebuildBanksOnPlay", "EnableLiveUpdate" })
 			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot load invalid FMOD Studio platform name");
-				return false;
+				if (audioNode[key])
+				{
+					LUX_CORE_INFO_TAG("Audio", "This project has FMOD Studio settings; they are ignored and dropped on the next save");
+					break;
+				}
 			}
+			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
 			if (!config.Audio.Windows.DeserializeYAML(audioNode["Windows"]) || !config.Audio.Linux.DeserializeYAML(audioNode["Linux"]))
 				return false;
 			if (!config.Audio.Performance.DeserializeYAML(audioNode["Performance"]))
@@ -1168,18 +1161,9 @@ namespace Lux
 		config.StartSceneHandle = projectInfo.StartScene;
 		config.Audio = {};
 		config.Audio.FileStreamingDurationThreshold = projectInfo.AudioInfo.FileStreamingDurationThreshold;
-		config.Audio.StudioProjectPath.clear();
-		config.Audio.StudioBankOutputPath.clear();
-		config.Audio.RebuildBanksOnPlay = false;
-		config.Audio.EnableLiveUpdate = false;
-		if (projectInfo.HeaderData.Version >= 17)
-		{
-			if (!config.Audio.RuntimeBanks.Deserialize(stream))
-				return false;
-			config.Audio.EnableLiveUpdate = config.Audio.RuntimeBanks.EnableLiveUpdate;
-		}
-		else
-			LUX_CORE_WARN_TAG("Audio", "Runtime project predates packaged FMOD banks; re-export it to enable Studio events");
+		// Formats 17+ carry a bank manifest (FMOD-era exports list banks in it; new ones leave it empty).
+		if (projectInfo.HeaderData.Version >= 17 && !config.Audio.RuntimeBanks.Deserialize(stream))
+			return false;
 
 		if (projectInfo.HeaderData.Version >= 18 && !config.Audio.AcousticMaterials.Deserialize(stream))
 			return false;
@@ -1212,7 +1196,6 @@ namespace Lux
 		config.Audio.Performance = {};
 		config.Audio.Windows = {};
 		config.Audio.Linux = {};
-		config.Audio.StudioPlatform = "Desktop";
 		if (projectInfo.HeaderData.Version >= 21 && !config.Audio.Dialogue.Deserialize(stream))
 			return false;
 		if (projectInfo.HeaderData.Version >= 22 && !config.Audio.Accessibility.Deserialize(stream))

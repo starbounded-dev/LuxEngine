@@ -10,8 +10,7 @@
 
 namespace Lux
 {
-	// A list of Sounds that load and unload together (.lbank): the engine's replacement for FMOD's
-	// banks. Loading a bank preloads its Sounds' clips; a Sound may sit in several banks and stays
+	// A list of Sounds that load and unload together (.lbank), in place of FMOD's old banks. Loading a bank preloads its Sounds' clips; a Sound may sit in several banks and stays
 	// loaded while any of them is. Lives inside the asset pack, not in a file of its own.
 	class SoundBank : public Asset
 	{

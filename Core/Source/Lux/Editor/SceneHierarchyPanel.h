@@ -45,7 +45,7 @@ namespace Lux {
 		void DrawComponents(const std::vector<UUID>& entityIDs);
 		void DrawStaticMeshMaterialSlots(struct StaticMeshComponent& component, const std::vector<UUID>& selectedEntities);
 
-		// The FMOD Studio event assignment for an Audio Source. Lists what the loaded banks
+		// The Sound assignment for an Audio Source, with an Edit Sound button. Lists what the loaded banks
 		// describe, so it is empty until the project's banks are built.
 		void DrawAudioEventPicker(struct AudioSourceComponent& component, const std::vector<UUID>& selectedEntities);
 
@@ -53,13 +53,6 @@ namespace Lux {
 		// created. First-selected entity only, since the list is variable-length.
 		void DrawAudioParameterOverrides(struct AudioSourceComponent& component);
 
-		// Editor-only picker state: which bank the event list is filtered to, and the search inside
-		// the event dropdown. Follows the assigned event when there is one.
-		std::string m_AudioEventBankFilter;
-		std::string m_AudioEventSearch;
-		UUID m_AudioEventPickerEntity = 0;
-		std::string m_AudioEventPickerGuid;
-		uint64_t m_AudioEventPickerGeneration = 0;
 		bool TagSearchRecursive(Entity entity, std::string_view searchFilter, uint32_t maxSearchDepth, uint32_t currentDepth = 1);
 	private:
 		Ref<Scene> m_Context;

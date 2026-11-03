@@ -70,13 +70,8 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
             directory_link(original, destination)
         else:
             shutil.copy2(original, destination)
-    # Build outputs in the sample authoring tree are ignored local files. Use the
-    # committed authored banks in an owned Audio directory, never a linked input.
-    shutil.copytree(source_assets/"Audio", assets/"Audio", ignore=shutil.ignore_patterns("Build"))
-    bank_directory = assets/"Audio/SampleProject/Build/Desktop"
-    bank_directory.mkdir(parents=True)
-    for name in ("Master.bank", "Master.strings.bank"):
-        shutil.copy2(ROOT/"tests/audio/fixtures/banks"/name, bank_directory/name)
+    # An owned copy of the Sounds, their clips and the demo's Sound Bank, never a linked input.
+    shutil.copytree(source_assets/"Audio", assets/"Audio")
     # Only the copied scene belongs to this fixture. Export validates every registered
     # scene/prefab, so remove unrelated sample entries rather than weakening validation.
     registry_path = assets/"AssetRegistry.lzr"
@@ -169,7 +164,7 @@ def verify(data, case, triangle_counts):
     require(data["MovingTriangles"] == (12 if case.get("closed") else 0), "Portal shutter capture disagrees with the authored state")
     require(data["StaticMeshInstances"] == (6 if case.get("bay") else 1), "A rendered model/partition instance was omitted")
     require(data["MovingMeshInstances"] == (1 if case.get("closed") else 0), "Portal instance state disagrees with its authoring")
-    require(data["CheckedFMODParameters"] == 1 and len(data["Sources"]) == 1, "Probe did not verify its actual FMOD parameter")
+    require(data["CheckedSources"] == 1 and len(data["Sources"]) == 1, "Probe did not verify its audio source")
     source = data["Sources"][0]
     require(source["UUID"] == SOURCE_ID, "Unexpected playback source")
     for name in ("listener", "source"):
@@ -261,7 +256,7 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", choices=("debug", "release"), default="debug")
-    parser.add_argument("--export-runtime", action="store_true", help="export each isolated project normally, run the packaged game and verify its real acoustic/FMOD values")
+    parser.add_argument("--export-runtime", action="store_true", help="export each isolated project normally, run the packaged game and verify its real acoustic values")
     parser.add_argument("--runtime-config", choices=("debug", "release", "dist"), help="exported runtime configuration (defaults to --config)")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--threading", choices=("single", "multi"), default="multi")
@@ -270,7 +265,6 @@ def main():
     sample = ROOT/"Editor/LuxSampleProject"
     project_path, demo_path, registry_path = sample/"LuxSample.luxproj", sample/"Assets/Scenes/AudioDemo.luxscene", sample/"Assets/AssetRegistry.lzr"
     inputs = [project_path, demo_path, registry_path]
-    inputs.extend((ROOT/"tests/audio/fixtures/banks").glob("*.bank"))
     for model in ("Sponza", "Default"):
         inputs.extend(path for path in (sample/"Assets/Meshes/Source"/model).rglob("*") if path.is_file())
     original = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}

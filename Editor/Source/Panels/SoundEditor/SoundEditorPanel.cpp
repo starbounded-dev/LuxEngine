@@ -557,7 +557,7 @@ namespace Lux
 		ImGui::EndDisabled();
 
 		ImGui::SameLine();
-		const bool native = AudioEngine::GetBackend() == AudioBackend::Native && AudioEngine::HasInitializedEngine();
+		const bool native = AudioEngine::HasInitializedEngine();
 		const bool playing = m_Audition && m_AuditionSound == document.Handle && m_Audition->IsValid() && m_Audition->IsPlaying();
 		ImGui::BeginDisabled(!native || (!valid && !playing));
 		if (ImGui::Button(playing ? LUX_ICON_STOP "  Stop###sound_audition" : LUX_ICON_PLAY "  Play###sound_audition"))
@@ -1062,7 +1062,7 @@ namespace Lux
 		if (waveform->Peaks.empty() || duration <= 0.0f)
 		{
 			drawList->AddText(ImVec2(min.x + 8.0f, min.y + 8.0f), Colors::Theme::textDarker,
-				AudioEngine::GetBackend() == AudioBackend::Native ? "The waveform could not be read." : "Waveforms need the native audio backend.");
+				"The waveform could not be read.");
 			return;
 		}
 		const float middle = (min.y + max.y) * 0.5f, halfHeight = (max.y - min.y) * 0.5f - 2.0f;

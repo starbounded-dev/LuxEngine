@@ -101,7 +101,7 @@ graph TB
 | Physics 2D | `Core/Source/Lux/Physics2D/` | via `Scene.h` |
 | Scripting | `Core/Source/Lux/Scripting/` | `ScriptEngine.h`, `ScriptGlue.h`, `ScriptBuilder.h` |
 | Assets | `Core/Source/Lux/Asset/` | `AssetManager.h`, `Asset.h`, `AssetTypes.h` |
-| Audio | `Core/Source/Lux/Audio/` (+ one backend: `FMOD/` or `Native/`), `Core/vendor/soundwave/` | `AudioEngine.h`, `AudioEventInstance.h`, `AudioEventRef.h`, `Sound.h`, `AudioAcoustics.h`, `soundwave/Solve.h` |
+| Audio | `Core/Source/Lux/Audio/` (+ `Native/`, miniaudio), `Core/vendor/soundwave/` | `AudioEngine.h`, `AudioEventInstance.h`, `AudioEventRef.h`, `Sound.h`, `AudioAcoustics.h`, `soundwave/Solve.h` |
 | Editor framework | `Core/Source/Lux/Editor/` | `EditorPanel.h`, `PanelManager.h`, `EditorCamera.h`, `SelectionManager.h` |
 | Editor app | `Editor/Source/` | `EditorLayer.h`, `Panels/` |
 | ImGui | `Core/Source/Lux/ImGui/` | `ImGuiEx.h`, `ImGuiUtilities.h`, `Colors.h` |
@@ -981,50 +981,37 @@ the managed handlers; `ShutdownInput` drops the type before assembly unload.
 
 ### 2.10 Audio
 
-**Two backends, one interface.** Premake's `--audio-backend` compiles exactly one implementation of
-the audio headers: `native` (the default since Phase 9, `Audio/Native/`, miniaudio 0.11.25 vendored
-under `Core/vendor/miniaudio`, `README.lux.md` records the commit and licences) or `fmod` (optional,
-`Audio/FMOD/`). `docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phases 0–9 are done; Phase 10 deletes FMOD.
-Editor code asks `AudioEngine::GetBackend()` (`AudioBackend::FMOD` / `Native`); the backend defines
-are Core-only. Paragraphs that name neither backend describe the FMOD path, written before native
-existed; the native paragraphs say where it differs. On Play, a native build logs an error for each
-Audio Source that names an FMOD event but no Sound, and the inspector shows the same migration
-warning.
+**Built-in audio, one implementation.** The audio headers (`AudioEngine`, `AudioEventInstance`,
+`AudioListener`, ...) are implemented in `Audio/Native/` on miniaudio 0.11.25 (vendored under
+`Core/vendor/miniaudio`; `README.lux.md` records the commit and licences) and the MiniaudioCpp
+wrapper. FMOD and the `--audio-backend` option were removed in November 2026
+(`docs/AUDIO_NATIVE_BACKEND_PLAN.md`, then `specs/002-fmod-replacement`). No header outside
+`Audio/Native/` names a miniaudio type; native code shares state through the private
+`Native/NativeInternal.h`. Engine code asks about a Sound's parameters through
+`AudioEngine::GetEventParameter` (`AudioEventParameterInfo`: range, default, discrete/labeled; global
+parameters are rejected) and `GetEventParameterLabel`. The initialized check is
+`AudioEngine::HasInitializedEngine()`. Bus paths keep the `bus:/` form.
 
-**Backend boundary (Phase 1):** no header outside `Audio/FMOD/` names an FMOD type or includes an
-FMOD header. `Audio/FMOD/` holds the FMOD implementations of the neutral classes:
-`FMODAudioEngine.cpp`, `FMODAudioEventInstance.cpp`, `FMODAudioEventParameters.cpp`, `FMODAudioFocus.cpp`,
-`FMODAudioAccessibilityMixer.cpp`, `FMODAudioPerformance.cpp`, plus the SDK halves of three split classes
-(`FMODAudioListener.cpp` = `Apply`, `FMODAudioFileUtils.cpp` = `GetFileInfo(path)`,
-`FMODAudioValidation.cpp` = `ValidateBanks`). The backend-free halves stay in `AudioListener.cpp`,
-`AudioFileUtils.cpp` and `AudioValidation.cpp`. Backend code reaches the Studio/Core systems and
-the reference-counted bus locks through the private `FMOD/FMODInternal.h` (`FMODInternal::`
-namespace); nothing outside `Audio/FMOD/` and the FMOD test host may include it. `AudioEventInstance`
-holds a `Scope<Impl>` defined in `FMODAudioEventInstance.cpp` (event pointer and cached snapshot
-`Intensity` parameter id). Engine code that used to describe events itself now calls
-`AudioEngine::GetEventParameter` (`AudioEventParameterInfo`: range, default, discrete/labeled; read-only,
-automatic and global parameters are rejected) and `GetEventParameterLabel`. The initialized check is
-`AudioEngine::HasInitializedEngine()`. Bank, bus-path and `event:/` concepts are still FMOD Studio's
-in the neutral API.
-
-**References for both backends (Phase 2).** `AudioEventRef` holds the FMOD `Guid` (with advisory
-`Path`/`BankName`) **and** `Sound`, a Sound asset handle, so a scene or table saved by either build
-keeps the other's assignment. Each backend defines what it plays: `IsValid()` (a GUID for FMOD, a
-Sound for native), `GetReference()` (the string `AudioEventInstance::Create` resolves: the GUID, or
-the Sound handle in decimal) and `FromReference()` (`FMOD/FMODAudioBackend.cpp`,
-`Native/NativeAudioBackend.cpp`, which also define `GetBackend`). `HasReference()` (either field) is
-for build-independent data checks such as `DialogueTable::Validate`; `SameAssignment()` compares
+**References.** `AudioEventRef` holds `Sound`, a Sound asset handle (for a zone's snapshot, a mixer
+snapshot ID). Its `Guid`/`Path`/`BankName` are legacy FMOD fields: read from older files so the
+inspector and Play can report an FMOD-only reference (Play logs an error for each Audio Source that
+names an FMOD event but no Sound, and the inspector shows the same warning), never played.
+`IsValid()` (a Sound is set), `GetReference()` (the Sound handle in decimal, which
+`AudioEventInstance::Create` resolves) and `FromReference()` are defined in
+`Native/NativeAudioReferences.cpp` with `NativeInternal::ParseHandle`. A string reference may also be
+a Sound's Assets path, with or without `.lsound`: the editor resolves it through the asset registry,
+an exported game through the runtime project's path table (`ProjectAudioSettings::AudioAssetPaths`,
+runtime format 31). `AudioEngine::FindSoundBank` resolves Sound Banks the same way. `event:/` strings
+and `.bank` paths fail with a message that names the replacement. `HasReference()` (a Sound or a
+legacy GUID) is for data checks such as `DialogueTable::Validate`; `SameAssignment()` compares
 fields so per-frame change checks (`AudioSourcePlayback`, `AudioZoneSystem`, `PhysicsAudioSystem`)
 allocate nothing. `AudioEventRefSerializer` is the one YAML form, used by `SceneSerializer`,
 `DialogueTable` and `AudioSurfaceTable`: the map form `{ Guid, Path, BankName, Sound }` and the flat
 `EventGuid`/`EventPath`/`EventBank`/`EventSound` keys `AudioSourceComponent` has always used. `Sound`
-is written only when set, so FMOD-only files are byte-for-byte unchanged and older builds ignore the
-key. Each build's pickers edit only their own field (`ImGuiEx::SurfaceEventPicker` lists Sound
-assets on native and FMOD events otherwise; the Audio Source inspector shows a Sound field on native,
-with any FMOD event shown read-only).
+is written only when set. `ImGuiEx::SurfaceEventPicker` lists Sound assets.
 
 **Sound assets (Phases 2–3).** `Sound` (`Audio/Sound.h`, `AssetType::Sound`, `.lsound`) is the
-native backend's playable asset: a tree of `SoundNode`s (`Nodes[0]` is the root; each other node has
+engine's playable asset: a tree of `SoundNode`s (`Nodes[0]` is the root; each other node has
 exactly one parent) plus `Parameters`, `Bus` (`bus:/...`, a bus of the project's mixer; an unknown bus plays through
 the master, reported once), linear `Volume` (0–4), `Pitch` (above 0, up to 4), `Spatial` (3D on/off,
 `SoundAttenuation` None/Inverse/Linear with miniaudio's formulas, min/max distance, rolloff),
@@ -1036,13 +1023,13 @@ a labelled parameter's index). Every node has volume, pitch, volume variation (d
 by up to it) and pitch variation (semitones, either way), and `SoundCurve`s mapping a parameter to
 Volume/Pitch (multiplied down the path), LowPass (lowest wins), HighPass (highest wins) or Send.
 `SoundParameter`s are continuous or labelled (values are label indices); names compare
-case-insensitively, like FMOD's. A Sound loops when any clip loops (`Loops()`). YAML is version 2;
+case-insensitively. A Sound loops when any clip loops (`Loops()`). YAML is version 2;
 version 1 (Phase 2's single `Clip`/`Loop`) loads as a root clip node. `Validate` bounds every value
 and rejects malformed trees. `SoundSerializer` writes bounded YAML (64 KiB at save, load, pack write
 and pack read), registers every clip as a dependency and is packable. Each instance copies the Sound
 when created, so an edit applies to the next instance.
 **Sound Banks (spec 002):** `SoundBank` (`AssetType::SoundBank`, `.lbank`, `Audio/SoundBank.h`) lists
-Sounds (no duplicates or zero handles, at most 2048) and replaces FMOD's banks. `SoundBankSerializer`
+Sounds (no duplicates or zero handles, at most 2048). `SoundBankSerializer`
 shares `SoundSerializer.cpp`'s bounded-YAML helpers (64 KiB, the same pack layout) and registers each
 Sound as a dependency. It is a script field type (`Lux.SoundBank`, `DataType::SoundBank`), the Content
 Browser's New › Sound Bank (seeded with the selected Sounds), and the Sound Bank Editor panel.
@@ -1060,21 +1047,18 @@ its path in the pack, so the format is unchanged) and the resource manager's VFS
 opens `luxpack/<handle><ext>` at that offset, one file handle per open, so packed clips decode on the
 streaming thread and streamed Sounds stream straight from `AssetPack.lap`. `GetClipMemoryBytes` is the
 held decoded buffers plus two stream pages per playing stream (an upper bound).
-The Content Browser offers **New → Sound** and **Create Sound** on an audio file (native builds
-only); with several audio files selected it makes one Sound with a Random root (avoid-repeat) over
+The Content Browser offers **New → Sound** and **Create Sound** on an audio file; with several audio files selected it makes one Sound with a Random root (avoid-repeat) over
 them, refused if the file would exceed `Sound::MaxFileBytes`. `.wav`, `.ogg`, `.mp3` and `.flac` are
 `Audio` assets. Files dropped on the editor window (GLFW's drop callback raises `WindowDropEvent`;
 `PanelManager` forwards it) are copied into the Content Browser's open folder and imported, as the
 Import menu does; unknown types are skipped with a warning. Audio files and Sounds get waveform
 thumbnails from `WaveformThumbnailer` (`Panels/ContentBrowser/`): one file at a time is decoded by
 `AudioFileUtils::GetWaveform` in a `JobSystem::Submit` job, then rasterized on the main thread into
-`ThumbnailCache::SetThumbnailPixels` (a Sound shows its first clip, in the accent colour); the FMOD
-build draws none. C# scripts can
+`ThumbnailCache::SetThumbnailPixels` (a Sound shows its first clip, in the accent colour). C# scripts can
 declare `Lux.Sound` fields (`DataType::Sound`, editor-assignable like `Prefab`) and call
-`Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`, which pass the handle as the reference. The
-FMOD build reports such a reference as a Sound that needs the native backend.
+`Audio.PlayOneShot(Sound)` / `CreateInstance(Sound)`, which pass the handle as the reference.
 
-**Native mixer (Phase 4a/4b).** `ProjectAudioSettings::Mixer` (`AudioMixerSettings`, YAML `Audio.Mixer`;
+**Mixer (Phase 4a/4b).** `ProjectAudioSettings::Mixer` (`AudioMixerSettings`, YAML `Audio.Mixer`;
 missing means the default `Music`, `SFX`, `Dialogue`, `Ambience` buses) lists buses below the master by
 path, each with volume and mute; a bus plays into the parent its path names, and `Validate` requires
 parents first. `AudioEngine::Init` builds one `ma_sound_group` per bus (the master is the engine
@@ -1082,7 +1066,7 @@ endpoint, which keeps the master volume and focus mute) and the reverb return, m
 `ma_reverb_node` (verblib) into the master with dry 0, skipped above 2 output channels. Each voice
 node has two outputs: the dry signal into its Sound's bus, and a post-fader send into the return at
 `ReverbSend` (Soundwave) plus the Sound's Send curves, clamped to 1 and ramped per block.
-`SetBusVolume`/`SetBusMuted`/`GetBusVolume` reach any mixer bus. The FMOD backend ignores the mixer.
+`SetBusVolume`/`SetBusMuted`/`GetBusVolume` reach any mixer bus.
 **Bus effects (Phase 4d):** each `AudioMixerBus::Effects` stage (up to 8; bypassed stages are left out)
 is built at Init between the bus group and its parent: miniaudio's second-order `ma_lpf_node`/
 `ma_hpf_node` and `ma_peak_node`, and two MiniaudioCpp `TBaseNode`s of our own in
@@ -1097,37 +1081,38 @@ the engine.
 **Native accessibility (Phase 5a):** a `MasterNode` (MiniaudioCpp) sits between everything the master
 bus mixes and the device; top-level buses, the reverb return and master-bus voices play into it. It
 applies `AudioAccessibilityMixer`'s mono fold and compression (Reduced -12 dB 3:1, Night -24 dB 6:1,
-10/150 ms, as the FMOD presets) through atomics. Category gains multiply the mapped bus's volume
+10/150 ms) through atomics. Category gains multiply the mapped bus's volume
 (the master's endpoint volume for `bus:/`) on top of the mix, snapshots and gameplay values; dialogue
-boost and the description duck follow the FMOD rules. `Reset` clears all of it.
-**Native music timeline (Phase 6a):** `Sound::Tempo` (BPM, beats per bar, beat unit, first-beat
+boost and the description duck apply on top. `Reset` clears all of it.
+**Music timeline (Phase 6a):** `Sound::Tempo` (BPM, beats per bar, beat unit, first-beat
 offset) and `Sound::Markers`. With `EnableTimelineNotifications`, the voice reports beats (bars and
-beats from 1, as FMOD) and markers between the last reported cursor of its first clip and the
+beats from 1) and markers between the last reported cursor of its first clip and the
 current one, on the main thread when `DrainTimelineNotifications` or `GetTimelineSequence` runs; the
 latter catches up first, so `MusicDirector` transitions count only events after the request. A
 cursor behind the last means the clip looped (a beat on the clip's end is the next loop's first).
-Synchronized transitions are sample-accurate on native: `QueueTransition` asks the bed for
+Synchronized transitions are sample-accurate: `QueueTransition` asks the bed for
 `GetNextSyncTime` (the boundary on the engine clock, from the position heard since its first sample;
 the clip cursor reads ahead of the output) and schedules `StartAt`/`StopAt` there; `Update` takes the
 new bed over once the time passes, before the stopped bed counts as ended. Cancelling a queued
-transition takes the bed's scheduled stop back. FMOD reports no time and keeps the drain-time switch.
-**Native dialogue (Phase 7a):** `DialogueTranslation::Clip` (an audio asset, YAML `Clip`) is the native
-counterpart of `AudioKey`. `DialogueDirector` calls `AudioEventInstance::SetClipOverride` on native
-(every clip node of the line's Sound plays that asset; refused after Start and by FMOD) and
-`SetProgrammerSound` on FMOD. The subtitle's duration is the override clip's length. Project
-Settings shows a Clip picker per language in the native build and the audio-table key in FMOD's.
-**Native runtime export (Phase 8a):** a native build packs each Audio asset's encoded file after its
-path (`AudioAssetSerializer`; FMOD packs keep the path only, and a reader records the bytes' offset
-only when the entry is longer than its path, so either pack loads). At runtime `ResolveClip` names a
+transition takes the bed's scheduled stop back.
+**Dialogue (Phase 7a):** `DialogueTranslation::Clip` (an audio asset, YAML `Clip`) is a translation's
+recording. `DialogueDirector` calls `AudioEventInstance::SetClipOverride` (every clip node of the
+line's Sound plays that asset; refused after Start). The subtitle's duration is the override clip's
+length. Project Settings shows a Clip picker per language. `AudioKey`, FMOD's audio-table key, is
+read and kept but never played.
+**Runtime export (Phase 8a):** export packs each Audio asset's encoded file after its path
+(`AudioAssetSerializer`; packs from FMOD builds kept the path only, and the reader records the bytes'
+offset only when the entry is longer than its path, so either pack loads). At runtime `ResolveClip` names a
 packed clip `luxpack/<handle><ext>` and `RegisterPackedClip` points the pack VFS at it, measuring its
 length through the VFS; a Sound decodes or streams it like a file (Sound Banks above). The mixer is runtime project format 30.
 Every scene's pack lists all Audio and Sound assets (`AssetPack::CreateFromActiveProject`), since
-components, zones, the music director, dialogue and scripts all name them. Export skips FMOD bank
-preparation and `CopyAudioLibraries` on native, and `RuntimeExport::ShipsLibrary` keeps an earlier FMOD
-build's libraries in the shared output folder out of a native export. Script asset-ref fields (`Sound`,
+components, zones, the music director, dialogue and scripts all name them. Export prepares no banks;
+the runtime project still carries an empty `AudioBankManifest` so its layout is unchanged, and
+`RuntimeExport::ShipsLibrary` keeps FMOD libraries an old build left in the shared output folder out
+of an export. Script asset-ref fields (`Sound`,
 `Prefab`, ...) are written into the managed instance at `Instantiate` but stay unbound from it, so their
 `FieldStorage` keeps reading its stored handle during Play (a wrapper object can't be read back as a value).
-**Native budgets (Phase 5d):** `AudioPerformance::Update` (4 Hz) applies the global voice budget:
+**Budgets (Phase 5d):** `AudioPerformance::Update` (4 Hz) applies the global voice budget:
 `NativeInternal::ApplyVoiceBudget` keeps `RealVoices` voices mixing, by priority (lower number first),
 then loudness, then start order. The rest go virtual: their clips stop, engine time keeps counting,
 and they resume where they would be (wrapped in their loop), or end if a one-shot ran out. CPU is the
@@ -1137,18 +1122,17 @@ packed clips' encoded bytes. The timeline wraps at a clip's loop region.
 **Snapshots (Phase 4c):** `AudioMixerSettings::Snapshots` are named, prioritized bus-volume
 overrides with a stable `UUID`. A reference whose `AudioEventRef::Sound` slot holds a snapshot ID
 makes `AudioEventInstance::Create` return a snapshot instance (no leaves, never ends, `IsSnapshot`),
-so `AudioZoneSystem` drives native snapshots with the same calls as FMOD's. A started snapshot
+so `AudioZoneSystem` drives snapshots through the ordinary instance calls. A started snapshot
 moves each listed bus from its own volume toward the override by `SetSnapshotIntensity`; the highest
 priority (then the latest start) wins a bus. Definitions are copied at Init.
-The runtime package does not carry it yet (native export is Phase 8).
 
-**Native backend (Phase 2 vertical slice).** `Audio/Native/` implements every function the FMOD
-folder does. Its private headers are `NativeInternal.h` (engine access, Sound resolution, listener
+**Implementation (Phase 2 vertical slice).** `Audio/Native/` implements every `AudioEngine`,
+`AudioEventInstance` and `AudioListener` function. Its private headers are `NativeInternal.h` (engine access, Sound resolution, listener
 set, voice registry) and `Miniaudio.h`, the only way native code includes miniaudio: it sets
 `MA_ENGINE_MAX_LISTENERS` to 8 (one per engine listener slot), which changes miniaudio's struct
 sizes, so every unit must agree. `MiniaudioImplementation.c` is miniaudio's single implementation
 unit (with stb_vorbis). Ownership goes through MiniaudioCpp (`Core/vendor/MiniaudioCpp`, ISC, compiled
-into Core only with the native backend; its headers also include `Miniaudio.h`): the engine is a
+into Core; its headers also include `Miniaudio.h`): the engine is a
 `JPL::Engine`, each clip's voice node a `JPL::TBaseNode<VoiceNode>` and its sound a `CResource`,
 so releasing a leaf uninitializes the sound before its node. `AudioEngine::Init` points the wrapper's
 globals at the engine (`GetMiniaudioEngine`, `gEngineAllocationCallbacks`) and routes its trace and
@@ -1162,7 +1146,7 @@ Streamed Sounds (`MA_SOUND_FLAG_STREAM`) post page jobs that the engine's `Audio
 relative to Assets in the editor) into the Sound (`ResolveSound`) and a clip handle into its file
 (`ResolveClip`); the native tests replace both of those files and `NativeAudioEngineConfig.cpp`.
 `AudioEventInstance::Create(const Ref<Sound>&)` plays an in-memory Sound (the Sound editor's
-audition); the FMOD build refuses it.
+audition).
 
 Each `AudioEventInstance::Start` resolves the tree into leaf clips (Random and Switch pick, Sequence
 steps, Layers multiply; at most 256 clips and 64 levels), rolls each leaf's variation, and gives each
@@ -1175,8 +1159,7 @@ gain and occlusion, and are recomputed when a parameter, position, listener or a
 start. The instance limit counts the Sound's playing instances and steals the first started or the
 quietest, or refuses; the cooldown is measured on a steady clock (miniaudio's engine time stops while
 nothing plays) and a refused start returns false without an error. The engine computes distance gain itself: per active listener, `Attenuate(distance to its
-attenuation point)`, weighted by listener weights normalized to sum to 1 (FMOD's "closest listeners
-up to 100%" rule with every listener counted, as the FMOD bridge normalizes too), times Sound and
+attenuation point)`, weighted by listener weights normalized to sum to 1 (every listener counted), times Sound and
 instance volume and occlusion. miniaudio only pans, toward the listener contributing most; its
 attenuation model must not be `none`, which skips panning, so voices use its inverse model with
 equal minimum and maximum distance (exactly 1). miniaudio's pan law plays a sound straight ahead at
@@ -1185,39 +1168,31 @@ applies `OcclusionGainLF` as gain and a one-pole low-pass (6 dB/octave, the mass
 `max(125 Hz, 20 kHz × gain)`; unoccluded at unity gain the node copies its input exactly. 2D voices
 are never occluded or attenuated. The same node applies the Sound's HighPass curves as a one-pole
 high-pass. `ReverbSend` (and the Send curve) are stored for the mixer's reverb return. Pause is
-layered (`ma_sound_stop` keeps the cursor); `Start` restarts like FMOD; a finished voice is never
+layered (`ma_sound_stop` keeps the cursor); `Start` restarts from the beginning; a finished voice is never
 resumed. `AudioEngine::Update` polls miniaudio's end flag and publishes stopped status and script
 notifications. Shutdown advances the event generation, then frees every voice before the engine, so
 wrappers held past it are inert. The master bus (`bus:/`) has volume and mute; focus mute combines
 with them on the endpoint.
 
-Not native yet, and reported once rather than per call: snapshots, music timeline
-notifications, programmer sounds, other buses and VCAs, global parameters, voice virtualization
-(priority is stored), mixer CPU/memory statistics (`HasMixerStats` false), bus meters and the
-accessibility mixer (captions and cues work; category gains, mono and compression do not).
-`AudioValidation::ValidateBanks` validates Sounds instead of banks (each reference resolves to a valid Sound
-whose clips are all assigned and decodable, with the right loop kind; unreferenced Sounds are listed). The editor skips the
-FMOD bank pipeline, Project Settings says so, and runtime export is blocked until asset packs carry
-Sound audio. A Lux-Runtime built native skips an export's FMOD bank manifest with a warning.
+Not implemented, and reported once rather than per call: programmer sounds (`SetProgrammerSound`
+fails; dialogue plays through clip overrides) and mixer statistics (`HasMixerStats` false).
+`AudioValidation::ValidateBanks` validates Sounds (each reference resolves to a valid Sound whose clips
+are all assigned and decodable, with the right loop kind; unreferenced Sounds and Sounds no Sound Bank
+lists are reported) and the project's Sound Banks.
 
-FMOD Studio is the only playback path. `AudioEngine` owns Studio and its Core mixer;
-`AudioEventInstance` owns Studio event handles. `AudioSourceComponent` remains the entity-facing
-component (and C# API), with volume, pitch, play-on-awake, event references and parameter overrides.
-`AudioSource` raw-file voices, direct Core listener updates, the extra Core update pump, and the
-engine-created `Reverb3D` unit are removed. FMOD Core remains a dependency for mixer statistics and
-`AudioFileUtils` metadata inspection (`FMOD_OPENONLY`); inspecting a source asset does not play it.
-With `--audio-backend=fmod` (the default) FMOD Core/Studio is a required SDK whose shared libraries
-deploy beside both applications; `--audio-backend=native` needs no audio SDK. Acoustics need no SDK
-on either backend: they come from Soundwave, an in-tree Apache-2.0 source library statically linked
-into `Core`, and reach playback through `AudioEventInstance::SetAcoustics` (Studio parameters on
-FMOD, a per-voice low-pass, gain and reverb send on native). Asterwave and Vercidium Audio are gone.
+`AudioSourceComponent` is the entity-facing component (and C# API), with volume, pitch,
+play-on-awake, a Sound reference and parameter overrides. `AudioFileUtils` (`NativeAudioFileUtils.cpp`)
+reads clip metadata and waveforms through miniaudio's decoder; inspecting a file does not play it.
+Acoustics come from Soundwave, an in-tree Apache-2.0 source library statically linked into `Core`,
+and reach playback through `AudioEventInstance::SetAcoustics` (a per-voice low-pass, gain and reverb
+send). Asterwave, Vercidium Audio and FMOD are gone.
 
 **Legacy scenes:** old `Audio` handles and `Looping` values are retained as migration-only
 `LegacyAudio`/`LegacyLooping`, under their original YAML keys. They survive save, copy, undo and
-prefab roundtrips, but cannot create voices. A source with a legacy handle and no Studio event
-shows an inspector migration warning and reports an error on Play. Assign an authored Studio
-event; the engine cannot infer event GUIDs or recreate Studio authoring from a raw asset. New
-sources do not write legacy keys. Looping is authored in the event timeline.
+prefab roundtrips, but cannot create voices. A source with a legacy handle and no Sound shows an
+inspector migration warning and reports an error on Play; assign a Sound (the Content Browser's
+Create Sound makes one from the audio file). New sources do not write legacy keys. Looping is
+authored on the Sound's clips.
 
 **Acoustics:** `Scene` owns a `SceneAudioAcoustics` (main-thread capture of acoustic geometry) and
 through it an `AudioAcoustics` (prepared snapshots, per-UUID source state, listener reverb). Both
@@ -1225,22 +1200,21 @@ start on Play. Soundwave simulates one listener: highest weight wins, lowest ind
 an attenuation target overrides its acoustic position. Vercidium Audio was removed on 2026-11-02;
 nothing in the build, deploy or tests references it.
 
-Event components receive `AudioEventAcoustics`: low-frequency direct gain becomes the optional
-Studio parameter `Occlusion` (1 minus gain), and Soundwave's listener reverb send times the zone
-gain becomes `ReverbSend`. Studio authors the filters, sends and reverb buses. The HF gain and the
-path/reverb details remain diagnostic outputs; the engine does not apply a second filter/reverb
-path. Missing optional parameters are expected; other FMOD failures are reported.
+Event components receive `AudioEventAcoustics`: the low-frequency direct gain (`OcclusionGainLF`)
+drives the voice's gain and low-pass, and Soundwave's listener reverb send times the zone gain
+becomes `ReverbSend`, the voice's send into the mixer's reverb return. The HF gain and the
+path/reverb details remain diagnostic outputs.
 
 **Native acoustic verification:** `SceneAudioVerification` is a Core-owned main-thread
-report over a running Scene's acoustic diagnostics, physics comparison and actual FMOD
-parameters. It returns Pending/Passed/Failed with owned YAML/error strings and never waits.
+report over a running Scene's acoustic diagnostics, physics comparison and the acoustics applied
+to each source (`CheckedSources`). It returns Pending/Passed/Failed with owned YAML/error strings and never waits.
 GoldenCapture and the opt-in RuntimeLayer report use the same check; Core has no editor-app
 dependency. `LUX_GOLDEN_EXPORT_DIR` starts the existing validated EditorLayer export after
 Play/Stop and image capture. It polls the normal build/export state, records the resulting
 package/executable paths, and then finishes. Automated destinations must be absolute and
 empty; normal interactive exports retain their folder dialog and completion behavior.
 `LUX_RUNTIME_AUDIO_REPORT` enables a player report after normal rendered frames, then queues
-normal application close. It loads the binary project, packaged banks and AssetPack with
+normal application close. It loads the binary project and AssetPack with
 the normal runtime asset manager and compacted mesh CPU data; it is inert without that opt-in.
 The fixture runner compares the packaged player's raw gains/direct bits/opening paths with
 Play. Completion is an atomically published status file after the report, independent of console
@@ -1259,8 +1233,7 @@ absorption plus escaped rays per metre travelled, and maps it to
 job over the published snapshot Refs and copied values when geometry or settings change or the
 listener moves over 1 m, one job in flight; main polls it and smooths the send (0.5 s). Scene
 multiplies that send by the zone system's raytraced-reverb gain, and zones treat a completed
-measurement as "raytraced reverb valid". Bank validation warns when an occludable event lacks a
-`ReverbSend` parameter. The three reverb rows live in the project audio block's `Kernel` map.
+measurement as "raytraced reverb valid". The three reverb rows live in the project audio block's `Kernel` map.
 
 **Workers and the GPU (plan Phase 4, as decided 2026-11-02):** per-source `Solve` runs on a
 JobSystem worker (one batch in flight, published by `AudioAcoustics::PollSolves`); the listener
@@ -1277,7 +1250,7 @@ thread per source and stall frames; a parallel GPU search is a documented follow
 **Air absorption, scattering, bounce diagnostics (plan Phase 5):** `AirAbsorptionLF/HF` (dB per
 100 m, defaults 0.1 / 2.5, range 0–20, `Kernel` map) charge reflection and opening paths only on
 their length beyond the direct path, and add their energy loss per metre to the reverb estimate.
-The direct path is never charged: FMOD's distance fade owns loudness over distance (user decision,
+The direct path is never charged: the Sound's distance attenuation owns loudness over distance (user decision,
 2026-11-01), so a distant source cannot be faded twice. Reflections keep the specular
 `(1 - Scattering)` share; reverb rays leave each surface as that share's mirror ray blended with a
 deterministic cosine-weighted direction for the `Scattering` share. `SolveDiagnostics::
@@ -1347,9 +1320,9 @@ caches for later reactivation. Diagnostics distinguish logical triangles from st
 triangles and report mesh instance counts; Play artifacts record all three. The per-mesh cap
 stays unchanged and aggregate virtual index overflow is rejected transactionally. The previous
 Benchmark cap rejection and timeout records describe the older expanded capture. A controlled
-Play run with an authored FMOD source/listener now covers all 6,914 render-mesh/portal instances,
+Play run with an authored source/listener (on the FMOD build of the time) covered all 6,914 render-mesh/portal instances,
 8,556,859 logical triangles, 272,383 stored triangles counted by layer and 1,062 moving instances.
-It publishes later geometry generations, verifies final FMOD transport and exits normally with
+It published later geometry generations, verified final event transport and exited normally with
 zero Vulkan validation messages. The temporary source/listener are removed by byte-exact scene
 restoration. This Debug validation run is not performance or runtime/export evidence. The local-template transform followed by actor
 transform has two float stages, so it need not reproduce the last bits of a precombined actor /
@@ -1357,8 +1330,7 @@ submesh matrix. The direct world-triangle oracle still retains its frozen arithm
 GPU implementation must match this CPU reference within the authored tolerance.
 
 Settings persist under Audio.Occlusion in YAML and runtime format 25's existing bounded,
-length-prefixed YAML block; formats 16-24 use defaults. Bank validation still warns on missing
-Occlusion parameters. Kernel settings schema details are below.
+length-prefixed YAML block; formats 16-24 use defaults. Kernel settings schema details are below.
 
 **Soundwave contract (migration Phase 1):** `Core/vendor/soundwave/` is an Apache-2.0 source
 library compiled into `Core`, without Lux headers or a separate DLL. `Dependencies.lua` owns
@@ -1467,18 +1439,13 @@ fixtures around the real Sponza model and uses normal Play/Stop with pinned list
 All Sponza submeshes also feed the existing physics-ray oracle; the optional Play artifact records
 raw and applied LF, direct/oracle float bits, endpoints, work/path truncation and audible route
 points. A missing requested comparison path fails capture. Corner/open-archway cases must improve
-on the blocked ray and reach FMOD; closed/direct-only controls must not acquire an opening route.
+on the blocked ray and reach the voice; closed/direct-only controls must not acquire an opening route.
 Five partitions isolate one actual arch bay from neighboring open arches for its closed portal
 control. Fixtures author opaque material coefficients and explicit maximum search budgets.
 Counts derive from model accessors rather than assuming a primitive cube. The runner copies
 imported model/material files and verifies original project, scene, registry and model bytes.
 Capture projects do not enter user recent-project history. This is a developer correctness gate;
 it does not establish performance, default-budget completeness, exported runtime or GPU parity.
-
-**Developer verification:** `Lux-AudioBankValidation` is a Windows console host for
-`AudioValidation::ValidateBanks`, which creates its own NOSOUND FMOD catalog. It starts no
-`Application`, scene or renderer and reuses the runtime player's deployed libraries through the verification
-script's child PATH. It does not replace `ValidateProject`'s collection of asset references.
 
 **Acoustic materials (Phase 7):** `AcousticMaterial.h` defines stable engine tags; their index is
 Soundwave's `MaterialTag` (pinned equal by `static_assert`). `MeshColliderComponent::Acoustic` defaults to Default (concrete). An
@@ -1545,19 +1512,16 @@ higher priorities consume available weight first; equal priorities share their c
 proportionally. Listener weights are normalized and combined into the global mixer result;
 attenuation targets also determine zone occupancy. No active listener means zero target weights.
 `FadeTime` smooths entry/exit in seconds and freezes during scene pause. Ambience must be a looping
-Studio event. One ambience instance is cached per entity, placed at its volume center, and receives
-`Volume * Weight`; it starts on entry and stops on exit, retaining ownership through FMOD fade-out.
-Entity/component removal and scene teardown release voices. Missing banks retry on catalog revision;
-bank/system reload generations invalidate and recreate active wrappers safely.
+Sound. One ambience instance is cached per entity, placed at its volume center, and receives
+`Volume * Weight`; it starts on entry and stops on exit, retaining ownership through its fade-out.
+Entity/component removal and scene teardown release voices; an engine restart's generation change
+invalidates and recreates active wrappers safely.
 
-Zone snapshot contributions are coalesced by canonical GUID into one instance: FMOD averages
-multiple instances of the same snapshot, so separate instances would weaken overlap. `Intensity`
-must be exposed from the snapshot dial as a local continuous writable 0–100 Studio parameter.
-`SetSnapshotIntensity` takes normalized 0–1, validates type/range, caches the parameter ID and
-sets intensity before playback. Event volume does not control snapshot intensity. A missing or
-mis-authored snapshot reports an error and does not suppress Soundwave reverb. Snapshot mixer scope,
-priority and transition curves remain authored in Studio. Explicit script-created snapshots are
-independently owned and can still interact with zone snapshots under FMOD's averaging rules.
+Zone snapshot contributions are coalesced by reference (case-insensitive) into one instance, whose
+`SetSnapshotIntensity` (normalized 0–1) is the zones' combined weight; event volume does not control
+snapshot intensity. A missing snapshot reports an error and does not suppress Soundwave reverb.
+Snapshot buses and priority are authored in the Audio Mixer (Snapshots above); explicit
+script-created snapshots are independently owned, and the highest priority wins each bus.
 
 Project `Audio.ZoneReverbMode` selects Layered (default), PreferZones (scale Soundwave's `ReverbSend`
 by one minus active zone snapshot coverage), or PreferRaytraced (suppress zone snapshots while
@@ -1566,57 +1530,24 @@ ambience beds independent. The latest measurement validity is retained while pau
 19 adds one validated mode byte after the version-18 materials block; versions 16–18 use Layered.
 
 Zone data survives scene YAML, runtime scenes, copy/duplicate and prefab operations. The inspector
-provides typed bank event/snapshot pickers, dimensions, blending and a runtime weight. Selected
+provides Sound and mixer-snapshot pickers, dimensions, blending and a runtime weight. Selected
 volumes and inner full-weight margins are captured as `FrameRenderPacket::AudioZoneLines`; the
 render callback consumes only those immutable lines. C# exposes `AudioZoneComponent` and
 `Audio.StartSnapshot(reference, intensity)`, returning the usual explicitly owned `EventInstance`.
 See `docs/AUDIO_ZONES.md` for authoring and verification.
 
-**Banks:** `AudioBankBuilder` locates Studio's command-line tool and builds banks with
-`-build -export-guids`. Its stale check compares authored input to built bank timestamps and skips
-Build, caches, user state and .git. Tool lookup is cached for editor queries. Studio project paths
-are asset-relative, and bank output paths are relative to the .fspro directory. The Content Browser
-treats Studio project directories as opaque; `.fspro` and `.bank` activation opens Studio.
-`EditorLayer` loads banks on project open and reloads after rebuilding for Play. Failed Play-time
-builds log and retain existing banks; export uses the stricter validation described below.
-
-Studio owns Core: initialize Studio once, obtain its Core system, and release only Studio at
-shutdown. Initialization failures leave the initialized flag false. `AudioEngine::Update` pumps
-Studio only; it manages its Core mixer internally. Live update follows project settings except in
-Dist. `LoadBanks` loads strings first and replaces the previous set after validating the directory.
-A partial directory load reports failure. `LoadBank` is additive and idempotent by canonical path.
-Bank catalog revision changes retry failed event lookups; lifetime generation changes only when
-unloading banks or shutting down and invalidates all old event wrappers.
-
-**Runtime exports (format 25; bank manifest introduced in 17):** `AudioBankManifest` is an explicit, bounded stream block after
-`ProjectInfo`'s unchanged fixed-size header. It carries an asset-relative directory, the exact bank
-filenames, and the live-update setting (disabled for Dist exports). Never put owning strings or
-vectors into the raw `ProjectInfo` block. Older formats load without Studio configuration and warn
-that a re-export is needed for events; authoring paths and rebuild-on-play are disabled at runtime.
-
-`RuntimeExport::PrepareAudioBanks` runs once on the main thread when an export starts, before any
-Lux-Runtime or script build; the export overlay locks the editor until it writes. It rejects missing authoring input, missing/empty banks, a missing master/strings
-pair, and stale output using `AudioBankBuilder::NeedsRebuild`. The selected bank-output directory
-is the enabled host desktop profile's FMOD output, or the project's default output; export does
-not invoke Studio or guess a platform. An empty Studio project setting means no authored banks.
-Bank paths inside Assets retain their relative location for scripts; external output is packaged
-under `Assets/Audio/Banks`. Absolute authoring paths are not portable script paths. The `.fspro`
-and source audio are not copied. FMOD Core/Studio shared libraries are required copies,
-including Linux's `lib` subdirectory. Copy failures abort export.
+**Legacy FMOD data:** `AssetType::AudioProject`/`AudioBank` stay in the enum for numeric
+stability; `.fspro` and `.bank` files are no longer imported. Project YAML's Studio settings are read,
+reported once ("they are ignored and dropped on the next save") and not written. Runtime formats 17+
+still carry the bounded `AudioBankManifest` block after `ProjectInfo`'s fixed header (exports write it
+empty); when an old export's manifest names banks, `Project::LoadRuntime` warns that they are ignored.
+Desktop profiles' `StudioPlatform`/`BankOutputPath` keys are skipped and dropped on the next save. Never put owning strings
+or vectors into the raw `ProjectInfo` block.
 
 The player also requires the shared ImGui fonts and managed host at top-level `Resources/` and
 `DotNet/`. Linux post-build directory copies target their parent to merge correctly on repeat
 builds. Export audio validation failures are surfaced in the export window with the scene/entity
-location; validation includes all registered scenes, not just the startup scene. The sample
-`AudioTest` scene uses the same FMOD `event:/Fart` as its replacement demo, with no raw-file source.
-
-`Project::LoadRuntime` initializes FMOD and loads only the manifest's banks, strings first, before
-loading scenes or starting scripts. Failure clears partial loads and rejects the project. The exact
-manifest also guards against obsolete banks in a reused export directory being auto-loaded
-(exports now clear their folder, but a hand-edited package can still carry extras). Scripts
-can still load additional banks explicitly. Bank load paths are relative to the packaged Assets,
-and the normal idempotent `Audio.LoadBank` behavior applies to banks already loaded at startup.
-This does not implement acoustic materials or cross-platform bank compilation.
+location; validation includes all registered scenes, not just the startup scene.
 
 **Listeners:** `AudioListenerComponent` stores authored `Active`, `ListenerIndex` (0–7), `Weight`
 (0–1), `UseAttenuationTarget`, and `AttenuationTarget` (entity UUID). The obsolete listener cone
@@ -1636,32 +1567,30 @@ velocity, reset on start, slot reassignment, and paused frames. Non-finite trans
 indices/weights are rejected with rate-limited diagnostics. Duplicate active indices choose the
 lowest UUID deterministically and report the conflict.
 
-Studio receives every populated slot, zero weights for holes, and normalized weights. A missing
-listener resets Studio to a neutral origin listener (Studio requires a nonzero total). Missing
-attenuation targets fall back to the listener position with a diagnostic. Stopping Play resets
-listener state. Only Studio's listener API is written; Studio owns propagation to its Core mixer.
+`AudioListener::Apply` stores every populated slot with its normalized weight; the engine computes
+distance gain over them and pans toward the listener contributing most (Implementation above). With
+no active listener it uses a neutral listener at the origin. Missing attenuation targets fall back to
+the listener position with a diagnostic. Stopping Play resets listener state.
 
 **Event playback:** `Scene` owns an `AudioSourcePlayback` per source entity, with an optional
-`AudioEventInstance`. The cache is keyed by UUID and checked against the assigned event GUID and
-bank revision; failed lookups are cached until the assignment or banks change. Playback intent,
-parameter overrides and timeline survive distance culling without keeping a Studio instance.
-Wrappers independently check `AudioEngine::GetEventGeneration()` for handle validity. Bank unload/system shutdown
-advance the generation before invalidating handles. Wrappers check it before any FMOD call, including
+`AudioEventInstance`. The cache is keyed by UUID and checked against the assigned Sound and
+`AudioEngine::GetBankRevision()`; failed lookups are cached until either changes. Playback intent,
+parameter overrides and timeline survive distance culling without keeping a voice.
+Wrappers independently check `AudioEngine::GetEventGeneration()` for handle validity. Engine shutdown
+advances the generation before freeing voices. Wrappers check it before any miniaudio call, including
 destruction, so externally held references cannot touch a released system. These APIs are main-thread
 only. Component removal, entity destruction, and scene stop explicitly stop instances before dropping
 the scene's references.
 
-Assigned Studio events are the only playback path at startup and on later updates.
+Assigned Sounds are the only playback path at startup and on later updates.
 Creation applies serialized parameter overrides, world position/orientation, volume, and pitch before
 PlayOnAwake; a completed one-shot is not restarted on the next frame. Emitters face local -Z, with
 their basis orthonormalized for scaled/sheared transforms. Scene pause is layered over the caller's
 pause state, so resuming the editor does not unpause a gameplay-paused event. Event components participate in ray-traced acoustics.
 
-`AudioEventRef` persists GUID, advisory path, bank name and (when set) the native Sound handle; `ParameterOverrides` persists name/value
-pairs through scene/prefab serialization and undo snapshots. Runtime instances are never serialized
-or shared by scene copies. The picker follows a new selection/assignment, then preserves the chosen
-bank filter while browsing. Events without a strings-bank label display their GUID; path buffers are
-sized from FMOD's reported length rather than truncating long event paths.
+`AudioEventRef` persists the Sound handle (and the legacy FMOD fields it was read with);
+`ParameterOverrides` persists name/value pairs through scene/prefab serialization and undo
+snapshots. Runtime instances are never serialized or shared by scene copies.
 
 `SetBusVolume` / `GetBusVolume` drive the mixer buses the sound designer authored (`bus:/`,
 `bus:/SFX`). The engine never invents the bus hierarchy — an unknown path returns false/0, which is
@@ -1672,25 +1601,22 @@ the normal answer for a project that has not authored that bus.
 main thread. Component state belongs to the scene; standalone events belong to a native registry
 with monotonically allocated handles, never managed raw pointers. `Dispose` releases an event;
 scene stop and assembly reload release the registry and invalidate managed wrappers. One-shots
-must be authored as finite events and are collected after playback. An event path requires loaded
-strings-bank metadata; GUID references do not. Component controls operate exclusively on events.
+must be finite Sounds and are collected after playback. A reference is a Sound handle or a Sound's
+Assets path (References above). Component controls operate exclusively on Sounds.
 
-FMOD callbacks copy handle/marker notifications into a mutex-protected bounded queue. The scene
+`AudioEngine::Update` copies stopped and marker notifications into a bounded queue. The scene
 drains it before script updates, dispatching managed callbacks on the main thread; late callbacks
 for disposed handles are discarded. Script pause is separate from scene pause, and explicit Play
 or Stop consumes pending PlayOnAwake. Managed strings are scoped and freed after internal calls.
-Snapshot convenience methods and music are implemented; dialogue remains in its later roadmap
-phase. New binding/managed files require Premake regeneration for both native and C# projects.
+Snapshot convenience methods, music and dialogue are implemented. New binding/managed files require Premake regeneration for both native and C# projects.
 
-`Audio.LoadBank(bankFile)` synchronously loads an additional bank during scene setup. Relative
-paths resolve beneath the active project's Assets directory; absolute paths are accepted. Load the
-master and strings bank before calling event paths. Repeated loads of the same canonical file are
-idempotent; adding banks preserves existing event handles. The bank catalog revision retries failed
-component lookups without restarting existing playback. Directory reload still invalidates all old
-handles. Banks remain engine-owned until bank reload or engine shutdown.
+`Audio.LoadBank(SoundBank|string)`, `UnloadBank` and `IsBankLoaded` reach
+`AudioEngine::LoadSoundBank` and its siblings (Sound Banks above); a string is a Sound Bank's Assets
+path, resolved like a Sound reference. `Audio.PlaysSoundAssets` and `AudioSourceComponent.SetEvent`
+are obsolete (compile errors); `AudioSourceComponent.Sound` / `SetSound(path)` set the Sound.
 
 **Interactive music (Phase 10):** `Scene` owns one noncopyable `MusicDirector`, independent of
-entity event instances. `MusicDirectorComponent` serializes startup event GUID/path/bank, optional
+entity event instances. `MusicDirectorComponent` serializes the startup Sound reference, optional
 State label, Intensity, and PlayOnAwake. It participates in scene copy, duplication, prefab creation,
 reconciliation, and the inspector. Runtime instances never belong to the component. On startup the
 lowest director UUID wins (duplicate owners report an error), before managed OnCreate. Removing the
@@ -1699,29 +1625,30 @@ owner or stopping the scene clears its music. Without a component, scripts start
 The director accepts continuous 2D beds and finite 2D stingers, excluding snapshots. Parameters are
 local authored `State` labels, `Intensity` 0–1, and `Layer_<name>` 0–1. State changes do not restart
 the bed. One prepared, unstarted replacement may wait for a future beat/bar/marker/`Section:` marker;
-its old bed stops immediately before the new one starts. This main-thread transition is
-frame-quantized: sample-accurate composition stays inside Studio's authored event transitions.
+its old bed stops where the new one starts, both scheduled on the engine clock (Music timeline
+above).
 Failed replacement validation retains the current bed. Notifications received before a transition
 request cannot trigger it. Reentrant callbacks changing/stopping playback invalidate the rest of the
 old batch. Pause freezes playback and callback dispatch; fades retain references until completion.
-Bank reload cancels queued replacements/stingers and recreates the active bed with its parameters,
-from timeline start. Scene transitions do not preserve musical position.
+An engine generation change cancels queued replacements/stingers and recreates the active bed
+with its parameters, from timeline start. Scene transitions do not preserve musical position.
 
 `AudioEventInstance` callback userdata is a never-reused numeric token into a mutex-protected state
-map, not a wrapper pointer. Destruction removes its mailbox before stopping/releasing the SDK
-instance, even if a bank generation invalidated the handle. Script stopped/marker notifications and
+map, not a wrapper pointer. Destruction removes its mailbox before stopping/releasing the voice,
+even if a generation change invalidated the handle. Script stopped/marker notifications and
 per-instance music timeline mailboxes drain independently. Timeline payloads copy position,
 bar/beat, tempo, signature, marker text and a sequence counter; callbacks never enter Scene/Coral.
 The existing audio bridge attaches managed `Music.Beat`/`Marker` dispatch before the scene updates
 its director, before script OnUpdate. Scene/assembly reset clears managed subscriptions. Callback
 mailboxes are bounded with overflow reported on the main thread. Music/scene serialization travels
-through the existing runtime scene pack and existing exported banks, without a new project format.
+through the existing runtime scene pack, without a new project format.
 See `docs/AUDIO_MUSIC.md` for authoring contracts and timing limits.
 
 **Dialogue and subtitles (Phase 11):** `Scene` owns `DialogueDirector`, configured before script
 OnCreate from `ProjectAudioSettings::Dialogue` (table asset handle and language). `.ldialogue`
 `DialogueTable` assets contain keyed event references, priorities, interruptibility and per-language
-subtitle text, speaker names and FMOD audio-table keys. AssetImporter registers the bounded YAML
+subtitle text, speaker names and a recording (`Clip`) per language (legacy FMOD audio-table keys
+are kept, unused). AssetImporter registers the bounded YAML
 serializer for editor files and packed runtime data; assigned project tables are included in each
 exported scene's asset set. Runtime project format 21 appends dialogue settings after the format-20
 surface table; older files default to no dialogue table and English. Startup snapshots the table so
@@ -1733,15 +1660,12 @@ fades (128 total prepared/active/fading voices). Queue/Interrupt/DropIfBusy poli
 current voice when replacement validation fails; noninterruptible or higher-priority lines queue
 interrupt requests. Barks require interruptible finite 3D events. Locale fallback resolves audio and
 text together; queued requests retain their resolved translation. Pause freezes playback and cooldowns;
-speaker destruction, scene teardown and bank generation changes cancel affected voices. Bank reload
-does not replay previously spoken lines.
+speaker destruction, scene teardown and engine generation changes cancel affected voices; spoken
+lines are not replayed.
 
-Programmer instruments use `AudioEventInstance::SetProgrammerSound` with a loaded FMOD audio-table
-key, checked before Start. CREATE obtains the Studio/Core systems from the callback event and creates
-the SDK sound without retaining pointers to Scene or the wrapper; DESTROY releases it even after its
-mailbox token has been removed. Started/sound-played/stopped/failure status crosses the mutex-protected
-mailbox. Source sound length supplies advisory subtitle duration. Programmer subtitles wait for actual
-sound playback. Ordinary finite authored events also work with an empty audio key.
+A translation's `Clip` plays through `AudioEventInstance::SetClipOverride`, set before Start
+(Dialogue above), and its length supplies the subtitle duration. Lines without a clip play their
+Sound as authored.
 
 `SubtitleEvent` reports shown/hidden, handle, key, resolved language/text, speaker name/UUID/world
 position, offscreen status and duration. Scene resolves entities and its primary camera on the main
@@ -1755,7 +1679,7 @@ See `docs/AUDIO_DIALOGUE.md` for setup, authoring contracts and scripting exampl
 
 **Audio accessibility (Phase 12):** `AudioAccessibility` is a main-thread service for the active
 runtime scene. A non-owning scene identity controls teardown; source tracking uses `WeakRef` plus
-never-reused playback tokens and does not extend event lifetime. It observes existing FMOD playback
+never-reused playback tokens and does not extend event lifetime. It observes existing playback
 mailboxes, publishes opt-in localized event captions through `DialogueDirector`, and exposes bounded
 subtitle presentation and sound cue snapshots. Caption handles reserve the high bit; dialogue handles
 use the lower 63 bits. Captions and descriptions carry explicit flags through native/C# subtitle APIs.
@@ -1763,20 +1687,18 @@ Source position/offscreen data refreshes the built-in presentation, and cue dire
 the primary listener. Cue intensity is authored importance times instance volume and linear range
 falloff, deliberately independent of player bus volume, not measured acoustic loudness.
 
-`ProjectAudioSettings::Accessibility` stores defaults, category bus mappings, event GUID metadata,
+`ProjectAudioSettings::Accessibility` stores defaults, category bus mappings, per-Sound metadata (keyed by Sound reference),
 localized caption strings and speaker colors. YAML loads missing fields with defaults. Runtime format
 22 appends a bounded length-prefixed configuration after dialogue settings; older exports retain
 defaults. Player preferences live separately under persistent storage, keyed by sanitized project
 name, and are saved explicitly with `FileSystem::ReplaceFileAtomically` after writing a complete temporary file.
 
-`AudioAccessibilityMixer` owns FMOD gain DSPs on mapped Studio buses plus mono/compressor DSPs on
-Core master output. Setup locks channel groups (through `FMODInternal::LockBusChannelGroup`, see
-below) and flushes commands once; bank revision changes
-reconfigure the cached graph. `AudioEngine::UnloadAllBanks` releases it before unloading banks.
-Player gains multiply authored/gameplay volumes. Mapped non-master buses must not contain each other.
-Description playback uses `DialogueDirector::Describe`, the existing priority queue, and an opt-in
-preference; non-dialogue category gains duck while narration plays/fades. Narration must be authored
-on the Dialogue bus. Full/Reduced/Night compression and mono apply to final output.
+`AudioAccessibilityMixer` holds the player gains, mono and compression that the master node and
+mapped buses apply (Native accessibility above). Player gains multiply authored/gameplay volumes.
+Mapped non-master buses must not contain each other. Description playback uses
+`DialogueDirector::Describe`, the existing priority queue, and an opt-in preference; non-dialogue
+category gains duck while narration plays/fades. Narration must play on the Dialogue bus.
+Full/Reduced/Night compression and mono apply to final output.
 
 Core's `ImGuiEx::AudioAccessibilityOverlay/Menu/Options` are shared by editor and standalone runtime.
 Project Settings authors defaults/metadata. F10 opens live player controls; runtime enables ImGui
@@ -1791,7 +1713,7 @@ Raw subtitle/cue notifications remain unfiltered for custom consumers. See
 `docs/AUDIO_ACCESSIBILITY.md` for setup, ranges, persistence and authoring contracts.
 
 **Surfaces and physics audio (Phase 9):** `AudioSurfaceTable` is a `.lsurfaces` asset with
-per-material footstep/impact/scrape/roll GUID references and shared thresholds. `AudioEventRef`
+per-material footstep/impact/scrape/roll Sound references and shared thresholds. `AudioEventRef`
 lives in Audio rather than Components so assets do not depend on the scene module. The project
 stores its table handle in YAML and runtime format 20; AssetPack includes it with every scene.
 `AssetManager::ImportAsset` / `SaveAsset` provide editor asset operations through the facade and
@@ -1808,7 +1730,7 @@ truncating. Raise a limit only by changing it at every one of those points toget
 
 `PhysicsScene::Impl` owns a `JoltContactListener` that outlives the Jolt system. Worker callbacks
 capture body sequence IDs/subshape IDs, UUIDs, contact position, masses, estimated impulse and
-slip/roll speeds under a queue mutex. They never read ECS, acquire body locks or call FMOD.
+slip/roll speeds under a queue mutex. They never read ECS, acquire body locks or touch audio.
 `DrainContactEvents` swaps reusable vectors after simulation; simulation-only scenes drain without
 playback. Speculative contacts are silent, and Persist can supply the first real impact.
 A solid/sensor change can retain the same Jolt contact key: the listener ends the previous
@@ -1818,7 +1740,7 @@ scrape/roll audio when a touching body becomes a trigger and lets collisions res
 `SceneAudioSurfaces.cpp` resolves contact IDs and material/table overrides on the main thread.
 The scene-owned `PhysicsAudioSystem` owns impact/footstep instances, cooldowns, contact state and
 one scrape/roll pair per body pair (coalescing compound manifolds). It retains retiring instances
-through authored fade-outs, handles scene pause and bank generations, and clears entity-owned
+through authored fade-outs, handles scene pause and engine generations, and clears entity-owned
 voices on destruction. Jolt sleep produces contact removals. Surface component removal also clears
 its runtime audio/cadence. Automatic footsteps are opt-in horizontal-distance cadence plus a
 walkable-ground ray query; `Audio.PlayFootstep(Entity, speed, weight, probeDistance)` exposes the
@@ -1827,66 +1749,44 @@ Jolt, not Box2D. See `docs/AUDIO_SURFACES.md` for authoring and parameter contra
 
 **Voice budgets and validation (Phase 14):** `AudioPerformanceSettings` persists in project YAML
 and runtime format 23 (bounded YAML block after accessibility; older versions use defaults).
-`AudioEngine::Init` configures the global FMOD software-channel cap before initialization.
-`AudioPerformance` samples real/virtual channels, Studio/Core CPU, FMOD allocator memory
-(nonblocking, valid with release SDKs) and configured bus input peak/RMS every 250 ms. It owns locked Studio bus groups
-and one pass-through fader DSP per metered bus (inserted at index 1, directly behind the head DSP),
-detaching and releasing them before bank unload. **Every Studio bus lock goes through
-`FMODInternal::Lock/UnlockBusChannelGroup`**, which reference-counts per bus: Studio's own locks are not
-counted, so the mixer and this monitor both locking `bus:/` failed with `FMOD_ERR_ALREADY_LOCKED`
-(and the bus lost its metering), and a direct unlock would drop the other holder's group.
-`UnloadAllBanks` forgets the counts after both holders reset. **Never enable metering on a DSP Studio created:**
-with Live Update on, that makes every later `Studio::System::update` fail with
-`FMOD_ERR_BADCOMMAND` (found on Windows, 2026-09-17). Per-bus voice limits warn once
-per bank session and count all descendants; FMOD owns virtualization and stealing. The scene supplies
-Soundwave's main-thread update time and culled-source counts. Editor panels only read cached telemetry.
+`AudioPerformance` samples real/virtual voices, mixing CPU, clip memory and configured bus input
+peak/RMS every 250 ms and applies the voice budget (Budgets above). `BusVoices` thresholds are stored
+and validated but not checked against playback. The scene supplies Soundwave's main-thread update
+time and culled-source counts. Editor panels only read cached telemetry.
 
-`AudioSourceComponent::Priority` (0–256) reaches FMOD's channel-priority property. Opt-in
-`DistanceCulling` releases FMOD instances (and their Soundwave source state) outside every weighted listener's authored
-maximum distance, with 5% inward hysteresis. Continuous sources keep play intent, script
-parameters/labels and layered pauses; while culled and unpaused their timeline advances by the
-scene timestep (× pitch), wrapped over `EventDescription::getLength` since FMOD exposes no loop
-region (timeline-less events resume where culled). A one-shot already playing keeps its instance
-until it ends; one-shots not yet started while culled are discarded. Source C# controls
-route through scene-owned playback state, so controls while culled do not allocate Studio voices.
-Standalone script instances and the music/dialogue/zone directors keep their existing lifecycle.
+`AudioSourceComponent::Priority` (0–256) orders the voice budget. Opt-in `DistanceCulling` releases
+voices (and their Soundwave source state) outside every weighted listener's authored maximum
+distance, with 5% inward hysteresis. Continuous sources keep play intent, script parameters/labels
+and layered pauses; while culled and unpaused their timeline advances by the scene timestep
+(× pitch), wrapped over the Sound's length. A one-shot already playing keeps its instance until it
+ends; one-shots not yet started while culled are discarded. Source C# controls route through
+scene-owned playback state, so controls while culled create no voices. Standalone script instances
+and the music/dialogue/zone directors keep their existing lifecycle.
 
 `AudioValidation::ValidateProject` is an explicit main-thread scan of registered scene/prefab/table
 assets and current unsaved scene data, plus accessibility metadata and bus configuration.
-`ValidateBanks` creates an independent NOSOUND Studio system to resolve built catalog references,
-check event kinds/buses and report unused events and disk sizes. Its RAII host releases that system;
-active project banks remain loaded. The debugger owns a report snapshot. Export invokes validation
-after preparing banks and aborts on errors; warnings about script-only references remain advisory.
+`ValidateBanks` checks Sounds and Sound Banks (Not implemented above). The debugger owns a report
+snapshot. Export invokes validation and aborts on errors; warnings about script-only references remain advisory.
 See `docs/AUDIO_PERFORMANCE_VALIDATION.md` for user controls and measurement semantics.
 
 **Desktop platforms (Phase 15):** `ProjectAudioSettings` adds optional `Windows` and `Linux`
-`AudioDesktopProfile` records: explicit Studio platform name, bank-output path and complete
-performance settings. Disabled/missing profiles use project defaults (`Desktop`, `Build/Desktop`).
-`Project::GetStudioPlatform`, `GetStudioBankDirectory` and `GetAudioPerformance` centralize native
-host selection for bank builds, validation, engine initialization and export. `AudioBankBuilder`
-passes one validated, quoted `-platforms` target to Studio. Play reloads the selected directory;
-failed loads clear the catalog so a previous profile cannot keep playing. Existing selected output
-may still play after a failed rebuild, with the build failure logged.
+`AudioDesktopProfile` records with complete performance settings. Disabled/missing profiles use the
+project defaults; `Project::GetAudioPerformance` selects the host's profile for engine
+initialization, validation and export. Exports flatten the selected budgets/focus option into
+format 23's bounded settings block; runtime profiles stay disabled. Optional YAML fields keep old
+projects compatible.
 
-Native exports flatten the selected budgets/focus option into format 23's bounded settings block;
-runtime profiles stay disabled and the manifest selects packaged banks. Optional YAML fields keep
-old projects compatible. This is not executable cross-compilation. The FMOD SDK root (`LUX_FMOD_SDK`)
-drives Premake includes, link inputs, deployed libraries and target file validation.
-FMOD packages can also be discovered under `Core/vendor/FMOD/`; ambiguity requires an override.
-
-`MuteWhenUnfocused` defaults false. `Application` pumps Studio even when minimized and determines
-focus from GLFW windows, including detached ImGui viewports. Main-thread `SetApplicationFocused`
-mutes the Core master output group, outside Studio's bus tree, without changing bus gain/mute or
-script/scene pause state. Timelines continue; minimized scene simulation retains its existing pause
-behavior. Focus application is cached per bank/system generation. Budget and focus changes apply
-on project reopen. Console SDK, hardware and certification work is on hold; native Windows build
-and listening verification remain pending. See `docs/AUDIO_DESKTOP_PLATFORMS.md`.
+`MuteWhenUnfocused` defaults false. `Application` determines focus from GLFW windows, including
+detached ImGui viewports. Main-thread `SetApplicationFocused` mutes the engine endpoint without
+changing bus gain/mute or script/scene pause state. Timelines continue; minimized scene simulation
+retains its existing pause behavior. Budget and focus changes apply on project reopen. See
+`docs/AUDIO_DESKTOP_PLATFORMS.md` (a point-in-time record).
 
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
 Audio Debugger, closed by default) renders both halves of the stack. Playback and acoustics use
 read-only accessors — `AudioEngine::GetStats()` and the scene's `AudioAcoustics`
 (`GetDiagnostics()`, `GetResult()`, `GetGainLF/HF()`, `GetReverb()`, `GetReverbSend()`) — alongside
-cached performance meters and an explicit validation action. Sources show event names, playback,
+cached performance meters and an explicit validation action. Sources show Sound names, playback,
 virtual and culled state with Soundwave's gains; the acoustics section shows snapshot counts,
 solves, failures and the listener reverb measurement.
 
@@ -2173,7 +2073,7 @@ luxengine/
 │   │       ├── Physics2D/         # Box2D
 │   │       ├── Scripting/         # ScriptEngine, ScriptGlue, ScriptBuilder, ScriptEntityStorage
 │   │       ├── Asset/             # AssetManager facade, AssetManager/, AssetSystem/, serializers
-│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, Sound, AudioAcoustics; FMOD/ or Native/ backend
+│   │       ├── Audio/             # AudioEngine, AudioEventInstance, AudioListener, Sound, AudioAcoustics; Native/ (miniaudio)
 │   │       ├── Editor/            # EditorPanel, PanelManager, EditorCamera, SelectionManager,
 │   │       │                      #   SceneHierarchyPanel, EditorConsole/
 │   │       ├── ImGui/             # ImGuiLayer, ImGuiEx, ImGuiUtilities, Colors, Fonts, ImGuizmo

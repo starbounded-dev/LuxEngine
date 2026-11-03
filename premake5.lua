@@ -17,22 +17,7 @@ newoption {
 	description = "Build without the Nvidia Aftermath GPU crash tracker"
 }
 
--- Native (the vendored miniaudio) is the default and needs no audio SDK. FMOD stays selectable until
--- it is deleted (docs/AUDIO_NATIVE_BACKEND_PLAN.md Phase 10).
-newoption {
-	trigger = "audio-backend",
-	value = "BACKEND",
-	description = "Audio backend to compile",
-	allowed = {
-		{ "native", "Built-in miniaudio backend (default)" },
-		{ "fmod", "FMOD Studio (needs the FMOD Engine SDK)" },
-	},
-	default = "native",
-}
-
 include "Dependencies.lua"
--- Validates the selected backend's SDK (FMOD only).
-ValidateAudioSDK()
 
 workspace "Lux"
 	configurations { "Debug", "Debug-AS", "Release", "Dist" }
@@ -189,7 +174,6 @@ group "Tools"
 	include "Editor"
 	if os.target() == "windows" then
 		include "Watchdog"
-		include "tools/AudioBankValidation"
 	end
 group ""
 

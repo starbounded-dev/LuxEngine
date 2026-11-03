@@ -105,7 +105,7 @@ namespace Lux
 				m_OneShot = m_Instance->IsOneShot();
 				m_Maximum = m_Instance->GetMaximumDistance();
 				m_Length = m_Instance->GetLength();
-				// Canonical names preserve FMOD's case-insensitive/path aliases while culled.
+				// Canonical names preserve case-insensitive parameter aliases while culled.
 				auto parameters = std::move(m_Parameters);
 				auto labels = std::move(m_Labels);
 				m_Parameters.clear();
@@ -120,7 +120,7 @@ namespace Lux
 		m_Culled = source.DistanceCulling && m_Metadata && m_Spatial && OutOfRange(glm::vec3(transform[3]), m_Maximum, listeners, m_Culled);
 		if (m_Culled)
 		{
-			// A started one-shot ends on its own, so keep it (FMOD virtualizes it); releasing it would
+			// A started one-shot ends on its own, so keep it (the voice budget virtualizes it); releasing it would
 			// silence the rest of it when the listener comes back before it finishes.
 			if (m_Instance && m_Started && m_OneShot)
 			{
@@ -139,7 +139,7 @@ namespace Lux
 			else if (m_WantsPlayback && !m_Paused && !paused && m_Length > 0 && std::isfinite(timestep) && timestep > 0)
 			{
 				// Keep the released looping event's timeline moving so re-entry lands where it would
-				// have been. FMOD exposes no loop-region bounds, so wrap over the whole timeline.
+				// have been. The instance exposes no loop-region bounds, so wrap over the whole timeline.
 				m_TimelineCarry += static_cast<double>(timestep) * 1000.0 * std::max(m_Pitch, 0.0f);
 				const auto advance = static_cast<int64_t>(m_TimelineCarry);
 				m_TimelineCarry -= static_cast<double>(advance);

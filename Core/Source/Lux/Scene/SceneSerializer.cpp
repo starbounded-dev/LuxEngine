@@ -1356,7 +1356,7 @@ namespace Lux {
 					component.LegacyLooping = audioSource["Looping"].as<bool>(false);
 
 					// Spatialization, AttenuationModel, RollOff, Min/MaxGain, Min/MaxDistance, the
-					// cone angles and DopplerFactor were removed: an FMOD Studio event authors all
+					// cone angles and DopplerFactor were removed: the Sound authors all
 					// of them. Scenes saved before that still carry the keys, and they are ignored
 					// here deliberately rather than by accident - reading them would resurrect
 					// settings that no longer reach the mixer.

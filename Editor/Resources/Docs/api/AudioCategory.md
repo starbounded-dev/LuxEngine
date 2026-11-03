@@ -2,7 +2,7 @@
 
 `public enum AudioCategory`
 
-A volume category the player can set, mapped to an FMOD bus in Project Settings.
+A volume category the player can set, mapped to a mixer bus in Project Settings.
 
 ## Values
 

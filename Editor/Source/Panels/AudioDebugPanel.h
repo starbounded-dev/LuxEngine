@@ -31,7 +31,7 @@ namespace Lux {
 		bool ShowRoomAcoustics = false;
 	};
 
-	// In-editor view of the audio stack: playback (FMOD or native) and the built-in Soundwave acoustics.
+	// In-editor view of the audio stack: playback, loaded Sound Banks and clips, and the built-in Soundwave acoustics.
 	// Pure visualization over data those two subsystems already expose — AudioEngine::GetStats and
 	// the scene's AudioAcoustics diagnostics, results and reverb. No audio instrumentation lives here.
 	class AudioDebugPanel : public EditorPanel
@@ -57,7 +57,7 @@ namespace Lux {
 		void UI_Validation();
 		void UI_Backends(const AudioEngineStats& engine);
 		void UI_Playback(const AudioEngineStats& engine);
-		void UI_Events();
+		void UI_SoundBanks();
 		void UI_Acoustics();
 		void UI_Sources();
 		void UI_Visualisation();
@@ -67,7 +67,6 @@ namespace Lux {
 		AudioValidationReport m_Validation;
 		bool m_HasValidation = false;
 		std::string m_SourceSearch;
-		std::string m_EventSearch;
 		AudioVisualisationSettings m_Visualisation;
 		AudioVisualisationSettings m_VisualisationBeforeSeeTheSound;
 		bool m_SeeTheSound = false;

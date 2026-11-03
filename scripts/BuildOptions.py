@@ -56,14 +56,6 @@ OPTIONS = [
         "default": False,
     },
     {
-        "key": "fmod-audio",
-        "kind": "premake",
-        "flag": "audio-backend=fmod",
-        "label": "FMOD audio backend",
-        "description": "FMOD Studio instead of the built-in miniaudio; needs the FMOD SDK",
-        "default": False,
-    },
-    {
         "key": "skip-submodules",
         "kind": "script",
         "label": "Skip submodule update",

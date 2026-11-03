@@ -1,5 +1,9 @@
 # Audio accessibility (Phase 12)
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Phase 12 adds player preferences, subtitle/caption presentation, visual cues and narration to the
 FMOD-backed engine. Soundwave acoustics continue to run normally.
 

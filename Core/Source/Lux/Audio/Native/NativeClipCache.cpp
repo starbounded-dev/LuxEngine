@@ -245,6 +245,22 @@ namespace Lux
 		return true;
 	}
 
+	std::vector<AudioLoadedBank> AudioEngine::GetLoadedSoundBanks()
+	{
+		std::vector<AudioLoadedBank> banks;
+		for (const auto& [handle, state] : s_Banks)
+			banks.push_back({ handle, state.Loads, state.Resident, IsSoundBankLoaded(handle) });
+		return banks;
+	}
+
+	std::vector<AudioLoadedClip> AudioEngine::GetLoadedClips()
+	{
+		std::vector<AudioLoadedClip> clips;
+		for (auto& [file, entry] : s_Clips)
+			clips.push_back({ file, entry.BankRefs, entry.LiveRefs, entry.Streams, entry.Holder ? HeldBytes(*entry.Holder) : 0 });
+		return clips;
+	}
+
 	void AudioEngine::ReleaseUnusedClips()
 	{
 		for (auto it = s_Clips.begin(); it != s_Clips.end();)

@@ -62,10 +62,8 @@ namespace Lux
 				{
 					if (!source->Event.IsValid())
 					{
-						const bool native = AudioEngine::GetBackend() == AudioBackend::Native;
 						Issue(collected, source->LegacyAudio != 0, location, source->LegacyAudio
-							? (native ? "Legacy audio source cannot play; assign a Sound" : "Legacy audio source cannot play; assign an FMOD event")
-							: (native ? "Audio source has no Sound assigned" : "Audio source has no FMOD event assigned"));
+							? "Legacy audio source cannot play; assign a Sound" : "Audio source has no Sound assigned");
 					}
 					add(source->Event, location, AudioReferenceKind::Event, true);
 					if (source->Priority < 0 || source->Priority > 256)
@@ -151,9 +149,9 @@ namespace Lux
 		for (const auto& path : config.Accessibility.BusPaths)
 			if (!path.empty())
 				buses.push_back(path);
-		auto report = ValidateBanks(project.GetStudioProjectPath().empty() ? std::filesystem::path{} : project.GetStudioBankDirectory(), references, buses);
+		auto report = ValidateBanks({}, references, buses);
 		report.Issues.insert(report.Issues.end(), collected.Issues.begin(), collected.Issues.end());
-		if (!project.GetAudioPerformance().Validate() || !IsValidStudioPlatform(project.GetStudioPlatform()) || !config.Windows.Validate() || !config.Linux.Validate())
+		if (!project.GetAudioPerformance().Validate() || !config.Windows.Validate() || !config.Linux.Validate())
 			Issue(report, true, "Project audio settings", "Invalid desktop audio profile or performance budgets");
 		std::sort(report.Issues.begin(), report.Issues.end(), [](const auto& a, const auto& b)
 		{

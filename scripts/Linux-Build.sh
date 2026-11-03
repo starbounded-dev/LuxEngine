@@ -230,7 +230,7 @@ if [ "${LUX_RUN_AUDIO_TESTS:-0}" = "1" ]; then
 	else
 		python3 tests/audio/run_soundwave.py --output bin/audio-tests/soundwave
 	fi
-	python3 tests/audio/run.py --config "$CONFIG" --banks tests/audio/fixtures/banks --output bin/audio-tests/full
+	python3 tests/audio/run.py --config "$CONFIG" --output bin/audio-tests/full
 fi
 
 

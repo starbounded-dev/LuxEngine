@@ -103,8 +103,8 @@ Edge attenuation uses the Fresnel knife-edge approximation in ITU-R P.526-6 eq. 
 acoustic wavelength (343 m/s, 250 Hz LF and 4 kHz HF). The small-angle excess-path relation supplies
 the diffraction parameter; applying successive losses at bends is an approximation for complex
 wedges. No radio free-space-loss or terrain/earth model is used. Relative extra-path spreading is
-normalized to the source/listener distance with a 1 m near-field reference; the direct signal retains
-FMOD's authored distance fade. Only a better visible opening route can raise the dry LF/HF gains.
+normalized to the source/listener distance with a 1 m near-field reference; the direct signal keeps
+the Sound's authored distance attenuation. Only a better visible opening route can raise the dry LF/HF gains.
 
 `SolveResult` retains path kind, points, length, band gains and interaction counts for diagnostics
 and the later echogram. The LF route driving dry audibility is retained separately even if path

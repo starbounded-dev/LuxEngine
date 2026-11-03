@@ -1,14 +1,14 @@
 # Audio
 
-Sound is designed in **FMOD Studio** and played by the engine: an event carries its own sounds, randomisation, effects and 3D settings, so the editor only places and triggers it. The project's FMOD Studio project and banks are set in **Project Settings → Audio**; [Authoring Audio in FMOD Studio](../editor/audio-authoring) walks through it.
+Sound is authored as **Sound** assets in the editor: a Sound carries its clips, variation, bus and 3D settings, so a component only places and triggers it. [Authoring Audio](../editor/audio-authoring) walks through it.
 
 ## Audio Source
 
-Plays one FMOD event from an entity.
+Plays one Sound from an entity.
 
-- **Event** — the event to play.
+- **Sound** — the Sound to play.
 - **Play On Awake** — start when the game starts.
-- **Volume** and **Pitch** multipliers, and **Parameter Overrides** that set the event's own parameters for this source, so two entities can share one event and still sound different.
+- **Volume** and **Pitch** multipliers, and **Parameter Overrides** that set the Sound's own parameters for this source, so two entities can share one Sound and still sound different.
 - **Priority** and **Distance Culling** keep busy scenes within the voice budget.
 - Switching the component off stops the sound.
 

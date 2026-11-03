@@ -163,7 +163,7 @@ namespace Lux {
 		};
 
 		// The master output stage, between everything the master bus mixes and the device: the
-		// accessibility mixer's mono fold and compression (AudioDynamicRange presets, as FMOD's).
+		// accessibility mixer's mono fold and compression (AudioDynamicRange presets).
 		// Both off copies its input exactly.
 		struct MasterNode
 		{
@@ -384,10 +384,6 @@ namespace Lux {
 		bool s_MasterMuted = false;
 		bool s_FocusMuted = false;
 		std::unordered_set<std::string> s_ReportedBuses;
-		bool s_ReportedBanks = false;
-
-		const std::vector<AudioBankInfo> s_NoBanks;
-		const std::vector<AudioEventInfo> s_NoEvents;
 
 		void ApplyEndpointVolume()
 		{
@@ -572,15 +568,6 @@ namespace Lux {
 			s_Buses.clear();
 			s_AccessibilityGains.clear();
 			s_Master.clear(); // last: everything above played into it
-		}
-
-		void ReportBanks()
-		{
-			if (!s_ReportedBanks)
-			{
-				s_ReportedBanks = true;
-				LUX_CORE_WARN_TAG("Audio", "FMOD banks are not used by the native audio backend; assign Sound assets instead");
-			}
 		}
 
 		bool Finite(const glm::vec3& value)
@@ -769,7 +756,6 @@ namespace Lux {
 		s_MasterVolume = 1.0f;
 		s_MasterMuted = s_FocusMuted = false;
 		s_ReportedBuses.clear();
-		s_ReportedBanks = false;
 		s_Listeners = {};
 		for (uint32_t index = 0; index < AudioListener::MaxListeners; ++index)
 			ma_engine_listener_set_enabled(s_Engine.get(), index, index == 0 ? MA_TRUE : MA_FALSE);
@@ -837,51 +823,6 @@ namespace Lux {
 			return;
 		s_FocusMuted = muted;
 		ApplyEndpointVolume();
-	}
-
-	bool AudioEngine::LoadBank(const std::filesystem::path&)
-	{
-		ReportBanks();
-		return false;
-	}
-
-	bool AudioEngine::LoadBanks(const std::filesystem::path&)
-	{
-		ReportBanks();
-		return false;
-	}
-
-	bool AudioEngine::LoadRuntimeBanks(const std::filesystem::path&, const AudioBankManifest& manifest)
-	{
-		if (!manifest.Validate())
-			return false;
-		if (!HasInitializedEngine())
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot start runtime audio: native audio initialization failed");
-			return false;
-		}
-		// An FMOD export's banks are skipped, not fatal: the game runs, and its Sound assets play.
-		if (!manifest.Banks.empty())
-			ReportBanks();
-		return true;
-	}
-
-	void AudioEngine::UnloadAllBanks()
-	{
-		// No banks to unload; keep the reset side effects callers rely on, and retry failed lookups.
-		AudioPerformance::Reset();
-		AudioAccessibility::ReleaseMixer();
-		++s_BankRevision;
-	}
-
-	const std::vector<AudioBankInfo>& AudioEngine::GetLoadedBanks()
-	{
-		return s_NoBanks;
-	}
-
-	const std::vector<AudioEventInfo>& AudioEngine::GetEvents()
-	{
-		return s_NoEvents;
 	}
 
 	bool AudioEngine::SetBusMuted(const std::string& path, bool muted)
@@ -1054,7 +995,7 @@ namespace Lux {
 			ma_engine_listener_set_velocity(s_Engine.get(), index, state.Velocity.x, state.Velocity.y, state.Velocity.z);
 			auto& listener = s_Listeners.Listeners[s_Listeners.Count++];
 			listener.Index = index;
-			// Normalized like the FMOD bridge, so weights sum to 1 and a lone listener counts in full.
+			// Normalized, so weights sum to 1 and a lone listener counts in full.
 			listener.Weight = std::clamp(state.Weight, 0.0f, 1.0f) / totalWeight;
 			listener.AttenuationPoint = state.UseAttenuationPosition ? state.AttenuationPosition : state.Position;
 		}

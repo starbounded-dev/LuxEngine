@@ -63,7 +63,7 @@ namespace Lux {
 		// have not been built yet.
 		static Ref<AudioEventInstance> Create(const std::string& eventGuid);
 		// An instance of a Sound held in memory, such as the Sound editor's unsaved edits. Native
-		// backend only; the FMOD build refuses it.
+		// Sound instances only.
 		static Ref<AudioEventInstance> Create(const Ref<Sound>& sound);
 
 		const std::string& GetReference() const { return m_Guid; }
@@ -97,12 +97,12 @@ namespace Lux {
 		bool MonitorPlayback();
 		bool SetProgrammerSound(const std::string& key);
 		// Native: every clip of this instance's Sound plays this audio asset instead (a dialogue line's
-		// translation), set before Start. The FMOD build refuses it; it uses SetProgrammerSound.
+		// translation), set before Start.
 		bool SetClipOverride(UUID clip);
 		// Sample-accurate music switches (native): the engine time, in output frames, of this playing
 		// instance's next sync boundary (from its Sound's tempo map and markers), or 0 when the backend
 		// cannot tell or none lies ahead. StartAt starts it with playback beginning at that time; StopAt
-		// ends a playing instance there. The FMOD build answers 0 and refuses both.
+		// ends a playing instance there.
 		uint64_t GetNextSyncTime(MusicSync sync) const;
 		uint64_t GetEngineTime() const;
 		bool StartAt(uint64_t engineTime);

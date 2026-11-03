@@ -392,7 +392,7 @@ namespace Lux {
 		m_Dialogue.Clear();
 		m_Music.Clear();
 		m_MusicOwner = 0;
-		// Event instances hold FMOD Studio resources and must not outlive the runtime that started
+		// Sound instances hold audio-engine resources and must not outlive the runtime that started
 		// them; the destructor stops each one immediately and releases it.
 		for (auto& [id, event] : m_RuntimeEventInstances)
 		{
@@ -660,19 +660,14 @@ namespace Lux {
 			source.ScriptPaused = false;
 			if (!source.Enabled || IsInactive(handle))
 				continue;
-			const bool nativeAudio = AudioEngine::GetBackend() == AudioBackend::Native;
 			if (source.Event.IsValid())
 				GetOrCreateRuntimeEventInstance(entity, source, GetWorldSpaceTransformMatrix(entity));
 			else if (source.LegacyAudio)
-				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign {2} to its Audio Source", static_cast<uint64_t>(entity.GetUUID()),
-					static_cast<uint64_t>(source.LegacyAudio), nativeAudio ? "a Sound" : "an FMOD Studio event");
-			else if (source.Event.HasReference() && nativeAudio)
-				// An FMOD-era source that was never migrated; native is the default backend.
-				LUX_CORE_ERROR_TAG("Audio", "Entity {0}'s Audio Source has an FMOD event but no Sound, so it is silent. Assign a Sound to it",
-					static_cast<uint64_t>(entity.GetUUID()));
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign a Sound to its Audio Source", static_cast<uint64_t>(entity.GetUUID()),
+					static_cast<uint64_t>(source.LegacyAudio));
 			else if (source.Event.HasReference())
-				// Assigned for the native backend only, so silent in this build.
-				LUX_CORE_WARN_TAG("Audio", "Entity {0}'s Audio Source has a Sound but no FMOD event, so it is silent with the FMOD audio backend",
+				// An FMOD-era source that was never migrated.
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0}'s Audio Source has an FMOD event but no Sound, so it is silent. Assign a Sound to it",
 					static_cast<uint64_t>(entity.GetUUID()));
 		}
 

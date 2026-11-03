@@ -118,7 +118,7 @@ namespace Lux::Soundwave
 			}
 			float Spread(float distance) const
 			{
-				// Relative excess-path spreading only; the direct signal keeps FMOD's fade.
+				// Relative excess-path spreading only; the direct signal keeps the Sound's attenuation.
 				return std::min(1.0f, std::max(Result.Direct.Distance, kReferenceDistance) / std::max(distance, kReferenceDistance));
 			}
 			// Air absorption on the excess length only, for the same reason as Spread.

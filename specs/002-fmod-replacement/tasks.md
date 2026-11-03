@@ -151,31 +151,31 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
 
 ### Script API (D4 = c) — `contracts/scripting-api.md`
 
-- [ ] T027 [US1] Add a path table to the pack in `Core/Source/Lux/Serialization/AssetPackFile.h` and `AssetPackSerializer.cpp`: "Assets-relative path without extension, `/`-separated, case-sensitive", mapping to the handle, "for Sound and SoundBank assets only". In `Core/Source/Lux/Audio/Native/NativeSoundResolver.cpp`, `FindSound` resolves through this table at runtime and through `EditorAssetManager` in the editor, so both give the same answer
-- [ ] T028 [US1] Internal calls in `Core/Source/Lux/Scripting/AudioScriptBindings.cpp`:
+- [x] T027 [US1] Add a path table to the pack in `Core/Source/Lux/Serialization/AssetPackFile.h` and `AssetPackSerializer.cpp`: "Assets-relative path without extension, `/`-separated, case-sensitive", mapping to the handle, "for Sound and SoundBank assets only". In `Core/Source/Lux/Audio/Native/NativeSoundResolver.cpp`, `FindSound` resolves through this table at runtime and through `EditorAssetManager` in the editor, so both give the same answer
+- [x] T028 [US1] Internal calls in `Core/Source/Lux/Scripting/AudioScriptBindings.cpp`:
   - `Audio_LoadBank`, `Audio_UnloadBank` and `Audio_IsBankLoaded` take a handle or a path (T027);
   - string `PlayOneShot` / `CreateInstance` and the zone ambience take Sound paths;
   - an `event:/` string fails with "FMOD events are gone: assign a Sound";
   - a `.bank` path fails with "FMOD banks are gone: make a Sound Bank";
   - remove `Audio_PlaysSoundAssets`.
-- [ ] T029 [US1] Update `ScriptCore/Source/Lux/Audio.cs` and `ScriptCore/Source/Lux/InternalCalls.cs`:
+- [x] T029 [US1] Update `ScriptCore/Source/Lux/Audio.cs` and `ScriptCore/Source/Lux/InternalCalls.cs`:
   - `LoadBank(SoundBank)`, `LoadBank(string)`, `UnloadBank(...)` and `IsBankLoaded(SoundBank)`, behaving as in the contract's "Added with Sound Banks" table;
   - string overloads documented as Sound paths;
   - `PlaysSoundAssets` becomes `[Obsolete("Always true: FMOD is gone.", true)]`.
-- [ ] T030 [P] [US1] Update `ScriptCore/Source/Lux/Scene/Components.cs`:
+- [x] T030 [P] [US1] Update `ScriptCore/Source/Lux/Scene/Components.cs`:
   - `AudioSourceComponent.Sound` property and `SetSound(string path)`;
   - `SetEvent(string)` becomes `[Obsolete("Use SetSound(path) or the Sound property.", true)]`;
   - `AudioZoneComponent.SetAmbience(string)` takes a Sound path;
   - keep `SetSnapshot` (mixer snapshot) and `bus:/` APIs as they are.
-- [ ] T031 [US1] `Editor/LuxSampleProject/Assets/Scripts/Source/AudioDemo.cs`:
+- [x] T031 [US1] `Editor/LuxSampleProject/Assets/Scripts/Source/AudioDemo.cs`:
   - remove `StringsBank`, `MasterBank`, `EventPath` and every FMOD branch;
   - call `Audio.LoadBank("Audio/Banks/AudioDemo")` in `OnCreate`.
   - Then build `LuxSample.csproj`, regenerate `Editor/Resources/Docs` with `tools/ScriptApiDocs`, and pass `--check`.
 
 ### Sample without the Studio project (D6)
 
-- [ ] T032 [US1] Move the clips the Sounds use (`fart-01`, `Music_1.mp3`, now under `Editor/LuxSampleProject/Assets/Audio/SampleProject/Assets/FX/`) to `Editor/LuxSampleProject/Assets/Audio/Clips/` with `git mv`, keeping their handles (update `FilePath` in `Assets/AssetRegistry.lzr`, staged without the local Bench_044 entry). Delete `Editor/LuxSampleProject/Assets/Audio/SampleProject/`
-- [ ] T033 [US1] Strip FMOD data from the sample:
+- [x] T032 [US1] Move the clips the Sounds use (`fart-01`, `Music_1.mp3`, now under `Editor/LuxSampleProject/Assets/Audio/SampleProject/Assets/FX/`) to `Editor/LuxSampleProject/Assets/Audio/Clips/` with `git mv`, keeping their handles (update `FilePath` in `Assets/AssetRegistry.lzr`, staged without the local Bench_044 entry). Delete `Editor/LuxSampleProject/Assets/Audio/SampleProject/`
+- [x] T033 [US1] Strip FMOD data from the sample:
   - `EventGuid`, `EventPath` and `EventBank` (and nested `Guid` / `Path` / `BankName`) in `AudioDemo.luxscene` and `Benchmark.luxscene`;
   - the `EVENT_*` GUIDs in `scripts/GenerateBenchmarkScenes.py` (sources keep `EventSound` / `Sound`);
   - the Studio fields in `Editor/LuxSampleProject/LuxSample.luxproj`.
@@ -183,36 +183,36 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
 
 ### Editor without FMOD (FR-007, FR-008)
 
-- [ ] T034 [P] [US1] Remove from `Editor/Source/Panels/ProjectSettingsWindow.cpp`: the Studio section (project path, bank output, platform, desktop profiles, Live Update, Rebuild Banks On Play, Build Banks Now) and the FMOD dialogue key fields. The native Clip picker stays
-- [ ] T035 [P] [US1] Replace the bank and event lists in `Editor/Source/Panels/AudioDebugPanel.cpp` with **Sound Banks and clips**: each loaded bank with its memory and load count; each clip with its Sound, memory, streaming state, `BankRefs` and `LiveRefs` (from T013)
-- [ ] T036 [P] [US1] Remove event GUID pickers and fields from `Core/Source/Lux/Editor/SceneHierarchyPanel.cpp` and `Core/Source/Lux/ImGui/AudioWidgets.cpp`, leaving the Sound pickers and the migration warning
-- [ ] T037 [US1] In `Editor/Source/EditorLayer.cpp` and `Editor/Source/RuntimeExportUtils.cpp`, remove bank loading on project open, the bank rebuild on Play, `PrepareAudioBanks`, `CopyAudioBanks`, `CopyAudioLibraries` and the FMOD half of `ShipsLibrary`
-- [ ] T038 [P] [US1] Remove `.bank` from `Core/Source/Lux/Asset/AssetExtensions.h`, and `AssetType::AudioBank` (plus the `.fspro` type) from `Core/Source/Lux/Asset/AssetTypes.h`. The registry loader reports an unknown-type entry with one warning instead of failing; check `Core/Source/Lux/Asset/AssetManager/` and the registry loader
+- [x] T034 [P] [US1] Remove from `Editor/Source/Panels/ProjectSettingsWindow.cpp`: the Studio section (project path, bank output, platform, desktop profiles, Live Update, Rebuild Banks On Play, Build Banks Now) and the FMOD dialogue key fields. The native Clip picker stays
+- [x] T035 [P] [US1] Replace the bank and event lists in `Editor/Source/Panels/AudioDebugPanel.cpp` with **Sound Banks and clips**: each loaded bank with its memory and load count; each clip with its Sound, memory, streaming state, `BankRefs` and `LiveRefs` (from T013)
+- [x] T036 [P] [US1] Remove event GUID pickers and fields from `Core/Source/Lux/Editor/SceneHierarchyPanel.cpp` and `Core/Source/Lux/ImGui/AudioWidgets.cpp`, leaving the Sound pickers and the migration warning
+- [x] T037 [US1] In `Editor/Source/EditorLayer.cpp` and `Editor/Source/RuntimeExportUtils.cpp`, remove bank loading on project open, the bank rebuild on Play, `PrepareAudioBanks`, `CopyAudioBanks`, `CopyAudioLibraries` and the FMOD half of `ShipsLibrary`
+- [x] T038 [P] [US1] Remove `.bank` from `Core/Source/Lux/Asset/AssetExtensions.h`, and `AssetType::AudioBank` (plus the `.fspro` type) from `Core/Source/Lux/Asset/AssetTypes.h`. The registry loader reports an unknown-type entry with one warning instead of failing; check `Core/Source/Lux/Asset/AssetManager/` and the registry loader
 
 ### Delete FMOD (D5 = a)
 
-- [ ] T039 [US1] Port or delete the FMOD-hosted tests that use `tests/audio/AudioTestHost.h`: `AccessibilityTests.cpp`, `DialogueTests.cpp`, `GeometryTests.cpp`, `MusicTests.cpp`, `PerformanceTests.cpp`, `PhysicsAudioTests.cpp`, `PlatformTests.cpp`, and `tests/audio/AuthorFixture.js`. Port each behaviour native lacks a test for into `tests/audio/native/NativeBackendTests.cpp`; list each file's fate with a reason in `specs/002-fmod-replacement/report.md`; update `tests/audio/run.py` and `tests/audio/README.md`
-- [ ] T040 [US1] In `Core/Source/Lux/Scene/SceneAudioVerification.cpp`, remove the `LUX_ENABLE_FMOD` block, and have the `--play` check verify native parameters through `AudioEventInstance`. Update `tests/rendering/golden_run.py` if a report key changes
-- [ ] T041 [US1] Delete `Core/Source/Lux/Audio/FMOD/`, `Core/Source/Lux/Audio/AudioBankBuilder.{h,cpp}` and the writer half of `AudioBankManifest`. The reader stays for formats 17–30 and logs once: "This export carries FMOD banks, which are ignored; re-export to drop them." Remove the bank API from `Core/Source/Lux/Audio/AudioEngine.h` and its stubs in `NativeAudioEngine.cpp`
-- [ ] T042 [US1] Delete `enum class AudioBackend`, `AudioEngine::GetBackend()`, `Core/Source/Lux/Audio/Native/NativeAudioBackend.cpp` and `Core/Source/Lux/Audio/FMOD/FMODAudioBackend.cpp`. At each of the 18 callers from T003, keep only the native branch
-- [ ] T043 [US1] Build system:
+- [x] T039 [US1] Port or delete the FMOD-hosted tests that use `tests/audio/AudioTestHost.h`: `AccessibilityTests.cpp`, `DialogueTests.cpp`, `GeometryTests.cpp`, `MusicTests.cpp`, `PerformanceTests.cpp`, `PhysicsAudioTests.cpp`, `PlatformTests.cpp`, and `tests/audio/AuthorFixture.js`. Port each behaviour native lacks a test for into `tests/audio/native/NativeBackendTests.cpp`; list each file's fate with a reason in `specs/002-fmod-replacement/report.md`; update `tests/audio/run.py` and `tests/audio/README.md`
+- [x] T040 [US1] In `Core/Source/Lux/Scene/SceneAudioVerification.cpp`, remove the `LUX_ENABLE_FMOD` block, and have the `--play` check verify native parameters through `AudioEventInstance`. Update `tests/rendering/golden_run.py` if a report key changes
+- [x] T041 [US1] Delete `Core/Source/Lux/Audio/FMOD/`, `Core/Source/Lux/Audio/AudioBankBuilder.{h,cpp}` and the writer half of `AudioBankManifest`. The reader stays for formats 17–30 and logs once: "This export carries FMOD banks, which are ignored; re-export to drop them." Remove the bank API from `Core/Source/Lux/Audio/AudioEngine.h` and its stubs in `NativeAudioEngine.cpp`
+- [x] T042 [US1] Delete `enum class AudioBackend`, `AudioEngine::GetBackend()`, `Core/Source/Lux/Audio/Native/NativeAudioBackend.cpp` and `Core/Source/Lux/Audio/FMOD/FMODAudioBackend.cpp`. At each of the 18 callers from T003, keep only the native branch
+- [x] T043 [US1] Build system:
   - remove the `audio-backend` option from `premake5.lua`;
   - in `Dependencies.lua`, remove the FMOD entries, `FMODSDKRoot`, `ValidateAudioSDK` / `ValidateFMODSDK`, and make `Miniaudio` / `MiniaudioCpp` unconditional;
   - remove the backend `removefiles` branches in `Core/premake5.lua`;
   - remove `fmod-audio` from `scripts/BuildOptions.py`, and `warn_missing_fmod_sdk` from `scripts/Configure.py` with its calls in `scripts/Setup.py` and `scripts/Win-GenProjects.py`;
   - delete `tests/audio/run_sdk_layout.py` and the CI step "Test dependency layouts";
   - regenerate premake.
-- [ ] T044 [US1] CI: delete the `build-fmod-windows` and `build-fmod-linux` jobs in `.github/workflows/main.yml`, and delete `scripts/ci/StageAudioSDKs.py`. Update the CI section of `.claude/docs/Building.md` (no audio SDK, no `AUDIO_SDK_*` variable or secret)
-- [ ] T045 [US1] Docs:
+- [x] T044 [US1] CI: delete the `build-fmod-windows` and `build-fmod-linux` jobs in `.github/workflows/main.yml`, and delete `scripts/ci/StageAudioSDKs.py`. Update the CI section of `.claude/docs/Building.md` (no audio SDK, no `AUDIO_SDK_*` variable or secret)
+- [x] T045 [US1] Docs:
   - delete `docs/Editor/FMOD.md`;
   - remove the README's "Optional: the FMOD backend" section and the `--audio-backend` premake option row;
   - update `docs/Editor/Audio.md`, `docs/AUDIO_DIALOGUE.md`, `Editor/LuxSampleProject/AUDIO_DEMO.md` (banks), `CLAUDE.md` (Build options and Audio), `.claude/docs/Architecture-LuxEngine.md` §2.10 (one backend, no seam) and `.claude/docs/Building.md` (the option table), and FMOD mentions in `NOTICE`.
-- [ ] T046 [US1] Verify:
+- [x] T046 [US1] Verify:
   - run `git grep -n -i fmod -- . ':!docs/*_PLAN.md' ':!specs' ':!docs/Lux-Commit-History.json'`; only legacy readers and migration messages may remain (SC-001);
   - in a fresh clone (`git clone` into `bin/fresh-clone`), with default options, run `Win-GenProjects.py` and the Debug build (SC-002);
   - run the native tests.
 
-**Checkpoint**: nothing in the build, the editor, the sample, CI or the docs uses FMOD.
+**Checkpoint**: nothing in the build, the editor, the sample, CI or the docs uses FMOD. Deviations are in `report.md` § Phase 4.
 
 ---
 

@@ -531,10 +531,10 @@ namespace Lux
 		/// <summary>Authored surface tag used by acoustic geometry.</summary>
 		public AcousticMaterial Material => (AcousticMaterial)InternalCalls.Audio_GetSurfaceMaterial(Entity.ID);
 	}
-	/// <summary>Plays an FMOD Studio event from the entity.</summary>
+	/// <summary>Plays a Sound from the entity.</summary>
 	public unsafe class AudioSourceComponent : Component
 	{
-		/// <summary>FMOD voice priority: 0 is highest, 256 is lowest.</summary>
+		/// <summary>Voice priority: 0 is highest, 256 is lowest.</summary>
 		public int Priority
 		{
 			get { Audio.RequireMainThread(); return InternalCalls.Audio_SourceGetPriority(Entity.ID); }
@@ -622,10 +622,10 @@ namespace Lux
 			InternalCalls.Audio_SourceSetParameterLabel(Entity.ID, parameter, nativeLabel);
 		}
 		/// <summary>The Sound this source plays; setting it takes effect on the next <see cref="Play"/>.</summary>
-		public Sound Sound
+		public Sound? Sound
 		{
 			get { ulong handle = InternalCalls.Audio_SourceGetSound(Entity.ID); return handle == 0 ? null : new Sound(handle); }
-			set => SetSound(Audio.SoundReference(value));
+			set => SetSound(Audio.SoundReference(value!));
 		}
 		/// <summary>Assigns a different Sound by its path relative to Assets (<c>"Audio/Sounds/Fart"</c>); it plays on
 		/// the next <see cref="Play"/>. An unknown path leaves the current Sound.</summary>
@@ -663,7 +663,7 @@ namespace Lux
 			get => InternalCalls.Audio_ListenerGetActive(Entity.ID);
 			set => InternalCalls.Audio_ListenerSetActive(Entity.ID, value);
 		}
-		/// <summary>The FMOD listener slot, 0 to 7.</summary>
+		/// <summary>The listener slot, 0 to 7.</summary>
 		public int ListenerIndex
 		{
 			get => InternalCalls.Audio_ListenerGetIndex(Entity.ID);

@@ -14,12 +14,10 @@ every authored default against the original engine accessor and checks the engin
 
 Windows can run `python tests/audio/run_occlusion_windows.py` from an x64 MSVC developer prompt
 (after project generation). It compiles the production occlusion/settings/geometry/material units
-and executes the same integration assertions without the full FMOD playback test host.
+and executes the same integration assertions.
 
 `scripts/Lux-BuildTest.ps1` regenerates and builds Debug/Release/Dist, checks Core/Runtime/Editor
 artifact timestamps (Editor is intentionally excluded in Dist), then runs both Windows checks.
-`scripts/Validate-AudioBanks.ps1` uses the production validator's separate NOSOUND bank catalog host.
-It does not collect project references; editor/export validation remains responsible for those.
 `scripts/Lux-GoldenRun.ps1 -Label soundwave-check` captures the audio demo through the existing
 renderer runner and rejects missing/stale artifacts or Vulkan validation output.
 
@@ -37,7 +35,7 @@ or a matching development machine:
 LUX_RUN_AUDIO_TESTS=1 scripts/Linux-Build.sh debug-as
 # Or, after generating/building Debug-AS dependencies:
 python tests/audio/run_soundwave.py --sanitize-address
-python tests/audio/run.py --config debug-as --banks tests/audio/fixtures/banks
+python tests/audio/run.py --config debug-as
 ```
 
 Debug-AS uses its own Jolt/ImGui archives and instruments both production objects and test
@@ -45,77 +43,26 @@ hosts. The full runner rejects a generated Core configuration without sanitizer 
 and verifies ASan memory-access symbols in `AudioAcoustics.o`. The ordinary Debug command
 retains its previous behavior. CI uploads separate Debug/Debug-AS audio logs; no leak/error
 suppression is added. The pure-library tests need no engine SDKs, including with sanitization.
-The real-worker Soundwave ownership checks run before the playback/geometry cases, so a later
-backend failure does not hide their result.
+The real-worker Soundwave ownership checks run before the occlusion case, so a later failure does
+not hide their result.
 
-Requires `clang++` and the repository's FMOD SDK (including the `LUX_FMOD_SDK` override used by
-CI). `fmodstudiocl` is required only when generating banks;
-`FMODSTUDIOCLI` may select its executable path. YAML implementation objects are compiled afresh. The runner compiles production
-code with Debug assertions, creates a disposable copy of the sample FMOD project in `/tmp`, and
-uses FMOD's no-sound output. It does not alter the sample project or require a renderer/audio device.
-Logs and artifacts are retained in the printed temporary directory. `--output /tmp/my-audio-tests`
-selects a fresh directory. Use `--banks /path/to/Build/Desktop` to reuse fixture banks instead of
-running FMOD Studio; those banks must contain `event:/SurfaceHit` (one-shot) and
-`event:/SurfaceMotion` (continuous), with local `Speed`, `Weight`, `Surface`, and `Impulse`
-parameters ranging from 0 to 10000. SurfaceMotion also needs a local LocalState parameter with Quiet/Loud labels. `Master.bank` and `Master.strings.bank` are loaded. Music tests additionally require 2D
-`MusicBed`/`MusicOther` continuous events and `MusicStinger` one-shot, as authored by
-`AuthorFixture.js`: State labels Explore/Combat, Intensity and Layer_Drums (0–1), tempo 240,
-Cue and Section:Verse markers, and a two-second timeline loop. Use a fresh fixture after changing
-that script.
+`run.py` requires `clang++` and the generated Core flags; it needs no audio SDK. It compiles production
+code with Debug assertions and covers file-stream failures, asset-pack error propagation, real Jolt
+worker contacts, the Soundwave ownership checks (Debug-AS), occlusion, and the music director's YAML.
+Logs and artifacts are retained in the printed temporary directory; `--output /tmp/my-audio-tests`
+selects a fresh directory. Managed payload/ABI/subscription tests run separately with
+`python3 tests/audio/run_managed.py`.
 
-Checks cover surface-table YAML/defaults/invalid input, impact cooldowns, compound-contact
-coalescing, footstep parameters, pause, event-type validation, bank reload, fade completion,
-entity cleanup, real Jolt worker contacts, masses/impulse estimates, solid/sensor transitions in both directions, body removal/sleep,
-file-stream failures, packed surface-table truncation and asset-pack error propagation. Only application host setup and failing
-asset serializers are substituted; playback/contact implementations and SDK calls are real.
+Playback is tested by `tests/audio/native` (CMake, every platform, no device): Sounds and their node
+trees, parameters and curves, limits, streaming, Sound Banks and the clip cache, streaming from a pack,
+the mixer (buses, effects, reverb, snapshots, VCAs), accessibility, meters, music timelines and
+transitions, dialogue clips, the voice budget, physics audio, and the project audio settings
+(accessibility, dialogue, performance and surface tables). See its README.
 
-Music checks cover state/intensity/layers without restart, stinger type validation, all queued
-transition boundaries, main-thread callbacks, stale notification batches, callback reentrancy,
-pause/resume, bank invalidation/recreation, fades, and destruction. `AudioTestHost.h` supplies the
-shared minimal FMOD host: it defines the `FMODInternal` system getters and bus locks in place of
-`Audio/FMOD/FMODAudioEngine.cpp`; the production director and event wrapper are linked unchanged.
-
-Accessibility checks use Music/SFX/Dialogue buses created by `AuthorFixture.js`; regenerate older
-fixtures. They cover default/invalid/bounded configuration, player preference replacement/reload,
-mono/compressor DSPs, category gain independent of authored volume, narration ducking, localized
-captions, moving cue direction, opt-in descriptions, bank/system recreation and teardown. The production ImGui overlay/menu is
-also exercised headlessly for draw output, clipping and explicit newline limits; build Debug ImGui
-alongside Debug Jolt before running. Managed payload/ABI/subscription
-tests run separately with `python3 tests/audio/run_managed.py`.
-
-Geometry checks cover shutter geometry and validation (open fraction, NaN rejection) and
-normalized portal room leakage; Soundwave's own snapshot jobs are covered by the ownership checks. Production portal and mesh YAML blocks
-are exercised for round-trip fields, room IDs, legacy defaults and malformed values. Managed tests
-also cover portal dispatch, acoustic mode enum values, invalid inputs and main-thread guards.
-Scene/prefab hierarchy remapping lives in `SceneSerializer::RunRoundTripSelfTests`; it requires a
-full engine host and is not executed by this headless runner.
-
-Performance checks cover real FMOD voice priority and a four-real-voice cap with virtualization,
-distance culling/re-entry, multi-listener attenuation targets, discarded one-shots, pause/stop and
-parameter/timeline preservation, actual bus input peak/RMS and voice warnings, memory availability,
-strict/bounded budget persistence and independent catalog validation (missing events/buses, wrong
-event kinds, corrupt banks). Source YAML checks execute the production serialization blocks for
-priority/culling defaults, bounds and runtime-state exclusion. Managed checks cover source budget
-controls and main-thread guards. These tests use NOSOUND and do not replace listening/visual checks.
-
-Desktop platform checks cover enabled/disabled host selection, old-project defaults, invalid
-profiles, YAML round trips, effective runtime budgets, explicit Studio target argument quoting,
-and real FMOD output mute without changing authored bus mute or scripted event pause.
-
-Run `python3 tests/audio/run_sdk_layout.py` to exercise Premake's Windows/Linux SDK overrides,
-paths with spaces, each missing header/link/runtime file, and that `--audio-backend=native` generates
-with no FMOD SDK present. It uses disposable empty files to validate discovery rules, not a Windows
-compilation or hardware test. Console checks are on hold.
-
-`tests/audio/native` holds the miniaudio checks and the engine's native backend tests
-(`--audio-backend=native`); see its README. They need no FMOD SDK.
-
-CI uses `--banks tests/audio/fixtures/banks` to run the complete suite without installing FMOD Studio.
-See that fixture directory's README for provenance and regeneration.
-
-Dialogue programmer-sound tests use `event:/Character/Dialogue` and the `welcome`/`goodbye`
-audio-table keys authored into the fixture Master bank. They exercise real FMOD callbacks and
-source duration with existing sample audio, without depending on optional FMOD SDK example banks.
+The FMOD-hosted suites (surfaces, music, dialogue, accessibility, geometry, performance, platform,
+and portal/source serialization) were removed with FMOD in November 2026. The behaviours native has
+are covered by `tests/audio/native`; portal and source YAML round trips and the shutter/portal geometry
+checks have no Linux runner yet (`specs/002-fmod-replacement/report.md`).
 
 The Linux CI Debug build runs this same complete suite after its dependencies and before
 Core/Editor compilation. Engine builds and final artifact verification still run afterward.
@@ -151,13 +98,13 @@ validation remain separate Phase 2 gates.
 worker publication/clear, detached scene lifetimes, latest-request coalescing, atomic geometry
 layer migration, failed capture/retry and last-valid source results. It exercises source cadence,
 budget fairness, smoothing, pruning and both worker/inline policies. The standard Windows and
-Linux occlusion runners include these checks. Actual Scene render-mesh capture and FMOD output
+Linux occlusion runners include these checks. Actual Scene render-mesh capture and audio output
 are checked separately with `tests/rendering/golden_run.py --config debug --scenes AudioDemo --play`.
 The optional demo Play artifact does not establish Sponza corner/doorway behavior or GPU parity.
 
 The explicit native Scene cases use `python tests/audio/run_scene_acoustics.py --config debug`.
 They load the actual Sponza render source, pin the listener/source, enable the existing physics-ray
-oracle over all model submeshes and verify the real FMOD Occlusion parameter. Cases cover a pillar
+oracle over all model submeshes and verify the gain Scene applies to the source. Cases cover a pillar
 corner, an off-axis archway, its closed portal control and blocked/clear direct-only profiles.
 Sponza has neighboring open arches: five authored partitions seal the tested bay at its sides,
 back, floor and ceiling so the closed control tests a sealed doorway. The original Sponza arch
@@ -177,8 +124,8 @@ not enter recent-project history. Geometry counts come from the actual
 glTF index accessors, including the sample cube’s 156 triangles; the portal uses the kernel’s
 procedural twelve-triangle box. PyYAML is required only for this developer runner. Use `--cases`
 to select named cases, or `--threading single` to exercise the inline policy. Native Editor
-must already be built, along with the selected runtime when exporting. The committed banks work
-on a clean checkout without FMOD Studio or local sample Build outputs; each capture’s existing timestamp gate runs once.
+must already be built, along with the selected runtime when exporting. It works on a clean
+checkout; each capture’s existing timestamp gate runs once.
 
 Add `--audio-settings-ui` to run the shared Project Settings acoustic controls before the first
 editor frame. The isolated ImGui context drives numeric text input and both comparison toggle
@@ -221,10 +168,10 @@ python tests/audio/run_scene_acoustics.py --config debug --export-runtime --case
 
 `--runtime-config` selects the exported Debug/Release/Dist binary (default: `--config`).
 The fixture registry contains only its copied scene and no unrelated sample prefabs; export
-still performs its full bank/project validation. ScriptModulePath is empty because the fixture
-has no script components. The ordinary exporter writes assets, banks, binary project, runtime,
+still performs its full project audio validation. ScriptModulePath is empty because the fixture
+has no script components. The ordinary exporter writes assets, binary project, runtime,
 resources and shader pack into a unique empty test destination. It then launches that exact
-package and checks the same actual FMOD parameter and geometry/oracle controls, plus raw gain,
+package and checks the same applied gain and geometry/oracle controls, plus raw gain,
 direct float-bit and opening-path parity with Play. Reports/logs live beside the golden artifacts.
 The optional native report is inert without LUX_RUNTIME_AUDIO_REPORT and advances through
 normal frames, never waiting on jobs or GPU. Native builds and fresh timestamp checks remain

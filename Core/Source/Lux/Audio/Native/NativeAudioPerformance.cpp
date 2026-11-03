@@ -85,7 +85,7 @@ namespace Lux
 		}
 		for (size_t i = 0; i < s_Buses.size(); ++i)
 		{
-			// Inclusive counts, as FMOD's: a parent counts the voices of the buses below it.
+			// Inclusive counts: a parent counts the voices of the buses below it.
 			AudioBusMeter& meter = s_Buses[i];
 			meter.Voices = meter.RealVoices = NativeInternal::CountPlayingVoicesOn(meter.Path);
 			meter.Available = NativeInternal::ReadBusMeter(meter.Path, meter.Peak, meter.RMS);

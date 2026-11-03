@@ -70,7 +70,7 @@ namespace Lux
 		float Maximum = 1.0f;
 		float Default = 0.0f;
 		std::vector<std::string> Labels;
-		// One value for every Sound, set by AudioEngine::SetGlobalParameter (as an FMOD global
+		// One value for every Sound, set by AudioEngine::SetGlobalParameter (a global
 		// parameter); Default until it is set. Instances cannot set it.
 		bool Global = false;
 
@@ -91,7 +91,7 @@ namespace Lux
 	};
 
 	// A named point on a music Sound's timeline; the music director's NextMarker syncs to it, and
-	// NextSection to names starting "Section:" (as FMOD markers).
+	// NextSection to names starting "Section:".
 	struct SoundMarker
 	{
 		std::string Name;

@@ -66,7 +66,7 @@ namespace Lux {
 			ImGui::TextColored(color, "%s", value);
 		}
 
-		std::string FormatBytes(int bytes)
+		std::string FormatBytes(int64_t bytes)
 		{
 			if (bytes <= 0)
 				return "0 B";
@@ -88,7 +88,7 @@ namespace Lux {
 			return 1.0f - std::clamp(gainLF, 0.0f, 1.0f);
 		}
 
-		// Relative high-frequency loss Soundwave measured. Studio controls its audible treatment.
+		// Relative high-frequency loss Soundwave measured; the voice's low-pass is its audible treatment.
 		float RelativeHighFrequencyLoss(float gainLF, float gainHF)
 		{
 			constexpr float minAudibleGain = 1e-4f;
@@ -112,7 +112,7 @@ namespace Lux {
 		UI_Playback(engine);
 		UI_Performance();
 		UI_Validation();
-		UI_Events();
+		UI_SoundBanks();
 		UI_Acoustics();
 		UI_Sources();
 		UI_Visualisation();
@@ -130,11 +130,11 @@ namespace Lux {
 		if (stats.MixerAvailable)
 			ImGui::Text("Audio CPU: %.2f%% / %.2f%%", stats.CPUPercent, settings.CPUPercent);
 		if (stats.MemoryAvailable)
-			ImGui::Text("FMOD allocated memory: %.2f / %u MiB", stats.MemoryMiB, settings.BankMemoryMiB);
+			ImGui::Text("Clip memory: %.2f / %u MiB", stats.MemoryMiB, settings.BankMemoryMiB);
 		if (stats.RaytracingAvailable)
 			ImGui::Text("Soundwave acoustics: %.3f / %.3f ms", stats.RaytracingMilliseconds, settings.RaytracingMilliseconds);
 		if (stats.VoicesExceeded || stats.CPUExceeded || stats.MemoryExceeded || stats.RaytracingExceeded)
-			ImGui::TextColored(kWarnColor, "Audio budget exceeded (details logged once per bank session).");
+			ImGui::TextColored(kWarnColor, "Audio budget exceeded (details logged once per engine run).");
 		for (const auto& meter : AudioPerformance::GetBuses())
 		{
 			ImGuiEx::ScopedID id(meter.Path.c_str());
@@ -174,9 +174,7 @@ namespace Lux {
 			ImGui::TreePop();
 			return;
 		}
-		ImGui::Text("%zu banks, %.2f MiB on disk, %zu / %zu events referenced", m_Validation.Banks.size(), m_Validation.BankBytes / (1024.0 * 1024.0), m_Validation.ReferencedEvents, m_Validation.CatalogEvents);
-		for (const auto& bank : m_Validation.Banks)
-			ImGui::Text("%s: %.2f MiB", bank.Name.c_str(), bank.Bytes / (1024.0 * 1024.0));
+		ImGui::Text("%.2f MiB of audio, %zu / %zu Sounds referenced", m_Validation.BankBytes / (1024.0 * 1024.0), m_Validation.ReferencedEvents, m_Validation.CatalogEvents);
 		for (const auto& issue : m_Validation.Issues)
 		{
 			ImGui::TextColored(issue.Severity == AudioValidationSeverity::Error ? kWarnColor : kOffColor, "%s", issue.Location.c_str());
@@ -227,6 +225,7 @@ namespace Lux {
 
 		if (!engine.HasMixerStats)
 		{
+			ImGui::Text("Sound instances playing: %d", engine.PlayingEventInstances);
 			ImGui::TextDisabled("%s exposes no mixer statistics.", engine.BackendName);
 			ImGui::TreePop();
 			return;
@@ -247,97 +246,66 @@ namespace Lux {
 			ImGui::EndTable();
 		}
 
-		ImGui::Spacing();
-		ImGui::TextUnformatted("FMOD Studio");
-
-		if (ImGui::BeginTable("##audio_debugger_studio", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
-		{
-			DrawStatColored("Live Update", engine.LiveUpdateEnabled ? "On — Studio can attach" : "Off",
-				engine.LiveUpdateEnabled ? kGoodColor : kOffColor);
-
-			// Zero banks with a Studio project configured is the "nobody built the banks" case, and
-			// it is silent otherwise: every event lookup simply fails.
-			if (engine.LoadedBankCount == 0)
-				DrawStatColored("Banks Loaded", "0 (no banks built or found)", kWarnColor);
-			else
-				DrawStat("Banks Loaded", engine.LoadedBankCount);
-
-			DrawStat("Events Described", engine.EventDescriptionCount);
-			DrawStat("Event Instances", engine.PlayingEventInstances);
-			ImGui::EndTable();
-		}
-
-		const std::vector<AudioBankInfo>& banks = AudioEngine::GetLoadedBanks();
-		if (!banks.empty() && ImGui::BeginTable("##audio_debugger_banks", 3,
-			ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp))
-		{
-			ImGui::TableSetupColumn("Bank");
-			ImGui::TableSetupColumn("Events", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-			ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed, 90.0f);
-			ImGui::TableHeadersRow();
-
-			for (const AudioBankInfo& bank : banks)
-			{
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::TextUnformatted(bank.Name.c_str());
-				ImGui::TableSetColumnIndex(1);
-				ImGui::Text("%d", bank.EventCount);
-				ImGui::TableSetColumnIndex(2);
-				ImGui::TextDisabled("%s", bank.IsStringsBank ? "strings" : "content");
-			}
-			ImGui::EndTable();
-		}
-
 		ImGui::TreePop();
 	}
 
-	void AudioDebugPanel::UI_Events()
+	void AudioDebugPanel::UI_SoundBanks()
 	{
-		if (!ImGuiEx::PropertyGridHeader("Events", false))
+		if (!ImGuiEx::PropertyGridHeader("Sound Banks and Clips", false))
 			return;
-
-		const std::vector<AudioEventInfo>& events = AudioEngine::GetEvents();
-		if (events.empty())
+		const auto banks = AudioEngine::GetLoadedSoundBanks();
+		const auto clips = AudioEngine::GetLoadedClips();
+		const auto name = [](AssetHandle handle)
 		{
-			ImGui::TextDisabled("No events. Author them in FMOD Studio, then build the banks.");
-			ImGui::TreePop();
-			return;
-		}
-
-		ImGuiEx::Widgets::SearchWidget(m_EventSearch, "Search events...");
-
-		constexpr ImGuiTableFlags tableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV
-			| ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
-
-		if (ImGui::BeginTable("##audio_debugger_events", 3, tableFlags, ImVec2(0.0f, 220.0f)))
+			const auto editor = Project::GetEditorAssetManager();
+			const std::string path = editor ? editor->GetMetadata(handle).FilePath.generic_string() : std::string{};
+			return path.empty() ? std::to_string(static_cast<uint64_t>(handle)) : path;
+		};
+		if (banks.empty())
+			ImGui::TextDisabled("No Sound Bank is loaded. Scenes load theirs when they play.");
+		else if (ImGui::BeginTable("##audio_debugger_banks", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp))
 		{
-			ImGui::TableSetupColumn("Event");
-			ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-			ImGui::TableSetupColumn("GUID", ImGuiTableColumnFlags_WidthFixed, 300.0f);
-			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("Bank");
+			ImGui::TableSetupColumn("Loads", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+			ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 110.0f);
 			ImGui::TableHeadersRow();
-
-			for (const AudioEventInfo& event : events)
+			for (const auto& bank : banks)
 			{
-				if (!ImGuiEx::IsMatchingSearch(event.Path, m_EventSearch, false, false, true))
-					continue;
-
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
-				ImGui::TextUnformatted(event.Path.c_str());
-
+				ImGui::TextUnformatted(name(bank.Bank).c_str());
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextDisabled("%s%s", event.Is3D ? "3D" : "2D", event.IsOneshot ? " · oneshot" : "");
-
-				// The GUID is what scenes store, so it is shown in full and selectable: a rename in
-				// Studio changes the path but not this.
+				ImGui::Text("%u", bank.Loads);
 				ImGui::TableSetColumnIndex(2);
-				ImGui::TextUnformatted(event.Guid.c_str());
+				ImGui::TextColored(bank.Ready ? kGoodColor : kWarnColor, "%s%s", bank.Ready ? "Ready" : "Decoding", bank.Resident ? ", resident" : "");
 			}
 			ImGui::EndTable();
 		}
-
+		if (!clips.empty() && ImGui::BeginTable("##audio_debugger_clips", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp))
+		{
+			ImGui::TableSetupColumn("Clip");
+			ImGui::TableSetupColumn("Memory", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableSetupColumn("Banks", ImGuiTableColumnFlags_WidthFixed, 50.0f);
+			ImGui::TableSetupColumn("Voices", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+			ImGui::TableHeadersRow();
+			for (const auto& clip : clips)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::TextUnformatted(clip.File.filename().string().c_str());
+				ImGui::SetItemTooltip("%s", clip.File.string().c_str());
+				ImGui::TableSetColumnIndex(1);
+				if (clip.Bytes)
+					ImGui::TextUnformatted(FormatBytes(static_cast<int64_t>(clip.Bytes)).c_str());
+				else
+					ImGui::TextDisabled(clip.Streams ? "streamed" : "-");
+				ImGui::TableSetColumnIndex(2);
+				ImGui::Text("%u", clip.BankRefs);
+				ImGui::TableSetColumnIndex(3);
+				ImGui::Text("%u%s", clip.LiveRefs, clip.Streams ? " (stream)" : "");
+			}
+			ImGui::EndTable();
+		}
 		ImGui::TreePop();
 	}
 
@@ -394,7 +362,7 @@ namespace Lux {
 			ImGui::EndTable();
 		}
 		ImGui::Spacing();
-		ImGui::TextWrapped("Studio events receive Occlusion and ReverbSend from Soundwave. Author the filters, reverb bus and send automation in FMOD Studio.");
+		ImGui::TextWrapped("Each source's voice applies Soundwave's occlusion as a low-pass and gain, and its reverb send feeds the mixer's reverb return (View > Audio Mixer).");
 
 		ImGui::TreePop();
 	}
@@ -437,7 +405,7 @@ namespace Lux {
 			ImGui::TableSetupColumn("Occlusion", ImGuiTableColumnFlags_WidthFixed, 110.0f);
 			ImGui::TableSetupColumn("Gain LF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			ImGui::TableSetupColumn("Gain HF", ImGuiTableColumnFlags_WidthFixed, 70.0f);
-			// Soundwave measurement, not an applied Studio filter amount.
+			// Soundwave measurement, not an applied filter amount.
 			ImGui::TableSetupColumn("Muffle", ImGuiTableColumnFlags_WidthFixed, 70.0f);
 			// Stored reflection/opening routes and the deepest interaction count among them.
 			ImGui::TableSetupColumn("Paths", ImGuiTableColumnFlags_WidthFixed, 90.0f);
@@ -472,13 +440,11 @@ namespace Lux {
 				ImGui::TableSetColumnIndex(1);
 				if (!asc.Event.IsValid())
 					ImGui::TextUnformatted("<unassigned>");
-				else if (AudioEngine::GetBackend() == AudioBackend::Native)
+				else
 				{
 					const std::string sound = Project::GetEditorAssetManager()->GetMetadata(asc.Event.Sound).FilePath.stem().string();
 					ImGui::TextUnformatted(sound.empty() ? std::to_string(static_cast<uint64_t>(asc.Event.Sound)).c_str() : sound.c_str());
 				}
-				else
-					ImGui::TextUnformatted(asc.Event.Path.empty() ? asc.Event.Guid.c_str() : asc.Event.Path.c_str());
 
 				const glm::vec3 sourcePosition = glm::vec3(m_Context->GetWorldSpaceTransformMatrix(entity)[3]);
 

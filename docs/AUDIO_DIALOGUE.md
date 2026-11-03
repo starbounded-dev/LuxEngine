@@ -1,5 +1,9 @@
 # Phase 11: Dialogue and subtitles
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Dialogue is a main-thread scene service. FMOD Studio plays speech; game scripts render subtitles.
 It works in the editor's Play mode and exported Lux-Runtime projects.
 
@@ -14,7 +18,7 @@ It works in the editor's Play mode and exported Lux-Runtime projects.
    If language banks use identical keys, load only the selected language bank. Stop dialogue before
    unloading/replacing that bank; bank invalidation cancels pending and active speech.
 3. Assign the event to a bank. Build the FMOD project. In Lux Project Settings > Audio, configure
-   the FMOD project and bank output directory as described in [FMOD setup](Editor/FMOD.md).
+   the FMOD project and bank output directory as described in FMOD setup (removed).
    Rebuild/load the banks so the speech event appears in the picker. Runtime exports include the
    project's configured built banks; no FMOD authoring installation is needed on the player machine.
 4. Content Browser > New > **Dialogue Table** creates a `.ldialogue` asset. Select it under

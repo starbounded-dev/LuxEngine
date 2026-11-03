@@ -2,7 +2,7 @@
 
 `public static class Music`
 
-Scene-owned interactive music. All calls and callbacks run on the main thread. Author State labels, continuous Intensity (0–1), and Layer_name parameters (0–1) in FMOD.
+Scene-owned interactive music. All calls and callbacks run on the main thread. Author State labels, continuous Intensity (0–1), and Layer_name parameters (0–1) on the Sound.
 
 ## Properties
 

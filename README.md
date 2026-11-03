@@ -52,60 +52,9 @@ Two external SDKs are needed. **Neither is vendored** — the repository ships b
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
 | **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
 
-Audio needs no SDK: the default backend compiles the vendored miniaudio. The optional FMOD backend
-(`--audio-backend=fmod`, until it is removed) needs the **FMOD Engine** 2.03.x SDK; see
-[Optional: the FMOD backend](#optional-the-fmod-backend).
+Audio needs no SDK: the engine compiles the vendored miniaudio.
 
 A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is created at API 1.2); the 1.4 SDK is a build/tooling dependency.
-
-### Optional: the FMOD backend
-
-Only if you generate with `--audio-backend=fmod` (the setup checklist's **FMOD audio backend**). The
-sample project's FMOD setup is in [`docs/Editor/FMOD.md`](docs/Editor/FMOD.md).
-
-#### Licensing for games you ship with FMOD
-
-LuxEngine's Apache-2.0 licence covers LuxEngine only. FMOD is proprietary. Everyone who builds LuxEngine with it downloads the SDK and accepts its EULA themselves, and **every game exported from an FMOD build links it**, so its terms apply to that game. Acoustics (occlusion, reverb) come from LuxEngine's own Soundwave library under the engine's Apache-2.0 licence. A summary of the EULA shipped with FMOD 2.03.x follows. This is not legal advice; the EULA and the vendor's current terms are what count.
-
-**FMOD** ([fmod.com/licensing](https://www.fmod.com/licensing))
-- Free for hobby, education and non-commercial games.
-- Free for commercial games while the project's development budget is under US$600k **and** the developer's gross yearly revenue or funding is under US$200k. You must register the project on your FMOD profile first. Above either limit you need a paid licence.
-- **Every game must show an in-game credit** that includes "FMOD" and "Firelight Technologies Pty Ltd." ([fmod.com/attribution](https://www.fmod.com/attribution)). LuxEngine does not add it for you.
-
-- The runtime libraries may be redistributed only inside your exported game. The SDK may not be shipped as part of a game engine or toolset, so never publish editor builds with `fmod*` libraries in them. CI's editor packages are built with the native backend and carry none.
-
-#### Installing the FMOD SDK
-
-Premake validates the complete SDK layout at generation time and aborts with the exact missing file path, so a half-extracted package fails fast rather than at link time.
-
-**Default locations** (extract the packages here):
-
-```
-Core/vendor/FMOD/<any-subdirectory>/     e.g. Core/vendor/FMOD/fmodstudioapi20314linux/
-```
-
-**Or point at them with environment variables** before generating:
-
-```bash
-# Linux
-export LUX_FMOD_SDK=/opt/fmodstudioapi20314linux   # root containing api/
-export LUX_FMOD_STUDIO_CL=/opt/fmodstudio/fmodstudiocl   # optional
-```
-
-```powershell
-# Windows
-$env:LUX_FMOD_SDK = 'C:\SDKs\FMOD Studio API Windows'
-$env:LUX_FMOD_STUDIO_CL = 'C:\Program Files\FMOD SoundSystem\FMOD Studio 2.03.14\fmodstudiocl.exe'
-```
-
-Required files per platform:
-
-| | Windows | Linux |
-|---|---|---|
-| FMOD Core | `api/core/inc/fmod.hpp`, `api/core/lib/x64/fmod_vc.lib`, `fmod.dll` | `api/core/inc/fmod.hpp`, `api/core/lib/x86_64/libfmod.so`, `libfmod.so.14` |
-| FMOD Studio | `api/studio/inc/fmod_studio.hpp`, `api/studio/lib/x64/fmodstudio_vc.lib`, `fmodstudio.dll` | `api/studio/inc/fmod_studio.hpp`, `api/studio/lib/x86_64/libfmodstudio.so`, `libfmodstudio.so.14` |
-
-Regenerate project files after changing an SDK root. Never commit SDK packages.
 
 ***
 
@@ -304,7 +253,6 @@ Binaries land in `bin/<Config>-<os>-x86_64/<Project>/`, e.g. `bin/Release-linux-
 | `--no-tracy` | Build without Tracy instrumentation (smaller, faster to link) |
 | `--no-aftermath` | Build without the Nvidia Aftermath GPU crash tracker |
 | `--discord` | Enable the Discord Social SDK integration (needs `Core/vendor/discord_social_sdk/`) |
-| `--audio-backend=fmod` | The optional FMOD Studio audio backend instead of the default built-in one (`native`: miniaudio, editor-authored Sound assets); needs the FMOD SDK |
 
 On Windows these are offered as checkboxes by `Setup.bat`; on Linux pass them via `LUX_PREMAKE_OPTIONS` or directly to `premake5`.
 
@@ -329,7 +277,7 @@ Both X11 and Wayland sessions work (GLFW is built with both backends; libdecor i
 
 ### Windows
 
-Set `Editor` as the startup project in Visual Studio and run — the working directory is already configured. Outside VS, run `bin\<Config>-windows-x86_64\Editor\Editor.exe` from the `Editor/` directory. `fmod.dll` and `fmodstudio.dll` are copied next to the executables by the post-build step.
+Set `Editor` as the startup project in Visual Studio and run — the working directory is already configured. Outside VS, run `bin\<Config>-windows-x86_64\Editor\Editor.exe` from the `Editor/` directory.
 
 `scripts\Win-RenderDoc.bat debug` (or `release` / `dist`) opens RenderDoc with the already-built editor launched and hooked; capture with **F12** / **Print Screen** or **Trigger Capture**. It finds `qrenderdoc.exe` through `RENDERDOC_DIR`, then `PATH`, then `%ProgramFiles%\RenderDoc`, and does not build — build the configuration in Visual Studio first.
 
@@ -341,17 +289,18 @@ The editor opens the bundled sample project at `Editor/LuxSampleProject/LuxSampl
 
 ## Tests
 
-Headless regression suites (no renderer, no audio device — FMOD runs in `NOSOUND` mode):
+Headless regression suites (no renderer, no audio device):
 
 ```bash
-python tests/audio/run.py                 # audio: surfaces, music, dialogue, geometry, budgets
+cmake -S tests/audio/native -B bin/native-audio-tests && cmake --build bin/native-audio-tests && ctest --test-dir bin/native-audio-tests
+                                          # audio: playback, Sounds, banks, mixer, music, dialogue, streaming
+python tests/audio/run.py                 # Linux: streams, packs, Jolt contacts, occlusion, music serialization
 python tests/audio/run_managed.py         # C# audio bindings: payloads, ABI, subscriptions
-python tests/audio/run_sdk_layout.py      # SDK layout validation
 python tests/rendering/run_shadow_shader.py
 python tests/runtime/run_resources.py
 ```
 
-The audio runner needs `clang++`, the FMOD SDK and `fmodstudiocl`; it copies the sample FMOD project to a temporary directory and never mutates the repo. See [`tests/audio/README.md`](tests/audio/README.md) for fixture requirements.
+The native audio tests render offline (`ma_engine` with no device), so they need no sound card. See [`tests/audio/README.md`](tests/audio/README.md).
 
 ***
 
@@ -373,7 +322,6 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **Versioning:** `2026.N-<commit>`. `2026.N` is the year's Nth release series (set by `LUX_VERSION_SERIES` in [`Core/Source/Lux/Core/Version.h`](Core/Source/Lux/Core/Version.h)); the suffix is the 7-character commit the build came from. The tag is the version with a `v`: `v2026.1-a3f9c1d`. `Editor --version` prints the version a binary was built as, and the startup log shows it too. Local builds report just the series.
 - **Dev builds are alpha.** The API will change between them, and nothing about them is supported for shipping games.
 - **Only the 10 newest** dev pre-releases of the current series are kept; older ones (and their tags) are deleted automatically.
-- **Audio libraries are not included.** The FMOD licence forbids redistributing its runtime libraries with an engine, so each zip has an `AUDIO_LIBRARIES_REQUIRED.txt` naming the files to copy in from your own SDK downloads (see [Required SDKs](#required-sdks)).
 
 ***
 
@@ -381,7 +329,6 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 
 | Symptom | Cause / fix |
 |---|---|
-| `Required audio SDK file missing: ...` at generation | FMOD is missing or incompletely extracted. The message names the exact file; fix that path or set `LUX_FMOD_SDK`. |
 | `hostfxr` / runtime not found at editor startup | You have .NET 10 (or 8), not 9. Coral hardcodes major version 9 — install `dotnet-sdk-9.0`. Distro `dotnet-sdk` metapackages now pull 10.x. |
 | Undefined references after toggling `--no-tracy` | The flag must be passed to every premake generation. Regenerate with the same flags, then rebuild. |
 | Unresolved externals after adding a source file | Premake does not regenerate itself. Re-run `scripts\Win-GenProjects.bat` / `./premake5 gmake2 --cc=clang`. |
@@ -389,7 +336,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 | `llvm-ar: not found` in a `dist` build | Symlink the version-suffixed binary (see the Debian/Ubuntu block). |
 | "Script project file not found" in the editor | The sample project's `.csproj` is generated output. Run `Editor/LuxSampleProject/Assets/Scripts/Linux-GenProjects.sh`, or just re-run `Linux-Build.sh`. |
 | `error NETSDK1004` on Windows | MSBuild was run without `/restore`. |
-| Editor starts but shows no banks/events | Project Settings → Audio: the `.fspro` path is relative to `Assets/`, and **Bank Output is a directory** (`Build/Desktop`), not a `.bank` file. |
+| An Audio Source is silent and logs "has an FMOD event but no Sound" | The scene was authored with FMOD. Assign a Sound to the source (the inspector shows the old event). |
 
 ***
 
@@ -408,22 +355,23 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **Editor rendering** — jump-flood selection outlines, depth-tested collider pass, wireframe and G-buffer/AO debug views, infinite grid, debug renderer.
 - Sky atmosphere, volumetric clouds and TAA were removed during the renderer simplification pass and are not currently available.
 
-### Audio (FMOD Studio + Soundwave)
-- **FMOD Studio events** as the only playback path — banks, event instances, parameters, buses, snapshots, and in-editor bank building (`fmodstudiocl`).
+### Audio (built in: miniaudio + Soundwave)
+- **Sound assets** authored in the editor — a node tree of clips and containers (random, sequence, layer, switch), variation, loop regions, streaming, 3D attenuation, parameters with curves, instance limits — with a Sound Editor, waveform thumbnails and an audition voice.
+- **Sound Banks** — Sounds that load and unload together, listed by scenes or loaded from scripts; clips decode off the main thread and are freed when nothing holds them. Exported audio is read in place from the asset pack, so long music streams straight from it.
+- **Audio Mixer** — buses, effects (filters, EQ, delay, compressor), a reverb return, snapshots and VCAs.
 - **Soundwave acoustics (built in)** — the engine's own acoustic kernel: occlusion through walls costed by each material's transmission, sound around corners and through doorways, and reverb from the shape of the room around the listener, with dynamic geometry, portals and per-surface acoustic materials. Listener reverb rays run on the GPU, per-source solves on worker threads.
-- **Native audio backend (experimental)** — `--audio-backend=native` replaces FMOD with vendored miniaudio and editor-authored `.lsound` Sound assets (Sound Editor panel, waveform thumbnails); Soundwave drives it through the same acoustics path.
 - **See the Sound** — an editor view that makes the acoustics visible during Play: each source's path through the walls with material, thickness and dB labels, every zone and portal with its live weight, the listener's measured room, and surfaces tinted by acoustic material. Render materials carry an acoustic tag, so choosing "Bricks" sets how a wall looks and how it sounds.
 - **Zones and ambience** blending, an **interactive music director** (states, intensity, layers, stingers, timeline callbacks), and **physics-driven footsteps/impacts** from Jolt contacts via surface tables.
-- **Dialogue** — localized dialogue tables, programmer sounds, subtitles and narration.
-- **Accessibility** — category gains, mono/compressor DSPs, narration ducking, captions and directional cues.
+- **Dialogue** — localized dialogue tables with a recording per language, subtitles and narration.
+- **Accessibility** — category gains, mono fold and compression, narration ducking, captions and directional cues.
 - **Performance controls** — voice budgets, distance culling, multi-listener attenuation, bus peak/RMS monitoring, and a validation pass surfaced in the Audio Debugger.
-- **Desktop platform profiles** — per-OS Studio platform, bank output directory, budgets, and focus/mute behaviour.
+- **Desktop platform profiles** — per-OS budgets and focus/mute behaviour.
 
 ### Engine systems
 - **ECS scenes** (EnTT) with entity hierarchies, organizational folders, **prefabs with variants** (per-component overrides, revert/apply, propagation), YAML serialization, and editor Play / Simulate / Stop.
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
 - **C# scripting** (.NET 9 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities, transforms, input, assets, audio, music, dialogue and accessibility.
-- **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** (including FMOD banks) for shipping runtime builds.
+- **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
 - **Tooling & debugging** — Tracy CPU/GPU profiling on every pass, Nvidia Aftermath GPU crash dumps, shader hot-reload with a SPIR-V reflection cache, memory tracking, and tiering/quality settings serialized per project.
@@ -437,7 +385,6 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 
 - **No macOS, no mobile, no consoles.** Windows and Linux x64 only.
 - **Vulkan only.** No DirectX, Metal, or OpenGL backends. The renderer is on NVIDIA NRI's Vulkan backend; Direct3D branches are reserved but unbuilt.
-- **FMOD is still required by the default backend.** The built-in replacement (`--audio-backend=native`, miniaudio) is experimental; until it reaches parity the default build will not generate without the FMOD SDK, which is not redistributable.
 - **No skeletal animation yet.** Skeleton/bone import scaffolding and animated-mesh shader variants exist, but the animation importer and playback system are not wired up. Static meshes only, in practice.
 - **No particle system.**
 - **No terrain in-tree yet.** A GPU clipmap terrain with Jolt heightfield collision is in development on a branch, not merged.
@@ -450,7 +397,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 
 ## Active development
 
-Recent work has been the **audio system** (15 phases: FMOD Studio integration, acoustics, zones, music, dialogue, accessibility, budgets, desktop profiles) and **Linux parity** — Linux is now a first-class, CI-verified target rather than an aspiration.
+Recent work has been the **audio system** (acoustics, zones, music, dialogue, accessibility, budgets, then a built-in engine replacing FMOD) and **Linux parity** — Linux is now a first-class, CI-verified target rather than an aspiration.
 
 Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md](docs/ENGINE_OPTIMIZATION_PLAN.md)) — Tracy-instrumented baselines, render-graph compile caching, eliminating per-frame allocations on the submission path, descriptor-set churn fixes, and LTO'd Dist builds.
 
@@ -472,14 +419,7 @@ The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release
 
 Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the built editor, sample project and resources; build logs are uploaded per configuration.
 
-`build-native-windows` / `build-native-linux` build Debug with `--audio-backend=native`; they read no secrets, so they also run for fork pull requests.
-
-> Both runners stage FMOD from a private repository
-> (`scripts/ci/StageAudioSDKs.py`, driven by the `AUDIO_SDK_REPOSITORY` variable and the
-> `AUDIO_SDK_TOKEN` secret), so CI does cover SDK-dependent generation. **Pull requests from
-> forks cannot read secrets and stop at that step by design.** Published artifacts have the
-> FMOD runtime libraries stripped out — the EULA forbids redistributing them — so a
-> downloaded artifact needs those libraries copied in from your own SDK before it will run.
+CI needs no private SDK and reads no secrets, so pull requests from forks build too.
 
 ***
 
@@ -494,7 +434,7 @@ Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the
 | Scripting | Coral (.NET 9 / C#) |
 | Assets | Assimp, stb, rapidyaml |
 | Text | msdf-atlas-gen / msdfgen, FreeType |
-| Audio | FMOD Core + FMOD Studio, Soundwave (in-tree acoustics) |
+| Audio | miniaudio (+ MiniaudioCpp), Soundwave (in-tree acoustics) |
 | Profiling / debug | Tracy, Nvidia Aftermath, backward-cpp |
 | Math / util | glm, spdlog, magic_enum, choc, FastNoise |
 
@@ -506,7 +446,7 @@ Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the
 Core/            Engine static library
   Source/Lux/      C++ source by subsystem (Renderer, Scene, Audio, Physics, Asset, Scripting, ...)
   Platform/        Linux/ and Windows/ platform implementations
-  vendor/          Vendored C++ dependencies (+ FMOD/ SDK drop point, soundwave/ acoustics)
+  vendor/          Vendored C++ dependencies (miniaudio, soundwave/ acoustics, ...)
 ScriptCore/      C# scripting API (net9.0)
 Editor/          Editor application + LuxSampleProject
 Lux-Runtime/     Standalone runtime player
@@ -527,9 +467,8 @@ Adding a dependency means one entry in `Dependencies.lua` — the include/link w
 LuxEngine is licensed under the **[Apache License 2.0](LICENSE)**. Attribution for the vendored
 third-party components and for the Hazel lineage this engine descends from lives in [NOTICE](NOTICE).
 
-That license covers LuxEngine's own source code only. Building also requires the **FMOD Engine**
-SDK, which is proprietary, is not included in this repository, and is governed by its own EULA. If you distribute binaries built from this source, satisfying those
-terms — and NVIDIA's for the bundled Aftermath libraries — is on you.
+That license covers LuxEngine's own source code only. If you distribute binaries built from this
+source, satisfying NVIDIA's terms for the bundled Aftermath libraries is on you.
 
 ***
 

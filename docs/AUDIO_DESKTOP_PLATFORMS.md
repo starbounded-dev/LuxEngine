@@ -1,5 +1,9 @@
 # Desktop audio platforms — Phase 15
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Windows and Linux share the FMOD Studio/Core + Soundwave implementation. Console SDK,
 hardware, suspend/resume and certification integration are **on hold** until access is available.
 There are no console build targets or claims of console readiness in this phase.

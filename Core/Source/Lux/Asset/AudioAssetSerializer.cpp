@@ -47,21 +47,18 @@ namespace Lux
 
 		outInfo.Offset = stream.GetStreamPosition();
 		stream.WriteString(metadata.FilePath.generic_string());
-		// The native backend ships the audio itself: the encoded file follows its path. FMOD plays banks,
-		// so its packs keep only the path. Packs read either form: data follows when the entry is longer.
-		if (AudioEngine::GetBackend() == AudioBackend::Native)
+		// The audio itself ships: the encoded file follows its path. Packs from FMOD builds kept only the
+		// path; the reader takes data only when the entry is longer, so they still load.
+		const auto file = Project::GetEditorAssetManager()->GetFileSystemPath(metadata);
+		Buffer bytes = FileSystem::ReadBytes(file);
+		if (!bytes.Data || bytes.Size == 0)
 		{
-			const auto file = Project::GetEditorAssetManager()->GetFileSystemPath(metadata);
-			Buffer bytes = FileSystem::ReadBytes(file);
-			if (!bytes.Data || bytes.Size == 0)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot pack audio '{}': the file cannot be read", file.string());
-				return false;
-			}
-			stream.WriteRaw<uint64_t>(bytes.Size);
-			stream.WriteData(reinterpret_cast<const char*>(bytes.Data), bytes.Size);
-			bytes.Release();
+			LUX_CORE_ERROR_TAG("Audio", "Cannot pack audio '{}': the file cannot be read", file.string());
+			return false;
 		}
+		stream.WriteRaw<uint64_t>(bytes.Size);
+		stream.WriteData(reinterpret_cast<const char*>(bytes.Data), bytes.Size);
+		bytes.Release();
 		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
 		return true;
 	}

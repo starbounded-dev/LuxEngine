@@ -27,7 +27,7 @@ namespace Lux::AudioFileUtils
 
 	// The peak level (0 to 1, over every channel) of each of `buckets` equal slices of the file, for
 	// waveform views. Decodes the whole file on the calling thread. The native backend reads it with
-	// miniaudio; the FMOD build has no waveforms and returns nothing.
+	// miniaudio.
 	std::optional<std::vector<float>> GetWaveform(const std::filesystem::path& filepath, uint32_t buckets);
 
 	std::string ChannelsToLayoutString(uint16_t numChannels);

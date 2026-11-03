@@ -337,7 +337,6 @@ namespace
 			CHECK(AudioEventRef::FromReference(bad).Sound == 0);
 		uint64_t handle = 0;
 		CHECK(NativeInternal::ParseHandle("18446744073709551615", handle) && handle == UINT64_MAX);
-		CHECK(AudioEngine::GetBackend() == AudioBackend::Native);
 		std::puts("PASS: references resolve to the Sound handle; FMOD GUIDs are kept but not played");
 	}
 
@@ -695,16 +694,14 @@ namespace
 		Start();
 		const auto stats = AudioEngine::GetStats();
 		CHECK(stats.Initialized && std::string(stats.BackendName) == "miniaudio" && stats.SampleRate == static_cast<int>(kRate) && !stats.HasMixerStats);
-		CHECK(AudioEngine::GetLoadedBanks().empty() && AudioEngine::GetEvents().empty());
+		CHECK(AudioEngine::GetLoadedSoundBanks().empty() && AudioEngine::GetLoadedClips().empty());
 		AudioEventParameterInfo parameter;
 		CHECK(!AudioEngine::GetEventParameter("1", "Speed", parameter));
 		CHECK(!AudioEngine::SetBusVolume("bus:/NotInTheMixer", 0.5f) && !AudioEngine::SetVCAVolume("vca:/Music", 0.5f));
-		CHECK(AudioEngine::LoadRuntimeBanks("Assets", {}));
-		CHECK(!AudioEngine::LoadBanks("Build/Desktop"));
 		CHECK(!AudioEventInstance::Create("event:/Door") && !AudioEventInstance::Create("424242") && !AudioEventInstance::Create(""));
 		AudioEngine::Shutdown();
 		CHECK(!AudioEngine::HasInitializedEngine() && !NativeInternal::GetEngine());
-		std::puts("PASS: engine lifecycle, stats, and FMOD-only calls refused cleanly");
+		std::puts("PASS: engine lifecycle, stats, and unknown references refused cleanly");
 	}
 
 	void TestPanAndAttenuation()
@@ -763,7 +760,7 @@ namespace
 		const double single = PlayAt(sound, { 0.0f, 0.0f, -1.0f }).Left;
 		CHECK_NEAR(shared / single, 0.625, 0.005);
 
-		// No active listener: a neutral one at the origin, like the FMOD bridge.
+		// No active listener: a neutral one at the origin.
 		AudioListener::Apply({});
 		CHECK_NEAR(PlayAt(sound, source).Left / alone, 1.0, 1e-4);
 		AudioEngine::Shutdown();
@@ -1996,7 +1993,7 @@ namespace
 		return Rms(Render(kRate / 10), 0);
 	}
 
-	// PhysicsAudioSystem against native Sounds, as tests/audio/PhysicsAudioTests.cpp does against FMOD:
+	// PhysicsAudioSystem against Sounds:
 	// a Surface switch picks the clip, and Impulse, Speed and Weight curves set the volume.
 	void TestPhysicsAudio()
 	{

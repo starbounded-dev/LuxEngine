@@ -263,10 +263,6 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: New-Item -ItemType Directory -Force logs
 
-      - name: Test dependency layouts
-        if: matrix.configuration == 'Debug'
-        run: python tests/audio/run_sdk_layout.py
-
       # /restore runs the Restore target before the build. ScriptCore and Coral.Managed are
       # SDK-style C# projects inside Lux.sln, and those cannot build without the
       # obj/project.assets.json that a NuGet restore produces (error NETSDK1004). The same
@@ -333,7 +329,7 @@ jobs:
             }
           }
 
-          # The default native audio backend deploys no audio libraries; FMOD's must never ship.
+          # The engine deploys no audio libraries; an FMOD library left by an old build must never ship.
           $fmod = Get-ChildItem -Path $artifactRoot -Recurse -File -Include "fmod*.dll"
           if ($fmod) {
             throw "FMOD libraries in the artifact: $($fmod.FullName -join ', ')"
@@ -624,7 +620,7 @@ jobs:
             done
           done
 
-          # The default native audio backend deploys no audio libraries; FMOD's must never ship.
+          # The engine deploys no audio libraries; an FMOD library left by an old build must never ship.
           if find "$root" -name 'libfmod*' | grep -q .; then
             echo "FMOD libraries in the artifact" >&2
             exit 1
@@ -687,192 +683,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-logs-linux-${{ matrix.configuration }}
-          path: logs/*.log
-          if-no-files-found: ignore
-
-  # The optional FMOD audio backend (--audio-backend=fmod), kept compiling until it is deleted
-  # (docs/AUDIO_NATIVE_BACKEND_PLAN.md Phase 10). Debug only. FMOD is a licensed SDK that must never
-  # be committed to this public repository: it comes from a private repository (variable
-  # AUDIO_SDK_REPOSITORY, laid out by scripts/ci/StageAudioSDKs.py), read with a fine-grained
-  # read-only token (secret AUDIO_SDK_TOKEN).
-  build-fmod-windows:
-    # Needs the private FMOD SDK, so it is skipped where the repository has none and for fork pull requests.
-    if: ${{ vars.AUDIO_SDK_REPOSITORY != '' && !github.event.pull_request.head.repo.fork }}
-    runs-on: windows-2025
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
-        with:
-          submodules: recursive
-          lfs: true
-
-      - name: Checkout audio SDKs (private)
-        uses: actions/checkout@v6.0.2
-        with:
-          repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
-          token: ${{ secrets.AUDIO_SDK_TOKEN }}
-          path: .audio-sdk
-          persist-credentials: false
-
-      - name: Point the build at the audio SDKs
-        shell: pwsh
-        run: |
-          "LUX_FMOD_SDK=$(Join-Path $env:GITHUB_WORKSPACE '.audio-sdk/FMOD/windows')" >> $env:GITHUB_ENV
-
-      - name: Setup Python
-        uses: actions/setup-python@v6.2.0
-        with:
-          python-version: '3.11'
-
-      - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.4.0
-        with:
-          vulkan_version: 1.4.335.0
-          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
-          install_runtime: true
-          cache: true
-          stripdown: true
-
-          install_swiftshader: false
-          install_lavapipe: false
-
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v3
-        with:
-          msbuild-architecture: 'x64'
-
-      - name: Set up .NET 9
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
-      - name: Setup
-        working-directory: ${{env.GITHUB_WORKSPACE}}
-        run: |
-          cd scripts
-          python Setup.py ${{ env.PREMAKE_GENERATOR }} fmod-audio
-
-      - name: Prepare logs
-        working-directory: ${{env.GITHUB_WORKSPACE}}
-        run: New-Item -ItemType Directory -Force logs
-
-      - name: Build
-        working-directory: ${{env.GITHUB_WORKSPACE}}
-        run: |
-          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=Debug" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-FMOD-Debug.log;verbosity=normal"
-
-      - name: Verify build output
-        shell: pwsh
-        run: |
-          $output = "bin/Debug-windows-x86_64"
-          foreach ($file in @("Editor/Editor.exe", "Lux-Runtime/Lux-Runtime.exe")) {
-            if (-not (Test-Path -LiteralPath (Join-Path $output $file) -PathType Leaf)) {
-              throw "Missing build output: $output/$file"
-            }
-          }
-          # The FMOD backend deploys its runtime libraries next to the editor.
-          if (-not (Get-ChildItem -Path $output -Recurse -Filter "fmod.dll" -ErrorAction SilentlyContinue)) {
-            throw "fmod.dll is missing from an FMOD audio build"
-          }
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-fmod-windows
-          path: logs/*.log
-          if-no-files-found: ignore
-
-  build-fmod-linux:
-    # Needs the private FMOD SDK, so it is skipped where the repository has none and for fork pull requests.
-    if: ${{ vars.AUDIO_SDK_REPOSITORY != '' && !github.event.pull_request.head.repo.fork }}
-    runs-on: ubuntu-26.04
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
-        with:
-          submodules: recursive
-          lfs: true
-
-      - name: Checkout audio SDKs (private)
-        uses: actions/checkout@v6.0.2
-        with:
-          repository: ${{ vars.AUDIO_SDK_REPOSITORY }}
-          token: ${{ secrets.AUDIO_SDK_TOKEN }}
-          path: .audio-sdk
-          persist-credentials: false
-
-      - name: Point the build at the audio SDKs
-        shell: bash
-        run: |
-          echo "LUX_FMOD_SDK=${GITHUB_WORKSPACE}/.audio-sdk/FMOD/linux" >> "$GITHUB_ENV"
-
-      - name: Setup Python
-        uses: actions/setup-python@v6.2.0
-        with:
-          python-version: '3.11'
-
-      - name: Set up .NET 9
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
-      # Same packages as build-linux.
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang llvm make pkg-config \
-            libgtk-3-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
-            libdw-dev libunwind-dev libtbb-dev zlib1g-dev
-          if ! command -v llvm-ar >/dev/null 2>&1; then
-            sudo ln -sf "$(ls -1 /usr/bin/llvm-ar-* | sort -V | tail -1)" /usr/bin/llvm-ar
-          fi
-
-      - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.4.0
-        with:
-          vulkan_version: 1.4.335.0
-          optional_components: com.lunarg.vulkan.vma, com.lunarg.vulkan.debug, com.lunarg.vulkan.glm
-          install_runtime: true
-          cache: true
-          stripdown: true
-
-      - name: Build
-        shell: bash
-        env:
-          LUX_PREMAKE_OPTIONS: --audio-backend=fmod
-        run: |
-          set -o pipefail
-          mkdir -p logs
-          ./scripts/Linux-Build.sh Debug 2>&1 | tee "logs/Build-FMOD-Debug.log"
-
-      - name: Verify build output
-        run: |
-          out="bin/Debug-linux-x86_64"
-          fail=0
-          for f in "$out/Editor/Editor" "$out/Lux-Runtime/Lux-Runtime"; do
-            if [ -x "$f" ]; then
-              echo "ok   $f"
-            else
-              echo "MISSING $f"; fail=1
-            fi
-          done
-          # The FMOD backend links FMOD.
-          if [ -x "$out/Editor/Editor" ] && ! readelf -d "$out/Editor/Editor" | grep -q 'libfmod'; then
-            echo "The editor does not link FMOD in an FMOD audio build"; fail=1
-          fi
-          exit $fail
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-fmod-linux
           path: logs/*.log
           if-no-files-found: ignore
 

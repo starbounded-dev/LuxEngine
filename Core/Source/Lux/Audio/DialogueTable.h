@@ -18,7 +18,7 @@ namespace Lux
 	struct DialogueTranslation
 	{
 		std::string Text, SpeakerName;
-		std::string AudioKey; // FMOD: the line's audio-table key (a programmer sound)
+		std::string AudioKey; // legacy (FMOD audio-table key); read and kept, never played
 		UUID Clip = 0;        // native: the line's audio asset, played through the line's Sound
 	};
 

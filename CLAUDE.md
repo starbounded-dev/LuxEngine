@@ -135,7 +135,6 @@ Linux binary. `scripts/Linux-Build.sh` downloads a pinned, checksum-verified bui
 - `--no-tracy` — exclude Tracy profiler (useful to reduce link times)
 - `--no-aftermath` — exclude Nvidia Aftermath GPU crash tracker
 - `--discord` — enable Discord Social SDK integration (requires `Core/vendor/discord_social_sdk/`)
-- `--audio-backend=fmod` — the optional FMOD Studio audio backend instead of the default built-in one (`native`, miniaudio); needs the FMOD SDK
 
 **Build configs:** `debug`, `debug-as` (AddressSanitizer), `release`, `dist`
 
@@ -232,8 +231,8 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented by one backend chosen with premake `--audio-backend`: `native` (the default, vendored miniaudio and `.lsound` Sound assets, `Audio/Native/`) or `fmod` (optional until Phase 10 deletes it, FMOD Core/Studio, `Audio/FMOD/`). Editor code asks `AudioEngine::GetBackend()`; the backend defines are Core-only. Acoustics (occlusion, reverb) come from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`) on either backend, through `AudioEventInstance::SetAcoustics`.
-- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type; Phase 2 added the native backend behind `--audio-backend=native` (tested in `tests/audio/native`); Phase 3 added the Sound node tree (containers, parameters, curves, limits, streaming) and its playback; Phases 4–8 the mixer, music, dialogue and export; Phase 9 made native the default and moved the sample (`AudioDemo.luxscene`) to Sound assets.
+- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented with the vendored miniaudio (`Audio/Native/`). What plays is editor-authored **Sound** assets (`.lsound`, a node tree of clips and containers), grouped for loading into **Sound Banks** (`.lbank`) that scenes list; the project **mixer** (buses, effects, reverb, snapshots, VCAs) lives in `ProjectAudioSettings::Mixer`. Exported clips are read in place inside `AssetPack.lap` through a miniaudio VFS. Acoustics (occlusion, reverb) come from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`), applied per voice through `AudioEventInstance::SetAcoustics`.
+- FMOD was removed in November 2026 (`docs/AUDIO_NATIVE_BACKEND_PLAN.md`, then `specs/002-fmod-replacement`). Old projects still load: FMOD GUIDs, Studio settings and bank manifests are read and reported, never played.
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

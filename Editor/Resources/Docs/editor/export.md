@@ -25,7 +25,7 @@ The same settings appear in **Project Settings → Runtime Export** and in the e
 
 The **Export Preflight** list shows what the export needs and whether it is there: the startup scene, the player executable for the chosen Target Config, the asset pack (created during export), the engine resources, the compiled scripts (**stale** means the scripts changed since they were built) and the .NET runtime.
 
-If the project uses FMOD audio, the export checks every bank and stops if one is missing or older than the FMOD Studio project; build the banks first (see [Authoring Audio in FMOD Studio](audio-authoring)).
+Every Sound, Sound Bank and audio clip goes into the asset pack. The export checks them first and stops on an error, such as a Sound with no clip (see [Authoring Audio](audio-authoring)).
 
 ## Export
 

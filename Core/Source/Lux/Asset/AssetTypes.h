@@ -36,9 +36,8 @@ namespace Lux {
 		Skeleton,
 		Animation,
 		AnimationGraph,
-		// The FMOD Studio project that authors this game's audio (.fspro), and the banks it builds
-		// (.bank). Both are opened in FMOD Studio rather than in an engine editor - they exist as
-		// asset types so the Content Browser can show and activate them, not so they can be loaded.
+		// Legacy: FMOD Studio projects (.fspro) and banks (.bank), no longer imported. Kept so numeric
+		// values, and registries that still list them, stay valid.
 		AudioProject,
 		AudioBank,
 		AudioSurfaceTable,

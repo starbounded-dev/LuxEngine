@@ -32,7 +32,7 @@ Plays a short ambient line from an entity, outside the queue. Repeats of the sam
 public static DialogueHandle Describe(string key)
 ```
 
-Queue an authored description line when audio descriptions are enabled. Route its FMOD event to the mapped Dialogue bus so other categories can be ducked.
+Queue an authored description line when audio descriptions are enabled. Route its Sound to the mapped Dialogue bus so other categories can be ducked.
 
 ```
 public static bool IsActive(DialogueHandle handle)

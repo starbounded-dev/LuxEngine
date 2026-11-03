@@ -350,10 +350,8 @@ namespace Lux {
 			&& ImGui::MenuItem("Create Variant"))
 			actionResult.Set(ContentBrowserAction::CreateVariant, true);
 
-		// Sound assets are what the native audio backend plays; the FMOD build plays Studio events.
 		// With several clips selected, one Random Sound plays a different one each time.
-		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Audio
-			&& AudioEngine::GetBackend() == AudioBackend::Native)
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Audio)
 		{
 			const size_t clips = ContentBrowserPanel::Get().GetSoundClips(m_ID).size();
 			const std::string label = clips > 1 ? std::format("Create Random Sound ({} clips)###create_sound", clips) : std::string("Create Sound###create_sound");

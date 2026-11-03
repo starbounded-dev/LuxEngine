@@ -57,7 +57,7 @@ add_executable(lux_native_backend_tests NativeBackendTests.cpp
     "${LUX_SOURCE}/Audio/Native/NativeAudioEventInstance.cpp"
     "${LUX_SOURCE}/Audio/Native/NativeClipCache.cpp"
     "${LUX_SOURCE}/Audio/Native/NativePackVFS.cpp"
-    "${LUX_SOURCE}/Audio/Native/NativeAudioBackend.cpp"
+    "${LUX_SOURCE}/Audio/Native/NativeAudioReferences.cpp"
     "${LUX_SOURCE}/Audio/Native/NativeAudioPerformance.cpp"
     "${LUX_SOURCE}/Audio/Native/NativeAudioFileUtils.cpp"
     "${LUX_ROOT}/Core/vendor/MiniaudioCpp/src/MiniaudioWrappers.cpp"

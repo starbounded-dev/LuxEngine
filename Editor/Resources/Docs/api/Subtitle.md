@@ -8,7 +8,7 @@ A subtitle, caption or description line, for drawing your own subtitle UI.
 
 | Name | Type | Access | Description |
 |---|---|---|---|
-| `Duration` | `float` | get | Source sound length in seconds; zero if FMOD has not supplied a length. Hide on SubtitleHidden, since authored fades and interruptions can change playback time. |
+| `Duration` | `float` | get | Source sound length in seconds; zero if no length is known yet. Hide on SubtitleHidden, since authored fades and interruptions can change playback time. |
 | `Handle` | `DialogueHandle` | get | The line it belongs to. |
 | `IsCaption` | `bool` | get | Whether this is a closed caption for a sound rather than speech. |
 | `IsDescription` | `bool` | get | Whether this is an audio-description line. |

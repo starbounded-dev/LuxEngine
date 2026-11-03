@@ -69,7 +69,6 @@ TEXTURE_SETS = (
 CHECKERBOARD_TEXTURE = 4617627115470858524
 LOGO_TEXTURE = 3523050505664199236
 
-# FMOD Studio events in the sample project's Master bank.
 # The Sounds the scene plays (Assets/Audio/Sounds/Fart.lsound and Music.lsound).
 SOUND_FART = "9117899157295655424"
 SOUND_MUSIC = "8743721474366396702"

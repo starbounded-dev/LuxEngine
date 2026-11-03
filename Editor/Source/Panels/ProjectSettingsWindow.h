@@ -33,7 +33,6 @@ namespace Lux {
 		void RenderRuntimeExportSettings();
 		void RenderRendererSettings();
 		void RenderAudioSettings();
-		void RenderAudioBankStatus();
 		void RenderScriptingSettings();
 		void RenderPhysicsSettings();
 		void RenderLogSettings();

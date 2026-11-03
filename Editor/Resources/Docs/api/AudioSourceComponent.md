@@ -2,7 +2,7 @@
 
 `public class AudioSourceComponent : Component`
 
-Plays an FMOD Studio event from the entity.
+Plays a Sound from the entity.
 
 ## Properties
 
@@ -14,8 +14,8 @@ Plays an FMOD Studio event from the entity.
 | `IsPlaying` | `bool` | get | Whether the event is playing. |
 | `OcclusionGain` | `float` | get | Low-frequency occlusion applied to this source's Occlusion parameter this frame: 1 is a clear path, 0 fully blocked. 1 outside Play and while culled. Read-only; useful for gameplay such as AI hearing. |
 | `Pitch` | `float` | get, set | Pitch multiplier (1 is unchanged). |
-| `Priority` | `int` | get, set | FMOD voice priority: 0 is highest, 256 is lowest. |
-| `Sound` | `Sound` | get, set | The Sound this source plays; setting it takes effect on the next [`AudioSourceComponent.Play`](AudioSourceComponent). |
+| `Priority` | `int` | get, set | Voice priority: 0 is highest, 256 is lowest. |
+| `Sound` | `Sound?` | get, set | The Sound this source plays; setting it takes effect on the next [`AudioSourceComponent.Play`](AudioSourceComponent). |
 | `TimelinePosition` | `int` | get, set | The event's timeline position in milliseconds; setting it seeks. |
 | `Volume` | `float` | get, set | Volume multiplier on top of the event's authored volume (1 is unchanged). |
 

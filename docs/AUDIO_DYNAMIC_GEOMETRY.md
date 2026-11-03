@@ -1,5 +1,9 @@
 # Dynamic acoustic geometry and portals (Phase 13)
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Phase 13 keeps acoustic geometry synchronized with moving mesh colliders and adds acoustic shutters
 that can connect two audio zones. FMOD continues to own event playback and authored effects.
 

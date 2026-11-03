@@ -54,7 +54,6 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
-#include "Lux/Audio/AudioBankBuilder.h"
 #include "Panels/AudioDebugPanel.h"
 #include "Panels/GameViewPanel.h"
 #include "Lux/Renderer/UI/Font.h"
@@ -275,7 +274,6 @@ namespace Lux {
 		constexpr const char* s_RuntimeExportStepLabels[] = {
 			"Checking the export and clearing its folder",
 			"Building the asset pack",
-			"Copying audio banks",
 			"Writing the runtime project",
 			"Copying Lux-Runtime",
 			"Copying resources",
@@ -735,31 +733,6 @@ namespace Lux {
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)
 			{
 				EnterPrefabEditMode(metadata.Handle);
-			});
-
-			// Audio is authored in FMOD Studio, not in this editor, so activating either the project
-			// or one of its built banks hands off to Studio. A bank opens its owning project —
-			// Studio has no notion of opening a bank on its own, and the project is what the
-			// designer actually needs in front of them.
-			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::AudioProject, [](const AssetMetadata& metadata)
-			{
-				AudioBankBuilder::OpenInStudio(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
-			});
-
-			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::AudioBank, [](const AssetMetadata&)
-			{
-				Ref<Project> project = Project::GetActive();
-				if (!project)
-					return;
-
-				const std::filesystem::path studioProject = project->GetStudioProjectPath();
-				if (studioProject.empty())
-				{
-					LUX_CORE_WARN_TAG("Audio", "This project has no FMOD Studio project configured, so there is nothing to open for that bank");
-					return;
-				}
-
-				AudioBankBuilder::OpenInStudio(studioProject);
 			});
 
 			if (textEditorPanel)
@@ -3938,8 +3911,6 @@ namespace Lux {
 			else
 				NewScene();   // don't carry the previous project's scene (and its asset handles) over
 			m_PanelManager->OnProjectChanged(Project::GetActive());
-			StartupSplash::Report(0.9f, "Loading audio banks");
-			LoadAudioBanksForActiveProject();
 			if (m_SceneRenderer)
 				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);
 		}
@@ -3965,8 +3936,6 @@ namespace Lux {
 		config.Name = name;
 		config.DefaultNamespace = name;
 		config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (name + ".dll");
-		// The default names the sample's FMOD Studio project; a new project has no authored audio yet.
-		config.Audio.StudioProjectPath.clear();
 
 		const std::filesystem::path assetDirectory = projectDirectory / config.AssetDirectory;
 		for (const std::filesystem::path& folder : { assetDirectory / "Scenes", assetDirectory / "Scripts" / "Source", assetDirectory / "Materials", assetDirectory / config.MeshSourcePath, assetDirectory / "Textures" })
@@ -4181,13 +4150,7 @@ namespace Lux {
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
 		drawStatus("DotNet", !dotnet.empty(), dotnet.string(), "missing");
-		if (config.Audio.StudioProjectPath.empty())
-			ImGui::TextUnformatted("FMOD banks: none configured in Project Settings > Audio");
-		else
-		{
-			ImGui::Text("FMOD bank output: %s", project->GetStudioBankDirectory().string().c_str());
-			ImGui::TextWrapped("Export validates all banks and stops if they are missing or stale. Build banks in FMOD Studio before exporting.");
-		}
+		ImGui::TextWrapped("Audio: every Sound, Sound Bank and clip is packed into the asset pack. Export stops on audio validation errors.");
 
 		ImGui::Spacing();
 		{
@@ -4419,8 +4382,7 @@ namespace Lux {
 		// Before any build, so a blocked export fails without waiting a minute for one. The overlay
 		// locks the editor from here on, so nothing these checks read can change before the export
 		// writes.
-		AudioBankManifest audioBanks;
-		if (!ValidateRuntimeExportAudio(project, audioBanks))
+		if (!ValidateRuntimeExportAudio(project))
 			return;
 
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
@@ -4446,21 +4408,14 @@ namespace Lux {
 		}
 
 		// UpdateRuntimeBuild writes the export once any build has finished.
-		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings, audioBanks };
+		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings };
 		m_PendingRuntimeExport->Writing = !buildRuntime && !buildScripts;
 		m_PendingRuntimeExport->OpenFolderWhenDone = targetFolder.empty();
 	}
 
-	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
+	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project)
 	{
-		// The native backend packs each clip's audio into the asset pack and plays no banks.
-		if (AudioEngine::GetBackend() == AudioBackend::Native)
-			audioBanks = {};
-		else if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
-		{
-			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
-			return false;
-		}
+		// Each clip's audio goes into the asset pack (AudioAssetSerializer); nothing else to prepare.
 		const auto audioValidation = AudioValidation::ValidateProject(*project, m_EditorScene.Raw());
 		audioValidation.Log();
 		if (audioValidation.HasErrors())
@@ -4484,7 +4439,6 @@ namespace Lux {
 		std::error_code ec;
 		const Ref<Project>& project = pending.ExportedProject;
 		const ProjectRuntimeExportSettings& runtimeSettings = pending.Settings;
-		const AudioBankManifest& audioBanks = pending.AudioBanks;
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
 		// Resolved by the Prepare step, used by the steps after it.
 		std::filesystem::path& runtimeExe = pending.RuntimeExe;
@@ -4612,15 +4566,11 @@ namespace Lux {
 			return true;
 		}
 
-		case RuntimeExportStep::AudioBanks:
-			return RuntimeExport::CopyAudioBanks(*project, audioBanks, exportAssets)
-				&& RuntimeExport::CopyAudioLibraries(runtimeExe.parent_path(), exportRoot);
-
 		case RuntimeExportStep::RuntimeProject:
 		{
 			ProjectSerializer serializer(project);
 			const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
-			if (!serializer.SerializeRuntime(runtimeProjectFile, audioBanks))
+			if (!serializer.SerializeRuntime(runtimeProjectFile, {}))
 			{
 				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
 				return false;
@@ -5832,51 +5782,6 @@ namespace Lux {
 		DiscordSocial::SetPresence(presence);
 	}
 
-	void EditorLayer::RebuildAudioBanksIfNeeded()
-	{
-		Ref<Project> project = Project::GetActive();
-		// Banks are FMOD Studio output; the native backend plays Sound assets.
-		if (!project || AudioEngine::GetBackend() == AudioBackend::Native)
-			return;
-
-		const std::filesystem::path studioProject = project->GetStudioProjectPath();
-		if (studioProject.empty())
-			return;
-
-		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();
-
-		if (project->GetConfig().Audio.RebuildBanksOnPlay
-			&& AudioBankBuilder::NeedsRebuild(studioProject, bankDirectory))
-		{
-			// Failure is logged by the builder. Existing output for this profile can still be used.
-			AudioBankBuilder::Build(studioProject, project->GetStudioPlatform());
-		}
-
-		// A profile/output directory may have changed since project open. Resolve the current
-		// selection even when another catalog is already loaded.
-		if (!AudioEngine::LoadBanks(bankDirectory))
-		{
-			// Do not play a previous profile's catalog when the newly selected output is missing.
-			AudioEngine::UnloadAllBanks();
-			LUX_CORE_ERROR_TAG("Audio", "Play will continue without project banks: cannot load the selected audio profile at '{}'", bankDirectory.string());
-		}
-	}
-
-	void EditorLayer::LoadAudioBanksForActiveProject()
-	{
-		Ref<Project> project = Project::GetActive();
-		if (!project || AudioEngine::GetBackend() == AudioBackend::Native)
-			return;
-
-		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();
-		if (bankDirectory.empty())
-			return;
-
-		// Loaded on project open rather than on Play so the editor can list a project's events
-		// while editing - the event picker and the Audio Debugger both need them in Edit mode.
-		AudioEngine::LoadBanks(bankDirectory);
-	}
-
 	void EditorLayer::OnScenePlay()
 	{
 		if (m_PrefabEditMode)   // no play while editing a prefab in isolation
@@ -5884,15 +5789,9 @@ namespace Lux {
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
 
-		// First, so anything logged while starting this session (bank rebuilds, script errors) stays.
+		// First, so anything logged while starting this session (script errors) stays.
 		if (m_ConsolePanel)
 			m_ConsolePanel->OnScenePlay();
-
-		// Before the runtime starts, so the banks it loads are the ones matching what the designer
-		// last saved in FMOD Studio. A timestamp check makes this free when nothing changed; a
-		// failed build is logged and play continues, since a stale bank still plays something and
-		// blocking Play on an audio tool would be worse than the staleness.
-		RebuildAudioBanksIfNeeded();
 
 		SuspendRendererDebugViewsForPlay();
 		m_SceneState = SceneState::Play;

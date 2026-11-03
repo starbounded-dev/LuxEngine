@@ -170,7 +170,7 @@ namespace Lux
 			using NativeString path = String(busPath);
 			InternalCalls.Audio_SetBusVolume(path, volume);
 		}
-		/// <summary>Hands a bus back to the mix after <see cref="SetBusVolume"/>: its volume returns to the project mixer's and snapshots apply to it again (FMOD: back to 1).</summary>
+		/// <summary>Hands a bus back to the mix after <see cref="SetBusVolume"/>: its volume returns to the project mixer's and snapshots apply to it again .</summary>
 		/// <param name="busPath">The bus path, <c>bus:/</c> for the master bus.</param>
 		public static void ClearBusVolume(string busPath)
 		{
@@ -201,14 +201,14 @@ namespace Lux
 			using NativeString path = String(vcaPath);
 			InternalCalls.Audio_SetVCAVolume(path, volume);
 		}
-		/// <summary>Sets a global FMOD parameter (one every event sees).</summary>
+		/// <summary>Sets a global parameter (one every Sound sees).</summary>
 		public static void SetGlobalParameter(string name, float value)
 		{
 			Finite(value);
 			using NativeString parameter = String(name);
 			InternalCalls.Audio_SetGlobalParameter(parameter, value);
 		}
-		/// <summary>Reads a global FMOD parameter.</summary>
+		/// <summary>Reads a global parameter.</summary>
 		public static float GetGlobalParameter(string name)
 		{
 			using NativeString parameter = String(name);

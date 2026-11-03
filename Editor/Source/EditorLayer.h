@@ -74,14 +74,7 @@ namespace Lux
 		void DrawOverlayLabel(const std::string& text, const glm::vec3& position, const glm::vec4& color, const glm::mat4& view);
 		void UI_RoomAcousticsReadout();
 
-		// Rebuilds the project's FMOD banks when the .fspro has changed since they were last built.
-		// Called on entering Play; a no-op when the project has no Studio project or the feature is
-		// switched off in project settings.
-		void RebuildAudioBanksIfNeeded();
 
-		// Loads the active project's built banks. Called on project open so the editor can list
-		// events in Edit mode, not only while playing.
-		void LoadAudioBanksForActiveProject();
 		void UI_DrawTitlebar();
 		void UI_DrawMenubar();
 		void UI_AboutPopup();
@@ -123,10 +116,10 @@ namespace Lux
 		// build on m_RuntimeBuildJob when one is stale, then the writing steps, one per frame from
 		// UpdateRuntimeBuild, while UI_RuntimeExportProgress locks the editor.
 		void ExportRuntimeNow(const std::filesystem::path& targetFolder = {});
-		bool ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks);
+		bool ValidateRuntimeExportAudio(const Ref<Project>& project);
 		enum class RuntimeExportStep : uint8_t
 		{
-			Prepare, AssetPack, AudioBanks, RuntimeProject, Executable, Resources, ShaderPack, Scripts, Finish, Count
+			Prepare, AssetPack, RuntimeProject, Executable, Resources, ShaderPack, Scripts, Finish, Count
 		};
 		struct PendingRuntimeExport;
 		bool RunRuntimeExportStep(PendingRuntimeExport& pending, RuntimeExportStep step);
@@ -405,7 +398,6 @@ namespace Lux
 			Ref<Project> ExportedProject;
 			std::filesystem::path Folder;
 			ProjectRuntimeExportSettings Settings;
-			AudioBankManifest AudioBanks;
 			// False while its build runs. Then one RuntimeExportStep per frame, so the overlay redraws.
 			bool Writing = false;
 			bool OpenFolderWhenDone = true;

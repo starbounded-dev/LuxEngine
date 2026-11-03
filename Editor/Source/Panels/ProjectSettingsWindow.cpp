@@ -4,9 +4,9 @@
 #include "lpch.h"
 #include "ProjectSettingsWindow.h"
 
-#include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
+#include "Lux/Audio/Sound.h"
 #include "Lux/Serialization/Yaml.h"
 #include <soundwave/Settings.h>
 #include "Lux/ImGui/AudioWidgets.h"
@@ -25,6 +25,7 @@
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <charconv>
 #include <array>
 #include <set>
 #include <cstdlib>
@@ -142,7 +143,7 @@ namespace Lux {
 			record(AcousticControl::ReverbReference, ImGuiEx::Property("Reverb Reference Decay (s)", settings.ReverbReferenceSeconds, 0.05f, 0.1f, 10.0f,
 				"A space that takes this long to fall 60 dB gets a 63% reverb send. Lower values make rooms wetter.", false));
 			record(AcousticControl::AirLF, ImGuiEx::Property("Air Absorption LF (dB/100 m)", settings.AirAbsorptionLF, 0.05f, 0.0f, 20.0f,
-				"Low-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. FMOD's distance fade still owns the direct sound.", false));
+				"Low-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. The Sound's distance attenuation still owns the direct sound.", false));
 			record(AcousticControl::AirHF, ImGuiEx::Property("Air Absorption HF (dB/100 m)", settings.AirAbsorptionHF, 0.05f, 0.0f, 20.0f,
 				"High-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. 2.5 is about 20 C at 50% humidity.", false));
 			ImGuiEx::EndPropertyGrid();
@@ -730,11 +731,11 @@ namespace Lux {
 			ImGuiEx::BeginPropertyGrid();
 			changed |= ImGuiEx::Property("Mute When Unfocused", edited.MuteWhenUnfocused, "Mute output while unfocused; timelines and gameplay pause state are preserved.", false);
 			int voices = static_cast<int>(edited.RealVoices), memory = static_cast<int>(edited.BankMemoryMiB);
-			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "FMOD real voice cap. Lower priority channels virtualize.", false);
+			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "Most voices mixing at once. Lower priority voices go virtual.", false);
 			edited.RealVoices = static_cast<uint32_t>(voices);
 			changed |= ImGuiEx::Property("CPU Warning (%)", edited.CPUPercent, 0.1f, 0.1f, 100.0f, "Warn once when the measured audio CPU exceeds this value.", false);
 			changed |= ImGuiEx::Property("Acoustics Warning (ms)", edited.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Soundwave main-thread update time.", false);
-			changed |= ImGuiEx::Property("FMOD Memory (MiB)", memory, 1, 65536, "Warning threshold for total FMOD allocations, including banks, samples and mixer overhead.", false);
+			changed |= ImGuiEx::Property("Clip Memory (MiB)", memory, 1, 65536, "Warning threshold for the decoded clips in memory.", false);
 			edited.BankMemoryMiB = static_cast<uint32_t>(memory);
 			ImGuiEx::EndPropertyGrid();
 			std::string remove;
@@ -771,13 +772,13 @@ namespace Lux {
 				else
 					LUX_CORE_ERROR_TAG("Audio", "Invalid audio budget. Use positive limits and valid bus:/ paths (maximum 64 buses).");
 			}
-			ImGui::TextWrapped("Budgets apply when the project audio system is reopened, and in new exports. Bus limits warn; FMOD's global real-voice limit controls virtualization. Live meters and validation are in View > Audio Debugger.");
+			ImGui::TextWrapped("Budgets apply when the project audio system is reopened, and in new exports. Bus limits warn; the real-voice limit controls virtualization. Live meters and validation are in View > Audio Debugger.");
 			ImGui::TreePop();
 		}
 		ImGui::Spacing();
 		if (ImGuiEx::PropertyGridHeader("Desktop Audio Profiles", false))
 		{
-			ImGui::TextWrapped("The current operating system selects its enabled profile for Play, bank builds and native exports. Reopen the project after changing budgets or focus behavior. Console integration is on hold.");
+			ImGui::TextWrapped("The current operating system selects its enabled profile for Play and exports. Reopen the project after changing budgets or focus behavior. Console integration is on hold.");
 			for (auto entry : { std::pair{ "Windows", &audioSettings.Windows }, std::pair{ "Linux", &audioSettings.Linux } })
 			{
 				ImGuiEx::ScopedID id(entry.first);
@@ -785,20 +786,13 @@ namespace Lux {
 				auto& profile = *entry.second;
 				ImGuiEx::BeginPropertyGrid();
 				bool enabled = profile.Enabled;
-				if (ImGuiEx::Property("Override defaults", enabled, "Use this OS's bank target and budgets.", false))
+				if (ImGuiEx::Property("Override defaults", enabled, "Use this OS's budgets.", false))
 				{
 					profile.Enabled = enabled;
 					m_Dirty = true;
 				}
-				m_Dirty |= ImGuiEx::Property("Studio Platform", profile.StudioPlatform, "Exact platform name authored in FMOD Studio (for example Desktop or Windows).", false);
-				std::string output = profile.BankOutputPath.generic_string();
-				if (ImGuiEx::Property("Bank Output", output, "Relative to the Studio project directory.", false))
-				{
-					profile.BankOutputPath = output;
-					m_Dirty = true;
-				}
-				m_Dirty |= ImGuiEx::Property("Real Voices", profile.Performance.RealVoices, 1u, 512u, "FMOD's global software-channel cap.", false);
-				m_Dirty |= ImGuiEx::Property("FMOD Memory (MiB)", profile.Performance.BankMemoryMiB, 1u, 65536u, "Includes banks, samples and mixer overhead.", false);
+				m_Dirty |= ImGuiEx::Property("Real Voices", profile.Performance.RealVoices, 1u, 512u, "Most voices mixing at once.", false);
+				m_Dirty |= ImGuiEx::Property("Clip Memory (MiB)", profile.Performance.BankMemoryMiB, 1u, 65536u, "Warning threshold for decoded clips.", false);
 				m_Dirty |= ImGuiEx::Property("CPU Warning (%)", profile.Performance.CPUPercent, 0.1f, 0.1f, 100.0f, "Audio CPU threshold.", false);
 				m_Dirty |= ImGuiEx::Property("Acoustics Warning (ms)", profile.Performance.RaytracingMilliseconds, 0.1f, 0.01f, 1000.0f, "Soundwave update threshold.", false);
 				m_Dirty |= ImGuiEx::Property("Mute When Unfocused", profile.Performance.MuteWhenUnfocused, "Output mute preserves authored bus and gameplay pause state.", false);
@@ -821,43 +815,15 @@ namespace Lux {
 					}
 				}
 				if (!profile.Validate())
-					ImGui::TextUnformatted("Invalid profile: use a platform name, bank directory and positive budgets.");
+					ImGui::TextUnformatted("Invalid profile: use positive budgets.");
 			}
-			ImGui::Text("Active bank platform: %s", m_Project->GetStudioPlatform().c_str());
 			ImGui::TreePop();
 		}
 
-		ImGui::TextUnformatted("FMOD Studio");
-
 		ImGuiEx::BeginPropertyGrid();
 
-		std::string studioProjectPath = audioSettings.StudioProjectPath.generic_string();
-		if (ImGuiEx::Property("Studio Project (.fspro)", studioProjectPath,
-			"Path to the FMOD Studio project that authors this game's audio, relative to the asset directory. Leave empty if the project has no authored audio."))
-		{
-			audioSettings.StudioProjectPath = studioProjectPath;
-			m_Dirty = true;
-		}
-
-		m_Dirty |= ImGuiEx::Property("Studio Platform", audioSettings.StudioPlatform, "Exact FMOD platform name to build when the desktop profile is disabled.", false);
-		std::string bankOutputPath = audioSettings.StudioBankOutputPath.generic_string();
-		if (ImGuiEx::Property("Bank Output", bankOutputPath,
-			"Where FMOD writes built banks, relative to the .fspro's own directory. 'Desktop' is FMOD's default platform name."))
-		{
-			audioSettings.StudioBankOutputPath = bankOutputPath;
-			m_Dirty = true;
-		}
-
-		bool rebuildOnPlay = audioSettings.RebuildBanksOnPlay;
-		if (ImGuiEx::Property("Rebuild Banks On Play", rebuildOnPlay,
-			"Rebuilds banks before entering Play when the Studio project has changed since they were last built. A timestamp check, so it costs nothing when nothing changed."))
-		{
-			audioSettings.RebuildBanksOnPlay = rebuildOnPlay;
-			m_Dirty = true;
-		}
-
 		if (ImGuiEx::PropertyAssetReference<AudioSurfaceTable>("Surface Table", audioSettings.SurfaceTable,
-			"Shared footstep, impact, scrape and roll events. Create a table in Content Browser > New. Loaded on Play and included in runtime exports."))
+			"Shared footstep, impact, scrape and roll Sounds. Create a table in Content Browser > New. Loaded on Play and included in runtime exports."))
 			m_Dirty = true;
 
 		if (ImGuiEx::PropertyAssetReference<DialogueTable>("Dialogue Table", audioSettings.Dialogue.Table,
@@ -878,14 +844,6 @@ namespace Lux {
 			"Layered keeps both. Prefer zones reduces Soundwave's ReverbSend by active snapshot coverage. Prefer Soundwave suppresses zone snapshots while a reverb measurement exists.", false))
 			m_Dirty = true;
 
-		bool liveUpdate = audioSettings.EnableLiveUpdate;
-		if (ImGuiEx::Property("Live Update", liveUpdate,
-			"Lets the FMOD Studio application connect to the running editor and mix in real time. Takes effect the next time the project is opened, since the audio engine is initialised then."))
-		{
-			audioSettings.EnableLiveUpdate = liveUpdate;
-			m_Dirty = true;
-		}
-
 		ImGuiEx::EndPropertyGrid();
 
 		m_Dirty |= DrawAcousticControls(audioSettings.Occlusion);
@@ -897,7 +855,7 @@ namespace Lux {
 			{
 				if (auto table = AssetManager::GetAsset<AudioSurfaceTable>(audioSettings.SurfaceTable))
 				{
-					ImGui::TextWrapped("Edit the shared table, then Save Surface Table. Empty material slots use Default. Footsteps and impacts require one-shot events; scrape and roll require continuous events.");
+					ImGui::TextWrapped("Edit the shared table, then Save Surface Table. Empty material slots use Default. Footsteps and impacts require one-shot Sounds; scrape and roll require looping Sounds.");
 					ImGuiEx::BeginPropertyGrid();
 					ImGuiEx::Property("Impact Cooldown (s)", table->ImpactCooldown, 0.01f, 0.0f, 60.0f, "", false);
 					ImGuiEx::Property("Minimum Impulse", table->MinimumImpulse, 0.1f, 0.0f, 100000.0f, "Jolt estimated collision impulse in kg m/s.", false);
@@ -930,7 +888,7 @@ namespace Lux {
 			{
 				if (auto table = AssetManager::GetAsset<DialogueTable>(audioSettings.Dialogue.Table))
 				{
-					ImGui::TextWrapped("Edits apply on the next Play. Assign a finite FMOD event. For a programmer instrument, enter its audio-table key per language. Empty keys use the event's authored audio. Save after editing.");
+					ImGui::TextWrapped("Edits apply on the next Play. Assign a one-shot Sound; a translation's Clip replaces the Sound's clips in that language. Save after editing.");
 					ImGuiEx::BeginPropertyGrid();
 					ImGuiEx::Property("Default Language", table->DefaultLanguage, "Each line must have a translation in this language.", false);
 					ImGuiEx::Property("Bark Cooldown", table->BarkCooldown, 0.1f, 0.0f, 60.0f, "Seconds between nearby repetitions of the same bark.", false);
@@ -957,7 +915,7 @@ namespace Lux {
 						ImGuiEx::ScopedID lineID(key.c_str());
 						if (!ImGui::TreeNode(key.c_str()))
 							continue;
-						ImGuiEx::SurfaceEventPicker("Speech Event", line.Event, true);
+						ImGuiEx::SurfaceEventPicker("Speech Sound", line.Event, true);
 						ImGuiEx::BeginPropertyGrid();
 						int32_t priority = static_cast<int32_t>(line.Priority);
 						static const char* priorities[] = { "Low", "Normal", "High", "Critical" };
@@ -977,14 +935,9 @@ namespace Lux {
 							ImGuiEx::BeginPropertyGrid();
 							ImGuiEx::PropertyMultiline("Text", translation.Text, "Localized subtitle", false);
 							ImGuiEx::Property("Speaker Name", translation.SpeakerName, "Empty uses the speaker entity name.", false);
-							if (AudioEngine::GetBackend() == AudioBackend::Native)
-							{
-								AssetHandle clip = translation.Clip;
-								if (ImGuiEx::PropertyAssetReference<AudioFile>("Clip", clip, "This language's recording; it replaces the clips of the line's Sound. The subtitle lasts as long as the clip.", nullptr, {}, false))
-									translation.Clip = clip;
-							}
-							else
-								ImGuiEx::Property("Audio Table Key", translation.AudioKey, "FMOD audio-table key. Use unique keys per language when loading their banks together.", false);
+							AssetHandle clip = translation.Clip;
+							if (ImGuiEx::PropertyAssetReference<AudioFile>("Clip", clip, "This language's recording; it replaces the clips of the line's Sound. The subtitle lasts as long as the clip.", nullptr, {}, false))
+								translation.Clip = clip;
 							ImGuiEx::EndPropertyGrid();
 							if (locale != table->DefaultLanguage && ImGui::Button("Remove Translation"))
 								removeLanguage = locale;
@@ -1021,36 +974,41 @@ namespace Lux {
 			m_Dirty |= ImGuiEx::Property("Caption fallback language", accessibility.DefaultLanguage, "Language used when an event has no caption in the selected dialogue language.", false);
 			m_Dirty |= ImGuiEx::Property("Description duck level", accessibility.DescriptionDuck, 0.01f, 0.0f, 1.0f, "Music, SFX, UI and Ambience gain while narration plays. Route narration to Dialogue.", false);
 			for (size_t i = 0; i < AudioCategoryCount; ++i)
-				m_Dirty |= ImGuiEx::Property(AudioCategoryNames[i], accessibility.BusPaths[i], "FMOD bus path. Empty disables this category slider. Use separate sibling category buses under Master.", false);
+				m_Dirty |= ImGuiEx::Property(AudioCategoryNames[i], accessibility.BusPaths[i], "Mixer bus path (View > Audio Mixer). Empty disables this category slider. Use separate sibling category buses under Master.", false);
 			ImGuiEx::EndPropertyGrid();
 			static std::string captionEvent, captionLanguage = "en", captionFilter, speakerName;
-			if (ImGui::BeginCombo("Add event caption/cue", captionEvent.empty() ? "Select FMOD event" : captionEvent.c_str()))
+			// Captions are keyed by the Sound's reference (its handle in decimal), as playback reports it.
+			const auto soundName = [](const std::string& reference)
 			{
-				for (const auto& event : AudioEngine::GetEvents())
+				uint64_t handle = 0;
+				const auto parsed = std::from_chars(reference.data(), reference.data() + reference.size(), handle);
+				const std::string path = parsed.ec == std::errc() ? Project::GetEditorAssetManager()->GetMetadata(AssetHandle(handle)).FilePath.generic_string() : std::string{};
+				return path.empty() ? reference : path;
+			};
+			if (ImGui::BeginCombo("Add Sound caption/cue", captionEvent.empty() ? "Select a Sound" : soundName(captionEvent).c_str()))
+			{
+				for (const AssetHandle sound : AssetManager::GetAllAssetsWithType<Sound>())
 				{
-					if (event.IsSnapshot)
-						continue;
-					ImGuiEx::ScopedID eventID(event.Guid.c_str());
-					if (ImGui::Selectable(event.Path.c_str()))
-						captionEvent = event.Guid;
+					const std::string reference = std::to_string(static_cast<uint64_t>(sound));
+					ImGuiEx::ScopedID soundID(reference.c_str());
+					if (ImGui::Selectable(soundName(reference).c_str()))
+						captionEvent = reference;
 				}
 				ImGui::EndCombo();
 			}
-			if (ImGui::Button("Add event accessibility") && !captionEvent.empty())
+			if (ImGui::Button("Add Sound accessibility") && !captionEvent.empty())
 			{
 				accessibility.Events.try_emplace(captionEvent);
 				m_Dirty = true;
 			}
 			ImGuiEx::BeginPropertyGrid();
-			ImGuiEx::Property("Filter captions", captionFilter, "GUID or event path", false);
-			ImGuiEx::Property("Caption language", captionLanguage, "Language to add to an event", false);
+			ImGuiEx::Property("Filter captions", captionFilter, "Sound path or handle", false);
+			ImGuiEx::Property("Caption language", captionLanguage, "Language to add to a Sound", false);
 			ImGuiEx::EndPropertyGrid();
 			std::string removeEvent;
 			for (auto& [guid, entry] : accessibility.Events)
 			{
-				const auto& events = AudioEngine::GetEvents();
-				const auto info = std::find_if(events.begin(), events.end(), [&](const auto& event) { return event.Guid == guid; });
-				const std::string& name = info == events.end() ? guid : info->Path;
+				const std::string name = soundName(guid);
 				if (!captionFilter.empty() && name.find(captionFilter) == std::string::npos && guid.find(captionFilter) == std::string::npos)
 					continue;
 				ImGuiEx::ScopedID eventID(guid.c_str());
@@ -1164,58 +1122,7 @@ namespace Lux {
 			ImGui::TreePop();
 		}
 
-		RenderAudioBankStatus();
-
 		ImGui::TreePop();
-	}
-
-	// Live state rather than settings: whether the tooling was found, what is loaded right now, and
-	// a way to rebuild without entering Play.
-	void ProjectSettingsWindow::RenderAudioBankStatus()
-	{
-		if (AudioEngine::GetBackend() == AudioBackend::Native)
-		{
-			ImGui::TextDisabled("This build uses the native audio backend: it plays Sound assets and builds no FMOD banks.");
-			return;
-		}
-		const std::filesystem::path studioProject = m_Project->GetStudioProjectPath();
-		if (studioProject.empty())
-		{
-			ImGui::TextDisabled("No FMOD Studio project configured.");
-			return;
-		}
-
-		std::error_code ec;
-		const bool projectExists = std::filesystem::exists(studioProject, ec);
-		if (!projectExists)
-		{
-			ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.31f, 1.0f), "Not found: %s", studioProject.string().c_str());
-			return;
-		}
-
-		const std::vector<AudioBankInfo>& banks = AudioEngine::GetLoadedBanks();
-		const std::vector<AudioEventInfo>& events = AudioEngine::GetEvents();
-		ImGui::Text("%zu bank(s) loaded, %zu event(s)", banks.size(), events.size());
-
-		const bool builderAvailable = AudioBankBuilder::IsAvailable();
-		if (!builderAvailable)
-		{
-			ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.31f, 1.0f),
-				"fmodstudiocl not found - set LUX_FMOD_STUDIO_CL to build banks from the editor.");
-		}
-
-		{
-			ImGuiEx::ScopedDisable disabled(!builderAvailable);
-			if (ImGui::Button("Build Banks Now"))
-			{
-				if (AudioBankBuilder::Build(studioProject, m_Project->GetStudioPlatform()))
-					AudioEngine::LoadBanks(m_Project->GetStudioBankDirectory());
-			}
-		}
-
-		ImGui::SameLine();
-		if (ImGui::Button("Open In FMOD Studio"))
-			AudioBankBuilder::OpenInStudio(studioProject);
 	}
 
 	void ProjectSettingsWindow::RenderScriptingSettings()

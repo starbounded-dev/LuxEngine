@@ -12,7 +12,6 @@ visualisation drawn into the viewport.
 The stack is the **built-in audio engine** (miniaudio, Sound assets authored in the Sound Editor, the
 Audio Mixer) for playback and **Soundwave**, the engine's own acoustic kernel, for occlusion, sound
 around corners and through doorways, and room reverb. Both are built in and need nothing installed.
-Builds generated with `--audio-backend=fmod` play FMOD Studio events instead ([FMOD.md](FMOD.md)).
 
 ---
 
@@ -48,15 +47,13 @@ Sections, in draw order:
 
 | Section | What it tells you |
 |---|---|
-| **Backends** | Whether FMOD initialised, its version and sample rate; the acoustics backend (Soundwave) and whether it is running |
-| **Playback** | Channels playing, DSP CPU, event instance count |
-| **FMOD Studio** | Studio system state and live-update status |
-| **Banks** | Every loaded bank — name, event count, kind |
-| **Events** | Searchable table of events the loaded banks describe — path, kind, GUID |
+| **Backends** | Whether the audio engine (miniaudio) initialised, its version and sample rate; the acoustics backend (Soundwave) and whether it is running |
+| **Playback** | Sound instances playing |
+| **Sound Banks and Clips** | Every loaded Sound Bank (loads, ready or decoding, resident) and every clip in memory (size, streaming, bank and voice references) |
 | **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
-| **Sources** | Per-source table: entity, event, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle, and *Paths* (`3R 1O x2`: reflections, openings, deepest bounce; `!` when a work or path budget ran out) |
-| **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, memory, per-bus input peak/RMS in dBFS |
-| **Audio Validation** | The project's validation results — missing events, wrong event kinds, corrupt banks |
+| **Sources** | Per-source table: entity, Sound, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle, and *Paths* (`3R 1O x2`: reflections, openings, deepest bounce; `!` when a work or path budget ran out) |
+| **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, clip memory, per-bus input peak/RMS in dBFS |
+| **Audio Validation** | The project's validation results — missing Sounds or clips, wrong playback kinds, Sounds in no Sound Bank |
 
 **Audio Validation is the one to check before exporting.** It reports the same failures that make
 an exported game silent, and it is much easier to read here than in the log.
@@ -80,11 +77,7 @@ with a legend of the materials in the scene. It replaces the physics collider vi
 
 ### How it was built
 
-Two decisions in `AudioDebugPanel.h` are worth knowing before you change anything:
-
-**It does not branch on `LUX_ENABLE_FMOD`.** That define is set only for the Core project (`Core/premake5.lua`), so the Editor cannot see them. Each backend
-identifies itself through its stats struct instead. Adding an `#ifdef LUX_ENABLE_FMOD` here
-compiles to nothing and silently removes the section.
+Two decisions are worth knowing before you change anything:
 
 **The visualisation settings live in the panel, but the panel does not draw them.**
 `AudioVisualisationSettings` is owned by `AudioDebugPanel` because that is where it is edited, and
@@ -99,7 +92,7 @@ progress.
 ### How to modify
 
 - **Add a readout:** extend the relevant backend's stats struct first, then add a row. Do not reach
-  into FMOD or Soundwave from the panel — that would put instrumentation in the editor, where it cannot be
+  into miniaudio or Soundwave from the panel — that would put instrumentation in the editor, where it cannot be
   reused by the runtime or the tests.
 - **Add a visualisation mode:** add the field to `AudioVisualisationSettings`, a control in the
   panel's visualisation table, and the drawing in `EditorLayer::OnOverlayRender`.
@@ -108,8 +101,7 @@ progress.
 
 ## Audio Mixer
 
-View → Audio Mixer edits the project's mixer for the native backend (`--audio-backend=native`; an FMOD
-build mixes in FMOD Studio and shows a note instead). Defaults: Music, SFX, Dialogue and Ambience
+View → Audio Mixer edits the project's mixer. Defaults: Music, SFX, Dialogue and Ambience
 under the master.
 
 | Control | What it does |
@@ -133,7 +125,7 @@ scene: edits go on the scene's undo stack and are saved with the scene. Disabled
 ## Sound Banks
 
 A Sound Bank (`.lbank`, Content Browser **New › Sound Bank**, seeded with the selected Sounds) lists
-Sounds that load together, the engine's replacement for FMOD's banks. Double-click one to open the
+Sounds that load together. Double-click one to open the
 **Sound Bank Editor**:
 
 | Control | What it does |
@@ -153,40 +145,32 @@ a scene plays that no bank holds, and reports banks or scenes that name missing 
 Open with **View → Project Settings**, then the **Audio** section. Settings are saved with the
 project and most take effect on reopen.
 
-**FMOD Studio**
-- *Studio Project (.fspro)* — relative to the project's `Assets` directory.
-- *Bank Output* — the **directory** Studio builds into (e.g. `Build/Desktop`), relative to the
-  `.fspro`. Not a `.bank` file; this is the single most common misconfiguration.
-- *Rebuild Banks On Play* — requires Studio's command-line tool `fmodstudiocl` on PATH, or
-  `LUX_FMOD_STUDIO_CL` pointing at it.
-- *Live Update* — lets Studio connect to the running editor.
+**Surface Table** and **Dialogue Table** — the project's shared footstep/impact Sounds and its
+localized speech (each line a Sound, with a recording per language).
 
 **Voice and Performance Budgets** — Real Voices, CPU warning %, Acoustics warning (ms of Soundwave's
-main-thread update), FMOD memory (MiB), per-bus voice limits, and *Mute When Unfocused*. These drive the warnings
+main-thread update), clip memory (MiB), per-bus voice limits, and *Mute When Unfocused*. These drive the warnings
 the Audio Debugger's budget section reports.
 
 **Desktop Audio Profiles** — optional per-OS overrides (*Windows*, *Linux*). Each has *Override
-defaults*, a *Studio Platform* name that must match a platform configured in your Studio project,
-a *Bank Output* directory, and its own budgets. *Copy Default Budgets* seeds a profile from the
-project defaults. The host OS selects its enabled profile for bank builds, Play, validation and
-export.
+defaults* and its own budgets. *Copy Default Budgets* seeds a profile from the project defaults.
+The host OS selects its enabled profile for Play, validation and export.
 
 **Zone Reverb** — how zone reverb and Soundwave's reverb combine: *Layer zones and Soundwave*,
 *Prefer zones*, or *Prefer Soundwave*.
 
-**Soundwave acoustics** — what muffles a source behind a wall (its event's `Occlusion` parameter)
-and how wet the room sounds (`ReverbSend`). Soundwave walks the direct path through acoustic geometry
+**Soundwave acoustics** — what muffles a source behind a wall (a low-pass and gain on its voice)
+and how wet the room sounds (its send to the mixer's reverb return). Soundwave walks the direct path through acoustic geometry
 and closed portals, costing each wall 30 dB per its material's transmission distance (a 0.3 m brick
 wall is about 18 dB), and adds reflection and doorway routes so a source around a corner stays
 audible. *Transmission Strength* scales every wall; *Acoustic Rate* and *Sources per Frame* bound the
 cost; *Maximum Bounces*, *Reflection Depth*, *Opening Samples* and the work budgets bound the search.
 *Reverb Rays*, *Reverb Bounces* and *Reverb Reference Decay* control the listener reverb
 measurement. *Air Absorption LF/HF* (dB per 100 m) darken reflected and doorway sound over their
-extra length and shorten the reverb; FMOD's distance fade still owns how a source fades with
+extra length and shorten the reverb; the Sound's distance attenuation still owns how a source fades with
 distance, so nothing is faded twice. *Compare Engine Ray* also runs the old physics-ray occlusion as a diagnostic. Applies on
 the next Play. Projects saved with the old *Engine raycasts / VA (raytraced)* choice load unchanged
-and play on Soundwave. The Audio Debugger's validation warns about source events with no
-`Occlusion` or `ReverbSend` parameter.
+and play on Soundwave.
 
 **Surface Sounds** — the `.lsurfaces` *Surface Table* plus impact cooldown, minimum impulse (in
 Jolt's estimated kg·m/s) and minimum motion speed, with Footstep / Impact / Scrape / Roll event
@@ -252,5 +236,4 @@ in the viewport. The engine-side rules for all three are in `Architecture-LuxEng
 - [Panels](Panels.md) — every other panel
 - [Viewport & Camera](Viewport-and-Camera.md) — the overlay the acoustics visualisation draws into
 - `Editor/LuxSampleProject/AUDIO_DEMO.md` — the demo scene and authoring your own Sounds
-- [FMOD backend](FMOD.md) — the optional FMOD build: hooking a Studio project up, start to finish
 - `.claude/docs/Architecture-LuxEngine.md` §2.10 — the runtime audio architecture

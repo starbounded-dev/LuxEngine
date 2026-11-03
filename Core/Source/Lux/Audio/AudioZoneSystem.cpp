@@ -281,7 +281,7 @@ namespace Lux {
 			}
 			if (!zone.SnapshotKey.empty())
 			{
-				// A single instance per GUID: FMOD averages multiple instances of the same snapshot.
+				// A single instance per reference: several instances of one snapshot would fight over its buses.
 				auto& snapshot = m_Snapshots[zone.SnapshotKey];
 				snapshot.Seen = true;
 				snapshot.Weight += zone.Weight;

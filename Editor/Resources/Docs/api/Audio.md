@@ -16,7 +16,7 @@ Gameplay audio. Call on the engine's main thread; handles expire when Play stops
 public static void ClearBusVolume(string busPath)
 ```
 
-Hands a bus back to the mix after [`Audio.SetBusVolume`](Audio): its volume returns to the project mixer's and snapshots apply to it again (FMOD: back to 1).
+Hands a bus back to the mix after [`Audio.SetBusVolume`](Audio): its volume returns to the project mixer's and snapshots apply to it again .
 
 - `busPath`: The bus path, `bus:/` for the master bus.
 
@@ -48,7 +48,7 @@ A mixer bus's volume.
 public static float GetGlobalParameter(string name)
 ```
 
-Reads a global FMOD parameter.
+Reads a global parameter.
 
 ```
 public static bool IsBankLoaded(SoundBank bank)
@@ -129,7 +129,7 @@ Sets a mixer bus's volume (1 is unchanged).
 public static void SetGlobalParameter(string name, float value)
 ```
 
-Sets a global FMOD parameter (one every event sees).
+Sets a global parameter (one every Sound sees).
 
 ```
 public static void SetVCAVolume(string vcaPath, float volume)

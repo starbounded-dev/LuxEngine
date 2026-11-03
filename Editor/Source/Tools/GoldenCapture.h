@@ -46,7 +46,7 @@ namespace Lux {
 	//                           MoveStop=K (with MoveEntities) stops them at the loop's start once
 	//                           the capture could happen and captures K frames later, while the
 	//                           renderer still treats them as settling: their shadows must be there.
-	//   LUX_GOLDEN_PLAY         "1" enters normal Play and verifies Soundwave/FMOD LF values
+	//   LUX_GOLDEN_PLAY         "1" enters normal Play and verifies Soundwave LF values
 	//   LUX_GOLDEN_EXPORT_DIR   optional empty parent folder for normal runtime export after capture
 	//   LUX_GOLDEN_SELFTEST     "1" also runs RenderGraph::RunValidationSelfTests
 	//   LUX_GOLDEN_EXIT         "0" keeps the editor open afterwards (default: close)

@@ -2,7 +2,7 @@
 
 Offline checks for the native audio backend (`docs/AUDIO_NATIVE_BACKEND_PLAN.md`): the vendored
 miniaudio on its own (Phase 0), and the engine's backend in `Core/Source/Lux/Audio/Native` (Phases 2–3).
-They need no FMOD SDK and no sound card: `ma_engine` runs with `noDevice` and the tests
+They need no audio SDK and no sound card: `ma_engine` runs with `noDevice` and the tests
 read its output directly.
 
 ```sh

@@ -5,7 +5,6 @@ and hands back a plain object the callers act on.
 """
 
 import os
-import glob
 import subprocess
 import sys
 
@@ -181,27 +180,5 @@ def warn_missing_discord_sdk(config, root):
     print(f"Missing from {include_dir}: {', '.join(missing)}")
     print("See Core/vendor/discord_social_sdk/DISCORD_SDK_SETUP.md.")
     print(f"{Fore.YELLOW}Continuing anyway - the generated project will not compile until it exists.{Style.RESET_ALL}")
-    print("")
-    return False
-
-
-def warn_missing_fmod_sdk(config, root):
-    """Preliminary discovery; Premake validates the selected target's complete SDK layout.
-    Only the optional FMOD backend uses the SDK; the default native backend needs nothing here."""
-    if not config.enabled("fmod-audio"):
-        return True
-
-    override = os.getenv("LUX_FMOD_SDK")
-    candidates = [override] if override else glob.glob(os.path.join(root, "Core", "vendor", "FMOD", "*"))
-    library = "x64/fmod_vc.lib" if os.name == "nt" else "x86_64/libfmod.so"
-    if any(os.path.isfile(os.path.join(candidate, "api", "core", "inc", "fmod.hpp"))
-           and os.path.isfile(os.path.join(candidate, "api", "core", "lib", library)) for candidate in candidates):
-        return True
-
-    print("")
-    print(f"{Style.BRIGHT}{Back.RED} FMOD Engine SDK incomplete {Style.RESET_ALL}")
-    print("No native FMOD Engine SDK found. Extract the package into Core/vendor/FMOD/ or set")
-    print("LUX_FMOD_SDK to its root containing api/. Premake verifies headers, link inputs and runtime libraries.")
-    print(f"{Fore.YELLOW}FMOD is required; project generation will fail until the SDK is installed.{Style.RESET_ALL}")
     print("")
     return False

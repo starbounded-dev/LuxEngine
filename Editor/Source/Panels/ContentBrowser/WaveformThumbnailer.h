@@ -20,7 +20,7 @@ namespace Lux
 	// Draws waveform thumbnails for audio files and Sounds (a Sound shows its first clip) for the
 	// content browser. One file at a time is decoded as a JobSystem job (inline when there are no
 	// workers); the main thread rasterizes the peaks and hands the pixels to the ThumbnailCache.
-	// Waveforms need the native audio backend; the FMOD build marks every request failed. Main
+	// Waveforms are read with miniaudio. Main
 	// thread only, apart from the job itself, which touches only its own Job.
 	class WaveformThumbnailer : public RefCounted
 	{

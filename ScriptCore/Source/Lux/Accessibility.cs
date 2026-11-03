@@ -8,7 +8,7 @@ using Coral.Managed.Interop;
 
 namespace Lux
 {
-	/// <summary>A volume category the player can set, mapped to an FMOD bus in Project Settings.</summary>
+	/// <summary>A volume category the player can set, mapped to a mixer bus in Project Settings.</summary>
 	public enum AudioCategory { Master, Music, SFX, Dialogue, UI, Ambience }
 
 	/// <summary>How much the mix's loud and quiet parts are evened out.</summary>
@@ -52,7 +52,7 @@ namespace Lux
 	}
 
 	/// <summary>Player audio preferences. Call on the main thread in a running scene.
-	/// Save explicitly to persist. Project mappings connect category sliders to authored FMOD buses.</summary>
+	/// Save explicitly to persist. Project mappings connect category sliders to mixer buses.</summary>
 	public static unsafe class Accessibility
 	{
 		private static Action<SoundCue>? s_Sound;
@@ -101,7 +101,7 @@ namespace Lux
 		public static float GetVolume(AudioCategory category) { ValidateCategory(category); return Get(13 + (int)category); }
 		/// <summary>Sets a category's volume, 0 to 1.</summary>
 		public static void SetVolume(AudioCategory category, float volume) { ValidateCategory(category); Set(13 + (int)category, volume); }
-		/// <summary>Whether the project maps the category to an FMOD bus (so its slider does something).</summary>
+		/// <summary>Whether the project maps the category to a mixer bus (so its slider does something).</summary>
 		public static bool HasBus(AudioCategory category)
 		{
 			Audio.RequireMainThread(); ValidateCategory(category);

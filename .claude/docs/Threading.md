@@ -319,25 +319,19 @@ or it deadlocks. Commands run outside the queue lock, so one may submit or cance
 
 ---
 
-## FMOD callbacks
+## Audio notifications
 
-Studio callbacks copy stopped, marker, and beat data into bounded mutex-protected queues in
-`AudioEventInstance` (FMOD side: `Audio/FMOD/FMODAudioEventInstance.cpp`). Callback userdata is a never-reused token, not a pointer to an engine owner;
-destruction removes the token's state before releasing the SDK instance. No Scene, ECS, Coral,
-ImGui, or scene playback mutation runs in these callbacks. Programmer-sound callbacks are the
-SDK-required exception for sound ownership: CREATE resolves a copied audio-table key using the
-callback event's Studio/Core systems and calls Core createSound; DESTROY releases that SDK sound,
-even if the wrapper mailbox has already been removed. No bank-owned pointers escape CREATE.
-The notification mutex is not held across programmer creation/release. Playback status and sound
-length are copied into the mailbox; callback errors are reported on the main thread. `Scene::OnUpdateRuntime` drains music timeline
-mailboxes and the audio scripting bridge drains script notifications on the main thread before
-script OnUpdate. Only immutable copied payloads cross the callback boundary. Bank generation checks
-protect main-thread calls from stale SDK handles; tokens isolate late callback delivery.
+No audio-library callback reaches engine state. The native backend detects a voice ending by
+polling miniaudio's atomic end flag in `AudioEngine::Update`, and reports music beats and markers by
+reading the clip cursor (`AudioEventInstance::DrainTimelineNotifications`), both on the main thread.
+`Scene::OnUpdateRuntime` drains music timeline notifications and the audio scripting bridge drains
+script notifications on the main thread before script OnUpdate. Engine-restart generation checks
+protect main-thread calls from stale voices.
 
-Accessibility observes these same mailboxes on the main thread; it does not add SDK callbacks.
-Weak source tracking, subtitle/cue dispatch, preference I/O and FMOD mixer configuration all run
-on the main thread. It completes source mutations before calling game listeners. Mixer DSPs are
-detached before banks unload; ImGui consumes presentation snapshots on the main thread.
+Accessibility observes the same notifications on the main thread. Weak source tracking,
+subtitle/cue dispatch, preference I/O and mixer configuration all run on the main thread. It
+completes source mutations before calling game listeners; ImGui consumes presentation snapshots on
+the main thread.
 
 ---
 
@@ -411,11 +405,11 @@ handed to job threads.
 
 `AudioSourcePlayback` and `AudioPerformance` are main-thread owned. Source updates and C# controls
 only read/mutate the active scene there. A culled source's Soundwave state is pruned on the next
-update. `AudioPerformance::Update` samples SDK meters/counts at 4 Hz after Studio update; its bus
-groups and its own meter DSPs are detached and released before bank unload. The SDK mixer owns sample processing. ImGui
-reads cached values and never traverses the mixer itself. Explicit project validation loads scene,
-prefab and table assets on the main thread and inspects banks with a separate NOSOUND FMOD system.
-It runs only on demand or during export, never per frame, and passes no ECS pointers to SDK threads.
+update. `AudioPerformance::Update` reads bus meters and counts at 4 Hz on the main thread; the
+meters are written by the device callback and read through atomics. ImGui reads cached values and
+never traverses the mixer itself. Explicit project validation loads scene, prefab, Sound and table
+assets on the main thread. It runs only on demand or during export, never per frame, and passes no
+ECS pointers to audio threads.
 
 `Application` calls `AudioEngine::SetApplicationFocused` and `Update` on the main thread even
 while minimized. GLFW/ImGui focus queries remain on that thread. Focus mute only changes the Core
@@ -488,11 +482,11 @@ GoldenCapture starts export after restoring/stopping Play and polls its existing
 state machine; RuntimeBuildJob keeps its existing worker ownership. Player completion queues
 WindowCloseEvent instead of tearing down render/scene owners in the reporting call.
 
-## Native audio backend (`--audio-backend=native`)
+## Native audio backend
 
 The native backend (`Core/Source/Lux/Audio/Native/`, miniaudio) adds two threads:
 
-- miniaudio's **device callback**, which runs the node graph like FMOD's mixer thread. It reads only
+- miniaudio's **device callback**, which runs the node graph. It reads only
   miniaudio state and each leaf's `VoiceNode` parameters, three relaxed `std::atomic<float>`s (target
   gain, low-pass and high-pass cutoff) written on the main thread; its ramp and filter state are
   touched only by that callback. It takes no engine lock and never reaches the ECS, Coral, assets or
@@ -507,7 +501,7 @@ The native backend (`Core/Source/Lux/Audio/Native/`, miniaudio) adds two threads
   then posts the quit job and joins it; the owner's destructor does the same if the process exits
   without `Shutdown`. It touches only miniaudio's resource manager.
 
-Everything else is main-thread, the same contract as FMOD's: every `AudioEngine`, `AudioEventInstance`
+Everything else is main-thread: every `AudioEngine`, `AudioEventInstance`
 and `AudioListener` call; Sound tree resolution, random choices and sequence steps; decoding a clip,
 synchronously on the main thread the first time it plays when no loaded Sound Bank decoded it first
 (the clip cache, `NativeClipCache.cpp`, then frees it when no bank or voice holds it);

@@ -289,7 +289,7 @@ def main():
     parser.add_argument("--config", default="release", choices=["debug", "release", "dist"])
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--scenes", type=lambda s: [x for x in s.split(",") if x], default=DEFAULT_SCENES)
-    parser.add_argument("--play", action="store_true", help="enter normal Play and verify Soundwave LF reaches Scene and authored FMOD parameters")
+    parser.add_argument("--play", action="store_true", help="enter normal Play and verify Soundwave LF reaches Scene and the voices")
     parser.add_argument("--export-dir", type=Path, help="export through the normal editor pipeline after capture into this empty parent/name folder")
     parser.add_argument("--audio-settings-ui", action="store_true",
                         help="exercise actual Soundwave numeric controls, bounds, toggle and settings serialization before editor frames")

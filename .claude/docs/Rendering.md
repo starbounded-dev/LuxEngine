@@ -560,9 +560,8 @@ python3 tests/rendering/threading_ab.py                                   # buil
 
 - **Play/audio verification:** `--play` (or `scripts/Lux-GoldenRun.ps1 -Play`) uses the normal
   editor Play/Stop lifecycle. It additionally requires a ready Soundwave snapshot, completed source
-  solves, nonempty render geometry and at least one live event exposing Occlusion. Before capture,
-  it compares the smoothed gain with Scene's applied value and reads FMOD's actual authored
-  Occlusion parameter. It rechecks once at completion, retaining the running Scene through
+  solves, nonempty render geometry and at least one live audio source. Before capture,
+  it compares the smoothed gain with Scene's applied value (`CheckedSources` in the report). It rechecks once at completion, retaining the running Scene through
   verification/StopPlay, so later movement or preparation failures cannot pass using initial readiness. `<name>.audio.yaml` records the UUID/name, gains, path counts and geometry
   counts (logical/stored/inert triangles and mesh instances); the runner requires a fresh nonempty artifact. This verifies the current CPU reference
   path only. Moving gameplay is not an image-determinism baseline; normal image captures stay in
@@ -1382,7 +1381,7 @@ For actual package/player acoustic checks, add `--export-runtime` to
 writes fresh `<name>.export.yaml` package/executable paths before status completion. It does
 not open Explorer or skip bank/asset/shader validation. Each automated destination is empty.
 The runner launches that actual executable from its package, setting `LUX_RUNTIME_AUDIO_REPORT`.
-The runtime writes the shared Scene/FMOD YAML plus `.status` after 120 rendered frames once
+The runtime writes the shared Scene audio YAML plus `.status` after 120 rendered frames once
 geometry is ready (failure after 6000 frames), then closes normally. Missing/stale evidence,
 nonzero process exit, acoustic mismatch and Vulkan validation messages fail the check.
 The packaged runtime is selected with `--runtime-config debug|release|dist`; native artifacts

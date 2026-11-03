@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Linux headless audio regression checks using the installed FMOD and Jolt SDKs."""
+"""Linux headless audio regression checks: file and pack streams, Jolt contacts, Soundwave occlusion and music serialization.
+
+Playback itself is tested by tests/audio/native (CMake, on every platform)."""
 import argparse
 import os
 from pathlib import Path
@@ -9,8 +11,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-import uuid
-import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 TESTS = Path(__file__).resolve().parent
@@ -27,70 +27,6 @@ def run(command, **kwargs):
         if artifact.st_size == 0 or artifact.st_mtime_ns < started - 2_000_000_000:
             raise RuntimeError(f"Compiler produced a missing, empty or stale artifact: {output}")
         print(f"Verified fresh compile artifact: {output} ({artifact.st_mtime_ns})", flush=True)
-
-def fixture(directory):
-    target = directory / "fixture"
-    source = ROOT / "Editor/LuxSampleProject/Assets/Audio/SampleProject"
-    shutil.copytree(source, target, ignore=shutil.ignore_patterns(".cache", ".user", "Build"))
-    # Programmer-sound tests use our sample audio, independent of optional SDK examples.
-    programmer_audio = target / "ProgrammerAudio"
-    programmer_audio.mkdir()
-    for key in ("welcome", "goodbye"):
-        shutil.copy2(target / "Assets/FX/Effects/fart-01.wav", programmer_audio / (key + ".wav"))
-    # Select a stable seed instead of depending on directory enumeration order.
-    event_file = next(path for path in sorted((target / "Metadata/Event").glob("*.xml"))
-                      if ET.parse(path).getroot().find("object[@class='Event']/property[@name='name']/value").text == "Fart")
-    tree = ET.parse(event_file)
-    objects = tree.getroot()
-    event = objects.find("object[@class='Event']")
-    event.find("property[@name='name']/value").text = "SurfaceMotion"
-    properties = objects.find("object[@class='EventAutomatableProperties']")
-    persistent = properties.find("property[@name='isPersistent']")
-    if persistent is None:
-        persistent = ET.SubElement(properties, "property", name="isPersistent")
-        ET.SubElement(persistent, "value")
-    persistent.find("value").text = "true"
-    tree.write(event_file, encoding="UTF-8", xml_declaration=True)
-    text = ET.tostring(objects, encoding="unicode")
-    ids = {node.attrib["id"]: "{" + str(uuid.uuid4()) + "}" for node in objects.findall("object")}
-    for old, new in ids.items():
-        text = text.replace(old, new)
-    cloned = ET.fromstring(text)
-    cloned.find("object[@class='Event']/property[@name='name']/value").text = "SurfaceHit"
-    cloned.find("object[@class='EventAutomatableProperties']/property[@name='isPersistent']/value").text = "false"
-    # Persistence and instrument looping are independent: the sample's MultiSound loops.
-    # Hit and stinger clones must contain finite instruments to be genuine one-shots.
-    for looping in cloned.findall(".//property[@name='looping']/value"):
-        looping.text = "false"
-    ET.ElementTree(cloned).write(target / "Metadata/Event" / (ids[event.attrib["id"]] + ".xml"), encoding="UTF-8", xml_declaration=True)
-    # Separate 2D scores/stinger retain the same source sound, in a disposable project only.
-    for name in ("MusicBed", "MusicOther", "MusicStinger"):
-        text = ET.tostring(cloned, encoding="unicode")
-        new_ids = {node.attrib["id"]: "{" + str(uuid.uuid4()) + "}" for node in cloned.findall("object")}
-        for old, new in new_ids.items():
-            text = text.replace(old, new)
-        music = ET.fromstring(text)
-        music_event = music.find("object[@class='Event']")
-        music_event.find("property[@name='name']/value").text = name
-        music.find("object[@class='EventAutomatableProperties']/property[@name='isPersistent']/value").text = str(name != "MusicStinger").lower()
-        for spatial in list(music.findall("object[@class='SpatialiserEffect']")):
-            for dest in music.findall(".//relationship[@name='effects']/destination"):
-                if dest.text == spatial.attrib["id"]:
-                    for rel in music.findall(".//relationship[@name='effects']"):
-                        if dest in list(rel):
-                            rel.remove(dest)
-            music.remove(spatial)
-        ET.ElementTree(music).write(target / "Metadata/Event" / (music_event.attrib["id"] + ".xml"), encoding="UTF-8", xml_declaration=True)
-    alsa = directory / "asound.conf"
-    alsa.write_text("pcm.!default { type null }\nctl.!default { type hw card 0 }\n")
-    environment = dict(os.environ, QT_QPA_PLATFORM="minimal", ALSA_CONFIG_PATH=str(alsa))
-    with (directory / "fixture-build.log").open("w") as log:
-        run([os.environ.get("FMODSTUDIOCLI", "fmodstudiocl"), "-build", "-ignore-warnings", "-log-dir", directory,
-             "-script", TESTS / "AuthorFixture.js", target / "SampleProject.fspro"],
-            env=environment, stdout=log, stderr=subprocess.STDOUT, timeout=30)
-    if "[script-error]" in (directory / "fixture-build.log").read_text():
-        raise RuntimeError("FMOD fixture authoring failed; see fixture-build.log")
-    return target / "Build/Desktop"
 
 def music_serialization_source(directory):
     source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
@@ -134,47 +70,8 @@ MusicDirectorComponent DeserializeMusic(const Yaml::Node& entity)
 """ + (TESTS / "MusicSerializationTests.cpp").read_text())
     return output
 
-def geometry_serialization_source(directory):
-    source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
-    serialize = source.split('if (entity.HasComponent<AudioPortalComponent>())', 1)[1].split('if (entity.HasComponent<AudioSurfaceComponent>())', 1)[0]
-    deserialize = source.split('if (const auto node = entity["AudioPortalComponent"])', 1)[1].split('if (const auto surface = entity["AudioSurfaceComponent"])', 1)[0]
-    mesh = source.split('if (const auto meshCollider = entity["MeshColliderComponent"])', 1)[1].split('if (const auto node = entity["MusicDirectorComponent"])', 1)[0]
-    output = directory / "geometry-serialization.cpp"
-    output.write_text('\n'.join([
-        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"',
-        '#include "Lux/Audio/AudioZoneSystem.h"', '#include "Lux/Serialization/Yaml.h"',
-        'struct FakeEntity { AudioPortalComponent Portal; MeshColliderComponent Mesh;',
-        'template<typename T> T& GetComponent() { if constexpr (std::is_same_v<T, AudioPortalComponent>) return Portal; else return Mesh; }',
-        'template<typename T> T& AddComponent() { return GetComponent<T>(); } };',
-        'std::string SerializePortal(FakeEntity entity) { Yaml::Writer out; out << Yaml::BeginMap;',
-        serialize, 'out << Yaml::EndMap; return out.c_str(); }',
-        'FakeEntity DeserializeGeometry(const Yaml::Node& entity) { FakeEntity deserializedEntity;',
-        'if (auto node = entity["AudioPortalComponent"])', deserialize,
-        'if (auto meshCollider = entity["MeshColliderComponent"])', mesh,
-        'return deserializedEntity; }', (TESTS / "GeometrySerializationTests.cpp").read_text()]))
-    return output
-
-def source_serialization_source(directory):
-    source = (ROOT / "Core/Source/Lux/Scene/SceneSerializer.cpp").read_text()
-    serialize = source.split('if (entity.HasComponent<AudioSourceComponent>())', 1)[1].split('if (entity.HasComponent<AudioListenerComponent>())', 1)[0]
-    deserialize = source.split('if (const auto audioSource = entity["AudioSourceComponent"])', 1)[1].split('if (const auto audioListener = entity["AudioListenerComponent"])', 1)[0]
-    output = directory / "source-serialization.cpp"
-    output.write_text("\n".join([
-        '#include "AudioTestHost.h"', '#include "Lux/Scene/Components.h"', '#include "Lux/Audio/AudioEventRefSerializer.h"',
-        '#include "Lux/Serialization/Yaml.h"',
-        'struct FakeEntity { AudioSourceComponent Source;',
-        'template<typename T> T& GetComponent() { return Source; }',
-        'template<typename T> T& AddComponent() { return Source; } };',
-        'std::string SerializeSource(FakeEntity entity) { Yaml::Writer out; out << Yaml::BeginMap;',
-        serialize, 'out << Yaml::EndMap; return out.c_str(); }',
-        'AudioSourceComponent DeserializeSource(const Yaml::Node& entity) { FakeEntity deserializedEntity;',
-        'if (auto audioSource = entity["AudioSourceComponent"])', deserialize,
-        'return deserializedEntity.Source; }', (TESTS / "SourceSerializationTests.cpp").read_text()]))
-    return output
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--banks", type=Path, help="Existing fixture banks; otherwise build a disposable FMOD project")
     parser.add_argument("--output", type=Path, help="Keep logs, objects and fixture in this directory")
     parser.add_argument("--config", choices=("debug", "debug-as"), default="debug", help="matching generated native configuration and dependencies")
     args = parser.parse_args()
@@ -200,9 +97,10 @@ def main():
     # Compile and link the same complete kernel set; adding a stage must not leave
     # an independent list of undefined symbols in the focused occlusion executable.
     kernel_sources = sorted((ROOT / "Core/vendor/soundwave/src").glob("*.cpp"))
-    sources = [*("vendor/soundwave/src/" + path.stem for path in kernel_sources), "Audio/FMOD/FMODAudioFocus", "Audio/AudioBankBuilder", "Audio/AudioPerformanceSettings", "Audio/FMOD/FMODAudioPerformance", "Audio/AudioSourcePlayback", "Audio/AudioValidation", "Audio/FMOD/FMODAudioValidation", "Audio/AudioGeometrySystem", "Audio/AudioAcoustics", "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AudioZoneSystem", "ImGui/ImGuiUtilities", "ImGui/AudioAccessibilityWidgets", "Audio/AudioAccessibility", "Audio/FMOD/FMODAudioAccessibilityMixer", "Audio/AudioAccessibilitySettings", "Utilities/FileSystem", "Platform/Linux/LinuxFileSystem", "Audio/FMOD/FMODAudioEventInstance", "Audio/FMOD/FMODAudioEventParameters", "Audio/FMOD/FMODAudioBackend", "Audio/AudioEventRefSerializer", "Audio/DialogueDirector", "Audio/DialogueTable", "Asset/DialogueTableSerializer", "Audio/MusicDirector", "Audio/PhysicsAudioSystem", "Audio/AudioSurfaceTable",
-               "Audio/AcousticMaterial", "Asset/AudioSurfaceTableSerializer", "Utilities/StringUtils", "Core/UUID", "Core/Ref",
-               "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer", "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
+    sources = [*("vendor/soundwave/src/" + path.stem for path in kernel_sources), "Audio/AudioGeometrySystem", "Audio/AudioAcoustics",
+               "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial", "Audio/AudioEventRefSerializer",
+               "Core/UUID", "Core/Ref", "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer",
+               "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
     objects = {}
     for source in sources:
         obj = directory / (Path(source).name + ".o")
@@ -229,9 +127,6 @@ def main():
     run(["clang++", *flags, TESTS / "JoltContactTests.cpp", objects["JoltContactListener"], objects["UUID"],
          jolt, "-pthread", "-Wl,--gc-sections", "-o", directory / "jolt-test"], cwd=ROOT / "Core")
     run([directory / "jolt-test"], timeout=30)
-    banks = args.banks.resolve() if args.banks else fixture(directory)
-    fmod = Path(os.environ.get("LUX_FMOD_SDK", ROOT / "Core/vendor/FMOD/fmodstudioapi20314linux")) / "api"
-    libraries = [fmod / "core/lib/x86_64/libfmod.so", fmod / "studio/lib/x86_64/libfmodstudio.so"]
     # Build the YAML implementation with the same flags as these tests, without stale engine objects.
     yaml = [objects[name] for name in ("Yaml", "ryml")]
     if args.config == "debug-as":
@@ -249,53 +144,13 @@ def main():
         "AudioAcoustics", "JobSystem", "AudioOcclusion", "AudioOcclusionSettings",
         "AcousticMaterial", "AudioGeometrySystem", "UUID", "Ref",
         "FileStream", "StreamWriter", "StreamReader")]
-    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", TESTS / "AudioAcousticsTests.cpp", *occlusion_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
+    run(["clang++", *flags, TESTS / "OcclusionTests.cpp", TESTS / "AudioAcousticsTests.cpp", *occlusion_objects, *yaml,
+         "-Wl,--gc-sections", "-pthread",
          "-o", directory / "occlusion-test"], cwd=ROOT / "Core")
     run([directory / "occlusion-test", directory], timeout=30)
-    run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], objects["UUID"], objects["AudioEventRefSerializer"], objects["FMODAudioBackend"], *yaml, "-Wl,--gc-sections",
+    run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], objects["UUID"], objects["AudioEventRefSerializer"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)
-    audio_objects = [obj for name, obj in objects.items() if name not in ("JoltContactListener", "AssetPackSerializer", "AudioAccessibilityWidgets", "ImGuiUtilities", "Yaml", "ryml")]
-    run(["clang++", *flags, TESTS / "PhysicsAudioTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "audio-test"], cwd=ROOT / "Core")
-    run([directory / "audio-test", banks, directory], timeout=30)
-    run(["clang++", *flags, TESTS / "MusicTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "music-test"], cwd=ROOT / "Core")
-    run([directory / "music-test", banks], timeout=45)
-    run(["clang++", *flags, TESTS / "DialogueTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "dialogue-test"], cwd=ROOT / "Core")
-    run([directory / "dialogue-test", banks, banks, directory], timeout=60)
-    run(["clang++", *flags, TESTS / "AccessibilityTests.cpp", *audio_objects, objects["AudioAccessibilityWidgets"], objects["ImGuiUtilities"],
-         ROOT / f"Core/vendor/imgui/bin/{native_configuration}-linux-x86_64/ImGui/libImGui.a", *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "accessibility-test"], cwd=ROOT / "Core")
-    run([directory / "accessibility-test", banks, directory], timeout=60)
-    run(["clang++", *flags, "-I" + str(TESTS), geometry_serialization_source(directory), *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "geometry-serialization-test"], cwd=ROOT / "Core")
-    run([directory / "geometry-serialization-test"], timeout=30)
-    run(["clang++", *flags, TESTS / "GeometryTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "geometry-test"], cwd=ROOT / "Core")
-    run([directory / "geometry-test"], timeout=60)
-    run(["clang++", *flags, "-I" + str(TESTS), source_serialization_source(directory), *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "source-serialization-test"], cwd=ROOT / "Core")
-    run([directory / "source-serialization-test"], timeout=30)
-    run(["clang++", *flags, TESTS / "PerformanceTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "performance-test"], cwd=ROOT / "Core")
-    run([directory / "performance-test", banks, directory], timeout=60)
-    run(["clang++", *flags, TESTS / "PlatformTests.cpp", *audio_objects, *yaml, *libraries,
-         *["-Wl,-rpath," + str(lib.parent) for lib in libraries], "-Wl,--gc-sections", "-pthread",
-         "-o", directory / "platform-test"], cwd=ROOT / "Core")
-    run([directory / "platform-test", banks, directory], timeout=60)
-
-
 
 
 if __name__ == "__main__":

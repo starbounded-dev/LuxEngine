@@ -2,21 +2,15 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioEventRef.h"
 #include "NativeInternal.h"
 
 #include <charconv>
 
-// What this backend plays: Sound assets, referenced by handle. An FMOD event GUID is kept on the
-// reference (scenes stay openable in both builds) but never played here.
+// References are Sound assets by handle. An FMOD-era event GUID is kept on the reference, so old
+// scenes still open and report it, but it is never played.
 namespace Lux
 {
-	AudioBackend AudioEngine::GetBackend()
-	{
-		return AudioBackend::Native;
-	}
-
 	bool NativeInternal::ParseHandle(const std::string& reference, uint64_t& outHandle)
 	{
 		uint64_t handle = 0;

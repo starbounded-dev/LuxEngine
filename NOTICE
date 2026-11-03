@@ -86,9 +86,6 @@ Binaries built from this source link against them; the Apache License above
 covers LuxEngine's own source code only, and does not grant any rights to
 these SDKs or to redistribute them.
 
-  FMOD Engine (Core + Studio)   FMOD End User License Agreement, Firelight
-                                Technologies Pty Ltd. https://www.fmod.com/licensing
-
   Vulkan SDK                    LunarG / Khronos Group; a collection of
                                 components under Apache-2.0 and other licenses.
 

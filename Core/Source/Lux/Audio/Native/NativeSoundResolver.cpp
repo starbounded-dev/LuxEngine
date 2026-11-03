@@ -148,16 +148,4 @@ namespace Lux
 		}
 		return true;
 	}
-
-	std::string AudioEngine::ResolveEventReference(const std::string& reference)
-	{
-		std::string error;
-		const AssetHandle handle = FindSound(reference, error);
-		if (!handle)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot resolve sound '{}': {}", reference, error);
-			return {};
-		}
-		return std::to_string(static_cast<uint64_t>(handle));
-	}
 }

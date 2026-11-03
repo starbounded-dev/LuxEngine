@@ -7,7 +7,7 @@
 
 #include <array>
 
-// The same controls as the FMOD backend's: a category gain on each mapped bus, independent of the
+// The accessibility controls: a category gain on each mapped bus, independent of the
 // mix and of gameplay bus volumes; dialogue boost; ducking for audio descriptions; mono fold and
 // compression on the master output.
 namespace Lux

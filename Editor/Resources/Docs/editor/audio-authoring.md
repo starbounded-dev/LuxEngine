@@ -1,47 +1,44 @@
-# Authoring Audio in FMOD Studio
+# Authoring Audio
 
-Sound in LuxEngine is designed in **FMOD Studio**, FMOD's free sound-design application. You build **events** there (a footstep, a door, a music track, an ambience), with their sounds, randomisation, effects and 3D settings. FMOD Studio packs them into **banks**, and the engine loads the banks and plays the events. The editor places and triggers events; it does not edit sounds.
+Sound in LuxEngine is authored in the editor, with nothing else to install. An **audio file** (`.wav`, `.ogg`, `.mp3`, `.flac`) becomes a **Sound** (`.lsound`): which clips play, with what variation, how loud, where in the mix, and how it behaves in 3D. **Sound Banks** (`.lbank`) group Sounds that load together, and the **Audio Mixer** shapes the mix.
 
-## Connect the FMOD Studio project
+## Make a Sound
 
-Open **Project Settings → Audio**:
+- Drop an audio file into the Content Browser. Right-click it and choose **Create Sound** (several selected files make one Random Sound that plays a different one each time), or use **New › Sound**.
+- Double-click the Sound to open the **Sound Editor**: a tree of clips and containers (Random, Sequence, Layer, Switch), volume and pitch with random variation, looping and loop regions, streaming for long music, 3D attenuation, parameters with curves, an instance limit, and the bus it plays on. **Play** auditions it in edit mode.
 
-- **Studio Project (.fspro)** — the FMOD Studio project, relative to the project's `Assets` folder. Keep it inside the game project so it travels with it.
-- **Bank Output** — where FMOD Studio writes built banks, relative to the `.fspro`'s folder. FMOD's default is `Build/Desktop`.
-- **Studio Platform** — the platform name as it appears in FMOD Studio (usually `Desktop`).
-- **Rebuild Banks On Play** — before Play, rebuild the banks if the Studio project changed since the last build. It costs nothing when nothing changed.
-- **Live Update** — lets FMOD Studio connect to the running editor and mix while the game plays. Takes effect the next time the project opens.
+## Use Sounds in the scene
 
-The status line underneath shows how many banks and events are loaded. **Build Banks Now** builds them, and **Open In FMOD Studio** opens the project. Building needs FMOD Studio installed: the editor runs its command-line builder, `fmodstudiocl`.
-
-In FMOD Studio, build with **File → Build**. The engine loads every bank in the output folder; the **Master.strings.bank** lets the editor and scripts refer to events by path (`event:/Doors/Open`) as well as by GUID.
-
-## Use events in the scene
-
-- An [Audio Source](../components/audio) plays an event from an entity: pick the **Event**, and tick **Play On Awake** to start it with the game.
+- An [Audio Source](../components/audio) plays a Sound from an entity: pick the **Sound**, and tick **Play On Awake** to start it with the game.
 - An **Audio Listener** on the camera or player is where the game hears from.
-- Scripts play events with `Audio.PlayOneShot("event:/UI/Click")`, or keep one with `Audio.CreateInstance` to start, move and stop it. See the [Audio API](../api/Audio).
+- Scripts play Sounds with `Audio.PlayOneShot(sound)` or by path, `Audio.PlayOneShot("Audio/Sounds/Click")`, or keep one with `Audio.CreateInstance` to start, move and stop it. See the [Audio API](../api/Audio).
+
+## Load Sounds with Sound Banks
+
+A Sound that no loaded bank holds decodes when it first plays, which can stall that frame. Put each scene's Sounds in a Sound Bank:
+
+- **New › Sound Bank** (with Sounds selected, they go in), or the Sound Editor's **Sound Banks** section.
+- Double-click a bank to open the **Sound Bank Editor**: its Sounds, the memory it holds, and **Resident** for Sounds every scene uses.
+- List the bank under **View › Audio Mixer › Scene Sound Banks**. The scene loads it before it plays and frees its clips when it stops. Scripts can also call `Audio.LoadBank` and `Audio.UnloadBank`.
 
 ## Parameters the engine drives
 
-Name a parameter on your event like this and the engine sets it for you. Each is optional: an event without it simply ignores it.
+Add a parameter with this name to a Sound and the engine sets it. Each is optional.
 
 | Parameter | Set by | Values |
 |---|---|---|
-| `Occlusion` | Walls and closed doors between the event and the listener | 0 clear to 1 fully blocked. Drive a low-pass filter or volume with it so walls muffle the sound. |
-| `ReverbSend` | Ray-traced acoustics, by how reverberant the space is | 0 to 1. Drive a send to your reverb return. |
-| `Speed`, `Weight`, `Surface` | Footsteps played by `Audio.PlayFootstep` | Walking speed, character weight in kg, and the surface's acoustic material number. |
+| `Speed`, `Weight`, `Surface` | Footsteps played by `Audio.PlayFootstep` | Walking speed, character weight in kg, and the surface's acoustic material (a Switch picks the clip). |
 | `Impulse`, `Surface` | Physics impact sounds | The collision's impulse and the surface. |
 | `State` | `Music.SetState` | A labeled parameter: one label per musical state (`Explore`, `Combat`...). |
 | `Intensity` | `Music.Intensity` | 0 to 1. |
 | `Layer_<name>` | `Music.SetLayerEnabled("<name>", ...)` | 0 or 1, to fade a layer in and out. |
 
-A snapshot started with `Audio.StartSnapshot` or an Audio Zone needs an exposed **Intensity** parameter from 0 to 100.
+Walls and closed doors muffle every 3D Sound on their own (a low-pass and a gain), and the space's reverb sends it to the mixer's reverb return; no parameter is needed.
 
 ## Mixing for the player
 
-**Project Settings → Audio → Audio Accessibility** maps the player's volume sliders (Master, Music, SFX, Dialogue, UI, Ambience) to buses of your FMOD mix, sets captions and visual cues per event, and gives speakers subtitle colours. Players change their own settings in the **F10** menu while the game runs.
+**View › Audio Mixer** holds the project's buses, effects, reverb, snapshots and VCAs. **Project Settings › Audio › Audio Accessibility** maps the player's volume sliders (Master, Music, SFX, Dialogue, UI, Ambience) to those buses, sets captions and visual cues per Sound, and gives speakers subtitle colours. Players change their own settings in the **F10** menu while the game runs.
 
 ## Budgets and checks
 
-**Voice and Performance Budgets** sets FMOD's real-voice limit and the memory and CPU levels that log a warning. **View → Audio Debugger** shows live voices, meters and the problems the engine found, such as an event missing from the built banks or an occludable event without an `Occlusion` parameter.
+**Voice and Performance Budgets** sets the real-voice limit and the clip memory and CPU levels that log a warning. **View › Audio Debugger** shows live voices, meters, the loaded Sound Banks and clips, and the problems the engine found, such as a Sound in no bank or a source with no Sound.

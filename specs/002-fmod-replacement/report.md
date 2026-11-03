@@ -212,3 +212,48 @@ T026's export check, same commands as T001 (`golden_run.py --label p3`):
 - **Not verified:** the three new panels (Sound Bank Editor, the Sound Editor's Sound Banks section, the
   mixer's Scene Sound Banks) were not clicked through; computer-use access to the editor was declined.
   They compile, and their ImGui scopes were audited by reading.
+
+## Phase 4 (US1) — no FMOD anywhere
+
+T027–T046 are done. Where the work differs from tasks.md:
+
+- **T027:** the Sound and Sound Bank path table lives in the runtime project (format 31,
+  `ProjectAudioSettings::AudioAssetPaths`), not in the pack: the project is already loaded before any
+  scene pack, and the pack format stays unchanged. The editor resolves through the asset registry; both
+  give the same answer.
+- **T028:** the refusals say "it is an FMOD event reference; FMOD is gone, assign a Sound asset" and
+  "it is an FMOD bank; FMOD is gone, make a Sound Bank (New > Sound Bank) and load it by its path".
+- **T033:** the sample project's Studio keys were removed by hand. Desktop profiles no longer have
+  `StudioPlatform` / `BankOutputPath`: old files load with the keys skipped, and the next save drops them.
+- **T038:** `AssetType::AudioProject` / `AudioBank` stay in the enum (numeric stability for old registries);
+  `.fspro` and `.bank` are no longer imported. The Content Browser hides Studio project folders.
+- **T039, test fates:**
+
+  | File | Fate | Why |
+  |---|---|---|
+  | `AccessibilityTests.cpp` | deleted, partly ported | settings round trips: `TestProjectAudioSettings`; mono, compression and category gains: `TestAccessibility`. The caption and cue service (`AudioAccessibility`) has **no native test** |
+  | `DialogueTests.cpp` | deleted, partly ported | table round trips: `TestProjectAudioSettings`; clip overrides: `TestDialogueClips`. `DialogueDirector` queueing, barks and subtitles have **no native test** |
+  | `MusicTests.cpp` | deleted, ported | timeline notifications and `MusicDirector` transitions: `TestMusicTimeline`; the director's YAML still runs in `run.py` |
+  | `PerformanceTests.cpp` | deleted, ported | settings round trips: `TestProjectAudioSettings`; voice budget and virtualization: `TestVoiceBudget` |
+  | `PhysicsAudioTests.cpp` | deleted, ported | `TestPhysicsAudio` |
+  | `PlatformTests.cpp` | deleted, ported | profiles' budgets: `TestProjectAudioSettings`; focus mute: `TestVolumeAndBuses` |
+  | `GeometryTests.cpp`, `GeometrySerializationTests.cpp`, `SourceSerializationTests.cpp` | deleted, **not ported** | they ran inside the FMOD host; the portal/source YAML round trips and shutter/portal geometry checks have no runner now |
+  | `AudioTestHost.h`, `AuthorFixture.js`, `fixtures/`, `run_sdk_layout.py` | deleted | FMOD host, Studio fixture author, built banks, SDK layout check |
+
+- **T040:** the report key is now `CheckedSources` (the acoustics each source was given);
+  `run_scene_acoustics.py` reads it.
+- **T041:** `DialogueTranslation::AudioKey` is kept as legacy data (read, saved, never played), and
+  `AudioEventInstance::SetProgrammerSound` stays in the header as a stub that fails, so old scripts compile.
+  The runtime project still writes an empty `AudioBankManifest` so its layout does not change.
+- **T043–T044:** `tests/audio/run.py` and `scripts/Linux-Build.sh` were edited for Linux but not run
+  (Linux builds are deferred). The CI artifact checks still fail if an FMOD library is packaged.
+- Commit 73dbe5e0's message says the FMOD build "still builds"; it was not compiled with FMOD then.
+
+T046 results:
+
+- SC-001 grep: what remains is legacy readers and migration messages (`AudioEventRef`, the resolver's
+  refusals, `ProjectSerializer`, `Project::LoadRuntime`, `Scene.cpp`, the inspector warning, the obsolete
+  C# members, `RuntimeExport::ShipsLibrary`, the CI artifact guard, `.gitignore`'s `Core/vendor/FMOD/`),
+  point-in-time docs with a banner, and `std::fmod`.
+- The native tests pass (2/2), the YAML check is down to 32 old problems (the sample project's line is updated), the sample's scripts build,
+  and the API docs pass `--check`.

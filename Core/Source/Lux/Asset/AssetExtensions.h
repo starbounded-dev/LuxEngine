@@ -27,8 +27,6 @@ namespace Lux::AssetExtensions
 			{ ".ogg", AssetType::Audio },
 			{ ".mp3", AssetType::Audio },
 			{ ".flac", AssetType::Audio },
-			{ ".fspro", AssetType::AudioProject },
-			{ ".bank", AssetType::AudioBank },
 			{ ".lsurfaces", AssetType::AudioSurfaceTable },
 		{ ".ldialogue", AssetType::DialogueTable },
 			{ ".lsoundc", AssetType::SoundConfig },

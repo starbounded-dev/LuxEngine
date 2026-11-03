@@ -81,13 +81,7 @@ project "Core"
 		removefiles { "Source/Lux/Platform/Vulkan/Debug/**.cpp" }
 	end
 
-	-- One header set, two implementations: exactly one backend folder is compiled (--audio-backend).
-	if AudioBackend == "native" then
-		removefiles { "Source/Lux/Audio/FMOD/**" }
-		files { "vendor/MiniaudioCpp/include/**.h", "vendor/MiniaudioCpp/src/**.cpp", "vendor/MiniaudioCpp/src/**.h" }
-	else
-		removefiles { "Source/Lux/Audio/Native/**" }
-	end
+	files { "vendor/MiniaudioCpp/include/**.h", "vendor/MiniaudioCpp/src/**.cpp", "vendor/MiniaudioCpp/src/**.h" }
 
 	includedirs { "Source/", "vendor/", }
 
@@ -101,10 +95,6 @@ project "Core"
 
 	if _OPTIONS["discord"] then
 		defines { "LUX_ENABLE_DISCORD" }
-	end
-
-	if AudioBackend == "fmod" then
-		defines { "LUX_ENABLE_FMOD" }
 	end
 
 	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/MiniaudioCpp/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"

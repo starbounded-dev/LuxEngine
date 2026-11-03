@@ -3,8 +3,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <cassert>
 #include <iostream>
-// Logging and Near() for headless audio tests. Tests that drive FMOD include AudioTestHost.h, which
-// adds the FMOD host on top; tests of engine-only code include just this and need no audio SDK.
+// Logging and Near() for headless audio tests; they need no audio SDK.
 namespace Lux
 {
 	std::shared_ptr<spdlog::logger> Log::s_CoreLogger = spdlog::stdout_color_mt("test");

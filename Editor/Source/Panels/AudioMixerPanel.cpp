@@ -73,8 +73,7 @@ namespace Lux
 
 	void AudioMixerPanel::ApplyLive(const AudioMixerBus& bus) const
 	{
-		// The FMOD build mixes in Studio; writing its buses from here would change the authored mix.
-		if (AudioEngine::GetBackend() != AudioBackend::Native || !AudioEngine::HasInitializedEngine())
+		if (!AudioEngine::HasInitializedEngine())
 			return;
 		// Clearing applies the edited project volume and keeps the bus under snapshots, as a mix edit
 		// should; SetBusVolume would take it over as gameplay does.
@@ -131,8 +130,6 @@ namespace Lux
 			ImGui::End();
 			return;
 		}
-		if (AudioEngine::GetBackend() != AudioBackend::Native)
-			ImGui::TextWrapped("This build plays audio through FMOD, which mixes in FMOD Studio. This mixer is used by the native backend (--audio-backend=native).");
 
 		UI_Toolbar(*mixer);
 		ImGui::Separator();
@@ -212,7 +209,7 @@ namespace Lux
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		const bool playing = m_Context && m_Context->IsRunning();
-		const bool canApply = m_NeedsRestart && !playing && AudioEngine::GetBackend() == AudioBackend::Native;
+		const bool canApply = m_NeedsRestart && !playing;
 		ImGui::BeginDisabled(!canApply);
 		if (ImGui::Button("Apply"))
 		{
@@ -558,7 +555,7 @@ namespace Lux
 		}
 
 		// Preview: plays the snapshot the running engine has (after Apply), live in edit mode or Play.
-		const bool canPreview = AudioEngine::GetBackend() == AudioBackend::Native && AudioEngine::HasInitializedEngine() && !m_NeedsRestart;
+		const bool canPreview = AudioEngine::HasInitializedEngine() && !m_NeedsRestart;
 		ImGui::BeginDisabled(!canPreview);
 		ImGui::SetNextItemWidth(200.0f);
 		if (ImGui::SliderFloat("Preview Intensity", &m_PreviewIntensity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
@@ -579,7 +576,7 @@ namespace Lux
 		}
 		ImGui::EndDisabled();
 		if (!canPreview)
-			ImGui::SetItemTooltip(m_NeedsRestart ? "Apply first: the running engine has the previous snapshots." : "Previews need the native backend.");
+			ImGui::SetItemTooltip(m_NeedsRestart ? "Apply first: the running engine has the previous snapshots." : "Previews need the audio engine running.");
 		ImGui::TreePop();
 	}
 

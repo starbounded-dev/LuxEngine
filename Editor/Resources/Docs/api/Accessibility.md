@@ -2,7 +2,7 @@
 
 `public static class Accessibility`
 
-Player audio preferences. Call on the main thread in a running scene. Save explicitly to persist. Project mappings connect category sliders to authored FMOD buses.
+Player audio preferences. Call on the main thread in a running scene. Save explicitly to persist. Project mappings connect category sliders to mixer buses.
 
 ## Properties
 
@@ -52,7 +52,7 @@ A category's volume, 0 to 1.
 public static bool HasBus(AudioCategory category)
 ```
 
-Whether the project maps the category to an FMOD bus (so its slider does something).
+Whether the project maps the category to a mixer bus (so its slider does something).
 
 ```
 public static void Save()

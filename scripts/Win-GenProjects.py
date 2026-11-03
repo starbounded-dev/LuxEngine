@@ -25,7 +25,6 @@ if config is None:
     sys.exit(1)
 
 Configure.warn_missing_discord_sdk(config, ROOT)
-Configure.warn_missing_fmod_sdk(config, ROOT)
 
 if not os.path.exists("Editor/DotNet/"):
     os.makedirs("Editor/DotNet/")

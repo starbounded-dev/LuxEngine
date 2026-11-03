@@ -97,7 +97,7 @@ namespace Lux::NativeInternal {
 	bool ParseHandle(const std::string& reference, uint64_t& outHandle);
 
 	// The listeners AudioListener::Apply last set, with weights normalized to sum to 1. With no
-	// active listener it holds one neutral listener at the origin, as the FMOD bridge does.
+	// active listener it holds one neutral listener at the origin.
 	struct Listener
 	{
 		uint32_t Index = 0;                 // the engine slot, which is also the miniaudio listener index
@@ -132,7 +132,7 @@ namespace Lux::NativeInternal {
 	// Memory held by decoded clips, plus the pages of the streams playing.
 	uint64_t GetClipMemoryBytes();
 	// Stops and frees every voice's miniaudio objects, before the engine is torn down. The
-	// wrappers stay alive but invalid, exactly as FMOD's generation check leaves them.
+	// wrappers stay alive but invalid (the generation check).
 	void ReleaseVoices();
 
 	// Distance gain for one listener, as documented on SoundAttenuation.

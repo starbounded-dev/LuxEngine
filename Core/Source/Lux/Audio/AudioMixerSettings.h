@@ -72,7 +72,7 @@ namespace Lux {
 		bool operator==(const AudioMixerSnapshot&) const = default;
 	};
 
-	// A volume control over a group of buses ("vca:/Name"), as FMOD's VCAs: AudioEngine::SetVCAVolume
+	// A volume control over a group of buses ("vca:/Name"): AudioEngine::SetVCAVolume
 	// multiplies each listed bus's volume. Saved here are only its name and buses; its volume is
 	// gameplay state, 1 at start.
 	struct AudioMixerVCA
@@ -82,8 +82,7 @@ namespace Lux {
 		bool operator==(const AudioMixerVCA&) const = default;
 	};
 
-	// The project's mix for the native backend; the FMOD backend authors its mix in FMOD Studio and
-	// ignores this. Main thread; read once by AudioEngine::Init.
+	// The project's mix. Main thread; read once by AudioEngine::Init.
 	struct AudioMixerSettings
 	{
 		std::vector<AudioMixerBus> Buses = DefaultBuses(); // never lists the master "bus:/"

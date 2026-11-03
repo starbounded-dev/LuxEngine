@@ -318,7 +318,7 @@ namespace Lux {
 			uint32_t panning = 0;
 			if (voice.Definition->Spatial.Enabled)
 			{
-				// Weights are normalized, so this is the FMOD rule (the closest listeners up to 100%)
+				// Weights are normalized, so the closest listeners count up to 100%
 				// with every active listener counted in full. Panning follows the listener that
 				// contributes most, since miniaudio pans a sound to one listener.
 				const auto& listeners = NativeInternal::GetListeners();
@@ -435,7 +435,7 @@ namespace Lux {
 			return it != s_CallbackStates.end() ? &it->second : nullptr;
 		}
 
-		// Playback ended or was stopped: what FMOD's STOPPED callback reports.
+		// Playback ended or was stopped: what the Stopped callback reports.
 		void MarkStopped(NativeVoice& voice)
 		{
 			voice.Started = false;
@@ -1290,7 +1290,7 @@ namespace Lux {
 			return;
 		if (!m_Impl->Started)
 		{
-			// Applied when it starts, like a position set on an FMOD event before it plays. Each clip
+			// Applied when it starts, like a position set before it plays. Each clip
 			// wraps or clamps it again against its own length then.
 			const int length = GetLength();
 			milliseconds = std::max(0, milliseconds);
@@ -1358,7 +1358,7 @@ namespace Lux {
 		auto* state = State(m_CallbackToken);
 		if (state)
 			state->Playback = {};
-		// Like FMOD, starting again restarts: a new choice through the tree, from the clips' starts.
+		// Starting again restarts: a new choice through the tree, from the clips' starts.
 		ReleaseLeaves(voice);
 		voice.Started = false;
 		std::vector<std::vector<uint32_t>> paths;
@@ -1469,7 +1469,7 @@ namespace Lux {
 
 	bool AudioEventInstance::IsPlaying() const
 	{
-		// A paused voice still counts, as a paused FMOD event does.
+		// A paused voice still counts.
 		return IsValid() && m_Impl->Started && !AllAtEnd(*m_Impl);
 	}
 

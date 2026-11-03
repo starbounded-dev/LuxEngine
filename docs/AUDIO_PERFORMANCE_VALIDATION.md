@@ -1,5 +1,9 @@
 # Audio budgets and validation (Phase 14)
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 ## Configure budgets
 
 Open Project Settings → Audio → Voice and Performance Budgets. Save and reopen the project to

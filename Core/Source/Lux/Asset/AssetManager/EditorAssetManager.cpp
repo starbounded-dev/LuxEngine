@@ -742,8 +742,8 @@ namespace Lux
 
 	namespace {
 
-		// True when the directory is the root of an FMOD Studio project, i.e. it directly contains a
-		// .fspro. Mirrors the same rule ContentBrowserPanel::ProcessDirectory applies.
+		// True when the directory is the root of an FMOD Studio project left in an older project, i.e.
+		// it directly contains a .fspro. Mirrors the rule ContentBrowserPanel::ProcessDirectory applies.
 		bool IsFMODStudioProjectDirectory(const std::filesystem::path& directoryPath)
 		{
 			std::error_code ec;
@@ -771,11 +771,8 @@ namespace Lux
 		{
 			if (it->is_directory())
 			{
-				// An FMOD Studio project is tooling internals, not engine content: Metadata/ holds a
-				// GUID-named XML per authored object, and Build/ holds the banks fmodstudiocl
-				// regenerates. Importing the banks would put gitignored build output into the tracked
-				// asset registry, so a fresh clone would carry handles for files that do not exist.
-				// The .fspro itself is still imported - it is a file in the parent directory.
+				// An FMOD Studio project left in an older project is tooling internals, not engine
+				// content: importing its files would fill the registry with assets nothing plays.
 				if (IsFMODStudioProjectDirectory(it->path()))
 					it.disable_recursion_pending();
 

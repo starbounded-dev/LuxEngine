@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "AudioBankManifest.h"
 #include "Lux/Core/UUID.h"
 
 #include <cstdint>
@@ -11,14 +10,9 @@
 #include <string>
 #include <vector>
 
-// No backend type appears here. Exactly one implementation is compiled, chosen by premake's
-// --audio-backend: Audio/FMOD/ (default, FMODInternal.h is its private header) or Audio/Native/
-// (miniaudio, NativeInternal.h).
+// No backend type appears here: the implementation is Audio/Native/ (miniaudio; NativeInternal.h is
+// its private header).
 namespace Lux {
-
-	// The playback backend this build compiled. Editor code asks AudioEngine::GetBackend() instead of
-	// testing a define: the backend defines are set for Core only.
-	enum class AudioBackend { FMOD, Native };
 
 	// Read-only backend playback statistics for editor tooling.
 	struct AudioEngineStats
@@ -26,14 +20,14 @@ namespace Lux {
 		const char* BackendName = "None";
 		bool Initialized = false;
 
-		// Version of the backend itself, when it reports one (FMOD). Zero otherwise.
+		// Version of the audio library (miniaudio).
 		uint32_t VersionMajor = 0;
 		uint32_t VersionMinor = 0;
 		uint32_t VersionPatch = 0;
 
 		int SampleRate = 0;
 
-		// False until mixer statistics are available from the initialized FMOD system.
+		// False until mixer statistics are measured (not yet on miniaudio).
 		bool HasMixerStats = false;
 		int ChannelsPlaying = 0;
 		int RealChannelsPlaying = 0;
@@ -42,41 +36,25 @@ namespace Lux {
 		float UpdateCPUPercent = 0.0f;
 		int MemoryCurrentBytes = 0;
 		int MemoryPeakBytes = 0;
-
-		// FMOD Studio layer. Zeroed before initialization.
-		bool LiveUpdateEnabled = false;
-		int LoadedBankCount = 0;
-		int EventDescriptionCount = 0;
 		int PlayingEventInstances = 0;
 	};
 
-	// A bank loaded from the project's built bank directory. Banks are build output of the FMOD
-	// Studio project - see AudioBankBuilder.
-	struct AudioBankInfo
+	// A loaded Sound Bank and a clip in memory, as the Audio Debugger lists them.
+	struct AudioLoadedBank
 	{
-		std::string Name;              // file name as it sits on disk, e.g. "Master.bank"
-		int EventCount = 0;
-
-		// The strings bank carries the event *path* table. Without it events can only be resolved
-		// by GUID, so its absence is worth surfacing rather than discovering through a failed
-		// lookup.
-		bool IsStringsBank = false;
+		UUID Bank = 0;
+		uint32_t Loads = 0;
+		bool Resident = false;
+		bool Ready = false;   // every clip it decodes is in memory
+	};
+	struct AudioLoadedClip
+	{
+		std::filesystem::path File;   // a loose file, or "luxpack/<handle><ext>" inside the asset pack
+		uint32_t BankRefs = 0, LiveRefs = 0, Streams = 0;
+		uint64_t Bytes = 0;           // the decoded buffer it holds; 0 while it streams or decodes
 	};
 
-	// One event the loaded banks describe. Enumerated from the banks themselves rather than from
-	// the GUIDs.txt that fmodstudiocl exports, so the list can never disagree with what is actually
-	// loaded.
-	struct AudioEventInfo
-	{
-		std::string Path;        // "event:/FX/Door"
-		std::string Guid;        // "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}" - the stable reference
-		std::string BankName;    // the bank that describes it, e.g. "Master.bank"
-		bool Is3D = false;
-		bool IsOneshot = false;
-		bool IsSnapshot = false;
-	};
-
-	// A writable local parameter authored on an event (not read-only, automatic or global).
+	// A parameter a Sound defines (not a global one).
 	struct AudioEventParameterInfo
 	{
 		std::string Name;    // the canonical authored name, which may differ in case from the lookup
@@ -90,8 +68,6 @@ namespace Lux {
 	class AudioEngine
 	{
 	public:
-		static AudioBackend GetBackend();
-
 		static void Init();
 		static void Shutdown();
 
@@ -110,7 +86,7 @@ namespace Lux {
 		// counted, so a bank stays loaded until every load is matched by an unload; a Resident bank stays
 		// loaded until the engine shuts down, whatever unloads follow. A clip stays in
 		// memory while a loaded bank lists it or a voice plays it. False for an unknown bank. The
-		// handles are Sound Bank asset handles. Main thread only. FMOD builds load nothing.
+		// handles are Sound Bank asset handles. Main thread only.
 		static bool LoadSoundBank(UUID bank);
 		static void UnloadSoundBank(UUID bank);
 		// Loaded, and every clip it decodes is ready (or failed, and was reported).
@@ -121,54 +97,34 @@ namespace Lux {
 		// Frees clips that no loaded bank lists and no voice plays: those Sounds outside any bank
 		// loaded when they first played. Called when a scene stops.
 		static void ReleaseUnusedClips();
+		// What is loaded now, for the editor. Main thread only.
+		static std::vector<AudioLoadedBank> GetLoadedSoundBanks();
+		static std::vector<AudioLoadedClip> GetLoadedClips();
 
-		// --- FMOD Studio banks and events -------------------------------------------------------
-		//
-		// Banks are what the engine actually consumes: the .fspro is authored in the FMOD Studio
-		// app and AudioBankBuilder turns it into these. Loading replaces whatever was loaded before,
-		// Existing event wrappers become invalid; scenes recreate their instances on the next update.
-		// Returns false if any bank failed; successfully loaded banks remain available.
-		//
-		// The strings bank is loaded first and deliberately: it carries the path table, and without
-		// it every "event:/..." lookup fails with a not-found that does not explain itself.
-		static bool LoadBank(const std::filesystem::path& bankFile);
+		// Bumped by every engine restart, so holders of instances recreate them. Main thread only.
 		static uint64_t GetBankRevision() { return s_BankRevision; }
-		static bool LoadBanks(const std::filesystem::path& bankDirectory);
-		// Loads only the exported manifest; any failure unloads the partial set.
-		static bool LoadRuntimeBanks(const std::filesystem::path& assets, const AudioBankManifest& manifest);
-		static void UnloadAllBanks();
-		static const std::vector<AudioBankInfo>& GetLoadedBanks();
-
-		// Every event the loaded banks describe, sorted by path. Rebuilt by LoadBanks; empty when
-		// no banks are loaded.
-		static const std::vector<AudioEventInfo>& GetEvents();
-
-		// Changes whenever bank/system teardown invalidates Studio event handles. Main thread only.
+		// Changes whenever an engine restart invalidates every instance. Main thread only.
 		static uint64_t GetEventGeneration() { return s_EventGeneration; }
 
 		// --- Mixer buses ------------------------------------------------------------------------
 		//
-		// The game-facing volume controls. busPath is an FMOD bus path ("bus:/", "bus:/SFX"), which
-		// the sound designer defines in Studio - the engine does not invent the hierarchy, it only
-		// drives what is authored. Volume is linear and nonnegative. Both return false / 0 when the bus does
-		// not exist, which is the normal answer for a project that has not authored that bus.
-		static std::string ResolveEventReference(const std::string& reference);
+		// The game-facing volume controls. busPath names a bus of the project's mixer ("bus:/",
+		// "bus:/SFX"; View > Audio Mixer). Volume is linear and nonnegative. Both return false / 0 when
+		// the bus does not exist, which is the normal answer for a project that has not authored that bus.
 		static bool SetBusMuted(const std::string& path, bool muted);
 		static bool SetVCAVolume(const std::string& path, float volume);
 		static bool SetGlobalParameter(const std::string& name, float value);
 		static float GetGlobalParameter(const std::string& name);
 		// A volume set here is the game's: on the native backend it takes the bus over from mixer
-		// snapshots until ClearBusVolume hands it back at the project mixer's volume. FMOD's
-		// ClearBusVolume sets 1, the authored level.
+		// snapshots until ClearBusVolume hands it back at the project mixer's volume.
 		static bool SetBusVolume(const std::string& busPath, float volume);
 		static bool ClearBusVolume(const std::string& busPath);
 		static float GetBusVolume(const std::string& busPath);
 
 		// --- Event parameters -------------------------------------------------------------------
 		//
-		// Looks up a writable local parameter of the event with this GUID in the loaded banks.
-		// False when the event or parameter is absent, or the parameter is read-only, automatic or
-		// global. Main thread only.
+		// Looks up a parameter of the Sound this reference names (AudioEventRef::GetReference). False
+		// when the Sound or parameter is absent, or the parameter is global. Main thread only.
 		static bool GetEventParameter(const std::string& eventGuid, const std::string& name, AudioEventParameterInfo& outInfo);
 		// The label at index (0 = the parameter's minimum) of a labelled event parameter. On failure
 		// outError describes why.
@@ -182,7 +138,6 @@ namespace Lux {
 	private:
 		inline static bool s_HasInitializedAudioEngine = false;
 		inline static bool s_ShuttingDown = false;
-		static bool RefreshBankEvents();
 		inline static uint64_t s_BankRevision = 0;
 		inline static uint64_t s_EventGeneration = 0;
 	};

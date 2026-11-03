@@ -253,9 +253,9 @@ namespace Lux {
 								CreateAudioSurfaceTable();
 							if (ImGui::MenuItem("Dialogue Table"))
 								CreateDialogueTable();
-							if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound"))
+							if (ImGui::MenuItem("Sound"))
 								CreateSoundAsset();
-							if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound Bank"))
+							if (ImGui::MenuItem("Sound Bank"))
 								CreateSoundBankAsset();
 
 							ImGui::EndMenu();
@@ -419,11 +419,9 @@ namespace Lux {
 		else
 			directoryInfo->FilePath = std::filesystem::relative(directoryPath, m_Project->GetAssetDirectory()).lexically_normal();
 
-		// An FMOD Studio project is a directory of tooling internals - Metadata/ holds one
-		// GUID-named XML file per authored object, alongside Studio's cache and its built banks.
-		// None of it is engine content, and recursing produces dozens of folders full of files the
-		// browser then refuses to show. Treat the project as opaque: the .fspro is the only thing
-		// worth clicking, and it opens in FMOD Studio.
+		// An FMOD Studio project left in an older project is tooling internals (Metadata/ holds one
+		// GUID-named XML per authored object), not engine content. Recursing would produce dozens of
+		// folders of files the browser refuses to show, so the folder stays closed.
 		const bool isStudioProjectRoot = [&directoryPath]
 			{
 				std::error_code ec;
@@ -764,9 +762,9 @@ namespace Lux {
 				CreateAudioSurfaceTable();
 			if (ImGui::MenuItem("Dialogue Table"))
 				CreateDialogueTable();
-			if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound"))
+			if (ImGui::MenuItem("Sound"))
 				CreateSoundAsset();
-			if (AudioEngine::GetBackend() == AudioBackend::Native && ImGui::MenuItem("Sound Bank"))
+			if (ImGui::MenuItem("Sound Bank"))
 				CreateSoundBankAsset();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import…"))
@@ -1758,10 +1756,6 @@ namespace Lux {
 		case AssetType::StaticMesh: return EditorResources::StaticMeshFileIcon;
 		case AssetType::Texture: return EditorResources::FileIcon;
 		case AssetType::Audio: return EditorResources::AudioIcon;
-		// No dedicated FMOD artwork yet; the speaker icon at least reads as "audio" rather than
-		// falling through to the generic file icon.
-		case AssetType::AudioProject: return EditorResources::AudioIcon;
-		case AssetType::AudioBank: return EditorResources::AudioIcon;
 		case AssetType::DialogueTable:
 		case AssetType::AudioSurfaceTable: return EditorResources::AudioIcon;
 		case AssetType::Sound: return EditorResources::SoundConfigFileIcon;

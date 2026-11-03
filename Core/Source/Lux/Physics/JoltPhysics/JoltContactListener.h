@@ -12,7 +12,7 @@
 
 namespace Lux
 {
-	// Worker callbacks read only the supplied locked bodies. No ECS, FMOD or body locking here.
+	// Worker callbacks read only the supplied locked bodies. No ECS, audio or body locking here.
 	class JoltContactListener final : public JPH::ContactListener
 	{
 	public:

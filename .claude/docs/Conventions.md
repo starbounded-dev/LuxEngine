@@ -377,17 +377,14 @@ one-line constant.
 backend, which would come through NRI's D3D11/D3D12 support; the reserved `RHIDevice` branches and
 guarded D3D includes are in `Renderer/RHI/RHIDevice.h`. **Do not sweep them as dead code.**
 
-### Audio backend types stay in their backend folder
+### Audio library types stay in Audio/Native
 
 Engine and editor code talks to `AudioEngine`, `AudioEventInstance` and the other `Audio/` headers,
-which name no backend type. Only `Core/Source/Lux/Audio/FMOD/*.cpp` (and the FMOD test host in
-`tests/audio/`) include `<fmod*.h*>` or the private `FMOD/FMODInternal.h`; only
-`Core/Source/Lux/Audio/Native/` (and `tests/audio/native`) include `Native/NativeInternal.h` or
-miniaudio. Native code includes miniaudio through `Native/Miniaudio.h`, never `<miniaudio.h>`
+which name no audio-library type. Only `Core/Source/Lux/Audio/Native/` (and `tests/audio/native`)
+include `Native/NativeInternal.h` or miniaudio. Native code includes miniaudio through `Native/Miniaudio.h`, never `<miniaudio.h>`
 directly: the wrapper sets `MA_ENGINE_MAX_LISTENERS`, which changes miniaudio's struct sizes. A
-feature that needs a new backend query gets a neutral `AudioEngine` operation implemented in both
-folders, the way `GetEventParameter` was. Editor code that must behave differently per backend asks
-`AudioEngine::GetBackend()`; never test a backend define outside Core.
+feature that needs a new audio query gets an `AudioEngine` operation implemented in `Audio/Native/`,
+the way `GetEventParameter` is, rather than editor code reaching miniaudio.
 
 ### Renderer vocabulary lives in `Renderer/RHI/RHITypes.h`
 

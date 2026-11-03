@@ -1396,193 +1396,29 @@ namespace Lux {
 
 	void SceneHierarchyPanel::DrawAudioEventPicker(AudioSourceComponent& component, const std::vector<UUID>& selectedEntities)
 	{
-		// The native backend plays Sound assets. The FMOD event stays on the component for the FMOD
-		// build, shown for reference; each build's picker edits only its own field.
-		if (AudioEngine::GetBackend() == AudioBackend::Native)
+		AssetHandle sound = component.Event.Sound;
+		const bool mixed = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
 		{
-			AssetHandle sound = component.Event.Sound;
-			const bool mixed = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
+			return AssetHandle(entity.GetComponent<AudioSourceComponent>().Event.Sound);
+		});
+		ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixed);
+		if (ImGuiEx::PropertyAssetReference<Sound>("Sound", sound, "The Sound asset this source plays. Create one from an audio file in the Content Browser."))
+		{
+			component.Event.Sound = sound;
+			ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [sound](AudioSourceComponent& audioComponent, Entity)
 			{
-				return AssetHandle(entity.GetComponent<AudioSourceComponent>().Event.Sound);
+				audioComponent.Event.Sound = sound;
 			});
-			ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixed);
-			if (ImGuiEx::PropertyAssetReference<Sound>("Sound", sound, "The Sound asset this source plays. Create one from an audio file in the Content Browser."))
-			{
-				component.Event.Sound = sound;
-				ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [sound](AudioSourceComponent& audioComponent, Entity)
-				{
-					audioComponent.Event.Sound = sound;
-				});
-			}
-			ImGui::PopItemFlag();
-			if (m_OpenSoundCallback && !mixed && sound && AssetManager::GetAssetType(sound) == AssetType::Sound)
-			{
-				ImGui::NextColumn();
-				ImGuiEx::ShiftCursorY(4.0f);
-				if (ImGui::SmallButton(std::format("{}  Edit Sound##edit_audio_source_sound", LUX_ICON_PENCIL).c_str()))
-					m_OpenSoundCallback(sound);
-				ImGui::NextColumn();
-			}
-			if (!component.Event.Guid.empty())
-			{
-				ImGuiEx::ShiftCursor(10.0f, 9.0f);
-				ImGui::TextUnformatted("FMOD Event");
-				ImGui::NextColumn();
-				ImGuiEx::ShiftCursorY(4.0f);
-				ImGui::TextDisabled("%s", component.Event.Path.empty() ? component.Event.Guid.c_str() : component.Event.Path.c_str());
-				ImGuiEx::SetTooltip("Kept for the FMOD build. This build plays the Sound above.");
-				ImGui::NextColumn();
-				ImGuiEx::Draw::Underline();
-			}
-			return;
 		}
-
-		const std::vector<AudioEventInfo>& events = AudioEngine::GetEvents();
-
-		// Resolve the assignment against what is actually loaded. A stored event whose GUID is not
-		// in any loaded bank is shown and flagged rather than reading as "nothing assigned", which
-		// would invite someone to silently reassign it.
-		const std::string assignedGuid = Utils::String::ToLowerCopy(component.Event.Guid);
-		const auto assigned = std::find_if(events.begin(), events.end(),
-			[&](const AudioEventInfo& info) { return info.Guid == assignedGuid; });
-		const bool resolved = assigned != events.end();
-
-		if (resolved)
+		ImGui::PopItemFlag();
+		if (m_OpenSoundCallback && !mixed && sound && AssetManager::GetAssetType(sound) == AssetType::Sound)
 		{
-			// The designer may have renamed or re-banked the event since this scene was saved; the
-			// GUID kept the reference working, so refresh the labels that describe it.
-			component.Event.Path = assigned->Path;
-			component.Event.BankName = assigned->BankName;
+			ImGui::NextColumn();
+			ImGuiEx::ShiftCursorY(4.0f);
+			if (ImGui::SmallButton(std::format("{}  Edit Sound##edit_audio_source_sound", LUX_ICON_PENCIL).c_str()))
+				m_OpenSoundCallback(sound);
+			ImGui::NextColumn();
 		}
-
-		// Follow a new selection or assignment, but preserve the user's filter while browsing.
-		const UUID firstEntity = selectedEntities.empty() ? UUID(0) : selectedEntities.front();
-		const uint64_t generation = AudioEngine::GetEventGeneration();
-		if (m_AudioEventPickerEntity != firstEntity || m_AudioEventPickerGuid != component.Event.Guid
-			|| m_AudioEventPickerGeneration != generation)
-		{
-			m_AudioEventPickerEntity = firstEntity;
-			m_AudioEventPickerGuid = component.Event.Guid;
-			m_AudioEventPickerGeneration = generation;
-			m_AudioEventBankFilter = resolved ? assigned->BankName : std::string{};
-			m_AudioEventSearch.clear();
-		}
-
-		auto propertyRow = [](const char* label)
-			{
-				ImGuiEx::ShiftCursor(10.0f, 9.0f);
-				ImGui::TextUnformatted(label);
-				ImGui::NextColumn();
-				ImGuiEx::ShiftCursorY(4.0f);
-				ImGui::PushItemWidth(-1.0f);
-			};
-
-		auto endPropertyRow = []()
-			{
-				ImGui::PopItemWidth();
-				ImGui::NextColumn();
-				ImGuiEx::Draw::Underline();
-			};
-
-		// --- Bank -------------------------------------------------------------------------------
-		propertyRow("Bank");
-		{
-			const std::vector<AudioBankInfo>& banks = AudioEngine::GetLoadedBanks();
-			const char* bankPreview = m_AudioEventBankFilter.empty() ? "All banks" : m_AudioEventBankFilter.c_str();
-
-			if (ImGui::BeginCombo("##audio_event_bank", bankPreview))
-			{
-				if (ImGui::Selectable("All banks", m_AudioEventBankFilter.empty()))
-					m_AudioEventBankFilter.clear();
-
-				for (const AudioBankInfo& bank : banks)
-				{
-					// A strings bank carries the path table, not events - offering it as a filter
-					// would produce a permanently empty list.
-					if (bank.IsStringsBank || bank.EventCount == 0)
-						continue;
-
-					if (ImGui::Selectable(bank.Name.c_str(), m_AudioEventBankFilter == bank.Name))
-						m_AudioEventBankFilter = bank.Name;
-				}
-
-				ImGui::EndCombo();
-			}
-		}
-		endPropertyRow();
-
-		// --- Event ------------------------------------------------------------------------------
-		propertyRow("Event");
-		{
-			std::string preview = "None";
-			if (component.Event.IsValid())
-				preview = resolved ? component.Event.Path
-					: (component.Event.Path.empty() ? component.Event.Guid : component.Event.Path);
-
-			if (ImGui::BeginCombo("##audio_event", preview.c_str()))
-			{
-				// Kept inside the popup so it is where the eye already is when the list is long.
-				ImGui::SetNextItemWidth(-1.0f);
-				char search[128] = {};
-				std::snprintf(search, sizeof(search), "%s", m_AudioEventSearch.c_str());
-				if (ImGui::InputTextWithHint("##audio_event_search", "Search events...", search, sizeof(search)))
-					m_AudioEventSearch = search;
-
-				ImGui::Separator();
-
-				// Clears only the FMOD event: a Sound assigned in the native build stays.
-				const auto assignEvent = [](AudioEventRef& target, const AudioEventRef& picked)
-				{
-					target.Guid = picked.Guid;
-					target.Path = picked.Path;
-					target.BankName = picked.BankName;
-				};
-				if (ImGui::Selectable("None", !component.Event.IsValid()))
-				{
-					assignEvent(component.Event, {});
-					ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities,
-						[assignEvent](AudioSourceComponent& audioComponent, Entity) { assignEvent(audioComponent.Event, {}); });
-				}
-
-				int shown = 0;
-				for (const AudioEventInfo& info : events)
-				{
-					if (info.IsSnapshot || (!m_AudioEventBankFilter.empty() && info.BankName != m_AudioEventBankFilter))
-						continue;
-
-					if (!ImGuiEx::IsMatchingSearch(info.Path, m_AudioEventSearch, false, false, true))
-						continue;
-
-					shown++;
-					ImGuiEx::ScopedID bankID(info.BankName.c_str());
-					ImGuiEx::ScopedID eventID(info.Guid.c_str());
-					if (ImGui::Selectable(info.Path.c_str(), info.Guid == assignedGuid))
-					{
-						AudioEventRef picked{ info.Guid, info.Path, info.BankName };
-						assignEvent(component.Event, picked);
-						ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities,
-							[assignEvent, picked](AudioSourceComponent& audioComponent, Entity) { assignEvent(audioComponent.Event, picked); });
-					}
-
-					if (ImGui::IsItemHovered())
-					{
-						ImGui::SetTooltip("%s\n%s  -  %s%s", info.Guid.c_str(), info.BankName.c_str(),
-							info.Is3D ? "3D" : "2D", info.IsOneshot ? ", oneshot" : "");
-					}
-				}
-
-				if (shown == 0)
-					ImGui::TextDisabled(events.empty() ? "No events in the loaded banks." : "Nothing matches.");
-
-				ImGui::EndCombo();
-			}
-
-			if (component.Event.IsValid() && !resolved)
-				ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.31f, 1.0f), "Not in any loaded bank - build the project.");
-			else if (events.empty())
-				ImGui::TextDisabled("No events yet - author them in FMOD Studio.");
-		}
-		endPropertyRow();
 	}
 
 	void SceneHierarchyPanel::DrawComponents(const std::vector<UUID>& entityIDs)
@@ -3361,7 +3197,7 @@ namespace Lux {
 				auto& component = firstComponent;
 				auto& config = component.Config;
 
-				// Studio authors the event; gameplay controls placement, volume and pitch.
+				// The Sound authors the audio; gameplay controls placement, volume and pitch.
 				ImGuiEx::BeginPropertyGrid();
 				DrawAudioEventPicker(component, selectedEntities);
 
@@ -3381,7 +3217,7 @@ namespace Lux {
 				};
 				property("Priority", &AudioSourceComponent::Priority, [](const char* label, int& value)
 				{
-					return ImGuiEx::Property(label, value, 0, 256, "0 is highest priority; FMOD allocates real voices accordingly.", false);
+					return ImGuiEx::Property(label, value, 0, 256, "0 is highest priority; the voice budget keeps the highest priorities mixing.", false);
 				});
 				property("Distance Culling", &AudioSourceComponent::DistanceCulling, [](const char* label, bool& value)
 				{
@@ -3415,14 +3251,13 @@ namespace Lux {
 
 				DrawAudioParameterOverrides(component);
 
-				const bool nativeAudio = AudioEngine::GetBackend() == AudioBackend::Native;
 				if (component.LegacyAudio && !component.Event.IsValid())
-					ImGui::TextWrapped(nativeAudio ? "Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Create a Sound from it and assign it above."
-						: "Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Author an FMOD Studio event and assign it above.", static_cast<unsigned long long>(component.LegacyAudio));
-				else if (nativeAudio && !component.Event.IsValid() && component.Event.HasReference())
+					ImGui::TextWrapped("Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Create a Sound from it and assign it above.",
+						static_cast<unsigned long long>(component.LegacyAudio));
+				else if (!component.Event.IsValid() && component.Event.HasReference())
 					ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "This source names an FMOD event (%s) but no Sound, so it is silent. Create a Sound and assign it above.",
 						component.Event.Path.empty() ? component.Event.Guid.c_str() : component.Event.Path.c_str());
-				ImGui::TextDisabled(nativeAudio ? "Looping and spatialization are set on the Sound." : "Looping and spatialization are authored in FMOD Studio.");
+				ImGui::TextDisabled("Looping and spatialization are set on the Sound.");
 
 				if (isMultiEdit)
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
@@ -3581,10 +3416,8 @@ namespace Lux {
 				{
 					ImGuiEx::ScopedID id(label);
 					const auto& reference = first.*member;
-					if (AudioEngine::GetBackend() == AudioBackend::Native)
 					{
-						// The native build plays a looping Sound for ambience and a mixer snapshot by ID,
-						// both in the reference's Sound slot; the FMOD GUID stays for the FMOD build.
+						// A looping Sound for ambience and a mixer snapshot by ID, both in the reference's Sound slot.
 						const bool mixedNative = IsSelectionInconsistent<uint64_t>(m_Context, selected, [member](Entity entity)
 						{
 							return static_cast<uint64_t>((entity.GetComponent<AudioZoneComponent>().*member).Sound);
@@ -3629,48 +3462,11 @@ namespace Lux {
 								(component.*member).Sound = value.Sound;
 							});
 						}
-						return;
 					}
-					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selected, [member](Entity entity)
-					{
-						return (entity.GetComponent<AudioZoneComponent>().*member).Guid;
-					});
-					const char* preview = mixed ? "Multiple values" : reference.Guid.empty() ? "None" : reference.Path.empty() ? reference.Guid.c_str() : reference.Path.c_str();
-					if (ImGui::BeginCombo(label, preview))
-					{
-						// FMOD events only; a Sound assigned in the native build stays.
-						auto assign = [&](const AudioEventRef& value)
-						{
-							ApplyToSelection<AudioZoneComponent>(m_Context, selected, [member, &value](AudioZoneComponent& component, Entity)
-							{
-								auto& target = component.*member;
-								target.Guid = value.Guid;
-								target.Path = value.Path;
-								target.BankName = value.BankName;
-							});
-						};
-						if (ImGui::Selectable("None", reference.Guid.empty()))
-							assign({});
-						for (const auto& info : AudioEngine::GetEvents())
-						{
-							if (info.IsSnapshot != snapshot || (!snapshot && info.IsOneshot))
-								continue;
-							ImGuiEx::ScopedID eventID(info.Guid.c_str());
-							ImGuiEx::ScopedID bankID(info.BankName.c_str());
-							if (ImGui::Selectable(info.Path.empty() ? info.Guid.c_str() : info.Path.c_str(), info.Guid == reference.Guid))
-								assign({ info.Guid, info.Path, info.BankName });
-						}
-						ImGui::EndCombo();
-					}
-					if (!reference.Guid.empty() && std::none_of(AudioEngine::GetEvents().begin(), AudioEngine::GetEvents().end(),
-						[&](const auto& info) { return info.Guid == reference.Guid && info.IsSnapshot == snapshot; }))
-						ImGui::TextWrapped("Assigned reference is unavailable or has the wrong type. Build/load its bank.");
 				};
-				picker("Ambience Event", &AudioZoneComponent::AmbienceEvent, false);
+				picker("Ambience", &AudioZoneComponent::AmbienceEvent, false);
 				picker("Snapshot", &AudioZoneComponent::Snapshot, true);
-				ImGui::TextWrapped(AudioEngine::GetBackend() == AudioBackend::Native
-					? "Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. The zone weight is the snapshot's intensity (View > Audio Mixer)."
-					: "Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. Expose the snapshot Intensity dial as a 0-100 parameter in FMOD Studio.");
+				ImGui::TextWrapped("Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. The zone weight is the snapshot's intensity (View > Audio Mixer).");
 				if (first.Shape == AudioZoneShape::Collider)
 					ImGui::TextWrapped("Collider mode supports exactly one box, sphere or capsule on this entity. Mesh and 2D colliders are unsupported.");
 				if (m_Context->IsRunning() && selected.size() == 1)
@@ -3779,7 +3575,7 @@ namespace Lux {
 					});
 				}
 				if (firstComponent.UseAttenuationTarget && ImGuiEx::PropertyEntityReference("Attenuation Target", firstComponent.AttenuationTarget,
-					m_Context, "Studio events pan at this listener and attenuate at the target. A missing target uses the listener position. Prefabs retain only targets within their own hierarchy."))
+					m_Context, "Sounds pan at this listener and attenuate at the target. A missing target uses the listener position. Prefabs retain only targets within their own hierarchy."))
 				{
 					ApplyToSelection<AudioListenerComponent>(m_Context, selectedEntities, [&firstComponent](AudioListenerComponent& component, Entity)
 					{
@@ -3787,7 +3583,7 @@ namespace Lux {
 					});
 				}
 				ImGuiEx::EndPropertyGrid();
-				ImGui::TextWrapped("Weights blend Studio listeners. Ray-traced acoustics use the highest-weight listener (lowest index on a tie).");
+				ImGui::TextWrapped("Weights blend listeners. Ray-traced acoustics use the highest-weight listener (lowest index on a tie).");
 			});
 
 		DrawComponentSection<StaticMeshComponent>(m_Context, entityIDs, "Static Mesh", EditorResources::StaticMeshIcon,

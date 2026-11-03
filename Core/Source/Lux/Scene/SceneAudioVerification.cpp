@@ -11,10 +11,6 @@
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioPerformance.h"
-#ifdef LUX_ENABLE_FMOD
-#include "Lux/Audio/FMOD/FMODInternal.h" // verification reads the authored Studio parameter
-#include <fmod_studio.hpp>
-#endif
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -153,35 +149,15 @@ namespace Lux
 				}
 				out << Yaml::EndSeq << Yaml::EndMap;
 			}
-#ifdef LUX_ENABLE_FMOD
-			const auto& event = entity.GetComponent<AudioSourceComponent>().Event;
-			FMOD_GUID guid{};
-			FMOD::Studio::EventDescription* description = nullptr;
-			FMOD_STUDIO_PARAMETER_DESCRIPTION parameter{};
-			if (auto* studio = FMODInternal::GetStudioSystem(); studio && FMOD::Studio::parseID(event.Guid.c_str(), &guid) == FMOD_OK &&
-				studio->getEventByID(&guid, &description) == FMOD_OK &&
-				description->getParameterDescriptionByName(AudioEventInstance::kOcclusionParameter, &parameter) == FMOD_OK)
-			{
-				const float value = instance->GetParameter(AudioEventInstance::kOcclusionParameter);
-				if (!std::isfinite(value) || std::abs(value - std::clamp(1.0f - gain, 0.0f, 1.0f)) > k_AcousticTransportTolerance)
-				{
-					error = std::format("Soundwave LF gain did not reach FMOD source {}", static_cast<uint64_t>(id));
-					return SceneAudioVerificationStatus::Failed;
-				}
-				out << Yaml::Key << "FMODOcclusion" << Yaml::Value << value;
-				++checkedParameters;
-			}
-#else
-			// shortcut: the native backend applies the gain inside the voice with no readback, so the
-			// check ends at the Scene gain above; add an instance readback if this gate must cover it.
+			// shortcut: the voice applies the gain itself with no readback, so the check ends at the Scene
+			// gain above; add an instance readback if this gate must cover it.
 			++checkedParameters;
-#endif
 			out << Yaml::EndMap;
 		}
-		out << Yaml::EndSeq << Yaml::Key << "CheckedFMODParameters" << Yaml::Value << checkedParameters << Yaml::EndMap;
+		out << Yaml::EndSeq << Yaml::Key << "CheckedSources" << Yaml::Value << checkedParameters << Yaml::EndMap;
 		if (!checkedParameters || (!stats.StaticTriangles && !stats.MovingTriangles))
 		{
-			error = "Scene verification needs acoustic render geometry and a live event exposing Occlusion";
+			error = "Scene verification needs acoustic render geometry and a live audio source";
 			return SceneAudioVerificationStatus::Failed;
 		}
 		report = out.c_str();

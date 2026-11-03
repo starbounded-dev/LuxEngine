@@ -54,13 +54,6 @@ project "Lux-Runtime"
 			}
 		end
 
-		-- Validated SDK roots are shared with the linker configuration.
-		if AudioBackend == "fmod" then -- the native backend deploys no audio libraries
-			postbuildcommands {
-				'{COPY} "' .. FMODSDKRoot .. '/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
-				'{COPY} "' .. FMODSDKRoot .. '/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
-			}
-		end
 
 		-- Coral links nethost.lib on Windows (never statically), so the exe cannot start without
 		-- nethost.dll beside it. Take it from the .NET SDK pack Coral.Native found. Runtime export
@@ -110,14 +103,6 @@ project "Lux-Runtime"
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
 
-		-- See the Editor project for why {COPYFILE} + the exact SONAME, not a {COPY} glob.
-		if AudioBackend == "fmod" then -- the native backend deploys no audio libraries
-			postbuildcommands {
-				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPYFILE} "' .. FMODSDKRoot .. '/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',
-				'{COPYFILE} "' .. FMODSDKRoot .. '/api/studio/lib/x86_64/libfmodstudio.so.14" "%{cfg.targetdir}/lib/libfmodstudio.so.14"',
-			}
-		end
 
 		if gtkLinkOptions then
 			linkoptions { gtkLinkOptions }

@@ -17,7 +17,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 - [AudioListenerComponent](AudioListenerComponent) — Where the game hears from.
 - [AudioPortalComponent](AudioPortalComponent) — Acoustic shutter and optional link between two AudioZone components.
-- [AudioSourceComponent](AudioSourceComponent) — Plays an FMOD Studio event from the entity.
+- [AudioSourceComponent](AudioSourceComponent) — Plays a Sound from the entity.
 - [AudioSurfaceComponent](AudioSurfaceComponent) — Overrides the acoustic material and surface sounds of the entity's colliders.
 - [AudioZoneComponent](AudioZoneComponent) — Scene-owned ambience and snapshot zone.
 - [BoxCollider2DComponent](BoxCollider2DComponent) — A box shape for the entity's 2D rigid body.
@@ -57,7 +57,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [AcousticGeometryMode](AcousticGeometryMode) — How a mesh takes part in ray-traced acoustics.
 - [AcousticMaterial](AcousticMaterial) — What a surface is made of, for ray-traced acoustics and surface sounds.
 - [Audio](Audio) — Gameplay audio.
-- [AudioCategory](AudioCategory) — A volume category the player can set, mapped to an FMOD bus in Project Settings.
+- [AudioCategory](AudioCategory) — A volume category the player can set, mapped to a mixer bus in Project Settings.
 - [AudioDynamicRange](AudioDynamicRange) — How much the mix's loud and quiet parts are evened out.
 - [AudioZoneShape](AudioZoneShape) — The shape of an [`AudioZoneComponent`](AudioZoneComponent).
 - [Dialogue](Dialogue) — Scene-owned dialogue.

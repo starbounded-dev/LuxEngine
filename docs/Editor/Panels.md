@@ -367,9 +367,7 @@ meters and project validation — plus the controls for the Soundwave acoustics 
 the viewport. `Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, opened with **View → Audio
 Debugger**, closed by default and docked bottom in the default layout.
 
-Two things to know before editing it: it must not branch on `LUX_ENABLE_FMOD` (a Core-only
-define, invisible to the Editor — each backend reports
-itself through its stats struct), and its `AudioVisualisationSettings` is *edited* here but *drawn*
+One thing to know before editing it: its `AudioVisualisationSettings` is *edited* here but *drawn*
 by `EditorLayer::OnOverlayRender`.
 
 Full page: **[Audio](Audio.md)**.

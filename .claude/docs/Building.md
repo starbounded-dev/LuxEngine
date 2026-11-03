@@ -136,8 +136,8 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
-| `--audio-backend=native\|fmod` | Selects the audio backend (default `native`; checklist key `fmod-audio`, flag `audio-backend=fmod`). `fmod` links FMOD Core + Studio, validates the SDK, defines `LUX_ENABLE_FMOD` for Core and compiles `Audio/FMOD/`. `native` compiles `Audio/Native/`, the vendored miniaudio (its one implementation unit, `Audio/Native/MiniaudioImplementation.c`, is `NoPCH`) and the MiniaudioCpp wrapper (`Core/vendor/MiniaudioCpp/src`, `NoPCH`, added to Core's files only for this backend) instead, needs no FMOD SDK, and deploys no audio libraries. Exactly one backend folder is compiled (`Core/premake5.lua` `removefiles`). FMOD stays selectable until `docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phase 10 deletes it; `Configure.warn_missing_fmod_sdk` looks for its SDK only when `fmod-audio` is selected. |
-| Acoustics | The in-tree Soundwave library (`Core/vendor/soundwave/`, globbed into `Core`) on either backend: no SDK and no flag. |
+| Audio | Always the vendored miniaudio (`Audio/Native/`; its one implementation unit, `Audio/Native/MiniaudioImplementation.c`, is `NoPCH`) and the MiniaudioCpp wrapper (`Core/vendor/MiniaudioCpp/src`, `NoPCH`). No SDK, no flag, no deployed libraries. The `--audio-backend` option and the FMOD backend were removed in November 2026. |
+| Acoustics | The in-tree Soundwave library (`Core/vendor/soundwave/`, globbed into `Core`): no SDK and no flag. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
 `skip-vulkan-check`, `skip-scripts`.
@@ -204,11 +204,7 @@ It also runs the independent Soundwave and production occlusion checks. An x64 V
 developer prompt can run these individually with `tests/audio/run_soundwave.py` and
 `tests/audio/run_occlusion_windows.py`.
 
-`Lux-AudioBankValidation` is a Windows developer console target under `tools/AudioBankValidation/`.
-`scripts/Validate-AudioBanks.ps1` supplies the editor's deployed-library directory through the child
-process PATH and calls the production NOSOUND bank validator without starting an application or
-renderer. This is a built-bank catalog check, not collection of a project's serialized references.
-It adds no files to exported games. `scripts/Lux-GoldenRun.ps1` wraps the existing renderer capture
+`scripts/Lux-GoldenRun.ps1` wraps the existing renderer capture
 runner with fresh-artifact and zero-validation checks; `scripts/lm9-golden-run.py` is a compatibility
 entry point to that same runner. Golden summaries record the editor exit code, including crashes
 after a status file was written.
@@ -293,29 +289,10 @@ project's script solution is generated with `include_options=False` precisely be
 manually and is gitignored (it is very large). Either check it out or re-run generation without the
 option.
 
-### Switching `--audio-backend`, or "unresolved external" for an `AudioEngine` / `AudioEventInstance` function
+### miniaudio struct mismatches
 
-The backend is chosen at generation time. After changing it, regenerate with the same option on
-*every* generation (like the other premake flags), then rebuild Core: a project generated for one
-backend compiles that backend's folder only. A native build that cannot find `miniaudio.h` was
-generated without `--audio-backend=native`. Native code includes miniaudio only through
-`Audio/Native/Miniaudio.h`, never `<miniaudio.h>` directly: the wrapper sets
-`MA_ENGINE_MAX_LISTENERS`, which changes miniaudio's struct sizes.
-
-### FMOD build fails with `fmod.hpp: No such file or directory`
-
-Extract the native FMOD Engine SDK beneath `Core/vendor/FMOD/`, or set `LUX_FMOD_SDK` to its
-package root containing `api/`, then regenerate. `Dependencies.lua` discovers packages by target
-header/library layout rather than folder name; multiple matching packages require an explicit
-override. The same root supplies headers, link inputs and Editor/Runtime post-build copies.
-Windows requires Core/Studio `.lib` and `.dll` files; Linux requires link `.so` files and the
-deployed `.so.14` files. Generation fails with the exact missing path instead of building a
-silent fallback. This environment variable must be set in the
-shell that runs generation; generated projects keep the resolved roots until regenerated.
-
-See `docs/AUDIO_DESKTOP_PLATFORMS.md` for setup and project profiles. Linux native builds and
-disposable Windows SDK-layout tests are verified; a native Windows build/listening test still
-requires the Windows FMOD SDK and Windows host. Console SDK/hardware work is on hold.
+Native code includes miniaudio only through `Audio/Native/Miniaudio.h`, never `<miniaudio.h>`
+directly: the wrapper sets `MA_ENGINE_MAX_LISTENERS`, which changes miniaudio's struct sizes.
 
 ### Aftermath headers not found
 
@@ -394,19 +371,8 @@ Before building, every job runs `tests/audio/native` (the vendored miniaudio's o
 decode/render checks, and the engine's native backend driven through `AudioEngine`/
 `AudioEventInstance`); it needs no audio SDK or device.
 
-The main jobs build the default native audio backend: they read no secrets, so they also run for
-fork pull requests, and packaging fails if an FMOD library reaches an editor artifact.
-
-`build-fmod-windows` and `build-fmod-linux` are the optional FMOD jobs: Debug with
-`--audio-backend=fmod` (Windows passes `fmod-audio` to `Setup.py`), skipped when the repository
-variable `AUDIO_SDK_REPOSITORY` is unset and for fork pull requests. The release job does not wait on
-them.
-
-**The FMOD SDK comes from a private repository.** FMOD is licensed and is never committed here. Both FMOD jobs check out the repository named by the repository variable
-`AUDIO_SDK_REPOSITORY` into `.audio-sdk/` using the secret `AUDIO_SDK_TOKEN` (a fine-grained,
-read-only token scoped to that repository), then set `LUX_FMOD_SDK` (`.audio-sdk/FMOD/windows` or
-`.audio-sdk/FMOD/linux`). Populate that repository with
-`scripts/ci/StageAudioSDKs.py`, which copies only headers, link/runtime libraries and licence files.
+The jobs read no secrets, so they also run for fork pull requests, and packaging fails if an FMOD
+library left by an old build reaches an editor artifact.
 
 If a change affects generation (new premake option, new project, new dependency), make sure the CI
 path still works with the non-interactive generator invocation — CI never gets a TTY.
@@ -442,7 +408,7 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
   complete audio suite after dependency builds and before Core/Editor, then continues the full
   engine build. CI enables it for Debug. Compiled test outputs are checked for freshness.
 - `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image
-  capture`). `LUX_GOLDEN_PLAY=1` enters normal Play and adds fresh Soundwave/Scene/FMOD gain evidence. Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
+  capture`). `LUX_GOLDEN_PLAY=1` enters normal Play and adds fresh Soundwave/Scene gain evidence. Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
   commits.
 
 ### Linux CI Vulkan capability probe
@@ -461,9 +427,8 @@ is a space-separated list accepted by the native runner (default `corner`). The 
 full audio regressions, export validations and native report checks still apply; the CI job
 uploads only logs/reports, never licensed SDK libraries or complete game packages. This tests
 correctness on software Vulkan, not GPU performance or Phase 4 hardware parity. The native
-fixture copies committed `tests/audio/fixtures/banks` into its own Audio authoring tree and pins
-both desktop bank paths to that location. Ignored sample Build directories are not prerequisites;
-the runner never writes banks through an Audio directory link into the original project.
+fixture copies the sample's `Audio` folder (Sounds, clips, the demo Sound Bank) into its own tree;
+it never writes through a link into the original project.
 
 Manual `linux_audio_check=debug-as` selects only the Linux Debug-AS job. Native Core/Editor/Runtime
 build before optional audio regressions; a regression failure still fails the job, while the

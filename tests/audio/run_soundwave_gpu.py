@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compile Soundwave's engine compute shaders with glslc and check them against the CPU reference
 on a real Vulkan device (SoundwaveGpuParity.cpp). Needs the Vulkan SDK (VULKAN_SDK) and a C++20
-compiler; it does not need the engine, FMOD or an editor."""
+compiler; it does not need the engine or an editor."""
 
 import argparse
 import os

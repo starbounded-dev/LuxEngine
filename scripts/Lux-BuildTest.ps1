@@ -44,7 +44,6 @@ finally { Pop-Location }
 $toolsetVersion = (& $msbuildPath (Join-Path $repositoryRoot 'Core\Core.vcxproj') /nologo /p:Configuration=Debug /p:Platform=x64 -getProperty:VCToolsVersion)
 if ($LASTEXITCODE -ne 0 -or -not $toolsetVersion) { throw 'Could not resolve the Core C++ toolset version.' }
 $toolsetVersion = $toolsetVersion.Trim()
-$validatorInputTime = Get-NewestInputTime @('tools\AudioBankValidation') @('tools\AudioBankValidation\premake5.lua')
 $results = @()
 foreach ($configuration in $Configurations) {
 	$buildLog = Join-Path $runDirectory ($configuration.ToLowerInvariant() + '.log')
@@ -55,14 +54,12 @@ foreach ($configuration in $Configurations) {
 	$artifactPaths = @((Join-Path $outputRoot 'Core\Core.lib'), (Join-Path $outputRoot 'Lux-Runtime\Lux-Runtime.exe'))
 	# The solution intentionally excludes Editor in Dist; an old Editor.exe is not Dist evidence.
 	if ($configuration -ne 'Dist') { $artifactPaths += Join-Path $outputRoot 'Editor\Editor.exe' }
-	$artifactPaths += Join-Path $outputRoot 'Lux-AudioBankValidation\Lux-AudioBankValidation.exe'
 	$artifacts = @(Get-Item -LiteralPath $artifactPaths)
 	$minimumTimes = @($coreInputTime, [DateTime]::MaxValue)
 	$minimumTimes[1] = @($runtimeInputTime, $artifacts[0].LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
 	if ($configuration -ne 'Dist') {
 		$minimumTimes += @($editorInputTime, $artifacts[0].LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
 	}
-	$minimumTimes += @($validatorInputTime, $artifacts[0].LastWriteTimeUtc) | Sort-Object -Descending | Select-Object -First 1
 	for ($index = 0; $index -lt $artifacts.Count; ++$index) {
 		$artifact = $artifacts[$index]
 		if ($artifact.Length -eq 0 -or $artifact.LastWriteTimeUtc -lt $minimumTimes[$index]) {

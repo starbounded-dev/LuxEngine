@@ -170,8 +170,8 @@ namespace Lux
 
 	const SoundParameter* Sound::FindParameter(const std::string& name) const
 	{
-		// Case-insensitive, as FMOD's parameter lookups are, so names typed in components and scripts
-		// behave the same under both backends.
+		// Case-insensitive, so names typed in components and scripts
+		// behave the same whatever their case.
 		const auto it = std::find_if(Parameters.begin(), Parameters.end(), [&](const SoundParameter& parameter) { return Utils::String::EqualsIgnoreCase(parameter.Name, name); });
 		return it != Parameters.end() ? &*it : nullptr;
 	}

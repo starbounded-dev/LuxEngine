@@ -22,7 +22,7 @@ namespace Lux
 	}
 
 	/// <summary>Scene-owned interactive music. All calls and callbacks run on the main thread.
-	/// Author State labels, continuous Intensity (0–1), and Layer_name parameters (0–1) in FMOD.</summary>
+	/// Author State labels, continuous Intensity (0–1), and Layer_name parameters (0–1) on the Sound.</summary>
 	public static unsafe class Music
 	{
 		private static Action<int, int>? s_Beat;
@@ -104,7 +104,7 @@ namespace Lux
 		private static void Check(bool success)
 		{
 			if (!success)
-				throw new InvalidOperationException("Music operation failed. Check the Audio log and authored FMOD event/parameters.");
+				throw new InvalidOperationException("Music operation failed. Check the Audio log and the Sound's parameters.");
 		}
 		internal static void DispatchBeat(int bar, int beat)
 		{

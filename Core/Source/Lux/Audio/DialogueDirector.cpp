@@ -97,11 +97,9 @@ namespace Lux
 			return voice;
 		}
 		const auto& text = translation->second;
-		// Each backend plays a translation's audio its own way: FMOD through an audio-table key,
-		// native through a clip that replaces the line Sound's clips.
-		const bool native = AudioEngine::GetBackend() == AudioBackend::Native;
-		const bool translated = native ? text.Clip != 0 : !text.AudioKey.empty();
-		if (!instance->MonitorPlayback() || (translated && !(native ? instance->SetClipOverride(text.Clip) : instance->SetProgrammerSound(text.AudioKey))))
+		// A translation's recording replaces the clips of the line's Sound.
+		const bool translated = text.Clip != 0;
+		if (!instance->MonitorPlayback() || (translated && !instance->SetClipOverride(text.Clip)))
 			return voice;
 		if (!s_NextDialogueHandle || s_NextDialogueHandle >= (uint64_t{ 1 } << 63))
 		{

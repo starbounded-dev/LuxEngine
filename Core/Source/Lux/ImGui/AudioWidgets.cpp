@@ -17,44 +17,6 @@ namespace Lux::ImGuiEx
 	{
 		// Each picker edits only its own backend's field, so choosing in one build never erases the
 		// other build's assignment.
-		bool StudioEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed, bool require2D)
-		{
-			ScopedID id(label);
-			bool changed = false;
-			const auto& events = AudioEngine::GetEvents();
-			const auto assigned = std::find_if(events.begin(), events.end(), [&](const auto& info) { return info.Guid == reference.Guid; });
-			const char* preview = mixed ? "Multiple values" : !reference.IsValid() ? "None" : assigned != events.end() ? assigned->Path.c_str()
-				: reference.Path.empty() ? reference.Guid.c_str() : reference.Path.c_str();
-			if (ImGui::BeginCombo(label, preview))
-			{
-				if (ImGui::Selectable("None", !reference.IsValid()))
-				{
-					reference.Guid.clear();
-					reference.Path.clear();
-					reference.BankName.clear();
-					changed = true;
-				}
-				for (const auto& info : events)
-				{
-					if (info.IsSnapshot || info.IsOneshot != oneShot || (require2D && info.Is3D))
-						continue;
-					ScopedID eventID(info.Guid.c_str());
-					ScopedID bankID(info.BankName.c_str());
-					if (ImGui::Selectable(info.Path.empty() ? info.Guid.c_str() : info.Path.c_str(), info.Guid == reference.Guid))
-					{
-						reference.Guid = info.Guid;
-						reference.Path = info.Path;
-						reference.BankName = info.BankName;
-						changed = true;
-					}
-				}
-				ImGui::EndCombo();
-			}
-			if (!changed && !mixed && reference.IsValid() && (assigned == events.end() || assigned->IsSnapshot || assigned->IsOneshot != oneShot || (require2D && assigned->Is3D)))
-				ImGui::TextWrapped("Assigned event is unavailable or has the wrong type. Build/load its bank.");
-			return changed;
-		}
-
 		std::string SoundName(AssetHandle handle)
 		{
 			auto* editor = dynamic_cast<EditorAssetManager*>(Project::GetAssetManager().Raw());
@@ -113,8 +75,6 @@ namespace Lux::ImGuiEx
 
 	bool SurfaceEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed, bool require2D)
 	{
-		return AudioEngine::GetBackend() == AudioBackend::Native
-			? SoundPicker(label, reference, oneShot, mixed, require2D)
-			: StudioEventPicker(label, reference, oneShot, mixed, require2D);
+		return SoundPicker(label, reference, oneShot, mixed, require2D);
 	}
 }

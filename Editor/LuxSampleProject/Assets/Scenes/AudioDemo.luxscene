@@ -133,7 +133,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.4, 0.4, 0.4]
     TextComponent:
-      TextString: 'FMOD AUDIO DEMO
+      TextString: 'AUDIO DEMO
 
         K: Replay source   P: Pause source
 
@@ -292,7 +292,7 @@ Entities:
       ParameterOverrides: []
   - Entity: 73040000000000004
     TagComponent:
-      Tag: FMOD Emitter - Fart
+      Tag: Emitter - Fart
     Parent: 0
     Children: []
     TransformComponent:

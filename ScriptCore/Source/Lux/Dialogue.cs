@@ -48,7 +48,7 @@ namespace Lux
 		public ulong SpeakerEntityID { get; }
 		/// <summary>Where the speaker was when the line started.</summary>
 		public Vector3 SpeakerPosition { get; }
-		/// <summary>Source sound length in seconds; zero if FMOD has not supplied a length.
+		/// <summary>Source sound length in seconds; zero if no length is known yet.
 		/// Hide on SubtitleHidden, since authored fades and interruptions can change playback time.</summary>
 		public float Duration { get; }
 		/// <summary>Whether the speaker is off screen (to show a direction arrow, say).</summary>
@@ -95,7 +95,7 @@ namespace Lux
 			return new DialogueHandle(InternalCalls.Dialogue_Speak(native, speaker?.ID ?? 0, false));
 		}
 		/// <summary>Queue an authored description line when audio descriptions are enabled.
-		/// Route its FMOD event to the mapped Dialogue bus so other categories can be ducked.</summary>
+		/// Route its Sound to the mapped Dialogue bus so other categories can be ducked.</summary>
 		public static DialogueHandle Describe(string key)
 		{
 			using NativeString native = Audio.String(key);

@@ -14,7 +14,7 @@ namespace Lux
 		Failed
 	};
 
-	// Main thread only. Reads the running Scene and actual FMOD parameters without
+	// Main thread only. Reads the running Scene and its live audio sources without
 	// waiting for preparation or GPU work. The caller owns the resulting YAML/error.
 	SceneAudioVerificationStatus CaptureSceneAudioVerification(Scene& scene, std::string& report, std::string& error);
 }

@@ -1,5 +1,9 @@
 # Audio zones and snapshots — Phase 8
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Audio zones blend authored FMOD ambience and mixer snapshots as listeners move through the scene.
 They work in the editor's Play mode and exported runtime. FMOD Studio remains responsible for the
 sound, routing, spatialization, effects and snapshot mixer scope.
