@@ -257,3 +257,8 @@ T046 results:
   point-in-time docs with a banner, and `std::fmod`.
 - The native tests pass (2/2), the YAML check is down to 32 old problems (the sample project's line is updated), the sample's scripts build,
   and the API docs pass `--check`.
+- Fresh clone (SC-002, a7353fb2): `git clone` into `bin/fresh-clone`, submodules from GitHub,
+  `Win-GenProjects.py` with default options (vs2022, no optional settings), then a Debug build of `Lux.sln`:
+  0 errors; `Editor.exe` and `Lux-Runtime.exe` built, and no FMOD file is in the output. The first build
+  failed only because a fresh clone has never restored the C# projects' NuGet packages; MSBuild
+  `/restore` fixes that (it is the same without this change).
