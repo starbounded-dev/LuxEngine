@@ -387,6 +387,7 @@ namespace Lux {
 
 	void ProjectSettingsWindow::OnClose()
 	{
+		StopDialoguePreview();
 		if (m_Dirty)
 			SaveProject();
 	}
@@ -943,8 +944,26 @@ namespace Lux {
 							if (ImGuiEx::PropertyAssetReference<AudioFile>("Clip", clip, "This language's recording; it replaces the clips of the line's Sound. The subtitle lasts as long as the clip.", nullptr, {}, false))
 								translation.Clip = clip;
 							ImGuiEx::EndPropertyGrid();
-							if (locale != table->DefaultLanguage && ImGui::Button("Remove Translation"))
-								removeLanguage = locale;
+							const Ref<Sound> speech = line.Event.Sound ? AssetManager::GetAsset<Sound>(AssetHandle(line.Event.Sound)) : nullptr;
+							const std::string previewID = key + "/" + locale;
+							const bool previewing = m_DialoguePreviewID == previewID && m_DialoguePreview && m_DialoguePreview->IsValid() && m_DialoguePreview->IsPlaying();
+							{
+								ImGuiEx::ScopedDisable disabled(!speech || !AudioEngine::HasInitializedEngine());
+								if (ImGui::Button(previewing ? "Stop##Preview" : "Play##Preview"))
+								{
+									if (previewing)
+										StopDialoguePreview();
+									else
+										PreviewDialogue(*speech, translation.Clip, previewID);
+								}
+							}
+							ImGui::SetItemTooltip(speech ? "Hear this line: its Sound, playing this language's Clip." : "Assign a Speech Sound to hear the line.");
+							if (locale != table->DefaultLanguage)
+							{
+								ImGui::SameLine();
+								if (ImGui::Button("Remove Translation"))
+									removeLanguage = locale;
+							}
 							ImGui::TreePop();
 						}
 						if (!removeLanguage.empty())
@@ -1128,6 +1147,32 @@ namespace Lux {
 		RenderLegacyAudioData();
 
 		ImGui::TreePop();
+	}
+
+	void ProjectSettingsWindow::PreviewDialogue(const Sound& sound, AssetHandle clip, std::string id)
+	{
+		StopDialoguePreview();
+		// As the Sound Editor auditions: a 2D copy outside the asset's instance limit and cooldown.
+		auto copy = Ref<Sound>::Create(sound);
+		copy->Handle = 0;
+		copy->Spatial.Enabled = false;
+		copy->InstanceLimit = 0;
+		copy->Cooldown = 0.0f;
+		m_DialoguePreview = AudioEventInstance::Create(copy);
+		if (!m_DialoguePreview || (clip && !m_DialoguePreview->SetClipOverride(clip)) || !m_DialoguePreview->Start())
+		{
+			StopDialoguePreview();
+			return;
+		}
+		m_DialoguePreviewID = std::move(id);
+	}
+
+	void ProjectSettingsWindow::StopDialoguePreview()
+	{
+		if (m_DialoguePreview && m_DialoguePreview->IsValid())
+			m_DialoguePreview->Stop();
+		m_DialoguePreview = nullptr;
+		m_DialoguePreviewID.clear();
 	}
 
 	void ProjectSettingsWindow::RenderLegacyAudioData()

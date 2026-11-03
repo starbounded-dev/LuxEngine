@@ -90,6 +90,7 @@ namespace Lux
 		void UI_Parameters(Document& document, Sound& sound, bool& edited);
 		void UI_Node(Document& document, Sound& sound, bool& edited);
 		void UI_Clip(SoundNode& node, bool& edited);
+		void UI_MusicTimeline(Sound& sound, bool& edited);
 		void UI_Curves(Document& document, Sound& sound, SoundNode& node, bool& edited);
 		bool UI_CurveEditor(const Document& document, const Sound& sound, SoundCurve& curve, uint32_t id);
 		void TrackEdit(Document& document, Sound& sound, bool edited);
@@ -116,6 +117,7 @@ namespace Lux
 		int m_DragPoint = -1;
 		uint32_t m_DragCurve = 0;
 		int m_DragClipHandle = -1;
+		int m_DragMarker = -1;      // the music timeline's marker being dragged
 
 		std::unordered_map<AssetHandle, Waveform> m_Waveforms;
 		UndoPushFn m_PushUndo;

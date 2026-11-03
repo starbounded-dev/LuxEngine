@@ -2120,6 +2120,70 @@ namespace
 		std::puts("PASS: audio file metadata and waveform peaks without an engine");
 	}
 
+	// Saving a Sound reaches its playing instances: a volume edit applies in place (the voice keeps
+	// its cursor and its parameter values), a tree edit restarts it, and a stopped instance waits.
+	void TestLiveSoundEdits()
+	{
+		s_Mixer.Buses = { { "bus:/SFX", 0.5f } };
+		Start();
+		const auto tone = WriteTone("live.wav", 500.0, 1.0);
+		const auto reference = AddSound(tone, [](Sound& s)
+		{
+			s.Nodes[0].Loop = true;
+			s.Spatial.Enabled = false;
+			s.Parameters.push_back({ "Drive", 0.0f, 1.0f, 0.0f });
+		});
+		const Ref<Sound> asset = s_Sounds[std::stoull(reference)];
+		auto instance = AudioEventInstance::Create(reference);
+		CHECK(instance && instance->Start() && instance->SetParameter("Drive", 0.75f));
+		const double full = Measure().Left;
+		CHECK(full > 0.3);
+		const int before = instance->GetTimelinePosition();
+		CHECK(before > 0);
+
+		Sound edited(*asset);
+		edited.Volume = 0.5f;
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK_NEAR(Measure().Left / full, 0.5, 1e-3);
+		CHECK(instance->IsPlaying() && instance->GetTimelinePosition() > before);   // not restarted
+		CHECK(instance->GetParameter("Drive") == 0.75f);
+		// A bus change re-routes the playing voice.
+		edited.Bus = "bus:/SFX";
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK_NEAR(Measure().Left / full, 0.25, 1e-3);
+		edited.Bus = "bus:/";
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK_NEAR(Measure().Left / full, 0.5, 1e-3);
+
+		// The parameter's new range holds the value; a new parameter starts at its default.
+		edited.Parameters[0].Maximum = 0.5f;
+		edited.Parameters.push_back({ "Extra", 0.0f, 2.0f, 1.5f });
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK(instance->GetParameter("Drive") == 0.5f && instance->GetParameter("Extra") == 1.5f);
+
+		// Turning the loop off changes what the voice was built from: it restarts from the top.
+		Measure();
+		const int playedFor = instance->GetTimelinePosition();
+		edited.Nodes[0].Loop = false;
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK(instance->IsPlaying() && instance->GetTimelinePosition() < playedFor);
+
+		// A stopped instance keeps quiet and plays the latest edit when it starts again.
+		instance->Stop(false);
+		edited.Volume = 0.25f;
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK(!instance->IsPlaying());
+		edited.Nodes[0].Loop = true;
+		AudioEngine::ApplySoundEdit(edited);
+		CHECK(instance->Start());
+		CHECK_NEAR(Measure().Left / full, 0.25, 1e-3);
+		instance->Stop(false);
+		instance = nullptr;
+		AudioEngine::Shutdown();
+		s_Mixer = {};
+		std::puts("PASS: a saved Sound reaches playing instances: in place for levels and parameters, restarted for a tree change");
+	}
+
 	// Remove FMOD data: a scene with Guid-only and mixed references, a project with Studio settings,
 	// a dialogue table and a registry. The scan lists each reference, and the cleaned files hold none.
 	void TestLegacyCleanup()
@@ -2312,6 +2376,7 @@ int main(int argc, char** argv)
 	TestStreaming();
 	TestPhysicsAudio();
 	TestFileInfo();
+	TestLiveSoundEdits();
 	TestLegacyCleanup();
 	std::puts("All native backend checks passed");
 	return 0;

@@ -142,8 +142,8 @@ namespace Lux
 
 	// A sound authored in the editor and played by the native audio backend (.lsound): a tree of
 	// nodes (Nodes[0] is the root) resolved to the clips to play each time an instance starts, plus
-	// the parameters game code drives. Instances read the asset when they start, so an edit applies to
-	// the next start.
+	// the parameters game code drives. Each instance copies the asset when it is created; saving in
+	// the Sound Editor hands the edit to playing instances (AudioEngine::ApplySoundEdit).
 	class Sound : public Asset
 	{
 	public:

@@ -41,6 +41,20 @@ namespace Lux
 		const char* s_AttenuationNames[] = { "None", "Inverse", "Linear" };
 		const char* s_StealNames[] = { "Oldest", "Quietest", "None" };
 
+		// Peaks as bars around the middle of [min, max].
+		void DrawPeaks(ImDrawList* drawList, ImVec2 min, ImVec2 max, const std::vector<float>& peaks)
+		{
+			const float width = max.x - min.x;
+			const float middle = (min.y + max.y) * 0.5f, halfHeight = (max.y - min.y) * 0.5f - 2.0f;
+			for (size_t bucket = 0; bucket < peaks.size(); ++bucket)
+			{
+				const float x0 = min.x + width * static_cast<float>(bucket) / static_cast<float>(peaks.size());
+				const float x1 = min.x + width * static_cast<float>(bucket + 1) / static_cast<float>(peaks.size());
+				const float extent = std::max(0.5f, peaks[bucket] * halfHeight);
+				drawList->AddRectFilled(ImVec2(x0, middle - extent), ImVec2(std::max(x0 + 1.0f, x1), middle + extent), Colors::Theme::textDarker);
+			}
+		}
+
 		const char* NodeIcon(SoundNodeType type)
 		{
 			switch (type)
@@ -266,6 +280,7 @@ namespace Lux
 			return false;
 		}
 		AssetImporter::Serialize(asset.As<Asset>());
+		AudioEngine::ApplySoundEdit(*asset); // playing instances (Play, previews) hear the saved Sound
 		document.Saved = SoundState::Capture(sound);
 		return true;
 	}
@@ -450,6 +465,7 @@ namespace Lux
 		{
 			m_DragPoint = -1;
 			m_DragClipHandle = -1;
+			m_DragMarker = -1;
 		}
 	}
 
@@ -750,6 +766,7 @@ namespace Lux
 				edited |= ImGuiEx::Property("First Beat (s)", sound.Tempo.Offset, 0.001f, 0.0f, 60.0f, "Seconds into the clip where beat 1 of bar 1 falls.", false);
 			}
 			ImGuiEx::EndPropertyGrid();
+			UI_MusicTimeline(sound, edited);
 			std::optional<size_t> removed;
 			for (size_t index = 0; index < sound.Markers.size(); ++index)
 			{
@@ -1017,6 +1034,88 @@ namespace Lux
 		ImGui::TreePop();
 	}
 
+	// The first clip (the one the engine counts beats on) under its bar and beat lines and markers.
+	// Dragging a marker moves it; TrackEdit makes the drag one undo step.
+	void SoundEditorPanel::UI_MusicTimeline(Sound& sound, bool& edited)
+	{
+		const auto clipNode = std::find_if(sound.Nodes.begin(), sound.Nodes.end(), [](const SoundNode& node) { return node.Type == SoundNodeType::Clip && node.Clip; });
+		if (clipNode == sound.Nodes.end())
+		{
+			ImGui::TextDisabled("Assign a clip to see the music timeline.");
+			return;
+		}
+		const Waveform& waveform = GetWaveform(clipNode->Clip);
+		const float duration = waveform.Duration;
+		if (waveform.Peaks.empty() || duration <= 0.0f)
+		{
+			ImGui::TextDisabled("The first clip's waveform could not be read.");
+			return;
+		}
+
+		const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+		ImGui::InvisibleButton("##music_timeline", ImVec2(width, kWaveformHeight));
+		const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(min, max, Colors::Theme::backgroundDark, 4.0f);
+		DrawPeaks(drawList, min, max, waveform.Peaks);
+		const auto timeToX = [&](float seconds) { return min.x + width * std::clamp(seconds / duration, 0.0f, 1.0f); };
+		const auto xToTime = [&](float x) { return std::clamp((x - min.x) / width, 0.0f, 1.0f) * duration; };
+
+		// Beats from the first-beat offset, every 60/BPM seconds; a bar line every Beats per Bar.
+		// Too dense to read (under 4 px a beat) draws bars only.
+		if (sound.Tempo.BPM > 0.0f)
+		{
+			const double spacing = 60.0 / sound.Tempo.BPM;
+			const bool beats = width * spacing / duration >= 4.0;
+			const uint32_t perBar = std::max(1u, sound.Tempo.BeatsPerBar);
+			uint32_t bar = 1;
+			for (uint64_t beat = 0; sound.Tempo.Offset + beat * spacing <= duration && beat < 100000; ++beat)
+			{
+				const float x = timeToX(static_cast<float>(sound.Tempo.Offset + beat * spacing));
+				if (beat % perBar == 0)
+				{
+					drawList->AddLine(ImVec2(x, min.y), ImVec2(x, max.y), IM_COL32(255, 255, 255, 90), 1.0f);
+					if (width * spacing * perBar / duration >= 24.0)
+						drawList->AddText(ImVec2(x + 2.0f, min.y + 1.0f), Colors::Theme::textDarker, std::to_string(bar).c_str());
+					++bar;
+				}
+				else if (beats)
+					drawList->AddLine(ImVec2(x, max.y - 10.0f), ImVec2(x, max.y), IM_COL32(255, 255, 255, 50), 1.0f);
+			}
+		}
+
+		const float mouseX = ImGui::GetIO().MousePos.x;
+		int hovered = -1;
+		float nearest = kHandleGrabPixels;
+		for (size_t index = 0; index < sound.Markers.size(); ++index)
+		{
+			const float distance = std::abs(timeToX(sound.Markers[index].Seconds) - mouseX);
+			if (ImGui::IsItemHovered() && distance <= nearest)
+			{
+				nearest = distance;
+				hovered = static_cast<int>(index);
+			}
+		}
+		if (ImGui::IsItemActivated())
+			m_DragMarker = hovered;
+		if (ImGui::IsItemActive() && m_DragMarker >= 0 && m_DragMarker < static_cast<int>(sound.Markers.size())
+			&& ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
+		{
+			sound.Markers[static_cast<size_t>(m_DragMarker)].Seconds = xToTime(mouseX);
+			edited = true;
+		}
+		for (size_t index = 0; index < sound.Markers.size(); ++index)
+		{
+			const SoundMarker& marker = sound.Markers[index];
+			const float x = timeToX(marker.Seconds);
+			const bool active = static_cast<int>(index) == hovered || static_cast<int>(index) == m_DragMarker;
+			drawList->AddLine(ImVec2(x, min.y), ImVec2(x, max.y), Colors::Theme::accent, active ? 3.0f : 1.5f);
+			drawList->AddText(ImVec2(x + 3.0f, max.y - ImGui::GetTextLineHeight() - 12.0f), Colors::Theme::accent, marker.Name.c_str());
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("%.3f s of %.3f s\nDrag a marker to move it.", xToTime(mouseX), duration);
+	}
+
 	void SoundEditorPanel::UI_Clip(SoundNode& node, bool& edited)
 	{
 		ImGuiEx::BeginPropertyGrid();
@@ -1065,15 +1164,7 @@ namespace Lux
 				"The waveform could not be read.");
 			return;
 		}
-		const float middle = (min.y + max.y) * 0.5f, halfHeight = (max.y - min.y) * 0.5f - 2.0f;
-		const auto peaks = waveform->Peaks.size();
-		for (size_t bucket = 0; bucket < peaks; ++bucket)
-		{
-			const float x0 = min.x + width * static_cast<float>(bucket) / static_cast<float>(peaks);
-			const float x1 = min.x + width * static_cast<float>(bucket + 1) / static_cast<float>(peaks);
-			const float extent = std::max(0.5f, waveform->Peaks[bucket] * halfHeight);
-			drawList->AddRectFilled(ImVec2(x0, middle - extent), ImVec2(std::max(x0 + 1.0f, x1), middle + extent), Colors::Theme::textDarker);
-		}
+		DrawPeaks(drawList, min, max, waveform->Peaks);
 		const auto timeToX = [&](float seconds) { return min.x + width * std::clamp(seconds / duration, 0.0f, 1.0f); };
 		const auto xToTime = [&](float x) { return std::clamp((x - min.x) / width, 0.0f, 1.0f) * duration; };
 		if (node.Loop && node.HasLoopRegion)

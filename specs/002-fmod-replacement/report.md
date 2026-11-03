@@ -285,3 +285,24 @@ T047–T050 are done; T051 (the editor run on a pre-removal copy) waits for an e
   `AudioTest` and `Benchmark` and one real reference (`AudioTest`'s FMOD-only source, `event:/Fart`,
   which never had a Sound). `GenerateBenchmarkScenes.py` now writes references the way the engine does
   (only `Sound`, or `{}`), so regenerating Benchmark keeps them clean. YAML check: 31 old problems.
+
+## Phase 6 (US4) — remaining parity gaps
+
+T052–T055 are done; T056 (driving them in the editor) waits for an editor session.
+
+- **T052:** the Sound Editor's Music section draws the first clip's waveform (the clip the engine counts
+  beats on) under bar lines (numbered when there is room), beat ticks (left out under 4 px a beat) and
+  the markers. Dragging a marker moves it; the editor's existing edit tracking makes a drag one undo step.
+- **T053:** dropping an audio file on a translation's Clip already worked (`PropertyAssetReference` takes
+  Content Browser drops of its type). Added a Play/Stop button per translation: the line's Sound in 2D,
+  with that language's clip, outside the asset's instance limit and cooldown, like the Sound Editor's
+  audition.
+- **T054:** `AudioEngine::ApplySoundEdit`, called when the Sound Editor saves. Live instances take the new
+  copy and keep parameter values by name; levels, pitch, curves, attenuation and parameters apply in place,
+  a bus change re-routes each voice, and a change to the tree, clips, start offsets, loops, streaming or 3D
+  on/off restarts the instance. `TestLiveSoundEdits` checks each case by rendering. Mixer **Apply** does
+  not keep voices playing: it restarts the engine, and is only enabled outside Play, where the voices are
+  previews; bus volume and mute already apply live. Left as is.
+- **T055:** already present. The Audio Debugger's **Validate Project Audio** runs
+  `AudioValidation::ValidateProject`, the same check export runs, and lists the issues. No change.
+- None of the new UI has been clicked through yet; its ImGui scopes were audited by reading.

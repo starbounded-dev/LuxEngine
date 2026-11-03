@@ -1027,7 +1027,12 @@ case-insensitively. A Sound loops when any clip loops (`Loops()`). YAML is versi
 version 1 (Phase 2's single `Clip`/`Loop`) loads as a root clip node. `Validate` bounds every value
 and rejects malformed trees. `SoundSerializer` writes bounded YAML (64 KiB at save, load, pack write
 and pack read), registers every clip as a dependency and is packable. Each instance copies the Sound
-when created, so an edit applies to the next instance.
+when created. Saving in the Sound Editor calls `AudioEngine::ApplySoundEdit`: each live instance of
+that Sound takes a new copy and keeps its parameter values by name (held to the new range); levels,
+pitch, curves, attenuation and parameters apply in place through `RefreshVoice`, a bus change
+re-attaches each leaf's output, and a change to what `CreateLeaf` fixed (the node tree, clips, start
+offsets, loops, `Stream`, 3D on/off) restarts the instance through its wrapper (`NativeVoice::Owner`),
+past the cooldown. Stopped instances play the edit on their next start.
 **Sound Banks (spec 002):** `SoundBank` (`AssetType::SoundBank`, `.lbank`, `Audio/SoundBank.h`) lists
 Sounds (no duplicates or zero handles, at most 2048). `SoundBankSerializer`
 shares `SoundSerializer.cpp`'s bounded-YAML helpers (64 KiB, the same pack layout) and registers each
@@ -1094,11 +1099,13 @@ Synchronized transitions are sample-accurate: `QueueTransition` asks the bed for
 `GetNextSyncTime` (the boundary on the engine clock, from the position heard since its first sample;
 the clip cursor reads ahead of the output) and schedules `StartAt`/`StopAt` there; `Update` takes the
 new bed over once the time passes, before the stopped bed counts as ended. Cancelling a queued
-transition takes the bed's scheduled stop back.
+transition takes the bed's scheduled stop back. The Sound Editor's Music section draws the first
+clip's waveform under the bar and beat lines and the markers; dragging a marker moves it (one undo step).
 **Dialogue (Phase 7a):** `DialogueTranslation::Clip` (an audio asset, YAML `Clip`) is a translation's
 recording. `DialogueDirector` calls `AudioEventInstance::SetClipOverride` (every clip node of the
 line's Sound plays that asset; refused after Start). The subtitle's duration is the override clip's
-length. Project Settings shows a Clip picker per language. `AudioKey`, FMOD's audio-table key, is
+length. Project Settings shows a Clip picker per language (it takes a dropped audio file) and a Play
+button that auditions the line in 2D with that clip, as the Sound Editor auditions. `AudioKey`, FMOD's audio-table key, is
 read and kept but never played.
 **Runtime export (Phase 8a):** export packs each Audio asset's encoded file after its path
 (`AudioAssetSerializer`; packs from FMOD builds kept the path only, and the reader records the bytes'

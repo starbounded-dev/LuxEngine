@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Lux/Core/Log.h"
+#include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioLegacyCleanup.h"
 #include "Lux/Editor/EditorPanel.h"
 #include <optional>
@@ -38,6 +39,8 @@ namespace Lux {
 		void RenderAudioSettings();
 		void RenderLegacyAudioData();
 		void RemoveLegacyAudioData();
+		void PreviewDialogue(const Sound& sound, AssetHandle clip, std::string id);
+		void StopDialoguePreview();
 		void RenderScriptingSettings();
 		void RenderPhysicsSettings();
 		void RenderLogSettings();
@@ -48,6 +51,8 @@ namespace Lux {
 		Ref<Scene> m_SceneContext;
 		std::optional<AudioLegacyCleanup::ScanResult> m_LegacyScan;
 		std::vector<std::string> m_LegacyErrors; // from the last Remove
+		Ref<AudioEventInstance> m_DialoguePreview;
+		std::string m_DialoguePreviewID;          // "<line key>/<language>" of the line playing
 		AssetHandle m_DefaultScene = 0;
 		AssetHandle m_RuntimeIcon = 0;
 		bool m_Dirty = false;

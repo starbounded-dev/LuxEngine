@@ -122,6 +122,13 @@ Snapshot picker lists these snapshots in the native build; the zone's weight is 
 unloads when it stops. Drop a bank on *Add Bank* or pick one; *Remove* drops a row. It is part of the
 scene: edits go on the scene's undo stack and are saved with the scene. Disabled during Play.
 
+## Sound Editor
+
+Saving a Sound reaches the instances playing now, in Play and in previews: volume, pitch, curves,
+parameters, attenuation and the bus change in place; a change to the node tree, its clips or loops,
+streaming or 3D on/off restarts them. The **Music** section draws the first clip's waveform under its
+bar and beat lines and markers; drag a marker to move it (one undo step).
+
 ## Sound Banks
 
 A Sound Bank (`.lbank`, Content Browser **New › Sound Bank**, seeded with the selected Sounds) lists
@@ -185,8 +192,8 @@ Jolt's estimated kg·m/s) and minimum motion speed, with Footstep / Impact / Scr
 slots per material. Edited in place and written with *Save Surface Table*.
 
 **Dialogue Lines** — the `.ldialogue` *Dialogue Table*, default language, bark cooldown and radius,
-then per-line speech event, priority, interruptibility and per-language subtitle text. *Save
-Dialogue Table* writes it.
+then per-line speech Sound, priority, interruptibility and per-language subtitle text and *Clip*
+(drop an audio file on it). *Play* auditions the line in that language. *Save Dialogue Table* writes it.
 
 **Audio Accessibility** — the built-in caption/cue overlay, the runtime menu, default player
 preferences and the caption fallback language.

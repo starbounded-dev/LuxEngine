@@ -14,6 +14,8 @@
 // its private header).
 namespace Lux {
 
+	class Sound;
+
 	// Read-only backend playback statistics for editor tooling.
 	struct AudioEngineStats
 	{
@@ -97,6 +99,11 @@ namespace Lux {
 		// Frees clips that no loaded bank lists and no voice plays: those Sounds outside any bank
 		// loaded when they first played. Called when a scene stops.
 		static void ReleaseUnusedClips();
+		// A Sound asset was saved: its playing instances take the edit. Volume, pitch, curves,
+		// parameters, attenuation and bus apply in place; a change to the tree, its clips or loops,
+		// streaming or 3D on/off restarts each instance. Stopped instances use it on their next start.
+		// Main thread only.
+		static void ApplySoundEdit(const Sound& sound);
 		// What is loaded now, for the editor. Main thread only.
 		static std::vector<AudioLoadedBank> GetLoadedSoundBanks();
 		static std::vector<AudioLoadedClip> GetLoadedClips();

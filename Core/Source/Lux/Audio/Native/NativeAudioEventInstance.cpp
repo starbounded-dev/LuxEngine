@@ -154,7 +154,7 @@ namespace Lux {
 		// free functions below never need the wrapper's private members.
 		struct NativeVoice
 		{
-			Ref<Sound> Definition;               // a private copy: edits to the asset apply to the next instance
+			Ref<Sound> Definition;               // a private copy; AudioEngine::ApplySoundEdit replaces it
 			uint64_t SoundHandle = 0;            // the asset's handle; 0 for an in-memory Sound
 			uint64_t SnapshotId = 0;             // a mixer snapshot instead of a Sound: no leaves, never ends
 			uint64_t ClipOverride = 0;           // an audio asset every clip node plays instead (SetClipOverride)
@@ -184,6 +184,7 @@ namespace Lux {
 			bool Started = false;                // Start succeeded and the sound has not ended or been stopped
 			bool Paused = false;                 // script pause or scene pause
 			uint64_t Token = 0;                  // the playback token, once callbacks are configured
+			AudioEventInstance* Owner = nullptr; // the wrapper, so a Sound edit can restart it
 
 			bool Live() const { return Ready; }
 		};
@@ -900,6 +901,71 @@ namespace Lux {
 	AudioEventInstance::AudioEventInstance(Scope<Impl> impl, const std::string& guid, uint64_t generation)
 		: m_Impl(std::move(impl)), m_Guid(guid), m_Generation(generation)
 	{
+		m_Impl->Owner = this;
+	}
+
+	void AudioEngine::ApplySoundEdit(const Sound& sound)
+	{
+		const uint64_t handle = static_cast<uint64_t>(sound.Handle);
+		if (handle == 0 || !sound.Validate())
+			return;
+		// What CreateLeaf fixes when a voice starts; anything else RefreshVoice reads again.
+		const auto keepsVoices = [](const Sound& a, const Sound& b)
+		{
+			if (a.Stream != b.Stream || a.Spatial.Enabled != b.Spatial.Enabled || a.Nodes.size() != b.Nodes.size())
+				return false;
+			for (size_t i = 0; i < a.Nodes.size(); ++i)
+			{
+				const SoundNode& x = a.Nodes[i];
+				const SoundNode& y = b.Nodes[i];
+				if (x.Type != y.Type || x.Children != y.Children || x.Clip != y.Clip || x.StartOffset != y.StartOffset || x.Loop != y.Loop
+					|| x.HasLoopRegion != y.HasLoopRegion || x.LoopStart != y.LoopStart || x.LoopEnd != y.LoopEnd)
+					return false;
+			}
+			return true;
+		};
+
+		std::vector<AudioEventInstance*> restarts;
+		int updated = 0;
+		for (NativeVoice* voice : s_Voices)
+		{
+			if (!voice->Live() || voice->SnapshotId || voice->SoundHandle != handle)
+				continue;
+			const Sound& old = *voice->Definition;
+			// Values carry over by name, held to the new range.
+			std::vector<float> values;
+			for (const SoundParameter& parameter : sound.Parameters)
+			{
+				float value = parameter.Default;
+				if (const SoundParameter* previous = old.FindParameter(parameter.Name))
+					value = voice->ParameterValues[static_cast<size_t>(previous - old.Parameters.data())];
+				value = std::clamp(value, parameter.Minimum, parameter.Maximum);
+				values.push_back(parameter.IsLabeled() ? std::round(value) : value);
+			}
+			const bool keep = keepsVoices(old, sound);
+			const bool busChanged = old.Bus != sound.Bus;
+			voice->Definition = Ref<Sound>::Create(sound);
+			voice->ParameterValues = std::move(values);
+			voice->CachedLength = -1;
+			if (!voice->Started || voice->Leaves.empty())
+				continue;
+			++updated;
+			if (!keep)
+			{
+				restarts.push_back(voice->Owner);
+				continue;
+			}
+			if (busChanged)
+				for (auto& leaf : voice->Leaves)
+					ma_node_attach_output_bus(leaf->Output.get(), 0, NativeInternal::GetBusInput(sound.Bus), 0);
+			RefreshVoice(*voice);
+		}
+		// A restart is the same playback, so the Sound's cooldown must not refuse it.
+		s_LastStart.erase(handle);
+		for (AudioEventInstance* instance : restarts)
+			instance->Start();
+		if (updated)
+			LUX_CORE_INFO_TAG("Audio", "Sound {0} edit reached {1} playing instance(s), {2} restarted", handle, updated, restarts.size());
 	}
 
 	Ref<AudioEventInstance> AudioEventInstance::Create(const std::string& eventGuid)
