@@ -194,3 +194,21 @@ asset. An edit applies to the next instance. **T054 (live edits, D7 b) is needed
 - `tests/rendering/golden_run.py`
 
 </details>
+
+## Phase 3 (US2) — Sound Banks and pack streaming (4ba4c8ef)
+
+T026's export check, same commands as T001 (`golden_run.py --label p3`):
+
+| Figure | Baseline (T001) | With Sound Banks |
+|---|---|---|
+| Clip memory, editor Play | 0.46 MiB | 1.19 MiB (decoded Fart 0.46 + the music's two stream pages, an upper bound, 0.73) |
+| Clip memory, exported game | **48.06 MiB** | **1.19 MiB** |
+| Audio validation issues | 9 (Benchmark emitters with no Sound) | 2 (AudioTest scene only) |
+| FMOD libraries in the export | none | none |
+
+- No "played outside any loaded bank" warning: AudioDemo's bank loads before the demo plays.
+- The exported game's audio verification passed (status OK).
+- The export step again re-saved `AudioDemo.luxscene` in a new entity order (no content change); reverted.
+- **Not verified:** the three new panels (Sound Bank Editor, the Sound Editor's Sound Banks section, the
+  mixer's Scene Sound Banks) were not clicked through; computer-use access to the editor was declined.
+  They compile, and their ImGui scopes were audited by reading.
