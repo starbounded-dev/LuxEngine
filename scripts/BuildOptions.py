@@ -56,11 +56,11 @@ OPTIONS = [
         "default": False,
     },
     {
-        "key": "native-audio",
+        "key": "fmod-audio",
         "kind": "premake",
-        "flag": "audio-backend=native",
-        "label": "Native audio backend (experimental)",
-        "description": "built-in miniaudio instead of FMOD; needs no FMOD SDK",
+        "flag": "audio-backend=fmod",
+        "label": "FMOD audio backend",
+        "description": "FMOD Studio instead of the built-in miniaudio; needs the FMOD SDK",
         "default": False,
     },
     {

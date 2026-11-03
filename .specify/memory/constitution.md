@@ -14,7 +14,7 @@ work.
 
 - Build the feature into the engine, or vendor a small permissively licensed library (MIT / BSD /
   zlib / Apache-2.0) through `Dependencies.lua`.
-- Reuse what the editor already requires: the .NET SDK, shaderc/glslang, FMOD.
+- Reuse what the editor already requires: the .NET SDK, shaderc/glslang, the vendored miniaudio.
 - No new mandatory installs for game makers. An unavoidable external tool is optional,
   auto-detected, degrades gracefully, and is put to the user before it is planned.
 - One well-made feature beats several half-finished ones. Every plan states what a new dependency

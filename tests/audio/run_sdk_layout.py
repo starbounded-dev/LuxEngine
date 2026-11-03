@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix="lux-audio-sdk-") as temporary:
         path.touch()
     environment = dict(os.environ, LUX_FMOD_SDK=str(fmod))
     for platform, files in platforms.items():
-        command = [str(PREMAKE), "--file=" + str(probe), "--os=" + platform, "check-audio-sdk"]
+        command = [str(PREMAKE), "--file=" + str(probe), "--os=" + platform, "--audio-backend=fmod", "check-audio-sdk"]
         result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True)
         assert result.returncode == 0 and "SDK_LAYOUT_OK" in result.stdout, result.stdout + result.stderr
         for path in common + files:
@@ -51,10 +51,10 @@ with tempfile.TemporaryDirectory(prefix="lux-audio-sdk-") as temporary:
             # Premake reports paths with forward slashes; Windows paths print with backslashes.
             assert result.returncode != 0 and (str(path) in output or path.as_posix() in output), output
             path.touch()
-        # The native backend needs no FMOD SDK at all.
+        # The native backend, the default when no backend is named, needs no FMOD SDK at all.
         hidden = work / "FMOD SDK hidden"
         fmod.rename(hidden)
-        result = subprocess.run(command[:-1] + ["--audio-backend=native", command[-1]], cwd=ROOT, env=environment, capture_output=True, text=True)
+        result = subprocess.run([part for part in command if part != "--audio-backend=fmod"], cwd=ROOT, env=environment, capture_output=True, text=True)
         assert result.returncode == 0 and "SDK_LAYOUT_OK" in result.stdout, result.stdout + result.stderr
         hidden.rename(fmod)
-        print("PASS:", platform, "SDK overrides, paths with spaces, each missing header/link/runtime file, native without FMOD")
+        print("PASS:", platform, "SDK overrides, paths with spaces, each missing header/link/runtime file, native default without FMOD")

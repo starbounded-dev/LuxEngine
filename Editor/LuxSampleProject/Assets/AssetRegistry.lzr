@@ -129,7 +129,7 @@ Assets:
     FilePath: Textures/Carpet016/Carpet016_1K-JPG_Color.jpg
     Type: Texture
   - Handle: 5028464577764957996
-    FilePath: Scripts/Source/FmodAudioDemo.cs
+    FilePath: Scripts/Source/AudioDemo.cs
     Type: ScriptFile
   - Handle: 5040029817225809111
     FilePath: Meshes/Source/Sponza/3455394979645218238.jpg
@@ -426,7 +426,7 @@ Assets:
     FilePath: Meshes/Source/Sponza/4910669866631290573.jpg
     Type: Texture
   - Handle: 14293776709940706397
-    FilePath: Scenes/FMODDemo.luxscene
+    FilePath: Scenes/AudioDemo.luxscene
     Type: Scene
   - Handle: 14516153528990365607
     FilePath: Meshes/Source/Materials/CubeScene_0_Material_0.lmat

@@ -3419,6 +3419,9 @@ namespace Lux {
 				if (component.LegacyAudio && !component.Event.IsValid())
 					ImGui::TextWrapped(nativeAudio ? "Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Create a Sound from it and assign it above."
 						: "Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Author an FMOD Studio event and assign it above.", static_cast<unsigned long long>(component.LegacyAudio));
+				else if (nativeAudio && !component.Event.IsValid() && component.Event.HasReference())
+					ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "This source names an FMOD event (%s) but no Sound, so it is silent. Create a Sound and assign it above.",
+						component.Event.Path.empty() ? component.Event.Guid.c_str() : component.Event.Path.c_str());
 				ImGui::TextDisabled(nativeAudio ? "Looping and spatialization are set on the Sound." : "Looping and spatialization are authored in FMOD Studio.");
 
 				if (isMultiEdit)

@@ -982,12 +982,14 @@ the managed handlers; `ShutdownInput` drops the type before assembly unload.
 ### 2.10 Audio
 
 **Two backends, one interface.** Premake's `--audio-backend` compiles exactly one implementation of
-the audio headers: `fmod` (the default, `Audio/FMOD/`) or `native` (experimental, `Audio/Native/`,
-miniaudio 0.11.25 vendored under `Core/vendor/miniaudio`, `README.lux.md` records the commit and
-licences). `docs/AUDIO_NATIVE_BACKEND_PLAN.md` drives the native backend to parity, then deletes
-FMOD; Phases 0–2 are done. Editor code asks `AudioEngine::GetBackend()` (`AudioBackend::FMOD` /
-`Native`); the backend defines are Core-only. Unless a paragraph names the native backend, the rest
-of this section describes the FMOD path, which is what ships.
+the audio headers: `native` (the default since Phase 9, `Audio/Native/`, miniaudio 0.11.25 vendored
+under `Core/vendor/miniaudio`, `README.lux.md` records the commit and licences) or `fmod` (optional,
+`Audio/FMOD/`). `docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phases 0–9 are done; Phase 10 deletes FMOD.
+Editor code asks `AudioEngine::GetBackend()` (`AudioBackend::FMOD` / `Native`); the backend defines
+are Core-only. Paragraphs that name neither backend describe the FMOD path, written before native
+existed; the native paragraphs say where it differs. On Play, a native build logs an error for each
+Audio Source that names an FMOD event but no Sound, and the inspector shows the same migration
+warning.
 
 **Backend boundary (Phase 1):** no header outside `Audio/FMOD/` names an FMOD type or includes an
 FMOD header. `Audio/FMOD/` holds the FMOD implementations of the neutral classes:

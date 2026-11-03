@@ -31298,6 +31298,7 @@ Entities:
       EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
       EventPath: ""
       EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006380
     TagComponent:
@@ -31647,6 +31648,7 @@ Entities:
       EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
       EventPath: ""
       EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006366
     TagComponent:
@@ -31996,6 +31998,7 @@ Entities:
       EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
       EventPath: ""
       EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006352
     TagComponent:
@@ -32345,6 +32348,7 @@ Entities:
       EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
       EventPath: ""
       EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006338
     TagComponent:
@@ -32694,6 +32698,7 @@ Entities:
       EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
       EventPath: ""
       EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006324
     TagComponent:
@@ -33043,6 +33048,7 @@ Entities:
       EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
       EventPath: ""
       EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006310
     TagComponent:
@@ -33914,6 +33920,7 @@ Entities:
         Guid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
         Path: ""
         BankName: ""
+        Sound: 8743721474366396702
       Snapshot:
         Guid: ""
         Path: ""
@@ -129094,6 +129101,7 @@ Entities:
         Guid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
         Path: ""
         BankName: ""
+        Sound: 8743721474366396702
       PlayOnAwake: true
       InitialState: ""
       Intensity: 0.5
@@ -129107,14 +129115,18 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1.2, 1.2, 1.2]
     ScriptComponent:
-      ClassName: LuxSample.FmodAudioDemo
-      ScriptID: 326709275
+      ClassName: LuxSample.AudioDemo
+      ScriptID: 2540223341
       StoredFields:
-        - ID: 4158056058
+        - ID: 540913990
+          Name: Sound
+          Type: Sound
+          Data: 9117899157295655424
+        - ID: 4191703384
           Name: PlayOnStart
           Type: Bool
           Data: false
-        - ID: 2314636909
+        - ID: 1161945767
           Name: Volume
           Type: Float
           Data: 0.6
@@ -129132,6 +129144,7 @@ Entities:
       EventGuid: '{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}'
       EventPath: ""
       EventBank: ""
+      EventSound: 9117899157295655424
       ParameterOverrides: []
   - Entity: 16100000000000000025
     TagComponent:

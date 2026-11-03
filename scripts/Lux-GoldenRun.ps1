@@ -6,7 +6,7 @@ param(
 	[ValidateSet('Debug', 'Release')]
 	[string] $Configuration = 'Debug',
 	[ValidateNotNullOrEmpty()]
-	[string] $Scenes = 'FMODDemo',
+	[string] $Scenes = 'AudioDemo',
 	[ValidateSet('Single', 'Multi')]
 	[string] $Threading = 'Multi',
 	[switch] $Play,

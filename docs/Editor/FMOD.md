@@ -1,55 +1,13 @@
-# FMOD demo and project setup
+# FMOD backend (optional)
 
-The ready-made scene is `Assets/Scenes/FMODDemo.luxscene`. It uses your existing
-`event:/Fart` from `Assets/Audio/SampleProject/SampleProject.fspro`.
-The engine already builds with FMOD Core and FMOD Studio; acoustics come from the built-in Soundwave kernel.
-You do not need a Unity/Unreal integration package or another audio backend toggle.
+Only for builds generated with `--audio-backend=fmod` (the setup checklist's **FMOD audio backend**).
+The default build plays Sound assets with the built-in engine and needs none of this; see
+`Editor/LuxSampleProject/AUDIO_DEMO.md`. The FMOD backend and this page go away with
+`docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phase 10.
 
-## Run the supplied scene
-
-1. Start the rebuilt editor from the repository root:
-   ```sh
-   LUX_SKIP_BUILD=1 ./scripts/Linux-Run.sh release
-   ```
-2. Open `Editor/LuxSampleProject/LuxSample.luxproj` if it is not already open.
-3. If the editor was running while the scripts were built, stop Play and choose
-   **Edit > Reload C# Assembly** (`Ctrl+R`). This reloads the compiled DLL; it does not compile source.
-4. Open `Assets/Scenes/FMODDemo.luxscene` from the Content Browser, or use the scene-open dialog.
-5. Press **Play**, then click the game viewport to give it keyboard focus. The source plays once
-   on startup. The console should report `FMOD Demo ready`.
-6. Hold the right mouse button and use **W/A/S/D** to move the listener. **Q/E** move down/up,
-   and **Left Shift** increases speed. Walk around the wall and compare near/far positions.
-
-| Key | Action |
-| --- | --- |
-| K | Restart the Audio Source component's event |
-| L | Fire an additional one-shot at the emitter position |
-| I | Start/restart an independently owned event instance |
-| P | Pause/resume the component's event |
-| O | Stop the component and independently owned instance |
-| F | Open/close the door (slides the panel and the door's acoustic portal together) |
-| C | Start/stop the showcase camera path |
-
-One-shots finish naturally; O cannot cancel them. `L` requires an event authored as a finite
-one-shot. For looping events, use K or I. Stop Play before rebuilding/reloading banks.
-
-The camera already has `LuxSample.FlyCamera` and an Audio Listener (index 0, weight 1).
-The emitter already has `LuxSample.FmodAudioDemo` and an Audio Source. The script's `PlayOnStart`
-field controls startup playback; the component's Play On Awake is off to prevent duplicate starts.
-The floor and wall are acoustic geometry for Soundwave.
-
-### See the Sound
-
-1. During Play, open the viewport options (gear) and tick **See the Sound**. Each source gets a line
-   from the listener, green when clear and red where walls block it, with each wall labelled by
-   material, thickness and dB. Zones, the door portal and the room readout appear too.
-2. Stand outside the building: `MusicAmbiance` sounds muffled and its line crosses the walls. Press
-   **F** to open the door and watch the door's label and the muffling go as it slides open.
-3. Tick **Acoustic Materials** (also in the gear menu, works outside Play) to see each wall tinted
-   by the material it sounds like. The walls inherit it from their render materials.
-4. Press **C** for the camera path: the camera glides around the building looking at the music
-   emitter, which is the easiest way to record the demo. Keep the mouse still while it plays.
-   The waypoints are the children of *Showcase Camera Path (C)*; move them to change the route.
+In an FMOD build, `Assets/Scenes/AudioDemo.luxscene` plays the same emitters from the FMOD events
+beside their Sounds (`event:/Fart` and `MusicAmbiance` in
+`Assets/Audio/SampleProject/SampleProject.fspro`), and the demo's keys work the same.
 
 ## Link an FMOD Studio project to Lux
 

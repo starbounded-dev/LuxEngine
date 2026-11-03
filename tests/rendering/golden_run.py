@@ -3,7 +3,7 @@
 
 Capture a labelled set (one editor launch per scene / feature variant):
 
-    golden_run.py --label nvrhi-baseline [--config release] [--features] [--scenes FMODDemo,Physics]
+    golden_run.py --label nvrhi-baseline [--config release] [--features] [--scenes AudioDemo,Physics]
                   [--options MeshLODs=0] [--sync-validation] [--threading single|multi] [--timeout 900]
 
 Compare two labelled sets (every capture present in both):
@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_ROOT = ROOT / "bin" / "golden"
 COMPARE = Path(__file__).resolve().parent / "golden_compare.py"
 DEFAULT_PROJECT = ROOT / "Editor" / "LuxSampleProject" / "LuxSample.luxproj"
-DEFAULT_SCENES = ["FMODDemo", "Benchmark", "Physics", "LaptopStart", "SkyDiver"]
+DEFAULT_SCENES = ["AudioDemo", "Benchmark", "Physics", "LaptopStart", "SkyDiver"]
 
 # One extra capture of the first scene per entry, each changing one renderer option from its default.
 FEATURE_VARIANTS = {

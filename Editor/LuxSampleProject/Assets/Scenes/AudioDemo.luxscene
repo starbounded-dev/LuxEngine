@@ -1,4 +1,4 @@
-Scene: FMOD Demo
+Scene: Audio Demo
 PostProcess:
   Exposure: 1
   ExposureMode: 0
@@ -299,18 +299,18 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.7, 0.7, 0.7]
     ScriptComponent:
-      ClassName: LuxSample.FmodAudioDemo
-      ScriptID: 326709275
+      ClassName: LuxSample.AudioDemo
+      ScriptID: 2540223341
       StoredFields:
-        - ID: 470458348
+        - ID: 540913990
           Name: Sound
           Type: Sound
           Data: 9117899157295655424
-        - ID: 2314636909
+        - ID: 1161945767
           Name: Volume
           Type: Float
           Data: 0.7
-        - ID: 4158056058
+        - ID: 4191703384
           Name: PlayOnStart
           Type: Bool
           Data: true

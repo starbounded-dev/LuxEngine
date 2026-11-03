@@ -2,7 +2,7 @@ include "./vendor/premake_customization/ordered_pairs.lua"
 
 -- Selected with --audio-backend (declared in premake5.lua). Native needs no FMOD SDK at all, so
 -- nothing below looks for one unless FMOD is selected.
-AudioBackend = _OPTIONS["audio-backend"] or "fmod"
+AudioBackend = _OPTIONS["audio-backend"] or "native"
 if AudioBackend ~= "fmod" and AudioBackend ~= "native" then
 	error("Unknown audio backend '" .. AudioBackend .. "': use --audio-backend=fmod or --audio-backend=native.")
 end
@@ -193,7 +193,7 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
 		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
 	} or nil,
-	-- The default audio backend (--audio-backend=fmod). Two entries because FMOD ships the Studio
+	-- The FMOD audio backend (--audio-backend=fmod). Two entries because FMOD ships the Studio
 	-- API as a separate library layered on the Core one: Studio owns the events and banks the game
 	-- actually plays, and creates a Core system internally for the low-level work (3D listener,
 	-- reverb, CPU stats). Both must be linked - Studio alone does not resolve.
@@ -212,7 +212,7 @@ Dependencies = {
 		Windows = { LibName = "fmodstudio_vc", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x64/" },
 		Linux = { LibName = "fmodstudio", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x86_64/" },
 	} or nil,
-	-- The native backend (--audio-backend=native). Header-only, public domain or MIT-0: Core compiles
+	-- The default native backend (--audio-backend=native). Header-only, public domain or MIT-0: Core compiles
 	-- its single implementation unit (Audio/Native/MiniaudioImplementation.c), so nothing is linked
 	-- or deployed. Linux loads ALSA/PulseAudio/JACK with dlopen at runtime.
 	Miniaudio = AudioBackend == "native" and {

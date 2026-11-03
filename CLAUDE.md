@@ -40,7 +40,7 @@ an editor feature to work. Every feature is judged against this:
 - **Built in first.** Implement it in the engine, or compile in a small vendored library with a
   permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
 - **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
-  the bundled shader compiler (shaderc/glslang), and FMOD. Building on those adds
+  the bundled shader compiler (shaderc/glslang), and the vendored miniaudio. Building on those adds
   nothing for the user to install.
 - **No new mandatory installs for game makers.** No required language servers, external IDEs,
   Node/Python runtimes, package managers, or online services. If an external tool is genuinely
@@ -135,7 +135,7 @@ Linux binary. `scripts/Linux-Build.sh` downloads a pinned, checksum-verified bui
 - `--no-tracy` — exclude Tracy profiler (useful to reduce link times)
 - `--no-aftermath` — exclude Nvidia Aftermath GPU crash tracker
 - `--discord` — enable Discord Social SDK integration (requires `Core/vendor/discord_social_sdk/`)
-- `--audio-backend=native` — experimental built-in audio backend (miniaudio) instead of FMOD; needs no FMOD SDK
+- `--audio-backend=fmod` — the optional FMOD Studio audio backend instead of the default built-in one (`native`, miniaudio); needs the FMOD SDK
 
 **Build configs:** `debug`, `debug-as` (AddressSanitizer), `release`, `dist`
 
@@ -232,8 +232,8 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented by one backend chosen with premake `--audio-backend`: `fmod` (default, FMOD Core/Studio, `Audio/FMOD/`) or `native` (experimental, vendored miniaudio and `.lsound` Sound assets, `Audio/Native/`). Editor code asks `AudioEngine::GetBackend()`; the backend defines are Core-only. Acoustics (occlusion, reverb) come from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`) on either backend, through `AudioEventInstance::SetAcoustics`.
-- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type; Phase 2 added the native backend behind `--audio-backend=native` (tested in `tests/audio/native`); Phase 3 added the Sound node tree (containers, parameters, curves, limits, streaming) and its playback.
+- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented by one backend chosen with premake `--audio-backend`: `native` (the default, vendored miniaudio and `.lsound` Sound assets, `Audio/Native/`) or `fmod` (optional until Phase 10 deletes it, FMOD Core/Studio, `Audio/FMOD/`). Editor code asks `AudioEngine::GetBackend()`; the backend defines are Core-only. Acoustics (occlusion, reverb) come from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`) on either backend, through `AudioEventInstance::SetAcoustics`.
+- The FMOD replacement (miniaudio, editor-authored Sound assets) is planned in `docs/AUDIO_NATIVE_BACKEND_PLAN.md`; Phase 0 vendored `Core/vendor/miniaudio` and tests it in `tests/audio/native`; Phase 1 moved the FMOD implementation into `Audio/FMOD/`, so no other header names an FMOD type; Phase 2 added the native backend behind `--audio-backend=native` (tested in `tests/audio/native`); Phase 3 added the Sound node tree (containers, parameters, curves, limits, streaming) and its playback; Phases 4–8 the mixer, music, dialogue and export; Phase 9 made native the default and moved the sample (`AudioDemo.luxscene`) to Sound assets.
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

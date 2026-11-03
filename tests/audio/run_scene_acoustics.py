@@ -82,7 +82,7 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     registry_path = assets/"AssetRegistry.lzr"
     registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
     registry["Assets"] = [row for row in registry["Assets"] if row["Type"] not in ("Scene", "Prefab")
-                          or row["FilePath"].replace("\\", "/") == "Scenes/FMODDemo.luxscene"]
+                          or row["FilePath"].replace("\\", "/") == "Scenes/AudioDemo.luxscene"]
     registry_path.write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
     (assets/"Scenes").mkdir()
     # Assimp rewrites generated .lmat files alongside an imported model. Copy these
@@ -129,11 +129,11 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
             "Open": 0 if case.get("closed") else 1, "BlendDistance": 1, "Material": "Default"}
         entities.append(door)
     scene["Entities"] = entities
-    (assets/"Scenes/FMODDemo.luxscene").write_text(yaml.safe_dump(scene, sort_keys=False), encoding="utf-8")
+    (assets/"Scenes/AudioDemo.luxscene").write_text(yaml.safe_dump(scene, sort_keys=False), encoding="utf-8")
     project = copy.deepcopy(base_project)
     config = project["Project"]
     config.update({"Name": "Soundwave Sponza " + case_name, "AssetDirectory": "Assets", "AssetRegistry": "Assets/AssetRegistry.lzr",
-                   "AutoSave": False, "StartScene": "Scenes/FMODDemo.luxscene"})
+                   "AutoSave": False, "StartScene": "Scenes/AudioDemo.luxscene"})
     config["RuntimeExport"].update({"GameName": "Soundwave-" + case_name, "TargetConfig": target_config.capitalize(),
                                     "WindowWidth": 1280, "WindowHeight": 720, "Fullscreen": False, "VSync": False})
     # No script components are present in these fixtures; do not request an unrelated
@@ -212,13 +212,13 @@ def prepare_linux_validation(environment, directory):
 
 
 def verify_export(capture, destination, case, triangle_counts, timeout, threading, runtime_config):
-    metadata = yaml.safe_load((capture/"FMODDemo.export.yaml").read_text(encoding="utf-8"))
+    metadata = yaml.safe_load((capture/"AudioDemo.export.yaml").read_text(encoding="utf-8"))
     package, executable = Path(metadata["Root"]).resolve(), Path(metadata["Executable"]).resolve()
     require(package.is_relative_to(destination.resolve()) and executable.parent == package,
             "Export metadata points outside the isolated destination")
     for path in (executable, package/"Assets/Project.luxruntime", package/"Assets/AssetPack.lap", package/"Assets/ShaderPack.lsp"):
         require(path.is_file() and path.stat().st_size > 0, f"Missing exported artifact: {path}")
-    report_path = capture/"FMODDemo.runtime-audio.yaml"
+    report_path = capture/"AudioDemo.runtime-audio.yaml"
     env = {key: value for key, value in os.environ.items() if not key.startswith("LUX_GOLDEN_")}
     env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",
                 "LUX_THREADING_POLICY": threading.capitalize()})
@@ -228,7 +228,7 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
         if runtime_config == "debug":
             prepare_linux_validation(env, capture/"vulkan-validation")
     started = time.time_ns()
-    log_path = capture/"FMODDemo.runtime.log"
+    log_path = capture/"AudioDemo.runtime.log"
     with log_path.open("w", encoding="utf-8") as log:
         result = subprocess.run([str(executable), "--project=" + str(package)], cwd=package, env=env,
                                 stdout=log, stderr=subprocess.STDOUT, timeout=timeout, check=False)
@@ -245,7 +245,7 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
             "Vulkan performance validation" not in log, "Exported runtime reported Vulkan validation messages")
     data = yaml.safe_load(report_path.read_text(encoding="utf-8"))
     verified = verify(data, case, triangle_counts)
-    play = yaml.safe_load((capture/"FMODDemo.audio.yaml").read_text(encoding="utf-8"))
+    play = yaml.safe_load((capture/"AudioDemo.audio.yaml").read_text(encoding="utf-8"))
     # Pinned scenes settle to the same reference result; compare raw solver output
     # rather than frame-rate-dependent smoothing during startup.
     for key in ("DirectGainLFBits", "EngineRayGainLFBits", "OpeningPaths"):
@@ -268,7 +268,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     sample = ROOT/"Editor/LuxSampleProject"
-    project_path, demo_path, registry_path = sample/"LuxSample.luxproj", sample/"Assets/Scenes/FMODDemo.luxscene", sample/"Assets/AssetRegistry.lzr"
+    project_path, demo_path, registry_path = sample/"LuxSample.luxproj", sample/"Assets/Scenes/AudioDemo.luxscene", sample/"Assets/AssetRegistry.lzr"
     inputs = [project_path, demo_path, registry_path]
     inputs.extend((ROOT/"tests/audio/fixtures/banks").glob("*.bank"))
     for model in ("Sponza", "Default"):
@@ -294,13 +294,13 @@ def main():
             label = run_id + "-" + name
             destination = run/name/"export"
             command = [sys.executable, str(ROOT/"tests/rendering/golden_run.py"), "--config", args.config, "--project", str(fixture),
-                       "--label", label, "--scenes", "FMODDemo", "--play", "--threading", args.threading,
+                       "--label", label, "--scenes", "AudioDemo", "--play", "--threading", args.threading,
                        "--frame", "2", "--perf-frames", "1", "--perf-warmup", "0", "--timeout", str(args.timeout)]
             if args.export_runtime:
                 command += ["--export-dir", str(destination)]
             subprocess.run(command, cwd=ROOT, check=True)
             capture = ROOT/"bin/golden"/label
-            artifact = capture/"FMODDemo.audio.yaml"
+            artifact = capture/"AudioDemo.audio.yaml"
             # golden_run already checked this run's final artifact timestamp once.
             summary = json.loads((capture/"summary.json").read_text(encoding="utf-8"))
             require(summary["runs"][0]["validationMessages"] == 0, "Native run reported Vulkan validation messages")

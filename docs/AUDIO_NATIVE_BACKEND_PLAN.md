@@ -746,6 +746,15 @@ GUIDs, and a native test loads and plays them. Waiting on the user: flipping the
 and script renames (`FmodAudioDemo.cs` still plays `event:/Fart` by path), CI changes, and an editor
 run of the native build.
 
+**Status — done (2026-11-02):** `--audio-backend` defaults to `native` (the `--fmod` compatibility
+option is gone; the setup checklist's `fmod-audio` selects FMOD). `AudioDemo.luxscene` and
+`AudioDemo.cs` replace the FMOD-named demo (script and field IDs rehashed, Benchmark's emitters and
+music given their Sounds, the generator too); `Editor/LuxSampleProject/AUDIO_DEMO.md` replaces
+`FMOD_SETUP.md`, whose Studio steps moved to `docs/Editor/FMOD.md`. CI's main jobs build native with
+no secrets; `build-fmod-windows` / `build-fmod-linux` are optional and skipped without the SDK
+repository. An Audio Source with an FMOD event and no Sound shows an inspector warning and logs an
+error on Play. Native editor Play and a Lux-Runtime export of the demo were run before the flip.
+
 ### Phase 10 — Delete FMOD
 
 **Goal:** no FMOD code, option, library, secret or document remains.

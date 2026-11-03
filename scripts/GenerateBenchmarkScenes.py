@@ -10,7 +10,7 @@ measured before a change is the scene measured after it. Re-running replaces the
 
 What the scene holds, by district:
   Plaza (centre)        PBR spheres, glass pavilion (forward/transparent pass), emissive lamp posts,
-                        spot lights (two shadowed), FMOD emitter + script, music director
+                        spot lights (two shadowed), audio emitter + script, music director
   Material field (N)    --objects mixed primitives over --materials distinct materials
   Sponza (E)            the textured Sponza mesh, triangle mesh collider for acoustics, an ambience zone
   Village (W)           six houses: textured walls with acoustic mesh colliders, audio zones, doors with
@@ -72,6 +72,9 @@ LOGO_TEXTURE = 3523050505664199236
 # FMOD Studio events in the sample project's Master bank.
 EVENT_FART = "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
 EVENT_MUSIC = "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
+# The native backend's Sound for each event (Assets/Audio/Sounds/Fart.lsound and Music.lsound).
+SOUND_FART = "9117899157295655424"
+EVENT_SOUNDS = {EVENT_FART: SOUND_FART, EVENT_MUSIC: "8743721474366396702"}
 
 # Stable id ranges: generated materials and scene entities never collide with editor-made UUIDs
 # in practice, and regenerating keeps every reference valid.
@@ -396,14 +399,15 @@ def mesh_collider(entity: Entity, mesh: int, acoustic: str) -> Entity:
 
 
 def event_ref(guid: str) -> list[str]:
-	return [f"  Guid: {text_value(guid)}", '  Path: ""', '  BankName: ""']
+	sound = [f"  Sound: {EVENT_SOUNDS[guid]}"] if guid in EVENT_SOUNDS else []
+	return [f"  Guid: {text_value(guid)}", '  Path: ""', '  BankName: ""', *sound]
 
 
 def audio_source(entity: Entity, event: str, volume: float, play_on_awake: bool, priority: int = 128) -> Entity:
 	return entity.add("AudioSourceComponent", [
 		f"VolumeMultiplier: {num(volume)}", "PitchMultiplier: 1", f"PlayOnAwake: {boolean(play_on_awake)}",
 		f"Priority: {priority}", "DistanceCulling: true", f"EventGuid: {text_value(event)}", 'EventPath: ""',
-		'EventBank: ""', "ParameterOverrides:", "  []"])
+		'EventBank: ""', *([f"EventSound: {EVENT_SOUNDS[event]}"] if event in EVENT_SOUNDS else []), "ParameterOverrides:", "  []"])
 
 
 def audio_zone(entity: Entity, half_extents, priority: float, ambience: str = "", volume: float = 1.0) -> Entity:
@@ -517,7 +521,7 @@ def add_plaza(scene: Scene, specials: dict[str, int], field_materials: list[int]
 
 	emitter = scene.entity("Plaza Emitter - K replays", (0.0, 2.2, 0.0), scale=(1.2, 1.2, 1.2), parent=plaza)
 	static_mesh(emitter, SPHERE, specials["Chrome"], scene)
-	script(emitter, "LuxSample.FmodAudioDemo", [("PlayOnStart", "Bool", "false"), ("Volume", "Float", "0.6")])
+	script(emitter, "LuxSample.AudioDemo", [("Sound", "Sound", SOUND_FART), ("PlayOnStart", "Bool", "false"), ("Volume", "Float", "0.6")])
 	audio_source(emitter, EVENT_FART, 0.6, play_on_awake=False)
 	scene.count("audio sources")
 

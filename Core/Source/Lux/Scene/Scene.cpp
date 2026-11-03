@@ -658,11 +658,14 @@ namespace Lux {
 			else if (source.LegacyAudio)
 				LUX_CORE_ERROR_TAG("Audio", "Entity {0} uses retired raw audio asset {1}. Assign {2} to its Audio Source", static_cast<uint64_t>(entity.GetUUID()),
 					static_cast<uint64_t>(source.LegacyAudio), nativeAudio ? "a Sound" : "an FMOD Studio event");
+			else if (source.Event.HasReference() && nativeAudio)
+				// An FMOD-era source that was never migrated; native is the default backend.
+				LUX_CORE_ERROR_TAG("Audio", "Entity {0}'s Audio Source has an FMOD event but no Sound, so it is silent. Assign a Sound to it",
+					static_cast<uint64_t>(entity.GetUUID()));
 			else if (source.Event.HasReference())
-				// Assigned for the other backend only, so silent in this build.
-				LUX_CORE_WARN_TAG("Audio", "Entity {0}'s Audio Source has {1} but no {2}, so it is silent with the {3} audio backend",
-					static_cast<uint64_t>(entity.GetUUID()), nativeAudio ? "an FMOD event" : "a Sound", nativeAudio ? "Sound" : "FMOD event",
-					nativeAudio ? "native" : "FMOD");
+				// Assigned for the native backend only, so silent in this build.
+				LUX_CORE_WARN_TAG("Audio", "Entity {0}'s Audio Source has a Sound but no FMOD event, so it is silent with the FMOD audio backend",
+					static_cast<uint64_t>(entity.GetUUID()));
 		}
 
 		// A duplicated director must never produce a second bed. Choose a stable owner and report it.

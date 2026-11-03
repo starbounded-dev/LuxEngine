@@ -4,7 +4,7 @@ using Lux;
 namespace LuxSample
 {
 	// Attach alongside AudioSourceComponent. The demo scene already has both attached.
-	public class FmodAudioDemo : Entity
+	public class AudioDemo : Entity
 	{
 		public string StringsBank = "Audio/SampleProject/Build/Desktop/Master.strings.bank";
 		public string MasterBank = "Audio/SampleProject/Build/Desktop/Master.bank";
@@ -31,33 +31,33 @@ namespace LuxSample
 				// Relative bank paths start at Assets. Loading the same file twice is safe.
 				if (!native && (!Audio.LoadBank(MasterBank) || !Audio.LoadBank(StringsBank)))
 				{
-					Log.Error("FMOD Demo: bank loading failed. Check Project Settings > Audio and the bank paths on this script.");
+					Log.Error("Audio Demo: bank loading failed. Check Project Settings > Audio and the bank paths on this script.");
 					return;
 				}
 				m_Source = GetComponent<AudioSourceComponent>();
 				if (m_Source == null)
 				{
-					Log.Error("FMOD Demo requires an Audio Source component on the same entity.");
+					Log.Error("Audio Demo requires an Audio Source component on the same entity.");
 					return;
 				}
 				// CreateInstance validates the event and gives us an independently owned voice.
 				m_Instance = native ? Audio.CreateInstance(Sound) : Audio.CreateInstance(EventPath);
 				m_Instance.SetVolume(Volume);
-				m_Instance.Stopped += () => Log.Info("FMOD Demo: independent instance stopped.");
-				m_Instance.Marker += marker => Log.Info($"FMOD Demo marker: {marker}");
+				m_Instance.Stopped += () => Log.Info("Audio Demo: independent instance stopped.");
+				m_Instance.Marker += marker => Log.Info($"Audio Demo marker: {marker}");
 				if (!native)
 					m_Source.SetEvent(EventPath); // the native source already names its Sound in the scene
 				m_Source.Volume = Volume;
 				m_Ready = true;
 				if (PlayOnStart)
 					m_Source.Play();
-				Log.Info("FMOD Demo ready: K=replay source, L=one-shot, I=independent instance, P=pause source, O=stop source + instance. Right mouse + WASD moves the listener.");
+				Log.Info("Audio Demo ready: K=replay source, L=one-shot, I=independent instance, P=pause source, O=stop source + instance. Right mouse + WASD moves the listener.");
 			}
 			catch (Exception exception)
 			{
 				m_Instance?.Dispose();
 				m_Instance = null;
-				Log.Error($"FMOD Demo could not start: {exception.Message}");
+				Log.Error($"Audio Demo could not start: {exception.Message}");
 			}
 		}
 
@@ -68,7 +68,7 @@ namespace LuxSample
 			if (!m_Instance.IsValid)
 			{
 				m_Ready = false;
-				Log.Warn("FMOD Demo: banks were reloaded. Stop Play and start again to recreate the audio instances.");
+				Log.Warn("Audio Demo: banks were reloaded. Stop Play and start again to recreate the audio instances.");
 				return;
 			}
 			// Entity is at the scene root, so Translation is also its world position.

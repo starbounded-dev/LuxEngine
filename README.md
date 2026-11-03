@@ -2,7 +2,7 @@
 
 <img src="Resources/Branding/LuxEngineLogo.png" alt="LuxEngine" title="LuxEngine" width="256">
 
-LuxEngine is a C++20, Vulkan-only 3D game engine and editor for **Windows and Linux**, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, an FMOD Studio + ray-traced acoustics audio stack, and a docking ImGui editor with a standalone runtime player.
+LuxEngine is a C++20, Vulkan-only 3D game engine and editor for **Windows and Linux**, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, a built-in audio engine (miniaudio, editor-authored Sounds, a mixer) with ray-traced acoustics, and a docking ImGui editor with a standalone runtime player.
 
 This is a solo project that doubles as a learning vehicle for engine architecture. It is not production-ready and does not pretend to be — the sections below say plainly what works, what is partial, and what does not exist yet.
 
@@ -28,7 +28,7 @@ Both platforms build all three targets: `Editor`, `Lux-Runtime` (standalone play
 git clone --recursive https://github.com/starbounded-dev/LuxEngine
 cd LuxEngine
 
-# 2. Install the required SDKs (see "Required SDKs" — FMOD is mandatory)
+# 2. Install the required SDKs (see "Required SDKs")
 
 # 3a. Linux: one command does everything
 ./scripts/Linux-Build.sh release
@@ -45,30 +45,36 @@ If you cloned non-recursively, run `git submodule update --init --recursive` fir
 
 ## Required SDKs
 
-Four external SDKs are needed. **None of them are vendored** — the repository ships build glue, not licensed binaries.
+Two external SDKs are needed. **Neither is vendored** — the repository ships build glue, not licensed binaries.
 
 | SDK | Version | Why | Where |
 |---|---|---|---|
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
 | **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
-| **FMOD Engine** | 2.03.x (Core + Studio APIs) | Audio playback — **required by the default audio backend**; the experimental `--audio-backend=native` build needs none | [fmod.com](https://www.fmod.com/download) |
 
-You also want the **FMOD Studio** authoring tool (same 2.03.x family) to author and build banks, and its command-line tool `fmodstudiocl` if you want the editor to rebuild banks on Play.
+Audio needs no SDK: the default backend compiles the vendored miniaudio. The optional FMOD backend
+(`--audio-backend=fmod`, until it is removed) needs the **FMOD Engine** 2.03.x SDK; see
+[Optional: the FMOD backend](#optional-the-fmod-backend).
 
-### Licensing for games you ship
+A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is created at API 1.2); the 1.4 SDK is a build/tooling dependency.
 
-LuxEngine's Apache-2.0 licence covers LuxEngine only. FMOD is proprietary. Everyone who builds LuxEngine downloads the SDK and accepts its EULA themselves, and **every game you export links it**, so its terms apply to your game. Acoustics (occlusion, reverb) come from LuxEngine's own Soundwave library under the engine's Apache-2.0 licence. A summary of the EULA shipped with FMOD 2.03.x follows. This is not legal advice; the EULA and the vendor's current terms are what count.
+### Optional: the FMOD backend
+
+Only if you generate with `--audio-backend=fmod` (the setup checklist's **FMOD audio backend**). The
+sample project's FMOD setup is in [`docs/Editor/FMOD.md`](docs/Editor/FMOD.md).
+
+#### Licensing for games you ship with FMOD
+
+LuxEngine's Apache-2.0 licence covers LuxEngine only. FMOD is proprietary. Everyone who builds LuxEngine with it downloads the SDK and accepts its EULA themselves, and **every game exported from an FMOD build links it**, so its terms apply to that game. Acoustics (occlusion, reverb) come from LuxEngine's own Soundwave library under the engine's Apache-2.0 licence. A summary of the EULA shipped with FMOD 2.03.x follows. This is not legal advice; the EULA and the vendor's current terms are what count.
 
 **FMOD** ([fmod.com/licensing](https://www.fmod.com/licensing))
 - Free for hobby, education and non-commercial games.
 - Free for commercial games while the project's development budget is under US$600k **and** the developer's gross yearly revenue or funding is under US$200k. You must register the project on your FMOD profile first. Above either limit you need a paid licence.
 - **Every game must show an in-game credit** that includes "FMOD" and "Firelight Technologies Pty Ltd." ([fmod.com/attribution](https://www.fmod.com/attribution)). LuxEngine does not add it for you.
 
-- The runtime libraries may be redistributed only inside your exported game. The SDK may not be shipped as part of a game engine or toolset, so never publish editor builds with `fmod*` libraries in them. CI strips them from its editor artifacts for this reason.
+- The runtime libraries may be redistributed only inside your exported game. The SDK may not be shipped as part of a game engine or toolset, so never publish editor builds with `fmod*` libraries in them. CI's editor packages are built with the native backend and carry none.
 
-A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is created at API 1.2); the 1.4 SDK is a build/tooling dependency.
-
-### Installing the FMOD SDK
+#### Installing the FMOD SDK
 
 Premake validates the complete SDK layout at generation time and aborts with the exact missing file path, so a half-extracted package fails fast rather than at link time.
 
@@ -251,7 +257,6 @@ Group targets: `Dependencies`, `Dependencies/Renderer`, `Dependencies/Text`, `Co
 - **Python 3.9+** on PATH (the setup scripts validate and install their own pip packages).
 - **Vulkan SDK 1.4.335.0** — the setup script downloads the installer and prompts you if it is missing. Debug builds additionally need the SDK's shader debug libraries.
 - **.NET 9 SDK**.
-- **FMOD Engine SDK** (see above).
 
 ### 2. Generate and build
 
@@ -299,8 +304,7 @@ Binaries land in `bin/<Config>-<os>-x86_64/<Project>/`, e.g. `bin/Release-linux-
 | `--no-tracy` | Build without Tracy instrumentation (smaller, faster to link) |
 | `--no-aftermath` | Build without the Nvidia Aftermath GPU crash tracker |
 | `--discord` | Enable the Discord Social SDK integration (needs `Core/vendor/discord_social_sdk/`) |
-| `--audio-backend=native` | Experimental built-in audio backend (miniaudio, editor-authored Sound assets) instead of FMOD; needs no FMOD SDK. Runtime export is not supported on it yet |
-| `--fmod` | Accepted for compatibility; selects the default FMOD backend |
+| `--audio-backend=fmod` | The optional FMOD Studio audio backend instead of the default built-in one (`native`: miniaudio, editor-authored Sound assets); needs the FMOD SDK |
 
 On Windows these are offered as checkboxes by `Setup.bat`; on Linux pass them via `LUX_PREMAKE_OPTIONS` or directly to `premake5`.
 
@@ -331,7 +335,7 @@ Set `Editor` as the startup project in Visual Studio and run — the working dir
 
 ### First launch
 
-The editor opens the bundled sample project at `Editor/LuxSampleProject/LuxSample.luxproj`. See [`Editor/LuxSampleProject/FMOD_SETUP.md`](Editor/LuxSampleProject/FMOD_SETUP.md) for the FMOD demo scene, and [`docs/Editor/`](docs/Editor/README.md) for the full editor manual.
+The editor opens the bundled sample project at `Editor/LuxSampleProject/LuxSample.luxproj`. See [`Editor/LuxSampleProject/AUDIO_DEMO.md`](Editor/LuxSampleProject/AUDIO_DEMO.md) for the audio demo scene, and [`docs/Editor/`](docs/Editor/README.md) for the full editor manual.
 
 ***
 

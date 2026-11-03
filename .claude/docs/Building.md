@@ -136,7 +136,7 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
-| `--audio-backend=fmod\|native` | Selects the audio backend (default `fmod`; checklist key `native-audio`, flag `audio-backend=native`). `fmod` links FMOD Core + Studio, validates the SDK, defines `LUX_ENABLE_FMOD` for Core and compiles `Audio/FMOD/`. `native` compiles `Audio/Native/`, the vendored miniaudio (its one implementation unit, `Audio/Native/MiniaudioImplementation.c`, is `NoPCH`) and the MiniaudioCpp wrapper (`Core/vendor/MiniaudioCpp/src`, `NoPCH`, added to Core's files only for this backend) instead, needs no FMOD SDK, and deploys no audio libraries. Exactly one backend folder is compiled (`Core/premake5.lua` `removefiles`). The native backend is experimental until it reaches parity (`docs/AUDIO_NATIVE_BACKEND_PLAN.md`); runtime export is blocked on it for now. `--fmod` remains accepted for command compatibility and changes nothing. |
+| `--audio-backend=native\|fmod` | Selects the audio backend (default `native`; checklist key `fmod-audio`, flag `audio-backend=fmod`). `fmod` links FMOD Core + Studio, validates the SDK, defines `LUX_ENABLE_FMOD` for Core and compiles `Audio/FMOD/`. `native` compiles `Audio/Native/`, the vendored miniaudio (its one implementation unit, `Audio/Native/MiniaudioImplementation.c`, is `NoPCH`) and the MiniaudioCpp wrapper (`Core/vendor/MiniaudioCpp/src`, `NoPCH`, added to Core's files only for this backend) instead, needs no FMOD SDK, and deploys no audio libraries. Exactly one backend folder is compiled (`Core/premake5.lua` `removefiles`). FMOD stays selectable until `docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phase 10 deletes it; `Configure.warn_missing_fmod_sdk` looks for its SDK only when `fmod-audio` is selected. |
 | Acoustics | The in-tree Soundwave library (`Core/vendor/soundwave/`, globbed into `Core`) on either backend: no SDK and no flag. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
@@ -384,7 +384,7 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 ## CI
 
 `.github/workflows/main.yml` — builds on `windows-2025` for `Debug`, `Release`, `Dist`
-(`fail-fast: false`), triggered on push to `master` / `dev` / `features/**` / `feature/**` and on PRs to `master` /
+(`fail-fast: false`), triggered on push to `master` / `dev` / `feature/**` and on PRs to `master` /
 `dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
 generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
 
@@ -394,21 +394,19 @@ Before building, every job runs `tests/audio/native` (the vendored miniaudio's o
 decode/render checks, and the engine's native backend driven through `AudioEngine`/
 `AudioEventInstance`); it needs no audio SDK or device.
 
-`build-native-windows` and `build-native-linux` build Debug with `--audio-backend=native` (Windows
-passes `native-audio` to `Setup.py`). They read no secrets, so they also run for fork pull requests,
-and the verify step fails if an FMOD library is deployed or linked.
+The main jobs build the default native audio backend: they read no secrets, so they also run for
+fork pull requests, and packaging fails if an FMOD library reaches an editor artifact.
 
-**The audio SDK comes from a private repository.** FMOD is licensed and is never committed here. Both jobs check out the repository named by the repository variable
+`build-fmod-windows` and `build-fmod-linux` are the optional FMOD jobs: Debug with
+`--audio-backend=fmod` (Windows passes `fmod-audio` to `Setup.py`), skipped when the repository
+variable `AUDIO_SDK_REPOSITORY` is unset and for fork pull requests. The release job does not wait on
+them.
+
+**The FMOD SDK comes from a private repository.** FMOD is licensed and is never committed here. Both FMOD jobs check out the repository named by the repository variable
 `AUDIO_SDK_REPOSITORY` into `.audio-sdk/` using the secret `AUDIO_SDK_TOKEN` (a fine-grained,
 read-only token scoped to that repository), then set `LUX_FMOD_SDK` (`.audio-sdk/FMOD/windows` or
 `.audio-sdk/FMOD/linux`). Populate that repository with
 `scripts/ci/StageAudioSDKs.py`, which copies only headers, link/runtime libraries and licence files.
-Without the variable and secret — including every pull request from a fork — the job fails at
-"Check audio SDK access". Uploaded editor artifacts are stripped of the FMOD runtime
-libraries, because public artifacts are downloadable by anyone and the licence does not permit
-redistributing them outside a game build.
-
-Note the branch globs: CI matches both `features/**` and `feature/**` on push.
 
 If a change affects generation (new premake option, new project, new dependency), make sure the CI
 path still works with the non-interactive generator invocation — CI never gets a TTY.

@@ -152,7 +152,7 @@ worker publication/clear, detached scene lifetimes, latest-request coalescing, a
 layer migration, failed capture/retry and last-valid source results. It exercises source cadence,
 budget fairness, smoothing, pruning and both worker/inline policies. The standard Windows and
 Linux occlusion runners include these checks. Actual Scene render-mesh capture and FMOD output
-are checked separately with `tests/rendering/golden_run.py --config debug --scenes FMODDemo --play`.
+are checked separately with `tests/rendering/golden_run.py --config debug --scenes AudioDemo --play`.
 The optional demo Play artifact does not establish Sponza corner/doorway behavior or GPU parity.
 
 The explicit native Scene cases use `python tests/audio/run_scene_acoustics.py --config debug`.
@@ -188,7 +188,7 @@ No project file is edited. This exercises actual widgets in the native editor, b
 claim a complete visual panel walkthrough. For example:
 
 ```sh
-python tests/rendering/golden_run.py --config debug --label acoustic-authoring --scenes FMODDemo --play --audio-settings-ui
+python tests/rendering/golden_run.py --config debug --label acoustic-authoring --scenes AudioDemo --play --audio-settings-ui
 ```
 
 `SoundwaveInstanceTests.cpp` checks shared local meshes and virtual hierarchy/edge indices,

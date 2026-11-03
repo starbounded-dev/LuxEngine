@@ -6,12 +6,13 @@ visualisation drawn into the viewport.
 
 > Scope: the editor-facing surface. The runtime design — `AudioEngine`, `AudioEventInstance`,
 > `AudioAcoustics` / Soundwave, bank lifetime, zones, music, dialogue, budgets — is documented in
-> `.claude/docs/Architecture-LuxEngine.md` §2.10. Authoring workflow for the sample project lives in
-> `Editor/LuxSampleProject/FMOD_SETUP.md`.
+> `.claude/docs/Architecture-LuxEngine.md` §2.10. The sample project's demo and authoring walkthrough
+> lives in `Editor/LuxSampleProject/AUDIO_DEMO.md`.
 
-The stack is **FMOD Studio** for playback and **Soundwave**, the engine's own acoustic kernel, for
-occlusion, sound around corners and through doorways, and room reverb. FMOD is a mandatory SDK;
-Soundwave is built in and needs nothing installed.
+The stack is the **built-in audio engine** (miniaudio, Sound assets authored in the Sound Editor, the
+Audio Mixer) for playback and **Soundwave**, the engine's own acoustic kernel, for occlusion, sound
+around corners and through doorways, and room reverb. Both are built in and need nothing installed.
+Builds generated with `--audio-backend=fmod` play FMOD Studio events instead ([FMOD.md](FMOD.md)).
 
 ---
 
@@ -228,5 +229,6 @@ in the viewport. The engine-side rules for all three are in `Architecture-LuxEng
 
 - [Panels](Panels.md) — every other panel
 - [Viewport & Camera](Viewport-and-Camera.md) — the overlay the acoustics visualisation draws into
-- `Editor/LuxSampleProject/FMOD_SETUP.md` — hooking a Studio project up, start to finish
+- `Editor/LuxSampleProject/AUDIO_DEMO.md` — the demo scene and authoring your own Sounds
+- [FMOD backend](FMOD.md) — the optional FMOD build: hooking a Studio project up, start to finish
 - `.claude/docs/Architecture-LuxEngine.md` §2.10 — the runtime audio architecture
