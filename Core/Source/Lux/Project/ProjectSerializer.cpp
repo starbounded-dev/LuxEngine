@@ -1037,7 +1037,7 @@ namespace Lux
 			{
 				if (audioNode[key])
 				{
-					LUX_CORE_INFO_TAG("Audio", "This project has FMOD Studio settings; they are ignored and dropped on the next save");
+					LUX_CORE_INFO_TAG("Audio", "FMOD Studio settings are ignored; use Project Settings > Audio > Remove FMOD data");
 					break;
 				}
 			}

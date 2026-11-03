@@ -42,3 +42,7 @@ Walls and closed doors muffle every 3D Sound on their own (a low-pass and a gain
 ## Budgets and checks
 
 **Voice and Performance Budgets** sets the real-voice limit and the clip memory and CPU levels that log a warning. **View › Audio Debugger** shows live voices, meters, the loaded Sound Banks and clips, and the problems the engine found, such as a Sound in no bank or a source with no Sound.
+
+## Projects from before FMOD
+
+A project made with the FMOD version of the engine opens and plays its Sounds; its FMOD events never play. **Project Settings › Audio › Legacy FMOD Data** lists what is left (*Scan for FMOD Data*) and removes it in one step (*Remove FMOD Data*). Each Audio Source that names an FMOD event but no Sound needs a Sound assigned.

@@ -222,15 +222,15 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
 
 **Independent Test**: a pre-Phase-9 copy of the sample lists every FMOD reference, and one action leaves zero.
 
-- [ ] T047 [P] [US3] Add a native test "legacy cleanup" in `tests/audio/native/NativeBackendTests.cpp`: a scene YAML with Guid-only sources, a zone and a music director, and a project YAML with Studio fields. The scan lists each reference; the cleanup leaves none; the result re-serializes without FMOD keys
-- [ ] T048 [US3] Legacy readers:
+- [x] T047 [P] [US3] Add a native test "legacy cleanup" in `tests/audio/native/NativeBackendTests.cpp`: a scene YAML with Guid-only sources, a zone and a music director, and a project YAML with Studio fields. The scan lists each reference; the cleanup leaves none; the result re-serializes without FMOD keys
+- [x] T048 [US3] Legacy readers:
   - `Core/Source/Lux/Audio/AudioEventRefSerializer.cpp` keeps reading `Guid` / `Path` / `BankName` and writes them only while non-empty;
   - `Core/Source/Lux/Project/ProjectSerializer.cpp` reads the Studio fields, ignores them, and logs one info line "FMOD Studio settings are ignored; use Project Settings › Audio › Remove FMOD data".
-- [ ] T049 [US3] Create the scanner and cleanup in `Core/Source/Lux/Audio/AudioLegacyCleanup.h` and `Core/Source/Lux/Audio/AudioLegacyCleanup.cpp`:
+- [x] T049 [US3] Create the scanner and cleanup in `Core/Source/Lux/Audio/AudioLegacyCleanup.h` and `Core/Source/Lux/Audio/AudioLegacyCleanup.cpp`:
   - `Scan(project)` returns each FMOD reference (scene, entity, component, field; project field; registry entry);
   - `Apply(scan)` clears them and saves each touched scene and the project once.
   - The scenes are read without opening them in the editor.
-- [ ] T050 [US3] In `Editor/Source/Panels/ProjectSettingsWindow.cpp` § Audio, add a **Remove FMOD data** button: show the scan as a list first, apply on confirm, and push an undo entry for the open scene. Audit it against ImGui correctness
+- [x] T050 [US3] In `Editor/Source/Panels/ProjectSettingsWindow.cpp` § Audio, add a **Remove FMOD data** button: show the scan as a list first, apply on confirm, and push an undo entry for the open scene. Audit it against ImGui correctness
 - [ ] T051 [US3] **(editor)** Check out `0a3dfa00^` into a scratch folder, open its sample, run the action, and record SC-006 in `specs/002-fmod-replacement/report.md`
 
 **Checkpoint**: old projects load, report and clean up.

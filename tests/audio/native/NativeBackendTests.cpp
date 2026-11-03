@@ -12,6 +12,7 @@
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioEventInstance.h"
 #include "Lux/Audio/AudioEventRefSerializer.h"
+#include "Lux/Audio/AudioLegacyCleanup.h"
 #include "Lux/Audio/AudioFileUtils.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AudioPerformance.h"
@@ -2118,6 +2119,160 @@ namespace
 		CHECK(stereo && stereo->size() == 16 && *std::min_element(stereo->begin(), stereo->end()) > 0.1f);
 		std::puts("PASS: audio file metadata and waveform peaks without an engine");
 	}
+
+	// Remove FMOD data: a scene with Guid-only and mixed references, a project with Studio settings,
+	// a dialogue table and a registry. The scan lists each reference, and the cleaned files hold none.
+	void TestLegacyCleanup()
+	{
+		using namespace AudioLegacyCleanup;
+		const std::string scene = R"(Scene: Old
+Entities:
+  - Entity: 1
+    TextComponent:
+      TextString: 'FMOD DEMO
+
+        EventGuid: not a key'
+    AudioSourceComponent:
+      PlayOnAwake: true
+      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
+      EventPath: ""
+      EventBank: ""
+      EventSound: 8743721474366396702
+      ParameterOverrides: []
+  - Entity: 2
+    AudioZoneComponent:
+      AmbienceEvent:
+        Guid: '{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}'
+        Path: event:/Ambience/Wind
+        BankName: Master.bank
+      Snapshot:
+        Guid: ""
+        Path: ""
+        BankName: ""
+        Sound: 42
+    MusicDirectorComponent:
+      Event:
+        Guid: '{11111111-2222-3333-4444-555555555555}'
+      State: Calm
+)";
+		std::string cleaned, error;
+		std::vector<Finding> findings;
+		CHECK(CleanText(scene, FileKind::Asset, cleaned, findings, error));
+		CHECK(findings.size() == 5); // the source GUID, three ambience fields, the music GUID; empty keys are not listed
+		CHECK(findings[0].Where == "AudioSourceComponent.EventGuid" && findings[0].Line == 10 && findings[0].Value == "{755abc01-cd89-4daf-a27b-04d57b807b3d}");
+		CHECK(findings[2].Where == "AmbienceEvent.Path" && findings[2].Value == "event:/Ambience/Wind");
+		CHECK(cleaned.find("Guid: '") == std::string::npos && cleaned.find("BankName") == std::string::npos && cleaned.find("EventPath") == std::string::npos);
+		CHECK(cleaned.find("        EventGuid: not a key'") != std::string::npos); // inside a string, untouched
+		CHECK(cleaned.find("      AmbienceEvent: {}\n") != std::string::npos && cleaned.find("      Event: {}\n") != std::string::npos);
+		{
+			const Yaml::Node root = Yaml::Load(cleaned);
+			const Yaml::Node zone = root["Entities"][1]["AudioZoneComponent"];
+			CHECK(AudioEventRefSerializer::Read(zone["Snapshot"]).Sound == 42);
+			CHECK(!AudioEventRefSerializer::Read(zone["AmbienceEvent"]).HasReference());
+			const AudioEventRef source = AudioEventRefSerializer::ReadFlat(root["Entities"][0]["AudioSourceComponent"], "Event");
+			CHECK(source.Sound == 8743721474366396702ull && source.Guid.empty());
+			CHECK(root["Entities"][1]["MusicDirectorComponent"]["State"].as<std::string>() == "Calm");
+		}
+		// Clean is a fixed point, and line endings are kept.
+		std::string again;
+		std::vector<Finding> none;
+		CHECK(CleanText(cleaned, FileKind::Asset, again, none, error) && again == cleaned && none.empty());
+		std::string crlf;
+		for (const char c : scene)
+			crlf += c == '\n' ? std::string("\r\n") : std::string(1, c);
+		CHECK(CleanText(crlf, FileKind::Asset, again, none, error));
+		size_t newlines = 0, pairs = 0;
+		for (size_t i = 0; i < again.size(); ++i)
+			if (again[i] == '\n')
+				++newlines, pairs += i > 0 && again[i - 1] == '\r';
+		CHECK(newlines > 0 && pairs == newlines && again.find(" {}\r\n") != std::string::npos);
+
+		// The writer leaves out what the cleanup removed.
+		Yaml::Writer out;
+		out << Yaml::BeginMap;
+		AudioEventRef sound;
+		sound.Sound = 7;
+		AudioEventRefSerializer::Write(out, "Event", sound);
+		AudioEventRefSerializer::WriteFlat(out, "Event", sound);
+		out << Yaml::EndMap;
+		const std::string written = out.c_str();
+		CHECK(written.find("Guid") == std::string::npos && written.find("Path") == std::string::npos && written.find("Bank") == std::string::npos);
+
+		const std::string project = R"(Project:
+  Name: Old
+  Audio:
+    FileStreamingDurationThreshold: 1
+    StudioProjectPath: Audio/SampleProject/SampleProject.fspro
+    StudioPlatform: Desktop
+    Windows:
+      Enabled: false
+      StudioPlatform: Desktop
+      BankOutputPath: Build/Desktop
+      Performance:
+        RealVoices: 64
+    StudioBankOutputPath: Build/Desktop
+    RebuildBanksOnPlay: true
+    EnableLiveUpdate: true
+    Accessibility:
+      Events:
+        '{755abc01-cd89-4daf-a27b-04d57b807b3d}':
+          Captions:
+            en: '[music]'
+        '9117899157295655424':
+          Captions:
+            en: '[impact]'
+    DialogueLanguage: en
+)";
+		findings.clear();
+		CHECK(CleanText(project, FileKind::Project, cleaned, findings, error));
+		CHECK(findings.size() == 8);
+		CHECK(findings.back().Where == "Audio.Accessibility.Events" && findings.back().Value == "{755abc01-cd89-4daf-a27b-04d57b807b3d}");
+		CHECK(cleaned.find("Studio") == std::string::npos && cleaned.find("Bank") == std::string::npos && cleaned.find("LiveUpdate") == std::string::npos);
+		CHECK(cleaned.find("[music]") == std::string::npos && cleaned.find("[impact]") != std::string::npos);
+		CHECK(cleaned.find("      Enabled: false\n      Performance:") != std::string::npos && cleaned.find("    DialogueLanguage: en") != std::string::npos);
+
+		const std::string registry = R"(Assets:
+  - Handle: 1
+    FilePath: Scenes/Old.luxscene
+    Type: Scene
+  - Handle: 2
+    FilePath: Audio/SampleProject/SampleProject.fspro
+    Type: AudioProject
+  - Handle: 3
+    FilePath: Audio/Build/Master.bank
+    Type: AudioBank
+)";
+		findings.clear();
+		CHECK(CleanText(registry, FileKind::Registry, cleaned, findings, error));
+		CHECK(findings.size() == 2 && findings[1].Value == "Audio/Build/Master.bank" && findings[1].Line == 8);
+		CHECK(cleaned == "Assets:\n  - Handle: 1\n    FilePath: Scenes/Old.luxscene\n    Type: Scene\n");
+
+		const std::string dialogue = "Lines:\n  - Key: hello\n    Translations:\n      en:\n        Text: Hello\n        AudioKey: hello_en\n";
+		findings.clear();
+		CHECK(CleanText(dialogue, FileKind::Dialogue, cleaned, findings, error) && findings.size() == 1 && cleaned.find("AudioKey") == std::string::npos);
+
+		// A legacy key that opens a list item cannot go on its own: the file is refused, unchanged.
+		findings.clear();
+		CHECK(!CleanText("AudioSourceComponent:\n  - EventGuid: x\n    EventSound: 1\n", FileKind::Asset, cleaned, findings, error) && findings.empty() && !error.empty());
+
+		// Scan and Apply on a project folder; a second scan finds nothing.
+		const auto root = s_Directory / "legacy-project";
+		std::filesystem::remove_all(root);
+		std::filesystem::create_directories(root / "Assets" / "Scenes");
+		const auto write = [](const std::filesystem::path& path, const std::string& text) { std::ofstream(path, std::ios::binary) << text; };
+		write(root / "Old.luxproj", project);
+		write(root / "Assets" / "AssetRegistry.lzr", registry);
+		write(root / "Assets" / "Scenes" / "Old.luxscene", scene);
+		write(root / "Assets" / "Scenes" / "Clean.luxscene", "Scene: Clean\nEntities: []\n");
+		const ScanResult scan = Scan(root / "Old.luxproj", root / "Assets", root / "Assets" / "AssetRegistry.lzr");
+		CHECK(scan.Errors.empty() && scan.Files.size() == 3 && scan.Findings.size() == 8 + 2 + 5);
+		std::vector<std::string> errors;
+		CHECK(Apply(scan, errors) && errors.empty());
+		const ScanResult after = Scan(root / "Old.luxproj", root / "Assets", root / "Assets" / "AssetRegistry.lzr");
+		CHECK(after.Errors.empty() && after.Files.empty() && after.Findings.empty());
+		CHECK(!Apply(scan, errors) && errors.size() == 3); // the old scan is stale now
+		std::puts("PASS: Remove FMOD data lists every FMOD reference, removes them all and keeps every other line");
+	}
 }
 
 int main(int argc, char** argv)
@@ -2157,6 +2312,7 @@ int main(int argc, char** argv)
 	TestStreaming();
 	TestPhysicsAudio();
 	TestFileInfo();
+	TestLegacyCleanup();
 	std::puts("All native backend checks passed");
 	return 0;
 }

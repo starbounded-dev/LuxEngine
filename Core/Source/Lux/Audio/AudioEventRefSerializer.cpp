@@ -16,14 +16,22 @@ namespace Lux::AudioEventRefSerializer
 			key += name;
 			return key;
 		}
+
+		// FMOD-era fields: kept while an old file still holds them, so nothing is lost before
+		// Remove FMOD data runs, and never written empty.
+		void WriteLegacy(Yaml::Writer& out, std::string_view key, const std::string& value)
+		{
+			if (!value.empty())
+				out << Yaml::Key << key << Yaml::Value << value;
+		}
 	}
 
 	void Write(Yaml::Writer& out, std::string_view key, const AudioEventRef& reference)
 	{
 		out << Yaml::Key << key << Yaml::BeginMap;
-		out << Yaml::Key << "Guid" << Yaml::Value << reference.Guid;
-		out << Yaml::Key << "Path" << Yaml::Value << reference.Path;
-		out << Yaml::Key << "BankName" << Yaml::Value << reference.BankName;
+		WriteLegacy(out, "Guid", reference.Guid);
+		WriteLegacy(out, "Path", reference.Path);
+		WriteLegacy(out, "BankName", reference.BankName);
 		if (reference.Sound != 0)
 			out << Yaml::Key << "Sound" << Yaml::Value << reference.Sound;
 		out << Yaml::EndMap;
@@ -43,9 +51,9 @@ namespace Lux::AudioEventRefSerializer
 
 	void WriteFlat(Yaml::Writer& out, std::string_view prefix, const AudioEventRef& reference)
 	{
-		out << Yaml::Key << Join(prefix, "Guid") << Yaml::Value << reference.Guid;
-		out << Yaml::Key << Join(prefix, "Path") << Yaml::Value << reference.Path;
-		out << Yaml::Key << Join(prefix, "Bank") << Yaml::Value << reference.BankName;
+		WriteLegacy(out, Join(prefix, "Guid"), reference.Guid);
+		WriteLegacy(out, Join(prefix, "Path"), reference.Path);
+		WriteLegacy(out, Join(prefix, "Bank"), reference.BankName);
 		if (reference.Sound != 0)
 			out << Yaml::Key << Join(prefix, "Sound") << Yaml::Value << reference.Sound;
 	}

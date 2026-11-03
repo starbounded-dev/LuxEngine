@@ -77,7 +77,8 @@ namespace Lux
 				out << Yaml::Key << language << Yaml::BeginMap;
 				out << Yaml::Key << "Text" << Yaml::Value << translation.Text;
 				out << Yaml::Key << "SpeakerName" << Yaml::Value << translation.SpeakerName;
-				out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey;
+				if (!translation.AudioKey.empty()) // legacy, FMOD's audio-table key
+					out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey;
 				if (translation.Clip != 0)
 					out << Yaml::Key << "Clip" << Yaml::Value << static_cast<uint64_t>(translation.Clip);
 				out << Yaml::EndMap;

@@ -14,6 +14,10 @@
 #include "RuntimeExportUtils.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetManager/EditorAssetManager.h"
+#include "Lux/Editor/EditorStack.h"
+#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Renderer/Renderer.h"
@@ -1121,8 +1125,147 @@ namespace Lux {
 			}
 			ImGui::TreePop();
 		}
+		RenderLegacyAudioData();
 
 		ImGui::TreePop();
+	}
+
+	void ProjectSettingsWindow::RenderLegacyAudioData()
+	{
+		if (!ImGuiEx::PropertyGridHeader("Legacy FMOD Data", false))
+			return;
+
+		ImGui::TextWrapped("Projects made before FMOD was removed can still carry event GUIDs, Studio settings and FMOD bank registry entries. "
+			"They never play. Scan lists them; Remove FMOD Data deletes them from every scene, prefab and table, the project file and the "
+			"asset registry, and leaves every other line as it was. Studio project folders on disk are not touched.");
+		const bool playing = m_SceneContext && m_SceneContext->IsRunning();
+		{
+			ImGuiEx::ScopedDisable disabled(playing);
+			if (ImGui::Button("Scan for FMOD Data"))
+			{
+				m_LegacyScan = AudioLegacyCleanup::Scan(m_Project->GetProjectFilePath(), m_Project->GetAssetDirectory(), m_Project->GetAssetRegistryPath());
+				m_LegacyErrors.clear();
+			}
+		}
+		if (playing)
+			ImGui::TextDisabled("Stop Play to scan or remove.");
+
+		for (const std::string& error : m_LegacyErrors)
+			ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", error.c_str());
+		if (!m_LegacyScan)
+		{
+			ImGui::TreePop();
+			return;
+		}
+
+		const auto& scan = *m_LegacyScan;
+		for (const std::string& error : scan.Errors)
+			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "Skipped %s", error.c_str());
+		if (scan.Files.empty())
+			ImGui::TextUnformatted("No FMOD data found.");
+		else
+			ImGui::Text("%zu FMOD references in %zu files.", scan.Findings.size(), scan.Files.size());
+
+		const auto relative = [&](const std::filesystem::path& path) { return std::filesystem::relative(path, m_Project->GetProjectDirectory()).generic_string(); };
+		if (!scan.Findings.empty() && ImGui::BeginTable("##LegacyFMOD", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
+			ImVec2(0.0f, std::min(ImGui::GetTextLineHeightWithSpacing() * (static_cast<float>(scan.Findings.size()) + 1.5f), 300.0f))))
+		{
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn("File");
+			ImGui::TableSetupColumn("Field");
+			ImGui::TableSetupColumn("Value");
+			ImGui::TableHeadersRow();
+			for (const auto& finding : scan.Findings)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				ImGui::Text("%s:%u", relative(finding.File).c_str(), finding.Line);
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(finding.Where.c_str());
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(finding.Value.c_str());
+			}
+			ImGui::EndTable();
+		}
+
+		if (!scan.Files.empty())
+		{
+			ImGuiEx::ScopedDisable disabled(playing);
+			if (ImGui::Button("Remove FMOD Data"))
+				ImGui::OpenPopup("Remove FMOD data?");
+		}
+		if (ImGui::BeginPopupModal("Remove FMOD data?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::Text("Rewrite %zu files without their FMOD data?", scan.Files.size());
+			ImGui::TextDisabled("Undo covers the open scene only; use version control for the files.");
+			if (ImGui::Button("Remove"))
+			{
+				RemoveLegacyAudioData();
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Cancel"))
+				ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+		}
+		ImGui::TreePop();
+	}
+
+	void ProjectSettingsWindow::RemoveLegacyAudioData()
+	{
+		m_LegacyErrors.clear();
+		AudioLegacyCleanup::Apply(*m_LegacyScan, m_LegacyErrors);
+
+		// The open scene, tables and prefabs in memory still hold the old fields; their next save would
+		// write them back. The scene is cleared in place (one undo step), the assets reload from disk.
+		const auto clear = [](AudioEventRef& reference)
+		{
+			const bool had = !reference.Guid.empty() || !reference.Path.empty() || !reference.BankName.empty();
+			reference.Guid.clear();
+			reference.Path.clear();
+			reference.BankName.clear();
+			return had;
+		};
+		bool sceneChanged = false;
+		if (m_SceneContext && !m_SceneContext->IsRunning())
+		{
+			auto sources = m_SceneContext->GetAllEntitiesWith<AudioSourceComponent>();
+			for (auto handle : sources)
+				sceneChanged |= clear(sources.get<AudioSourceComponent>(handle).Event);
+			auto zones = m_SceneContext->GetAllEntitiesWith<AudioZoneComponent>();
+			for (auto handle : zones)
+			{
+				auto& zone = zones.get<AudioZoneComponent>(handle);
+				sceneChanged |= clear(zone.AmbienceEvent) | clear(zone.Snapshot);
+			}
+			auto music = m_SceneContext->GetAllEntitiesWith<MusicDirectorComponent>();
+			for (auto handle : music)
+				sceneChanged |= clear(music.get<MusicDirectorComponent>(handle).Event);
+			auto surfaces = m_SceneContext->GetAllEntitiesWith<AudioSurfaceComponent>();
+			for (auto handle : surfaces)
+			{
+				auto& surface = surfaces.get<AudioSurfaceComponent>(handle);
+				sceneChanged |= clear(surface.FootstepOverride) | clear(surface.ImpactOverride);
+			}
+		}
+		if (sceneChanged)
+			EditorStack::Get().MarkSceneEdited("Remove FMOD data");
+
+		std::erase_if(m_Project->GetConfig().Audio.Accessibility.Events, [](const auto& entry) { return entry.first.starts_with('{'); });
+		if (Ref<EditorAssetManager> assets = Project::GetEditorAssetManager())
+		{
+			for (const auto& file : m_LegacyScan->Files)
+			{
+				const AssetHandle handle = assets->GetAssetHandleFromFilePath(file.Path);
+				const AssetType type = handle != 0 ? assets->GetAssetType(handle) : AssetType::None;
+				const bool reloads = type == AssetType::Prefab || type == AssetType::DialogueTable || type == AssetType::AudioSurfaceTable;
+				if (reloads && AssetManager::IsAssetLoaded(handle))
+					AssetManager::ReloadData(handle);
+			}
+		}
+
+		LUX_CORE_INFO_TAG("Audio", "Removed {} FMOD references from {} files", m_LegacyScan->Findings.size(), m_LegacyScan->Files.size());
+		m_LegacyScan = AudioLegacyCleanup::Scan(m_Project->GetProjectFilePath(), m_Project->GetAssetDirectory(), m_Project->GetAssetRegistryPath());
 	}
 
 	void ProjectSettingsWindow::RenderScriptingSettings()

@@ -1538,7 +1538,16 @@ See `docs/AUDIO_ZONES.md` for authoring and verification.
 
 **Legacy FMOD data:** `AssetType::AudioProject`/`AudioBank` stay in the enum for numeric
 stability; `.fspro` and `.bank` files are no longer imported. Project YAML's Studio settings are read,
-reported once ("they are ignored and dropped on the next save") and not written. Runtime formats 17+
+reported once ("use Project Settings > Audio > Remove FMOD data") and not written; `AudioEventRefSerializer`
+and `DialogueTable` write the FMOD fields (`Guid`/`Path`/`BankName`, `AudioKey`) only while non-empty,
+and `EditorAssetManager` skips AudioProject/AudioBank registry entries. `AudioLegacyCleanup`
+(`Audio/AudioLegacyCleanup.h`) is **Remove FMOD data**: `Scan` reads the project file, the registry and
+every scene, prefab, dialogue and surface table as text and lists each FMOD key (file, line, field,
+value); `CleanText` removes those lines only (a reference map left empty becomes `{}`; a key that opens
+a list item refuses the file) and checks the result parses; `Apply` rewrites each file through a
+temporary, refusing files changed since the scan. Project Settings › Audio › Legacy FMOD Data shows the
+scan and applies on confirm, then clears the open scene in memory (one undo step), drops GUID-keyed
+accessibility entries from the loaded config and reloads loaded prefabs and tables. Runtime formats 17+
 still carry the bounded `AudioBankManifest` block after `ProjectInfo`'s fixed header (exports write it
 empty); when an old export's manifest names banks, `Project::LoadRuntime` warns that they are ignored.
 Desktop profiles' `StudioPlatform`/`BankOutputPath` keys are skipped and dropped on the next save. Never put owning strings

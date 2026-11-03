@@ -262,3 +262,23 @@ T046 results:
   0 errors; `Editor.exe` and `Lux-Runtime.exe` built, and no FMOD file is in the output. The first build
   failed only because a fresh clone has never restored the C# projects' NuGet packages; MSBuild
   `/restore` fixes that (it is the same without this change).
+
+## Phase 5 (US3) — Remove FMOD data
+
+T047–T050 are done; T051 (the editor run on a pre-removal copy) waits for an editor session.
+
+- `AudioLegacyCleanup` works on the files' text, not by loading and re-saving scenes: it removes only
+  the FMOD lines, so a scene keeps its entity order and every other line (re-saving reordered
+  entities before). It checks each cleaned file still parses, and refuses a file where the FMOD key
+  opens a list item.
+- Besides what T049 lists, it removes dialogue `AudioKey`s and GUID-keyed accessibility entries.
+  `EditorAssetManager` now skips AudioProject/AudioBank registry entries on load.
+- The info line for Studio settings reads "FMOD Studio settings are ignored; use Project Settings >
+  Audio > Remove FMOD data".
+- The test (`TestLegacyCleanup`) covers a scene with Guid-only and mixed references and a decoy inside
+  a string, a project with Studio settings and profiles, a registry, a dialogue table, CRLF files, a
+  refused file, and Scan + Apply on a folder (a second scan finds nothing; a stale scan is refused).
+- The Project Settings UI compiles and its ImGui scopes were audited by reading; it has not been
+  clicked through.
+- The scratch copy for T051 is `bin/legacy-sample/Editor/LuxSampleProject` (0a3dfa00^, 2 scenes with
+  FMOD GUIDs).

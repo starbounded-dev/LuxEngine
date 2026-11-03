@@ -735,6 +735,12 @@ namespace Lux
 			metadata.Handle = node["Handle"].as<uint64_t>();
 			metadata.FilePath = node["FilePath"].as<std::string>();
 			metadata.Type = AssetTypeFromString(node["Type"].as<std::string>());
+			if (metadata.Type == AssetType::AudioProject || metadata.Type == AssetType::AudioBank)
+			{
+				// FMOD Studio files are no longer assets; the next registry save drops the entry.
+				LUX_CORE_INFO_TAG("Audio", "Skipping the FMOD registry entry for '{}'", metadata.FilePath.generic_string());
+				continue;
+			}
 			metadata.IsDataLoaded = false;
 			SetMetadata(metadata.Handle, metadata);
 		}

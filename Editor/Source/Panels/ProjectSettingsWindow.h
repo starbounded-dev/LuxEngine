@@ -4,7 +4,9 @@
 #pragma once
 
 #include "Lux/Core/Log.h"
+#include "Lux/Audio/AudioLegacyCleanup.h"
 #include "Lux/Editor/EditorPanel.h"
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -22,6 +24,7 @@ namespace Lux {
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
 		virtual void OnClose() override;
+		void SetSceneContext(const Ref<Scene>& context) override { m_SceneContext = context; }
 		// Startup-only: requires main thread, before any editor ImGui/render frame.
 		static bool RunAcousticSettingsSelfTests(std::vector<std::string>& failures);
 
@@ -33,6 +36,8 @@ namespace Lux {
 		void RenderRuntimeExportSettings();
 		void RenderRendererSettings();
 		void RenderAudioSettings();
+		void RenderLegacyAudioData();
+		void RemoveLegacyAudioData();
 		void RenderScriptingSettings();
 		void RenderPhysicsSettings();
 		void RenderLogSettings();
@@ -40,6 +45,9 @@ namespace Lux {
 	private:
 		RuntimeExport::RuntimeBuildJob& m_RuntimeBuildJob;
 		Ref<Project> m_Project;
+		Ref<Scene> m_SceneContext;
+		std::optional<AudioLegacyCleanup::ScanResult> m_LegacyScan;
+		std::vector<std::string> m_LegacyErrors; // from the last Remove
 		AssetHandle m_DefaultScene = 0;
 		AssetHandle m_RuntimeIcon = 0;
 		bool m_Dirty = false;

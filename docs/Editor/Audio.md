@@ -20,7 +20,7 @@ around corners and through doorways, and room reverb. Both are built in and need
 | Where | What it covers |
 |---|---|
 | **View → Audio Debugger** | Read-only runtime state: backends, banks, events, voices, acoustics, budgets, validation |
-| **Project Settings → Audio** | Studio project wiring, budgets, desktop profiles, surface/dialogue tables, accessibility |
+| **Project Settings → Audio** | Budgets, desktop profiles, surface/dialogue tables, accessibility, acoustics, removing old FMOD data |
 | **Inspector → Add Component → Audio** | Audio Source, Portal, Zone, Surface, Listener |
 | **Viewport** | Sound paths, emitters, zone/portal wireframes, room readout |
 
@@ -155,6 +155,14 @@ the Audio Debugger's budget section reports.
 **Desktop Audio Profiles** — optional per-OS overrides (*Windows*, *Linux*). Each has *Override
 defaults* and its own budgets. *Copy Default Budgets* seeds a profile from the project defaults.
 The host OS selects its enabled profile for Play, validation and export.
+
+**Legacy FMOD Data** — for projects made before FMOD was removed. *Scan for FMOD Data* lists every
+FMOD reference still in the project's files (file and line, field, value): event GUIDs, paths and
+banks on sources, zones, music directors and surface overrides, dialogue audio-table keys, the old
+Studio settings, GUID-keyed accessibility entries, and FMOD bank entries in the asset registry. They
+never play. *Remove FMOD Data* asks first, then deletes them from every file and leaves every other
+line as it was; the open scene is cleared too, as one undo step. Studio project folders on disk are
+left alone. Not available during Play.
 
 **Zone Reverb** — how zone reverb and Soundwave's reverb combine: *Layer zones and Soundwave*,
 *Prefer zones*, or *Prefer Soundwave*.
