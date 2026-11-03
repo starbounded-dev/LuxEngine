@@ -285,9 +285,6 @@ Entities:
       PlayOnAwake: true
       Priority: 128
       DistanceCulling: true
-      EventGuid: ""
-      EventPath: ""
-      EventBank: ""
       EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 73040000000000004
@@ -326,9 +323,6 @@ Entities:
       PlayOnAwake: false
       Priority: 128
       DistanceCulling: true
-      EventGuid: ""
-      EventPath: ""
-      EventBank: ""
       EventSound: 9117899157295655424
       ParameterOverrides: []
   - Entity: 73040000000000003

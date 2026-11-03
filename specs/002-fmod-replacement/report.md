@@ -278,7 +278,10 @@ T047–T050 are done; T051 (the editor run on a pre-removal copy) waits for an e
 - The test (`TestLegacyCleanup`) covers a scene with Guid-only and mixed references and a decoy inside
   a string, a project with Studio settings and profiles, a registry, a dialogue table, CRLF files, a
   refused file, and Scan + Apply on a folder (a second scan finds nothing; a stale scan is refused).
-- The Project Settings UI compiles and its ImGui scopes were audited by reading; it has not been
-  clicked through.
-- The scratch copy for T051 is `bin/legacy-sample/Editor/LuxSampleProject` (0a3dfa00^, 2 scenes with
-  FMOD GUIDs).
+- **T051 / SC-006 (user-run, 2026-11-03):** on the pre-removal sample (0a3dfa00^, extracted to
+  `bin/legacy-sample`), Scan listed the FMOD references, Remove FMOD Data cleared them, and a second scan
+  found none; "it all works". Afterwards no scene, project or registry file in the copy holds an FMOD key.
+- Run on the current sample as well, it removed the empty FMOD keys US1 had left in `AudioDemo`,
+  `AudioTest` and `Benchmark` and one real reference (`AudioTest`'s FMOD-only source, `event:/Fart`,
+  which never had a Sound). `GenerateBenchmarkScenes.py` now writes references the way the engine does
+  (only `Sound`, or `{}`), so regenerating Benchmark keeps them clean. YAML check: 31 old problems.

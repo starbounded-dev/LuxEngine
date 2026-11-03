@@ -231,7 +231,7 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
   - `Apply(scan)` clears them and saves each touched scene and the project once.
   - The scenes are read without opening them in the editor.
 - [x] T050 [US3] In `Editor/Source/Panels/ProjectSettingsWindow.cpp` § Audio, add a **Remove FMOD data** button: show the scan as a list first, apply on confirm, and push an undo entry for the open scene. Audit it against ImGui correctness
-- [ ] T051 [US3] **(editor)** Check out `0a3dfa00^` into a scratch folder, open its sample, run the action, and record SC-006 in `specs/002-fmod-replacement/report.md`
+- [x] T051 [US3] **(editor)** Check out `0a3dfa00^` into a scratch folder, open its sample, run the action, and record SC-006 in `specs/002-fmod-replacement/report.md`
 
 **Checkpoint**: old projects load, report and clean up.
 

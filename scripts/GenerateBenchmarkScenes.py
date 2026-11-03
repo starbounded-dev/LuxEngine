@@ -398,29 +398,29 @@ def mesh_collider(entity: Entity, mesh: int, acoustic: str) -> Entity:
 		"CollisionComplexity: 2"])
 
 
-def event_ref(sound: str) -> list[str]:
-	return ['  Guid: ""', '  Path: ""', '  BankName: ""', *([f"  Sound: {sound}"] if sound else [])]
+# An AudioEventRef as the engine writes it: only the Sound, or an empty map.
+def event_ref(key: str, sound: str) -> list[str]:
+	return [f"{key}:", f"  Sound: {sound}"] if sound else [f"{key}: {{}}"]
 
 
 def audio_source(entity: Entity, sound: str, volume: float, play_on_awake: bool, priority: int = 128) -> Entity:
 	return entity.add("AudioSourceComponent", [
 		f"VolumeMultiplier: {num(volume)}", "PitchMultiplier: 1", f"PlayOnAwake: {boolean(play_on_awake)}",
-		f"Priority: {priority}", "DistanceCulling: true", 'EventGuid: ""', 'EventPath: ""',
-		'EventBank: ""', *([f"EventSound: {sound}"] if sound else []), "ParameterOverrides:", "  []"])
+		f"Priority: {priority}", "DistanceCulling: true", *([f"EventSound: {sound}"] if sound else []), "ParameterOverrides:", "  []"])
 
 
 def audio_zone(entity: Entity, half_extents, priority: float, ambience: str = "", volume: float = 1.0) -> Entity:
 	return entity.add("AudioZoneComponent", [
 		"Shape: 0", "Enabled: true", "Offset: [0, 0, 0]", f"HalfExtents: {vec(half_extents)}", "Radius: 5",
 		f"Priority: {num(priority)}", "BlendDistance: 1.5", "FadeTime: 0.5", f"Volume: {num(volume)}",
-		"AmbienceEvent:", *event_ref(ambience), "Snapshot:", *event_ref("")])
+		*event_ref("AmbienceEvent", ambience), *event_ref("Snapshot", "")])
 
 
 def audio_surface(entity: Entity, acoustic: str, footsteps: bool = False) -> Entity:
 	return entity.add("AudioSurfaceComponent", [
 		f"Material: {acoustic}", "PhysicsSounds: true", f"AutoFootsteps: {boolean(footsteps)}", "StrideLength: 0.7",
-		"GroundProbeDistance: 1.2", "FootstepWeight: 75", "FootstepOverride:", *event_ref(""),
-		"ImpactOverride:", *event_ref("")])
+		"GroundProbeDistance: 1.2", "FootstepWeight: 75", *event_ref("FootstepOverride", ""),
+		*event_ref("ImpactOverride", "")])
 
 
 def script(entity: Entity, class_name: str, fields: list[tuple[str, str, str]] | None = None) -> Entity:
@@ -525,7 +525,7 @@ def add_plaza(scene: Scene, specials: dict[str, int], field_materials: list[int]
 	scene.count("audio sources")
 
 	music = scene.entity("Music Director", (0.0, 4.0, 0.0), parent=plaza)
-	music.add("MusicDirectorComponent", ["Event:", *event_ref(SOUND_MUSIC), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
+	music.add("MusicDirectorComponent", [*event_ref("Event", SOUND_MUSIC), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
 
 	for i in range(12):
 		angle = i / 12.0 * math.tau
