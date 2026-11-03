@@ -46,6 +46,9 @@ namespace Lux
 				throw new ArgumentOutOfRangeException(nameof(value), "Audio values must be finite.");
 		}
 
+		/// <summary>True when this build plays Sound assets (the native backend), false when it plays FMOD Studio events and banks.</summary>
+		public static bool PlaysSoundAssets => InternalCalls.Audio_PlaysSoundAssets();
+
 		/// <summary>Loads a bank immediately. Relative paths start at the project's Assets directory.
 		/// Call during scene setup; load the master and strings banks before playing event paths.</summary>
 		public static bool LoadBank(string bankFile)

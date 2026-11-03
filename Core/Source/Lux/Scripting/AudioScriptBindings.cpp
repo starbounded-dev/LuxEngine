@@ -801,6 +801,11 @@ namespace Lux
 			return false;
 		}
 
+		Coral::Bool32 Audio_PlaysSoundAssets()
+		{
+			return AudioEngine::GetBackend() == AudioBackend::Native;
+		}
+
 		Coral::Bool32 Audio_LoadBank(Coral::String file)
 		{
 			if (!MixerAvailable())
@@ -981,6 +986,7 @@ namespace Lux
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_GetSurfaceMaterial", reinterpret_cast<void*>(&Audio_GetSurfaceMaterial));
 		// Registrations below are kept one-to-one with InternalCalls.cs.
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_LoadBank", reinterpret_cast<void*>(&Audio_LoadBank));
+		assembly.AddInternalCall("Lux.InternalCalls", "Audio_PlaysSoundAssets", reinterpret_cast<void*>(&Audio_PlaysSoundAssets));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_IsMainThread", reinterpret_cast<void*>(&Audio_IsMainThread));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_CreateInstance", reinterpret_cast<void*>(&Audio_CreateInstance));
 		assembly.AddInternalCall("Lux.InternalCalls", "Audio_IsValid", reinterpret_cast<void*>(&Audio_IsValid));

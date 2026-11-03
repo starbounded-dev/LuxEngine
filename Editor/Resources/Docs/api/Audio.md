@@ -4,6 +4,12 @@
 
 Gameplay audio. Call on the engine's main thread; handles expire when Play stops.
 
+## Properties
+
+| Name | Type | Access | Description |
+|---|---|---|---|
+| `PlaysSoundAssets` | `bool` | get | True when this build plays Sound assets (the native backend), false when it plays FMOD Studio events and banks. |
+
 ## Methods
 
 ```

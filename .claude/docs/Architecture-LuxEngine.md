@@ -1101,8 +1101,12 @@ entry is longer than its path, so either pack loads). At runtime `ResolveClip` n
 `luxpack/<handle><ext>` and `RegisterPackedClip` registers its bytes with miniaudio's resource
 manager (`ma_resource_manager_register_encoded_data`), measuring its length from memory; a Sound
 plays it as a file, decoded even when it streams. The mixer is runtime project format 30.
-Export skips FMOD bank preparation on native, and `RuntimeExport::ShipsLibrary` keeps an earlier FMOD
-build's libraries in the shared output folder out of a native export.
+Every scene's pack lists all Audio and Sound assets (`AssetPack::CreateFromActiveProject`), since
+components, zones, the music director, dialogue and scripts all name them. Export skips FMOD bank
+preparation and `CopyAudioLibraries` on native, and `RuntimeExport::ShipsLibrary` keeps an earlier FMOD
+build's libraries in the shared output folder out of a native export. Script asset-ref fields (`Sound`,
+`Prefab`, ...) are written into the managed instance at `Instantiate` but stay unbound from it, so their
+`FieldStorage` keeps reading its stored handle during Play (a wrapper object can't be read back as a value).
 **Native budgets (Phase 5d):** `AudioPerformance::Update` (4 Hz) applies the global voice budget:
 `NativeInternal::ApplyVoiceBudget` keeps `RealVoices` voices mixing, by priority (lower number first),
 then loudness, then start order. The rest go virtual: their clips stop, engine time keeps counting,

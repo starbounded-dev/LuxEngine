@@ -9,6 +9,8 @@ namespace LuxSample
 		public string StringsBank = "Audio/SampleProject/Build/Desktop/Master.strings.bank";
 		public string MasterBank = "Audio/SampleProject/Build/Desktop/Master.bank";
 		public string EventPath = "event:/Fart";
+		// The native backend plays this Sound asset; the FMOD build plays EventPath from the banks.
+		public Sound Sound;
 		public bool PlayOnStart = true;
 		public float Volume = 0.7f;
 
@@ -20,8 +22,14 @@ namespace LuxSample
 		{
 			try
 			{
+				bool native = Audio.PlaysSoundAssets;
+				if (native && Sound == null)
+				{
+					Log.Error("Audio Demo: assign this script's Sound (the native backend plays Sound assets).");
+					return;
+				}
 				// Relative bank paths start at Assets. Loading the same file twice is safe.
-				if (!Audio.LoadBank(MasterBank) || !Audio.LoadBank(StringsBank))
+				if (!native && (!Audio.LoadBank(MasterBank) || !Audio.LoadBank(StringsBank)))
 				{
 					Log.Error("FMOD Demo: bank loading failed. Check Project Settings > Audio and the bank paths on this script.");
 					return;
@@ -33,11 +41,12 @@ namespace LuxSample
 					return;
 				}
 				// CreateInstance validates the event and gives us an independently owned voice.
-				m_Instance = Audio.CreateInstance(EventPath);
+				m_Instance = native ? Audio.CreateInstance(Sound) : Audio.CreateInstance(EventPath);
 				m_Instance.SetVolume(Volume);
 				m_Instance.Stopped += () => Log.Info("FMOD Demo: independent instance stopped.");
 				m_Instance.Marker += marker => Log.Info($"FMOD Demo marker: {marker}");
-				m_Source.SetEvent(EventPath);
+				if (!native)
+					m_Source.SetEvent(EventPath); // the native source already names its Sound in the scene
 				m_Source.Volume = Volume;
 				m_Ready = true;
 				if (PlayOnStart)
@@ -67,7 +76,12 @@ namespace LuxSample
 			if (Input.IsKeyPressed(KeyCode.K))
 				m_Source.Restart();
 			if (Input.IsKeyPressed(KeyCode.L))
-				Audio.PlayOneShot(EventPath, Translation);
+			{
+				if (Sound != null && Audio.PlaysSoundAssets)
+					Audio.PlayOneShot(Sound, Translation);
+				else
+					Audio.PlayOneShot(EventPath, Translation);
+			}
 			if (Input.IsKeyPressed(KeyCode.I))
 				m_Instance.Start();
 			if (Input.IsKeyPressed(KeyCode.P))

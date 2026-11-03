@@ -310,6 +310,7 @@ namespace Lux
 		internal static delegate*<NativeString, float, void> Audio_SetBusVolume;
 		internal static delegate*<NativeString, float> Audio_GetBusVolume;
 		internal static delegate*<NativeString, void> Audio_ClearBusVolume;
+		internal static delegate*<Bool32> Audio_PlaysSoundAssets;
 		internal static delegate*<NativeString, Bool32, void> Audio_SetBusMuted;
 		internal static delegate*<NativeString, float, void> Audio_SetVCAVolume;
 		internal static delegate*<NativeString, float, void> Audio_SetGlobalParameter;

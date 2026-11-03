@@ -107,6 +107,8 @@ namespace Lux::RuntimeExport {
 
 	bool CopyAudioLibraries(const std::filesystem::path& runtimeDirectory, const std::filesystem::path& exportRoot)
 	{
+		if (AudioEngine::GetBackend() != AudioBackend::FMOD)
+			return true; // the native backend is compiled in
 #ifdef LUX_PLATFORM_LINUX
 		const auto source = runtimeDirectory / "lib";
 		const auto destination = exportRoot / "lib";

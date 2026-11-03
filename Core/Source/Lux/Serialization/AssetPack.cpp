@@ -6,6 +6,7 @@
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/Sound.h"
 #include "Lux/Core/Platform.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/Components.h"
@@ -228,7 +229,10 @@ namespace Lux
 		}
 
 		const float progressIncrement = 0.5f / (float)sceneCount;
-		const std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
+		// Audio ships whole: components, zones, the music director, dialogue and scripts all name clips and Sounds.
+		std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
+		const std::unordered_set<AssetHandle> sounds = AssetManager::GetAllAssetsWithType<Sound>();
+		audioFiles.insert(sounds.begin(), sounds.end());
 		fullAssetList.insert(audioFiles.begin(), audioFiles.end());
 
 		for (AssetHandle sceneHandle : sceneHandles)
