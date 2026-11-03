@@ -247,7 +247,7 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
 - [x] T053 [P] [US4] In the dialogue section of `Editor/Source/Panels/ProjectSettingsWindow.cpp`, accept an Audio asset dropped on a translation's Clip field, and add a play button that previews the line through the native backend
 - [x] T054 [US4] If T002 found that Sound edits do not reach playing voices: on Sound save, update playing instances in `Core/Source/Lux/Audio/Native/NativeAudioEventInstance.cpp` (volume, pitch, curves, bus; a tree change restarts the instance). Mixer **Apply** in `AudioMixerPanel.cpp` already rebuilds the mixer; check that it keeps voices playing
 - [x] T055 [P] [US4] Add **Validate project audio** to `Editor/Source/Panels/AudioDebugPanel.cpp`. It runs the export's audio validation (T024) and lists the issues
-- [ ] T056 [US4] **(editor)** Drive T052–T055 once on the sample and note the result in `specs/002-fmod-replacement/report.md`
+- [x] T056 [US4] **(editor)** Drive T052–T055 once on the sample and note the result in `specs/002-fmod-replacement/report.md`
 
 **Checkpoint**: every FMOD-era editor feature has a native counterpart.
 

@@ -305,4 +305,5 @@ T052–T055 are done; T056 (driving them in the editor) waits for an editor sess
   previews; bus volume and mute already apply live. Left as is.
 - **T055:** already present. The Audio Debugger's **Validate Project Audio** runs
   `AudioValidation::ValidateProject`, the same check export runs, and lists the issues. No change.
-- None of the new UI has been clicked through yet; its ImGui scopes were audited by reading.
+- **T056 (user-run, 2026-11-03):** live Sound edits during Play, the music timeline's marker drag and
+  undo, and the dialogue Play button were driven on the sample and reported working.
