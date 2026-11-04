@@ -9,6 +9,7 @@
 #include "Lux/Audio/SoundBank.h"
 #include <fstream>
 #include "ContentBrowserPanel.h"
+#include "ScriptTemplate.h"
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -24,6 +25,7 @@
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/Prefab.h"
@@ -36,6 +38,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <set>
 
@@ -187,6 +190,8 @@ namespace Lux {
 		m_IsContentBrowserHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 		m_IsContentBrowserFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
+		RenderNewScriptDialogue();
+
 		if (!m_Project || !m_BaseDirectory)
 		{
 			ImGui::TextDisabled("No active project.");
@@ -243,6 +248,9 @@ namespace Lux {
 						{
 							if (ImGui::MenuItem("Folder"))
 								CreateNewFolder();
+
+							if (ImGui::MenuItem("C# Script..."))
+								BeginNewScript();
 
 							if (ImGui::MenuItem("Scene"))
 								CreateSceneAsset();
@@ -383,6 +391,8 @@ namespace Lux {
 
 	void ContentBrowserPanel::OnProjectChanged(const Ref<Project>& project)
 	{
+		m_NewScriptDialogOpen = false;
+		m_OpenNewScriptPopup = false;
 		m_Project = project;
 		m_CurrentItems.Clear();
 		m_Directories.clear();
@@ -754,6 +764,8 @@ namespace Lux {
 		{
 			if (ImGui::MenuItem("Folder"))
 				CreateNewFolder();
+			if (ImGui::MenuItem("C# Script..."))
+				BeginNewScript();
 			if (ImGui::MenuItem("Scene"))
 				CreateSceneAsset();
 			if (ImGui::MenuItem("Material"))
@@ -1452,6 +1464,119 @@ namespace Lux {
 		}
 
 		FileSystem::OpenExternally(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
+	}
+
+	void ContentBrowserPanel::BeginNewScript()
+	{
+		if (!m_Project)
+			return;
+		const auto sourceDirectory = m_Project->GetAssetDirectory() / "Scripts" / "Source";
+		const std::string name = Utils::AddSuffixToMakeUnique("NewScript", [&sourceDirectory](const std::string& candidate)
+		{
+			return FileSystem::Exists(sourceDirectory / (candidate + ".cs"));
+		});
+		std::snprintf(m_NewScriptName, sizeof(m_NewScriptName), "%s", name.c_str());
+		m_ScriptCreateError.clear();
+		m_ScriptPreview.clear();
+		if (ScriptTemplate::Load(FileSystem::GetWorkingDirectory() / "Resources" / "Templates" / "NewClassTemplate.cs", m_ScriptTemplate, m_ScriptTemplateError))
+			UpdateScriptPreview();
+		else
+			LUX_CORE_ERROR_TAG("ScriptEngine", "{}", m_ScriptTemplateError);
+		m_OpenNewScriptPopup = true;
+		m_NewScriptDialogOpen = true;
+		m_FocusNewScriptName = true;
+	}
+
+	void ContentBrowserPanel::UpdateScriptPreview()
+	{
+		m_ScriptCreateError.clear();
+		if (!m_ScriptTemplate.empty() && m_Project)
+			ScriptTemplate::Render(m_ScriptTemplate, m_NewScriptName, m_Project->GetConfig().DefaultNamespace, m_ScriptPreview, m_ScriptTemplateError);
+	}
+
+	void ContentBrowserPanel::RenderNewScriptDialogue()
+	{
+		if (m_OpenNewScriptPopup)
+		{
+			ImGui::OpenPopup("New C# Script");
+			m_OpenNewScriptPopup = false;
+		}
+		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopupModal("New C# Script", &m_NewScriptDialogOpen, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+		if (!m_Project || !m_NewScriptDialogOpen)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+
+		ImGui::TextUnformatted("Class name");
+		if (m_FocusNewScriptName)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_FocusNewScriptName = false;
+		}
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputText("##new_script_class", m_NewScriptName, sizeof(m_NewScriptName), ImGuiInputTextFlags_AutoSelectAll))
+			UpdateScriptPreview();
+		ImGui::TextWrapped("Namespace: %s", m_Project->GetConfig().DefaultNamespace.c_str());
+		ImGui::TextWrapped("File: Assets/Scripts/Source/%s.cs", m_NewScriptName);
+		ImGui::Separator();
+		ImGui::BeginChild("##script_preview", ImVec2(0.0f, 240.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+		ImGui::TextUnformatted(m_ScriptPreview.c_str());
+		ImGui::EndChild();
+
+		const auto path = m_Project->GetAssetDirectory() / "Scripts" / "Source" / (std::string(m_NewScriptName) + ".cs");
+		std::string validationError = m_ScriptTemplateError;
+		if (validationError.empty() && FileSystem::Exists(path))
+			validationError = "A script with that name already exists. Choose a different class name.";
+		const std::string& error = validationError.empty() ? m_ScriptCreateError : validationError;
+		if (!error.empty())
+			ImGui::TextWrapped("%s", error.c_str());
+		ImGui::TextWrapped("Build Scripts, reload the C# assembly, then choose this class in an entity's Script component.");
+
+		bool create = false;
+		{
+			ImGuiEx::ScopedDisable disabled(!validationError.empty());
+			create = ImGui::Button("Create Script");
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+		{
+			m_NewScriptDialogOpen = false;
+			ImGui::CloseCurrentPopup();
+			create = false;
+		}
+		if (create)
+		{
+			m_ScriptCreateError.clear();
+			std::error_code ec;
+			std::filesystem::create_directories(path.parent_path(), ec);
+			if (ec)
+				m_ScriptCreateError = "Could not create the script folder: " + ec.message();
+			else if (!FileSystem::WriteFileAtomically(path, m_ScriptPreview))
+				m_ScriptCreateError = "Could not write the script. See the Log for details.";
+			else
+			{
+				const AssetHandle handle = AssetManager::ImportAsset(path);
+				Refresh();
+				if (!handle)
+					m_ScriptCreateError = "The script was saved but could not be imported. See the Log, then refresh the Content Browser.";
+				else
+				{
+					ChangeDirectory(GetDirectory(std::filesystem::path("Scripts") / "Source"));
+					ClearSelections();
+					SelectItem(handle);
+					m_NewScriptDialogOpen = false;
+					ImGui::CloseCurrentPopup();
+					ActivateAsset(Project::GetEditorAssetManager()->GetMetadata(handle));
+				}
+			}
+			if (!m_ScriptCreateError.empty())
+				LUX_CORE_ERROR_TAG("ScriptEngine", "{} ({})", m_ScriptCreateError, path.string());
+		}
+		ImGui::EndPopup();
 	}
 
 	bool ContentBrowserPanel::CreateNewFolder()

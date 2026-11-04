@@ -870,6 +870,26 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   to its page, and `DrawComponentSection` draws an `ImGuiEx::DocsButton` left of the settings gear
   for every mapped component. A new component page needs its entry there. Every C# snippet in the
   manual must compile against ScriptCore.
+- **New projects include primitive geometry.** Before opening the project, `EditorLayer::CreateProject`
+  uses `ProjectTemplate::CopyDefaultMeshes` (`Editor/Source/ProjectTemplate.h`) to copy the seven
+  supported glTF/bin pairs from `Editor/Resources/Meshes/Default/` into the configured mesh-source
+  directory's `Default/` folder. Only source geometry is copied: the normal asset import creates
+  project-local handles/materials for the hierarchy menu and material previews. Existing files are
+  preserved; missing bundled inputs or copy failures are logged and stop creation. This is editor
+  project-creation work on the main thread, with no renderer calls. The resources travel with the
+  editor's existing Resources packaging; `ResourcesClone` is never a runtime dependency.
+- **Named C# starters.** `Editor/Source/ScriptTemplate.h` validates C# identifiers/namespaces and
+  renders `Resources/Templates/NewClassTemplate.cs` with `$CLASS_NAME$` / `$NAMESPACE_NAME$`.
+  Content Browser's toolbar and background New menus queue a root-scoped **New C# Script** modal:
+  class input, generated preview, duplicate-file validation, Create/Cancel. It writes atomically
+  into `Assets/Scripts/Source/`, registers the ScriptFile through `AssetManager`, refreshes/selects
+  it and uses the existing activation callback to open Beam. Template text loads once per dialog;
+  preview generation runs on name edits. Project changes cancel the dialog. This is main-thread
+  editor work, with no new scripting runtime API. New Project passes a configurable starter class
+  (default `GameController`) through `SplashScreen::Callbacks::CreateProject` to `EditorLayer`,
+  which uses the same renderer before creating folders and writes the starter before opening the
+  project. Neither flow attaches or builds the script automatically. The template uses Lux's
+  name-based lifecycle hooks, with a commented movement example; no Hazel `override` hooks.
 - **New projects can build scripts.** `EditorLayer::CreateProject` writes
   `Assets/Scripts/<Name>.csproj` (`Project::GetScriptProjectPath`): `Source/**.cs`, output in
   `Scripts/Binaries` (the `ScriptModulePath`), intermediates in `<project>/Cache/ScriptBuild` so

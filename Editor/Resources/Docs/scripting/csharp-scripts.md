@@ -6,6 +6,23 @@ Game code is written in C# (.NET 9). A script is a class that derives from `Lux.
 
 Each project has a C# project in `Assets/Scripts` (`<ProjectName>.csproj`), and your `.cs` files go in `Assets/Scripts/Source`. Edit them in any code editor, or in **Beam**, the editor's own text editor.
 
+## Create a script
+
+In the **Content Browser**, choose **New → C# Script…** (also in the right-click **New** menu).
+Enter a class name such as `PlayerController`. The preview updates to that name and the project's
+namespace. **Create Script** saves `Assets/Scripts/Source/PlayerController.cs`, selects it and opens
+it in Beam. Existing files are preserved; choose a different name if one exists.
+Use letters, digits and underscores, starting with a letter or underscore. C# keywords, reserved filenames, and the starter member names `OnCreate`, `OnUpdate` and `MoveSpeed` are rejected.
+
+The starter contains `OnCreate`, `OnUpdate`, an editable `MoveSpeed` field, and a commented movement
+example. Uncomment that line to try it, or replace it with your own code. Lifecycle methods do not
+need `override`. Creating the file does not automatically attach it to an entity.
+
+The **New Project** form also offers a **Starter C# class**, defaulting to `GameController`.
+It uses the same template and the new project's name as its namespace. The class and filename are
+filled in automatically. To customize future starters, edit the editor installation's
+`Resources/Templates/NewClassTemplate.cs`, keeping `$CLASS_NAME$` and `$NAMESPACE_NAME$` in place.
+
 To use new or changed code:
 
 1. **Build:** open **Project Settings**, expand **Runtime Export** and click **Build Scripts**. Build errors are printed to the terminal the editor was started from.

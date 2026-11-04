@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "SplashScreen.h"
+#include "ScriptTemplate.h"
 
 #include "Lux/Core/Version.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -668,8 +669,10 @@ namespace Lux {
 	{
 		if (!m_NewProjectName[0])
 			return "Enter a project name.";
-		if (!IsValidProjectName(m_NewProjectName))
-			return "Use letters, digits and underscores, starting with a letter. The name is also the C# namespace.";
+		if (!IsValidProjectName(m_NewProjectName) || !ScriptTemplate::IsNamespace(m_NewProjectName))
+			return "Use a C# name with letters, digits and underscores. Keywords are not allowed; the name is also the C# namespace.";
+		if (!ScriptTemplate::IsClassName(m_NewScriptClass))
+			return "Choose a valid starter class name. Use letters, digits or underscores; keywords, reserved filenames and starter member names are not allowed.";
 		if (!m_NewProjectLocation[0])
 			return "Choose a location.";
 
@@ -744,6 +747,17 @@ namespace Lux {
 			const ImVec2 pos = ImGui::GetCursorScreenPos();
 			DrawText(drawList, "Small", k_SmallSize, pos, Theme::textCaption, help, contentWidth);
 			ImGui::Dummy(ImVec2(contentWidth, MeasureText("Small", k_SmallSize, help, contentWidth).y));
+		}
+		ImGui::Dummy(S(0.0f, 18.0f));
+
+		label("Starter C# class");
+		Field("##new_project_script_class", m_NewScriptClass, sizeof(m_NewScriptClass), contentWidth, "GameController", "Default", k_BodySize);
+		ImGui::Dummy(S(0.0f, 8.0f));
+		{
+			const std::string help = std::format("Creates Assets/Scripts/Source/{}.cs with OnCreate and OnUpdate examples.", m_NewScriptClass);
+			const ImVec2 pos = ImGui::GetCursorScreenPos();
+			DrawText(drawList, "Small", k_SmallSize, pos, Theme::textCaption, help.c_str(), contentWidth);
+			ImGui::Dummy(ImVec2(contentWidth, MeasureText("Small", k_SmallSize, help.c_str(), contentWidth).y));
 		}
 		ImGui::Dummy(S(0.0f, 18.0f));
 
@@ -865,7 +879,7 @@ namespace Lux {
 
 		if ((create || (submitted && error.empty())) && m_Callbacks.CreateProject)
 		{
-			m_CreateFailed = !m_Callbacks.CreateProject(m_NewProjectName, std::filesystem::path(m_NewProjectLocation));
+			m_CreateFailed = !m_Callbacks.CreateProject(m_NewProjectName, std::filesystem::path(m_NewProjectLocation), m_NewScriptClass);
 			if (!m_CreateFailed)
 			{
 				m_NewProjectName[0] = 0;

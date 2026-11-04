@@ -257,6 +257,9 @@ namespace Lux {
 		void StartRenamingItem(AssetHandle handle);
 		void ActivateAsset(const AssetMetadata& metadata);
 
+		void BeginNewScript();
+		void UpdateScriptPreview();
+		void RenderNewScriptDialogue();
 		bool CreateNewFolder();
 		AssetHandle CreateSceneAsset();
 		AssetHandle CreateMaterialAsset();
@@ -299,6 +302,14 @@ namespace Lux {
 		bool m_IsContentBrowserHovered = false;
 		bool m_IsContentBrowserFocused = false;
 		bool m_OpenDeletePopup = false;
+		bool m_OpenNewScriptPopup = false;
+		bool m_NewScriptDialogOpen = false;
+		bool m_FocusNewScriptName = false;
+		char m_NewScriptName[128]{};
+		std::string m_ScriptTemplate;
+		std::string m_ScriptPreview;
+		std::string m_ScriptTemplateError;
+		std::string m_ScriptCreateError;
 		bool m_FocusSearchWidget = false;
 
 		float m_ThumbnailSize = 128.0f;

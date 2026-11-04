@@ -28,7 +28,7 @@ namespace Lux {
 			std::function<void(const std::filesystem::path&)> OpenProject;
 			std::function<bool()> BrowseForProject;   // false when the dialog was cancelled
 			// Creates <location>/<name>/<name>.luxproj and opens it. Returns false on failure (logged).
-			std::function<bool(const std::string& name, const std::filesystem::path& location)> CreateProject;
+			std::function<bool(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass)> CreateProject;
 			std::function<void(const std::filesystem::path&)> RemoveRecentProject;
 			std::function<bool()> GetShowOnStartup;
 			std::function<void(bool)> SetShowOnStartup;
@@ -67,6 +67,7 @@ namespace Lux {
 		bool m_FocusNameInput = false;
 		bool m_CreateFailed = false;
 		char m_NewProjectName[128] = {};
+		char m_NewScriptClass[128] = "GameController";
 		char m_NewProjectLocation[512] = {};
 	};
 

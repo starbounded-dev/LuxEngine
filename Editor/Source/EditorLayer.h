@@ -107,8 +107,8 @@ namespace Lux
 		void NewProject();
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
-		// Writes <location>/<name>/<name>.luxproj plus an empty asset tree, then opens it.
-		bool CreateProject(const std::string& name, const std::filesystem::path& location);
+		// Writes the project, default geometry and a named C# starter, then opens it.
+		bool CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass);
 		void CloseProject();   // back to the splash screen
 		void SaveProject();
 		void ExportRuntime();

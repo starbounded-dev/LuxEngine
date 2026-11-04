@@ -3,6 +3,8 @@
 
 #include "EditorLayer.h"
 #include "RuntimeExportUtils.h"
+#include "ProjectTemplate.h"
+#include "ScriptTemplate.h"
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Audio/AudioValidation.h"
@@ -639,7 +641,7 @@ namespace Lux {
 			splashCallbacks.GetRecentProjects = [this]() { return GetRecentProjects(); };
 			splashCallbacks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 			splashCallbacks.BrowseForProject = [this]() { return OpenProject(); };
-			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location) { return CreateProject(name, location); };
+			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location, const std::string& scriptClass) { return CreateProject(name, location, scriptClass); };
 			splashCallbacks.RemoveRecentProject = [this](const std::filesystem::path& path) { RemoveRecentProject(path); };
 			splashCallbacks.GetShowOnStartup = [this]() { return m_UserPreferences && m_UserPreferences->ShowSplashScreen; };
 			splashCallbacks.SetShowOnStartup = [this](bool show)
@@ -3926,8 +3928,15 @@ namespace Lux {
 		return true;
 	}
 
-	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location)
+	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass)
 	{
+		std::string templateText, scriptSource, scriptError;
+		if (!ScriptTemplate::Load(FileSystem::GetWorkingDirectory() / "Resources" / "Templates" / "NewClassTemplate.cs", templateText, scriptError)
+			|| !ScriptTemplate::Render(templateText, scriptClass, name, scriptSource, scriptError))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Could not create the starter script: {}", scriptError);
+			return false;
+		}
 		const std::filesystem::path projectDirectory = location / name;
 		const std::filesystem::path projectFilePath = projectDirectory / (name + ".luxproj");
 
@@ -3948,6 +3957,23 @@ namespace Lux {
 				return false;
 			}
 		}
+
+		std::string templateError;
+		if (!ProjectTemplate::CopyDefaultMeshes(FileSystem::GetWorkingDirectory() / "Resources" / "Meshes" / "Default",
+			assetDirectory / config.MeshSourcePath / "Default", templateError))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Could not initialize default meshes: {}", templateError);
+			return false;
+		}
+
+		const auto scriptPath = assetDirectory / "Scripts" / "Source" / (scriptClass + ".cs");
+		if (FileSystem::Exists(scriptPath))
+		{
+			LUX_CORE_ERROR_TAG("Project", "A starter script already exists at '{}'", scriptPath.string());
+			return false;
+		}
+		if (!FileSystem::WriteFileAtomically(scriptPath, scriptSource))
+			return false;
 
 		if (!WriteScriptProject(assetDirectory / "Scripts" / (name + ".csproj"), name))
 			return false;
