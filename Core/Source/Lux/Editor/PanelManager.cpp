@@ -84,7 +84,12 @@ namespace Lux {
 		for (auto& panelMap : m_Panels)
 		{
 			for (auto& [id, panelData] : panelMap)
-				panelData.Panel->OnEvent(e);
+			{
+				if (e.Handled)
+					return;
+				if (panelData.IsOpen)
+					panelData.Panel->OnEvent(e);
+			}
 		}
 	}
 

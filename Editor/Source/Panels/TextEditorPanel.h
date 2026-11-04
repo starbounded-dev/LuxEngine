@@ -25,6 +25,8 @@ namespace Lux
 		virtual ~TextEditorPanel() = default;
 
 		virtual void OnImGuiRender(bool& isOpen) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override { m_KeyboardFocus = false; }
 
 		void OpenFile(const std::filesystem::path& path);
 		void Save();
@@ -43,6 +45,7 @@ namespace Lux
 			TextEditor Editor;
 			std::filesystem::path Path;   // empty => untitled
 			bool Dirty = false;
+			uint32_t UntitledNumber = 0;
 		};
 
 		static std::string ReadFileString(const std::filesystem::path& path);
@@ -69,6 +72,9 @@ namespace Lux
 		int m_PendingCloseIndex = -1;       // tab awaiting a Save/Discard/Cancel decision
 		bool m_OpenCloseConfirm = false;    // request to open the confirmation popup next frame
 		bool m_OpenGoToLine = false;
+		bool m_KeyboardFocus = false;
+		bool m_RequestFocus = false;
+		uint32_t m_NextUntitledNumber = 1;
 		bool m_SelectActiveTab = false;   // sync the tab bar after a shortcut-driven switch
 
 		// Diff view (read-only, side-by-side) — kept from the original panel.

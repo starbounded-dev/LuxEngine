@@ -29,6 +29,8 @@ namespace Lux
 		~SoundEditorPanel() override;
 
 		void OnImGuiRender(bool& isOpen) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override { m_KeyboardFocus = false; StopAudition(); }
 		void OnProjectChanged(const Ref<Project>& project) override;
 
 		void OpenSound(AssetHandle handle);
@@ -79,6 +81,8 @@ namespace Lux
 		bool SaveDocument(Document& document, Sound& sound);
 		void ApplyState(AssetHandle handle, const SoundState& state);
 
+		bool HandleShortcuts(Document& document, Sound& sound);
+		void RequestCloseDocument(size_t index);
 		void UI_Tabs();
 		void UI_CloseConfirm();
 		void UI_Toolbar(Document& document, Sound& sound, bool& edited);
@@ -106,6 +110,9 @@ namespace Lux
 		std::vector<Document> m_Documents;
 		int m_ActiveDocument = -1;
 		bool m_SelectActiveTab = false;
+		bool m_RequestFocus = false;
+		bool m_KeyboardFocus = false;
+		bool m_SelectNodePage = false;
 		int m_PendingCloseIndex = -1;
 		bool m_OpenCloseConfirm = false;
 

@@ -744,6 +744,8 @@ namespace Lux {
 		style.GrabRounding = 2.0f;
 		style.GrabMinSize = 7.0f;
 		style.TabRounding = 2.0f;
+		// The selected tab already carries the accent; a full-width strip reads as an overlay.
+		style.TabBarBorderSize = 0.0f;
 		style.ScrollbarRounding = 3.0f;
 		style.ScrollbarSize = 13.0f;
 		style.PopupRounding = 2.0f;

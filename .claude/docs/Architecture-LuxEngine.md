@@ -761,6 +761,10 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `EditorLayout.yaml` or a given file. It saves when a panel opens or closes, before reloading on a
   project change, and in `EditorLayer::OnDetach` (panel state has no other save point). Panels are
   grouped by `PanelCategory`.
+  `OnEvent` dispatches to open panels only and stops when a panel handles the event. Beam and the
+  Sound Editor consume keyboard input while focused so document shortcuts cannot also edit the scene;
+  the Sound Editor lets non-text undo/redo reach the shared history. Asset open requests queue window
+  focus for the next `Begin`, including a request to re-open an already loaded document.
 - Named layouts (View → Layouts, `EditorLayer::SaveLayout` / `LoadLayout`) sit on top of
   `imgui.ini`, which stays ImGui's own: saving copies the ini (`SaveIniSettingsToDisk`) and the panel
   file into `Layouts/<name>/`; loading queues the ini with `ImGuiLayer::QueueIniSettingsLoad`, applied
@@ -812,6 +816,13 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   SoundEditor (`SoundEditor/`),
   LightSettings, SceneRenderer, RenderStats, RendererDebugger, AudioDebug, TextEditor, ThumbnailCache,
   GameView, Help.
+- **Audio authoring panels.** Sound Editor documents use Node, Sound, Parameters and Banks pages;
+  selecting a tree node returns to Node. Ctrl+S saves, Ctrl+W uses the unsaved-document confirmation,
+  and Space toggles audition while no numeric/text field or popup owns input. Numeric audio controls
+  use authored reset defaults (double-click; right-click also offers Reset / Copy / Paste), through
+  the existing Sound/Mixer undo paths. Sound Banks save each edit immediately and label this in the UI.
+  Beam numbers untitled documents, keeps New in the leading tab section, and opens the native save
+  dialog for untitled files or Ctrl+Shift+S; file and Sound tabs offer path-copy/close context menus.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
   `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
   the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;

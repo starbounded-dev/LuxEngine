@@ -163,20 +163,26 @@ namespace Lux
 		bool changed = false;
 		std::optional<size_t> removed;
 		ImGui::BeginDisabled(m_Context->IsRunning());
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 24.0f);
+		const float removeWidth = ImGui::CalcTextSize("Remove").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		ImGuiEx::PropertyAssetReferenceSettings rowSettings;
+		rowSettings.AdvanceToNextColumn = false;
+		rowSettings.WidthOffset = removeWidth + ImGui::GetStyle().ItemSpacing.x;
 		for (size_t index = 0; index < banks.size(); ++index)
 		{
 			ImGui::PushID(static_cast<int>(index));
-			if (ImGui::SmallButton("Remove"))
-				removed = index;
-			ImGui::SameLine();
 			AssetHandle handle = banks[index];
-			if (ImGuiEx::PropertyAssetReference<SoundBank>("", handle, "", nullptr, {}, false) && handle
+			const std::string label = "Bank " + std::to_string(index + 1);
+			if (ImGuiEx::PropertyAssetReference<SoundBank>(label.c_str(), handle, "", nullptr, rowSettings, false) && handle
 				&& std::find(banks.begin(), banks.end(), handle) == banks.end())
 			{
 				banks[index] = handle;
 				changed = true;
 			}
+			ImGui::SameLine();
+			if (ImGui::Button("Remove", ImVec2(removeWidth, 28.0f)))
+				removed = index;
+			ImGui::NextColumn();
 			ImGui::PopID();
 		}
 		AssetHandle added = 0;
@@ -257,7 +263,7 @@ namespace Lux
 			ImGui::Unindent(14.0f * static_cast<float>(Depth(bus.Path)));
 			ImGui::TableNextColumn();
 			ImGui::SetNextItemWidth(-1.0f);
-			if (ImGui::SliderFloat("##volume", &bus.Volume, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+			if (ImGuiEx::SliderFloat("##volume", &bus.Volume, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp, AudioMixerBus{}.Volume))
 				ApplyLive(bus);
 			ImGui::TableNextColumn();
 			const float decibels = ToDecibels(bus.Volume);
@@ -384,24 +390,24 @@ namespace Lux
 			{
 				case AudioMixerEffectType::LowPass:
 				case AudioMixerEffectType::HighPass:
-					ImGui::SliderFloat("Cutoff (Hz)", &effect.FrequencyHz, 20.0f, 20000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					ImGuiEx::SliderFloat("Cutoff (Hz)", &effect.FrequencyHz, 20.0f, 20000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.FrequencyHz);
 					break;
 				case AudioMixerEffectType::PeakingEQ:
-					ImGui::SliderFloat("Frequency (Hz)", &effect.FrequencyHz, 20.0f, 20000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Gain (dB)", &effect.GainDb, -24.0f, 24.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Q", &effect.Q, 0.1f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+					ImGuiEx::SliderFloat("Frequency (Hz)", &effect.FrequencyHz, 20.0f, 20000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.FrequencyHz);
+					ImGuiEx::SliderFloat("Gain (dB)", &effect.GainDb, -24.0f, 24.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.GainDb);
+					ImGuiEx::SliderFloat("Q", &effect.Q, 0.1f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.Q);
 					break;
 				case AudioMixerEffectType::Delay:
-					ImGui::SliderFloat("Time (s)", &effect.DelaySeconds, 0.001f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Feedback", &effect.Feedback, 0.0f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Wet", &effect.Wet, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+					ImGuiEx::SliderFloat("Time (s)", &effect.DelaySeconds, 0.001f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.DelaySeconds);
+					ImGuiEx::SliderFloat("Feedback", &effect.Feedback, 0.0f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.Feedback);
+					ImGuiEx::SliderFloat("Wet", &effect.Wet, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.Wet);
 					break;
 				case AudioMixerEffectType::Compressor:
-					ImGui::SliderFloat("Threshold (dB)", &effect.ThresholdDb, -60.0f, 0.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Ratio", &effect.Ratio, 1.0f, 20.0f, "%.1f:1", ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Attack (ms)", &effect.AttackMs, 0.1f, 500.0f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Release (ms)", &effect.ReleaseMs, 1.0f, 5000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
-					ImGui::SliderFloat("Makeup (dB)", &effect.MakeupDb, 0.0f, 24.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+					ImGuiEx::SliderFloat("Threshold (dB)", &effect.ThresholdDb, -60.0f, 0.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.ThresholdDb);
+					ImGuiEx::SliderFloat("Ratio", &effect.Ratio, 1.0f, 20.0f, "%.1f:1", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.Ratio);
+					ImGuiEx::SliderFloat("Attack (ms)", &effect.AttackMs, 0.1f, 500.0f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.AttackMs);
+					ImGuiEx::SliderFloat("Release (ms)", &effect.ReleaseMs, 1.0f, 5000.0f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.ReleaseMs);
+					ImGuiEx::SliderFloat("Makeup (dB)", &effect.MakeupDb, 0.0f, 24.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp, AudioMixerEffect{}.MakeupDb);
 					break;
 			}
 			ImGui::EndDisabled();
@@ -432,11 +438,11 @@ namespace Lux
 		if (!ImGuiEx::PropertyGridHeader("Reverb Return", true))
 			return;
 		ImGui::TextWrapped("Every voice sends Soundwave's ReverbSend, plus its Sound's Send curves, to this reverb. It plays into the master.");
-		ImGuiEx::BeginPropertyGrid();
-		ImGuiEx::PropertySlider("Room Size", mixer.Reverb.RoomSize, 0.0f, 1.0f, "Larger rooms decay longer.", false);
-		ImGuiEx::PropertySlider("Damping", mixer.Reverb.Damping, 0.0f, 1.0f, "How fast the highs die away.", false);
-		ImGuiEx::PropertySlider("Width", mixer.Reverb.Width, 0.0f, 1.0f, "Stereo spread of the tail.", false);
-		ImGuiEx::PropertySlider("Return Volume", mixer.Reverb.Volume, 0.0f, 4.0f, "The return's level into the master.", false);
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 24.0f);
+		ImGuiEx::PropertySlider("Room Size", mixer.Reverb.RoomSize, 0.0f, 1.0f, "Larger rooms decay longer.", false, AudioReverbReturnSettings{}.RoomSize);
+		ImGuiEx::PropertySlider("Damping", mixer.Reverb.Damping, 0.0f, 1.0f, "How fast the highs die away.", false, AudioReverbReturnSettings{}.Damping);
+		ImGuiEx::PropertySlider("Width", mixer.Reverb.Width, 0.0f, 1.0f, "Stereo spread of the tail.", false, AudioReverbReturnSettings{}.Width);
+		ImGuiEx::PropertySlider("Return Volume", mixer.Reverb.Volume, 0.0f, 4.0f, "The return's level into the master.", false, AudioReverbReturnSettings{}.Volume);
 		ImGuiEx::EndPropertyGrid();
 		ImGui::TreePop();
 	}
@@ -547,7 +553,7 @@ namespace Lux
 				if (entry != snapshot.Buses.end())
 				{
 					ImGui::SetNextItemWidth(-1.0f);
-					ImGui::SliderFloat("##volume", &entry->Volume, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+					ImGuiEx::SliderFloat("##volume", &entry->Volume, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp, AudioMixerBus{}.Volume);
 				}
 				ImGui::PopID();
 			}
@@ -558,7 +564,7 @@ namespace Lux
 		const bool canPreview = AudioEngine::HasInitializedEngine() && !m_NeedsRestart;
 		ImGui::BeginDisabled(!canPreview);
 		ImGui::SetNextItemWidth(200.0f);
-		if (ImGui::SliderFloat("Preview Intensity", &m_PreviewIntensity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+		if (ImGuiEx::SliderFloat("Preview Intensity", &m_PreviewIntensity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp, 0.0f))
 		{
 			if (m_PreviewIntensity <= 0.0f)
 				StopPreview();

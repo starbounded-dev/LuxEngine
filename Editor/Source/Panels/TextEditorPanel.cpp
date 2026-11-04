@@ -3,12 +3,14 @@
 
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
+#include "Lux/Utilities/FileDialogs.h"
 #include "TextEditorPanel.h"
 
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiFonts.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -72,7 +74,7 @@ namespace Lux
 
 	std::string TextEditorPanel::DocumentTitle(const Document& doc)
 	{
-		std::string name = doc.Path.empty() ? "untitled" : doc.Path.filename().string();
+		std::string name = doc.Path.empty() ? std::format("Untitled {}", doc.UntitledNumber) : doc.Path.filename().string();
 		if (doc.Dirty)
 			name += " *";
 		return name;
@@ -97,7 +99,10 @@ namespace Lux
 	{
 		m_Documents.push_back(CreateScope<Document>());
 		Document& doc = *m_Documents.back();
+		doc.UntitledNumber = m_NextUntitledNumber++;
 		ConfigureEditor(doc);
+		doc.Editor.SetFocus();
+		m_SelectActiveTab = true;
 		m_ActiveDocument = (int)m_Documents.size() - 1;
 		m_DiffMode = false;
 		return doc;
@@ -122,10 +127,13 @@ namespace Lux
 
 	void TextEditorPanel::OpenFile(const std::filesystem::path& path)
 	{
+		m_RequestFocus = true;
+		m_SelectActiveTab = true;
 		const int existing = FindDocument(path);
 		if (existing >= 0)
 		{
 			m_ActiveDocument = existing;
+			m_Documents[existing]->Editor.SetFocus();
 			m_DiffMode = false;
 			return;
 		}
@@ -140,7 +148,19 @@ namespace Lux
 	void TextEditorPanel::SaveDocument(Document& doc)
 	{
 		if (doc.Path.empty())
-			return; // untitled: needs a Save As path (wired via the content browser today)
+		{
+			const std::string path = FileDialogs::SaveFile("All files (*.*)\0*.*\0");
+			if (path.empty())
+				return;
+			const int existing = FindDocument(path);
+			if (existing >= 0 && m_Documents[existing].get() != &doc)
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Beam: '{}' is already open in another tab", path);
+				return;
+			}
+			doc.Path = path;
+			doc.Editor.SetLanguage(GetLanguageFromPath(doc.Path));
+		}
 
 		if (!FileSystem::WriteFileAtomically(doc.Path, doc.Editor.GetText(), true))
 		{
@@ -183,6 +203,9 @@ namespace Lux
 			return;
 
 		m_Documents.erase(m_Documents.begin() + index);
+		if (m_ActiveDocument > index)
+			--m_ActiveDocument;
+		m_SelectActiveTab = true;
 
 		if (m_Documents.empty())
 			m_ActiveDocument = -1;
@@ -299,13 +322,20 @@ namespace Lux
 
 	// -- Shortcuts -----------------------------------------------------------------------------
 
+	void TextEditorPanel::OnEvent(Event& event)
+	{
+		// ImGui receives native input independently; only the scene shortcut path is consumed here.
+		if (m_KeyboardFocus && event.IsInCategory(EventCategoryKeyboard))
+			event.Handled = true;
+	}
+
 	void TextEditorPanel::HandleShortcuts()
 	{
 		if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
 			return;
 
 		const ImGuiIO& io = ImGui::GetIO();
-		if (!io.KeyCtrl)
+		if (!io.KeyCtrl || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
 			return;
 
 		if (ImGui::IsKeyPressed(ImGuiKey_N, false))
@@ -314,7 +344,16 @@ namespace Lux
 		Document* doc = ActiveDocument();
 
 		if (ImGui::IsKeyPressed(ImGuiKey_S, false))
-			Save();
+		{
+			if (doc && io.KeyShift)
+			{
+				const std::string path = FileDialogs::SaveFile("All files (*.*)\0*.*\0");
+				if (!path.empty())
+					SaveAs(path);
+			}
+			else
+				Save();
+		}
 		if (ImGui::IsKeyPressed(ImGuiKey_W, false) && m_ActiveDocument >= 0)
 			RequestCloseDocument(m_ActiveDocument);
 		if (doc && ImGui::IsKeyPressed(ImGuiKey_F, false))
@@ -388,7 +427,9 @@ namespace Lux
 
 		// Editor / Diff toggle, flush to the right edge. Two 26px buttons with a 2px gap.
 		const float toggleWidth = 26.0f * 2.0f + 2.0f;
-		ImGui::SameLine(ImGui::GetContentRegionMax().x - toggleWidth);
+		const float toggleX = ImGui::GetContentRegionMax().x - toggleWidth;
+		if (ImGui::GetItemRectMax().x - ImGui::GetWindowPos().x + ImGui::GetStyle().ItemSpacing.x < toggleX)
+			ImGui::SameLine(toggleX);
 		if (ToolbarIconButton("mode_editor", LUX_ICON_CODE, "Editor", !m_DiffMode))
 			m_DiffMode = false;
 		ImGui::SameLine(0.0f, 2.0f);
@@ -401,21 +442,15 @@ namespace Lux
 		const ImGuiTabBarFlags flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll
 			| ImGuiTabBarFlags_AutoSelectNewTabs;
 
-		// Neutral, elevated tab styling — local to Beam. The global theme tints the active tab (and,
-		// crucially, the tab-strip underline that ImGui draws with ImGuiCol_TabActive) in translucent
-		// lime, which showed up as a stray green line under this panel's tabs. A raised grey reads as
-		// a clean tab strip; the active tab stays legible by being lighter than the dark inactive ones.
-		ImGui::PushStyleColor(ImGuiCol_Tab, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark));
-		ImGui::PushStyleColor(ImGuiCol_TabHovered, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundPopup));
-		ImGui::PushStyleColor(ImGuiCol_TabActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader));
-		ImGui::PushStyleColor(ImGuiCol_TabUnfocused, ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark));
-		ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader));
+		ImGuiEx::ScopedColourStack tabColours(
+			ImGuiCol_Tab, Colors::Theme::backgroundDark,
+			ImGuiCol_TabHovered, Colors::Theme::backgroundPopup,
+			ImGuiCol_TabSelected, Colors::Theme::groupHeader,
+			ImGuiCol_TabDimmed, Colors::Theme::backgroundDark,
+			ImGuiCol_TabDimmedSelected, Colors::Theme::groupHeader);
 
 		if (!ImGui::BeginTabBar("##beam_tabs", flags))
-		{
-			ImGui::PopStyleColor(5);
 			return;
-		}
 
 		int closeRequest = -1;
 		for (int i = 0; i < (int)m_Documents.size(); i++)
@@ -433,23 +468,34 @@ namespace Lux
 			bool open = true;
 			if (ImGui::BeginTabItem(label.c_str(), &open, itemFlags))
 			{
-				m_ActiveDocument = i;
+				if (!m_SelectActiveTab)
+					m_ActiveDocument = i;
 				ImGui::EndTabItem();
 			}
 
+			if (ImGui::IsItemHovered() && !d.Path.empty())
+				ImGui::SetTooltip("%s", d.Path.string().c_str());
+			ImGuiEx::ScopedID tabID(static_cast<const void*>(&d));
+			if (ImGui::BeginPopupContextItem("##beam_tab_actions"))
+			{
+				if (ImGui::MenuItem("Copy file path", nullptr, false, !d.Path.empty()))
+					ImGui::SetClipboardText(d.Path.string().c_str());
+				if (ImGui::MenuItem("Close", "Ctrl+W"))
+					open = false;
+				ImGui::EndPopup();
+			}
 			if (!open)
 				closeRequest = i;
 		}
 
 		m_SelectActiveTab = false;
 
-		// New-tab button immediately after the last tab (no Trailing flag, which would strand it at
-		// the far-right edge of the tab bar).
-		if (ImGui::TabItemButton(LUX_ICON_PLUS "##beam_new_tab", ImGuiTabItemFlags_NoTooltip))
+		// A separate section keeps the button in one place as documents open and reorder.
+		if (ImGui::TabItemButton(LUX_ICON_PLUS "##beam_new_tab", ImGuiTabItemFlags_Leading | ImGuiTabItemFlags_NoTooltip))
 			NewDocument();
+		ImGui::SetItemTooltip("New file (Ctrl+N)");
 
 		ImGui::EndTabBar();
-		ImGui::PopStyleColor(5);
 
 		if (closeRequest >= 0)
 			RequestCloseDocument(closeRequest);
@@ -502,7 +548,14 @@ namespace Lux
 
 	void TextEditorPanel::OnImGuiRender(bool& isOpen)
 	{
-		if (!ImGui::Begin("Beam", &isOpen))
+		if (m_RequestFocus)
+		{
+			ImGui::SetNextWindowFocus();
+			m_RequestFocus = false;
+		}
+		const bool visible = ImGui::Begin("Beam", &isOpen);
+		m_KeyboardFocus = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		if (!visible)
 		{
 			ImGui::End();
 			return;

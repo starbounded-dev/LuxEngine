@@ -7,6 +7,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/Sound.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/Project/Project.h"
 #include <imgui/imgui.h>
 #include <algorithm>
@@ -60,6 +61,13 @@ namespace Lux
 
 	void SoundBankEditorPanel::OnImGuiRender(bool& isOpen)
 	{
+		if (m_RequestFocus)
+		{
+			ImGui::SetNextWindowFocus();
+			m_RequestFocus = false;
+		}
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
+		ImGui::SetNextWindowSize(ImVec2(760.0f, 540.0f), ImGuiCond_FirstUseEver);
 		if (!ImGui::Begin("Sound Bank Editor", &isOpen))
 		{
 			ImGui::End();
@@ -73,15 +81,28 @@ namespace Lux
 			ImGui::End();
 			return;
 		}
-		ImGui::TextUnformatted(AssetPath(m_Bank).c_str());
+		// Keep the list readable when this tool is maximized on a wide display.
+		const float contentWidth = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize() * 48.0f);
+		if (!ImGui::BeginChild("##bank_content", ImVec2(contentWidth, 0.0f)))
+		{
+			ImGui::EndChild();
+			ImGui::End();
+			return;
+		}
+		const std::string path = AssetPath(m_Bank);
+		ImGui::TextUnformatted(std::filesystem::path(path).stem().string().c_str());
+		ImGui::TextDisabled("%s", path.c_str());
+		ImGui::TextDisabled("Saves automatically  |  Ctrl+Z to undo");
+		ImGui::Spacing();
 		ImGui::TextWrapped("The Sounds below load together: when a scene that lists this bank starts, or when a script calls Audio.LoadBank.");
 
 		SoundBank next;
 		next.Sounds = bank->Sounds;
 		next.Resident = bank->Resident;
-		if (ImGui::Checkbox("Resident", &next.Resident))
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 7.0f);
+		if (ImGuiEx::Property("Resident", next.Resident, "Loaded at game startup and kept in memory for every scene.", false))
 			Commit(next, "Sound Bank: Resident");
-		ImGui::SetItemTooltip("Loaded when the game starts and never unloaded: for Sounds every scene uses (UI, the player).");
+		ImGuiEx::EndPropertyGrid();
 
 		ImGui::Separator();
 		UI_Sounds(*bank);
@@ -89,6 +110,7 @@ namespace Lux
 		UI_Memory(*bank);
 		ImGui::Spacing();
 		UI_Unbanked(*bank);
+		ImGui::EndChild();
 		ImGui::End();
 	}
 
@@ -100,20 +122,27 @@ namespace Lux
 		next.Resident = bank.Resident;
 		int removed = -1;
 		bool replaced = false;
+		const float labelWidth = std::min(ImGui::GetFontSize() * 7.0f, ImGui::GetContentRegionAvail().x * 0.3f);
 		ImGuiEx::BeginPropertyGrid();
+		ImGui::SetColumnWidth(0, labelWidth);
+		const float removeWidth = ImGui::CalcTextSize("Remove").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		ImGuiEx::PropertyAssetReferenceSettings rowSettings;
+		rowSettings.AdvanceToNextColumn = false;
+		rowSettings.WidthOffset = removeWidth + ImGui::GetStyle().ItemSpacing.x;
 		for (size_t index = 0; index < next.Sounds.size(); ++index)
 		{
 			ImGui::PushID(static_cast<int>(index));
-			// The label column holds the row's remove button; the asset button fills the value column.
-			if (ImGui::SmallButton("Remove"))
-				removed = static_cast<int>(index);
-			ImGui::SameLine();
 			AssetHandle handle = next.Sounds[index];
-			if (ImGuiEx::PropertyAssetReference<Sound>("", handle, "", nullptr, {}, false) && handle && !next.Contains(handle))
+			const std::string label = "Sound " + std::to_string(index + 1);
+			if (ImGuiEx::PropertyAssetReference<Sound>(label.c_str(), handle, "", nullptr, rowSettings, false) && handle && !next.Contains(handle))
 			{
 				next.Sounds[index] = handle;
 				replaced = true;
 			}
+			ImGui::SameLine();
+			if (ImGui::Button("Remove", ImVec2(removeWidth, 28.0f)))
+				removed = static_cast<int>(index);
+			ImGui::NextColumn();
 			ImGui::PopID();
 		}
 		// An empty slot: drop a Sound on it, or pick one, to add it.
@@ -157,8 +186,7 @@ namespace Lux
 		ImGui::Text("Memory when loaded: about %.2f MiB decoded", decodedBytes / (1024.0 * 1024.0));
 		if (streamed)
 		{
-			ImGui::SameLine();
-			ImGui::TextDisabled("(+ %d streamed Sound%s)", streamed, streamed == 1 ? "" : "s");
+			ImGui::TextDisabled("%d streamed Sound%s (stream pages only)", streamed, streamed == 1 ? "" : "s");
 		}
 	}
 

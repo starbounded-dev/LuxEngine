@@ -21,6 +21,7 @@ namespace Lux::ImGuiEx {
 
 	static int s_UIContextID = 0;
 	static uint32_t s_Counter = 0;
+	static std::vector<float> s_PropertyGridControlWidths;
 	static char s_IDBuffer[16 + 2 + 1] = "##";
 	static char s_LabelIDBuffer[1024 + 1];
 
@@ -86,16 +87,29 @@ namespace Lux::ImGuiEx {
 		ImGui::SetCursorPos(ImVec2(cursor.x + x, cursor.y + y));
 	}
 
-	void BeginPropertyGrid(uint32_t columns)
+	void BeginPropertyGrid(uint32_t columns, float labelWidth, float maxControlWidth)
 	{
 		PushID();
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 8.0f));
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
+		const float width = ImGui::GetContentRegionAvail().x;
 		ImGui::Columns(columns);
+		if (columns == 2 && labelWidth > 0.0f)
+			ImGui::SetColumnWidth(0, std::min(labelWidth, width * 0.48f));
+		s_PropertyGridControlWidths.push_back(maxControlWidth);
+	}
+
+	float GetPropertyItemWidth()
+	{
+		if (s_PropertyGridControlWidths.empty() || s_PropertyGridControlWidths.back() <= 0.0f)
+			return -1.0f;
+		return std::max(1.0f, std::min(s_PropertyGridControlWidths.back(), ImGui::GetContentRegionAvail().x));
 	}
 
 	void EndPropertyGrid()
 	{
+		LUX_CORE_ASSERT(!s_PropertyGridControlWidths.empty());
+		s_PropertyGridControlWidths.pop_back();
 		ImGui::Columns(1);
 		Draw::Underline();
 		ImGui::PopStyleVar(2); // ItemSpacing, FramePadding

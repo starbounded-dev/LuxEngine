@@ -13,6 +13,10 @@
 #include <imgui/misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <charconv>
+#include <optional>
+#include <string_view>
+#include <type_traits>
 #include <cmath>
 #include <vector>
 #include <string>
@@ -741,6 +745,87 @@ namespace Lux::ImGuiEx {
 		return w;
 	}
 
+	// Shared by property drags and sliders. Call immediately after the numeric widget;
+	// callers supply authored defaults, and consume the returned edit in their normal undo path.
+	template<typename T>
+	bool ParseNumericValue(std::string_view text, T& value)
+	{
+		const size_t first = text.find_first_not_of(" \t\r\n");
+		if (first == std::string_view::npos)
+			return false;
+		text = text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+		T parsed{};
+		const auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+		if (result.ec != std::errc{} || result.ptr != text.data() + text.size())
+			return false;
+		if constexpr (std::is_floating_point_v<T>)
+		{
+			if (!std::isfinite(parsed))
+				return false;
+		}
+		value = parsed;
+		return true;
+	}
+
+	template<typename T>
+	bool NumericControlMenu(T& value, T minimum, T maximum, std::optional<T> defaultValue = {})
+	{
+		if (IsItemDisabled())
+			return false;
+		const ImGuiLastItemData item = GImGui->LastItemData;
+		const auto bounded = [minimum, maximum](T candidate)
+		{
+			return minimum < maximum ? std::clamp(candidate, minimum, maximum) : candidate;
+		};
+		const T before = value;
+		const bool reset = defaultValue && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)
+			&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyCtrl;
+		if (reset)
+		{
+			// The widget may have entered temporary text input on this double-click.
+			if (GImGui->ActiveId == item.ID)
+				ImGui::ClearActiveID();
+			value = bounded(*defaultValue);
+		}
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) && !ImGui::IsItemActive())
+		{
+			if (defaultValue)
+				ImGui::SetTooltip("Double-click: reset to %s\nCtrl-click: type a value\nRight-click: reset, copy or paste", std::to_string(*defaultValue).c_str());
+			else
+				ImGui::SetTooltip("Ctrl-click: type a value\nRight-click: copy or paste");
+		}
+		ScopedID menuID(static_cast<int>(item.ID));
+		if (ImGui::BeginPopupContextItem("##numeric_control"))
+		{
+			const std::string defaultText = defaultValue ? std::to_string(*defaultValue) : std::string{};
+			if (ImGui::MenuItem("Reset to default", defaultText.c_str(), false, defaultValue.has_value()))
+				value = bounded(*defaultValue);
+			ImGui::Separator();
+			if (ImGui::MenuItem("Copy value"))
+			{
+				char text[64];
+				const auto result = std::to_chars(text, text + sizeof(text) - 1, value);
+				if (result.ec == std::errc{})
+				{
+					*result.ptr = '\0';
+					ImGui::SetClipboardText(text);
+				}
+			}
+			const char* clipboard = ImGui::GetClipboardText();
+			T pasted{};
+			const bool canPaste = clipboard && ParseNumericValue(std::string_view(clipboard), pasted);
+			if (ImGui::MenuItem("Paste value", nullptr, false, canPaste))
+				value = bounded(pasted);
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				ImGui::SetTooltip("Paste a finite number. Values outside this control's range are clamped.");
+			ImGui::EndPopup();
+		}
+		GImGui->LastItemData = item;
+		if (value != before)
+			ImGui::MarkItemEdited(item.ID);
+		return value != before;
+	}
+
 	inline bool DragScalar(const char* label, ImGuiDataType data_type, void* p_data, float v_speed, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags)
 	{
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -843,9 +928,10 @@ namespace Lux::ImGuiEx {
 		return DragScalar(label, ImGuiDataType_Float, v, v_speed, &v_min, &v_max, format, flags);
 	}
 
-	inline bool SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format = "%.3f", ImGuiSliderFlags flags = 0)
+	inline bool SliderFloat(const char* label, float* v, float v_min, float v_max, const char* format = "%.3f", ImGuiSliderFlags flags = 0, std::optional<float> defaultValue = {})
 	{
 		bool changed = ImGui::SliderFloat(label, v, v_min, v_max, format, flags);
+		changed |= NumericControlMenu(*v, v_min, v_max, defaultValue);
 		DrawItemActivityOutline();
 		return changed;
 	}

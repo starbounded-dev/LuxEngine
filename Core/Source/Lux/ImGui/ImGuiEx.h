@@ -274,7 +274,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		modified = ImGui::Button(std::format("{0}##{1}", buttonText, label).c_str());
 
@@ -300,7 +300,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		std::optional<std::string> hold;
 		if (doPushUndo)
@@ -333,7 +333,7 @@ namespace Lux::ImGuiEx {
 		}
 
 		ImGui::NextColumn();
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		std::optional<std::string> hold;
 		if (doPushUndo)
@@ -364,7 +364,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 		BeginDisabled();
 		ImGuiEx::InputText(std::format("##{0}", label).c_str(), (char*)value.c_str(), value.size(), ImGuiInputTextFlags_ReadOnly);
 		EndDisabled();
@@ -387,7 +387,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 		BeginDisabled();
 		ImGuiEx::InputText(std::format("##{0}", label).c_str(), (char*)value, 256, ImGuiInputTextFlags_ReadOnly);
 		EndDisabled();
@@ -410,7 +410,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		/* `TODO`: Needs `EditorStack::Get().PushRaw(&value, *hold);`. */
 		bool modified = ImGuiEx::InputText(std::format("##{0}", label).c_str(), value, length);
@@ -467,7 +467,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -497,7 +497,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -527,7 +527,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -557,7 +557,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -587,7 +587,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -617,7 +617,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -647,7 +647,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -664,7 +664,7 @@ namespace Lux::ImGuiEx {
 		return modified;
 	}
 
-	static bool Property(const char* label, uint32_t& value, uint32_t minValue = 0, uint32_t maxValue = 0, const char* helpText = "", bool doPushUndo = true)
+	static bool Property(const char* label, uint32_t& value, uint32_t minValue = 0, uint32_t maxValue = 0, const char* helpText = "", bool doPushUndo = true, std::optional<uint32_t> defaultValue = {})
 	{
 		ShiftCursor(10.0f, 9.0f);
 		ImGui::Text(label);
@@ -677,11 +677,12 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
-		bool modified = ImGuiEx::DragUInt32(std::format("##{0}", label).c_str(), &value, 1.0f, minValue, maxValue);
+		bool modified = ImGuiEx::DragUInt32(std::format("##{0}", label).c_str(), &value, 1.0f, minValue, maxValue, nullptr, defaultValue ? ImGuiSliderFlags_AlwaysClamp : 0);
+		modified |= NumericControlMenu(value, minValue, maxValue, defaultValue);
 #if UndoDo
 		if (modified && doPushUndo)
 			EditorStack::Get().PushCopy<decltype(hold)>(&value, hold);
@@ -707,7 +708,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -738,7 +739,7 @@ namespace Lux::ImGuiEx {
 		}
 
 		ImGui::NextColumn();
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = chosen;
 
@@ -769,7 +770,7 @@ namespace Lux::ImGuiEx {
 		return modified;
 	}
 
-	static bool Property(const char* label, float& value, float delta = 0.1f, float min = 0.0f, float max = 0.0f, const char* helpText = "", bool doPushUndo = true)
+	static bool Property(const char* label, float& value, float delta = 0.1f, float min = 0.0f, float max = 0.0f, const char* helpText = "", bool doPushUndo = true, std::optional<float> defaultValue = {})
 	{
 		ShiftCursor(10.0f, 9.0f);
 		ImGui::Text(label);
@@ -782,11 +783,12 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
-		bool modified = ImGuiEx::DragFloat(std::format("##{0}", label).c_str(), &value, delta, min, max);
+		bool modified = ImGuiEx::DragFloat(std::format("##{0}", label).c_str(), &value, delta, min, max, "%.3f", defaultValue ? ImGuiSliderFlags_AlwaysClamp : 0);
+		modified |= NumericControlMenu(value, min, max, defaultValue);
 #if UndoDo
 		if (modified && doPushUndo)
 			EditorStack::Get().PushCopy<decltype(hold)>(&value, hold);
@@ -812,7 +814,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -842,7 +844,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -872,7 +874,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -906,7 +908,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -937,7 +939,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -979,7 +981,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -997,7 +999,7 @@ namespace Lux::ImGuiEx {
 		return modified;
 	}
 
-	static bool PropertySlider(const char* label, float& value, float min, float max, const char* helpText = "", bool doPushUndo = true)
+	static bool PropertySlider(const char* label, float& value, float min, float max, const char* helpText = "", bool doPushUndo = true, std::optional<float> defaultValue = {})
 	{
 		ShiftCursor(10.0f, 9.0f);
 		ImGui::Text(label);
@@ -1010,11 +1012,11 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
-		bool modified = ImGuiEx::SliderFloat(GenerateID(), &value, min, max);
+		bool modified = ImGuiEx::SliderFloat(GenerateID(), &value, min, max, "%.3f", ImGuiSliderFlags_AlwaysClamp, defaultValue);
 
 #if UndoDo
 		if (modified && doPushUndo)
@@ -1041,7 +1043,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1072,7 +1074,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1103,7 +1105,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1134,7 +1136,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1165,7 +1167,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1196,7 +1198,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1227,7 +1229,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1258,7 +1260,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1289,7 +1291,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1320,7 +1322,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1351,7 +1353,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1382,7 +1384,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1413,7 +1415,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		auto hold = value;
 
@@ -1448,7 +1450,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		bool modified = false;
 		auto hold = selected;
@@ -1499,7 +1501,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		bool modified = false;
 		auto hold = *selected;
@@ -1541,7 +1543,7 @@ namespace Lux::ImGuiEx {
 	{
 		const char* current = options[*selected];
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		bool modified = false;
 		auto hold = *selected;
@@ -1584,7 +1586,7 @@ namespace Lux::ImGuiEx {
 		ShiftCursorY(4.0f);
 
 		if (fullWidth)
-			ImGui::PushItemWidth(-1);
+			ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		bool modified = false;
 		auto hold = *selected;
@@ -1648,7 +1650,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		bool modified = false;
 		auto hold = *selected;
@@ -1702,7 +1704,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		bool modified = false;
 
@@ -1749,7 +1751,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ImGuiEx::ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		ImVec2 originalButtonTextAlign = ImGui::GetStyle().ButtonTextAlign;
 		{
@@ -1876,7 +1878,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		ImVec2 originalButtonTextAlign = ImGui::GetStyle().ButtonTextAlign;
 		{
@@ -1986,7 +1988,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		std::initializer_list<AssetType> assetTypes = { TAssetTypes... };
 
@@ -2100,7 +2102,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		ImVec2 originalButtonTextAlign = ImGui::GetStyle().ButtonTextAlign;
 		ImGui::GetStyle().ButtonTextAlign = { 0.0f, 0.5f };
@@ -2222,7 +2224,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		ImVec2 originalButtonTextAlign = ImGui::GetStyle().ButtonTextAlign;
 		{
@@ -2323,7 +2325,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		ImVec2 originalButtonTextAlign = ImGui::GetStyle().ButtonTextAlign;
 		{
@@ -2402,7 +2404,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 		if (settings.NoItemSpacing)
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, { 0.0f, 0.0f });
 
@@ -2619,7 +2621,7 @@ namespace Lux::ImGuiEx {
 	{
 		ImGui::Text(label);
 		ImGui::NextColumn();
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 	}
 
 	static bool PropertyCheckboxGroup(const char* label, bool& value, bool doPushUndo = true)
@@ -2684,7 +2686,7 @@ namespace Lux::ImGuiEx {
 
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		const float buttonSize = ImGui::GetFrameHeight();
 		float itemWidth = ImMax(1.0f, ImGui::CalcItemWidth() - (buttonSize + style.ItemInnerSpacing.x));
@@ -2784,7 +2786,7 @@ namespace Lux::ImGuiEx {
 		ImGui::Text(label);
 		ImGui::NextColumn();
 		ShiftCursorY(4.0f);
-		ImGui::PushItemWidth(-1);
+		ImGui::PushItemWidth(GetPropertyItemWidth());
 
 		const float buttonSize = ImGui::GetFrameHeight();
 		float itemWidth = ImMax(1.0f, ImGui::CalcItemWidth() - (buttonSize + style.ItemInnerSpacing.x));
@@ -2870,7 +2872,7 @@ namespace Lux::ImGuiEx {
 				ImGui::Text(indexString.data());
 				ImGui::NextColumn();
 				ShiftCursorY(4.0f);
-				ImGui::PushItemWidth(-1);
+				ImGui::PushItemWidth(GetPropertyItemWidth());
 
 				const float buttonSize = ImGui::GetFrameHeight();
 				ImGui::SetNextItemWidth(ImMax(1.0f, ImGui::CalcItemWidth() - (buttonSize + style.ItemInnerSpacing.x)));
@@ -2909,7 +2911,7 @@ namespace Lux::ImGuiEx {
 				ImGui::Text(indexString.data());
 				ImGui::NextColumn();
 				ShiftCursorY(4.0f);
-				ImGui::PushItemWidth(-1);
+				ImGui::PushItemWidth(GetPropertyItemWidth());
 
 				const float buttonSize = ImGui::GetFrameHeight();
 				ImGui::SetNextItemWidth(ImMax(1.0f, ImGui::CalcItemWidth() - (buttonSize + style.ItemInnerSpacing.x)));

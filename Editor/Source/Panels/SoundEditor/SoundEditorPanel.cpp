@@ -5,6 +5,8 @@
 #include "SoundEditorPanel.h"
 
 #include "Lux/Asset/AssetImporter.h"
+#include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Core/Input.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioFileUtils.h"
@@ -30,7 +32,7 @@ namespace Lux
 {
 	namespace
 	{
-		constexpr float kTreeMinWidth = 200.0f, kTreeMaxWidth = 380.0f, kTreeWidthFraction = 0.32f;
+		constexpr float kTreeMinWidth = 180.0f, kTreeMaxWidth = 280.0f, kTreeWidthFraction = 0.25f;
 		constexpr float kWaveformHeight = 72.0f, kCurveHeight = 120.0f;
 		constexpr float kHandleGrabPixels = 6.0f, kPointRadius = 4.0f;
 		constexpr uint32_t kWaveformBuckets = 512;
@@ -40,6 +42,12 @@ namespace Lux
 		const char* s_TargetNames[] = { "Volume", "Pitch", "Low-pass", "High-pass", "Reverb Send" };
 		const char* s_AttenuationNames[] = { "None", "Inverse", "Linear" };
 		const char* s_StealNames[] = { "Oldest", "Quietest", "None" };
+
+		void BeginSoundPropertyGrid()
+		{
+			const float fontSize = ImGui::GetFontSize();
+			ImGuiEx::BeginPropertyGrid(2, fontSize * 14.0f, fontSize * 24.0f);
+		}
 
 		// Peaks as bars around the middle of [min, max].
 		void DrawPeaks(ImDrawList* drawList, ImVec2 min, ImVec2 max, const std::vector<float>& peaks)
@@ -202,6 +210,7 @@ namespace Lux
 			LUX_CORE_WARN_TAG("Editor", "Sound Editor: asset {} is not a Sound", static_cast<uint64_t>(handle));
 			return;
 		}
+		m_RequestFocus = true;
 		for (size_t i = 0; i < m_Documents.size(); ++i)
 		{
 			if (m_Documents[i].Handle == handle)
@@ -255,6 +264,8 @@ namespace Lux
 		if (m_AuditionSound == m_Documents[index].Handle)
 			StopAudition();
 		m_Documents.erase(m_Documents.begin() + static_cast<ptrdiff_t>(index));
+		if (m_ActiveDocument > static_cast<int>(index))
+			--m_ActiveDocument;
 		if (m_ActiveDocument >= static_cast<int>(m_Documents.size()))
 			m_ActiveDocument = static_cast<int>(m_Documents.size()) - 1;
 		m_SelectActiveTab = true;
@@ -412,7 +423,13 @@ namespace Lux
 		UpdateAudition();
 
 		ImGui::SetNextWindowSize(ImVec2(960.0f, 620.0f), ImGuiCond_FirstUseEver);
+		if (m_RequestFocus)
+		{
+			ImGui::SetNextWindowFocus();
+			m_RequestFocus = false;
+		}
 		const bool visible = ImGui::Begin("Sound Editor", &isOpen);
+		m_KeyboardFocus = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 		if (visible)
 		{
 			if (!Project::GetActive())
@@ -431,7 +448,7 @@ namespace Lux
 				Ref<Sound> sound = document ? AssetManager::GetAsset<Sound>(document->Handle) : nullptr;
 				if (!document || !sound)
 					ImGui::TextDisabled("This Sound could not be loaded.");
-				else
+				else if (!HandleShortcuts(*document, *sound))
 				{
 					if (document->SelectedNode >= sound->Nodes.size())
 						document->SelectedNode = 0;
@@ -439,17 +456,42 @@ namespace Lux
 					UI_Toolbar(*document, *sound, edited);
 					ImGui::Separator();
 
-					const float treeWidth = std::clamp(ImGui::GetContentRegionAvail().x * kTreeWidthFraction, kTreeMinWidth, kTreeMaxWidth);
-					if (ImGui::BeginChild("##sound_tree_column", ImVec2(treeWidth, 0.0f), ImGuiChildFlags_Borders))
+					const ImVec2 available = ImGui::GetContentRegionAvail();
+					const bool stacked = available.x < ImGui::GetFontSize() * 36.0f;
+					const float treeWidth = stacked ? 0.0f : std::clamp(available.x * kTreeWidthFraction, kTreeMinWidth, kTreeMaxWidth);
+					const float treeHeight = stacked ? std::min(available.y * 0.3f, ImGui::GetFontSize() * 9.0f) : 0.0f;
+					if (ImGui::BeginChild("##sound_tree_column", ImVec2(treeWidth, treeHeight), ImGuiChildFlags_Borders))
 						UI_Tree(*document, *sound, edited);
 					ImGui::EndChild();
-					ImGui::SameLine();
-					if (ImGui::BeginChild("##sound_properties_column", ImVec2(0.0f, 0.0f)))
+					if (!stacked)
+						ImGui::SameLine();
+					if (ImGui::BeginChild("##sound_properties_column", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding))
 					{
-						UI_Node(*document, *sound, edited);
-						UI_Parameters(*document, *sound, edited);
-						UI_SoundProperties(*sound, edited);
-						UI_Banks(document->Handle);
+						if (ImGui::BeginTabBar("##sound_sections"))
+						{
+							if (ImGui::BeginTabItem("Node", nullptr, m_SelectNodePage ? ImGuiTabItemFlags_SetSelected : 0))
+							{
+								UI_Node(*document, *sound, edited);
+								ImGui::EndTabItem();
+							}
+							m_SelectNodePage = false;
+							if (ImGui::BeginTabItem("Sound"))
+							{
+								UI_SoundProperties(*sound, edited);
+								ImGui::EndTabItem();
+							}
+							if (ImGui::BeginTabItem("Parameters"))
+							{
+								UI_Parameters(*document, *sound, edited);
+								ImGui::EndTabItem();
+							}
+							if (ImGui::BeginTabItem("Banks"))
+							{
+								UI_Banks(document->Handle);
+								ImGui::EndTabItem();
+							}
+							ImGui::EndTabBar();
+						}
 					}
 					ImGui::EndChild();
 
@@ -469,8 +511,64 @@ namespace Lux
 		}
 	}
 
+	void SoundEditorPanel::OnEvent(Event& event)
+	{
+		if (!m_KeyboardFocus || !event.IsInCategory(EventCategoryKeyboard))
+			return;
+		if (event.GetEventType() == EventType::KeyPressed)
+		{
+			const auto& key = static_cast<const KeyPressedEvent&>(event);
+			const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+			if (control && !ImGui::GetIO().WantTextInput && (key.GetKeyCode() == Key::Z || key.GetKeyCode() == Key::Y))
+				return;
+		}
+		event.Handled = true;
+	}
+
+	bool SoundEditorPanel::HandleShortcuts(Document& document, Sound& sound)
+	{
+		const ImGuiIO& io = ImGui::GetIO();
+		if (!m_KeyboardFocus || io.WantTextInput || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+			return false;
+		if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
+			SaveDocument(document, sound);
+		if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_W, false))
+		{
+			RequestCloseDocument(static_cast<size_t>(m_ActiveDocument));
+			return true;
+		}
+		if (!io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space, false))
+		{
+			if (m_Audition && m_AuditionSound == document.Handle && m_Audition->IsPlaying())
+				StopAudition();
+			else if (AudioEngine::HasInitializedEngine() && sound.Validate())
+				StartAudition(document, sound);
+		}
+		return false;
+	}
+
+	void SoundEditorPanel::RequestCloseDocument(size_t index)
+	{
+		if (index >= m_Documents.size())
+			return;
+		const Document& closing = m_Documents[index];
+		if (closing.Current == closing.Saved && !closing.EditInProgress)
+			CloseDocument(index);
+		else
+		{
+			m_PendingCloseIndex = static_cast<int>(index);
+			m_OpenCloseConfirm = true;
+		}
+	}
+
 	void SoundEditorPanel::UI_Tabs()
 	{
+		ImGuiEx::ScopedColourStack tabColours(
+			ImGuiCol_Tab, Colors::Theme::backgroundDark,
+			ImGuiCol_TabHovered, Colors::Theme::backgroundPopup,
+			ImGuiCol_TabSelected, Colors::Theme::groupHeader,
+			ImGuiCol_TabDimmed, Colors::Theme::backgroundDark,
+			ImGuiCol_TabDimmedSelected, Colors::Theme::groupHeader);
 		int closeRequest = -1;
 		if (ImGui::BeginTabBar("##sound_editor_tabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
 		{
@@ -489,6 +587,17 @@ namespace Lux
 						m_ActiveDocument = static_cast<int>(i);
 					ImGui::EndTabItem();
 				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("%s", Project::GetEditorAssetManager()->GetMetadata(document.Handle).FilePath.generic_string().c_str());
+				ImGuiEx::ScopedID tabID(document.Handle);
+				if (ImGui::BeginPopupContextItem("##sound_tab_actions"))
+				{
+					if (ImGui::MenuItem("Copy asset path"))
+						ImGui::SetClipboardText(Project::GetEditorAssetManager()->GetMetadata(document.Handle).FilePath.generic_string().c_str());
+					if (ImGui::MenuItem("Close", "Ctrl+W"))
+						open = false;
+					ImGui::EndPopup();
+				}
 				if (!open)
 					closeRequest = static_cast<int>(i);
 			}
@@ -498,14 +607,7 @@ namespace Lux
 
 		if (closeRequest < 0)
 			return;
-		const Document& closing = m_Documents[static_cast<size_t>(closeRequest)];
-		if (closing.Current == closing.Saved && !closing.EditInProgress)
-			CloseDocument(static_cast<size_t>(closeRequest));
-		else
-		{
-			m_PendingCloseIndex = closeRequest;
-			m_OpenCloseConfirm = true;
-		}
+		RequestCloseDocument(static_cast<size_t>(closeRequest));
 	}
 
 	void SoundEditorPanel::UI_CloseConfirm()
@@ -554,6 +656,8 @@ namespace Lux
 
 	void SoundEditorPanel::UI_Toolbar(Document& document, Sound& sound, bool& edited)
 	{
+		ImGuiEx::ScopedStyleStack toolbarStyle(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 5.0f),
+			ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 6.0f));
 		std::string error;
 		const bool valid = sound.Validate(&error);
 		const bool dirty = !(document.Current == document.Saved) || document.EditInProgress;
@@ -562,6 +666,7 @@ namespace Lux
 		if (ImGui::Button(LUX_ICON_FLOPPY_O "  Save"))
 			SaveDocument(document, sound);
 		ImGui::EndDisabled();
+		ImGui::SetItemTooltip("Save Sound (Ctrl+S). Close tab with Ctrl+W.");
 		ImGui::SameLine();
 		ImGui::BeginDisabled(!dirty);
 		// Reverting goes through TrackEdit like any other change, so it can be undone.
@@ -571,8 +676,10 @@ namespace Lux
 			edited = true;
 		}
 		ImGui::EndDisabled();
+		ImGui::SetItemTooltip("Revert all changes to the last saved version. This can be undone.");
 
-		ImGui::SameLine();
+		if (ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - ImGui::GetItemRectMax().x > ImGui::GetFontSize() * 12.0f)
+			ImGui::SameLine();
 		const bool native = AudioEngine::HasInitializedEngine();
 		const bool playing = m_Audition && m_AuditionSound == document.Handle && m_Audition->IsValid() && m_Audition->IsPlaying();
 		ImGui::BeginDisabled(!native || (!valid && !playing));
@@ -583,17 +690,26 @@ namespace Lux
 			else
 				StartAudition(document, sound);
 		}
+		ImGui::SetItemTooltip("Play / stop preview (Space). Ctrl+S saves this Sound.");
 		ImGui::SameLine();
-		ImGui::Checkbox("Loop##sound_audition_loop", &m_LoopAudition);
+		{
+			ImGuiEx::ScopedColour loopColour(ImGuiCol_Text, m_LoopAudition ? Colors::Theme::accent : Colors::Theme::text);
+			if (ImGui::Button(LUX_ICON_REPEAT "  Loop##sound_audition_loop"))
+				m_LoopAudition = !m_LoopAudition;
+		}
 		ImGui::EndDisabled();
 		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 			ImGui::SetTooltip("Restart the audition when it ends; each restart chooses through the tree again.");
 
-		ImGui::SameLine();
+		if (ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - ImGui::GetItemRectMax().x > ImGui::GetFontSize() * 16.0f)
+			ImGui::SameLine();
 		if (!native)
 			ImGui::TextDisabled("Auditioning needs the native audio backend.");
 		else if (!valid)
-			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError), "Invalid: %s", error.c_str());
+		{
+			ImGuiEx::ScopedColour invalidColour(ImGuiCol_Text, Colors::Theme::textError);
+			ImGui::TextWrapped("Invalid: %s", error.c_str());
+		}
 		else
 			ImGui::TextDisabled("%s", dirty ? "Unsaved changes" : "Saved");
 	}
@@ -702,7 +818,10 @@ namespace Lux
 		const bool looping = node.Loop && node.Type == SoundNodeType::Clip;
 		const bool open = ImGui::TreeNodeEx("node", flags, "%s  %s%s%s", NodeIcon(node.Type), label.c_str(), looping ? "  " : "", looping ? LUX_ICON_REPEAT : "");
 		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
+		{
 			document.SelectedNode = index;
+			m_SelectNodePage = true;
+		}
 		if (open)
 		{
 			// A Switch's children are its labels, in order.
@@ -724,31 +843,31 @@ namespace Lux
 		// them on the editor undo stack instead.
 		if (ImGuiEx::PropertyGridHeader("Sound"))
 		{
-			ImGuiEx::BeginPropertyGrid();
-			edited |= ImGuiEx::Property("Volume", sound.Volume, 0.01f, 0.0f, 4.0f, "Linear gain; 1 plays the clips as recorded.", false);
-			edited |= ImGuiEx::Property("Pitch", sound.Pitch, 0.01f, 0.01f, 4.0f, "Playback rate; 2 is an octave up and twice as fast.", false);
+			BeginSoundPropertyGrid();
+			edited |= ImGuiEx::Property("Volume", sound.Volume, 0.01f, 0.0f, 4.0f, "Linear gain; 1 plays the clips as recorded.", false, SoundNode{}.Volume);
+			edited |= ImGuiEx::Property("Pitch", sound.Pitch, 0.01f, 0.01f, 4.0f, "Playback rate; 2 is an octave up and twice as fast.", false, SoundNode{}.Pitch);
 			edited |= ImGuiEx::Property("Bus", sound.Bus, "The mixer bus it plays into (bus:/..., View > Audio Mixer). A bus the mixer lacks plays through the master.", false);
 			edited |= ImGuiEx::Property("Stream", sound.Stream, "Read from disk while playing instead of decoding into memory first. For music and long ambience.", false);
-			edited |= ImGuiEx::Property("Instance Limit", sound.InstanceLimit, 0u, Sound::MaxInstanceLimit, "Most instances playing at once; 0 is unlimited.", false);
+			edited |= ImGuiEx::Property("Instance Limit", sound.InstanceLimit, 0u, Sound::MaxInstanceLimit, "Most instances playing at once; 0 is unlimited.", false, 0u);
 			if (sound.InstanceLimit > 0)
 				edited |= ImGuiEx::PropertyDropdown("Steal", s_StealNames, static_cast<int32_t>(std::size(s_StealNames)), sound.Steal,
 					"At the limit, stop the oldest or quietest instance for the new one, or refuse the new one.", false);
-			edited |= ImGuiEx::Property("Cooldown", sound.Cooldown, 0.01f, 0.0f, 60.0f, "Seconds after a start before the Sound may start again.", false);
+			edited |= ImGuiEx::Property("Cooldown", sound.Cooldown, 0.01f, 0.0f, 60.0f, "Seconds after a start before the Sound may start again.", false, 0.0f);
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
 		}
 
 		if (ImGuiEx::PropertyGridHeader("Spatial"))
 		{
-			ImGuiEx::BeginPropertyGrid();
+			BeginSoundPropertyGrid();
 			edited |= ImGuiEx::Property("3D", sound.Spatial.Enabled, "Panned and attenuated from its position. Off plays it in 2D.", false);
 			if (sound.Spatial.Enabled)
 			{
 				edited |= ImGuiEx::PropertyDropdown("Attenuation", s_AttenuationNames, static_cast<int32_t>(std::size(s_AttenuationNames)), sound.Spatial.Attenuation,
 					"Inverse falls off like a real source; Linear reaches silence at the maximum distance.", false);
-				edited |= ImGuiEx::Property("Min Distance", sound.Spatial.MinDistance, 0.1f, 0.01f, 10000.0f, "Metres; full volume up to here.", false);
-				edited |= ImGuiEx::Property("Max Distance", sound.Spatial.MaxDistance, 0.1f, 0.01f, 10000.0f, "Metres; attenuation stops here, and the source is culled beyond it.", false);
-				edited |= ImGuiEx::Property("Rolloff", sound.Spatial.Rolloff, 0.01f, 0.0f, 10.0f, "How quickly it falls off; 1 is natural.", false);
+				edited |= ImGuiEx::Property("Min Distance", sound.Spatial.MinDistance, 0.1f, 0.01f, std::max(0.01f, sound.Spatial.MaxDistance), "Metres; full volume up to here.", false, SoundSpatialSettings{}.MinDistance);
+				edited |= ImGuiEx::Property("Max Distance", sound.Spatial.MaxDistance, 0.1f, std::max(0.01f, sound.Spatial.MinDistance), 10000.0f, "Metres; attenuation stops here, and the source is culled beyond it.", false, SoundSpatialSettings{}.MaxDistance);
+				edited |= ImGuiEx::Property("Rolloff", sound.Spatial.Rolloff, 0.01f, 0.0f, 10.0f, "How quickly it falls off; 1 is natural.", false, SoundSpatialSettings{}.Rolloff);
 			}
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
@@ -757,13 +876,13 @@ namespace Lux
 		// The beat grid and markers the music director syncs transitions to (MusicSync).
 		if (ImGuiEx::PropertyGridHeader("Music", false))
 		{
-			ImGuiEx::BeginPropertyGrid();
-			edited |= ImGuiEx::Property("Tempo (BPM)", sound.Tempo.BPM, 0.1f, 0.0f, 400.0f, "Beats per minute of the first clip; 0 reports no beats. Music beds use 20-400.", false);
+			BeginSoundPropertyGrid();
+			edited |= ImGuiEx::Property("Tempo (BPM)", sound.Tempo.BPM, 0.1f, 0.0f, 400.0f, "Beats per minute of the first clip; 0 reports no beats. Music beds use 20-400.", false, SoundTempo{}.BPM);
 			if (sound.Tempo.BPM > 0.0f)
 			{
-				edited |= ImGuiEx::Property("Beats per Bar", sound.Tempo.BeatsPerBar, 1u, 32u, "The time signature's upper number.", false);
-				edited |= ImGuiEx::Property("Beat Unit", sound.Tempo.BeatUnit, 1u, 16u, "The time signature's lower number: 1, 2, 4, 8 or 16.", false);
-				edited |= ImGuiEx::Property("First Beat (s)", sound.Tempo.Offset, 0.001f, 0.0f, 60.0f, "Seconds into the clip where beat 1 of bar 1 falls.", false);
+				edited |= ImGuiEx::Property("Beats per Bar", sound.Tempo.BeatsPerBar, 1u, 32u, "The time signature's upper number.", false, SoundTempo{}.BeatsPerBar);
+				edited |= ImGuiEx::Property("Beat Unit", sound.Tempo.BeatUnit, 1u, 16u, "The time signature's lower number: 1, 2, 4, 8 or 16.", false, SoundTempo{}.BeatUnit);
+				edited |= ImGuiEx::Property("First Beat (s)", sound.Tempo.Offset, 0.001f, 0.0f, 60.0f, "Seconds into the clip where beat 1 of bar 1 falls.", false, SoundTempo{}.Offset);
 			}
 			ImGuiEx::EndPropertyGrid();
 			UI_MusicTimeline(sound, edited);
@@ -799,7 +918,7 @@ namespace Lux
 
 	void SoundEditorPanel::UI_Banks(AssetHandle soundHandle)
 	{
-		if (!ImGuiEx::PropertyGridHeader("Sound Banks", false))
+		if (!ImGuiEx::PropertyGridHeader("Sound Banks"))
 			return;
 		std::vector<std::pair<std::string, AssetHandle>> holding, others;
 		for (const AssetHandle handle : AssetManager::GetAllAssetsWithType<SoundBank>())
@@ -858,7 +977,7 @@ namespace Lux
 		{
 			SoundParameter& parameter = sound.Parameters[index];
 			ImGui::PushID(static_cast<int>(index));
-			ImGuiEx::BeginPropertyGrid();
+			BeginSoundPropertyGrid();
 			std::string name = parameter.Name;
 			if (ImGuiEx::Property("Name", name, "Game code sets it by this name (any case).", false))
 			{
@@ -909,9 +1028,9 @@ namespace Lux
 			}
 			else
 			{
-				edited |= ImGuiEx::Property("Minimum", parameter.Minimum, 0.01f, 0.0f, 0.0f, "", false);
-				edited |= ImGuiEx::Property("Maximum", parameter.Maximum, 0.01f, 0.0f, 0.0f, "", false);
-				edited |= ImGuiEx::Property("Default", parameter.Default, 0.01f, parameter.Minimum, parameter.Maximum, "", false);
+				edited |= ImGuiEx::Property("Minimum", parameter.Minimum, 0.01f, 0.0f, 0.0f, "", false, SoundParameter{}.Minimum);
+				edited |= ImGuiEx::Property("Maximum", parameter.Maximum, 0.01f, 0.0f, 0.0f, "", false, SoundParameter{}.Maximum);
+				edited |= ImGuiEx::Property("Default", parameter.Default, 0.01f, parameter.Minimum, parameter.Maximum, "", false, SoundParameter{}.Default);
 			}
 
 			// Not an edit of the Sound: the value the audition plays with.
@@ -924,7 +1043,7 @@ namespace Lux
 					SetAuditionParameter(document, parameter.Name, static_cast<float>(selected));
 			}
 			else if (parameter.Minimum < parameter.Maximum
-				&& ImGuiEx::PropertySlider("Audition", value, parameter.Minimum, parameter.Maximum, "The value the Play button uses; changes are heard live.", false))
+				&& ImGuiEx::PropertySlider("Audition", value, parameter.Minimum, parameter.Maximum, "The value the Play button uses; changes are heard live.", false, parameter.Default))
 				SetAuditionParameter(document, parameter.Name, value);
 			ImGuiEx::EndPropertyGrid();
 
@@ -982,7 +1101,7 @@ namespace Lux
 			return;
 
 		ImGui::PushID(static_cast<int>(index));
-		ImGuiEx::BeginPropertyGrid();
+		BeginSoundPropertyGrid();
 		edited |= ImGuiEx::Property("Name", node.Name, "Optional; shown in the tree.", false);
 
 		SoundNodeType type = node.Type;
@@ -999,7 +1118,7 @@ namespace Lux
 			}
 		}
 		if (parent >= 0 && sound.Nodes[static_cast<size_t>(parent)].Type == SoundNodeType::Random)
-			edited |= ImGuiEx::Property("Weight", node.Weight, 0.01f, 0.0f, 1000.0f, "Chance of being chosen, relative to its siblings. 0 is never.", false);
+			edited |= ImGuiEx::Property("Weight", node.Weight, 0.01f, 0.0f, 1000.0f, "Chance of being chosen, relative to its siblings. 0 is never.", false, SoundNode{}.Weight);
 		if (node.Type == SoundNodeType::Random)
 			edited |= ImGuiEx::Property("Avoid Repeat", node.AvoidRepeat, "Never choose the same child twice in a row.", false);
 		if (node.Type == SoundNodeType::Switch)
@@ -1021,10 +1140,10 @@ namespace Lux
 				edited = true;
 			}
 		}
-		edited |= ImGuiEx::Property("Volume", node.Volume, 0.01f, 0.0f, 4.0f, "Multiplies everything below this node.", false);
-		edited |= ImGuiEx::Property("Pitch", node.Pitch, 0.01f, 0.01f, 4.0f, "Multiplies everything below this node.", false);
-		edited |= ImGuiEx::Property("Volume Variation", node.VolumeVariation, 0.1f, 0.0f, 24.0f, "dB; each start lowers the volume by a random amount up to this.", false);
-		edited |= ImGuiEx::Property("Pitch Variation", node.PitchVariation, 0.05f, 0.0f, 12.0f, "Semitones; each start shifts the pitch by a random amount up to this, either way.", false);
+		edited |= ImGuiEx::Property("Volume", node.Volume, 0.01f, 0.0f, 4.0f, "Multiplies everything below this node.", false, SoundNode{}.Volume);
+		edited |= ImGuiEx::Property("Pitch", node.Pitch, 0.01f, 0.01f, 4.0f, "Multiplies everything below this node.", false, SoundNode{}.Pitch);
+		edited |= ImGuiEx::Property("Volume Variation", node.VolumeVariation, 0.1f, 0.0f, 24.0f, "dB; each start lowers the volume by a random amount up to this.", false, SoundNode{}.VolumeVariation);
+		edited |= ImGuiEx::Property("Pitch Variation", node.PitchVariation, 0.05f, 0.0f, 12.0f, "Semitones; each start shifts the pitch by a random amount up to this, either way.", false, SoundNode{}.PitchVariation);
 		ImGuiEx::EndPropertyGrid();
 
 		if (node.Type == SoundNodeType::Clip)
@@ -1118,7 +1237,7 @@ namespace Lux
 
 	void SoundEditorPanel::UI_Clip(SoundNode& node, bool& edited)
 	{
-		ImGuiEx::BeginPropertyGrid();
+		BeginSoundPropertyGrid();
 		AssetHandle clip = node.Clip;
 		if (ImGuiEx::PropertyAssetReference<AudioFile>("Clip", clip, "The audio file this node plays.", nullptr, {}, false))
 		{
@@ -1128,7 +1247,7 @@ namespace Lux
 		const Waveform* waveform = node.Clip ? &GetWaveform(node.Clip) : nullptr;
 		const float duration = waveform ? waveform->Duration : 0.0f;
 		const float maxTime = duration > 0.0f ? duration : 3600.0f;
-		edited |= ImGuiEx::Property("Start Offset", node.StartOffset, 0.01f, 0.0f, maxTime, "Seconds into the clip where playback starts.", false);
+		edited |= ImGuiEx::Property("Start Offset", node.StartOffset, 0.01f, 0.0f, maxTime, "Seconds into the clip where playback starts.", false, SoundNode{}.StartOffset);
 		edited |= ImGuiEx::Property("Loop", node.Loop, "Repeat until stopped. A Sound with any looping clip is continuous.", false);
 		if (node.Loop)
 		{
@@ -1145,8 +1264,8 @@ namespace Lux
 			}
 			if (node.HasLoopRegion)
 			{
-				edited |= ImGuiEx::Property("Loop Start", node.LoopStart, 0.01f, 0.0f, maxTime, "Seconds.", false);
-				edited |= ImGuiEx::Property("Loop End", node.LoopEnd, 0.01f, 0.0f, maxTime, "Seconds.", false);
+				edited |= ImGuiEx::Property("Loop Start", node.LoopStart, 0.01f, 0.0f, maxTime, "Seconds.", false, 0.0f);
+				edited |= ImGuiEx::Property("Loop End", node.LoopEnd, 0.01f, 0.0f, maxTime, "Seconds.", false, maxTime);
 			}
 		}
 		ImGuiEx::EndPropertyGrid();
@@ -1236,7 +1355,7 @@ namespace Lux
 		{
 			SoundCurve& curve = node.Curves[index];
 			ImGui::PushID(static_cast<int>(index));
-			ImGuiEx::BeginPropertyGrid();
+			BeginSoundPropertyGrid();
 			int32_t parameter = 0;
 			for (size_t name = 0; name < parameterNames.size(); ++name)
 			{

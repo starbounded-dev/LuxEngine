@@ -266,8 +266,17 @@ Markdown text (headings, lists, tables, code blocks with Copy, links) renders wi
 `ImGuiEx::DocsButton` (`Editor/EditorDocs.h`).
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
 `ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
-as Ctrl-click/double-click to enter numeric text. Text can bypass drag bounds unless AlwaysClamp
-is used; authored settings panels must clamp or reject edited values before marking data dirty.
+as Ctrl-click/double-click to enter numeric text. Numeric properties with an explicit `defaultValue`
+opt into **double-click reset**; Ctrl-click still enters numeric text. `NumericControlMenu` supplies
+right-click Reset / Copy / Paste, rejects non-finite clipboard input, and clamps pasted/reset values
+to the supplied bounds. Pass real authored defaults, never the current value. Consume its returned
+edit through the owning panel's existing undo path. Float/uint32 properties and float sliders expose
+an optional default; existing callers retain their text-entry gestures when no default is provided.
+Text can bypass drag bounds unless AlwaysClamp is used; authored settings panels must clamp or
+reject edited values before marking data dirty.
+`BeginPropertyGrid(columns, labelWidth, maxControlWidth)` can keep labels fixed and cap controls;
+zero widths preserve the existing layout. `GetPropertyItemWidth` reads the current grid's cap, and
+`EndPropertyGrid` restores the outer grid's setting. Full-width graphs remain outside the grid.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.

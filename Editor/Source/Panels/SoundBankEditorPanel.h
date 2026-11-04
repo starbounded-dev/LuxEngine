@@ -23,7 +23,7 @@ namespace Lux
 		void OnImGuiRender(bool& isOpen) override;
 		void OnProjectChanged(const Ref<Project>& project) override { m_Bank = 0; }
 		void SetUndoCallback(UndoPushFn callback) { m_PushUndo = std::move(callback); }
-		void OpenBank(AssetHandle bank) { m_Bank = bank; }
+		void OpenBank(AssetHandle bank) { m_Bank = bank; m_RequestFocus = true; }
 
 	private:
 		// Replaces the bank's contents with next, saves it, and pushes one undo step.
@@ -33,6 +33,7 @@ namespace Lux
 		void UI_Unbanked(const SoundBank& bank);
 
 		AssetHandle m_Bank = 0;
+		bool m_RequestFocus = false;
 		UndoPushFn m_PushUndo;
 	};
 }
