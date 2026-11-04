@@ -654,6 +654,7 @@ namespace Lux {
 
 	void SceneHierarchyPanel::OnImGuiRender(bool& isOpen)
 	{
+		m_IsHierarchyFocused = false;
 		if (!isOpen)
 			return;
 
@@ -772,20 +773,33 @@ namespace Lux {
 		if (m_IsWindow)
 			ImGui::End();
 
-		if (!isOpen)
-			return;
-
 		FlushQueuedEntityDeletions();
+	}
 
-		ImGui::Begin("Properties", &isOpen);
-		m_IsHierarchyOrPropertiesFocused = m_IsHierarchyFocused || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		DrawComponents(SelectionManager::GetSelections(s_ActiveSelectionContext));
+	void SceneHierarchyPanel::OnPropertiesImGuiRender(bool& isOpen)
+	{
+		m_IsPropertiesFocused = false;
+		PruneInvalidSelection();
+		FlushQueuedEntityDeletions();
+		s_ActiveSelectionContext = m_SelectionContext;
+		if (ImGui::Begin("Properties", &isOpen))
+		{
+			m_IsPropertiesFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+			DrawComponents(SelectionManager::GetSelections(m_SelectionContext));
+		}
 		ImGui::End();
 	}
 
 	void SceneHierarchyPanel::OnEvent(Event& e)
 	{
-		if (!m_IsHierarchyOrPropertiesFocused)
+		if (!m_IsHierarchyFocused)
+			return;
+		OnPropertiesEvent(e);
+	}
+
+	void SceneHierarchyPanel::OnPropertiesEvent(Event& e)
+	{
+		if (!m_IsHierarchyFocused && !m_IsPropertiesFocused)
 			return;
 
 		EventDispatcher dispatcher(e);

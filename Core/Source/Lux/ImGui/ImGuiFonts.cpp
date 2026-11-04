@@ -31,10 +31,9 @@ namespace Lux::ImGuiEx {
 		ImFontConfig imguiFontConfig;
 		imguiFontConfig.MergeMode = config.MergeWithLast;
 		auto& io = ImGui::GetIO();
-		// Bake at the physical pixel size the glyphs will be drawn at; ImGuiLayer divides the
-		// scale back out via style.FontScaleMain so layout stays in DisplaySize units.
-		const float bakedSize = config.Size * s_Scale;
-		ImFont* font = io.Fonts->AddFontFromFileTTF(config.FilePath.data(), bakedSize, &imguiFontConfig, config.GlyphRanges == nullptr ? io.Fonts->GetGlyphRangesDefault() : config.GlyphRanges);
+		// Register the base size; ImGui 1.92 bakes at the size selected by viewport DPI.
+		const float baseSize = config.Size * s_Scale;
+		ImFont* font = io.Fonts->AddFontFromFileTTF(config.FilePath.data(), baseSize, &imguiFontConfig, config.GlyphRanges == nullptr ? io.Fonts->GetGlyphRangesDefault() : config.GlyphRanges);
 		LUX_CORE_VERIFY(font, "Failed to load font file!");
 		s_Fonts[config.FontName] = font;
 

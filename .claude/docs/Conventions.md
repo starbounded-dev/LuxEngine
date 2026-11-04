@@ -225,6 +225,9 @@ Queries: `Exists`, `IsDirectory`, `IsNewer`, `GetLastWriteTime`, `GetUniqueFileN
 Mutations: `CreateDirectory`, `DeleteFile`, `MoveFile`, `CopyFile`, `Move`, `Copy`, `Rename`,
 `RenameFilename`, `WriteBytes`, `ReplaceFileAtomically` (atomically replace a destination with a completed
 same-volume temporary file; implemented on Windows and Linux, reports failure).
+`WriteFileAtomically` writes a complete text snapshot through a same-volume `<path>.tmp` file.
+`TryLockFile` returns an owning OS file lock or an empty scope when unavailable; hold it across
+revision checks and writes when coordinating editor processes.
 Reads: `ReadBytes`, `TryOpenFile`, `TryOpenFileAndWait`.
 Shell/OS: `ShowFileInExplorer`, `OpenDirectoryInExplorer`, `OpenExternally`,
 `{Has,Get,Set}EnvironmentVariable`.
@@ -280,6 +283,12 @@ zero widths preserve the existing layout. `GetPropertyItemWidth` reads the curre
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.
+
+For display scaling, `ImGuiScaling.h` supplies `DpiStyle` (metrics recomputed from an unscaled
+baseline) and `ScopedWindowScale` (per-panel detached-window metrics, restored exactly). Fonts
+are registered at logical sizes and ImGui 1.92 dynamically bakes at viewport DPI; do not bake a
+startup DPI multiplier into the base size and then apply DPI again. Explicit `PushFont` sizes
+are logical; direct draw-list font sizes and fixed geometry use the current style `_MainScale`.
 
 ### ImGui correctness — close every scope, give every widget a unique ID
 
@@ -363,6 +372,9 @@ and the `Convert<T>` conversions (glm, `UUID`, lenient bools, shortest floats) �
 directly. An 8-bit value (`uint8_t`) must be cast before writing (the `Writer` rejects it).
 `tests/yaml/run.py` checks that every tracked YAML asset still reads to its recorded values; run it
 after touching `Lux::Yaml`. Missing keys must deserialize to the struct default — never hard-fail a load on an absent optional field.
+The writer explicitly double-quotes multiline strings so indented text, embedded YAML and ImGui
+ini snapshots retain exact whitespace; rapidyaml's automatic single-quoted style cannot represent
+every indented multiline scalar.
 
 ---
 

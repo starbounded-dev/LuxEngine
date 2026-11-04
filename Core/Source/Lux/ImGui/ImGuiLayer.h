@@ -6,6 +6,7 @@
 #include "Lux/Core/Layer.h"
 
 #include "ImGuiRenderer.h"
+#include "ImGuiScaling.h"
 
 #include <functional>
 #include <string>
@@ -65,6 +66,8 @@ namespace Lux {
 		// before the next frame starts, which is when ImGui can rebuild the dock tree. Windows the
 		// text does not mention keep their place.
 		static void QueueIniSettingsLoad(std::string ini);
+		// Main thread, after backend updates and before NewFrame; clear before owner teardown.
+		void SetBeforeFrameCallback(std::function<void()> callback) { m_BeforeFrame = std::move(callback); }
 
 		ImGuiRenderer* GetImGuiRenderer();
 	public:
@@ -73,6 +76,7 @@ namespace Lux {
 	private:
 		void InitPlatformInterface();
 		void UpdateNavGamepad();
+		void UpdateUIScale();
 		// After ImGui::EndFrame, before ImGui::Render: the glass backdrop command first in each
 		// qualifying window's draw list.
 		void InsertGlassBackdrops();
@@ -87,6 +91,9 @@ namespace Lux {
 		float m_PopupBgAlpha = 1.0f;
 		float m_DimmedPopupBgAlpha = 1.0f;
 		int m_NavGamepadID = -1;
+		ImGuiEx::DpiStyle m_DpiStyle;
+		float m_UIScaleOverride = 0.0f;
+		std::function<void()> m_BeforeFrame;
 		bool m_NavGamepadFed = false;
 	};
 

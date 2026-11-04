@@ -75,15 +75,8 @@ namespace Lux {
 		// size is logical and fbScale is 1.5, so geometry is already the right physical size but
 		// a font baked at 15px gets stretched 1.5x and looks blurry.
 		//
-		// We deliberately bake the font atlas at the physical pixel size rather than relying
-		// on io.ConfigDpiScaleFonts: baking glyphs at the size they're actually drawn keeps them
-		// crisp, whereas DPI font scaling stretches an atlas baked at a different size. (The
-		// backend does advertise RendererHasTextures, so ImGui can re-bake on the fly — this is
-		// a quality choice, not a limitation.) Bake at the physical size, then divide back out.
-		//
-		//   bake at  size * contentScale        -> rasterised at true physical pixels (crisp)
-		//   FontScaleMain = 1 / fbScale         -> undo scaling the compositor already does
-		//   ScaleAllSizes(uiScale)              -> padding/rounding follow DisplaySize units
+		// ImGui 1.92 dynamically bakes glyphs at their requested physical size. Register
+		// fonts at their logical size, then let each viewport select its current DPI.
 		//
 		// LUX_UI_SCALE overrides the detected value, for testing or when detection is wrong.
 		float contentScale = 1.0f;
@@ -107,17 +100,18 @@ namespace Lux {
 			if (const char* env = std::getenv("LUX_UI_SCALE"))
 			{
 				const float override = std::strtof(env, nullptr);
-				if (override > 0.0f)
-					contentScale = override;
+				if (std::isfinite(override) && override > 0.0f)
+					contentScale = m_UIScaleOverride = override;
 			}
 		}
 
 		const float uiScale = (fbScale > 0.0f) ? (contentScale / fbScale) : contentScale;
-		LUX_CORE_INFO("[ImGui] contentScale={:.2f} framebufferScale={:.2f} -> uiScale={:.2f}",
+		LUX_CORE_INFO_TAG("EditorUI", "contentScale={:.2f} framebufferScale={:.2f} -> uiScale={:.2f}",
 			contentScale, fbScale, uiScale);
 
-		// Every font is baked at its declared size multiplied by this.
-		ImGuiEx::Fonts::SetScale(contentScale);
+		ImGuiEx::Fonts::SetScale(1.0f);
+		io.ConfigDpiScaleFonts = m_UIScaleOverride == 0.0f;
+		io.ConfigDpiScaleViewports = true;
 
 		// Configure Fonts
 		{
@@ -212,16 +206,9 @@ namespace Lux {
 			style.Colors[ImGuiCol_WindowBg] = windowBg;
 		}
 
-		// Apply the DPI scaling worked out above. Must come after the style is fully configured:
-		// ScaleAllSizes multiplies the current padding/rounding/spacing values in place, so any
-		// size assigned afterwards would escape the scaling.
-		//
-		// Fonts were baked at contentScale, while ImGui lays out in DisplaySize units - divide
-		// out whatever the windowing system already scales so text is the right size on both a
-		// physical-pixel (X11/Windows) and a logical-unit (Wayland) surface.
-		style.FontScaleMain = (fbScale > 0.0f) ? (1.0f / fbScale) : 1.0f;
-		if (uiScale != 1.0f)
-			style.ScaleAllSizes(uiScale);
+		m_DpiStyle.Capture(style);
+		m_DpiStyle.Apply(style, uiScale);
+		style.FontScaleMain = m_UIScaleOverride > 0.0f ? uiScale : 1.0f;
 
 		ImGui_ImplGlfw_InitForVulkan((GLFWwindow*)Application::Get().GetWindow().GetNativeWindow(), true);
 
@@ -340,6 +327,7 @@ namespace Lux {
 		// Keep the backend's hardcoded joystick-1 path off; UpdateNavGamepad feeds the chosen pad.
 		ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
 		ImGui_ImplGlfw_NewFrame();
+		UpdateUIScale();
 		UpdateNavGamepad();
 
 		if (s_PendingIniSettings)
@@ -348,6 +336,8 @@ namespace Lux {
 			s_PendingIniSettings.reset();
 		}
 
+		if (m_BeforeFrame)
+			m_BeforeFrame();
 		ImGui::NewFrame();
 		ImGuizmo::BeginFrame();
 
@@ -366,6 +356,23 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(Application::GetMainThreadID() == std::this_thread::get_id());
 		s_PendingIniSettings = std::move(ini);
+	}
+
+	void ImGuiLayer::UpdateUIScale()
+	{
+		GLFWwindow* window = Application::Get().GetWindow().GetNativeWindow();
+		float xscale = 1.0f, yscale = 1.0f;
+		int width = 0, height = 0, pixels = 0, pixelHeight = 0;
+		glfwGetWindowContentScale(window, &xscale, &yscale);
+		glfwGetWindowSize(window, &width, &height);
+		glfwGetFramebufferSize(window, &pixels, &pixelHeight);
+		if (width <= 0 || pixels <= 0)
+			return;
+		const float framebufferScale = static_cast<float>(pixels) / static_cast<float>(width);
+		const float scale = (m_UIScaleOverride > 0.0f ? m_UIScaleOverride : xscale) / framebufferScale;
+		m_DpiStyle.Apply(ImGui::GetStyle(), scale);
+		if (m_UIScaleOverride > 0.0f)
+			ImGui::GetStyle().FontScaleMain = scale;
 	}
 
 	void ImGuiLayer::RequestGlassBackdrop()

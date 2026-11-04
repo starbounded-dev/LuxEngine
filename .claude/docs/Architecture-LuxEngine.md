@@ -177,11 +177,12 @@ splash renders ImGui's first frame from inside `OnAttach`, `io.IniFilename` must
 **Per-user data** lives in `FileSystem::GetPersistentStoragePath()` — `%APPDATA%\LuxEngine` on
 Windows, `$XDG_DATA_HOME/LuxEngine` (default `~/.local/share/LuxEngine`) on Linux. The editor keeps
 everything machine-local there: `App.lsettings` (`ApplicationSpecification::SettingsPath`, which
-defaults to `./App.lsettings` for Lux-Runtime), `imgui.ini` (`io.IniFilename`, set in
-`EditorLayer::OnAttach`), `EditorLayout.yaml`, `UserPreferences.yaml`, `Layouts/<name>/` (saved
-layouts: `imgui.ini` plus `Panels.yaml`), and `logs/` (the editor
+defaults to `./App.lsettings` for Lux-Runtime), `Workspaces.yaml` (personal layouts, active tab and
+tab order), `UserPreferences.yaml`, and `logs/`. `imgui.ini`, `EditorLayout.yaml` and
+`Layouts/<name>/` are imported non-destructively as personal layouts. The optional
+`LUX_USER_DATA_DIR` overrides the entire per-user directory for isolated tests. The editor
 defines `LUX_LOGS_IN_PERSISTENT_STORAGE` before including `EntryPoint.h`; Lux-Runtime logs to
-`./logs`). Every run writes its own `LUX_<date>_<pid>.log` / `APP_<date>_<pid>.log`, so concurrent
+`./logs`. Every run writes its own `LUX_<date>_<pid>.log` / `APP_<date>_<pid>.log`, so concurrent
 instances don't clobber each other; `Log::Init` keeps the newest 10 sessions. Warnings and errors
 are flushed to the files as they are logged, and spdlog's flusher thread flushes everything else once
 a second, so a killed or hung process still leaves its last error on disk. Help → Open User Data
@@ -758,17 +759,44 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   sections, current page), written as keys of a `State` map beside its open state.
 - `PanelManager` — `AddPanel<T>(category, strID, isOpenByDefault, args...)`, `GetPanel<T>(strID)`,
   `RemovePanel`, and `Serialize` / `Deserialize` of open state and panel state, to
-  `EditorLayout.yaml` or a given file. It saves when a panel opens or closes, before reloading on a
-  project change, and in `EditorLayer::OnDetach` (panel state has no other save point). Panels are
-  grouped by `PanelCategory`.
+  `EditorLayout.yaml` or a given file. `CaptureState` / `ApplyState` provide in-memory snapshots;
+  `SetOpen` and observed external changes deliver hide cleanup and increment a visibility revision.
+  `SetWorkspaceManaged(true)` disables legacy automatic writes/reloads: project changes retarget
+  panels without replacing the user's workspace. Panels remain grouped by `PanelCategory`.
   `OnEvent` dispatches to open panels only and stops when a panel handles the event. Beam and the
   Sound Editor consume keyboard input while focused so document shortcuts cannot also edit the scene;
   the Sound Editor lets non-text undo/redo reach the shared history. Asset open requests queue window
   focus for the next `Begin`, including a request to re-open an already loaded document.
-- Named layouts (View → Layouts, `EditorLayer::SaveLayout` / `LoadLayout`) sit on top of
-  `imgui.ini`, which stays ImGui's own: saving copies the ini (`SaveIniSettingsToDisk`) and the panel
-  file into `Layouts/<name>/`; loading queues the ini with `ImGuiLayer::QueueIniSettingsLoad`, applied
-  just before the next `ImGui::NewFrame` (where docking can rebuild its tree), and loads the panels.
+- `EditorWorkspaceManager` (`Editor/Source/Workspace/`) is `EditorLayer`-owned (`Scope`), main-thread
+  only. Tabs below the titlebar expose protected Layout/Shading/Audio/Scripting/Debugging defaults
+  and autosaved personal layouts. Default edits are session-only; Save as Personal Layout copies
+  the arrangement. Stable IDs survive rename/reorder. Switches capture the outgoing layout, then
+  restore docking, managed window settings and panel visibility together through
+  `ImGuiLayer::SetBeforeFrameCallback` before `NewFrame`, deferring active edits, drags and modal
+  decisions. Panels/documents remain alive; workspace changes do not mutate scene or asset data.
+  The manager owns editor docking, preserves unrelated ImGui tables/settings and retains unknown
+  panel-state records for future registration. Reset has a session undo; the latest 32 deleted
+  personal layouts can be restored. Invalid/future schemas are preserved; a valid previous file
+  can be used in memory and explicitly recovered with the rejected source retained.
+- `WorkspaceDocking` isolates ImGui's internal node API. It retains intended split ratios separately
+  from constrained displayed sizes, adapting the existing topology to the available dock content
+  rectangle. A single-node layout is valid. Loading clears retired window-settings offsets, so a
+  later save cannot resurrect duplicate entries with stale dock IDs. Disconnected-monitor recovery
+  moves only managed floating windows whose title bars are outside every available work area.
+- `WorkspaceStore` owns a named save thread under both threading policies. Immutable YAML strings
+  are coalesced and committed with `FileSystem::WriteFileAtomically`, a last-good file and
+  `FileSystem::TryLockFile` (OS lifetime lock). Comparing the expected disk revision under this lock
+  prevents concurrent editors overwriting changes; a conflict preserves this session in its own
+  recovery file. Shutdown flushes/joins before panel/logging teardown. Layouts stay machine-local.
+- Scene View is registered through `SceneViewPanel`, delegating specialized rendering to the
+  existing layer/viewport. `PropertiesPanel` delegates inspector drawing to `SceneHierarchyPanel`;
+  each window has independent visibility, focus and persistence. Legacy coupled visibility loads
+  into both windows. `Viewport::Hide` clears visible/focused/hovered state and deactivates the camera.
+- UI scaling registers logical font sizes and uses ImGui 1.92's dynamic per-viewport font baking.
+  `ImGuiLayer::UpdateUIScale` updates main-window metrics from an unscaled `ImGuiEx::DpiStyle`
+  baseline; `ScopedWindowScale` applies/restores detached panel metrics without accumulating
+  rounding. Window units, content scale and framebuffer pixels remain distinct. Linux keeps
+  platform viewports disabled. No workspace state enters `FrameRenderPacket` or runtime packs.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
 - `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo

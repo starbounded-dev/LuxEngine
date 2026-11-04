@@ -35,6 +35,7 @@
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Tools/GoldenCapture.h"
 #include "Viewport/Viewport.h"
+#include "Workspace/EditorWorkspaceManager.h"
 
 namespace Lux
 {
@@ -76,6 +77,7 @@ namespace Lux
 
 
 		void UI_DrawTitlebar();
+		void UI_DrawSceneView(bool& open);
 		void UI_DrawMenubar();
 		void UI_AboutPopup();
 		void UI_StartupSplashHandOff();
@@ -85,15 +87,7 @@ namespace Lux
 		void ToggleEntityBookmark();            // pins/unpins the current selection
 		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
 		void CreatePrefabFromSelection();       // saves the first selected entity as a .lprefab asset
-		void ResetDefaultDockLayout(ImGuiID dockspaceId);
-		void DockViewsWhereLegacyViewportWas();
 		void SetEditorLayoutMode(bool simple);
-		// Named layouts (View > Layouts): a folder per layout under <user data>/Layouts holding the
-		// window and docking settings (imgui.ini) and the panels' open state and remembered state.
-		std::vector<std::string> GetSavedLayouts() const;
-		void SaveLayout(const std::string& name);
-		void LoadLayout(const std::string& name);
-		void UI_SaveLayoutPopup();
 		void UI_TitlebarTransport(float titlebarWidth);
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();
@@ -236,6 +230,7 @@ namespace Lux
 		// Before m_PanelManager: ProjectSettingsWindow holds a reference to it.
 		RuntimeExport::RuntimeBuildJob m_RuntimeBuildJob;
 		Scope<PanelManager> m_PanelManager;
+		Scope<EditorWorkspaceManager> m_Workspaces;
 
 		bool m_VSync = true;
 		// Frames per second the main loop is paced to when VSync is off. 0 == unlimited.
@@ -381,12 +376,6 @@ namespace Lux
 		bool m_SimpleLayout = true;
 		// Frosted-glass backdrops behind popups and the translucent viewport overlays.
 		bool m_GlassOverlays = true;
-		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
-		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
-		bool m_PendingLayoutReset = false;
-		bool m_OpenSaveLayoutPopup = false;
-		char m_LayoutNameBuffer[64] = {};
-		bool m_LegacyViewportDockChecked = false;
 		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;
 		std::string m_RuntimeExportError;

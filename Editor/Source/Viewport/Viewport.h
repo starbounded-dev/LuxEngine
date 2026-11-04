@@ -198,6 +198,11 @@ namespace Lux
 		// True only when the viewport is the active, non-collapsed tab (false when another panel,
 		// e.g. Beam, is docked on top of it). Use this to gate the viewport overlays.
 		bool IsVisible() const { return m_Visible; }
+		void Hide()
+		{
+			m_Visible = m_Focused = m_Hovered = false;
+			m_Camera.SetActive(false);
+		}
 
 		DisplayMode GetDisplayMode() const { return m_DisplayMode; }
 		void SetDisplayMode(DisplayMode displayMode) { m_DisplayMode = displayMode; }

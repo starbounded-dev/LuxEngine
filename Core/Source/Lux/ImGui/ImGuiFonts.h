@@ -19,10 +19,8 @@ namespace Lux::ImGuiEx {
 	class Fonts
 	{
 	public:
-		// Multiplier applied to every FontConfiguration::Size at bake time, so glyphs are
-		// rasterised at the physical pixel size they will actually be drawn at on a HiDPI
-		// display. Must be set before any Add() call - the atlas is static, so sizes cannot
-		// change afterwards. See ImGuiLayer::OnAttach for how the value is derived.
+		// Multiplier for registered logical sizes, set before Add(). The editor uses 1:
+		// ImGui 1.92 dynamically bakes each viewport's requested physical font size.
 		static void SetScale(float scale);
 		static float GetScale();
 

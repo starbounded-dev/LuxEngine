@@ -1,6 +1,26 @@
 # The Editor at a Glance
 
-The editor is one window made of dockable panels. Drag a panel's tab to move it; **View → Reset Layout** puts everything back. To keep an arrangement, use **View → Layouts → Save Layout...** and give it a name; it then appears in **View → Layouts**, which switches to it, and **Delete Layout** removes it. A layout remembers where the panels are, which are open, and what some of them were showing (the open sections of Scene Renderer, the Help page). The editor also remembers all of this between sessions. Every panel can be shown or hidden from the **View** menu or found in the command palette (**Tools → Command Palette**, **Ctrl+Shift+P**).
+The editor is made of dockable panels. Use the workspace tabs below the titlebar to switch between
+**Layout**, **Shading**, **Audio**, **Scripting** and **Debugging**, or one of your personal layouts.
+Drag panel tabs and splitters to arrange your tools; the arrangement adapts when you resize the
+editor or move it between monitors.
+
+**Default layouts** are protected starting points. Changes to them last for this session. To keep
+an arrangement, click **Save as Personal Layout...**, enter a name and create your personal copy.
+**Personal layouts** remember their changes automatically and follow you between projects on this
+computer. Switching layouts keeps your scene, selection, open documents and unsaved work.
+
+Right-click a workspace tab to duplicate it, rename/delete a personal layout, or reset its
+arrangement. **View → Workspaces** also switches layouts, undoes the last reset and restores recently
+deleted personal layouts. The latest 32 deletions remain recoverable. Existing saved layouts are
+imported as personal layouts and their original files are kept.
+
+Use **View → Panels** to browse panel categories or search by name. Panels also appear in the command
+palette (**Tools → Command Palette**, **Ctrl+Shift+P**). Hierarchy, Properties, Scene View and Game
+View can each be opened or closed independently. A failed save is shown in the workspace status;
+**View → Workspaces** provides the error and retry/recovery actions. A damaged layout file is
+preserved, and a previous good version can be recovered explicitly. Scene and asset files are
+unaffected by layout recovery.
 
 ## The main panels
 
@@ -30,4 +50,4 @@ The buttons in the middle of the title bar control the scene:
 
 ## Undo
 
-**Ctrl+Z** undoes and **Ctrl+Shift+Z** (or **Ctrl+Y**) redoes edits to the scene and to settings. **View → History** lists the steps.
+**Ctrl+Z** undoes and **Ctrl+Shift+Z** (or **Ctrl+Y**) redoes edits to the scene and to settings. **View → Panels → Diagnostics → History** lists the steps.

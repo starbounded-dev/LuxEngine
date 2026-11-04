@@ -2,6 +2,8 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "EditorLayer.h"
+#include "Panels/PropertiesPanel.h"
+#include "Panels/SceneViewPanel.h"
 #include "RuntimeExportUtils.h"
 #include "ProjectTemplate.h"
 #include "ScriptTemplate.h"
@@ -446,6 +448,20 @@ namespace Lux {
 	void EditorLayer::OnAttach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
+#ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_WORKSPACES_SELFTEST"))
+		{
+			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_WORKSPACES_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = EditorWorkspaceManager::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			if (!FileSystem::WriteFileAtomically(directory.string() + ".status", report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish workspace self-test report");
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+#endif
 		// Explicit developer probe, before the first startup ImGui/render frame. It
 		// uses an isolated context and local settings; no user project is edited.
 		if (FileSystem::HasEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST"))
@@ -468,6 +484,8 @@ namespace Lux {
 		// come before the startup splash draws one; it keeps a pointer, hence the member string.
 		m_ImGuiIniPath = (FileSystem::GetPersistentStoragePath() / "imgui.ini").string();
 		ImGui::GetIO().IniFilename = m_ImGuiIniPath.c_str();
+		m_Workspaces = CreateScope<EditorWorkspaceManager>(FileSystem::GetPersistentStoragePath());
+		m_Workspaces->PrimeImGui();
 
 		m_StartupSplash = CreateScope<StartupSplash>();
 		StartupSplash::Report(0.05f, "Loading editor resources");
@@ -488,6 +506,7 @@ namespace Lux {
 		m_PanelManager = CreateScope<PanelManager>();
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
+		m_PanelManager->AddPanel<PropertiesPanel>(PanelCategory::View, "PropertiesPanel", "Properties", true, m_SceneHierarchyPanel);
 		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
 		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Beam", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
@@ -596,7 +615,7 @@ namespace Lux {
 		editorPreferencesBindings.Grid = &m_GridSettings;
 		editorPreferencesBindings.GamepadNavigation = &m_GamepadNavigation;
 		editorPreferencesBindings.GamepadNavigationDevice = &m_GamepadNavigationDevice;
-		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
+
 		editorPreferencesBindings.GlassOverlays = &m_GlassOverlays;
 		editorPreferencesBindings.OnLayoutModeChanged = [this](bool simple)
 			{
@@ -686,6 +705,8 @@ namespace Lux {
 
 		m_EditorViewport = Ref<Viewport>::Create("Scene View");
 		m_EditorViewport->Init(m_ActiveScene, fbSpec, sceneRendererSpec);
+		m_PanelManager->AddPanel<SceneViewPanel>(PanelCategory::View, "SceneViewPanel", "Scene View", true, m_EditorViewport, [this](bool& open) { UI_DrawSceneView(open); });
+		RegisterCommands();
 		m_Framebuffer = m_EditorViewport->GetFramebuffer();
 		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
 		m_SceneRenderer->GetOptions().ShowGrid = Application::Get().GetSettings().GetInt("Editor.ShowGrid", 1) != 0;
@@ -703,6 +724,8 @@ namespace Lux {
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
 		ApplyEditorPreferences();
+		m_Workspaces->Initialize(*m_PanelManager, m_SimpleLayout);
+		Application::Get().GetImGuiLayer()->SetBeforeFrameCallback([this]() { m_Workspaces->BeforeFrame(); });
 
 		if (contentBrowserPanel)
 		{
@@ -810,6 +833,9 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		m_GoldenCapture.reset();
 		SaveEditorPreferences();
+		Application::Get().GetImGuiLayer()->SetBeforeFrameCallback({});
+		if (m_Workspaces)
+			m_Workspaces->Shutdown();
 		if (m_PanelManager)
 			m_PanelManager->Serialize();
 
@@ -820,7 +846,7 @@ namespace Lux {
 		// io.IniFilename points into m_ImGuiIniPath, which dies with this layer, but ImGui saves its
 		// settings again when the ImGui overlay destroys the context afterwards. Save now, while the
 		// path is valid, and stop ImGui from reading the freed string later.
-		if (ImGui::GetCurrentContext() && !m_ImGuiIniPath.empty())
+		if (ImGui::GetCurrentContext() && !m_ImGuiIniPath.empty() && !m_Workspaces)
 		{
 			ImGui::SaveIniSettingsToDisk(m_ImGuiIniPath.c_str());
 			ImGui::GetIO().IniFilename = nullptr;
@@ -896,7 +922,7 @@ namespace Lux {
 		// capture every other frame and the camera could not fly or orbit.
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		const bool cameraWasCaptured = viewportCamera.IsMouseCaptured();
-		viewportCamera.SetActive(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured);
+		viewportCamera.SetActive(m_EditorViewport->IsVisible() && (m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured));
 
 		if (m_SceneRenderer)
 		{
@@ -983,6 +1009,7 @@ namespace Lux {
 	void EditorLayer::OnImGuiRender()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
+		m_Workspaces->SetEnabled(Project::GetActive() != nullptr);
 
 		// Must be called once per frame before any other ImGuizmo function.
 		// Without this, IsOver() / IsUsing() return stale state and Manipulate()
@@ -1028,9 +1055,7 @@ namespace Lux {
 		if (dockspaceVisible)
 		{
 			ImGuiIO& io = ImGui::GetIO();
-			ImGuiStyle& style = ImGui::GetStyle();
-			const float minWinSizeX = style.WindowMinSize.x;
-			style.WindowMinSize.x = 370.0f;
+			m_TitlebarHeight = 57.0f * ImGui::GetStyle()._MainScale;
 
 			UI_DrawTitlebar();
 			if (!isWindowMaximized)
@@ -1040,6 +1065,7 @@ namespace Lux {
 			}
 
 			ImGui::SetCursorPosY(m_TitlebarHeight);
+			ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
 			// No project open: an empty workspace with the splash over it (it cannot be dismissed until a
 			// project opens). The dockspace is kept alive without being drawn, so the saved layout is
@@ -1048,7 +1074,6 @@ namespace Lux {
 			{
 				if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 					ImGui::DockSpace(ImGui::GetID("MyDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
-				style.WindowMinSize.x = minWinSizeX;
 
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 				UI_AboutPopup();
@@ -1057,29 +1082,17 @@ namespace Lux {
 				return;
 			}
 
+			m_Workspaces->SetEnabled(Project::GetActive() != nullptr);
+			m_Workspaces->DrawTabs();
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
-				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
-				ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-
-				// DockSpace() creates the node as an unsplit leaf when imgui.ini had nothing saved
-				// for it; a node that's already split means a saved layout was restored, so this
-				// only ever fires on first run (or after the per-user imgui.ini is cleared).
-				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
-					ResetDefaultDockLayout(dockspace_id);
-				else
-					DockViewsWhereLegacyViewportWas();
-
-				// A layout-mode switch requested from a menu last frame is applied here, where the
-				// dockspace id is valid.
-				if (m_PendingLayoutReset)
-				{
-					ResetDefaultDockLayout(dockspace_id);
-					m_PendingLayoutReset = false;
-				}
+				const ImGuiID dockspace = ImGui::GetID("MyDockSpace");
+				m_Workspaces->DrawDockSpace(dockspace, ImGui::GetContentRegionAvail());
 			}
-			style.WindowMinSize.x = minWinSizeX;
 
+			if (m_FocusSceneViewRequested)
+				m_PanelManager->SetOpen(Hash::GenerateFNVHash("SceneViewPanel"), true);
+			Application::Get().GetImGuiLayer()->AllowInputEvents(false);
 			m_PanelManager->OnImGuiRender();
 
 			// After the panels have drawn (and possibly signalled an edit), decide whether to record
@@ -1121,175 +1134,178 @@ namespace Lux {
 
 			if (m_SplashScreen)
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
-
-			// Scene View panel
-			if (m_FocusSceneViewRequested)
-			{
-				ImGui::SetNextWindowFocus();
-				m_FocusSceneViewRequested = false;
-			}
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
-			const bool viewportReady = m_EditorViewport && m_EditorViewport->BeginImGui();
-			if (m_EditorViewport)
-			{
-				Application::Get().GetImGuiLayer()->AllowInputEvents(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
-
-				if (viewportReady)
-				{
-					const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-					const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
-
-					Ref<Image2D> viewportImage = m_EditorViewport->GetDisplayImage();
-					bool renderedViewportImage = false;
-					if (viewportImage)
-					{
-						// Draw into the letterboxed rect rather than filling the panel, so a render
-						// whose aspect differs from the panel (a fixed 1920x1080 target on a 4K or
-						// ultrawide viewport) keeps its framing instead of being stretched. The
-						// panel background shows through as the bars.
-						const glm::vec2* imageBounds = m_EditorViewport->GetImageBounds();
-						const glm::vec2 imageSize = m_EditorViewport->GetImageSize();
-						const ImVec2 cursor = ImGui::GetCursorPos();
-						ImGui::SetCursorPos(ImVec2{
-							cursor.x + (imageBounds[0].x - viewportBounds[0].x),
-							cursor.y + (imageBounds[0].y - viewportBounds[0].y) });
-
-						ImTextureID texID = GetImGuiTextureID(viewportImage);
-						ImGui::Image(texID, ImVec2{ imageSize.x, imageSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
-						renderedViewportImage = true;
-					}
-
-					if (renderedViewportImage && ImGui::BeginDragDropTarget())
-					{
-						if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-						{
-							AssetHandle handle = *(AssetHandle*)payload->Data;
-							const AssetType assetType = AssetManager::GetAssetType(handle);
-							if (assetType == AssetType::Scene)
-							{
-								OpenScene(handle);
-							}
-							else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
-							{
-								std::string entityName = "Static Mesh";
-								if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
-								{
-									const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
-									if (metadata.IsValid() && !metadata.FilePath.empty())
-										entityName = metadata.FilePath.stem().string();
-								}
-
-								Entity entity = m_ActiveScene->CreateEntity(entityName);
-								auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
-								staticMesh.StaticMesh = handle;
-
-								if (m_SceneHierarchyPanel)
-									m_SceneHierarchyPanel->SetSelectedEntity(entity);
-							}
-						}
-						ImGui::EndDragDropTarget();
-					}
-
-					if (m_EditorViewport->IsHovered())
-						m_HoveredEntity = CastMousePick();
-					else
-						m_HoveredEntity = {};
-
-					UI_ViewportPerformanceHUD();
-					UI_AcousticMaterialLegend();
-					UI_RoomAcousticsReadout();
-
-					// Gizmos
-					Entity selectedEntity = {};
-					if (m_SceneHierarchyPanel)
-						selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-					// Folders have no user-editable transform, so they get no gizmo.
-					if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
-					{
-						ImGuizmo::SetOrthographic(false);
-						ImGuizmo::SetDrawlist();
-						// The image rect, not the panel rect - the gizmo has to line up with the
-						// rendered image, which is inset by the letterbox bars when the render
-						// aspect differs from the panel's.
-						const glm::vec2* gizmoBounds = m_EditorViewport->GetImageBounds();
-						const glm::vec2 gizmoSize = m_EditorViewport->GetImageSize();
-						ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
-
-						glm::mat4 cameraView, cameraProjection;
-						GetViewportCameraMatrices(cameraView, cameraProjection);
-
-						auto& tc = selectedEntity.GetComponent<TransformComponent>();
-						glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
-
-						const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-						bool snap = m_UseGizmoSnap || controlSnap;
-						float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
-							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
-						float snapValues[3] = { snapValue, snapValue, snapValue };
-
-						ImGuizmo::Manipulate(
-							glm::value_ptr(cameraView),
-							glm::value_ptr(cameraProjection),
-							(ImGuizmo::OPERATION)m_GizmoType,
-							ImGuizmo::LOCAL,
-							glm::value_ptr(transform),
-							nullptr,
-							snap ? snapValues : nullptr);
-
-						if (ImGuizmo::IsUsing())
-						{
-							glm::vec3 translation, scale;
-							glm::quat rotationQuat;
-							bool parentInvertible = true;
-							if (Entity parent = selectedEntity.GetParent())
-							{
-								const glm::mat4 parentTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(parent);
-								const float determinant = glm::determinant(parentTransform);
-								parentInvertible = determinant != 0.0f && std::isfinite(determinant);
-								if (parentInvertible)
-									transform = glm::inverse(parentTransform) * transform;
-							}
-							if (parentInvertible && Math::DecomposeTransform(transform, translation, rotationQuat, scale))
-							{
-								tc.Translation = translation;
-								tc.SetRotationEuler(glm::eulerAngles(rotationQuat));
-								tc.Scale = scale;
-							}
-							else if (!m_GizmoWasUsing)
-							{
-								LUX_CORE_ERROR_TAG("Editor", "Cannot edit entity {}: gizmo or parent transform is singular", selectedEntity.Name());
-							}
-						}
-
-						// Record one undo step when a gizmo drag finishes (the transform is mutated above
-						// but not through a property widget, so it doesn't raise the ImGuiEx signal).
-						const bool gizmoUsing = ImGuizmo::IsUsing();
-						if (m_GizmoWasUsing && !gizmoUsing)
-						{
-							const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
-								: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
-							EditorStack::Get().MarkEntitiesEdited({ selectedEntity.GetUUID() }, gizmoLabel);
-						}
-						m_GizmoWasUsing = gizmoUsing;
-					}
-				}
-
-				m_EditorViewport->EndImGui();
-			}
-			ImGui::PopStyleVar();
-
-			// Gizmo tools + transport live in the titlebar. The other viewport overlays only show
-			// while the viewport is the visible tab, so they never sit over Beam.
-			if (m_EditorViewport->IsVisible())
-			{
-				UI_ViewportSettings();
-				UI_ViewportOrientationGizmo();
-				UI_ViewportSelectionBadge();
-			}
 		}
 
 		ImGui::End(); // Lux Editor
 		UI_StartupSplashHandOff();
+	}
+
+	void EditorLayer::UI_DrawSceneView(bool& open)
+	{
+		// Scene View panel
+		if (m_FocusSceneViewRequested)
+		{
+			ImGui::SetNextWindowFocus();
+			m_FocusSceneViewRequested = false;
+		}
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
+		const bool viewportReady = m_EditorViewport && m_EditorViewport->BeginImGui(&open);
+		if (m_EditorViewport)
+		{
+			Application::Get().GetImGuiLayer()->AllowInputEvents(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
+
+			if (viewportReady)
+			{
+				const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+				const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+
+				Ref<Image2D> viewportImage = m_EditorViewport->GetDisplayImage();
+				bool renderedViewportImage = false;
+				if (viewportImage)
+				{
+					// Draw into the letterboxed rect rather than filling the panel, so a render
+					// whose aspect differs from the panel (a fixed 1920x1080 target on a 4K or
+					// ultrawide viewport) keeps its framing instead of being stretched. The
+					// panel background shows through as the bars.
+					const glm::vec2* imageBounds = m_EditorViewport->GetImageBounds();
+					const glm::vec2 imageSize = m_EditorViewport->GetImageSize();
+					const ImVec2 cursor = ImGui::GetCursorPos();
+					ImGui::SetCursorPos(ImVec2{
+						cursor.x + (imageBounds[0].x - viewportBounds[0].x),
+						cursor.y + (imageBounds[0].y - viewportBounds[0].y) });
+
+					ImTextureID texID = GetImGuiTextureID(viewportImage);
+					ImGui::Image(texID, ImVec2{ imageSize.x, imageSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
+					renderedViewportImage = true;
+				}
+
+				if (renderedViewportImage && ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						AssetHandle handle = *(AssetHandle*)payload->Data;
+						const AssetType assetType = AssetManager::GetAssetType(handle);
+						if (assetType == AssetType::Scene)
+						{
+							OpenScene(handle);
+						}
+						else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
+						{
+							std::string entityName = "Static Mesh";
+							if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+							{
+								const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
+								if (metadata.IsValid() && !metadata.FilePath.empty())
+									entityName = metadata.FilePath.stem().string();
+							}
+
+							Entity entity = m_ActiveScene->CreateEntity(entityName);
+							auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
+							staticMesh.StaticMesh = handle;
+
+							if (m_SceneHierarchyPanel)
+								m_SceneHierarchyPanel->SetSelectedEntity(entity);
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				if (m_EditorViewport->IsHovered())
+					m_HoveredEntity = CastMousePick();
+				else
+					m_HoveredEntity = {};
+
+				UI_ViewportPerformanceHUD();
+				UI_AcousticMaterialLegend();
+				UI_RoomAcousticsReadout();
+
+				// Gizmos
+				Entity selectedEntity = {};
+				if (m_SceneHierarchyPanel)
+					selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+				// Folders have no user-editable transform, so they get no gizmo.
+				if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
+				{
+					ImGuizmo::SetOrthographic(false);
+					ImGuizmo::SetDrawlist();
+					// The image rect, not the panel rect - the gizmo has to line up with the
+					// rendered image, which is inset by the letterbox bars when the render
+					// aspect differs from the panel's.
+					const glm::vec2* gizmoBounds = m_EditorViewport->GetImageBounds();
+					const glm::vec2 gizmoSize = m_EditorViewport->GetImageSize();
+					ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
+
+					glm::mat4 cameraView, cameraProjection;
+					GetViewportCameraMatrices(cameraView, cameraProjection);
+
+					auto& tc = selectedEntity.GetComponent<TransformComponent>();
+					glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
+
+					const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+					bool snap = m_UseGizmoSnap || controlSnap;
+					float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
+						: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
+					float snapValues[3] = { snapValue, snapValue, snapValue };
+
+					ImGuizmo::Manipulate(
+						glm::value_ptr(cameraView),
+						glm::value_ptr(cameraProjection),
+						(ImGuizmo::OPERATION)m_GizmoType,
+						ImGuizmo::LOCAL,
+						glm::value_ptr(transform),
+						nullptr,
+						snap ? snapValues : nullptr);
+
+					if (ImGuizmo::IsUsing())
+					{
+						glm::vec3 translation, scale;
+						glm::quat rotationQuat;
+						bool parentInvertible = true;
+						if (Entity parent = selectedEntity.GetParent())
+						{
+							const glm::mat4 parentTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(parent);
+							const float determinant = glm::determinant(parentTransform);
+							parentInvertible = determinant != 0.0f && std::isfinite(determinant);
+							if (parentInvertible)
+								transform = glm::inverse(parentTransform) * transform;
+						}
+						if (parentInvertible && Math::DecomposeTransform(transform, translation, rotationQuat, scale))
+						{
+							tc.Translation = translation;
+							tc.SetRotationEuler(glm::eulerAngles(rotationQuat));
+							tc.Scale = scale;
+						}
+						else if (!m_GizmoWasUsing)
+						{
+							LUX_CORE_ERROR_TAG("Editor", "Cannot edit entity {}: gizmo or parent transform is singular", selectedEntity.Name());
+						}
+					}
+
+					// Record one undo step when a gizmo drag finishes (the transform is mutated above
+					// but not through a property widget, so it doesn't raise the ImGuiEx signal).
+					const bool gizmoUsing = ImGuizmo::IsUsing();
+					if (m_GizmoWasUsing && !gizmoUsing)
+					{
+						const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
+							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
+						EditorStack::Get().MarkEntitiesEdited({ selectedEntity.GetUUID() }, gizmoLabel);
+					}
+					m_GizmoWasUsing = gizmoUsing;
+				}
+			}
+
+			m_EditorViewport->EndImGui();
+		}
+		ImGui::PopStyleVar();
+
+		// Gizmo tools + transport live in the titlebar. The other viewport overlays only show
+		// while the viewport is the visible tab, so they never sit over Beam.
+		if (m_EditorViewport->IsVisible())
+		{
+			UI_ViewportSettings();
+			UI_ViewportOrientationGizmo();
+			UI_ViewportSelectionBadge();
+		}
 	}
 
 	void EditorLayer::UI_StartupSplashHandOff()
@@ -1325,87 +1341,10 @@ namespace Lux {
 		}
 	}
 
-	void EditorLayer::ResetDefaultDockLayout(ImGuiID dockspaceId)
-	{
-		ImGui::DockBuilderRemoveNode(dockspaceId);
-		ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-		ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->Size);
-
-		ImGuiID center = dockspaceId;
-		const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
-		const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-		const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, nullptr, &center);
-
-		// Core panels, present in both layouts.
-		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
-		ImGui::DockBuilderDockWindow("Properties", right);
-		ImGui::DockBuilderDockWindow("Content Browser", bottom);
-		ImGui::DockBuilderDockWindow("Log", bottom);
-		ImGui::DockBuilderDockWindow("Scene View", center);
-		ImGui::DockBuilderDockWindow("Game View", center);
-		ImGui::DockBuilderDockWindow("Beam", center);
-
-		// Advanced mode fills out the workspace with the diagnostic panels: a left-bottom group
-		// under the hierarchy (Scene Renderer / Light Settings / Profiler) and the Renderer
-		// Debugger tabbed into the bottom dock. In Simple mode these stay closed (see
-		// SetEditorLayoutMode) and are absent from the default arrangement.
-		if (!m_SimpleLayout)
-		{
-			const ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f, nullptr, nullptr);
-			ImGui::DockBuilderDockWindow("Scene Renderer", leftBottom);
-			ImGui::DockBuilderDockWindow("Light Settings", leftBottom);
-			ImGui::DockBuilderDockWindow("Profiler", leftBottom);
-			ImGui::DockBuilderDockWindow("Renderer Debugger", bottom);
-			// Given a home next to the Renderer Debugger, but deliberately left out of
-			// s_AdvancedPanels below: it stays closed until the user opens it from the View menu.
-			ImGui::DockBuilderDockWindow("Audio Debugger", bottom);
-		}
-
-		ImGui::DockBuilderFinish(dockspaceId);
-	}
-
-	void EditorLayer::DockViewsWhereLegacyViewportWas()
-	{
-		if (m_LegacyViewportDockChecked)
-			return;
-		m_LegacyViewportDockChecked = true;
-
-		// The Scene View was called "Viewport" before the Game View existed, so a layout saved back
-		// then knows neither window and they would open floating. Dock both where the old viewport
-		// was. A window the saved layout already has is left where the user put it.
-		const ImGuiWindowSettings* legacyViewport = ImGui::FindWindowSettingsByID(ImHashStr("Viewport"));
-		if (!legacyViewport || legacyViewport->DockId == 0 || !ImGui::DockBuilderGetNode(legacyViewport->DockId))
-			return;
-
-		for (const char* windowName : { "Scene View", "Game View" })
-		{
-			if (!ImGui::FindWindowSettingsByID(ImHashStr(windowName)))
-				ImGui::DockBuilderDockWindow(windowName, legacyViewport->DockId);
-		}
-	}
-
 	void EditorLayer::SetEditorLayoutMode(bool simple)
 	{
 		m_SimpleLayout = simple;
-
-		// The advanced-only panels follow the mode: opened when entering Advanced, closed when
-		// returning to Simple. Everything else keeps whatever the user set.
-		static const char* const s_AdvancedPanels[] = { "Scene Renderer", "Light Settings", "Profiler", "Renderer Debugger" };
-		auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
-		for (auto& [id, panelData] : viewPanels)
-		{
-			for (const char* advancedName : s_AdvancedPanels)
-			{
-				if (std::strcmp(panelData.Name, advancedName) == 0)
-				{
-					panelData.IsOpen = !simple;
-					break;
-				}
-			}
-		}
-
-		SaveEditorPreferences();
-		m_PendingLayoutReset = true;
+		m_Workspaces->RequestDefault(simple);
 	}
 
 	void EditorLayer::RegisterCommands()
@@ -1445,7 +1384,7 @@ namespace Lux {
 		add("Stop", "Scene", "", [this] { OnSceneStop(); }, [this] { return m_SceneState != SceneState::Edit; });
 
 		// View
-		add("Reset Window Layout", "View", "", [this] { ResetDefaultDockLayout(ImGui::GetID("MyDockSpace")); });
+		add("Reset Window Layout", "View", "", [this] { m_Workspaces->RequestReset(); });
 		add("Bookmark Selected Entity", "View", "Ctrl+B", [this] { ToggleEntityBookmark(); },
 			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
 		add("Create Prefab from Selection", "Edit", "", [this] { CreatePrefabFromSelection(); },
@@ -1681,33 +1620,10 @@ namespace Lux {
 			if (ImGui::BeginMenu("View"))
 			{
 				if (ImGui::MenuItem("Reset Layout"))
-					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
-
-				if (ImGui::BeginMenu("Layouts"))
+					m_Workspaces->RequestReset();
+				if (ImGui::BeginMenu("Workspaces"))
 				{
-					const std::vector<std::string> layouts = GetSavedLayouts();
-					for (const std::string& layout : layouts)
-					{
-						if (ImGui::MenuItem(layout.c_str()))
-							LoadLayout(layout);
-					}
-					if (layouts.empty())
-						ImGui::MenuItem("No saved layouts", nullptr, false, false);
-					ImGui::Separator();
-					if (ImGui::MenuItem("Save Layout..."))
-						m_OpenSaveLayoutPopup = true;
-					if (ImGui::BeginMenu("Delete Layout", !layouts.empty()))
-					{
-						for (const std::string& layout : layouts)
-						{
-							if (ImGui::MenuItem(layout.c_str()))
-							{
-								std::error_code error;
-								std::filesystem::remove_all(FileSystem::GetPersistentStoragePath() / "Layouts" / layout, error);
-							}
-						}
-						ImGui::EndMenu();
-					}
+					m_Workspaces->DrawMenu();
 					ImGui::EndMenu();
 				}
 
@@ -1766,9 +1682,11 @@ namespace Lux {
 
 				ImGui::Separator();
 
-				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
-				for (auto& [id, panelData] : viewPanels)
-					ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
+				if (ImGui::BeginMenu("Panels"))
+				{
+					m_Workspaces->DrawPanelsMenu();
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenu();
 			}
 
@@ -1806,90 +1724,6 @@ namespace Lux {
 
 		ImGui::EndGroup();
 
-		UI_SaveLayoutPopup();
-	}
-
-	std::vector<std::string> EditorLayer::GetSavedLayouts() const
-	{
-		std::vector<std::string> layouts;
-		std::error_code error;
-		for (const auto& entry : std::filesystem::directory_iterator(FileSystem::GetPersistentStoragePath() / "Layouts", error))
-		{
-			if (entry.is_directory() && std::filesystem::exists(entry.path() / "imgui.ini"))
-				layouts.push_back(entry.path().filename().string());
-		}
-		std::ranges::sort(layouts);
-		return layouts;
-	}
-
-	void EditorLayer::SaveLayout(const std::string& name)
-	{
-		const std::filesystem::path directory = FileSystem::GetPersistentStoragePath() / "Layouts" / name;
-		std::error_code error;
-		std::filesystem::create_directories(directory, error);
-		if (error)
-		{
-			LUX_CONSOLE_LOG_ERROR("Couldn't save layout '{}': {}", name, error.message());
-			return;
-		}
-
-		ImGui::SaveIniSettingsToDisk((directory / "imgui.ini").string().c_str());
-		m_PanelManager->Serialize(directory / "Panels.yaml");
-		LUX_CONSOLE_LOG_INFO("Saved layout '{}'", name);
-	}
-
-	void EditorLayer::LoadLayout(const std::string& name)
-	{
-		const std::filesystem::path directory = FileSystem::GetPersistentStoragePath() / "Layouts" / name;
-		std::ifstream ini(directory / "imgui.ini", std::ios::binary);
-		if (!ini)
-		{
-			LUX_CONSOLE_LOG_ERROR("Layout '{}' is missing its imgui.ini", name);
-			return;
-		}
-
-		ImGuiLayer::QueueIniSettingsLoad(std::string(std::istreambuf_iterator<char>(ini), {}));
-		if (std::filesystem::exists(directory / "Panels.yaml"))
-			m_PanelManager->Deserialize(directory / "Panels.yaml");
-	}
-
-	void EditorLayer::UI_SaveLayoutPopup()
-	{
-		if (m_OpenSaveLayoutPopup)
-		{
-			ImGui::OpenPopup("Save Layout");
-			m_OpenSaveLayoutPopup = false;
-		}
-
-		if (!ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-			return;
-
-		if (ImGui::IsWindowAppearing())
-			ImGui::SetKeyboardFocusHere();
-		const bool entered = ImGui::InputText("Name", m_LayoutNameBuffer, sizeof(m_LayoutNameBuffer), ImGuiInputTextFlags_EnterReturnsTrue);
-
-		// The name is a folder name: no path separators or characters Windows rejects.
-		std::string name = m_LayoutNameBuffer;
-		std::erase_if(name, [](char c) { return std::string_view("<>:\"/\\|?*").find(c) != std::string_view::npos || static_cast<unsigned char>(c) < 32; });
-		while (!name.empty() && (name.back() == ' ' || name.back() == '.'))
-			name.pop_back();
-		const bool exists = !name.empty() && std::filesystem::exists(FileSystem::GetPersistentStoragePath() / "Layouts" / name);
-		if (exists)
-			ImGui::TextDisabled("Replaces the saved layout '%s'.", name.c_str());
-
-		ImGui::BeginDisabled(name.empty());
-		const bool save = ImGui::Button("Save") || (entered && !name.empty());
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
-			ImGui::CloseCurrentPopup();
-		if (save)
-		{
-			SaveLayout(name);
-			m_LayoutNameBuffer[0] = '\0';
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
 	}
 
 	void EditorLayer::UI_DrawTitlebar()
@@ -1921,7 +1755,7 @@ namespace Lux {
 		const float markSize = 15.0f; // a multiple of 3 keeps every cell of the 3x3 mark on whole pixels
 		const float markCY = windowPos.y + m_TitlebarHeight * 0.5f;
 		ImGuiEx::Draw::LuxMark(drawList, ImVec2(markX, markCY - markSize * 0.5f), markSize, Colors::Theme::textBrighter, Colors::Brand::lux);
-		const float fontScale = ImGuiEx::Fonts::GetScale();
+		const float fontScale = ImGui::GetStyle()._MainScale;
 		ImFont* displayFont = ImGuiEx::Fonts::Get("Display");
 		const float wordmarkSize = 17.0f * fontScale;
 		const char* wordmarkText = "LUX";
@@ -1932,7 +1766,9 @@ namespace Lux {
 		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		const float menuBarX = wordmarkX + wordmarkSizeVec.x + 18.0f;
+		// Cursor and native hit-test rectangles are window-local. The wordmark's
+		// draw-list position is desktop-relative when platform viewports are enabled.
+		const float menuBarX = wordmarkX - windowPos.x + wordmarkSizeVec.x + 18.0f;
 		const float iconWidth = 14.0f;
 		const float iconHeight = 14.0f;
 		const float buttonWidth = 46.0f;
@@ -4217,7 +4053,7 @@ namespace Lux {
 		if (m_PendingRuntimeExport && !ImGui::IsPopupOpen(s_RuntimeExportPopupID))
 			ImGui::OpenPopup(s_RuntimeExportPopupID);
 
-		const float scale = ImGuiEx::Fonts::GetScale();
+		const float scale = ImGui::GetStyle()._MainScale;
 		const ImGuiViewport* viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 		ImGui::SetNextWindowSize(ImVec2(k_ExportOverlayWidth * scale, 0.0f), ImGuiCond_Always);
@@ -5819,6 +5655,7 @@ namespace Lux {
 		if (m_ConsolePanel)
 			m_ConsolePanel->OnScenePlay();
 
+		m_Workspaces->BeginPlay();
 		SuspendRendererDebugViewsForPlay();
 		m_SceneState = SceneState::Play;
 
@@ -5915,7 +5752,7 @@ namespace Lux {
 		if (restoreDebugViews)
 		{
 			RestoreRendererDebugViewsAfterPlay();
-			m_FocusSceneViewRequested = true;   // back to editing, where Play brought the Game View forward
+			m_FocusSceneViewRequested = m_Workspaces->EndPlay();
 		}
 
 		if (m_SceneRendererPanel)

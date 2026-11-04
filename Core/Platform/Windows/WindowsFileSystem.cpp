@@ -19,6 +19,29 @@
 
 namespace Lux {
 
+	namespace
+	{
+		class WindowsFileLock final : public FileLock
+		{
+		public:
+			explicit WindowsFileLock(HANDLE handle) : m_Handle(handle) {}
+			~WindowsFileLock() override { CloseHandle(m_Handle); }
+		private:
+			HANDLE m_Handle;
+		};
+	}
+
+	Scope<FileLock> FileSystem::TryLockFile(const std::filesystem::path& path)
+	{
+		HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (handle == INVALID_HANDLE_VALUE)
+		{
+			LUX_CORE_ERROR_TAG("FileSystem", "Cannot lock '{}': Windows error {}", path.string(), GetLastError());
+			return nullptr;
+		}
+		return CreateScope<WindowsFileLock>(handle);
+	}
+
 	static std::filesystem::path s_PersistentStoragePath;
 
 	bool FileSystem::ReplaceFileAtomically(const std::filesystem::path& replacement, const std::filesystem::path& destination)
@@ -86,6 +109,12 @@ namespace Lux {
 	{
 		if (!s_PersistentStoragePath.empty())
 			return s_PersistentStoragePath;
+		if (const char* directory = std::getenv("LUX_USER_DATA_DIR"); directory && directory[0])
+		{
+			s_PersistentStoragePath = directory;
+			std::filesystem::create_directories(s_PersistentStoragePath);
+			return s_PersistentStoragePath;
+		}
 
 		// No logging or asserts here: the editor calls this before Log::Init, since its log folder
 		// lives under this path. Falls back like the Linux implementation.

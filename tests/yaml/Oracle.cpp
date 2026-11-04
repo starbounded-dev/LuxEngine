@@ -497,7 +497,8 @@ namespace
 
 		// Writer: style C, exact round-trip of values, determinism.
 		const std::vector<std::string> strings = { "", "~", "null", "Null", "NULL", "a: b", "#hash", " lead", "trail ",
-			"multi\nline", "true", "123", "-", "[x]", "{y}", "'q'", "\"dq\"", "tab\there", "unicode é" };
+			"multi\nline", "nested:\n  value: text\n", "[Docking][Data]\nDockSpace ID=0x01\n  DockNode ID=0x02\n\n",
+			"line\r\n\tindented\r\n", "true", "123", "-", "[x]", "{y}", "'q'", "\"dq\"", "tab\there", "unicode é" };
 		auto write = [&]
 		{
 			Yaml::Writer out;

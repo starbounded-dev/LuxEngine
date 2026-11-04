@@ -190,6 +190,14 @@ sees `IsRunning() == false` and returns.
 
 ## JobSystem
 
+**Workspace persistence:** `Editor/Source/Workspace/WorkspaceStore` owns a named `Lux::Thread`
+("Workspace Save") even under `SingleThreaded`. Main captures ImGui/panel state and passes an owned
+immutable YAML string; the writer coalesces revisions, acquires an OS file lock, checks for external
+changes and atomically publishes the file. It never reads ImGui, panels, Project, scenes or assets.
+The store flushes pending work and joins before its owner and logging are destroyed. A job is not
+used because Single would execute disk I/O inline. Workspace capture/restore runs only on main;
+the `ImGuiLayer` pre-frame callback must be cleared before the manager is shut down.
+
 `Core/Source/Lux/Core/JobSystem.h`. A small fork-join pool for data-parallel engine work,
 deliberately separate from the render thread (which owns GPU submission) and from Jolt's internal
 physics pool.

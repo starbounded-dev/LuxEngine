@@ -27,6 +27,10 @@ namespace Lux {
 
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnEvent(Event& e) override;
+		void OnPropertiesImGuiRender(bool& isOpen);
+		void OnPropertiesEvent(Event& event);
+		void OnPropertiesClosed() { m_IsPropertiesFocused = false; }
+		void OnClose() override { m_IsHierarchyFocused = false; }
 
 		Entity GetSelectedEntity() const;
 		std::vector<Entity> GetSelectedEntities() const;
@@ -60,7 +64,7 @@ namespace Lux {
 		SelectionContext m_SelectionContext = SelectionContext::Scene;
 		bool m_IsWindow = true;
 		bool m_IsHierarchyFocused = false;
-		bool m_IsHierarchyOrPropertiesFocused = false;
+		bool m_IsPropertiesFocused = false;
 		bool m_ActivateSearchWidget = false;
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;

@@ -138,13 +138,13 @@ namespace Lux {
 
 		ImVec2 MeasureText(const char* font, float size, const char* text, float wrapWidth = 0.0f)
 		{
-			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), S(size));
+			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), size);
 			return ImGui::CalcTextSize(text, nullptr, false, wrapWidth > 0.0f ? wrapWidth : -1.0f);
 		}
 
 		void DrawText(ImDrawList* drawList, const char* font, float size, ImVec2 pos, ImU32 colour, const char* text, float wrapWidth = 0.0f)
 		{
-			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), S(size));
+			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), size);
 			drawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(), pos, colour, text, nullptr, wrapWidth);
 		}
 
@@ -250,7 +250,7 @@ namespace Lux {
 		// `width` is in scaled pixels.
 		bool Field(const char* id, char* buffer, size_t bufferSize, float width, const char* hint, const char* font, float fontSize, ImGuiInputTextFlags flags = 0)
 		{
-			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), S(fontSize));
+			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), fontSize);
 			const float padY = std::max(0.0f, (S(k_FieldHeight) - ImGui::GetFontSize()) * 0.5f);
 			ImGuiEx::ScopedStyleStack style(ImGuiStyleVar_FramePadding, ImVec2(S(12.0f), padY), ImGuiStyleVar_FrameRounding, S(k_ControlRounding), ImGuiStyleVar_FrameBorderSize, 1.0f);
 			ImGuiEx::ScopedColourStack colours(ImGuiCol_FrameBg, Theme::propertyField, ImGuiCol_Border, Theme::borderSubtle, ImGuiCol_Text, Theme::textBrighter);
@@ -327,7 +327,7 @@ namespace Lux {
 		if (!m_Open)
 			return;
 
-		s_UiScale = ImGuiEx::Fonts::GetScale();
+		s_UiScale = ImGui::GetStyle()._MainScale;
 
 		const ImGuiViewport* viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -619,7 +619,7 @@ namespace Lux {
 
 		const float localTop = ImGui::GetCursorPosY();
 		{
-			ImGuiEx::ScopedFont font(ImGuiEx::Fonts::Get("Default"), S(k_NoteSize));
+			ImGuiEx::ScopedFont font(ImGuiEx::Fonts::Get("Default"), k_NoteSize);
 			ImGuiEx::ScopedStyleStack style(ImGuiStyleVar_FramePadding, S(3.0f, 3.0f), ImGuiStyleVar_FrameRounding, S(4.0f), ImGuiStyleVar_FrameBorderSize, 1.0f, ImGuiStyleVar_ItemInnerSpacing, S(8.0f, 0.0f));
 			ImGuiEx::ScopedColourStack colours(ImGuiCol_FrameBg, Theme::propertyField, ImGuiCol_Border, Theme::muted, ImGuiCol_CheckMark, Theme::accent, ImGuiCol_Text, Theme::text);
 			const float checkboxY = localTop + (S(k_FooterHeight) - ImGui::GetFrameHeight()) * 0.5f;

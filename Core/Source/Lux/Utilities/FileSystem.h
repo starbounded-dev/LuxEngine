@@ -22,6 +22,12 @@
 
 namespace Lux {
 
+	class FileLock
+	{
+	public:
+		virtual ~FileLock() = default;
+	};
+
 	enum class FileStatus
 	{
 		Success = 0, Invalid, Locked, OtherError
@@ -43,6 +49,9 @@ namespace Lux {
 		// mid-save leaves the previous file intact. Text mode keeps the platform's line endings.
 		// False, logged, on any failure.
 		static bool WriteFileAtomically(const std::filesystem::path& path, std::string_view text, bool binary = false);
+		// Non-blocking cross-process lock, released by destruction (and by the OS on a crash).
+		// The lock file remains; its existence does not imply that a process holds the lock.
+		static Scope<FileLock> TryLockFile(const std::filesystem::path& path);
 		// One std::system argument. /bin/sh: single-quoted, so $() and backticks stay literal.
 		// Windows: double-quoted; throws std::invalid_argument for " % ! or newlines, which cmd.exe
 		// would expand or misparse even inside quotes.

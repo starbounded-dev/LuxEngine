@@ -398,6 +398,14 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_USER_DATA_DIR` — optional complete per-user storage override on Windows/Linux; use a new
+  directory for editor verification so settings, layouts and logs never touch real preferences.
+- `LUX_WORKSPACES_SELFTEST` — Debug/Release editor-only workspace fixture directory, which must
+  not already exist. Runs production layout lifecycle/persistence tests in a separate ImGui context,
+  writes `<directory>.status`, then exits normally. `python tests/editor/run_workspace_smoke.py`
+  drives Single and Multi launches. `python tests/editor/run_workspaces.py` exercises docking/DPI
+  against the vendored ImGui without a GPU.
+
 - `LUX_DIR` — repo root. Set by `Setup.py` via `setx` on Windows; derived from the script location
   on Linux.
 - `VULKAN_SDK` — used if set, otherwise the vendored `Core/vendor/VulkanSDK/x86_64` on Linux.
