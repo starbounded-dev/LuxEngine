@@ -69,11 +69,13 @@ TEXTURE_SETS = (
 CHECKERBOARD_TEXTURE = 4617627115470858524
 LOGO_TEXTURE = 3523050505664199236
 
-# The Sounds the scene plays (Assets/Audio/Sounds/Fart.lsound and Music.lsound).
+# Sounds under Assets/Audio/Sounds/: Fart, spatial Music and the 2D MusicBed.
 SOUND_FART = "9117899157295655424"
 SOUND_MUSIC = "8743721474366396702"
+SOUND_MUSIC_BED = "8743721474366396703"
 # Assets/Audio/Banks/AudioDemo.lbank: both Sounds, loaded with the scene.
 SOUND_BANK_DEMO = "8412860126786977355"
+SOUND_BANK_BENCHMARK = "8412860126786977356"
 
 # Stable id ranges: generated materials and scene entities never collide with editor-made UUIDs
 # in practice, and regenerating keeps every reference valid.
@@ -525,7 +527,7 @@ def add_plaza(scene: Scene, specials: dict[str, int], field_materials: list[int]
 	scene.count("audio sources")
 
 	music = scene.entity("Music Director", (0.0, 4.0, 0.0), parent=plaza)
-	music.add("MusicDirectorComponent", [*event_ref("Event", SOUND_MUSIC), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
+	music.add("MusicDirectorComponent", [*event_ref("Event", SOUND_MUSIC_BED), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
 
 	for i in range(12):
 		angle = i / 12.0 * math.tau
@@ -940,7 +942,7 @@ def main() -> None:
 	update_registry(materials)
 
 	scene = Scene("Benchmark")
-	scene.sound_banks = [SOUND_BANK_DEMO]
+	scene.sound_banks = [SOUND_BANK_DEMO, SOUND_BANK_BENCHMARK]
 	add_environment(scene, specials)
 	add_camera(scene)
 	add_plaza(scene, specials, field_materials)

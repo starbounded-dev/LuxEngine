@@ -35,6 +35,12 @@ muffling go as the door opens. **Acoustic Materials** (same menu, works outside 
 by the material it sounds like. **C** flies the camera around the building, the easiest way to
 record the demo.
 
+## Benchmark music
+
+Benchmark's Music Director uses `Audio/Sounds/MusicBed.lsound`, a 2D looping stream loaded by
+`Audio/Banks/Benchmark.lbank`. The village emitters keep the 3D `Music.lsound` for spatial ambience.
+A Music Director requires a 2D continuous Sound; this bed authors an Intensity volume curve.
+
 ## Author your own sounds
 
 1. Drop a `.wav`, `.ogg`, `.mp3` or `.flac` into the Content Browser; it becomes an Audio asset.

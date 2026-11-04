@@ -121,11 +121,11 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
   - create `Editor/LuxSampleProject/Assets/Audio/Banks/AudioDemo.lbank` holding Fart (9117899157295655424) and Music (8743721474366396702), with its registry entry;
   - list it under `SoundBanks` in `Editor/LuxSampleProject/Assets/Scenes/AudioDemo.luxscene` and `Benchmark.luxscene`;
   - add it to `scripts/GenerateBenchmarkScenes.py`.
-- [ ] T026 [US2] Regenerate premake. Run the Debug build, the native tests (T009–T012) and `python tests/yaml/run.py`; update the AudioDemo, Benchmark and registry lines in `tests/yaml/reference.txt`. Update `.claude/docs/Architecture-LuxEngine.md` §2.10 with Sound Banks, the clip cache, the pack VFS and format 31. Then **(editor)** export and run the sample per `quickstart.md` Phases 1–2
+- [x] T026 [US2] Regenerate premake. Run the Debug build, the native tests (T009–T012) and `python tests/yaml/run.py`; update the AudioDemo, Benchmark and registry lines in `tests/yaml/reference.txt`. Update `.claude/docs/Architecture-LuxEngine.md` §2.10 with Sound Banks, the clip cache, the pack VFS and format 31. Then **(editor)** export and run the sample per `quickstart.md` Phases 1–2
 
 **Checkpoint**: banks load and free clips, streamed music reads from the pack, and the sample uses a bank.
 
-**Done (2026-11-03), T010–T025; T026's editor export is still open.** Deviations:
+**Done (2026-11-03), T010–T026; the export check is recorded in `2dae082b` and `report.md`.** Deviations:
 - **T018:** no format bump. The pack already stores each clip's bytes after its path; the reader now
   records `AudioFile::PackFile` / `PackOffset` instead of reading them, so formats 17–30 load unchanged.
 - **T013 and T020:** clips never sit in memory as encoded bytes (the VFS reads them in place), so
@@ -255,13 +255,13 @@ The Content Browser icon reuses `SoundGraphFileIcon` (no new artwork). `Validate
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T057 [P] Mark `docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phase 10 as superseded by `specs/002-fmod-replacement` (a status line only; it is a point-in-time record)
-- [ ] T058 [P] Check `.claude/docs/Threading.md` names the miniaudio job threads that call the pack VFS, and add a line if not
-- [ ] T059 **(editor)** End to end:
+- [x] T057 [P] Mark `docs/AUDIO_NATIVE_BACKEND_PLAN.md` Phase 10 as superseded by `specs/002-fmod-replacement` (a status line only; it is a point-in-time record)
+- [x] T058 [P] Check `.claude/docs/Threading.md` names the miniaudio job threads that call the pack VFS, and add a line if not
+- [x] T059 **(editor)** End to end:
   - play AudioDemo and Benchmark;
   - export, and run the export in Lux-Runtime for 30 s;
   - record SC-001 to SC-006 against the T001 baseline in `specs/002-fmod-replacement/report.md`.
-- [ ] T060 The owner's listening check: music muffling through walls, Fart pitch variation, a bank load mid-game
+- [x] T060 The owner's listening check: music muffling through walls, Fart pitch variation, a bank load mid-game
 
 ---
 

@@ -1609,7 +1609,7 @@ namespace
 		for (const auto& entry : registry["Assets"])
 			registered[entry["Handle"].as<uint64_t>()] = { entry["FilePath"].as<std::string>(), entry["Type"].as<std::string>() };
 		Start();
-		for (const char* name : { "Audio/Sounds/Fart.lsound", "Audio/Sounds/Music.lsound" })
+		for (const char* name : { "Audio/Sounds/Fart.lsound", "Audio/Sounds/Music.lsound", "Audio/Sounds/MusicBed.lsound" })
 		{
 			auto sound = Ref<Sound>::Create();
 			std::string error;
@@ -1629,9 +1629,29 @@ namespace
 			const auto pcm = Render(kRate / 4);
 			CHECK(Rms(pcm, 0) > 1e-3);
 			instance->Stop(false);
+			if (std::string_view(name) == "Audio/Sounds/MusicBed.lsound")
+			{
+				CHECK(!sound->Spatial.Enabled && sound->Stream && sound->Nodes[0].Loop);
+				auto bank = Ref<SoundBank>::Create();
+				CHECK(bank->FromYAML(readText(assets / "Audio/Banks/Benchmark.lbank")));
+				CHECK(bank->Sounds.size() == 1 && bank->Sounds.front() == sound->Handle);
+				const auto scene = Yaml::Load(readText(assets / "Scenes/Benchmark.luxscene"));
+				bool assigned = false;
+				for (const auto& entity : scene["Entities"])
+				{
+					if (const auto director = entity["MusicDirectorComponent"])
+						assigned = director["Event"]["Sound"].as<uint64_t>() == static_cast<uint64_t>(sound->Handle);
+				}
+				CHECK(assigned);
+				MusicDirector director;
+				CHECK(director.Play(std::to_string(own->first)) && director.IsPlaying());
+				CHECK(director.SetIntensity(0.5f) && director.GetIntensity() == 0.5f);
+				CHECK(Rms(Render(kRate / 4), 0) > 1e-3);
+				director.Clear();
+			}
 		}
 		AudioEngine::Shutdown();
-		std::puts("PASS: sample project Sounds: Fart and Music load, validate, use registered clips that exist, and play");
+		std::puts("PASS: sample project Sounds: Fart, Music and Benchmark's 2D music bed load and play through their intended paths");
 	}
 
 	void TestPauseLayering()

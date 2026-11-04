@@ -757,6 +757,8 @@ error on Play. Native editor Play and a Lux-Runtime export of the demo were run 
 
 ### Phase 10 — Delete FMOD
 
+**Status (2026-11-03): superseded by `specs/002-fmod-replacement`; see its tasks and report for completion and remaining verification.**
+
 **Goal:** no FMOD code, option, library, secret or document remains.
 
 **Changes**

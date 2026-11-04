@@ -242,6 +242,9 @@ Assets:
   - Handle: 8412860126786977355
     FilePath: Audio/Banks/AudioDemo.lbank
     Type: SoundBank
+  - Handle: 8412860126786977356
+    FilePath: Audio/Banks/Benchmark.lbank
+    Type: SoundBank
   - Handle: 8665842578006325754
     FilePath: Meshes/Source/Sponza/8773302468495022225.jpg
     Type: Texture
@@ -250,6 +253,9 @@ Assets:
     Type: Texture
   - Handle: 8743721474366396702
     FilePath: Audio/Sounds/Music.lsound
+    Type: Sound
+  - Handle: 8743721474366396703
+    FilePath: Audio/Sounds/MusicBed.lsound
     Type: Sound
   - Handle: 8771070141657830737
     FilePath: Scripts/Source/FlyCamera.cs

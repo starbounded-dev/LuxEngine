@@ -1,5 +1,5 @@
 Scene: Benchmark
-SoundBanks: [8412860126786977355]
+SoundBanks: [8412860126786977355, 8412860126786977356]
 PostProcess:
   Exposure: 1
   ExposureMode: 0
@@ -128997,7 +128997,7 @@ Entities:
       Scale: [1, 1, 1]
     MusicDirectorComponent:
       Event:
-        Sound: 8743721474366396702
+        Sound: 8743721474366396703
       PlayOnAwake: true
       InitialState: ""
       Intensity: 0.5

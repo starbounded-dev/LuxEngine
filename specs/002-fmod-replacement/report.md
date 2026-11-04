@@ -307,3 +307,69 @@ T052–T055 are done; T056 (driving them in the editor) waits for an editor sess
   `AudioValidation::ValidateProject`, the same check export runs, and lists the issues. No change.
 - **T056 (user-run, 2026-11-03):** live Sound edits during Play, the music timeline's marker drag and
   undo, and the dialogue Play button were driven on the sample and reported working.
+## Polish bookkeeping (2026-11-03)
+
+- **T026:** marked complete in `tasks.md`; its export check was already recorded by `2dae082b`
+  (Phase 3 above). No export was rerun for this bookkeeping change.
+- **T057:** marked the original native-backend plan's Phase 10 as superseded by this spec.
+- **T058:** checked `Threading.md` against `NativeAudioEngine.cpp` and `NativePackVFS.cpp`.
+  Its Native audio backend section already names the `AudioStreaming` worker, resource-manager
+  jobs, pack-VFS reads, per-open file handles, name-table mutex and shutdown ordering. The engine
+  sets `jobThreadCount = 0` and runs those jobs on `AudioStreaming`; no documentation edit is needed.
+- T059 and T060 were subsequently completed below.
+
+## Final Release verification (T059 / T060, 2026-11-03)
+
+**Complete.** The owner requested Release and confirmed the wall muffling and Fart pitch
+variation: "Yes, both sound right". The exported probe logged a successful new Sound Bank
+request ten seconds into gameplay and eight source restarts with authored pitch variation.
+
+**Sample repair:** Benchmark's Music Director assigned the 3D `Music.lsound`, which the director
+correctly refused. Added a 2D streaming `MusicBed.lsound`, loaded by `Benchmark.lbank`, and updated
+Benchmark and its generator. Village ambience keeps its 3D Sound. The native sample regression
+checks the new asset, its bank and scene assignment, playback through MusicDirector, and its
+Intensity control. The new bed authors an Intensity volume curve for the scene's 0.5 setting.
+The two intended YAML reference rows use a registry without the owner's local Bench_044 and
+Dialogue entries. The production YAML oracle parses and round-trips both without a problem.
+
+**Benchmark test setup:** the automatic camera path moves the listener outside emitter range,
+so the acoustic gate correctly refused a run with no live source. The isolated verification copy
+paused that path and placed the listener by House 5's existing emitter. The committed scene keeps
+its original camera and automatic path. No verification guard was weakened.
+
+Evidence (under `bin/`, not committed):
+
+- Release solution: 0 errors; fresh Core, Editor and Lux-Runtime artifacts verified by timestamps.
+  `bin/spec002-final-20261103/release-build.log` and `release-artifacts.json`.
+- `golden_run.py --config release --label spec002-release-verified --project
+  bin/spec002-final-20261103/sample/LuxSample.luxproj --scenes AudioDemo,Benchmark --play
+  --export-dir bin/spec002-final-20261103/verified-release-exports --threading multi`: both **OK**,
+  including normal editor export. AudioDemo: 12.8 s; Benchmark: 21.8 s. Acoustic reports check two
+  and four sources respectively. Release does not enable Debug's validation layer; the earlier
+  Debug AudioDemo run had zero Vulkan validation messages.
+- After authoring the bed's Intensity curve, `spec002-release-benchmark-final` reran Benchmark
+  Play and export successfully, with no invalid-bed or missing-Intensity warning.
+- Ordinary Release AudioDemo package: exit 0, acoustic status **OK**, both raw source gains match
+  editor values within 0.00001. `release-runtime-verification.json` and
+  `AudioDemo.release-runtime-audio.yaml` under `bin/spec002-final-20261103/`.
+- Disposable script probe: first-play stopwatch, eight restarts, one new bank request at ten seconds;
+  ordinary Release engine/export pipeline, no probe code committed. Its package ran **83.307 s**
+  and closed normally (exit 0). `AudioDemo.release-listening.log` and
+  `release-listening-summary.json` under the same directory.
+- Release native tests: **2/2 pass**, including the Benchmark regression. A run concurrent with
+  export failed an offline stream PCM comparison (0.548460 vs 1.0); the isolated rerun passed in
+  2.81 s. That observation does not establish a fixed test: no streaming code or tolerance changed.
+- Original project settings, AudioDemo bank and Dialogue files retain their saved hashes. Removing
+  only our two new registry entries reproduces its original hash. Existing user entries stay local.
+
+| Criterion | Evidence against the baseline / measurement limit |
+|---|---|
+| SC-001 | Focused FMOD inventory saved in `bin/spec002-final-20261103/fmod-inventory-focused.txt`: legacy handling, removal notes and historical records remain; no FMOD DLL in the package. |
+| SC-002 | Fresh-clone Debug build recorded under T046; current Release build, both Play runs and exports pass. |
+| SC-003 | Release Sound Bank test verifies immediate unused-clip release, shared references and preserving playing clips. No additional whole-game scene-switch trace was captured. |
+| SC-004 | Five-minute packed-stream native test stays below 1 MB. Exported AudioDemo: 1.1902 MiB total, versus 48.06 MiB baseline; music stream-page upper bound 0.73 MiB, plus decoded Fart. |
+| SC-005 | First `m_Source.Play` call in the disposable Release script: 0.047400 ms in editor, 0.055100 ms in package. Measures the playback call, not a whole-first-frame A/B comparison. |
+| SC-006 | Owner-run cleanup and zero-reference rescan recorded under T051 (2026-11-03). |
+
+All spec 002 task markers are checked. The concurrency observation and measurement limits above
+remain part of the evidence.
