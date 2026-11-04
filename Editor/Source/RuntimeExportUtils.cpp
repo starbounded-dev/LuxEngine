@@ -6,7 +6,6 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Assert.h"
 #include "Lux/Core/Log.h"
-#include "Lux/Audio/AudioBankBuilder.h"
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Utilities/FileSystem.h"
 
@@ -17,102 +16,12 @@
 
 namespace Lux::RuntimeExport {
 
-	bool PrepareAudioBanks(const Project& project, AudioBankManifest& manifest)
+	bool ShipsLibrary(const std::string& filename)
 	{
-		manifest = {};
-		const auto studio = project.GetStudioProjectPath();
-		if (studio.empty())
-			return true;
-		const auto directory = project.GetStudioBankDirectory();
-		std::error_code ec;
-		if (!FileExists(studio) || !std::filesystem::is_directory(directory, ec))
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Export requires Studio project '{0}' and built banks at '{1}'. Check Project Settings > Audio and build banks in Studio", studio.string(), directory.string());
+		if (filename.find("vaudionative") != std::string::npos)
 			return false;
-		}
-		for (auto it = std::filesystem::directory_iterator(directory, ec);
-			!ec && it != std::filesystem::directory_iterator(); it.increment(ec))
-		{
-			if (it->path().extension() != ".bank")
-				continue;
-			if (!it->is_regular_file(ec) || ec || it->file_size(ec) == 0 || ec)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot export empty or unreadable bank '{0}'", it->path().string());
-				return false;
-			}
-			manifest.Banks.push_back(it->path().filename().string());
-		}
-		if (ec)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot enumerate export banks at '{0}': {1}", directory.string(), ec.message());
-			return false;
-		}
-		std::sort(manifest.Banks.begin(), manifest.Banks.end());
-		bool hasMaster = false;
-		for (const auto& name : manifest.Banks)
-		{
-			const std::filesystem::path path(name);
-			if (path.stem().extension() == ".strings")
-			{
-				const auto master = path.stem().stem().string() + ".bank";
-				hasMaster = hasMaster || std::binary_search(manifest.Banks.begin(), manifest.Banks.end(), master);
-			}
-		}
-		if (!hasMaster)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Export banks at '{0}' need a master bank and its matching .strings.bank. Build all banks in FMOD Studio", directory.string());
-			return false;
-		}
-		if (AudioBankBuilder::NeedsRebuild(studio, directory))
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Export banks at '{0}' are stale. Build all banks in FMOD Studio, then export again", directory.string());
-			return false;
-		}
-		// Preserve asset-relative script paths. External authoring output gets a portable location.
-		auto relative = std::filesystem::relative(directory, project.GetAssetDirectory(), ec);
-		if (ec)
-		{
-			LUX_CORE_ERROR_TAG("Audio", "Cannot resolve export bank directory '{0}': {1}", directory.string(), ec.message());
-			return false;
-		}
-		bool external = relative.empty() || relative.has_root_path();
-		for (const auto& part : relative)
-			external = external || part == "..";
-		manifest.Directory = external ? std::filesystem::path("Audio/Banks") : relative;
-		manifest.EnableLiveUpdate = project.GetConfig().Audio.EnableLiveUpdate
-			&& project.GetConfig().RuntimeExport.TargetConfig != RuntimeExportTarget::Dist;
-		return manifest.Validate();
-	}
-
-	bool CopyAudioBanks(const Project& project, const AudioBankManifest& manifest, const std::filesystem::path& assets)
-	{
-		if (!manifest.Validate())
-			return false;
-		for (const auto& name : manifest.Banks)
-		{
-			if (!CopyFileIfExists(project.GetStudioBankDirectory() / name, assets / manifest.Directory / name, true))
-				return false;
-		}
-		return true;
-	}
-
-	bool CopyAudioLibraries(const std::filesystem::path& runtimeDirectory, const std::filesystem::path& exportRoot)
-	{
-#ifdef LUX_PLATFORM_LINUX
-		const auto source = runtimeDirectory / "lib";
-		const auto destination = exportRoot / "lib";
-		constexpr const char* libraries[] = { "libfmod.so.14", "libfmodstudio.so.14" };
-#else
-		const auto& source = runtimeDirectory;
-		const auto& destination = exportRoot;
-		constexpr const char* libraries[] = { "fmod.dll", "fmodstudio.dll" };
-#endif
-		for (const char* library : libraries)
-		{
-			if (!CopyFileIfExists(source / library, destination / library, true))
-				return false;
-		}
-		return true;
+		// FMOD's, left in the shared output folder by an FMOD build from before its removal.
+		return !filename.starts_with("fmod") && !filename.starts_with("libfmod");
 	}
 
 	bool FileExists(const std::filesystem::path& path)
@@ -296,20 +205,14 @@ namespace Lux::RuntimeExport {
 		if (ec)
 			return true;
 
-		const std::string sourceOverride = FileSystem::GetEnvironmentVariable("LUX_ASTERWAVE_ROOT");
-		std::filesystem::path asterwaveRoot = sourceOverride.empty()
-			? repositoryRoot / "Core/vendor/Asterwave" : std::filesystem::path(sourceOverride);
-		if (asterwaveRoot.is_relative())
-			asterwaveRoot = repositoryRoot / asterwaveRoot;
-		const std::array<std::filesystem::path, 4> sourceRoots = {
+		const std::array<std::filesystem::path, 3> sourceRoots = {
 			repositoryRoot / "Lux-Runtime",
 			repositoryRoot / "Core" / "Source",
-			asterwaveRoot / "include",
-			asterwaveRoot / "src"
+			repositoryRoot / "Core" / "vendor" / "soundwave"
 		};
-		// The acoustics implementation is linked into the executable. A pin or build-input
-		// change must invalidate an existing runtime just as an engine source change does.
-		for (const auto& relative : { "scripts/dependencies/Asterwave.json", "Dependencies.lua", "premake5.lua", "Core/premake5.lua" })
+		// Soundwave is linked into the executable. A build-input change must invalidate an existing
+		// runtime just as an engine source change does.
+		for (const auto& relative : { "Dependencies.lua", "premake5.lua", "Core/premake5.lua" })
 		{
 			const auto inputTime = std::filesystem::last_write_time(repositoryRoot / relative, ec);
 			if (!ec && inputTime > executableWriteTime)

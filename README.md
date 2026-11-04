@@ -2,7 +2,7 @@
 
 <img src="Resources/Branding/LuxEngineLogo.png" alt="LuxEngine" title="LuxEngine" width="256">
 
-LuxEngine is a C++20, Vulkan-only 3D game engine and editor for **Windows and Linux**, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, an FMOD Studio + ray-traced acoustics audio stack, and a docking ImGui editor with a standalone runtime player.
+LuxEngine is a C++20, Vulkan-only 3D game engine and editor for **Windows and Linux**, in active development. Its architecture descends from [Hazel](https://github.com/TheCherno/Hazel), but it has grown well beyond that starting point: a deferred, clustered PBR renderer with a render graph, Jolt physics, C# scripting, a UUID-based asset pipeline with runtime asset packs, a built-in audio engine (miniaudio, editor-authored Sounds, a mixer) with ray-traced acoustics, and a docking ImGui editor with a standalone runtime player.
 
 This is a solo project that doubles as a learning vehicle for engine architecture. It is not production-ready and does not pretend to be — the sections below say plainly what works, what is partial, and what does not exist yet.
 
@@ -28,8 +28,7 @@ Both platforms build all three targets: `Editor`, `Lux-Runtime` (standalone play
 git clone --recursive https://github.com/starbounded-dev/LuxEngine
 cd LuxEngine
 
-# 2. Install the required SDKs and fetch Asterwave source (see "Required SDKs")
-python scripts/FetchAsterwave.py
+# 2. Install the required SDKs (see "Required SDKs")
 
 # 3a. Linux: one command does everything
 ./scripts/Linux-Build.sh release
@@ -46,82 +45,16 @@ If you cloned non-recursively, run `git submodule update --init --recursive` fir
 
 ## Required SDKs
 
-Three external SDKs and the pinned private Asterwave source are required. The repository ships
-build glue; licensed SDK packages and the Asterwave checkout stay outside tracked engine source.
+Two external SDKs are needed. **Neither is vendored** — the repository ships build glue, not licensed binaries.
 
 | SDK | Version | Why | Where |
 |---|---|---|---|
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
 | **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
-| **FMOD Engine** | 2.03.x (Core + Studio APIs) | Audio playback — **required, not optional** | [fmod.com](https://www.fmod.com/download) |
-| **Asterwave source** | Exact revision in `scripts/dependencies/Asterwave.json` | Native C++20 ray-traced acoustics, compiled statically | Private `starbounded-dev/asterwave` repository; `python scripts/FetchAsterwave.py` |
 
-You also want the **FMOD Studio** authoring tool (same 2.03.x family) to author and build banks, and its command-line tool `fmodstudiocl` if you want the editor to rebuild banks on Play.
-
-### Licensing for games you ship
-
-LuxEngine's Apache-2.0 licence covers LuxEngine's own source. FMOD remains governed by its
-[licence terms](https://www.fmod.com/licensing). Asterwave is a private native source translation
-whose upstream Vercidium Audio licence and provenance records remain in force; its name and static
-linkage do not grant new redistribution rights or make it an Apache-2.0 library. Read the licence
-and provenance files in the pinned Asterwave checkout and [NOTICE](NOTICE).
-
-FMOD and Asterwave are included in every exported game's audio stack. Check the applicable
-licences and attribution requirements before distribution. CI publishes build/test logs only: a
-statically linked Asterwave implementation cannot be removed by stripping a runtime DLL.
+Audio needs no SDK: the engine compiles the vendored miniaudio.
 
 A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is created at API 1.2); the 1.4 SDK is a build/tooling dependency.
-
-### Installing the audio dependencies
-
-Premake validates FMOD headers/libraries and the exact local Asterwave revision/source layout
-at generation time. Generation performs no network fetch. Missing or mismatched dependencies
-fail before compilation.
-
-**Default locations:**
-
-```
-Core/vendor/FMOD/<any-subdirectory>/     e.g. Core/vendor/FMOD/fmodstudioapi20314linux/
-Core/vendor/Asterwave/                 pinned private source checkout
-```
-
-Fetch Asterwave explicitly using Git credentials with read access to its private repository:
-
-```bash
-python scripts/FetchAsterwave.py
-python scripts/FetchAsterwave.py --check    # validate locally without fetching
-```
-
-The fetch script reads `scripts/dependencies/Asterwave.json`. To use another checkout location,
-pass `--root PATH` or set `LUX_ASTERWAVE_ROOT`; it must match the same pinned revision.
-
-**Or select existing dependency locations with environment variables** before generating:
-
-```bash
-# Linux
-export LUX_FMOD_SDK=/opt/fmodstudioapi20314linux   # root containing api/
-export LUX_ASTERWAVE_ROOT=/opt/Asterwave           # pinned source checkout
-export LUX_FMOD_STUDIO_CL=/opt/fmodstudio/fmodstudiocl   # optional
-```
-
-```powershell
-# Windows
-$env:LUX_FMOD_SDK = 'C:\SDKs\FMOD Studio API Windows'
-$env:LUX_ASTERWAVE_ROOT = 'C:\Source\Asterwave'
-$env:LUX_FMOD_STUDIO_CL = 'C:\Program Files\FMOD SoundSystem\FMOD Studio 2.03.14\fmodstudiocl.exe'
-```
-
-Required files per platform:
-
-| | Windows | Linux |
-|---|---|---|
-| FMOD Core | `api/core/inc/fmod.hpp`, `api/core/lib/x64/fmod_vc.lib`, `fmod.dll` | `api/core/inc/fmod.hpp`, `api/core/lib/x86_64/libfmod.so`, `libfmod.so.14` |
-| FMOD Studio | `api/studio/inc/fmod_studio.hpp`, `api/studio/lib/x64/fmodstudio_vc.lib`, `fmodstudio.dll` | `api/studio/inc/fmod_studio.hpp`, `api/studio/lib/x86_64/libfmodstudio.so`, `libfmodstudio.so.14` |
-| Asterwave | Pinned checkout with `include/asterwave/` and `src/`; compiled by Premake | Same source checkout; compiled by Premake |
-
-Regenerate project files after changing a dependency root. Never commit SDK packages or the
-private source checkout to the engine repository. Asterwave is linked as a static library;
-there is no additional acoustics DLL or shared object to install.
 
 ***
 
@@ -152,9 +85,7 @@ sudo pacman -S --needed nvidia-utils       # NVIDIA
 <details>
 <summary><b>Debian / Ubuntu / Pop!_OS / Mint</b> (this is the CI configuration)</summary>
 
-> **Ubuntu 26.04 is the CI target.** Asterwave builds from source with the host toolchain;
-> there is no prebuilt acoustics library imposing a glibc 2.43 dependency. Older distributions
-> have not been established as supported by this migration.
+> CI runs on Ubuntu 26.04.
 
 ```bash
 sudo apt-get update
@@ -275,7 +206,6 @@ Group targets: `Dependencies`, `Dependencies/Renderer`, `Dependencies/Text`, `Co
 - **Python 3.9+** on PATH (the setup scripts validate and install their own pip packages).
 - **Vulkan SDK 1.4.335.0** — the setup script downloads the installer and prompts you if it is missing. Debug builds additionally need the SDK's shader debug libraries.
 - **.NET 9 SDK**.
-- **FMOD Engine SDK + pinned Asterwave source** (see above).
 
 ### 2. Generate and build
 
@@ -323,7 +253,6 @@ Binaries land in `bin/<Config>-<os>-x86_64/<Project>/`, e.g. `bin/Release-linux-
 | `--no-tracy` | Build without Tracy instrumentation (smaller, faster to link) |
 | `--no-aftermath` | Build without the Nvidia Aftermath GPU crash tracker |
 | `--discord` | Enable the Discord Social SDK integration (needs `Core/vendor/discord_social_sdk/`) |
-| `--fmod`, `--raytraced-audio` | Accepted for compatibility; FMOD and Asterwave are always required |
 
 On Windows these are offered as checkboxes by `Setup.bat`; on Linux pass them via `LUX_PREMAKE_OPTIONS` or directly to `premake5`.
 
@@ -348,29 +277,30 @@ Both X11 and Wayland sessions work (GLFW is built with both backends; libdecor i
 
 ### Windows
 
-Set `Editor` as the startup project in Visual Studio and run — the working directory is already configured. Outside VS, run `bin\<Config>-windows-x86_64\Editor\Editor.exe` from the `Editor/` directory. `fmod.dll` and `fmodstudio.dll` are copied next to the executables by the post-build step. Asterwave is compiled into each executable.
+Set `Editor` as the startup project in Visual Studio and run — the working directory is already configured. Outside VS, run `bin\<Config>-windows-x86_64\Editor\Editor.exe` from the `Editor/` directory.
 
 `scripts\Win-RenderDoc.bat debug` (or `release` / `dist`) opens RenderDoc with the already-built editor launched and hooked; capture with **F12** / **Print Screen** or **Trigger Capture**. It finds `qrenderdoc.exe` through `RENDERDOC_DIR`, then `PATH`, then `%ProgramFiles%\RenderDoc`, and does not build — build the configuration in Visual Studio first.
 
 ### First launch
 
-The editor opens the bundled sample project at `Editor/LuxSampleProject/LuxSample.luxproj`. See [`Editor/LuxSampleProject/FMOD_SETUP.md`](Editor/LuxSampleProject/FMOD_SETUP.md) for the FMOD demo scene, and [`docs/Editor/`](docs/Editor/README.md) for the full editor manual.
+The editor opens the bundled sample project at `Editor/LuxSampleProject/LuxSample.luxproj`. See [`Editor/LuxSampleProject/AUDIO_DEMO.md`](Editor/LuxSampleProject/AUDIO_DEMO.md) for the audio demo scene, and [`docs/Editor/`](docs/Editor/README.md) for the full editor manual.
 
 ***
 
 ## Tests
 
-Headless regression suites (no renderer, no audio device — FMOD runs in `NOSOUND` mode):
+Headless regression suites (no renderer, no audio device):
 
 ```bash
-python tests/audio/run.py                 # audio: surfaces, music, dialogue, geometry, budgets
+cmake -S tests/audio/native -B bin/native-audio-tests && cmake --build bin/native-audio-tests && ctest --test-dir bin/native-audio-tests
+                                          # audio: playback, Sounds, banks, mixer, music, dialogue, streaming
+python tests/audio/run.py                 # Linux: streams, packs, Jolt contacts, occlusion, music serialization
 python tests/audio/run_managed.py         # C# audio bindings: payloads, ABI, subscriptions
-python tests/audio/run_sdk_layout.py      # SDK layout validation
 python tests/rendering/run_shadow_shader.py
 python tests/runtime/run_resources.py
 ```
 
-The audio runner needs `clang++`, the FMOD SDK, pinned Asterwave source and `fmodstudiocl`; it copies the sample FMOD project to a temporary directory and never mutates the repo. See [`tests/audio/README.md`](tests/audio/README.md) for fixture requirements.
+The native audio tests render offline (`ma_engine` with no device), so they need no sound card. See [`tests/audio/README.md`](tests/audio/README.md).
 
 ***
 
@@ -381,7 +311,17 @@ The audio runner needs `clang++`, the FMOD SDK, pinned Asterwave source and `fmo
 ./packaging/linux/build-appimage.sh release runtime   # LuxRuntime.AppImage
 ```
 
-Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resources and the .NET host into an AppDir. There are no packaged releases yet — you build from source.
+Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resources and the .NET host into an AppDir. For prebuilt editor packages, see [Releases](#releases).
+
+***
+
+## Releases
+
+Every push to `dev` publishes a **pre-release** on the [Releases page](https://github.com/starbounded-dev/LuxEngine/releases): one zip per platform (`LuxEngine-<version>-windows-x64.zip`, `LuxEngine-<version>-linux-x64.zip`) holding the Release editor, its resources, the .NET host and the sample project.
+
+- **Versioning:** `2026.N-<commit>`. `2026.N` is the year's Nth release series (set by `LUX_VERSION_SERIES` in [`Core/Source/Lux/Core/Version.h`](Core/Source/Lux/Core/Version.h)); the suffix is the 7-character commit the build came from. The tag is the version with a `v`: `v2026.1-a3f9c1d`. `Editor --version` prints the version a binary was built as, and the startup log shows it too. Local builds report just the series.
+- **Dev builds are alpha.** The API will change between them, and nothing about them is supported for shipping games.
+- **Only the 10 newest** dev pre-releases of the current series are kept; older ones (and their tags) are deleted automatically.
 
 ***
 
@@ -389,8 +329,6 @@ Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resou
 
 | Symptom | Cause / fix |
 |---|---|
-| Missing FMOD file at generation | Fix the reported path or set `LUX_FMOD_SDK` to a complete target-platform SDK. |
-| Missing or mismatched Asterwave source at generation | Run `python scripts/FetchAsterwave.py`, or set `LUX_ASTERWAVE_ROOT` to the pinned checkout; validate with `--check`, then regenerate. |
 | `hostfxr` / runtime not found at editor startup | You have .NET 10 (or 8), not 9. Coral hardcodes major version 9 — install `dotnet-sdk-9.0`. Distro `dotnet-sdk` metapackages now pull 10.x. |
 | Undefined references after toggling `--no-tracy` | The flag must be passed to every premake generation. Regenerate with the same flags, then rebuild. |
 | Unresolved externals after adding a source file | Premake does not regenerate itself. Re-run `scripts\Win-GenProjects.bat` / `./premake5 gmake2 --cc=clang`. |
@@ -398,7 +336,7 @@ Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resou
 | `llvm-ar: not found` in a `dist` build | Symlink the version-suffixed binary (see the Debian/Ubuntu block). |
 | "Script project file not found" in the editor | The sample project's `.csproj` is generated output. Run `Editor/LuxSampleProject/Assets/Scripts/Linux-GenProjects.sh`, or just re-run `Linux-Build.sh`. |
 | `error NETSDK1004` on Windows | MSBuild was run without `/restore`. |
-| Editor starts but shows no banks/events | Project Settings → Audio: the `.fspro` path is relative to `Assets/`, and **Bank Output is a directory** (`Build/Desktop`), not a `.bank` file. |
+| An Audio Source is silent and logs "has an FMOD event but no Sound" | The scene was authored with FMOD. Assign a Sound to the source (the inspector shows the old event). |
 
 ***
 
@@ -417,22 +355,23 @@ Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resou
 - **Editor rendering** — jump-flood selection outlines, depth-tested collider pass, wireframe and G-buffer/AO debug views, infinite grid, debug renderer.
 - Sky atmosphere, volumetric clouds and TAA were removed during the renderer simplification pass and are not currently available.
 
-### Audio (FMOD Studio + Asterwave)
-- **FMOD Studio events** as the only playback path — banks, event instances, parameters, buses, snapshots, and in-editor bank building (`fmodstudiocl`).
-- **Ray-traced acoustics (Asterwave)** — reverb and room ambience from real scene geometry, with dynamic geometry updates, room portals and per-surface acoustic materials.
-- **Occlusion** — sounds behind walls are muffled by the engine's own raycasts through the acoustic geometry, costed by each material's transmission. Engine raycasts remain the default; projects can select Asterwave's per-source result.
+### Audio (built in: miniaudio + Soundwave)
+- **Sound assets** authored in the editor — a node tree of clips and containers (random, sequence, layer, switch), variation, loop regions, streaming, 3D attenuation, parameters with curves, instance limits — with a Sound Editor, waveform thumbnails and an audition voice.
+- **Sound Banks** — Sounds that load and unload together, listed by scenes or loaded from scripts; clips decode off the main thread and are freed when nothing holds them. Exported audio is read in place from the asset pack, so long music streams straight from it.
+- **Audio Mixer** — buses, effects (filters, EQ, delay, compressor), a reverb return, snapshots and VCAs.
+- **Soundwave acoustics (built in)** — the engine's own acoustic kernel: occlusion through walls costed by each material's transmission, sound around corners and through doorways, and reverb from the shape of the room around the listener, with dynamic geometry, portals and per-surface acoustic materials. Listener reverb rays run on the GPU, per-source solves on worker threads.
 - **See the Sound** — an editor view that makes the acoustics visible during Play: each source's path through the walls with material, thickness and dB labels, every zone and portal with its live weight, the listener's measured room, and surfaces tinted by acoustic material. Render materials carry an acoustic tag, so choosing "Bricks" sets how a wall looks and how it sounds.
 - **Zones and ambience** blending, an **interactive music director** (states, intensity, layers, stingers, timeline callbacks), and **physics-driven footsteps/impacts** from Jolt contacts via surface tables.
-- **Dialogue** — localized dialogue tables, programmer sounds, subtitles and narration.
-- **Accessibility** — category gains, mono/compressor DSPs, narration ducking, captions and directional cues.
+- **Dialogue** — localized dialogue tables with a recording per language, subtitles and narration.
+- **Accessibility** — category gains, mono fold and compression, narration ducking, captions and directional cues.
 - **Performance controls** — voice budgets, distance culling, multi-listener attenuation, bus peak/RMS monitoring, and a validation pass surfaced in the Audio Debugger.
-- **Desktop platform profiles** — per-OS Studio platform, bank output directory, budgets, and focus/mute behaviour.
+- **Desktop platform profiles** — per-OS budgets and focus/mute behaviour.
 
 ### Engine systems
 - **ECS scenes** (EnTT) with entity hierarchies, organizational folders, **prefabs with variants** (per-component overrides, revert/apply, propagation), YAML serialization, and editor Play / Simulate / Stop.
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
 - **C# scripting** (.NET 9 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities, transforms, input, assets, audio, music, dialogue and accessibility.
-- **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** (including FMOD banks) for shipping runtime builds.
+- **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
 - **Tooling & debugging** — Tracy CPU/GPU profiling on every pass, Nvidia Aftermath GPU crash dumps, shader hot-reload with a SPIR-V reflection cache, memory tracking, and tiering/quality settings serialized per project.
@@ -446,7 +385,6 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 
 - **No macOS, no mobile, no consoles.** Windows and Linux x64 only.
 - **Vulkan only.** No DirectX, Metal, or OpenGL backends. The renderer is on NVIDIA NRI's Vulkan backend; Direct3D branches are reserved but unbuilt.
-- **FMOD and Asterwave are hard requirements.** There is no fallback backend. Building requires a complete FMOD SDK and access to the exact private Asterwave source revision; distribution remains subject to their licences.
 - **No skeletal animation yet.** Skeleton/bone import scaffolding and animated-mesh shader variants exist, but the animation importer and playback system are not wired up. Static meshes only, in practice.
 - **No particle system.**
 - **No terrain in-tree yet.** A GPU clipmap terrain with Jolt heightfield collision is in development on a branch, not merged.
@@ -459,7 +397,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 
 ## Active development
 
-Recent work has been the **audio system** (FMOD Studio integration, Asterwave native acoustics, zones, music, dialogue, accessibility, budgets, desktop profiles) and **Linux parity** — Linux is now a first-class, CI-verified target rather than an aspiration.
+Recent work has been the **audio system** (acoustics, zones, music, dialogue, accessibility, budgets, then a built-in engine replacing FMOD) and **Linux parity** — Linux is now a first-class, CI-verified target rather than an aspiration.
 
 Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md](docs/ENGINE_OPTIMIZATION_PLAN.md)) — Tracy-instrumented baselines, render-graph compile caching, eliminating per-frame allocations on the submission path, descriptor-set churn fixes, and LTO'd Dist builds.
 
@@ -477,16 +415,11 @@ Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md]
 The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release and Dist on **two** runners:
 
 - **Windows Server 2025** — recursive LFS/submodule checkout, Python + Vulkan SDK + .NET 9, `scripts/Setup.py vs2022`, then MSBuild of `Lux.sln`.
-- **Ubuntu 26.04** — apt build dependencies, Vulkan SDK + .NET 9, then `scripts/Linux-Build.sh`, followed by verification that both application binaries were produced.
+- **Ubuntu 26.04** — apt build dependencies, Vulkan SDK + .NET 9, then `scripts/Linux-Build.sh`, followed by an artifact verification step and a bundling step that resolves the binary's vendored shared libraries via `ldd` into `lib/` (the binary's RPATH is `$ORIGIN/lib`).
 
-CI retains build/test output and uploads build logs. The focused native adapter fixture runs on both platforms. It does not publish editor/runtime binaries,
-packages or releases containing the statically linked private Asterwave implementation.
+Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the built editor, sample project and resources; build logs are uploaded per configuration.
 
-Both runners stage FMOD from the repository named by `AUDIO_SDK_REPOSITORY` using
-`AUDIO_SDK_TOKEN`. They separately check out the exact Asterwave revision from
-`scripts/dependencies/Asterwave.json` using the read-only `ASTERWAVE_TOKEN` secret.
-`LUX_FMOD_SDK` points at the staged platform SDK; `LUX_ASTERWAVE_ROOT` points at the private source
-checkout. Fork pull requests cannot access these secrets and stop at the dependency access check.
+CI needs no private SDK and reads no secrets, so pull requests from forks build too.
 
 ***
 
@@ -501,7 +434,7 @@ checkout. Fork pull requests cannot access these secrets and stop at the depende
 | Scripting | Coral (.NET 9 / C#) |
 | Assets | Assimp, stb, rapidyaml |
 | Text | msdf-atlas-gen / msdfgen, FreeType |
-| Audio | FMOD Core + FMOD Studio, Asterwave (native static library) |
+| Audio | miniaudio (+ MiniaudioCpp), Soundwave (in-tree acoustics) |
 | Profiling / debug | Tracy, Nvidia Aftermath, backward-cpp |
 | Math / util | glm, spdlog, magic_enum, choc, FastNoise |
 
@@ -513,7 +446,7 @@ checkout. Fork pull requests cannot access these secrets and stop at the depende
 Core/            Engine static library
   Source/Lux/      C++ source by subsystem (Renderer, Scene, Audio, Physics, Asset, Scripting, ...)
   Platform/        Linux/ and Windows/ platform implementations
-  vendor/          Vendored C++ dependencies (+ FMOD/ SDK and private Asterwave/ source drop points)
+  vendor/          Vendored C++ dependencies (miniaudio, soundwave/ acoustics, ...)
 ScriptCore/      C# scripting API (net9.0)
 Editor/          Editor application + LuxSampleProject
 Lux-Runtime/     Standalone runtime player
@@ -534,10 +467,8 @@ Adding a dependency means one entry in `Dependencies.lua` — the include/link w
 LuxEngine is licensed under the **[Apache License 2.0](LICENSE)**. Attribution for the vendored
 third-party components and for the Hazel lineage this engine descends from lives in [NOTICE](NOTICE).
 
-That license covers LuxEngine's own source code only. Building also requires the **FMOD Engine**
-SDK and the private **Asterwave** source checkout. Their licences remain separate; Asterwave retains
-its upstream Vercidium Audio licence and provenance. Distribution must comply with those terms and
-NVIDIA's terms for the bundled Aftermath libraries.
+That license covers LuxEngine's own source code only. If you distribute binaries built from this
+source, satisfying NVIDIA's terms for the bundled Aftermath libraries is on you.
 
 ***
 

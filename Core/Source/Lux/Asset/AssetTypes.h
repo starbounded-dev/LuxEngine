@@ -36,13 +36,17 @@ namespace Lux {
 		Skeleton,
 		Animation,
 		AnimationGraph,
-		// The FMOD Studio project that authors this game's audio (.fspro), and the banks it builds
-		// (.bank). Both are opened in FMOD Studio rather than in an engine editor - they exist as
-		// asset types so the Content Browser can show and activate them, not so they can be loaded.
+		// Legacy: FMOD Studio projects (.fspro) and banks (.bank), no longer imported. Kept so numeric
+		// values, and registries that still list them, stay valid.
 		AudioProject,
 		AudioBank,
 		AudioSurfaceTable,
-		DialogueTable
+		DialogueTable,
+		// An editor-authored sound (.lsound) for the native audio backend. Appended, like every type,
+		// so existing numeric values are unchanged.
+		Sound,
+		// A list of Sounds that load and unload together (.lbank).
+		SoundBank
 	};
 
 	namespace Utils {
@@ -74,6 +78,8 @@ namespace Lux {
 			if (assetType == "DialogueTable")       return AssetType::DialogueTable;
 			if (assetType == "AudioSurfaceTable")   return AssetType::AudioSurfaceTable;
 			if (assetType == "AudioBank")           return AssetType::AudioBank;
+			if (assetType == "Sound")               return AssetType::Sound;
+			if (assetType == "SoundBank")           return AssetType::SoundBank;
 
 			return AssetType::None;
 		}
@@ -106,6 +112,8 @@ namespace Lux {
 			case AssetType::DialogueTable:      return "DialogueTable";
 			case AssetType::AudioSurfaceTable: return "AudioSurfaceTable";
 			case AssetType::AudioBank:           return "AudioBank";
+			case AssetType::Sound:               return "Sound";
+			case AssetType::SoundBank:           return "SoundBank";
 			}
 
 			LUX_CORE_ASSERT(false, "Unknown Asset Type");

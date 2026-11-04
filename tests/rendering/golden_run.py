@@ -3,12 +3,16 @@
 
 Capture a labelled set (one editor launch per scene / feature variant):
 
-    golden_run.py --label nvrhi-baseline [--config release] [--features] [--scenes FMODDemo,Physics]
-                  [--sync-validation] [--threading single|multi] [--timeout 900]
+    golden_run.py --label nvrhi-baseline [--config release] [--features] [--scenes AudioDemo,Physics]
+                  [--options MeshLODs=0] [--sync-validation] [--threading single|multi] [--timeout 900]
 
 Compare two labelled sets (every capture present in both):
 
     golden_run.py --compare nvrhi-baseline p1 [--max-bad-percent 0.05]
+
+Timing (<name>.perf.json) starts --perf-warmup frames after the image capture, drops frames where asset
+streaming restarted (lostReadinessFrames), and records medians/percentiles plus the GPU, build and readiness
+it was taken with; --compare reports timing per capture and flags pairs that were not taken the same way.
 
 Captures land in bin/golden/<label>/ (not committed). Each run writes <name>.lximg, <name>.perf.json,
 <name>.status and <name>.log; the label directory gets summary.json (status, timings and the
@@ -29,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_ROOT = ROOT / "bin" / "golden"
 COMPARE = Path(__file__).resolve().parent / "golden_compare.py"
 DEFAULT_PROJECT = ROOT / "Editor" / "LuxSampleProject" / "LuxSample.luxproj"
-DEFAULT_SCENES = ["FMODDemo", "Benchmark", "Physics", "LaptopStart", "SkyDiver"]
+DEFAULT_SCENES = ["AudioDemo", "Benchmark", "Physics", "LaptopStart", "SkyDiver"]
 
 # One extra capture of the first scene per entry, each changing one renderer option from its default.
 FEATURE_VARIANTS = {
@@ -49,6 +53,7 @@ FEATURE_VARIANTS = {
     "settling": "MoveEntities=256,MoveStop=2",
     "asyncCompute": "AsyncCompute=1",
     "meshShaders": "MeshShaders=1",
+    "noMeshLODs": "MeshLODs=0",
 }
 
 VALIDATION_LINE = re.compile(r"Vulkan (performance )?validation (error|warning)")
@@ -72,15 +77,25 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         "LUX_GOLDEN_SIZE": args.size,
         "LUX_GOLDEN_FRAME": str(args.frame),
         "LUX_GOLDEN_PERF_FRAMES": str(args.perf_frames),
+        "LUX_GOLDEN_PERF_WARMUP": str(args.perf_warmup),
         "LUX_GOLDEN_OPTIONS": options,
         "LUX_GOLDEN_SELFTEST": "1" if selftest else "0",
+        "LUX_GOLDEN_PLAY": "1" if args.play else "0",
         "LUX_SKIP_BUILD": "1",
     })
+    # Set explicitly so a parent process cannot accidentally request another export.
+    env["LUX_GOLDEN_EXPORT_DIR"] = str((args.export_dir / name).resolve()) if args.export_dir else ""
+    # The runner kills an editor that times out; that is not a crash to report with a dialog.
+    env["LUX_NO_WATCHDOG"] = "1"
     if args.threading:
         env["LUX_THREADING_POLICY"] = args.threading.capitalize()
     if args.sync_validation:
         env["VK_LAYER_ENABLES"] = "VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT"
         env["VK_KHRONOS_VALIDATION_VALIDATE_SYNC"] = "true"
+
+    ui_path = label_dir / f"{name}.audio-settings-ui.txt"
+    if args.audio_settings_ui:
+        env["LUX_AUDIO_SETTINGS_SELFTEST"] = str(ui_path.resolve())
 
     status_path = label_dir / f"{name}.status"
     if status_path.exists():
@@ -89,9 +104,12 @@ def run_capture(label_dir, name, scene, options, args, selftest):
     command, cwd = editor_command(args.config)
     log_path = label_dir / f"{name}.log"
     started = time.monotonic()
+    started_wall = time.time_ns()
+    exit_code = None
     with open(log_path, "w", encoding="utf-8", errors="replace") as log:
         try:
-            subprocess.run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout, check=False)
+            completed = subprocess.run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=args.timeout, check=False)
+            exit_code = completed.returncode
             timed_out = False
         except subprocess.TimeoutExpired:
             timed_out = True
@@ -104,6 +122,42 @@ def run_capture(label_dir, name, scene, options, args, selftest):
         status = lines[0] if lines else "CRASHED"
         reason = lines[1] if len(lines) > 1 else ""
 
+    if timed_out:
+        reason = "Editor did not complete the capture before the timeout"
+    elif exit_code != 0:
+        status = "CRASHED"
+        reason = f"Editor exited with code {exit_code} (0x{exit_code & 0xffffffff:08X})"
+    elif status == "CRASHED":
+        reason = "Editor exited with code 0 before writing capture status"
+
+    if args.play and status == "OK":
+        audio_path = label_dir / f"{name}.audio.yaml"
+        try:
+            artifact = audio_path.stat()
+            if artifact.st_size == 0 or artifact.st_mtime_ns < started_wall - 2_000_000_000:
+                raise RuntimeError("empty or stale Soundwave Play artifact")
+        except (OSError, RuntimeError) as error:
+            status, reason = "FAILED", str(error)
+
+    if args.export_dir and status == "OK":
+        try:
+            artifact = (label_dir / f"{name}.export.yaml").stat()
+            if artifact.st_size == 0 or artifact.st_mtime_ns < started_wall - 2_000_000_000:
+                raise RuntimeError("empty or stale runtime export metadata")
+        except (OSError, RuntimeError) as error:
+            status, reason = "FAILED", str(error)
+
+    if args.audio_settings_ui and status == "OK":
+        try:
+            artifact = ui_path.stat()
+            if artifact.st_size == 0 or artifact.st_mtime_ns < started_wall - 2_000_000_000:
+                raise RuntimeError("empty or stale acoustic settings UI artifact")
+            report = ui_path.read_text(encoding="utf-8").strip()
+            if report != "PASS":
+                raise RuntimeError(f"acoustic settings UI check failed: {report}")
+        except (OSError, RuntimeError, UnicodeError) as error:
+            status, reason = "FAILED", str(error)
+
     log_text = log_path.read_text(encoding="utf-8", errors="replace")
     validation_lines = len(VALIDATION_LINE.findall(log_text))
     validation_ids = sorted(set(VALIDATION_ID.findall(log_text)))
@@ -111,9 +165,13 @@ def run_capture(label_dir, name, scene, options, args, selftest):
     result = {
         "name": name,
         "scene": scene,
+        "play": args.play,
+        "exportDirectory": str(args.export_dir) if args.export_dir else None,
+        "audioSettingsUI": args.audio_settings_ui,
         "options": options,
         "status": status,
         "reason": reason,
+        "exitCode": exit_code,
         "seconds": round(elapsed, 1),
         "validationMessages": validation_lines,
         "validationIds": validation_ids,
@@ -126,17 +184,39 @@ def run_capture(label_dir, name, scene, options, args, selftest):
             result["perf"] = None
 
     print(f"  {name:<32} {status:<8} {elapsed:6.1f}s  validation={validation_lines}  {reason}")
+    for note in perf_notes(result.get("perf")):
+        print(f"  {'':<32} {note}")
     return result
+
+
+def perf_notes(perf):
+    """One line of timing and any reason the timing is not trustworthy."""
+    if not perf:
+        return []
+    frame, gpu = perf.get("frameStats") or {}, perf.get("gpuStats") or {}
+    notes = []
+    if frame and gpu:
+        notes.append(f"frame median {frame['median']:.3f} ms (p95 {frame['p95']:.3f}), gpu median {gpu['median']:.3f} ms "
+                     f"(p95 {gpu['p95']:.3f}); {perf.get('frames', 0)} frames after {perf.get('warmupFrames', 0)} warm-up, "
+                     f"ready after {perf.get('readyAfterFrames', '?')}")
+    if perf.get("complete") is False:
+        notes.append(f"WARNING: incomplete, only {perf.get('frames', 0)} usable frames")
+    if perf.get("lostReadinessFrames", 0):
+        notes.append(f"WARNING: asset streaming restarted during {perf['lostReadinessFrames']} timed frame(s); those were dropped")
+    return notes
 
 
 def capture(args):
     label_dir = GOLDEN_ROOT / args.label
     label_dir.mkdir(parents=True, exist_ok=True)
 
-    runs = [(scene, scene, "") for scene in args.scenes]
+    def with_options(options):
+        return ",".join(part for part in (args.options, options) if part)
+
+    runs = [(scene, scene, with_options("")) for scene in args.scenes]
     if args.features:
         first = args.scenes[0]
-        runs += [(f"{first}__{variant}", first, options) for variant, options in FEATURE_VARIANTS.items()]
+        runs += [(f"{first}__{variant}", first, with_options(options)) for variant, options in FEATURE_VARIANTS.items()]
 
     print(f"Capturing {len(runs)} run(s) into {label_dir} ({args.config})")
     results = [run_capture(label_dir, name, scene, options, args, selftest=(index == 0)) for index, (name, scene, options) in enumerate(runs)]
@@ -178,6 +258,19 @@ def compare(args):
         if output.returncode != 0:
             failures += 1
 
+    # Timing: only meaningful when both runs were taken the same way.
+    for name in names:
+        perf_a, perf_b = dir_a / f"{name}.perf.json", dir_b / f"{name}.perf.json"
+        if not (perf_a.exists() and perf_b.exists()):
+            continue
+        a, b = json.loads(perf_a.read_text(encoding="utf-8")), json.loads(perf_b.read_text(encoding="utf-8"))
+        problems = [f"{key} differs ({a.get(key)} vs {b.get(key)})" for key in ("gpu", "build", "width", "height") if a.get(key) != b.get(key)]
+        problems += [f"{label} incomplete" for label, perf in ((dir_a.name, a), (dir_b.name, b)) if perf.get("complete") is False]
+        problems += [f"{label} lost readiness" for label, perf in ((dir_a.name, a), (dir_b.name, b)) if perf.get("lostReadinessFrames", 0)]
+        gpu_a, gpu_b = (a.get("gpuStats") or {}).get("median"), (b.get("gpuStats") or {}).get("median")
+        timing = f"gpu median {gpu_a:.3f} -> {gpu_b:.3f} ms ({(gpu_b - gpu_a) / gpu_a * 100.0:+.1f}%)" if gpu_a and gpu_b else "no gpu stats"
+        print(f"  {name:<32} {timing}" + (f"  NOT COMPARABLE: {'; '.join(problems)}" if problems else ""))
+
     ids_a = set((dir_a / "validation.txt").read_text().split()) if (dir_a / "validation.txt").exists() else set()
     ids_b = set((dir_b / "validation.txt").read_text().split()) if (dir_b / "validation.txt").exists() else set()
     new_ids = sorted(ids_b - ids_a)
@@ -196,10 +289,16 @@ def main():
     parser.add_argument("--config", default="release", choices=["debug", "release", "dist"])
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     parser.add_argument("--scenes", type=lambda s: [x for x in s.split(",") if x], default=DEFAULT_SCENES)
+    parser.add_argument("--play", action="store_true", help="enter normal Play and verify Soundwave LF reaches Scene and the voices")
+    parser.add_argument("--export-dir", type=Path, help="export through the normal editor pipeline after capture into this empty parent/name folder")
+    parser.add_argument("--audio-settings-ui", action="store_true",
+                        help="exercise actual Soundwave numeric controls, bounds, toggle and settings serialization before editor frames")
     parser.add_argument("--features", action="store_true", help="also capture the first scene once per feature variant")
+    parser.add_argument("--options", default="", help="renderer options for every run, e.g. MeshLODs=0,SSR=0 (LUX_GOLDEN_OPTIONS)")
     parser.add_argument("--size", default="1280x720")
     parser.add_argument("--frame", type=int, default=300)
     parser.add_argument("--perf-frames", type=int, default=300)
+    parser.add_argument("--perf-warmup", type=int, default=30, help="frames rendered after the image capture before timing")
     parser.add_argument("--timeout", type=int, default=900, help="seconds per editor launch")
     parser.add_argument("--threading", choices=["single", "multi"],
                         help="force the editor's threading policy for these launches (default: the user setting)")

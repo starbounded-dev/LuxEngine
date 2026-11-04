@@ -22,15 +22,16 @@ namespace Lux
 		if (!event.IsValid())
 			return nullptr;
 		const auto revision = AudioEngine::GetBankRevision();
-		const auto key = std::make_pair(event.Guid, oneShot);
+		const auto reference = event.GetReference();
+		const auto key = std::make_pair(reference, oneShot);
 		const auto failed = m_FailedEvents.find(key);
 		if (failed != m_FailedEvents.end() && failed->second == revision)
 			return nullptr;
-		auto instance = AudioEventInstance::Create(event.Guid);
+		auto instance = AudioEventInstance::Create(reference);
 		if (!instance || instance->IsSnapshot() || instance->IsOneShot() != oneShot)
 		{
 			if (instance)
-				LUX_CORE_ERROR_TAG("Audio", "Surface event '{}' must be a {} event, not a snapshot", event.Guid, oneShot ? "one-shot" : "continuous");
+				LUX_CORE_ERROR_TAG("Audio", "Surface event '{}' must be a {} event, not a snapshot", reference, oneShot ? "one-shot" : "continuous");
 			m_FailedEvents[key] = revision;
 			return nullptr;
 		}
@@ -59,7 +60,7 @@ namespace Lux
 			instance->SetParameter("Impulse", contact.Impulse);
 			instance->SetParameter("Surface", static_cast<float>(contact.Material));
 			instance->Start();
-			m_Transient.push_back({ contact.Owner, contact.Other, contact.Sounds.Impact.Guid, instance });
+			m_Transient.push_back({ contact.Owner, contact.Other, contact.Sounds.Impact, instance });
 			m_Cooldowns[contact.Owner] = { settings.ImpactCooldown, true };
 		}
 	}
@@ -77,7 +78,7 @@ namespace Lux
 		instance->SetParameter("Weight", weight);
 		instance->SetParameter("Surface", static_cast<float>(material));
 		instance->Start();
-		m_Transient.push_back({ owner, 0, event.Guid, instance });
+		m_Transient.push_back({ owner, 0, event, instance });
 		return true;
 	}
 
@@ -98,7 +99,7 @@ namespace Lux
 			Retire(voice);
 			return;
 		}
-		if (voice.Guid != event.Guid || (voice.Instance && !voice.Instance->IsValid()))
+		if (!voice.Event.SameAssignment(event) || (voice.Instance && !voice.Instance->IsValid()))
 			Retire(voice);
 		bool start = false;
 		if (!voice.Instance)
@@ -106,7 +107,7 @@ namespace Lux
 			voice.Instance = Create(event, false);
 			if (!voice.Instance)
 				return;
-			voice.Guid = event.Guid;
+			voice.Event = event;
 			voice.Owner = contact.Owner;
 			voice.Other = contact.Other;
 			start = true;

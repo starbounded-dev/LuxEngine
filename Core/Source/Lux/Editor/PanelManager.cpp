@@ -6,6 +6,7 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include "Lux/Serialization/Yaml.h"
+#include "Lux/ImGui/ImGuiScaling.h"
 
 namespace Lux {
 
@@ -63,19 +64,28 @@ namespace Lux {
 		{
 			for (auto& [id, panelData] : panelMap)
 			{
+				if (panelData.ObservedIsOpen && !panelData.IsOpen)
+					panelData.Panel->OnClose();
+				if (panelData.ObservedIsOpen != panelData.IsOpen)
+					++m_VisibilityRevision;
 				if (panelData.IsOpen)
 				{
+					ImGuiEx::ScopedWindowScale windowScale(panelData.Name);
 					panelData.Panel->OnImGuiRender(panelData.IsOpen);
 					if (!panelData.IsOpen)
+					{
 						panelData.Panel->OnClose();
+						++m_VisibilityRevision;
+					}
 				}
 				openStateChanged |= panelData.IsOpen != panelData.SavedIsOpen;
+				panelData.ObservedIsOpen = panelData.IsOpen;
 			}
 		}
 
 		// Covers panels closed with their own X above and panels opened or closed anywhere else
 		// since the last frame; saving only on close lost every panel opened from the View menu.
-		if (openStateChanged && m_LayoutLoaded)
+		if (openStateChanged && m_LayoutLoaded && !m_WorkspaceManaged)
 			Serialize();
 	}
 
@@ -84,7 +94,12 @@ namespace Lux {
 		for (auto& panelMap : m_Panels)
 		{
 			for (auto& [id, panelData] : panelMap)
-				panelData.Panel->OnEvent(e);
+			{
+				if (e.Handled)
+					return;
+				if (panelData.IsOpen)
+					panelData.Panel->OnEvent(e);
+			}
 		}
 	}
 
@@ -105,10 +120,30 @@ namespace Lux {
 				panelData.Panel->OnProjectChanged(project);
 		}
 
+		// Panel state changes are saved on exit, so save them before reloading the file.
+		if (m_WorkspaceManaged)
+			return;
+		if (m_LayoutLoaded)
+			Serialize();
 		Deserialize();
 	}
 
-	void PanelManager::Serialize() const
+	void PanelManager::Serialize(const std::filesystem::path& path) const
+	{
+		if (path.empty() && m_WorkspaceManaged)
+			return;
+		if (FileSystem::WriteFileAtomically(path.empty() ? FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml" : path, CaptureState()))
+		{
+			if (path.empty())
+			{
+				for (const auto& panelMap : m_Panels)
+					for (const auto& [id, panel] : panelMap)
+						panel.SavedIsOpen = panel.IsOpen;
+			}
+		}
+	}
+
+	std::string PanelManager::CaptureState() const
 	{
 		Yaml::Writer out;
 		out << Yaml::BeginMap;
@@ -123,8 +158,10 @@ namespace Lux {
 					out << Yaml::Key << "ID" << Yaml::Value << panelID;
 					out << Yaml::Key << "Name" << Yaml::Value << panel.Name;
 					out << Yaml::Key << "IsOpen" << Yaml::Value << panel.IsOpen;
+					out << Yaml::Key << "State" << Yaml::Value << Yaml::BeginMap;
+					panel.Panel->SaveState(out);
 					out << Yaml::EndMap;
-					panel.SavedIsOpen = panel.IsOpen;
+					out << Yaml::EndMap;
 				}
 			}
 		}
@@ -132,15 +169,13 @@ namespace Lux {
 
 		out << Yaml::EndMap;
 
-		std::ofstream fout(FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml");
-		fout << out.c_str();
-		fout.close();
+		return out.str();
 	}
 
-	void PanelManager::Deserialize()
+	void PanelManager::Deserialize(const std::filesystem::path& path)
 	{
 		m_LayoutLoaded = true;
-		std::filesystem::path layoutPath = FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml";
+		const std::filesystem::path layoutPath = path.empty() ? FileSystem::GetPersistentStoragePath() / "EditorLayout.yaml" : path;
 		if (!FileSystem::Exists(layoutPath))
 			return;
 
@@ -149,22 +184,56 @@ namespace Lux {
 		std::stringstream ss;
 		ss << stream.rdbuf();
 
-		Yaml::Node data = Yaml::Load(ss.str());
-		if (!data["Panels"])
+		ApplyState(ss.str());
+	}
+
+	void PanelManager::SetOpen(uint32_t panelID, bool open)
+	{
+		if (PanelData* panel = GetPanelData(panelID))
 		{
-			LUX_CONSOLE_LOG_ERROR("Failed to load EditorLayout.yaml from {} because the file appears to be corrupted!", layoutPath.parent_path().string());
-			return;
+			if (panel->IsOpen != open)
+				++m_VisibilityRevision;
+			if (panel->IsOpen && !open)
+				panel->Panel->OnClose();
+			panel->IsOpen = panel->ObservedIsOpen = open;
 		}
+	}
 
-		for (auto panelNode : data["Panels"])
+	bool PanelManager::ApplyState(const std::string& text)
+	{
+		try
 		{
-			PanelData* panelData = GetPanelData(panelNode["ID"].as<uint32_t>(0));
-
-			if (panelData == nullptr)
-				continue;
-
-			panelData->IsOpen = panelNode["IsOpen"].as<bool>(panelData->IsOpen);
-			panelData->SavedIsOpen = panelData->IsOpen;
+			const Yaml::Node data = Yaml::Load(text);
+			if (!data["Panels"].IsSequence())
+				throw Yaml::Exception("Missing Panels sequence");
+			bool hasProperties = false;
+			std::optional<bool> legacyHierarchyOpen;
+			for (const auto& node : data["Panels"])
+			{
+				const uint32_t id = node["ID"].as<uint32_t>(0);
+				hasProperties |= id == Hash::GenerateFNVHash("PropertiesPanel");
+				if (id == Hash::GenerateFNVHash("SceneHierarchyPanel"))
+					legacyHierarchyOpen = node["IsOpen"].as<bool>(true);
+			}
+			if (!hasProperties && legacyHierarchyOpen)
+				SetOpen(Hash::GenerateFNVHash("PropertiesPanel"), *legacyHierarchyOpen);
+			for (const auto& panelNode : data["Panels"])
+			{
+				PanelData* panelData = GetPanelData(panelNode["ID"].as<uint32_t>(0));
+				if (!panelData)
+					continue;
+				SetOpen(panelNode["ID"].as<uint32_t>(0), panelNode["IsOpen"].as<bool>(panelData->IsOpen));
+				panelData->SavedIsOpen = panelData->IsOpen;
+				if (Yaml::Node state = panelNode["State"]; state.IsMap())
+					panelData->Panel->LoadState(state);
+			}
+			m_LayoutLoaded = true;
+			return true;
+		}
+		catch (const std::exception& error)
+		{
+			LUX_CORE_ERROR_TAG("PanelManager", "Cannot restore panel layout: {}", error.what());
+			return false;
 		}
 	}
 

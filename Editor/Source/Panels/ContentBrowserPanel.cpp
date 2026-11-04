@@ -4,8 +4,12 @@
 #include "lpch.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
 #include "Lux/Audio/DialogueTable.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/Sound.h"
+#include "Lux/Audio/SoundBank.h"
 #include <fstream>
 #include "ContentBrowserPanel.h"
+#include "ScriptTemplate.h"
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -21,6 +25,7 @@
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/Prefab.h"
@@ -33,6 +38,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <set>
 
@@ -46,7 +52,9 @@ namespace Lux {
 			AssetType::Mesh,
 			AssetType::MeshSource,
 			AssetType::StaticMesh,
-			AssetType::EnvMap
+			AssetType::EnvMap,
+			AssetType::Audio,
+			AssetType::Sound
 		};
 
 		bool IsThumbnailSupported(AssetType type)
@@ -182,6 +190,8 @@ namespace Lux {
 		m_IsContentBrowserHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 		m_IsContentBrowserFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
+		RenderNewScriptDialogue();
+
 		if (!m_Project || !m_BaseDirectory)
 		{
 			ImGui::TextDisabled("No active project.");
@@ -239,6 +249,9 @@ namespace Lux {
 							if (ImGui::MenuItem("Folder"))
 								CreateNewFolder();
 
+							if (ImGui::MenuItem("C# Script..."))
+								BeginNewScript();
+
 							if (ImGui::MenuItem("Scene"))
 								CreateSceneAsset();
 
@@ -248,6 +261,10 @@ namespace Lux {
 								CreateAudioSurfaceTable();
 							if (ImGui::MenuItem("Dialogue Table"))
 								CreateDialogueTable();
+							if (ImGui::MenuItem("Sound"))
+								CreateSoundAsset();
+							if (ImGui::MenuItem("Sound Bank"))
+								CreateSoundBankAsset();
 
 							ImGui::EndMenu();
 						}
@@ -317,11 +334,13 @@ namespace Lux {
 
 		ImGui::End();
 
-		if (m_ThumbnailCache)
+		if (m_ThumbnailCache && !s_ThumbnailWorkPaused)
 		{
 			m_ThumbnailCache->OnUpdate();
 			if (m_MaterialThumbnailer)
 				m_MaterialThumbnailer->OnUpdate(*m_ThumbnailCache);
+			if (m_WaveformThumbnailer)
+				m_WaveformThumbnailer->OnUpdate(*m_ThumbnailCache);
 		}
 	}
 
@@ -330,10 +349,50 @@ namespace Lux {
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event) { return OnKeyPressedEvent(event); });
 		dispatcher.Dispatch<MouseButtonPressedEvent>([this](MouseButtonPressedEvent& event) { return OnMouseButtonPressed(event); });
+		dispatcher.Dispatch<WindowDropEvent>([this](WindowDropEvent& event) { return OnFilesDropped(event); });
+	}
+
+	// Files dropped on the editor window are copied into the open folder and imported, like Import.
+	bool ContentBrowserPanel::OnFilesDropped(WindowDropEvent& e)
+	{
+		if (!m_Project || !m_CurrentDirectory || !Project::GetEditorAssetManager())
+			return false;
+		const std::filesystem::path destinationDirectory = Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath;
+		size_t imported = 0;
+		for (const auto& source : e.GetPaths())
+		{
+			std::error_code error;
+			if (!std::filesystem::is_regular_file(source, error))
+			{
+				LUX_CORE_WARN_TAG("Editor", "Not imported: '{}' is not a file", source.string());
+				continue;
+			}
+			if (Project::GetEditorAssetManager()->GetAssetTypeFromPath(source) == AssetType::None)
+			{
+				LUX_CORE_WARN_TAG("Editor", "Not imported: '{}' is not a type of file the engine uses", source.filename().string());
+				continue;
+			}
+			const std::filesystem::path destination = MakeUniqueDuplicatePath(destinationDirectory / source.filename());
+			if (!FileSystem::Copy(source, destination))
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Could not copy '{}' into the project", source.string());
+				continue;
+			}
+			CopyImportedMeshDependencies(source, destinationDirectory);
+			if (Project::GetEditorAssetManager()->ImportAsset(destination))
+				++imported;
+		}
+		if (imported == 0)
+			return false;
+		LUX_CORE_INFO_TAG("Editor", "Imported {} dropped file(s) into '{}'", imported, m_CurrentDirectory->FilePath.generic_string());
+		Refresh();
+		return true;
 	}
 
 	void ContentBrowserPanel::OnProjectChanged(const Ref<Project>& project)
 	{
+		m_NewScriptDialogOpen = false;
+		m_OpenNewScriptPopup = false;
 		m_Project = project;
 		m_CurrentItems.Clear();
 		m_Directories.clear();
@@ -343,6 +402,7 @@ namespace Lux {
 		m_PreviousDirectory.reset();
 		m_ThumbnailCache.reset();
 		m_MaterialThumbnailer.reset();
+		m_WaveformThumbnailer.reset();
 		m_BreadCrumbData.clear();
 		ClearSelections();
 		memset(m_SearchBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
@@ -369,11 +429,9 @@ namespace Lux {
 		else
 			directoryInfo->FilePath = std::filesystem::relative(directoryPath, m_Project->GetAssetDirectory()).lexically_normal();
 
-		// An FMOD Studio project is a directory of tooling internals - Metadata/ holds one
-		// GUID-named XML file per authored object, alongside Studio's cache and its built banks.
-		// None of it is engine content, and recursing produces dozens of folders full of files the
-		// browser then refuses to show. Treat the project as opaque: the .fspro is the only thing
-		// worth clicking, and it opens in FMOD Studio.
+		// An FMOD Studio project left in an older project is tooling internals (Metadata/ holds one
+		// GUID-named XML per authored object), not engine content. Recursing would produce dozens of
+		// folders of files the browser refuses to show, so the folder stays closed.
 		const bool isStudioProjectRoot = [&directoryPath]
 			{
 				std::error_code ec;
@@ -603,6 +661,8 @@ namespace Lux {
 			m_ThumbnailCache->Clear();
 			if (m_MaterialThumbnailer)
 				m_MaterialThumbnailer->Clear();
+			if (m_WaveformThumbnailer)
+				m_WaveformThumbnailer->Clear();
 		}
 		ImGuiEx::SetTooltip("Clear thumbnail cache");
 
@@ -704,6 +764,8 @@ namespace Lux {
 		{
 			if (ImGui::MenuItem("Folder"))
 				CreateNewFolder();
+			if (ImGui::MenuItem("C# Script..."))
+				BeginNewScript();
 			if (ImGui::MenuItem("Scene"))
 				CreateSceneAsset();
 			if (ImGui::MenuItem("Material"))
@@ -712,6 +774,10 @@ namespace Lux {
 				CreateAudioSurfaceTable();
 			if (ImGui::MenuItem("Dialogue Table"))
 				CreateDialogueTable();
+			if (ImGui::MenuItem("Sound"))
+				CreateSoundAsset();
+			if (ImGui::MenuItem("Sound Bank"))
+				CreateSoundBankAsset();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import…"))
 			{
@@ -890,7 +956,17 @@ namespace Lux {
 			// CreatePrefabVariant refreshes the item list, so exit the loop right after (same as above).
 			if (result.IsSet(ContentBrowserAction::CreateVariant) && item->GetType() == ContentBrowserItem::ItemType::Asset)
 			{
-				CreatePrefabVariant(item->GetID());
+				if (AssetManager::GetAssetType(item->GetID()) == AssetType::Material)
+					CreateMaterialInstance(item->GetID());
+				else
+					CreatePrefabVariant(item->GetID());
+				break;
+			}
+
+			// Creating the Sound refreshes the item list too.
+			if (result.IsSet(ContentBrowserAction::CreateSound) && item->GetType() == ContentBrowserItem::ItemType::Asset)
+			{
+				CreateSoundAsset(GetSoundClips(item->GetID()));
 				break;
 			}
 		}
@@ -1390,6 +1466,119 @@ namespace Lux {
 		FileSystem::OpenExternally(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
 	}
 
+	void ContentBrowserPanel::BeginNewScript()
+	{
+		if (!m_Project)
+			return;
+		const auto sourceDirectory = m_Project->GetAssetDirectory() / "Scripts" / "Source";
+		const std::string name = Utils::AddSuffixToMakeUnique("NewScript", [&sourceDirectory](const std::string& candidate)
+		{
+			return FileSystem::Exists(sourceDirectory / (candidate + ".cs"));
+		});
+		std::snprintf(m_NewScriptName, sizeof(m_NewScriptName), "%s", name.c_str());
+		m_ScriptCreateError.clear();
+		m_ScriptPreview.clear();
+		if (ScriptTemplate::Load(FileSystem::GetWorkingDirectory() / "Resources" / "Templates" / "NewClassTemplate.cs", m_ScriptTemplate, m_ScriptTemplateError))
+			UpdateScriptPreview();
+		else
+			LUX_CORE_ERROR_TAG("ScriptEngine", "{}", m_ScriptTemplateError);
+		m_OpenNewScriptPopup = true;
+		m_NewScriptDialogOpen = true;
+		m_FocusNewScriptName = true;
+	}
+
+	void ContentBrowserPanel::UpdateScriptPreview()
+	{
+		m_ScriptCreateError.clear();
+		if (!m_ScriptTemplate.empty() && m_Project)
+			ScriptTemplate::Render(m_ScriptTemplate, m_NewScriptName, m_Project->GetConfig().DefaultNamespace, m_ScriptPreview, m_ScriptTemplateError);
+	}
+
+	void ContentBrowserPanel::RenderNewScriptDialogue()
+	{
+		if (m_OpenNewScriptPopup)
+		{
+			ImGui::OpenPopup("New C# Script");
+			m_OpenNewScriptPopup = false;
+		}
+		ImGui::SetNextWindowSize(ImVec2(640.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopupModal("New C# Script", &m_NewScriptDialogOpen, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+		if (!m_Project || !m_NewScriptDialogOpen)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+
+		ImGui::TextUnformatted("Class name");
+		if (m_FocusNewScriptName)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_FocusNewScriptName = false;
+		}
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputText("##new_script_class", m_NewScriptName, sizeof(m_NewScriptName), ImGuiInputTextFlags_AutoSelectAll))
+			UpdateScriptPreview();
+		ImGui::TextWrapped("Namespace: %s", m_Project->GetConfig().DefaultNamespace.c_str());
+		ImGui::TextWrapped("File: Assets/Scripts/Source/%s.cs", m_NewScriptName);
+		ImGui::Separator();
+		ImGui::BeginChild("##script_preview", ImVec2(0.0f, 240.0f), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+		ImGui::TextUnformatted(m_ScriptPreview.c_str());
+		ImGui::EndChild();
+
+		const auto path = m_Project->GetAssetDirectory() / "Scripts" / "Source" / (std::string(m_NewScriptName) + ".cs");
+		std::string validationError = m_ScriptTemplateError;
+		if (validationError.empty() && FileSystem::Exists(path))
+			validationError = "A script with that name already exists. Choose a different class name.";
+		const std::string& error = validationError.empty() ? m_ScriptCreateError : validationError;
+		if (!error.empty())
+			ImGui::TextWrapped("%s", error.c_str());
+		ImGui::TextWrapped("Build Scripts, reload the C# assembly, then choose this class in an entity's Script component.");
+
+		bool create = false;
+		{
+			ImGuiEx::ScopedDisable disabled(!validationError.empty());
+			create = ImGui::Button("Create Script");
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape))
+		{
+			m_NewScriptDialogOpen = false;
+			ImGui::CloseCurrentPopup();
+			create = false;
+		}
+		if (create)
+		{
+			m_ScriptCreateError.clear();
+			std::error_code ec;
+			std::filesystem::create_directories(path.parent_path(), ec);
+			if (ec)
+				m_ScriptCreateError = "Could not create the script folder: " + ec.message();
+			else if (!FileSystem::WriteFileAtomically(path, m_ScriptPreview))
+				m_ScriptCreateError = "Could not write the script. See the Log for details.";
+			else
+			{
+				const AssetHandle handle = AssetManager::ImportAsset(path);
+				Refresh();
+				if (!handle)
+					m_ScriptCreateError = "The script was saved but could not be imported. See the Log, then refresh the Content Browser.";
+				else
+				{
+					ChangeDirectory(GetDirectory(std::filesystem::path("Scripts") / "Source"));
+					ClearSelections();
+					SelectItem(handle);
+					m_NewScriptDialogOpen = false;
+					ImGui::CloseCurrentPopup();
+					ActivateAsset(Project::GetEditorAssetManager()->GetMetadata(handle));
+				}
+			}
+			if (!m_ScriptCreateError.empty())
+				LUX_CORE_ERROR_TAG("ScriptEngine", "{} ({})", m_ScriptCreateError, path.string());
+		}
+		ImGui::EndPopup();
+	}
+
 	bool ContentBrowserPanel::CreateNewFolder()
 	{
 		if (!m_CurrentDirectory)
@@ -1487,6 +1676,141 @@ namespace Lux {
 		return handle;
 	}
 
+	std::vector<AssetHandle> ContentBrowserPanel::GetSoundClips(AssetHandle item) const
+	{
+		std::vector<AssetHandle> clips;
+		if (!m_SelectedItems.IsSelected(item))
+			return { item };
+		for (size_t index = 0; index < m_SelectedItems.SelectionCount(); ++index)
+		{
+			const AssetHandle selected = m_SelectedItems[index];
+			if (AssetManager::GetAssetType(selected) == AssetType::Audio)
+				clips.push_back(selected);
+		}
+		return clips;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateSoundAsset(const std::vector<AssetHandle>& clips)
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+		Sound sound;
+		std::string name = "New Sound";
+		std::vector<AssetHandle> audio;
+		for (const AssetHandle clip : clips)
+		{
+			if (clip && AssetManager::GetAssetType(clip) == AssetType::Audio)
+				audio.push_back(clip);
+		}
+		if (audio.size() == 1)
+			sound.Nodes.front().Clip = audio.front();
+		else if (audio.size() > 1)
+		{
+			// A Random container of the clips: the usual way to vary footsteps, impacts and barks.
+			sound.Nodes.front().Type = SoundNodeType::Random;
+			sound.Nodes.front().AvoidRepeat = true;
+			for (const AssetHandle clip : audio)
+				sound.Nodes[sound.AddNode(0, SoundNodeType::Clip)].Clip = clip;
+		}
+		if (!audio.empty())
+			name = Project::GetEditorAssetManager()->GetMetadata(audio.front()).FilePath.stem().string();
+		std::string error;
+		if (!sound.Validate(&error) || sound.ToYAML().size() > Sound::MaxFileBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot make one Sound of {} clips: {}", audio.size(),
+				error.empty() ? "it would be larger than the 64 KiB a Sound file may be; select fewer" : error);
+			return 0;
+		}
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / (name + ".lsound"));
+		std::ofstream file(path);
+		file << sound.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Could not create sound '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateSoundBankAsset()
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+		// Seeded with the selected Sounds, the way New Sound takes the selected clips.
+		SoundBank bank;
+		for (size_t index = 0; index < m_SelectedItems.SelectionCount(); ++index)
+		{
+			if (AssetManager::GetAssetType(m_SelectedItems[index]) == AssetType::Sound)
+				bank.Add(m_SelectedItems[index]);
+		}
+		if (bank.ToYAML().size() > SoundBank::MaxFileBytes)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot make one Sound Bank of {} Sounds: it would be larger than the 64 KiB a bank file may be", bank.Sounds.size());
+			return 0;
+		}
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / "New Sound Bank.lbank");
+		std::ofstream file(path);
+		file << bank.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Could not create sound bank '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateMaterialInstance(AssetHandle parentHandle)
+	{
+		Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(parentHandle);
+		if (!parent)
+			return 0;
+
+		auto assetManager = Project::GetEditorAssetManager();
+		const std::string extension = assetManager->GetDefaultExtensionForAssetType(AssetType::Material);
+		const std::filesystem::path parentPath = assetManager->GetFileSystemPath(parentHandle);
+		const std::filesystem::path relativePath = std::filesystem::relative(
+			FileSystem::GetUniqueFileName(parentPath.parent_path() / (parentPath.stem().string() + " Instance" + extension)),
+			Project::GetActiveAssetDirectory()).lexically_normal();
+
+		Ref<MaterialAsset> instance = Ref<MaterialAsset>::Create(parent->IsTransparent());
+		instance->SetParent(parentHandle);
+		instance->InheritFrom(*parent);
+
+		AssetMetadata metadata;
+		metadata.Type = AssetType::Material;
+		metadata.FilePath = relativePath;
+		AssetImporter::Serialize(metadata, instance);
+
+		const AssetHandle handle = assetManager->ImportAsset(relativePath);
+		Refresh();
+		if (handle)
+		{
+			LUX_CONSOLE_LOG_INFO("Created material instance '{}'", relativePath.generic_string());
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
 	AssetHandle ContentBrowserPanel::CreateMaterialAsset()
 	{
 		if (!m_CurrentDirectory)
@@ -1557,12 +1881,10 @@ namespace Lux {
 		case AssetType::StaticMesh: return EditorResources::StaticMeshFileIcon;
 		case AssetType::Texture: return EditorResources::FileIcon;
 		case AssetType::Audio: return EditorResources::AudioIcon;
-		// No dedicated FMOD artwork yet; the speaker icon at least reads as "audio" rather than
-		// falling through to the generic file icon.
-		case AssetType::AudioProject: return EditorResources::AudioIcon;
-		case AssetType::AudioBank: return EditorResources::AudioIcon;
 		case AssetType::DialogueTable:
 		case AssetType::AudioSurfaceTable: return EditorResources::AudioIcon;
+		case AssetType::Sound: return EditorResources::SoundConfigFileIcon;
+		case AssetType::SoundBank: return EditorResources::SoundGraphFileIcon;
 		case AssetType::ScriptFile: return EditorResources::CSFileIcon;
 		case AssetType::Font: return EditorResources::FontFileIcon;
 		case AssetType::Animation: return EditorResources::AnimationFileIcon;
@@ -1938,12 +2260,19 @@ namespace Lux {
 
 		Ref<Texture2D> thumbnail = m_ThumbnailCache->GetOrCreateThumbnail(metadata.FilePath);
 
-		// The cache only generates image thumbnails itself; materials are rendered.
+		// The cache only generates image thumbnails itself; materials are rendered, and audio files
+		// and Sounds drawn from their waveforms.
 		if (!thumbnail && metadata.Type == AssetType::Material)
 		{
 			if (!m_MaterialThumbnailer)
 				m_MaterialThumbnailer = Ref<MaterialThumbnailer>::Create();
 			m_MaterialThumbnailer->Request(handle);
+		}
+		if (!thumbnail && (metadata.Type == AssetType::Audio || metadata.Type == AssetType::Sound))
+		{
+			if (!m_WaveformThumbnailer)
+				m_WaveformThumbnailer = Ref<WaveformThumbnailer>::Create();
+			m_WaveformThumbnailer->Request(handle);
 		}
 
 		return thumbnail;

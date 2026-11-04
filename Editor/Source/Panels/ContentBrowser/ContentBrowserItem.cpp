@@ -7,6 +7,7 @@
 #include "../ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AudioEngine.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/Colors.h"
@@ -347,6 +348,18 @@ namespace Lux {
 
 		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Prefab
 			&& ImGui::MenuItem("Create Variant"))
+			actionResult.Set(ContentBrowserAction::CreateVariant, true);
+
+		// With several clips selected, one Random Sound plays a different one each time.
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Audio)
+		{
+			const size_t clips = ContentBrowserPanel::Get().GetSoundClips(m_ID).size();
+			const std::string label = clips > 1 ? std::format("Create Random Sound ({} clips)###create_sound", clips) : std::string("Create Sound###create_sound");
+			if (ImGui::MenuItem(label.c_str()))
+				actionResult.Set(ContentBrowserAction::CreateSound, true);
+		}
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Material
+			&& ImGui::MenuItem("Create Instance"))
 			actionResult.Set(ContentBrowserAction::CreateVariant, true);
 
 		if (ImGui::MenuItem("Delete"))

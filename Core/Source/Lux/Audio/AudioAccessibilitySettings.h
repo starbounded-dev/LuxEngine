@@ -49,7 +49,7 @@ namespace Lux
 		std::string DefaultLanguage = "en";
 		std::array<std::string, AudioCategoryCount> BusPaths{ "bus:/", "", "", "", "", "" };
 		float DescriptionDuck = 0.25f;
-		std::map<std::string, AudioEventAccessibility> Events; // Stable FMOD event GUID.
+		std::map<std::string, AudioEventAccessibility> Events; // By Sound reference (its handle in decimal).
 		std::map<std::string, glm::vec4> SpeakerColors; // Localized speaker name -> RGBA.
 		bool Validate() const;
 		void SerializeYAML(Yaml::Writer& out) const;

@@ -14,11 +14,43 @@
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <cstring>
 
 #include <filesystem>
 #include <thread>
 
 namespace Lux {
+
+	namespace
+	{
+		class LinuxFileLock final : public FileLock
+		{
+		public:
+			explicit LinuxFileLock(int handle) : m_Handle(handle) {}
+			~LinuxFileLock() override { close(m_Handle); }
+		private:
+			int m_Handle;
+		};
+	}
+
+	Scope<FileLock> FileSystem::TryLockFile(const std::filesystem::path& path)
+	{
+		const int handle = open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+		if (handle < 0)
+		{
+			LUX_CORE_ERROR_TAG("FileSystem", "Cannot open lock '{}': {}", path.string(), std::strerror(errno));
+			return nullptr;
+		}
+		if (flock(handle, LOCK_EX | LOCK_NB) != 0)
+		{
+			LUX_CORE_ERROR_TAG("FileSystem", "Cannot lock '{}': {}", path.string(), std::strerror(errno));
+			close(handle);
+			return nullptr;
+		}
+		return CreateScope<LinuxFileLock>(handle);
+	}
 
 	static std::filesystem::path s_PersistentStoragePath;
 
@@ -87,6 +119,12 @@ namespace Lux {
 	{
 		if (!s_PersistentStoragePath.empty())
 			return s_PersistentStoragePath;
+		if (const char* directory = std::getenv("LUX_USER_DATA_DIR"); directory && directory[0])
+		{
+			s_PersistentStoragePath = directory;
+			std::filesystem::create_directories(s_PersistentStoragePath);
+			return s_PersistentStoragePath;
+		}
 
 		// Follow the XDG Base Directory spec: $XDG_DATA_HOME, else ~/.local/share. Mirrors the
 		// Windows implementation, which roots persistent data at %APPDATA%/LuxEngine.

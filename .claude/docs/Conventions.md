@@ -123,10 +123,14 @@ LuxEngine uses its own smart pointers. Headers: `Core/Source/Lux/Core/Ref.h`,
 - **`Ref<T>`** — intrusive, atomically refcounted. `T` must derive from `RefCounted`. Create with
   `Ref<T>::Create(args...)` (or the free `CreateRef<T>(...)`). Cast with `.As<T2>()`; raw access via
   `.Raw()` / `.get()`. Pass by value to share ownership, `const Ref<T>&` to observe.
-- **`WeakRef<T>`** — non-owning, with a liveness check (`IsValid()`), backed by the global live-object
-  registry in `RefUtils`. Note: `WeakRef` does **not** hand back a `Ref` — there is no `Lock()`. It
-  checks liveness and dereferences directly, so it is only safe where the owner cannot die
-  concurrently.
+- **`WeakRef<T>`** — non-owning. Reach the object only through `Lock()`, which returns a `Ref<T>`
+  (null once the object is destroyed or being destroyed) and is safe against another thread
+  releasing the last strong reference at the same moment. There is no `->`: a check followed by a
+  raw access can lose the object in between. `IsValid()` is advisory (pruning lists, asserts). The
+  first `WeakRef` to an object creates its `WeakControlBlock` (`Core/Ref.h`), which outlives the
+  object, so a `WeakRef` never mistakes a new object at a freed address for the old one. A `WeakRef`
+  made from `this` in a constructor reads as dead until a `Ref` owns the object. Don't take `Lock()`
+  inside a lock that the object's destructor also takes: the temporary `Ref` can be the last one.
 - **`Scope<T>`** — alias for `std::unique_ptr<T>`; create with `CreateScope<T>(...)`.
 
 **Why `Ref` deletes off the atomic's own result:** `DecRefCount()` returns the post-decrement value
@@ -137,12 +141,6 @@ by a `GetRefCount() == 0` check — two threads can both observe 0 and double-fr
 **Forbidden in engine code:** raw `new` / `delete`, `std::shared_ptr`, `std::make_shared`. Bare
 `std::unique_ptr` appears in a few places (`Application::m_Window`) but `Scope<T>` is the spelling to
 use.
-
-**Vendor-boundary exception:** `RaytracedAudioScene::Impl` uses the real shared ownership required
-by Asterwave's native emitter and mesh geometry API (batch snapshots can retain those objects).
-Confine `std::shared_ptr` / `std::make_shared` to those native objects inside the private adapter;
-never use no-op deleters to imitate ownership. The adapter and its `World` use `Scope`, and engine
-scene objects continue using `Ref`. This does not permit shared pointers elsewhere in engine code.
 
 `LUX_TRACK_MEMORY` (Debug + Release) routes `Ref<T>::Create` through a tagged allocator
 (`new(typeid(T).name()) T(...)`) for the memory panel. Anything allocating outside `Ref`/`Scope`
@@ -227,6 +225,9 @@ Queries: `Exists`, `IsDirectory`, `IsNewer`, `GetLastWriteTime`, `GetUniqueFileN
 Mutations: `CreateDirectory`, `DeleteFile`, `MoveFile`, `CopyFile`, `Move`, `Copy`, `Rename`,
 `RenameFilename`, `WriteBytes`, `ReplaceFileAtomically` (atomically replace a destination with a completed
 same-volume temporary file; implemented on Windows and Linux, reports failure).
+`WriteFileAtomically` writes a complete text snapshot through a same-volume `<path>.tmp` file.
+`TryLockFile` returns an owning OS file lock or an empty scope when unavailable; hold it across
+revision checks and writes when coordinating editor processes.
 Reads: `ReadBytes`, `TryOpenFile`, `TryOpenFileAndWait`.
 Shell/OS: `ShowFileInExplorer`, `OpenDirectoryInExplorer`, `OpenExternally`,
 `{Has,Get,Set}EnvironmentVariable`.
@@ -263,10 +264,31 @@ a corrupted style stack, and the scopes make that unrepresentable.
 
 Widgets and layout helpers are in `ImGuiEx.h` / `ImGuiWidgets.h` (property rows, message boxes,
 collapsing headers, `ShiftCursor`, `HelpMarker`, `Draw::Underline`, …); fonts in `ImGuiFonts.h`.
+Markdown text (headings, lists, tables, code blocks with Copy, links) renders with
+`ImGuiEx::RenderMarkdown` (`ImGuiMarkdown.h`), and a help icon that opens a manual page is
+`ImGuiEx::DocsButton` (`Editor/EditorDocs.h`).
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
+`ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
+as Ctrl-click/double-click to enter numeric text. Numeric properties with an explicit `defaultValue`
+opt into **double-click reset**; Ctrl-click still enters numeric text. `NumericControlMenu` supplies
+right-click Reset / Copy / Paste, rejects non-finite clipboard input, and clamps pasted/reset values
+to the supplied bounds. Pass real authored defaults, never the current value. Consume its returned
+edit through the owning panel's existing undo path. Float/uint32 properties and float sliders expose
+an optional default; existing callers retain their text-entry gestures when no default is provided.
+Text can bypass drag bounds unless AlwaysClamp is used; authored settings panels must clamp or
+reject edited values before marking data dirty.
+`BeginPropertyGrid(columns, labelWidth, maxControlWidth)` can keep labels fixed and cap controls;
+zero widths preserve the existing layout. `GetPropertyItemWidth` reads the current grid's cap, and
+`EndPropertyGrid` restores the outer grid's setting. Full-width graphs remain outside the grid.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.
+
+For display scaling, `ImGuiScaling.h` supplies `DpiStyle` (metrics recomputed from an unscaled
+baseline) and `ScopedWindowScale` (per-panel detached-window metrics, restored exactly). Fonts
+are registered at logical sizes and ImGui 1.92 dynamically bakes at viewport DPI; do not bake a
+startup DPI multiplier into the base size and then apply DPI again. Explicit `PushFont` sizes
+are logical; direct draw-list font sizes and fixed geometry use the current style `_MainScale`.
 
 ### ImGui correctness — close every scope, give every widget a unique ID
 
@@ -350,6 +372,9 @@ and the `Convert<T>` conversions (glm, `UUID`, lenient bools, shortest floats) �
 directly. An 8-bit value (`uint8_t`) must be cast before writing (the `Writer` rejects it).
 `tests/yaml/run.py` checks that every tracked YAML asset still reads to its recorded values; run it
 after touching `Lux::Yaml`. Missing keys must deserialize to the struct default — never hard-fail a load on an absent optional field.
+The writer explicitly double-quotes multiline strings so indented text, embedded YAML and ImGui
+ini snapshots retain exact whitespace; rapidyaml's automatic single-quoted style cannot represent
+every indented multiline scalar.
 
 ---
 
@@ -372,6 +397,15 @@ one-line constant.
 `LUX_HAS_DX11` / `LUX_HAS_DX12` branches look dead. They are reserved scaffolding for a future
 backend, which would come through NRI's D3D11/D3D12 support; the reserved `RHIDevice` branches and
 guarded D3D includes are in `Renderer/RHI/RHIDevice.h`. **Do not sweep them as dead code.**
+
+### Audio library types stay in Audio/Native
+
+Engine and editor code talks to `AudioEngine`, `AudioEventInstance` and the other `Audio/` headers,
+which name no audio-library type. Only `Core/Source/Lux/Audio/Native/` (and `tests/audio/native`)
+include `Native/NativeInternal.h` or miniaudio. Native code includes miniaudio through `Native/Miniaudio.h`, never `<miniaudio.h>`
+directly: the wrapper sets `MA_ENGINE_MAX_LISTENERS`, which changes miniaudio's struct sizes. A
+feature that needs a new audio query gets an `AudioEngine` operation implemented in `Audio/Native/`,
+the way `GetEventParameter` is, rather than editor code reaching miniaudio.
 
 ### Renderer vocabulary lives in `Renderer/RHI/RHITypes.h`
 

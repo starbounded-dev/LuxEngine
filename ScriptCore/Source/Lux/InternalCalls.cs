@@ -95,6 +95,8 @@ namespace Lux
 		#region Scene
 		internal static delegate*<NativeString, ulong> Scene_CreateEntity;
 		internal static delegate*<ulong, void> Scene_DestroyEntity;
+		internal static delegate*<ulong, Vector3*, Vector3*, ulong> Scene_InstantiatePrefab;
+		internal static delegate*<Vector3*, Vector3*, Vector4*, float, Bool32, void> Gizmos_DrawLine;
 		#endregion
 
 		#region Entity
@@ -307,6 +309,10 @@ namespace Lux
 		internal static delegate*<ulong, ulong, void> Audio_ListenerSetTarget;
 		internal static delegate*<NativeString, float, void> Audio_SetBusVolume;
 		internal static delegate*<NativeString, float> Audio_GetBusVolume;
+		internal static delegate*<NativeString, void> Audio_ClearBusVolume;
+		internal static delegate*<NativeString, void> Audio_UnloadBank;
+		internal static delegate*<NativeString, Bool32> Audio_IsBankLoaded;
+		internal static delegate*<ulong, ulong> Audio_SourceGetSound;
 		internal static delegate*<NativeString, Bool32, void> Audio_SetBusMuted;
 		internal static delegate*<NativeString, float, void> Audio_SetVCAVolume;
 		internal static delegate*<NativeString, float, void> Audio_SetGlobalParameter;

@@ -6,11 +6,16 @@
 #include "Lux/Core/Base.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Renderer/Material.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraph.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <map>
+#include <set>
+#include <span>
+#include <string>
+#include <string_view>
 
 namespace Lux {
 
@@ -21,6 +26,16 @@ namespace Lux {
 		G,
 		B,
 		A
+	};
+
+	// How a material's maps are placed on the surface. Triplanar projects them along the three axes
+	// (world or object space) and blends by the surface direction, so they need no UVs and never
+	// stretch; the UV tiling then counts repeats per unit.
+	enum class MaterialMapping : uint8_t
+	{
+		UV = 0,
+		TriplanarWorld,
+		TriplanarObject
 	};
 
 	// How a material's alpha is resolved. Opaque ignores alpha entirely; Cutout discards fragments
@@ -97,6 +112,34 @@ namespace Lux {
 		float DiffuseTransmission = 0.0f;
 		glm::vec3 DiffuseTransmissionColor{ 1.0f };
 		AssetHandle DiffuseTransmissionMap = 0;
+
+		// Advanced lobes. Each is off at its default, and a material without them pays nothing.
+		// Clearcoat: a clear varnish layer over the surface (car paint, lacquer), with its own roughness.
+		float Clearcoat = 0.0f;
+		float ClearcoatRoughness = 0.1f;
+		// Sheen: back-scattering fibres at grazing angles (velvet, cloth). Black is off.
+		glm::vec3 SheenColor{ 0.0f };
+		float SheenRoughness = 0.5f;
+		// Subsurface: light scattering inside the material (wax, skin, jade): wrapped diffuse plus
+		// scattered light in SubsurfaceColor, stronger through thinner parts. Black is off.
+		glm::vec3 SubsurfaceColor{ 0.0f };
+		float SubsurfaceThickness = 0.5f; // 0 = thin, scatters most; 1 = thick, none
+		// Anisotropy: highlights stretched along the surface tangent (brushed metal, hair). -1..1;
+		// negative stretches across the tangent. Rotation turns the direction, in degrees.
+		float Anisotropy = 0.0f;
+		float AnisotropyRotation = 0.0f;
+
+		// Mapping of every map except the detail maps. Sharpness narrows the blend between the three
+		// triplanar projections.
+		MaterialMapping Mapping = MaterialMapping::UV;
+		float TriplanarSharpness = 4.0f;
+		// Detail maps: a second, finer albedo (x2 overlay, grey is neutral) and normal map on UV0 at
+		// their own tiling, where the mask's red channel allows. For close-up surface detail.
+		AssetHandle DetailAlbedoMap = 0;
+		AssetHandle DetailNormalMap = 0;
+		AssetHandle DetailMaskMap = 0;
+		glm::vec2 DetailTiling{ 4.0f };
+		float DetailNormalStrength = 1.0f;
 
 		bool operator==(const MaterialSurfaceParameters& other) const = default;
 	};
@@ -188,6 +231,49 @@ namespace Lux {
 		// surface once sets how it looks and how it sounds.
 		int32_t GetAcousticTag() const { return m_AcousticTag; }
 		void SetAcousticTag(int32_t tag) { m_AcousticTag = tag; }
+
+		// -- Material instances ------------------------------------------------------------------
+		// An instance takes every value it does not override from its parent (and so on up the
+		// chain). It still holds all of its values itself, so it renders and exports like any
+		// material, and keeps the values it last had when the parent is missing. Transparency
+		// (the shader) is never inherited.
+		AssetHandle GetParent() const { return m_Parent; }
+		// False, changing nothing, for a parent that is this material, is not a material, or has
+		// this material as an ancestor. Copies nothing: call InheritFrom. 0 clears the parent and
+		// the overrides.
+		bool SetParent(AssetHandle parent);
+		const std::set<std::string, std::less<>>& GetOverrides() const { return m_Overrides; }
+		void SetOverrides(std::set<std::string, std::less<>> overrides) { m_Overrides = std::move(overrides); }
+		bool IsOverridden(std::string_view key) const { return m_Overrides.contains(key); }
+		// Copies every value this material does not override from `parent`.
+		void InheritFrom(const MaterialAsset& parent);
+		// The values that differ from `parent` become the overrides. Run after an edit, while the
+		// inherited values still match the parent.
+		void UpdateOverrides(const MaterialAsset& parent);
+		// Drops the override on `key` and takes the parent's value.
+		void ResetToParent(std::string_view key, const MaterialAsset& parent);
+		// Main thread: re-inherits every loaded instance below `parent`, after it changed.
+		static void PropagateToInstances(AssetHandle parent);
+		// The inheritable values, named as in the .lmat file.
+		static std::span<const std::string_view> GetInstanceKeys();
+		// The override key for a graph parameter.
+		static std::string GetGraphParameterKey(std::string_view parameter) { return "Param." + std::string(parameter); }
+
+		// -- Material graph ----------------------------------------------------------------------
+		// A graph material computes some of its surface inputs per pixel (MaterialGraph). An instance
+		// shares its parent's graph; only a material without a parent owns one and is edited.
+		Ref<MaterialGraph> GetGraph() const { return m_Graph; }
+		// Owns `graph` (null makes this a standard material again). Registering it for compilation is
+		// the caller's: MaterialGraphRegistry::Register.
+		void SetGraph(Ref<MaterialGraph> graph) { m_Graph = std::move(graph); m_Revision++; }
+		// A parameter's value here: this material's own, else the graph's default.
+		MaterialGraphParameterValue GetGraphParameter(const MaterialGraphParameter& parameter) const;
+		void SetGraphParameter(std::string_view name, const MaterialGraphParameterValue& value);
+		const std::map<std::string, MaterialGraphParameterValue, std::less<>>& GetGraphParameters() const { return m_GraphParameters; }
+		void SetGraphParameters(std::map<std::string, MaterialGraphParameterValue, std::less<>> values) { m_GraphParameters = std::move(values); m_Revision++; }
+
+		// Makes MaterialScene rebuild this material's GPU row (its graph or graph index changed).
+		void MarkChanged() { m_Revision++; }
 	private:
 		void SetDefaults();
 		template<typename T>
@@ -225,6 +311,12 @@ namespace Lux {
 
 		bool m_Transparent = false;
 		int32_t m_AcousticTag = -1;
+
+		AssetHandle m_Parent = 0;
+		std::set<std::string, std::less<>> m_Overrides;
+
+		Ref<MaterialGraph> m_Graph;
+		std::map<std::string, MaterialGraphParameterValue, std::less<>> m_GraphParameters;
 
 		friend class MaterialEditor;
 	};

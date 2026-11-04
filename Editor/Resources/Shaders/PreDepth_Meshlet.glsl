@@ -158,6 +158,8 @@ layout(std430, set = 0, binding = 3) readonly buffer MeshVertexData
 
 #define MESH_VERTEX_STRIDE 7u
 
+#include <QTangent.glslh>
+
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
 
@@ -173,6 +175,9 @@ out gl_MeshPerVertexEXT
 layout(location = 0) out vec2 OutputTexCoord[];
 layout(location = 1) flat out uint OutputObjectIndex[];
 layout(location = 2) out vec3 OutputViewPosition[];
+layout(location = 3) out vec3 OutputWorldPosition[];
+layout(location = 4) out vec3 OutputNormal[];
+layout(location = 5) out mat3 OutputWorldNormals[];
 
 struct TaskPayload
 {
@@ -205,6 +210,12 @@ void main()
 		OutputTexCoord[i] = vec2(texCoord.x, 1.0 - texCoord.y);
 		OutputObjectIndex[i] = i_Payload.ObjectIndex;
 		OutputViewPosition[i] = vec3(u_Camera.ViewMatrix * worldPosition);
+		// The tangent frame as the vertex input decodes it: two snorm16 pairs.
+		const vec4 qTangent = vec4(unpackSnorm2x16(floatBitsToUint(r_VertexData.Data[base + 3u])), unpackSnorm2x16(floatBitsToUint(r_VertexData.Data[base + 4u])));
+		const mat3 tbn = QTangent_ToTBN(qTangent);
+		OutputWorldPosition[i] = worldPosition.xyz;
+		OutputNormal[i] = mat3(transform) * tbn[2];
+		OutputWorldNormals[i] = mat3(transform) * tbn;
 	}
 
 	for (uint t = gl_LocalInvocationIndex; t < triangleCount; t += 64u)
@@ -225,10 +236,14 @@ void main()
 #include <Buffers.glslh>
 #include <MaterialScene.glslh>
 #include <Samplers.glslh>
+#include <MaterialCutout.glslh>
 
 layout(location = 0) in vec2 InputTexCoord;
 layout(location = 1) flat in uint InputObjectIndex;
 layout(location = 2) in vec3 InputViewPosition;
+layout(location = 3) in vec3 InputWorldPosition;
+layout(location = 4) in vec3 InputNormal;
+layout(location = 5) in mat3 InputWorldNormals;
 
 // Must stay identical to GBuffer_Static's and PreDepth's GetMaterialMipBias: the passes have to
 // sample the same mip, or they discard different fragments and the G-buffer fails its depth-equal test.
@@ -253,9 +268,9 @@ void main()
 	if (GetGPUMaterialAlphaMode(gpuMaterial, GPU_MATERIAL_ALPHA_OPAQUE) != GPU_MATERIAL_ALPHA_MASKED)
 		return;
 
-	vec2 uv = GetGPUMaterialUV(gpuMaterial, InputTexCoord);
-	float alpha = SampleMaterialSceneTexture(gpuMaterial.TextureIndices.x, uv, GetMaterialMipBias()).a
-		* GetGPUMaterialOpacity(gpuMaterial, 1.0);
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	float alpha = LuxMaterialCutoutOpacity(gpuMaterial, InputTexCoord, InputWorldPosition, InputNormal * faceSign,
+		InputWorldNormals * faceSign, InputObjectIndex, GetMaterialMipBias());
 	if (alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 }

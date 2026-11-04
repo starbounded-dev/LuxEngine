@@ -37,6 +37,10 @@ namespace Lux
 		: m_Path(path)
 	{
 		m_Stream = std::ifstream(path, std::ifstream::in | std::ifstream::binary);
+		std::error_code error;
+		m_Size = std::filesystem::file_size(path, error);
+		if (error)
+			m_Size = 0;
 	}
 
 	FileStreamReader::~FileStreamReader()

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "Lux/Core/Base.h"
 #include "Lux/Core/Ref.h"
 
 #include <string>
@@ -11,9 +12,9 @@
 #include <vector>
 #include <glm/glm.hpp>
 
-namespace FMOD { namespace Studio { class EventInstance; } }
-
 namespace Lux {
+
+	class Sound;
 
 	// Ray-traced measurements consumed by authored Studio parameters.
 	struct AudioEventAcoustics
@@ -48,6 +49,8 @@ namespace Lux {
 		int Error = 0;
 	};
 
+	enum class MusicSync { Immediate, NextBeat, NextBar, NextMarker, NextSection };
+
 	class AudioEventInstance : public RefCounted
 	{
 	public:
@@ -59,6 +62,9 @@ namespace Lux {
 		// not in any loaded bank, which is the normal outcome for a scene saved against banks that
 		// have not been built yet.
 		static Ref<AudioEventInstance> Create(const std::string& eventGuid);
+		// An instance of a Sound held in memory, such as the Sound editor's unsaved edits. Native
+		// Sound instances only.
+		static Ref<AudioEventInstance> Create(const Ref<Sound>& sound);
 
 		const std::string& GetReference() const { return m_Guid; }
 		bool IsOneShot() const;
@@ -90,6 +96,17 @@ namespace Lux {
 		void SuppressAccessibility(bool suppressed) { m_AccessibilitySuppressed = suppressed; }
 		bool MonitorPlayback();
 		bool SetProgrammerSound(const std::string& key);
+		// Native: every clip of this instance's Sound plays this audio asset instead (a dialogue line's
+		// translation), set before Start.
+		bool SetClipOverride(UUID clip);
+		// Sample-accurate music switches (native): the engine time, in output frames, of this playing
+		// instance's next sync boundary (from its Sound's tempo map and markers), or 0 when the backend
+		// cannot tell or none lies ahead. StartAt starts it with playback beginning at that time; StopAt
+		// ends a playing instance there.
+		uint64_t GetNextSyncTime(MusicSync sync) const;
+		uint64_t GetEngineTime() const;
+		bool StartAt(uint64_t engineTime);
+		bool StopAt(uint64_t engineTime);
 		AudioPlaybackStatus GetPlaybackStatus() const;
 		bool Start();
 		void Stop(bool allowFadeOut = true);
@@ -121,19 +138,19 @@ namespace Lux {
 		static constexpr const char* kReverbSendParameter = "ReverbSend";
 
 	private:
+		// Backend-private state (the SDK handle and its cached lookups), defined by the backend.
+		struct Impl;
+
 		friend class Ref<AudioEventInstance>;
-		AudioEventInstance(FMOD::Studio::EventInstance* instance, const std::string& guid, uint64_t generation)
-			: m_Instance(instance), m_Guid(guid), m_Generation(generation) {}
+		AudioEventInstance(Scope<Impl> impl, const std::string& guid, uint64_t generation);
 		bool ConfigureCallbacks(uint64_t scriptHandle, bool timeline);
 		bool CheckResult(int result, const char* operation) const;
 
-		FMOD::Studio::EventInstance* m_Instance = nullptr;
+		Scope<Impl> m_Impl;
 		std::string m_Guid;
 		uint64_t m_Generation = 0;
 		uint64_t m_CallbackToken = 0;
 		mutable std::unordered_set<std::string> m_ReportedErrors;
-		bool m_SnapshotIntensityValidated = false;
-		uint32_t m_SnapshotIntensityID[2]{};
 		glm::vec3 m_Position{ 0.0f };
 		float m_Volume = 1.0f;
 		bool m_AccessibilitySuppressed = false;

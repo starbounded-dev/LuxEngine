@@ -44,7 +44,7 @@ namespace Lux
 	public:
 		// Read-only on the main thread. Includes all scene/prefab/table assets, plus unsaved context.
 		static AudioValidationReport ValidateProject(const Project& project, Scene* current = nullptr);
-		// Uses a separate NOSOUND FMOD system; never unloads the application's banks.
+		// Reads the project's Sounds and clips; plays nothing.
 		static AudioValidationReport ValidateBanks(const std::filesystem::path& directory,
 			const std::vector<AudioValidationReference>& references, const std::vector<std::string>& buses = {});
 	};

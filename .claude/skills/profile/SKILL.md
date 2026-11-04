@@ -187,7 +187,7 @@ Use this whenever a number goes into a report or justifies a change.
 3. **Scene.** Use a fixed scene. The standard one is `Scenes/Benchmark.luxscene`, which exercises
    every shipped system: about 7k static meshes over 128 generated materials, Sponza, 230 point and
    8 spot lights, glass (the transparent pass), emissive surfaces, 800 Jolt bodies, Box2D sprites,
-   FMOD sources, zones and portals, acoustic mesh colliders, scripts, and text.
+   audio sources, zones and portals, acoustic mesh colliders, scripts, and text.
    `python scripts/GenerateBenchmarkScenes.py` regenerates it deterministically, along with its
    materials (`Assets/Materials/Benchmark/`, registered under fixed handles). `--objects`,
    `--materials`, `--lights` and `--bodies` scale it. Record any non-default arguments with the

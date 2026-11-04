@@ -8,6 +8,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/FileSystem.h"
 
 #include <algorithm>
@@ -375,6 +376,13 @@ namespace Lux
 
 		std::vector<EditorAssetLoadResponse> loadedAssets;
 		m_AssetThread->SyncLoadedAssets(loadedAssets);
+		if (loadedAssets.empty())
+			return;
+
+		// The worker queued these assets' GPU work (uploads, mips, environment maps) before handing
+		// them over, so queue it now: the next draw of the asset must come after it.
+		if (Application::IsMainThread())
+			Renderer::ExecuteBackgroundThreadSubmits();
 
 		for (auto& response : loadedAssets)
 		{
@@ -727,6 +735,12 @@ namespace Lux
 			metadata.Handle = node["Handle"].as<uint64_t>();
 			metadata.FilePath = node["FilePath"].as<std::string>();
 			metadata.Type = AssetTypeFromString(node["Type"].as<std::string>());
+			if (metadata.Type == AssetType::AudioProject || metadata.Type == AssetType::AudioBank)
+			{
+				// FMOD Studio files are no longer assets; the next registry save drops the entry.
+				LUX_CORE_INFO_TAG("Audio", "Skipping the FMOD registry entry for '{}'", metadata.FilePath.generic_string());
+				continue;
+			}
 			metadata.IsDataLoaded = false;
 			SetMetadata(metadata.Handle, metadata);
 		}
@@ -734,8 +748,8 @@ namespace Lux
 
 	namespace {
 
-		// True when the directory is the root of an FMOD Studio project, i.e. it directly contains a
-		// .fspro. Mirrors the same rule ContentBrowserPanel::ProcessDirectory applies.
+		// True when the directory is the root of an FMOD Studio project left in an older project, i.e.
+		// it directly contains a .fspro. Mirrors the rule ContentBrowserPanel::ProcessDirectory applies.
 		bool IsFMODStudioProjectDirectory(const std::filesystem::path& directoryPath)
 		{
 			std::error_code ec;
@@ -763,11 +777,8 @@ namespace Lux
 		{
 			if (it->is_directory())
 			{
-				// An FMOD Studio project is tooling internals, not engine content: Metadata/ holds a
-				// GUID-named XML per authored object, and Build/ holds the banks fmodstudiocl
-				// regenerates. Importing the banks would put gitignored build output into the tracked
-				// asset registry, so a fresh clone would carry handles for files that do not exist.
-				// The .fspro itself is still imported - it is a file in the parent directory.
+				// An FMOD Studio project left in an older project is tooling internals, not engine
+				// content: importing its files would fill the registry with assets nothing plays.
 				if (IsFMODStudioProjectDirectory(it->path()))
 					it.disable_recursion_pending();
 
@@ -846,14 +857,8 @@ namespace Lux
 				return;
 		}
 
-		std::ofstream fout(assetRegistryPath);
-		if (!fout.is_open())
-		{
+		if (!FileSystem::WriteFileAtomically(assetRegistryPath, out.c_str()))
 			LUX_CORE_ERROR("Failed to write asset registry '{}'", assetRegistryPath.string());
-			return;
-		}
-
-		fout << out.c_str();
 	}
 
 	void EditorAssetManager::RegisterAssetDependencies(const Ref<Asset>& asset)
@@ -873,6 +878,8 @@ namespace Lux
 				RegisterDependency(materialAsset->GetMetalnessMapHandle(), materialAsset->Handle);
 			if (materialAsset->GetRoughnessMapHandle())
 				RegisterDependency(materialAsset->GetRoughnessMapHandle(), materialAsset->Handle);
+			if (materialAsset->GetParent())
+				RegisterDependency(materialAsset->GetParent(), materialAsset->Handle);
 			return;
 		}
 

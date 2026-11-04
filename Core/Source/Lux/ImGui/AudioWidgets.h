@@ -6,6 +6,7 @@
 
 namespace Lux::ImGuiEx
 {
-	// Typed, GUID-based picker over the already-loaded FMOD catalog.
+	// A typed picker for Sound
+	// assets on the native backend. Edits only that backend's field of the reference.
 	bool SurfaceEventPicker(const char* label, AudioEventRef& reference, bool oneShot, bool mixed = false, bool require2D = false);
 }

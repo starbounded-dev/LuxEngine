@@ -53,6 +53,12 @@ object is `Renderer/RHI/RHIShader`, descriptor sets `Renderer/DescriptorSetManag
 
 ## Invariant 1 — `(set, binding)` is a GLOBAL namespace
 
+Claimed outside the renderer passes: **set 1, bindings 30–34** — Soundwave's acoustic compute
+(`SoundwaveNodes`, `SoundwaveOrder`, `SoundwaveTriangles`, `SoundwaveReverbRequest`,
+`SoundwaveReverbRays`; `Include/GLSL/Soundwave.glslh`, `SoundwaveReverb.glsl`). Its pass is built
+when acoustic geometry changes, not per frame, and records on its own command buffer
+(`AudioAcousticKernel`, see `Threading.md` § Acoustic geometry).
+
 **This is the highest-consequence rule in the renderer.**
 
 `VulkanShaderCompiler`'s reflection keeps *process-global* registries of uniform buffers and storage
@@ -231,7 +237,9 @@ not a warning; only warnings and errors reach the log.
 Existing pass order, for orientation: shadow mesh culling (cull groups only) → shadow maps → early mesh
 culling (cull groups only) → PreDepth →
 HZB → mesh culling → cluster build →
-cluster light culling → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
+cluster light culling (each workgroup transforms the lights once per 64-light chunk into shared memory;
+the counters are read back a few frames late into `Statistics::ClusterPoint/SpotIndicesRequested` and
+`...LightsDropped`, warned once when the lists overflow and shown in the Renderer Debugger) → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
 temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ temporal, composite) →
 volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
@@ -395,6 +403,24 @@ have their own colours. Colours, widths, cell size and fade distance are
 `SceneRenderer::GridSettings` (`SetGridSettings`, main thread). The editor keeps them as
 `Editor.Grid.*` preferences (Application Settings → Viewport → Grid).
 
+**The sun's direction.** A directional light shines along its entity's forward (-Z), as authored in
+every sample scene (a sun pitched down lights from above). `Scene::CollectLightEnvironment` hands the
+renderer the opposite, the direction **toward** the light: shading's `L` (`NdotL = dot(N, Direction)`)
+and the side each shadow cascade puts its eye on (`CalculateCascades`: `lookAt(center + L * radius)`).
+Until 2026-10-26 the scene passed the forward itself, so a sun pitched down sat below the horizon for
+shading (no direct light in any sample scene) and its cascades were rendered from the far side
+(everything with geometry behind it read as shadowed); a test that keeps both conventions honest is a
+box floating over flat ground, whose shadow must land under it.
+
+**Shadow caster volume (pancaking).** The directional shadow pipelines clamp depth
+(`PipelineSpecification::DepthClamp`), and each cascade's caster frustum
+(`m_ShadowCascadeFrustums`, which feeds the CPU caster mask and `ShadowCulling.glsl`) has its near
+plane removed: the caster volume is the cascade extruded toward the light, and a caster in front of
+the near plane flattens onto it. A tall object outside the view and far sunward of the cascade still
+shadows it (golden scene `LowSun`: 60 m pillars 90-130 m behind the camera, 10-degree sun). Measured
+on Benchmark: no GPU or CPU cost against a bounded reach (frame-time medians there are bimodal between
+runs; compare GPU and per-thread times).
+
 **Directional shadows use a normal-offset bias** in deferred lighting: the receiver moves along its
 normal by 1.5 texels of its cascade (texel size from the cascade's orthographic matrix,
 `2 / (|row 0| × resolution)`), scaled up at grazing angles. Forward passes compute cascade
@@ -502,8 +528,16 @@ between runs:
 It waits until `LUX_GOLDEN_FRAME` frames have passed **and** asset streaming has been idle for
 `LUX_GOLDEN_IDLE_FRAMES`. It then reads back `SceneRenderer::GetFinalPassImage()` inside a
 `Renderer::Submit` lambda and writes `<name>.lximg` (a 32-byte header plus raw texels). After that
-it averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.status`, and closes
-the editor. `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
+it renders `LUX_GOLDEN_PERF_WARMUP` frames (30) untimed, since the readback blocks the queue, then
+averages `<name>.perf.json` over `LUX_GOLDEN_PERF_FRAMES`, writes `<name>.status`, and closes the
+editor. A timed frame where asset streaming restarted is dropped and counted (`lostReadinessFrames`);
+after four times the wanted frames the run ends anyway with `complete: false`. Besides the means,
+`perf.json` records `frameStats`/`gpuStats` (mean, median, p95, p99, min, max, stddev), each pass's
+`frames` (how often it ran), and how the numbers were taken: `build`, `gpu`, `vsync`, `readyAfterFrames`,
+`idleFramesRequired`, `warmupFrames`. `golden_run.py` prints medians and warnings per run, and `--compare`
+prints the GPU median per capture, flagging pairs taken on a different GPU, build or resolution, or
+incomplete. Thumbnail rendering in the Content Browser is paused for the whole capture
+(`ContentBrowserPanel::SetThumbnailWorkPaused`). `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
 `MoveEntities=N` moves the first N static-mesh entities (by UUID) around a 16-frame loop every frame
 and captures only on a frame at the loop's start, so the image must match the unmoved capture while
 the perf frames exercise the changed-mesh path. `MoveStop=K` (with `MoveEntities`) stops them at the
@@ -524,6 +558,20 @@ python3 tests/rendering/golden_compare.py a.lximg --to-png a.png          # look
 python3 tests/rendering/threading_ab.py                                   # build, then Single vs Multi
 ```
 
+- **Play/audio verification:** `--play` (or `scripts/Lux-GoldenRun.ps1 -Play`) uses the normal
+  editor Play/Stop lifecycle. It additionally requires a ready Soundwave snapshot, completed source
+  solves, nonempty render geometry and at least one live audio source. Before capture,
+  it compares the smoothed gain with Scene's applied value (`CheckedSources` in the report). It rechecks once at completion, retaining the running Scene through
+  verification/StopPlay, so later movement or preparation failures cannot pass using initial readiness. `<name>.audio.yaml` records the UUID/name, gains, path counts and geometry
+  counts (logical/stored/inert triangles and mesh instances); the runner requires a fresh nonempty artifact. This verifies the current CPU reference
+  path only. Moving gameplay is not an image-determinism baseline; normal image captures stay in
+  Edit mode. Play must not poll/wait on a worker/GPU to make a capture ready; normal frames advance.
+  With the authored Compare Engine Ray option, audio evidence also records oracle/direct float
+  bits, endpoints, work/path limits and the strongest opening route; a missing oracle fails capture.
+  `tests/audio/run_scene_acoustics.py` uses this path for isolated Sponza corner, off-axis
+  doorway, closed-portal and direct-only controls. It copies generated model/material inputs and
+  verifies originals are unchanged. Capture fixture projects are excluded from recent-project
+  history. Its short Debug captures establish correctness, not frame-budget performance.
 - **Scenes:** `Benchmark` by default; `--scenes Benchmark,RenderFeatures` adds the render-features
   scene (area-light slots over glossy strips, glass in front of a grid wall, bright emitters), which
   `python3 scripts/GenerateBenchmarkScenes.py --scene features` regenerates without touching Benchmark.
@@ -621,6 +669,10 @@ context see the same device NRI drives.
   can use implicitly (and the 1.1/1.2 bits the descriptor work will need) whenever supported, and
   the KHR extensions on 1.3 devices. **Do not use an NRI `DeviceDesc` feature that
   `VulkanDevice` does not enable**; add it there first.
+- **Depth-clamped shadows.** Device creation enables the queried core `depthClamp` feature.
+  Directional-shadow pancaking requests this raster state; NRI cannot enable a feature on the
+  Vulkan device Lux already created. The SPIR-V input parser also permits a final operand-free
+  instruction without indexing past its vector (including with Debug checked containers).
 - **Extensions NRI expects in pairs.** NRI creates its own devices with some extensions together
   and loads their functions as if they always were: with `VK_KHR_ray_tracing_pipeline` it loads
   `vkCmdTraceRaysIndirect2KHR` from `VK_KHR_ray_tracing_maintenance1`, and `nriCreateDeviceFromVKDevice`
@@ -707,7 +759,11 @@ context see the same device NRI drives.
   passed with the submission that needs it: the swapchain hands out its acquire semaphore once per
   frame (`TakeAcquireSemaphore`), to the first command buffer that draws to the back buffer, and
   `Present` waits for it itself when nothing did, in the signal-only submission that also signals
-  the present semaphore. A queue the device does not have (no compute family) records on graphics.
+  the present semaphore. A queue the device does not have (no dedicated compute family) records on graphics.
+  Device selection requires the primary graphics family to support compute and presentation
+  (presentation is omitted for headless devices). Dedicated compute/transfer families are
+  optional and remain absent in NRI when unavailable; they are never aliases of graphics.
+  Candidate-device queue discovery is local and publishes only the selected device's indices.
 - **Recording.** Every draw, dispatch, barrier, copy, clear, upload, readback, query and marker is
   recorded with NRI (NRI migration Phases 9-13).
   - **Segments.** `RenderCommandBuffer::RT_BeginNRISegment` / `RT_EndNRISegment` hand out the open
@@ -859,6 +915,23 @@ crash or corruption on some driver even if it renders correctly on yours.
   backface cones, fuller task groups, a position-only output and meshoptimizer-built meshlets did not
   close it (render features plan, phase 8). There are no skinned variants: the engine has no skeletal
   animation, and the unused `*_Anim` and `LuxPBR_*` shaders were deleted with the packed vertex.
+- **A mirroring entity transform is a raster variant too.** `MeshKey::Mirrored` is set when the
+  entity's world transform has a negative determinant (`SubmitStaticMeshInternal`). Its draws take
+  pipelines with `PipelineSpecification::Mirrored` (clockwise front faces), so culling and
+  `gl_FrontFacing` see the sides as authored: `m_PreDepthMirroredPipeline`,
+  `m_PreDepthMaskedMirroredPipeline`, `m_PreDepthMeshletMirroredPipeline`, `m_GeometryMirroredPipeline`,
+  `m_GeometryTwoSidedMirroredPipeline`, `m_TransparentMirroredPipeline` and
+  `m_TransparentBackFacesMirroredPipeline`. A mirrored two-sided prepass draw uses the plain two-sided
+  pipeline (depth has no front). Shadow and selection pipelines do not cull, so their keys never set
+  it. A mirrored transparent switches per draw and keeps its sort key, so blend order does not move.
+  Kept cull groups record each grouped proxy's mirroring (`m_CullGroupPrimitiveMirroring`); a move
+  that flips it rebuilds them. A mirrored *submesh placement* needs none of this: the importer gives it
+  reversed indices.
+- **Vertex input follows the shader.** `Pipeline` reads the vertex shader's SPIR-V entry-point
+  interface (`Utils::GetVertexInputLocations`) and declares only the layout locations it reads,
+  keeping every location number and stream stride. Depth-only shaders read the position alone, so
+  they no longer fetch the tangent frame and UV. An input it cannot size (a matrix or array) keeps
+  every attribute.
 - **Shadow cull groups.** A cull-group instance that casts shadows and is static (its proxy has not
   moved, `StaticMeshRenderProxy::LastMovedFrame`, for `StaticShadowCasterStableFrames` syncs) joins a
   `ShadowCullGroup` (mesh, submesh); the groups rebuild on the frame a caster settles. A caster still
@@ -1097,11 +1170,40 @@ Every drawn material is one row of `GPUMaterialData` (`Renderer/MaterialScene.h`
 std430 storage buffer `GPUMaterials` at `(set 2, binding 7)` and read by `GPUMaterial` in
 `Include/GLSL/MaterialScene.glslh`. The two structs are one layout: **edit both in the same change**,
 keep every member 16-byte aligned (`vec4` / `uvec4` only), and keep the `static_assert` on the C++
-size in step. A row is 13 `vec4` (208 bytes). Two hold diffuse transmission:
+size in step. A row is 18 `vec4` (288 bytes). Two hold diffuse transmission:
 `Transmission` (linear colour, w = factor, 0 for none and for every transparent row) and
 `TransmissionTextureIndices.x` (the factor map, read from alpha); the last two hold refraction:
 `Refraction` (x share, transparent rows only; y IOR, z thickness, w attenuation distance) and
-`AttenuationColor`. Textures are bindless indices into `u_GPUMaterialTextures` `(set 4, binding 0)`.
+`AttenuationColor`. The last three hold the advanced lobes: `Lobes` (x clearcoat, y clearcoat
+roughness, z anisotropy, w anisotropy rotation in radians), `Sheen` (linear colour, w roughness) and
+`Subsurface` (linear colour, w thickness); each lobe also has a flag (`HasClearcoat` ... `HasAnisotropy`,
+bits 16-19), set only when it does something. `DetailTextureIndices` (detail albedo, normal, mask;
+w = `MaterialMapping`) and `Detail` (xy detail tiling, z detail normal strength, w triplanar
+sharpness) hold mapping and detail maps (flags bits 20-22). Every map read in the G-buffer and
+transparent passes goes through `MaterialMapping.glslh` (`LuxMaterialMapping` once per pixel, then
+`LuxSampleMaterial` / `LuxSampleMaterialNormal`), which samples UV0 or the three triplanar projections
+(world, or object space from the instance transform; whiteout normal blend). Detail maps always use
+UV0. The Cutout passes (`PreDepth_Masked`, `PreDepth_Meshlet`, `DirShadowMap_Masked`,
+`SpotShadowMap_Masked`) test `LuxMaterialCutoutOpacity` (`MaterialCutout.glslh`): the same mapping,
+face sign and mip bias as `GBuffer_Static`, and a graph's Opacity, so the pre-depth discards exactly
+the texels the G-buffer does (its depth-equal test) and shadows cut the drawn shape. `GBuffer_Static`
+tests a graph material only after its graph. `GraphParameters` (8 vec4) and `TransmissionTextureIndices.y`
+(the graph index) serve material graphs: `GBuffer_Static` and `HazelPBR_Transparent` include
+`MaterialGraph.glslh`, which includes the generated `MaterialGraphs.glslh`; when the project's
+`LUX_MATERIAL_GRAPH_COUNT` is 0 the graph block compiles out, otherwise a graph row runs
+`LuxEvaluateMaterialGraph` after the standard surface and before the G-buffer write, overwriting the
+outputs it connects. The registry reloads the Cutout passes with the surface shaders, since they include the graphs too.
+`u_RendererData.Time` (seconds, from `Application::GetTime`) took a former padding slot.
+
+**Vertex colour and UV1 ride a second vertex stream.** `PackedVertex` (28 bytes, stream 0) is
+unchanged; `VertexAttributes` (8 bytes: RGBA8 colour, UV1 as two float16) is
+`MeshSource::GetAttributeBuffer()`, which every mesh has (white and UV0 when the source has none).
+Only the surface pipelines (`GBuffer-Static*`, `TransparentForward*`) declare it
+(`PipelineSpecification::AttributeLayout`, locations 3-4); `RT_FillNRIPassPipeline` sets the pass's
+`AttributeSlot`/`AttributeStride`, `RT_DrawIndexed` binds `IndexedDraw::Attributes` to that slot and
+skips (logged) a draw without one. The surface shaders pass them to the graph at varyings 19-20. The
+Cutout passes do not read the stream: their graph input has white and UV0. Textures are bindless indices into
+`u_GPUMaterialTextures` `(set 4, binding 0)`.
 
 **Refraction.** A transparent material with `Transmission > 0` (row `Refraction` / `AttenuationColor`,
 read through `GetGPUMaterialRefraction`)
@@ -1203,6 +1305,26 @@ base colours above 1 — for no measurable time saved at 1080p.
 Pixels with `t = 0` take none of these branches, and `g_DiffuseTransmission` stays zero in every
 other shader.
 
+**Advanced lobes (clearcoat, sheen, subsurface, anisotropy) are per pixel, off by default.**
+`LuxEvaluateDirectBRDF` (`PBR.glslh`) evaluates them for every light from the `g_Lobe*` globals, and
+returns the plain result while `g_LobeFlags` is 0 — its value in every shader that never sets it, so
+those shade exactly as before. `MaterialLobes.glslh` sets them from a material row
+(`LuxSetupMaterialLobes`), bends the IBL reflection for anisotropy (`LuxLobeReflection`) and adds the
+lobes' image-based light on top of `LuxEvaluateImageBasedLighting` (`LuxApplyLobesIBL`). Deferred
+lighting reads the row through `MaterialID`; the transparent forward pass through its object. Models
+follow Filament: clearcoat is a 4% dielectric layer with Kelemen visibility taking its Fresnel share
+from the layer under it; sheen is Charlie + Neubelt (shortcut: a constant directional albedo
+`LUX_SHEEN_ALBEDO` instead of a DFG channel); subsurface is wrapped diffuse plus forward/back scatter
+by thickness, and also lights the side facing away from the light; anisotropy is anisotropic GGX
+with a bent IBL normal. All spatial. Area lights (`DeferredLighting_Area`, LTC) ignore the lobes.
+
+**The anisotropic tangent rides in the G-buffer base colour's alpha.** The opaque passes never read
+that alpha after `GBuffer_Static` (cutout is resolved there; blending is off), so an anisotropic
+material writes its tangent there instead: the angle about the view normal, over [0, pi), in a basis
+built from the normal alone (`LuxGBufferNormalBasis`, Duff et al.), which deferred lighting rebuilds
+from the decoded normal (`EncodeGBufferTangent` / `DecodeGBufferTangent`, RGBA16F). The tangent is
+the mesh's, turned by the material's rotation, so it needs a mesh with tangents.
+
 `Renderer::BeginRenderPass` honours a per-attachment `AttachmentLoadOp` (`Load` keeps, `Clear`
 clears, `Inherit` follows `ClearColorOnLoad`). Use it to share an image into a framebuffer without
 clearing it.
@@ -1252,3 +1374,22 @@ outlined through the collider pass. The renderer knows only indices; which categ
 | `Renderer::Submit`'s three-way thread branch collapsed or bypassed | Corrupted single-producer command queue |
 | New consumer queue without `ConsumePendingUpload` / `QueueWaitForCommandList` | Reads of un-uploaded memory |
 | `ImGui::` call inside a `Renderer::Submit` lambda | ImGui is built on the main thread only |
+
+For actual package/player acoustic checks, add `--export-runtime` to
+`tests/audio/run_scene_acoustics.py`. Golden capture's `--export-dir` sets
+`LUX_GOLDEN_EXPORT_DIR`; after capture/Play stops it drives the normal validated exporter and
+writes fresh `<name>.export.yaml` package/executable paths before status completion. It does
+not open Explorer or skip bank/asset/shader validation. Each automated destination is empty.
+The runner launches that actual executable from its package, setting `LUX_RUNTIME_AUDIO_REPORT`.
+The runtime writes the shared Scene audio YAML plus `.status` after 120 rendered frames once
+geometry is ready (failure after 6000 frames), then closes normally. Missing/stale evidence,
+nonzero process exit, acoustic mismatch and Vulkan validation messages fail the check.
+The packaged runtime is selected with `--runtime-config debug|release|dist`; native artifacts
+must be built first. This is correctness evidence, not an acoustic GPU or performance gate.
+
+Runtime acoustic completion uses a staged `.status.tmp` file atomically replaced onto the
+final `.status` path after the report is written. The runner checks fresh report/status files
+and normal process exit; it does not require a console message. Dist omits the console sink,
+and logging preferences cannot determine whether acoustic verification passed. Publication
+failure remains a missing/stale-marker failure, with native errors reported through the normal
+tagged logger.

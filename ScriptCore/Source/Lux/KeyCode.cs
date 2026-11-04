@@ -4,6 +4,10 @@
 namespace Lux
 {
 	// ushort-backed to match the native KeyCode (enum class KeyCode : uint16_t).
+	/// <summary>
+	/// A keyboard key, by its position on a US layout. <c>D0</c>-<c>D9</c> are the number row, <c>KP0</c>-<c>KP9</c>
+	/// the keypad, and <c>World1</c>/<c>World2</c> the extra keys of non-US keyboards.
+	/// </summary>
 	public enum KeyCode : ushort
 	{
 		// From glfw3.h

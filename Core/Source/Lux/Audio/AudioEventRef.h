@@ -3,28 +3,40 @@
 
 #pragma once
 
+#include "Lux/Core/UUID.h"
+
 #include <string>
 
 namespace Lux
 {
-	// A reference to an FMOD Studio event.
-	//
-	// The GUID is the reference; the path is a cached label for the editor and is never used to
-	// resolve the event. That split matters: renaming or moving an event in FMOD Studio changes its
-	// path but not its GUID, so a path-referencing scene goes silently mute the first time a
-	// designer reorganises the project - no error, no warning, just nothing plays.
+	// What an audio source, zone, director or table entry plays: a Sound asset handle (.lsound), or for
+	// a zone's snapshot, a mixer snapshot ID. Guid, Path and BankName are legacy FMOD fields: read from
+	// older files so the editor and Play can report what still needs a Sound, never played.
 	struct AudioEventRef
 	{
-		std::string Guid;   // "{xxxxxxxx-....}", empty when no event is assigned
+		std::string Guid;       // legacy FMOD event GUID, "{xxxxxxxx-....}"
+		std::string Path;       // legacy FMOD event path, "event:/FX/Door"
+		std::string BankName;   // legacy FMOD bank name, "Master.bank"
 
-		// Both advisory, both refreshed from the loaded banks on display, and neither ever used to
-		// resolve the event - the GUID does that on its own, whichever bank the event turns out to
-		// live in. Path is what a designer recognises; BankName lets the picker group by bank and
-		// gives on-demand bank loading something to work from later.
-		std::string Path;       // "event:/FX/Door"
-		std::string BankName;   // "Master.bank"
+		// The Sound asset it plays; 0 when none is assigned. (An AssetHandle; spelled as UUID so this
+		// header stays free of the asset module.)
+		UUID Sound = 0;
 
-		bool IsValid() const { return !Guid.empty(); }
+		// Whether it has something to play: a Sound. Defined in Audio/Native/NativeAudioReferences.cpp.
+		bool IsValid() const;
+
+		// Whether a Sound or a legacy FMOD GUID is set: an FMOD-only reference is what migration reports.
+		bool HasReference() const { return !Guid.empty() || Sound != 0; }
+
+		// The same assignment. Compares fields, so per-frame change checks allocate nothing.
+		bool SameAssignment(const AudioEventRef& other) const { return Guid == other.Guid && Sound == other.Sound; }
+
+		// The string AudioEventInstance::Create resolves (the Sound handle in decimal), or empty when
+		// IsValid is false.
+		std::string GetReference() const;
+
+		// The inverse of GetReference: a reference holding only the Sound.
+		static AudioEventRef FromReference(const std::string& reference);
 	};
 
 }

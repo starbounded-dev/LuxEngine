@@ -5,7 +5,9 @@
 
 #include "Event.h"
 
+#include <filesystem>
 #include <sstream>
+#include <vector>
 
 namespace Lux {
 
@@ -71,6 +73,21 @@ namespace Lux {
 		int m_X;
 		int m_Y;
 		int& m_Hit;
+	};
+
+	// Files dropped onto the window from the operating system, as absolute paths.
+	class WindowDropEvent : public Event
+	{
+	public:
+		explicit WindowDropEvent(std::vector<std::filesystem::path> paths)
+			: m_Paths(std::move(paths)) {}
+
+		const std::vector<std::filesystem::path>& GetPaths() const { return m_Paths; }
+
+		EVENT_CLASS_TYPE(WindowDrop)
+		EVENT_CLASS_CATEGORY(EventCategoryApplication)
+	private:
+		std::vector<std::filesystem::path> m_Paths;
 	};
 
 	class AppTickEvent : public Event

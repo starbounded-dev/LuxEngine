@@ -5,10 +5,6 @@
 #include "FileSystem.h"
 #include "StringUtils.h"
 
-#ifdef LUX_PLATFORM_LINUX
-#include <libgen.h>
-#endif
-
 #include <nfd.hpp>
 
 #include <format>
@@ -84,6 +80,44 @@ namespace Lux {
 		return std::filesystem::exists(std::filesystem::path(filepath));
 	}
 
+	bool FileSystem::WriteFileAtomically(const std::filesystem::path& path, std::string_view text, bool binary)
+	{
+		const std::filesystem::path temporary = path.string() + ".tmp";
+		{
+			std::ofstream file(temporary, binary ? std::ios::out | std::ios::binary | std::ios::trunc : std::ios::out | std::ios::trunc);
+			file.write(text.data(), static_cast<std::streamsize>(text.size()));
+			file.close();
+			if (!file)
+			{
+				LUX_CORE_ERROR_TAG("FileSystem", "Cannot write '{}'", temporary.string());
+				std::error_code error;
+				std::filesystem::remove(temporary, error);
+				return false;
+			}
+		}
+		return ReplaceFileAtomically(temporary, path);
+	}
+
+	std::string FileSystem::QuoteShellArgument(const std::filesystem::path& argument)
+	{
+#ifdef LUX_PLATFORM_WINDOWS
+		const std::string value = argument.string();
+		if (value.find_first_of("\"%!\r\n") != std::string::npos)
+			throw std::invalid_argument("paths passed to a command cannot contain quotes, %, ! or newlines on Windows");
+		return "\"" + value + "\"";
+#else
+		std::string quoted = "'";
+		for (char character : argument.string())
+		{
+			if (character == '\'')
+				quoted += "'\\''";
+			else
+				quoted += character;
+		}
+		return quoted + "'";
+#endif
+	}
+
 	bool FileSystem::DeleteFile(const std::filesystem::path& filepath)
 	{
 		if (!FileSystem::Exists(filepath))
@@ -126,7 +160,8 @@ namespace Lux {
 #ifdef LUX_PLATFORM_WINDOWS
 		std::string cmd = std::format("explorer.exe /select,\"{0}\"", absolutePath.string());
 #elif defined(LUX_PLATFORM_LINUX)
-		std::string cmd = std::format("xdg-open \"{0}\"", dirname(absolutePath.string().data()));
+		// The shell expands $() inside double quotes; a file name must never run a command.
+		std::string cmd = "xdg-open " + QuoteShellArgument(absolutePath.parent_path());
 #endif
 		system(cmd.c_str());
 		return true;
@@ -157,7 +192,7 @@ namespace Lux {
 		ShellExecute(NULL, L"open", absolutePath.c_str(), NULL, NULL, SW_SHOWNORMAL);
 		return true;
 #elif defined(LUX_PLATFORM_LINUX)
-		std::string cmd = std::format("xdg-open \"{0}\"", absolutePath.string().data());
+		std::string cmd = "xdg-open " + QuoteShellArgument(absolutePath);
 		system(cmd.c_str());
 		return true;
 #endif

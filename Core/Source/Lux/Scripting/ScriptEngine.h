@@ -158,6 +158,7 @@ namespace Lux {
 					Coral::ManagedObject value = fieldMetadata.ManagedType->CreateInstance(fieldStorage.GetValue<uint64_t>());
 					handle.SetFieldValue(fieldStorage.GetName(), value);
 					value.Destroy();
+					continue; // an asset wrapper can't be read back as a value; the storage keeps its handle
 				}
 				else if (fieldMetadata.ManagedType->IsSZArray())
 				{
@@ -174,6 +175,7 @@ namespace Lux {
 							arr[i].Destroy();
 
 						Coral::Array<Coral::ManagedObject>::Free(arr);
+						continue;
 					}
 					else
 					{

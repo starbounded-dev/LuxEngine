@@ -4,6 +4,9 @@
 #include "lpch.h"
 #include "MaterialEditorPanel.h"
 #include "MaterialPreview.h"
+#include "MaterialGraphCanvas.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
+#include "Panels/ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -40,6 +43,8 @@ namespace Lux
 		// created, not a value an opaque material can switch to here.
 		const char* s_AlphaModeNames[] = { "Opaque", "Cutout" };
 
+		const char* s_MappingNames[] = { "UV", "Triplanar (World)", "Triplanar (Object)" };
+
 		std::string GetMaterialName(AssetHandle handle)
 		{
 			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
@@ -55,6 +60,15 @@ namespace Lux
 		{
 			auto* imguiRenderer = Application::Get().GetImGuiLayer()->GetImGuiRenderer();
 			return imguiRenderer->CreateFrameTexture(image);
+		}
+	}
+
+	namespace
+	{
+		std::string GraphSnapshot(const Ref<MaterialAsset>& material)
+		{
+			Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
+			return graph && !material->GetParent() ? MaterialGraphCanvas::Snapshot(*graph) : std::string();
 		}
 	}
 
@@ -79,6 +93,9 @@ namespace Lux
 		state.RoughnessMap = material->GetRoughnessMapHandle();
 		state.Surface = material->GetSurfaceParameters();
 		state.AcousticTag = material->GetAcousticTag();
+		state.Parent = material->GetParent();
+		state.Overrides = material->GetOverrides();
+		state.GraphParameters = material->GetGraphParameters();
 		return state;
 	}
 
@@ -100,6 +117,9 @@ namespace Lux
 		material->SetUseNormalMap(UseNormalMap);
 		material->SetSurfaceParameters(Surface);
 		material->SetAcousticTag(AcousticTag);
+		material->SetParent(Parent);
+		material->SetOverrides(Overrides);
+		material->SetGraphParameters(GraphParameters);
 	}
 
 	// -- Documents -------------------------------------------------------------------------------
@@ -132,6 +152,8 @@ namespace Lux
 		Document document;
 		document.Handle = handle;
 		document.Saved = MaterialState::Capture(material);
+		document.Propagated = document.Saved;
+		document.SavedGraph = GraphSnapshot(material);
 		m_Documents.push_back(document);
 		m_ActiveDocument = (int)m_Documents.size() - 1;
 		m_SelectActiveTab = true;
@@ -144,6 +166,8 @@ namespace Lux
 		m_ActiveDocument = -1;
 		m_PendingCloseIndex = -1;
 		m_Preview = nullptr;
+		if (m_GraphCanvas)
+			m_GraphCanvas->StopPreview();
 	}
 
 	MaterialEditorPanel::Document* MaterialEditorPanel::GetActiveDocument()
@@ -175,12 +199,13 @@ namespace Lux
 
 		AssetImporter::Serialize(material.As<Asset>());
 		document.Saved = MaterialState::Capture(material);
+		document.SavedGraph = GraphSnapshot(material);
 	}
 
 	bool MaterialEditorPanel::IsDirty(const Document& document) const
 	{
 		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle);
-		return material && !(MaterialState::Capture(material) == document.Saved);
+		return material && (!(MaterialState::Capture(material) == document.Saved) || GraphSnapshot(material) != document.SavedGraph);
 	}
 
 	// Widgets change the material directly. The state before the first change is kept until no
@@ -272,19 +297,62 @@ namespace Lux
 		{
 			if (!m_Preview)
 				m_Preview = Ref<MaterialPreview>::Create();
-			if (m_Preview->GetMaterial() != document->Handle)
-				m_Preview->SetMaterial(document->Handle);
+			// A previewed graph node replaces the material on the preview shape.
+			const AssetHandle shown = m_ShowGraph && m_GraphCanvas && m_GraphCanvas->GetPreviewMaterial()
+				? m_GraphCanvas->GetPreviewMaterial() : document->Handle;
+			if (m_Preview->GetMaterial() != shown)
+				m_Preview->SetMaterial(shown);
 			UI_Preview(previewWidth);
 		}
 		ImGui::EndChild();
 
 		ImGui::SameLine();
 
-		if (ImGui::BeginChild("##material_properties_column", ImVec2(0.0f, 0.0f)))
-			UI_Properties(*document, material);
-		ImGui::EndChild();
+		const bool ownsGraph = material->GetGraph() && !material->GetParent();
+		if (ownsGraph)
+		{
+			if (ImGui::RadioButton("Properties", !m_ShowGraph))
+				m_ShowGraph = false;
+			ImGui::SameLine();
+			if (ImGui::RadioButton("Graph", m_ShowGraph))
+				m_ShowGraph = true;
+		}
+
+		if (ownsGraph && m_ShowGraph)
+		{
+			if (!m_GraphCanvas)
+				m_GraphCanvas = CreateScope<MaterialGraphCanvas>();
+			if (ImGui::BeginChild("##material_graph_column", ImVec2(0.0f, 0.0f)))
+				m_GraphCanvas->Draw(material, m_PushUndo);
+			ImGui::EndChild();
+		}
+		else
+		{
+			if (ImGui::BeginChild("##material_properties_column", ImVec2(0.0f, 0.0f)))
+			{
+				UI_Instance(material);
+				UI_GraphParameters(material);
+				UI_Properties(*document, material);
+			}
+			ImGui::EndChild();
+		}
+
+		// An instance's overrides are the values that differ from its parent; its inherited values
+		// still match the parent here, since a parent change reaches it through propagation.
+		if (material->GetParent() && !(MaterialState::Capture(material) == document->EditBaseline))
+		{
+			if (Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(material->GetParent()))
+				material->UpdateOverrides(*parent);
+		}
 
 		TrackEdit(*document, material);
+
+		// Instances follow their parent live, including while a slider is dragged.
+		if (MaterialState current = MaterialState::Capture(material); !(current == document->Propagated))
+		{
+			MaterialAsset::PropagateToInstances(document->Handle);
+			document->Propagated = std::move(current);
+		}
 
 		ImGui::End();
 	}
@@ -359,7 +427,14 @@ namespace Lux
 		{
 			Document& document = m_Documents[m_PendingCloseIndex];
 			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle))
+			{
 				document.Saved.Apply(material);
+				if (material->GetGraph() && !document.SavedGraph.empty())
+				{
+					MaterialGraphCanvas::Restore(*material->GetGraph(), document.SavedGraph);
+					MaterialGraphRegistry::MarkDirty();
+				}
+			}
 			CloseDocument((size_t)m_PendingCloseIndex);
 			m_PendingCloseIndex = -1;
 			ImGui::CloseCurrentPopup();
@@ -374,9 +449,102 @@ namespace Lux
 		ImGui::EndPopup();
 	}
 
+	void MaterialEditorPanel::UI_Instance(Ref<MaterialAsset> material)
+	{
+		if (!ImGuiEx::PropertyGridHeader("Instance", material->GetParent() != 0))
+			return;
+
+		ImGuiEx::BeginPropertyGrid();
+		AssetHandle parentHandle = material->GetParent();
+		if (ImGuiEx::PropertyAssetReference<MaterialAsset>("Parent", parentHandle,
+			"Values this material does not set itself come from the parent. Clear it to keep the current values.", nullptr, {}, false))
+		{
+			if (!material->SetParent(parentHandle))
+				LUX_CONSOLE_LOG_ERROR("'{}' cannot be the parent: it is this material or one of its instances", GetMaterialName(parentHandle));
+			else if (Ref<MaterialAsset> parent = parentHandle ? AssetManager::GetAsset<MaterialAsset>(parentHandle) : nullptr)
+				material->InheritFrom(*parent);
+		}
+		ImGuiEx::EndPropertyGrid();
+
+		Ref<MaterialAsset> parent = material->GetParent() ? AssetManager::GetAsset<MaterialAsset>(material->GetParent()) : nullptr;
+		if (!parent)
+		{
+			if (material->GetParent())
+				ImGui::TextDisabled("The parent material is missing; this material keeps its own values.");
+			ImGui::TreePop();
+			return;
+		}
+
+		if (material->GetOverrides().empty())
+		{
+			ImGui::TextDisabled("Every value comes from the parent. Change one to override it.");
+		}
+		else
+		{
+			ImGui::TextDisabled("Set by this material:");
+			// Copied: a reset changes the set.
+			const std::set<std::string, std::less<>> overrides = material->GetOverrides();
+			for (const std::string& key : overrides)
+			{
+				ImGui::PushID(key.c_str());
+				if (ImGui::SmallButton("Reset"))
+					material->ResetToParent(key, *parent);
+				ImGui::SameLine();
+				ImGui::TextUnformatted(key.c_str());
+				ImGui::PopID();
+			}
+			if (ImGui::Button("Reset All to Parent"))
+			{
+				material->SetOverrides({});
+				material->InheritFrom(*parent);
+			}
+		}
+		ImGui::TreePop();
+	}
+
+	void MaterialEditorPanel::UI_GraphParameters(Ref<MaterialAsset> material)
+	{
+		Ref<MaterialGraph> graph = material->GetGraph();
+		if (!graph)
+			return;
+
+		std::vector<MaterialGraphParameter> exposed;
+		for (const MaterialGraphParameter& parameter : graph->GetParameters())
+		{
+			if (parameter.Exposed)
+				exposed.push_back(parameter);
+		}
+		if (exposed.empty() || !ImGuiEx::PropertyGridHeader("Graph Parameters"))
+			return;
+
+		// No recompile: these go into the material's row. Instances override them like any value.
+		ImGuiEx::BeginPropertyGrid();
+		for (const MaterialGraphParameter& parameter : exposed)
+		{
+			MaterialGraphParameterValue value = material->GetGraphParameter(parameter);
+			bool changed = false;
+			switch (parameter.Kind)
+			{
+				case MaterialGraphParameterKind::Float:
+					changed = ImGuiEx::Property(parameter.Name.c_str(), value.Value.x, 0.01f, 0.0f, 0.0f, "", false);
+					break;
+				case MaterialGraphParameterKind::Color:
+					changed = ImGuiEx::PropertyColor(parameter.Name.c_str(), value.Value, "", false);
+					break;
+				case MaterialGraphParameterKind::Texture:
+					changed = ImGuiEx::PropertyAssetReference<Texture2D>(parameter.Name.c_str(), value.Texture, "", nullptr, {}, false);
+					break;
+			}
+			if (changed)
+				material->SetGraphParameter(parameter.Name, value);
+		}
+		ImGuiEx::EndPropertyGrid();
+		ImGui::TreePop();
+	}
+
 	void MaterialEditorPanel::UI_Toolbar(Document& document, Ref<MaterialAsset> material)
 	{
-		const bool dirty = !(MaterialState::Capture(material) == document.Saved);
+		const bool dirty = IsDirty(document);
 
 		ImGui::BeginDisabled(!dirty);
 		if (ImGui::Button(LUX_ICON_FLOPPY_O "  Save"))
@@ -384,11 +552,51 @@ namespace Lux
 		ImGui::SameLine();
 		// Reverting goes through TrackEdit like any other change, so it can be undone.
 		if (ImGui::Button(LUX_ICON_UNDO "  Revert"))
+		{
 			document.Saved.Apply(material);
+			if (material->GetGraph() && !document.SavedGraph.empty())
+			{
+				MaterialGraphCanvas::Restore(*material->GetGraph(), document.SavedGraph);
+				material->MarkChanged();
+				MaterialGraphRegistry::MarkDirty();
+			}
+		}
 		ImGui::EndDisabled();
 
 		ImGui::SameLine();
 		ImGui::TextDisabled("%s", dirty ? "Unsaved changes" : "Saved");
+
+		ImGui::SameLine();
+		if (ImGui::Button(LUX_ICON_CLONE "  Create Instance"))
+		{
+			if (const AssetHandle instance = ContentBrowserPanel::Get().CreateMaterialInstance(document.Handle))
+				OpenMaterial(instance);
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("A new material that follows this one, except for the values it sets itself");
+
+		// Graph materials: the standard inputs stay, and a graph sets whichever of them it connects.
+		if (!material->GetParent())
+		{
+			ImGui::SameLine();
+			if (!material->GetGraph())
+			{
+				if (ImGui::Button(LUX_ICON_SITEMAP "  Make Graph Material"))
+				{
+					material->SetGraph(MaterialGraph::CreateDefault());
+					MaterialGraphRegistry::Register(document.Handle);
+					m_ShowGraph = true;
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Compute this material's inputs with a node graph");
+			}
+			else if (ImGui::Button(LUX_ICON_TRASH "  Remove Graph"))
+			{
+				material->SetGraph(nullptr);
+				MaterialGraphRegistry::Unregister(document.Handle);
+				m_ShowGraph = false;
+			}
+		}
 	}
 
 	void MaterialEditorPanel::UI_Preview(float width)
@@ -579,6 +787,38 @@ namespace Lux
 			ImGui::TreePop();
 		}
 
+		if (ImGuiEx::PropertyGridHeader("Advanced Shading", false))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			surfaceChanged |= ImGuiEx::Property("Clearcoat", surface.Clearcoat, 0.01f, 0.0f, 1.0f,
+				"A clear varnish layer on top, like car paint or lacquered wood. 0 turns it off.", false);
+			if (surface.Clearcoat > 0.0f)
+				surfaceChanged |= ImGuiEx::Property("Clearcoat Roughness", surface.ClearcoatRoughness, 0.01f, 0.0f, 1.0f,
+					"Roughness of the varnish layer alone.", false);
+
+			surfaceChanged |= ImGuiEx::PropertyColor("Sheen Color", surface.SheenColor,
+				"Soft light from fibres at grazing angles, like velvet or cloth. Black turns it off.", false);
+			if (surface.SheenColor != glm::vec3(0.0f))
+				surfaceChanged |= ImGuiEx::Property("Sheen Roughness", surface.SheenRoughness, 0.01f, 0.0f, 1.0f,
+					"Low is a tight rim of sheen; high spreads it over the surface.", false);
+
+			surfaceChanged |= ImGuiEx::PropertyColor("Subsurface Color", surface.SubsurfaceColor,
+				"Light scattered inside the material, like wax, skin or jade. Black turns it off.", false);
+			if (surface.SubsurfaceColor != glm::vec3(0.0f))
+				surfaceChanged |= ImGuiEx::Property("Subsurface Thickness", surface.SubsurfaceThickness, 0.01f, 0.0f, 1.0f,
+					"0 is thin and lets the most light through; 1 is thick and scatters none.", false);
+
+			surfaceChanged |= ImGuiEx::Property("Anisotropy", surface.Anisotropy, 0.01f, -1.0f, 1.0f,
+				"Stretches highlights along the surface, like brushed metal. Negative stretches them across. 0 turns it off. Needs a mesh with tangents.", false);
+			if (surface.Anisotropy != 0.0f)
+				surfaceChanged |= ImGuiEx::Property("Anisotropy Rotation", surface.AnisotropyRotation, 1.0f, -180.0f, 180.0f,
+					"Turns the direction of the stretch, in degrees.", false);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
 		if (ImGuiEx::PropertyGridHeader("Texture Maps"))
 		{
 			ImGuiEx::BeginPropertyGrid();
@@ -657,9 +897,43 @@ namespace Lux
 		{
 			ImGuiEx::BeginPropertyGrid();
 
-			surfaceChanged |= ImGuiEx::Property("Tiling", surface.UVTiling, 0.01f, 0.0f, 0.0f, "How many times the maps repeat across the surface.", false);
+			surfaceChanged |= ImGuiEx::PropertyDropdown("Mapping", s_MappingNames, (int32_t)std::size(s_MappingNames), surface.Mapping,
+				"UV uses the mesh's texture coordinates. Triplanar projects the maps from the three axes, in the world or on the object, so they never stretch and need no UVs.", false);
+			const bool triplanar = surface.Mapping != MaterialMapping::UV;
+			surfaceChanged |= ImGuiEx::Property("Tiling", surface.UVTiling, 0.01f, 0.0f, 0.0f,
+				triplanar ? "Repeats per unit of distance." : "How many times the maps repeat across the surface.", false);
 			surfaceChanged |= ImGuiEx::Property("Offset", surface.UVOffset, 0.01f, 0.0f, 0.0f, "", false);
 			surfaceChanged |= ImGuiEx::Property("Rotation", surface.UVRotation, 0.5f, -360.0f, 360.0f, "Degrees.", false);
+			if (triplanar)
+				surfaceChanged |= ImGuiEx::Property("Blend Sharpness", surface.TriplanarSharpness, 0.1f, 1.0f, 64.0f,
+					"How quickly one projection gives way to the next at corners. Higher is a harder seam.", false);
+
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (ImGuiEx::PropertyGridHeader("Detail", false))
+		{
+			ImGuiEx::BeginPropertyGrid();
+
+			AssetHandle detailMap;
+			if (textureSlot("Detail Albedo", surface.DetailAlbedoMap, "A finer colour map laid over the base colour. Mid grey changes nothing; lighter brightens, darker darkens.", detailMap))
+			{
+				surface.DetailAlbedoMap = detailMap;
+				surfaceChanged = true;
+			}
+			if (textureSlot("Detail Normal", surface.DetailNormalMap, "A finer normal map added on top of the main one.", detailMap))
+			{
+				surface.DetailNormalMap = detailMap;
+				surfaceChanged = true;
+			}
+			if (textureSlot("Detail Mask", surface.DetailMaskMap, "Where the detail shows: its red channel, white for full detail. Without one, detail is everywhere.", detailMap))
+			{
+				surface.DetailMaskMap = detailMap;
+				surfaceChanged = true;
+			}
+			surfaceChanged |= ImGuiEx::Property("Detail Tiling", surface.DetailTiling, 0.01f, 0.0f, 0.0f, "Repeats of the detail maps across the mesh's UVs.", false);
+			surfaceChanged |= ImGuiEx::Property("Detail Normal Strength", surface.DetailNormalStrength, 0.01f, 0.0f, 4.0f, "", false);
 
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();

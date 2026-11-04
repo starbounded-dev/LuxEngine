@@ -25,9 +25,34 @@ namespace Lux
 	{
 		PhysicsContactEvent event;
 		event.Key = { a.GetID().GetIndexAndSequenceNumber(), b.GetID().GetIndexAndSequenceNumber(), manifold.mSubShapeID1.GetValue(), manifold.mSubShapeID2.GetValue() };
+		event.Entity1 = a.GetUserData();
+		event.Entity2 = b.GetUserData();
+		if (settings.mIsSensor)
+		{
+			// A trigger overlap: reported for scripts only (no impulse, no audio).
+			std::scoped_lock lock(m_Mutex);
+			// Jolt can persist the same contact key across a solid-to-sensor change.
+			// End its audible lifetime before publishing the trigger overlap.
+			if (m_RealContacts.erase(event.Key))
+			{
+				event.State = PhysicsContactEvent::Type::End;
+				m_Events.push_back(event);
+			}
+			event.Trigger = true;
+			event.State = m_TriggerContacts.insert(event.Key).second ? PhysicsContactEvent::Type::Begin : PhysicsContactEvent::Type::Persist;
+			m_Events.push_back(event);
+			return;
+		}
 		{
 			std::scoped_lock lock(m_Mutex);
-			if (settings.mIsSensor || manifold.mRelativeContactPointsOn1.empty() || manifold.mPenetrationDepth < 0.0f)
+			if (m_TriggerContacts.erase(event.Key))
+			{
+				PhysicsContactEvent ended = event;
+				ended.Trigger = true;
+				ended.State = PhysicsContactEvent::Type::End;
+				m_Events.push_back(ended);
+			}
+			if (manifold.mRelativeContactPointsOn1.empty() || manifold.mPenetrationDepth < 0.0f)
 			{
 				if (m_RealContacts.erase(event.Key))
 				{
@@ -39,8 +64,6 @@ namespace Lux
 			event.State = m_RealContacts.insert(event.Key).second ? PhysicsContactEvent::Type::Begin : PhysicsContactEvent::Type::Persist;
 		}
 
-		event.Entity1 = a.GetUserData();
-		event.Entity2 = b.GetUserData();
 		const auto position = manifold.GetWorldSpaceContactPointOn1(0);
 		event.Position = { position.GetX(), position.GetY(), position.GetZ() };
 		const auto normal = manifold.mWorldSpaceNormal;
@@ -93,6 +116,11 @@ namespace Lux
 		std::scoped_lock lock(m_Mutex);
 		if (m_RealContacts.erase(event.Key))
 			m_Events.push_back(event);
+		else if (m_TriggerContacts.erase(event.Key))
+		{
+			event.Trigger = true;
+			m_Events.push_back(event);
+		}
 	}
 
 	void JoltContactListener::Drain(std::vector<PhysicsContactEvent>& events)

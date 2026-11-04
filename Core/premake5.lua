@@ -52,11 +52,22 @@ project "Core"
 
 		"vendor/FastNoise/**.cpp",
 
+		"vendor/soundwave/include/**.h",
+		"vendor/soundwave/src/**.cpp",
+		"vendor/soundwave/src/**.h",
+
+		"vendor/meshoptimizer/**.h",
+		"vendor/meshoptimizer/**.cpp",
+
 		"vendor/rapidyaml/ryml_all.hpp",
 		"vendor/rapidyaml/ryml.cpp",
 
 		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
-		"vendor/imgui/misc/cpp/imgui_stdlib.h"
+		"vendor/imgui/misc/cpp/imgui_stdlib.h",
+
+		-- Node canvas for the material graph (thedmd/imgui-node-editor, MIT).
+		"vendor/imgui-node-editor/**.h",
+		"vendor/imgui-node-editor/**.cpp"
 	}
 	
 	removefiles {
@@ -69,6 +80,8 @@ project "Core"
 	if _OPTIONS["no-aftermath"] then
 		removefiles { "Source/Lux/Platform/Vulkan/Debug/**.cpp" }
 	end
+
+	files { "vendor/MiniaudioCpp/include/**.h", "vendor/MiniaudioCpp/src/**.cpp", "vendor/MiniaudioCpp/src/**.h" }
 
 	includedirs { "Source/", "vendor/", }
 
@@ -84,15 +97,11 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	do -- Asterwave acoustics are required.
-		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
-	end
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/MiniaudioCpp/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	flags { "NoPCH" }
 
-	do -- FMOD is required.
-		defines { "LUX_ENABLE_FMOD" }
-	end
-
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	-- miniaudio's implementation unit is C and must not see the C++ precompiled header.
+	filter "files:Source/Lux/Audio/Native/MiniaudioImplementation.c"
 	flags { "NoPCH" }
 
 	filter "system:windows"

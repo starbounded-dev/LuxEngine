@@ -88,7 +88,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Dialogue '{}' has an unavailable speaker or default translation", key);
 			return voice;
 		}
-		auto instance = AudioEventInstance::Create(line->second.Event.Guid);
+		auto instance = AudioEventInstance::Create(line->second.Event.GetReference());
 		if (!instance)
 			return voice;
 		if (instance->IsSnapshot() || !instance->IsOneShot())
@@ -97,7 +97,9 @@ namespace Lux
 			return voice;
 		}
 		const auto& text = translation->second;
-		if (!instance->MonitorPlayback() || (!text.AudioKey.empty() && !instance->SetProgrammerSound(text.AudioKey)))
+		// A translation's recording replaces the clips of the line's Sound.
+		const bool translated = text.Clip != 0;
+		if (!instance->MonitorPlayback() || (translated && !instance->SetClipOverride(text.Clip)))
 			return voice;
 		if (!s_NextDialogueHandle || s_NextDialogueHandle >= (uint64_t{ 1 } << 63))
 		{
@@ -116,7 +118,7 @@ namespace Lux
 		voice.Instance = instance;
 		voice.Priority = line->second.Priority;
 		voice.Interruptible = line->second.Interruptible;
-		voice.Programmer = !text.AudioKey.empty();
+		voice.Programmer = translated;
 		return voice;
 	}
 

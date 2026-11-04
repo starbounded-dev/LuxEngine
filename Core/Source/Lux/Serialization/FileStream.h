@@ -45,10 +45,13 @@ namespace Lux
 		uint64_t GetStreamPosition() override { return m_Stream.tellg(); }
 		void SetStreamPosition(uint64_t position) override { m_Stream.seekg(position); }
 		bool ReadData(char* destination, size_t size) override;
+		uint64_t GetStreamSize() override { return m_Size; }
+		const std::filesystem::path& GetPath() const { return m_Path; }
 
 	private:
 		std::filesystem::path m_Path;
 		std::ifstream m_Stream;
+		uint64_t m_Size = 0;
 	};
 
 } // namespace Lux

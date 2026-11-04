@@ -40,9 +40,8 @@ an editor feature to work. Every feature is judged against this:
 - **Built in first.** Implement it in the engine, or compile in a small vendored library with a
   permissive license (MIT / BSD / zlib / Apache-2.0) through `Dependencies.lua`.
 - **Reuse what is already required.** The editor already depends on the .NET SDK (script builds),
-  the bundled shader compiler (shaderc/glslang), FMOD, and statically linked Asterwave. Building on those adds
-  nothing for the user to install. Asterwave is a private source dependency whose upstream licence
-  remains unchanged; it is not covered by the permissive-library rule above.
+  the bundled shader compiler (shaderc/glslang), and the vendored miniaudio. Building on those adds
+  nothing for the user to install.
 - **No new mandatory installs for game makers.** No required language servers, external IDEs,
   Node/Python runtimes, package managers, or online services. If an external tool is genuinely
   unavoidable, it is optional, auto-detected, degrades gracefully when missing, and the choice is
@@ -81,6 +80,13 @@ Three task skills sit around that loop:
   reload), black/garbage output, binding collisions, startup crashes, device-lost.
 
 The shared rule list lives in `.claude/skills/send-pr/SKILL.md` and is used by all three.
+
+**Spec Kit** (`specify` CLI, Claude integration, bash scripts) is also set up, as an alternative to
+`/plan-le` for spec-driven features: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
+`/speckit-tasks` → `/speckit-implement`. Its constitution, `.specify/memory/constitution.md`, sums
+up this file and `.claude/docs/` and ranks below them. Feature specs land in `specs/NNN-name/` and
+are point-in-time records, like `docs/*_PLAN.md`. The `speckit-*` skills are generated: refresh
+them with `specify integration upgrade`, don't hand-edit them.
 
 ---
 
@@ -225,9 +231,8 @@ premake5.lua           # Workspace definition
 - Mesh colliders are cooked and cached by `MeshCookingFactory` / `MeshColliderCache`.
 
 ### Audio
-- Required FMOD Core/Studio playback and statically linked native Asterwave acoustics via `AudioEngine`, `AudioEventInstance`, `AudioListener`, and `RaytracedAudioScene`.
-- Asterwave is fetched at the private revision in `scripts/dependencies/Asterwave.json` into `Core/vendor/Asterwave` (or `LUX_ASTERWAVE_ROOT`); no Asterwave DLL/shared object is deployed.
-- Native shared ownership is confined to `RaytracedAudioScene::Impl` for Asterwave emitters/mesh geometry required by its API. Engine objects continue using `Ref`/`Scope`.
+- Playback via `AudioEngine`, `AudioEventInstance` and `AudioListener`, implemented with the vendored miniaudio (`Audio/Native/`). What plays is editor-authored **Sound** assets (`.lsound`, a node tree of clips and containers), grouped for loading into **Sound Banks** (`.lbank`) that scenes list; the project **mixer** (buses, effects, reverb, snapshots, VCAs) lives in `ProjectAudioSettings::Mixer`. Exported clips are read in place inside `AssetPack.lap` through a miniaudio VFS. Acoustics (occlusion, reverb) come from the built-in Soundwave kernel (`Core/vendor/soundwave/`, driven by `AudioAcoustics` / `SceneAudioAcoustics`), applied per voice through `AudioEventInstance::SetAcoustics`.
+- FMOD was removed in November 2026 (`docs/AUDIO_NATIVE_BACKEND_PLAN.md`, then `specs/002-fmod-replacement`). Old projects still load: FMOD GUIDs, Studio settings and bank manifests are read and reported, never played.
 
 ### Threading
 - Optional dedicated render thread (`RenderThread`, platform-impl in `Core/Platform/<OS>/`).

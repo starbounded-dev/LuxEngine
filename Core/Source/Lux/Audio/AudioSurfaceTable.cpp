@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AudioSurfaceTable.h"
+#include "AudioEventRefSerializer.h"
 
 #include "Lux/Serialization/Yaml.h"
 #include <cmath>
@@ -28,17 +29,10 @@ namespace Lux
 		for (size_t i = 0; i < Surfaces.size(); ++i)
 		{
 			out << Yaml::Key << AcousticMaterialNames[i] << Yaml::BeginMap;
-			auto event = [&](const char* name, const AudioEventRef& value)
-			{
-				out << Yaml::Key << name << Yaml::BeginMap;
-				out << Yaml::Key << "Guid" << Yaml::Value << value.Guid;
-				out << Yaml::Key << "Path" << Yaml::Value << value.Path;
-				out << Yaml::Key << "BankName" << Yaml::Value << value.BankName << Yaml::EndMap;
-			};
-			event("Footstep", Surfaces[i].Footstep);
-			event("Impact", Surfaces[i].Impact);
-			event("Scrape", Surfaces[i].Scrape);
-			event("Roll", Surfaces[i].Roll);
+			AudioEventRefSerializer::Write(out, "Footstep", Surfaces[i].Footstep);
+			AudioEventRefSerializer::Write(out, "Impact", Surfaces[i].Impact);
+			AudioEventRefSerializer::Write(out, "Scrape", Surfaces[i].Scrape);
+			AudioEventRefSerializer::Write(out, "Roll", Surfaces[i].Roll);
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndMap << Yaml::EndMap << Yaml::EndMap;
@@ -67,11 +61,7 @@ namespace Lux
 					AcousticMaterial material;
 					if (!ParseAcousticMaterial(entry.first.as<std::string>(), material))
 						throw std::runtime_error("Unknown surface material");
-					auto event = [&](const char* name)
-					{
-						const auto value = entry.second[name];
-						return value ? AudioEventRef{ value["Guid"].as<std::string>(""), value["Path"].as<std::string>(""), value["BankName"].as<std::string>("") } : AudioEventRef{};
-					};
+					const auto event = [&](const char* name) { return AudioEventRefSerializer::Read(entry.second[name]); };
 					parsed.Surfaces[static_cast<size_t>(material)] = { event("Footstep"), event("Impact"), event("Scrape"), event("Roll") };
 				}
 			}
