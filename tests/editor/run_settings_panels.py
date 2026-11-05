@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run settings, Help, renderer/Game View controls and Scene View overlay bounds in private projects."""
+"""Run settings, Help, renderer/Game View, Scene View overlays and titlebar controls in private projects."""
 import os
 from pathlib import Path
 import subprocess
@@ -34,7 +34,7 @@ def main():
         if not acoustic_status.is_file() or acoustic_status.read_text() != "PASS\n":
             raise RuntimeError(f"Acoustic controls failed: {acoustic_status}")
         require_clean_graphics_log(log)
-        print(f"PASS: {policy} settings/renderer reflow, save recovery, Help/Game View and Scene View overlay bounds", flush=True)
+        print(f"PASS: {policy} settings/renderer reflow, save recovery, Help/Game View, Scene View overlays and titlebar controls", flush=True)
     print("Evidence:", output)
 
 

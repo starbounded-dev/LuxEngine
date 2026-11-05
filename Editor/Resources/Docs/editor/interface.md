@@ -8,6 +8,9 @@ Drag panel tabs and splitters to arrange your tools; the arrangement adapts when
 editor or move it between monitors.
 Scene View's corner controls and diagnostic overlays stay within its panel. Readouts wrap as
 space shrinks; enlarge Scene View when you need to inspect the full diagnostic readout.
+The titlebar keeps scene controls separate from its menus and project/scene labels. In a narrow
+window, **Controls** contains the scene tools and playback commands. Hover **LUX** to read the
+complete project and scene names when their titlebar labels are clipped.
 
 **Default layouts** are protected starting points. Changes to them last for this session. To keep
 an arrangement, choose **View → Workspaces → Save as Personal Layout...**, enter a name and create your personal copy.

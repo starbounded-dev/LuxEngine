@@ -16,6 +16,8 @@
 #include "EditorLayer.h"
 #include "Lux/Editor/SceneHierarchyPanel.h"
 #include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Core/Events/ApplicationEvent.h"
+#include "Lux/Core/Input.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/SceneSerializer.h"
@@ -25,6 +27,7 @@
 #include "Lux/Utilities/StringUtils.h"
 #include "Lux/Utilities/FileSystem.h"
 #include <imgui/imgui_internal.h>
+#include "ImGuizmo.h"
 #include <stdexcept>
 
 namespace Lux
@@ -191,6 +194,156 @@ namespace Lux
 			SelectionManager::Select(SelectionContext::PrefabEditor, id);
 		m_ShowViewportPerformanceHUD = originalHUD;
 		m_SceneRenderer->GetOptions().ShowDebugCategories = originalCategories;
+		ImGui::DestroyContext(context);
+		ImGui::SetCurrentContext(previous);
+		return failures.empty();
+	}
+
+	bool EditorLayer::RunTitlebarSelfTests(std::vector<std::string>& failures)
+	{
+		ImGuiContext* previous = ImGui::GetCurrentContext();
+		ImGuiContext* context = ImGui::CreateContext(previous->IO.Fonts);
+		ImGui::SetCurrentContext(context);
+		const auto originalViewport = m_EditorViewport;
+		const auto originalScenePath = m_EditorScenePath;
+		auto project = Project::GetActive();
+		const std::string originalProjectName = project->GetConfig().Name;
+		const auto originalDragMin = m_TitleBarDragRectMin, originalDragMax = m_TitleBarDragRectMax;
+		const auto originalTransportMin = m_TitleBarTransportRectMin;
+		const auto originalTransportMax = m_TitleBarTransportRectMax;
+		const auto originalColor = m_AnimatedTitlebarColor;
+		const float originalHeight = m_TitlebarHeight;
+		const int originalGizmo = m_GizmoType;
+		try
+		{
+			auto& io = ImGui::GetIO();
+			io.IniFilename = nullptr;
+			io.DisplaySize = {3840.0f, 2160.0f};
+			io.BackendFlags = previous->IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures;
+			io.FontDefault = previous->IO.FontDefault;
+			io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+			io.AddMousePosEvent(-1000.0f, -1000.0f);
+			project->GetConfig().Name = "Project ## 100% " + std::string(200, 'P');
+			m_EditorScenePath = std::string(200, 'S') + ".lscene";
+			m_EditorViewport = Ref<Viewport>::Create("Titlebar scene probe");
+			ImGuiEx::DpiStyle dpi;
+			dpi.Capture(ImGui::GetStyle());
+			for (float scale : {1.0f, 1.3f, 1.5f})
+			{
+				dpi.Apply(ImGui::GetStyle(), scale);
+				ImGui::GetStyle().FontScaleMain = scale;
+				m_TitlebarHeight = 57.0f * scale;
+				for (bool visible : {false, true})
+				{
+					for (float width : {640.0f, 958.0f, 1077.0f, 1920.0f})
+					{
+						for (int frame = 0; frame < 3; ++frame)
+						{
+							ImGui::NewFrame();
+							if (visible)
+							{
+								m_EditorViewport->BeginImGui();
+								m_EditorViewport->EndImGui();
+							}
+							else
+								m_EditorViewport->Hide();
+							ImGui::SetNextWindowPos({0.0f, 0.0f});
+							ImGui::SetNextWindowSize({width * scale, 500.0f * scale});
+							ImGui::Begin("Titlebar probe", nullptr, ImGuiWindowFlags_NoDecoration);
+							UI_DrawTitlebar();
+							ImGui::End();
+							ImGui::Render();
+						}
+						auto* window = ImGui::FindWindowByName("Titlebar probe");
+						bool foundBreadcrumb = false;
+						for (const auto& command : window->DrawList->CmdBuffer)
+						{
+							if (command.ElemCount == 0 || command.ClipRect.x <= m_TitleBarDragRectMin.x ||
+								std::abs(command.ClipRect.w - m_TitlebarHeight) > 1.0f)
+								continue;
+							foundBreadcrumb = true;
+							Require(command.ClipRect.z <= m_TitleBarTransportRectMin.x,
+									"Titlebar breadcrumb can draw over scene controls");
+						}
+						if (width >= 1920.0f)
+							Require(foundBreadcrumb, "Wide titlebar lost project/scene identification");
+						Require(m_TitleBarTransportRectMin.x >= m_TitleBarDragRectMin.x &&
+									m_TitleBarTransportRectMax.x <= m_TitleBarDragRectMax.x,
+								"Titlebar scene controls overlap menus or window controls");
+						int hit = 0;
+						WindowTitleBarHitTestEvent controlHit(
+							static_cast<int>((m_TitleBarTransportRectMin.x + m_TitleBarTransportRectMax.x) *
+											 0.5f),
+							static_cast<int>(m_TitlebarHeight * 0.5f), hit);
+						OnTitleBarHitTest(controlHit);
+						Require(hit == 0, "Native titlebar dragging swallowed a scene-control hit");
+					}
+				}
+				ImGuiID controlsID = 0, popupID = 0;
+				auto transportFrame = [&](float right)
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({0.0f, 0.0f});
+					ImGui::SetNextWindowSize({640.0f * scale, 500.0f * scale});
+					ImGui::Begin("Titlebar overflow probe", nullptr, ImGuiWindowFlags_NoDecoration);
+					controlsID = ImGui::GetID("Controls##titlebar_controls");
+					popupID = ImGui::GetID("##titlebar_controls_popup");
+					UI_TitlebarTransport(640.0f * scale, 350.0f * scale, right * scale);
+					ImGui::End();
+					ImGui::Render();
+				};
+				transportFrame(480.0f);
+				ImGui::ActivateItemByID(controlsID);
+				transportFrame(480.0f);
+				transportFrame(480.0f);
+				Require(ImGui::IsPopupOpen(popupID, ImGuiPopupFlags_AnyPopupLevel),
+						"Compact titlebar controls could not open by keyboard activation");
+				auto* popup = context->OpenPopupStack.back().Window;
+				Require(popup && popup->Active, "Compact titlebar controls popup was not visible");
+				m_GizmoType = -1;
+				ImGui::ActivateItemByID(popup->GetID("Move"));
+				transportFrame(480.0f);
+				Require(m_GizmoType == static_cast<int>(ImGuizmo::TRANSLATE),
+						"Compact titlebar controls could not select the Move tool");
+				ImGui::ActivateItemByID(controlsID);
+				transportFrame(480.0f);
+				transportFrame(480.0f);
+				KeyPressedEvent rotateKey(Key::R, 0);
+				Require(OnKeyPressed(rotateKey) && m_GizmoType == static_cast<int>(ImGuizmo::TRANSLATE),
+						"A titlebar popup key also changed the scene tool");
+				// Pairwise discriminator for the popup guard: an unmodified key above returns true
+				// (popup navigation owns it), a Ctrl chord must return false so the Save/Undo cases
+				// stay live. Key::A is the harmless stand-in for a chord: no handler acts on it, so
+				// the probe cannot mutate the fixture scene, and the state is released afterwards.
+				Input::UpdateKeyState(Key::LeftControl, KeyState::Pressed);
+				KeyPressedEvent ctrlChord(Key::A, 0);
+				Require(!OnKeyPressed(ctrlChord),
+						"An open titlebar popup swallowed a Ctrl chord");
+				Require(m_GizmoType == static_cast<int>(ImGuizmo::TRANSLATE),
+						"The Ctrl chord probe leaked a scene tool change");
+				Input::UpdateKeyState(Key::LeftControl, KeyState::Released);
+				transportFrame(640.0f);
+				Require(!ImGui::IsPopupOpen(popupID, ImGuiPopupFlags_AnyPopupLevel),
+						"Widening the titlebar left an invisible controls popup open");
+				OnKeyPressed(rotateKey);
+				Require(m_GizmoType == static_cast<int>(ImGuizmo::SCALE),
+						"Closing titlebar controls did not restore scene shortcuts");
+			}
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		m_EditorViewport = originalViewport;
+		m_EditorScenePath = originalScenePath;
+		project->GetConfig().Name = originalProjectName;
+		m_TitleBarDragRectMin = originalDragMin;
+		m_TitleBarDragRectMax = originalDragMax;
+		m_TitleBarTransportRectMin = originalTransportMin;
+		m_TitleBarTransportRectMax = originalTransportMax;
+		m_AnimatedTitlebarColor = originalColor;
+		m_TitlebarHeight = originalHeight;
+		m_GizmoType = originalGizmo;
 		ImGui::DestroyContext(context);
 		ImGui::SetCurrentContext(previous);
 		return failures.empty();

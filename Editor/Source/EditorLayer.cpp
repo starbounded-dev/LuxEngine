@@ -852,6 +852,7 @@ namespace Lux {
 				passed &= SceneRendererPanel::RunPanelSelfTests(m_SceneRenderer, failures);
 				passed &= GameViewPanel::RunPanelSelfTests(failures);
 				passed &= RunViewportOverlaySelfTests(failures);
+				passed &= RunTitlebarSelfTests(failures);
 			}
 			else
 				failures.push_back("Settings panels require the active disposable runner project");
@@ -2002,33 +2003,6 @@ namespace Lux {
 		m_TitleBarDragRectMin.x = std::max(m_TitleBarDragRectMin.x, menuBarRight);
 #endif
 
-		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
-		{
-			ImFont* monoFont = ImGuiEx::Fonts::Get("Mono");
-			const float bcSize = 13.0f * fontScale;
-			const std::string projectName = GetProjectDisplayName();
-			const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
-
-			float x = windowPos.x + menuBarRight + 16.0f;
-			// Clip to the drag-zone's right edge so a long project/scene name can't overrun the
-			// window controls (the old project box ellipsized; clipping is the equivalent guard).
-			drawList->PushClipRect(ImVec2(x, windowPos.y), ImVec2(windowPos.x + dragZoneMaxX, windowPos.y + m_TitlebarHeight), true);
-			drawList->AddLine(ImVec2(x, windowPos.y + 12.0f), ImVec2(x, windowPos.y + m_TitlebarHeight - 12.0f), Colors::Theme::muted, 1.0f);
-			x += 12.0f;
-
-			const float glyphH = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "X").y;
-			const float textY = markCY - glyphH * 0.5f;
-
-			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textDarker, projectName.c_str());
-			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, projectName.c_str()).x + 6.0f;
-			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::muted, "/");
-			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "/").x + 6.0f;
-			const ImVec2 sceneSz = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, sceneName.c_str());
-			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textBrighter, sceneName.c_str());
-			// Subtle lime accent under the active scene segment.
-			drawList->AddLine(ImVec2(x, textY + sceneSz.y + 2.0f), ImVec2(x + sceneSz.x, textY + sceneSz.y + 2.0f), Colors::Theme::accent, 1.5f);
-			drawList->PopClipRect();
-		}
 
 		const ImU32 buttonColN = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 0.9f);
 		const ImU32 buttonColH = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 1.2f);
@@ -2093,9 +2067,63 @@ namespace Lux {
 				});
 			});
 
-		// Play / simulate / stop, centred in the titlebar (drawn last so it overlaps the drag zone).
+		// Reserve scene controls before clipping project/scene identification.
+		m_TitleBarTransportRectMin = m_TitleBarTransportRectMax = {};
 		if (Project::GetActive())
-			UI_TitlebarTransport(window->Size.x);
+			UI_TitlebarTransport(window->Size.x, menuBarRight + 8.0f * fontScale,
+								 dragZoneMaxX - 8.0f * fontScale);
+
+		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
+		{
+			ImFont* monoFont = ImGuiEx::Fonts::Get("Mono");
+			const float bcSize = 13.0f * fontScale;
+			const std::string projectName = GetProjectDisplayName();
+			const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+			// Identification stays available even when the control group leaves no label space.
+			if (ImGui::IsWindowHovered() &&
+				ImGui::IsMouseHoveringRect({markX, windowPos.y},
+										   {windowPos.x + menuBarX, windowPos.y + m_TitlebarHeight}))
+			{
+				ImGui::SetNextWindowSize({ImGui::GetFontSize() * 30.0f, 0.0f});
+				if (ImGui::BeginTooltip())
+				{
+					ImGui::TextWrapped("%s\n%s", projectName.c_str(), sceneName.c_str());
+					ImGui::EndTooltip();
+				}
+			}
+
+			float x = windowPos.x + menuBarRight + 16.0f * fontScale;
+			const float right =
+				windowPos.x + (m_TitleBarTransportRectMax.x > m_TitleBarTransportRectMin.x
+								   ? std::min(dragZoneMaxX, m_TitleBarTransportRectMin.x - 8.0f * fontScale)
+								   : dragZoneMaxX);
+			if (right > x)
+			{
+				drawList->PushClipRect(ImVec2(x, windowPos.y), ImVec2(right, windowPos.y + m_TitlebarHeight),
+									   true);
+				drawList->AddLine(ImVec2(x, windowPos.y + 12.0f),
+								  ImVec2(x, windowPos.y + m_TitlebarHeight - 12.0f), Colors::Theme::muted,
+								  1.0f);
+				x += 12.0f;
+
+				const float glyphH = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "X").y;
+				const float textY = markCY - glyphH * 0.5f;
+
+				drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textDarker,
+								  projectName.c_str());
+				x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, projectName.c_str()).x + 6.0f;
+				drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::muted, "/");
+				x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "/").x + 6.0f;
+				const ImVec2 sceneSz = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, sceneName.c_str());
+				drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textBrighter,
+								  sceneName.c_str());
+				// Subtle lime accent under the active scene segment.
+				drawList->AddLine(ImVec2(x, textY + sceneSz.y + 2.0f),
+								  ImVec2(x + sceneSz.x, textY + sceneSz.y + 2.0f), Colors::Theme::accent,
+								  1.5f);
+				drawList->PopClipRect();
+			}
+		}
 	}
 
 	namespace
@@ -2160,27 +2188,72 @@ namespace Lux {
 		}
 	}
 
-	// Gizmo tools (select / move / rotate / scale) as a floating overlay at the viewport's
-	// top-left. Only drawn while the viewport is the visible tab (gated by the caller).
-	// The viewport toolbar, centred in the titlebar: gizmo tools (select / move / rotate / scale) +
-	// a divider + transport (play / simulate / stop). The gizmo half only appears while the viewport
-	// is the visible tab; the transport is always shown. The whole group's local rect is recorded so
-	// the window drag zone excludes it (OnTitleBarHitTest), keeping the buttons clickable.
-	void EditorLayer::UI_TitlebarTransport(float titlebarWidth)
+	// Center scene tools/playback when space permits, keeping menus and native controls separate.
+	// The local hit rectangle also excludes this group from native titlebar dragging.
+	void EditorLayer::UI_TitlebarTransport(float titlebarWidth, float minimumX, float maximumX)
 	{
-		const ImVec2 buttonSize(24.0f, 24.0f);
-		const float transportSpacing = 6.0f;
-		const float gizmoSpacing = 3.0f;
-		const float dividerBlock = 16.0f; // 8px gap + line + 8px gap
+		const float scale = ImGui::GetStyle()._MainScale;
+		const ImVec2 buttonSize(24.0f * scale, 24.0f * scale);
+		const float transportSpacing = 6.0f * scale;
+		const float gizmoSpacing = 3.0f * scale;
+		const float dividerGap = 8.0f * scale;
+		const float dividerWidth = scale;
+		const float dividerBlock = dividerGap * 2.0f + dividerWidth;
+		const float hitPadding = 4.0f * scale;
+		const float availableWidth = maximumX - minimumX - hitPadding * 2.0f;
+		if (availableWidth < 1.0f)
+			return;
 
 		const bool showGizmo = m_EditorViewport && m_EditorViewport->IsVisible();
 
 		const float transportWidth = buttonSize.x * 3.0f + transportSpacing * 2.0f;
 		const float gizmoWidth = buttonSize.x * 4.0f + gizmoSpacing * 3.0f;
-		const float totalWidth = transportWidth + (showGizmo ? gizmoWidth + dividerBlock : 0.0f);
+		const float fullWidth = transportWidth + (showGizmo ? gizmoWidth + dividerBlock : 0.0f);
+		const bool compact = fullWidth > availableWidth;
+		const float totalWidth = compact
+									 ? std::min(availableWidth, ImGui::CalcTextSize("Controls").x +
+																	ImGui::GetStyle().FramePadding.x * 2.0f)
+									 : fullWidth;
 
-		const float startX = (titlebarWidth - totalWidth) * 0.5f;
+		// Clamp remaining space, so a fractional DPI cannot round absolute bounds past each other.
+		const float startX = minimumX + hitPadding +
+							 std::clamp((titlebarWidth - totalWidth) * 0.5f - minimumX - hitPadding, 0.0f,
+										availableWidth - totalWidth);
 		const float startY = (m_TitlebarHeight - buttonSize.y) * 0.5f;
+		m_TitleBarTransportRectMin = ImVec2(startX - hitPadding, 0.0f);
+		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + hitPadding, m_TitlebarHeight);
+		if (compact)
+		{
+			ImGui::SetCursorPos({startX, startY});
+			ImGui::SetNextItemAllowOverlap();
+			if (ImGui::Button("Controls##titlebar_controls", {totalWidth, buttonSize.y}))
+				ImGui::OpenPopup("##titlebar_controls_popup");
+			ImGui::SetItemTooltip("Scene tools and playback");
+			if (ImGui::BeginPopup("##titlebar_controls_popup"))
+			{
+				if (showGizmo)
+				{
+					for (const auto& [name, mode] : {std::pair{"Select", -1},
+													 {"Move", static_cast<int>(ImGuizmo::TRANSLATE)},
+													 {"Rotate", static_cast<int>(ImGuizmo::ROTATE)},
+													 {"Scale", static_cast<int>(ImGuizmo::SCALE)}})
+						if (ImGui::MenuItem(name, nullptr, m_GizmoType == mode))
+							m_GizmoType = mode;
+					ImGui::Separator();
+				}
+				if (ImGui::MenuItem("Play", nullptr, m_SceneState == SceneState::Play,
+									m_SceneState != SceneState::Play))
+					OnScenePlay();
+				if (ImGui::MenuItem("Simulate Physics", nullptr, m_SceneState == SceneState::Simulate,
+									m_SceneState != SceneState::Simulate))
+					OnSceneSimulate();
+				if (ImGui::MenuItem("Stop", nullptr, false, m_SceneState != SceneState::Edit))
+					OnSceneStop();
+				ImGui::EndPopup();
+			}
+			return;
+		}
+		ImGuiEx::ClosePopupByID(ImGui::GetID("##titlebar_controls_popup"));
 
 		auto gizmoButton = [&](const char* id, ToolGlyph glyph, int mode)
 			{
@@ -2232,14 +2305,14 @@ namespace Lux {
 			gizmoButton("##tb_gizmo_scale", ToolGlyph::Scale, ImGuizmo::SCALE);
 			ImGui::PopStyleVar();
 
-			ImGui::SameLine(0.0f, 8.0f);
+			ImGui::SameLine(0.0f, dividerGap);
 			{
 				ImDrawList* dl = ImGui::GetWindowDrawList();
 				const ImVec2 p = ImGui::GetCursorScreenPos();
 				dl->AddLine(ImVec2(p.x, p.y + 4.0f), ImVec2(p.x, p.y + buttonSize.y - 4.0f), Colors::Theme::muted, 1.0f);
-				ImGui::Dummy(ImVec2(1.0f, buttonSize.y));
+				ImGui::Dummy(ImVec2(dividerWidth, buttonSize.y));
 			}
-			ImGui::SameLine(0.0f, 8.0f);
+			ImGui::SameLine(0.0f, dividerGap);
 		}
 
 		const bool playing = m_SceneState == SceneState::Play;
@@ -2263,9 +2336,6 @@ namespace Lux {
 			editing, [this]() { if (m_SceneState != SceneState::Edit) OnSceneStop(); });
 		ImGui::PopStyleVar();
 
-		// Local-space rect (window is at 0,0) over the whole group, matching the hit-test event space.
-		m_TitleBarTransportRectMin = ImVec2(startX - 4.0f, 0.0f);
-		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + 4.0f, m_TitlebarHeight);
 	}
 
 	// Legend for the acoustic material view: the tags present in the scene, with their tint.
@@ -2756,8 +2826,14 @@ namespace Lux {
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 	{
+		// Popup navigation consumes an unmodified key by matching a menu item's first letter, so
+		// while a popup is open that key must not also edit the scene underneath it. Ctrl/Shift
+		// chords stay live: an open popup (the narrow-window Controls menu, a panel's More overflow)
+		// must not swallow Save, Undo or Open Project.
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+		if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup) && !control && !shift)
+			return true;
 
 		// On the start screen only Open Project applies; everything else acts on a scene or project.
 		if (!Project::GetActive())

@@ -843,6 +843,14 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   baseline; `ScopedWindowScale` applies/restores detached panel metrics without accumulating
   rounding. Window units, content scale and framebuffer pixels remain distinct. Linux keeps
   platform viewports disabled. No workspace state enters `FrameRenderPacket` or runtime packs.
+  The main titlebar reserves menus/window buttons before centering its DPI-scaled scene controls.
+  When the inline group cannot fit, a Controls popup retains gizmo and playback commands; returning
+  to inline mode closes that owned popup. Breadcrumb text clips before the control hit rectangle,
+  and hovering the LUX wordmark exposes complete project/scene labels. Native caption hit testing
+  excludes scene controls and open popups. An unmodified key (a gizmo or camera shortcut) yields
+  while an ImGui popup is open, because popup navigation matches a menu item's first letter;
+  Ctrl/Shift chords stay live so an open popup cannot swallow Save, Undo or Open Project.
+  These rectangles are transient main-thread UI state.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
 - **Settings and Help navigation.** Application Settings uses the shared proportional splitter

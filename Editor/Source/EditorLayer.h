@@ -63,6 +63,7 @@ namespace Lux
 	private:
 #ifndef LUX_DIST
 		bool RunViewportOverlaySelfTests(std::vector<std::string>& failures);
+		bool RunTitlebarSelfTests(std::vector<std::string>& failures);
 #endif
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
@@ -91,7 +92,7 @@ namespace Lux
 		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
 		void CreatePrefabFromSelection();       // saves the first selected entity as a .lprefab asset
 		void SetEditorLayoutMode(bool simple);
-		void UI_TitlebarTransport(float titlebarWidth);
+		void UI_TitlebarTransport(float titlebarWidth, float minimumX, float maximumX);
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();
 		void UI_ViewportSelectionBadge();

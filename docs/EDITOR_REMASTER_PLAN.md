@@ -1437,3 +1437,88 @@ input coordinates. The normal/half-screen Full HD window also exposed project br
 transport overlap in the titlebar; fix and verify that next. Repeated mixed-monitor/disconnect
 acceptance and the previously recorded Wayland presentation failure remain explicit. Phase 6 is
 still active; this batch proves the actual-title scaling repair and the stated native cases only.
+
+
+### Phase 6 - bounded titlebar identification and scene controls
+
+The native Full HD normal/half-screen case exposed project/scene text beneath the centered scene
+controls. The breadcrumb clipped only at the native window buttons. The titlebar now budgets the
+menus and window buttons before placing DPI-scaled scene controls, clips identification before the
+control hit rectangle and keeps full project/scene labels available by hovering LUX. If the inline
+group cannot fit, a labeled Controls popup retains Select/Move/Rotate/Scale and Play/Simulate/Stop.
+Returning to inline mode closes that owned popup. Placement clamps remaining space, avoiding
+absolute clamp-bound inversion at fractional DPI. No workspace or asset schema changed.
+
+Local review also reproduced a keyboard leak: R in the open popup reached scene tool selection.
+Popup navigation consumes an unmodified key by matching a menu item's first letter, so scene
+shortcuts yield only for unmodified keys while an ImGui popup is open. Local review then
+reproduced a second, wider leak from the first guard shape: swallowing every key made Ctrl+S
+(Save Scene), Ctrl+Z/Ctrl+Y (Undo/Redo) and Ctrl+O (Open Project) dead keys whenever any popup
+was open, with no feedback. Ctrl/Shift chords therefore stay live. Normal scene shortcuts resume
+after dismissal; menu actions retain their existing scene lifecycle methods.
+
+The settings runner now renders the actual titlebar with long literal project/scene names at
+640/958/1077/1920 logical-width cases and 100%/130%/150% metrics, with and without scene gizmos.
+It checks real draw-command clip bounds, menu/window-control separation, native caption hit-test
+exclusion, keyboard popup opening, Move selection, popup teardown on widening, key isolation and
+shortcut restoration. The chord case pairs with the unmodified-key case inside one build: the popup
+guard returns true for an unmodified key and false for a Ctrl chord, so a guard that swallows every
+key fails the second assertion. Key::A stands in for the chord because no handler acts on it, which
+keeps the probe from mutating the fixture scene. Baselines failed as intended:
+
+- `bin/settings-panels-smoke/1793903802294431500/Single/editor.log`:
+  "Titlebar breadcrumb can draw over scene controls".
+- `bin/settings-panels-smoke/1793905326890844600/Single/editor.log`:
+  "A titlebar popup key also changed the scene tool".
+
+Final Single/Multi PASS:
+
+- Windows: `bin/settings-panels-smoke/1793905580588789500`.
+- Windows after the chord refinement: `bin/settings-panels-smoke/1793919488370319700`.
+- Linux X11: `bin/settings-panels-smoke/1793905730157477983`.
+- Linux X11 after the chord refinement, Single and Multi:
+  `bin/settings-panels-smoke/1793922233655377200`.
+
+Fresh Editor artifacts on 2026-11-05: Windows Debug 14:03:21, 53,612,544 bytes
+(`bin/titlebar-overlap-final-build.txt`); Windows Dist 14:08:57, 11,202,048 bytes
+(`bin/titlebar-overlap-dist-final-build.txt`); Linux Debug 14:05:39.487930800 -0500,
+406,876,736 bytes (`bin/titlebar-overlap-linux-final-build.txt`). Windows Debug was relinked after the chord
+refinement at 17:57:36, 53,613,056 bytes (`bin/titlebar-chord-build-evidence.txt`). Linux Debug
+was rebuilt with the refinement through `make config=debug Editor` after a `clang++` symlink into
+the Ubuntu user bin (the distribution ships only versioned compiler aliases) and with the loader
+paths `scripts/Linux-Run.sh` exports: the first attempt stopped at
+`libassimp.so.5: cannot open shared object file`, the staged path then passed. Fresh Linux Editor
+18:40, 406,876,984 bytes. Core/runtime code is unchanged
+from the preceding verified actual-title DPI batch. No files were added; no regeneration was needed.
+
+Native Debug Computer Use used the disposable project/user directory
+`bin/profiler-dpi-native/1793902557413689100`. `titlebar-final-native.log` covers 1077 to 523
+logical-pixel narrowing, readable Controls access, selected Rotate feedback, Play/Stop and
+Simulate/Stop with correct active/disabled feedback, the complete-name LUX tooltip, and maximize
+back to a 2560x1396 logical client with inline controls and readable identification. The last input
+repair was then verified in `titlebar-keyboard-native.log`: Move remained selected after R in the
+popup, and R selected Scale after Escape. The chord refinement was verified in the C++ suite
+only; no native session was re-run for it, so native Ctrl+S behavior is unproven. Both sessions
+shut down normally with clean graphics failure gates. Local cr reported one should-fix, the chord
+narrowing above, applied in this batch. Bundled interface help and Architecture
+2.9 describe the new behavior. Original project data and unrelated staged changes are excluded.
+
+Dist native acceptance remains unproven. A launch in
+`bin/titlebar-dist-native/1793904929631969800` terminated before showing a window. Its console
+files are empty because Dist has no console sink; the authoritative file
+`user/logs/LUX_2026-11-05-13-55-37_88816.log` reports shader load failures beginning at line 40,
+and the shared native checker correctly rejects it. Shader-debug traced the configuration:
+`ShaderLibrary::Load` compiles only with `LUX_HAS_SHADER_COMPILER` (`Renderer/Shader.h:16`,
+`!LUX_DIST`), while the editor entry point leaves `RenderConfig.ShaderPackPath` unset
+(`Editor/Source/LuxEditorApp.cpp:88`, commented as `Resources/ShaderPack.lsp`). The only pack
+writer is `WriteRuntimeShaderPack` (`Editor/Source/EditorLayer.cpp:381-407`), reached from
+runtime export into the exported package, so a standalone Dist Editor has neither a compiler nor a
+pack to load: the failure is the missing editor-side pack, not a titlebar regression. No shader source, compiler flag or renderer fallback was changed here.
+The user chose the editor-side pack route. The recorded plan: a documented regeneration step
+in a compiler-enabled editor writes `Editor/Resources/ShaderPack.lsp`, which is checked in; the
+Dist Editor sets `RenderConfig.ShaderPackPath` to it and fails loudly (log plus non-startup) when
+it is absent or stale; a stamp manifest carries the shader-source set hash and the generating
+device vendor/driver, validated on load before any frame. No format migration of `LXSP` v1 was
+planned at this point: the manifest is a sidecar, so existing exported packages keep reading the
+same binary. Implementation is the next batch, not this one. Phase 6 remains
+active, including the previously recorded physical-monitor/reachability and Wayland limits.
