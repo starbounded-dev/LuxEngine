@@ -236,7 +236,7 @@ Check every ImPlot Begin/End and style push/pop. No instrumentation cost is intr
 (e) audio tools. Use the Phase 0 inventory to name the exact affected symbols before each batch.
 Refine selection, search, empty/error states, long labels and narrow layouts; retain audio's live
 Apply/restart/audition semantics. Review workspace menu/shortcuts, panel search and Default/Personal actions
-through `EditorWorkspaceManager::DrawTabs`, `DrawMenu` and `DrawPanelsMenu`; keep native docking and
+through `EditorWorkspaceManager::DrawPopups`, `DrawMenu` and `DrawPanelsMenu`; keep native docking and
 existing settings identities. No blanket rewrite and no placeholder replacement panels.
 
 **Thread/lifetime/playbook:** existing main-thread panels and document/context ownership. A genuinely
@@ -346,8 +346,8 @@ They do not establish runtime correctness, visual acceptance or measured perform
 
 ## Handoff
 
-**Phases 1–3 are implemented (2026-11-04), ready for user review.**
-Phases 4–6 remain planned. The whole-editor Phase 0 inventory and Phase 6 platform matrix are not declared complete
+**Phases 1–4 are implemented (2026-11-04), ready for user review.**
+Phase 5 is in progress; Phase 6 remains planned. The whole-editor Phase 0 inventory and Phase 6 platform matrix are not declared complete
 by this pilot. Continue with `$dev` and review each useful slice with `$cr`. The user subsequently
 requested a commit whenever a phase is finished; commit each verified phase and keep unrelated
 working-tree changes out. Push only when requested.
@@ -525,3 +525,57 @@ workflow matrix remain open.
 clips in its narrow right region, and the Audio Mixer table compresses its right columns. Record
 these as Phase 5(e) reproductions before migrating those controls. WSL Ubuntu 24.04 is present and
 can read the checkout, but its current PATH has no Clang or .NET; Linux execution is unverified.
+
+### Phase 5(a) — Content Browser and common asset pickers
+
+**Baseline:** the disposable project at `bin/browser-remaster-ui/1793843814156` reproduced the
+fixed-width header losing Search/New after long-folder navigation in a 1077 × 635 logical window.
+The item child also consumed the footer's space, including in a maximized window. These are
+browser layout defects, separate from the broader mixed-monitor acceptance matrix.
+
+**Delivered:** `ContentBrowserPanel::RenderTopBar` uses the shared action bar with New retained,
+secondary actions in More, a clipped location/parent selector and live search. Folder sizing uses
+caller-owned proportions and an alternate popup when constrained; ShowFolders/FolderFraction use
+workspace panel state. Existing application-level view/filter/sort/favorite settings retain their
+owner. The item region reserves footer height; labels clip by measured text width with complete
+UTF-8 paths on hover. Text editing consumes browser shortcuts before asset/scene operations.
+Project changes clear copied handles and pending browser context. Back now preserves its forward
+destination, and search rebuilding no longer rewrites navigation history.
+
+`Widgets::AssetSearchPopup` shows name/path rows, searches paths, commits the first match with
+Enter, and refreshes metadata when the main-thread registry revision changes. Owned cached strings
+and handles avoid repeated registry sorting while open; the cache retains no project lifetime.
+`AssetRegistry::GetRevision` and `Utils::PathToUTF8` are the supporting Core interfaces. No asset,
+project or runtime-pack schema changes. Architecture, conventions, build guidance and bundled help
+document the ownership and behavior.
+
+**Verification:** project generation ran with `scripts/Win-GenProjects.bat --last`
+(`bin/browser-remaster-generation.txt`). Fresh Debug artifacts: ordinary Editor `2026-11-04
+22:27:05`, Lux-Runtime `21:28:43` local. Build logs are `bin/browser-remaster-normal-build.txt`
+and `bin/browser-remaster-runtime-build.txt`. Earlier verification used the separately linked
+`Editor-RemasterReview.exe` (`21:30:18`) because the regular executable was in use; runners now
+accept optional `LUX_TEST_EDITOR` while retaining their ordinary Debug default. Unchanged managed
+DLL copy operations reported sharing violations while the review editor was running; the native
+executable was freshly linked and its timestamp/size checked. No user editor process was terminated.
+
+Browser Single/Multi runs passed at `bin/browser-panel-smoke/1793845819151284000`, covering
+wide/narrow/wide reflow at 100%/150% control scale, footer bounds, folder preferences, Back/Forward,
+text shortcut isolation, duplicate-name picker identity, open-picker rename invalidation, rename
+undo, Unicode path presentation and project teardown. Workspace Single/Multi passed at
+`bin/workspace-smoke/1793845201179765400`; material Single/Multi passed at
+`bin/material-panel-smoke/1793845478522558000`. Actual editor frames exposed a manual-item cursor
+extent assertion; submitting the item extent through Dummy fixed the cause before those passing
+material runs. The final browser rerun against the ordinary rebuilt Editor also passed both
+policies at `bin/browser-panel-smoke/1793849352780225200`. Earlier failed runs remain in the local
+evidence directories.
+
+**Native retry:** Windows 4K/150%, maximized then 1077 × 635 logical window. Verified grid/list
+switching, long-folder entry with Search/New/footer retained, full-path hover text, More → View
+options, and New menu access. The private session closed cleanly; `retry.log` and `retry-stderr.log`
+contain no Vulkan validation or ImGui assertion. Native 100%, mixed-monitor, detached/disconnected
+monitor and Linux checks remain unverified. Local `$cr` reviewed scopes/IDs, metadata cache
+invalidation, navigation aliasing and project ownership; unrelated sample/audio files are excluded.
+
+**Remaining:** Phase 5(b–e) hierarchy/properties, console/history/diagnostics, settings/help and
+audio tools, the remaining Phase 0 inventory, and Phase 6's full platform/workflow matrix. This
+checkpoint completes the browser/picker batch, not the whole remaster.

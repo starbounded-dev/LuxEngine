@@ -83,6 +83,14 @@ changed. Set `LUX_SKIP_BUILD=1` to skip that check and launch immediately.
 
 ## Configurations
 
+`python tests/editor/run_browser_panels.py` runs browser/navigation and asset-picker regressions
+under Single/Multi in disposable projects. The non-Dist editor hook is
+`LUX_BROWSER_PANELS_SELFTEST=<active disposable project directory>`; it writes a sibling `.status`
+report. Re-run project generation when adding the test source to an existing solution.
+The browser, workspace and material runners accept `LUX_TEST_EDITOR=<executable>` for testing
+a separately linked review executable while the regular editor remains open. Verify that
+executable's timestamp; their default remains the ordinary Debug Editor.
+
 Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 
 | Config | Optimize | Symbols | Notes |

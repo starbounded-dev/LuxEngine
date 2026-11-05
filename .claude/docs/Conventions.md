@@ -252,6 +252,8 @@ example.
 `CreateUserFriendlyTypeName`, `TemplateToParenthesis`.
 
 `BytesToString` and `DurationToString` in particular are re-implemented ad hoc a lot — use them.
+`Utils::PathToUTF8(path)` returns UTF-8 with portable separators for UI labels and portable path
+text; avoid `path.string()` for ImGui filenames on Windows. It changes presentation, not file ownership.
 
 ### ImGui — `Lux::ImGuiEx`
 

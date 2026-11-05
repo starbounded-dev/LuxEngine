@@ -865,6 +865,21 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   the existing Sound/Mixer undo paths. Sound Banks save each edit immediately and label this in the UI.
   Beam numbers untitled documents, keeps New in the leading tab section, and opens the native save
   dialog for untitled files or Ctrl+Shift+S; file and Sound tabs offer path-copy/close context menus.
+- **Content Browser and asset picking.** Browser actions use `PanelActionBar`; search and location
+  stay outside the scrollable item region. `PanelSplitWidths`/`PanelSplitHandle` retain a preferred
+  folder fraction; narrow panels browse folders in a popup. ShowFolders/FolderFraction use panel
+  workspace state, while existing grid/filter/thumbnail preferences keep their application-settings
+  owner. Item height reserves the footer. Search rebuilds items without changing navigation history;
+  Back retains its forward destination. Text input consumes browser keyboard events before scene
+  commands. Filename/path presentation uses UTF-8 and measured clipping with full hover text.
+  Project changes clear folder/navigation/selection state, pending browser actions and copied
+  handles, so a paste cannot accidentally reuse the previous project's asset identifiers.
+  Asset pickers own a single visible-popup metadata snapshot, cached by manager identity, popup,
+  requested types and `AssetRegistry::GetRevision()`. `Set`, successful `Remove`, and nonempty `Clear`
+  invalidate it on main; filtered indexes rebuild only when the snapshot or search changes. Clipping
+  submits visible rows only. The cache owns strings/handles and no project or manager lifetime.
+  Name/path rows disambiguate basenames; Enter in search chooses the first result. No asset schema
+  or runtime dependency changes.
 - **Shared panel controls and Beam.** `Core/Source/Lux/ImGui/PanelControls` provides a responsive
   action bar, empty state and message presentation. Caller-owned descriptors supply stable action IDs,
   enabled/selected state and primary/menu-only hints; the controls return an action ID and retain no

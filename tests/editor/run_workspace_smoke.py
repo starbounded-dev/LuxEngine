@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     platform = "windows" if os.name == "nt" else "linux"
     editor = ROOT / f"bin/Debug-{platform}-x86_64/Editor" / ("Editor.exe" if os.name == "nt" else "Editor")
+    editor = Path(os.environ.get("LUX_TEST_EDITOR", editor))
     output = ROOT / "bin/workspace-smoke" / str(time.time_ns())
     output.mkdir(parents=True)
     for policy in ("Single", "Multi"):

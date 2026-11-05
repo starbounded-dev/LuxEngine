@@ -64,7 +64,8 @@ namespace Lux {
 		};
 
 	public:
-		ContentBrowserItem(ItemType type, AssetHandle id, const std::string& name, const Ref<Texture2D>& icon);
+		ContentBrowserItem(ItemType type, AssetHandle id, const std::string& name, const Ref<Texture2D>& icon,
+						   std::string path);
 		virtual ~ContentBrowserItem() = default;
 
 		void OnRenderBegin();
@@ -84,7 +85,6 @@ namespace Lux {
 		bool IsRenaming() const { return m_IsRenaming; }
 
 		void Rename(const std::string& newName);
-		void SetDisplayNameFromFileName(float thumbnailSize);
 
 	protected:
 		virtual void OnRenamed(const std::string& newName) { m_FileName = newName; }
@@ -96,9 +96,9 @@ namespace Lux {
 	protected:
 		ItemType m_Type;
 		AssetHandle m_ID;
-		std::string m_DisplayName;
 		std::string m_FileName;
 		Ref<Texture2D> m_Icon;
+		std::string m_PathLabel;
 
 		bool m_IsRenaming = false;
 		bool m_IsDragging = false;

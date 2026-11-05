@@ -156,6 +156,11 @@ namespace Lux {
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnEvent(Event& e) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& node) override;
+#ifndef LUX_DIST
+		static bool RunSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+#endif
 
 		ContentBrowserItemList& GetCurrentItems() { return m_CurrentItems; }
 		Ref<DirectoryInfo> GetDirectory(const std::filesystem::path& filepath) const;
@@ -201,7 +206,7 @@ namespace Lux {
 		enum class ViewMode { Grid, List };
 		enum class SortMode { Name, Type, Modified };
 
-		float GetThumbnailSize() const { return m_ThumbnailSize; }
+		float GetThumbnailSize() const;
 		bool GetShowAssetTypes() const { return m_ShowAssetType; }
 		bool IsListView() const { return m_ViewMode == ViewMode::List; }
 		bool IsFocused() const { return m_IsContentBrowserFocused; }
@@ -225,7 +230,9 @@ namespace Lux {
 		void OnBrowseForward();
 
 		void RenderDirectoryHierarchy(const Ref<DirectoryInfo>& directory);
-		void RenderTopBar(float height);
+		void RenderTopBar();
+		void RenderFolders();
+		void RebuildItems();
 		void RenderItems();
 		void RenderBottomBar(float height);
 
@@ -296,7 +303,14 @@ namespace Lux {
 
 		char m_SearchBuffer[MAX_INPUT_BUFFER_LENGTH]{};
 		std::vector<Ref<DirectoryInfo>> m_BreadCrumbData;
-		bool m_UpdateNavigationPath = false;
+		std::vector<Ref<DirectoryInfo>> m_FolderRoots;
+		std::string m_LocationLabel;
+		float m_FolderFraction = 0.2f;
+		bool m_ShowFolders = true;
+		size_t m_VisibleItems = 0;
+		AssetHandle m_StatusSelection = 0;
+		size_t m_StatusCount = 0;
+		std::string m_StatusText;
 
 		bool m_IsAnyItemHovered = false;
 		bool m_IsContentBrowserHovered = false;
