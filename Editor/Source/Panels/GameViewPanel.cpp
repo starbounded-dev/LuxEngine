@@ -13,6 +13,8 @@
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Scene/Scene.h"
 
+#include <algorithm>
+
 namespace Lux {
 
 	namespace
@@ -125,6 +127,7 @@ namespace Lux {
 		}
 
 		ImGuiEx::ScopedStyle windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize({800.0f, 500.0f}, ImGuiCond_FirstUseEver);
 		if (m_Viewport->BeginImGui(&isOpen))
 		{
 			if (m_Scene && m_Scene->GetPrimaryCameraEntity())
@@ -165,16 +168,22 @@ namespace Lux {
 	void GameViewPanel::DrawNoCameraMessage() const
 	{
 		const glm::vec2* bounds = m_Viewport->GetBounds();
-		const ImVec2 titleSize = ImGui::CalcTextSize(kNoCameraTitle);
-		const ImVec2 hintSize = ImGui::CalcTextSize(kNoCameraHint);
+		const float padding = ImGui::GetFontSize();
+		const float width = std::max(1.0f, bounds[1].x - bounds[0].x - padding * 2.0f);
+		const ImVec2 titleSize = ImGui::CalcTextSize(kNoCameraTitle, nullptr, false, width);
+		const ImVec2 hintSize = ImGui::CalcTextSize(kNoCameraHint, nullptr, false, width);
 		const float spacing = ImGui::GetStyle().ItemSpacing.y;
 
 		const float centerX = (bounds[0].x + bounds[1].x) * 0.5f;
-		const float top = (bounds[0].y + bounds[1].y) * 0.5f - (titleSize.y + spacing + hintSize.y) * 0.5f;
+		const float top = std::max(bounds[0].y + padding, (bounds[0].y + bounds[1].y) * 0.5f -
+															  (titleSize.y + spacing + hintSize.y) * 0.5f);
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		drawList->AddText(ImVec2(centerX - titleSize.x * 0.5f, top), Colors::Theme::textBrighter, kNoCameraTitle);
-		drawList->AddText(ImVec2(centerX - hintSize.x * 0.5f, top + titleSize.y + spacing), Colors::Theme::textCaption, kNoCameraHint);
+		drawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(centerX - titleSize.x * 0.5f, top),
+						  Colors::Theme::textBrighter, kNoCameraTitle, nullptr, width);
+		drawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+						  ImVec2(centerX - hintSize.x * 0.5f, top + titleSize.y + spacing),
+						  Colors::Theme::textCaption, kNoCameraHint, nullptr, width);
 	}
 
 }

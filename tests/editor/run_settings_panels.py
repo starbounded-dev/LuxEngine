@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the production Application/Project Settings and offline Help controls in disposable editor projects."""
+"""Run production settings, Help, Scene Renderer and empty Game View controls in private projects."""
 import os
 from pathlib import Path
 import subprocess
@@ -34,7 +34,7 @@ def main():
         text = log.read_text(encoding="utf-8", errors="replace")
         if any(error in text for error in ("VUID-", "Validation Error", "Assertion failed", "Verify Failed")):
             raise RuntimeError(f"Rendering or UI validation failure: {log}")
-        print(f"PASS: {policy} settings reflow/persistence/save and offline Help navigation", flush=True)
+        print(f"PASS: {policy} settings/renderer reflow and save recovery, Help navigation and empty Game View", flush=True)
     print("Evidence:", output)
 
 

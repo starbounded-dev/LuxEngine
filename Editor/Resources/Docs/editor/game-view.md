@@ -8,6 +8,7 @@ The **Game View** shows the scene through its primary [camera](../components/cam
 - The project's renderer settings (**Project Settings → Renderer**), as the exported game uses them. Debug views, the grid, selection outlines and gizmos from the Scene View never appear here.
 
 The Game View renders only while it is open and visible, so closing it costs nothing.
+The no-camera guidance wraps to remain readable when the panel is narrow.
 
 ## While the game plays
 

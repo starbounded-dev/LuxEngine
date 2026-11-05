@@ -983,6 +983,14 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   calls `GameViewPanel::PrepareFrame` before the scene update and `Render` after it; scene cameras
   (`Scene::OnViewportResize`) take the Game View's render size while it is open, else the Scene
   View's. Debug views are still suspended in the Scene View during Play.
+- `SceneRendererPanel` keeps its save/overflow actions, quality selector and search outside the
+  scrolling settings. Bounded card headers and property labels retain full hover text; fixed
+  resolution presets use the shared action bar. Search temporarily expands matching cards without
+  changing their saved collapse choices. Project save failures retain dirty state and show a retry
+  message. Text/numeric editing consumes keyboard events while focused; hide/project change clears
+  focus and project-specific transient state. Existing renderer/project owners still apply settings
+  and rebuild affected resources only when changed. Game View wraps and centers its no-camera
+  guidance within the available viewport; neither empty-state drawing nor reflow creates a renderer.
 - Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
   `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
   `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for

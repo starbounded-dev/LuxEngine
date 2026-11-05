@@ -7,10 +7,16 @@
 #include "HelpPanel.h"
 #include "LightSettingsPanel.h"
 #include "ProjectSettingsWindow.h"
+#include "SceneRendererPanel.h"
+#include "GameViewPanel.h"
+#include "Viewport/Viewport.h"
 #include "RuntimeExportUtils.h"
 
 #ifndef LUX_DIST
 #include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/ImGui/Colors.h"
+#include "Lux/Scene/Scene.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/ImGui/ImGuiScaling.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Serialization/Yaml.h"
@@ -80,6 +86,198 @@ namespace Lux
 			return Yaml::Load(out.str());
 		}
 	} // namespace
+
+	bool SceneRendererPanel::RunPanelSelfTests(Ref<SceneRenderer> renderer,
+											   std::vector<std::string>& failures)
+	{
+		SettingsTestContext context;
+		auto project = Project::GetActive();
+		if (!renderer || !project)
+		{
+			failures.push_back("Scene Renderer tests need the runner's renderer and private project");
+			return false;
+		}
+		const auto originalConfig = project->GetConfig().SceneRenderer;
+		const auto originalOptions = renderer->GetOptions();
+		try
+		{
+			SceneRendererPanel panel;
+			panel.SetContext(renderer);
+			panel.SetSceneContext(Ref<Scene>::Create());
+			const std::string sceneBefore = SceneSerializer(panel.m_Scene).SerializeToString();
+			ProjectSceneRendererSettings before;
+			renderer->WriteProjectSettings(before);
+			panel.LoadState(Yaml::Load("ShadowsOpen: true\nPostFXOpen: true\nColorGradingOpen: true\n"));
+			const auto state = StateOf(panel);
+			Require(state["ShadowsOpen"].as<bool>() && state["PostFXOpen"].as<bool>(),
+					"Scene Renderer lost existing card layout state");
+			ImGui::NewFrame();
+			bool open = true;
+			panel.OnImGuiRender(open);
+			ImGui::Render();
+			Require(ImGui::FindWindowByName("Scene Renderer")->Size.x >= 300.0f,
+					"Scene Renderer first open collapsed to wrapped-content auto-fit");
+			const auto frame = [&](float width, float height = 720.0f)
+			{
+				ImGui::SetWindowSize("Scene Renderer", {width, height});
+				Frame(panel, width, height);
+			};
+			const auto check = [&]()
+			{
+				CheckWidth("Scene Renderer");
+				for (ImGuiWindow* window : GImGui->Windows)
+				{
+					if (!window->Active || window->SkipItems ||
+						window->RootWindow != ImGui::FindWindowByName("Scene Renderer"))
+						continue;
+					if (window->DC.CursorMaxPos.x > window->InnerRect.Max.x + 1.0f)
+						throw std::runtime_error(std::format(
+							"Renderer child {} width {} content {} query {} scale {} mode {} submitted {} "
+							"skip {}",
+							window->Name, window->Size.x, window->ContentSize.x, panel.m_SearchBuffer,
+							ImGui::GetStyle().FontScaleMain,
+							static_cast<int>(renderer->GetOptions().ResolutionScaleMode),
+							window->DC.CursorMaxPos.x - window->DC.CursorStartPos.x, window->SkipItems));
+				}
+			};
+			ImGuiEx::DpiStyle dpi;
+			dpi.Capture(ImGui::GetStyle());
+			for (float scale : {1.0f, 1.5f})
+			{
+				dpi.Apply(ImGui::GetStyle(), scale);
+				ImGui::GetStyle().FontScaleMain = scale;
+				for (auto mode : {SceneRendererOptions::RenderResolutionScaleMode::Native,
+								  SceneRendererOptions::RenderResolutionScaleMode::FixedResolution,
+								  SceneRendererOptions::RenderResolutionScaleMode::Dynamic})
+				{
+					renderer->GetOptions().ResolutionScaleMode = mode;
+					panel.m_CardDebugViews =
+						mode != SceneRendererOptions::RenderResolutionScaleMode::FixedResolution;
+					for (float width : {1400.0f, 650.0f, 280.0f, 190.0f, 1400.0f})
+					{
+						frame(width);
+						frame(width);
+						check();
+					}
+					for (const char* query :
+						 {"Show", "Shadows", "Bloom", "GTAO", "Tonemap", "Saturation", "Render"})
+					{
+						std::snprintf(panel.m_SearchBuffer, sizeof(panel.m_SearchBuffer), "%s", query);
+						frame(190.0f);
+						frame(190.0f);
+						check();
+					}
+					panel.m_SearchBuffer[0] = '\0';
+				}
+			}
+			renderer->GetOptions().ResolutionScaleMode = originalOptions.ResolutionScaleMode;
+			ProjectSceneRendererSettings after;
+			renderer->WriteProjectSettings(after);
+			Require(before == after && !panel.m_ProjectRendererSettingsDirty &&
+						sceneBefore == SceneSerializer(panel.m_Scene).SerializeToString(),
+					"Viewing renderer cards changed authored renderer or scene data");
+			std::snprintf(panel.m_SearchBuffer, sizeof(panel.m_SearchBuffer), "%s", "shadows");
+			panel.m_CardShadows = false;
+			frame(190.0f);
+			frame(190.0f);
+			check();
+			Require(!panel.m_CardShadows, "Searching changed the saved card collapse preference");
+			panel.m_SearchBuffer[0] = '\0';
+			panel.SetDebugViewsRuntimeSuspended(true);
+			frame(190.0f);
+			frame(190.0f);
+			check();
+			frame(190.0f, 40.0f);
+			frame(1400.0f);
+			panel.m_IsFocused = true;
+			ImGui::GetIO().WantTextInput = true;
+			KeyPressedEvent typing(Key::D, 0);
+			panel.OnEvent(typing);
+			Require(typing.Handled, "Renderer numeric/text editing leaked a scene shortcut");
+			panel.OnClose();
+			Require(!panel.m_IsFocused, "Hidden renderer controls retained keyboard focus");
+			const bool authoredCulling = !renderer->GetOptions().EnableFrustumCulling;
+			renderer->GetOptions().EnableFrustumCulling = authoredCulling;
+			Require(panel.SaveProjectRendererSettings(), "Renderer settings save failed in private project");
+			Require(!panel.m_ProjectRendererSettingsDirty && panel.m_SaveError.empty(),
+					"Renderer save left stale dirty/error status");
+			const auto path = project->GetProjectFilePath();
+			Require(Yaml::LoadFile(path)["Project"]["SceneRenderer"]["Rendering"]["FrustumCulling"].as<bool>() ==
+						authoredCulling,
+					"Renderer settings save did not persist the authored value");
+			auto backup = path;
+			backup += ".renderer-save-test";
+			Require(FileSystem::Rename(path, backup), "Cannot preserve private renderer save fixture");
+			const bool madeDirectory = FileSystem::CreateDirectory(path);
+			const bool failedSave = madeDirectory && !panel.SaveProjectRendererSettings();
+			const bool retained = panel.m_ProjectRendererSettingsDirty && !panel.m_SaveError.empty();
+			std::error_code removeError;
+			if (madeDirectory)
+				std::filesystem::remove(path, removeError);
+			Require(FileSystem::Rename(backup, path), "Cannot restore private renderer save fixture");
+			Require(failedSave && retained, "Failed renderer save lost dirty/error indication");
+			frame(190.0f);
+			frame(190.0f);
+			check();
+			Require(panel.SaveProjectRendererSettings() && panel.m_SaveError.empty(),
+					"Renderer save did not recover after destination repair");
+			panel.OnProjectChanged(nullptr);
+			Require(!panel.m_IsFocused && !panel.m_ProjectRendererSettingsDirty && panel.m_SaveError.empty(),
+					"Renderer project change retained old transient state");
+			panel.SetContext(nullptr);
+			frame(190.0f);
+			frame(190.0f);
+			check();
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		renderer->GetOptions() = originalOptions;
+		project->GetConfig().SceneRenderer = originalConfig;
+		return failures.empty();
+	}
+
+	bool GameViewPanel::RunPanelSelfTests(std::vector<std::string>& failures)
+	{
+		SettingsTestContext context;
+		try
+		{
+			GameViewPanel panel;
+			ImGuiEx::DpiStyle dpi;
+			dpi.Capture(ImGui::GetStyle());
+			for (float scale : {1.0f, 1.5f})
+			{
+				dpi.Apply(ImGui::GetStyle(), scale);
+				ImGui::GetStyle().FontScaleMain = scale;
+				for (float width : {1400.0f, 650.0f, 280.0f, 190.0f, 1400.0f})
+				{
+					ImGui::SetWindowSize("Game View", {width, 600.0f});
+					Frame(panel, width, 600.0f);
+					ImGui::SetWindowSize("Game View", {width, 600.0f});
+					Frame(panel, width, 600.0f);
+					const auto* window = ImGui::FindWindowByName("Game View");
+					const auto* bounds = panel.m_Viewport->GetBounds();
+					bool captionFound = false;
+					for (const ImDrawVert& vertex : window->DrawList->VtxBuffer)
+					{
+						if (vertex.col != Colors::Theme::textCaption)
+							continue;
+						captionFound = true;
+						Require(vertex.pos.x >= bounds[0].x && vertex.pos.x <= bounds[1].x,
+								"No Camera guidance is clipped at narrow Game View widths");
+					}
+					Require(captionFound && !panel.m_RendererCreated,
+							"Empty Game View lost its guidance or allocated a renderer while drawing");
+				}
+			}
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		return failures.empty();
+	}
 
 	bool ApplicationSettingsPanel::RunSelfTests(std::vector<std::string>& failures)
 	{

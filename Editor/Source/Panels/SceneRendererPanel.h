@@ -7,6 +7,8 @@
 #include "Lux/Renderer/SceneRenderer.h"
 
 #include <functional>
+#include <string>
+#include <vector>
 
 namespace Lux {
 
@@ -25,6 +27,15 @@ namespace Lux {
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void SaveState(Yaml::Writer& out) const override;
 		virtual void LoadState(const Yaml::Node& state) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override
+		{
+			m_IsFocused = false;
+		}
+		void OnProjectChanged(const Ref<Project>& project) override;
+#ifndef LUX_DIST
+		static bool RunPanelSelfTests(Ref<SceneRenderer> renderer, std::vector<std::string>& failures);
+#endif
 
 	private:
 		void ApplyProjectSettingsToContext();
@@ -37,6 +48,8 @@ namespace Lux {
 		std::function<void()> m_OnDebugViewsChanged;
 		bool m_ProjectRendererSettingsDirty = false;
 		bool m_DebugViewsRuntimeSuspended = false;
+		bool m_IsFocused = false;
+		std::string m_SaveError;
 
 		// Revamped panel state: a live settings-search box and per-card collapse state.
 		char m_SearchBuffer[128] = {};

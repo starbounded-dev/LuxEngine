@@ -842,6 +842,8 @@ namespace Lux {
 				passed = ApplicationSettingsPanel::RunSelfTests(failures);
 				passed &= HelpPanel::RunSelfTests(failures);
 				passed &= ProjectSettingsWindow::RunPanelSelfTests(failures);
+				passed &= SceneRendererPanel::RunPanelSelfTests(m_SceneRenderer, failures);
+				passed &= GameViewPanel::RunPanelSelfTests(failures);
 			}
 			else
 				failures.push_back("Settings panels require the active disposable runner project");

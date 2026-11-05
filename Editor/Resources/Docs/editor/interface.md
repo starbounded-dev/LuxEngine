@@ -82,6 +82,13 @@ Runtime Export, Renderer, Audio, Scripting, Physics or Log from the section sele
 changes still apply immediately and save when the panel closes; an unsuccessful save keeps the
 unsaved indication. Leaving Audio stops its dialogue preview.
 
+**Scene Renderer** keeps Save, the quality selector and search above its scrolling settings.
+Use **More → Reset Debug Views** to clear editor overlays. Individual quality categories remain
+available below the renderer status. Narrow panels move resolution presets into **More** and
+clip long property headings; hover to read them in full. Search opens matching cards temporarily.
+A failed save keeps your settings in memory and displays an error; repair the destination and
+choose **Save Renderer Settings** again.
+
 **F1** opens the offline manual. **Topics** shows or hides the topic list; narrow panels switch
 between the full-width list and page. Search covers page titles and text, and **Ctrl+F** focuses
 it while Help has focus. Selecting a result returns to its page. Back, Forward and Start page

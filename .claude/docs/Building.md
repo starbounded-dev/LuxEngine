@@ -418,7 +418,9 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 - `LUX_SETTINGS_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
   `python tests/editor/run_settings_panels.py` runs Application/Project Settings and offline Help
   reflow, optional panel-state round trips, text isolation, project save/failure/retry, acoustic
-  controls and Light Settings context checks under Single/Multi. It writes a sibling `.status`
+  controls and Light Settings context checks under Single/Multi. It also exercises Scene Renderer
+  narrow/DPI cards, fixed/dynamic resolution controls, save/failure/retry and Game View's wrapped
+  no-camera guidance without creating a renderer. It writes a sibling `.status`
   and exits. New C++ tests require project
   regeneration; `LUX_TEST_EDITOR` can select a separately verified executable.
 

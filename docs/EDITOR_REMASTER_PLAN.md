@@ -962,3 +962,67 @@ help are updated; unrelated sample assets/project changes remain excluded.
 including native dock/splitter dragging, physical mixed-monitor/detached/disconnect checks, Linux
 execution, Debug/Dist runtime gates and exported authored-result coverage. The complete remaster
 is not yet declared finished.
+
+### Phase 5(f) — Scene Renderer and Game View inventory
+
+**Verified inventory:** `SceneRendererPanel::{OnImGuiRender, SaveProjectRendererSettings,
+SaveState, LoadState}` and the Scene/Game View panel adapters and viewport sizing/ownership.
+Scene View keeps its specialized picking, gizmos and overlays in `EditorLayer::UI_DrawSceneView`;
+this batch does not replace that renderer integration. The Scene Renderer header previously
+forced status chips and five quality buttons into rows; the Game View no-camera hint used one
+unwrapped draw-list line.
+
+**Delivered:** Scene Renderer now pins shared Save/More, an overall quality selector and full-width
+search above a scrolling body. Reset Debug Views remains in More, disabled during Play. Status
+and error messages wrap, card/category headings and property labels are bounded with complete
+hover text, controls use font-based widths, and fixed-resolution presets use the shared overflow
+bar. Common toggles retain their authored behavior and gain the shared keyboard activation.
+Search temporarily expands matching cards without rewriting saved collapse preferences. Existing
+card-state keys and panel identities remain intact. Failed saves keep dirty state and show the
+project path and retry guidance; project changes clear old transient error/search/focus state.
+Text/numeric editing consumes keyboard events while focused. Game View wraps and centers its
+no-camera guidance within the viewport. Initial FirstUseEver geometry preserves later user sizing.
+No shader, renderer algorithm/resource ownership, asset format or mandatory dependency changed.
+
+**Verification:** final Debug Editor `2026-11-05 05:06:32`, log `bin/viewport-panels-build.txt`.
+Dist Editor also compiled (`05:05:47`, `bin/remaster-dist-editor-build.txt`); the subsequent test-only
+fix corrects a YAML assertion's existing Rendering map and is excluded from Dist. Dist Runtime
+was freshly built at `04:40:03` (`bin/remaster-dist-runtime-build.txt`). No new source file or project
+regeneration was needed. Final Single/Multi settings/viewport runner passed in
+`bin/settings-panels-smoke/1793873206626321100`: 100%/150%, wide/narrow/wide down to 190 pixels,
+native/fixed/dynamic resolution branches, all card families via search, current visible child
+bounds, unchanged scene/renderer data while viewing, optional card state, hidden/text focus,
+failed project save/retry and an authored culling value decoded from saved YAML. Game View checks
+actual caption vertices remain within narrow bounds and no renderer is allocated by empty drawing.
+
+The width probe caught an unbounded category heading, fixed with the shared bounded control.
+A separate nested-child failure was retained previous-width content from a clipped child
+(`SkipItems=true`, zero submitted width), not live overflow; the probe now checks submitted bounds
+of visible children and brings fixed-resolution controls into view. A later failed run read the
+wrong YAML nesting in the assertion; the fixture's actual saved value was correct. Failed runs
+are not accepted evidence. Workspace lifecycle/persistence/recovery/concurrent-save tests passed
+Single/Multi in `bin/workspace-smoke/1793873125658871100`; production docking tests passed in
+`bin/workspace-tests/1793873076754436100`, including twenty size round trips and constrained hosts.
+
+Native Debug review used only `bin/viewport-panels-ui/1793872536991667400`: command-palette search
+and opening Scene Renderer showed the pinned actions, selector, status and bounded cards. Its
+`native.log` session closed normally. Final native review was started (`final.log`) but Computer
+Use was stopped with Escape before further inspection; no final native acceptance is inferred.
+No user sample assets/preferences were used. Local `$cr` reviewed the batch's scopes/IDs,
+main-thread context access, existing persistence keys, bounded text, explicit save errors and
+ownership. No remaining must-fix/should-fix finding in this batch. Shared architecture/build docs
+and bundled interface/Game View help are updated; sample-project changes remain excluded.
+
+**Platform evidence and remaining work:** WSL Ubuntu 24.04's Vulkan software device is llvmpipe
+25.2.8; the required core-feature list from the repository CI probe passes against
+`bin/remaster-linux-vulkan-capabilities.txt`. This is capability evidence, not Linux execution.
+The actual `Linux-Build.sh debug` preflight stops for missing `dotnet` and `clang`
+(`bin/remaster-linux-build-preflight.txt`). No build prerequisite was installed in this batch.
+An additional native Dist Editor attempt failed before panel UI: Dist disables source shader
+compilation, while `LuxEditorApp.cpp` leaves ShaderPackPath unset. Its private report is
+`dist-user/CrashReports/Editor-2026-11-05_05-06-37/report.txt` under the native fixture above.
+Shader-debug configuration triage confirmed this source path; no shader or startup workaround was
+introduced. Dist compilation does not establish native Dist panel/chart acceptance. The whole-editor
+inventory/rollout audit, native drag/mixed-monitor/detached/disconnect matrix, Linux execution,
+Debug Runtime freshness review and exported authored-result coverage remain open. The full goal
+is still in progress.
