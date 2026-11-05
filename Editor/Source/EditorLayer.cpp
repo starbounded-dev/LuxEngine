@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "EditorLayer.h"
+#include "Lux/ImGui/ImGuiScaling.h"
 #include "Panels/PropertiesPanel.h"
 #include "Panels/SceneViewPanel.h"
 #include "RuntimeExportUtils.h"
@@ -119,6 +120,11 @@ namespace Lux {
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
+		constexpr float k_ViewportGearSize = 24.0f;
+		constexpr float k_ViewportGearPadding = 6.0f;
+		constexpr float k_OrientationRadius = 30.0f;
+		constexpr float k_OrientationPadding = 14.0f;
+		constexpr float k_OrientationTipRadius = 10.0f;
 
 		std::string GetRecentProjectKey(size_t index)
 		{
@@ -844,6 +850,7 @@ namespace Lux {
 				passed &= ProjectSettingsWindow::RunPanelSelfTests(failures);
 				passed &= SceneRendererPanel::RunPanelSelfTests(m_SceneRenderer, failures);
 				passed &= GameViewPanel::RunPanelSelfTests(failures);
+				passed &= RunViewportOverlaySelfTests(failures);
 			}
 			else
 				failures.push_back("Settings panels require the active disposable runner project");
@@ -2284,12 +2291,18 @@ namespace Lux {
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[1].y - 12.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+		const float maximumWidth =
+			m_ShowViewportPerformanceHUD
+				? (viewportBounds[1].x - viewportBounds[0].x - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
+				: 0.0f;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 1.0f}, {}, maximumWidth))
+			return;
 		ImGui::SetNextWindowBgAlpha(0.48f);
-		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
 		ImGui::Begin("##acoustic_material_legend", nullptr, flags);
 		ImGuiLayer::RequestGlassBackdrop();
-		ImGui::TextUnformatted("Acoustic materials");
+		ImGui::TextWrapped("Acoustic materials");
 		bool any = false;
 		for (size_t i = 0; i < AcousticMaterialCount; ++i)
 		{
@@ -2298,12 +2311,14 @@ namespace Lux {
 			any = true;
 			ImGuiEx::ScopedID id(static_cast<int>(i));
 			const glm::vec3& color = DebugCategoryPalette[i];
-			ImGui::ColorButton("##swatch", ImVec4(color.r, color.g, color.b, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(12.0f, 12.0f));
+			ImGui::ColorButton("##swatch", ImVec4(color.r, color.g, color.b, 1.0f),
+							   ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+							   ImVec2(12.0f * scale, 12.0f * scale));
 			ImGui::SameLine();
-			ImGui::TextUnformatted(AcousticMaterialName(static_cast<AcousticMaterial>(i)));
+			ImGui::TextWrapped("%s", AcousticMaterialName(static_cast<AcousticMaterial>(i)));
 		}
 		if (!any)
-			ImGui::TextDisabled("No acoustic geometry in this scene");
+			ImGui::TextWrapped("No acoustic geometry in this scene");
 		ImGui::End();
 	}
 
@@ -2347,25 +2362,32 @@ namespace Lux {
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[1].y - 12.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+		const float maximumWidth =
+			m_SceneRenderer->GetOptions().ShowDebugCategories
+				? (viewportBounds[1].x - viewportBounds[0].x - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
+				: 0.0f;
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 1.0f}, {}, maximumWidth))
+			return;
 		ImGui::SetNextWindowBgAlpha(0.48f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
 		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
 		ImGuiLayer::RequestGlassBackdrop();
 		// Numeric readout in the monospace face (JetBrains Mono), like the mock's fps/ms pill.
 		ImGuiEx::Fonts::PushFont("Mono");
-		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
-		ImGui::Text("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
-		ImGui::Text("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
-		ImGui::Text("GPU Visible %u", stats.GPUVisibleInstances);
+		ImGui::TextWrapped("FPS %.0f  %.2f ms", fps, frameTimeMs);
+		ImGui::TextWrapped("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
+		ImGui::TextWrapped("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
+		ImGui::TextWrapped("GPU Visible %u", stats.GPUVisibleInstances);
 		if (memory.BudgetBytes > 0)
-			ImGui::Text("VRAM %s / %s", Utils::BytesToString(memory.UsedBytes).c_str(), Utils::BytesToString(memory.BudgetBytes).c_str());
+			ImGui::TextWrapped("VRAM %s / %s", Utils::BytesToString(memory.UsedBytes).c_str(),
+							   Utils::BytesToString(memory.BudgetBytes).c_str());
 		else
-			ImGui::Text("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
-		ImGui::Text("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(), m_SceneRenderer->GetOutputViewportHeight());
+			ImGui::TextWrapped("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
+		ImGui::TextWrapped("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(),
+						   m_SceneRenderer->GetOutputViewportHeight());
 		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
-		ImGui::PopStyleVar();
 	}
 
 	void EditorLayer::UI_ViewportSettings()
@@ -2374,21 +2396,24 @@ namespace Lux {
 			return;
 
 		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
 		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+		ImGuiEx::ScopedWindowScale windowScale("Scene View");
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 0.0f}))
 			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 44.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.55f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding,
+									 ImVec2(k_ViewportGearPadding * scale, k_ViewportGearPadding * scale));
 		ImGui::Begin("##viewport_settings_toolbar", nullptr, flags);
 		ImGuiLayer::RequestGlassBackdrop();
 
-		const ImVec2 buttonSize(24.0f, 24.0f);
+		const ImVec2 buttonSize(k_ViewportGearSize * scale, k_ViewportGearSize * scale);
 		ImGui::InvisibleButton("##viewport_settings_btn", buttonSize);
 		ImGuiEx::DrawButtonImage(EditorResources::GearIcon, IM_COL32(215, 215, 215, 220), IM_COL32(255, 255, 255, 255), IM_COL32(235, 235, 235, 255), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
@@ -2503,7 +2528,6 @@ namespace Lux {
 		}
 
 		ImGui::End();
-		ImGui::PopStyleVar();
 	}
 
 	void EditorLayer::UI_ViewportOrientationGizmo()
@@ -2511,20 +2535,26 @@ namespace Lux {
 		if (!m_EditorViewport)
 			return;
 
-		const glm::vec2& viewportSize = m_EditorViewport->GetImageSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetImageBounds();
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
 		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
 			return;
 
-		const float gizmoRadius = 30.0f;
-		const float windowExtent = (gizmoRadius + 14.0f) * 2.0f;
+		ImGuiEx::ScopedWindowScale windowScale("Scene View");
+		const float scale = ImGui::GetStyle()._MainScale;
+		const auto& gap = ImGui::GetStyle().ItemSpacing;
+		const float topInset = (k_ViewportGearSize + k_ViewportGearPadding * 2.0f) * scale + gap.y;
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 0.0f}, {0.0f, topInset}))
+			return;
+		const float windowExtent =
+			std::min({(k_OrientationRadius + k_OrientationPadding) * 2.0f * scale,
+					  viewportSize.x - gap.x * 2.0f, viewportSize.y - gap.y * 2.0f - topInset});
+		const float gizmoRadius = std::max(0.0f, windowExtent * 0.5f - k_OrientationPadding * scale);
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
 		// Top-right, tucked below the settings gear so the two don't overlap.
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("##viewport_orientation_gizmo", nullptr, flags);
@@ -2570,7 +2600,8 @@ namespace Lux {
 			for (int idx = 5; idx >= 0; idx--)
 			{
 				const ImVec2 delta(mouse.x - projected[order[idx]].tip.x, mouse.y - projected[order[idx]].tip.y);
-				if (delta.x * delta.x + delta.y * delta.y <= 100.0f)
+				if (delta.x * delta.x + delta.y * delta.y <=
+					k_OrientationTipRadius * k_OrientationTipRadius * scale * scale)
 				{
 					hoveredAxis = order[idx];
 					break;
@@ -2589,8 +2620,9 @@ namespace Lux {
 		for (int idx = 0; idx < 6; idx++)
 		{
 			const Projected& p = projected[order[idx]];
-			drawList->AddLine(center, p.tip, p.color, 2.0f);
-			drawList->AddCircleFilled(p.tip, 10.0f, order[idx] == hoveredAxis ? Colors::Theme::text : p.color);
+			drawList->AddLine(center, p.tip, p.color, 2.0f * scale);
+			drawList->AddCircleFilled(p.tip, k_OrientationTipRadius * scale,
+									  order[idx] == hoveredAxis ? Colors::Theme::text : p.color);
 			const ImVec2 labelSize = ImGui::CalcTextSize(p.label);
 			drawList->AddText(ImVec2(p.tip.x - labelSize.x * 0.5f, p.tip.y - labelSize.y * 0.5f), Colors::Theme::titlebar, p.label);
 		}
@@ -2611,19 +2643,22 @@ namespace Lux {
 		Entity selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 		if (!selectedEntity)
 			return;
+		ImGuiEx::ScopedWindowScale windowScale("Scene View");
 
 		if (m_SelectionBadgeName != selectedEntity.Name() || m_SelectionBadgeLabel.empty())
 		{
 			m_SelectionBadgeName = selectedEntity.Name();
 			m_SelectionBadgeLabel = Utils::String::ToUpperCopy(m_SelectionBadgeName) + " SELECTED";
 		}
-		const float fontSize = ImGui::GetFontSize();
-		const float margin = fontSize * 0.8f;
+		const float fontSize = m_EditorViewport->GetOverlayFontSize();
+		const float margin = ImGui::GetStyle().ItemSpacing.x;
 		const ImVec2 pad(fontSize * 0.6f, fontSize * 0.2f);
 		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
 		const float maximumWidth =
 			std::min(fontSize * 36.0f, availableWidth - margin * 2.0f - fontSize * 7.0f);
 		if (maximumWidth <= pad.x * 2.0f)
+			return;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}))
 			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
@@ -2631,8 +2666,6 @@ namespace Lux {
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
 		// Top-left corner: the gizmo/tool toolbar moved to the centre, so this owns the corner now.
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + margin, viewportBounds[0].y + margin),
-								ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
@@ -3591,19 +3624,26 @@ namespace Lux {
 		if (!reverb)
 			return;
 
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always, ImVec2(0.0f, 0.0f));
+		const float topInset =
+			m_SceneHierarchyPanel && m_SceneHierarchyPanel->GetSelectedEntity()
+				? ImGui::GetTextLineHeight() + ImGui::GetFontSize() * 0.4f + ImGui::GetStyle().ItemSpacing.y
+				: 0.0f;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}, {0.0f, topInset}))
+			return;
 		ImGui::SetNextWindowBgAlpha(0.48f);
-		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
 		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
 		ImGuiLayer::RequestGlassBackdrop();
-		ImGui::TextUnformatted("Room (Soundwave)");
+		ImGui::TextWrapped("Room (Soundwave)");
 		ImGuiEx::Fonts::PushFont("Mono");
-		ImGui::Text("Decay  %4.2f s   Send %5.1f%%", reverb->DecaySeconds, m_ActiveScene->GetAudioAcoustics().GetReverbSend() * 100.0f);
-		ImGui::Text("Outside %5.1f%%  Free path %4.1f m", reverb->EscapedFraction * 100.0f, reverb->MeanFreePath);
+		ImGui::TextWrapped("Decay  %4.2f s   Send %5.1f%%", reverb->DecaySeconds,
+						   m_ActiveScene->GetAudioAcoustics().GetReverbSend() * 100.0f);
+		ImGui::TextWrapped("Outside %5.1f%%  Free path %4.1f m", reverb->EscapedFraction * 100.0f,
+						   reverb->MeanFreePath);
 		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
 	}

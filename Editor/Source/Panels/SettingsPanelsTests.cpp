@@ -13,6 +13,8 @@
 #include "RuntimeExportUtils.h"
 
 #ifndef LUX_DIST
+#include "EditorLayer.h"
+#include "Lux/Editor/SceneHierarchyPanel.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/Scene/Scene.h"
@@ -86,6 +88,101 @@ namespace Lux
 			return Yaml::Load(out.str());
 		}
 	} // namespace
+
+	bool EditorLayer::RunViewportOverlaySelfTests(std::vector<std::string>& failures)
+	{
+		ImGuiContext* previous = ImGui::GetCurrentContext();
+		ImGuiContext* context = ImGui::CreateContext(previous->IO.Fonts);
+		ImGui::SetCurrentContext(context);
+		const auto originalViewport = m_EditorViewport;
+		const auto originalScene = m_ActiveScene;
+		const auto originalHierarchy = m_SceneHierarchyPanel;
+		const auto originalSelection = SelectionManager::GetSelections(SelectionContext::PrefabEditor);
+		const std::string originalBadgeName = m_SelectionBadgeName;
+		const std::string originalBadgeLabel = m_SelectionBadgeLabel;
+		const bool originalHUD = m_ShowViewportPerformanceHUD;
+		const bool originalCategories = m_SceneRenderer->GetOptions().ShowDebugCategories;
+		try
+		{
+			auto& io = ImGui::GetIO();
+			io.IniFilename = nullptr;
+			io.DisplaySize = {1920.0f, 1080.0f};
+			io.BackendFlags = previous->IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures;
+			m_EditorViewport = Ref<Viewport>::Create("Scene View");
+			m_ActiveScene = Ref<Scene>::Create();
+			m_SceneHierarchyPanel =
+				Ref<SceneHierarchyPanel>::Create(m_ActiveScene, SelectionContext::PrefabEditor);
+			Entity selected = m_ActiveScene->CreateEntity(std::string(300, 'N') + " ## 100%");
+			m_SceneHierarchyPanel->SetSelectedEntity(selected);
+			selected.AddComponent<MeshColliderComponent>();
+			m_ShowViewportPerformanceHUD = true;
+			m_SceneRenderer->GetOptions().ShowDebugCategories = true;
+			ImGuiEx::DpiStyle dpi;
+			dpi.Capture(ImGui::GetStyle());
+			for (float scale : {1.0f, 1.5f})
+			{
+				dpi.Apply(ImGui::GetStyle(), scale);
+				ImGui::GetStyle().FontScaleMain = scale;
+				for (const ImVec2 size : {ImVec2{900.0f, 600.0f}, ImVec2{180.0f, 140.0f}})
+				{
+					for (int frame = 0; frame < 3; ++frame)
+					{
+						ImGui::NewFrame();
+						ImGui::SetNextWindowPos({50.0f, 50.0f});
+						ImGui::SetNextWindowSize({size.x * scale, size.y * scale});
+						m_EditorViewport->BeginImGui();
+						UI_ViewportPerformanceHUD();
+						UI_AcousticMaterialLegend();
+						m_EditorViewport->EndImGui();
+						UI_ViewportSettings();
+						UI_ViewportOrientationGizmo();
+						UI_ViewportSelectionBadge();
+						ImGui::Render();
+					}
+					const auto* bounds = m_EditorViewport->GetBounds();
+					for (const char* name : {"##viewport_performance_hud", "##acoustic_material_legend",
+											 "##viewport_settings_toolbar", "##viewport_orientation_gizmo",
+											 "##viewport_selection_badge"})
+					{
+						const auto* window = ImGui::FindWindowByName(name);
+						Require(window && window->Active, "A Scene View overlay was not submitted");
+						Require(window->Viewport->ID == m_EditorViewport->GetPlatformViewportID(),
+								"A Scene View overlay targeted a different platform viewport");
+						if (window->Pos.x < bounds[0].x - 1.0f || window->Pos.y < bounds[0].y - 1.0f ||
+							window->Pos.x + window->Size.x > bounds[1].x + 1.0f ||
+							window->Pos.y + window->Size.y > bounds[1].y + 1.0f)
+							throw std::runtime_error(std::format("Scene overlay {} escaped {}x{} at scale {}",
+																 name, size.x, size.y, scale));
+					}
+					const auto* hud = ImGui::FindWindowByName("##viewport_performance_hud");
+					const auto* legend = ImGui::FindWindowByName("##acoustic_material_legend");
+					Require(legend->Pos.x + legend->Size.x <= hud->Pos.x,
+							"Scene View diagnostic overlays overlapped");
+				}
+			}
+			m_EditorViewport->Hide();
+			Require(m_EditorViewport->GetPlatformViewportID() == 0 &&
+						!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}),
+					"Hidden Scene View retained overlay submission state");
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		m_EditorViewport = originalViewport;
+		m_ActiveScene = originalScene;
+		m_SceneHierarchyPanel = originalHierarchy;
+		m_SelectionBadgeName = originalBadgeName;
+		m_SelectionBadgeLabel = originalBadgeLabel;
+		SelectionManager::DeselectAll(SelectionContext::PrefabEditor);
+		for (UUID id : originalSelection)
+			SelectionManager::Select(SelectionContext::PrefabEditor, id);
+		m_ShowViewportPerformanceHUD = originalHUD;
+		m_SceneRenderer->GetOptions().ShowDebugCategories = originalCategories;
+		ImGui::DestroyContext(context);
+		ImGui::SetCurrentContext(previous);
+		return failures.empty();
+	}
 
 	bool SceneRendererPanel::RunPanelSelfTests(Ref<SceneRenderer> renderer,
 											   std::vector<std::string>& failures)

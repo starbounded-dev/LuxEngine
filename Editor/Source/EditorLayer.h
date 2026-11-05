@@ -61,6 +61,9 @@ namespace Lux
 		virtual void OnImGuiRender() override;
 		virtual void OnEvent(Event& e) override;
 	private:
+#ifndef LUX_DIST
+		bool RunViewportOverlaySelfTests(std::vector<std::string>& failures);
+#endif
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
 		bool OnTitleBarHitTest(WindowTitleBarHitTestEvent& e);

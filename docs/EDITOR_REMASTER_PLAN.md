@@ -1254,3 +1254,32 @@ must-fix/should-fix findings in this verification batch; no new C++ file or rege
 
 Final formatted Debug Editor build verified at 2026-11-05 12:00:34, 53,531,136 bytes
 (`bin/workspace-documents-build-final.txt`). Runtime/Core product code is unchanged.
+
+### Scene View overlay containment and platform association
+
+Reproduced the HUD escaping a 180x140 Scene View before the fix:
+`bin/settings-panels-smoke/1793898406034712700` (Single/project.status). Scene View now captures
+its current ImGui platform-viewport ID and font size at BeginImGui. PrepareOverlay reuses its
+content bounds to anchor/limit corner windows and explicitly target that same platform viewport;
+Hide clears the transient platform ID. HUD/legend/room readouts wrap. Simultaneous bottom HUD and
+legend have separate width budgets. Settings, orientation and selection use Scene View's detached
+style metrics; gear/gizmo dimensions and hit radii scale together, the gizmo fits below the gear,
+and selection reads the font size captured in Scene View. The room readout reserves badge height.
+The image, picking, camera math, render algorithms/resources and authored data are unchanged.
+
+The existing settings runner now checks actual production overlay windows at wide and 180x140
+sizes, 100%/150%, including a real acoustic collider and a 300-character selected name. It checks
+containment, HUD/legend separation, platform-ID agreement and hidden overlay state in an isolated
+ImGui context. Temporary scene/hierarchy/selection/cache/settings are restored. Final Single/Multi
+pass: `bin/settings-panels-smoke/1793898965923748100`. Final Debug Editor artifact: 2026-11-05
+12:15:03, 53,591,040 bytes (`bin/viewport-overlay-final-build.txt`). Local cr checked scopes/IDs,
+next-window-data consumption on early returns, detached metrics, main-only access and ownership;
+no remaining must-fix/should-fix finding. Architecture and bundled Help describe the behavior.
+
+These checks establish UI geometry/data behavior in the supported main-window test context.
+They do not establish physical mixed-monitor drag/disconnect or detached-window presentation,
+and do not create synthetic platform backends to claim those tests. Published room-reverb data
+is still covered by the audio suites; this probe does not fabricate a live reverb measurement.
+Very small views can clip passive diagnostic readout content inside their bounded windows; the
+main diagnostic panels retain full readings. Linux native presentation gaps remain as recorded.
+No C++ file was added, so project regeneration was unnecessary.

@@ -819,6 +819,14 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   existing layer/viewport. `PropertiesPanel` delegates inspector drawing to `SceneHierarchyPanel`;
   each window has independent visibility, focus and persistence. Legacy coupled visibility loads
   into both windows. `Viewport::Hide` clears visible/focused/hovered state and deactivates the camera.
+  `Viewport::BeginImGui` also captures the panel's current platform-viewport ID and font size.
+  `PrepareOverlay` anchors a corner window inside its current content bounds, applies an inset/width
+  limit and targets that same platform viewport; it changes no renderer resources or authored state.
+  Hide clears the transient platform ID. HUD/legend/readout text wraps; simultaneous bottom HUD and
+  legend receive separate width budgets. Settings, orientation and selection overlays scope Scene
+  View's detached metrics. Gear/gizmo geometry and hit testing follow those metrics; orientation
+  reserves the gear's height and fits the remaining space. Selection uses the font size captured in
+  Scene View, and the room readout reserves the selected-name badge's height.
 - UI scaling registers logical font sizes and uses ImGui 1.92's dynamic per-viewport font baking.
   `ImGuiLayer::UpdateUIScale` updates main-window metrics from an unscaled `ImGuiEx::DpiStyle`
   baseline; `ScopedWindowScale` applies/restores detached panel metrics without accumulating

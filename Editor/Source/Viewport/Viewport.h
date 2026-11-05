@@ -11,6 +11,7 @@
 
 #include <imgui/imgui.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -124,6 +125,8 @@ namespace Lux
 		{
 			const bool visible = ImGui::Begin(m_Name.c_str(), isOpen);
 			m_Visible = visible;
+			m_PlatformViewportID = ImGui::GetWindowViewport()->ID;
+			m_OverlayFontSize = ImGui::GetFontSize();
 			if (!visible)
 			{
 				m_Focused = false;
@@ -187,6 +190,37 @@ namespace Lux
 		// Screen-space rect of the whole panel. Use for overlays anchored to the panel (toolbar,
 		// stats HUD, corner widgets).
 		const glm::vec2* GetBounds() const { return m_Bounds; }
+		ImGuiID GetPlatformViewportID() const
+		{
+			return m_PlatformViewportID;
+		}
+		float GetOverlayFontSize() const
+		{
+			return m_OverlayFontSize;
+		}
+		// Prepare a corner overlay for the same platform window as the scene panel. Insets
+		// reserve room for neighboring overlays; limits apply to its entire window, not just text.
+		bool PrepareOverlay(ImVec2 corner, ImVec2 inset = {}, float maximumWidth = 0.0f) const
+		{
+			if (!m_Visible)
+				return false;
+			const ImVec2 gap = ImGui::GetStyle().ItemSpacing;
+			const ImVec2 minimum{m_Bounds[0].x + gap.x + (corner.x == 0.0f ? inset.x : 0.0f),
+								 m_Bounds[0].y + gap.y + (corner.y == 0.0f ? inset.y : 0.0f)};
+			const ImVec2 maximum{m_Bounds[1].x - gap.x - (corner.x == 1.0f ? inset.x : 0.0f),
+								 m_Bounds[1].y - gap.y - (corner.y == 1.0f ? inset.y : 0.0f)};
+			ImVec2 size{maximum.x - minimum.x, maximum.y - minimum.y};
+			if (maximumWidth > 0.0f)
+				size.x = std::min(size.x, maximumWidth);
+			if (size.x < 1.0f || size.y < 1.0f)
+				return false;
+			ImGui::SetNextWindowViewport(m_PlatformViewportID);
+			ImGui::SetNextWindowPos(
+				{corner.x == 0.0f ? minimum.x : maximum.x, corner.y == 0.0f ? minimum.y : maximum.y},
+				ImGuiCond_Always, corner);
+			ImGui::SetNextWindowSizeConstraints({1.0f, 1.0f}, size);
+			return true;
+		}
 		// Screen-space rect of the rendered image inside the panel. Equal to the panel rect unless
 		// the render aspect differs, in which case the image is centred and letterboxed. Anything
 		// mapping screen position to scene position - mouse picking, ImGuizmo - must use this, or
@@ -201,6 +235,7 @@ namespace Lux
 		void Hide()
 		{
 			m_Visible = m_Focused = m_Hovered = false;
+			m_PlatformViewportID = 0;
 			m_Camera.SetActive(false);
 		}
 
@@ -237,6 +272,8 @@ namespace Lux
 		}
 
 		std::string m_Name;
+		ImGuiID m_PlatformViewportID = 0;
+		float m_OverlayFontSize = 0.0f;
 		Ref<Framebuffer> m_Framebuffer;
 		Ref<SceneRenderer> m_Renderer;
 		EditorCamera m_Camera;

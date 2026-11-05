@@ -6,6 +6,8 @@ There is no workspace bar above the panels. The first five shortcuts select the 
 on a fresh setup; the remaining shortcuts select personal layouts. Saved workspace order is retained.
 Drag panel tabs and splitters to arrange your tools; the arrangement adapts when you resize the
 editor or move it between monitors.
+Scene View's corner controls and diagnostic overlays stay within its panel. Readouts wrap as
+space shrinks; enlarge Scene View when you need to inspect the full diagnostic readout.
 
 **Default layouts** are protected starting points. Changes to them last for this session. To keep
 an arrangement, choose **View → Workspaces → Save as Personal Layout...**, enter a name and create your personal copy.
