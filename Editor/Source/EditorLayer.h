@@ -248,6 +248,8 @@ namespace Lux
 		// Renderer regression capture; null unless LUX_GOLDEN_DIR is set.
 		Scope<GoldenCapture> m_GoldenCapture;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
+		std::string m_SelectionBadgeName;
+		std::string m_SelectionBadgeLabel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;

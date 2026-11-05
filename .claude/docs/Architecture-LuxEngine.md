@@ -880,6 +880,20 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   submits visible rows only. The cache owns strings/handles and no project or manager lifetime.
   Name/path rows disambiguate basenames; Enter in search chooses the first result. No asset schema
   or runtime dependency changes.
+- **Hierarchy and Properties.** The hierarchy keeps Create/search above its scrolling tree;
+  Ctrl+F focuses search only from that panel. Entity names expose their full text/UUID on hover.
+  Properties keeps name/active state separate from the Add component action bar; the bounded,
+  searchable component menu retains existing multi-selection addition and scene snapshot undo.
+  Transform controls derive their label/axis layout from font metrics, use the shared numeric
+  menu, and propagate only edited axes to a multi-selection. Component headers reserve space
+  for Help/settings and clip their title. Shared `ImGuiEx::PropertyLabel` bounds labels to their
+  current column and reserves Help space, with complete clipped text on hover. Text/popup input
+  consumes hierarchy/property key events before scene commands. Scene-context changes clear
+  search, focus and queued entity actions. All of this runs on main; authored component schemas
+  and the existing selection/EditorStack ownership are unchanged.
+  The viewport selection badge caches its presentation label on name changes and bounds its
+  measured width to the viewport, so long entity names cannot cover adjacent panels. Name/label
+  hover text wraps; hierarchy tooltips submit after row interactions to preserve their item data.
 - **Shared panel controls and Beam.** `Core/Source/Lux/ImGui/PanelControls` provides a responsive
   action bar, empty state and message presentation. Caller-owned descriptors supply stable action IDs,
   enabled/selected state and primary/menu-only hints; the controls return an action ID and retain no

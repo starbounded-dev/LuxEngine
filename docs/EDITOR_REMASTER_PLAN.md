@@ -579,3 +579,75 @@ invalidation, navigation aliasing and project ownership; unrelated sample/audio 
 **Remaining:** Phase 5(bâ€“e) hierarchy/properties, console/history/diagnostics, settings/help and
 audio tools, the remaining Phase 0 inventory, and Phase 6's full platform/workflow matrix. This
 checkpoint completes the browser/picker batch, not the whole remaster.
+
+### Phase 5(b) â€” Hierarchy and Properties
+
+**Inventory and implementation:** `SceneHierarchyPanel::DrawComponents` reserved 55% for the
+name, then placed a fixed 90-unit Add button on that same row alongside a selection count.
+`DrawVec3Control` retained a fixed 110-unit label column and three numeric fields at all widths.
+The empty Properties message visibly clipped in the 1077 Ã— 635 logical native baseline at
+`bin/browser-remaster-ui/1793843814156/hierarchy-baseline.log`; selected-state defects were
+established by source and exercised by the new production-frame tests rather than claimed as
+native baseline evidence.
+
+The hierarchy now keeps Create/search above its scrolling tree, reports an empty search clearly,
+reveals matching ancestors and searches beyond the former ten-level limit. Ctrl+F is scoped to
+hierarchy focus; text/popup input cannot trigger F/Escape scene operations. Scene-context changes
+clear search/focus and queued entity actions. Entity hover text includes the complete name/UUID.
+
+Properties separates its dynamically sized name/active controls from the shared Add component
+action bar. Component choices are searchable by name/category in a bounded scrolling region.
+Long names use the existing std::string ImGui adapter instead of a truncating 256-byte buffer.
+Empty, locked and multi-selection messages wrap. Section titles reserve space for Help/settings;
+these controls participate in keyboard navigation. Transform labels/axes adapt to available font
+metrics and retain the existing snapshot undo signal. Only edited axes propagate to a selection,
+preserving every entity's other values. Numeric fields reuse Reset/Copy/Paste and keyboard entry.
+`ImGuiEx::PropertyLabel` consolidates literal, clipped label rendering and Help reservation across
+the existing property overloads; complete clipped text remains available on hover. No authored
+schema, selection owner, undo model or runtime dependency changed.
+
+**Verification:** new `SceneHierarchyPanelTests.cpp` is included by project generation
+(`bin/hierarchy-generation.txt`). Single/Multi production-frame tests passed at
+`bin/hierarchy-panel-smoke/1793855543655685900`: 100%/150% scaling with 800/280/190-wide reflow,
+multi-selection retention, a 400-character rename, keyboard reset of one transform axis without
+overwriting other axes, component-search focus/addition, scene snapshot persistence, locked/folder
+and empty states, a match below twelve ancestors, and scene-switch cleanup. The runner is
+`python tests/editor/run_hierarchy_panels.py`, using disposable project/user data and the non-Dist
+`LUX_HIERARCHY_PANELS_SELFTEST` hook. Earlier failed probes remain under `bin/hierarchy-panel-smoke`;
+the narrow summary overflow was repaired, and queued modifier events in the rename test now get
+their own input frames.
+
+Fresh Debug Editor and Lux-Runtime artifacts were checked after the final controls/badge work
+(`bin/hierarchy-build.txt`, `bin/hierarchy-runtime-build.txt`): `2026-11-05 00:26:41` and
+`00:26:42` local. The final Editor-only rebuild (`bin/hierarchy-final-build.txt`, artifact `00:31:47`) includes the
+source review correction to compute badge width from screen-space viewport bounds, keeping
+font and available-space units consistent on high-DPI displays.
+
+Final hierarchy Single/Multi coverage passed at `bin/hierarchy-panel-smoke/1793856417530820200`,
+including selection after a sustained tooltip hover. Final workspace coverage passed both policies
+at `bin/workspace-smoke/1793856437448867700`. Beam/shared controls passed at
+`bin/panel-controls-smoke/1793855613856497900`; material saves, graph scopes, reloads and actual
+preview frames passed both policies at `bin/material-panel-smoke/1793855632433730700`.
+No assertion or Vulkan validation output occurred in those passing runs.
+
+**Native evidence:** disposable project/user data at `bin/hierarchy-remaster-ui/1793855605493067500`,
+Windows 4K/150%, maximized and 1077 × 635 logical window. Verified a 400-character entity name,
+wrapped hierarchy hover text, hover-to-select, compact name/Add controls, stacked transform axes,
+readable component headings/settings, rename and scene undo. The long-name fixture exposed the
+pre-existing unbounded viewport selection badge; its cached presentation now clips within its
+viewport instead of covering adjacent panels. Final native checks verified that bound at wide and
+compact sizes, the Add menu, category search (`audio`, including Music Director), and cancellation
+without losing selection. `final.log`/`final-stderr.log` have no assertion or Vulkan validation
+error. Earlier runs are retained separately. Compact external-popup typing did not retain focus
+through Computer Use; maximized native filtering and deterministic compact picker focus/addition
+passed, but native compact-popup typing is not claimed.
+
+The new hover regression also caught an ImGui ordering hazard: tooltip submission replaces
+LastItemData. Hierarchy tooltips now submit after row interactions and use wrapped text. Name and
+property-label hover text wraps too. Local `$cr` reviewed scopes/IDs, font/viewport units, cached
+label ownership, selection/edit targets and scene teardown; no remaining must-fix or should-fix
+finding. Project generation was rerun; sample-project/audio edits and unrelated files are excluded.
+
+**Remaining:** Phase 5(c–e), the remaining Phase 0 inventory and Phase 6 remain open. Native
+100%, mixed-monitor/detached/disconnect behavior, Linux execution and full exported-workflow
+acceptance are not established by this batch. This is the Hierarchy/Properties delivery checkpoint.

@@ -805,6 +805,24 @@ namespace Lux {
 			OpenProject(startupProject);
 
 #ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_HIERARCHY_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_HIERARCHY_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = Project::GetActive() &&
+								Project::GetActive()->GetProjectDirectory() == directory &&
+								SceneHierarchyPanel::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish hierarchy-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_BROWSER_PANELS_SELFTEST"))
 		{
 			const std::filesystem::path directory =
@@ -2502,27 +2520,45 @@ namespace Lux {
 		if (!selectedEntity)
 			return;
 
-		const std::string badgeText = Utils::String::ToUpperCopy(selectedEntity.Name()) + " SELECTED";
+		if (m_SelectionBadgeName != selectedEntity.Name() || m_SelectionBadgeLabel.empty())
+		{
+			m_SelectionBadgeName = selectedEntity.Name();
+			m_SelectionBadgeLabel = Utils::String::ToUpperCopy(m_SelectionBadgeName) + " SELECTED";
+		}
+		const float fontSize = ImGui::GetFontSize();
+		const float margin = fontSize * 0.8f;
+		const ImVec2 pad(fontSize * 0.6f, fontSize * 0.2f);
+		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float maximumWidth =
+			std::min(fontSize * 36.0f, availableWidth - margin * 2.0f - fontSize * 7.0f);
+		if (maximumWidth <= pad.x * 2.0f)
+			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
 		// Top-left corner: the gizmo/tool toolbar moved to the centre, so this owns the corner now.
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
+		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + margin, viewportBounds[0].y + margin),
+								ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
 
-		const ImVec2 textSize = ImGui::CalcTextSize(badgeText.c_str());
-		const ImVec2 pad(8.0f, 3.0f);
-		ImGui::Dummy(ImVec2(textSize.x + pad.x * 2.0f, textSize.y + pad.y * 2.0f));
+		const ImVec2 textSize = ImGui::CalcTextSize(m_SelectionBadgeLabel.c_str());
+		ImGui::Dummy(ImVec2(std::min(maximumWidth, textSize.x + pad.x * 2.0f), textSize.y + pad.y * 2.0f));
 
 		const ImVec2 rectMin = ImGui::GetItemRectMin();
 		const ImVec2 rectMax = ImGui::GetItemRectMax();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		drawList->AddRectFilled(rectMin, rectMax, Colors::Theme::accent, 2.0f);
-		drawList->AddText(ImVec2(rectMin.x + pad.x, rectMin.y + pad.y), Colors::Theme::titlebar, badgeText.c_str());
+		{
+			ImGuiEx::ScopedColour text(ImGuiCol_Text, Colors::Theme::titlebar);
+			ImGui::RenderTextEllipsis(drawList, {rectMin.x + pad.x, rectMin.y + pad.y},
+									  {rectMax.x - pad.x, rectMax.y - pad.y}, rectMax.x - pad.x,
+									  m_SelectionBadgeLabel.c_str(),
+									  m_SelectionBadgeLabel.c_str() + m_SelectionBadgeLabel.size(), nullptr);
+		}
 
 		ImGui::End();
 		ImGui::PopStyleVar();

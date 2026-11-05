@@ -38,7 +38,7 @@ namespace Lux {
 			return false;
 
 		ImGui::SetCursorScreenPos(rect.Min);
-		const bool clicked = ImGui::InvisibleButton(strID, rect.GetSize());
+		const bool clicked = ImGui::InvisibleButton(strID, rect.GetSize(), ImGuiButtonFlags_EnableNav);
 		const bool hovered = ImGui::IsItemHovered();
 
 		const ImVec2 iconSize = ImGui::CalcTextSize(LUX_ICON_QUESTION_CIRCLE);

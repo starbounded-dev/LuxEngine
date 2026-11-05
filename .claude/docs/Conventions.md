@@ -298,6 +298,8 @@ reject edited values before marking data dirty.
 `BeginPropertyGrid(columns, labelWidth, maxControlWidth)` can keep labels fixed and cap controls;
 zero widths preserve the existing layout. `GetPropertyItemWidth` reads the current grid's cap, and
 `EndPropertyGrid` restores the outer grid's setting. Full-width graphs remain outside the grid.
+`PropertyLabel(label, helpText)` bounds text to its current column, reserves space for optional
+Help and exposes clipped labels on hover. Property overloads share it; labels are literal text.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.

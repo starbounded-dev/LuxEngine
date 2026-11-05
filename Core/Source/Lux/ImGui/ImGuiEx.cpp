@@ -87,6 +87,32 @@ namespace Lux::ImGuiEx {
 		ImGui::SetCursorPos(ImVec2(cursor.x + x, cursor.y + y));
 	}
 
+	void PropertyLabel(const char* label, const char* helpText)
+	{
+		const bool help = helpText && *helpText;
+		const float reserve = help ? ImGui::CalcTextSize("(?)").x + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+		const float available = std::max(1.0f, ImGui::GetContentRegionAvail().x - reserve);
+		const ImVec2 textSize = ImGui::CalcTextSize(label);
+		const ImVec2 minimum = ImGui::GetCursorScreenPos();
+		const float width = std::min(textSize.x, available);
+		ImGui::Dummy({width, textSize.y});
+		ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), minimum,
+								  {minimum.x + width, minimum.y + textSize.y}, minimum.x + width, label,
+								  label + std::strlen(label), &textSize);
+		if (textSize.x > width && ImGui::BeginItemTooltip())
+		{
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+			ImGui::TextUnformatted(label);
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+		if (help)
+		{
+			ImGui::SameLine();
+			HelpMarker(helpText);
+		}
+	}
+
 	void BeginPropertyGrid(uint32_t columns, float labelWidth, float maxControlWidth)
 	{
 		PushID();

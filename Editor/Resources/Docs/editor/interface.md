@@ -30,7 +30,7 @@ unaffected by layout recovery.
 |---|---|
 | **Scene View** | Edit the scene with the editor camera: select, move, rotate and scale. See [Scene View and Camera](viewport). |
 | **Game View** | The scene through its primary camera, as the game will see it. Play opens it. See [Game View](game-view). |
-| **Scene Hierarchy** | Every entity in the scene. Drag to re-parent, right-click to create entities. |
+| **Scene Hierarchy** | Every entity in the scene. Drag to re-parent; use **Create** or right-click to create entities. |
 | **Properties** | The components of the selected entity. **Add Component** adds more. |
 | **Content Browser** | The project's assets: scenes, meshes, textures, materials, prefabs. See [Content Browser and Assets](content-browser). |
 | **Log** | Messages from the engine and from your scripts (`Log.Info`, `Log.Warn`, `Log.Error`). |
@@ -41,6 +41,17 @@ unaffected by layout recovery.
 A scene is a list of **entities**. An entity is only a name and a [Transform](../components/transform); what it does comes from its **components**: a [Static Mesh](../components/static-mesh) draws a model, a [Rigidbody](../components/physics) moves it with physics, a [Script](../scripting/csharp-scripts) runs your code. Entities can be parented to each other: a child moves with its parent.
 
 Most components have a checkbox in their header that switches them off without removing them. A whole entity can be switched off too, which also switches off its children.
+
+Hierarchy search stays above the scrolling tree. **Ctrl+F** focuses it while the hierarchy has
+focus. Hover a clipped entity name for its full name and ID. Properties wraps its empty/locked
+messages and keeps **Add component** below the name so both remain usable in narrow panels.
+Search the component menu by name or category; components already on every selected entity are
+omitted. Adding a component or renaming multiple selected entities keeps the normal undo behavior.
+
+Transform fields stack when the panel cannot fit all three axes. Click an axis label to reset
+that axis, Ctrl-click its number to type, or right-click for Reset/Copy/Paste. Editing one axis of
+a multi-selection preserves the other axes on each entity. Long property labels clip within their
+column; hover to read the full label. Help and component settings remain at the section's edge.
 
 ## Play, Simulate and Stop
 

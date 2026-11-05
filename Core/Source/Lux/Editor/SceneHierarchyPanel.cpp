@@ -22,6 +22,7 @@
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
@@ -295,85 +296,54 @@ namespace Lux {
 			component.FontHandle = defaultFont;
 		}
 
-		static bool DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 110.0f)
+		static uint32_t DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f)
 		{
-			bool changed = false;
-
-			ImGui::PushID(label.c_str());
-
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, columnWidth);
+			ImGuiEx::ScopedID id(label.c_str());
+			const float available = ImGui::GetContentRegionAvail().x;
+			const float spacing = ImGui::GetStyle().ItemSpacing.x;
+			const float buttonWidth = ImGui::GetFrameHeight();
+			const float minimumAxis = buttonWidth + ImGui::GetFontSize() * 4.5f;
+			const bool inlineLabel = available >= ImGui::GetFontSize() * 34.0f;
+			const float labelWidth = inlineLabel ? ImGui::GetFontSize() * 8.0f : 0.0f;
+			ImGui::AlignTextToFramePadding();
 			ImGui::TextUnformatted(label.c_str());
-			ImGui::NextColumn();
-
-			ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-
-			ImFont* boldFont = ImGui::GetIO().Fonts->Fonts[0];
-			const float lineHeight = ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2.0f;
-			const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
-
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.9f, 0.2f, 0.2f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-			ImGui::PushFont(boldFont);
-			if (ImGui::Button("X", buttonSize))
+			if (inlineLabel)
+				ImGui::SameLine(labelWidth);
+			const float axesWidth = inlineLabel ? available - labelWidth : available;
+			const bool inlineAxes = axesWidth >= minimumAxis * 3.0f + spacing * 2.0f;
+			const float axisWidth = inlineAxes ? (axesWidth - spacing * 2.0f) / 3.0f : axesWidth;
+			constexpr const char* axes[] = {"X", "Y", "Z"};
+			constexpr ImVec4 colors[] = {
+				{0.8f, 0.1f, 0.15f, 1.0f}, {0.2f, 0.7f, 0.2f, 1.0f}, {0.1f, 0.25f, 0.8f, 1.0f}};
+			uint32_t changedAxes = 0;
+			for (int axis = 0; axis < 3; ++axis)
 			{
-				values.x = resetValue;
-				changed = true;
+				ImGuiEx::ScopedID axisID(axis);
+				bool changed = false;
+				if (axis && inlineAxes)
+					ImGui::SameLine(0.0f, spacing);
+				ImGui::BeginGroup();
+				{
+					ImGuiEx::ScopedColour button(ImGuiCol_Button, colors[axis]);
+					if (ImGui::Button(axes[axis], {buttonWidth, 0.0f}))
+					{
+						values[axis] = resetValue;
+						changed = true;
+					}
+					ImGui::SetItemTooltip("Reset %s to %.2f", axes[axis], resetValue);
+				}
+				ImGui::SameLine(0.0f, 0.0f);
+				ImGui::SetNextItemWidth(std::max(1.0f, axisWidth - buttonWidth));
+				changed |= ImGuiEx::DragFloat("##value", &values[axis], 0.1f, 0.0f, 0.0f, "%.2f");
+				changed |=
+					ImGuiEx::NumericControlMenu(values[axis], 0.0f, 0.0f, std::optional<float>(resetValue));
+				ImGui::EndGroup();
+				if (changed)
+					changedAxes |= BIT(axis);
 			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat("##X", &values.x, 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-			ImGui::SameLine(0.0f, 8.0f);
-
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-			ImGui::PushFont(boldFont);
-			if (ImGui::Button("Y", buttonSize))
-			{
-				values.y = resetValue;
-				changed = true;
-			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat("##Y", &values.y, 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-			ImGui::SameLine(0.0f, 8.0f);
-
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-			ImGui::PushFont(boldFont);
-			if (ImGui::Button("Z", buttonSize))
-			{
-				values.z = resetValue;
-				changed = true;
-			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat("##Z", &values.z, 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-
-			ImGui::PopStyleVar();
-			ImGui::Columns(1);
-			ImGui::Dummy(ImVec2(0.0f, 5.0f)); // vertical breathing room between vec3 rows
-			ImGui::PopID();
-
-			// These are raw DragFloats (not ImGuiEx::Property), so they don't raise the undo signal
-			// on their own — flag it here so transform edits are captured like every other field.
-			if (changed)
+			if (changedAxes)
 				EditorStack::Get().MarkEditTargetEdited("Edit Transform");
-
-			return changed;
+			return changedAxes;
 		}
 
 		template<typename TComponent, typename Fn>
@@ -393,10 +363,10 @@ namespace Lux {
 			TComponent& firstComponent = firstEntity.GetComponent<TComponent>();
 
 			ImGui::PushID((void*)typeid(TComponent).hash_code());
-			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
+
 			(void)icon; // texture section icons dropped for the flat concept look
 
-			// Flat collapsible section: an uppercase label + chevron drawn over an empty-label node,
+			// Flat collapsible section: a clipped label + chevron drawn over an empty-label node,
 			// with a faint hover/active wash — no framed header or Hazel texture icon.
 			ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 255, 255, 10));
 			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 255, 255, 16));
@@ -405,6 +375,14 @@ namespace Lux {
 				| ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_FramePadding;
 			const bool open = ImGui::TreeNodeEx("##section", sectionFlags, "");
 			ImGui::PopStyleColor(3);
+
+			const ImRect sectionRect = ImGuiEx::GetItemRect();
+			const ImVec2 afterHeader = ImGui::GetCursorScreenPos();
+			const float lineHeight = ImGui::GetFrameHeight();
+			const float settingsX = sectionRect.Max.x - lineHeight;
+			const float labelRight = settingsX -
+									 (ComponentDocTopic<TComponent>::Topic.empty() ? 0.0f : lineHeight) -
+									 ImGui::GetStyle().ItemInnerSpacing.x;
 
 			{
 				const ImRect secRect = ImGuiEx::GetItemRect();
@@ -442,11 +420,12 @@ namespace Lux {
 				}
 
 				const float labelY = secRect.Min.y + (secRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
-				ImGui::GetWindowDrawList()->AddText(ImVec2(labelX, labelY), enabled ? Colors::Theme::textBrighter : Colors::Theme::textDarker,
-					Utils::String::ToUpperCopy(name).c_str());
+				ImGuiEx::ScopedColour title(ImGuiCol_Text, enabled ? Colors::Theme::textBrighter
+																   : Colors::Theme::textDarker);
+				ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), {labelX, labelY},
+										  {std::max(labelX, labelRight), secRect.Max.y},
+										  std::max(labelX, labelRight), name, nullptr, nullptr);
 			}
-
-			const float lineHeight = ImGui::GetFrameHeight();
 
 			bool resetComponent = false;
 			bool removeComponent = false;
@@ -454,14 +433,15 @@ namespace Lux {
 			// The component's manual page, left of the settings gear.
 			if constexpr (!ComponentDocTopic<TComponent>::Topic.empty())
 			{
-				ImGui::SameLine(contentRegionAvailable.x - lineHeight * 2.0f - 7.0f);
+				ImGui::SetCursorScreenPos({settingsX - lineHeight, sectionRect.Min.y});
 				const ImVec2 docsMin = ImGui::GetCursorScreenPos();
 				ImGuiEx::DocsButton("##ComponentDocs", ComponentDocTopic<TComponent>::Topic, ComponentDocTopic<TComponent>::Title,
 					ImRect(docsMin, ImVec2(docsMin.x + lineHeight, docsMin.y + lineHeight)));
 			}
 
-			ImGui::SameLine(contentRegionAvailable.x - lineHeight - 5.0f);
-			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{ lineHeight, lineHeight }))
+			ImGui::SetCursorScreenPos({settingsX, sectionRect.Min.y});
+			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{lineHeight, lineHeight},
+									   ImGuiButtonFlags_EnableNav))
 				ImGui::OpenPopup("ComponentSettings");
 
 			ImGuiEx::DrawButtonImage(EditorResources::GearIcon,
@@ -469,6 +449,10 @@ namespace Lux {
 				IM_COL32(160, 160, 160, 255),
 				IM_COL32(160, 160, 160, 150),
 				ImGuiEx::GetItemRect());
+
+			ImGui::SetItemTooltip("%s settings", name);
+			ImGui::SetCursorScreenPos(afterHeader);
+			ImGui::Dummy({0.0f, 0.0f});
 
 			if (ImGui::BeginPopup("ComponentSettings"))
 			{
@@ -530,6 +514,11 @@ namespace Lux {
 		SelectionManager::DeselectAll(m_SelectionContext);
 		m_Context = context;
 		m_SearchString.clear();
+		m_ComponentSearch.clear();
+		m_ActivateSearchWidget = false;
+		m_IsHierarchyFocused = false;
+		m_IsPropertiesFocused = false;
+		m_QueuedEntityDeletions.clear();
 	}
 
 	Entity SceneHierarchyPanel::GetSelectedEntity() const
@@ -675,33 +664,25 @@ namespace Lux {
 
 		m_IsHierarchyFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-		const float edgeOffset = 4.0f;
-
-		// Uppercase section header with a live entity count, like the concept's sidebar.
+		const ImGuiEx::PanelAction actions[] = {
+			{0, "Create", LUX_ICON_PLUS, nullptr, m_Context != nullptr, false, true}};
+		if (ImGuiEx::PanelActionBar("##hierarchy_actions", actions) == 0)
+			ImGui::OpenPopup("CreateEntity");
+		if (ImGui::BeginPopup("CreateEntity"))
 		{
-			uint32_t entityCount = 0;
-			if (m_Context)
-			{
-				auto view = m_Context->GetAllEntitiesWith<TagComponent>();
-				for (auto e : view)
-				{
-					(void)e;
-					entityCount++;
-				}
-			}
-			ImGui::SetCursorPosX(edgeOffset * 3.0f);
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
-			ImGui::Text("HIERARCHY  ·  %u", entityCount);
-			ImGui::PopStyleColor();
-			ImGui::Spacing();
+			DrawEntityCreateMenu({});
+			ImGui::EndPopup();
 		}
-
-		ImGui::SetCursorPosX(edgeOffset * 3.0f);
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - edgeOffset * 3.0f);
-		ImGuiEx::Widgets::SearchWidget(m_SearchString, "Search entities...", &m_ActivateSearchWidget);
-		ImGui::Spacing();
+		if (m_ActivateSearchWidget)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_ActivateSearchWidget = false;
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		ImGui::InputTextWithHint("##hierarchy_search", "Search entities... (Ctrl+F)", &m_SearchString);
 		ImGui::Separator();
+		ImGui::BeginChild("##hierarchy_entities");
+		m_VisibleEntityCount = 0;
 
 		if (m_Context)
 		{
@@ -757,6 +738,13 @@ namespace Lux {
 			}
 		}
 
+		if (!m_VisibleEntityCount)
+			ImGuiEx::PanelEmptyState(
+				"##hierarchy_empty", m_SearchString.empty() ? "No entities" : "No matching entities",
+				m_Context ? (m_SearchString.empty() ? "Use Create to add an entity."
+													: "Change the search to see other entities.")
+						  : "Open a scene to browse its entities.");
+
 		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)
 			&& ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)
 			&& !ImGui::IsAnyItemHovered())
@@ -769,6 +757,8 @@ namespace Lux {
 			DrawEntityCreateMenu({});
 			ImGui::EndPopup();
 		}
+
+		ImGui::EndChild();
 
 		if (m_IsWindow)
 			ImGui::End();
@@ -803,11 +793,18 @@ namespace Lux {
 			return;
 
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event)
-		{
-			switch (event.GetKeyCode())
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[this](KeyPressedEvent& event)
 			{
+				if (ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0)
+					return true;
+				if (event.GetRepeatCount() != 0)
+					return false;
+				switch (event.GetKeyCode())
+				{
 				case Key::F:
+					if (!m_IsHierarchyFocused || !ImGui::GetIO().KeyCtrl)
+						return false;
 					m_ActivateSearchWidget = true;
 					return true;
 				case Key::Escape:
@@ -815,8 +812,8 @@ namespace Lux {
 					return true;
 				default:
 					return false;
-			}
-		});
+				}
+			});
 	}
 
 	void SceneHierarchyPanel::DrawEntityCreateMenu(Entity parent)
@@ -998,16 +995,19 @@ namespace Lux {
 		const bool locked = tagComponent.Locked;
 		const auto& relationship = entity.GetComponent<RelationshipComponent>();
 		const bool hasChildren = !relationship.Children.empty();
-		const bool hasChildMatchingSearch = TagSearchRecursive(entity, searchFilter, 10);
+		const bool hasChildMatchingSearch =
+			TagSearchRecursive(entity, searchFilter,
+							   static_cast<uint32_t>(m_Context->GetAllEntitiesWith<TagComponent>().size()));
 		const bool isSelected = SelectionManager::IsSelected(s_ActiveSelectionContext, entity.GetUUID());
 
 		if (!ImGuiEx::IsMatchingSearch(tag, searchFilter) && !hasChildMatchingSearch)
 			return;
 
+		++m_VisibleEntityCount;
 		ImGuiTreeNodeFlags flags = (isSelected ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (hasChildMatchingSearch)
-			flags |= ImGuiTreeNodeFlags_DefaultOpen;
+			ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 		if (!hasChildren)
 			flags |= ImGuiTreeNodeFlags_Leaf;
 
@@ -1022,6 +1022,7 @@ namespace Lux {
 		ImGui::PopStyleColor(3);
 
 		const bool rowHovered = ImGui::IsItemHovered();
+		const bool showTooltip = ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
 		const ImRect rowRect = ImGuiEx::GetItemRect();
 		ImGuiContext& g = *GImGui;
 
@@ -1230,6 +1231,17 @@ namespace Lux {
 				deleteRequested = true;
 
 			ImGui::EndPopup();
+		}
+
+		// Tooltip submission replaces LastItemData. Finish row selection, drag/drop and context actions
+		// first.
+		if (showTooltip && ImGui::BeginTooltip())
+		{
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+			ImGui::TextUnformatted(tag.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::Text("Entity %llu", static_cast<unsigned long long>(entity.GetUUID()));
+			ImGui::EndTooltip();
 		}
 
 		if (opened)
@@ -1443,7 +1455,8 @@ namespace Lux {
 		EditorStack::ScopedEditTarget editTarget(entityIDs);
 		if (!m_Context || entityIDs.empty())
 		{
-			ImGui::TextDisabled("Select an entity to inspect its properties.");
+			ImGuiEx::PanelEmptyState("##properties_empty", "No entity selected",
+									 "Select an entity in Scene Hierarchy to inspect its properties.");
 			return;
 		}
 
@@ -1454,8 +1467,6 @@ namespace Lux {
 		const bool isMultiSelect = entityIDs.size() > 1;
 		// A folder is purely organizational: no editable transform, no components to add.
 		const bool isFolder = !isMultiSelect && firstEntity.HasComponent<FolderComponent>();
-		const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
-
 		// Inspector-wide: every input renders as a bordered, slightly-inset "field box" (the
 		// concept's .field look). Scoped RAII so it unwinds cleanly across this function's returns.
 		ImGuiEx::ScopedStyle frameBorderSize(ImGuiStyleVar_FrameBorderSize, 1.0f);
@@ -1472,9 +1483,8 @@ namespace Lux {
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
 			{
 				ImGuiEx::ScopedColour lockText(ImGuiCol_Text, Colors::Theme::textDarker);
-				ImGui::TextUnformatted(LUX_ICON_LOCK "  This entity is locked.");
+				ImGui::TextWrapped(LUX_ICON_LOCK "  This entity is locked.");
 			}
-			ImGui::SameLine();
 			if (ImGui::SmallButton("Unlock"))
 			{
 				firstEntity.GetComponent<TagComponent>().Locked = false;
@@ -1525,41 +1535,33 @@ namespace Lux {
 				tagValue = "---";
 			}
 
-			char buffer[256];
-			std::memset(buffer, 0, sizeof(buffer));
-			std::strncpy(buffer, tagValue.c_str(), sizeof(buffer) - 1);
-
-			ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
-			ImGui::PushItemWidth(contentRegionAvailable.x * 0.55f);
-			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::InputText("##Tag", &tagValue))
 			{
-				const std::string newName = buffer[0] == 0 ? "Unnamed Entity" : std::string(buffer);
+				const std::string newName = tagValue.empty() ? "Unnamed Entity" : tagValue;
 				ApplyToSelection<TagComponent>(m_Context, entityIDs, [&newName](TagComponent& component, Entity)
 				{
 					component.Tag = newName;
 				});
-				EditorStack::Get().MarkSceneEdited("Rename");
+				EditorStack::Get().MarkEntitiesEdited(entityIDs, "Rename");
 			}
-			ImGui::PopItemWidth();
-			ImGui::PopFont();
-
+			if (ImGui::BeginItemTooltip())
+			{
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+				ImGui::TextUnformatted(firstEntity.GetName().c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
 			if (isMultiSelect)
 			{
-				ImGui::SameLine();
-				ImGui::TextDisabled("(%zu selected)", entityIDs.size());
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("%zu entities selected", entityIDs.size());
 			}
-
 			if (!isFolder)
 			{
-				const float addButtonWidth = 90.0f;
-				ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
-				// Lime call-to-action, matching the concept's accent Add button.
-				ImGuiEx::ScopedColour addBg(ImGuiCol_Button, Colors::Theme::accent);
-				ImGuiEx::ScopedColour addBgH(ImGuiCol_ButtonHovered, Colors::Theme::accent);
-				ImGuiEx::ScopedColour addBgA(ImGuiCol_ButtonActive, Colors::Theme::accent);
-				ImGuiEx::ScopedColour addTxt(ImGuiCol_Text, Colors::Theme::titlebar);
-				ImGuiEx::ScopedColour addBorder(ImGuiCol_Border, Colors::Theme::accent);
-				if (ImGui::Button(LUX_ICON_PLUS "  ADD", ImVec2(addButtonWidth, 0.0f)))
+				const ImGuiEx::PanelAction actions[] = {
+					{0, "Add component", LUX_ICON_PLUS, nullptr, true, false, true}};
+				if (ImGuiEx::PanelActionBar("##inspector_actions", actions) == 0)
 					ImGui::OpenPopup("AddComponentPanel");
 			}
 		}
@@ -1568,8 +1570,22 @@ namespace Lux {
 		ImGui::Separator();
 		ImGui::Spacing();
 
+		ImGui::SetNextWindowSize(
+			{std::min(ImGui::GetFontSize() * 24.0f, ImGui::GetMainViewport()->WorkSize.x * 0.9f), 0.0f});
 		if (ImGui::BeginPopup("AddComponentPanel"))
 		{
+			if (ImGui::IsWindowAppearing())
+			{
+				m_ComponentSearch.clear();
+				ImGui::SetKeyboardFocusHere();
+			}
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::InputTextWithHint("##component_search", "Search components...", &m_ComponentSearch);
+			ImGui::BeginChild(
+				"##component_choices",
+				{0.0f, std::min(ImGui::GetFontSize() * 18.0f, ImGui::GetMainViewport()->WorkSize.y * 0.6f)});
+			size_t matchingComponents = 0;
+			const char* category = "";
 			auto canAddComponent = [this, &entityIDs]<typename TComponent>() -> bool
 			{
 				for (UUID entityID : entityIDs)
@@ -1582,8 +1598,14 @@ namespace Lux {
 				return false;
 			};
 
-			auto addComponentRow = [this, &entityIDs](const char* label, const Ref<Texture2D>& icon, const std::function<void()>& addCallback)
+			auto addComponentRow = [this, &entityIDs, &matchingComponents,
+									&category](const char* label, const Ref<Texture2D>& icon,
+											   const std::function<void()>& addCallback)
 			{
+				if (!ImGuiEx::IsMatchingSearch(label, m_ComponentSearch) &&
+					!ImGuiEx::IsMatchingSearch(category, m_ComponentSearch))
+					return;
+				++matchingComponents;
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				if (icon)
@@ -1600,8 +1622,11 @@ namespace Lux {
 				}
 			};
 
-			auto addCategoryHeader = [](const char* label)
+			auto addCategoryHeader = [this, &category](const char* label)
 			{
+				category = label;
+				if (!m_ComponentSearch.empty())
+					return;
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Dummy(ImVec2(16.0f, 4.0f));
@@ -2017,6 +2042,11 @@ namespace Lux {
 				ImGui::EndTable();
 			}
 
+			if (!matchingComponents)
+				ImGuiEx::PanelEmptyState(
+					"##no_components", "No components available",
+					"Change the search. Components already on every selected entity are omitted.");
+			ImGui::EndChild();
 			ImGui::EndPopup();
 		}
 
@@ -2221,32 +2251,42 @@ namespace Lux {
 				glm::vec3 rotation = glm::degrees(firstComponent.GetRotationEuler());
 				glm::vec3 scale = firstComponent.Scale;
 
-				if (DrawVec3Control("Translation", translation))
+				if (const uint32_t axes = DrawVec3Control("Translation", translation))
 				{
-					firstComponent.Translation = translation;
-					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&translation](TransformComponent& component, Entity)
-					{
-						component.Translation = translation;
-					});
+					ApplyToSelection<TransformComponent>(
+						m_Context, selectedEntities,
+						[&translation, axes](TransformComponent& component, Entity)
+						{
+							for (int axis = 0; axis < 3; ++axis)
+								if (axes & BIT(axis))
+									component.Translation[axis] = translation[axis];
+						});
 				}
 
-				if (DrawVec3Control("Rotation", rotation))
+				if (const uint32_t axes = DrawVec3Control("Rotation", rotation))
 				{
 					const glm::vec3 rotationRadians = glm::radians(rotation);
-					firstComponent.SetRotationEuler(rotationRadians);
-					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&rotationRadians](TransformComponent& component, Entity)
-					{
-						component.SetRotationEuler(rotationRadians);
-					});
+					ApplyToSelection<TransformComponent>(
+						m_Context, selectedEntities,
+						[&rotationRadians, axes](TransformComponent& component, Entity)
+						{
+							glm::vec3 current = component.GetRotationEuler();
+							for (int axis = 0; axis < 3; ++axis)
+								if (axes & BIT(axis))
+									current[axis] = rotationRadians[axis];
+							component.SetRotationEuler(current);
+						});
 				}
 
-				if (DrawVec3Control("Scale", scale, 1.0f))
+				if (const uint32_t axes = DrawVec3Control("Scale", scale, 1.0f))
 				{
-					firstComponent.Scale = scale;
-					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&scale](TransformComponent& component, Entity)
-					{
-						component.Scale = scale;
-					});
+					ApplyToSelection<TransformComponent>(m_Context, selectedEntities,
+														 [&scale, axes](TransformComponent& component, Entity)
+														 {
+															 for (int axis = 0; axis < 3; ++axis)
+																 if (axes & BIT(axis))
+																	 component.Scale[axis] = scale[axis];
+														 });
 				}
 			});
 

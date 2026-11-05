@@ -31,6 +31,9 @@ namespace Lux {
 		void OnPropertiesEvent(Event& event);
 		void OnPropertiesClosed() { m_IsPropertiesFocused = false; }
 		void OnClose() override { m_IsHierarchyFocused = false; }
+#ifndef LUX_DIST
+		static bool RunSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+#endif
 
 		Entity GetSelectedEntity() const;
 		std::vector<Entity> GetSelectedEntities() const;
@@ -66,6 +69,8 @@ namespace Lux {
 		bool m_IsHierarchyFocused = false;
 		bool m_IsPropertiesFocused = false;
 		bool m_ActivateSearchWidget = false;
+		std::string m_ComponentSearch;
+		size_t m_VisibleEntityCount = 0;
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
 		std::function<void(AssetHandle)> m_OpenSoundCallback;

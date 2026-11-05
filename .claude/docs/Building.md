@@ -406,6 +406,12 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_HIERARCHY_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_hierarchy_panels.py` drives Single/Multi coverage of hierarchy/inspector
+  reflow, text isolation, multi-entity edits, component search and scene snapshot persistence.
+  Writes a sibling `.status` and an authored scene inside the fixture, then exits. The runner
+  accepts optional `LUX_TEST_EDITOR`, like the browser/workspace/material runners.
+
 - `LUX_DIAGNOSTIC_PLOTS_SELFTEST` — Debug/Release editor-only status-file stem. Exercises the
   production bounded timing history, missing GPU data, legend toggling, first-gesture inspection,
   pause/resume, outliers, scale/width changes and frozen GPU pass snapshots in isolated ImGui/ImPlot
