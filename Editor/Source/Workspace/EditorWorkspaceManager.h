@@ -83,6 +83,7 @@ namespace Lux
 		void Save();
 		void RequestName(Action action, const Layout& layout);
 		void DrawNamePopup();
+		void DrawLayoutMenuItem(const Layout& layout, Action action, const char* shortcut = nullptr);
 		std::string CaptureIni() const;
 		std::filesystem::path m_Directory;
 		std::string m_DiskText;

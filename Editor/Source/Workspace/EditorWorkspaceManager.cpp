@@ -9,15 +9,31 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/PanelControls.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <sstream>
 #include <unordered_set>
 
 namespace Lux
 {
+	namespace
+	{
+		constexpr float k_MenuWidthInFonts = 32.0f;
+		constexpr float k_MenuViewportFraction = 0.75f;
+
+		void ReserveMenuWidth()
+		{
+			const float maximum =
+				std::max(ImGui::GetFontSize(), ImGui::GetMainViewport()->WorkSize.x * k_MenuViewportFraction);
+			ImGui::Dummy({std::min(ImGui::GetFontSize() * k_MenuWidthInFonts, maximum), 0.0f});
+		}
+	} // namespace
+
 	EditorWorkspaceManager::EditorWorkspaceManager(const std::filesystem::path& directory)
 		: m_Directory(directory)
 	{
@@ -691,17 +707,27 @@ namespace Lux
 		return false;
 	}
 
+	void EditorWorkspaceManager::DrawLayoutMenuItem(const Layout& layout, Action action, const char* shortcut)
+	{
+		ImGuiEx::ScopedID id(layout.ID.c_str());
+		std::string label = layout.Name;
+		if (shortcut && *shortcut)
+			label.append(" (").append(shortcut).append(")");
+		if (ImGuiEx::PanelListItem("##layout", label, action == Action::Switch && layout.ID == m_Active,
+								   label))
+			m_Request = Request{action, layout.ID, {}};
+	}
+
 	void EditorWorkspaceManager::DrawMenu()
 	{
+		ReserveMenuWidth();
 		size_t slot = 0;
 		auto draw = [&](const Layout& layout)
 		{
-			ImGuiEx::ScopedID id(layout.ID.c_str());
 			char shortcut[16]{};
 			if (++slot <= 9)
 				std::snprintf(shortcut, sizeof(shortcut), "Ctrl+%zu", slot);
-			if (ImGui::MenuItem(layout.Name.c_str(), shortcut, layout.ID == m_Active))
-				m_Request = Request{Action::Switch, layout.ID, {}};
+			DrawLayoutMenuItem(layout, Action::Switch, shortcut);
 		};
 		ImGui::TextDisabled("Default layouts");
 		for (const auto& layout : m_Layouts)
@@ -722,7 +748,8 @@ namespace Lux
 		if (ImGui::MenuItem("Save as Personal Layout..."))
 			RequestName(Action::Copy, *Find(m_Active));
 		const Layout& active = *Find(m_Active);
-		ImGui::TextDisabled("Active: %s (%s)", active.Name.c_str(), active.Factory ? "Default" : "Personal");
+		ImGui::TextDisabled("Active layout (%s)", active.Factory ? "Default" : "Personal");
+		ImGuiEx::PropertyLabel(active.Name.c_str());
 		if (!active.Factory)
 		{
 			if (ImGui::MenuItem("Rename Personal Layout..."))
@@ -736,13 +763,12 @@ namespace Lux
 			m_Request = Request{Action::UndoReset, m_ResetUndo->ID, {}};
 		if (ImGui::BeginMenu("Restore Deleted Personal Layout"))
 		{
+			ReserveMenuWidth();
 			for (const auto& layout : m_Layouts)
 			{
 				if (!layout.Deleted)
 					continue;
-				ImGuiEx::ScopedID id(layout.ID.c_str());
-				if (ImGui::MenuItem(layout.Name.c_str()))
-					m_Request = Request{Action::Restore, layout.ID, {}};
+				DrawLayoutMenuItem(layout, Action::Restore);
 			}
 			ImGui::EndMenu();
 		}
@@ -763,6 +789,8 @@ namespace Lux
 
 	void EditorWorkspaceManager::DrawPanelsMenu()
 	{
+		ReserveMenuWidth();
+		ImGui::SetNextItemWidth(-1.0f);
 		ImGui::InputTextWithHint("##PanelSearch", "Find a panel", m_Search, sizeof(m_Search));
 		m_PanelMenu.clear();
 		m_PanelMenu.reserve(m_Panels->GetPanels(PanelCategory::View).size());
@@ -794,9 +822,19 @@ namespace Lux
 		};
 		if (m_Search[0])
 		{
+			bool found = false;
 			for (const auto* panel : m_PanelMenu)
 				if (ImStristr(panel->Name, nullptr, m_Search, nullptr))
+				{
 					draw(*panel);
+					found = true;
+				}
+			if (!found)
+			{
+				ImGuiEx::PanelMessage("No panels found", "Try another name or clear the search.");
+				if (ImGui::Button("Clear search"))
+					m_Search[0] = '\0';
+			}
 		}
 		else
 		{

@@ -7,10 +7,13 @@
 #include "Lux/Core/Log.h"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Editor/FontAwesome.h"
+#include "Lux/ImGui/ImGuiScaling.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <stdexcept>
 #include <thread>
 #ifdef _MSC_VER
@@ -167,6 +170,114 @@ namespace Lux
 				LUX_CORE_INFO_TAG("Editor", "Workspace test: copy rendered");
 				personal = manager.m_Active;
 				Require(!manager.Find(personal)->Factory, "Default copy did not become personal");
+				const std::string savedName = manager.Find(personal)->Name;
+				manager.Find(personal)->Name = "Personal ## literal 100% " + std::string(300, 'L');
+				for (int frame = 0; frame < 3; ++frame)
+				{
+					ImGui::NewFrame();
+					ImGui::Begin("Workspace menu sizing probe", nullptr,
+								 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+					manager.DrawMenu();
+					ImGui::End();
+					ImGui::Render();
+				}
+				Require(ImGui::FindWindowByName("Workspace menu sizing probe")->ContentSize.x <=
+							ImGui::GetFontSize() * 40.0f,
+						"A long personal name made the workspace menu unbounded");
+				manager.Find(personal)->Name = savedName;
+				const ImGuiStyle originalStyle = ImGui::GetStyle();
+				ImGuiEx::DpiStyle dpi;
+				dpi.Capture(originalStyle);
+				Layout choice = *manager.Find(personal);
+				choice.ID = "personal.menu-probe";
+				ImGuiID choiceID = 0;
+				ImRect choiceRect;
+				int choiceVertices = 0;
+				auto choiceFrame = [&](float width, Action action = Action::Switch)
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({0.0f, 0.0f});
+					ImGui::SetNextWindowSize({width, 260.0f});
+					ImGui::Begin("Layout choice probe", nullptr, ImGuiWindowFlags_NoSavedSettings);
+					const int before = ImGui::GetWindowDrawList()->VtxBuffer.Size;
+					manager.DrawLayoutMenuItem(choice, action);
+					choiceVertices = ImGui::GetWindowDrawList()->VtxBuffer.Size - before;
+					choiceID = ImGui::GetItemID();
+					choiceRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+					ImGui::End();
+					ImGui::Render();
+				};
+				for (float scale : {1.0f, 1.5f})
+				{
+					dpi.Apply(ImGui::GetStyle(), scale);
+					ImGui::GetStyle().FontScaleMain = scale;
+					io.AddMousePosEvent(-1000.0f, -1000.0f);
+					choice.Name = "Personal ## literal 100%";
+					choiceFrame(650.0f);
+					choiceFrame(650.0f);
+					const int visibleCharacters =
+						static_cast<int>(std::count_if(choice.Name.begin(), choice.Name.end(),
+													   [](char character) { return character != ' '; }));
+					Require(choiceVertices >= visibleCharacters * 4,
+							"The layout row hid literal text after ##");
+					const ImGuiID stableID = choiceID;
+					choice.Name = std::string(300, 'L') + " ## renamed";
+					choiceFrame(260.0f);
+					choiceFrame(260.0f);
+					Require(choiceID == stableID, "Renaming a layout changed its menu widget identity");
+					const auto* window = ImGui::FindWindowByName("Layout choice probe");
+					Require(window->ContentSize.x <= window->Size.x,
+							"A long layout row overflowed its available width");
+					io.AddMousePosEvent(choiceRect.GetCenter().x, choiceRect.GetCenter().y);
+					choiceFrame(260.0f);
+					io.AddMouseButtonEvent(0, true);
+					choiceFrame(260.0f);
+					io.AddMouseButtonEvent(0, false);
+					choiceFrame(260.0f);
+					Require(manager.m_Request && manager.m_Request->Type == Action::Switch &&
+								manager.m_Request->ID == choice.ID,
+							"A layout row click selected the wrong stable record");
+					manager.m_Request.reset();
+					choiceFrame(260.0f, Action::Restore);
+					io.AddMouseButtonEvent(0, true);
+					choiceFrame(260.0f, Action::Restore);
+					io.AddMouseButtonEvent(0, false);
+					choiceFrame(260.0f, Action::Restore);
+					Require(manager.m_Request && manager.m_Request->Type == Action::Restore &&
+								manager.m_Request->ID == choice.ID,
+							"A deleted-layout row queued the wrong action");
+					manager.m_Request.reset();
+				}
+				ImGui::GetStyle() = originalStyle;
+				std::snprintf(manager.m_Search, sizeof(manager.m_Search), "%s", "no-matching-panel");
+				ImRect clearRect;
+				float searchHeight = 0.0f;
+				auto searchFrame = [&]()
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({0.0f, 400.0f});
+					ImGui::SetNextWindowSize({650.0f, 300.0f});
+					ImGui::Begin("Panel search probe", nullptr, ImGuiWindowFlags_NoSavedSettings);
+					const float before = ImGui::GetCursorPosY();
+					manager.DrawPanelsMenu();
+					searchHeight = ImGui::GetCursorPosY() - before;
+					clearRect = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+					ImGui::End();
+					ImGui::Render();
+				};
+				io.AddMousePosEvent(-1000.0f, -1000.0f);
+				searchFrame();
+				searchFrame();
+				Require(searchHeight > ImGui::GetFrameHeightWithSpacing() + ImGui::GetTextLineHeight(),
+						"An unmatched panel search did not draw feedback below the input");
+				io.AddMousePosEvent(clearRect.GetCenter().x, clearRect.GetCenter().y);
+				searchFrame();
+				io.AddMouseButtonEvent(0, true);
+				searchFrame();
+				io.AddMouseButtonEvent(0, false);
+				searchFrame();
+				Require(!manager.m_Search[0], "Clearing an unmatched panel search retained the query");
+				io.AddMousePosEvent(-1000.0f, -1000.0f);
 				document->DirtyDocument = 42;
 				document->Section = 7;
 				Require(manager.RequestShortcut(2), "Shading shortcut was unavailable");

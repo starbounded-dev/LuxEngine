@@ -16,8 +16,10 @@ computer. Switching layouts keeps your scene, selection, open documents and unsa
 switching, undoing the last reset and restoring recently
 deleted personal layouts. The latest 32 deletions remain recoverable. Existing saved layouts are
 imported as personal layouts and their original files are kept.
+Long layout names stay within the menu; hover a row to read its full name and shortcut.
 
-Use **View → Panels** to browse panel categories or search by name. Panels also appear in the command
+Use **View → Panels** to browse panel categories or search by name. If nothing matches, choose
+**Clear search** to return to the categories. Panels also appear in the command
 palette (**Tools → Command Palette**, **Ctrl+Shift+P**). Hierarchy, Properties, Scene View and Game
 View can each be opened or closed independently. **View → Workspaces** provides save errors and
 retry/recovery actions. A damaged layout file is

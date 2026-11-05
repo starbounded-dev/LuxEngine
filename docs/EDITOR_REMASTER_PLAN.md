@@ -1209,3 +1209,24 @@ paths and log gates; no remaining must-fix/should-fix finding in this test-only 
 combined dirty Beam/material/Sound workspace transitions, Scene View overlay/context review,
 physical mixed-monitor/detached/disconnect/drag checks, and the specifically unaccepted Linux
 presentation path. The goal remains active; no complete-remaster claim is made.
+
+### Workspace menus - bounded literal names and search recovery
+
+Reproduced an unbounded workspace menu with a long personal name in the real editor's ImGui
+self-tests (`bin/workspace-smoke/1793896916312511200`). Workspace and deleted-layout rows now
+use the shared bounded literal-text control, keyed by stable record IDs. Names containing `##`
+or `%` remain literal, rename does not change widget identity, and full names/shortcuts remain
+available on hover. The active-name caption uses the shared bounded property label. The menu's
+preferred width follows font size and is capped to the main viewport work area. Default/personal
+ownership, Ctrl+1-9 ordering, deferred requests and persistence are unchanged.
+
+View > Panels now shows wrapped feedback and a Clear search button for unmatched queries;
+clearing restores the category list without changing visibility. Tests exercise actual mouse
+press/release selection and restore actions, literal names, stable IDs and bounded rows at
+100%/150%, plus empty-search recovery. Final Debug Editor artifact: 2026-11-05 11:51:54,
+53,531,136 bytes (`bin/workspace-menu-build-final.txt`). Single/Multi workspace lifecycle,
+persistence, recovery and concurrent-save suites passed:
+`bin/workspace-smoke/1793897524154723800`. Local cr found no remaining must-fix/should-fix
+issues in this batch. No new source files or project regeneration were needed. Bundled Help
+and Architecture section 2.9 describe the result. Physical monitor/docking and the previously
+listed integration/platform acceptance work remain open.

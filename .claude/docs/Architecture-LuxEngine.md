@@ -786,7 +786,10 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   (defaults, then non-deleted personal records); EditorLayer dispatches these before panel input,
   suppresses repeats and respects export/modal/camera capture. Camera bookmark storage uses
   Ctrl+Shift+1–9. Copy/rename/delete/reset/recovery stay in the menu; DrawPopups runs each frame
-  in the dock host so naming dialogs survive menu closure. Default edits are session-only;
+  in the dock host so naming dialogs survive menu closure. Layout rows use stable record IDs and
+  bounded literal labels, with full names/shortcuts on hover; the active-name caption is bounded too.
+  Panel search exposes empty-result feedback and Clear search without changing panel visibility.
+  Default edits are session-only;
   Save as Personal Layout copies the arrangement. Stable IDs survive rename. Switches capture the outgoing layout, then
   restore docking, managed window settings and panel visibility together through
   `ImGuiLayer::SetBeforeFrameCallback` before `NewFrame`, deferring active edits, drags and modal
