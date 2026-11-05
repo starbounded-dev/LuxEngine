@@ -125,6 +125,7 @@ namespace Lux {
 		constexpr float k_OrientationRadius = 30.0f;
 		constexpr float k_OrientationPadding = 14.0f;
 		constexpr float k_OrientationTipRadius = 10.0f;
+		constexpr float k_ViewportReadoutWidthInFonts = 26.0f;
 
 		std::string GetRecentProjectKey(size_t index)
 		{
@@ -2291,12 +2292,16 @@ namespace Lux {
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
-		const float maximumWidth =
-			m_ShowViewportPerformanceHUD
-				? (viewportBounds[1].x - viewportBounds[0].x - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
-				: 0.0f;
-		if (!m_EditorViewport->PrepareOverlay({0.0f, 1.0f}, {}, maximumWidth))
+		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float width = std::min(m_EditorViewport->GetOverlayFontSize() * k_ViewportReadoutWidthInFonts,
+									 m_ShowViewportPerformanceHUD
+										 ? (availableWidth - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
+										 : availableWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+		if (width < 1.0f)
 			return;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 1.0f}, {}, width))
+			return;
+		ImGui::SetNextWindowSize({width, 0.0f});
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
@@ -2362,12 +2367,16 @@ namespace Lux {
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
-		const float maximumWidth =
-			m_SceneRenderer->GetOptions().ShowDebugCategories
-				? (viewportBounds[1].x - viewportBounds[0].x - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
-				: 0.0f;
-		if (!m_EditorViewport->PrepareOverlay({1.0f, 1.0f}, {}, maximumWidth))
+		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float width = std::min(m_EditorViewport->GetOverlayFontSize() * k_ViewportReadoutWidthInFonts,
+									 m_SceneRenderer->GetOptions().ShowDebugCategories
+										 ? (availableWidth - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
+										 : availableWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+		if (width < 1.0f)
 			return;
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 1.0f}, {}, width))
+			return;
+		ImGui::SetNextWindowSize({width, 0.0f});
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
@@ -3623,6 +3632,12 @@ namespace Lux {
 		const Soundwave::ReverbResult* reverb = m_ActiveScene->GetAudioAcoustics().GetReverb();
 		if (!reverb)
 			return;
+		const auto* viewportBounds = m_EditorViewport->GetBounds();
+		const float width =
+			std::min(m_EditorViewport->GetOverlayFontSize() * k_ViewportReadoutWidthInFonts,
+					 viewportBounds[1].x - viewportBounds[0].x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+		if (width < 1.0f)
+			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
@@ -3631,8 +3646,9 @@ namespace Lux {
 			m_SceneHierarchyPanel && m_SceneHierarchyPanel->GetSelectedEntity()
 				? ImGui::GetTextLineHeight() + ImGui::GetFontSize() * 0.4f + ImGui::GetStyle().ItemSpacing.y
 				: 0.0f;
-		if (!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}, {0.0f, topInset}))
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}, {0.0f, topInset}, width))
 			return;
+		ImGui::SetNextWindowSize({width, 0.0f});
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));

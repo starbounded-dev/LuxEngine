@@ -1283,3 +1283,26 @@ is still covered by the audio suites; this probe does not fabricate a live rever
 Very small views can clip passive diagnostic readout content inside their bounded windows; the
 main diagnostic panels retain full readings. Linux native presentation gaps remain as recorded.
 No C++ file was added, so project regeneration was unnecessary.
+
+### Follow-up - prevent vertical HUD text
+
+The user's native screenshot exposed a gap in the preceding containment-only checks: ImGui's
+AlwaysAutoResize combined with TextWrapped can shrink the width used for wrapping until the
+readout becomes a one-character column, even in a large Scene View. Bounds alone do not prove
+readability. HUD, acoustic legend and room readout now set an explicit preferred width in the
+Scene View's font units, capped by their available panel/paired-overlay budget, before wrapping.
+Only height remains content-driven. Existing positions, values and platform association remain.
+The wide-view regression now requires space for a natural FPS readout, alongside the existing
+containment/scale/hide/separation checks.
+
+Single/Multi passed: `bin/settings-panels-smoke/1793899397481338500`. Final formatted Debug
+Editor artifact: 2026-11-05 12:24:14, 53,591,040 bytes
+(`bin/viewport-overlay-width-final-build.txt`). Native review used the disposable copied project
+and private user root in `bin/viewport-overlays-native/1793899093357`. Computer Use visibly
+confirmed the horizontal multi-line HUD in maximized Scene View and after restoring the editor
+to a 1077x635 logical window. The settings gear popup opened and closed normally. The owned
+review editor was closed through Alt+F4; `width-review.log` records normal shutdown, with no
+validation/assert/null-resource/swapchain failure in that log or stderr. Earlier hidden review
+launches were not accepted as visual evidence. This is main-window resize acceptance, not a
+physical monitor-move/disconnect or detached-window claim. Local cr reviewed explicit-width
+ordering, bounds, font scale and scope balance; no outstanding finding in this fix.

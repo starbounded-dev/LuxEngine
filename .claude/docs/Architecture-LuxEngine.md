@@ -822,7 +822,9 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `Viewport::BeginImGui` also captures the panel's current platform-viewport ID and font size.
   `PrepareOverlay` anchors a corner window inside its current content bounds, applies an inset/width
   limit and targets that same platform viewport; it changes no renderer resources or authored state.
-  Hide clears the transient platform ID. HUD/legend/readout text wraps; simultaneous bottom HUD and
+  Hide clears the transient platform ID. HUD/legend/readout text wraps after setting an explicit
+  font-based window width, avoiding auto-size feedback that collapses wrapped text into a column.
+  Simultaneous bottom HUD and
   legend receive separate width budgets. Settings, orientation and selection overlays scope Scene
   View's detached metrics. Gear/gizmo geometry and hit testing follow those metrics; orientation
   reserves the gear's height and fits the remaining space. Selection uses the font size captured in

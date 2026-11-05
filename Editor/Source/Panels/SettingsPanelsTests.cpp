@@ -156,6 +156,9 @@ namespace Lux
 					}
 					const auto* hud = ImGui::FindWindowByName("##viewport_performance_hud");
 					const auto* legend = ImGui::FindWindowByName("##acoustic_material_legend");
+					if (size.x >= 900.0f)
+						Require(hud->InnerRect.GetWidth() >= ImGui::CalcTextSize("FPS 60  16.67 ms").x,
+								"Wide Scene View collapsed the HUD to a vertical text column");
 					Require(legend->Pos.x + legend->Size.x <= hud->Pos.x,
 							"Scene View diagnostic overlays overlapped");
 				}
