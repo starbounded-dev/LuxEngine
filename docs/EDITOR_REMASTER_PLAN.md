@@ -1161,3 +1161,51 @@ to reproduce: personal names reach MenuItem as labels (so ## can hide text) and 
 caption is unbounded. This is not yet declared accepted. Scene View overlay geometry/context and
 the remaining physical platform matrix must also be resolved or specifically recorded before
 closing the full goal.
+
+### Phase 6 — Export actual panel-authored fixtures
+
+`python tests/editor/run_remaster_export.py` now reuses passed Multi material/audio panel fixtures,
+creates a fresh owned Sponza corner project, and exports/runs it through the normal editor and
+Dist player path. It copies the panel-saved graph material (roughness 0.19, metalness 0.66 and its
+link), the silent real-PCM Sound tree/curves/markers and Tone.wav, and saved Mixer settings. Only
+clip/asset addresses are rebound to the owned fixture; every rendered mesh material slot uses the
+copied graph material and the source uses its copied Sound/Bank. It hashes original model,
+project, scene, registry and authored inputs and checks them after execution. PyYAML and the
+existing golden/scene-acoustics helpers are reused; this is developer verification, not a new
+product dependency or asset schema.
+
+Final native Windows run passed: `bin/remaster-export/remaster-export-1793895895488521300`, with
+capture/export/player evidence in `bin/golden/remaster-export-1793895895488521300` and runner log
+`bin/remaster-authored-export.txt`. The packaged player ran with matching direct-ray bits,
+raw/occlusion gain 0.23425025, fourteen opening paths and listener reverb within tolerance. Normal
+export includes the copied graph/Sound/Mixer data and the generated shader pack; material/source
+pack value assertions remain in their owning panel suites. This run is native exported-result
+coverage, not a new pixel-reference comparison or performance benchmark.
+
+The new log gate rejects NRI swapchain creation failures, null resources, descriptor-bake failures,
+shader load failures, VUIDs and assertions, in addition to the existing report checks. It accepted
+this run's Play and packaged-player logs and rejected the actual failing Wayland material log.
+The final gate was checked against these exact positive/negative artifacts after the native run;
+no source/runtime behavior changed afterward. The runner's imported helpers generate Python
+bytecode, now ignored by the associated __pycache__ rule.
+
+An initial fixture-read failure exposed EditorAssetManager's existing Windows generic_string()
+registry encoding. The verifier explicitly reads the current Windows ANSI format when UTF-8
+fails on Windows; it never rewrites original registries, and Linux users are told to recreate a
+native fixture instead of guessing a legacy encoding. The exported owned registry is UTF-8.
+A project-registry encoding migration is outside this visual remaster and has not been smuggled
+into the asset format. That portability limitation remains explicit.
+
+The additional Linux X11 material presentation attempt timed out at the existing 180-second
+runner bound while pipeline creation was still logged. Evidence: `bin/remaster-linux-x11-material.txt`
+and `bin/material-panel-smoke/1793895340364476788`. It is not accepted native preview presentation.
+No test/engine timeout was widened, renderer failure hidden or validation setting disabled.
+Both Linux presentation findings remain explicit platform gaps. Windows generation remains
+restored, and unrelated CI/build-doc/sample changes from concurrent work are excluded from this
+batch. Local cr reviewed fixture isolation, source hashes, address rebinding, explicit failure
+paths and log gates; no remaining must-fix/should-fix finding in this test-only change.
+
+**Next remaining acceptance work:** literal/long personal-layout menus and empty panel search,
+combined dirty Beam/material/Sound workspace transitions, Scene View overlay/context review,
+physical mixed-monitor/detached/disconnect/drag checks, and the specifically unaccepted Linux
+presentation path. The goal remains active; no complete-remaster claim is made.

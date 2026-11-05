@@ -3,6 +3,9 @@ bin-int/
 Intermediates/
 /bin
 
+# Bytecode from Python verification runners and their shared helpers.
+__pycache__/
+
 # Generated Makefiles (Linux/gmake2)
 Makefile
 *.make
