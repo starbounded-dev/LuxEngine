@@ -300,6 +300,11 @@ zero widths preserve the existing layout. `GetPropertyItemWidth` reads the curre
 `EndPropertyGrid` restores the outer grid's setting. Full-width graphs remain outside the grid.
 `PropertyLabel(label, helpText)` bounds text to its current column, reserves space for optional
 Help and exposes clipped labels on hover. Property overloads share it; labels are literal text.
+`BoundedCollapsingHeader` keeps the normal header ID/state and arrow interaction while clipping
+long titles to the available width; clipped titles have wrapped hover text.
+`Widgets::EditVec3` stacks its axis controls when the supplied region cannot fit three usable
+inputs. It keeps the existing axis-reset, mixed-value and typed-edit behavior; never pass a
+negative field width to ImGui as a substitute for a compact layout.
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.

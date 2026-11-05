@@ -365,6 +365,8 @@ namespace Lux::ImGuiEx {
 
 	// AKA ImGui::CollapsingHeader
 	bool ContextMenuHeader(const char* label, ImGuiTreeNodeFlags flags = 0);
+	// Keeps the original label ID, while clipping the title within the available header width.
+	bool BoundedCollapsingHeader(const char* label, ImGuiTreeNodeFlags flags = 0);
 
 	//=========================================================================================
 	/// Shadows

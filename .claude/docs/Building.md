@@ -406,6 +406,13 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_SETTINGS_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_settings_panels.py` runs Application/Project Settings and offline Help
+  reflow, optional panel-state round trips, text isolation, project save/failure/retry, acoustic
+  controls and Light Settings context checks under Single/Multi. It writes a sibling `.status`
+  and exits. New C++ tests require project
+  regeneration; `LUX_TEST_EDITOR` can select a separately verified executable.
+
 - `LUX_DIAGNOSTIC_CONTROLS_SELFTEST` — Debug/Release editor-only active disposable project directory.
   `python tests/editor/run_diagnostic_controls.py` runs Log filtering/follow/retention/detail lifetime,
   asset metadata refresh and History navigation under Single/Multi. It writes a sibling `.status`

@@ -24,6 +24,11 @@ namespace Lux {
 		HelpPanel();
 
 		virtual void OnImGuiRender(bool& isOpen) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override;
+#ifndef LUX_DIST
+		static bool RunSelfTests(std::vector<std::string>& failures);
+#endif
 
 		// Shows `topic` as the newest history entry and brings the window forward on its next draw.
 		void OpenTopic(std::string_view topic);
@@ -64,6 +69,12 @@ namespace Lux {
 		std::string m_Search;
 		bool m_ScrollToTop = false;
 		bool m_FocusRequested = false;
+		bool m_FocusSearch = false;
+		bool m_IsFocused = false;
+		bool m_ShowTopics = true;
+		bool m_NarrowTopics = false;
+		bool m_SideBySide = false;
+		float m_TopicFraction = 0.26f;
 	};
 
 }

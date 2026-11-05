@@ -19,6 +19,9 @@
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/PanelControls.h"
+#include "Lux/Editor/FontAwesome.h"
+#include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Texture.h"
@@ -40,6 +43,8 @@ namespace Lux {
 
 	namespace
 	{
+		constexpr const char* s_ProjectPages[] = {"General",   "Runtime Export", "Renderer", "Audio",
+												  "Scripting", "Physics",		 "Log"};
 		constexpr const char* s_RenderResolutionOptions[] = { "128", "256", "512", "1024", "2048", "4096" };
 		constexpr size_t s_RenderResolutionOptionCount = sizeof(s_RenderResolutionOptions) / sizeof(s_RenderResolutionOptions[0]);
 
@@ -115,7 +120,7 @@ namespace Lux {
 			};
 			ImGui::TextUnformatted("Soundwave acoustics");
 			ImGui::TextWrapped("Applies on the next Play session and in runtime builds.");
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			record(AcousticControl::Strength, ImGuiEx::Property("Transmission Strength", settings.Strength, 0.05f, 0.0f, 4.0f,
 				"Scales authored wall loss in decibels. 1 uses each material's LF/HF transmission.", false));
 			record(AcousticControl::Rate, ImGuiEx::Property("Acoustic Rate (Hz)", settings.UpdateRateHz, 1.0f, 1.0f, 120.0f,
@@ -335,6 +340,7 @@ namespace Lux {
 
 	void ProjectSettingsWindow::OnImGuiRender(bool& isOpen)
 	{
+		m_IsFocused = false;
 		if (!m_Project)
 		{
 			isOpen = false;
@@ -343,20 +349,68 @@ namespace Lux {
 
 		if (ImGui::Begin("Project Settings", &isOpen))
 		{
-			RenderGeneralSettings();
-			RenderRuntimeExportSettings();
-			RenderRendererSettings();
-			RenderAudioSettings();
-			RenderScriptingSettings();
-			RenderPhysicsSettings();
-			RenderLogSettings();
-
-			ImGui::Spacing();
-			if (m_Dirty)
-				ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.35f, 1.0f), "Unsaved project changes");
-
-			if (ImGui::Button("Save Project Settings"))
+			m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+			const ImGuiEx::PanelAction actions[] = {
+				{0, "Save project settings", LUX_ICON_FLOPPY_O, nullptr, true, false, true}};
+			if (ImGuiEx::PanelActionBar("##project_settings_actions", actions) == 0)
 				SaveProject();
+			if (m_Dirty)
+			{
+				ImGuiEx::ScopedColour dirty(ImGuiCol_Text, Colors::Theme::textWarning);
+				ImGui::TextWrapped("Unsaved project changes");
+			}
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::BeginCombo("##project_settings_page", s_ProjectPages[m_CurrentPage]))
+			{
+				for (uint32_t page = 0; page < std::size(s_ProjectPages); ++page)
+				{
+					const bool selected = m_CurrentPage == page;
+					if (ImGui::Selectable(s_ProjectPages[page], selected))
+					{
+						if (m_CurrentPage != page)
+							StopDialoguePreview();
+						m_CurrentPage = page;
+						m_OpenPage = true;
+					}
+					if (selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::BeginChild("##project_settings_content"))
+			{
+				if (m_OpenPage)
+				{
+					ImGui::SetScrollY(0.0f);
+					ImGui::SetNextItemOpen(true);
+					m_OpenPage = false;
+				}
+				switch (m_CurrentPage)
+				{
+				case 0:
+					RenderGeneralSettings();
+					break;
+				case 1:
+					RenderRuntimeExportSettings();
+					break;
+				case 2:
+					RenderRendererSettings();
+					break;
+				case 3:
+					RenderAudioSettings();
+					break;
+				case 4:
+					RenderScriptingSettings();
+					break;
+				case 5:
+					RenderPhysicsSettings();
+					break;
+				case 6:
+					RenderLogSettings();
+					break;
+				}
+			}
+			ImGui::EndChild();
 
 			if (!isOpen)
 				OnClose();
@@ -365,10 +419,33 @@ namespace Lux {
 		ImGui::End();
 	}
 
+	void ProjectSettingsWindow::SaveState(Yaml::Writer& out) const
+	{
+		out << Yaml::Key << "Page" << Yaml::Value << s_ProjectPages[m_CurrentPage];
+	}
+
+	void ProjectSettingsWindow::LoadState(const Yaml::Node& state)
+	{
+		const std::string page = state["Page"].as<std::string>("");
+		for (uint32_t index = 0; index < std::size(s_ProjectPages); ++index)
+			if (page == s_ProjectPages[index])
+			{
+				if (m_CurrentPage != index)
+					StopDialoguePreview();
+				m_CurrentPage = index;
+				m_OpenPage = true;
+			}
+	}
+
 	void ProjectSettingsWindow::OnProjectChanged(const Ref<Project>& project)
 	{
+		StopDialoguePreview();
+		m_LegacyScan.reset();
+		m_LegacyErrors.clear();
+		m_IsFocused = false;
 		m_Project = project;
 		m_Dirty = false;
+		m_OpenPage = true;
 
 		if (!m_Project)
 		{
@@ -377,6 +454,7 @@ namespace Lux {
 			m_NameBuffer[0] = '\0';
 			m_RuntimeGameNameBuffer[0] = '\0';
 			m_ScriptModulePathBuffer[0] = '\0';
+			m_DefaultNamespaceBuffer[0] = '\0';
 			return;
 		}
 
@@ -387,9 +465,19 @@ namespace Lux {
 
 	void ProjectSettingsWindow::OnClose()
 	{
+		m_IsFocused = false;
 		StopDialoguePreview();
 		if (m_Dirty)
 			SaveProject();
+	}
+
+	void ProjectSettingsWindow::OnEvent(Event& event)
+	{
+		if (!m_IsFocused)
+			return;
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[](KeyPressedEvent&) { return ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0; });
 	}
 
 	void ProjectSettingsWindow::SyncBuffersFromProject()
@@ -454,7 +542,7 @@ namespace Lux {
 			}
 		};
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (ImGuiEx::Property("Name", m_NameBuffer, sizeof(m_NameBuffer)))
 		{
 			config.Name = m_NameBuffer;
@@ -527,7 +615,11 @@ namespace Lux {
 		}
 		ImGuiEx::EndPropertyGrid();
 
-		ImGui::TextDisabled("Path changes affect the active project immediately and are persisted on save.");
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped(
+				"Path changes affect the active project immediately and are persisted on save.");
+		}
 
 		ImGui::TreePop();
 	}
@@ -556,7 +648,7 @@ namespace Lux {
 			}
 		};
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (ImGuiEx::Property("Game Name", m_RuntimeGameNameBuffer, sizeof(m_RuntimeGameNameBuffer)))
 		{
 			runtime.GameName = m_RuntimeGameNameBuffer;
@@ -593,7 +685,9 @@ namespace Lux {
 		}
 		ImGuiEx::EndPropertyGrid();
 
-		if (ImGui::BeginCombo("Target Config", RuntimeExportTargetToString(runtime.TargetConfig)))
+		ImGui::TextUnformatted("Target configuration");
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::BeginCombo("##runtime_target", RuntimeExportTargetToString(runtime.TargetConfig)))
 		{
 			for (RuntimeExportTarget target : s_RuntimeExportTargets)
 			{
@@ -615,7 +709,9 @@ namespace Lux {
 
 		auto drawStatus = [](const char* label, bool ok, const char* okText, const char* failText)
 		{
-			ImGui::TextColored(ok ? ImVec4(0.35f, 0.85f, 0.45f, 1.0f) : ImVec4(0.95f, 0.55f, 0.35f, 1.0f), "%s: %s", label, ok ? okText : failText);
+			ImGuiEx::ScopedColour color(ImGuiCol_Text, ok ? ImVec4(0.35f, 0.85f, 0.45f, 1.0f)
+														  : ImVec4(0.95f, 0.55f, 0.35f, 1.0f));
+			ImGui::TextWrapped("%s: %s", label, ok ? okText : failText);
 		};
 
 		std::error_code ec;
@@ -643,18 +739,23 @@ namespace Lux {
 
 		// The build runs on EditorLayer's worker; the export window shares it, so both disable together.
 		const bool building = m_RuntimeBuildJob.IsRunning();
+		const ImGuiEx::PanelAction buildActions[] = {{0, "Build runtime", LUX_ICON_COG, nullptr, !building},
+													 {1, "Build scripts", LUX_ICON_CODE, nullptr, !building}};
+		switch (ImGuiEx::PanelActionBar("##project_build_actions", buildActions))
 		{
-			ImGuiEx::ScopedDisable disableWhileBuilding(building);
-			if (ImGui::Button("Build Runtime"))
-				m_RuntimeBuildJob.Start(runtime.TargetConfig, true, false);
-
-			ImGui::SameLine();
-			if (ImGui::Button("Build Scripts"))
-				m_RuntimeBuildJob.Start(runtime.TargetConfig, false, true);
+		case 0:
+			m_RuntimeBuildJob.Start(runtime.TargetConfig, true, false);
+			break;
+		case 1:
+			m_RuntimeBuildJob.Start(runtime.TargetConfig, false, true);
+			break;
+		default:
+			break;
 		}
-
-		ImGui::SameLine();
-		ImGui::TextDisabled("Dist exports skip .pdb files.");
+		{
+			ImGuiEx::ScopedColour caption(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped("Dist exports skip .pdb files.");
+		}
 
 		if (building)
 		{
@@ -677,7 +778,7 @@ namespace Lux {
 		auto& projectConfig = m_Project->GetConfig();
 		auto& rendererConfig = Renderer::GetConfig();
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		ImGuiEx::Property("Compute HDR Environment Maps", rendererConfig.ComputeEnvironmentMaps);
 
 		int32_t environmentMapSizeIndex = ResolutionToComboIndex(rendererConfig.EnvironmentMapResolution);
@@ -719,7 +820,7 @@ namespace Lux {
 
 		auto& audioSettings = m_Project->GetConfig().Audio;
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		double fileStreamingThreshold = audioSettings.FileStreamingDurationThreshold;
 		if (ImGuiEx::Property("File Streaming Threshold", fileStreamingThreshold, 0.1f, 0.0, 600.0))
 		{
@@ -728,12 +829,15 @@ namespace Lux {
 		}
 		ImGuiEx::EndPropertyGrid();
 
-		ImGui::TextDisabled("Stored in both the YAML project file and the runtime project data.");
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped("Stored in both the YAML project file and the runtime project data.");
+		}
 		if (ImGuiEx::PropertyGridHeader("Voice and Performance Budgets", false))
 		{
 			auto edited = audioSettings.Performance;
 			bool changed = false;
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			changed |= ImGuiEx::Property("Mute When Unfocused", edited.MuteWhenUnfocused, "Mute output while unfocused; timelines and gameplay pause state are preserved.", false);
 			int voices = static_cast<int>(edited.RealVoices), memory = static_cast<int>(edited.BankMemoryMiB);
 			changed |= ImGuiEx::Property("Real Voices", voices, 1, 512, "Most voices mixing at once. Lower priority voices go virtual.", false);
@@ -762,7 +866,7 @@ namespace Lux {
 				changed = true;
 			}
 			static std::string s_NewBudgetBus = "bus:/SFX";
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			ImGuiEx::Property("New Bus", s_NewBudgetBus, "Inclusive voice warning threshold for this authored bus.", false);
 			ImGuiEx::EndPropertyGrid();
 			if (ImGui::Button("Add Bus Budget"))
@@ -789,7 +893,7 @@ namespace Lux {
 				ImGuiEx::ScopedID id(entry.first);
 				ImGui::TextUnformatted(entry.first);
 				auto& profile = *entry.second;
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				bool enabled = profile.Enabled;
 				if (ImGuiEx::Property("Override defaults", enabled, "Use this OS's budgets.", false))
 				{
@@ -825,7 +929,7 @@ namespace Lux {
 			ImGui::TreePop();
 		}
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 
 		if (ImGuiEx::PropertyAssetReference<AudioSurfaceTable>("Surface Table", audioSettings.SurfaceTable,
 			"Shared footstep, impact, scrape and roll Sounds. Create a table in Content Browser > New. Loaded on Play and included in runtime exports."))
@@ -861,7 +965,7 @@ namespace Lux {
 				if (auto table = AssetManager::GetAsset<AudioSurfaceTable>(audioSettings.SurfaceTable))
 				{
 					ImGui::TextWrapped("Edit the shared table, then Save Surface Table. Empty material slots use Default. Footsteps and impacts require one-shot Sounds; scrape and roll require looping Sounds.");
-					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 					ImGuiEx::Property("Impact Cooldown (s)", table->ImpactCooldown, 0.01f, 0.0f, 60.0f, "", false);
 					ImGuiEx::Property("Minimum Impulse", table->MinimumImpulse, 0.1f, 0.0f, 100000.0f, "Jolt estimated collision impulse in kg m/s.", false);
 					ImGuiEx::Property("Minimum Motion Speed", table->MinimumMotionSpeed, 0.01f, 0.0f, 1000.0f, "", false);
@@ -894,13 +998,13 @@ namespace Lux {
 				if (auto table = AssetManager::GetAsset<DialogueTable>(audioSettings.Dialogue.Table))
 				{
 					ImGui::TextWrapped("Edits apply on the next Play. Assign a one-shot Sound; a translation's Clip replaces the Sound's clips in that language. Save after editing.");
-					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 					ImGuiEx::Property("Default Language", table->DefaultLanguage, "Each line must have a translation in this language.", false);
 					ImGuiEx::Property("Bark Cooldown", table->BarkCooldown, 0.1f, 0.0f, 60.0f, "Seconds between nearby repetitions of the same bark.", false);
 					ImGuiEx::Property("Bark Radius", table->BarkRadius, 0.1f, 0.0f, 1000.0f, "Nearby speaker deduplication radius in world units.", false);
 					ImGuiEx::EndPropertyGrid();
 					static std::string newKey, newLanguage = "en", filter;
-					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 					ImGuiEx::Property("New Line Key", newKey, "Stable script key, e.g. guard.greeting", false);
 					ImGuiEx::Property("Filter Lines", filter, "", false);
 					ImGuiEx::EndPropertyGrid();
@@ -921,7 +1025,8 @@ namespace Lux {
 						if (!ImGui::TreeNode(key.c_str()))
 							continue;
 						ImGuiEx::SurfaceEventPicker("Speech Sound", line.Event, true);
-						ImGuiEx::BeginPropertyGrid();
+						ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f,
+												   ImGui::GetFontSize() * 28.0f);
 						int32_t priority = static_cast<int32_t>(line.Priority);
 						static const char* priorities[] = { "Low", "Normal", "High", "Critical" };
 						if (ImGuiEx::PropertyDropdown("Priority", priorities, 4, priority, "Higher priority queued lines run first.", false))
@@ -937,7 +1042,8 @@ namespace Lux {
 							ImGuiEx::ScopedID localeID(locale.c_str());
 							if (!ImGui::TreeNode(locale.c_str()))
 								continue;
-							ImGuiEx::BeginPropertyGrid();
+							ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f,
+													   ImGui::GetFontSize() * 28.0f);
 							ImGuiEx::PropertyMultiline("Text", translation.Text, "Localized subtitle", false);
 							ImGuiEx::Property("Speaker Name", translation.SpeakerName, "Empty uses the speaker entity name.", false);
 							AssetHandle clip = translation.Clip;
@@ -993,7 +1099,7 @@ namespace Lux {
 				m_Dirty |= ImGuiEx::AudioAccessibilityOptions(accessibility.Defaults, false);
 				ImGui::TreePop();
 			}
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			m_Dirty |= ImGuiEx::Property("Caption fallback language", accessibility.DefaultLanguage, "Language used when an event has no caption in the selected dialogue language.", false);
 			m_Dirty |= ImGuiEx::Property("Description duck level", accessibility.DescriptionDuck, 0.01f, 0.0f, 1.0f, "Music, SFX, UI and Ambience gain while narration plays. Route narration to Dialogue.", false);
 			for (size_t i = 0; i < AudioCategoryCount; ++i)
@@ -1024,7 +1130,7 @@ namespace Lux {
 				accessibility.Events.try_emplace(captionEvent);
 				m_Dirty = true;
 			}
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			ImGuiEx::Property("Filter captions", captionFilter, "Sound path or handle", false);
 			ImGuiEx::Property("Caption language", captionLanguage, "Language to add to a Sound", false);
 			ImGuiEx::EndPropertyGrid();
@@ -1055,7 +1161,7 @@ namespace Lux {
 				for (auto& [locale, text] : entry.Captions)
 				{
 					ImGuiEx::ScopedID localeID(locale.c_str());
-					ImGuiEx::BeginPropertyGrid();
+					ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 					m_Dirty |= ImGuiEx::Property(locale.c_str(), text, "Localized closed caption", false);
 					ImGuiEx::EndPropertyGrid();
 					if (ImGui::SmallButton("Remove caption"))
@@ -1075,7 +1181,7 @@ namespace Lux {
 				accessibility.Events.erase(removeEvent);
 				m_Dirty = true;
 			}
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			ImGuiEx::Property("Speaker colour name", speakerName, "Exact localized speaker name shown in subtitles", false);
 			ImGuiEx::EndPropertyGrid();
 			if (ImGui::Button("Add speaker colour") && !speakerName.empty())
@@ -1110,7 +1216,7 @@ namespace Lux {
 					continue;
 				const auto material = static_cast<AcousticMaterial>(i);
 				auto& entry = audioSettings.AcousticMaterials.Overrides[i];
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				if (ImGuiEx::Property("Override Preset", entry.Enabled))
 				{
 					if (entry.Enabled)
@@ -1193,7 +1299,10 @@ namespace Lux {
 			}
 		}
 		if (playing)
-			ImGui::TextDisabled("Stop Play to scan or remove.");
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped("Stop Play to scan or remove.");
+		}
 
 		for (const std::string& error : m_LegacyErrors)
 			ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", error.c_str());
@@ -1242,7 +1351,10 @@ namespace Lux {
 		if (ImGui::BeginPopupModal("Remove FMOD data?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 		{
 			ImGui::Text("Rewrite %zu files without their FMOD data?", scan.Files.size());
-			ImGui::TextDisabled("Undo covers the open scene only; use version control for the files.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Undo covers the open scene only; use version control for the files.");
+			}
 			if (ImGui::Button("Remove"))
 			{
 				RemoveLegacyAudioData();
@@ -1320,7 +1432,7 @@ namespace Lux {
 
 		auto& config = m_Project->GetConfig();
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (ImGuiEx::Property("Script Module Path", m_ScriptModulePathBuffer, sizeof(m_ScriptModulePathBuffer)))
 		{
 			config.ScriptModulePath = m_ScriptModulePathBuffer;
@@ -1340,7 +1452,10 @@ namespace Lux {
 		if (!config.ScriptModulePath.empty())
 		{
 			const std::filesystem::path resolvedModulePath = Project::GetActiveAssetDirectory() / config.ScriptModulePath;
-			ImGui::TextDisabled("Resolved Path: %s", resolvedModulePath.generic_string().c_str());
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Resolved Path: %s", resolvedModulePath.generic_string().c_str());
+			}
 		}
 
 		if (ImGui::Button("Reload Assembly"))
@@ -1356,7 +1471,7 @@ namespace Lux {
 
 		auto& physicsSettings = m_Project->GetConfig().Physics;
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (ImGuiEx::Property("Fixed Timestep", physicsSettings.FixedTimestep, 0.001f, 0.001f, 1.0f))
 			m_Dirty = true;
 		if (ImGuiEx::Property("Gravity", physicsSettings.Gravity, 0.1f, -1000.0f, 1000.0f))
@@ -1413,7 +1528,7 @@ namespace Lux {
 			ImGui::PushID((int)i);
 			if (ImGui::TreeNodeEx("##physics_layer", ImGuiTreeNodeFlags_DefaultOpen, "%s", header.c_str()))
 			{
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				std::string layerName = layer.Name;
 				if (ImGuiEx::Property("Name", layerName))
 				{
@@ -1454,13 +1569,35 @@ namespace Lux {
 		if (!ImGuiEx::PropertyGridHeader("Log", false))
 			return;
 
-		if (ImGui::Button("Reset Tag Filters"))
+		const ImGuiEx::PanelAction actions[] = {{0, "Reset tag filters", LUX_ICON_UNDO}};
+		if (ImGuiEx::PanelActionBar("##log_settings_actions", actions) == 0)
 		{
 			Log::SetDefaultTagSettings();
 			m_Dirty = true;
 		}
 
 		ImGui::Spacing();
+		if (ImGui::GetContentRegionAvail().x < ImGui::GetFontSize() * 28.0f)
+		{
+			const char* levels[] = {"Trace", "Info", "Warn", "Error", "Fatal"};
+			for (auto& [tag, details] : Log::EnabledTags())
+			{
+				ImGuiEx::ScopedID id(tag.c_str());
+				ImGui::TextWrapped("%s", tag.empty() ? "(Default)" : tag.c_str());
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 8.0f, ImGui::GetFontSize() * 20.0f);
+				m_Dirty |= ImGuiEx::Property("Enabled", details.Enabled, nullptr, false);
+				int32_t level = static_cast<int32_t>(details.LevelFilter);
+				if (ImGuiEx::PropertyDropdown("Level", levels, static_cast<int32_t>(std::size(levels)),
+											  &level))
+				{
+					details.LevelFilter = static_cast<Log::Level>(level);
+					m_Dirty = true;
+				}
+				ImGuiEx::EndPropertyGrid();
+			}
+			ImGui::TreePop();
+			return;
+		}
 		if (ImGui::BeginTable("##project_log_settings", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable))
 		{
 			ImGui::TableSetupColumn("Tag");
@@ -1468,10 +1605,9 @@ namespace Lux {
 			ImGui::TableSetupColumn("Level", ImGuiTableColumnFlags_WidthFixed, 120.0f);
 			ImGui::TableHeadersRow();
 
-			int32_t rowIndex = 0;
 			for (auto& [tag, tagDetails] : Log::EnabledTags())
 			{
-				ImGui::PushID(rowIndex++);
+				ImGuiEx::ScopedID id(tag.c_str());
 				ImGui::TableNextRow();
 
 				ImGui::TableSetColumnIndex(0);
@@ -1499,7 +1635,6 @@ namespace Lux {
 					ImGui::EndCombo();
 				}
 
-				ImGui::PopID();
 			}
 
 			ImGui::EndTable();

@@ -4,14 +4,14 @@
 #include "lpch.h"
 #include "LightSettingsPanel.h"
 
-#include "Lux/Asset/AssetManager.h"
-#include "Lux/Asset/AssetMetadata.h"
-#include "Lux/Project/Project.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/PanelControls.h"
+#include "Lux/Renderer/SceneEnvironment.h"
+#include "Lux/Core/Events/KeyEvent.h"
 
 #include <imgui/imgui.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -24,15 +24,22 @@ namespace Lux {
 
 	void LightSettingsPanel::OnImGuiRender(bool& isOpen)
 	{
+		m_IsFocused = false;
 		if (!isOpen)
 			return;
 
-		ImGui::Begin("Light Settings", &isOpen);
+		if (!ImGui::Begin("Light Settings", &isOpen))
+		{
+			ImGui::End();
+			return;
+		}
+		m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
 		auto scene = GetSceneContext();
 		if (!scene)
 		{
-			ImGui::Text("No scene selected");
+			ImGuiEx::PanelEmptyState("##lights_scene", "No scene selected",
+									 "Open a scene to edit its lights.");
 			ImGui::End();
 			return;
 		}
@@ -48,15 +55,25 @@ namespace Lux {
 		ImGui::End();
 	}
 
+	void LightSettingsPanel::OnEvent(Event& event)
+	{
+		if (!m_IsFocused)
+			return;
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[](KeyPressedEvent&) { return ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0; });
+	}
+
 	void LightSettingsPanel::RenderDirectionalLight()
 	{
+		ImGuiEx::ScopedID section("DirectionalLights");
 		auto scene = GetSceneContext();
 		if (!scene)
 			return;
 
 		auto view = scene->GetAllEntitiesWith<DirectionalLightComponent>();
 
-		if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGuiEx::BoundedCollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			int lightCount = 0;
 			for (auto e : view)
@@ -64,12 +81,12 @@ namespace Lux {
 				Entity entity = { e, scene.get() };
 				lightCount++;
 				auto& light = entity.GetComponent<DirectionalLightComponent>();
-				auto name = entity.GetComponent<TagComponent>().Tag;
+				const auto& name = entity.GetComponent<TagComponent>().Tag;
 
-				ImGui::PushID(lightCount);
-				ImGui::Text("%s", name.c_str());
+				ImGuiEx::ScopedID id(reinterpret_cast<const void*>(static_cast<uint64_t>(entity.GetUUID())));
+				ImGui::TextWrapped("%s", name.c_str());
 
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 28.0f);
 
 				glm::vec3 color = light.Radiance;
 				if (ImGuiEx::PropertyColor("Color", color))
@@ -95,8 +112,6 @@ namespace Lux {
 				ImGuiEx::Property("Shadow Tier", light.ShadowResolutionTier, 0u, 3u);
 
 				ImGuiEx::EndPropertyGrid();
-
-				ImGui::PopID();
 			}
 
 			if (lightCount == 0)
@@ -108,13 +123,14 @@ namespace Lux {
 
 	void LightSettingsPanel::RenderPointLights()
 	{
+		ImGuiEx::ScopedID section("PointLights");
 		auto scene = GetSceneContext();
 		if (!scene)
 			return;
 
 		auto view = scene->GetAllEntitiesWith<PointLightComponent>();
 
-		if (ImGui::CollapsingHeader("Point Lights", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGuiEx::BoundedCollapsingHeader("Point Lights", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			int lightCount = 0;
 			for (auto e : view)
@@ -122,12 +138,12 @@ namespace Lux {
 				Entity entity = { e, scene.get() };
 				lightCount++;
 				auto& light = entity.GetComponent<PointLightComponent>();
-				auto name = entity.GetComponent<TagComponent>().Tag;
+				const auto& name = entity.GetComponent<TagComponent>().Tag;
 
-				ImGui::PushID(lightCount);
-				ImGui::Text("%s", name.c_str());
+				ImGuiEx::ScopedID id(reinterpret_cast<const void*>(static_cast<uint64_t>(entity.GetUUID())));
+				ImGui::TextWrapped("%s", name.c_str());
 
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 28.0f);
 
 				glm::vec3 color = light.Radiance;
 				if (ImGuiEx::PropertyColor("Color", color))
@@ -142,8 +158,6 @@ namespace Lux {
 				ImGuiEx::Property("Soft Shadows", light.SoftShadows);
 
 				ImGuiEx::EndPropertyGrid();
-
-				ImGui::PopID();
 			}
 
 			if (lightCount == 0)
@@ -155,13 +169,14 @@ namespace Lux {
 
 	void LightSettingsPanel::RenderSpotLights()
 	{
+		ImGuiEx::ScopedID section("SpotLights");
 		auto scene = GetSceneContext();
 		if (!scene)
 			return;
 
 		auto view = scene->GetAllEntitiesWith<SpotLightComponent>();
 
-		if (ImGui::CollapsingHeader("Spot Lights", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGuiEx::BoundedCollapsingHeader("Spot Lights", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			int lightCount = 0;
 			for (auto e : view)
@@ -169,12 +184,12 @@ namespace Lux {
 				Entity entity = { e, scene.get() };
 				lightCount++;
 				auto& light = entity.GetComponent<SpotLightComponent>();
-				auto name = entity.GetComponent<TagComponent>().Tag;
+				const auto& name = entity.GetComponent<TagComponent>().Tag;
 
-				ImGui::PushID(lightCount);
-				ImGui::Text("%s", name.c_str());
+				ImGuiEx::ScopedID id(reinterpret_cast<const void*>(static_cast<uint64_t>(entity.GetUUID())));
+				ImGui::TextWrapped("%s", name.c_str());
 
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 28.0f);
 
 				glm::vec3 color = light.Radiance;
 				if (ImGuiEx::PropertyColor("Color", color))
@@ -193,8 +208,6 @@ namespace Lux {
 				ImGuiEx::Property("Shadow Tier", light.ShadowResolutionTier, 0u, 3u);
 
 				ImGuiEx::EndPropertyGrid();
-
-				ImGui::PopID();
 			}
 
 			if (lightCount == 0)
@@ -206,13 +219,14 @@ namespace Lux {
 
 	void LightSettingsPanel::RenderSkyLight()
 	{
+		ImGuiEx::ScopedID section("SkyLights");
 		auto scene = GetSceneContext();
 		if (!scene)
 			return;
 
 		auto view = scene->GetAllEntitiesWith<SkyLightComponent>();
 
-		if (ImGui::CollapsingHeader("Sky Light (IBL)", ImGuiTreeNodeFlags_DefaultOpen))
+		if (ImGuiEx::BoundedCollapsingHeader("Sky Light (IBL)", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			int lightCount = 0;
 			for (auto e : view)
@@ -220,12 +234,12 @@ namespace Lux {
 				Entity entity = { e, scene.get() };
 				lightCount++;
 				auto& light = entity.GetComponent<SkyLightComponent>();
-				auto name = entity.GetComponent<TagComponent>().Tag;
+				const auto& name = entity.GetComponent<TagComponent>().Tag;
 
-				ImGui::PushID(lightCount);
-				ImGui::Text("%s", name.c_str());
+				ImGuiEx::ScopedID id(reinterpret_cast<const void*>(static_cast<uint64_t>(entity.GetUUID())));
+				ImGui::TextWrapped("%s", name.c_str());
 
-				ImGuiEx::BeginPropertyGrid();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 28.0f);
 				ImGuiEx::Property("Intensity", light.Intensity, 0.1f, 0.0f, 100.0f);
 				ImGuiEx::Property("Lod", light.Lod, 0.01f, 0.0f, 10.0f);
 				ImGuiEx::Property("Dynamic Sky", light.DynamicSky);
@@ -234,54 +248,11 @@ namespace Lux {
 				ImGuiEx::Property("Inclination", light.TurbidityAzimuthInclination.z, 0.01f, -180.0f, 180.0f);
 				ImGuiEx::EndPropertyGrid();
 
-				std::string envLabel = "None";
-				bool isEnvironmentValid = false;
-				if (light.SceneEnvironment != 0)
-				{
-					if (AssetManager::IsAssetHandleValid(light.SceneEnvironment)
-						&& AssetManager::GetAssetType(light.SceneEnvironment) == AssetType::EnvMap)
-					{
-						const AssetMetadata& metadata = Project::GetActive()->GetEditorAssetManager()->GetMetadata(light.SceneEnvironment);
-						envLabel = metadata.FilePath.filename().string();
-						isEnvironmentValid = true;
-					}
-					else
-					{
-						envLabel = "Invalid";
-					}
-				}
-
-				ImVec2 buttonLabelSize = ImGui::CalcTextSize(envLabel.c_str());
-				buttonLabelSize.x += 20.0f;
-				float buttonLabelWidth = glm::max<float>(100.0f, buttonLabelSize.x);
-
-				ImGui::Button(envLabel.c_str(), ImVec2(buttonLabelWidth, 0.0f));
-				if (ImGui::BeginDragDropTarget())
-				{
-					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-					{
-						AssetHandle handle = *(AssetHandle*)payload->Data;
-						if (AssetManager::GetAssetType(handle) == AssetType::EnvMap)
-						{
-							light.SceneEnvironment = handle;
-						}
-					}
-					ImGui::EndDragDropTarget();
-				}
-
-				if (isEnvironmentValid)
-				{
-					ImGui::SameLine();
-					ImVec2 xLabelSize = ImGui::CalcTextSize("X");
-					float buttonSize = xLabelSize.y + ImGui::GetStyle().FramePadding.y * 2.0f;
-					if (ImGui::Button("X", ImVec2(buttonSize, buttonSize)))
-						light.SceneEnvironment = 0;
-				}
-
-				ImGui::SameLine();
-				ImGui::Text("Environment Map");
-
-				ImGui::PopID();
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 12.0f, ImGui::GetFontSize() * 28.0f);
+				ImGuiEx::PropertyAssetReference<Environment>(
+					"Environment Map", light.SceneEnvironment,
+					"Choose an environment map from the project, or drag one from Content Browser.");
+				ImGuiEx::EndPropertyGrid();
 			}
 
 			if (lightCount == 0)

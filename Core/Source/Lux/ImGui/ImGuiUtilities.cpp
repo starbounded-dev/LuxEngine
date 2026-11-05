@@ -526,6 +526,32 @@ namespace Lux::ImGuiEx {
 		return changed;
 	}
 
+	bool BoundedCollapsingHeader(const char* label, ImGuiTreeNodeFlags flags)
+	{
+		if (ImGui::GetCurrentWindow()->SkipItems)
+			return false;
+		const ImVec2 cursor = ImGui::GetCursorScreenPos();
+		const auto& style = ImGui::GetStyle();
+		const bool open =
+			ImGui::TreeNodeBehavior(ImGui::GetID(label), flags | ImGuiTreeNodeFlags_CollapsingHeader, " ");
+		const ImVec2 minimum(cursor.x + ImGui::GetFontSize() + style.FramePadding.x * 3.0f,
+							 ImGui::GetItemRectMin().y + style.FramePadding.y);
+		const float maximum = ImGui::GetItemRectMax().x - style.FramePadding.x;
+		if (maximum > minimum.x)
+			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), minimum,
+									  {maximum, minimum.y + ImGui::GetTextLineHeight()}, maximum, label,
+									  label + std::strlen(label), nullptr);
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) &&
+			ImGui::CalcTextSize(label, nullptr, false).x > maximum - minimum.x && ImGui::BeginTooltip())
+		{
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+			ImGui::TextUnformatted(label);
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+		return open;
+	}
+
 	bool ContextMenuHeader(const char* label, ImGuiTreeNodeFlags flags)
 	{
 		bool opened = false;

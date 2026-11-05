@@ -701,3 +701,65 @@ transmission was not needed. Mixed-monitor/disconnect and Linux execution remain
 
 **Remaining:** Phase 5(d–e), the remaining Phase 0 inventory and Phase 6 remain open. This batch
 does not declare the complete editor remaster finished.
+
+
+### Phase 5(d) — Settings, Help and Light Settings
+
+**Verified inventory:** `ApplicationSettingsPanel::{OnImGuiRender, DrawPageList, DrawEditorPage,
+DrawViewportPage, DrawContentBrowserPage, DrawDiscordPage}`, `HelpPanel::{OnImGuiRender,
+UI_Toolbar, UI_TopicList, Navigate, SaveState, LoadState}`, `ProjectSettingsWindow::OnImGuiRender`
+and its seven existing section renderers, plus `LightSettingsPanel` and the shared
+`Widgets::EditVec3` path it uses. Native baseline used the private hierarchy-review project/user:
+Application Settings reserved sidebar space at compact widths; Help used a fixed topic width
+and clipped titles. Source review also found Application Settings returning from a clipped
+page-list child without `EndChild`, and Project Settings placing Save after all its sections.
+The narrow synthetic light fixture reproduced 216 pixels of submitted content in a 190-pixel
+panel. No new editor/panel identity or asset format was introduced.
+
+**Delivered:** Application Settings uses proportional, keyboard-resizable sidebar navigation and
+a page selector when the sidebar/content minimums cannot fit. Page/fraction state is optional
+and survives reflow; property controls are bounded in font units, descriptions and recent paths
+wrap, and startup/recent/grid actions use shared controls. The clipped-child scope is balanced.
+Help keeps its offline documents, links and history, adds shared Back/Forward/Start/Topics
+controls and full-width search, clipped titles with complete hover text, proportional topics,
+and a full-width topics/page choice at narrow widths. Selecting a search result returns to its
+page. Restore retains the topic and sidebar preference without taking focus. Project Settings
+keeps Save/status/section selection above scrolling content, remembers its selected section,
+opens the chosen section, preserves existing immediate edits and save-on-close behavior, and
+retains dirty state on failed saves. Build actions remain explicit; leaving Audio or changing
+project stops owned dialogue audition, and project changes clear old cleanup scan/report state.
+
+Light Settings has wrapped entity names, independent component/UUID ID scopes, bounded grids,
+a shared environment-map asset picker and a wrapped missing-scene state. Its project hook respects
+`OpenProject` installing the new scene before the project notification; project closure releases
+it. Shared `BoundedCollapsingHeader` clips long titles while retaining their normal IDs and arrow
+behavior. `Widgets::EditVec3` stacks axes rather than computing negative input widths. Focused
+settings/manual text entry consumes scene shortcuts; hide/context teardown clears focus. All
+changes run on main and add no required dependency, asset schema or renderer resource.
+
+**Verification:** new C++ tests required project regeneration (`bin/settings-panels-generation.txt`).
+Final Debug Editor `2026-11-05 02:02:26`; Debug Lux-Runtime `01:53:04`, newer than the changed Core
+library (`01:47:25`). Build logs: `bin/settings-panels-build.txt` and
+`bin/settings-panels-runtime-build.txt`. Final settings runner passed Single/Multi in
+`bin/settings-panels-smoke/1793862147249792000`, including 100%/150% wide/narrow/wide settings and
+Help, 190-pixel controls, a genuinely clipped child, optional state/invalid fractions, actual narrow
+page-selector keyboard navigation, real manual search/result selection, relative links, text
+isolation, viewing without edits/build launch, project save/failure/retry, cleanup-context teardown,
+light scene ordering/release and stacked-vector axis reset. The acoustic-control startup probe
+also passed for both policies in that fixture. Light's long-name/four-component fixture was
+checked at 150%; physical monitor/DPI transitions remain in Phase 6.
+
+Workspace lifecycle/persistence/recovery/concurrent-save passed Single/Multi in
+`bin/workspace-smoke/1793861639679527500`; hierarchy/inspector reflow, multi-edit, search and
+persistence passed Single/Multi in `bin/hierarchy-panel-smoke/1793861658833952100`. Native checks
+used only `bin/hierarchy-remaster-ui/1793855605493067500` (`settings-baseline.log`,
+`settings-final.log`, corresponding stderr logs): manual search/open-result/Back, maximized to
+1077×635 reflow, Application Settings page switching, and Project Settings pinned Save plus section
+selection/opening. No ImGui assertion or Vulkan validation error was found. Final keyboard-default
+focus polish was verified by the final synthetic selector test. Local `$cr` checked scopes/IDs,
+main-thread ownership, optional state compatibility and project/scene notification order; no
+remaining must-fix or should-fix issue in this batch. Bundled help/shared docs were updated;
+unrelated sample/audio files remain excluded from delivery.
+
+**Remaining:** Phase 5(e) audio tools, the remaining whole-editor inventory and Phase 6's full
+platform/workflow matrix. This checkpoint does not declare the complete editor remaster finished.

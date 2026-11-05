@@ -25,6 +25,12 @@ namespace Lux {
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
 		virtual void OnClose() override;
+		void OnEvent(Event& event) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
+#ifndef LUX_DIST
+		static bool RunPanelSelfTests(std::vector<std::string>& failures);
+#endif
 		void SetSceneContext(const Ref<Scene>& context) override { m_SceneContext = context; }
 		// Startup-only: requires main thread, before any editor ImGui/render frame.
 		static bool RunAcousticSettingsSelfTests(std::vector<std::string>& failures);
@@ -56,6 +62,9 @@ namespace Lux {
 		AssetHandle m_DefaultScene = 0;
 		AssetHandle m_RuntimeIcon = 0;
 		bool m_Dirty = false;
+		uint32_t m_CurrentPage = 0;
+		bool m_OpenPage = true;
+		bool m_IsFocused = false;
 
 		char m_NameBuffer[256]{};
 		char m_RuntimeGameNameBuffer[256]{};

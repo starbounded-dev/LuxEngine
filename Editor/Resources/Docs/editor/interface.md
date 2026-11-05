@@ -71,6 +71,22 @@ and status rows; click a path for all metadata and Copy path. Sync asset thread,
 assets and Save registry remain available in the action bar or More. Use Content Browser to
 import or author assets.
 
+## Settings and Help
+
+Application Settings shows a resizable page list when there is room and a page selector when
+narrow. Your selected page and preferred sidebar proportion are remembered in layouts. Changes
+keep their existing immediate or restart behavior, described beside the controls.
+
+Project Settings keeps **Save project settings** above its scrolling content. Choose General,
+Runtime Export, Renderer, Audio, Scripting, Physics or Log from the section selector. Project
+changes still apply immediately and save when the panel closes; an unsuccessful save keeps the
+unsaved indication. Leaving Audio stops its dialogue preview.
+
+**F1** opens the offline manual. **Topics** shows or hides the topic list; narrow panels switch
+between the full-width list and page. Search covers page titles and text, and **Ctrl+F** focuses
+it while Help has focus. Selecting a result returns to its page. Back, Forward and Start page
+remain available in the action bar or **More**. Hover a clipped topic title to read it in full.
+
 ## Play, Simulate and Stop
 
 The buttons in the middle of the title bar control the scene:

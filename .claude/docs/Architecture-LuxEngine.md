@@ -813,6 +813,18 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   platform viewports disabled. No workspace state enters `FrameRenderPacket` or runtime packs.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
+- **Settings and Help navigation.** Application Settings uses the shared proportional splitter
+  for its page list, replacing it with a page selector below the content minimum. Page name and
+  preferred fraction are optional panel-state keys; reflow never rewrites the fraction. Property
+  labels/controls are bounded in font units. Project Settings keeps Save and section selection
+  outside its scrolling content, preserves its existing live edits and save-on-close behavior,
+  and remembers the selected section. Changing sections stops owned dialogue audition. Help
+  retains its offline document/link/history ownership, with shared navigation actions, full-width
+  search, a proportional topic list and a single topics/page view when narrow. Choosing a result
+  returns to its page; `Page`, `TopicFraction`, `ShowTopics` are presentation state. Restore does
+  not take focus. These panels consume text-editing keys while focused. Light Settings keeps its
+  scene context, separates component ID scopes and uses the shared environment asset picker;
+  project changes release the previous scene. All of this runs on main.
 - **Log, History and asset diagnostics.** Log retains a bounded 10,000-message pending queue and
   UI list. Producers append under the existing mutex; main swaps into a reusable drain buffer,
   then builds owned row IDs, time labels and captions outside the lock. Search/severity/tag

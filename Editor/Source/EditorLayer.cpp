@@ -805,6 +805,30 @@ namespace Lux {
 			OpenProject(startupProject);
 
 #ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_SETTINGS_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_SETTINGS_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			bool passed = Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory;
+			if (passed)
+			{
+				passed = ApplicationSettingsPanel::RunSelfTests(failures);
+				passed &= HelpPanel::RunSelfTests(failures);
+				passed &= ProjectSettingsWindow::RunPanelSelfTests(failures);
+			}
+			else
+				failures.push_back("Settings panels require the active disposable runner project");
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish settings-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_DIAGNOSTIC_CONTROLS_SELFTEST"))
 		{
 			const std::filesystem::path directory =

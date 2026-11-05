@@ -64,6 +64,16 @@ namespace Lux {
 		virtual ~ApplicationSettingsPanel() = default;
 
 		virtual void OnImGuiRender(bool& isOpen) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override
+		{
+			m_IsFocused = false;
+		}
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
+#ifndef LUX_DIST
+		static bool RunSelfTests(std::vector<std::string>& failures);
+#endif
 
 	private:
 		void DrawPageList();
@@ -84,6 +94,8 @@ namespace Lux {
 		EditorPreferencesBindings m_Bindings;
 
 		uint32_t m_CurrentPage = 0;
+		float m_PageFraction = 0.25f;
+		bool m_IsFocused = false;
 		std::vector<SettingsPage> m_Pages;
 
 		// Edited in the Discord page; only committed to settings when it actually changes.

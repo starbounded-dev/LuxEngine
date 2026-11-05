@@ -7,19 +7,21 @@
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
-#include "Lux/ImGui/ImGuiWidgets.h"
+#include "Lux/ImGui/PanelControls.h"
+#include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Core/Input.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
+#include <imgui/misc/cpp/imgui_stdlib.h>
 
 namespace Lux {
 
 	namespace {
 
 		constexpr const char* k_DocsDirectory = "Resources/Docs";
-		constexpr float k_TopicListWidth = 210.0f;
 
 		// The manual's folders in reading order, with the names the topic list shows.
 		struct Section
@@ -166,6 +168,8 @@ namespace Lux {
 	void HelpPanel::SaveState(Yaml::Writer& out) const
 	{
 		out << Yaml::Key << "Page" << Yaml::Value << m_CurrentTopic;
+		out << Yaml::Key << "TopicFraction" << Yaml::Value << m_TopicFraction;
+		out << Yaml::Key << "ShowTopics" << Yaml::Value << m_ShowTopics;
 	}
 
 	void HelpPanel::LoadState(const Yaml::Node& state)
@@ -173,6 +177,10 @@ namespace Lux {
 		// The page opens without taking focus: restoring a layout should not raise the manual.
 		if (std::string page = state["Page"].as<std::string>(""); !page.empty() && FindTopic(page))
 			Navigate(std::move(page), true);
+		const float fraction = state["TopicFraction"].as<float>(m_TopicFraction);
+		if (std::isfinite(fraction))
+			m_TopicFraction = std::clamp(fraction, 0.1f, 0.8f);
+		m_ShowTopics = state["ShowTopics"].as<bool>(m_ShowTopics);
 	}
 
 	void HelpPanel::Navigate(std::string topic, bool addToHistory)
@@ -190,6 +198,7 @@ namespace Lux {
 		}
 
 		m_CurrentTopic = std::move(topic);
+		m_NarrowTopics = false;
 		m_ScrollToTop = true;
 		if (const Topic* found = FindTopic(m_CurrentTopic))
 		{
@@ -227,8 +236,36 @@ namespace Lux {
 		Navigate(ResolveLink(link), true);
 	}
 
+	void HelpPanel::OnClose()
+	{
+		m_IsFocused = false;
+		m_FocusSearch = false;
+		m_FocusRequested = false;
+	}
+
+	void HelpPanel::OnEvent(Event& event)
+	{
+		if (!m_IsFocused)
+			return;
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[this](KeyPressedEvent& key)
+			{
+				if (ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0)
+					return true;
+				if (key.GetKeyCode() == Key::F && !key.GetRepeatCount() &&
+					(Input::IsKeyDown(Key::LeftControl) || Input::IsKeyDown(Key::RightControl)))
+				{
+					m_FocusSearch = true;
+					return true;
+				}
+				return false;
+			});
+	}
+
 	void HelpPanel::OnImGuiRender(bool& isOpen)
 	{
+		m_IsFocused = false;
 		if (!isOpen)
 			return;
 
@@ -241,6 +278,11 @@ namespace Lux {
 		ImGui::SetNextWindowSize(ImVec2(820.0f, 600.0f), ImGuiCond_FirstUseEver);
 		if (ImGui::Begin("Help", &isOpen))
 		{
+			m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+			const float font = ImGui::GetFontSize();
+			const auto split = ImGuiEx::PanelSplitWidths(ImGui::GetContentRegionAvail().x, m_TopicFraction,
+														 font * 12.0f, font * 24.0f);
+			m_SideBySide = split.SideBySide;
 			UI_Toolbar();
 
 			if (m_RootMissing)
@@ -249,16 +291,27 @@ namespace Lux {
 			}
 			else
 			{
-				ImGui::BeginChild("##topics", ImVec2(k_TopicListWidth, 0.0f), ImGuiChildFlags_ResizeX);
-				UI_TopicList();
-				ImGui::EndChild();
-
-				ImGui::SameLine();
-
-				ImGuiEx::ScopedStyle pagePadding(ImGuiStyleVar_WindowPadding, ImVec2(18.0f, 14.0f));
-				ImGui::BeginChild("##page", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding);
-				UI_Page();
-				ImGui::EndChild();
+				const bool topics = m_SideBySide ? m_ShowTopics : m_NarrowTopics;
+				if (topics)
+				{
+					if (ImGui::BeginChild("##topics", {m_SideBySide ? split.First : 0.0f, 0.0f}))
+						UI_TopicList();
+					ImGui::EndChild();
+					if (m_SideBySide)
+					{
+						ImGui::SameLine();
+						ImGuiEx::PanelSplitHandle("##help_split", split, m_TopicFraction);
+						ImGui::SameLine();
+					}
+				}
+				if (m_SideBySide || !topics)
+				{
+					ImGuiEx::ScopedStyle pagePadding(ImGuiStyleVar_WindowPadding,
+													 ImVec2(font * 0.6f, font * 0.5f));
+					if (ImGui::BeginChild("##page", {}, ImGuiChildFlags_AlwaysUseWindowPadding))
+						UI_Page();
+					ImGui::EndChild();
+				}
 			}
 		}
 		ImGui::End();
@@ -266,32 +319,37 @@ namespace Lux {
 
 	void HelpPanel::UI_Toolbar()
 	{
+		bool& topics = m_SideBySide ? m_ShowTopics : m_NarrowTopics;
+		const ImGuiEx::PanelAction actions[] = {
+			{0, "Back", LUX_ICON_ARROW_LEFT, nullptr, m_HistoryIndex > 0},
+			{1, "Forward", LUX_ICON_ARROW_RIGHT, nullptr, m_HistoryIndex + 1 < m_History.size()},
+			{2, "Start page", LUX_ICON_HOME},
+			{3, "Topics", LUX_ICON_LIST, nullptr, true, topics, true}};
+		switch (ImGuiEx::PanelActionBar("##help_actions", actions))
 		{
-			ImGuiEx::ScopedDisable disabled(m_HistoryIndex == 0);
-			if (ImGui::Button(LUX_ICON_ARROW_LEFT "##help_back"))
-				Navigate(m_History[--m_HistoryIndex], false);
-		}
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-			ImGui::SetTooltip("Back");
-
-		ImGui::SameLine();
-		{
-			ImGuiEx::ScopedDisable disabled(m_HistoryIndex + 1 >= m_History.size());
-			if (ImGui::Button(LUX_ICON_ARROW_RIGHT "##help_forward"))
-				Navigate(m_History[++m_HistoryIndex], false);
-		}
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-			ImGui::SetTooltip("Forward");
-
-		ImGui::SameLine();
-		if (ImGui::Button(LUX_ICON_HOME "##help_home"))
+		case 0:
+			Navigate(m_History[--m_HistoryIndex], false);
+			break;
+		case 1:
+			Navigate(m_History[++m_HistoryIndex], false);
+			break;
+		case 2:
 			Navigate(std::string(HomeTopic), true);
-		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("Start page");
-
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(glm::min(320.0f, ImGui::GetContentRegionAvail().x));
-		ImGuiEx::Widgets::SearchWidget(m_Search, "Search the manual");
+			break;
+		case 3:
+			topics = !topics;
+			break;
+		default:
+			break;
+		}
+		if (m_FocusSearch)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_FocusSearch = false;
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::InputTextWithHint("##help_search", "Search the manual... (Ctrl+F)", &m_Search))
+			topics = true;
 		ImGui::Separator();
 	}
 
@@ -300,8 +358,23 @@ namespace Lux {
 		auto topicRow = [this](const Topic& topic)
 		{
 			ImGuiEx::ScopedID id(topic.ID.c_str());
-			if (ImGui::Selectable(topic.Title.c_str(), topic.ID == m_CurrentTopic))
+			const ImVec2 minimum = ImGui::GetCursorScreenPos();
+			const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+			if (ImGui::Selectable("##topic", topic.ID == m_CurrentTopic, 0,
+								  {width, ImGui::GetTextLineHeight()}))
 				Navigate(topic.ID, true);
+			const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
+			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), minimum,
+									  {minimum.x + width, minimum.y + ImGui::GetTextLineHeight()},
+									  minimum.x + width, topic.Title.c_str(),
+									  topic.Title.c_str() + topic.Title.size(), nullptr);
+			if (hovered && ImGui::BeginTooltip())
+			{
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+				ImGui::TextUnformatted(topic.Title.c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
 		};
 
 		if (!m_Search.empty())
@@ -316,7 +389,8 @@ namespace Lux {
 				matches++;
 			}
 			if (matches == 0)
-				ImGui::TextDisabled("No page mentions \"%s\".", m_Search.c_str());
+				ImGuiEx::PanelMessage("No matching pages",
+									  "Try another word from the title or page content.");
 			return;
 		}
 
