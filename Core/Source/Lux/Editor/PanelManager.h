@@ -24,6 +24,11 @@ namespace Lux {
 		// menu, commands, layout modes), so the manager saves whenever the two differ.
 		mutable bool SavedIsOpen = false;
 		bool ObservedIsOpen = false;
+		const char* GetWindowName() const
+		{
+			const char* title = Panel ? Panel->GetWindowName() : nullptr;
+			return title ? title : Name;
+		}
 	};
 
 	// NOTE(Peter): For now this just corresponds to what menu the panel will be listed in (in Hazelnut)

@@ -278,6 +278,12 @@ and keyboard shortcuts. Empty/message text wraps to the available width. These c
 `PanelSplitHandle` adjusts that proportion by dragging or keyboard activation and Left/Right. When both minimums
 cannot fit, callers supply an alternate view without overwriting the preferred fraction. Material
 Preview and graph Details use this contract; presentation state stays with their panel owner.
+`DiagnosticPlot.h` provides `TimingHistory` (a bounded 240-sample ring), `TimingPlotState`,
+`TimingPlotControls` and `DrawTimingPlot`. Owners record existing published CPU/GPU milliseconds on
+main while visible; the helper creates no telemetry or renderer resources. GPU <= 0/nonfinite is
+missing data, represented as a gap. CPU is accent lime and GPU is titlebar orange. Pass the actual
+CPU source in the caption. Pause stops recording; inspection disables live-follow before ImPlot's
+axis locking, and Fit resets the retained range. Keep audio/curve units and ownership separate.
 `ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
 as Ctrl-click/double-click to enter numeric text. Numeric properties with an explicit `defaultValue`
 opt into **double-click reset**; Ctrl-click still enters numeric text. `NumericControlMenu` supplies

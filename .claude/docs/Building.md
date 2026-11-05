@@ -398,6 +398,12 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_DIAGNOSTIC_PLOTS_SELFTEST` — Debug/Release editor-only status-file stem. Exercises the
+  production bounded timing history, missing GPU data, legend toggling, first-gesture inspection,
+  pause/resume, outliers, scale/width changes and frozen GPU pass snapshots in isolated ImGui/ImPlot
+  contexts. Writes `<stem>.status` and exits. `python tests/editor/run_diagnostic_plots.py` creates
+  separate user data for Single and Multi without opening a project.
+
 - `LUX_MATERIAL_PANELS_SELFTEST` — Debug/Release editor-only disposable project directory. The
   active project's directory must match. After startup project loading, exercises material save,
   failed-save/retry/reload, undo, removed-graph Revert, graph scope balance, responsive composition

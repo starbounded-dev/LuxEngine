@@ -1,5 +1,21 @@
 # LuxEngine Editor Remaster Plan
 
+**Phase 4 delivery checkpoint (2026-11-04):** Profiler and Renderer Debugger now share a bounded
+240-sample timing chart with explicit CPU sources, milliseconds, missing-GPU gaps, pause/resume,
+follow, inspection, fit, legend toggles and budget lines. Per-pass GPU plots own frozen labels/values
+and use readable wrapped rows in narrow panels. Workspace docking now resolves actual ImGui window
+titles; legacy display-name Profiler placeholders migrate without changing the panel's window ID.
+
+Verified: diagnostic plots, workspace lifecycle and panel/Beam tests passed under Single and Multi
+at `bin/diagnostic-plot-smoke/1793842341946247900`,
+`bin/workspace-smoke/1793842362141368700` and `bin/panel-controls-smoke/1793842393481602400`.
+Fresh artifacts: Debug Editor `20:31:51`, Dist Editor `20:35:21`, Dist Runtime `20:39:02` local.
+Native private-project verification at `bin/diagnostic-phase4-ui/1793842032382` confirmed the
+repaired Profiler dock, real CPU/GPU samples and inspection tooltip at Windows 150% scaling.
+Dist missing-GPU behavior has deterministic chart coverage and a successful Dist build, but no
+native Dist session yet. Linux, mixed-monitor transitions and remaining full-matrix work remain
+in Phase 6. Local review found no remaining blocking findings. Sample-project edits are excluded.
+
 **Planning snapshot: 2026-11-04, `fac11e76`.** Remaster the existing editor's panels and interactions
 so scripting, material authoring, node graphs, plots and everyday scene work feel coherent inside
 the new workspace system. This is an implementation plan, not a record of completed work. The

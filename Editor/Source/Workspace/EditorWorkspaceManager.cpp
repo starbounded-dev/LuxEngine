@@ -236,7 +236,7 @@ namespace Lux
 		const char* ini = ImGui::SaveIniSettingsToMemory(&count);
 		std::unordered_set<std::string> windows;
 		for (const auto& [id, panel] : m_Panels->GetPanels(PanelCategory::View))
-			windows.insert("[Window][" + std::string(panel.Name) + "]");
+			windows.insert("[Window][" + std::string(panel.GetWindowName()) + "]");
 		std::istringstream lines(std::string(ini, count));
 		std::string result, line;
 		bool keep = false;
@@ -273,8 +273,11 @@ namespace Lux
 		ImGui::DockBuilderRemoveNode(0);
 		for (const auto& [id, panel] : m_Panels->GetPanels(PanelCategory::View))
 		{
-			ImGui::ClearWindowSettings(panel.Name);
-			if (ImGuiWindow* window = ImGui::FindWindowByName(panel.Name))
+			const char* title = panel.GetWindowName();
+			ImGui::ClearWindowSettings(title);
+			if (std::string_view(title) != panel.Name)
+				ImGui::ClearWindowSettings(panel.Name);
+			if (ImGuiWindow* window = ImGui::FindWindowByName(title))
 			{
 				// ClearWindowSettings retires the old entry, but the live window retains its
 				// chunk offset. The next save would otherwise resurrect duplicate settings
@@ -291,6 +294,18 @@ namespace Lux
 			throw std::runtime_error("Cannot apply preserved panel state for " + layout.Name);
 		if (!layout.Panels.empty() && !m_Panels->ApplyState(layout.Panels))
 			throw std::runtime_error("Cannot apply panel state for " + layout.Name);
+		// Older presets docked the display label even when the panel drew an icon-prefixed title.
+		// Preserve the actual window ID and recover that placeholder's dock for personal layouts.
+		for (const auto& [id, panel] : m_Panels->GetPanels(PanelCategory::View))
+		{
+			const char* title = panel.GetWindowName();
+			if (std::string_view(title) == panel.Name)
+				continue;
+			const auto* actual = ImGui::FindWindowSettingsByID(ImHashStr(title));
+			const auto* legacy = ImGui::FindWindowSettingsByID(ImHashStr(panel.Name));
+			if ((!actual || !actual->DockId) && legacy && legacy->DockId)
+				ImGui::DockBuilderDockWindow(title, legacy->DockId);
+		}
 		// Layouts predating separate views use the former Viewport window identity.
 		if (const auto* legacy = ImGui::FindWindowSettingsByID(ImHashStr("Viewport"));
 			legacy && legacy->DockId)
@@ -483,12 +498,18 @@ namespace Lux
 				open = true;
 				home = name == "Scene Renderer" || name == "Light Settings" ? right : bottom;
 			}
-			ImGui::DockBuilderDockWindow(panel.Name, home);
+			ImGui::DockBuilderDockWindow(panel.GetWindowName(), home);
 			m_Panels->SetOpen(panelID, open);
 		}
 		ImGui::DockBuilderFinish(root);
 		auto select = [this](ImGuiID node, const char* name)
 		{
+			for (const auto& [id, panel] : m_Panels->GetPanels(PanelCategory::View))
+				if (std::string_view(panel.Name) == name)
+				{
+					name = panel.GetWindowName();
+					break;
+				}
 			const ImGuiID tab = ImHashStr("#TAB", 4, ImHashStr(name));
 			ImGui::DockBuilderGetNode(node)->SelectedTabId = tab;
 			m_PendingDockTabs.emplace_back(node, tab);
@@ -547,7 +568,7 @@ namespace Lux
 		{
 			for (const auto& [id, panel] : m_Panels->GetPanels(PanelCategory::View))
 			{
-				ImGuiWindow* window = ImGui::FindWindowByName(panel.Name);
+				ImGuiWindow* window = ImGui::FindWindowByName(panel.GetWindowName());
 				if (!window || window->DockId || !panel.IsOpen)
 					continue;
 				const ImRect title(window->Pos, ImVec2(window->Pos.x + window->Size.x,

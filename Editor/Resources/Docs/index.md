@@ -19,6 +19,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Materials](editor/materials) — surfaces, textures and transparency.
 - [Material Editor](editor/material-editor) — editing materials with a live preview.
 - [Material Graphs](editor/material-graphs) — procedural materials from nodes.
+- [Inspecting CPU and GPU Timings](editor/diagnostics) — live charts, paused history and GPU passes.
 - [Prefabs](editor/prefabs) — reusable entity hierarchies, overrides, Apply and Revert.
 - [Authoring Audio](editor/audio-authoring) — Sounds, Sound Banks, the mixer and the parameters the engine drives.
 - [Exporting a Game](editor/export) — building a standalone player, and its settings.

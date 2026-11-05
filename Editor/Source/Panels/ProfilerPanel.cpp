@@ -7,27 +7,28 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace Lux {
 
 	namespace {
 
-		// A rounded "pill" showing a label over a value, sized to its content. Advances the cursor on
-		// the same line so a row of chips reads as a compact stat strip.
-		void StatChip(const char* id, const char* label, const std::string& value, ImU32 valueColor)
+		// A label/value chip inside a responsive table cell.
+		void StatChip(const char* id, const char* label, const char* value, ImU32 valueColor)
 		{
-			const ImVec2 pad(10.0f, 6.0f);
+			const ImVec2 pad(ImGui::GetFontSize() * 0.6f, ImGui::GetFontSize() * 0.4f);
 			const float innerGap = 2.0f;
 			const ImVec2 labelSize = ImGui::CalcTextSize(label);
-			const ImVec2 valueSize = ImGui::CalcTextSize(value.c_str());
-			const float width = pad.x * 2.0f + std::max(labelSize.x, valueSize.x);
+			const ImVec2 valueSize = ImGui::CalcTextSize(value);
+			const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
 			const float height = pad.y * 2.0f + labelSize.y + valueSize.y + innerGap;
 
 			const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -35,11 +36,12 @@ namespace Lux {
 			const ImVec2 p1 = ImVec2(p0.x + width, p0.y + height);
 
 			ImDrawList* dl = ImGui::GetWindowDrawList();
+			dl->PushClipRect(p0, p1, true);
 			dl->AddRectFilled(p0, p1, Colors::Theme::groupHeader, 5.0f);
 			dl->AddText(ImVec2(p0.x + pad.x, p0.y + pad.y), Colors::Theme::textDarker, label);
-			dl->AddText(ImVec2(p0.x + pad.x, p0.y + pad.y + labelSize.y + innerGap), valueColor, value.c_str());
-
-			ImGui::SameLine(0.0f, 6.0f);
+			dl->AddText(ImVec2(p0.x + pad.x, p0.y + pad.y + labelSize.y + innerGap), valueColor, value);
+			dl->PopClipRect();
+			ImGui::SetItemTooltip("%s: %s", label, value);
 		}
 
 		// A labelled proportion bar: "name .... value" with a filled track behind it. Used for both the
@@ -83,79 +85,16 @@ namespace Lux {
 
 	}
 
-	void ProfilerPanel::PushFrameSample(float cpuMs, float gpuMs)
+	void ProfilerPanel::SetContext(const Ref<SceneRenderer>& context)
 	{
-		m_CPUHistory[m_HistoryHead] = cpuMs;
-		m_GPUHistory[m_HistoryHead] = gpuMs;
-		m_HistoryHead = (m_HistoryHead + 1) % kHistory;
-		if (m_HistoryCount < kHistory)
-			m_HistoryCount++;
+		if (m_Context != context)
+			m_TimingPlot.Clear();
+		m_Context = context;
 	}
 
-	void ProfilerPanel::UI_Graph(float cpuMs, float gpuMs)
+	const char* ProfilerPanel::GetWindowName() const
 	{
-		const float availX = ImGui::GetContentRegionAvail().x;
-		if (availX < 1.0f)   // a zero/negative size_arg trips ImGui's InvisibleButton assert
-			return;
-
-		const float height = 130.0f;
-		const ImVec2 size(availX, height);
-		const ImVec2 p0 = ImGui::GetCursorScreenPos();
-		ImGui::InvisibleButton("##profiler_graph", size);
-		const ImVec2 p1 = ImVec2(p0.x + size.x, p0.y + size.y);
-
-		ImDrawList* dl = ImGui::GetWindowDrawList();
-		dl->AddRectFilled(p0, p1, Colors::Theme::backgroundDark, 4.0f);
-		dl->AddRect(p0, p1, Colors::Theme::groupHeader, 4.0f);
-
-		const int count = m_HistoryCount;
-		if (count <= 1)
-			return;
-
-		// Oldest -> newest, so the newest sample sits at the right edge.
-		const int oldest = (m_HistoryHead - count + kHistory) % kHistory;
-
-		// Y scale: at least the budget line, with headroom above the worst recent spike.
-		float peak = m_TargetMs * 1.25f;
-		for (int i = 0; i < count; i++)
-		{
-			const int idx = (oldest + i) % kHistory;
-			peak = std::max(peak, m_CPUHistory[idx]);
-			peak = std::max(peak, m_GPUHistory[idx]);
-		}
-		peak *= 1.08f;
-
-		auto yFor = [&](float ms) { return p1.y - std::clamp(ms / peak, 0.0f, 1.0f) * height; };
-
-		// Budget reference line (dashed) + label.
-		const float targetY = yFor(m_TargetMs);
-		for (float x = p0.x; x < p1.x; x += 8.0f)
-			dl->AddLine(ImVec2(x, targetY), ImVec2(std::min(x + 4.0f, p1.x), targetY), Colors::Theme::muted, 1.0f);
-
-		char budgetLabel[48];
-		std::snprintf(budgetLabel, sizeof(budgetLabel), "%.1f ms (%.0f fps)", m_TargetMs, 1000.0f / m_TargetMs);
-		dl->AddText(ImVec2(p0.x + 6.0f, targetY - ImGui::GetTextLineHeight() - 1.0f), Colors::Theme::muted, budgetLabel);
-
-		std::vector<ImVec2> cpuPoints, gpuPoints;
-		cpuPoints.reserve(count);
-		gpuPoints.reserve(count);
-		for (int i = 0; i < count; i++)
-		{
-			const int idx = (oldest + i) % kHistory;
-			const float x = p0.x + (size.x * i) / (count - 1);
-			cpuPoints.emplace_back(x, yFor(m_CPUHistory[idx]));
-			gpuPoints.emplace_back(x, yFor(m_GPUHistory[idx]));
-		}
-
-		dl->PushClipRect(p0, p1, true);
-		dl->AddPolyline(gpuPoints.data(), static_cast<int>(gpuPoints.size()), Colors::Theme::titlebarOrange, 0, 1.8f);
-		dl->AddPolyline(cpuPoints.data(), static_cast<int>(cpuPoints.size()), Colors::Theme::accent, 0, 1.8f);
-		dl->PopClipRect();
-
-		// Legend, bottom-left.
-		const float legendY = p1.y - ImGui::GetTextLineHeight() - 4.0f;
-		dl->AddText(ImVec2(p0.x + 6.0f, legendY), Colors::Theme::accent, "CPU");
-		dl->AddText(ImVec2(p0.x + 40.0f, legendY), Colors::Theme::titlebarOrange, "GPU");
+		return LUX_ICON_TACHOMETER "  Profiler";
 	}
 
 	void ProfilerPanel::UI_CPUBreakdown(float cpuFrameMs)
@@ -183,7 +122,7 @@ namespace Lux {
 
 		for (const NamedTime& t : coarse)
 		{
-			const bool overBudget = &t == &coarse[0] && t.Ms > m_TargetMs;
+			const bool overBudget = &t == &coarse[0] && t.Ms > m_TimingPlot.BudgetMs;
 			TimingRow(t.Name, t.Ms, maxMs, overBudget ? Colors::Theme::titlebarRed : Colors::Theme::selectionMuted);
 			ImGui::Spacing();
 		}
@@ -230,7 +169,7 @@ namespace Lux {
 		passes.reserve(stats.PassProfiles.size());
 		for (const SceneRenderer::PassProfile& p : stats.PassProfiles)
 		{
-			if (p.GPUActive || p.GPUTime > 0.0f)
+			if (std::isfinite(p.GPUTime) && p.GPUTime > 0.0f)
 				passes.push_back(&p);
 		}
 		std::sort(passes.begin(), passes.end(), [](const SceneRenderer::PassProfile* a, const SceneRenderer::PassProfile* b)
@@ -304,7 +243,7 @@ namespace Lux {
 		if (!isOpen)
 			return;
 
-		if (!ImGui::Begin(LUX_ICON_TACHOMETER "  Profiler", &isOpen))
+		if (!ImGui::Begin(GetWindowName(), &isOpen))
 		{
 			ImGui::End();
 			return;
@@ -315,45 +254,39 @@ namespace Lux {
 		const float cpuMs = Application::Get().GetPerformanceTimers().MainThreadWorkTime;
 		const float gpuMs = (m_Context && m_Context->IsReady()) ? m_Context->GetStatistics().TotalGPUTime : 0.0f;
 
-		if (!m_Paused)
-			PushFrameSample(cpuMs, gpuMs);
-
-		// ---- Controls ----
-		ImGui::Checkbox("Pause", &m_Paused);
-		ImGui::SameLine(0.0f, 16.0f);
-		ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker), "Budget");
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(90.0f);
-		const char* budgets[] = { "30 fps", "60 fps", "120 fps", "144 fps" };
-		const float budgetMs[] = { 1000.0f / 30.0f, 1000.0f / 60.0f, 1000.0f / 120.0f, 1000.0f / 144.0f };
-		int budgetIndex = 1;
-		for (int i = 0; i < IM_ARRAYSIZE(budgetMs); i++)
-		{
-			if (std::abs(m_TargetMs - budgetMs[i]) < 0.01f)
-				budgetIndex = i;
-		}
-		if (ImGui::Combo("##profiler_budget", &budgetIndex, budgets, IM_ARRAYSIZE(budgets)))
-			m_TargetMs = budgetMs[budgetIndex];
-
+		ImGuiEx::TimingPlotControls("profiler_history_controls", m_TimingPlot);
+		m_TimingPlot.Record(cpuMs, gpuMs);
 		ImGui::Spacing();
+		ImGui::TextDisabled("Current frame (live)");
 
 		// ---- Stat chips ----
-		const ImU32 frameColor = frameMs > m_TargetMs ? Colors::Theme::textError : Colors::Theme::accent;
-		const ImU32 cpuColor = cpuMs > m_TargetMs ? Colors::Theme::textError : Colors::Theme::text;
+		const ImU32 frameColor =
+			frameMs > m_TimingPlot.BudgetMs ? Colors::Theme::textError : Colors::Theme::accent;
+		const ImU32 cpuColor = cpuMs > m_TimingPlot.BudgetMs ? Colors::Theme::textError : Colors::Theme::text;
 		char fpsBuf[24], frameBuf[24], cpuBuf[24], gpuBuf[24];
 		std::snprintf(fpsBuf, sizeof(fpsBuf), "%.0f", io.Framerate);
 		std::snprintf(frameBuf, sizeof(frameBuf), "%.2f ms", frameMs);
 		std::snprintf(cpuBuf, sizeof(cpuBuf), "%.2f ms", cpuMs);
 		std::snprintf(gpuBuf, sizeof(gpuBuf), "%.2f ms", gpuMs);
 
-		StatChip("##chip_fps", "FPS", fpsBuf, frameColor);
-		StatChip("##chip_frame", "FRAME", frameBuf, frameColor);
-		StatChip("##chip_cpu", "CPU", cpuBuf, cpuColor);
-		StatChip("##chip_gpu", "GPU", gpuBuf, Colors::Theme::titlebarOrange);
-		ImGui::NewLine();
+		const int columns = std::clamp(
+			static_cast<int>(ImGui::GetContentRegionAvail().x / (ImGui::GetFontSize() * 9.0f)), 1, 4);
+		if (ImGui::BeginTable("profiler_live_metrics", columns, ImGuiTableFlags_SizingStretchSame))
+		{
+			ImGui::TableNextColumn();
+			StatChip("##chip_fps", "FPS", fpsBuf, frameColor);
+			ImGui::TableNextColumn();
+			StatChip("##chip_frame", "FRAME", frameBuf, frameColor);
+			ImGui::TableNextColumn();
+			StatChip("##chip_cpu", "CPU", cpuBuf, cpuColor);
+			ImGui::TableNextColumn();
+			StatChip("##chip_gpu", "GPU", std::isfinite(gpuMs) && gpuMs > 0.0f ? gpuBuf : "Unavailable",
+					 Colors::Theme::titlebarOrange);
+			ImGui::EndTable();
+		}
 		ImGui::Spacing();
 
-		UI_Graph(cpuMs, gpuMs);
+		ImGuiEx::DrawTimingPlot("profiler_history", m_TimingPlot, "main-thread work");
 		ImGui::Spacing();
 		ImGui::Spacing();
 

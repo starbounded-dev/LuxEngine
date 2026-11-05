@@ -762,6 +762,11 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   isOpen)`, plus optional `OnEvent`, `OnProjectChanged`, `SetSceneContext`, `OnClose`, and
   `SaveState(Yaml::Writer&)` / `LoadState(const Yaml::Node&)`: what the panel remembers (open
   sections, current page), written as keys of a `State` map beside its open state.
+  `GetWindowName()` optionally supplies the actual stable ImGui title when it differs from the
+  display label. `PanelData::GetWindowName()` resolves that fallback. Workspace docking, capture,
+  restore and tab selection use the actual title, while panel menus/categories use display labels;
+  legacy display-name dock placeholders migrate without renaming existing window IDs. Profiler
+  retains its icon-prefixed title through this hook.
 - `PanelManager` — `AddPanel<T>(category, strID, isOpenByDefault, args...)`, `GetPanel<T>(strID)`,
   `RemovePanel`, and `Serialize` / `Deserialize` of open state and panel state, to
   `EditorLayout.yaml` or a given file. `CaptureState` / `ApplyState` provide in-memory snapshots;
@@ -875,6 +880,14 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   The vendored Find/Replace view wraps and sizes to its content within the editor, retaining its
   existing search/undo model. Native file dialogs decode NFD's UTF-8 results explicitly; atomic text
   saves append the temporary suffix as a native path rather than through the Windows code page.
+- **Diagnostic plots.** Profiler and Renderer Debugger each own a `TimingPlotState` from
+  `Core/ImGui/DiagnosticPlot.h`. A fixed ring samples existing published timings only while the
+  panel is visible and history is recording. These are presentation samples, not timestamped
+  frames: Profiler reads main-thread work, Debugger reads scene CPU pass sum, and both read scene
+  GPU command-buffer time. Missing GPU values remain NaN gaps. Shared main-thread ImPlot controls
+  distinguish following, inspected ranges and paused history. Context changes clear stale samples.
+  Debugger's per-pass chart separately owns a frozen name/value snapshot; narrow panels use rows
+  instead of squeezing axis labels. No telemetry thread, GPU readback or new instrumentation.
 - **Material/graph composition.** The existing Material Editor window/document owner uses shared
   action bars and caller-owned adaptive split proportions. Preview and graph Details can hide;
   narrow panels use alternate pages. `SaveState`/`LoadState` retain view choices in layouts, with

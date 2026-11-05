@@ -6,6 +6,7 @@
 #ifndef LUX_DIST
 #include "Lux/Core/Log.h"
 #include "Lux/Editor/PanelManager.h"
+#include "Lux/Editor/FontAwesome.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 
@@ -28,9 +29,13 @@ namespace Lux
 			}
 			void OnImGuiRender(bool& open) override
 			{
-				ImGui::Begin(Name, &open);
+				ImGui::Begin(GetWindowName(), &open);
 				ImGui::TextUnformatted("Workspace test");
 				ImGui::End();
+			}
+			const char* GetWindowName() const override
+			{
+				return std::string_view(Name) == "Profiler" ? LUX_ICON_TACHOMETER "  Profiler" : Name;
 			}
 			void OnClose() override
 			{
@@ -71,7 +76,7 @@ namespace Lux
 			{
 				if (!panel.IsOpen)
 					continue;
-				const auto* window = ImGui::FindWindowByName(panel.Name);
+				const auto* window = ImGui::FindWindowByName(panel.GetWindowName());
 				Require(window && window->DockId != 0 && window->DockNode,
 						"Workspace restore lost a docked window");
 			}
@@ -159,6 +164,24 @@ namespace Lux
 						const auto* scene = ImGui::FindWindowByName("Scene View");
 						Require(scene->DockNode->SelectedTabId == scene->TabId,
 								"Shading workspace did not select its scene preview");
+					}
+					if (std::string_view(id) == "default.debugging")
+					{
+						const char* title = panels.GetPanelData(Hash::GenerateFNVHash("Profiler"))->GetWindowName();
+						const auto* profiler = ImGui::FindWindowByName(title);
+						Require(profiler && profiler->DockNode && profiler->DockNode->SelectedTabId == profiler->TabId,
+							"Debugging did not dock and select the Profiler's actual window title");
+						Layout legacy = *manager.Find(manager.m_Active);
+						legacy.Ini = manager.CaptureIni();
+						const std::string actualHeader = "[Window][" + std::string(title) + "]";
+						const size_t header = legacy.Ini.find(actualHeader);
+						Require(header != std::string::npos, "Workspace capture omitted the Profiler's actual title");
+						legacy.Ini.replace(header, actualHeader.size(), "[Window][Profiler]");
+						manager.Apply(legacy);
+						Frame(manager, panels);
+						Frame(manager, panels);
+						Require(ImGui::FindWindowByName(title)->DockNode != nullptr,
+							"A legacy display-name placeholder did not recover the actual Profiler dock");
 					}
 					Require(document->DirtyDocument == 42, "Workspace switch discarded a dirty document");
 				}
