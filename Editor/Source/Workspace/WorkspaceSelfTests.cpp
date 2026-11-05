@@ -32,6 +32,11 @@ namespace Lux
 			}
 			void OnImGuiRender(bool& open) override
 			{
+				if (ObserveStyleOnly)
+				{
+					ObservedStyle = ImGui::GetStyle();
+					return;
+				}
 				ImGui::Begin(GetWindowName(), &open);
 				ImGui::TextUnformatted("Workspace test");
 				ImGui::End();
@@ -56,6 +61,8 @@ namespace Lux
 			int Section = 0;
 			int DirtyDocument = 0;
 			int Closed = 0;
+			bool ObserveStyleOnly = false;
+			ImGuiStyle ObservedStyle;
 		};
 
 		void Require(bool condition, const char* message)
@@ -123,6 +130,55 @@ namespace Lux
 			int width = 0, height = 0;
 			io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 			io.DisplaySize = {1920, 1080};
+			{
+				PanelManager scalePanels;
+				scalePanels.SetWorkspaceManaged(true);
+				auto profiler = scalePanels.AddPanel<WorkspaceTestPanel>(PanelCategory::View, "ScaleProfiler",
+																		 "Profiler", true, "Profiler");
+				ImGui::NewFrame();
+				scalePanels.OnImGuiRender();
+				ImGui::Render();
+				auto* window = ImGui::FindWindowByName(profiler->GetWindowName());
+				Require(window && !ImGui::FindWindowByName("Profiler"),
+						"DPI probe did not distinguish the window title from the menu label");
+				profiler->ObserveStyleOnly = true;
+				for (const ImVec2 scales :
+					 {ImVec2{1.0f, 1.5f}, ImVec2{1.5f, 1.0f}, ImVec2{1.5f, 2.0f}, ImVec2{1.5f, 1.0f}})
+				{
+					ImGui::NewFrame();
+					auto* main = ImGui::GetMainViewport();
+					const float savedDpi = main->DpiScale;
+					const bool savedFontScaling = io.ConfigDpiScaleFonts;
+					const ImGuiStyle savedStyle = ImGui::GetStyle();
+					ImGuiStyle mainStyle = savedStyle;
+					mainStyle.ScaleAllSizes(scales.x);
+					ImGui::GetStyle() = mainStyle;
+					ImGuiViewportP detached;
+					detached.DpiScale = scales.y;
+					auto* savedViewport = window->Viewport;
+					window->Viewport = &detached;
+					main->DpiScale = scales.x;
+					io.ConfigDpiScaleFonts = true;
+					// Only observe the manager's pre-Begin metrics; this is not a native backend.
+					scalePanels.OnImGuiRender();
+					const ImGuiStyle restoredStyle = ImGui::GetStyle();
+					window->Viewport = savedViewport;
+					main->DpiScale = savedDpi;
+					io.ConfigDpiScaleFonts = savedFontScaling;
+					ImGui::GetStyle() = savedStyle;
+					ImGui::Render();
+					ImGuiStyle expectedStyle = mainStyle;
+					expectedStyle.ScaleAllSizes(scales.y / scales.x);
+					Require(profiler->ObservedStyle.WindowPadding == expectedStyle.WindowPadding &&
+								profiler->ObservedStyle.FramePadding == expectedStyle.FramePadding &&
+								profiler->ObservedStyle.ItemSpacing == expectedStyle.ItemSpacing,
+							"Detached panel metrics used its menu label instead of its actual window title");
+					Require(restoredStyle.WindowPadding == mainStyle.WindowPadding &&
+								restoredStyle.FramePadding == mainStyle.FramePadding &&
+								restoredStyle.ItemSpacing == mainStyle.ItemSpacing,
+							"Detached panel metrics leaked into the main editor style");
+				}
+			}
 			PanelManager panels;
 			for (const char* name :
 				 {"Scene View", "Game View", "Scene Hierarchy", "Properties", "Content Browser", "Log",

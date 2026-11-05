@@ -70,7 +70,7 @@ namespace Lux {
 					++m_VisibilityRevision;
 				if (panelData.IsOpen)
 				{
-					ImGuiEx::ScopedWindowScale windowScale(panelData.Name);
+					ImGuiEx::ScopedWindowScale windowScale(panelData.GetWindowName());
 					panelData.Panel->OnImGuiRender(panelData.IsOpen);
 					if (!panelData.IsOpen)
 					{

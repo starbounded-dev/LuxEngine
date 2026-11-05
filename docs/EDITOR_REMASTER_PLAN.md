@@ -1392,3 +1392,48 @@ blocking findings; no source files were added, so project regeneration was unnec
 Phase 6 remains active: the remaining detached mixed-DPI/monitor acceptance and known failed
 Wayland path retain their prior limits. A separately identified PanelManager scale lookup still
 uses the Profiler's menu label instead of its actual window title and needs its own verified fix.
+
+
+### Phase 6 - actual-title detached panel scaling
+
+PanelManager's pre-Begin `ScopedWindowScale` used the menu label. Profiler retains its stable
+icon-prefixed ImGui title, so the lookup missed its detached window and left main-display metrics
+in place on another DPI. The manager now resolves `PanelData::GetWindowName()`, matching docking,
+restore and tab selection; panels without a custom title retain the existing fallback.
+
+The workspace integration test registers a real icon-titled panel, creates its ImGui window and
+observes the manager's pre-Begin metrics across main/detached 100%/150%/200% combinations, including
+a repeated return. The synthetic metric target is restored before Render; it is explicitly not a
+native platform backend. Padding/spacing must match the target and the main style must be restored.
+Before the fix the new regression failed at `bin/workspace-smoke/1793902366353777300/Single.log`.
+After the fix, all lifecycle/persistence/recovery checks and the scaling regression pass:
+
+- Windows Single/Multi: `bin/workspace-smoke/1793902479280597000`.
+- Linux X11 Single/Multi: `bin/workspace-smoke/1793902913017610957`.
+
+Fresh artifacts (2026-11-05 local): Windows Debug Core 13:13:39 and Editor 13:13:46
+(`bin/profiler-window-scale-final-build.txt`), Debug Runtime 13:14:54
+(`bin/profiler-window-scale-debug-runtime-build.txt`), Dist Core 13:15:17 and Runtime 13:16:07
+(`bin/profiler-window-scale-dist-runtime-build.txt`). Linux Editor 13:21:13.508770100 -0500,
+406,854,816 bytes (`bin/profiler-window-scale-linux-recovery-build.txt`); Linux Debug Runtime
+13:23:39.598162400 -0500, 321,040,032 bytes (`bin/profiler-window-scale-linux-runtime-build.txt`).
+The first Linux build's postbuild copy met a Windows review process holding Coral.Managed.dll.
+After closing that private process, the exact failed managed deployment commands completed and
+the Editor/runtime builds finished. No timeout, validation filter or engine workaround was added.
+
+Native Computer Use used private project/user state in
+`bin/profiler-dpi-native/1793902557413689100`. ImGui Metrics showed the real monitors:
+4K main/work bounds (0,0)-(3840,2160/2088), 150%; Full HD bounds (3840,0)-(5760,1080/1032), 100%.
+`mixed-native.log` records the accepted run. A real native 900x900 Profiler at (4100,150) showed
+readable charts, labels and hit targets at 100% alongside the main editor at 150%. Pause worked;
+resume/follow was verified after moving/maximizing the main editor on Full HD. The main workspace
+retained its sidebar and bottom-panel proportions through the physical 4K-to-Full-HD move and
+Full HD maximize/restore. Native viewports were created/merged by ImGui as expected. Normal
+shutdown and the shared graphics-failure gate are clean. Local cr found no blocking findings.
+No files were added; no project regeneration was needed.
+
+Remaining: the return move was not accepted because seam-cropped captures do not supply reliable
+input coordinates. The normal/half-screen Full HD window also exposed project breadcrumb and
+transport overlap in the titlebar; fix and verify that next. Repeated mixed-monitor/disconnect
+acceptance and the previously recorded Wayland presentation failure remain explicit. Phase 6 is
+still active; this batch proves the actual-title scaling repair and the stated native cases only.

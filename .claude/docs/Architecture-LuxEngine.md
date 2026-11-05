@@ -770,6 +770,8 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   restore and tab selection use the actual title, while panel menus/categories use display labels;
   legacy display-name dock placeholders migrate without renaming existing window IDs. Profiler
   retains its icon-prefixed title through this hook.
+  PanelManager also resolves this actual title for `ScopedWindowScale`, so detached-window metrics
+  follow the panel's monitor even when its menu label differs. The scope restores main-window style.
 - `PanelManager` — `AddPanel<T>(category, strID, isOpenByDefault, args...)`, `GetPanel<T>(strID)`,
   `RemovePanel`, and `Serialize` / `Deserialize` of open state and panel state, to
   `EditorLayout.yaml` or a given file. `CaptureState` / `ApplyState` provide in-memory snapshots;
