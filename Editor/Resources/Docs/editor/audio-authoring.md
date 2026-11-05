@@ -7,6 +7,17 @@ Sound in LuxEngine is authored in the editor, with nothing else to install. An *
 - Drop an audio file into the Content Browser. Right-click it and choose **Create Sound** (several selected files make one Random Sound that plays a different one each time), or use **New › Sound**.
 - Double-click the Sound to open the **Sound Editor**: a tree of clips and containers (Random, Sequence, Layer, Switch), volume and pitch with random variation, looping and loop regions, streaming for long music, 3D attenuation, parameters with curves, an instance limit, and the bus it plays on. **Play** auditions it in edit mode.
 
+The Sound Editor keeps **Save**, **Revert**, **Play/Stop**, **Loop** and **Tree** above its
+scrolling content. Choose Node, Sound, Parameters or Banks from the section selector. Drag the
+splitter beside the tree when there is room; at narrow widths, **Tree** switches between the
+full-width tree and details. Selecting a node opens its Node section. Revert is undoable.
+
+**Ctrl+S** saves, **Ctrl+W** closes the current Sound, and **Space** auditions it outside text
+fields. Failed saves keep your edits and show an error for retry. Closing a dirty document asks
+for Save, Discard or Cancel. Hiding the panel retains documents and stops audition; switching
+Sounds also stops the previous audition. The Banks section's **Refresh banks** updates membership
+shown after edits in other tools; a failed bank write leaves membership unchanged.
+
 ## Use Sounds in the scene
 
 - An [Audio Source](../components/audio) plays a Sound from an entity: pick the **Sound**, and tick **Play On Awake** to start it with the game.

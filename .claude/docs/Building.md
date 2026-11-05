@@ -408,7 +408,8 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 - `LUX_AUDIO_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
   `python tests/editor/run_audio_panels.py` exercises Sound Bank automatic-save rejection/retry,
-  undo and cached inventory, checked Sound saves and authored asset-pack round trips, plus Mixer
+  undo and cached inventory, checked Sound saves and authored asset-pack round trips, Sound Editor
+  section/tree reflow, real waveform/marker/curve input and undo, clip reload and audition teardown, plus Mixer
   reflow, state, save/retry, Apply refusal during Play and snapshot audition teardown. The runner
   uses Single/Multi, writes sibling `.status` files and exits. New C++ tests require regeneration;
   `LUX_TEST_EDITOR` can select a separately verified executable.

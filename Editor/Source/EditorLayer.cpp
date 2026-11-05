@@ -815,6 +815,7 @@ namespace Lux {
 			{
 				passed = SoundBankEditorPanel::RunSelfTests(failures);
 				passed &= SoundEditorPanel::RunPersistenceSelfTests(failures);
+				passed &= SoundEditorPanel::RunEditorSelfTests(failures);
 				passed &= AudioMixerPanel::RunSelfTests(failures);
 			}
 			else

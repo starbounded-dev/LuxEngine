@@ -30,13 +30,16 @@ namespace Lux
 
 		void OnImGuiRender(bool& isOpen) override;
 		void OnEvent(Event& event) override;
-		void OnClose() override { m_KeyboardFocus = false; StopAudition(); }
+		void OnClose() override;
 		void OnProjectChanged(const Ref<Project>& project) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
 
 		void OpenSound(AssetHandle handle);
 		void SetUndoCallback(UndoPushFn callback) { m_PushUndo = std::move(callback); }
 #ifndef LUX_DIST
 		static bool RunPersistenceSelfTests(std::vector<std::string>& failures);
+		static bool RunEditorSelfTests(std::vector<std::string>& failures);
 #endif
 
 	private:
@@ -70,6 +73,7 @@ namespace Lux
 			bool EditInProgress = false;
 			uint32_t SelectedNode = 0;
 			std::map<std::string, float> AuditionValues;   // parameter values for the audition, by name
+			std::string Error;
 		};
 
 		struct Waveform
@@ -94,13 +98,15 @@ namespace Lux
 		void UI_SoundProperties(Sound& sound, bool& edited);
 		// The Sound Banks that hold the Sound, and adding it to one (edits and saves the bank).
 		void UI_Banks(AssetHandle sound);
+		bool AddToBank(AssetHandle bank, AssetHandle sound);
 		void UI_Parameters(Document& document, Sound& sound, bool& edited);
 		void UI_Node(Document& document, Sound& sound, bool& edited);
 		void UI_Clip(SoundNode& node, bool& edited);
 		void UI_MusicTimeline(Sound& sound, bool& edited);
 		void UI_Curves(Document& document, Sound& sound, SoundNode& node, bool& edited);
 		bool UI_CurveEditor(const Document& document, const Sound& sound, SoundCurve& curve, uint32_t id);
-		void TrackEdit(Document& document, Sound& sound, bool edited);
+		void TrackEdit(Document& document, Sound& sound, bool edited, bool finish = false);
+		void UI_Section(Document& document, Sound& sound, bool& edited);
 
 		void StartAudition(Document& document, const Sound& sound);
 		void StopAudition();
@@ -118,9 +124,22 @@ namespace Lux
 		bool m_SelectNodePage = false;
 		int m_PendingCloseIndex = -1;
 		bool m_OpenCloseConfirm = false;
+		uint32_t m_ClosePopupID = 0;
+		uint32_t m_Section = 0;
+		float m_TreeFraction = 0.25f;
+		bool m_ShowTree = true;
+		bool m_NarrowTree = false;
+		bool m_Compact = false;
+		bool m_ResetSectionScroll = true;
+		bool m_BanksDirty = true;
+		AssetHandle m_BankCatalogSound = 0;
+		uint64_t m_BankRegistryRevision = 0, m_BankDataGeneration = 0;
+		std::vector<std::pair<std::string, AssetHandle>> m_HoldingBanks, m_OtherBanks;
+		std::string m_BankError;
 
 		Ref<AudioEventInstance> m_Audition;
 		AssetHandle m_AuditionSound = 0;
+		std::string m_AuditionError;
 		bool m_LoopAudition = false;
 
 		// The curve point or clip handle being dragged, by id; cleared when the mouse is released.
@@ -130,6 +149,7 @@ namespace Lux
 		int m_DragMarker = -1;      // the music timeline's marker being dragged
 
 		std::unordered_map<AssetHandle, Waveform> m_Waveforms;
+		uint64_t m_WaveformGeneration = 0;
 		UndoPushFn m_PushUndo;
 	};
 }

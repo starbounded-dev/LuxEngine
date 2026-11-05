@@ -15,7 +15,9 @@
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
@@ -32,7 +34,7 @@ namespace Lux
 {
 	namespace
 	{
-		constexpr float kTreeMinWidth = 180.0f, kTreeMaxWidth = 280.0f, kTreeWidthFraction = 0.25f;
+		constexpr const char* k_Sections[] = {"Node", "Sound", "Parameters", "Banks"};
 		constexpr float kWaveformHeight = 72.0f, kCurveHeight = 120.0f;
 		constexpr float kHandleGrabPixels = 6.0f, kPointRadius = 4.0f;
 		constexpr uint32_t kWaveformBuckets = 512;
@@ -82,7 +84,7 @@ namespace Lux
 			{
 				const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
 				if (metadata.IsValid())
-					return metadata.FilePath.stem().string();
+					return Utils::PathToUTF8(metadata.FilePath.stem());
 			}
 			return fallback;
 		}
@@ -210,6 +212,12 @@ namespace Lux
 			LUX_CORE_WARN_TAG("Editor", "Sound Editor: asset {} is not a Sound", static_cast<uint64_t>(handle));
 			return;
 		}
+		if (auto* active = GetActiveDocument(); active && active->Handle != handle)
+		{
+			if (auto sound = AssetManager::GetAsset<Sound>(active->Handle))
+				TrackEdit(*active, *sound, false, true);
+			StopAudition();
+		}
 		m_RequestFocus = true;
 		for (size_t i = 0; i < m_Documents.size(); ++i)
 		{
@@ -234,14 +242,55 @@ namespace Lux
 		m_SelectActiveTab = true;
 	}
 
+	void SoundEditorPanel::OnClose()
+	{
+		for (auto& document : m_Documents)
+			if (auto sound = AssetManager::GetAsset<Sound>(document.Handle))
+				TrackEdit(document, *sound, false, true);
+		m_KeyboardFocus = false;
+		StopAudition();
+		ImGuiEx::ClosePopupByID(m_ClosePopupID);
+		m_OpenCloseConfirm = m_PendingCloseIndex >= 0;
+		m_DragPoint = m_DragClipHandle = m_DragMarker = -1;
+	}
+
 	void SoundEditorPanel::OnProjectChanged(const Ref<Project>&)
 	{
-		// Handles belong to the previous project.
+		// The new project is already active: do not resolve the previous project's handles here.
 		StopAudition();
+		ImGuiEx::ClosePopupByID(m_ClosePopupID);
+		m_ClosePopupID = 0;
 		m_Documents.clear();
-		m_ActiveDocument = -1;
-		m_PendingCloseIndex = -1;
+		m_ActiveDocument = m_PendingCloseIndex = -1;
+		m_RequestFocus = m_KeyboardFocus = m_SelectActiveTab = m_OpenCloseConfirm = false;
+		m_SelectNodePage = false;
+		m_DragPoint = m_DragClipHandle = m_DragMarker = -1;
 		m_Waveforms.clear();
+		m_HoldingBanks.clear();
+		m_OtherBanks.clear();
+		m_BanksDirty = true;
+		m_BankCatalogSound = 0;
+		m_BankError.clear();
+	}
+
+	void SoundEditorPanel::SaveState(Yaml::Writer& out) const
+	{
+		out << Yaml::Key << "Section" << Yaml::Value << k_Sections[m_Section];
+		out << Yaml::Key << "TreeFraction" << Yaml::Value << m_TreeFraction;
+		out << Yaml::Key << "ShowTree" << Yaml::Value << m_ShowTree;
+	}
+
+	void SoundEditorPanel::LoadState(const Yaml::Node& state)
+	{
+		m_ResetSectionScroll = true;
+		const auto section = state["Section"].as<std::string>("");
+		for (uint32_t index = 0; index < std::size(k_Sections); ++index)
+			if (section == k_Sections[index])
+				m_Section = index;
+		const float fraction = state["TreeFraction"].as<float>(m_TreeFraction);
+		if (std::isfinite(fraction))
+			m_TreeFraction = std::clamp(fraction, 0.15f, 0.65f);
+		m_ShowTree = state["ShowTree"].as<bool>(m_ShowTree);
 	}
 
 	SoundEditorPanel::Document* SoundEditorPanel::GetActiveDocument()
@@ -261,6 +310,8 @@ namespace Lux
 	{
 		if (index >= m_Documents.size())
 			return;
+		if (auto sound = AssetManager::GetAsset<Sound>(m_Documents[index].Handle))
+			TrackEdit(m_Documents[index], *sound, false, true);
 		if (m_AuditionSound == m_Documents[index].Handle)
 			StopAudition();
 		m_Documents.erase(m_Documents.begin() + static_cast<ptrdiff_t>(index));
@@ -273,25 +324,33 @@ namespace Lux
 
 	bool SoundEditorPanel::SaveDocument(Document& document, Sound& sound)
 	{
+		TrackEdit(document, sound, false, true);
 		std::string error;
 		if (!sound.Validate(&error))
 		{
+			document.Error = error;
 			LUX_CORE_ERROR_TAG("Editor", "Sound Editor: cannot save '{}': {}", AssetName(document.Handle, "Sound"), error);
 			return false;
 		}
 		if (sound.ToYAML().size() > Sound::MaxFileBytes)
 		{
+			document.Error = "Sound exceeds its 64 KiB file limit. Edits are retained.";
 			LUX_CORE_ERROR_TAG("Editor", "Sound Editor: cannot save '{}': it is larger than the 64 KiB a Sound file may be", AssetName(document.Handle, "Sound"));
 			return false;
 		}
 		const Ref<Sound> asset = AssetManager::GetAsset<Sound>(document.Handle);
 		if (!asset)
 		{
+			document.Error = "Sound is unavailable. Edits are retained; see Log.";
 			LUX_CORE_ERROR_TAG("Editor", "Sound Editor: cannot save Sound {}: it is no longer loaded", static_cast<uint64_t>(document.Handle));
 			return false;
 		}
 		if (!AssetImporter::TrySerialize(asset.As<Asset>()))
+		{
+			document.Error = "Save failed. Edits are retained; see Log, then retry Save.";
 			return false;
+		}
+		document.Error.clear();
 		AudioEngine::ApplySoundEdit(*asset); // playing instances (Play, previews) hear the saved Sound
 		document.Saved = SoundState::Capture(sound);
 		return true;
@@ -313,11 +372,11 @@ namespace Lux
 
 	// Widgets change the Sound directly. The state before the first change is the document's
 	// Current; once no widget is active the whole edit becomes one undo step, so a drag is one step.
-	void SoundEditorPanel::TrackEdit(Document& document, Sound& sound, bool edited)
+	void SoundEditorPanel::TrackEdit(Document& document, Sound& sound, bool edited, bool finish)
 	{
 		if (edited)
 			document.EditInProgress = true;
-		if (!document.EditInProgress || ImGui::IsAnyItemActive())
+		if ((!document.EditInProgress && !finish) || (!finish && ImGui::IsAnyItemActive()))
 			return;
 		document.EditInProgress = false;
 		const SoundState before = document.Current;
@@ -345,7 +404,10 @@ namespace Lux
 		copy->Cooldown = 0.0f;
 		m_Audition = AudioEventInstance::Create(copy);
 		if (!m_Audition)
+		{
+			m_AuditionError = "Cannot create this audition. See Log, then retry Play.";
 			return;
+		}
 		for (const auto& [name, value] : document.AuditionValues)
 		{
 			if (const SoundParameter* parameter = copy->FindParameter(name))
@@ -359,15 +421,19 @@ namespace Lux
 		}
 		m_AuditionSound = document.Handle;
 		if (!m_Audition->Start())
+		{
 			StopAudition();
+			m_AuditionError = "Cannot start this audition. Check its clips in Log, then retry Play.";
+		}
 	}
 
 	void SoundEditorPanel::StopAudition()
 	{
 		if (m_Audition && m_Audition->IsValid())
-			m_Audition->Stop();
+			m_Audition->Stop(false);
 		m_Audition = nullptr;
 		m_AuditionSound = 0;
+		m_AuditionError.clear();
 	}
 
 	void SoundEditorPanel::UpdateAudition()
@@ -383,7 +449,10 @@ namespace Lux
 		}
 		// Each restart chooses through the tree again, so a looped audition walks the variations.
 		if (m_LoopAudition && !m_Audition->IsPlaying() && !m_Audition->Start())
+		{
 			StopAudition();
+			m_AuditionError = "Audition could not restart. See Log, then retry Play.";
+		}
 	}
 
 	void SoundEditorPanel::SetAuditionParameter(Document& document, const std::string& name, float value)
@@ -399,6 +468,12 @@ namespace Lux
 
 	const SoundEditorPanel::Waveform& SoundEditorPanel::GetWaveform(AssetHandle clip)
 	{
+		const auto generation = AssetManager::GetDataGeneration();
+		if (m_WaveformGeneration != generation)
+		{
+			m_Waveforms.clear();
+			m_WaveformGeneration = generation;
+		}
 		if (const auto it = m_Waveforms.find(clip); it != m_Waveforms.end())
 			return it->second;
 		Waveform waveform;
@@ -421,94 +496,132 @@ namespace Lux
 
 	void SoundEditorPanel::OnImGuiRender(bool& isOpen)
 	{
+		m_KeyboardFocus = false;
+		if (!isOpen)
+			return;
 		UpdateAudition();
-
 		ImGui::SetNextWindowSize(ImVec2(960.0f, 620.0f), ImGuiCond_FirstUseEver);
 		if (m_RequestFocus)
 		{
 			ImGui::SetNextWindowFocus();
 			m_RequestFocus = false;
 		}
-		const bool visible = ImGui::Begin("Sound Editor", &isOpen);
-		m_KeyboardFocus = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		if (visible)
+		if (!ImGui::Begin("Sound Editor", &isOpen))
 		{
-			if (!Project::GetActive())
-				ImGui::TextDisabled("Open a project to edit Sounds.");
-			else if (m_Documents.empty())
+			ImGui::End();
+			return;
+		}
+		m_KeyboardFocus = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		if (!Project::GetActive() || m_Documents.empty())
+			ImGuiEx::PanelEmptyState("##sound_empty", "No Sound open",
+									 "Open a project, then double-click a Sound in Content Browser or use "
+									 "Edit Sound in the Inspector.");
+		else
+		{
+			const AssetHandle previous = GetActiveDocument() ? GetActiveDocument()->Handle : AssetHandle(0);
+			UI_Tabs();
+			if (GetActiveDocument() && GetActiveDocument()->Handle != previous)
 			{
-				ImGui::TextDisabled("No Sound open. Double-click a Sound in the Content Browser,");
-				ImGui::TextDisabled("or use Edit next to a Sound in the Inspector.");
+				if (auto* old = FindDocument(previous))
+					if (auto asset = AssetManager::GetAsset<Sound>(previous))
+						TrackEdit(*old, *asset, false, true);
+				StopAudition();
 			}
-			else
+			UI_CloseConfirm();
+			Document* document = GetActiveDocument();
+			Ref<Sound> sound = document ? AssetManager::GetAsset<Sound>(document->Handle) : nullptr;
+			if (!document || !sound)
+				ImGuiEx::PanelMessage("Sound unavailable", "This Sound could not be loaded. See Log.", true);
+			else if (!HandleShortcuts(*document, *sound))
 			{
-				UI_Tabs();
-				UI_CloseConfirm();
-
-				Document* document = GetActiveDocument();
-				Ref<Sound> sound = document ? AssetManager::GetAsset<Sound>(document->Handle) : nullptr;
-				if (!document || !sound)
-					ImGui::TextDisabled("This Sound could not be loaded.");
-				else if (!HandleShortcuts(*document, *sound))
+				if (document->SelectedNode >= sound->Nodes.size())
+					document->SelectedNode = 0;
+				bool edited = false;
+				const float font = ImGui::GetFontSize();
+				const auto split = ImGuiEx::PanelSplitWidths(ImGui::GetContentRegionAvail().x, m_TreeFraction,
+															 font * 14.0f, font * 25.0f);
+				m_Compact = !split.SideBySide;
+				UI_Toolbar(*document, *sound, edited);
+				if (m_SelectNodePage)
 				{
-					if (document->SelectedNode >= sound->Nodes.size())
-						document->SelectedNode = 0;
-					bool edited = false;
-					UI_Toolbar(*document, *sound, edited);
-					ImGui::Separator();
-
-					const ImVec2 available = ImGui::GetContentRegionAvail();
-					const bool stacked = available.x < ImGui::GetFontSize() * 36.0f;
-					const float treeWidth = stacked ? 0.0f : std::clamp(available.x * kTreeWidthFraction, kTreeMinWidth, kTreeMaxWidth);
-					const float treeHeight = stacked ? std::min(available.y * 0.3f, ImGui::GetFontSize() * 9.0f) : 0.0f;
-					if (ImGui::BeginChild("##sound_tree_column", ImVec2(treeWidth, treeHeight), ImGuiChildFlags_Borders))
+					m_Section = 0;
+					m_ResetSectionScroll = true;
+					m_NarrowTree = false;
+					m_SelectNodePage = false;
+				}
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::BeginCombo("##sound_section", k_Sections[m_Section]))
+				{
+					for (uint32_t index = 0; index < std::size(k_Sections); ++index)
+					{
+						if (ImGui::Selectable(k_Sections[index], index == m_Section))
+						{
+							m_Section = index;
+							m_ResetSectionScroll = true;
+							m_NarrowTree = false;
+						}
+						if (index == m_Section)
+							ImGui::SetItemDefaultFocus();
+					}
+					ImGui::EndCombo();
+				}
+				if (sound->Nodes.empty())
+					ImGuiEx::PanelMessage("Sound has no root", "Revert to restore the saved tree.", true);
+				else if (split.SideBySide && m_ShowTree)
+				{
+					if (ImGui::BeginChild("##sound_tree_column", {split.First, 0.0f},
+										  ImGuiChildFlags_Borders))
 						UI_Tree(*document, *sound, edited);
 					ImGui::EndChild();
-					if (!stacked)
-						ImGui::SameLine();
-					if (ImGui::BeginChild("##sound_properties_column", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding))
+					ImGui::SameLine();
+					ImGuiEx::PanelSplitHandle("##sound_split", split, m_TreeFraction);
+					ImGui::SameLine();
+					if (ImGui::BeginChild("##sound_properties_column"))
+						UI_Section(*document, *sound, edited);
+					ImGui::EndChild();
+				}
+				else
+				{
+					if (ImGui::BeginChild("##sound_properties_column"))
 					{
-						if (ImGui::BeginTabBar("##sound_sections"))
-						{
-							if (ImGui::BeginTabItem("Node", nullptr, m_SelectNodePage ? ImGuiTabItemFlags_SetSelected : 0))
-							{
-								UI_Node(*document, *sound, edited);
-								ImGui::EndTabItem();
-							}
-							m_SelectNodePage = false;
-							if (ImGui::BeginTabItem("Sound"))
-							{
-								UI_SoundProperties(*sound, edited);
-								ImGui::EndTabItem();
-							}
-							if (ImGui::BeginTabItem("Parameters"))
-							{
-								UI_Parameters(*document, *sound, edited);
-								ImGui::EndTabItem();
-							}
-							if (ImGui::BeginTabItem("Banks"))
-							{
-								UI_Banks(document->Handle);
-								ImGui::EndTabItem();
-							}
-							ImGui::EndTabBar();
-						}
+						if (m_Compact && m_NarrowTree)
+							UI_Tree(*document, *sound, edited);
+						else
+							UI_Section(*document, *sound, edited);
 					}
 					ImGui::EndChild();
-
-					TrackEdit(*document, *sound, edited);
 				}
+				TrackEdit(*document, *sound, edited);
 			}
 		}
 		ImGui::End();
-
 		if (!isOpen)
-			StopAudition();
+			OnClose();
 		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			m_DragPoint = m_DragClipHandle = m_DragMarker = -1;
+	}
+
+	void SoundEditorPanel::UI_Section(Document& document, Sound& sound, bool& edited)
+	{
+		if (m_ResetSectionScroll)
 		{
-			m_DragPoint = -1;
-			m_DragClipHandle = -1;
-			m_DragMarker = -1;
+			ImGui::SetScrollY(0.0f);
+			m_ResetSectionScroll = false;
+		}
+		switch (m_Section)
+		{
+		case 0:
+			UI_Node(document, sound, edited);
+			break;
+		case 1:
+			UI_SoundProperties(sound, edited);
+			break;
+		case 2:
+			UI_Parameters(document, sound, edited);
+			break;
+		case 3:
+			UI_Banks(document.Handle);
+			break;
 		}
 	}
 
@@ -520,7 +633,8 @@ namespace Lux
 		{
 			const auto& key = static_cast<const KeyPressedEvent&>(event);
 			const bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-			if (control && !ImGui::GetIO().WantTextInput && (key.GetKeyCode() == Key::Z || key.GetKeyCode() == Key::Y))
+			if (control && !ImGui::GetIO().WantTextInput && GImGui->OpenPopupStack.empty() &&
+				(key.GetKeyCode() == Key::Z || key.GetKeyCode() == Key::Y))
 				return;
 		}
 		event.Handled = true;
@@ -552,7 +666,9 @@ namespace Lux
 	{
 		if (index >= m_Documents.size())
 			return;
-		const Document& closing = m_Documents[index];
+		Document& closing = m_Documents[index];
+		if (auto sound = AssetManager::GetAsset<Sound>(closing.Handle))
+			TrackEdit(closing, *sound, false, true);
 		if (closing.Current == closing.Saved && !closing.EditInProgress)
 			CloseDocument(index);
 		else
@@ -582,6 +698,9 @@ namespace Lux
 					flags |= ImGuiTabItemFlags_SetSelected;
 				// ### keeps the tab ID stable while the displayed name changes.
 				const std::string label = std::format("{}###sound_tab_{}", AssetName(document.Handle, "Sound"), static_cast<uint64_t>(document.Handle));
+				ImGui::SetNextItemWidth(
+					std::min(ImGui::GetFontSize() * 16.0f,
+							 std::max(ImGui::GetFontSize() * 4.0f, ImGui::GetContentRegionAvail().x * 0.5f)));
 				if (ImGui::BeginTabItem(label.c_str(), &open, flags))
 				{
 					if (!m_SelectActiveTab)
@@ -589,12 +708,18 @@ namespace Lux
 					ImGui::EndTabItem();
 				}
 				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("%s", Project::GetEditorAssetManager()->GetMetadata(document.Handle).FilePath.generic_string().c_str());
+					ImGui::SetTooltip(
+						"%s", Utils::PathToUTF8(
+								  Project::GetEditorAssetManager()->GetMetadata(document.Handle).FilePath)
+								  .c_str());
 				ImGuiEx::ScopedID tabID(document.Handle);
 				if (ImGui::BeginPopupContextItem("##sound_tab_actions"))
 				{
 					if (ImGui::MenuItem("Copy asset path"))
-						ImGui::SetClipboardText(Project::GetEditorAssetManager()->GetMetadata(document.Handle).FilePath.generic_string().c_str());
+						ImGui::SetClipboardText(
+							Utils::PathToUTF8(
+								Project::GetEditorAssetManager()->GetMetadata(document.Handle).FilePath)
+								.c_str());
 					if (ImGui::MenuItem("Close", "Ctrl+W"))
 						open = false;
 					ImGui::EndPopup();
@@ -613,41 +738,50 @@ namespace Lux
 
 	void SoundEditorPanel::UI_CloseConfirm()
 	{
+		m_ClosePopupID = ImGui::GetID("Unsaved Sound##sound_close");
 		if (m_OpenCloseConfirm)
 		{
 			ImGui::OpenPopup("Unsaved Sound##sound_close");
 			m_OpenCloseConfirm = false;
 		}
+		ImGui::SetNextWindowSize(
+			{std::min(ImGui::GetFontSize() * 32.0f, ImGui::GetMainViewport()->WorkSize.x * 0.85f), 0.0f});
 		if (!ImGui::BeginPopupModal("Unsaved Sound##sound_close", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 			return;
-
 		const bool valid = m_PendingCloseIndex >= 0 && m_PendingCloseIndex < static_cast<int>(m_Documents.size());
-		Ref<Sound> sound = valid ? AssetManager::GetAsset<Sound>(m_Documents[static_cast<size_t>(m_PendingCloseIndex)].Handle) : nullptr;
+		Ref<Sound> sound =
+			valid ? AssetManager::GetAsset<Sound>(m_Documents[m_PendingCloseIndex].Handle) : nullptr;
 		if (valid)
-			ImGui::Text("'%s' has unsaved changes.", AssetName(m_Documents[static_cast<size_t>(m_PendingCloseIndex)].Handle, "Sound").c_str());
-
-		const bool canSave = valid && sound && sound->Validate();
-		ImGui::BeginDisabled(!canSave);
-		// A refused save (the reason is logged) keeps the tab and the dialog open.
-		if (ImGui::Button("Save") && canSave && SaveDocument(m_Documents[static_cast<size_t>(m_PendingCloseIndex)], *sound))
 		{
-			CloseDocument(static_cast<size_t>(m_PendingCloseIndex));
+			const auto& document = m_Documents[m_PendingCloseIndex];
+			ImGui::TextWrapped("'%s' has unsaved changes.", AssetName(document.Handle, "Sound").c_str());
+			if (!document.Error.empty())
+				ImGuiEx::PanelMessage("Sound was not saved", document.Error.c_str(), true);
+		}
+		const ImGuiEx::PanelAction actions[] = {
+			{0, "Save", LUX_ICON_FLOPPY_O, nullptr, valid && sound && sound->Validate(), false, true},
+			{1, "Discard", nullptr, nullptr, valid},
+			{2, "Cancel"}};
+		const int action = ImGuiEx::PanelActionBar("##close_sound_actions", actions);
+		if (action == 0 && SaveDocument(m_Documents[m_PendingCloseIndex], *sound))
+		{
+			CloseDocument(m_PendingCloseIndex);
 			m_PendingCloseIndex = -1;
 			ImGui::CloseCurrentPopup();
 		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (ImGui::Button("Discard") && valid)
+		else if (action == 1)
 		{
-			const Document& document = m_Documents[static_cast<size_t>(m_PendingCloseIndex)];
+			const auto saved = m_Documents[m_PendingCloseIndex].Saved;
 			if (sound)
-				document.Saved.Apply(*sound);
-			CloseDocument(static_cast<size_t>(m_PendingCloseIndex));
+			{
+				saved.Apply(*sound);
+				TrackEdit(m_Documents[m_PendingCloseIndex], *sound, true, true);
+			}
+			CloseDocument(m_PendingCloseIndex);
 			m_PendingCloseIndex = -1;
 			ImGui::CloseCurrentPopup();
 		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel") || !valid)
+		else if (action == 2 || !valid || ImGui::IsKeyPressed(ImGuiKey_Escape))
 		{
 			m_PendingCloseIndex = -1;
 			ImGui::CloseCurrentPopup();
@@ -657,62 +791,56 @@ namespace Lux
 
 	void SoundEditorPanel::UI_Toolbar(Document& document, Sound& sound, bool& edited)
 	{
-		ImGuiEx::ScopedStyleStack toolbarStyle(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 5.0f),
-			ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 6.0f));
 		std::string error;
 		const bool valid = sound.Validate(&error);
-		const bool dirty = !(document.Current == document.Saved) || document.EditInProgress;
-
-		ImGui::BeginDisabled(!dirty || !valid);
-		if (ImGui::Button(LUX_ICON_FLOPPY_O "  Save"))
-			SaveDocument(document, sound);
-		ImGui::EndDisabled();
-		ImGui::SetItemTooltip("Save Sound (Ctrl+S). Close tab with Ctrl+W.");
-		ImGui::SameLine();
-		ImGui::BeginDisabled(!dirty);
-		// Reverting goes through TrackEdit like any other change, so it can be undone.
-		if (ImGui::Button(LUX_ICON_UNDO "  Revert"))
-		{
-			document.Saved.Apply(sound);
-			edited = true;
-		}
-		ImGui::EndDisabled();
-		ImGui::SetItemTooltip("Revert all changes to the last saved version. This can be undone.");
-
-		if (ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - ImGui::GetItemRectMax().x > ImGui::GetFontSize() * 12.0f)
-			ImGui::SameLine();
+		const bool dirty = document.Current != document.Saved || document.EditInProgress;
 		const bool native = AudioEngine::HasInitializedEngine();
-		const bool playing = m_Audition && m_AuditionSound == document.Handle && m_Audition->IsValid() && m_Audition->IsPlaying();
-		ImGui::BeginDisabled(!native || (!valid && !playing));
-		if (ImGui::Button(playing ? LUX_ICON_STOP "  Stop###sound_audition" : LUX_ICON_PLAY "  Play###sound_audition"))
+		const bool playing = m_Audition && m_AuditionSound == document.Handle && m_Audition->IsValid() &&
+							 m_Audition->IsPlaying();
+		const ImGuiEx::PanelAction actions[] = {
+			{0, "Save", LUX_ICON_FLOPPY_O, "Ctrl+S", dirty && valid, false, true},
+			{1, "Revert", LUX_ICON_UNDO, nullptr, dirty},
+			{2, playing ? "Stop" : "Play", playing ? LUX_ICON_STOP : LUX_ICON_PLAY, "Space",
+			 native && (valid || playing)},
+			{3, "Loop", LUX_ICON_REPEAT, nullptr, native, m_LoopAudition},
+			{4, "Tree", LUX_ICON_SITEMAP, nullptr, true, m_Compact ? m_NarrowTree : m_ShowTree}};
+		switch (ImGuiEx::PanelActionBar("##sound_actions", actions))
 		{
+		case 0:
+			SaveDocument(document, sound);
+			break;
+		case 1:
+			document.Saved.Apply(sound);
+			document.Error.clear();
+			edited = true;
+			break;
+		case 2:
 			if (playing)
 				StopAudition();
 			else
 				StartAudition(document, sound);
+			break;
+		case 3:
+			m_LoopAudition = !m_LoopAudition;
+			break;
+		case 4:
+			m_ResetSectionScroll = true;
+			if (m_Compact)
+				m_NarrowTree = !m_NarrowTree;
+			else
+				m_ShowTree = !m_ShowTree;
+			break;
 		}
-		ImGui::SetItemTooltip("Play / stop preview (Space). Ctrl+S saves this Sound.");
-		ImGui::SameLine();
-		{
-			ImGuiEx::ScopedColour loopColour(ImGuiCol_Text, m_LoopAudition ? Colors::Theme::accent : Colors::Theme::text);
-			if (ImGui::Button(LUX_ICON_REPEAT "  Loop##sound_audition_loop"))
-				m_LoopAudition = !m_LoopAudition;
-		}
-		ImGui::EndDisabled();
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-			ImGui::SetTooltip("Restart the audition when it ends; each restart chooses through the tree again.");
-
-		if (ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - ImGui::GetItemRectMax().x > ImGui::GetFontSize() * 16.0f)
-			ImGui::SameLine();
-		if (!native)
-			ImGui::TextDisabled("Auditioning needs the native audio backend.");
+		if (!document.Error.empty())
+			ImGuiEx::PanelMessage("Sound was not saved", document.Error.c_str(), true);
 		else if (!valid)
-		{
-			ImGuiEx::ScopedColour invalidColour(ImGuiCol_Text, Colors::Theme::textError);
-			ImGui::TextWrapped("Invalid: %s", error.c_str());
-		}
+			ImGuiEx::PanelMessage("Invalid Sound", error.c_str(), true);
 		else
-			ImGui::TextDisabled("%s", dirty ? "Unsaved changes" : "Saved");
+			ImGui::TextWrapped("%s", dirty ? "Unsaved changes" : "Saved");
+		if (!native)
+			ImGui::TextWrapped("Audition needs the audio engine running.");
+		if (!m_AuditionError.empty())
+			ImGuiEx::PanelMessage("Audition unavailable", m_AuditionError.c_str(), true);
 	}
 
 	void SoundEditorPanel::UI_Tree(Document& document, Sound& sound, bool& edited)
@@ -723,7 +851,21 @@ namespace Lux
 		// New nodes go under the selection, or beside it when it is a clip.
 		const int addParent = selectedType != SoundNodeType::Clip ? static_cast<int>(selected) : parents[selected];
 
-		if (ImGui::Button(LUX_ICON_PLUS "  Add"))
+		const auto* initialSiblings =
+			parents[selected] >= 0 ? &sound.Nodes[parents[selected]].Children : nullptr;
+		const auto initialPosition =
+			initialSiblings
+				? static_cast<size_t>(std::find(initialSiblings->begin(), initialSiblings->end(), selected) -
+									  initialSiblings->begin())
+				: 0;
+		const ImGuiEx::PanelAction actions[] = {
+			{0, "Add", LUX_ICON_PLUS},
+			{1, "Up", LUX_ICON_ARROW_UP, nullptr, parents[selected] >= 0 && initialPosition > 0},
+			{2, "Down", LUX_ICON_ARROW_DOWN, nullptr,
+			 parents[selected] >= 0 && initialSiblings && initialPosition + 1 < initialSiblings->size()},
+			{3, "Remove node", LUX_ICON_TRASH, nullptr, selected != 0}};
+		const int action = ImGuiEx::PanelActionBar("##tree_actions", actions);
+		if (action == 0)
 			ImGui::OpenPopup("##sound_tree_add");
 		if (ImGui::BeginPopup("##sound_tree_add"))
 		{
@@ -767,33 +909,22 @@ namespace Lux
 		const int parent = sound.GetParents()[current];
 		std::vector<uint32_t>* siblings = parent >= 0 ? &sound.Nodes[static_cast<size_t>(parent)].Children : nullptr;
 		const auto position = siblings ? static_cast<size_t>(std::find(siblings->begin(), siblings->end(), current) - siblings->begin()) : 0;
-		ImGui::SameLine();
-		ImGui::BeginDisabled(!siblings || position == 0);
-		if (ImGui::Button(LUX_ICON_ARROW_UP "##sound_tree_up"))
+		if (action == 1 && siblings && position > 0)
 		{
 			std::swap((*siblings)[position], (*siblings)[position - 1]);
 			edited = true;
 		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::BeginDisabled(!siblings || position + 1 >= siblings->size());
-		if (ImGui::Button(LUX_ICON_ARROW_DOWN "##sound_tree_down"))
+		if (action == 2 && siblings && position + 1 < siblings->size())
 		{
 			std::swap((*siblings)[position], (*siblings)[position + 1]);
 			edited = true;
 		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		ImGui::BeginDisabled(current == 0);
-		if (ImGui::Button(LUX_ICON_TRASH "##sound_tree_remove"))
+		if (action == 3 && current != 0)
 		{
 			sound.RemoveNode(current);
 			document.SelectedNode = 0;
 			edited = true;
 		}
-		ImGui::EndDisabled();
-		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-			ImGui::SetTooltip("Remove the selected node and everything under it.");
 
 		ImGui::Separator();
 		UI_TreeNode(document, sound, 0, 1);
@@ -804,6 +935,10 @@ namespace Lux
 		// Validate keeps the tree acyclic and at most MaxDepth deep; this guards an edit in progress.
 		if (depth > Sound::MaxDepth || index >= sound.Nodes.size())
 			return;
+		ImGuiEx::ScopedStyle indent(
+			ImGuiStyleVar_IndentSpacing,
+			std::min(ImGui::GetStyle().IndentSpacing,
+					 std::max(0.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFontSize() * 6.0f)));
 		const SoundNode& node = sound.Nodes[index];
 		std::string label = node.Name.empty()
 			? (node.Type == SoundNodeType::Clip ? (node.Clip ? AssetName(node.Clip, "Clip") : std::string("(no clip)")) : s_NodeTypeNames[static_cast<int>(node.Type)])
@@ -817,7 +952,25 @@ namespace Lux
 
 		ImGui::PushID(static_cast<int>(index));
 		const bool looping = node.Loop && node.Type == SoundNodeType::Clip;
-		const bool open = ImGui::TreeNodeEx("node", flags, "%s  %s%s%s", NodeIcon(node.Type), label.c_str(), looping ? "  " : "", looping ? LUX_ICON_REPEAT : "");
+		const bool open = ImGui::TreeNodeEx("##node", flags);
+		const auto row = ImGui::GetItemRectMin();
+		const std::string title = std::format("{}  {}{}", NodeIcon(node.Type), label,
+											  looping ? std::string("  ") + LUX_ICON_REPEAT : "");
+		const float start = row.x + ImGui::GetTreeNodeToLabelSpacing();
+		const float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+		ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), {start, row.y},
+								  {std::max(start, right), row.y + ImGui::GetTextLineHeight()},
+								  std::max(start, right), title.data(), title.data() + title.size(), nullptr);
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+		{
+			if (ImGui::BeginTooltip())
+			{
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+				ImGui::TextWrapped("%s", title.c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
+		}
 		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 		{
 			document.SelectedNode = index;
@@ -830,7 +983,7 @@ namespace Lux
 			for (size_t child = 0; child < node.Children.size(); ++child)
 			{
 				if (switchParameter && child < switchParameter->Labels.size())
-					ImGui::TextDisabled("%s", switchParameter->Labels[child].c_str());
+					ImGui::TextWrapped("%s", switchParameter->Labels[child].c_str());
 				UI_TreeNode(document, sound, node.Children[child], depth + 1);
 			}
 			ImGui::TreePop();
@@ -842,7 +995,7 @@ namespace Lux
 	{
 		// doPushUndo = false on every widget: these edit an asset, not the scene. TrackEdit records
 		// them on the editor undo stack instead.
-		if (ImGuiEx::PropertyGridHeader("Sound"))
+		if (ImGuiEx::BoundedCollapsingHeader("Sound", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			BeginSoundPropertyGrid();
 			edited |= ImGuiEx::Property("Volume", sound.Volume, 0.01f, 0.0f, 4.0f, "Linear gain; 1 plays the clips as recorded.", false, SoundNode{}.Volume);
@@ -855,10 +1008,9 @@ namespace Lux
 					"At the limit, stop the oldest or quietest instance for the new one, or refuse the new one.", false);
 			edited |= ImGuiEx::Property("Cooldown", sound.Cooldown, 0.01f, 0.0f, 60.0f, "Seconds after a start before the Sound may start again.", false, 0.0f);
 			ImGuiEx::EndPropertyGrid();
-			ImGui::TreePop();
 		}
 
-		if (ImGuiEx::PropertyGridHeader("Spatial"))
+		if (ImGuiEx::BoundedCollapsingHeader("Spatial", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			BeginSoundPropertyGrid();
 			edited |= ImGuiEx::Property("3D", sound.Spatial.Enabled, "Panned and attenuated from its position. Off plays it in 2D.", false);
@@ -871,11 +1023,10 @@ namespace Lux
 				edited |= ImGuiEx::Property("Rolloff", sound.Spatial.Rolloff, 0.01f, 0.0f, 10.0f, "How quickly it falls off; 1 is natural.", false, SoundSpatialSettings{}.Rolloff);
 			}
 			ImGuiEx::EndPropertyGrid();
-			ImGui::TreePop();
 		}
 
 		// The beat grid and markers the music director syncs transitions to (MusicSync).
-		if (ImGuiEx::PropertyGridHeader("Music", false))
+		if (ImGuiEx::BoundedCollapsingHeader("Music"))
 		{
 			BeginSoundPropertyGrid();
 			edited |= ImGuiEx::Property("Tempo (BPM)", sound.Tempo.BPM, 0.1f, 0.0f, 400.0f, "Beats per minute of the first clip; 0 reports no beats. Music beds use 20-400.", false, SoundTempo{}.BPM);
@@ -892,13 +1043,14 @@ namespace Lux
 			{
 				SoundMarker& marker = sound.Markers[index];
 				ImGui::PushID(static_cast<int>(index));
-				ImGui::SetNextItemWidth(160.0f);
-				edited |= ImGui::InputText("##marker_name", &marker.Name);
-				ImGui::SameLine();
-				ImGui::SetNextItemWidth(90.0f);
-				edited |= ImGui::DragFloat("s##marker_time", &marker.Seconds, 0.01f, 0.0f, 3600.0f, "%.3f");
-				ImGui::SameLine();
-				if (ImGui::SmallButton("Remove"))
+				BeginSoundPropertyGrid();
+				edited |= ImGuiEx::Property("Marker", marker.Name,
+											"Marker name; Section: marks a musical section.", false);
+				edited |= ImGuiEx::Property("Time (s)", marker.Seconds, 0.01f, 0.0f, 3600.0f,
+											"Seconds into the clip.", false, 0.0f);
+				ImGuiEx::EndPropertyGrid();
+				const ImGuiEx::PanelAction actions[] = {{0, "Remove marker", LUX_ICON_TIMES}};
+				if (ImGuiEx::PanelActionBar("##marker_actions", actions) == 0)
 					removed = index;
 				ImGui::PopID();
 			}
@@ -907,70 +1059,122 @@ namespace Lux
 				sound.Markers.erase(sound.Markers.begin() + static_cast<std::ptrdiff_t>(*removed));
 				edited = true;
 			}
-			if (ImGui::Button("Add Marker") && sound.Markers.size() < 256)
+			const ImGuiEx::PanelAction addMarker[] = {
+				{0, "Add marker", LUX_ICON_PLUS, nullptr, sound.Markers.size() < 256}};
+			if (ImGuiEx::PanelActionBar("##add_marker", addMarker) == 0)
 			{
 				sound.Markers.push_back({ "Section:New", 0.0f });
 				edited = true;
 			}
 			ImGui::SetItemTooltip("NextMarker transitions sync to any marker, NextSection to names starting \"Section:\".");
-			ImGui::TreePop();
 		}
 	}
 
 	void SoundEditorPanel::UI_Banks(AssetHandle soundHandle)
 	{
-		if (!ImGuiEx::PropertyGridHeader("Sound Banks"))
+		if (!ImGuiEx::BoundedCollapsingHeader("Sound Banks", ImGuiTreeNodeFlags_DefaultOpen))
 			return;
-		std::vector<std::pair<std::string, AssetHandle>> holding, others;
-		for (const AssetHandle handle : AssetManager::GetAllAssetsWithType<SoundBank>())
+		const ImGuiEx::PanelAction refresh[] = {{0, "Refresh banks", LUX_ICON_REFRESH}};
+		if (ImGuiEx::PanelActionBar("##sound_bank_refresh", refresh) == 0)
+			m_BanksDirty = true;
+		const auto manager = Project::GetEditorAssetManager();
+		if (!manager)
+			return;
+		const auto revision = manager->GetAssetRegistry().GetRevision();
+		const auto generation = AssetManager::GetDataGeneration();
+		if (m_BanksDirty || m_BankCatalogSound != soundHandle || m_BankRegistryRevision != revision ||
+			m_BankDataGeneration != generation)
 		{
-			const Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
-			if (!bank)
-				continue;
-			const std::string path = Project::GetEditorAssetManager()->GetMetadata(handle).FilePath.generic_string();
-			(bank->Contains(soundHandle) ? holding : others).emplace_back(path, handle);
+			if (m_BankCatalogSound != soundHandle)
+				m_BankError.clear();
+			m_HoldingBanks.clear();
+			m_OtherBanks.clear();
+			for (const auto handle : AssetManager::GetAllAssetsWithType<SoundBank>())
+			{
+				const Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
+				if (!bank)
+					continue;
+				const auto path = Utils::PathToUTF8(manager->GetMetadata(handle).FilePath);
+				(bank->Contains(soundHandle) ? m_HoldingBanks : m_OtherBanks).emplace_back(path, handle);
+			}
+			std::ranges::sort(m_HoldingBanks);
+			std::ranges::sort(m_OtherBanks);
+			m_BankCatalogSound = soundHandle;
+			m_BankRegistryRevision = revision;
+			m_BankDataGeneration = generation;
+			m_BanksDirty = false;
 		}
-		std::sort(holding.begin(), holding.end());
-		std::sort(others.begin(), others.end());
-		if (holding.empty())
-			ImGui::TextWrapped("In no Sound Bank: it loads when it first plays, which can stall that frame.");
-		for (const auto& [path, bank] : holding)
-			ImGui::BulletText("%s", path.c_str());
-		ImGui::BeginDisabled(others.empty());
+		if (!m_BankError.empty())
+			ImGuiEx::PanelMessage("Sound Bank was not saved", m_BankError.c_str(), true);
+		if (m_HoldingBanks.empty())
+			ImGui::TextWrapped(
+				"In no readable Sound Bank: it may load when it first plays, which can stall that frame.");
+		for (const auto& [path, handle] : m_HoldingBanks)
+			ImGui::TextWrapped("%s", path.c_str());
+		ImGuiEx::ScopedDisable disabled(m_OtherBanks.empty());
+		ImGui::SetNextItemWidth(-FLT_MIN);
 		if (ImGui::BeginCombo("##add_to_bank", "Add to bank..."))
 		{
-			for (const auto& [path, handle] : others)
+			for (const auto& [path, handle] : m_OtherBanks)
 			{
-				if (!ImGui::Selectable(path.c_str()))
+				ImGuiEx::ScopedID id(handle);
+				if (!ImGuiEx::PanelListItem("##bank", path))
 					continue;
-				Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
-				if (!bank || !bank->Add(soundHandle))
-					continue;
-				AssetImporter::Serialize(bank.As<Asset>());
-				if (m_PushUndo)
-				{
-					const auto save = [handle, soundHandle](bool add)
-					{
-						if (Ref<SoundBank> target = AssetManager::GetAsset<SoundBank>(handle))
-						{
-							if (add ? target->Add(soundHandle) : target->Remove(soundHandle))
-								AssetImporter::Serialize(target.As<Asset>());
-						}
-					};
-					m_PushUndo("Sound: add to bank", [save] { save(false); }, [save] { save(true); });
-				}
+				AddToBank(handle, soundHandle);
 			}
 			ImGui::EndCombo();
 		}
-		ImGui::EndDisabled();
-		if (others.empty() && holding.empty())
-			ImGui::TextDisabled("Make one in the Content Browser: New > Sound Bank.");
-		ImGui::TreePop();
+		if (m_OtherBanks.empty() && m_HoldingBanks.empty())
+			ImGui::TextWrapped("Make one in Content Browser: New > Sound Bank.");
+		ImGui::TextWrapped("Refresh banks after changing membership elsewhere.");
+	}
+
+	bool SoundEditorPanel::AddToBank(AssetHandle handle, AssetHandle soundHandle)
+	{
+		// Commit candidate membership before publishing it, including undo/redo.
+		const auto change = [handle, soundHandle](bool add)
+		{
+			if (AssetManager::GetAssetType(handle) != AssetType::SoundBank)
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Sound: bank {} is no longer available",
+								   static_cast<uint64_t>(handle));
+				return false;
+			}
+			Ref<SoundBank> bank = AssetManager::GetAsset<SoundBank>(handle);
+			if (!bank)
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Sound: cannot load bank {}", static_cast<uint64_t>(handle));
+				return false;
+			}
+			auto candidate = Ref<SoundBank>::Create(*bank);
+			if (!(add ? candidate->Add(soundHandle) : candidate->Remove(soundHandle)))
+			{
+				LUX_CORE_ERROR_TAG(
+					"Editor", "Cannot change Sound {} membership in bank {}: already changed or bank is full",
+					static_cast<uint64_t>(soundHandle), static_cast<uint64_t>(handle));
+				return false;
+			}
+			if (!AssetImporter::TrySerialize(candidate.As<Asset>()))
+				return false;
+			bank->Sounds = candidate->Sounds;
+			return true;
+		};
+		if (change(true))
+		{
+			m_BankError.clear();
+			m_BanksDirty = true;
+			if (m_PushUndo)
+				m_PushUndo("Sound: add to bank", [change] { change(false); }, [change] { change(true); });
+			return true;
+		}
+		else
+			m_BankError = "Change not applied. See Log, then retry adding this Sound.";
+		return false;
 	}
 
 	void SoundEditorPanel::UI_Parameters(Document& document, Sound& sound, bool& edited)
 	{
-		if (!ImGuiEx::PropertyGridHeader("Parameters"))
+		if (!ImGuiEx::BoundedCollapsingHeader("Parameters", ImGuiTreeNodeFlags_DefaultOpen))
 			return;
 
 		int removeParameter = -1;
@@ -1048,27 +1252,26 @@ namespace Lux
 				SetAuditionParameter(document, parameter.Name, value);
 			ImGuiEx::EndPropertyGrid();
 
-			if (parameter.IsLabeled())
+			const ImGuiEx::PanelAction parameterActions[] = {
+				{0, "Add label", LUX_ICON_PLUS, nullptr, parameter.IsLabeled()},
+				{1, "Remove label", LUX_ICON_MINUS, nullptr, parameter.Labels.size() > 1},
+				{2, "Remove parameter", LUX_ICON_TRASH}};
+			switch (ImGuiEx::PanelActionBar("##parameter_actions", parameterActions))
 			{
-				if (ImGui::SmallButton(LUX_ICON_PLUS " Label"))
-				{
-					parameter.Labels.push_back(std::format("Label {}", parameter.Labels.size()));
-					FitLabels(parameter);
-					edited = true;
-				}
-				ImGui::SameLine();
-				ImGui::BeginDisabled(parameter.Labels.size() <= 1);
-				if (ImGui::SmallButton(LUX_ICON_MINUS " Label"))
-				{
-					parameter.Labels.pop_back();
-					FitLabels(parameter);
-					edited = true;
-				}
-				ImGui::EndDisabled();
-				ImGui::SameLine();
-			}
-			if (ImGui::SmallButton(LUX_ICON_TRASH " Remove Parameter"))
+			case 0:
+				parameter.Labels.push_back(std::format("Label {}", parameter.Labels.size()));
+				FitLabels(parameter);
+				edited = true;
+				break;
+			case 1:
+				parameter.Labels.pop_back();
+				FitLabels(parameter);
+				edited = true;
+				break;
+			case 2:
 				removeParameter = static_cast<int>(index);
+				break;
+			}
 			ImGui::Separator();
 			ImGui::PopID();
 		}
@@ -1081,14 +1284,13 @@ namespace Lux
 			edited = true;
 		}
 
-		ImGui::BeginDisabled(sound.Parameters.size() >= Sound::MaxParameters);
-		if (ImGui::Button(LUX_ICON_PLUS "  Add Parameter"))
+		const ImGuiEx::PanelAction addParameter[] = {
+			{0, "Add parameter", LUX_ICON_PLUS, nullptr, sound.Parameters.size() < Sound::MaxParameters}};
+		if (ImGuiEx::PanelActionBar("##add_parameter", addParameter) == 0)
 		{
 			sound.Parameters.push_back({ UniqueParameterName(sound), 0.0f, 1.0f, 0.0f, {} });
 			edited = true;
 		}
-		ImGui::EndDisabled();
-		ImGui::TreePop();
 	}
 
 	void SoundEditorPanel::UI_Node(Document& document, Sound& sound, bool& edited)
@@ -1098,7 +1300,7 @@ namespace Lux
 		const std::vector<int> parents = sound.GetParents();
 		const int parent = parents[index];
 		// One header name whatever the node, so it stays open across selections.
-		if (!ImGuiEx::PropertyGridHeader("Selected Node"))
+		if (!ImGuiEx::BoundedCollapsingHeader("Selected Node", ImGuiTreeNodeFlags_DefaultOpen))
 			return;
 
 		ImGui::PushID(static_cast<int>(index));
@@ -1151,7 +1353,6 @@ namespace Lux
 			UI_Clip(node, edited);
 		UI_Curves(document, sound, node, edited);
 		ImGui::PopID();
-		ImGui::TreePop();
 	}
 
 	// The first clip (the one the engine counts beats on) under its bar and beat lines and markers.
@@ -1161,21 +1362,23 @@ namespace Lux
 		const auto clipNode = std::find_if(sound.Nodes.begin(), sound.Nodes.end(), [](const SoundNode& node) { return node.Type == SoundNodeType::Clip && node.Clip; });
 		if (clipNode == sound.Nodes.end())
 		{
-			ImGui::TextDisabled("Assign a clip to see the music timeline.");
+			ImGui::TextWrapped("Assign a clip to see the music timeline.");
 			return;
 		}
 		const Waveform& waveform = GetWaveform(clipNode->Clip);
 		const float duration = waveform.Duration;
 		if (waveform.Peaks.empty() || duration <= 0.0f)
 		{
-			ImGui::TextDisabled("The first clip's waveform could not be read.");
+			ImGui::TextWrapped("The first clip's waveform could not be read.");
 			return;
 		}
 
 		const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-		ImGui::InvisibleButton("##music_timeline", ImVec2(width, kWaveformHeight));
+		ImGui::InvisibleButton("##music_timeline",
+							   ImVec2(width, kWaveformHeight * ImGui::GetStyle()._MainScale));
 		const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->PushClipRect(min, max, true);
 		drawList->AddRectFilled(min, max, Colors::Theme::backgroundDark, 4.0f);
 		DrawPeaks(drawList, min, max, waveform.Peaks);
 		const auto timeToX = [&](float seconds) { return min.x + width * std::clamp(seconds / duration, 0.0f, 1.0f); };
@@ -1232,6 +1435,7 @@ namespace Lux
 			drawList->AddLine(ImVec2(x, min.y), ImVec2(x, max.y), Colors::Theme::accent, active ? 3.0f : 1.5f);
 			drawList->AddText(ImVec2(x + 3.0f, max.y - ImGui::GetTextLineHeight() - 12.0f), Colors::Theme::accent, marker.Name.c_str());
 		}
+		drawList->PopClipRect();
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%.3f s of %.3f s\nDrag a marker to move it.", xToTime(mouseX), duration);
 	}
@@ -1274,14 +1478,17 @@ namespace Lux
 		if (!waveform)
 			return;
 		const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-		ImGui::InvisibleButton("##sound_waveform", ImVec2(width, kWaveformHeight));
+		ImGui::InvisibleButton("##sound_waveform",
+							   ImVec2(width, kWaveformHeight * ImGui::GetStyle()._MainScale));
 		const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->PushClipRect(min, max, true);
 		drawList->AddRectFilled(min, max, Colors::Theme::backgroundDark, 4.0f);
 		if (waveform->Peaks.empty() || duration <= 0.0f)
 		{
 			drawList->AddText(ImVec2(min.x + 8.0f, min.y + 8.0f), Colors::Theme::textDarker,
 				"The waveform could not be read.");
+			drawList->PopClipRect();
 			return;
 		}
 		DrawPeaks(drawList, min, max, waveform->Peaks);
@@ -1339,6 +1546,7 @@ namespace Lux
 			const ImU32 color = handle == 0 ? Colors::Theme::accent : Colors::Theme::highlight;
 			drawList->AddLine(ImVec2(x, min.y), ImVec2(x, max.y), color, handle == hovered ? 3.0f : 1.5f);
 		}
+		drawList->PopClipRect();
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%.3f s of %.3f s\nClick or drag to set the start offset; drag the loop markers to set the region.", xToTime(mouseX), duration);
 	}
@@ -1346,7 +1554,7 @@ namespace Lux
 	void SoundEditorPanel::UI_Curves(Document& document, Sound& sound, SoundNode& node, bool& edited)
 	{
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Parameter Curves");
+		ImGui::TextWrapped("Parameter Curves");
 		ImGui::Separator();
 		int removeCurve = -1;
 		std::vector<std::string> parameterNames;
@@ -1382,7 +1590,8 @@ namespace Lux
 			ImGuiEx::EndPropertyGrid();
 			const uint32_t id = document.SelectedNode * 4096u + static_cast<uint32_t>(index);
 			edited |= UI_CurveEditor(document, sound, curve, id);
-			if (ImGui::SmallButton(LUX_ICON_TRASH " Remove Curve"))
+			const ImGuiEx::PanelAction removeCurveAction[] = {{0, "Remove curve", LUX_ICON_TRASH}};
+			if (ImGuiEx::PanelActionBar("##remove_curve", removeCurveAction) == 0)
 				removeCurve = static_cast<int>(index);
 			ImGui::Separator();
 			ImGui::PopID();
@@ -1392,8 +1601,9 @@ namespace Lux
 			node.Curves.erase(node.Curves.begin() + removeCurve);
 			edited = true;
 		}
-		ImGui::BeginDisabled(sound.Parameters.empty());
-		if (ImGui::Button(LUX_ICON_PLUS "  Add Curve"))
+		const ImGuiEx::PanelAction addCurve[] = {
+			{0, "Add curve", LUX_ICON_PLUS, nullptr, !sound.Parameters.empty()}};
+		if (ImGuiEx::PanelActionBar("##add_curve", addCurve) == 0)
 		{
 			const auto& parameter = sound.Parameters.front();
 			SoundCurve curve{ parameter.Name, SoundCurveTarget::Volume, {} };
@@ -1403,7 +1613,6 @@ namespace Lux
 			node.Curves.push_back(std::move(curve));
 			edited = true;
 		}
-		ImGui::EndDisabled();
 		if (sound.Parameters.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 			ImGui::SetTooltip("Add a parameter first.");
 	}
@@ -1426,7 +1635,7 @@ namespace Lux
 		}
 
 		const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-		ImGui::InvisibleButton("##sound_curve", ImVec2(width, kCurveHeight));
+		ImGui::InvisibleButton("##sound_curve", ImVec2(width, kCurveHeight * ImGui::GetStyle()._MainScale));
 		const ImVec2 min = ImGui::GetItemRectMin(), max = ImGui::GetItemRectMax();
 		const auto toY = [&](float value)
 		{
@@ -1442,6 +1651,7 @@ namespace Lux
 		const auto fromX = [&](float x) { return xRange.x + std::clamp((x - min.x) / (max.x - min.x), 0.0f, 1.0f) * (xRange.y - xRange.x); };
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->PushClipRect(min, max, true);
 		drawList->AddRectFilled(min, max, Colors::Theme::backgroundDark, 4.0f);
 		if (!logarithmic && yRange.x <= 1.0f && 1.0f <= yRange.y && curve.Target != SoundCurveTarget::Send)
 			drawList->AddLine(ImVec2(min.x, toY(1.0f)), ImVec2(max.x, toY(1.0f)), IM_COL32(255, 255, 255, 30)); // unity
@@ -1521,6 +1731,7 @@ namespace Lux
 		const std::string reading = std::format("{} {:.2f} -> {:.2f}", curve.Parameter, value, curve.Evaluate(value));
 		drawList->AddText(ImVec2(min.x + 6.0f, min.y + 4.0f), Colors::Theme::textDarker, reading.c_str());
 
+		drawList->PopClipRect();
 		if (ImGui::IsItemHovered())
 		{
 			if (hovered >= 0)

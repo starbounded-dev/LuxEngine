@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import math
+import struct
+import wave
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -18,6 +21,9 @@ def main():
         user, project = root / "user", root / "project"
         user.mkdir(parents=True)
         (project / "Assets").mkdir(parents=True)
+        with wave.open(str(project / "Assets/Tone.wav"), "wb") as tone:
+            tone.setparams((1, 2, 48000, 0, "NONE", "not compressed"))
+            tone.writeframes(b"".join(struct.pack("<h", int(1500 * math.sin(2 * math.pi * 440 * sample / 48000))) for sample in range(12000)))
         (project / "AudioPanelTest.luxproj").write_text("Project:\n  Name: AudioPanelTest\n  AssetDirectory: Assets\n  AssetRegistry: Assets/AssetRegistry.lzr\n  AutoSave: false\n")
         (project / "Assets/AssetRegistry.lzr").write_text("Assets: []\n")
         (user / "UserPreferences.yaml").write_text(f"UserPrefs:\n  ShowSplashScreen: false\n  StartupProject: {project.as_posix()}/AudioPanelTest.luxproj\n  RecentProjects: []\n")

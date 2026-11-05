@@ -285,6 +285,256 @@ namespace Lux
 		return failures.empty();
 	}
 
+	bool SoundEditorPanel::RunEditorSelfTests(std::vector<std::string>& failures)
+	{
+		AudioPanelTestContext context;
+		try
+		{
+			auto manager = Project::GetEditorAssetManager();
+			const auto clip = manager->GetOrImportAsset("Tone.wav");
+			Require(clip && AssetManager::GetAssetType(clip) == AssetType::Audio,
+					"Real waveform fixture missing");
+			auto authored = Sound::CreateForClip(clip);
+			authored->Volume =
+				0.0f; // Exercise real playback without making the developer's speakers audible.
+			authored->WrapNode(0, SoundNodeType::Layer);
+			for (auto type : {SoundNodeType::Random, SoundNodeType::Sequence, SoundNodeType::Switch})
+			{
+				const auto container = authored->AddNode(0, type);
+				if (type == SoundNodeType::Switch)
+					authored->Nodes[container].SwitchParameter = "Surface";
+				for (int child = 0; child < 2; ++child)
+					authored->Nodes[authored->AddNode(container, SoundNodeType::Clip)].Clip = clip;
+			}
+			authored->Parameters = {{"Intensity", 0.0f, 1.0f, 0.25f, {}},
+									{"Surface", 0.0f, 1.0f, 0.0f, {"Stone", "Wood"}}};
+			authored->Nodes[1].Name = std::string(40, 'N') + " ## 100%";
+			authored->Nodes[1].Loop = authored->Nodes[1].HasLoopRegion = true;
+			authored->Nodes[1].LoopStart = 0.01f;
+			authored->Nodes[1].LoopEnd = 0.2f;
+			authored->Nodes[1].Curves = {
+				{"Intensity", SoundCurveTarget::Volume, {{0.0f, 0.2f}, {1.0f, 1.0f}}}};
+			authored->Tempo.BPM = 120.0f;
+			authored->Markers = {{"Section:Start", 0.05f}};
+			Require(authored->Validate(), "Sound Editor authored fixture is invalid");
+			const std::filesystem::path relative(u8"Audio/\u00e9##Editor.lsound");
+			Require(FileSystem::WriteFileAtomically(Project::GetActiveAssetDirectory() / relative,
+													authored->ToYAML()),
+					"Cannot write Sound Editor fixture");
+			const auto handle = manager->ImportAsset(relative);
+			auto sound = AssetManager::GetAsset<Sound>(handle);
+			Require(sound && manager->GetDependencies(handle).contains(clip),
+					"Sound load lost clip dependencies");
+			SoundEditorPanel panel;
+			std::vector<std::function<void()>> undo, redo;
+			panel.SetUndoCallback(
+				[&](const std::string&, auto before, auto after)
+				{
+					undo.push_back(std::move(before));
+					redo.push_back(std::move(after));
+				});
+			panel.OpenSound(handle);
+			panel.GetActiveDocument()->SelectedNode = 1;
+			panel.LoadState(Yaml::Load("Section: Node\nTreeFraction: 0.3\nShowTree: true\n"));
+			const auto original = SoundState::Capture(*sound);
+			ImGuiEx::DpiStyle dpi;
+			dpi.Capture(ImGui::GetStyle());
+			for (float scale : {1.0f, 1.5f})
+			{
+				dpi.Apply(ImGui::GetStyle(), scale);
+				ImGui::GetStyle().FontScaleMain = scale;
+				for (uint32_t section = 0; section < 4; ++section)
+				{
+					panel.m_Section = section;
+					for (float width : {1500.0f, 650.0f, 280.0f, 190.0f, 1500.0f})
+					{
+						Frame(panel, "Sound Editor", width);
+						Frame(panel, "Sound Editor", width);
+						try
+						{
+							CheckWidth("Sound Editor");
+						}
+						catch (const std::exception& error)
+						{
+							throw std::runtime_error(std::format("Section {} width {} scale {}: {}", section,
+																 width, scale, error.what()));
+						}
+						Require(SoundState::Capture(*sound) == original && panel.m_TreeFraction == 0.3f,
+								"Sound reflow changed authored data or the user's split");
+					}
+				}
+				panel.m_NarrowTree = true;
+				Frame(panel, "Sound Editor", 190.0f);
+				Frame(panel, "Sound Editor", 190.0f);
+				CheckWidth("Sound Editor");
+				panel.m_NarrowTree = false;
+				// Music and marker controls, usually collapsed, must also reflow.
+				ImGui::NewFrame();
+				ImGui::SetNextWindowSize({190.0f, 750.0f});
+				ImGui::Begin("Music controls");
+				ImGui::GetStateStorage()->SetInt(ImGui::GetID("Music"), 1);
+				bool edited = false;
+				panel.UI_SoundProperties(*sound, edited);
+				ImGui::End();
+				ImGui::Render();
+				CheckWidth("Music controls");
+				Require(!edited, "Viewing music controls changed the Sound");
+			}
+			Require(!panel.GetWaveform(clip).Peaks.empty(), "Real clip waveform was not decoded");
+			// Drive the production canvases with actual ImGui input and the owner's undo grouping.
+			auto& doc = *panel.GetActiveDocument();
+			auto& node = sound->Nodes[1];
+			ImRect canvas;
+			const auto canvasFrame = [&](int kind)
+			{
+				ImGui::NewFrame();
+				ImGui::SetNextWindowPos({0.0f, 0.0f});
+				ImGui::SetNextWindowSize({650.0f, 750.0f});
+				ImGui::Begin("Sound canvas input");
+				bool edited = false;
+				if (kind == 0)
+					panel.UI_Clip(node, edited);
+				else if (kind == 1)
+					panel.UI_MusicTimeline(*sound, edited);
+				else
+					edited = panel.UI_CurveEditor(doc, *sound, node.Curves.front(), 4096);
+				canvas = {ImGui::GetItemRectMin(), ImGui::GetItemRectMax()};
+				panel.TrackEdit(doc, *sound, edited);
+				ImGui::End();
+				ImGui::Render();
+			};
+			auto& io = ImGui::GetIO();
+			canvasFrame(0);
+			const auto beforeWave = undo.size();
+			io.AddMousePosEvent(canvas.Min.x + canvas.GetWidth() * 0.6f, canvas.GetCenter().y);
+			canvasFrame(0);
+			io.AddMouseButtonEvent(0, true);
+			canvasFrame(0);
+			io.AddMouseButtonEvent(0, false);
+			canvasFrame(0);
+			Require(node.StartOffset > 0.14f && node.StartOffset < 0.16f && undo.size() == beforeWave + 1,
+					"Waveform input lost seconds or its undo transaction");
+			canvasFrame(1);
+			const auto beforeMarker = undo.size();
+			io.AddMousePosEvent(canvas.Min.x + canvas.GetWidth() * 0.2f, canvas.GetCenter().y);
+			canvasFrame(1);
+			io.AddMouseButtonEvent(0, true);
+			canvasFrame(1);
+			io.AddMousePosEvent(canvas.Min.x + canvas.GetWidth() * 0.4f, canvas.GetCenter().y);
+			canvasFrame(1);
+			io.AddMouseButtonEvent(0, false);
+			canvasFrame(1);
+			Require(sound->Markers.front().Seconds > 0.09f && sound->Markers.front().Seconds < 0.11f &&
+						undo.size() == beforeMarker + 1,
+					"Music marker drag lost seconds or its undo transaction");
+			canvasFrame(2);
+			const auto beforeCurve = undo.size();
+			io.AddMousePosEvent(canvas.GetCenter().x, canvas.GetCenter().y);
+			canvasFrame(2);
+			io.AddMouseButtonEvent(0, true);
+			canvasFrame(2);
+			io.AddMouseButtonEvent(0, false);
+			canvasFrame(2);
+			io.AddMouseButtonEvent(0, true);
+			canvasFrame(2);
+			io.AddMouseButtonEvent(0, false);
+			canvasFrame(2);
+			Require(node.Curves.front().Points.size() == 3 && undo.size() == beforeCurve + 1 &&
+						sound->Validate(),
+					"Curve point input lost data or its undo transaction");
+			// Hot-reloaded clip bytes must invalidate the waveform rather than displaying stale peaks.
+			const auto tonePath = Project::GetActiveAssetDirectory() / "Tone.wav";
+			ScopedBuffer tone(FileSystem::ReadBytes(tonePath));
+			Require(tone && tone.Size() > 44, "Cannot read private PCM fixture");
+			std::memset(static_cast<uint8_t*>(tone.Data()) + 44, 0, tone.Size() - 44);
+			Require(FileSystem::WriteBytes(tonePath, Buffer(tone.Data(), tone.Size())) &&
+						manager->ReloadData(clip),
+					"Could not reload changed private clip bytes");
+			const auto& refreshed = panel.GetWaveform(clip);
+			Require(!refreshed.Peaks.empty() &&
+						std::ranges::all_of(refreshed.Peaks, [](float peak) { return peak == 0.0f; }),
+					"Clip reload retained stale waveform peaks");
+			panel.LoadState(Yaml::Load("TreeFraction: .nan\n"));
+			Require(panel.m_TreeFraction == 0.3f, "Invalid Sound split replaced user preference");
+			Yaml::Writer state;
+			state << Yaml::BeginMap;
+			panel.SaveState(state);
+			state << Yaml::EndMap;
+			SoundEditorPanel restored;
+			restored.LoadState(Yaml::Load(state.c_str()));
+			Require(restored.m_TreeFraction == panel.m_TreeFraction &&
+						restored.m_Section == panel.m_Section && restored.m_ShowTree == panel.m_ShowTree,
+					"Sound view state did not round trip");
+			const auto count = undo.size();
+			sound->Pitch = 1.25f;
+			panel.GetActiveDocument()->EditInProgress = true;
+			panel.OnClose();
+			Require(undo.size() == count + 1 && !panel.GetActiveDocument()->EditInProgress,
+					"Hiding Sound lost the current edit transaction");
+			undo.back()();
+			Require(sound->Pitch == 1.0f, "Sound hide undo failed");
+			redo.back()();
+			Require(sound->Pitch == 1.25f, "Sound hide redo failed");
+			const auto bankHandle =
+				manager->GetAssetHandleFromFilePath(std::filesystem::path(u8"Audio/\u00e9##Bank.lbank"));
+			auto bank = AssetManager::GetAsset<SoundBank>(bankHandle);
+			const auto members = bank->Sounds;
+			const auto beforeAdd = undo.size();
+			{
+				FailedSaveFixture fail(manager->GetFileSystemPath(bankHandle));
+				Require(!panel.AddToBank(bankHandle, handle) && bank->Sounds == members &&
+							undo.size() == beforeAdd && !panel.m_BankError.empty(),
+						"Sound's failed bank edit published membership or undo");
+			}
+			Require(panel.AddToBank(bankHandle, handle) && bank->Contains(handle) &&
+						undo.size() == beforeAdd + 1,
+					"Sound bank retry failed");
+			undo.back()();
+			Require(bank->Sounds == members, "Sound bank undo lost membership");
+			redo.back()();
+			Require(bank->Contains(handle), "Sound bank redo failed");
+			undo.back()(); // Keep the Mixer scene-bank fixture silent and unchanged.
+			Sound invalid;
+			invalid.Nodes.clear();
+			panel.StartAudition(*panel.GetActiveDocument(), invalid);
+			Require(!panel.m_Audition && !panel.m_AuditionError.empty(), "Failed Sound audition was silent");
+			panel.m_Section = 0;
+			Frame(panel, "Sound Editor", 190.0f);
+			Frame(panel, "Sound Editor", 190.0f);
+			CheckWidth("Sound Editor");
+			panel.StartAudition(*panel.GetActiveDocument(), *sound);
+			Require(panel.m_Audition && panel.m_Audition->IsPlaying(), "Real Sound audition did not start");
+			auto held = panel.m_Audition;
+			panel.OpenSound(manager->GetAssetHandleFromFilePath("Audio/Two.lsound"));
+			Require(!panel.m_Audition && !held->IsPlaying(), "Switching Sound retained the old audition");
+			panel.OpenSound(handle);
+			panel.RequestCloseDocument(panel.m_ActiveDocument);
+			Require(panel.m_PendingCloseIndex >= 0, "Dirty Sound closed without a decision");
+			Frame(panel, "Sound Editor", 650.0f);
+			Require(panel.m_ClosePopupID &&
+						ImGui::IsPopupOpen(panel.m_ClosePopupID, ImGuiPopupFlags_AnyPopupLevel),
+					"Sound close decision was not shown");
+			panel.OnClose();
+			Require(!ImGui::IsPopupOpen(panel.m_ClosePopupID, ImGuiPopupFlags_AnyPopupLevel) &&
+						panel.m_OpenCloseConfirm,
+					"Hidden Sound retained a modal or lost its pending decision");
+			Frame(panel, "Sound Editor", 650.0f);
+			Require(ImGui::IsPopupOpen(panel.m_ClosePopupID, ImGuiPopupFlags_AnyPopupLevel),
+					"Sound close decision did not resume");
+			panel.OnProjectChanged(nullptr);
+			Require(panel.m_Documents.empty() && !panel.m_OpenCloseConfirm && !panel.m_KeyboardFocus &&
+						!panel.m_RequestFocus,
+					"Sound project change retained document/focus/modal state");
+			Frame(panel, "Sound Editor", 190.0f);
+			CheckWidth("Sound Editor");
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		return failures.empty();
+	}
+
 	bool AudioMixerPanel::RunSelfTests(std::vector<std::string>& failures)
 	{
 		AudioPanelTestContext context;

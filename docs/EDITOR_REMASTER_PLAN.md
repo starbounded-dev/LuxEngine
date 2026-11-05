@@ -834,3 +834,61 @@ and bundled audio help are updated; unrelated sample/audio changes are excluded.
 **Remaining:** Phase 5(e)(2) Sound Editor UI and Audio Debugger, the remaining whole-editor
 inventory, and Phase 6 platform/workflow acceptance, including dock-drag, mixed-monitor/disconnect,
 Linux execution and exported authored playback. The full remaster remains in progress.
+
+### Phase 5(e)(2a) — Sound Editor
+
+**Verified inventory:** the Sound Editor's document/tab/save/close lifecycle, tree actions and
+selection, Sound/Spatial/Music controls, parameters, bank membership, clip waveforms, music
+markers, parameter curves and owned audition. The previous shell used fixed tree widths,
+stacked regions at narrow widths, independent toolbar buttons and inline marker/parameter
+commands. Source review found that hide/switch/save could leave an edit outside undo history,
+and the Banks section published membership before observing write success. The narrow 150%
+test reproduced an overflowing Parameter Curves caption; it now wraps.
+
+**Delivered:** pinned shared Save/Revert/Play/Stop/Loop/Tree actions and a section selector,
+proportional tree/details regions, optional tree visibility, and full-width alternate tree/details
+when both minimums cannot fit. Optional Section/TreeFraction/ShowTree state preserves the user's
+wide preference. Tree rows retain arrows/selection and literal bounded names with wrapped hover
+text; deep indentation leaves room for labels. Headers no longer add hidden indentation, and
+marker, parameter and curve commands use shared bounded actions. Canvas drawing stays clipped
+to its own rectangle, retaining seconds, BPM, linear values and logarithmic filter mapping.
+Waveform caches invalidate after asset data changes. The Banks catalog caches by sound and
+registry/data generation and supports explicit Refresh; its membership commands save candidates
+before publishing and pushing undo, with visible failure/retry.
+
+Save, hide, close and document changes finish current edit transactions. Close decisions retain
+documents on failed saves, survive hide/reopen, and tear down their owned modal on hide/project
+change. Save and audition failures have visible errors. Project changes clear old document,
+focus, modal, waveform and bank state without resolving old handles through the new manager.
+Switching documents and hiding stop owned audition immediately. Existing Sound/Bank source and
+pack schemas, editing algorithms and global history remain in their owners. This batch changes
+only editor code, tests and help/documentation; it adds no mandatory runtime dependency.
+
+**Verification:** no new C++ file, so no new project regeneration was needed. Final Debug Editor
+`2026-11-05 03:52:39`, build log `bin/sound-editor-build.txt`; shared Core/Runtime were unchanged
+from the preceding verified batch. Audio runner passed Single/Multi in
+`bin/audio-panels-smoke/1793868759777005700`. It includes all earlier Bank/Mixer/save regressions,
+all Sound sections at 100%/150% wide/narrow/wide down to 190 pixels, compact tree and Music
+controls, unchanged authored data while viewing, optional state/invalid fractions, retained
+hide-edit undo/redo, bank save failure/retry/undo/redo, actual PCM waveform decoding and clip-byte
+reload, waveform clicks, marker drags and curve double-click insertion with real ImGui input and
+one undo transaction each. Real Sound audition starts through the native engine, stops on document
+switch, reports failed start, and close/modal/project teardown is checked. The fixture Sound's
+volume is zero to avoid audible test output. This is not an exported-game playback check.
+Workspace lifecycle/persistence/recovery passed Single/Multi in
+`bin/workspace-smoke/1793868781550989500`.
+
+Native review used the private project/preferences under
+`bin/sound-editor-ui/1793868488727799500` (final.log, final-stderr.log): open a multi-container
+Sound, select a long literal node name, inspect loop/waveform/curve controls, change start offset
+by clicking the waveform, save with Ctrl+S, restore to 1077x635, hide the tree, choose Parameters
+and close the saved document with Ctrl+W. The resulting source records StartOffset 0.11560365;
+no assertion or Vulkan validation error was found, and the review editor closed normally. The
+final build adds visible audition-error handling, covered by the final synthetic failed-start
+probe. Local `$cr` checked scopes/IDs, candidate writes, main-thread ownership, optional layout
+state, undo grouping, canvas clip balance and project/preview teardown. No remaining must-fix or
+should-fix issue in this batch. Bundled audio help/shared docs were updated. Unrelated sample
+assets and project changes remain excluded.
+
+**Remaining:** Audio Debugger (Phase 5(e)(2b)), remaining whole-editor inventory and Phase 6's
+platform/workflow acceptance. The full remaster remains in progress.

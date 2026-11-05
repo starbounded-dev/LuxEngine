@@ -1029,6 +1029,15 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `AudioEventInstance::Create(const Ref<Sound>&)`, owned by the panel so it plays in edit mode;
   parameter sliders drive it live. It opens from a Content Browser double-click (`AssetType::Sound`)
   and from the Audio Source inspector's Edit Sound button (`SceneHierarchyPanel::SetOpenSoundCallback`).
+  The Sound Editor uses pinned shared Save/Revert/Play/Loop/Tree actions and a section selector.
+  Wide layouts use a proportional tree/details split; narrow layouts alternate full-width tree
+  and details without overwriting the wide preference. Optional Section/TreeFraction/ShowTree
+  layout state owns no documents. Headers, marker/parameter/curve actions, literal tree labels and
+  canvas drawings stay bounded; waveforms invalidate when asset data generation changes. Hiding,
+  saving or switching documents finishes pending edit transactions; hide/document/project changes
+  stop audition. A close decision survives hide/reopen, with owned modal teardown and visible save
+  failures. Banks-page membership saves candidates before publishing or adding undo and caches
+  its catalog by sound, registry revision and data generation, with explicit Refresh for other edits.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
 - **The manual (Help).** `Editor/Resources/Docs/**.md` is the user manual for game makers, shipped
