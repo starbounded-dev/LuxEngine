@@ -131,6 +131,10 @@ namespace Lux
 						ImGui::SetNextWindowPos({50.0f, 50.0f});
 						ImGui::SetNextWindowSize({size.x * scale, size.y * scale});
 						m_EditorViewport->BeginImGui();
+						// Native floating windows bring their scene root forward when focused.
+						// Exercise that transition after the overlay windows already exist.
+						if (frame > 0)
+							ImGui::FocusWindow(ImGui::GetCurrentWindow());
 						UI_ViewportPerformanceHUD();
 						UI_AcousticMaterialLegend();
 						m_EditorViewport->EndImGui();
@@ -140,12 +144,17 @@ namespace Lux
 						ImGui::Render();
 					}
 					const auto* bounds = m_EditorViewport->GetBounds();
+					auto* sceneWindow = ImGui::FindWindowByName("Scene View");
+					Require(context->NavWindow == sceneWindow, "Scene View overlays stole keyboard focus");
 					for (const char* name : {"##viewport_performance_hud", "##acoustic_material_legend",
 											 "##viewport_settings_toolbar", "##viewport_orientation_gizmo",
 											 "##viewport_selection_badge"})
 					{
-						const auto* window = ImGui::FindWindowByName(name);
+						auto* window = ImGui::FindWindowByName(name);
 						Require(window && window->Active, "A Scene View overlay was not submitted");
+						Require(ImGui::FindWindowDisplayIndex(sceneWindow->RootWindowDockTree) <
+									ImGui::FindWindowDisplayIndex(window),
+								"Focused Scene View covered its corner overlays");
 						Require(window->Viewport->ID == m_EditorViewport->GetPlatformViewportID(),
 								"A Scene View overlay targeted a different platform viewport");
 						if (window->Pos.x < bounds[0].x - 1.0f || window->Pos.y < bounds[0].y - 1.0f ||

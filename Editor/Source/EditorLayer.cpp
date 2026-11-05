@@ -2305,7 +2305,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
-		ImGui::Begin("##acoustic_material_legend", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##acoustic_material_legend", flags);
 		ImGuiLayer::RequestGlassBackdrop();
 		ImGui::TextWrapped("Acoustic materials");
 		bool any = false;
@@ -2380,7 +2380,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
-		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##viewport_performance_hud", flags);
 		ImGuiLayer::RequestGlassBackdrop();
 		// Numeric readout in the monospace face (JetBrains Mono), like the mock's fps/ms pill.
 		ImGuiEx::Fonts::PushFont("Mono");
@@ -2419,7 +2419,7 @@ namespace Lux {
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding,
 									 ImVec2(k_ViewportGearPadding * scale, k_ViewportGearPadding * scale));
-		ImGui::Begin("##viewport_settings_toolbar", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##viewport_settings_toolbar", flags);
 		ImGuiLayer::RequestGlassBackdrop();
 
 		const ImVec2 buttonSize(k_ViewportGearSize * scale, k_ViewportGearSize * scale);
@@ -2566,7 +2566,7 @@ namespace Lux {
 		// Top-right, tucked below the settings gear so the two don't overlap.
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		ImGui::Begin("##viewport_orientation_gizmo", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##viewport_orientation_gizmo", flags);
 		ImGui::Dummy(ImVec2(windowExtent, windowExtent));
 
 		const ImVec2 winMin = ImGui::GetItemRectMin();
@@ -2677,7 +2677,7 @@ namespace Lux {
 		// Top-left corner: the gizmo/tool toolbar moved to the centre, so this owns the corner now.
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##viewport_selection_badge", flags);
 
 		const ImVec2 textSize = ImGui::CalcTextSize(m_SelectionBadgeLabel.c_str());
 		ImGui::Dummy(ImVec2(std::min(maximumWidth, textSize.x + pad.x * 2.0f), textSize.y + pad.y * 2.0f));
@@ -3652,7 +3652,7 @@ namespace Lux {
 		ImGui::SetNextWindowBgAlpha(0.48f);
 		const float scale = ImGui::GetStyle()._MainScale;
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
-		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##room_acoustics_readout", flags);
 		ImGuiLayer::RequestGlassBackdrop();
 		ImGui::TextWrapped("Room (Soundwave)");
 		ImGuiEx::Fonts::PushFont("Mono");

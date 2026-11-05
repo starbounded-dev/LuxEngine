@@ -1354,3 +1354,41 @@ The updated Windows workspace runner also passed Single/Multi with the shared ch
 `bin/workspace-smoke/1793900923618682700`. Local cr reviewed imports, expected-error handling,
 log I/O failures and exact rejection evidence; no remaining must-fix/should-fix finding in this
 Python-only verification batch. Existing fresh native builds above remain authoritative.
+
+
+### Phase 6 - focused floating Scene View overlays
+
+Native detached-window review exposed a second overlay issue after the wrapped-HUD width fix:
+focusing the floating Scene View raised its image window above the separate corner overlay roots.
+The platform IDs and bounds were correct; ImGui display ordering hid the overlays.
+
+`Viewport::BeginOverlay` now places an obscured overlay immediately above its scene dock-tree root.
+It relocates the overlay beside the owner before swapping their display positions, preserving the
+owner's ordering relative to other windows, keyboard focus and later popups. All six Scene View
+corner overlay paths use this helper and retain their matching End scopes. No renderer resources,
+waits, workspace schema or authored data changed.
+
+The production overlay regression now focuses the existing floating scene on subsequent frames,
+checks every submitted corner window's display order and verifies scene keyboard focus. It still
+checks wide/narrow containment, platform association, readable HUD width and 100%/150% metrics.
+Before the fix it failed with "Focused Scene View covered its corner overlays" at
+`bin/settings-panels-smoke/1793901762798836900/Single`. After the fix:
+
+- Windows Single/Multi PASS: `bin/settings-panels-smoke/1793901880469831200`.
+- Linux X11 Single/Multi PASS: `bin/settings-panels-smoke/1793902166175681223`.
+- Windows Debug Editor artifact: 2026-11-05 13:04:10, 53,591,040 bytes,
+  `bin/viewport-overlay-order-final-build.txt`.
+- Linux Debug Editor artifact: 2026-11-05 13:09:13.843253600 -0500, 406,847,168 bytes,
+  `bin/viewport-overlay-order-linux-build.txt`.
+
+Computer Use in the disposable personal layout under
+`bin/workspace-platform-native/1793900647090929900` verified native Scene View creation after host
+restore, a readable horizontal HUD, visible gear/orientation controls after activation and scene
+clicks, and settings popup above the overlays. The final fully visible review is
+`order-final-native.log`; normal shutdown and the shared graphics-failure gate are clean. A prior
+cropped-window review is not used to claim full corner-control visibility. Local cr found no
+blocking findings; no source files were added, so project regeneration was unnecessary.
+
+Phase 6 remains active: the remaining detached mixed-DPI/monitor acceptance and known failed
+Wayland path retain their prior limits. A separately identified PanelManager scale lookup still
+uses the Profiler's menu label instead of its actual window title and needs its own verified fix.

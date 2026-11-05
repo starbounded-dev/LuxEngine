@@ -833,6 +833,9 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   View's detached metrics. Gear/gizmo geometry and hit testing follow those metrics; orientation
   reserves the gear's height and fits the remaining space. Selection uses the font size captured in
   Scene View, and the room readout reserves the selected-name badge's height.
+  `BeginOverlay` retains these windows immediately above their scene root when focusing a floating
+  scene raises it in ImGui's display order. It preserves keyboard focus and later popup ordering;
+  every caller still owns the matching `ImGui::End`.
 - UI scaling registers logical font sizes and uses ImGui 1.92's dynamic per-viewport font baking.
   `ImGuiLayer::UpdateUIScale` updates main-window metrics from an unscaled `ImGuiEx::DpiStyle`
   baseline; `ScopedWindowScale` applies/restores detached panel metrics without accumulating

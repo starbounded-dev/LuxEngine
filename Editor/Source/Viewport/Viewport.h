@@ -4,12 +4,14 @@
 #pragma once
 
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Core/Assert.h"
 #include "Lux/Renderer/Framebuffer.h"
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Scene/Scene.h"
 
 #include <imgui/imgui.h>
+#include <imgui/imgui_internal.h>
 
 #include <algorithm>
 #include <string>
@@ -220,6 +222,23 @@ namespace Lux
 				ImGuiCond_Always, corner);
 			ImGui::SetNextWindowSizeConstraints({1.0f, 1.0f}, size);
 			return true;
+		}
+		// Begin after PrepareOverlay; the caller always owns the matching ImGui::End.
+		bool BeginOverlay(const char* name, ImGuiWindowFlags flags) const
+		{
+			const bool visible = ImGui::Begin(name, nullptr, flags);
+			auto* scene = ImGui::FindWindowByName(m_Name.c_str());
+			LUX_CORE_VERIFY(scene, "Scene View overlay requires its owner window");
+			auto* owner = scene->RootWindowDockTree;
+			auto* overlay = ImGui::GetCurrentWindow();
+			if (ImGui::FindWindowDisplayIndex(owner) > ImGui::FindWindowDisplayIndex(overlay))
+			{
+				// Focusing a floating scene brings it above existing overlays. Insert the overlay
+				// immediately above it without changing focus or lifting it over later popups.
+				ImGui::BringWindowToDisplayBehind(overlay, owner);
+				ImGui::BringWindowToDisplayBehind(owner, overlay);
+			}
+			return visible;
 		}
 		// Screen-space rect of the rendered image inside the panel. Equal to the panel rect unless
 		// the render aspect differs, in which case the image is centred and letterboxed. Anything
