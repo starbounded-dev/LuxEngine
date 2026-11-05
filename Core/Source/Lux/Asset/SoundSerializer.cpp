@@ -8,6 +8,8 @@
 #include "Lux/Audio/Sound.h"
 #include "Lux/Audio/SoundBank.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Utilities/FileSystem.h"
+#include "Lux/Utilities/StringUtils.h"
 #include <fstream>
 
 namespace Lux
@@ -53,34 +55,36 @@ namespace Lux
 				AssetManager::RegisterDependency(sound, handle);
 		}
 
-		template<typename T>
-		void Save(const AssetMetadata& metadata, const Ref<Asset>& asset)
+		template <typename T> bool Save(const AssetMetadata& metadata, const Ref<Asset>& asset)
 		{
 			const auto value = asset.As<T>();
+			const auto path = Utils::PathToUTF8(metadata.FilePath);
 			std::string error;
 			if (!value || !value->Validate(&error))
 			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid {} '{}': {}", Kind<T>, metadata.FilePath.string(), error);
-				return;
+				LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid {} '{}': {}", Kind<T>, path, error);
+				return false;
 			}
 			// Same limit the loader and the asset pack enforce: a larger file would save and then fail
 			// to load or export.
 			const auto text = value->ToYAML();
 			if (text.size() > T::MaxFileBytes)
 			{
-				LUX_CORE_ERROR_TAG("Audio", "The {} '{}' exceeds the 64 KiB serialized limit; not saved", Kind<T>, metadata.FilePath.string());
-				return;
+				LUX_CORE_ERROR_TAG("Audio", "The {} '{}' exceeds the 64 KiB serialized limit; not saved",
+								   Kind<T>, path);
+				return false;
 			}
-			std::ofstream file(Project::GetActiveAssetDirectory() / metadata.FilePath);
-			file << text;
-			file.flush();
-			if (!file)
+			// The byte cap applies to the file too: Windows text newline expansion must not
+			// make an accepted YAML snapshot larger than the loader's bound.
+			if (!FileSystem::WriteFileAtomically(Project::GetActiveAssetDirectory() / metadata.FilePath, text,
+												 true))
 			{
-				LUX_CORE_ERROR_TAG("Audio", "Failed to save {} '{}'", Kind<T>, metadata.FilePath.string());
-				return;
+				LUX_CORE_ERROR_TAG("Audio", "Failed to save {} '{}'", Kind<T>, path);
+				return false;
 			}
 			// An edit may have added or removed what it depends on.
 			RegisterDependencies(*value, metadata.Handle);
+			return true;
 		}
 
 		template<typename T>
@@ -146,12 +150,20 @@ namespace Lux
 	}
 
 	void SoundSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const { Save<Sound>(metadata, asset); }
+	bool SoundSerializer::TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+	{
+		return Save<Sound>(metadata, asset);
+	}
 	bool SoundSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const { return Load<Sound>(metadata, asset); }
 	void SoundSerializer::RegisterDependencies(const AssetMetadata& metadata) const { LoadDependencies<Sound>(metadata); }
 	bool SoundSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const { return WritePacked<Sound>(handle, stream, outInfo); }
 	Ref<Asset> SoundSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& info) const { return ReadPacked<Sound>(stream, info); }
 
 	void SoundBankSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const { Save<SoundBank>(metadata, asset); }
+	bool SoundBankSerializer::TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+	{
+		return Save<SoundBank>(metadata, asset);
+	}
 	bool SoundBankSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const { return Load<SoundBank>(metadata, asset); }
 	void SoundBankSerializer::RegisterDependencies(const AssetMetadata& metadata) const { LoadDependencies<SoundBank>(metadata); }
 	bool SoundBankSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const { return WritePacked<SoundBank>(handle, stream, outInfo); }

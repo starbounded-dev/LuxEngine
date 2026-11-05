@@ -866,10 +866,18 @@ namespace Lux
 		if (!asset)
 			return;
 
+		// Ref::As is an unchecked cast. Only inspect the layouts owned here; other
+		// serializers (including Sounds and banks) register their own dependencies.
+		const AssetType type = asset->GetAssetType();
+		if (type != AssetType::Material && type != AssetType::MeshSource && type != AssetType::Mesh &&
+			type != AssetType::StaticMesh)
+			return;
+
 		DeregisterDependencies(asset->Handle);
 
-		if (auto materialAsset = asset.As<MaterialAsset>())
+		if (type == AssetType::Material)
 		{
+			const auto materialAsset = asset.As<MaterialAsset>();
 			if (materialAsset->GetAlbedoMapHandle())
 				RegisterDependency(materialAsset->GetAlbedoMapHandle(), materialAsset->Handle);
 			if (materialAsset->GetNormalMapHandle())
@@ -883,22 +891,25 @@ namespace Lux
 			return;
 		}
 
-		if (auto meshSource = asset.As<MeshSource>())
+		if (type == AssetType::MeshSource)
 		{
+			const auto meshSource = asset.As<MeshSource>();
 			RegisterMeshSourceMaterialDependencies(*this, meshSource);
 			return;
 		}
 
-		if (auto mesh = asset.As<Mesh>())
+		if (type == AssetType::Mesh)
 		{
+			const auto mesh = asset.As<Mesh>();
 			if (mesh->GetMeshSource())
 				RegisterDependency(mesh->GetMeshSource(), mesh->Handle);
 			RegisterMaterialTableDependencies(*this, mesh);
 			return;
 		}
 
-		if (auto staticMesh = asset.As<StaticMesh>())
+		if (type == AssetType::StaticMesh)
 		{
+			const auto staticMesh = asset.As<StaticMesh>();
 			if (staticMesh->GetMeshSource())
 				RegisterDependency(staticMesh->GetMeshSource(), staticMesh->Handle);
 			RegisterMaterialTableDependencies(*this, staticMesh);

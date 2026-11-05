@@ -714,6 +714,9 @@ Rules:
   counts loads queued, in flight, or finished but not yet synced; zero means editor streaming is
   idle. The golden capture uses it to wait before it reads back a frame.
 - Dependencies: `RegisterDependency(dep, handle)` so a reloaded texture notifies its materials.
+  `EditorAssetManager::RegisterAssetDependencies` dispatches by the actual asset type before
+  casting material/mesh layouts. `Ref::As` is unchecked. Other assets retain the dependencies
+  registered by their serializers; in particular, loading a bank must preserve its Sound edges.
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own
@@ -992,9 +995,27 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   never does a main-thread GPU readback.
 - Mixer editing (`Panels/AudioMixerPanel`): View → Audio Mixer edits `ProjectAudioSettings::Mixer` in
   place; each finished edit is one `PushUndoCommand` step of whole-mixer snapshots. Volume and mute
-  reach the running native engine (`AudioEngine::SetBusVolume`/`SetBusMuted`); layout and reverb
+  reach the running native engine (`AudioEngine::ClearBusVolume`/`SetBusMuted`, restoring authored
+  volume rather than a gameplay override); layout and reverb
   changes need `Apply`, which restarts the audio engine outside Play. Add/rename/remove are validated
-  whole with `AudioMixerSettings::Validate` before they replace the mix.
+  whole with `AudioMixerSettings::Validate` before they replace the mix. Save/Apply remain above
+  scrolling Buses/Reverb/Snapshots/VCAs/Scene Sound Banks pages. Wide Buses uses a proportional list
+  and details split; narrow rows retain linear volume, dB and mute, with a full-width details view.
+  `Page`/`BusFraction` are optional layout state. Snapshot rows use UUIDs and resolve their selected
+  iterator after structural commands. Structural edits and hide/project changes stop owned snapshot
+  audition; hide also finishes the current edit transaction. Failed Save/Apply keeps pending state.
+- Sound Bank editing (`Panels/SoundBankEditorPanel`): membership/residency operations save a
+  candidate through checked serialization before publishing it to the loaded bank or undo stack.
+  Failed operations leave the bank/file unchanged and show an error. The panel uses bounded asset
+  rows and wrapped status/empty states. Memory and unbanked inventories are cached on main, invalidated
+  by registry/data generations and current membership, and explicitly refreshable after edits made
+  elsewhere. A partially unreadable bank inventory reports that limitation. Context changes clear
+  cached handles/focus; no worker thread reads these panel caches.
+- `SoundSerializer` and `SoundBankSerializer` opt into `AssetImporter::TrySerialize`. They validate
+  the existing bounded YAML, atomically write its exact bytes (without Windows newline expansion),
+  then update asset dependencies on success. Existing void saves delegate to the same implementation;
+  source/pack schemas and limits are unchanged. Sound documents advance their saved snapshots and
+  publish `ApplySoundEdit` only after checked save success, retaining dirty edits on failure.
 - Sound editing (`Panels/SoundEditor/`): `SoundEditorPanel` (View → Sound Editor) edits `Sound`
   assets in tabs with explicit Save/Revert, the same way: widgets change the loaded asset, and each
   finished edit (a `SoundState` snapshot of every authored field, valid or not) is one closure

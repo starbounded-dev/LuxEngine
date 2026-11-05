@@ -290,7 +290,8 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Editor", "Sound Editor: cannot save Sound {}: it is no longer loaded", static_cast<uint64_t>(document.Handle));
 			return false;
 		}
-		AssetImporter::Serialize(asset.As<Asset>());
+		if (!AssetImporter::TrySerialize(asset.As<Asset>()))
+			return false;
 		AudioEngine::ApplySoundEdit(*asset); // playing instances (Play, previews) hear the saved Sound
 		document.Saved = SoundState::Capture(sound);
 		return true;

@@ -763,3 +763,74 @@ unrelated sample/audio files remain excluded from delivery.
 
 **Remaining:** Phase 5(e) audio tools, the remaining whole-editor inventory and Phase 6's full
 platform/workflow matrix. This checkpoint does not declare the complete editor remaster finished.
+
+### Phase 5(e)(1) — Sound Banks, Mixer and checked audio saves
+
+**Verified inventory:** `SoundBankEditorPanel` and `AudioMixerPanel` render/edit/lifecycle paths,
+`SoundEditorPanel::SaveDocument`, the shared disabled-scope wrappers, and Sound/Bank source and
+pack serializers. The recorded native baseline showed clipped Bank empty-state text and
+compressed Mixer columns at compact sizes. Sound Editor's full UI and Audio Debugger remain
+in the next audio slice.
+
+**Delivered:** Mixer keeps Save/Apply above scrolling Buses, Reverb return, Snapshots, VCAs and
+Scene Sound Banks pages. Buses use a proportional split when both regions fit and a selected
+bus details view at compact widths; volume remains linear with a separate dB reading. Effects,
+naming, snapshot overrides and bank controls use bounded or wrapped controls. Optional Page and
+BusFraction state preserves view choices without changing authored data. Snapshot rows use UUIDs,
+render literal names and reacquire selection after structural edits. Hiding finishes the current
+undo transaction. Structural edits, page changes, hide and project changes stop owned snapshot
+preview. Failed Save/Apply retains pending state, and Apply remains unavailable during Play.
+
+Bank membership/residency changes atomically save a candidate before publishing to the loaded
+bank and undo stack. Rejected operations visibly explain failure and can be retried. Member
+pickers and Remove actions stack when narrow; paths/status wrap. Memory estimates and unbanked
+inventory cache results, invalidate on registry/data generations and membership changes, and
+provide Refresh for edits made elsewhere. Unreadable banks report an incomplete inventory.
+Sound and Bank serializers expose checked saves, validate the existing size limit and atomically
+write exact YAML bytes before updating dependencies. Sound documents retain dirty work if writing
+fails. Source and pack formats are unchanged.
+
+**Root fixes exposed by verification:** a disabled Scene Sound Bank row reproduced an ImGui
+stack assertion because `ScopedDisable(false)` could consume its caller's disabled scope. The
+shared wrappers now always own a balanced Begin/End, including false conditions. A later run
+crashed before the first Bank edit (`bin/audio-panels-smoke/1793865689594816600`): the matching
+Windows fault offset resolved through the executable/PDB to `MaterialAsset::GetParent`.
+`EditorAssetManager::RegisterAssetDependencies` had used unchecked `Ref::As` casts as type tests,
+so loading a bank inspected a material layout. It now dispatches by actual asset type and leaves
+serializer-owned dependencies intact. The regression reloads a real bank and checks its exact
+Sound dependency set. These failed runs are not accepted verification evidence.
+
+**Verification:** project regeneration for the new C++ tests is recorded in
+`bin/audio-panels-generation.txt`. Final Debug Editor `2026-11-05 03:17:55`; Debug Runtime
+`03:10:59`, newer than changed Core `03:10:05`. Build logs are `bin/audio-panels-build.txt` and
+`bin/audio-panels-runtime-build.txt`. Final audio runner passed Single/Multi in
+`bin/audio-panels-smoke/1793866689230434400`: 100%/150% wide/narrow/wide reflow down to 190 pixels,
+all Mixer pages and compact selected details, actual snapshot creation, optional state, text
+isolation, save failure/retry and unchanged original bytes, undo/redo, bank reload dependencies,
+real Sound/Bank pack round trips, saved mixer decode, Apply, snapshot preview stop, disabled
+bank actions during Play and context teardown. The fixture's Sounds have unassigned clips;
+these pack tests do not establish exported-game audio playback.
+
+Shared Single/Multi regressions passed: Beam/action controls
+`bin/panel-controls-smoke/1793866296000258400`, materials/graph lifecycle
+`bin/material-panel-smoke/1793866314498221400`, settings/Help
+`bin/settings-panels-smoke/1793866539259624200`, hierarchy/inspector
+`bin/hierarchy-panel-smoke/1793866577589823800`, workspace persistence/recovery
+`bin/workspace-smoke/1793866597513299000`, diagnostic controls
+`bin/diagnostic-controls-smoke/1793866615915489500`, and plots
+`bin/diagnostic-plot-smoke/1793866639030328300`. The last build only corrected the Master row's
+hidden label and formatted changed lines; the final audio suite exercised it.
+
+Native review used only `bin/audio-panels-ui/1793865742372562700` (final.log and final-stderr.log):
+Ctrl+3 Audio switching without a strip, Unicode/literal Bank paths, actual unbanked inventory,
+2560-wide to 1077x635 restored reflow and back, compact bus selection/details, wide effect chain,
+page selection, literal long snapshot names and pinned toolbar while scrolling. No assertion or
+Vulkan validation error was found; the private editor closed normally. Attempts to drag the dock
+separator did not change its position, so this session does not establish dock-drag acceptance.
+Local `$cr` checked scopes/IDs, main-thread ownership, state compatibility, checked writes and
+preview lifetime. No remaining must-fix or should-fix finding in this batch. Shared documentation
+and bundled audio help are updated; unrelated sample/audio changes are excluded.
+
+**Remaining:** Phase 5(e)(2) Sound Editor UI and Audio Debugger, the remaining whole-editor
+inventory, and Phase 6 platform/workflow acceptance, including dock-drag, mixed-monitor/disconnect,
+Linux execution and exported authored playback. The full remaster remains in progress.

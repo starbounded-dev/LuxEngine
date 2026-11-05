@@ -397,8 +397,7 @@ namespace Lux::ImGuiEx {
 
 	inline void BeginDisabled(bool disabled = true)
 	{
-		if (disabled)
-			ImGui::BeginDisabled(true);
+		ImGui::BeginDisabled(disabled);
 	}
 
 	inline bool IsItemDisabled()
@@ -408,9 +407,7 @@ namespace Lux::ImGuiEx {
 
 	inline void EndDisabled()
 	{
-		// NOTE(Peter): Cheeky hack to prevent ImGui from asserting (required due to the nature of UI::BeginDisabled)
-		if (GImGui->DisabledStackSize > 0)
-			ImGui::EndDisabled();
+		ImGui::EndDisabled();
 	}
 
 	typedef int OutlineFlags;

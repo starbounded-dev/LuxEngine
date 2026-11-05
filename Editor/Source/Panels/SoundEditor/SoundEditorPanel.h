@@ -35,6 +35,9 @@ namespace Lux
 
 		void OpenSound(AssetHandle handle);
 		void SetUndoCallback(UndoPushFn callback) { m_PushUndo = std::move(callback); }
+#ifndef LUX_DIST
+		static bool RunPersistenceSelfTests(std::vector<std::string>& failures);
+#endif
 
 	private:
 		// Every authored field of a Sound, so an edit can be captured, compared, undone and reverted

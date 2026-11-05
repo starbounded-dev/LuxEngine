@@ -260,4 +260,29 @@ namespace Lux::ImGuiEx
 		ImGui::TextWrapped("%s", description);
 		ImGui::Spacing();
 	}
+
+	bool PanelListItem(const char* id, std::string_view label, bool selected, std::string_view tooltip)
+	{
+		if (label.empty())
+			label = "";
+		const ImVec2 minimum = ImGui::GetCursorScreenPos();
+		const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+		const bool activated = ImGui::Selectable(id, selected, 0, {width, ImGui::GetTextLineHeight()});
+		const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
+		ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), minimum,
+								  {minimum.x + width, minimum.y + ImGui::GetTextLineHeight()},
+								  minimum.x + width, label.data(), label.data() + label.size(), nullptr);
+		if (hovered &&
+			(!tooltip.empty() ||
+			 ImGui::CalcTextSize(label.data(), label.data() + label.size(), false).x > width) &&
+			ImGui::BeginTooltip())
+		{
+			const auto text = tooltip.empty() ? label : tooltip;
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+			ImGui::TextUnformatted(text.data(), text.data() + text.size());
+			ImGui::PopTextWrapPos();
+			ImGui::EndTooltip();
+		}
+		return activated;
+	}
 } // namespace Lux::ImGuiEx

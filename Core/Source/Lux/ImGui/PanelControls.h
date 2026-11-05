@@ -4,6 +4,7 @@
 #pragma once
 
 #include <span>
+#include <string_view>
 
 namespace Lux::ImGuiEx
 {
@@ -27,6 +28,9 @@ namespace Lux::ImGuiEx
 	int PanelEmptyState(const char* id, const char* title, const char* description,
 						std::span<const PanelAction> actions = {});
 	void PanelMessage(const char* title, const char* description, bool error = false);
+	// Literal, bounded list text with a stable caller ID and complete wrapped hover text.
+	bool PanelListItem(const char* id, std::string_view label, bool selected = false,
+					   std::string_view tooltip = {});
 
 	struct PanelSplit
 	{

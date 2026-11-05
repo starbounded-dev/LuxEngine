@@ -21,6 +21,12 @@ A Sound that no loaded bank holds decodes when it first plays, which can stall t
 - Double-click a bank to open the **Sound Bank Editor**: its Sounds, the memory it holds, and **Resident** for Sounds every scene uses.
 - List the bank under **View › Audio Mixer › Scene Sound Banks**. The scene loads it before it plays and frees its clips when it stops. Scripts can also call `Audio.LoadBank` and `Audio.UnloadBank`.
 
+Bank membership and Resident changes save automatically and support undo. If saving fails, the
+change is rejected and an error appears; fix the reported file problem and retry the change.
+**Refresh estimates** updates decoded-memory and unbanked-Sound snapshots after edits in other
+tools. Narrow banks stack their asset pickers and removal actions. Missing or unreadable banks
+are reported so the inventory cannot appear complete without them.
+
 ## Parameters the engine drives
 
 Add a parameter with this name to a Sound and the engine sets it. Each is optional.
@@ -38,6 +44,16 @@ Walls and closed doors muffle every 3D Sound on their own (a low-pass and a gain
 ## Mixing for the player
 
 **View › Audio Mixer** holds the project's buses, effects, reverb, snapshots and VCAs. **Project Settings › Audio › Audio Accessibility** maps the player's volume sliders (Master, Music, SFX, Dialogue, UI, Ambience) to those buses, sets captions and visual cues per Sound, and gives speakers subtitle colours. Players change their own settings in the **F10** menu while the game runs.
+
+Choose Buses, Reverb return, Snapshots, VCAs or Scene Sound Banks from the Mixer page selector.
+**Save project** and **Apply** stay above the scrolling content. Buses use a resizable list/details
+split when there is room. Narrow panels keep volume, dB and mute in stacked rows; select a bus
+for its name, children and effects, then use **All buses** to return.
+
+Volume and mute apply live. Structural edits, effects, reverb and snapshots require **Apply**,
+which restarts the audio engine and is unavailable during Play. Save writes the authored mixer
+to the project; a failed save retains the edits for retry. Snapshot preview uses the applied
+snapshot and stops when you leave its page, change its structure, hide the Mixer or switch project.
 
 ## Budgets and checks
 

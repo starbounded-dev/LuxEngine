@@ -11,6 +11,7 @@ namespace Lux
 	{
 	public:
 		void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+		bool TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
 		bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 		void RegisterDependencies(const AssetMetadata& metadata) const override;
 		bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -22,6 +23,7 @@ namespace Lux
 	{
 	public:
 		void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+		bool TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
 		bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 		void RegisterDependencies(const AssetMetadata& metadata) const override;
 		bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;

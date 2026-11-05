@@ -23,19 +23,28 @@ namespace Lux
 		using UndoPushFn = std::function<void(const std::string& label, std::function<void()> undo, std::function<void()> redo)>;
 
 		void OnImGuiRender(bool& isOpen) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override;
 		void OnProjectChanged(const Ref<Project>& project) override;
 		void SetSceneContext(const Ref<Scene>& context) override { m_Context = context; }
 		void SetUndoCallback(UndoPushFn callback) { m_PushUndo = std::move(callback); }
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
+#ifndef LUX_DIST
+		static bool RunSelfTests(std::vector<std::string>& failures);
+#endif
 
 	private:
 		AudioMixerSettings* GetMixer();
 		// Replaces the mixer (undo/redo), applying volume and mute live.
 		void SetMixer(const AudioMixerSettings& mixer);
 		// After an edit completes (no widget active): one undo step and the dirty flag.
-		void CommitEdits();
+		void CommitEdits(bool finish = false);
+		bool SaveProject();
+		bool ApplyChanges();
 		void ApplyLive(const AudioMixerBus& bus) const;
 
-		void UI_Toolbar(AudioMixerSettings& mixer);
+		void UI_Toolbar();
 		void UI_Buses(AudioMixerSettings& mixer);
 		void UI_SelectedBus(AudioMixerSettings& mixer);
 		void UI_Reverb(AudioMixerSettings& mixer);
@@ -60,5 +69,10 @@ namespace Lux
 		char m_SnapshotNameBuffer[64] = {};
 		Ref<AudioEventInstance> m_Preview;  // the selected snapshot, auditioned at m_PreviewIntensity
 		float m_PreviewIntensity = 0.0f;
+		bool m_IsFocused = false;
+		uint32_t m_Page = 0;
+		float m_BusFraction = 0.45f;
+		bool m_NarrowDetails = false;
+		bool m_OpenPage = true;
 	};
 }
