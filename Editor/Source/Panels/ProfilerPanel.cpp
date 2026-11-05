@@ -243,6 +243,7 @@ namespace Lux {
 		if (!isOpen)
 			return;
 
+		ImGui::SetNextWindowSize({820.0f, 760.0f}, ImGuiCond_FirstUseEver);
 		if (!ImGui::Begin(GetWindowName(), &isOpen))
 		{
 			ImGui::End();

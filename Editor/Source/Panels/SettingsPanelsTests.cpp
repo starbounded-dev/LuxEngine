@@ -57,11 +57,11 @@ namespace Lux
 			if (!result)
 				throw std::runtime_error(reason);
 		}
-		void Frame(EditorPanel& panel, float width, float height = 720.0f)
+		void Frame(EditorPanel& panel, float width, float height = 720.0f, const char* name = "Help")
 		{
-			// Help's FirstUseEver default overrides pending NextWindowData even on later frames.
+			// A FirstUseEver default overrides pending NextWindowData even on later frames.
 			// Resize the existing window as the OS/dock splitter would, then render its settled frame.
-			ImGui::SetWindowSize("Help", {width, height});
+			ImGui::SetWindowSize(name, {width, height});
 			ImGui::NewFrame();
 			ImGui::SetNextWindowPos({0.0f, 0.0f});
 			ImGui::SetNextWindowSize({width, height});
@@ -510,6 +510,15 @@ namespace Lux
 					"Project change retained old audio cleanup context");
 
 			LightSettingsPanel lights;
+			for (int frame = 0; frame < 3; ++frame)
+			{
+				ImGui::NewFrame();
+				bool open = true;
+				lights.OnImGuiRender(open);
+				ImGui::Render();
+			}
+			Require(ImGui::FindWindowByName("Light Settings")->Size.x >= 200.0f,
+				"Light Settings first floating open collapsed to unusable width");
 			auto scene = Ref<Scene>::Create();
 			Entity entity = scene->CreateEntity(std::string(200, 'L') + " ## literal 100%");
 			entity.AddComponent<DirectionalLightComponent>();
@@ -522,13 +531,13 @@ namespace Lux
 					"Project notification discarded the newly installed light scene");
 			for (float width : {1200.0f, 280.0f, 190.0f, 1200.0f})
 			{
-				Frame(lights, width);
-				Frame(lights, width);
+				Frame(lights, width, 720.0f, "Light Settings");
+				Frame(lights, width, 720.0f, "Light Settings");
 				CheckWidth("Light Settings");
 			}
 			lights.OnProjectChanged(nullptr);
 			Require(!lights.GetSceneContext(), "Light settings retained the old project's scene");
-			Frame(lights, 190.0f);
+			Frame(lights, 190.0f, 720.0f, "Light Settings");
 
 			glm::vec3 values(1.0f, 2.0f, 3.0f);
 			bool manuallyEdited = false;

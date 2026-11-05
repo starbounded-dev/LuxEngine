@@ -80,6 +80,7 @@ namespace Lux {
 		m_IsFocused = false;
 		if (!isOpen)
 			return;
+		ImGui::SetNextWindowSize({820.0f, 680.0f}, ImGuiCond_FirstUseEver);
 		if (!ImGui::Begin("Asset Manager", &isOpen))
 		{
 			ImGui::End();

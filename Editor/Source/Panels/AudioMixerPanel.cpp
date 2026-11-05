@@ -175,6 +175,7 @@ namespace Lux
 		m_IsFocused = false;
 		if (!isOpen)
 			return;
+		ImGui::SetNextWindowSize({760.0f, 720.0f}, ImGuiCond_FirstUseEver);
 		if (!ImGui::Begin("Audio Mixer", &isOpen))
 		{
 			ImGui::End();

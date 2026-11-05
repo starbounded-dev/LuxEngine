@@ -1026,3 +1026,36 @@ introduced. Dist compilation does not establish native Dist panel/chart acceptan
 inventory/rollout audit, native drag/mixed-monitor/detached/disconnect matrix, Linux execution,
 Debug Runtime freshness review and exported authored-result coverage remain open. The full goal
 is still in progress.
+
+### Phase 5(g) — First floating-open inventory
+
+The remaining initial-geometry audit exercised Asset Manager, Light Settings, Audio Mixer and
+Profiler in their production ImGui render methods for three frames with no requested test size
+or saved settings. All four baseline probes reproduced an initial width below the usability bound
+(200 pixels); prior forced-size probes had not exercised this state. These are recorded runtime
+reproductions, not assumptions from the absence of SetNextWindowSize. The four panels now supply
+FirstUseEver sizes, preserving saved docking/settings and subsequent user resizes. There is no
+new persistent key, panel identity, minimum-width restriction or data mutation.
+
+Tests resize the existing windows as a dock/OS resize would before exercising narrow layouts:
+otherwise a panel's FirstUseEver call can replace a test's pending NextWindowData even when its
+condition no longer applies. The fix does not weaken the narrow-width cases. Final Debug Editor
+is `2026-11-05 10:19:55` (`bin/panel-first-open-build.txt`). No new C++ file or regeneration needed.
+All four new initial-open probes passed with their existing complete Single/Multi suites:
+settings/Light/Scene Renderer `bin/settings-panels-smoke/1793892076501515200`,
+Log/History/Asset Manager `bin/diagnostic-controls-smoke/1793892075672971700`,
+audio authoring/diagnostics `bin/audio-panels-smoke/1793892178882929700`, and
+plots/Profiler `bin/diagnostic-plot-smoke/1793892182478172300`. These are production ImGui probes;
+no additional native desktop acceptance is claimed. Local cr found no must-fix/should-fix issue
+in the scoped size/probe changes; shared architecture now explains the initial-geometry contract.
+Unrelated sample-project files remain excluded. Platform/export/inventory acceptance remains
+in progress, including Scene View overlay/viewport context review.
+
+Linux prerequisite preparation has progressed beyond the earlier missing-tools result: Ubuntu's
+stale package index initially returned 404s, then refreshed successfully. The repository CI's
+compiler/GTK/window/audio development prerequisites are installed, with clang 20 and g++ 14.
+Microsoft's .NET 9.0.320 SDK is local to ignored `bin/linux-toolchain/dotnet`; workspace-only
+compiler aliases are in `bin/linux-toolchain/bin`. Logs are `bin/remaster-linux-apt-update.txt`,
+`bin/remaster-linux-prerequisites.txt`, `bin/remaster-linux-dotnet-install.txt` and
+`bin/remaster-linux-dotnet-info.txt`. This establishes prerequisites, not a successful Linux
+engine build or execution. No new mandatory dependency was added for game makers.

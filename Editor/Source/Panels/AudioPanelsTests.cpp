@@ -758,6 +758,15 @@ namespace Lux
 		{
 			AudioMixerPanel panel;
 			panel.OnProjectChanged(project);
+			for (int frame = 0; frame < 3; ++frame)
+			{
+				ImGui::NewFrame();
+				bool open = true;
+				panel.OnImGuiRender(open);
+				ImGui::Render();
+			}
+			Require(ImGui::FindWindowByName("Audio Mixer")->Size.x >= 200.0f,
+				"Audio Mixer first floating open collapsed to unusable width");
 			auto scene = Ref<Scene>::Create();
 			const auto bank = Project::GetEditorAssetManager()->GetAssetHandleFromFilePath(
 				std::filesystem::path(u8"Audio/\u00e9##Bank.lbank"));

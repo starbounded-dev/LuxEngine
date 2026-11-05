@@ -54,6 +54,15 @@ namespace Lux
 		try
 		{
 			AssetManagerPanel panel;
+			for (int frame = 0; frame < 3; ++frame)
+			{
+				ImGui::NewFrame();
+				bool open = true;
+				panel.OnImGuiRender(open);
+				ImGui::Render();
+			}
+			Require(ImGui::FindWindowByName("Asset Manager")->Size.x >= 200.0f,
+				"Asset Manager first floating open collapsed to unusable width");
 			auto manager = Project::GetEditorAssetManager();
 			Require(manager != nullptr, "Asset diagnostics require the private runner project");
 			const AssetHandle first = AssetManager::ImportAsset("One/Duplicate.cs");
@@ -61,6 +70,7 @@ namespace Lux
 			Require(first && second && first != second, "Asset diagnostic fixtures lost distinct handles");
 			auto frame = [&](float width)
 			{
+				ImGui::SetWindowSize("Asset Manager", {width, 650.0f});
 				ImGui::NewFrame();
 				ImGui::SetNextWindowPos({0.0f, 0.0f});
 				ImGui::SetNextWindowSize({width, 650.0f});

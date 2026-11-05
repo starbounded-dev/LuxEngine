@@ -61,6 +61,17 @@ namespace Lux
 			unsigned char* pixels = nullptr;
 			int width = 0, height = 0;
 			io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+			ProfilerPanel profiler;
+			for (int frame = 0; frame < 3; ++frame)
+			{
+				ImGui::NewFrame();
+				bool open = true;
+				profiler.OnImGuiRender(open);
+				ImGui::Render();
+			}
+			Require(ImGui::FindWindowByName(profiler.GetWindowName())->Size.x >= 200.0f,
+				"Profiler first floating open collapsed to unusable width");
+
 			ImGuiEx::TimingPlotState state;
 			ImPlotPlot* drawn = nullptr;
 			auto frame = [&](float panelWidth = 900.0f)

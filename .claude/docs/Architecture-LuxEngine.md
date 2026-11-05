@@ -991,6 +991,9 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   focus and project-specific transient state. Existing renderer/project owners still apply settings
   and rebuild affected resources only when changed. Game View wraps and centers its no-camera
   guidance within the available viewport; neither empty-state drawing nor reflow creates a renderer.
+  Asset Manager, Light Settings, Audio Mixer and Profiler also supply FirstUseEver floating-window
+  sizes: wrapped content and filling children cannot establish a useful auto-fit width on their own.
+  Saved docking/window geometry and subsequent resizing continue to take precedence.
 - Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
   `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
   `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for
