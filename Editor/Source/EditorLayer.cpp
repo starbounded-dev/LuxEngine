@@ -915,6 +915,22 @@ namespace Lux {
 			Application::Get().QueueEvent([]()
 										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 		}
+		if (FileSystem::HasEnvironmentVariable("LUX_WORKSPACE_DOCUMENTS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_WORKSPACE_DOCUMENTS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = TextEditorPanel::RunWorkspaceSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish workspace-document self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_MATERIAL_PANELS_SELFTEST"))
 		{
 			const std::filesystem::path directory =

@@ -40,6 +40,8 @@ namespace Lux
 		bool IsDirty() const;
 #ifndef LUX_DIST
 		static bool RunPanelControlsSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+		static bool RunWorkspaceSelfTests(const std::filesystem::path& directory,
+										  std::vector<std::string>& failures);
 #endif
 
 	private:

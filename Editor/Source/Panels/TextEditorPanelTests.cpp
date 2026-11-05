@@ -5,7 +5,19 @@
 #include "TextEditorPanel.h"
 
 #ifndef LUX_DIST
+#include "MaterialEditor/MaterialEditorPanel.h"
+#include "SoundEditor/SoundEditorPanel.h"
+#include "Workspace/EditorWorkspaceManager.h"
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/MaterialSerializer.h"
+#include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/Sound.h"
+#include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Editor/PanelManager.h"
 #include "Lux/ImGui/PanelControls.h"
+#include "Lux/Project/Project.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraph.h"
+#include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui_internal.h>
@@ -33,6 +45,179 @@ namespace Lux
 			return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 		}
 	} // namespace
+
+	bool TextEditorPanel::RunWorkspaceSelfTests(const std::filesystem::path& directory,
+												std::vector<std::string>& failures)
+	{
+		ImGuiContext* previous = ImGui::GetCurrentContext();
+		// Beam uses the application's registered Mono font. Share its atlas, but isolate all
+		// windows/docking so this probe never changes the running editor's arrangement.
+		ImGuiContext* context = ImGui::CreateContext(previous->IO.Fonts);
+		ImGui::SetCurrentContext(context);
+		try
+		{
+			Require(Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory,
+					"Workspace document tests require the runner's disposable active project");
+			auto& io = ImGui::GetIO();
+			io.IniFilename = nullptr;
+			io.ConfigFlags = ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+			io.BackendFlags = previous->IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures;
+			io.DisplaySize = {1920.0f, 1080.0f};
+			PanelManager panels;
+			auto beam = panels.AddPanel<TextEditorPanel>(PanelCategory::View, "Beam", false);
+			auto materials =
+				panels.AddPanel<MaterialEditorPanel>(PanelCategory::View, "Material Editor", false);
+			auto sounds = panels.AddPanel<SoundEditorPanel>(PanelCategory::View, "Sound Editor", false);
+			materials->LoadState(Yaml::Load("ShowPreview: false\nShowGraph: true\n"));
+			const auto textPath = directory / "Assets/Workspace.cs";
+			const auto materialPath = directory / "Assets/Surface.lmat";
+			const auto soundPath = directory / "Assets/Workspace.lsound";
+			const std::string originalText = Read(textPath);
+			const std::string originalMaterial = Read(materialPath);
+			const std::string originalSound = Read(soundPath);
+			beam->OpenFile(textPath);
+			Document* document = beam->ActiveDocument();
+			Require(document, "Cannot open the workspace Beam fixture");
+			document->Editor.ReplaceSectionText(0, 0, 0, 0, "// unsaved workspace edit\n");
+			const std::string editedText = document->Editor.GetText();
+			const auto materialHandle = AssetManager::ImportAsset("Surface.lmat");
+			const auto soundHandle = AssetManager::ImportAsset("Workspace.lsound");
+			materials->OpenMaterial(materialHandle);
+			sounds->OpenSound(soundHandle);
+			auto material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+			auto sound = AssetManager::GetAsset<Sound>(soundHandle);
+			Require(material && sound, "Cannot load workspace document asset fixtures");
+			material->SetRoughness(0.23f);
+			material->SetGraph(MaterialGraph::CreateDefault());
+			auto graph = material->GetGraph();
+			const auto output = graph->Nodes.front().ID;
+			const auto value = graph->AddNode("Float", {100.0f, 40.0f})->ID;
+			Require(graph->Connect(value, 0, output, 1), "Cannot author the workspace graph link");
+			sound->Pitch = 1.25f;
+			std::vector<std::function<void()>> soundUndo, soundRedo;
+			sounds->SetUndoCallback(
+				[&](const std::string&, auto undo, auto redo)
+				{
+					soundUndo.push_back(std::move(undo));
+					soundRedo.push_back(std::move(redo));
+				});
+			EditorWorkspaceManager workspaces(directory / "workspace-user");
+			workspaces.Initialize(panels, true);
+			workspaces.SetEnabled(true);
+			auto frame = [&]()
+			{
+				workspaces.BeforeFrame();
+				ImGui::NewFrame();
+				ImGui::SetNextWindowPos({0.0f, 0.0f});
+				ImGui::SetNextWindowSize(io.DisplaySize);
+				ImGui::Begin("Workspace documents", nullptr, ImGuiWindowFlags_NoTitleBar);
+				workspaces.DrawDockSpace(ImGui::GetID("MyDockSpace"), ImGui::GetContentRegionAvail());
+				ImGui::End();
+				panels.OnImGuiRender();
+				ImGui::Render();
+			};
+			auto select = [&](size_t slot)
+			{
+				Require(workspaces.RequestShortcut(slot), "Workspace document shortcut was unavailable");
+				for (int index = 0; index < 3; ++index)
+					frame();
+			};
+			auto unchanged = [&]()
+			{
+				Require(panels.GetPanel<TextEditorPanel>("Beam") == beam &&
+							panels.GetPanel<MaterialEditorPanel>("Material Editor") == materials &&
+							panels.GetPanel<SoundEditorPanel>("Sound Editor") == sounds,
+						"A workspace replaced a document panel instance");
+				Require(beam->ActiveDocument() == document && beam->IsDirty() &&
+							document->Editor.GetText() == editedText && beam->GetCurrentPath() == textPath,
+						"Workspace switching replaced or saved the dirty Beam document");
+				Require(AssetManager::GetAsset<MaterialAsset>(materialHandle) == material &&
+							material->GetRoughness() == 0.23f && material->GetGraph() == graph &&
+							graph->Links.size() == 1 && AssetManager::GetAsset<Sound>(soundHandle) == sound &&
+							sound->Pitch == 1.25f,
+						"Workspace switching changed dirty material/graph/Sound data");
+				Require(Read(textPath) == originalText && Read(materialPath) == originalMaterial &&
+							Read(soundPath) == originalSound,
+						"A workspace switch wrote an unsaved document");
+			};
+			frame();
+			// Make all three visible before the first switch; hiding Sound must finish its
+			// outstanding edit through the existing owner, without clearing the document.
+			for (const char* name : {"Beam", "Material Editor", "Sound Editor"})
+				panels.SetOpen(Hash::GenerateFNVHash(name), true);
+			frame();
+			frame();
+			for (size_t slot : {2, 3, 4, 5, 1, 2, 3, 4})
+			{
+				select(slot);
+				unchanged();
+				if (slot >= 2 && slot <= 4)
+				{
+					const char* dominant = slot == 2   ? "Material Editor"
+										   : slot == 3 ? "Sound Editor"
+													   : "Beam";
+					Require(panels.GetPanelData(Hash::GenerateFNVHash(dominant))->IsOpen,
+							"Workspace did not expose its document editor");
+				}
+				if (!panels.GetPanelData(Hash::GenerateFNVHash("Beam"))->IsOpen)
+				{
+					KeyPressedEvent key(Key::Delete, 0);
+					beam->OnEvent(key);
+					Require(!key.Handled, "Hidden Beam retained keyboard ownership");
+				}
+			}
+			Require(soundUndo.size() == 1, "Workspace hiding lost or duplicated the Sound edit transaction");
+			soundUndo.back()();
+			Require(sound->Pitch == 1.0f, "Workspace-retained Sound undo failed");
+			soundRedo.back()();
+			unchanged();
+			select(3);
+			const int voices = AudioEngine::GetStats().PlayingEventInstances;
+			ImGui::FocusWindow(ImGui::FindWindowByName("Sound Editor"));
+			io.AddKeyEvent(ImGuiKey_Space, true);
+			frame();
+			io.AddKeyEvent(ImGuiKey_Space, false);
+			frame();
+			Require(AudioEngine::GetStats().PlayingEventInstances == voices + 1,
+					"Restored Sound document could not audition through its keyboard shortcut");
+			select(4);
+			Require(AudioEngine::GetStats().PlayingEventInstances == voices,
+					"Workspace hiding retained Sound audition playback");
+			unchanged();
+			for (const auto& [slot, title] :
+				 {std::pair{2u, "Material Editor"}, {3u, "Sound Editor"}, {4u, "Beam"}})
+			{
+				select(slot);
+				ImGui::FocusWindow(ImGui::FindWindowByName(title));
+				io.AddKeyEvent(ImGuiMod_Ctrl, true);
+				io.AddKeyEvent(ImGuiKey_S, true);
+				frame();
+				io.AddKeyEvent(ImGuiKey_S, false);
+				io.AddKeyEvent(ImGuiMod_Ctrl, false);
+				frame();
+			}
+			Ref<Asset> loaded;
+			Require(MaterialSerializer{}.TryLoadData(
+						Project::GetEditorAssetManager()->GetMetadata(materialHandle), loaded) &&
+						loaded.As<MaterialAsset>()->GetRoughness() == 0.23f &&
+						loaded.As<MaterialAsset>()->GetGraph() &&
+						loaded.As<MaterialAsset>()->GetGraph()->Links.size() == 1,
+					"Restored material document could not save its surface and graph");
+			Sound reloadedSound;
+			Require(reloadedSound.FromYAML(Read(soundPath)) && reloadedSound.Pitch == 1.25f,
+					"Restored Sound document could not save its unsaved changes");
+			Require(!beam->IsDirty() && Read(textPath) == editedText,
+					"Restored Beam document could not save its unsaved text");
+			workspaces.Shutdown();
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		ImGui::DestroyContext(context);
+		ImGui::SetCurrentContext(previous);
+		return failures.empty();
+	}
 
 	bool TextEditorPanel::RunPanelControlsSelfTests(const std::filesystem::path& directory,
 													std::vector<std::string>& failures)

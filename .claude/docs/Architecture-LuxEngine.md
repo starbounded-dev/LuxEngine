@@ -808,6 +808,13 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   `FileSystem::TryLockFile` (OS lifetime lock). Comparing the expected disk revision under this lock
   prevents concurrent editors overwriting changes; a conflict preserves this session in its own
   recovery file. Shutdown flushes/joins before panel/logging teardown. Layouts stay machine-local.
+- `tests/editor/run_workspace_documents.py` opts into the non-Dist
+  `LUX_WORKSPACE_DOCUMENTS_SELFTEST` startup hook in a disposable active project. Its real Beam,
+  Material and Sound panels share a local PanelManager/EditorWorkspaceManager on main, with isolated
+  ImGui windows and the application's shared font atlas. It checks retained dirty documents and
+  graph links, no implicit file writes, hide cleanup/undo/audition and focused explicit saves through
+  workspace transitions under Single/Multi. This is UI/data integration coverage; preview presentation
+  and physical platform-window behavior are separate acceptance checks.
 - Scene View is registered through `SceneViewPanel`, delegating specialized rendering to the
   existing layer/viewport. `PropertiesPanel` delegates inspector drawing to `SceneHierarchyPanel`;
   each window has independent visibility, focus and persistence. Legacy coupled visibility loads

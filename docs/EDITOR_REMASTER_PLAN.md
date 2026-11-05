@@ -1230,3 +1230,27 @@ persistence, recovery and concurrent-save suites passed:
 issues in this batch. No new source files or project regeneration were needed. Bundled Help
 and Architecture section 2.9 describe the result. Physical monitor/docking and the previously
 listed integration/platform acceptance work remain open.
+
+### Combined dirty document workspace acceptance
+
+`python tests/editor/run_workspace_documents.py` now creates isolated projects and exercises
+real Beam, Material Editor and Sound Editor instances through the production PanelManager and
+EditorWorkspaceManager. It keeps dirty text, material roughness, an authored graph link and Sound
+pitch together while switching Shading/Audio/Scripting/Debugging/Layout and returning to them.
+It verifies stable panel/Beam-document/loaded-asset identities, retained authored graph/data, and
+byte-for-byte unchanged original files before any explicit save. The Sound owner finishes one
+undo transaction on hide; undo/redo still works after the transitions. Space auditions a looping
+silent PCM fixture in the restored Sound editor, then switching to Scripting stops that voice.
+Finally, focused Ctrl+S saves from each restored real panel are reloaded/compared to the edits.
+
+Single/Multi passed: `bin/workspace-documents-smoke/1793897927464911100`. The test hook is
+non-Dist and explicitly opted in; it validates the disposable active project path, isolates
+window/docking state, shares only the registered application font atlas, and introduces no
+product schema, dependency, renderer wait or alternate save path. Material preview is disabled:
+this does not claim native preview presentation or physical multi-monitor/docking acceptance.
+Local cr reviewed main-thread ownership, balanced ImGui scopes, instance/asset lifetimes, save
+isolation, silent real audio, explicit failure reports and both threading policies. No remaining
+must-fix/should-fix findings in this verification batch; no new C++ file or regeneration needed.
+
+Final formatted Debug Editor build verified at 2026-11-05 12:00:34, 53,531,136 bytes
+(`bin/workspace-documents-build-final.txt`). Runtime/Core product code is unchanged.
