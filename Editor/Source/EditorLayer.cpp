@@ -805,6 +805,30 @@ namespace Lux {
 			OpenProject(startupProject);
 
 #ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_DIAGNOSTIC_CONTROLS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_DIAGNOSTIC_CONTROLS_SELFTEST");
+			std::vector<std::string> failures;
+			bool passed = Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory;
+			if (passed)
+			{
+				passed = m_ConsolePanel->RunSelfTests(failures);
+				passed &= AssetManagerPanel::RunSelfTests(failures);
+				passed &= UndoHistoryPanel::RunSelfTests(failures);
+			}
+			else
+				failures.push_back("Diagnostic controls require the active disposable runner project");
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish diagnostic-control self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_HIERARCHY_PANELS_SELFTEST"))
 		{
 			const std::filesystem::path directory =

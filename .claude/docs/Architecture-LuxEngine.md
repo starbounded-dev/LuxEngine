@@ -813,6 +813,21 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   platform viewports disabled. No workspace state enters `FrameRenderPacket` or runtime packs.
 - `SelectionManager`, `EditorCamera`, `EditorConsolePanel` + `EditorConsole/`,
   `SceneHierarchyPanel`, `EditorResources`, `FontAwesome.h`.
+- **Log, History and asset diagnostics.** Log retains a bounded 10,000-message pending queue and
+  UI list. Producers append under the existing mutex; main swaps into a reusable drain buffer,
+  then builds owned row IDs, time labels and captions outside the lock. Search/severity/tag
+  filtering retains an index list; the clipper submits visible rows. The shared action bar,
+  full-width search and alternate compact rows preserve access at narrow widths. Follow latest
+  is explicit; manual inspection stops it. Message details own a copy independently of trimming
+  or Clear, with actions outside the scrolling text. `OnClose` and project changes release focus
+  and close the owned popup through `ImGuiEx::ClosePopupByID`, leaving unrelated popups alone.
+  History keeps its existing label/action bindings and owner limits (256 steps / 128 MB), adds
+  direct Undo/Redo/current-state navigation, and invokes callbacks after closing its ImGui scopes.
+  Asset Manager caches owned metadata/path/type/search rows by manager identity and registry
+  revision, with live loaded filtering and full metadata details. Its existing Sync/Reload/Save
+  operations remain explicit actions. Wide tables retain their identities and column settings;
+  compact tables have separate IDs so reflow cannot overwrite wide-column preferences. All UI
+  and asset reads run on main, with no new logging sink, asset schema or runtime dependency.
 - `EditorStack` (`Core/.../Editor/EditorStack.h`, header-only, main-thread singleton) — undo/redo
   *signal*. It carries a "scene edited" flag; `ImGuiEx::Property` raises it on every field edit (gated
   by the `UndoDo` macro), and non-widget edits call `MarkSceneEdited("label")`. `EditorLayer` turns the

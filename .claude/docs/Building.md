@@ -406,6 +406,12 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_DIAGNOSTIC_CONTROLS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_diagnostic_controls.py` runs Log filtering/follow/retention/detail lifetime,
+  asset metadata refresh and History navigation under Single/Multi. It writes a sibling `.status`
+  and exits. `LUX_TEST_EDITOR` optionally selects a separately verified executable. New C++ test
+  files require project regeneration.
+
 - `LUX_HIERARCHY_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
   `python tests/editor/run_hierarchy_panels.py` drives Single/Multi coverage of hierarchy/inspector
   reflow, text isolation, multi-entity edits, component search and scene snapshot persistence.

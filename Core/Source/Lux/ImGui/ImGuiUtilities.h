@@ -349,6 +349,8 @@ namespace Lux::ImGuiEx {
 
 	bool BeginPopup(const char* str_id, ImGuiWindowFlags flags = 0);
 	void EndPopup();
+	// Main-thread panel teardown: close this popup and its children without dismissing unrelated popups.
+	bool ClosePopupByID(ImGuiID id);
 
 	// MenuBar which allows you to specify its rectangle
 	bool BeginMenuBar(const ImRect& barRectangle);

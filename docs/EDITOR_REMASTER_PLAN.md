@@ -651,3 +651,53 @@ finding. Project generation was rerun; sample-project/audio edits and unrelated 
 **Remaining:** Phase 5(c�e), the remaining Phase 0 inventory and Phase 6 remain open. Native
 100%, mixed-monitor/detached/disconnect behavior, Linux execution and full exported-workflow
 acceptance are not established by this batch. This is the Hierarchy/Properties delivery checkpoint.
+
+
+### Phase 5(c) — Log, History and asset diagnostics
+
+**Inventory and baseline:** `EditorConsolePanel::{RenderMenu, RenderConsole}`, its existing
+pending-message queue, `UndoHistoryPanel::OnImGuiRender`, and
+`AssetManagerPanel::OnImGuiRender`. In the private native project, the old Log toolbar overlapped
+search/tag controls even at 2560 logical pixels; its detail dialog clipped Copy Full Message.
+The compact editor reproduced the overlap. History already had a bounded 256-step / 128 MB
+owner; no claim of an actual row-ID collision is made. Audio Debugger remains in Phase 5(e).
+
+**Delivered:** Log uses the shared action bar and a full-width search, with complete-message/tag
+filtering, severity/tag/recent-search controls and explicit Follow latest. Manual inspection
+stops following; new messages preserve that position. Retention stays bounded at 10,000.
+Producers retain the existing mutex queue; main formats stable row identities, timestamps and
+captions after swapping outside the lock. Narrow rows combine metadata and preview; wide tables
+keep their original identity/settings. Details own their text independently of Clear/retention,
+with accessible Copy/Close above the scrolling text and Escape dismissal. Owned popup teardown
+runs on hide/project change through the shared `ClosePopupByID` helper.
+
+History adds shared Undo/Redo/Current state controls, clipped rows and full-label tooltips, keeps
+the existing before-edit/through-future-edit jump semantics, and defers callbacks until its ImGui
+scopes close. Asset Manager caches owned metadata/search rows by registry revision, supports
+path/type/status/handle search and live Only loaded filtering, compact rows and complete metadata
+details. Existing Sync/Reload/Save commands remain explicit. No new asset formats, sink, threads
+or runtime dependency were added. Bundled help and current shared documentation were updated.
+
+**Verification:** projects regenerated for the two new C++ test files. Fresh Debug Editor
+`2026-11-05 01:20:56` and Debug Lux-Runtime `01:20:59`; logs
+`bin/diagnostic-controls-build.txt` and `bin/diagnostic-controls-runtime-build.txt`.
+`tests/editor/run_diagnostic_controls.py` passed Single/Multi in
+`bin/diagnostic-controls-smoke/1793859676746879800`: real text search/clear, full-message matching,
+severity/tag filters, follow/manual inspection/new arrivals, bounded retention, copied detail
+lifetime and popup isolation, Unicode/duplicate-path metadata refresh, compact detail selection,
+and History undo/redo callbacks. Wide/narrow/wide coverage includes 190-pixel panels at 100%/150%.
+The first test drafts omitted explicitly selecting their new ImGui contexts; those failed runs
+are not accepted evidence. The final isolated tests clear search through keyboard input rather
+than overwriting an active text field's backing state.
+
+Workspace lifecycle/persistence/recovery/concurrent-save passed Single/Multi in
+`bin/workspace-smoke/1793859701209283100`. Native checks used only the private project/user under
+`bin/hierarchy-remaster-ui/1793855605493067500`, with `diagnostics-native.log` and
+`diagnostics-native-stderr.log`: wide and 1077×635 Log reflow, actual search, detail dialog/Escape,
+More actions, compact Asset Manager/detail popup, command-palette reachability, History empty
+state and a real rename → row undo → row redo → toolbar undo. No ImGui assertion or Vulkan
+validation error was found in these logs. Native Clear was covered synthetically; clipboard
+transmission was not needed. Mixed-monitor/disconnect and Linux execution remain unverified.
+
+**Remaining:** Phase 5(d–e), the remaining Phase 0 inventory and Phase 6 remain open. This batch
+does not declare the complete editor remaster finished.

@@ -53,6 +53,24 @@ that axis, Ctrl-click its number to type, or right-click for Reset/Copy/Paste. E
 a multi-selection preserves the other axes on each entity. Long property labels clip within their
 column; hover to read the full label. Help and component settings remain at the section's edge.
 
+## Log and asset diagnostics
+
+The **Log** action bar contains Clear, Follow latest, severity toggles, Tags and Recent searches.
+Secondary actions move into **More** as the panel narrows; Clear on Play is there too. **Ctrl+F**
+focuses search while Log has focus. Search includes the complete message and tag. Clear empties
+the retained message list. Scroll up to inspect older output; **Follow latest** resumes live
+following. The footer shows matching and retained message counts.
+
+Click a message to inspect its complete text. Copy and Close stay above its scrolling content,
+and Escape closes the dialog. Right-click a row to copy its full or short message. Narrow panels
+combine the severity, timestamp and tag above the message preview.
+
+**View → Panels → Diagnostics → Asset Manager** shows registry, loaded and memory-only asset counts.
+Search by path, type, status or handle; **Only loaded** filters the list. Narrow panels show path
+and status rows; click a path for all metadata and Copy path. Sync asset thread, Reload loaded
+assets and Save registry remain available in the action bar or More. Use Content Browser to
+import or author assets.
+
 ## Play, Simulate and Stop
 
 The buttons in the middle of the title bar control the scene:
@@ -64,3 +82,7 @@ The buttons in the middle of the title bar control the scene:
 ## Undo
 
 **Ctrl+Z** undoes and **Ctrl+Shift+Z** (or **Ctrl+Y**) redoes edits to the scene and to settings. **View → Panels → Diagnostics → History** lists the steps.
+
+History provides **Undo**, **Redo** and **Current state** actions. Selecting an applied edit
+undoes back to just before that edit; selecting a future edit redoes through it. Long labels have
+complete hover text. History is available in Edit mode.

@@ -16,6 +16,19 @@ namespace Lux::ImGuiEx {
 		}
 	}
 
+	bool ClosePopupByID(ImGuiID id)
+	{
+		if (!GImGui || !id)
+			return false;
+		for (int level = 0; level < GImGui->OpenPopupStack.Size; ++level)
+			if (GImGui->OpenPopupStack[level].PopupId == id)
+			{
+				ImGui::ClosePopupToLevel(level, true);
+				return true;
+			}
+		return false;
+	}
+
 	ScopedDisable::ScopedDisable(bool disabled /*= true*/)
 	{
 		ImGuiEx::BeginDisabled(disabled);

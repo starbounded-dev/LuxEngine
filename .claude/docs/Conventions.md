@@ -303,6 +303,9 @@ Help and exposes clipped labels on hover. Property overloads share it; labels ar
 `ImGuiEx::PropertyEntityReference` provides a scene entity picker with search, clear, hierarchy
 drag/drop, and scene snapshot undo. Pass the current scene and a UUID field; it validates dropped
 entities against that scene.
+`ImGuiEx::ClosePopupByID(id)` closes that popup and its children on main, without an active
+window scope; use it for owned popup teardown in panel `OnClose`/context changes. A missing or
+zero ID returns false normally. It does not dismiss unrelated popup stacks.
 
 For display scaling, `ImGuiScaling.h` supplies `DpiStyle` (metrics recomputed from an unscaled
 baseline) and `ScopedWindowScale` (per-panel detached-window metrics, restored exactly). Fonts
