@@ -778,9 +778,13 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   the Sound Editor lets non-text undo/redo reach the shared history. Asset open requests queue window
   focus for the next `Begin`, including a request to re-open an already loaded document.
 - `EditorWorkspaceManager` (`Editor/Source/Workspace/`) is `EditorLayer`-owned (`Scope`), main-thread
-  only. Tabs below the titlebar expose protected Layout/Shading/Audio/Scripting/Debugging defaults
-  and autosaved personal layouts. Default edits are session-only; Save as Personal Layout copies
-  the arrangement. Stable IDs survive rename/reorder. Switches capture the outgoing layout, then
+  only. View → Workspaces exposes protected Layout/Shading/Audio/Scripting/Debugging defaults
+  and autosaved personal layouts. There is no workspace strip. Ctrl+1–9 switches in menu order
+  (defaults, then non-deleted personal records); EditorLayer dispatches these before panel input,
+  suppresses repeats and respects export/modal/camera capture. Camera bookmark storage uses
+  Ctrl+Shift+1–9. Copy/rename/delete/reset/recovery stay in the menu; DrawPopups runs each frame
+  in the dock host so naming dialogs survive menu closure. Default edits are session-only;
+  Save as Personal Layout copies the arrangement. Stable IDs survive rename. Switches capture the outgoing layout, then
   restore docking, managed window settings and panel visibility together through
   `ImGuiLayer::SetBeforeFrameCallback` before `NewFrame`, deferring active edits, drags and modal
   decisions. Panels/documents remain alive; workspace changes do not mutate scene or asset data.

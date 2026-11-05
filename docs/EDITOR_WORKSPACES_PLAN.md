@@ -1,5 +1,25 @@
 # LuxEngine Editor Workspaces Plan
 
+**User revision, 2026-11-04:** remove the top workspace strip. View → Workspaces is the sole
+workspace management surface; Ctrl+1–9 selects the first nine visible entries in menu order
+(defaults first, then personal layouts, excluding deleted records). Existing saved order and
+layout data remain compatible. Rename/delete/reset move from tab context menus into this menu;
+copying and recovery remain available. Ctrl+Shift+1–9 replaces camera bookmark storage to avoid
+the previous Ctrl+digit conflict. Historical tab/reordering proposals below are superseded by
+this decision. The future modeling/sculpting/UV/animation roadmap remains unchanged.
+
+**Revision verification:** Debug Editor built at `2026-11-04 20:50:14` local
+(`bin/workspace-shortcuts-build.txt`). Workspace lifecycle/shortcut tests passed Single and Multi
+at `bin/workspace-smoke/1793843414563667800`; Beam/panel regressions passed both policies at
+`bin/panel-controls-smoke/1793843436965869400`. The shortcut tests cover all nine slots, missing
+and deleted entries, disabled navigation, document identity and dirty data retention, followed by
+the existing persistence/reset/recovery checks. Native Windows 150% verification used
+`bin/workspace-shortcuts-ui/1793843428137/probe-user` and its private WorkspaceShortcuts project:
+Ctrl+2, Ctrl+5, Ctrl+1 and personal Ctrl+7, menu shortcut labels and active checks, Save as Personal
+Layout and modal suppression all worked. Personal rename/delete/reset actions are reachable in
+the menu; no validation/assertion output in `final.log` or `final-stderr.log`. Local review found
+no remaining blocking findings. No source files were added, so regeneration was unnecessary.
+
 Planning document, 2026-11-04. Part One makes the editor's existing tools easier to arrange and keeps those arrangements usable across displays. Part Two preserves the creative-tool ideas for later planning. This document describes proposed work; the authority for the implementation remains `.claude/docs/Architecture-LuxEngine.md` §§2.1, 2.2, 2.9 and 2.13.
 
 ## Goal card

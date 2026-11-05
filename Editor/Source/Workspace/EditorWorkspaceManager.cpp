@@ -320,7 +320,6 @@ namespace Lux
 		m_Docking.RestoreRatios(layout.Ratios);
 		m_Rebuild = layout.Ini.empty();
 		m_HasDrawn = false;
-		m_SelectTab = true;
 		m_Applied = true;
 		if (m_Playing)
 		{
@@ -368,7 +367,6 @@ namespace Lux
 				copy.Origin = source->Factory ? source->ID : source->Origin;
 				copy.Factory = copy.Deleted = false;
 				copy.LegacyPath.clear();
-				copy.TabLabel.clear();
 				target = copy.ID;
 				m_Layouts.push_back(std::move(copy));
 				break;
@@ -377,7 +375,6 @@ namespace Lux
 				if (!source->Factory)
 				{
 					source->Name = request.Name;
-					source->TabLabel.clear();
 				}
 				break;
 			case Action::Delete:
@@ -674,114 +671,44 @@ namespace Lux
 		ImGui::EndPopup();
 	}
 
-	void EditorWorkspaceManager::DrawTabs()
+	void EditorWorkspaceManager::DrawPopups()
 	{
-		LUX_PROFILE_FUNCTION("EditorWorkspaceManager::DrawTabs");
-		if (ImGui::BeginTabBar("EditorWorkspaces",
-							   ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_FittingPolicyScroll))
-		{
-			const bool selecting = m_SelectTab;
-			m_WorkspaceTabs.clear();
-			m_WorkspaceTabs.reserve(m_Layouts.size());
-			for (size_t index = 0; index < m_Layouts.size(); ++index)
-			{
-				auto& layout = m_Layouts[index];
-				if (layout.Deleted)
-					continue;
-				if (layout.TabLabel.empty())
-					layout.TabLabel = layout.Name + "###workspace." + layout.ID;
-				m_WorkspaceTabs.emplace_back(ImGui::GetID(layout.TabLabel.c_str()), index);
-				const auto flags = selecting && layout.ID == m_Active ? ImGuiTabItemFlags_SetSelected
-																	  : ImGuiTabItemFlags_None;
-				if (ImGui::BeginTabItem(layout.TabLabel.c_str(), nullptr, flags))
-				{
-					if (!selecting && layout.ID != m_Active)
-						m_Request = Request{Action::Switch, layout.ID, {}};
-					ImGui::EndTabItem();
-				}
-				if (ImGui::IsItemClicked() && layout.ID != m_Active)
-					m_Request = Request{Action::Switch, layout.ID, {}};
-				if (ImGui::BeginPopupContextItem())
-				{
-					ImGui::TextDisabled("%s layout", layout.Factory ? "Default" : "Personal");
-					if (ImGui::MenuItem("Save as Personal Layout..."))
-						RequestName(Action::Copy, layout);
-					if (!layout.Factory)
-					{
-						if (ImGui::MenuItem("Rename..."))
-							RequestName(Action::Rename, layout);
-						if (ImGui::MenuItem("Delete"))
-							m_Request = Request{Action::Delete, layout.ID, {}};
-					}
-					if (ImGui::MenuItem(layout.Factory ? "Restore Default" : "Reset to Starting Default"))
-						m_Request = Request{Action::Reset, layout.ID, {}};
-					ImGui::EndPopup();
-				}
-			}
-			if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing))
-				RequestName(Action::Copy, *Find(m_Active));
-			// Persist the tab bar's user order, independently of display names.
-			m_WorkspaceOrder.clear();
-			m_WorkspaceOrder.reserve(m_WorkspaceTabs.size());
-			for (const auto& tab : GImGui->CurrentTabBar->Tabs)
-				for (const auto& [id, index] : m_WorkspaceTabs)
-					if (id == tab.ID)
-						m_WorkspaceOrder.push_back(index);
-			ImGui::EndTabBar();
-			m_SelectTab = false;
-			if (m_WorkspaceOrder.size() == m_WorkspaceTabs.size())
-			{
-				bool changed = false;
-				size_t index = 0;
-				for (size_t current = 0; current < m_Layouts.size(); ++current)
-					if (!m_Layouts[current].Deleted)
-						changed |= current != m_WorkspaceOrder[index++];
-				if (changed)
-				{
-					std::vector<Layout> ordered;
-					ordered.reserve(m_Layouts.size());
-					for (const auto position : m_WorkspaceOrder)
-						ordered.push_back(std::move(m_Layouts[position]));
-					for (const auto& layout : m_Layouts)
-						if (layout.Deleted)
-							ordered.push_back(layout);
-					m_Layouts = std::move(ordered);
-					Save();
-				}
-			}
-		}
-		const Layout& active = *Find(m_Active);
-		if (active.Factory)
-		{
-			ImGui::TextDisabled("Default layout");
-			ImGui::SameLine();
-			if (ImGui::SmallButton("Save as Personal Layout..."))
-				RequestName(Action::Copy, active);
-		}
-		else
-		{
-			const auto error = m_Store ? m_Store->GetError() : m_Error;
-			ImGui::TextDisabled("Personal layout - %s", !error.empty() ? "save failed (View > Workspaces)"
-														: m_Store && m_Store->GetSavedRevision() < m_Revision
-															? "saving..."
-															: "saved automatically");
-		}
-		if (m_ReadOnly)
-			ImGui::TextWrapped(
-				"Layouts could not be loaded. Existing files are preserved; see View > Workspaces.");
 		DrawNamePopup();
+	}
+
+	bool EditorWorkspaceManager::RequestShortcut(size_t slot)
+	{
+		if (!m_Enabled || slot == 0 || slot > 9)
+			return false;
+		// Match the menu: defaults first, then non-deleted personal layouts in saved order.
+		for (const bool factory : {true, false})
+			for (const auto& layout : m_Layouts)
+				if (layout.Factory == factory && !layout.Deleted && --slot == 0)
+				{
+					m_Request = Request{Action::Switch, layout.ID, {}};
+					return true;
+				}
+		return false;
 	}
 
 	void EditorWorkspaceManager::DrawMenu()
 	{
+		size_t slot = 0;
+		auto draw = [&](const Layout& layout)
+		{
+			ImGuiEx::ScopedID id(layout.ID.c_str());
+			char shortcut[16]{};
+			if (++slot <= 9)
+				std::snprintf(shortcut, sizeof(shortcut), "Ctrl+%zu", slot);
+			if (ImGui::MenuItem(layout.Name.c_str(), shortcut, layout.ID == m_Active))
+				m_Request = Request{Action::Switch, layout.ID, {}};
+		};
 		ImGui::TextDisabled("Default layouts");
 		for (const auto& layout : m_Layouts)
 		{
-			if (!layout.Factory)
+			if (!layout.Factory || layout.Deleted)
 				continue;
-			ImGuiEx::ScopedID id(layout.ID.c_str());
-			if (ImGui::MenuItem(layout.Name.c_str(), nullptr, layout.ID == m_Active))
-				m_Request = Request{Action::Switch, layout.ID, {}};
+			draw(layout);
 		}
 		ImGui::Separator();
 		ImGui::TextDisabled("Personal layouts (saved automatically)");
@@ -789,13 +716,22 @@ namespace Lux
 		{
 			if (layout.Factory || layout.Deleted)
 				continue;
-			ImGuiEx::ScopedID id(layout.ID.c_str());
-			if (ImGui::MenuItem(layout.Name.c_str(), nullptr, layout.ID == m_Active))
-				m_Request = Request{Action::Switch, layout.ID, {}};
+			draw(layout);
 		}
 		ImGui::Separator();
 		if (ImGui::MenuItem("Save as Personal Layout..."))
 			RequestName(Action::Copy, *Find(m_Active));
+		const Layout& active = *Find(m_Active);
+		ImGui::TextDisabled("Active: %s (%s)", active.Name.c_str(), active.Factory ? "Default" : "Personal");
+		if (!active.Factory)
+		{
+			if (ImGui::MenuItem("Rename Personal Layout..."))
+				RequestName(Action::Rename, active);
+			if (ImGui::MenuItem("Delete Personal Layout"))
+				m_Request = Request{Action::Delete, active.ID, {}};
+		}
+		if (ImGui::MenuItem(active.Factory ? "Restore Default" : "Reset to Starting Default"))
+			m_Request = Request{Action::Reset, active.ID, {}};
 		if (m_ResetUndo && ImGui::MenuItem("Undo Layout Reset"))
 			m_Request = Request{Action::UndoReset, m_ResetUndo->ID, {}};
 		if (ImGui::BeginMenu("Restore Deleted Personal Layout"))

@@ -1128,7 +1128,7 @@ namespace Lux {
 			}
 
 			m_Workspaces->SetEnabled(Project::GetActive() != nullptr);
-			m_Workspaces->DrawTabs();
+			m_Workspaces->DrawPopups();
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
 				const ImGuiID dockspace = ImGui::GetID("MyDockSpace");
@@ -1685,7 +1685,7 @@ namespace Lux {
 						char setLabel[40];
 						std::snprintf(setLabel, sizeof(setLabel), "Set %d from current view", slot);
 						char setShortcut[16];
-						std::snprintf(setShortcut, sizeof(setShortcut), "Ctrl+%d", slot);
+						std::snprintf(setShortcut, sizeof(setShortcut), "Ctrl+Shift+%d", slot);
 						if (ImGui::MenuItem(setLabel, setShortcut))
 							SetCameraBookmark(slot);
 
@@ -2534,6 +2534,28 @@ namespace Lux {
 			return;
 		}
 
+		// Workspace navigation is global, including focused document and graph editors.
+		EventDispatcher workspaceDispatcher(e);
+		workspaceDispatcher.Dispatch<KeyPressedEvent>(
+			[this](KeyPressedEvent& key)
+			{
+				const bool control =
+					Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+				const bool shift =
+					Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+				const bool alt = Input::IsKeyPressed(Key::LeftAlt) || Input::IsKeyPressed(Key::RightAlt);
+				if (!Project::GetActive() || !control || shift || alt || key.GetKeyCode() < Key::D1 ||
+					key.GetKeyCode() > Key::D9 || ImGui::GetTopMostPopupModal() ||
+					(m_EditorViewport && m_EditorViewport->GetCamera().IsMouseCaptured()))
+					return false;
+				if (key.GetRepeatCount() == 0)
+					m_Workspaces->RequestShortcut(static_cast<size_t>(key.GetKeyCode()) -
+												  static_cast<size_t>(Key::D0));
+				return true;
+			});
+		if (e.Handled)
+			return;
+
 		// Hover reads false while the camera holds the mouse, and right-drag + scroll sets fly speed.
 		if (m_EditorViewport && (m_EditorViewport->IsHovered() || m_EditorViewport->GetCamera().IsMouseCaptured()))
 			m_EditorViewport->GetCamera().OnEvent(e);
@@ -2604,14 +2626,14 @@ namespace Lux {
 		default: break;
 		}
 
-		// Viewport camera bookmarks: Ctrl+<1-9> stores the current view, <1-9> jumps to it. Gated on
+		// Viewport camera bookmarks: Ctrl+Shift+<1-9> stores the view, <1-9> jumps to it. Gated on
 		// the viewport being hovered and no text field active, so digits typed elsewhere are untouched.
 		const int keyCode = static_cast<int>(e.GetKeyCode());
 		if (keyCode >= static_cast<int>(Key::D1) && keyCode <= static_cast<int>(Key::D9)
 			&& m_EditorViewport && m_EditorViewport->IsHovered() && !ImGui::GetIO().WantTextInput)
 		{
 			const int slot = keyCode - static_cast<int>(Key::D0);
-			if (control && !shift)
+			if (control && shift)
 				SetCameraBookmark(slot);
 			else if (!control && !shift)
 				JumpToCameraBookmark(slot);

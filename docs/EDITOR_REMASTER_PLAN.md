@@ -235,7 +235,7 @@ Check every ImPlot Begin/End and style push/pop. No instrumentation cost is intr
 (b) Hierarchy/Properties, (c) console/history and diagnostics controls, (d) settings/help, and
 (e) audio tools. Use the Phase 0 inventory to name the exact affected symbols before each batch.
 Refine selection, search, empty/error states, long labels and narrow layouts; retain audio's live
-Apply/restart/audition semantics. Review workspace tabs, panel search and Default/Personal actions
+Apply/restart/audition semantics. Review workspace menu/shortcuts, panel search and Default/Personal actions
 through `EditorWorkspaceManager::DrawTabs`, `DrawMenu` and `DrawPanelsMenu`; keep native docking and
 existing settings identities. No blanket rewrite and no placeholder replacement panels.
 

@@ -26,7 +26,8 @@ namespace Lux
 		void Initialize(PanelManager& panels, bool simple);
 		void BeforeFrame();
 		void DrawDockSpace(ImGuiID root, ImVec2 size);
-		void DrawTabs();
+		void DrawPopups();
+		bool RequestShortcut(size_t slot);
 		void DrawMenu();
 		void DrawPanelsMenu();
 		void Shutdown();
@@ -56,7 +57,6 @@ namespace Lux
 			bool Deleted = false;
 			std::string PreservedPanels;
 			std::string LegacyPath;
-			std::string TabLabel;
 		};
 		enum class Action
 		{
@@ -94,8 +94,6 @@ namespace Lux
 		PanelManager* m_Panels = nullptr;
 		WorkspaceDocking m_Docking;
 		std::vector<std::pair<ImGuiID, ImGuiID>> m_PendingDockTabs;
-		std::vector<std::pair<ImGuiID, size_t>> m_WorkspaceTabs;
-		std::vector<size_t> m_WorkspaceOrder;
 		std::vector<PanelData*> m_PanelMenu;
 		std::string m_Error;
 		char m_Name[256]{};
@@ -114,7 +112,6 @@ namespace Lux
 		bool m_Playing = false;
 		bool m_GameWasOpen = false;
 		bool m_SceneWasOpen = true;
-		bool m_SelectTab = true;
 		uint64_t m_Revision = 0;
 		uint64_t m_PanelRevision = 0;
 	};

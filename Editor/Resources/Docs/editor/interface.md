@@ -1,24 +1,26 @@
 # The Editor at a Glance
 
-The editor is made of dockable panels. Use the workspace tabs below the titlebar to switch between
-**Layout**, **Shading**, **Audio**, **Scripting** and **Debugging**, or one of your personal layouts.
+The editor is made of dockable panels. Use **View → Workspaces** or **Ctrl+1–9** to switch between
+**Layout**, **Shading**, **Audio**, **Scripting**, **Debugging** and your personal layouts, in menu order.
+There is no workspace bar above the panels. The first five shortcuts select the default layouts
+on a fresh setup; the remaining shortcuts select personal layouts. Saved workspace order is retained.
 Drag panel tabs and splitters to arrange your tools; the arrangement adapts when you resize the
 editor or move it between monitors.
 
 **Default layouts** are protected starting points. Changes to them last for this session. To keep
-an arrangement, click **Save as Personal Layout...**, enter a name and create your personal copy.
+an arrangement, choose **View → Workspaces → Save as Personal Layout...**, enter a name and create your personal copy.
 **Personal layouts** remember their changes automatically and follow you between projects on this
 computer. Switching layouts keeps your scene, selection, open documents and unsaved work.
 
-Right-click a workspace tab to duplicate it, rename/delete a personal layout, or reset its
-arrangement. **View → Workspaces** also switches layouts, undoes the last reset and restores recently
+**View → Workspaces** contains the active layout's rename, delete and reset actions, plus copying,
+switching, undoing the last reset and restoring recently
 deleted personal layouts. The latest 32 deletions remain recoverable. Existing saved layouts are
 imported as personal layouts and their original files are kept.
 
 Use **View → Panels** to browse panel categories or search by name. Panels also appear in the command
 palette (**Tools → Command Palette**, **Ctrl+Shift+P**). Hierarchy, Properties, Scene View and Game
-View can each be opened or closed independently. A failed save is shown in the workspace status;
-**View → Workspaces** provides the error and retry/recovery actions. A damaged layout file is
+View can each be opened or closed independently. **View → Workspaces** provides save errors and
+retry/recovery actions. A damaged layout file is
 preserved, and a previous good version can be recovered explicitly. Scene and asset files are
 unaffected by layout recovery.
 

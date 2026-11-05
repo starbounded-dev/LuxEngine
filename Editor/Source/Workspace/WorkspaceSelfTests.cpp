@@ -69,7 +69,7 @@ namespace Lux
 			ImGui::SetNextWindowPos({0, 0});
 			ImGui::SetNextWindowSize(size);
 			ImGui::Begin("Lux Editor", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-			manager.DrawTabs();
+			manager.DrawPopups();
 			manager.DrawDockSpace(ImGui::GetID("MyDockSpace"), ImGui::GetContentRegionAvail());
 			panels.OnImGuiRender();
 			for (const auto& [id, panel] : panels.GetPanels(PanelCategory::View))
@@ -140,6 +140,26 @@ namespace Lux
 				manager.SetEnabled(true);
 				Frame(manager, panels);
 				Frame(manager, panels);
+				Require(!manager.RequestShortcut(0) && !manager.RequestShortcut(10),
+						"Workspace shortcuts accepted a slot outside Ctrl+1 through Ctrl+9");
+				manager.SetEnabled(false);
+				Require(!manager.RequestShortcut(2), "Disabled workspaces accepted a shortcut");
+				manager.SetEnabled(true);
+				size_t shortcut = 0;
+				for (const char* id : {"default.layout", "default.shading", "default.audio",
+									   "default.scripting", "default.debugging"})
+				{
+					Require(manager.RequestShortcut(++shortcut), "A default workspace shortcut was missing");
+					Frame(manager, panels);
+					Frame(manager, panels);
+					// New dock tabs apply NextSelectedTabId on the following frame.
+					Frame(manager, panels);
+					Require(manager.m_Active == id, "Workspace shortcut order differed from the menu");
+				}
+				Require(!manager.RequestShortcut(6),
+						"An empty shortcut selected a nonexistent personal layout");
+				manager.RequestShortcut(1);
+				Frame(manager, panels);
 				LUX_CORE_INFO_TAG("Editor", "Workspace test: copy default");
 				Require(manager.m_Active == "default.layout", "Clean startup did not select Layout");
 				manager.m_Request = Request{Action::Copy, manager.m_Active, "Personal Test"};
@@ -149,6 +169,33 @@ namespace Lux
 				Require(!manager.Find(personal)->Factory, "Default copy did not become personal");
 				document->DirtyDocument = 42;
 				document->Section = 7;
+				Require(manager.RequestShortcut(2), "Shading shortcut was unavailable");
+				Frame(manager, panels);
+				Frame(manager, panels);
+				Require(document->DirtyDocument == 42 &&
+						panels.GetPanel<WorkspaceTestPanel>("Beam").Raw() == document.Raw(),
+						"Workspace shortcut discarded an unsaved document");
+				Require(manager.RequestShortcut(6),
+						"Personal layout did not follow defaults in shortcut order");
+				Frame(manager, panels);
+				Frame(manager, panels);
+				Require(manager.m_Active == personal, "Personal layout shortcut selected the wrong record");
+				const size_t savedCount = manager.m_Layouts.size();
+				for (size_t slot = 7; slot <= 10; ++slot)
+				{
+					Layout extra = *manager.Find(personal);
+					extra.ID = "personal.shortcut." + std::to_string(slot);
+					manager.m_Layouts.push_back(std::move(extra));
+				}
+				for (size_t slot = 7; slot <= 9; ++slot)
+				{
+					Require(manager.RequestShortcut(slot), "A personal shortcut through Ctrl+9 was missing");
+					Require(manager.m_Request->ID == "personal.shortcut." + std::to_string(slot),
+							"A personal shortcut selected the wrong saved record");
+				}
+				Require(!manager.RequestShortcut(10), "A tenth layout acquired an unsupported shortcut");
+				manager.m_Request.reset();
+				manager.m_Layouts.resize(savedCount);
 				panels.SetOpen(Hash::GenerateFNVHash("Properties"), false);
 				Frame(manager, panels);
 				for (const char* id : {"default.shading", "default.audio", "default.scripting",
@@ -211,6 +258,7 @@ namespace Lux
 				Frame(manager, panels);
 				Require(manager.m_Active == "default.layout" && manager.Find(personal)->Deleted,
 						"Delete left no reachable workspace");
+				Require(!manager.RequestShortcut(6), "Deleted layouts still occupied a workspace shortcut");
 				manager.m_Request = Request{Action::Restore, personal, {}};
 				Frame(manager, panels);
 				manager.BeginPlay();
