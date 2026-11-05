@@ -5,9 +5,12 @@
 
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioValidation.h"
+#include "Lux/Audio/AudioAcoustics.h"
+#include "Lux/Audio/AudioPerformance.h"
 #include "Lux/Editor/EditorPanel.h"
 
 #include <string>
+#include <optional>
 
 namespace Lux {
 
@@ -40,8 +43,19 @@ namespace Lux {
 		AudioDebugPanel() = default;
 		virtual ~AudioDebugPanel() = default;
 
-		virtual void SetSceneContext(const Ref<Scene>& context) override { m_Context = context; m_Validation = {}; m_HasValidation = false; }
+		void SetSceneContext(const Ref<Scene>& context) override;
+		void OnProjectChanged(const Ref<Project>& project) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override
+		{
+			m_IsFocused = false;
+		}
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
 		virtual void OnImGuiRender(bool& isOpen) override;
+#ifndef LUX_DIST
+		static bool RunSelfTests(std::vector<std::string>& failures);
+#endif
 
 		const AudioVisualisationSettings& GetVisualisationSettings() const { return m_Visualisation; }
 
@@ -51,8 +65,18 @@ namespace Lux {
 		void SetSeeTheSoundEnabled(bool enabled);
 
 	private:
-		// The engine snapshot is taken once per frame and shared, so the two sections that read it
-		// cannot disagree about the same frame.
+		void CaptureReadings();
+		void ResetReadings();
+		void FilterSources();
+		struct SourceRow
+		{
+			UUID Entity = 0;
+			std::string Name, Sound, Playback, Paths;
+			std::optional<float> Distance;
+			bool Simulated = false;
+			float GainLF = 1.0f, GainHF = 1.0f;
+		};
+		// All pages share readings captured together on main; paused data owns no scene pointers.
 		void UI_Performance();
 		void UI_Validation();
 		void UI_Backends(const AudioEngineStats& engine);
@@ -70,6 +94,24 @@ namespace Lux {
 		AudioVisualisationSettings m_Visualisation;
 		AudioVisualisationSettings m_VisualisationBeforeSeeTheSound;
 		bool m_SeeTheSound = false;
+		uint32_t m_Page = 0;
+		bool m_IsFocused = false, m_Paused = false, m_HasReadings = false, m_ResetScroll = true;
+		double m_CapturedAt = 0.0;
+		AudioEngineStats m_Engine;
+		AudioPerformanceStats m_Performance;
+		AudioPerformanceSettings m_Budgets;
+		std::vector<AudioBusMeter> m_Meters;
+		std::vector<std::pair<std::string, AudioLoadedBank>> m_Banks;
+		std::vector<AudioLoadedClip> m_Clips;
+		AudioAcoustics::Diagnostics m_Acoustics;
+		std::optional<Soundwave::ReverbResult> m_Reverb;
+		float m_ReverbSend = 0.0f;
+		std::vector<SourceRow> m_Sources;
+		std::vector<size_t> m_FilteredSources;
+		UUID m_SelectedSource = 0;
+		UUID m_SelectedBank = 0;
+		std::filesystem::path m_SelectedClip;
+		bool m_HaveListener = false;
 	};
 
 }

@@ -817,6 +817,7 @@ namespace Lux {
 				passed &= SoundEditorPanel::RunPersistenceSelfTests(failures);
 				passed &= SoundEditorPanel::RunEditorSelfTests(failures);
 				passed &= AudioMixerPanel::RunSelfTests(failures);
+				passed &= AudioDebugPanel::RunSelfTests(failures);
 			}
 			else
 				failures.push_back("Audio panel tests require the active disposable runner project");

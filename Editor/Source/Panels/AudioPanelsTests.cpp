@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AudioMixerPanel.h"
+#include "AudioDebugPanel.h"
 #include "SoundBankEditorPanel.h"
 #include "SoundEditor/SoundEditorPanel.h"
 
@@ -15,6 +16,7 @@
 #include "Lux/ImGui/ImGuiScaling.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -527,6 +529,218 @@ namespace Lux
 					"Sound project change retained document/focus/modal state");
 			Frame(panel, "Sound Editor", 190.0f);
 			CheckWidth("Sound Editor");
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		return failures.empty();
+	}
+
+	bool AudioDebugPanel::RunSelfTests(std::vector<std::string>& failures)
+	{
+		AudioPanelTestContext context;
+		try
+		{
+			auto scene = Ref<Scene>::Create();
+			const auto sound =
+				Project::GetEditorAssetManager()->GetAssetHandleFromFilePath("Audio/One.lsound");
+			UUID selected = 0;
+			for (int index = 0; index < 180; ++index)
+			{
+				auto entity = scene->CreateEntity(index == 0 ? "Long ## Source 100% " + std::string(100, 'S')
+															 : std::format("Source {}", index));
+				auto& source = entity.AddComponent<AudioSourceComponent>();
+				source.Enabled = false;
+				source.Event.Sound = sound;
+				if (index == 0)
+				{
+					selected = entity.GetUUID();
+					entity.Transform().Translation = {3.0f, 4.0f, 0.0f};
+				}
+			}
+			scene->CreateEntity("Listener").AddComponent<AudioListenerComponent>();
+			scene->OnRuntimeStart();
+			AudioDebugPanel panel;
+			const auto check = [&]()
+			{
+				try
+				{
+					CheckWidth("Audio Debugger");
+				}
+				catch (const std::exception& error)
+				{
+					throw std::runtime_error(std::format("Diagnostic state page {} engine {} acoustic {}: {}",
+														 panel.m_Page, panel.m_Engine.Initialized,
+														 panel.m_Acoustics.Ready, error.what()));
+				}
+			};
+			panel.SetSceneContext(scene);
+			panel.CaptureReadings();
+			scene->OnRuntimeStop();
+			Require(
+				SceneSerializer(scene).Serialize(Project::GetActiveAssetDirectory() / "Diagnostics.luxscene"),
+				"Cannot save private diagnostics scene");
+			Require(panel.m_Sources.size() == 180 && panel.m_FilteredSources.size() == 180 &&
+						panel.m_HaveListener,
+					"Audio diagnostics missed captured sources/listener");
+			const auto found = std::ranges::find(panel.m_Sources, selected, &SourceRow::Entity);
+			Require(found != panel.m_Sources.end() && found->Distance && *found->Distance == 5.0f &&
+						!found->Simulated,
+					"Captured distance or missing-acoustics semantics changed");
+			const auto ownedName = found->Name;
+			scene->DestroyEntity(scene->GetEntityWithUUID(selected));
+			const auto sceneBeforeViews = SceneSerializer(scene).SerializeToString();
+			panel.m_Paused = true;
+			panel.m_SelectedSource = selected;
+			// Exercise available and unavailable readings without fabricating engine instrumentation.
+			// These are owned presentation fixtures; CaptureReadings above uses the real scene.
+			found->Simulated = true;
+			found->GainLF = 0.25f;
+			found->GainHF = 0.125f;
+			found->Paths = "1R 2O x2 !";
+			panel.m_Acoustics.Ready = true;
+			panel.m_Acoustics.StaticTriangles = 12;
+			panel.m_Reverb = Soundwave::ReverbResult{};
+			panel.m_Reverb->DecaySeconds = 0.75f;
+			panel.m_ReverbSend = 0.5f;
+			panel.m_Engine.HasMixerStats = true;
+			panel.m_Engine.ChannelsPlaying = 3;
+			panel.m_Engine.RealChannelsPlaying = 2;
+			panel.m_Performance.MixerAvailable = panel.m_Performance.MemoryAvailable = true;
+			panel.m_Performance.RealVoices = 3;
+			panel.m_Performance.MemoryMiB = 2.5;
+			panel.m_Meters = {{"bus:/" + std::string(120, 'M'), 8, 3, 2, 0.5f, 0.25f, true, false}};
+			panel.m_Banks = {{"Audio/" + std::string(100, 'B') + "##Bank.lbank", {UUID(), 2, true, true}}};
+			panel.m_SelectedBank = panel.m_Banks.front().second.Bank;
+			panel.m_Clips = {{std::filesystem::path(u8"Audio/\u00e9##Tone.wav"), 1, 2, 0, 4096}};
+			panel.m_SelectedClip = panel.m_Clips.front().File;
+			panel.m_HasValidation = true;
+			panel.m_Validation.Issues.push_back({AudioValidationSeverity::Warning, std::string(180, 'L'),
+												 "A long diagnostic message to wrap at narrow widths."});
+			// A new floating window must be usable without a test forcing its size.
+			ImGui::NewFrame();
+			bool firstOpen = true;
+			panel.OnImGuiRender(firstOpen);
+			ImGui::Render();
+			Require(ImGui::FindWindowByName("Audio Debugger")->Size.x >= ImGui::GetFontSize() * 24.0f,
+					"First-open Audio Debugger auto-fit collapsed around wrapped content");
+			ImGuiEx::DpiStyle dpi;
+			dpi.Capture(ImGui::GetStyle());
+			for (float scale : {1.0f, 1.5f})
+			{
+				dpi.Apply(ImGui::GetStyle(), scale);
+				ImGui::GetStyle().FontScaleMain = scale;
+				for (uint32_t page = 0; page < 6; ++page)
+				{
+					panel.m_Page = page;
+					panel.m_ResetScroll = true;
+					for (float width : {1800.0f, 650.0f, 280.0f, 190.0f, 1800.0f})
+					{
+						Frame(panel, "Audio Debugger", width);
+						Frame(panel, "Audio Debugger", width);
+						try
+						{
+							check();
+						}
+						catch (const std::exception& error)
+						{
+							throw std::runtime_error(
+								std::format("Audio diagnostics page {} scale {} width {}: {}", page, scale,
+											width, error.what()));
+						}
+						Require(panel.m_Sources.size() == 180 && found->Name == ownedName,
+								"Paused diagnostics read freed scene data or refreshed unexpectedly");
+					}
+				}
+			}
+			Require(SceneSerializer(scene).SerializeToString() == sceneBeforeViews,
+					"Viewing audio diagnostics modified authored scene data");
+			panel.m_SourceSearch = "One.lsound";
+			panel.FilterSources();
+			Require(panel.m_FilteredSources.size() == 180, "Diagnostics search missed Sound paths");
+			panel.m_SourceSearch = std::to_string(static_cast<uint64_t>(selected));
+			panel.FilterSources();
+			Require(panel.m_FilteredSources.size() == 1, "Diagnostics UUID search lost source identity");
+			panel.m_SourceSearch = "missing source";
+			panel.FilterSources();
+			Require(panel.m_FilteredSources.empty() && panel.m_SelectedSource == 0,
+					"Diagnostics filter retained an excluded selection");
+			panel.m_Page = 3;
+			Frame(panel, "Audio Debugger", 190.0f);
+			Frame(panel, "Audio Debugger", 190.0f);
+			check();
+			panel.m_SourceSearch.clear();
+			panel.m_SelectedSource = selected;
+			panel.CaptureReadings();
+			Require(panel.m_Sources.size() == 179 && panel.m_SelectedSource == 0 && !panel.m_HaveListener,
+					"Refresh retained a removed source or stopped listener");
+			const auto captured = panel.m_CapturedAt;
+			Frame(panel, "Audio Debugger", 650.0f);
+			Require(panel.m_CapturedAt == captured, "Paused readings refreshed implicitly");
+			panel.m_Paused = false;
+			GImGui->Time += 1.0;
+			Frame(panel, "Audio Debugger", 650.0f);
+			Require(panel.m_CapturedAt > captured, "Resumed diagnostics did not advance");
+			panel.m_IsFocused = true;
+			ImGui::GetIO().WantTextInput = true;
+			KeyPressedEvent typing(Key::D, 0);
+			panel.OnEvent(typing);
+			Require(typing.Handled, "Audio diagnostic search leaked scene shortcuts");
+			panel.OnClose();
+			Require(!panel.m_IsFocused, "Hidden diagnostics retained keyboard focus");
+			const auto beforeHidden = panel.m_CapturedAt;
+			GImGui->Time += 1.0;
+			bool closed = false;
+			panel.OnImGuiRender(closed);
+			Require(panel.m_CapturedAt == beforeHidden, "Closed diagnostics sampled hidden data");
+			panel.LoadState(Yaml::Load("Page: Sources\n"));
+			Yaml::Writer state;
+			state << Yaml::BeginMap;
+			panel.SaveState(state);
+			state << Yaml::EndMap;
+			AudioDebugPanel restored;
+			restored.LoadState(Yaml::Load(state.c_str()));
+			Require(restored.m_Page == 3 && !restored.m_Paused,
+					"Diagnostic view state lost its page or persisted stale pause");
+			panel.SetSeeTheSoundEnabled(true);
+			Require(panel.m_Visualisation.ShowOcclusion, "Visualization preset failed");
+			panel.SetSeeTheSoundEnabled(false);
+			Require(!panel.m_Visualisation.ShowOcclusion,
+					"Visualization preset did not restore previous settings");
+			panel.m_Paused = true;
+			panel.m_Page = 0;
+			panel.m_Engine.Initialized = false;
+			Frame(panel, "Audio Debugger", 190.0f);
+			Frame(panel, "Audio Debugger", 190.0f);
+			check();
+			panel.m_Page = 2;
+			panel.m_Acoustics.Ready = false;
+			panel.m_Acoustics.GeometryFailed = true;
+			Frame(panel, "Audio Debugger", 190.0f);
+			Frame(panel, "Audio Debugger", 190.0f);
+			check();
+			panel.m_Page = 4;
+			panel.m_HasValidation = true;
+			panel.m_Validation.Issues.clear();
+			Frame(panel, "Audio Debugger", 190.0f);
+			Frame(panel, "Audio Debugger", 190.0f);
+			check();
+			panel.m_Page = 5;
+			panel.SetSeeTheSoundEnabled(true);
+			Frame(panel, "Audio Debugger", 190.0f);
+			Frame(panel, "Audio Debugger", 190.0f);
+			check();
+			panel.SetSeeTheSoundEnabled(false);
+			panel.OnProjectChanged(Project::GetActive());
+			Require(panel.m_Context == scene, "Project notification erased the already-installed new scene");
+			panel.OnProjectChanged(nullptr);
+			Require(!panel.m_Context && !panel.m_HasReadings && panel.m_Sources.empty() &&
+						!panel.m_HasValidation && panel.m_SourceSearch.empty(),
+					"Diagnostics project teardown retained stale readings or validation");
+			Frame(panel, "Audio Debugger", 190.0f);
+			Frame(panel, "Audio Debugger", 190.0f);
+			check();
 		}
 		catch (const std::exception& error)
 		{

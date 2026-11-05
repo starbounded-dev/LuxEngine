@@ -70,6 +70,14 @@ snapshot and stops when you leave its page, change its structure, hide the Mixer
 
 **Voice and Performance Budgets** sets the real-voice limit and the clip memory and CPU levels that log a warning. **View › Audio Debugger** shows live voices, meters, the loaded Sound Banks and clips, and the problems the engine found, such as a Sound in no bank or a source with no Sound.
 
+The Audio Debugger has Overview, Sound Banks and clips, Acoustics, Sources, Validation and
+Visualisation pages. Readings update at 4 Hz while the panel is visible. **Pause** freezes those
+readings while audio keeps playing; **Refresh readings** takes one new reading even while paused.
+The caption shows its age. Selecting a source, bank or clip reveals complete details when narrow.
+Source search matches entity names, Sound paths and UUIDs. Missing listener distances or acoustic
+results are shown as unavailable. **Validate project audio** runs a separate explicit check;
+rerun it after authored edits. Visualisation controls affect the editor view, not scene data.
+
 ## Projects from before FMOD
 
 A project made with the FMOD version of the engine opens and plays its Sounds; its FMOD events never play. **Project Settings › Audio › Legacy FMOD Data** lists what is left (*Scan for FMOD Data*) and removes it in one step (*Remove FMOD Data*). Each Audio Source that names an FMOD event but no Sound needs a Sound assigned.

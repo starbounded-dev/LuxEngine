@@ -1038,6 +1038,16 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   stop audition. A close decision survives hide/reopen, with owned modal teardown and visible save
   failures. Banks-page membership saves candidates before publishing or adding undo and caches
   its catalog by sound, registry revision and data generation, with explicit Refresh for other edits.
+- Audio Debugger (`Panels/AudioDebugPanel`) captures owned engine/performance, bank/clip,
+  acoustic/reverb and source readings on main at 4 Hz while visible. Source rows retain UUIDs,
+  strings and measured values, never pointers into a scene or runtime voice. Pause freezes the
+  readings while audio continues; Refresh explicitly replaces them. Scene/project changes clear
+  stale readings, search and validation; project notifications preserve an already-installed new
+  scene. Pinned actions and an optional Page preference lead Overview/Banks/Acoustics/Sources/
+  Validation/Visualisation. Narrow lists use clipped rows plus wrapped complete selection details;
+  wide tables keep existing IDs. Filtering matches source name, Sound path or UUID; visible rows
+  are clipped. Missing listener/acoustic measurements remain unavailable. Validation stays an
+  explicit, separate project snapshot. View-only visualisation settings do not push scene undo.
 - `Editor/Source/EditorLayer.{h,cpp}` is the orchestrator. Prefer adding a **panel** over adding code
   to `EditorLayer`.
 - **The manual (Help).** `Editor/Resources/Docs/**.md` is the user manual for game makers, shipped

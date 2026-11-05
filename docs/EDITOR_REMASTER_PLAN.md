@@ -892,3 +892,73 @@ assets and project changes remain excluded.
 
 **Remaining:** Audio Debugger (Phase 5(e)(2b)), remaining whole-editor inventory and Phase 6's
 platform/workflow acceptance. The full remaster remains in progress.
+
+### Phase 5(e)(2b) — Audio Debugger
+
+**Verified inventory:** `AudioDebugPanel::{OnImGuiRender, UI_Backends, UI_Playback, UI_Performance,
+UI_SoundBanks, UI_Acoustics, UI_Sources, UI_Validation, UI_Visualisation, SetSeeTheSoundEnabled}`,
+its scene/project lifecycle and new captured-reading ownership. The previous view drew every
+section together, used fixed bank/clip/source column widths, traversed scene sources and metadata
+while drawing, and had unwrapped captions and error text. Its visualization properties also
+used scene-undo defaults despite being panel-owned view settings.
+
+**Delivered:** pinned Pause/Resume and Refresh readings, a page selector for Overview, Sound Banks
+and clips, Acoustics, Sources, Validation and Visualisation, and optional Page layout state.
+Readings capture together on main at 4 Hz while visible: engine/performance/budgets/meters,
+bank/clip lists, acoustic/reverb values, and source UUID/name/Sound/measurement rows. Paused
+readings own values and strings and survive entity removal; they retain no entity, voice or solve
+pointers. Refresh explicitly captures once while paused. The caption reports age and makes clear
+that audio continues. Context/project changes clear stale readings/search/validation; project
+notifications preserve an already-installed new scene. Closed panels do not capture.
+
+Wide tables retain their IDs. Narrow source/bank/clip lists use clipped rows and wrapped selected
+details; source filtering matches name, Sound path or UUID and clears an excluded panel selection.
+Long literal names and UTF-8 paths remain inspectable. Measurements preserve distance in metres,
+linear gain, relative HF loss, occlusion percent, path diagnostics, seconds, percentages and dBFS;
+missing listener/acoustic/mixer data stays unavailable. Meter graphics remain, compact captions
+wrap, and zero signal is shown as -inf dBFS. Acoustic counters retain 64-bit values. Validation
+remains a separate explicit project snapshot. Visualization properties use panel-owned undo-free
+controls, bounded emitter radius and the existing reversible See the Sound preset. No new audio
+instrumentation, worker, renderer resource, asset schema or required dependency was introduced.
+
+**Verification:** no new source file, so no project regeneration needed. Final Debug Editor
+`2026-11-05 04:33:47`, log `bin/audio-debug-build.txt`; Core/Runtime were unchanged from the preceding
+verified batch. Final audio runner passed Single/Multi in
+`bin/audio-panels-smoke/1793871227997730100`, including all earlier authoring/save/pack/audition
+checks and the diagnostic probes: 180 real scene sources and a runtime listener, 5-metre captured
+distance, entity removal while readings are paused, available/unavailable presentation fixtures,
+all six pages at 100%/150% wide/narrow/wide down to 190 pixels, list clipping, full details,
+Sound/UUID/no-match filtering and excluded selection, explicit refresh and resumed cadence,
+first-open sizing without forced dimensions, hidden sampling, text isolation, optional state,
+reversible visualization and project/scene teardown. Serialized scene data remains identical
+through view-only interactions. Representative acoustic/meter rows in the width probes are
+owned test presentation values; they do not establish a new live acoustic solve or performance
+benchmark. Workspace lifecycle/persistence/recovery passed Single/Multi in
+`bin/workspace-smoke/1793871249811953900`.
+
+The stricter error-state probes caught the unwrapped acoustic failure message; it was replaced
+with the shared wrapped message. Native review additionally reproduced a first-open auto-fit
+collapse caused by exclusively wrapped content. A FirstUseEver size now supplies usable initial
+geometry without restricting user resizing, and the regression opens the panel without a test
+size override. Earlier failed runs are not accepted evidence.
+
+Native review used only `bin/audio-debug-ui/1793870532552252400`, with the serialized 180-source
+Diagnostics.luxscene and fresh user-sized preferences (`sized.log`, `sized-stderr.log`). It covered
+command-palette opening, corrected first-open size, compact source selection and full literal name
+hover/details, actual Pause/Refresh with an advancing age caption, and typed Source 17 filtering.
+That filtering exposed an excluded selection still showing details; the final build clears it,
+verified by the final regression. Earlier logs retain the initial fixture-extension mistake and
+first-open collapse. Attempts to resize the floating window through computer use did not change
+its geometry, so native wide-table/dock-drag acceptance is not inferred from them; wide table
+coverage here is the production ImGui test. No assertion or Vulkan validation error was found in
+the final native log, and the private editor closed normally.
+
+Local `$cr` checked scopes/IDs, owned snapshots, capture cadence/hidden work, main-thread access,
+optional-state compatibility, literal text, panel-owned visualization and context ordering. No
+remaining must-fix or should-fix finding in this batch. Shared documentation and bundled audio
+help are updated; unrelated sample assets/project changes remain excluded.
+
+**Remaining:** the whole-editor inventory/rollout audit and Phase 6 platform/workflow acceptance,
+including native dock/splitter dragging, physical mixed-monitor/detached/disconnect checks, Linux
+execution, Debug/Dist runtime gates and exported authored-result coverage. The complete remaster
+is not yet declared finished.
