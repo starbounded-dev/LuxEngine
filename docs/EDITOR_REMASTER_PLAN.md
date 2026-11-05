@@ -1059,3 +1059,105 @@ compiler aliases are in `bin/linux-toolchain/bin`. Logs are `bin/remaster-linux-
 `bin/remaster-linux-prerequisites.txt`, `bin/remaster-linux-dotnet-install.txt` and
 `bin/remaster-linux-dotnet-info.txt`. This establishes prerequisites, not a successful Linux
 engine build or execution. No new mandatory dependency was added for game makers.
+
+### Phase 6 — Windows exported runtime acceptance
+
+The existing scene/acoustics runner passed a normal Debug Play -> editor export -> packaged Dist
+player check under Multi with isolated user storage. It used the owned Sponza corner scene and
+copied Audio/model inputs, exported 104 assets plus ShaderPack.lsp, then launched only the package's
+player. Source project, scene, registry and model hashes were unchanged. Play and packaged runtime
+matched direct-ray bits, raw/occlusion gain, fourteen opening paths and listener reverb within
+the runner's tolerance. Both native runs reported no Vulkan validation messages. The output is
+correctness evidence; the single captured timing sample is not a performance benchmark.
+
+Command: `python tests/audio/run_scene_acoustics.py --config debug --threading multi
+--export-runtime --runtime-config dist --cases corner --timeout 600` with a private
+`LUX_USER_DATA_DIR`. Wrapper evidence: `bin/remaster-runtime-acceptance/1793892383080933200`.
+Fixture/package: `bin/soundwave-scene-tests/sponza-acoustics-1793892383578203400`.
+Native capture/export/player reports:
+`bin/golden/sponza-acoustics-1793892383578203400-corner`, especially AudioDemo.status,
+AudioDemo.export.yaml, AudioDemo.runtime-audio.yaml and its .status. This exercises the normal
+exported source/pack/scene/renderer/audio path with the current binaries. Earlier panel-specific
+round trips continue to prove their authored edits, undo and checked saves separately; this run
+does not claim a new material graph authoring interaction or physical monitor acceptance.
+
+The Linux Vulkan SDK 1.4.335.0 was fetched into the verified, previously absent
+`Core/vendor/VulkanSDK/x86_64` path; glslc executes successfully. Evidence:
+`bin/remaster-linux-vulkan-fetch.txt`. The first inline WSL build launcher failed while parsing
+an inherited Windows PATH containing spaces, before any build/generation. An ignored script now
+quotes that PATH and invokes the unchanged repository Linux build workflow. The real Linux
+build is still being evaluated; no Linux execution acceptance is claimed yet.
+
+### Phase 6 — Linux build and initial execution evidence
+
+The actual Linux Debug Core, Editor and Runtime compiled and linked with clang 20. Fresh binaries:
+Editor `2026-11-05 10:44:44`, 406385432 bytes; Lux-Runtime `10:46:31`, 321040032 bytes. The first
+build stopped in post-build deployment because Stage-LinuxRuntimeLibraries.sh had CRLF in this
+Windows checkout (`set -euo pipefail` included a carriage return). HEAD's script blob was already
+LF. `.gitattributes` now gives every tracked .sh LF checkout, including the runtime deployer,
+Linux launch helpers, packaging helper and sample-script generator. Seven current checkouts were
+normalized without changing their script contents. Fresh core.autocrlf=true checkout probes pass
+for deployment, launch and sample generation in `bin/shell-eol-check/1793893881729369300`.
+
+Runtime staging was rerun with the build's actual Linux VULKAN_SDK and now resolves Assimp,
+shaderc and Vulkan from the staged lib directory without build-tree paths
+(`bin/remaster-linux-runtime-staging.txt`). The first standalone staging probe lacked that SDK
+variable and correctly rejected a missing shaderc library; it is not accepted staging evidence.
+The full unchanged Linux-Build.sh workflow then completed, including sample script compilation:
+`bin/remaster-linux-build-final.txt`. Initial failed build evidence remains in
+`bin/remaster-linux-build.txt`. Remembered Windows project generation was restored with
+Win-GenProjects.bat --last (`bin/remaster-windows-regeneration.txt`); no Windows source was
+replaced by the Linux generation.
+
+The real Linux editor ran workspace lifecycle/persistence/recovery/concurrent-save tests under
+Single/Multi in `bin/workspace-smoke/1793894351618872635`. All eight panel runners also reported
+PASS under both policies through `bin/remaster-linux-panel-matrix.txt`: Beam/shared controls
+1793894584155407467, material panels 1793894618629807233, diagnostic plots 1793894918675894025,
+browser 1793894940397316104, hierarchy 1793894995589715604, diagnostic controls
+1793895035396551803, settings/viewport 1793895078490086416, audio panels 1793895119059419269
+(the corresponding bin/*-smoke directories). These exercise Linux builds, authored data, text
+and shortcut logic, fonts, 100%/150% test scaling, width transitions and lifecycle.
+
+**Presentation limit:** manual inspection caught vkGetPhysicalDeviceSurfaceFormats2KHR returning
+VK_ERROR_SURFACE_LOST_KHR and repeated NRI swapchain creation failures in the material runner's
+WSLg Wayland render-startup frames. Its PASS marker therefore does not establish successful
+native preview presentation. This is retained as failed presentation evidence, not filtered out
+or accepted as harmless. The existing X11/XWayland path is being checked separately with Vulkan
+validation still enabled. No renderer guard, retry timeout or validation setting was changed.
+Physical monitor/drag/detached/disconnect acceptance remains open.
+
+### Whole-editor inventory reconciliation
+
+All 21 current EditorLayer AddPanel registrations have a named owner and rollout outcome:
+
+| Panel | Outcome/evidence location in this plan |
+|---|---|
+| Scene Hierarchy | Phase 5(b), search/create/multi-edit/undo and bounded rows. |
+| Properties | Phase 5(b), independent visibility/focus and adaptive component/axis controls. |
+| Content Browser | Phase 5(a), navigation/actions, asset identity/pickers and undo. |
+| Beam | Phases 1–2, document tabs/actions, narrow search/diff and dirty-close recovery. |
+| Log | Phase 5(c), retained messages/filter/follow and complete details. |
+| Game View | Phase 5(f), retained viewport renderer ownership and wrapped no-camera guidance. |
+| Scene Renderer | Phase 5(f), bounded/pinned settings controls and visible checked-save status. |
+| Renderer Debugger | Phase 4, retained diagnostic ownership and inspectable/missing measurements. |
+| Profiler | Phase 4 plus 5(g), shared histories and usable first floating open. |
+| Help | Phase 5(d), offline navigation/search and responsive topics/page view. |
+| Material Editor/graph | Phase 3, adaptive composition, authored saves/undo/pack and preview lifetime. |
+| Sound Editor | Phase 5(e)(2a), adaptive tree/sections and checked edit/save/audition lifecycle. |
+| Sound Bank Editor | Phase 5(e)(1), bounded inventory and candidate-save publication. |
+| Audio Mixer | Phase 5(e)(1) plus 5(g), adaptive pages/Apply/preview and first floating open. |
+| Audio Debugger | Phase 5(e)(2b), owned captured readings and bounded inspectable pages. |
+| History | Phase 5(c), explicit undo/redo/current-state navigation. |
+| Application Settings | Phase 5(d), bounded properties and adaptive page list/selector. |
+| Asset Manager | Phase 5(c) plus 5(g), owned inventory/filter/details and first floating open. |
+| Project Settings | Phase 5(d), pinned save/pages and retained project/audio semantics. |
+| Light Settings | Phase 5(d) plus 5(g), bounded authored-light controls and first floating open. |
+| Scene View | Retains SceneViewPanel/EditorLayer/Viewport's specialist image, picking and gizmos; normal native Play/export is recorded above. Overlay/detached narrow context acceptance is still open. |
+
+Workspace DrawMenu/DrawPopups/DrawPanelsMenu and EditorLayer shortcut dispatch were reviewed again.
+Default/Personal ownership, deferred requests, Ctrl+1–9 ordering, modal lifetime, category search
+and recovery continue to use existing owners. The source audit identifies a remaining menu case
+to reproduce: personal names reach MenuItem as labels (so ## can hide text) and the active-name
+caption is unbounded. This is not yet declared accepted. Scene View overlay geometry/context and
+the remaining physical platform matrix must also be resolved or specifically recorded before
+closing the full goal.
