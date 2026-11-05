@@ -82,14 +82,16 @@ namespace Lux {
 
 	bool FileSystem::WriteFileAtomically(const std::filesystem::path& path, std::string_view text, bool binary)
 	{
-		const std::filesystem::path temporary = path.string() + ".tmp";
+		std::filesystem::path temporary = path;
+		temporary += ".tmp";
 		{
 			std::ofstream file(temporary, binary ? std::ios::out | std::ios::binary | std::ios::trunc : std::ios::out | std::ios::trunc);
 			file.write(text.data(), static_cast<std::streamsize>(text.size()));
 			file.close();
 			if (!file)
 			{
-				LUX_CORE_ERROR_TAG("FileSystem", "Cannot write '{}'", temporary.string());
+				const auto utf8 = temporary.u8string();
+				LUX_CORE_ERROR_TAG("FileSystem", "Cannot write '{}'", std::string_view(reinterpret_cast<const char*>(utf8.data()), utf8.size()));
 				std::error_code error;
 				std::filesystem::remove(temporary, error);
 				return false;
@@ -244,12 +246,13 @@ namespace Lux {
 
 	std::filesystem::path FileSystem::OpenFileDialog(const std::initializer_list<FileDialogFilterItem> inFilters)
 	{
-		NFD::UniquePath filePath;
-		nfdresult_t result = NFD::OpenDialog(filePath, (const nfdfilteritem_t*)inFilters.begin(), inFilters.size());
+		NFD::UniquePathU8 filePath;
+		nfdresult_t result = NFD::OpenDialog(filePath, reinterpret_cast<const nfdu8filteritem_t*>(inFilters.begin()), inFilters.size());
 
 		switch (result)
 		{
-			case NFD_OKAY: return filePath.get();
+			case NFD_OKAY:
+				return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(filePath.get())));
 			case NFD_CANCEL: return "";
 			case NFD_ERROR:
 			{
@@ -261,12 +264,13 @@ namespace Lux {
 
 	std::filesystem::path FileSystem::OpenFolderDialog(const char* initialFolder)
 	{
-		NFD::UniquePath filePath;
+		NFD::UniquePathU8 filePath;
 		nfdresult_t result = NFD::PickFolder(filePath, initialFolder);
 
 		switch (result)
 		{
-			case NFD_OKAY: return filePath.get();
+			case NFD_OKAY:
+				return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(filePath.get())));
 			case NFD_CANCEL: return "";
 			case NFD_ERROR:
 			{
@@ -278,12 +282,13 @@ namespace Lux {
 
 	std::filesystem::path FileSystem::SaveFileDialog(const std::initializer_list<FileDialogFilterItem> inFilters)
 	{
-		NFD::UniquePath filePath;
-		nfdresult_t result = NFD::SaveDialog(filePath, (const nfdfilteritem_t*)inFilters.begin(), inFilters.size());
+		NFD::UniquePathU8 filePath;
+		nfdresult_t result = NFD::SaveDialog(filePath, reinterpret_cast<const nfdu8filteritem_t*>(inFilters.begin()), inFilters.size());
 
 		switch (result)
 		{
-			case NFD_OKAY: return filePath.get();
+			case NFD_OKAY:
+				return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(filePath.get())));
 			case NFD_CANCEL: return "";
 			case NFD_ERROR:
 			{

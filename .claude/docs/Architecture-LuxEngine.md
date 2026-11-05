@@ -851,6 +851,25 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   the existing Sound/Mixer undo paths. Sound Banks save each edit immediately and label this in the UI.
   Beam numbers untitled documents, keeps New in the leading tab section, and opens the native save
   dialog for untitled files or Ctrl+Shift+S; file and Sound tabs offer path-copy/close context menus.
+- **Shared panel controls and Beam.** `Core/Source/Lux/ImGui/PanelControls` provides a responsive
+  action bar, empty state and message presentation. Caller-owned descriptors supply stable action IDs,
+  enabled/selected state and primary/menu-only hints; the controls return an action ID and retain no
+  document or callbacks. Beam routes its existing commands through this bar: primary actions compact
+  before overflowing into More, and save/edit actions are disabled in its read-only diff view.
+  Save failures remain visible on the document until a successful retry. Dirty state observes the
+  vendored editor's change version before Save/Close and after editing, rather than its delayed summary
+  callback; rapid edits cannot evade the close prompt or mark freshly saved text dirty later.
+  Layout changes keep the same Beam document objects. All of this runs on main; no renderer or
+  asset data flow changes. Other authoring panels retain their current controls until migrated.
+  Beam caches UTF-8 document labels when paths/lifetimes change, disambiguates duplicate basenames
+  with parent suffixes, and tracks native tab order separately from the owning document vector.
+  Open Documents, Go to Line and close decisions remain in Beam; popup submission clears pending
+  editor focus and consumes navigation Enter before returning to the editing surface. Save As commits
+  path/language only after a successful atomic write; failed reads retain existing documents/diffs.
+  Session-only zoom, line-number and minimap settings use existing vendor APIs/monospaced fonts.
+  The vendored Find/Replace view wraps and sizes to its content within the editor, retaining its
+  existing search/undo model. Native file dialogs decode NFD's UTF-8 results explicitly; atomic text
+  saves append the temporary suffix as a native path rather than through the Windows code page.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
   `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
   the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;

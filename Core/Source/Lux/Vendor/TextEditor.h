@@ -147,6 +147,11 @@ public:
 	inline bool CanUndo() const { return !readOnly && transactions.canUndo(); };
 	inline bool CanRedo() const { return !readOnly && transactions.canRedo(); };
 	inline size_t GetUndoIndex() const { return transactions.getUndoIndex(); };
+	// Includes undo/redo and edits that replace a redo branch at the same undo index.
+	size_t GetChangeVersion() const
+	{
+		return transactions.getVersion();
+	}
 
 	// manipulate cursors and selections (line numbers are zero-based)
 	inline void SetCursor(int line, int column) { moveTo(document.normalizeCoordinate(Coordinate(line, column)), false); }
@@ -211,7 +216,11 @@ public:
 	inline void ReplaceTextInAllCursors(const std::string_view& text) { if (!readOnly) replaceTextInAllCursors(text); }
 
 	inline void OpenFindReplaceWindow() { openFindReplace(); }
-	inline void CloseFindReplaceWindow() { closeFindReplace(); }
+	void CloseFindReplaceWindow(bool focusEditor = true)
+	{
+		closeFindReplace();
+		focusOnEditor = focusEditor;
+	}
 	inline void SetFindButtonLabel(const std::string_view& label) { findButtonLabel = label; }
 	inline void SetFindAllButtonLabel(const std::string_view& label) { findAllButtonLabel = label; }
 	inline void SetReplaceButtonLabel(const std::string_view& label) { replaceButtonLabel = label; }

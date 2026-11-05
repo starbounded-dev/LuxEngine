@@ -398,6 +398,14 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_PANEL_CONTROLS_SELFTEST` — Debug/Release editor-only fixture directory, which must not
+  exist. Exercises shared action-bar sizing/overflow in an isolated ImGui context and Beam's save,
+  immediate edit/close, retry and document-retention APIs; also covers duplicate names, path aliases,
+  Unicode paths, cancelled/failed Save As, failed close-save, many-tab navigation, popup focus/Enter
+  handoff and the real vendored Find/Replace layout at multiple scales. Writes `<directory>.status` and exits.
+  `python tests/editor/run_panel_controls.py` runs this under Single and Multi. Native Beam UI
+  verification covers text entry, dialogs, shortcuts, workspace switching and resizing separately.
+
 - `LUX_USER_DATA_DIR` — optional complete per-user storage override on Windows/Linux; use a new
   directory for editor verification so settings, layouts and logs never touch real preferences.
 - `LUX_WORKSPACES_SELFTEST` — Debug/Release editor-only workspace fixture directory, which must

@@ -449,6 +449,18 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 #ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_PANEL_CONTROLS_SELFTEST"))
+		{
+			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_PANEL_CONTROLS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = TextEditorPanel::RunPanelControlsSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			if (!FileSystem::WriteFileAtomically(directory.string() + ".status", report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish panel-control self-test report");
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_WORKSPACES_SELFTEST"))
 		{
 			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_WORKSPACES_SELFTEST");

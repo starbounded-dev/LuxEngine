@@ -268,6 +268,12 @@ Markdown text (headings, lists, tables, code blocks with Copy, links) renders wi
 `ImGuiEx::RenderMarkdown` (`ImGuiMarkdown.h`), and a help icon that opens a manual page is
 `ImGuiEx::DocsButton` (`Editor/EditorDocs.h`).
 New reusable widgets go into `ImGuiEx`, not inline in a panel.
+`PanelControls.h` provides `PanelActionBar`, `PanelEmptyState` and `PanelMessage`. Actions are
+caller-owned descriptors with stable integer IDs, labels, optional icons/shortcuts, enabled/selected
+state and primary/menu-only hints. The action bar returns an ID; it owns no callbacks or documents.
+It measures current font/style metrics, retains primary actions first, compacts them to icons when
+needed and exposes hidden actions in More. Use a stable child ID per bar; callers handle commands
+and keyboard shortcuts. Empty/message text wraps to the available width. These controls run on main.
 `ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
 as Ctrl-click/double-click to enter numeric text. Numeric properties with an explicit `defaultValue`
 opt into **double-click reset**; Ctrl-click still enters numeric text. `NumericControlMenu` supplies

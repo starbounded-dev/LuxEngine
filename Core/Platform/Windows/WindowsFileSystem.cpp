@@ -48,7 +48,10 @@ namespace Lux {
 	{
 		if (MoveFileExW(replacement.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
 			return true;
-		LUX_CORE_ERROR_TAG("FileSystem", "Cannot replace '{}': Windows error {}", destination.string(), GetLastError());
+		const DWORD error = GetLastError();
+		const auto utf8 = destination.u8string();
+		LUX_CORE_ERROR_TAG("FileSystem", "Cannot replace '{}': Windows error {}",
+			std::string_view(reinterpret_cast<const char*>(utf8.data()), utf8.size()), error);
 		return false;
 	}
 
