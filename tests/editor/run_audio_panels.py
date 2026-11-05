@@ -8,6 +8,8 @@ import math
 import struct
 import wave
 
+from native_checks import require_clean_graphics_log
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -34,9 +36,7 @@ def main():
         status = project.with_suffix(".status")
         if result.returncode or not status.is_file() or status.read_text() != "PASS\n":
             raise RuntimeError(f"{policy} audio panels failed (exit {result.returncode}): {status.read_text() if status.exists() else 'no status'}; log: {log}")
-        text = log.read_text(encoding="utf-8", errors="replace")
-        if any(error in text for error in ("VUID-", "Validation Error", "Assertion failed", "Verify Failed")):
-            raise RuntimeError(f"Rendering or UI validation failure: {log}")
+        require_clean_graphics_log(log)
         print(f"PASS: {policy} audio authoring/diagnostics, save/undo/pack, preview and captured-reading lifetime", flush=True)
     print("Evidence:", output)
 

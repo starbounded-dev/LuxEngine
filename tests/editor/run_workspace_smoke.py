@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import time
 
+from native_checks import require_clean_graphics_log
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -27,9 +29,7 @@ def main():
         status = fixture.with_suffix(".status")
         if result.returncode or not status.is_file() or status.read_text() != "PASS\n":
             raise RuntimeError(f"{policy} workspace tests failed (exit {result.returncode}): {status.read_text() if status.exists() else 'no status'}; log: {log}")
-        text = log.read_text(encoding="utf-8", errors="replace")
-        if "Validation Error" in text or "VUID-" in text:
-            raise RuntimeError(f"Vulkan validation failure: {log}")
+        require_clean_graphics_log(log)
         print(f"PASS: {policy} workspace lifecycle, persistence, recovery and concurrent-save checks", flush=True)
     print("Evidence:", output)
 

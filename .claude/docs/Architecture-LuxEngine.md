@@ -815,6 +815,10 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   graph links, no implicit file writes, hide cleanup/undo/audition and focused explicit saves through
   workspace transitions under Single/Multi. This is UI/data integration coverage; preview presentation
   and physical platform-window behavior are separate acceptance checks.
+  Native editor runners share `tests/editor/native_checks.py`: a PASS report must also have a log
+  free of known graphics/UI failures, including swapchain/surface loss, null resources, descriptor
+  bake errors, shader-load failures, Vulkan validation and assertions. Expected authoring save
+  failures and unavailable timing data remain testable. The checker reports the failing file/line.
 - Scene View is registered through `SceneViewPanel`, delegating specialized rendering to the
   existing layer/viewport. `PropertiesPanel` delegates inspector drawing to `SceneHierarchyPanel`;
   each window has independent visibility, focus and persistence. Legacy coupled visibility loads

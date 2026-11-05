@@ -13,6 +13,8 @@ import time
 
 import yaml
 
+from native_checks import require_clean_graphics_log
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests/audio"))
 import run_scene_acoustics as scenes
@@ -26,15 +28,6 @@ def passed_fixture(folder, asset):
         if status.is_file() and status.read_text() == "PASS\n" and (project / asset).is_file():
             return project
     raise RuntimeError(f"No passed {folder} fixture; run the corresponding panel runner first")
-
-
-def require_clean_graphics_log(path):
-    text = path.read_text(encoding="utf-8", errors="replace")
-    markers = ("NRI failed to create", "Resource is null!", "Bake - Validate failed",
-               "VUID-", "Validation Error", "Assertion failed", "Verify Failed")
-    scenes.require(not any(marker in text for marker in markers), f"Graphics failure in {path}")
-    scenes.require(not any("Shader '" in line and "failed to load" in line for line in text.splitlines()),
-                   f"Shader load failure in {path}")
 
 
 def main():

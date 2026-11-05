@@ -6,6 +6,8 @@ import subprocess
 import time
 import wave
 
+from native_checks import require_clean_graphics_log
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -48,11 +50,7 @@ def main():
         if result.returncode or not status.is_file() or status.read_text() != "PASS\n":
             raise RuntimeError(f"{policy} workspace document checks failed (exit {result.returncode}): "
                                f"{status.read_text() if status.exists() else 'no status'}; log: {log}")
-        text = log.read_text(encoding="utf-8", errors="replace")
-        errors = ("Validation Error", "VUID-", "Resource is null!", "Bake - Validate failed",
-                  "Verify Failed", "Assertion failed", "NRI failed to create")
-        if any(error in text for error in errors):
-            raise RuntimeError(f"Rendering or UI validation failure: {log}")
+        require_clean_graphics_log(log)
         print(f"PASS: {policy} real dirty documents, workspace switches, audition cleanup and restored saves", flush=True)
     print("Evidence:", output)
 

@@ -346,11 +346,13 @@ They do not establish runtime correctness, visual acceptance or measured perform
 
 ## Handoff
 
-**Phases 1–4 are implemented (2026-11-04), ready for user review.**
-Phase 5 is in progress; Phase 6 remains planned. The whole-editor Phase 0 inventory and Phase 6 platform matrix are not declared complete
-by this pilot. Continue with `$dev` and review each useful slice with `$cr`. The user subsequently
-requested a commit whenever a phase is finished; commit each verified phase and keep unrelated
-working-tree changes out. Push only when requested.
+**Phases 1-5 are implemented; Phase 6 acceptance is active (2026-11-05).**
+The delivery records below reconcile all 21 registered panels and their verification. The
+planning ledger is historical; it is not the current completion ledger. Remaining physical
+platform checks and failed presentation paths stay explicit in the latest Phase 6 records.
+Continue with `$dev` and review each useful slice with `$cr`. The user requested a commit
+whenever a batch is finished; commit verified changes and keep unrelated working-tree changes
+out. Push only when requested.
 
 ### Phase 1 delivery and verification
 
@@ -1306,3 +1308,49 @@ validation/assert/null-resource/swapchain failure in that log or stderr. Earlier
 launches were not accepted as visual evidence. This is main-window resize acceptance, not a
 physical monitor-move/disconnect or detached-window claim. Local cr reviewed explicit-width
 ordering, bounds, font scale and scope balance; no outstanding finding in this fix.
+
+### Phase 6 - current Linux X11 execution and native failure gates
+
+The final workspace/menu/document/overlay code rebuilt incrementally with the existing Linux
+Makefiles (no generation change): Debug Editor 2026-11-05 12:32:04.495770100 -0500, 406,846,096
+bytes; `bin/remaster-linux-editor-final-build.txt`. Core and Runtime product code did not change.
+Windows project generation was not touched by this incremental make build.
+
+Normal X11/XWayland execution on WSLg/lavapipe rendered an isolated copied cube/material/sky
+scene through the existing golden runner, with its unchanged default 900-second capture timeout.
+Evidence: `bin/golden/remaster-linux-x11-1793900290105321700` (summary/status/log/lximg/PNG),
+`bin/remaster-linux-x11-native-capture.txt` and the owned source project in
+`bin/remaster-linux-native/1793900290105321700`. The 320x180 image visibly contains the green cube
+and sky; capture and RenderGraph self-tests passed, with normal shutdown and zero graphics/UI
+failure markers. Original model-input hashes remained unchanged. One timing sample was retained
+by the existing runner; no performance benchmark or hardware-GPU claim is made.
+
+The current Linux X11 integration matrix passed Single/Multi with full native-log checks:
+
+- Workspace lifecycle/persistence/recovery/concurrent writers: `bin/workspace-smoke/1793900457975272699`.
+- Real dirty Beam/material/Sound workspace transitions, audition cleanup and restored saves:
+  `bin/workspace-documents-smoke/1793900486579336786`.
+- Settings/Help/Game View and final readable Scene View overlay geometry at 100%/150%:
+  `bin/settings-panels-smoke/1793900530724886619`.
+- Material saves/retry/reload, undo, adaptive graph and real preview frames:
+  `bin/material-panel-smoke/1793900568967692881`.
+Full orchestration: `bin/remaster-linux-x11-final-matrix.txt`. No native runner timeout or engine
+validation behavior was changed. This successful X11 material run supersedes the earlier X11
+timeout for that supported backend; the recorded Wayland surface failure remains unaccepted.
+
+`tests/editor/native_checks.py` now supplies the native graphics/UI log gate to eleven editor
+runners, including authored export. It rejects the observed NRI swapchain failure even when a
+self-test writes PASS, as well as surface loss, null resources, descriptor bake errors, shader
+load failures, Vulkan validation and assertions. It reports the failing file/line, while expected
+authoring save failures and unavailable timings remain testable. The stdlib regression tests
+passed on Windows and Linux. All runner imports were checked; 26 actual clean X11/Windows logs
+were accepted, and both console/file copies of the recorded failing Wayland Single log were
+rejected. Initial scratch verifier input classification was corrected to use only logs that
+actually contain a failure; a clean historical Multi log is not labeled failing by assumption.
+The Windows unit run required the ordinary host temporary directory after sandbox temp I/O
+was denied. No application behavior was changed to bypass that environment restriction.
+
+The updated Windows workspace runner also passed Single/Multi with the shared checker:
+`bin/workspace-smoke/1793900923618682700`. Local cr reviewed imports, expected-error handling,
+log I/O failures and exact rejection evidence; no remaining must-fix/should-fix finding in this
+Python-only verification batch. Existing fresh native builds above remain authoritative.
