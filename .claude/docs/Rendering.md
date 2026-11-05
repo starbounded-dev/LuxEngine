@@ -114,6 +114,12 @@ them.
   which covers sets `StartSet = 0 … EndSet = 3`. `IsDynamic` (default true) makes it re-check
   resources for change; `Validate()` then `Bake()` is the commit path. Bind by **name** via
   `SetInput("Camera", …)`, not by raw slot.
+- A shader permutation may start using a uniform that the previous reflection omitted. During
+  pass initialization, `RenderPass::SetOptionalInput(name, UniformBufferSet)` retains that binding
+  intent even while absent. `DescriptorSetManager::OnShaderReloaded` applies these defaults to the
+  new reflection before restoring currently bound inputs and baking. Graph-capable geometry and
+  masked passes retain SceneData/RendererData this way; enabling a graph must not leave a newly
+  reflected uniform null. Register this intent once, never mutate the map during frame rendering.
 
 If you need a pipeline variant per frame, you actually need a **permutation** — see below.
 

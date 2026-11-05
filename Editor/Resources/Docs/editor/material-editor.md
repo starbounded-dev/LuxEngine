@@ -9,11 +9,22 @@ The Material Editor edits [materials](materials). Open a material by double-clic
 - **Properties** — the material's settings, in collapsible sections.
 - **Save** writes the material to disk; **Revert** goes back to the saved version. Every change is one step on the editor's undo history (**Ctrl+Z**), and dragging a slider counts as a single step.
 
+The action bar keeps secondary commands in **More** as space shrinks. **Ctrl+S** saves the active
+material while this panel is focused. A failed save keeps the material dirty and shows a reason;
+retry after fixing the destination. The close prompt remains open when Save fails, and **Cancel**
+returns to editing. Revert also restores a removed graph and can be undone.
+
+**Preview** toggles the preview column at wide widths. Drag its divider to change the proportion;
+activate the focused divider with Enter, then use Left/Right. In narrow panels, Preview becomes a separate
+page; **Properties** or **Graph** returns to editing at full width. These choices are view state
+in the current layout. Resizing keeps your proportions, and switching workspaces keeps documents
+and unsaved edits. Hover a tab for the asset path; the tab-list arrow reaches additional materials.
+
 Changes show at once in the Scene View and the Game View, in every scene that uses the material, even before you save.
 
 ## Material instances
 
-An instance is a material that follows another one, its **parent**, except for the values it sets itself. Make one with **Create Instance** in the Material Editor's toolbar or in a material's right-click menu in the Content Browser, or pick a **Parent** in the **Instance** section of any material.
+An instance is a material that follows another one, its **parent**, except for the values it sets itself. Make one with **More → Create Instance** in the Material Editor or in a material's right-click menu in the Content Browser, or pick a **Parent** in the **Instance** section of any material.
 
 - Change a value in the instance and it becomes the instance's own: it is listed under **Set by this material**, and changes to the parent no longer touch it. **Reset** next to it takes the parent's value again; **Reset All to Parent** does that for every value.
 - Change the parent and every instance follows at once, apart from the values the instances set themselves. Instances of instances follow too.

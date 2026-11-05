@@ -790,6 +790,25 @@ namespace Lux {
 		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
 			OpenProject(startupProject);
 
+#ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_MATERIAL_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_MATERIAL_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = MaterialEditorPanel::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish material-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+#endif
+
 		// Like Blender: the splash shows over whatever loaded at startup. With no project it shows
 		// regardless of the preference.
 		if (m_SplashScreen && m_UserPreferences && m_UserPreferences->ShowSplashScreen)

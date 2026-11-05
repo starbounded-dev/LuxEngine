@@ -83,6 +83,27 @@ namespace Lux
 		Serialize(Project::GetEditorAssetManager()->GetMetadata(asset->Handle), asset);
 	}
 
+	bool AssetImporter::TrySerialize(const Ref<Asset>& asset)
+	{
+		EnsureInitialized();
+		const Ref<EditorAssetManager> manager = Project::GetEditorAssetManager();
+		if (!asset || !manager)
+		{
+			LUX_CORE_ERROR_TAG("AssetManager",
+							   "Cannot save a source asset without an asset and editor project");
+			return false;
+		}
+		const AssetMetadata metadata = manager->GetMetadata(asset->Handle);
+		const auto serializer = s_Serializers.find(metadata.Type);
+		if (!metadata.IsValid() || serializer == s_Serializers.end())
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Cannot save asset {}: missing metadata or serializer",
+							   static_cast<uint64_t>(asset->Handle));
+			return false;
+		}
+		return serializer->second->TrySerialize(metadata, asset);
+	}
+
 	bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
 	{
 		EnsureInitialized();

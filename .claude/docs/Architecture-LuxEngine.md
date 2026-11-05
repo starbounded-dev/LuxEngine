@@ -242,6 +242,11 @@ the file to **both** folders — not with `#ifdef` in shared code.
 
 ### 2.3 Renderer
 
+`RenderCommandQueue::IsExecuting()` identifies active command execution on the calling thread,
+including Single mode and shutdown drains. `Renderer::Submit` executes nested work inline before
+considering the main-thread producer path; shader reloads rebuild dependent pipelines and passes
+before the next recorded draw under either policy. Resource frees use the same execution context.
+
 Three layers (`Renderer` facade → `SceneRenderer` → `Renderer2D`/`DebugRenderer`) over NRI/Vulkan.
 
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
@@ -860,7 +865,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   vendored editor's change version before Save/Close and after editing, rather than its delayed summary
   callback; rapid edits cannot evade the close prompt or mark freshly saved text dirty later.
   Layout changes keep the same Beam document objects. All of this runs on main; no renderer or
-  asset data flow changes. Other authoring panels retain their current controls until migrated.
+  asset data flow changes.
   Beam caches UTF-8 document labels when paths/lifetimes change, disambiguates duplicate basenames
   with parent suffixes, and tracks native tab order separately from the owning document vector.
   Open Documents, Go to Line and close decisions remain in Beam; popup submission clears pending
@@ -870,6 +875,24 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   The vendored Find/Replace view wraps and sizes to its content within the editor, retaining its
   existing search/undo model. Native file dialogs decode NFD's UTF-8 results explicitly; atomic text
   saves append the temporary suffix as a native path rather than through the Windows code page.
+- **Material/graph composition.** The existing Material Editor window/document owner uses shared
+  action bars and caller-owned adaptive split proportions. Preview and graph Details can hide;
+  narrow panels use alternate pages. `SaveState`/`LoadState` retain view choices in layouts, with
+  defaults for missing keys and bounded finite fractions. No document or graph is copied to make a
+  view; hidden previews skip rendering and retain their existing viewport owner. Node preview ends
+  when the source document changes. Instance creation opens its tab after the current document's
+  draw/edit/propagation work, so vector growth cannot invalidate a live reference. Graph create/remove
+  and full Revert use value snapshots on the existing undo stack. Graph canvas BeginCreate/Delete/
+  Shortcut scopes close only when successful, as required by this vendored node editor.
+  `AssetImporter::TrySerialize` dispatches an opt-in checked source save (`AssetSerializer` defaults
+  to unsupported/false); `MaterialSerializer` reports atomic-write success without changing YAML or
+  pack schemas. Legacy void saves still delegate to that serializer. Material documents commit their
+  saved snapshots only on success; failure retains dirty work and the close decision. All runs on
+  main; renderer input publication and preview resource disposal retain their existing paths.
+  Graph-capable passes also retain optional SceneData/RendererData uniform bindings through
+  `RenderPass::SetOptionalInput`. The descriptor manager owns these initialization-time defaults
+  and reapplies them on the render thread when a reloaded shader introduces a previously absent
+  uniform, before baking the new sets. Turning graphs off/on cannot lose their buffer bindings.
 - **Scene View and Game View.** `Viewport` (`Editor/Source/Viewport/Viewport.h`) pairs a panel with a
   `SceneRenderer` and an `EditorCamera`; it renders at the panel's *pixel* size (window units ×
   the ImGui viewport's `FramebufferScale`, so Wayland display scaling renders at native resolution;

@@ -330,8 +330,8 @@ They do not establish runtime correctness, visual acceptance or measured perform
 
 ## Handoff
 
-**Phases 1 and 2 are implemented (2026-11-04), ready for user review.** Phase 3 and later phases remain
-planned. The whole-editor Phase 0 inventory and Phase 6 platform matrix are not declared complete
+**Phases 1–3 are implemented (2026-11-04), ready for user review.**
+Phases 4–6 remain planned. The whole-editor Phase 0 inventory and Phase 6 platform matrix are not declared complete
 by this pilot. Continue with `$dev` and review each useful slice with `$cr`. The user subsequently
 requested a commit whenever a phase is finished; commit each verified phase and keep unrelated
 working-tree changes out. Push only when requested.
@@ -441,3 +441,71 @@ Debug Editor and Lux-Runtime artifact timestamps above were rechecked. The panel
 passed again under Single and Multi at `bin/panel-controls-smoke/1793837214579844300` before
 committing the combined pilot. Native mixed-monitor and Linux checks remain open as recorded above.
 The commit excludes the existing sample-project, audio and other unrelated working-tree changes.
+
+### Phase 3 implementation and verification
+
+Material documents now use the shared action bar, cached UTF-8 tab/path labels, checked atomic saves
+and recoverable save errors. A failed save keeps the document dirty and its close decision open.
+Graph creation/removal and full Revert participate in the existing undo history; instance creation
+opens its document after the current draw/propagation finishes, avoiding a vector-invalidated pointer.
+
+Preview/properties and graph/details use caller-owned split proportions and alternate narrow pages.
+Preview, Details and minimap visibility are view choices, persisted through panel state rather than
+material data. Hiding a preview keeps its viewport owner and skips rendering. Project changes clear
+document-specific graph state, clipboard/selection and owned previews. New toolbar nodes use the
+visible canvas center; right-click and dragged-link additions keep their chosen canvas coordinates.
+The graph adds searchable Find, shared controls, bounded compiler errors with node navigation,
+theme-based selection/link contrast and font-based sizing. Its create/delete/shortcut scopes now
+match the vendored editor's conditional Begin/End contract.
+
+**Renderer defects found by real preview frames:**
+
+- Graph permutations can introduce SceneData/RendererData uniforms absent from the previous
+  reflection. The relevant geometry/masked passes now retain these initialization-time binding
+  intents, and descriptor rebaking restores them when the uniforms appear.
+- In Single mode, a nested `Renderer::Submit` during shader reload took the main-thread producer
+  path. A draw could therefore use a new descriptor layout before its dependent pipelines were
+  rebuilt (first VUID-08600, then device loss). Queue execution now has a thread-local scope;
+  nested work runs inline under both policies, including shutdown drains. Resource frees use the
+  same execution context. No validation filtering, device-idle workaround or shader-slot change.
+
+The initial failing runs are retained under `bin/material-panel-smoke/1793839334484593700` and
+`1793839719014466800`. Both policies passed the repaired shader-transition/preview sequence at
+`bin/material-panel-smoke/1793839866818976800`. The expanded run with pointer splitter input and
+explicit narrow/wide assertions also passed both policies at `bin/material-panel-smoke/1793840483100222900`.
+It covers save failure/retry/reload, property and graph undo, instance inheritance, material pack
+round-trip, invalid graph repair, graph-only uniform removal/restoration, node previews, hidden
+preview ownership and document/project teardown. Layout frames exercise 100%/150% scale settings;
+these are not native monitor transitions.
+
+Fresh Debug artifacts: Editor `2026-11-04 20:01:04`, Lux-Runtime `2026-11-04 20:03:03` (local time).
+Logs: `bin/material-phase3-build.txt`, `bin/material-phase3-runtime-build.txt`. The new test source
+was included by `scripts/Win-GenProjects.bat --last`. Production docking tests also passed at
+`bin/workspace-tests/1793839925806120700` (20 size round trips and constrained hosts).
+
+**Native evidence so far:** private project/user directory
+`bin/material-phase3-ui/1793837411114`, Windows 4K/150%, maximized 2560 × 1396 logical window.
+Opened the ordinary material, rendered its sphere, used overflow Make Graph, searched the palette
+for Float, added with Enter and saved using Ctrl+S. The native run exposed the offscreen toolbar
+addition fixed above. `final.log` has no Vulkan validation or ImGui assertion. The follow-up run
+`center-verified.log` also has no validation/assertion output. It verified a toolbar-added Float
+inside the visible canvas, filtered Find → Output → Enter navigation, dirty-close Cancel, maximized
+to 1077 × 635 logical window reflow, the narrow graph Details page, and Shading → Audio → Shading
+with the dirty three-node document retained. Save wrote all three nodes, including the new node's
+visible-canvas position, and cleared the dirty marker. Pointer resizing also passes deterministic
+frame-by-frame ImGui input, alongside repeated keyboard splitter movement. Native 100%, mixed-monitor,
+detached-window and Linux execution remain in Phase 6; runtime rendering of an exported authored
+scene is not claimed by the material pack round-trip or the successful runtime build.
+
+**Phase 3 delivery checkpoint:** local `$cr` review found no remaining must-fix or should-fix
+findings. The checked-save path, ImGui/node-editor scopes and IDs, caller-owned view state, undo
+snapshots, optional uniform ownership and nested render-command ordering were reviewed together
+with the successful runs above. No asset/pack schema changed. The commit excludes pre-existing
+sample-project/audio changes and unrelated untracked files. Phase 4 begins with Profiler/Renderer
+Debugger chart ownership and units; Phase 0's remaining inventory and Phase 6's platform/complete
+workflow matrix remain open.
+
+**Later-phase baseline:** in the same 1077 × 635 native window, Audio's Sound Bank empty-state text
+clips in its narrow right region, and the Audio Mixer table compresses its right columns. Record
+these as Phase 5(e) reproductions before migrating those controls. WSL Ubuntu 24.04 is present and
+can read the checkout, but its current PATH has no Clang or .NET; Linux execution is unverified.

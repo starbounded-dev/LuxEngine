@@ -81,6 +81,15 @@ namespace Lux {
 		template<typename FuncT>
 		static void Submit(FuncT&& func)
 		{
+			// Nested work must complete before the next recorded command, also when Single mode
+			// executes the queue on main. Otherwise shader layouts can change a frame before their
+			// dependent pipelines and passes are rebuilt.
+			if (RenderCommandQueue::IsExecuting() || RenderThread::IsCurrentThreadRT())
+			{
+				func();
+				return;
+			}
+
 			// Fast path: the application/main thread is the sole owner of the submission command queue,
 			// so it can fill it lock-free. This is the overwhelmingly common case.
 			if (Application::IsMainThread())
@@ -96,15 +105,6 @@ namespace Lux {
 					};
 				auto storageBuffer = GetRenderCommandQueue().Allocate(renderCmd, sizeof(func), alignof(FuncT));
 				new (storageBuffer) FuncT(std::forward<FuncT>(func));
-				return;
-			}
-
-			// Already on the render thread (e.g. GPU work triggered from ImGui rendering, which runs as
-			// a render command): run inline. Queuing here would race the application thread filling the
-			// same submission queue and corrupt the command buffer. Mirrors SubmitResourceFree.
-			if (RenderThread::IsCurrentThreadRT())
-			{
-				func();
 				return;
 			}
 
@@ -168,7 +168,7 @@ namespace Lux {
 				return;
 			}
 
-			if (RenderThread::IsCurrentThreadRT())
+			if (RenderCommandQueue::IsExecuting() || RenderThread::IsCurrentThreadRT())
 			{
 				RT_EnqueueResourceFree(std::function<void()>(std::forward<FuncT>(func)), captureBytes);
 				return;

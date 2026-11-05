@@ -7,17 +7,23 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/Colors.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/ImGui/PanelControls.h"
+#include "Lux/Editor/FontAwesome.h"
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Renderer/Texture.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui-node-editor/imgui_node_editor.h>
+#include <imgui/imgui_internal.h>
 
 #include <algorithm>
 #include <atomic>
 #include <format>
 #include <map>
+#include <cmath>
 
 namespace ed = ax::NodeEditor;
 
@@ -30,6 +36,16 @@ namespace Lux {
 		std::atomic<uint64_t> s_RestoreGeneration{ 0 };
 
 		constexpr uint64_t k_OutputPinBit = 0x8000;
+		enum class GraphAction
+		{
+			Add,
+			Fit,
+			Find,
+			Canvas,
+			Details,
+			Minimap,
+			StopPreview
+		};
 
 		ed::PinId InputPin(uint32_t node, uint32_t pin) { return ed::PinId((static_cast<uint64_t>(node) << 16) | pin); }
 		ed::PinId OutputPin(uint32_t node, uint32_t pin) { return ed::PinId((static_cast<uint64_t>(node) << 16) | k_OutputPinBit | pin); }
@@ -90,9 +106,30 @@ namespace Lux {
 
 	MaterialGraphCanvas::MaterialGraphCanvas()
 	{
+		ResetDocument();
+	}
+
+	void MaterialGraphCanvas::ResetDocument()
+	{
+		StopPreview();
+		if (m_Context)
+			ed::DestroyEditor(m_Context);
 		ed::Config config;
 		config.SettingsFile = nullptr; // node positions live in the graph
 		m_Context = ed::CreateEditor(&config);
+		m_Material = 0;
+		m_SeenGeneration = 0;
+		m_Placed.clear();
+		m_CommentNodeSizes.clear();
+		m_SelectedNode = m_PendingSelect = m_ResizeComment = 0;
+		m_PaletteFromNode = m_PaletteFromPin = 0;
+		m_OpenPalette = m_OpenFind = m_NavigateToSelection = false;
+		m_PaletteAtCenter = false;
+		m_NavigateToContent = true;
+		m_Baseline.clear();
+		m_LastCode.clear();
+		m_ClipboardNodes.clear();
+		m_ClipboardLinks.clear();
 	}
 
 	MaterialGraphCanvas::~MaterialGraphCanvas()
@@ -111,6 +148,12 @@ namespace Lux {
 		if (Project::GetActive())
 			AssetManager::RemoveAsset(m_PreviewMaterial);
 		m_PreviewMaterial = 0;
+	}
+
+	void MaterialGraphCanvas::PreviewNode(uint32_t node)
+	{
+		m_PreviewNode = node;
+		m_PreviewSource.clear();
 	}
 
 	void MaterialGraphCanvas::UpdatePreview(const Ref<MaterialAsset>& material, const MaterialGraph& graph)
@@ -168,21 +211,37 @@ namespace Lux {
 		s_RestoreGeneration.fetch_add(1, std::memory_order_relaxed);
 	}
 
+	void MaterialGraphCanvas::SaveState(Yaml::Writer& out) const
+	{
+		out << Yaml::Key << "GraphDetails" << Yaml::Value << m_ShowDetails;
+		out << Yaml::Key << "GraphNarrowDetails" << Yaml::Value << m_NarrowDetails;
+		out << Yaml::Key << "GraphMinimap" << Yaml::Value << m_ShowMinimap;
+		out << Yaml::Key << "GraphCanvasFraction" << Yaml::Value << m_CanvasFraction;
+	}
+
+	void MaterialGraphCanvas::LoadState(const Yaml::Node& state)
+	{
+		m_ShowDetails = state["GraphDetails"].as<bool>(true);
+		m_NarrowDetails = state["GraphNarrowDetails"].as<bool>(false);
+		m_ShowMinimap = state["GraphMinimap"].as<bool>(true);
+		const float fraction = state["GraphCanvasFraction"].as<float>(0.7f);
+		m_CanvasFraction = std::isfinite(fraction) ? std::clamp(fraction, 0.2f, 0.9f) : 0.7f;
+	}
+
 	void MaterialGraphCanvas::Draw(const Ref<MaterialAsset>& material, const UndoPushFn& pushUndo)
 	{
 		Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
 		if (!graph)
 			return;
 
-		static uint64_t s_SeenGeneration = 0;
 		const uint64_t generation = s_RestoreGeneration.load(std::memory_order_relaxed);
-		if (material->Handle != m_Material || generation != s_SeenGeneration)
+		if (material->Handle != m_Material || generation != m_SeenGeneration)
 		{
 			const bool switched = material->Handle != m_Material;
 			if (switched)
 				StopPreview();
 			m_Material = material->Handle;
-			s_SeenGeneration = generation;
+			m_SeenGeneration = generation;
 			m_Placed.clear();
 			m_CommentNodeSizes.clear();
 			m_SelectedNode = 0;
@@ -194,18 +253,33 @@ namespace Lux {
 			}
 		}
 
+		const float font = ImGui::GetFontSize();
+		const ImGuiEx::PanelSplit split = ImGuiEx::PanelSplitWidths(
+			ImGui::GetContentRegionAvail().x, m_CanvasFraction, font * 23.0f, font * 16.0f);
+		m_Compact = !split.SideBySide;
 		DrawToolbar(material, *graph);
-
-		const float inspectorWidth = 280.0f;
-		const float canvasWidth = std::max(ImGui::GetContentRegionAvail().x - inspectorWidth - ImGui::GetStyle().ItemSpacing.x, 100.0f);
-		if (ImGui::BeginChild("##material_graph_canvas", ImVec2(canvasWidth, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
-			DrawCanvas(material, *graph);
-		ImGui::EndChild();
-
-		ImGui::SameLine();
-		if (ImGui::BeginChild("##material_graph_inspector", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders))
-			DrawInspector(material, *graph);
-		ImGui::EndChild();
+		const bool detailsOnly = m_Compact && m_NarrowDetails;
+		const bool detailsBeside = !m_Compact && m_ShowDetails;
+		if (!detailsOnly)
+		{
+			if (ImGui::BeginChild("##material_graph_canvas", {detailsBeside ? split.First : 0.0f, 0.0f},
+								  ImGuiChildFlags_None,
+								  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+				DrawCanvas(material, *graph);
+			ImGui::EndChild();
+		}
+		if (detailsBeside)
+		{
+			ImGui::SameLine();
+			ImGuiEx::PanelSplitHandle("##material_graph_split", split, m_CanvasFraction);
+			ImGui::SameLine();
+		}
+		if (detailsOnly || detailsBeside)
+		{
+			if (ImGui::BeginChild("##material_graph_inspector", {0.0f, 0.0f}, ImGuiChildFlags_Borders))
+				DrawInspector(material, *graph);
+			ImGui::EndChild();
+		}
 
 		TrackChanges(material, *graph, pushUndo);
 		UpdatePreview(material, *graph);
@@ -213,29 +287,99 @@ namespace Lux {
 
 	void MaterialGraphCanvas::DrawToolbar(const Ref<MaterialAsset>& material, MaterialGraph& graph)
 	{
-		if (ImGui::Button("Add Node"))
+		const ImGuiEx::PanelAction actions[] = {
+			{static_cast<int>(GraphAction::Add), "Add Node", LUX_ICON_PLUS, "Space over canvas", true, false,
+			 true},
+			{static_cast<int>(GraphAction::Fit), "Fit", LUX_ICON_EXPAND, nullptr, true, false, true},
+			{static_cast<int>(GraphAction::Find), "Find", LUX_ICON_SEARCH},
+			{static_cast<int>(GraphAction::Canvas), "Canvas", LUX_ICON_SITEMAP, nullptr, true,
+			 !m_Compact || !m_NarrowDetails},
+			{static_cast<int>(GraphAction::Details), "Details", LUX_ICON_SLIDERS, nullptr, true,
+			 m_Compact ? m_NarrowDetails : m_ShowDetails},
+			{static_cast<int>(GraphAction::Minimap), "Minimap", nullptr, nullptr, true, m_ShowMinimap, false,
+			 true},
+			{static_cast<int>(GraphAction::StopPreview), "Stop Node Preview", nullptr, nullptr,
+			 m_PreviewNode != 0, false, false, true}};
+		const int action = ImGuiEx::PanelActionBar("graph_actions", actions);
+		if (action == static_cast<int>(GraphAction::Add))
 		{
 			m_OpenPalette = true;
 			m_PaletteFromNode = 0;
-			m_PalettePosition = ImVec2(0.0f, 0.0f);
+			m_PaletteAtCenter = true;
+			m_NarrowDetails = false;
 		}
-		ImGui::SameLine();
-		if (ImGui::Button("Fit"))
-			m_NavigateToContent = true;
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(160.0f);
-		if (ImGui::InputTextWithHint("##material_graph_find", "Find in graph...", m_FindSearch, sizeof(m_FindSearch), ImGuiInputTextFlags_EnterReturnsTrue) && m_FindSearch[0])
+		if (action == static_cast<int>(GraphAction::Fit))
 		{
-			for (const MaterialGraphNode& node : graph.Nodes)
+			m_NavigateToContent = true;
+			m_NarrowDetails = false;
+		}
+		if (action == static_cast<int>(GraphAction::Find))
+			m_OpenFind = true;
+		if (action == static_cast<int>(GraphAction::Canvas))
+			m_NarrowDetails = false;
+		if (action == static_cast<int>(GraphAction::Details))
+		{
+			if (m_Compact)
+				m_NarrowDetails = !m_NarrowDetails;
+			else
+				m_ShowDetails = !m_ShowDetails;
+		}
+		if (action == static_cast<int>(GraphAction::Minimap))
+			m_ShowMinimap = !m_ShowMinimap;
+		if (action == static_cast<int>(GraphAction::StopPreview))
+			StopPreview();
+		if (m_OpenFind)
+		{
+			ImGui::OpenPopup("Find node##material_graph");
+			m_OpenFind = false;
+		}
+		const float popupWidth =
+			std::min(ImGui::GetFontSize() * 26.0f, ImGui::GetWindowViewport()->WorkSize.x * 0.9f);
+		ImGui::SetNextWindowSize({popupWidth, 0.0f}, ImGuiCond_Appearing);
+		if (ImGui::BeginPopup("Find node##material_graph"))
+		{
+			if (ImGui::IsWindowAppearing())
+				ImGui::SetKeyboardFocusHere();
+			ImGui::SetNextItemWidth(-1.0f);
+			const bool enter =
+				ImGui::InputTextWithHint("##material_graph_find", "Find a node or parameter...", m_FindSearch,
+										 sizeof(m_FindSearch), ImGuiInputTextFlags_EnterReturnsTrue);
+			bool found = false;
+			bool selected = false;
+			if (ImGui::BeginChild("matches", {0.0f, ImGui::GetTextLineHeightWithSpacing() * 8.0f}))
 			{
-				const MaterialGraphNodeInfo* info = MaterialGraph::FindNodeInfo(node.Type);
-				if ((info && ContainsNoCase(info->Name, m_FindSearch)) || ContainsNoCase(node.Parameter, m_FindSearch))
+				for (const MaterialGraphNode& node : graph.Nodes)
 				{
-					m_PendingSelect = node.ID;
-					m_NavigateToSelection = true;
-					break;
+					const MaterialGraphNodeInfo* info = MaterialGraph::FindNodeInfo(node.Type);
+					if ((info && ContainsNoCase(info->Name, m_FindSearch)) ||
+						ContainsNoCase(node.Parameter, m_FindSearch))
+					{
+						found = true;
+						ImGuiEx::ScopedID id(static_cast<int>(node.ID));
+						const char* name = !node.Parameter.empty()
+											   ? node.Parameter.c_str()
+											   : (info ? info->Name.data() : node.Type.c_str());
+						if (ImGui::Selectable(name, m_SelectedNode == node.ID) || (enter && !selected))
+						{
+							m_PendingSelect = node.ID;
+							m_NavigateToSelection = true;
+							m_NarrowDetails = false;
+							selected = true;
+						}
+					}
 				}
+				if (!found)
+					ImGui::TextUnformatted("No matching nodes.");
 			}
+			ImGui::EndChild();
+			if (selected)
+			{
+				if (enter)
+					ImGui::SetKeyOwner(ImGuiKey_Enter, ImGui::GetID("graph_find_submit"),
+									   ImGuiInputFlags_LockThisFrame);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
 		}
 
 		// Stats: what the graph costs.
@@ -246,14 +390,37 @@ namespace Lux {
 			textures += UsesTexture(node.Type) ? (node.Type == "Triplanar" ? 3 : 1) : 0;
 			parameters += node.Parameter.empty() ? 0 : 1;
 		}
-		ImGui::SameLine();
-		ImGui::TextDisabled("%zu nodes, %zu links, %zu texture samples, %zu parameters", graph.Nodes.size(), graph.Links.size(), textures, parameters);
-
-		for (const MaterialGraph::Error& error : MaterialGraphRegistry::GetErrors(material->Handle))
 		{
-			const MaterialGraphNode* node = graph.FindNode(error.Node);
-			const MaterialGraphNodeInfo* info = node ? MaterialGraph::FindNodeInfo(node->Type) : nullptr;
-			ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.35f, 1.0f), "%s%s", info ? std::format("{}: ", info->Name).c_str() : "", error.Message.c_str());
+			ImGuiEx::ScopedColour color(ImGuiCol_Text, Colors::Theme::textCaption);
+			ImGui::TextWrapped("%zu nodes, %zu links", graph.Nodes.size(), graph.Links.size());
+			ImGui::SetItemTooltip("%zu texture samples, %zu parameters. Select a node for Details. "
+								  "Right-drag to pan; scroll to zoom.",
+								  textures, parameters);
+		}
+
+		const auto& errors = MaterialGraphRegistry::GetErrors(material->Handle);
+		if (!errors.empty() && ImGui::CollapsingHeader("Compile errors", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			if (ImGui::BeginChild("graph_errors",
+								  {0.0f, std::max(ImGui::GetFrameHeight(),
+												  std::min(ImGui::GetTextLineHeightWithSpacing() * 6.0f,
+														   ImGui::GetContentRegionAvail().y * 0.3f))}))
+			{
+				for (size_t i = 0; i < errors.size(); ++i)
+				{
+					const auto& error = errors[i];
+					ImGuiEx::ScopedID id(static_cast<int>(i));
+					const MaterialGraphNode* node = graph.FindNode(error.Node);
+					ImGuiEx::PanelMessage(node ? node->Type.c_str() : "Graph", error.Message.c_str(), true);
+					if (node && ImGui::SmallButton("Go to node"))
+					{
+						m_PendingSelect = error.Node;
+						m_NavigateToSelection = true;
+						m_NarrowDetails = false;
+					}
+				}
+			}
+			ImGui::EndChild();
 		}
 	}
 
@@ -267,6 +434,19 @@ namespace Lux {
 			errorNodes.insert(error.Node);
 
 		ed::SetCurrentEditor(m_Context);
+		ed::EnableShortcuts(!ImGui::GetIO().WantTextInput &&
+							!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+		auto& nodeStyle = ed::GetStyle();
+		nodeStyle.Colors[ed::StyleColor_Bg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
+		nodeStyle.Colors[ed::StyleColor_NodeBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader);
+		nodeStyle.Colors[ed::StyleColor_NodeBorder] =
+			ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker);
+		nodeStyle.Colors[ed::StyleColor_SelNodeBorder] =
+			ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+		nodeStyle.Colors[ed::StyleColor_SelLinkBorder] =
+			ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
+		nodeStyle.NodePadding = ImVec4(ImGui::GetFontSize() * 0.6f, ImGui::GetFontSize() * 0.5f,
+									   ImGui::GetFontSize() * 0.6f, ImGui::GetFontSize() * 0.5f);
 		ed::Begin("MaterialGraph");
 
 		// Comments first, so nodes draw over them.
@@ -300,7 +480,8 @@ namespace Lux {
 
 			const bool hasError = errorNodes.contains(node.ID);
 			if (hasError)
-				ed::PushStyleColor(ed::StyleColor_NodeBorder, ImVec4(1.0f, 0.3f, 0.25f, 1.0f));
+				ed::PushStyleColor(ed::StyleColor_NodeBorder,
+								   ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError));
 
 			ed::BeginNode(node.ID);
 			ImGui::PushID(static_cast<int>(node.ID));
@@ -322,17 +503,22 @@ namespace Lux {
 				{
 					ed::BeginPin(InputPin(node.ID, pin), ed::PinKind::Input);
 					const bool connected = graph.FindLinkInto(node.ID, pin) != nullptr;
-					ImGui::Text("%s %s", connected ? "(o)" : "( )", std::string(pins.Inputs[pin].Name).c_str());
+					ImGuiEx::ScopedColour color(ImGuiCol_Text, connected ? Colors::Theme::textBrighter
+																		 : Colors::Theme::textCaption);
+					const auto name = pins.Inputs[pin].Name;
+					ImGui::Text("%s %.*s", connected ? LUX_ICON_CIRCLE : LUX_ICON_CIRCLE_O,
+								static_cast<int>(name.size()), name.data());
 					ed::EndPin();
 				}
 				ImGui::EndGroup();
 				if (!pins.Inputs.empty() && !pins.Outputs.empty())
-					ImGui::SameLine(0.0f, 24.0f);
+					ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.6f);
 				ImGui::BeginGroup();
 				for (uint32_t pin = 0; pin < pins.Outputs.size(); pin++)
 				{
 					ed::BeginPin(OutputPin(node.ID, pin), ed::PinKind::Output);
-					ImGui::Text("%s (o)", std::string(pins.Outputs[pin].Name).c_str());
+					const auto name = pins.Outputs[pin].Name;
+					ImGui::Text("%.*s %s", static_cast<int>(name.size()), name.data(), LUX_ICON_CIRCLE);
 					ed::EndPin();
 				}
 				ImGui::EndGroup();
@@ -344,7 +530,9 @@ namespace Lux {
 		}
 
 		for (const MaterialGraphLink& link : graph.Links)
-			ed::Link(link.ID, OutputPin(link.FromNode, link.FromPin), InputPin(link.ToNode, link.ToPin), ImVec4(0.8f, 0.8f, 0.85f, 1.0f), 2.0f);
+			ed::Link(link.ID, OutputPin(link.FromNode, link.FromPin), InputPin(link.ToNode, link.ToPin),
+					 ImGui::ColorConvertU32ToFloat4(Colors::Theme::textBrighter),
+					 std::max(1.5f, ImGui::GetFontSize() * 0.12f));
 
 		// New links, and links dragged into empty space (which open the palette).
 		if (ed::BeginCreate(ImVec4(0.9f, 0.9f, 0.9f, 1.0f), 2.0f))
@@ -377,8 +565,8 @@ namespace Lux {
 				m_PaletteFromOutput = pin.Output;
 				m_PalettePosition = ImGui::GetMousePos(); // canvas space while the editor is not suspended
 			}
+			ed::EndCreate();
 		}
-		ed::EndCreate();
 
 		if (ed::BeginDelete())
 		{
@@ -409,8 +597,8 @@ namespace Lux {
 				if (m_SelectedNode == id)
 					m_SelectedNode = 0;
 			}
+			ed::EndDelete();
 		}
-		ed::EndDelete();
 
 		if (ed::BeginShortcut())
 		{
@@ -423,8 +611,8 @@ namespace Lux {
 				CopySelection(graph);
 				Paste(graph, ImVec2(-1.0f, -1.0f));
 			}
+			ed::EndShortcut();
 		}
-		ed::EndShortcut();
 
 		if (m_PendingSelect && graph.FindNode(m_PendingSelect))
 		{
@@ -442,7 +630,16 @@ namespace Lux {
 
 		// Popups and the context menu work in ImGui's screen space, so the editor is suspended.
 		ed::Suspend();
-		if (ed::ShowBackgroundContextMenu() || (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space, false)))
+		if (m_OpenPalette && m_PaletteAtCenter)
+		{
+			m_PalettePosition = ed::ScreenToCanvas(
+				{(canvasMin.x + canvasMax.x) * 0.5f, (canvasMin.y + canvasMax.y) * 0.5f});
+			m_PaletteAtCenter = false;
+		}
+		if (ed::ShowBackgroundContextMenu() ||
+			(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+			 !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) && !ImGui::GetIO().WantTextInput &&
+			 ImGui::IsKeyPressed(ImGuiKey_Space, false)))
 		{
 			m_OpenPalette = true;
 			m_PaletteFromNode = 0;
@@ -482,7 +679,8 @@ namespace Lux {
 			m_SelectedNode = 0;
 
 		// Minimap over the canvas's bottom-right corner.
-		DrawMinimap(graph, canvasMin, canvasMax);
+		if (m_ShowMinimap)
+			DrawMinimap(graph, canvasMin, canvasMax);
 		ed::SetCurrentEditor(nullptr);
 	}
 
@@ -492,12 +690,14 @@ namespace Lux {
 			return;
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		const ImVec2 mapMax(canvasMax.x - 8.0f, canvasMax.y - 8.0f);
-		const ImVec2 mapMin(mapMax.x - 180.0f, mapMax.y - 120.0f);
+		const float font = ImGui::GetFontSize();
+		const ImVec2 mapMax(canvasMax.x - font * 0.5f, canvasMax.y - font * 0.5f);
+		const ImVec2 mapMin(mapMax.x - font * 12.0f, mapMax.y - font * 8.0f);
 		if (mapMin.x < canvasMin.x || mapMin.y < canvasMin.y)
 			return;
 
-		drawList->AddRectFilled(mapMin, mapMax, IM_COL32(20, 20, 24, 200), 4.0f);
+		drawList->AddRectFilled(mapMin, mapMax, Colors::Theme::backgroundPopup,
+								ImGui::GetStyle().FrameRounding);
 		glm::vec2 boundsMin(FLT_MAX), boundsMax(-FLT_MAX);
 		for (const MaterialGraphNode& node : graph.Nodes)
 		{
@@ -533,13 +733,19 @@ namespace Lux {
 			m_OpenPalette = false;
 		}
 
-		ImGui::SetNextWindowSizeConstraints(ImVec2(240.0f, 0.0f), ImVec2(320.0f, 420.0f));
+		const ImVec2 work = ImGui::GetWindowViewport()->WorkSize;
+		const float width = std::min(ImGui::GetFontSize() * 23.0f, work.x * 0.9f);
+		ImGui::SetNextWindowSizeConstraints({std::min(width, ImGui::GetFontSize() * 16.0f), 0.0f},
+											{width, std::min(work.y * 0.8f, ImGui::GetFontSize() * 28.0f)});
 		if (!ImGui::BeginPopup("Add Node##material_graph"))
 			return;
 
 		if (ImGui::IsWindowAppearing())
 			ImGui::SetKeyboardFocusHere();
 		const bool enter = ImGui::InputTextWithHint("##palette_search", "Search nodes...", m_PaletteSearch, sizeof(m_PaletteSearch), ImGuiInputTextFlags_EnterReturnsTrue);
+		if (enter)
+			ImGui::SetKeyOwner(ImGuiKey_Enter, ImGui::GetID("graph_palette_submit"),
+							   ImGuiInputFlags_LockThisFrame);
 
 		auto place = [&](std::string_view type)
 		{
@@ -648,8 +854,7 @@ namespace Lux {
 			}
 			else if (ImGui::SmallButton("Preview This Node"))
 			{
-				m_PreviewNode = node->ID;
-				m_PreviewSource.clear();
+				PreviewNode(node->ID);
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Shows this node's first output on the preview shape (as light, over black). Recompiles once.");

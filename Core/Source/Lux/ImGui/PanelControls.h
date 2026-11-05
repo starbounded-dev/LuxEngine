@@ -27,4 +27,17 @@ namespace Lux::ImGuiEx
 	int PanelEmptyState(const char* id, const char* title, const char* description,
 						std::span<const PanelAction> actions = {});
 	void PanelMessage(const char* title, const char* description, bool error = false);
+
+	struct PanelSplit
+	{
+		float First = 0.0f;
+		float Second = 0.0f;
+		float Handle = 0.0f;
+		bool SideBySide = false;
+	};
+
+	// Fractions are caller-owned view state. A narrow layout leaves the full width to an
+	// alternate view chosen by the caller, without changing the user's preferred fraction.
+	PanelSplit PanelSplitWidths(float available, float fraction, float firstMinimum, float secondMinimum);
+	void PanelSplitHandle(const char* id, const PanelSplit& split, float& fraction);
 } // namespace Lux::ImGuiEx

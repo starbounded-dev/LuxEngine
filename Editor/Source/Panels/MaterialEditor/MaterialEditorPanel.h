@@ -29,9 +29,15 @@ namespace Lux
 
 		void OnImGuiRender(bool& isOpen) override;
 		void OnProjectChanged(const Ref<Project>& project) override;
+		void OnEvent(Event& event) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
 
 		void OpenMaterial(AssetHandle handle);
 		void SetUndoCallback(UndoPushFn callback) { m_PushUndo = std::move(callback); }
+#ifndef LUX_DIST
+		static bool RunSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+#endif
 
 	private:
 		// Every property the editor can change, so a whole edit can be captured, compared, undone,
@@ -68,12 +74,17 @@ namespace Lux
 			MaterialState EditBaseline;   // state before the edit currently in progress
 			MaterialState Propagated;     // state last pushed to the material's instances
 			std::string SavedGraph;       // the graph on disk (MaterialGraphCanvas::Snapshot), empty without one
+			std::string SaveError;
+			std::string TabLabel;
+			std::string DisplayPath;
+			std::filesystem::path LabelPath;
 			bool EditInProgress = false;
 		};
 
 		Document* GetActiveDocument();
 		void CloseDocument(size_t index);
-		void SaveDocument(Document& document);
+		bool SaveDocument(Document& document);
+		void RevertDocument(Document& document, Ref<MaterialAsset> material);
 		bool IsDirty(const Document& document) const;
 
 		void UI_Tabs();
@@ -96,6 +107,12 @@ namespace Lux
 		Ref<MaterialPreview> m_Preview;
 		Scope<class MaterialGraphCanvas> m_GraphCanvas;
 		bool m_ShowGraph = false;
+		bool m_ShowPreview = true;
+		bool m_NarrowPreview = false;
+		bool m_Compact = false;
+		bool m_KeyboardFocus = false;
+		float m_PreviewFraction = 0.3f;
+		AssetHandle m_OpenAfterFrame = 0;
 		UndoPushFn m_PushUndo;
 	};
 }

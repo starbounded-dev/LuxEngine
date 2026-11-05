@@ -274,6 +274,10 @@ state and primary/menu-only hints. The action bar returns an ID; it owns no call
 It measures current font/style metrics, retains primary actions first, compacts them to icons when
 needed and exposes hidden actions in More. Use a stable child ID per bar; callers handle commands
 and keyboard shortcuts. Empty/message text wraps to the available width. These controls run on main.
+`PanelSplitWidths` computes two regions from caller-owned proportions and font-based minimums;
+`PanelSplitHandle` adjusts that proportion by dragging or keyboard activation and Left/Right. When both minimums
+cannot fit, callers supply an alternate view without overwriting the preferred fraction. Material
+Preview and graph Details use this contract; presentation state stays with their panel owner.
 `ImGuiEx::DragScalar` honors keyboard activation with `ImGuiActivateFlags_PreferInput` as well
 as Ctrl-click/double-click to enter numeric text. Numeric properties with an explicit `defaultValue`
 opt into **double-click reset**; Ctrl-click still enters numeric text. `NumericControlMenu` supplies

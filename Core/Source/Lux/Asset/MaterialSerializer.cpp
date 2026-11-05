@@ -653,26 +653,37 @@ namespace Lux
 
 	void MaterialSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
 	{
+		TrySerialize(metadata, asset);
+	}
+
+	bool MaterialSerializer::TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+	{
 		Ref<MaterialAsset> materialAsset = asset.As<MaterialAsset>();
 		LUX_CORE_ASSERT(materialAsset);
 		if (!materialAsset || !materialAsset->GetMaterial())
 		{
-			LUX_CORE_ERROR("MaterialSerializer: Cannot serialize material '{}' because renderer resources are unavailable", metadata.FilePath.string());
-			return;
+			LUX_CORE_ERROR_TAG("AssetManager",
+							   "Cannot serialize material {}: renderer resources are unavailable",
+							   static_cast<uint64_t>(metadata.Handle));
+			return false;
 		}
 
 		const std::string serializedMaterial = SerializeMaterialToYAML(materialAsset, TextureReferenceSerialization::AssetPaths);
 		if (serializedMaterial.empty())
-			return;
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Cannot serialize material {}: the source snapshot is empty",
+							   static_cast<uint64_t>(metadata.Handle));
+			return false;
+		}
 
 		// The YAML writer ends a document with a newline; files from the older emitter (every committed
 		// .lmat) do not. That alone is no change, and rewriting for it would dirty each imported material
 		// whenever its mesh source loads.
 		if (Utils::String::TrimWhitespace(ReadMaterialYAML(metadata)) == Utils::String::TrimWhitespace(serializedMaterial))
-			return;
+			return true;
 
-		if (!FileSystem::WriteFileAtomically(Project::GetEditorAssetManager()->GetFileSystemPath(metadata), serializedMaterial))
-			LUX_CORE_ERROR("MaterialSerializer: Could not write '{}'", metadata.FilePath.string());
+		return FileSystem::WriteFileAtomically(Project::GetEditorAssetManager()->GetFileSystemPath(metadata),
+											   serializedMaterial);
 	}
 
 	bool MaterialSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

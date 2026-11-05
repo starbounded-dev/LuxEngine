@@ -4,9 +4,21 @@
 #include "lpch.h"
 #include "RenderCommandQueue.h"
 
+#include <utility>
+
 namespace Lux {
 
 	namespace {
+		thread_local bool s_Executing = false;
+
+		struct ExecutionScope
+		{
+			bool Previous = std::exchange(s_Executing, true);
+			~ExecutionScope()
+			{
+				s_Executing = Previous;
+			}
+		};
 
 		// One page holds a typical frame; a heavy frame chains more pages instead of overrunning.
 		constexpr size_t k_RenderCommandPageSize = 4 * 1024 * 1024;
@@ -88,6 +100,7 @@ namespace Lux {
 	void RenderCommandQueue::Execute()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		ExecutionScope execution;
 
 		uint64_t bytes = 0;
 		const uint32_t pageCount = m_CommandCount > 0 ? m_CurrentPage + 1 : 0;
@@ -118,6 +131,11 @@ namespace Lux {
 
 		m_CurrentPage = 0;
 		m_CommandCount = 0;
+	}
+
+	bool RenderCommandQueue::IsExecuting()
+	{
+		return s_Executing;
 	}
 
 	RenderCommandQueueStats RenderCommandQueue::GetStats() const

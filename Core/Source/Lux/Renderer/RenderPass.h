@@ -29,6 +29,8 @@ namespace Lux {
 		const RenderPassSpecification& GetSpecification() const { return m_Specification; }
 
 		void SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet);
+		// Initialization-only binding intent for uniforms introduced by shader permutations.
+		void SetOptionalInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet);
 		void SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer);
 
 		void SetInput(std::string_view name, Ref<StorageBufferSet> storageBufferSet);

@@ -398,6 +398,14 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_MATERIAL_PANELS_SELFTEST` — Debug/Release editor-only disposable project directory. The
+  active project's directory must match. After startup project loading, exercises material save,
+  failed-save/retry/reload, undo, removed-graph Revert, graph scope balance, responsive composition
+  and presentation state in an isolated ImGui context, then drives normal application frames for
+  shader-permutation reloads, invalid-graph repair, node previews and close/project teardown.
+  Writes `<directory>.status` and exits.
+  `python tests/editor/run_material_panels.py` creates separate Single/Multi projects and user data.
+
 - `LUX_PANEL_CONTROLS_SELFTEST` — Debug/Release editor-only fixture directory, which must not
   exist. Exercises shared action-bar sizing/overflow in an isolated ImGui context and Beam's save,
   immediate edit/close, retry and document-retention APIs; also covers duplicate names, path aliases,

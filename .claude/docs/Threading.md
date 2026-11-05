@@ -113,10 +113,15 @@ Two consequences worth internalising:
 `Renderer::Submit(lambda)` (`Renderer/Renderer.h`) is thread-aware, and the branch it takes matters:
 
 ```cpp
-if (Application::IsMainThread())      → allocate directly in the render command queue (lock-free)
-else if (RenderThread::IsCurrentThreadRT()) → run the lambda inline, immediately
+if (RenderCommandQueue::IsExecuting() || RenderThread::IsCurrentThreadRT()) → run inline
+else if (Application::IsMainThread()) → allocate in the render command queue (lock-free)
 else                                   → SubmitBackgroundThreadWork(...)  (deferred, thread-safe)
 ```
+
+Queue execution is tracked with a thread-local scope, including Single mode and shutdown drains on
+main. Nested work executes before the next command under both policies: a shader layout reload and
+its dependent pipeline/pass rebuilds must finish together before a subsequent draw. The scope ends
+when execution returns, so ordinary main-thread resource creation remains deferred.
 
 Why each branch exists:
 

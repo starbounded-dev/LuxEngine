@@ -6,18 +6,26 @@ A graph adds to the standard material rather than replacing it. Everything in th
 
 ## Making one
 
-Open a material in the [Material Editor](material-editor) and press **Make Graph Material** in the toolbar. Switch between **Properties** and **Graph** above the right-hand column. **Remove Graph** turns it back into a standard material.
+Open a material in the [Material Editor](material-editor) and choose **More → Make Graph Material**.
+Use **Properties** and **Graph** in the material action bar to switch views. **More → Remove Graph**
+turns it back into a standard material. Making, removing and reverting a graph can be undone.
 
 ## The canvas
 
-- **Add a node:** right-click the canvas, press **Space**, or use **Add Node**. Type to search, then press **Enter** to add the first match.
+- **Add a node:** right-click the canvas, press **Space**, or use **Add Node**. Type to search, then press **Enter** to add the first match. Toolbar additions appear at the visible canvas center.
 - **Connect:** drag from an output (right) to an input (left). An input takes one link, so a new link replaces the old one. Drag a link into empty space to add a node already connected to it.
 - **Preview a node:** select it and press **Preview This Node**. The preview shape then shows that node's output, as light over black, until you press **Stop Preview**. It recompiles once.
 - **Edit a node:** select it. Its settings show on the right: values for inputs with nothing connected, its mode, its texture, and its parameter name.
 - **Delete** removes the selection. **Ctrl+C**, **Ctrl+V** and **Ctrl+D** copy, paste and duplicate.
 - **Comments** (from the node list) are boxes to group and label part of a graph. Set their text and colour on the right.
-- **Fit** shows the whole graph. **Find in graph** jumps to a node by name or parameter. The minimap in the corner shows where you are.
-- The toolbar counts the graph's nodes, texture samples and parameters, and lists any errors. A node with an error has a red border.
+- **Fit** shows the whole graph. **Find** opens a searchable node/parameter list; choose a result
+  or press Enter for the first match. The minimap in the corner shows where you are; toggle it in More.
+- **Details** toggles the selected node's inspector. At wide widths, drag the divider to resize it.
+  Narrow panels show Details as an alternate page; **Canvas** returns to the graph at full width.
+  These layout choices do not edit the graph. Hide the material Preview for more canvas space.
+- The status counts nodes and links; hover for texture-sample and parameter counts. Compile errors
+  wrap inside a bounded, collapsible list. **Go to node** focuses the affected node. A node with an
+  error has a red border. **More → Stop Node Preview** also ends an active node preview.
 
 Every edit is one step on the undo history. When an edit changes what the graph computes, the editor recompiles it, which takes a moment. Moving nodes around does not recompile.
 

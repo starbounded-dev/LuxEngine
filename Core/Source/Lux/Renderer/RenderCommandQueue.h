@@ -34,6 +34,8 @@ namespace Lux {
 		void* Allocate(RenderCommandFn func, uint32_t size, uint32_t alignment);
 
 		void Execute();
+		// Execution context, including Single mode and shutdown drains on the main thread.
+		static bool IsExecuting();
 		bool IsEmpty() const { return m_CommandCount == 0; }
 
 		// Usage of the last executed frame and the high-water marks; readable from any thread.

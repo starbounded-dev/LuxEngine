@@ -10,6 +10,7 @@
 #include <imgui/imgui.h>
 
 #include <algorithm>
+#include <cmath>
 
 namespace Lux::ImGuiEx
 {
@@ -212,6 +213,43 @@ namespace Lux::ImGuiEx
 		}
 		ImGui::EndChild();
 		return activated;
+	}
+
+	PanelSplit PanelSplitWidths(float available, float fraction, float firstMinimum, float secondMinimum)
+	{
+		PanelSplit result;
+		result.Handle = std::max(4.0f, ImGui::GetFontSize() * 0.35f);
+		const float usable = available - result.Handle - ImGui::GetStyle().ItemSpacing.x * 2.0f;
+		result.SideBySide = usable >= firstMinimum + secondMinimum;
+		if (result.SideBySide)
+		{
+			fraction = std::isfinite(fraction) ? std::clamp(fraction, 0.0f, 1.0f) : 0.5f;
+			result.First = std::clamp(usable * fraction, firstMinimum, usable - secondMinimum);
+			result.Second = usable - result.First;
+		}
+		return result;
+	}
+
+	void PanelSplitHandle(const char* id, const PanelSplit& split, float& fraction)
+	{
+		const float usable = split.First + split.Second;
+		if (!split.SideBySide || usable <= 0.0f)
+			return;
+		const auto& style = ImGui::GetStyle();
+		const float height = std::max(ImGui::GetFrameHeight(), ImGui::GetContentRegionAvail().y);
+		ScopedStyle padding(ImGuiStyleVar_FramePadding,
+							ImVec2(style.FramePadding.x, (height - ImGui::GetFontSize()) * 0.5f));
+		ScopedColourStack colors(ImGuiCol_FrameBg, Colors::Theme::backgroundPopup, ImGuiCol_FrameBgHovered,
+								 Colors::Theme::accent, ImGuiCol_FrameBgActive, Colors::Theme::accent);
+		ImGui::SetNextItemWidth(split.Handle);
+		float value = split.First / usable;
+		if (ImGui::DragFloat(id, &value, 1.0f / usable, 0.0f, 1.0f, "",
+							 ImGuiSliderFlags_NoInput | ImGuiSliderFlags_AlwaysClamp))
+			fraction = value;
+		if (ImGui::IsItemHovered() || ImGui::IsItemActive())
+			ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+		ImGui::SetItemTooltip("Drag to resize. Keyboard: Enter to activate, then Left/Right. Proportions "
+							  "adapt to the panel width.");
 	}
 
 	void PanelMessage(const char* title, const char* description, bool error)

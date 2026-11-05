@@ -1595,6 +1595,8 @@ namespace Lux {
 				maskedRPSpec.Pipeline = Pipeline::Create(maskedPipelineSpec);
 
 				m_ShadowMapMaskedPass = RenderPass::Create(maskedRPSpec);
+				m_ShadowMapMaskedPass->SetOptionalInput("SceneData", m_UBSScene);
+				m_ShadowMapMaskedPass->SetOptionalInput("RendererData", m_UBSRendererData);
 				m_ShadowMapMaskedPass->SetInput("ShadowData", m_UBSShadow);
 				m_ShadowMapMaskedPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 				m_ShadowMapMaskedPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
@@ -1701,6 +1703,8 @@ namespace Lux {
 			maskedRPSpec.Pipeline = Pipeline::Create(maskedPipelineSpec);
 
 			m_SpotShadowMaskedPass = RenderPass::Create(maskedRPSpec);
+			m_SpotShadowMaskedPass->SetOptionalInput("SceneData", m_UBSScene);
+			m_SpotShadowMaskedPass->SetOptionalInput("RendererData", m_UBSRendererData);
 			m_SpotShadowMaskedPass->SetInput("SpotShadowData", m_UBSSpotShadow);
 			m_SpotShadowMaskedPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_SpotShadowMaskedPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
@@ -1776,6 +1780,8 @@ namespace Lux {
 				m_PreDepthMaskedMirroredPipeline = Pipeline::Create(maskedMirroredPipelineSpec);
 
 				m_PreDepthMaskedPass = RenderPass::Create(maskedRPSpec);
+				m_PreDepthMaskedPass->SetOptionalInput("SceneData", m_UBSScene);
+				m_PreDepthMaskedPass->SetOptionalInput("RendererData", m_UBSRendererData);
 				m_PreDepthMaskedPass->SetInput("Camera", m_UBSCamera);
 				m_PreDepthMaskedPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 				m_PreDepthMaskedPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
@@ -1817,6 +1823,8 @@ namespace Lux {
 				meshletRPSpec.Pipeline = m_PreDepthMeshletPipeline;
 
 				m_PreDepthMeshletPass = RenderPass::Create(meshletRPSpec);
+				m_PreDepthMeshletPass->SetOptionalInput("SceneData", m_UBSScene);
+				m_PreDepthMeshletPass->SetOptionalInput("RendererData", m_UBSRendererData);
 				m_PreDepthMeshletPass->SetInput("Camera", m_UBSCamera);
 				m_PreDepthMeshletPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 				m_PreDepthMeshletPass->SetInput("ObjectIndexes", m_SBSObjectIndexes);
@@ -2056,6 +2064,7 @@ namespace Lux {
 			rpSpec.DebugName = "GBufferPass";
 			rpSpec.Pipeline = m_GeometryPipeline;
 			m_GeometryPass = RenderPass::Create(rpSpec);
+			m_GeometryPass->SetOptionalInput("SceneData", m_UBSScene);
 			BindSceneRenderPassInputs(m_GeometryPass, PassInputCamera | PassInputRenderer | PassInputMaterialScene);
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
