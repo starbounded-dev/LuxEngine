@@ -286,24 +286,6 @@ jobs:
           cmake --version
           git lfs version
 
-      # The runner's Build Tools have no .NET SDK resolver, so MSBuild cannot find
-      # Microsoft.NET.Sdk for ScriptCore and Coral.Managed (MSB4236) although dotnet is on PATH.
-      # MSBuildSDKsPath points MSBuild's default resolver at the provisioned SDK instead.
-      - name: Point MSBuild at the provisioned .NET SDK
-        if: runner.environment == 'self-hosted'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $line = dotnet --list-sdks | Where-Object { $_ -match '^9\.' } | Select-Object -Last 1
-          if ($line -notmatch '^(\S+) \[(.+)\]$') { throw "No .NET 9 SDK in: $(dotnet --list-sdks)" }
-          $sdks = Join-Path (Join-Path $Matches[2] $Matches[1]) 'Sdks'
-          if (!(Test-Path (Join-Path $sdks 'Microsoft.NET.Sdk'))) { throw "Microsoft.NET.Sdk is missing under $sdks" }
-          $dotnet = (Get-Command dotnet).Source
-          "MSBuildSDKsPath=$sdks" >> $env:GITHUB_ENV
-          "DOTNET_HOST_PATH=$dotnet" >> $env:GITHUB_ENV
-          "DOTNET_ROOT=$(Split-Path $dotnet)" >> $env:GITHUB_ENV
-          Write-Host "MSBuildSDKsPath=$sdks"
-
       - name: Install Vulkan SDK
         if: runner.environment != 'self-hosted'
         uses: jakoch/install-vulkan-sdk-action@v1.4.0
