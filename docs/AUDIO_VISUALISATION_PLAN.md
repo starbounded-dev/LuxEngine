@@ -1,5 +1,7 @@
 # LuxEngine "See the Sound" Plan
 
+**Status (2026-11-09): done.** Phases 0-6 landed on 2026-09-24/25 (`7f054083` to `f5ad5720`, docs `9e6ffde1`). Phase 6's Linux Wayland run and `/profile` numbers are not recorded.
+
 This plan makes LuxEngine's acoustics visible and gives the engine a working occlusion signal. It
 is the signature feature for the public showcase. In the demo scene, a viewer turns on one overlay
 and sees why a sound is muffled: which walls sit between the listener and the source, what they are

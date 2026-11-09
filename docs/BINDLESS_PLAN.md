@@ -1,5 +1,7 @@
 # LuxEngine Full Bindless Plan
 
+**Status (2026-11-09): not started, and partly out of date.** No phase has landed: no `BindlessResourceHeap` (the table still holds 2D textures only, with sRGB slots since `ece01f54`), no `GeometryPool`, no multi-draw, no mesh-shader G-buffer. The plan was written against NVRHI; the renderer moved to NRI afterwards (`docs/NRI_MIGRATION_PLAN.md`), so its NVRHI layout details need re-grounding before use.
+
 This plan takes LuxEngine from "material textures are bindless" to a renderer where every opaque and
 shadow draw reaches its geometry, instance, material and textures by index. Each of those passes
 becomes one GPU-driven multi-draw instead of a bind-and-draw per mesh. The remaining per-pass
