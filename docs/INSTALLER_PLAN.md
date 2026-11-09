@@ -19,15 +19,18 @@ engine on the user's machine. This is a planning document written 2026-11-09 fro
   3. The same flows work on Linux from `LuxEngine-Setup-<version>-linux.run`.
   4. CI builds both installers with every dev pre-release, and a silent install/uninstall test
      passes on both platforms.
+  5. Two editions from one codebase: **`LuxInstaller-Offline`**, with the editor bundled, and
+     **`LuxInstaller`**, small, which downloads the editor from the release it belongs to (added
+     2026-11-09).
 - **Non-goals:**
-  - downloading the editor at install time (the payload is bundled);
   - C# anywhere in the installer;
   - an auto-updater that runs in the background;
   - MSI/winget/Flatpak packages (possible follow-ups);
   - code signing now (SmartScreen warnings accepted; the build leaves room for signing later).
 - **User's decisions (2026-11-09):**
   - **C++ only.**
-  - **Bundled payload.**
+  - **Bundled payload**, then (same day) **two editions**: `LuxInstaller-Offline` (bundled) and
+    `LuxInstaller` (downloads the payload).
   - **"It can do it all":** install, update, repair, uninstall.
   - **Windows first, then Linux.**
   - **DirectX:** a DirectX backend is planned, and the installer must run natively on it when it
@@ -47,6 +50,8 @@ engine on the user's machine. This is a planning document written 2026-11-09 fro
 | No .NET in the installer | NEW `ApplicationSpecification::EnableScripting` (default true); the installer sets false so `Application` skips `ScriptEngine::InitializeHost` (`Application.cpp:128`) (technical) | The installer starts without any .NET installed. Editor and Runtime behave as today. |
 | Single file | Windows: delay-load `nethost.dll` and the assimp DLL in `Lux-Installer` (`/DELAYLOAD`), which Core links but the installer never calls. Linux: link those statically or load them lazily (technical) | The exe starts alone in an empty folder. Phase 0 proves it; today `Lux-Runtime` needs both DLLs beside it (`Lux-Runtime/premake5.lua:58-75`). |
 | Payload | Appended to the executable: zstd-compressed files, a file table with sizes and hashes, and a footer with a magic and offsets (user: bundled; technical: format) | One implementation reads and writes it, shared by the installer and the build tool. Before Renderer init, the installer reads its own `Resources/` subset (shader pack, fonts, UI art) out of the payload into a temp folder. |
+| Editions | One `Lux-Installer` binary. **Offline** = the exe with the payload appended. **Online** = the same exe with a small appended manifest naming the release and the payload's URL, size and hash. It downloads the payload archive, verifies the hash, then runs the same install steps (user: two editions; technical: one binary) | Install, update, repair and uninstall code is shared. CI publishes the payload archive (`LuxEngine-<ver>.lpayload`) as a release asset, so both editions read one format and the online one needs no zip reader. |
+| Downloads (online edition) | The OS's own HTTPS client: WinHTTP on Windows, libcurl loaded at runtime on Linux; resumable, with a progress bar (technical) | No vendored HTTP or TLS library. Offline machines use the Offline edition. The download URL comes only from the manifest built into the exe, never from the network. |
 | Compression | **zstd**, decoder-only in the installer (BSD-3, vendored through `Dependencies.lua`) (technical) | No compression library is vendored today; CI zips with 7-Zip (`main.yml:423`). zstd decodes much faster than deflate at a better ratio. Size cost: Phase 0 records it (the decoder is small). |
 | Signing-ready layout | The payload is appended **before** signing; signing is always the last step (technical) | Authenticode requires the certificate table to be the last thing in the file ([MSRC on MS13-098](https://www.microsoft.com/en-us/msrc/blog/2013/12/ms13-098-update-to-enhance-the-security-of-authenticode)). The reader finds the footer just before the certificate table when there is one, so adding a certificate later changes nothing else. |
 | Install location | Per user by default (`%LOCALAPPDATA%\Programs\LuxEngine`, `~/.local/share/luxengine`), with no admin rights. Choosing an all-users location relaunches elevated (Windows `runas`, Linux `pkexec`) (technical, conventional) | Most installs never see a UAC prompt. |
@@ -189,6 +194,23 @@ and "build toggles" if a premake option is added. New files → regenerate proje
 
 **Verification:** a dev push shows the setup exe on the pre-release and the install test passes.
 
+### Phase 4b — The online edition `LuxInstaller`
+**Changes:**
+- **NEW** `Core/Source/Lux/Install/InstallerDownload.{h,cpp}`, with `Core/Platform/Windows`
+  WinHTTP and `Core/Platform/Linux` libcurl (`dlopen`) backends: resumable download into the temp
+  folder, progress, cancel.
+- The edition manifest is appended by `tools/PackInstaller --online`.
+- The archive hash is verified before any file is written.
+- CI uploads `LuxEngine-<ver>.lpayload` plus both setup exes to the pre-release.
+
+**Verification:**
+- The online setup (a few MB) installs the same files as Offline, byte for byte.
+- Pulling the network midway resumes on retry.
+- A tampered payload (hash mismatch) is refused before writing anything.
+- `--silent` works for both.
+
+**Rollback:** the Offline edition is unaffected.
+
 ### Phase 5 — Linux
 **Changes:**
 - `Lux-Installer` builds on Linux (statically linked or lazy-loaded shared libraries, so it's a
@@ -222,6 +244,8 @@ owner (the Linux presentation path is still unaccepted in the remaster plan).
 
 ## Part 4 — Open questions
 
+- Online edition: always the release it was built for (as planned), or offer "latest" too? Latest
+  would make it an updater; default is the pinned release.
 - Should Lux itself use the installer to ship games? The same code could install an exported game
   (a "Make installer" export option). Follow-up.
 - winget/MSIX listing later? Needs signing first.
