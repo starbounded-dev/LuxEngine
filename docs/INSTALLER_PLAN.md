@@ -201,11 +201,15 @@ and "build toggles" if a premake option is added. New files → regenerate proje
   folder, progress, cancel.
 - The edition manifest is appended by `tools/PackInstaller --online`.
 - The archive hash is verified before any file is written.
+- The temp folder (`%TEMP%/LuxInstaller-<ver>/`, `$TMPDIR/...` on Linux) is deleted after the
+  install finishes, fails or is cancelled. A partial download is kept only for a retry in the same
+  run. The next launch deletes any leftover from a crashed run.
 - CI uploads `LuxEngine-<ver>.lpayload` plus both setup exes to the pre-release.
 
 **Verification:**
 - The online setup (a few MB) installs the same files as Offline, byte for byte.
 - Pulling the network midway resumes on retry.
+- After success, failure and cancel, the temp folder is gone.
 - A tampered payload (hash mismatch) is refused before writing anything.
 - `--silent` works for both.
 
