@@ -3,6 +3,11 @@ name: Build LuxEngine
 on:
   workflow_dispatch:
     inputs:
+      cold_build:
+        description: Discard trusted self-hosted build objects before compiling
+        type: boolean
+        required: false
+        default: false
       linux_vulkan_probe:
         description: Probe Linux CI Vulkan capabilities without compiling or accessing audio SDKs
         type: boolean
@@ -40,8 +45,9 @@ permissions:
 
 jobs:
   linux-vulkan-probe:
+    name: 'Diagnose: Linux Vulkan probe'
     if: github.event_name == 'workflow_dispatch' && inputs.linux_vulkan_probe
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && vars.LUX_SELF_HOSTED_LINUX == 'true' && '["self-hosted", "Linux", "X64", "luxengine", "linux-build"]' || '["ubuntu-26.04"]') }}
     steps:
       - name: Checkout the native launch helper
         uses: actions/checkout@v6.0.2
@@ -51,6 +57,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Vulkan probe tools
+        if: runner.environment != 'self-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml
@@ -72,7 +79,18 @@ jobs:
               env.write(f'XDG_RUNTIME_DIR={runtime_directory}\n')
           PY
 
+      - name: Use provisioned Vulkan SDK
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$VULKAN_SDK/bin/glslc"
+          echo "$VULKAN_SDK/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$VULKAN_SDK/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "VK_ADD_LAYER_PATH=$VULKAN_SDK/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
       - name: Install the validation SDK for the isolated launch probe
+        if: runner.environment != 'self-hosted'
         uses: jakoch/install-vulkan-sdk-action@v1.4.0
         with:
           vulkan_version: 1.4.335.0
@@ -154,6 +172,7 @@ jobs:
   # The build's version string, 2026.N-<7-char commit>: the series from Version.h
   # (LUX_VERSION_SERIES), so the binaries, the zips and the release tag (v<version>) agree.
   version:
+    name: 'Prepare: version'
     if: ${{ !inputs.linux_vulkan_probe }}
     runs-on: ubuntu-latest
     outputs:
@@ -185,10 +204,37 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
 
+  test:
+    name: 'Test: Windows (${{ matrix.configuration }})'
+    if: ${{ !inputs.linux_vulkan_probe && (!inputs.linux_audio_check || inputs.linux_audio_check == 'off') }}
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && '["self-hosted", "Windows", "X64", "luxengine", "windows-build"]' || '["windows-2025"]') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      # The vendored miniaudio checks for the native backend; they need no audio SDK, device or
+      # engine build, so they run beside the builds and a failure here never hides a build result.
+      - name: 'Test: native audio'
+        shell: bash
+        run: |
+          cmake -S tests/audio/native -B bin/native-audio-tests/${{ matrix.configuration }} -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+          cmake --build bin/native-audio-tests/${{ matrix.configuration }} --config ${{ matrix.configuration }}
+          ctest --test-dir bin/native-audio-tests/${{ matrix.configuration }} -C ${{ matrix.configuration }} --output-on-failure
+
   build:
+    name: 'Build: Windows (${{ matrix.configuration }})'
     needs: version
     if: ${{ !inputs.linux_audio_check || inputs.linux_audio_check == 'off' }}
-    runs-on: windows-2025
+    # Pull requests stay on disposable hosted runners, including same-repository PRs.
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && '["self-hosted", "Windows", "X64", "luxengine", "windows-build"]' || '["windows-2025"]') }}
     strategy:
       fail-fast: false
       matrix:
@@ -200,6 +246,12 @@ jobs:
         with:
           submodules: recursive
           lfs: true
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      - name: Prepare persistent build cache
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: python scripts/ci/PersistentBuild.py prepare --platform windows --configuration '${{ matrix.configuration }}' ${{ inputs.cold_build && '--cold' || '' }}
 
       # Version.h includes this when present: LUX_VERSION becomes 2026.N-<commit>, printed by
       # --version and in the startup log.
@@ -208,28 +260,34 @@ jobs:
         env:
           LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          Set-Content -Path Core/Source/Lux/Core/BuildVersion.h -Encoding utf8 -Value @(
-            "#pragma once",
-            "#define LUX_VERSION `"$env:LUX_BUILD_VERSION`""
-          )
+          $path = 'Core/Source/Lux/Core/BuildVersion.h'
+          $content = "#pragma once`n#define LUX_VERSION `"$env:LUX_BUILD_VERSION`"`n"
+          if (!(Test-Path $path) -or [IO.File]::ReadAllText((Join-Path $PWD $path)) -ne $content) {
+            [IO.File]::WriteAllText((Join-Path $PWD $path), $content, [Text.UTF8Encoding]::new($false))
+          }
 
       - name: Setup Python
+        if: runner.environment != 'self-hosted'
         uses: actions/setup-python@v6.2.0
         with:
           python-version: '3.11'
 
-      # The vendored miniaudio checks for the native backend; they need no audio SDK or device.
-      - name: Test native audio
-        shell: bash
+      - name: Verify provisioned build tools
+        if: runner.environment == 'self-hosted'
+        shell: pwsh
         run: |
-          config="${{ matrix.configuration }}"
-          [ "$config" != "Dist" ] || config=Release
-          [ "$config" != "Debug-AS" ] || config=Debug
-          cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE="$config"
-          cmake --build bin/native-audio-tests --config "$config"
-          ctest --test-dir bin/native-audio-tests -C "$config" --output-on-failure
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if (!(Test-Path "$env:VULKAN_SDK\Bin\glslc.exe")) {
+            throw "Provisioned Vulkan SDK is missing: $env:VULKAN_SDK"
+          }
+          python --version
+          dotnet --version
+          cmake --version
+          git lfs version
 
       - name: Install Vulkan SDK
+        if: runner.environment != 'self-hosted'
         uses: jakoch/install-vulkan-sdk-action@v1.4.0
         with:
           vulkan_version: 1.4.335.0
@@ -249,6 +307,7 @@ jobs:
       # Coral hardcodes hostfxr major version 9, and ScriptCore/Coral.Managed target net9.0,
       # so the .NET 9 SDK is required for the dotnet builds run by Setup.py.
       - name: Set up .NET 9
+        if: runner.environment != 'self-hosted'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
@@ -281,7 +340,7 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs --check
 
-      - name: Package editor artifact
+      - name: 'Package: editor artifact'
         if: matrix.configuration == 'Release'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
@@ -335,7 +394,7 @@ jobs:
             throw "FMOD libraries in the artifact: $($fmod.FullName -join ', ')"
           }
 
-      - name: Upload editor artifact
+      - name: 'Package: upload editor artifact'
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
@@ -345,7 +404,7 @@ jobs:
 
       # The pre-release download: the same package (editor, Resources, DotNet, sample project) in one
       # top-level folder.
-      - name: Zip release package
+      - name: 'Package: zip release'
         if: matrix.configuration == 'Release'
         shell: pwsh
         env:
@@ -364,7 +423,7 @@ jobs:
           7z a -tzip -mx=7 "release/$name.zip" "./artifacts/$name"
           if ($LASTEXITCODE -ne 0) { throw "7z failed ($LASTEXITCODE)" }
 
-      - name: Upload release package
+      - name: 'Package: upload release'
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
@@ -372,6 +431,11 @@ jobs:
           path: release/*.zip
           if-no-files-found: error
           compression-level: 0
+
+      - name: Report persistent build cache
+        if: always() && runner.environment == 'self-hosted'
+        shell: bash
+        run: python scripts/ci/PersistentBuild.py report --platform windows --configuration '${{ matrix.configuration }}'
 
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
@@ -381,9 +445,35 @@ jobs:
           path: logs/*.log
           if-no-files-found: ignore
 
+  test-linux:
+    name: 'Test: Linux (${{ matrix.configuration }})'
+    if: ${{ !inputs.linux_vulkan_probe }}
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && vars.LUX_SELF_HOSTED_LINUX == 'true' && '["self-hosted", "Linux", "X64", "luxengine", "linux-build"]' || '["ubuntu-26.04"]') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          submodules: recursive
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      # The vendored miniaudio checks for the native backend; they need no audio SDK, device or
+      # engine build, so they run beside the builds and a failure here never hides a build result.
+      - name: 'Test: native audio'
+        shell: bash
+        run: |
+          cmake -S tests/audio/native -B bin/native-audio-tests/${{ matrix.configuration }} -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+          cmake --build bin/native-audio-tests/${{ matrix.configuration }} --config ${{ matrix.configuration }}
+          ctest --test-dir bin/native-audio-tests/${{ matrix.configuration }} -C ${{ matrix.configuration }} --output-on-failure
+
   build-linux:
+    name: 'Build: Linux (${{ matrix.configuration }})'
     needs: version
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && vars.LUX_SELF_HOSTED_LINUX == 'true' && '["self-hosted", "Linux", "X64", "luxengine", "linux-build"]' || '["ubuntu-26.04"]') }}
     strategy:
       fail-fast: false
       matrix:
@@ -395,6 +485,12 @@ jobs:
         with:
           submodules: recursive
           lfs: true
+          clean: ${{ runner.environment != 'self-hosted' }}
+
+      - name: Prepare persistent build cache
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: python scripts/ci/PersistentBuild.py prepare --platform linux --configuration '${{ matrix.configuration }}' ${{ inputs.cold_build && '--cold' || '' }}
 
       # See the Windows job.
       - name: Bake the version string
@@ -402,10 +498,18 @@ jobs:
         env:
           LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          printf '#pragma once\n#define LUX_VERSION "%s"\n' "$LUX_BUILD_VERSION" > Core/Source/Lux/Core/BuildVersion.h
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('Core/Source/Lux/Core/BuildVersion.h')
+          content = '#pragma once\n#define LUX_VERSION "' + os.environ['LUX_BUILD_VERSION'] + '"\n'
+          if not path.exists() or path.read_text() != content:
+              path.write_text(content)
+          PY
 
       # Coral hardcodes hostfxr major version 9, and ScriptCore targets net9.0.
       - name: Set up .NET 9
+        if: runner.environment != 'self-hosted'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
@@ -414,10 +518,11 @@ jobs:
       # the build (wayland-scanner lives in libwayland-bin). NFD-Extended needs GTK3 for file
       # dialogs, and backward-cpp resolves symbols through libdw/libunwind.
       - name: Install build dependencies
+        if: runner.environment != 'self-hosted'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            clang llvm libclang-rt-dev make pkg-config \
+            clang llvm libclang-rt-dev make pkg-config ccache \
             libgtk-3-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
@@ -431,10 +536,40 @@ jobs:
           fi
           llvm-ar --version | head -1
 
+      - name: Restore hosted compiler cache
+        if: runner.environment != 'self-hosted'
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/luxengine/ccache
+          key: linux-ccache-v1-${{ runner.arch }}-${{ matrix.configuration }}-${{ hashFiles('**/premake5.lua', 'Dependencies.lua') }}-${{ github.sha }}
+          restore-keys: |
+            linux-ccache-v1-${{ runner.arch }}-${{ matrix.configuration }}-${{ hashFiles('**/premake5.lua', 'Dependencies.lua') }}-
+
+      - name: Enable available compiler cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ccache >/dev/null 2>&1; then
+            wrapper="$RUNNER_TEMP/lux-ccache-bin"
+            mkdir -p "$wrapper" "$HOME/.cache/luxengine/ccache"
+            for compiler in clang clang++ gcc g++ cc c++; do
+              ln -sf "$(command -v ccache)" "$wrapper/$compiler"
+            done
+            echo "$wrapper" >> "$GITHUB_PATH"
+            echo "CCACHE_DIR=$HOME/.cache/luxengine/ccache" >> "$GITHUB_ENV"
+            echo "CCACHE_COMPILERCHECK=content" >> "$GITHUB_ENV"
+            CCACHE_DIR="$HOME/.cache/luxengine/ccache" ccache --max-size=1G
+          else
+            echo 'ccache is not provisioned; persistent objects still work on self-hosted runners.'
+          fi
+
       - name: Install native runtime test services
+        if: inputs.linux_audio_check == 'runtime' && runner.environment != 'self-hosted'
+        run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml pulseaudio pulseaudio-utils
+
+      - name: Select the native runtime software driver
         if: inputs.linux_audio_check == 'runtime'
         run: |
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml pulseaudio pulseaudio-utils
           python3 - <<'PY'
           import os
           from pathlib import Path
@@ -451,7 +586,18 @@ jobs:
 
       # Sets VULKAN_SDK, which Dependencies.lua and Linux-Build.sh both honour in preference
       # to the (gitignored) vendored SDK path.
+      - name: Use provisioned Vulkan SDK
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$VULKAN_SDK/bin/glslc"
+          echo "$VULKAN_SDK/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$VULKAN_SDK/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "VK_ADD_LAYER_PATH=$VULKAN_SDK/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
       - name: Install Vulkan SDK
+        if: runner.environment != 'self-hosted'
         uses: jakoch/install-vulkan-sdk-action@v1.4.0
         with:
           vulkan_version: 1.4.335.0
@@ -462,17 +608,6 @@ jobs:
 
       # Single entry point: generates the C# projects, builds the managed assemblies, the
       # native engine, and the sample game's scripts.
-      # The vendored miniaudio checks for the native backend; they need no audio SDK or device.
-      - name: Test native audio
-        shell: bash
-        run: |
-          config="${{ matrix.configuration }}"
-          [ "$config" != "Dist" ] || config=Release
-          [ "$config" != "Debug-AS" ] || config=Debug
-          cmake -S tests/audio/native -B bin/native-audio-tests -DCMAKE_BUILD_TYPE="$config"
-          cmake --build bin/native-audio-tests --config "$config"
-          ctest --test-dir bin/native-audio-tests -C "$config" --output-on-failure
-
       - name: Build
         shell: bash
         env:
@@ -565,7 +700,7 @@ jobs:
       # Unlike Windows, the Linux build output holds only the executable, and the binary is
       # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled
       # into lib/ for the artifact to be runnable at all.
-      - name: Package editor artifact
+      - name: 'Package: editor artifact'
         if: matrix.configuration == 'Release'
         shell: bash
         run: |
@@ -638,7 +773,7 @@ jobs:
             exit 1
           fi
 
-      - name: Upload editor artifact
+      - name: 'Package: upload editor artifact'
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
@@ -648,7 +783,7 @@ jobs:
 
       # See the Windows job. Zipped here, not in the release job: artifacts do not keep file
       # modes, and the zip must keep the executable bit and the lib/ symlinks.
-      - name: Zip release package
+      - name: 'Package: zip release'
         if: matrix.configuration == 'Release'
         shell: bash
         env:
@@ -669,7 +804,7 @@ jobs:
           mkdir -p release
           (cd artifacts && zip -r -y -q "../release/$name.zip" "$name")
 
-      - name: Upload release package
+      - name: 'Package: upload release'
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
@@ -677,6 +812,24 @@ jobs:
           path: release/*.zip
           if-no-files-found: error
           compression-level: 0
+
+      - name: Report compiler cache
+        if: always()
+        shell: bash
+        run: |
+          if command -v ccache >/dev/null 2>&1; then ccache --show-stats; fi
+
+      - name: Save trusted hosted compiler cache
+        if: always() && runner.environment != 'self-hosted' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/luxengine/ccache
+          key: linux-ccache-v1-${{ runner.arch }}-${{ matrix.configuration }}-${{ hashFiles('**/premake5.lua', 'Dependencies.lua') }}-${{ github.sha }}
+
+      - name: Report persistent build cache
+        if: always() && runner.environment == 'self-hosted'
+        shell: bash
+        run: python scripts/ci/PersistentBuild.py report --platform linux --configuration '${{ matrix.configuration }}'
 
       - name: Upload build logs
         if: always() && matrix.configuration == 'Release'
@@ -690,7 +843,8 @@ jobs:
   # then deletes all but the 10 newest dev pre-releases of the series (and their tags). Never runs
   # for pull requests or other branches.
   release:
-    needs: [version, build, build-linux]
+    name: 'Ship: dev pre-release'
+    needs: [version, test, test-linux, build, build-linux]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:

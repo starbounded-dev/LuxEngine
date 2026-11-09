@@ -368,12 +368,82 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 
 ## CI
 
-`.github/workflows/main.yml` — builds on `windows-2025` for `Debug`, `Release`, `Dist`
-(`fail-fast: false`), triggered on push to `master` / `dev` / `feature/**` and on PRs to `master` /
-`dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
-generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
+`.github/workflows/main.yml` supports trusted push/manual builds on the dedicated
+Proxmox runners `pve-lux-windows` (Windows Server 2022 Core, UEFI, no GPU passthrough) and
+`pve-lux-linux` (Ubuntu 26.04). Both carry the `luxengine` label plus `windows-build` or
+`linux-build`; jobs also require the matching OS and X64 labels. Every pull request uses disposable
+GitHub-hosted `windows-2025` / `ubuntu-26.04` runners, including same-repository PRs.
+Trusted Linux jobs use `pve-lux-linux` only when the repository variable `LUX_SELF_HOSTED_LINUX`
+is `true`; otherwise they use GitHub-hosted Ubuntu. It is currently disabled while recurring
+in-memory checksum corruption is investigated. Keep the Linux runner service stopped until that
+investigation is resolved, then enable the service and variable together. Windows trusted builds
+continue using the dedicated runner.
 
-Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`.
+The self-hosted job accounts are unprivileged. Administrators provision Python, .NET 9, Git/LFS,
+CMake, Vulkan SDK `1.4.335.0` and platform build libraries in the VM images; Windows also needs
+PowerShell 7, Git Bash, Visual Studio 2022 C++ Build Tools and 7-Zip. Hosted jobs install their
+own prerequisites. Missing provisioned tools fail the build rather than invoking sudo or UAC.
+The Linux service exports `VULKAN_SDK=/opt/vulkan/1.4.335.0/x86_64`; the Windows service inherits
+`VULKAN_SDK=C:\VulkanSDK\1.4.335.0`. Windows evaluation media requires a valid license for
+long-term use; the VM is independent of the existing GPU-passthrough Windows VM.
+
+Windows builds `Debug`, `Release`, `Dist` (`fail-fast: false`), generates with `vs2022`, and builds
+`Lux.sln` with platform `Mixed Platforms`. Linux additionally builds `Debug-AS` through
+`scripts/Linux-Build.sh`. Triggers remain push to `master` / `dev` / `feature/**` and PRs to
+`master` / `dev`, with recursive submodules and LFS in both platform jobs.
+
+Jobs are named by phase, in this order: **Prepare** (`version`), **Test** (`test`, `test-linux`:
+the native audio CMake suite in Debug and Release, with no engine build, so a test failure never
+skips or hides a build), **Build** (`build`, `build-linux`: compile, artifact verification, and on
+Linux the Debug/Debug-AS audio integration checks in `tests/audio/run.py`, which need the
+generated Core Makefile), **Package** (the `Package:` steps of the Release builds) and **Ship**
+(`release`, dev pushes only, gated on every Test and Build job). `Diagnose` is the manual Linux
+Vulkan probe.
+
+
+The Linux VM (901) boots a live dashboard in both the regular Proxmox console and serial console.
+Use `O` for overview, `S` for observed steps, `L` for the larger log view, arrows/Page Up/Page Down
+for history, and `F` to follow output. It shows the service state, VM CPU/RAM/disk usage, workflow,
+branch, commit, current step and the real completed-job result. The job-start/completion hooks and
+collector read the runner's already-masked job-level log pages; they never scrape runner credentials.
+Logs rotate under `/var/lib/lux-runner-console/live.log` (five files of up to 10 MiB each).
+The source lives at `/usr/local/lib/lux-runner-console/console.py`, with
+`lux-runner-console-collector.service` and `lux-runner-console@tty1` / `@ttyS0` display services.
+The Windows VM (902) opens a matching dashboard when the standard `luxrunner` account signs in.
+Its collector starts at boot as the `LuxRunnerConsoleCollector` scheduled task; the runner service
+continues working while the console is signed out. It uses the same overview/steps/logs controls,
+with `Q` returning to PowerShell. Source and hooks live in `C:\Program Files\LuxRunnerConsole`;
+rotating masked output lives in `C:\ProgramData\LuxRunnerConsole\live.log`.
+Both runner VMs use 128 GiB disks on `local-lvm`; the Linux cloud-init snippet is on local storage.
+
+### Persistent CI build cache
+
+Trusted self-hosted checkouts use `clean: false`, preserving configuration-specific native
+objects/PCHs, managed restore data, and the local Git/LFS object store. Pull requests remain on
+clean disposable hosted runners. `scripts/ci/PersistentBuild.py` fingerprints generator scripts,
+compiler, .NET/CMake and Vulkan headers; a changed fingerprint discards only known generated
+build trees. It refuses redirected paths and paths outside the checkout. Logs, packaging trees,
+and the current configuration's final Core archive / Editor / Lux-Runtime executables are
+removed before each build, so they are freshly linked and the existing artifact timestamp
+checks remain valid. Other configurations' outputs are retained. `cold_build` forces a cold
+self-hosted build; a new toolchain also starts cold automatically.
+
+Native CMake test build directories include the configuration. The generated commit-version
+header is written only when its content changes, and `Version.h` stays outside `lpch.h` so a
+new commit does not invalidate the entire Core PCH. Version consumers include it explicitly.
+SDK and NuGet/pip caches remain machine/user-owned outside checkout cleaning.
+
+Hosted Linux uses a content-checked ccache through compiler wrappers and a 1 GiB per-job cache.
+Only trusted non-PR jobs save shared compiler caches; PRs may restore them but cannot publish
+shared entries through this workflow. Cache misses compile normally. Existing test failures
+are not skipped or converted to success by caching. See the reusable guidance in
+[sheazywi/actions-runner-console](https://github.com/sheazywi/actions-runner-console/blob/main/docs/caching.md).
+
+The baseline run `42078010543` failed native audio checks on Windows and hosted Linux before
+complete engine builds; full-engine cold/warm timing is therefore still unmeasured. Cache
+invalidation/relinking has dedicated tests under `tests/ci`; use an identical commit and then
+an implementation-file edit for an end-to-end warm-build measurement after those checks pass.
+Linux VM integrity quarantine remains independent of cache configuration.
 
 Before building, every job runs `tests/audio/native` (the vendored miniaudio's offline
 decode/render checks, and the engine's native backend driven through `AudioEngine`/

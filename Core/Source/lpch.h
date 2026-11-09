@@ -31,7 +31,6 @@
 #include <filesystem>
 #include <thread>
 
-#include <Lux/Core/Version.h>
 #include <Lux/Core/Assert.h>
 #include <Lux/Core/Base.h>
 #include <Lux/Core/Events/Event.h>

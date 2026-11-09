@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "Application.h"
+#include "Version.h"
 
 #include "Lux/Debug/CrashWatchdog.h"
 
