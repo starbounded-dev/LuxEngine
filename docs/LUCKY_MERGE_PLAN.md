@@ -1,5 +1,7 @@
 # LuxEngine — Lucky Engine Merge Plan
 
+**Status (2026-11-09): Phase 7 Help confirmed working in the editor by the owner.**
+
 This plan turns the LuckyEngine study (`docs/LuckyEngine-Comparison.md`, `docs/lucky-research/*.md`,
 `docs/Lux-History-Review.md`) into engine changes, phase by phase. It is a planning document: what is
 actually built is described in `.claude/docs/Architecture-LuxEngine.md`, and every phase updates that

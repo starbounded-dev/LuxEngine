@@ -1,5 +1,7 @@
 # LuxEngine Native Audio Backend Plan
 
+**Status (2026-11-09): the owner confirmed native audio works on their device (the listening check).**
+
 This plan replaces FMOD Core and FMOD Studio with an audio backend built into LuxEngine. Sounds are
 authored in the LuxEngine editor, so neither the engine nor shipped games depend on a proprietary
 audio SDK or on the FMOD Studio app. It is a planning document, not a description of what exists.
