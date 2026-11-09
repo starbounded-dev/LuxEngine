@@ -31,6 +31,9 @@ engine on the user's machine. This is a planning document written 2026-11-09 fro
   - **C++ only.**
   - **Bundled payload**, then (same day) **two editions**: `LuxInstaller-Offline` (bundled) and
     `LuxInstaller` (downloads the payload).
+  - **Online edition (2026-11-09):** it installs the release it was built for, downloads into a
+    temp folder that's deleted after every outcome, and checks the hash before writing. Offering
+    "latest" (an updater) is a later follow-up.
   - **"It can do it all":** install, update, repair, uninstall.
   - **Windows first, then Linux.**
   - **DirectX:** a DirectX backend is planned, and the installer must run natively on it when it
@@ -248,8 +251,8 @@ owner (the Linux presentation path is still unaccepted in the remaster plan).
 
 ## Part 4 — Open questions
 
-- Online edition: always the release it was built for (as planned), or offer "latest" too? Latest
-  would make it an updater; default is the pinned release.
+- (Follow-up) Let the online edition offer the latest release, which would make it an updater.
+
 - Should Lux itself use the installer to ship games? The same code could install an exported game
   (a "Make installer" export option). Follow-up.
 - winget/MSIX listing later? Needs signing first.
