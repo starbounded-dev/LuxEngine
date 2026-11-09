@@ -38,8 +38,9 @@ software; small and refined over broad.
 
 **2027.1 is ready when** a person who has never seen the engine can download one zip and, with only
 the .NET SDK installed, make and export a small complete 3D game: an animated character walking a lit
-level, a menu and a HUD, sound, saved progress, rebindable controls. The exported game runs on a PC
-with nothing installed.
+level, a menu and a HUD, sound, saved progress, rebindable controls. The same holds for a small 2D
+game (animated sprites on a tilemap), and for both on Windows and on Linux. The exported game runs
+on a PC with nothing installed.
 
 Measured against that bar, the engine today is strong in rendering, audio, physics and asset
 packing, and has four holes: **no animation, no game UI, a thin C# API, and a large amount of code
@@ -58,19 +59,22 @@ that builds but was never run.**
 | M7 | **.NET 10** (§2.7 SC9) | .NET 9 leaves support about now; a 2027 release cannot require it | M |
 | M8 | **Project format version + upgrade path** (§6 X3) | Projects made in 2027.1 must open in 2027.2 | M |
 | M9 | **Test on AMD and Intel GPUs** (§2.1 R26) | Every measurement in the notes is one RTX 4070 Ti | M |
-| M10 | **One sample game made only with the release zip** (§6 X6) | It is the acceptance test for the bar above | L |
+| M10 | **Two sample games made only with the release zip**, one 3D and one 2D (§6 X6) | They are the acceptance test for the bar above | L |
+| M11 | **2D as a full project type** (§2.10): 2D template, sprite animation, tilemaps, sorting, complete 2D physics | Decided 2026-11-09: 2D projects and 3D projects are both supported | XL |
+| M12 | **Linux all the way** (§2.12 C2): render thread on, watchdog, every release gate run on Linux too | Decided 2026-11-09 | L |
+| M13 | **Basic particles** (§2.11 G1) | Decided 2026-11-09 | XL |
 
 ### Wanted for 2027.1, dropped first if time runs out
 
-Input actions (I2), save-game API (G2), player settings (RT5), autosave (E15), basic particles (G1),
-reflection probes (R9), simple fog (R7), decals (R11), string localisation (G3), physics joints (P4),
-sprite animation (D2).
+Input actions (I2), save-game API (G2), player settings (RT5), autosave (E15), reflection probes
+(R9), simple fog (R7), decals (R11), string localisation (G3), physics joints (P4).
 
 ### The slip rule
 
-If animation and game UI are not both done **and used by the sample game** by about September 2027,
-call the release 2028.1 and pull in the `28` items: navigation, terrain, probe GI, the launcher,
-tilemaps, the sequencer.
+The must list now holds five XL items (animation, game UI, 2D, particles, plus the hardening and
+export work). If animation, game UI and the 2D workflow are not all done **and used by the two
+sample games** by about September 2027, call the release 2028.1 and pull in the `28` items:
+navigation, terrain, probe GI, the launcher, the sequencer.
 
 ---
 
@@ -130,7 +134,7 @@ tilemaps, the sequencer.
 | P3 | Queries from C#: raycast, shape cast, overlap, with layer masks | ✔ C++ `SceneQueries.h` exists; ✔ no C# `Physics` class | ADD | 27 | M |
 | P4 | Joints: fixed, hinge, slider, spring, distance | ✔ none | ADD | 27? | M |
 | P5 | Vehicles, soft bodies, cloth, ragdoll | none | DEFER | 28+ | — |
-| P6 | Box2D: box and circle only, steps per frame | ✔ | MODIFY if 2D is supported in 2027.1 (decision D1): fixed step, polygon and capsule colliders, 2D queries | 27? | M |
+| P6 | Box2D: box and circle only, steps per frame | ✔ | MODIFY (2D is supported, D1): fixed step with `OnFixedUpdate`, polygon, capsule and edge colliders, tilemap collision, 2D raycasts and overlaps from C#, 2D joints, 2D triggers | 27 | L |
 
 ### 2.4 Audio
 
@@ -166,7 +170,7 @@ The most complete system in the engine. Almost nothing to add.
 | AS3 | Per-asset import settings (sRGB, filter, max size, mesh scale and axes) and re-import when the source file changes | ? | Check, ADD what is missing | 27 | M |
 | AS4 | Find references, safe rename, move and delete | ? | Check, ADD | 27? | M |
 | AS5 | Async loading (backlog 4.8 fix) | ◐ builds, not run | FINISH | 27 | S |
-| AS6 | Lean exported layout, one data folder, pack obfuscation (backlog 4.15) | ◐ planned | ADD. Call it obfuscation in the UI: a key the game can read stops nobody determined | 27 | L |
+| AS6 | Lean exported layout, one data folder, pack obfuscation (backlog 4.15) | ◐ planned | ADD, soon (decided, D6). Call it obfuscation in the UI: a key the game can read stops nobody determined | 27 | L |
 | AS7 | Patch and DLC packs (more than one pack) | none | DEFER | 28 | L |
 | AS8 | Shareable asset packages (`.luxpackage`) | none | DEFER | 28 | M |
 | AS9 | Asset store, online package manager | none | NEVER | — | — |
@@ -214,15 +218,18 @@ The most complete system in the engine. Almost nothing to add.
 | ID | Feature | State today | Verdict | Rel | Size |
 |---|---|---|---|---|---|
 | D1 | Sprites, circles, lines, text, Box2D bodies | ✔ | KEEP | 27 | — |
-| D2 | Sprite sheets (slicing) and sprite animation | none | ADD | 27? | M |
-| D3 | Tilemaps and a tile editor | none | DEFER | 28 | L |
-| D4 | 2D lights, 2D particles | none | DEFER | 28+ | — |
+| D2 | Sprite sheets (slicing, atlas packing at export) and sprite animation clips | none | ADD | 27 | M |
+| D3 | Tilemaps: tile sets, layers, a tile painting tool, collision from tiles | none | ADD | 27 | L |
+| D4 | Draw order: sorting layers and order-in-layer; pixel-perfect camera option | ? | Check, ADD | 27 | M |
+| D5 | 2D project type: a template that starts with an orthographic camera, 2D physics and a 2D editor view (XY plane, 2D gizmos, pixel snapping) | ✔ `ProjectTemplate.h` exists; ? what templates it holds | ADD | 27 | M |
+| D6 | Particles in 2D | none | Covered by G1 if the basic system draws in both | 27 | (G1) |
+| D7 | 2D lights and shadows, skeletal 2D animation (bones for sprites) | none | DEFER | 28 | L |
 
 ### 2.11 Gameplay services
 
 | ID | Feature | State today | Verdict | Rel | Size |
 |---|---|---|---|---|---|
-| G1 | Particles: emitters, curves over life, sub-UV, soft particles, instanced draw; an editor panel | ✔ none | ADD a basic CPU-simulated system. GPU simulation, trails, mesh particles, collisions: DEFER | 27? / 28 | XL |
+| G1 | Particles: emitters, curves over life, sub-UV, soft particles, instanced draw; an editor panel | ✔ none | ADD a basic CPU-simulated system that draws in 3D and 2D (decided, D4). GPU simulation, trails, mesh particles, collisions: DEFER | 27 / 28 | XL |
 | G2 | Save-game API: key/value and typed blobs in the user folder, slots | none | ADD | 27? | M |
 | G3 | String localisation tables | ✔ only dialogue is localised | ADD, reusing the dialogue table's language handling | 27? | M |
 | G4 | Navigation: navmesh bake and agents (Recast/Detour, zlib licence, vendored) | none | DEFER | 28 | L |
@@ -238,10 +245,10 @@ The most complete system in the engine. Almost nothing to add.
 | ID | Feature | State today | Verdict | Rel | Size |
 |---|---|---|---|---|---|
 | C1 | Windows 10/11 x64 | ✔ | KEEP, first-class | 27 | — |
-| C2 | Linux x64 | ◐ builds in CI; render thread off; no watchdog | Decision D3. Suggested: ship as "supported, single-threaded renderer" and verify once before the release | 27 | M |
+| C2 | Linux x64 | ◐ builds in CI; render thread off (races with the Wayland/Vulkan swapchain, backlog 5.5); no watchdog | MODIFY to first-class (decided, D3): render thread on by default, watchdog, AppImage for editor and exported games, and every gate in this catalog (golden runs, sample games, export on a clean machine) run on Linux as well as Windows | 27 | L |
 | C3 | macOS, consoles, mobile, web | none | Not present. Say so plainly | — | — |
 | C4 | Render thread, job system, async transfer queue | ✔ | KEEP | 27 | — |
-| C5 | Crash watchdog | ◐ Windows editor only | MODIFY: add to `Lux-Runtime`; Linux later | 27? | M |
+| C5 | Crash watchdog | ◐ Windows editor only | MODIFY: add to `Lux-Runtime` and to Linux (C2) | 27 | M |
 | C6 | Tracy, memory tracking, Aftermath | ✔ off in Dist | KEEP | 27 | — |
 | C7 | Telemetry, analytics, online accounts | none | NEVER | — | — |
 
@@ -334,9 +341,10 @@ version exists, so it belongs to 2028.1. Two things it will need must be built i
 | X3 | Format versions on project, scene, prefab, material, sound files, with upgrade tests against saved old projects | ? | Check, ADD | 27 | M |
 | X4 | README | ✔ out of date: lists the removed volume system, says there are no physics bindings, old "Next up" | MODIFY at release time | 27 | S |
 | X5 | Manual, Help panel, generated API reference | ✔ | KEEP; add a page per new system | 27 | M |
-| X6 | Samples | ✔ one project that doubles as the engine test bed (benchmarks, a `DDGI` folder) | Split: a clean small 3D game for users (M10), the test scenes kept for development. A 2D sample if D1 says yes | 27 | L |
-| X7 | Test matrix: NVIDIA, AMD, Intel; Windows 10 and 11; one Linux distro; golden runs on each | ◐ one machine | ADD (M9) | 27 | M |
-| X8 | Release zips per platform from CI | ✔ pre-releases on `dev` | KEEP. Code signing: decide (cost against the SmartScreen warning) | 27 | S |
+| X6 | Samples | ✔ one project that doubles as the engine test bed (benchmarks, a `DDGI` folder) | Split: a clean small 3D game and a small 2D game for users (M10), the test scenes kept for development | 27 | L |
+| X7 | Test matrix: NVIDIA, AMD, Intel; Windows 10 and 11; Linux on X11 and Wayland; golden runs on each | ◐ one machine | ADD (M9, M12) | 27 | M |
+| X8 | Release zips per platform from CI | ✔ pre-releases on `dev` | KEEP | 27 | — |
+| X8b | Code signing of the Windows editor, runtime and watchdog (decided, D7) | none | ADD a signing step in the release workflow. The step is small; the certificate is the work: it costs money, needs an identity check that can take days, and the key must live in a CI secret (today CI reads no secrets, so fork PRs must skip the step). A new certificate still shows SmartScreen until it gains reputation. Exported games are signed by their makers, not by Lux | 27 | M |
 | X9 | Licence audit: NOTICE, Aftermath redistribution terms, fonts and icons, sample assets | ◐ | ADD a pass before release | 27 | M |
 | X10 | Bug-report path: issue template that asks for the watchdog report folder | none | ADD | 27 | S |
 
@@ -366,28 +374,30 @@ One list of everything above marked CUT or NEVER, so it can be checked in one pl
 
 ---
 
-## 8. Decisions that are yours
+## 8. Decisions (yours, made 2026-11-09)
 
-| # | Decision | Suggested answer |
+| # | Decision | Your answer |
 |---|---|---|
-| D1 | Is 2D a supported workflow in 2027.1, or "basic, 3D first"? | 3D first. Sprite animation only (D2); tilemaps in 2028.1 |
-| D2 | Move to .NET 10 before or after the release? | Before (SC9) |
-| D3 | Linux in 2027.1: first-class, or supported with a single-threaded renderer? | The second |
-| D4 | Particles in 2027.1? | Yes, basic only, and the first big item to drop |
-| D5 | Game UI: own retained system on `Renderer2D`? | Yes (U1) |
-| D6 | Pack "encryption": is deterring casual extraction enough? | Yes, and name it obfuscation |
-| D7 | Code signing for Windows releases? | Not for 2027.1; say so in the download notes |
+| D1 | Is 2D a supported workflow in 2027.1? | **Yes: 2D projects and 3D projects** (M11, §2.10, P6) |
+| D2 | .NET 10? | **Yes, definitely** (SC9) |
+| D3 | Linux in 2027.1? | **All the way**, first-class (M12, C2, C5) |
+| D4 | Particles in 2027.1? | **Yes, basic** (M13, G1) |
+| D5 | Game UI: own retained system on `Renderer2D`? | **Yes** (U1) |
+| D6 | Pack obfuscation? | **Yes, soon** (AS6) |
+| D7 | Code signing for Windows releases? | **Yes** (X8b) |
 
 ## 9. Suggested order
 
 1. **Now:** merge the audio branch; M1 hardening pass; M7 .NET 10; R17, P2, S3 (small correctness gaps).
-2. **Scripting breadth** (M4): SC2, P3, S2, SC6, then I2, G2, RT5. Cheap, and every later system needs it.
-3. **Animation** (M2) with its editor tools (E8).
-4. **Game UI** (M3) with its editor (E9).
-5. **Export and runtime** (M6): RT2, RT3, RT4, RT6; then L2 and M8.
-6. **Beam** (M5) and autosave (E15).
-7. **Wanted list**, in this order: reflection probes + fog, particles, decals, joints, localisation.
-8. **Sample game** made from the release zip on a clean PC (M10), M9 GPU matrix, licence audit, freeze.
+2. **Export and runtime** (M6): RT2, RT3, lean layout and obfuscation (RT4, AS6), RT6; then L2 and M8.
+3. **Linux** (M12): render thread, watchdog. Early, so everything after it is built on both platforms instead of ported at the end.
+4. **Scripting breadth** (M4): SC2, P3, S2, SC6, then I2, G2, RT5. Cheap, and every later system needs it.
+5. **2D** (M11): template and editor view, sprite animation, sorting, Box2D completion, tilemaps.
+6. **Game UI** (M3) with its editor (E9). After 2D, because it shares sprites, sorting and 9-slice.
+7. **Animation** (M2) with its editor tools (E8).
+8. **Basic particles** (M13), then **Beam** (M5) and autosave (E15).
+9. **Wanted list**, in this order: reflection probes + fog, decals, joints, localisation.
+10. **Two sample games** made from the release zip on clean Windows and Linux PCs (M10), M9 GPU matrix, licence audit, code signing (X8b), freeze.
 
 Each XL item starts with `/plan-le`.
 
@@ -398,4 +408,6 @@ Each XL item starts with `/plan-le`.
   Pause/Step, keybinding editing, format versioning, .NET bundling in exports, branding fields.
 - The state of `FOLIAGE_MATERIALS_PLAN.md`, `BINDLESS_PLAN.md` and `AUDIO_VISUALISATION_PLAN.md`.
 - The .NET 9 end-of-support date is from memory; confirm it on Microsoft's support page.
-- Linux: not looked at (Windows only, by your instruction).
+- Linux: not looked at for this document. It is now a release gate (M12), so its real state needs
+  its own check before step 3 of the order.
+- Whether sorting layers, 2D templates or a 2D editor view already exist (D4, D5).
