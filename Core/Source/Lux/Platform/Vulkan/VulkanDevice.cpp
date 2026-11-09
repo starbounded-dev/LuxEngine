@@ -461,6 +461,11 @@ namespace Lux {
 
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
+		// The GPU identity that the shader-pack stamp sidecar records (ShaderPack.h § stamp): which
+		// vendor/driver compiled the SPIR-V inside a pack. Captured here, on the one getProperties()
+		// call, so a consumer on a different GPU can be reported instead of silently served.
+		m_VendorID = physicalDeviceProperties.vendorID;
+		m_DriverVersion = physicalDeviceProperties.driverVersion;
 		m_DeviceAPIVersion = std::min(m_InstanceAPIVersion, physicalDeviceProperties.apiVersion);
 		const bool vulkan14 = m_DeviceAPIVersion >= VK_API_VERSION_1_4;
 

@@ -85,7 +85,13 @@ namespace Lux {
 		specification.DeferWindowShow = true;   // EditorLayer shows it once the startup splash closes
 		specification.VSync = true;
 		specification.SettingsPath = FileSystem::GetPersistentStoragePath() / "App.lsettings";
-		//specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+		// Dist compiles no shaders (Renderer/Shader.h:16 sets LUX_HAS_SHADER_COMPILER to !LUX_DIST), so
+		// the editor must consume the pack that compiler-enabled editors keep refreshed beside
+		// Resources/Shaders. The path is relative to the editor's working directory, which is how
+		// every "Resources/Shaders/..." load resolves (HelpPanel.cpp:290 says to run from Editor/).
+#ifdef LUX_DIST
+		specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+#endif
 
 		/*specification.ScriptConfig.CoreAssemblyPath = "Resources/Scripts/Hazel-ScriptCore.dll";
 		specification.ScriptConfig.EnableDebugging = true;

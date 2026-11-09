@@ -15,6 +15,7 @@
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/ShaderPack.h"
 #include "Lux/Social/DiscordSocial.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -337,6 +338,94 @@ namespace Lux {
 		}
 
 		ImGui::Spacing();
+		// --- Editor shader pack: the artifact a Dist editor consumes. A Dist config has no shader
+		// compiler (Renderer/Shader.h:16 defines LUX_HAS_SHADER_COMPILER as !LUX_DIST), so the pack
+		// beside Resources/Shaders can only be authored by a compiler-enabled editor. The state row
+		// and the refresh action share one source of truth with the startup check - Renderer::
+		// CaptureShaderPackEnvironment plus ShaderPack::Evaluate, which is exactly what Renderer::Init
+		// runs at Renderer.cpp:492-526 - so the panel cannot report "current" while a launch disagrees.
+		// The identity hashes the whole shader tree, so it is computed at most once per launch and
+		// cached here rather than per drawn frame (Conventions.md § Nothing expensive per frame);
+		// the second action recomputes it after an edit made during a session.
+		ImGui::TextUnformatted("Editor Shader Pack");
+		ImGui::Separator();
+
+		{
+			static ShaderPackState s_PackState = ShaderPackState::Unreadable;
+			static bool s_PackStateComputed = false;
+			static bool s_PackRefreshFailed = false;   // kept until the next action, not one frame
+			const std::filesystem::path packPath = "Resources/ShaderPack.lsp";
+			// Relative to the working directory, like every "Resources/Shaders/..." load string:
+			// HelpPanel.cpp:290 documents running the editor from the Editor folder, and the runtime
+			// resolves the same spelling for a package pack (Lux-Runtime/src/RuntimeApplication.cpp:92).
+			const ImGuiEx::PanelAction packActions[] = {
+		#if LUX_HAS_SHADER_COMPILER
+				{0, "Refresh shader pack", LUX_ICON_COG, nullptr, true, false, true},
+		#endif
+				{1, "Re-check pack state", nullptr, nullptr, s_PackStateComputed},
+			};
+			const int packAction = ImGuiEx::PanelActionBar("##editor_shader_pack_actions", packActions);
+			switch (packAction)
+			{
+			case 0:
+			{
+		#if LUX_HAS_SHADER_COMPILER
+				// Authoring needs the compiled library: the shaders are loaded by the time a panel draws,
+				// which is the same point the runtime-export pack is written from (EditorLayer.cpp:4849).
+				// WriteStampedPack logs every failure reason (ShaderPack.cpp), so the row only says the
+				// refresh failed and points at that entry rather than restating it here.
+				s_PackRefreshFailed = !ShaderPack::WriteStampedPack(Renderer::GetShaderLibrary(), packPath,
+					Renderer::CaptureShaderPackEnvironment());
+				// Recompute so the row shows the new state instead of the pre-refresh verdict.
+				s_PackStateComputed = false;
+		#else
+				// A Dist config has no compiled library to serialize, and the refresh action is not even
+				// offered above (the #if omits it). Saying nothing here would be the silent failure the
+				// rules forbid, so the row states why the pack cannot be authored in this build.
+				ImGui::TextWrapped("This build has no shader compiler: the pack can only be authored by a compiler-enabled editor");
+		#endif
+				break;
+			}
+			case 1:
+				// Recompute after an edit during a session: the cached verdict is one launch old otherwise.
+				s_PackStateComputed = false;
+				s_PackRefreshFailed = false;
+				break;
+			default:
+				break;
+			}
+			if (s_PackRefreshFailed)
+			{
+				ImGuiEx::ScopedColour errorText(ImGuiCol_Text, Colors::Theme::textError);
+				ImGui::TextWrapped("Refresh failed: the Renderer log names why (pack path, temp, or stamp)");
+			}
+			if (!s_PackStateComputed)
+			{
+				s_PackState = ShaderPack::Evaluate(packPath, Renderer::CaptureShaderPackEnvironment());
+				s_PackStateComputed = true;
+			}
+			// Wording mirrors the startup verdicts (Renderer.cpp:492-526) so a user reads the same rule
+			// in both places: only InputsChanged and Unreadable stop a compilerless launch.
+			switch (s_PackState)
+			{
+			case ShaderPackState::Current:
+				ImGui::TextWrapped("Current: a Dist editor can consume this pack");
+				break;
+			case ShaderPackState::InputsChanged:
+				ImGui::TextWrapped("Stale: the shader sources or macros changed - a Dist editor refuses it");
+				break;
+			case ShaderPackState::DeviceChanged:
+				ImGui::TextWrapped("Authored on another GPU: still consumable, SPIR-V is portable by spec");
+				break;
+			case ShaderPackState::NoStamp:
+				ImGui::TextWrapped("Unstamped: consumed without validation (the bare-pack export path)");
+				break;
+			case ShaderPackState::Unreadable:
+			default:
+				ImGui::TextWrapped("Missing or unusable: create it with Refresh shader pack in a compiler-enabled editor");
+				break;
+			}
+		}
 		ImGui::TextUnformatted("Recent Projects");
 		ImGui::Separator();
 

@@ -160,6 +160,13 @@ namespace Lux {
 		// sets the ceiling at roughly (count - 1) x display refresh under DWM. FIFO is
 		// always refresh-locked regardless, and the practical range is small: more images
 		// buy throughput at the cost of latency and VRAM.
+		// Which GPU compiled the shaders this device now runs: the generating identity recorded in
+		// the shader-pack stamp sidecar (ShaderPack.h § stamp), so a pack authored on one GPU is
+		// reported — not silently served — when a different GPU consumes it. Read-only after the
+		// single getProperties() call in VulkanDevice.cpp; main-thread queries only.
+		[[nodiscard]] uint32_t GetVendorID() const { return m_VendorID; }
+		[[nodiscard]] uint32_t GetDriverVersion() const { return m_DriverVersion; }
+
 		[[nodiscard]] uint32_t GetSwapChainBufferCount() const { return m_DeviceParams.swapChainBufferCount; }
 		void SetSwapChainBufferCount(uint32_t count) { m_DeviceParams.swapChainBufferCount = count; }
 		// Which uncapped present mode to pick when vsync is off (Rendering.md § Present mode).
@@ -271,6 +278,11 @@ namespace Lux {
 		vk::DebugReportCallbackEXT m_DebugReportCallback;
 
 		vk::PhysicalDevice m_VulkanPhysicalDevice;
+
+		// GPU identity read once in VulkanDevice::Create alongside m_RendererString: the shader-pack
+		// stamp records it so a consumer on another vendor/driver is reported (ShaderPack.h § stamp).
+		uint32_t m_VendorID = 0;
+		uint32_t m_DriverVersion = 0;
 
 		QueueFamilyIndices m_QueueFamilyIndices;
 

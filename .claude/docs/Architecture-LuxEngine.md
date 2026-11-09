@@ -259,6 +259,17 @@ store them (`RHITypes.cpp` checks them). Textures and buffers are described by `
 the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()`). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `RHIShader` (`GetSPIRV(ShaderStage)`),
 not the abstract `Shader`.
 
+**Shader packs** (`Renderer/ShaderPack.h`): `ShaderPack.lsp` (LXSP v1) holds compiled SPIR-V for
+builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`). Exports write a bare pack
+into the package. The Dist Editor loads `Editor/Resources/ShaderPack.lsp` (set in `LuxEditorApp.cpp`
+under `LUX_DIST`), written by Application Settings → Refresh shader pack in a compiler-enabled
+editor. Beside it, `<pack>.stamp` (YAML) records the shader-source identity (FNV over every
+`Resources/Shaders` source and the generated material-graph include), the global macros, the GPU
+and the program count. `Renderer::Init` runs `ShaderPack::Evaluate` against
+`Renderer::CaptureShaderPackEnvironment()` before loading: changed inputs or an unreadable/empty
+pack stop the launch (`LUX_CORE_VERIFY`); another GPU or a missing stamp only warn, so exported
+packages keep working. Main thread only (file I/O).
+
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists
 `VulkanDevice` created. It never owns them. The primary graphics family must also support

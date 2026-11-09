@@ -18,6 +18,7 @@
 
 #include "RendererCapabilities.h"
 #include "RendererConfig.h"
+#include "ShaderPack.h"
 
 #include "GPUStats.h"
 
@@ -341,6 +342,19 @@ namespace Lux {
 		static void SetGlobalMacroInShaders(const std::string& name, const std::string& value = "");
 		static uint32_t ReloadShaders(bool forceCompile = true);
 		static uint32_t WarmUpShaderPipelines();
+		// The environment a shader pack authored now would describe: the shader sources and the
+		// generated material-graph include (content identity), the global macros expanded into them,
+		// and the GPU that compiled them. Paired with ShaderPack::WriteStampedPack (author) and
+		// ShaderPack::Evaluate (consume), so authoring and validation describe one environment through
+		// one function - there is no second place that could quietly disagree about what is current.
+		// Main thread only: it walks the file system and reads CPU-side renderer state (Threading.md
+		// § Main reserves long blocking work - file I/O - for main). Called from Renderer::Init just
+		// before a pack is consumed, and from the Application Settings refresh action; never from the
+		// render thread. A Dist config has no shader compiler (Renderer/Shader.h:16), so a consumer
+		// that finds a mismatch cannot recover by rebuilding - it can only refuse, which is what
+		// Renderer::Init does with LUX_CORE_VERIFY (Assert.h:25 makes VERIFY unconditional in every
+		// config, Building.md § Configurations).
+		[[nodiscard]] static ShaderPackStamp CaptureShaderPackEnvironment();
 		static uint32_t GetShaderPermutationCacheSize();
 		// Returns true if any shader is actually updated.
 		static bool UpdateDirtyShaders();

@@ -633,7 +633,7 @@ preview frames passed both policies at `bin/material-panel-smoke/179385563243373
 No assertion or Vulkan validation output occurred in those passing runs.
 
 **Native evidence:** disposable project/user data at `bin/hierarchy-remaster-ui/1793855605493067500`,
-Windows 4K/150%, maximized and 1077 × 635 logical window. Verified a 400-character entity name,
+Windows 4K/150%, maximized and 1077 Ã— 635 logical window. Verified a 400-character entity name,
 wrapped hierarchy hover text, hover-to-select, compact name/Add controls, stacked transform axes,
 readable component headings/settings, rename and scene undo. The long-name fixture exposed the
 pre-existing unbounded viewport selection badge; its cached presentation now clips within its
@@ -650,7 +650,7 @@ property-label hover text wraps too. Local `$cr` reviewed scopes/IDs, font/viewp
 label ownership, selection/edit targets and scene teardown; no remaining must-fix or should-fix
 finding. Project generation was rerun; sample-project/audio edits and unrelated files are excluded.
 
-**Remaining:** Phase 5(c–e), the remaining Phase 0 inventory and Phase 6 remain open. Native
+**Remaining:** Phase 5(câ€“e), the remaining Phase 0 inventory and Phase 6 remain open. Native
 100%, mixed-monitor/detached/disconnect behavior, Linux execution and full exported-workflow
 acceptance are not established by this batch. This is the Hierarchy/Properties delivery checkpoint.
 
@@ -1522,3 +1522,24 @@ device vendor/driver, validated on load before any frame. No format migration of
 planned at this point: the manifest is a sidecar, so existing exported packages keep reading the
 same binary. Implementation is the next batch, not this one. Phase 6 remains
 active, including the previously recorded physical-monitor/reachability and Wayland limits.
+
+### Phase 6 - editor-side shader pack for the Dist Editor
+
+Implements the route recorded above. The Dist Editor sets `RenderConfig.ShaderPackPath` to
+`Resources/ShaderPack.lsp` (`LuxEditorApp.cpp`, `LUX_DIST` only). Application Settings gains an
+Editor Shader Pack row: Refresh shader pack (compiler-enabled builds) writes the pack through a temp
+file and then `<pack>.stamp`, re-reading both; Re-check pack state recomputes the cached verdict.
+`Renderer::Init` evaluates the pair before loading: changed sources/macros or an absent, truncated or
+empty pack stop the launch with `LUX_CORE_VERIFY`; another GPU and an unstamped (exported) pack only
+warn. LXSP v1 is unchanged, so existing packages read the same bytes. `VulkanDevice` keeps the
+vendor and driver it already reads. Architecture 2.3 describes shader packs.
+
+Verified: `scripts/Lux-BuildTest.ps1 -Configurations Debug,Dist` PASS
+(`bin/soundwave-tests/build-20261110-000351-057`); Dist Editor built from `Editor.vcxproj` with
+`SolutionDir` set (`bin/shaderpack-dist-editor-build.txt`, 11,219,456 bytes).
+
+Not yet verified: the checked-in `Editor/Resources/ShaderPack.lsp` predates the stamp and has no
+`.stamp`, so it must be refreshed from a Debug editor and committed with its stamp. No Dist Editor
+launch has consumed it, so whether the pack covers every shader the editor loads is unproven. A
+refresh after changing AO/reflection settings at runtime stamps those macros, which a default
+Dist launch then refuses. Phase 6 remains active.

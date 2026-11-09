@@ -26,6 +26,7 @@
 #include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
+#include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -474,8 +475,55 @@ namespace Lux {
 
 		s_Data->m_ShaderLibrary = Ref<ShaderLibrary>::Create();
 
+		// Validate before consuming: a build with no shader compiler (Renderer/Shader.h:16 defines
+		// LUX_HAS_SHADER_COMPILER as !LUX_DIST) cannot rebuild the SPIR-V inside a pack, so an inputs
+		// difference - a source edit, a changed generated material-graph include, or different global
+		// macros - must stop the run rather than render programs that no longer match this build.
+		// Device drift is reported, not refused: SPIR-V is portable across drivers by the Vulkan spec,
+		// so another vendor is a difference to state rather than an assumed bug (Rendering.md §
+		// Validation errors are bugs: the inputs class is a real bug, the device class is not
+		// automatically one). Absent / truncated / empty packs are structural faults too, because
+		// ShaderPack.cpp:26-35 decides a pack is loaded on the LXSP magic match alone - an empty pack
+		// would otherwise report success and serve nothing. Unstamped packs are only a warning: the
+		// runtime-export path (EditorLayer.cpp:398-407) has always written a bare pack, so every
+		// existing package keeps working exactly as it does today. LUX_CORE_VERIFY breaks into the
+		// debugger instead of throwing (Assert.h:10 __debugbreak), so a verification runner rejects
+		// the launch rather than the wrongness being papered over, and the message names the fix.
 		if (!s_Config.ShaderPackPath.empty())
+		{
+			const ShaderPackStamp environment = Renderer::CaptureShaderPackEnvironment();
+			const ShaderPackState state = ShaderPack::Evaluate(s_Config.ShaderPackPath, environment);
+			switch (state)
+			{
+			case ShaderPackState::InputsChanged:
+				// Fatal: these programs were compiled from a different source set or macro set, and
+				// this build has no way to produce current ones.
+				LUX_CORE_VERIFY(false, "Shader pack is stale for a build with no shader compiler: regenerate it with the Application Settings action 'Refresh shader pack' in a compiler-enabled editor, or export a stamped package");
+				break;
+			case ShaderPackState::Unreadable:
+				LUX_CORE_VERIFY(false, "Shader pack is absent, truncated, or carries no programs: the reader decides a pack is loaded on the LXSP magic match alone (ShaderPack.cpp:26-35)");
+				break;
+			case ShaderPackState::DeviceChanged:
+			{
+				// Report and keep going: SPIR-V is portable by spec, and the identities are printed so a
+				// vendor-specific fault can be traced to it instead of guessed at.
+				ShaderPackStamp recorded;
+				ShaderPack::ReadStamp(s_Config.ShaderPackPath, recorded);
+				LUX_CORE_WARN_TAG("Renderer", "Shader pack {} was compiled on {} (vendor {}, driver {}); this device is {} (vendor {}, driver {}) - consuming it anyway, since SPIR-V is portable by spec",
+					s_Config.ShaderPackPath, recorded.m_RendererName, recorded.m_VendorID, recorded.m_DriverVersion,
+					environment.m_RendererName, environment.m_VendorID, environment.m_DriverVersion);
+				break;
+			}
+			case ShaderPackState::NoStamp:
+				// Legacy bare pack (the export path predates the sidecar): consumed without a freshness
+				// check, which is the behaviour every existing package already relies on.
+				LUX_CORE_WARN_TAG("Renderer", "Shader pack {} carries no freshness stamp: consumed without validation", s_Config.ShaderPackPath);
+				break;
+			default:
+				break;
+			}
 			Renderer::GetShaderLibrary()->LoadShaderPack(s_Config.ShaderPackPath);
+		}
 
 
 		// NOTE: some shaders (compute) need to have optimization disabled because of a shaderc internal error
@@ -1992,6 +2040,47 @@ namespace Lux {
 		static const bool s_Supported = RHIDevice::GetDesc().features.meshShader;
 		return s_Supported;
 	}
+
+	// Main thread (Threading.md § Main): walks the shader sources and reads CPU-side renderer
+	// state. The refresh action and Renderer::Init are the only callers, both on main.
+	ShaderPackStamp Renderer::CaptureShaderPackEnvironment()
+	{
+		ShaderPackStamp stamp;
+		// The sources and the generated material-graph include, hashed by content (ShaderPack.cpp).
+		stamp.m_ShaderInputs = ShaderPack::ComputeShaderInputIdentity();
+		// The macros are the other input to the SPIR-V: Renderer::Init expands the AO / GTAO /
+		// reflection settings into the shader sources (Renderer.cpp:468-470) and SceneRenderer
+		// re-sets them live from panel properties (SceneRenderer.cpp:1168-1172), so a session that
+		// changes them must not be described by the previous pack. Sorted so the chain is byte
+		// identical across launches - the stamp is compared by equality, and unordered iteration
+		// would make every launch look stale.
+		// Snapshot the pairs before formatting: the map is mutated while panels run, so this
+		// describes the moment being stamped rather than a live view that could change mid-loop.
+		std::vector<std::string> macroLines;
+		macroLines.reserve(Renderer::GetGlobalShaderMacros().size());
+		for (const auto& [name, value] : Renderer::GetGlobalShaderMacros())
+			macroLines.push_back(name + "=" + value);
+		std::ranges::sort(macroLines);
+		for (const std::string& line : macroLines)
+			stamp.m_Macros += line + ";";
+		// The GPU identity is recorded where it is read: VulkanDevice.cpp:462-464 captures vendor
+		// and driver from the single getProperties() call, so the stamp costs no second driver
+		// query here.
+		// A null device manager would mean Renderer::Init ran before Window::Init created the
+		// device (Application.cpp:91 Window::Init -> :105 Renderer::Init), an invariant of startup:
+		// stamping zeros would let a pack look current against no identity at all, so this is
+		// verified rather than defaulted.
+		const VulkanDevice* device = Application::Get().GetWindow().GetDeviceManager();
+		LUX_CORE_VERIFY(device != nullptr, "Renderer::Init ran before the render device was created");
+		if (device != nullptr)
+		{
+			stamp.m_RendererName = device->GetRendererString();
+			stamp.m_VendorID = device->GetVendorID();
+			stamp.m_DriverVersion = device->GetDriverVersion();
+		}
+		return stamp;
+	}
+
 
 	bool Renderer::SupportsVariableRateShading()
 	{
