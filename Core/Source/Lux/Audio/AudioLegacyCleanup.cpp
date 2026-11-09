@@ -279,10 +279,8 @@ namespace Lux::AudioLegacyCleanup
 		ScanResult scan;
 		const auto visit = [&](const std::filesystem::path& path, FileKind kind)
 		{
-			std::error_code ec;
-			const auto writeTime = std::filesystem::last_write_time(path, ec);
 			std::ifstream stream(path, std::ios::binary);
-			if (ec || !stream)
+			if (!stream)
 			{
 				scan.Errors.push_back(path.generic_string() + ": could not be read");
 				return;
@@ -305,7 +303,7 @@ namespace Lux::AudioLegacyCleanup
 				finding.File = path;
 				scan.Findings.push_back(std::move(finding));
 			}
-			scan.Files.push_back({ path, std::move(cleaned), writeTime });
+			scan.Files.push_back({ path, std::move(cleaned), text });
 		};
 
 		if (std::filesystem::exists(projectFile))
@@ -335,8 +333,17 @@ namespace Lux::AudioLegacyCleanup
 		bool ok = true;
 		for (const CleanedFile& file : scan.Files)
 		{
+			// Content, not write time: an edit within one timestamp tick keeps the same time.
+			// The stream closes before the rename below, which Windows refuses over an open file.
+			bool unchanged = false;
+			{
+				std::ifstream current(file.Path, std::ios::binary);
+				std::ostringstream currentText;
+				currentText << current.rdbuf();
+				unchanged = current && std::move(currentText).str() == file.ScannedText;
+			}
 			std::error_code ec;
-			if (std::filesystem::last_write_time(file.Path, ec) != file.ScannedWriteTime || ec)
+			if (!unchanged)
 			{
 				errors.push_back(file.Path.generic_string() + ": changed since the scan; scan again");
 				ok = false;

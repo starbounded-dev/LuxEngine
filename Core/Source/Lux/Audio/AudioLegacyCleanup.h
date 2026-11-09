@@ -30,7 +30,7 @@ namespace Lux::AudioLegacyCleanup
 	{
 		std::filesystem::path Path;
 		std::string Text;
-		std::filesystem::file_time_type ScannedWriteTime;
+		std::string ScannedText;   // the file as scanned; Apply refuses a file that no longer matches it
 	};
 
 	struct ScanResult

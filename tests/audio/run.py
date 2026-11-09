@@ -98,7 +98,7 @@ def main():
     # an independent list of undefined symbols in the focused occlusion executable.
     kernel_sources = sorted((ROOT / "Core/vendor/soundwave/src").glob("*.cpp"))
     sources = [*("vendor/soundwave/src/" + path.stem for path in kernel_sources), "Audio/AudioGeometrySystem", "Audio/AudioAcoustics",
-               "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial", "Audio/AudioEventRefSerializer",
+               "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial", "Audio/AudioEventRefSerializer", "Audio/Native/NativeAudioReferences",
                "Core/UUID", "Core/Ref", "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer",
                "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
     objects = {}
@@ -148,7 +148,8 @@ def main():
          "-Wl,--gc-sections", "-pthread",
          "-o", directory / "occlusion-test"], cwd=ROOT / "Core")
     run([directory / "occlusion-test", directory], timeout=30)
-    run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], objects["UUID"], objects["AudioEventRefSerializer"], *yaml, "-Wl,--gc-sections",
+    run(["clang++", *flags, music_serialization_source(directory), objects["Ref"], objects["UUID"], objects["AudioEventRefSerializer"],
+         objects["NativeAudioReferences"], *yaml, "-Wl,--gc-sections",
          "-o", directory / "music-serialization-test"], cwd=ROOT / "Core")
     run([directory / "music-serialization-test"], timeout=30)
 
