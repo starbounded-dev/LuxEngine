@@ -378,7 +378,7 @@ namespace Lux
 	// keeps on main (file I/O). The pack is opened through the same reader a consumer uses
 	// (ShaderPack.cpp:26-35) so a "loaded" verdict here means exactly what it means at load time;
 	// a zero program count is structural because that reader decides loaded on the magic match alone.
-	// Inputs and macros are one severity class: both are expanded into the SPIR-V inside the pack,
+	// Inputs are the refusal class: they are expanded into the SPIR-V inside the pack (macros are only recorded),
 	// so a difference means this build would render programs that no longer match its sources.
 	// Device drift is a report only: SPIR-V is portable across drivers by the Vulkan spec, so another
 	// vendor is a difference to state, not automatically a bug (Rendering.md § Validation errors are
@@ -399,8 +399,10 @@ namespace Lux
 			// The sidecar describes different bytes than the pack it sits beside: the pair was written
 			// apart, or a promotion failed between the two halves. Refuse rather than trust either.
 			return ShaderPackState::Unreadable;
-		if (recorded.m_ShaderInputs != environment.m_ShaderInputs
-			or recorded.m_Macros != environment.m_Macros)
+		// Macros are recorded, not compared: Init's defaults are always replaced by SceneRenderer from
+		// project settings, so the startup values never match a refreshed pack, and a compilerless
+		// build cannot recompile for other macros anyway.
+		if (recorded.m_ShaderInputs != environment.m_ShaderInputs)
 			return ShaderPackState::InputsChanged;
 		if (recorded.m_RendererName != environment.m_RendererName
 			or recorded.m_VendorID != environment.m_VendorID

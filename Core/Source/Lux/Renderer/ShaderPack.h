@@ -28,8 +28,8 @@ namespace Lux {
 		// a 32-bit digest is not a checksum, and a miss only ever asks for a regeneration.
 		std::string m_ShaderInputs;
 		// The global shader macros expanded into those sources (Renderer.h:338 GetGlobalShader
-		// Macros): the AO / GTAO / reflection settings change the SPIR-V, so they belong to the
-		// identity, not to a setting. Sorted so the string is deterministic across launches.
+		// Macros) when the pack was written. Recorded for diagnosis, not compared: Init's defaults
+		// are replaced from project settings before any frame. Sorted so the string is deterministic.
 		std::string m_Macros;
 		// Which GPU compiled the SPIR-V. A mismatch is reported rather than fatal: SPIR-V is
 		// portable across drivers by the Vulkan spec, so another vendor is a difference to state,
@@ -52,7 +52,7 @@ namespace Lux {
 	enum class ShaderPackState : uint8_t
 	{
 		Current,          // consume the SPIR-V in this pack
-		InputsChanged,    // pack predates an edit to the sources or macros
+		InputsChanged,    // pack predates an edit to the shader sources
 		DeviceChanged,    // authored on another GPU: consumable, reported
 		NoStamp,          // unstamped pack (an exported package): reported, not validated
 		Unreadable,       // header absent/truncated, or zero programs: structural fault

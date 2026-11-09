@@ -1529,7 +1529,7 @@ Implements the route recorded above. The Dist Editor sets `RenderConfig.ShaderPa
 `Resources/ShaderPack.lsp` (`LuxEditorApp.cpp`, `LUX_DIST` only). Application Settings gains an
 Editor Shader Pack row: Refresh shader pack (compiler-enabled builds) writes the pack through a temp
 file and then `<pack>.stamp`, re-reading both; Re-check pack state recomputes the cached verdict.
-`Renderer::Init` evaluates the pair before loading: changed sources/macros or an absent, truncated or
+`Renderer::Init` evaluates the pair before loading: changed sources or an absent, truncated or
 empty pack stop the launch with `LUX_CORE_VERIFY`; another GPU and an unstamped (exported) pack only
 warn. LXSP v1 is unchanged, so existing packages read the same bytes. `VulkanDevice` keeps the
 vendor and driver it already reads. Architecture 2.3 describes shader packs.
@@ -1538,8 +1538,14 @@ Verified: `scripts/Lux-BuildTest.ps1 -Configurations Debug,Dist` PASS
 (`bin/soundwave-tests/build-20261110-000351-057`); Dist Editor built from `Editor.vcxproj` with
 `SolutionDir` set (`bin/shaderpack-dist-editor-build.txt`, 11,219,456 bytes).
 
-Not yet verified: the checked-in `Editor/Resources/ShaderPack.lsp` predates the stamp and has no
-`.stamp`, so it must be refreshed from a Debug editor and committed with its stamp. No Dist Editor
-launch has consumed it, so whether the pack covers every shader the editor loads is unproven. A
-refresh after changing AO/reflection settings at runtime stamps those macros, which a default
-Dist launch then refuses. Phase 6 remains active.
+Refreshed from the Debug editor through Application Settings, driven with Computer Use
+(`bin/shaderpack-refresh-editor.txt`): 56 programs, source set 2206879063, RTX 4070 Ti. The stamp
+recorded `__HZ_AO_METHOD=2;__HZ_GTAO_COMPUTE_BENT_NORMALS=1`, set by SceneRenderer from project
+settings, while `Renderer::Init` starts with bent normals `0`: comparing macros would have refused
+every refreshed pack in Dist. Macros are now recorded but not compared. After deleting build
+outputs that were dated in the future by a system clock change and relinking both configs, the
+Dist Editor started and opened its window with the pack
+(`%APPDATA%/LuxEngine/logs/LUX_2026-11-09-14-36-47_15124.log`): no shader or pack errors; the
+only errors are the existing Dist refusal to import source meshes (Sponza.gltf). Nobody has yet
+looked at the rendered Dist viewport.
+Phase 6 remains active.

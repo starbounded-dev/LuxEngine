@@ -266,8 +266,9 @@ under `LUX_DIST`), written by Application Settings → Refresh shader pack in a 
 editor. Beside it, `<pack>.stamp` (YAML) records the shader-source identity (FNV over every
 `Resources/Shaders` source and the generated material-graph include), the global macros, the GPU
 and the program count. `Renderer::Init` runs `ShaderPack::Evaluate` against
-`Renderer::CaptureShaderPackEnvironment()` before loading: changed inputs or an unreadable/empty
-pack stop the launch (`LUX_CORE_VERIFY`); another GPU or a missing stamp only warn, so exported
+`Renderer::CaptureShaderPackEnvironment()` before loading: changed sources or an unreadable/empty
+pack stop the launch (macros are recorded, not compared, because SceneRenderer replaces Init's
+defaults from project settings) (`LUX_CORE_VERIFY`); another GPU or a missing stamp only warn, so exported
 packages keep working. Main thread only (file I/O).
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI

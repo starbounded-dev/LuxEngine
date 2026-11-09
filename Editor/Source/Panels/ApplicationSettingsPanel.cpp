@@ -412,7 +412,7 @@ namespace Lux {
 				ImGui::TextWrapped("Current: a Dist editor can consume this pack");
 				break;
 			case ShaderPackState::InputsChanged:
-				ImGui::TextWrapped("Stale: the shader sources or macros changed - a Dist editor refuses it");
+				ImGui::TextWrapped("Stale: the shader sources changed - a Dist editor refuses it");
 				break;
 			case ShaderPackState::DeviceChanged:
 				ImGui::TextWrapped("Authored on another GPU: still consumable, SPIR-V is portable by spec");

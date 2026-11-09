@@ -477,8 +477,8 @@ namespace Lux {
 
 		// Validate before consuming: a build with no shader compiler (Renderer/Shader.h:16 defines
 		// LUX_HAS_SHADER_COMPILER as !LUX_DIST) cannot rebuild the SPIR-V inside a pack, so an inputs
-		// difference - a source edit, a changed generated material-graph include, or different global
-		// macros - must stop the run rather than render programs that no longer match this build.
+		// difference - a source edit or a changed generated material-graph include (macros are only
+		// recorded) - must stop the run rather than render programs that no longer match this build.
 		// Device drift is reported, not refused: SPIR-V is portable across drivers by the Vulkan spec,
 		// so another vendor is a difference to state rather than an assumed bug (Rendering.md §
 		// Validation errors are bugs: the inputs class is a real bug, the device class is not
