@@ -283,9 +283,77 @@ this branch. Then the first job is repairing the test tools, and Phases 1–4 wa
 
 Filled in as phases run. One row per suite or feature: date, build, result, evidence folder or bug.
 
-| Check | Date | Config | Result | Evidence |
-|---|---|---|---|---|
-| *(empty until Phase 0)* | | | | |
+### Phase 0 — baseline, 2026-11-09, commit `5a5a31a6` (last source change), Windows, RTX 4070 Ti
+
+**Builds**
+
+| Build | Result | Note |
+|---|---|---|
+| `Lux.sln` Debug | ✅ 0 errors | With the Visual Studio 2026 MSBuild |
+| `Lux.sln` Release | ✅ already current | Built 21:37 by another session, after the last source commit |
+| `Lux.sln` Dist | ✅ 0 errors | Builds `Lux-Runtime`; the solution leaves `Editor` out of Dist on purpose |
+| Dist `Editor.exe` | ⚠️ stale (14:36, before the shader-pack commits) | Needs its own build: finding F2 |
+| Same builds with the VS 2022 Build Tools MSBuild | ❌ `MSB4236: The SDK 'Microsoft.NET.Sdk' specified could not be found` on `ScriptCore` and `Coral.Managed` | Finding F1 |
+
+**Headless suites**
+
+| Check | Result | Evidence or reason |
+|---|---|---|
+| Native audio (`ctest`, 2 tests) | ✅ pass | `bin/native-audio-tests` |
+| `tests/audio/run_soundwave.py` | ✅ pass | needs an MSVC developer environment |
+| `tests/audio/run_occlusion_windows.py` | ✅ pass | same |
+| `tests/audio/run_managed.py` | ✅ pass | |
+| `tests/rendering/run_shadow_shader.py` | ✅ pass | |
+| `tests/editor/test_native_checks.py` | ✅ pass | |
+| `tests/yaml/run.py` | ❌ 33 problems in 215 files | Not a parser fault: 26 files are new and 7 changed since the reference was recorded on 2026-11-03. Finding F3 |
+| `tests/runtime/run_resources.py` | — not applicable | Reads the Linux `Lux-Runtime/Makefile`; belongs to the Linux pass (M12) |
+| `tests/audio/run.py` | — not applicable | Linux only (clang) |
+
+**Editor self-tests** (Debug editor, throw-away project, Single and Multi threading; each requires a
+clean log: no validation error, no assert)
+
+| Runner | Result | What it asserts (from its PASS line) |
+|---|---|---|
+| `run_workspace_smoke.py` | ✅ both policies | workspace lifecycle, persistence, recovery, concurrent saves |
+| `run_workspace_documents.py` | ✅ both | dirty documents, workspace switches, restored saves |
+| `run_workspaces.py` | ✅ | adaptive docking, 20 size round trips (compiled test host) |
+| `run_panel_controls.py` | ✅ both | panel sizing; Beam save and recovery, Unicode paths, tabs, search |
+| `run_browser_panels.py` | ✅ both | Content Browser reflow, navigation, pickers, rename undo |
+| `run_hierarchy_panels.py` | ✅ both | hierarchy and inspector, multi-edit, component search, persistence |
+| `run_settings_panels.py` | ✅ both | settings and renderer panels, save recovery, Help, Game View, overlays |
+| `run_material_panels.py` | ✅ both (225 s) | material saves, retry, reload, undo, graph scopes |
+| `run_diagnostic_controls.py` | ✅ both | Log filtering, asset metadata, History navigation |
+| `run_diagnostic_plots.py` | ✅ both | Profiler plots |
+| `run_audio_panels.py` | ✅ both | audio authoring, save/undo/pack, preview |
+| `run_project_templates.py` | ✅ | project templates (compiled test host) |
+| `run_script_templates.py` | ✅ | script templates compile against ScriptCore in Debug, Release and Dist |
+| `run_remaster_export.py` | ✅ (184 s) | a saved graph material, a Sound and the Mixer exported; the Dist player ran; 0 validation ids |
+
+The sample project was not changed by any run (`git status Editor/LuxSampleProject` identical before
+and after).
+
+**What Phase 0 settles for the feature list in Part 0**
+
+| Feature | After Phase 0 |
+|---|---|
+| Named layouts and panel state | ✅ run. `WorkspaceSelfTests.cpp` asserts selection, the menu item, persistence, legacy conversion and a rejected invalid store. Only the look of the menu is left for Phase 5 |
+| Material graph: save, revert, undo, pack round trip, live canvas with preview | ✅ run (`MaterialEditorPanelTests.cpp`), and the graph material survives export to the Dist player |
+| Material instances: parent, `UpdateOverrides`, shared graph | ✅ run, same test |
+| Clearcoat, sheen, subsurface, anisotropy, triplanar, detail maps | still unproven: no test mentions them. Phase 3 |
+| Prefab structural sync | still unproven: the tests use the prefab editor's selection only, never `SyncPrefabInstance`. Phase 2 |
+| Everything in Play (fixed update, character, contacts, triggers, spawn, destroy, gizmos) | still unproven. Phase 2 |
+| Quality per category, asset-upload ordering, Dist editor viewport | still unproven. Phase 1 |
+
+**Findings**
+
+| # | Finding | Size | Goes to |
+|---|---|---|---|
+| F1 | The VS 2022 Build Tools MSBuild cannot build the C# projects (.NET SDK resolver missing). Same fault your note records for the self-hosted CI runner. Local builds work with the VS 2026 MSBuild | S | Fix the Build Tools install (add the .NET SDK component), or CI stays red on Windows |
+| F2 | The `Editor.exe` in the Dist folder is older than the Dist shader-pack commits. `scripts/Lux-BuildTest.ps1` already says "an old Editor.exe is not Dist evidence". Build `Editor/Editor.vcxproj` in Dist before Phase 1 | S | Phase 1, first step |
+| F3 | The YAML oracle's reference is 6 days stale, so the suite fails on any asset change. With yaml-cpp gone it can only be re-recorded from `Lux::Yaml` itself; it is now a change detector for sample assets. Re-record it once your staged sample changes are committed, or retire it | S | Phase 6; your call |
+| F4 | `tests/editor/run_workspaces.py` reads `env["Path"]`; from Git Bash the key is `PATH` and it raises `KeyError` | S | Phase 6 |
+| F5 | Five suites need an MSVC developer environment and say so only when they fail. A wrapper script that sets it up and runs every suite would make the baseline one command | S | Phase 6 |
+| F6 | Catalog rows marked "?" that these tests answer: multi-entity editing exists (E3), a prefab editor context exists (E11), Beam already has save and recovery (part of E7/M5) | — | Catalog update in Phase 6 |
 
 ## Part 5 — Open questions
 
@@ -294,8 +362,10 @@ Filled in as phases run. One row per suite or feature: date, build, result, evid
 2. Does `--options` reach the quality categories, or must the project file be edited? Read
    `GoldenCapture::ParseOptions` at the start of Phase 1.
 3. Is there a C# call to quit the game? Grep `InternalCalls.cs` at the start of Phase 4.
-4. How much of layouts, instances and prefabs the existing self-tests really assert. Their names
-   appear in the test sources; the assertions were not read. Phase 0 reads them while they run.
+4. ~~How much of layouts, instances and prefabs the existing self-tests really assert.~~ Answered in
+   Phase 0 (Part 4): layouts and instances are asserted; prefab sync is not.
+5. How is the Dist editor built and stamped with its shader pack? The solution excludes it. Read
+   `scripts/Lux-BuildTest.ps1`, `Editor/premake5.lua` and the release workflow before Phase 1.
 
 ## Part 6 — Research notes
 
