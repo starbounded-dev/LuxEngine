@@ -172,5 +172,17 @@ project "Editor"
 		defines { "LUX_DIST" }
 
 		ProcessDependencies("Dist")
+		-- The Dist editor imports source meshes (LuxEditorApp.cpp registers AssimpMeshImporter).
+		-- The dependency table links Assimp in Debug and Release only, so the Dist player stays
+		-- free of it; link it here. Assimp has no Dist build: use Release.
+		AddDependencyIncludes(Dependencies.Assimp)
 
 		flags { "ExcludeFromBuild" }
+
+	filter { "system:windows", "configurations:Dist" }
+		libdirs { "%{wks.location}/Core/vendor/assimp/bin/windows/Release/" }
+		links { Dependencies.Assimp.Windows.LibName }
+
+	filter { "system:linux", "configurations:Dist" }
+		libdirs { Dependencies.Assimp.Linux.LibDir }
+		links { Dependencies.Assimp.Linux.LibName }

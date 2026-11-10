@@ -14,9 +14,7 @@
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetExtensions.h"
-#ifndef LUX_DIST
 #include "Lux/Asset/AssimpMeshImporter.h"
-#endif
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Core/Events/KeyEvent.h"
@@ -90,7 +88,6 @@ namespace Lux {
 
 		void CopyImportedMeshDependencies(const std::filesystem::path& sourceFile, const std::filesystem::path& destinationDirectory)
 		{
-#ifndef LUX_DIST
 			if (!Project::GetEditorAssetManager() || Project::GetEditorAssetManager()->GetAssetTypeFromPath(sourceFile) != AssetType::MeshSource)
 				return;
 
@@ -111,7 +108,6 @@ namespace Lux {
 						CopyDependencyFile(entry.path(), sourceRoot, destinationDirectory);
 				}
 			}
-#endif
 		}
 
 		bool PathStartsWith(const std::filesystem::path& path, const std::filesystem::path& prefix)

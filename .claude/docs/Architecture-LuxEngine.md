@@ -729,6 +729,14 @@ Rules:
   `EditorAssetManager::RegisterAssetDependencies` dispatches by the actual asset type before
   casting material/mesh layouts. `Ref::As` is unchecked. Other assets retain the dependencies
   registered by their serializers; in particular, loading a bank must preserve its Sound edges.
+- **Source meshes are imported through a registered function.** `MeshSourceSerializer::TryLoadData`
+  calls the importer set with `MeshSourceSerializer::SetSourceImporter`, not `AssimpMeshImporter`
+  directly. The editor registers it in `CreateApplication` (`Editor/Source/LuxEditorApp.cpp`),
+  before the `Application` exists, in every config including Dist. `Lux-Runtime` loads meshes from
+  asset packs and registers none, so the player links no Assimp and an exported game ships no
+  Assimp DLL. `AssimpMeshImporter.cpp` is compiled into `Core` in every config; only an executable
+  that names it links it. A new program that loads source meshes (a tool, a test host) must
+  register an importer, or every mesh fails with "No source mesh importer is registered".
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own

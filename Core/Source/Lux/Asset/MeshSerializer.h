@@ -7,12 +7,20 @@
 
 namespace Lux
 {
+	class MeshSource;
+
 	// Serializes / deserializes MeshSource assets.
-	// Editor path  – loads via AssimpMeshImporter (Assimp).
+	// Editor path  – loads through the registered source importer (AssimpMeshImporter).
 	// Serialize    – no-op; source files are the canonical representation.
 	class MeshSourceSerializer : public AssetSerializer
 	{
 	public:
+		// Reads a source mesh file (glTF, FBX, ...). The application that imports source meshes,
+		// the editor, registers it once at startup, before any asset loads. The player loads
+		// meshes from asset packs and registers none, so it never links Assimp, in any config.
+		using SourceImporter = Ref<MeshSource>(*)(const std::filesystem::path& path);
+		static void SetSourceImporter(SourceImporter importer);
+
 		virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
 		virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 		virtual bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;

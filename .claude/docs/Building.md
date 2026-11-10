@@ -100,6 +100,14 @@ Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 | `Release` | On | Default | `NDEBUG`; asserts compile out, `VERIFY` stays, Tracy on |
 | `Dist` | Full | Off | `NDEBUG` + LTO; Tracy and Aftermath compiled out |
 
+**Dist is an optimisation level, not "the player".** `Core` Dist drops the shader compiler and
+Aftermath, but keeps `AssimpMeshImporter.cpp`: the Dist editor imports source meshes. The
+dependency table lists Assimp for Debug and Release only, so `Core/premake5.lua` adds its headers
+for Dist and `Editor/premake5.lua` links it for Dist (the Release library; Assimp has no Dist
+build). `Lux-Runtime` must not link it: the importer reaches an executable only through
+`MeshSourceSerializer::SetSourceImporter`, which only the editor calls. Check with a search for
+`assimp-vc143` in `bin/Dist-windows-x86_64/Lux-Runtime/Lux-Runtime.exe` (must be absent).
+
 Jolt's `JPH_FLOATING_POINT_EXCEPTIONS_ENABLED` (`Core/vendor/JoltPhysics/JoltPhysicsPremake.lua`) traps
 FP divide-by-zero/invalid/overflow as a hardware exception on physics worker threads — useful for
 catching NaN/Inf bugs while developing, but it turns any degenerate physics state (not necessarily

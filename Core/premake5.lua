@@ -157,11 +157,15 @@ project "Core"
 		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
 		defines { "LUX_DIST" }
 		IncludeDependencies("Dist")
+		-- AssimpMeshImporter.cpp is compiled in Dist too: the Dist editor imports source meshes.
+		-- It reaches an executable only through MeshSourceSerializer::SetSourceImporter, which
+		-- the editor calls and the player does not, so the player still does not link Assimp.
+		-- The dependency table lists Assimp for Debug and Release only; add its headers here.
+		AddDependencyIncludes(Dependencies.Assimp)
 
 		removefiles {
 			"Source/Lux/Platform/Vulkan/ShaderCompiler/**.cpp",
 			"Source/Lux/Platform/Vulkan/Debug/**.cpp",
 
 			"Source/Lux/Asset/AssimpAnimationImporter.cpp",
-			"Source/Lux/Asset/AssimpMeshImporter.cpp",
 		}

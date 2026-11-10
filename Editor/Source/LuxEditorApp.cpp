@@ -2,6 +2,8 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "EditorLayer.h"
+#include "Lux/Asset/AssimpMeshImporter.h"
+#include "Lux/Asset/MeshSerializer.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Core/ApplicationSettings.h"
@@ -115,6 +117,13 @@ namespace Lux {
 			if (FileSystem::HasEnvironmentVariable("LUX_THREADING_POLICY"))
 				specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(FileSystem::GetEnvironmentVariable("LUX_THREADING_POLICY"));
 		}
+
+		// The editor imports source meshes in every config, Dist included; the player never does
+		// (MeshSerializer.h). Registered before the Application exists, so before any asset loads.
+		MeshSourceSerializer::SetSourceImporter([](const std::filesystem::path& path)
+		{
+			return AssimpMeshImporter(path).ImportToMeshSource();
+		});
 
 		return new LuxEditor(specification);
 	}
