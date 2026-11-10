@@ -91,7 +91,7 @@ namespace Lux {
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -238,6 +238,15 @@ namespace Lux {
 	void GoldenCapture::ApplyOptions(SceneRenderer& renderer) const
 	{
 		SceneRendererOptions& options = renderer.GetOptions();
+
+		// Quality=0..4 (Low..Cinematic) puts every category at one tier through the call the quality
+		// menu makes. First, so the fixed settings and the other options still win over it.
+		if (const auto it = m_Options.find("Quality"); it != m_Options.end())
+		{
+			uint32_t tier = 0;
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), tier);
+			renderer.ApplyQualityPreset(static_cast<QualityPreset>(tier));
+		}
 
 		// Fixed regardless of user settings: no editor grid, no colliders, native resolution
 		// (dynamic resolution follows GPU time and would make every run different).

@@ -355,6 +355,38 @@ and after).
 | F5 | Five suites need an MSVC developer environment and say so only when they fail. A wrapper script that sets it up and runs every suite would make the baseline one command | S | Phase 6 |
 | F6 | Catalog rows marked "?" that these tests answer: multi-entity editing exists (E3), a prefab editor context exists (E11), Beam already has save and recovery (part of E7/M5) | — | Catalog update in Phase 6 |
 
+### Phase 1 — rendering sweeps, 2026-11-09, Windows, RTX 4070 Ti
+
+All captures used an isolated user-data folder. `LuxSample.luxproj`, `AssetRegistry.lzr` and
+`Editor/imgui.ini` were byte-identical before and after every sweep.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Release reference `hp0`: 5 scenes + 17 feature variants | ✅ 22/22 captured, 0 validation ids. **Not yet accepted by you (H4)** | `bin/golden/hp0`, PNGs in `bin/golden/hp0/png` |
+| Four more scenes (RenderFeatures, ManyLights, LowSun, Mirroring) | ✅ captured | `bin/golden/hp0x` |
+| Debug with sync validation, 22 + 4 captures | ✅ 0 validation ids, 0 sync hazards; images match Release 22/22 | `hp0-debug`, `hp0x-debug` |
+| Threading A/B (asset-upload ordering fix) | ✅ 5/5 identical under Single and Multi | `bin/golden/ab-*` |
+| Dist editor viewport against Release | ❌ 8 of 9 scenes differ by 33–82% of pixels: sky and text only, **no meshes** | `hp0-dist`, `hp1-dist`. Finding F7 |
+| Quality tiers 0–4 on Benchmark (Release) | ⚠️ run, GPU median rises with the tier (0.86 → 1.47 → 1.69 → 2.13 → 2.35 ms), but tiers 1–4 were captured with a stale AO shader (F8), so their images are not evidence yet | `hp0-q0` … `hp0-q4` |
+| Quality tiers in Debug | ❌ assert `Could not find uniform 'u_AOSettings.BentNormals' on material 'GTAO-Composite'` | Finding F8 |
+
+**Change made in this phase:** `Editor/Source/Tools/GoldenCapture.cpp` gained the option `Quality=T`
+(0 Low to 4 Cinematic), which calls `SceneRenderer::ApplyQualityPreset`; documented in
+`.claude/docs/Rendering.md`. Tiers cannot be driven any other way: `--options` had no tier option,
+and the project file stores tiers as labels only.
+
+**Findings**
+
+| # | Finding | Size | Status |
+|---|---|---|---|
+| F7 | **The Dist editor cannot show meshes.** `Core/premake5.lua` removes `AssimpMeshImporter.cpp` from Dist, and `MeshSourceSerializer::TryLoadData` returns an error under `LUX_DIST`. Right for the exported game (it loads packs), wrong for an editor. The Dist session log was not read (pruned); the cause is from the source and the images. Decision needed: ship the Release editor in the zip, or give the Dist editor the importer (a build flag separate from "is this the player") | M–L | Open. Blocks catalog E30 |
+| F8 | **The editor's shader cache ignores global macro values.** A session that ends with GTAO off leaves the no-GTAO `AO-Composite` in `Resources/Cache/Shader`. The next session wants GTAO, sees its macro value "unchanged" in memory (`Renderer::SetGlobalMacroInShaders` returns early), and never recompiles: **AO is silently missing in Release** (1–2% of pixels on Benchmark and AudioDemo) and Debug asserts. Reproduced: `Quality=0` run, then a default run. Proven: deleting the three cached AO shaders restored an exact match with `hp0`. Reachable by a user who lowers AO quality and reopens a project that has it on. Fix: record the macro values a cached shader was built with (`VulkanShaderCache`, as the shader-pack stamp already does) and recompile on mismatch | M | Open. The stale cache files were deleted, so your editor is not affected now |
+| F9 | A two-line guard in `SceneRenderer::AOComposite` made the Debug assert go away; it was reverted, because the assert is the only alarm for F8. The Debug, Release and Dist binaries built at 22:52–22:56 still contain the guard: rebuild before trusting a Debug run | S | Rebuild needed |
+| F10 | Golden runs share `Editor/Resources/Cache` with your own editor, so a run that changes macros can leave state behind (this is how F8 was found). Until F8 is fixed, any sweep that uses `Quality=` must delete the AO cache files afterwards | S | Phase 6 |
+
+**Left in Phase 1:** your look at the `hp0` images; quality tiers recaptured after F8 (or with the
+cache cleared before each run); Dist editor re-judged after F7's decision.
+
 ## Part 5 — Open questions
 
 1. Is golden capture compiled into the Dist editor? `EditorLayer.cpp` has `#ifndef LUX_DIST` blocks
