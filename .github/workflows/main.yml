@@ -322,15 +322,30 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: New-Item -ItemType Directory -Force logs
 
-      # /restore runs the Restore target before the build. ScriptCore and Coral.Managed are
-      # SDK-style C# projects inside Lux.sln, and those cannot build without the
-      # obj/project.assets.json that a NuGet restore produces (error NETSDK1004). The same
-      # properties are passed as for the build, so the solution's per-project platform mapping
-      # resolves identically for both.
+      # C# first, with the .NET SDK's own build (dotnet has its SDK resolver built in), then the C++
+      # projects with Visual Studio's MSBuild. Building Lux.sln with MSBuild needs the Build Tools'
+      # .NET SDK resolver to load ScriptCore and Coral.Managed, and the self-hosted runner's Build
+      # Tools don't have it (MSB4236). No C++ project references a C# one: Core's dependson
+      # "Coral.Managed" is solution-level only, and Core's post-build copies Coral.Managed from
+      # Coral/Build/Release, which is why that project always builds in Release. The C++ entry
+      # projects pull in Core and every vendor library through their ProjectReferences. Dist builds
+      # no Editor, as in the solution.
       - name: Build
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
-          MSBuild "${{ env.SOLUTION_FILE_PATH }}" /restore /m "/p:Configuration=${{ matrix.configuration }}" "/p:Platform=${{ env.BUILD_PLATFORM }}" /fl "/flp:logfile=logs\Build-${{ matrix.configuration }}.log;verbosity=normal"
+          $ErrorActionPreference = 'Stop'
+          $config = '${{ matrix.configuration }}'
+          dotnet build Core/vendor/Coral/Coral.Managed/Coral.Managed.csproj -c Release -nologo "-flp:logfile=logs\Build-$config-Coral.Managed.log;verbosity=normal"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build ScriptCore/ScriptCore.csproj -c $config -nologo "-flp:logfile=logs\Build-$config-ScriptCore.log;verbosity=normal"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $projects = @('Lux-Runtime/Lux-Runtime.vcxproj', 'Watchdog/Lux-Watchdog.vcxproj')
+          if ($config -ne 'Dist') { $projects = @('Editor/Editor.vcxproj') + $projects }
+          foreach ($project in $projects) {
+            $name = [IO.Path]::GetFileNameWithoutExtension($project)
+            MSBuild $project /m "/p:Configuration=$config" /p:Platform=x64 "/p:SolutionDir=$PWD\" /fl "/flp:logfile=logs\Build-$config-$name.log;verbosity=normal"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       # The manual's C# API reference (Editor/Resources/Docs/api) is generated from the built
       # ScriptCore.dll and its XML docs. Fails when a page is stale (regenerate it with the same
