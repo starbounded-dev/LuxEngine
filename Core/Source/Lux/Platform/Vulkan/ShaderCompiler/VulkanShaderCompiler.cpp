@@ -252,12 +252,16 @@ namespace Lux {
 					Log::GetEditorConsoleLogger()->error("{}", error);
 			}
 
-			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(shaderSource);
+			// Hash what the compiler will see, not the file's text: global macros pick the variant
+			// (#if ENABLED_GTAO), and a cached binary built for another macro value must not pass
+			// as unchanged in a later session. A failed pre-process leaves nothing to hash.
+			const std::string preprocessedSource(preProcessingResult.begin(), preProcessingResult.end());
+			m_StagesMetadata[stage].HashValue = Hash::GenerateFNVHash(preprocessedSource.empty() ? shaderSource : preprocessedSource);
 			m_StagesMetadata[stage].Headers = std::move(includer->GetIncludeData());
 
 			m_AcknowledgedMacros.merge(includer->GetParsedSpecialMacros());
 
-			shaderSource = std::string(preProcessingResult.begin(), preProcessingResult.end());
+			shaderSource = preprocessedSource;
 		}
 		return shaderSources;
 	}

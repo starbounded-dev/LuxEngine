@@ -461,6 +461,10 @@ HLSL-only.
 - Compilation + reflection: `VulkanShaderCompiler` (SPIRV-Cross for reflection).
 - Binary cache: `VulkanShaderCache`, registry at `Resources/Cache/Shader/ShaderRegistry.cache`
   (YAML, `ShaderRegistry` sequence). `HasChanged(shader)` returns which stages need recompiling.
+  A stage's hash is taken over its **preprocessed** source, so the global macro values it uses
+  are part of it: a binary cached with `__HZ_AO_METHOD=0` is not reused by a session that wants
+  GTAO. Hash the raw text instead and a session that ends with a feature off leaves the next one
+  rendering without it, with no error (found 2026-11-09: AO missing after a Low quality run).
 - Permutations: `ShaderPermutationCache` keys on `{ ShaderName, sorted macro pairs }`. Macros come
   from `Renderer::SetMacroInShader` / `SetGlobalMacroInShaders`, with
   `AcknowledgeParsedGlobalMacros` recording what a shader actually declared.
