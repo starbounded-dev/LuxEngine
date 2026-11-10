@@ -428,6 +428,17 @@ jobs:
           $reported = & "bin\${{ matrix.configuration }}-windows-x86_64\Editor\Editor.exe" --version
           Write-Host "Editor --version: $reported"
           if ($LASTEXITCODE -ne 0 -or "$reported" -notlike "*$env:LUX_BUILD_VERSION*") {
+            # 0xC0000135 = a DLL is missing; name it. Delay-loaded vulkan-1 is expected to be absent here.
+            $dir = "bin\${{ matrix.configuration }}-windows-x86_64\Editor"
+            $dumpbin = Get-ChildItem "C:\BuildTools\VC\Tools\MSVC\*\bin\HostX64\x64\dumpbin.exe" | Select-Object -First 1
+            foreach ($pe in Get-ChildItem "$dir\*" -Include *.exe,*.dll -File) {
+              $deps = & $dumpbin.FullName /dependents $pe.FullName | Where-Object { $_ -match '^\s+\S+\.dll\s*$' } | ForEach-Object { $_.Trim() }
+              foreach ($d in $deps) {
+                if ($d -like 'api-ms-*' -or $d -like 'ext-ms-*' -or $d -eq 'vulkan-1.dll') { continue }
+                $found = (Test-Path (Join-Path $dir $d)) -or (Test-Path (Join-Path $env:SystemRoot "System32\$d")) -or (Get-Command $d -ErrorAction SilentlyContinue)
+                if (-not $found) { Write-Host "MISSING: $d (needed by $($pe.Name))" }
+              }
+            }
             throw "Editor.exe --version did not report $env:LUX_BUILD_VERSION (exit $LASTEXITCODE)"
           }
 
