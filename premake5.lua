@@ -53,6 +53,9 @@ workspace "Lux"
 			"TRACY_ENABLE",
 			"TRACY_ON_DEMAND",
 			"TRACY_CALLSTACK=10",
+			-- Without invariant TSC (VMs such as the CI runner) Tracy would exit(1) at startup;
+			-- this falls back to a lower-resolution clock there and keeps RDTSC everywhere else.
+			"TRACY_TIMER_FALLBACK",
 		}
 	end
 

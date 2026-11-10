@@ -346,6 +346,8 @@ driver, such as the self-hosted CI runner VM. At real startup, `EntryPoint.h` sh
 found" message box when the loader is missing, instead of a raw DLL error. `xinput1_4.dll`
 (gamepad rumble) is delay-loaded too, because Windows Server installs lack it; it is only called
 once an Xbox pad is connected. When `--version` fails in CI, the zip step prints each `MISSING:` DLL.
+Tracy builds define `TRACY_TIMER_FALLBACK`: on a CPU without invariant TSC (most VMs) Tracy would
+otherwise show "CPU doesn't support invariant TSC" and exit before `main`.
 
 ### Linux runtime fails to load `Archivo-Bold.ttf`
 
