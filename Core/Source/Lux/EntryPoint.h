@@ -35,6 +35,18 @@ namespace Lux {
 			}
 		}
 
+#if LUX_PLATFORM_WINDOWS
+		// vulkan-1.dll is delay-loaded (Editor/Lux-Runtime premake), so --version runs on machines with
+		// no graphics driver (the CI runner VM). It comes with the GPU driver; without it, say so
+		// plainly instead of failing at the first Vulkan call.
+		if (!LoadLibraryW(L"vulkan-1.dll"))
+		{
+			MessageBoxW(nullptr, L"LuxEngine needs Vulkan, which comes with your graphics driver.\n\nInstall or update your GPU driver, then start LuxEngine again.",
+				L"Vulkan not found", MB_OK | MB_ICONERROR);
+			return 1;
+		}
+#endif
+
 		while (g_ApplicationRunning)
 		{
 #ifdef LUX_LOGS_IN_PERSISTENT_STORAGE

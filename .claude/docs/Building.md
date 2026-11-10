@@ -340,6 +340,11 @@ the SDK's `Bin` was on PATH. The self-hosted CI runner's Release `--version` che
 the packaged editor zip and Release game exports shipped without them. Regenerate and relink after
 pulling, as for nethost.
 
+`vulkan-1.dll` is different: it comes with the GPU driver, not the SDK, and is delay-loaded
+(`/DELAYLOAD` in both premake files). `--version` therefore works on a machine with no graphics
+driver, such as the self-hosted CI runner VM. At real startup, `EntryPoint.h` shows a "Vulkan not
+found" message box when the loader is missing, instead of a raw DLL error.
+
 ### Linux runtime fails to load `Archivo-Bold.ttf`
 
 The runtime needs `Resources/Fonts/Archivo/static/Archivo-Bold.ttf` relative to its working
