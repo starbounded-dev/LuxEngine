@@ -331,6 +331,15 @@ exported game gets it from there. Before this copy existed, only hand-placed cop
 Release folders made it work, and Dist exports shipped without it. Regenerate and relink after
 pulling the change: an up-to-date exe does not rerun post-build commands.
 
+### Windows: exit code 0xC0000135 / "shaderc_shared.dll or dxcompiler.dll was not found"
+
+The shader compiler links `shaderc_shared` (`shaderc_sharedd` in Debug) and `dxcompiler` from the
+Vulkan SDK. The Editor and Lux-Runtime post-build steps copy both from `%VULKAN_SDK%\Bin` beside the
+exe, and runtime export ships them with the other DLLs. Before this copy, the exes only started where
+the SDK's `Bin` was on PATH. The self-hosted CI runner's Release `--version` check failed on this, and
+the packaged editor zip and Release game exports shipped without them. Regenerate and relink after
+pulling, as for nethost.
+
 ### Linux runtime fails to load `Archivo-Bold.ttf`
 
 The runtime needs `Resources/Fonts/Archivo/static/Archivo-Bold.ttf` relative to its working

@@ -65,14 +65,24 @@ project "Editor"
 			'{COPY} "' .. _G["CORAL_NETHOST_BASE_PATH"] .. 'nethost.dll" "%{cfg.targetdir}"',
 		}
 
+		-- The shader compiler links shaderc_shared and dxcompiler from the Vulkan SDK, so copy them
+		-- beside the exe as well: a machine without the SDK's Bin on PATH (a user's PC, the
+		-- self-hosted CI runner) otherwise fails to start with "DLL not found" (0xC0000135).
+		-- Runtime export ships every DLL in this folder.
+		postbuildcommands {
+			'{COPY} "' .. os.getenv("VULKAN_SDK") .. '/Bin/dxcompiler.dll" "%{cfg.targetdir}"',
+		}
+
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
+			'{COPY} "' .. os.getenv("VULKAN_SDK") .. '/Bin/shaderc_sharedd.dll" "%{cfg.targetdir}"',
 		}
 
 	filter { "system:windows", "configurations:Release or configurations:Dist" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Release/assimp-vc143-mt.dll" "%{cfg.targetdir}"',
+			'{COPY} "' .. os.getenv("VULKAN_SDK") .. '/Bin/shaderc_shared.dll" "%{cfg.targetdir}"',
 		}
 
 	-- Nsight Aftermath is loaded at runtime when present (Platform/Vulkan/Debug/Aftermath.cpp), in
