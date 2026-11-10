@@ -72,8 +72,9 @@ project "Lux-Runtime"
 
 		-- vulkan-1.dll comes with the GPU driver, not the SDK. Delay-load it so the exe still starts
 		-- for --version on a machine without one (the CI runner VM); EntryPoint.h reports a missing
-		-- loader before the engine needs it.
-		linkoptions { "/DELAYLOAD:vulkan-1.dll" }
+		-- loader before the engine needs it. xinput1_4.dll (gamepad rumble) is absent on Windows Server;
+		-- it is only called once an Xbox pad is connected.
+		linkoptions { "/DELAYLOAD:vulkan-1.dll", "/DELAYLOAD:xinput1_4.dll" }
 		links { "delayimp" }
 
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }

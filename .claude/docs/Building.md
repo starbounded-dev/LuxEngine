@@ -343,7 +343,9 @@ pulling, as for nethost.
 `vulkan-1.dll` is different: it comes with the GPU driver, not the SDK, and is delay-loaded
 (`/DELAYLOAD` in both premake files). `--version` therefore works on a machine with no graphics
 driver, such as the self-hosted CI runner VM. At real startup, `EntryPoint.h` shows a "Vulkan not
-found" message box when the loader is missing, instead of a raw DLL error.
+found" message box when the loader is missing, instead of a raw DLL error. `xinput1_4.dll`
+(gamepad rumble) is delay-loaded too, because Windows Server installs lack it; it is only called
+once an Xbox pad is connected. When `--version` fails in CI, the zip step prints each `MISSING:` DLL.
 
 ### Linux runtime fails to load `Archivo-Bold.ttf`
 
