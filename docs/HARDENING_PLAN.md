@@ -466,6 +466,92 @@ Not done in this phase: `MaterialShowcase` in the exported player. The export ro
 (`run_remaster_export.py`) already shows a graph material in the Dist player; a capture path in
 the player does not exist.
 
+### Part 4b — Phase 5 checklist (yours, about an hour)
+
+Everything a script cannot judge. Use the **Release** editor on the **sample project**, rebuilt
+from this branch. Tick each line, or write what you saw next to it; anything that fails becomes a
+Phase 6 bug. If ImGui shows an ID-conflict popup at any point, note the panel and stop that step.
+
+**Setup (2 min)**
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 0.1 | Start the editor, open `Scenes/MaterialShowcase.luxscene` | 11 spheres lit by a sun, like `bin/golden/hp3/MaterialShowcase.png`; first launch may pause once while every shader recompiles (the cache fix) | |
+
+**Material graph (15 min)** — open `Materials/Showcase/MS_Graph.lmat` in the Material Editor, Graph view
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 1.1 | **Fit** | All five nodes (Noise → Color Ramp → Multiply ← Color "Tint" → Material Output) in view | |
+| 1.2 | **Add Node**, search "voronoi", add it, connect its Color to the Multiply's B input instead of Tint | Preview and the sphere in the scene change to cells within a second; no shader error in the Log | |
+| 1.3 | Ctrl+Z | Back to the Tint link, preview back to noise | |
+| 1.4 | Select two nodes, copy, paste; then duplicate one | Copies appear offset, unlinked; graph still compiles | |
+| 1.5 | **Comment** around the Noise and Color Ramp; resize it; save; reopen the material | Comment and its size come back | |
+| 1.6 | **Minimap** on and off; **Find** "Tint" | Minimap shows the graph; Find selects and centres the Color node | |
+| 1.7 | Connect the Noise's Factor output to the Material Output's Base Color (a float into a colour) | Either it converts and shows grey noise, or the node shows an error on the node itself; the editor does not crash | |
+| 1.8 | Revert to saved (or undo everything) and close without saving | `MS_Graph.lmat` on disk is unchanged (`git status` clean for it) | |
+
+**Material instance (5 min)**
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 2.1 | In the Material Editor toolbar, **Create Instance** from `MS_Standard` | A new `.lmat` appears, its preview identical to the parent | |
+| 2.2 | In the instance, change Roughness | Only the instance changes; the row shows as overridden | |
+| 2.3 | Change the parent's Albedo | The instance follows (its colour was not overridden) | |
+| 2.4 | **Reset** on the Roughness override, then **Reset All to Parent** | Instance matches the parent again | |
+| 2.5 | Open `MS_GraphInstance.lmat`: **Graph Parameters** shows Tint overridden | Changing Tint recolours only that sphere, without a recompile pause | |
+| 2.6 | Delete the instance you created in 2.1 | | |
+
+**Prefabs (10 min)** — any scene with a prefab instance (drag one in from the Content Browser if needed)
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 3.1 | Move a child of the instance; the inspector shows the change under **Overrides** | | |
+| 3.2 | **Revert Prefab Override** on it | Child jumps back | |
+| 3.3 | Change it again, **Apply** (confirm **Apply to Prefab?**) | The prefab file changes; a second instance of it updates too | |
+| 3.4 | Open the prefab, add a child, save it | Every instance in the open scene gains the child | |
+| 3.5 | In one instance delete a child; save and reopen the scene | That child stays deleted; **Restore Prefab Children** brings it back | |
+| 3.6 | Undo back to the start; do not keep the edited prefab | | |
+
+**Layouts and panel memory (5 min)**
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 4.1 | Rearrange panels, open two Scene Renderer sections, open a Help page | | |
+| 4.2 | View → **Layouts**: save it under a new name; switch to another layout and back | Panels, the open sections and the Help page come back | |
+| 4.3 | Restart the editor | The same layout and panel state | |
+| 4.4 | **Delete Personal Layout**, then **Reset Layout** | Back to the default without errors | |
+
+**Quality per category (5 min)** — Scene Renderer panel, Benchmark scene
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 5.1 | **Quality per category**: set every category to Low, then to Cinematic | Visibly harder shadows / no AO at Low, soft shadows and AO at Cinematic, like `bin/golden/f8-png` | |
+| 5.2 | Set Shadows to High, then edit one shadow value by hand | Shadows moves to **Custom**; the other categories keep their tier | |
+| 5.3 | Restart | The tiers are remembered; AO is present if the AO tier says so (the cache fix) | |
+| 5.4 | Put the sample project back: `git checkout -- Editor/LuxSampleProject/LuxSample.luxproj` **only if** you have nothing of your own in it (it holds your staged changes today) | | |
+
+**Play (15 min)** — `Scenes/Physics.luxscene` (or any scene with a character controller you can drive)
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 6.1 | Play; walk the character on flat ground, into a wall, up a slope, off a ledge; jump | Moves smoothly at any frame rate, stops at walls, climbs gentle slopes, falls and lands, jumps once per press | |
+| 6.2 | Push a dynamic crate with the character | The crate moves; no jitter or explosion | |
+| 6.3 | **Show Physics Colliders** on during Play | Colliders line up with what is drawn | |
+| 6.4 | A script that calls `Gizmos.DrawLine` every frame (or add one to the sample's `FlyCamera`) | Lines visible and steady, no flicker, gone after Stop | |
+| 6.5 | Stop | The scene returns exactly to its edit state | |
+
+**Leftovers from the backlog (10 min)**
+
+| # | Do | Expect | ✓ |
+|---|---|---|---|
+| 7.1 | Backlog 1.5: drag `tests/meshes/SharedMeshNodes.gltf` into a scene | Three cubes; each can be picked; the mirrored one is not inside-out; all three collide in Play | |
+| 7.2 | Backlog 1.3: a scene with many different sprite textures and text with several fonts | All draw, no flicker while textures change | |
+| 7.3 | Backlog 1.4: corrupt a font atlas `.lfa` in `Resources/Cache/FontAtlases`, restart | The atlas regenerates; text draws | |
+| 7.4 | Tool host: in the Log or command palette, run any scripted edit you have; then Ctrl+Z once | The whole edit undoes in one step | |
+
+When done, tell me the failures (number and what you saw); Phase 6 starts from them.
+
 ## Part 5 — Open questions
 
 1. Is golden capture compiled into the Dist editor? `EditorLayer.cpp` has `#ifndef LUX_DIST` blocks
