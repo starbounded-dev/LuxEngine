@@ -11,6 +11,7 @@ namespace PlayTest
 	static class Report
 	{
 		static readonly HashSet<string> s_Reported = new HashSet<string>();
+		public static int Count => s_Reported.Count;
 
 		public static void Result(string name, bool passed, string reason = "")
 		{
@@ -373,6 +374,24 @@ namespace PlayTest
 			string got = string.Join(",", names);
 			Report.Result("PrefabSync", got == "InstanceAdded,OldChild,PrefabAdded",
 				$"instance children are [{got}], expected [InstanceAdded,OldChild,PrefabAdded]");
+		}
+	}
+
+	// Ends the exported game once every check has reported (or after 10 s of physics, so a check
+	// that never reports still ends the run). The editor ignores Application.Quit; its hook stops Play.
+	public class Finisher : Entity
+	{
+		public int ExpectedChecks = 12;
+		int m_Steps;
+		bool m_Quit;
+
+		void OnFixedUpdate(float dt)
+		{
+			if (m_Quit || (Report.Count < ExpectedChecks && ++m_Steps < (int)(10.0f / dt)))
+				return;
+			m_Quit = true;
+			Log.Info($"PLAYTEST END {Report.Count} reported");
+			Application.Quit();
 		}
 	}
 }

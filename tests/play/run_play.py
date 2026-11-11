@@ -84,14 +84,16 @@ def prefab_link(entity_id, tracked=False, removed=()):
     return text
 
 
-def write_project(project, keep=None):
+def write_project(project, keep=None, runtime_config="dist"):
     assets = project / "Assets"
     (assets / "Scenes").mkdir(parents=True)
     (assets / "Prefabs").mkdir()
     (project / "PlayTest.luxproj").write_text(
         "Project:\n  Name: PlayTest\n  AssetDirectory: Assets\n  AssetRegistry: Assets/AssetRegistry.lzr\n"
         f"  ScriptModulePath: Scripts/Binaries/PlayTest.dll\n  DefaultNamespace: {NAMESPACE}\n"
-        f"  StartScene: {SCENE_HANDLE}\n  AutomaticallyReloadAssembly: false\n  AutoSave: false\n", encoding="utf-8")
+        f"  StartScene: {SCENE_HANDLE}\n  AutomaticallyReloadAssembly: false\n  AutoSave: false\n"
+        f"  RuntimeExport:\n    GameName: PlayTest\n    WindowWidth: 1280\n    WindowHeight: 720\n    Fullscreen: false\n"
+        f"    VSync: true\n    TargetConfig: {runtime_config.capitalize()}\n", encoding="utf-8")
     (assets / "AssetRegistry.lzr").write_text(
         f"Assets:\n  - Handle: {SCENE_HANDLE}\n    FilePath: Scenes/PlayTest.luxscene\n    Type: Scene\n"
         f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n", encoding="utf-8")
@@ -133,6 +135,8 @@ def write_project(project, keep=None):
     e.append(entity(next(ids), "DestroyWatcher", (0, 1, 12), script="DestroyWatcher"))
     e.append(entity(next(ids), "GizmoDrawer", (5, 1, 10), script="GizmoDrawer"))
     e.append(entity(next(ids), "PrefabSyncCheck", (10, 1, 10), script="PrefabSyncCheck"))
+    # Ends the exported game once every check reported; ignored in the editor.
+    e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.
     instance, instance_old, instance_own = next(ids), next(ids), next(ids)
     e.append(entity(instance, "Crate", (30, 0.5, 0), children=(instance_old, instance_own), body=rigid("dynamic") + box((0.5, 0.5, 0.5)),
@@ -145,7 +149,7 @@ def write_project(project, keep=None):
             return text.split(key, 1)[1].split("\n", 1)[0].strip()
         kept, parents = [], set()
         for text in e:
-            if field(text, "Tag: ") in keep | {"Floor"} or field(text, "Parent: ") in parents:
+            if field(text, "Tag: ") in keep | {"Floor", "Finisher"} or field(text, "Parent: ") in parents:
                 kept.append(text)
                 parents.add(field(text, "Entity: "))
         e = kept
@@ -176,14 +180,61 @@ def build_scripts(project, work):
         raise RuntimeError(f"dotnet produced no {output / 'PlayTest.dll'}")
 
 
-def check_log(log):
-    text = log.read_text(encoding="utf-8", errors="replace")
+def check_log(text):
     passed = {line.split("PLAYTEST PASS ", 1)[1].strip() for line in text.splitlines() if "PLAYTEST PASS " in line}
     failures = [line.split("PLAYTEST FAIL ", 1)[1].strip() for line in text.splitlines() if "PLAYTEST FAIL " in line]
     exceptions = [line.strip() for line in text.splitlines() if "Exception" in line and ("Scripting" in line or "at PlayTest." in line)]
     missing = [name for name in CHECKS if name not in passed]
-    played = "[PlayTest] playing" in text and "[PlayTest] done" in text
-    return passed, failures, exceptions, missing, played
+    return passed, failures, exceptions, missing
+
+
+def run_editor(editor, project, root, policy, args):
+    """Plays the project in the editor through LUX_PLAY_SELFTEST. Returns (exit code, log path, played)."""
+    user = root / "user"
+    (user / "UserPreferences.yaml").write_text(
+        f"UserPrefs:\n  ShowSplashScreen: false\n  StartupProject: {(project / 'PlayTest.luxproj').as_posix()}\n  RecentProjects: []\n", encoding="utf-8")
+    env = dict(os.environ, LUX_USER_DATA_DIR=str(user), LUX_PLAY_SELFTEST=str(args.frames),
+               LUX_THREADING_POLICY=policy, LUX_NO_WATCHDOG="1")
+    log = root / "editor.log"
+    with log.open("w", encoding="utf-8") as stream:
+        result = subprocess.run([str(editor)], cwd=ROOT / "Editor", env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=args.timeout)
+    text = log.read_text(encoding="utf-8", errors="replace")
+    return result.returncode, log, "[PlayTest] playing" in text and "[PlayTest] done" in text
+
+
+def run_exported(project, root, policy, args):
+    """Exports the project through the editor's normal pipeline (golden_run --export-dir), then runs the
+    packaged player. Finisher calls Application.Quit once the checks reported. Returns (exit code, log, played)."""
+    user = root / "user"
+    (user / "UserPreferences.yaml").write_text("UserPrefs:\n  ShowSplashScreen: false\n  RecentProjects: []\n", encoding="utf-8")
+    label = f"play-export-{time.time_ns()}"
+    export_dir = root / "export"
+    command = [sys.executable, str(ROOT / "tests/rendering/golden_run.py"), "--config", args.config,
+               "--project", str(project / "PlayTest.luxproj"), "--label", label, "--scenes", "PlayTest",
+               "--frame", "2", "--perf-frames", "1", "--perf-warmup", "0", "--timeout", str(args.timeout),
+               "--export-dir", str(export_dir)]
+    subprocess.run(command, cwd=ROOT, env=dict(os.environ, LUX_USER_DATA_DIR=str(user)), check=True)
+    metadata = (ROOT / "bin/golden" / label / "PlayTest.export.yaml").read_text(encoding="utf-8")
+    fields = dict(line.split(": ", 1) for line in metadata.splitlines() if ": " in line)
+    package, executable = Path(fields["Root"].strip().strip("'\"")), Path(fields["Executable"].strip().strip("'\""))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("LUX_GOLDEN_")}
+    env.update(LUX_THREADING_POLICY=policy, LUX_NO_WATCHDOG="1")
+    started = time.time()
+    with (root / "player.stdout.log").open("w", encoding="utf-8") as stream:
+        result = subprocess.run([str(executable), "--project=" + str(package)], cwd=package, env=env,
+                                stdout=stream, stderr=subprocess.STDOUT, timeout=args.timeout)
+    # Shipped games log next to the game, not to stdout (Dist has no console sink): engine lines in
+    # LUX_<session>.log, script Log.* lines in APP_<session>.log. Both, engine first.
+    log = root / "player.log"
+    text = ""
+    engine_logs = sorted((package / "logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
+    if engine_logs and engine_logs[-1].stat().st_mtime >= started - 2:
+        session = engine_logs[-1].name[len("LUX_"):]
+        for name in ("LUX_" + session, "APP_" + session):
+            if (package / "logs" / name).is_file():
+                text += (package / "logs" / name).read_text(encoding="utf-8", errors="replace")
+    log.write_text(text, encoding="utf-8")
+    return result.returncode, log, "PLAYTEST END" in text
 
 
 def main():
@@ -193,6 +244,8 @@ def main():
     parser.add_argument("--frames", type=int, default=900, help="frames of Play; the slowest check ends at 7 s of physics")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--only", default="", help="bisecting: keep only these top-level entities (comma list)")
+    parser.add_argument("--export", action="store_true", help="export the project and run the checks in the packaged player")
+    parser.add_argument("--runtime-config", default="dist", choices=["debug", "release", "dist"], help="player configuration for --export")
     args = parser.parse_args()
 
     platform = "windows" if os.name == "nt" else "linux"
@@ -207,22 +260,20 @@ def main():
         root = output / policy
         project, user = root / "project", root / "user"
         user.mkdir(parents=True)
-        write_project(project, set(filter(None, args.only.split(","))))
+        write_project(project, set(filter(None, args.only.split(","))), args.runtime_config)
         build_scripts(project, root)
-        (user / "UserPreferences.yaml").write_text(
-            f"UserPrefs:\n  ShowSplashScreen: false\n  StartupProject: {(project / 'PlayTest.luxproj').as_posix()}\n  RecentProjects: []\n", encoding="utf-8")
-        env = dict(os.environ, LUX_USER_DATA_DIR=str(user), LUX_PLAY_SELFTEST=str(args.frames),
-                   LUX_THREADING_POLICY=policy, LUX_NO_WATCHDOG="1")
-        log = root / "editor.log"
-        with log.open("w", encoding="utf-8") as stream:
-            result = subprocess.run([str(editor)], cwd=ROOT / "Editor", env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=args.timeout)
+        user.mkdir(parents=True, exist_ok=True)
+        if args.export:
+            code, log, played = run_exported(project, root, policy, args)
+        else:
+            code, log, played = run_editor(editor, project, root, policy, args)
 
-        passed, failures, exceptions, missing, played = check_log(log)
+        passed, failures, exceptions, missing = check_log(log.read_text(encoding="utf-8", errors="replace"))
         problems = []
-        if result.returncode:
-            problems.append(f"editor exit code {result.returncode}")
+        if code:
+            problems.append(f"{'player' if args.export else 'editor'} exit code {code}")
         if not played:
-            problems.append("the editor never played the scene (no [PlayTest] playing/done lines)")
+            problems.append("the player never reported PLAYTEST END" if args.export else "the editor never played the scene (no [PlayTest] playing/done lines)")
         problems += [f"FAIL {f}" for f in failures]
         problems += [f"exception: {x}" for x in exceptions[:5]]
         problems += [f"no result from {name}" for name in missing]
@@ -231,7 +282,7 @@ def main():
         except RuntimeError as error:
             problems.append(str(error))
 
-        print(f"{policy}: {len(passed)}/{len(CHECKS)} passed", flush=True)
+        print(f"{policy} ({'exported ' + args.runtime_config + ' player' if args.export else args.config + ' editor'}): {len(passed)}/{len(CHECKS)} passed", flush=True)
         for name in CHECKS:
             print(f"  {'PASS' if name in passed else 'FAIL'}  {name}")
         for problem in problems:

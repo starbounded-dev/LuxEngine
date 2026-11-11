@@ -450,13 +450,29 @@ matches (max difference 2). Reference `hp3`.
 - Hand-written scene files need `Children: - Handle: <id>` and the full light block; the editor
   re-sorts registry entries by handle on its next save.
 
+### Phase 4 — the same checks in the exported game, 2026-11-10, Dist player, Windows
+
+`python tests/play/run_play.py --export` exports the Play test project through the editor's normal
+pipeline and runs the packaged Dist player. **Result: 12 of 12 checks pass under Single and under
+Multi** (`bin/play-tests/1794363507291960700`); the editor run still passes 12 of 12.
+
+| # | Finding | Status |
+|---|---|---|
+| F14 | Scripts had no way to end the game (open question 3; catalog SC6) | **Added** C# `Application.Quit()`: queued window close in the player, a warning in the editor. API page generated, `--check` clean |
+| F15 | Script `Log.*` lines in a shipped game go to `logs/APP_*.log`, not `LUX_*.log`; the game has no stdout | By design; recorded in Architecture 2.7. The runner reads both files |
+| F16 | The exported shader pack has no freshness stamp ("consumed without validation"), and the script runtime logs "Setting properties is not allowed once runtime has been loaded" at startup | Warnings only, no effect on the checks; left for the export/obfuscation work (catalog AS6, RT2) |
+
+Not done in this phase: `MaterialShowcase` in the exported player. The export round trip
+(`run_remaster_export.py`) already shows a graph material in the Dist player; a capture path in
+the player does not exist.
+
 ## Part 5 — Open questions
 
 1. Is golden capture compiled into the Dist editor? `EditorLayer.cpp` has `#ifndef LUX_DIST` blocks
    near it; `golden_run.py` offers `--config dist`. Resolved by the first Dist capture in Phase 1.
 2. Does `--options` reach the quality categories, or must the project file be edited? Read
    `GoldenCapture::ParseOptions` at the start of Phase 1.
-3. Is there a C# call to quit the game? Grep `InternalCalls.cs` at the start of Phase 4.
+3. ~~Is there a C# call to quit the game?~~ There was none; `Application.Quit()` was added in Phase 4.
 4. ~~How much of layouts, instances and prefabs the existing self-tests really assert.~~ Answered in
    Phase 0 (Part 4): layouts and instances are asserted; prefab sync is not.
 5. How is the Dist editor built and stamped with its shader pack? The solution excludes it. Read

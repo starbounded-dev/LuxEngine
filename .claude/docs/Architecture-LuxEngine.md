@@ -667,6 +667,12 @@ No abstraction layer — Box2D is small enough to use directly.
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
+- C# `Application.Quit()` (`Application_Quit`) ends the exported game through the same queued
+  window-close event as closing its window. In the editor (`!Application::IsRuntime()`) it only
+  logs a warning: stopping Play is the editor's command.
+- Script `Log.*` lines go through the editor-console logger, which shares the **APP** file sink:
+  in a shipped game they land in `logs/APP_<session>.log` beside the game, engine lines in
+  `logs/LUX_<session>.log`. Dist has no stdout sink.
 - C# `Gizmos` (`ScriptCore/Source/Lux/Gizmos.cs`; shapes are built from lines in C#) calls
   `Scene::AddDebugLine`. A line belongs to the phase that drew it: the frame list is cleared when
   `OnUpdate` runs (collision and trigger callbacks draw into it too), the fixed list before each

@@ -508,7 +508,10 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
   prefab and an older instance of it, the C# checks in `tests/play/Scripts`), builds the scripts
   with `dotnet`, runs Single and Multi, and requires every `PLAYTEST PASS <name>` line, no
   `PLAYTEST FAIL`, no managed exception and a clean graphics log. Checks count physics steps, not
-  wall time. `--only <entities>` keeps a subset of the scene for bisecting a crash;
+  wall time. `--export` instead exports the project through the editor pipeline
+  (`golden_run.py --export-dir`) and runs the same checks in the packaged player (`--runtime-config`,
+  Dist by default); the scene's `Finisher` script ends it with `Application.Quit()` once every check
+  reported, and the runner reads the game's `logs/LUX_*` and `APP_*` files. `--only <entities>` keeps a subset of the scene for bisecting a crash;
   `LUX_TEST_EDITOR` selects another executable. The project's script and field IDs use
   `Hash::GenerateFNVHash`, which hashes a trailing zero byte as well (`run_play.fnv1a`).
 

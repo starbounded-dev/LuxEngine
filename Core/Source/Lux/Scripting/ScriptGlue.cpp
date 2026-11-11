@@ -6,6 +6,8 @@
 #include "AudioScriptBindings.h"
 #include "ScriptEngine.h"
 
+#include "Lux/Core/Application.h"
+#include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Core/KeyCodes.h"
 #include "Lux/Core/Input.h"
@@ -105,6 +107,22 @@ namespace Lux {
 			case 2: LUX_CONSOLE_LOG_WARN("{}", str); break;
 			default: LUX_CONSOLE_LOG_ERROR("{}", str); break;
 		}
+	}
+
+	#pragma endregion
+
+	#pragma region Application
+
+	// Ends the game at the next safe point (the window-close path every other quit takes). The
+	// editor ignores it: stopping Play is the editor's own command.
+	static void Application_Quit()
+	{
+		if (!Application::IsRuntime())
+		{
+			LUX_CONSOLE_LOG_WARN("Application.Quit() is ignored in the editor; it ends the exported game");
+			return;
+		}
+		Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 	}
 
 	#pragma endregion
@@ -739,6 +757,7 @@ namespace Lux {
 	static void RegisterInternalCalls(Coral::ManagedAssembly& coreAssembly)
 	{
 		LUX_ADD_INTERNAL_CALL(NativeLog);
+		LUX_ADD_INTERNAL_CALL(Application_Quit);
 
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyDown);
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyPressed);

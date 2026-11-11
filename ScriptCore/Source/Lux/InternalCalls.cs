@@ -54,6 +54,10 @@ namespace Lux
 		internal static delegate*<NativeString, int, void> NativeLog;
 		#endregion
 
+		#region Application
+		internal static delegate*<void> Application_Quit;
+		#endregion
+
 		#region Input
 		internal static delegate*<KeyCode, Bool32> Input_IsKeyDown;
 		internal static delegate*<KeyCode, Bool32> Input_IsKeyPressed;

@@ -81,6 +81,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 ## Other
 
+- [Application](Application) — The running game.
 - [CursorMode](CursorMode) — How the mouse cursor behaves over the game window, for [`Input.SetCursorMode`](Input).
 - [EventInstance](EventInstance) — An owned Studio event.
 - [ForceMode](ForceMode) — How [`RigidBodyComponent.AddForce`](RigidBodyComponent) treats its vector.
