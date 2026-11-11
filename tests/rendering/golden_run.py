@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_ROOT = ROOT / "bin" / "golden"
 COMPARE = Path(__file__).resolve().parent / "golden_compare.py"
 DEFAULT_PROJECT = ROOT / "Editor" / "LuxSampleProject" / "LuxSample.luxproj"
-DEFAULT_SCENES = ["AudioDemo", "Benchmark", "Physics", "LaptopStart", "SkyDiver"]
+DEFAULT_SCENES = ["AudioDemo", "Benchmark", "Physics", "LaptopStart", "SkyDiver", "MaterialShowcase"]
 
 # One extra capture of the first scene per entry, each changing one renderer option from its default.
 FEATURE_VARIANTS = {

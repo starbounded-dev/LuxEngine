@@ -1,0 +1,17 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 1, 1]
+  Metalness: 0
+  Roughness: 0.5
+  Graph:
+    NextID: 4
+    Nodes:
+      - ID: 1
+        Type: Output
+        Position: [400, 0]
+      - ID: 2
+        Type: Voronoi
+        Position: [0, 0]
+        Inputs: [[0, 0, 0, 0], [8, 8, 8, 8], [1, 1, 1, 1]]
+    Links:
+      - [3, 2, 1, 1, 0]

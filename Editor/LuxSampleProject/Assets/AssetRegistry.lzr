@@ -971,6 +971,45 @@ Assets:
   - Handle: 16892774771919552109
     FilePath: Meshes/Source/CubeScene.gltf
     Type: MeshSource
+  - Handle: 17000000000000000001
+    FilePath: Materials/Showcase/MS_Standard.lmat
+    Type: Material
+  - Handle: 17000000000000000002
+    FilePath: Materials/Showcase/MS_Clearcoat.lmat
+    Type: Material
+  - Handle: 17000000000000000003
+    FilePath: Materials/Showcase/MS_Sheen.lmat
+    Type: Material
+  - Handle: 17000000000000000004
+    FilePath: Materials/Showcase/MS_Subsurface.lmat
+    Type: Material
+  - Handle: 17000000000000000005
+    FilePath: Materials/Showcase/MS_Anisotropy.lmat
+    Type: Material
+  - Handle: 17000000000000000006
+    FilePath: Materials/Showcase/MS_Triplanar.lmat
+    Type: Material
+  - Handle: 17000000000000000007
+    FilePath: Materials/Showcase/MS_Detail.lmat
+    Type: Material
+  - Handle: 17000000000000000008
+    FilePath: Materials/Showcase/MS_Graph.lmat
+    Type: Material
+  - Handle: 17000000000000000009
+    FilePath: Materials/Showcase/MS_GraphInstance.lmat
+    Type: Material
+  - Handle: 17000000000000000010
+    FilePath: Materials/Showcase/MS_FunctionUser.lmat
+    Type: Material
+  - Handle: 17000000000000000011
+    FilePath: Materials/Showcase/MS_FunctionCells.lmat
+    Type: Material
+  - Handle: 17000000000000000012
+    FilePath: Materials/Showcase/MS_CutoutGraph.lmat
+    Type: Material
+  - Handle: 17000000000000000100
+    FilePath: Scenes/MaterialShowcase.luxscene
+    Type: Scene
   - Handle: 17374672823927002992
     FilePath: Meshes/Source/Default/Materials/Torus_0_Material_0.lmat
     Type: Material

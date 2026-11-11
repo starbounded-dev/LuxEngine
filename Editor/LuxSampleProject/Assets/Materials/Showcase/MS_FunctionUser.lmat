@@ -1,0 +1,17 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 1, 1]
+  Metalness: 0
+  Roughness: 0.5
+  Graph:
+    NextID: 4
+    Nodes:
+      - ID: 1
+        Type: Output
+        Position: [400, 0]
+      - ID: 2
+        Type: SubGraph
+        Position: [0, 0]
+        Graph: 17000000000000000011
+    Links:
+      - [3, 2, 0, 1, 0]

@@ -24,7 +24,7 @@ that were written and built but never driven in the editor or in Play. It is ite
 | H1 | May scripts launch the editor? | **Proposed: yes, for runners that set `LUX_USER_DATA_DIR` and use their own project**, plus `golden_run.py` on the sample project | Without it only Phase 5 (your hands) can run. The isolated runners cannot open the main project or write your preferences. `golden_run.py` does open `LuxSample.luxproj`: the backlog recorded `AssetRegistry.lzr` untouched after 19 such launches, and each sweep ends with `git status` on the sample |
 | H2 | Where do Play checks live? | In C# scripts inside a small test project, reporting PASS/FAIL to the log | No new engine system; the same project is exported in Phase 4 to test the runtime |
 | H3 | What happens to a feature that fails? | **Proposed:** fix it in this pass if the fix is small or a day; otherwise file it in the backlog and hide the feature from the release UI | Keeps the pass from turning into feature work |
-| H4 | New golden reference | Capture `hp0` at the start; you look at the images once and accept or reject | Later sweeps compare to `hp0` |
+| H4 | New golden reference | Capture `hp0` at the start; you look at the images once and accept or reject | Later sweeps compare to `hp0`. **Accepted by you 2026-11-10** (`hp0`, the quality-tier images and, with Phase 3, `hp3`) |
 | H5 | Web research | Skipped | The work is determined by this repository's own code and tools |
 
 ---
@@ -417,6 +417,38 @@ project, builds the scripts and judges the log.
 | F11 | **`Entity.Instantiate` crashed the editor every time the prefab had a script**: fatal .NET error "attempted to call a UnmanagedCallersOnly method from managed code", process exit `0x80131506`. The internal call was declared with the managed calling convention, so the runtime refused the native side's callback into C# (`OnCreate`). Isolated with `--only Spawner` | S | **Fixed**: `Scene_InstantiatePrefab` is `delegate* unmanaged<...>` (`ScriptCore/Source/Lux/InternalCalls.cs`); rule added to Architecture Part 4 "Add a new C# internal call". No other internal call runs C# before it returns |
 | F12 | C# `Vector3` has no `Length()` and no subtraction | S | Catalog SC2; the tests use a local helper |
 | F13 | Not covered yet: a character carried by a moving kinematic platform; the Box2D side; runtime (exported player) | — | Platform and Box2D: later checks. Player: Phase 4 |
+
+### Phase 3 — material showcase, 2026-11-10, Release and Debug, Windows
+
+`Editor/LuxSampleProject/Assets/Scenes/MaterialShowcase.luxscene` with 12 materials in
+`Assets/Materials/Showcase/` (fixed handles 17000000000000000001-12, scene 17000000000000000100),
+written by hand as text, which also proves those files load. Added to `golden_run.py`
+`DEFAULT_SCENES`.
+
+| Sphere | Material | Seen in the image |
+|---|---|---|
+| Standard | red, roughness 0.45 | soft highlight: the baseline |
+| Clearcoat | same base, clearcoat 1, coat roughness 0.03 | a sharp second highlight over the rough base |
+| Sheen | dark blue cloth, white sheen | bright rim at grazing angles |
+| Subsurface | skin tone, red subsurface | softer, warmer terminator than the standard sphere |
+| Anisotropy | chrome, anisotropy 0.9 | highlight stretched into a ring |
+| Triplanar | bricks, world triplanar, normal map | bricks without UV seams |
+| Detail | grey with a checkerboard detail map, tiling 6 | fine checker over the base |
+| Graph | noise → colour ramp × exposed `Tint` | yellow-green noise |
+| Graph instance | parent Graph, overrides only `Param.Tint` | same noise, tinted blue-green |
+| Material function | `SubGraph` node running `MS_FunctionCells` (Voronoi) | coloured cells |
+| Cutout graph | noise into Opacity, cutout 0.5, two-sided | holes show the inner side; its shadow has gaps |
+
+**Result:** captures cleanly in Release and in Debug with sync validation (0 validation ids, no
+shader or graph compile errors); Debug is pixel-identical to Release; a second Release capture
+matches (max difference 2). Reference `hp3`.
+
+**Notes**
+- A first version was lit by sky only: sun intensity 1 is very dim here; the sunlit sample scenes
+  use 9.42 (3π). Not a bug.
+- The cutout's shadow is partly hidden by the front row; it is visible but small.
+- Hand-written scene files need `Children: - Handle: <id>` and the full light block; the editor
+  re-sorts registry entries by handle on its next save.
 
 ## Part 5 — Open questions
 
