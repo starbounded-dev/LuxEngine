@@ -251,6 +251,10 @@ namespace Lux
 		Ref<SceneRenderer> m_SceneRenderer;
 		// Renderer regression capture; null unless LUX_GOLDEN_DIR is set.
 		Scope<GoldenCapture> m_GoldenCapture;
+		// LUX_PLAY_SELFTEST=<frames> (tests/play/run_play.py): Play the start scene that many
+		// frames, then close. 0 when unset; never set in Dist.
+		uint32_t m_PlayTestFrames = 0;
+		bool m_PlayTestStarted = false;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		std::string m_SelectionBadgeName;
 		std::string m_SelectionBadgeLabel;

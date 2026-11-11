@@ -28,6 +28,7 @@
 
 #include "Lux/Utilities/FileSystem.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -456,6 +457,11 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
 #ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_PLAY_SELFTEST"))
+		{
+			const std::string frames = FileSystem::GetEnvironmentVariable("LUX_PLAY_SELFTEST");
+			std::from_chars(frames.data(), frames.data() + frames.size(), m_PlayTestFrames);
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_DIAGNOSTIC_PLOTS_SELFTEST"))
 		{
 			std::vector<std::string> failures;
@@ -1078,6 +1084,27 @@ namespace Lux {
 		// With no project open the start screen replaces the viewport, so there is nothing to render.
 		if (!m_ActiveScene || !m_EditorViewport || !Project::GetActive())
 			return;
+
+		// The scripts in the scene judge the run and log PLAYTEST PASS/FAIL; this only plays it.
+		// Before anything reads m_ActiveScene, which Play and Stop replace.
+		if (m_PlayTestFrames > 0)
+		{
+			if (!m_PlayTestStarted)
+			{
+				m_PlayTestStarted = true;
+				OnScenePlay();
+				LUX_CORE_INFO_TAG("Editor", "[PlayTest] {} for {} frames", m_SceneState == SceneState::Play ? "playing" : "could not enter Play", m_PlayTestFrames);
+			}
+			if (m_SceneState != SceneState::Play || --m_PlayTestFrames == 0)
+			{
+				m_PlayTestFrames = 0;
+				if (m_SceneState == SceneState::Play)
+					OnSceneStop();
+				LUX_CORE_INFO_TAG("Editor", "[PlayTest] done");
+				Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+				return;
+			}
+		}
 
 		// Compiles changed material graphs into the surface shaders; cheap when nothing changed.
 		MaterialGraphRegistry::Update();

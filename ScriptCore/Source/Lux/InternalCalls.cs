@@ -95,7 +95,11 @@ namespace Lux
 		#region Scene
 		internal static delegate*<NativeString, ulong> Scene_CreateEntity;
 		internal static delegate*<ulong, void> Scene_DestroyEntity;
-		internal static delegate*<ulong, Vector3*, Vector3*, ulong> Scene_InstantiatePrefab;
+		// Unmanaged: the native side starts the instance's scripts, which calls back into C#
+		// (constructors, OnCreate). Through a managed-convention pointer the runtime is still in
+		// managed mode at that callback and fails fast with "attempted to call a UnmanagedCallersOnly
+		// method from managed code". Any internal call that can run C# before it returns needs this.
+		internal static delegate* unmanaged<ulong, Vector3*, Vector3*, ulong> Scene_InstantiatePrefab;
 		internal static delegate*<Vector3*, Vector3*, Vector4*, float, Bool32, void> Gizmos_DrawLine;
 		#endregion
 

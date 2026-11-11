@@ -2329,6 +2329,14 @@ Prefer a new panel over new code in `EditorLayer`.
 
 Names must match exactly. Validate entity liveness before touching components.
 
+**A call that can run C# before it returns is declared `delegate* unmanaged<...>`**, not the usual
+`delegate*<...>`. The managed-convention pointer skips the runtime's managed-to-native transition,
+so if the native side calls back into C# (creating script instances, `OnCreate`, setting fields,
+`InvokeMethod`) the runtime fails fast: "attempted to call a UnmanagedCallersOnly method from managed
+code". Today that is `Scene_InstantiatePrefab` (found by `tests/play/run_play.py`, 2026-11-10;
+`Entity.Instantiate` crashed every time the prefab had a script). Coral accepts either pointer
+type. Deferring the managed work instead is the other option (`Scene_DestroyEntity` queues).
+
 ### Add a new thread or background job
 
 Read `.claude/docs/Threading.md` first. Use `Lux::Thread` (named) rather than a bare `std::thread`,

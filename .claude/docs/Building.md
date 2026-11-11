@@ -502,6 +502,16 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_PLAY_SELFTEST=<frames>` — Debug/Release editor only. The editor enters Play on the project's
+  start scene, plays that many frames, stops and closes (`EditorLayer::OnUpdate`). It judges
+  nothing itself: `python tests/play/run_play.py` writes a throw-away project (physics lanes, a
+  prefab and an older instance of it, the C# checks in `tests/play/Scripts`), builds the scripts
+  with `dotnet`, runs Single and Multi, and requires every `PLAYTEST PASS <name>` line, no
+  `PLAYTEST FAIL`, no managed exception and a clean graphics log. Checks count physics steps, not
+  wall time. `--only <entities>` keeps a subset of the scene for bisecting a crash;
+  `LUX_TEST_EDITOR` selects another executable. The project's script and field IDs use
+  `Hash::GenerateFNVHash`, which hashes a trailing zero byte as well (`run_play.fnv1a`).
+
 - `LUX_AUDIO_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
   `python tests/editor/run_audio_panels.py` exercises Sound Bank automatic-save rejection/retry,
   undo and cached inventory, checked Sound saves and authored asset-pack round trips, Sound Editor

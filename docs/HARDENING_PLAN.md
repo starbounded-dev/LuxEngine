@@ -387,6 +387,37 @@ and the project file stores tiers as labels only.
 
 **Left in Phase 1:** your look at the `hp0` and tier images.
 
+### Phase 2 — Play checks, 2026-11-10, Debug editor, Windows
+
+Spike result: golden capture's Play mode could not carry the test (it requires a passing Soundwave
+verification), so the planned hook was added: `LUX_PLAY_SELFTEST=<frames>` in
+`EditorLayer::OnAttach`/`OnUpdate`, compiled out of Dist. `tests/play/run_play.py` writes the
+project, builds the scripts and judges the log.
+
+**Result: 12 of 12 checks pass under Single and under Multi** (`bin/play-tests/1794360728487005300`).
+
+| Check | What it proves |
+|---|---|
+| FixedStep | `OnFixedUpdate` runs at 1/60 s; step count matches frame time within three steps over 2 s |
+| FixedBeforeStep | `OnFixedUpdate` runs **before** the physics step: a velocity set there moves the body in that step |
+| FallAndLand | a box dropped from 5 m comes to rest on the floor at y = 0.5 |
+| Character | `CharacterVirtual` lands, reports grounded, walks 4 m+ in 2.5 s, jumps over 0.5 m and lands grounded |
+| SlopeClimb / SlopeBlock | climbs a 30° ramp (rises over 1 m), cannot climb a 60° one (slope limit 45°) |
+| Contacts | exactly one `OnCollisionBegin` and one `OnCollisionEnd` on **both** bodies of a pair |
+| Triggers | one `OnTriggerBegin`/`End` for a body and for a character controller |
+| Spawn | `Entity.Instantiate(prefab, position)` from a script field: right position, 3 children, `OnCreate` already run, the body lands |
+| Destroy | `Destroy()` on itself inside `OnUpdate`: `OnDestroy` once, entity gone, no crash |
+| Gizmos | `DrawLine/Ray/WireBox/WireSphere` every frame and every step for 2 s, no error (visual check left to Phase 5) |
+| PrefabSync | an instance saved before the prefab gained a child: kept child, recorded deletion and instance-added child all as expected after scene open |
+
+**Findings**
+
+| # | Finding | Size | Status |
+|---|---|---|---|
+| F11 | **`Entity.Instantiate` crashed the editor every time the prefab had a script**: fatal .NET error "attempted to call a UnmanagedCallersOnly method from managed code", process exit `0x80131506`. The internal call was declared with the managed calling convention, so the runtime refused the native side's callback into C# (`OnCreate`). Isolated with `--only Spawner` | S | **Fixed**: `Scene_InstantiatePrefab` is `delegate* unmanaged<...>` (`ScriptCore/Source/Lux/InternalCalls.cs`); rule added to Architecture Part 4 "Add a new C# internal call". No other internal call runs C# before it returns |
+| F12 | C# `Vector3` has no `Length()` and no subtraction | S | Catalog SC2; the tests use a local helper |
+| F13 | Not covered yet: a character carried by a moving kinematic platform; the Box2D side; runtime (exported player) | — | Platform and Box2D: later checks. Player: Phase 4 |
+
 ## Part 5 — Open questions
 
 1. Is golden capture compiled into the Dist editor? `EditorLayer.cpp` has `#ifndef LUX_DIST` blocks
