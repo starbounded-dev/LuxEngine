@@ -552,6 +552,76 @@ Phase 6 bug. If ImGui shows an ID-conflict popup at any point, note the panel an
 
 When done, tell me the failures (number and what you saw); Phase 6 starts from them.
 
+#### Phase 5 results — Claude's pass, 2026-11-11
+
+Driven through computer use in the Release editor (built from `108c88df`) on the sample project.
+Afterwards the sample project was put back to its staged state: `LuxSample.luxproj` and
+`AssetRegistry.lzr` were checked out from the index, and the test prefab and instance were deleted.
+Input limits of the tool: ImGui drag-and-drop and the comment's resize corner did not respond to it,
+and quick key taps can be missed (held chords work).
+
+| # | Result |
+|---|---|
+| 0.1 | Pass |
+| 1.1–1.3 | Pass (Ctrl+Z and Edit → Undo both work; the canvas redraws a moment after the undo) |
+| 1.4 | Copy, paste and duplicate pass; **F19**: a paste cannot be undone |
+| 1.5 | The comment saves and comes back; resize **not verified** (tool) |
+| 1.6 | Pass (nit: Find lists identical "Tint" rows with nothing to tell them apart) |
+| 1.7 | Pass: the float converts to grey noise, no shader error, no crash |
+| 1.8 | Pass: `MS_Graph.lmat` unchanged on disk |
+| 2.1–2.4 | Pass (Reset All is hidden once nothing is overridden); **F21** hit right after 2.1 |
+| 2.5 | Pass after a restart; before it, **F18** had turned the instance black |
+| 2.6 | Done, but it set up **F17** (crash) |
+| 3.1, 3.2 | Pass |
+| 3.3 | **Fail, F20**: Apply writes the prefab, but the second instance doesn't follow (no "Apply to Prefab?" prompt either) |
+| 3.4, 3.5 | **Not run**: the new prefab is not in the Content Browser until a restart (**F22**), and drag-and-drop didn't respond to the tool |
+| 4.1, 4.4 | Pass |
+| 4.2, 4.3 | **Partial, F23**: panels, a moved tab and the Help page come back; the open Scene Renderer section and each dock's selected tab do not |
+| 5.1–5.3 | Pass (Low: hard shadows, 50 % scale; Cinematic: reflections, AO, 100 %; Shadows → Custom alone; tiers survive a restart) |
+| 5.4 | Done (restored from the index) |
+| 6.1, 6.2 | **Not run**: the sample has no player script; the Benchmark `Character` has a controller but nothing drives it |
+| 6.3 | **Blocked, F24**: Debug Views (colliders included) are suspended during Play by design |
+| 6.4 | Not run (the Phase 2 runner draws gizmos; steadiness still needs eyes) |
+| 6.5 | Pass, but **F25**: during Play the hierarchy lists the roots in reverse order |
+| 7.1, 7.2, 7.4 | **Not run** (7.1 needs drag-and-drop) |
+| 7.3 | Pass: "does not match its font; regenerating it", fresh `LXFA` header, text draws |
+
+**Findings for Phase 6** (most severe first):
+
+- **F17, crash, data loss.** Deleting a material that is open in the Material Editor kills the
+  editor the next time the panel draws (here, switching layout with Ctrl+2). The cause:
+  `MaterialEditorPanel::UI_Tabs` (`MaterialEditorPanel.cpp:538`) calls `AssetRegistry::Get` for
+  every open tab, and `Get` is `.at()`, which throws `std::out_of_range`. The watchdog caught it as
+  an uncaught C++ exception. Fix: drop documents whose handle the registry no longer has.
+- **F18.** Clicking Revert on a graph material (`MS_Graph`), even with nothing to revert, turns
+  its instances black (`MS_GraphInstance`, in the scene and in the preview). Their Graph
+  Parameters section disappears until a restart. Reproduced twice.
+- **F19.** In the material graph, after Ctrl+V the pasted nodes stay through Ctrl+Z and through
+  Edit → Undo, and Redo stays grey. Undo of a duplicate, a link or a move works. A held Ctrl+V also
+  pasted twice once.
+- **F20.** The inspector's prefab Apply (`SceneHierarchyPanel.cpp:2126`) writes the file but never
+  calls `Scene::PropagatePrefabEdits`. Only saving from prefab edit mode does
+  (`EditorLayer.cpp:5085`). The other instance keeps the old value and now shows it as an override.
+- **F21.** The Content Browser rename box calls `ImGui::SetKeyboardFocusHere()` every frame while
+  renaming (`ContentBrowserItem.cpp:114`, `:196`). After Create Instance, typing a value into the
+  Material Editor renamed the new asset to "0.95". Focus it once, and commit or cancel when it
+  loses focus.
+- **F22.** Create Prefab from Selection registers the file, but the Content Browser doesn't list
+  it until a restart.
+- **F23.** A saved personal layout doesn't bring back the open Scene Renderer sections or which tab
+  is selected in each dock.
+- **F24.** Decision needed: allow Show Physics Colliders during Play, or change check 6.3.
+- **F25.** Play mode lists the hierarchy roots in reverse order; Stop restores the order.
+- **Minor:**
+  - A node from Add Node lands on top of existing nodes.
+  - New primitives show their Static Mesh material as "Invalid" in red.
+  - An open material doesn't pick up a change to its file on disk.
+  - Starting `Editor.exe` from any folder other than `Editor/` (a double-click in `bin/`, say)
+    ends in an uncaught exception instead of a message.
+  - `MS_Graph.lmat`'s node positions overlap. That's my showcase file; respace it.
+
+Still yours to check by hand: 1.5 resize, 3.4, 3.5, 6.1–6.4, 7.1, 7.2, 7.4.
+
 ## Part 5 — Open questions
 
 1. Is golden capture compiled into the Dist editor? `EditorLayer.cpp` has `#ifndef LUX_DIST` blocks
