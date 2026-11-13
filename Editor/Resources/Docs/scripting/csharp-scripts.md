@@ -1,6 +1,6 @@
 # C# Scripts
 
-Game code is written in C# (.NET 9). A script is a class that derives from `Lux.Entity`; adding a **Script** component to an entity and choosing the class makes that entity run it while the game plays.
+Game code is written in C# (.NET 10). A script is a class that derives from `Lux.Entity`; adding a **Script** component to an entity and choosing the class makes that entity run it while the game plays.
 
 ## Where scripts live
 

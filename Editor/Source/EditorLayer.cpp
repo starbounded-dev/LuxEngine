@@ -145,7 +145,7 @@ namespace Lux {
 			const std::string coral = std::filesystem::absolute(editorDirectory / "DotNet" / "Coral.Managed.dll").string();
 			const std::string project = std::format(R"(<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <OutputType>Library</OutputType>
     <AssemblyName>{0}</AssemblyName>
     <RootNamespace>{0}</RootNamespace>
@@ -4874,6 +4874,9 @@ namespace Lux {
 			return true;
 
 		case RuntimeExportStep::ShaderPack:
+			// The stamp hashes the generated material-graph include, which the Resources copy skips (Cache/):
+			// ship the same bytes, or the player sees a different input set and refuses the pack.
+			CopyFileIfExists(MaterialGraphRegistry::GetGeneratedIncludePath(), exportRoot / MaterialGraphRegistry::GetGeneratedIncludePath());
 			return WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile);
 
 		case RuntimeExportStep::Scripts:

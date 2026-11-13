@@ -50,7 +50,7 @@ Two external SDKs are needed. **Neither is vendored** — the repository ships b
 | SDK | Version | Why | Where |
 |---|---|---|---|
 | **Vulkan SDK** | 1.4.335.0 (pinned) | Renderer, shader compilation (shaderc/DXC), validation layers | [LunarG](https://vulkan.lunarg.com/) — the Linux script downloads it for you |
-| **.NET SDK** | **9.0 specifically** | C# scripting (Coral hardcodes hostfxr major 9; `ScriptCore`/`Coral.Managed` target `net9.0`) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
+| **.NET SDK** | **10.0** | C# scripting (`ScriptCore`/`Coral.Managed` target `net10.0`; Coral finds the runtime through nethost) | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
 
 Audio needs no SDK: the engine compiles the vendored miniaudio.
 
@@ -62,7 +62,7 @@ A Vulkan **1.2+ capable driver** is the runtime requirement (the instance is cre
 
 ### 1. Install distro packages
 
-The build needs Clang, GNU make, pkg-config, the .NET 9 SDK, GTK3 (file dialogs via NFD-Extended), X11 **and** Wayland development files (GLFW is built with both backends), and libdw/libunwind (crash backtraces).
+The build needs Clang, GNU make, pkg-config, the .NET 10 SDK, GTK3 (file dialogs via NFD-Extended), X11 **and** Wayland development files (GLFW is built with both backends), and libdw/libunwind (crash backtraces).
 
 <details open>
 <summary><b>Arch / Manjaro / EndeavourOS</b></summary>
@@ -73,8 +73,8 @@ sudo pacman -S --needed base-devel clang make pkgconf curl tar git \
     libxkbcommon wayland wayland-protocols \
     elfutils libunwind onetbb zlib \
     vulkan-icd-loader
-# .NET 9 specifically — the `dotnet-sdk` metapackage is 10.x and will not work:
-sudo pacman -S --needed dotnet-sdk-9.0
+# .NET 10 SDK:
+sudo pacman -S --needed dotnet-sdk
 # GPU driver (pick yours):
 sudo pacman -S --needed vulkan-radeon      # AMD
 sudo pacman -S --needed vulkan-intel       # Intel
@@ -96,8 +96,8 @@ sudo apt-get install -y --no-install-recommends \
     libxkbcommon-dev libwayland-dev libwayland-bin wayland-protocols \
     libdw-dev libunwind-dev libtbb-dev zlib1g-dev \
     mesa-vulkan-drivers
-# .NET 9 SDK:
-sudo apt-get install -y dotnet-sdk-9.0
+# .NET 10 SDK (if your release does not package it, use the dotnet-install route below):
+sudo apt-get install -y dotnet-sdk-10.0
 ```
 
 For the `dist` configuration (LTO), make sure an unversioned `llvm-ar` resolves — Ubuntu ships it version-suffixed and premake's clang toolset invokes the plain name:
@@ -116,7 +116,7 @@ sudo dnf install -y clang llvm make pkgconf-pkg-config git curl \
     libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
     libxkbcommon-devel wayland-devel wayland-protocols-devel \
     elfutils-devel libunwind-devel tbb-devel zlib-ng-compat-devel \
-    vulkan-loader mesa-vulkan-drivers dotnet-sdk-9.0
+    vulkan-loader mesa-vulkan-drivers dotnet-sdk-10.0
 ```
 
 `zlib-ng-compat-devel` is the zlib development package on current Fedora — plain `zlib-devel`
@@ -137,11 +137,11 @@ sudo zypper install -y libvulkan_radeon      # AMD
 sudo zypper install -y libvulkan_intel       # Intel
 ```
 
-> **.NET 9 is not in the openSUSE repositories.** Nothing under `dotnet-*` exists in Tumbleweed
-> OSS, so install it from Microsoft's repository or with the `dotnet-install` script:
+> **Install the .NET 10 SDK on openSUSE** from Microsoft's repository or with the `dotnet-install`
+> script (the distro repositories may not carry it):
 >
 > ```bash
-> curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 9.0
+> curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0
 > export PATH="$HOME/.dotnet:$PATH"
 > ```
 </details>
@@ -205,7 +205,7 @@ Group targets: `Dependencies`, `Dependencies/Renderer`, `Dependencies/Text`, `Co
 - **Visual Studio 2022** (Desktop development with C++) — the CI-verified target. **Visual Studio 2026** also works locally with the v145 toolset installed.
 - **Python 3.9+** on PATH (the setup scripts validate and install their own pip packages).
 - **Vulkan SDK 1.4.335.0** — the setup script downloads the installer and prompts you if it is missing. Debug builds additionally need the SDK's shader debug libraries.
-- **.NET 9 SDK**.
+- **.NET 10 SDK**.
 
 ### 2. Generate and build
 
@@ -329,7 +329,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 
 | Symptom | Cause / fix |
 |---|---|
-| `hostfxr` / runtime not found at editor startup | You have .NET 10 (or 8), not 9. Coral hardcodes major version 9 — install `dotnet-sdk-9.0`. Distro `dotnet-sdk` metapackages now pull 10.x. |
+| `hostfxr` / runtime not found at editor startup | You have an older .NET (8 or 9), not 10. Install the .NET 10 SDK. |
 | Undefined references after toggling `--no-tracy` | The flag must be passed to every premake generation. Regenerate with the same flags, then rebuild. |
 | Unresolved externals after adding a source file | Premake does not regenerate itself. Re-run `scripts\Win-GenProjects.bat` / `./premake5 gmake2 --cc=clang`. |
 | `gtk+-3.0 development files not found` | Install GTK3 dev packages (NFD-Extended uses them for file dialogs). |
@@ -370,7 +370,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 ### Engine systems
 - **ECS scenes** (EnTT) with entity hierarchies, organizational folders, **prefabs with variants** (per-component overrides, revert/apply, propagation), YAML serialization, and editor Play / Simulate / Stop.
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
-- **C# scripting** (.NET 9 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities, transforms, input, assets, audio, music, dialogue and accessibility.
+- **C# scripting** (.NET 10 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities, transforms, input, assets, audio, music, dialogue and accessibility.
 - **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
@@ -414,8 +414,8 @@ Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md]
 
 The [Build LuxEngine](.github/workflows/main.yml) workflow builds Debug, Release and Dist on **two** runners:
 
-- **Windows Server 2025** — recursive LFS/submodule checkout, Python + Vulkan SDK + .NET 9, `scripts/Setup.py vs2022`, then MSBuild of `Lux.sln`.
-- **Ubuntu 26.04** — apt build dependencies, Vulkan SDK + .NET 9, then `scripts/Linux-Build.sh`, followed by an artifact verification step and a bundling step that resolves the binary's vendored shared libraries via `ldd` into `lib/` (the binary's RPATH is `$ORIGIN/lib`).
+- **Windows Server 2025** — recursive LFS/submodule checkout, Python + Vulkan SDK + .NET 10, `scripts/Setup.py vs2022`, then MSBuild of `Lux.sln`.
+- **Ubuntu 26.04** — apt build dependencies, Vulkan SDK + .NET 10, then `scripts/Linux-Build.sh`, followed by an artifact verification step and a bundling step that resolves the binary's vendored shared libraries via `ldd` into `lib/` (the binary's RPATH is `$ORIGIN/lib`).
 
 Release uploads an `editor-<config>` / `editor-linux-<config>` artifact with the built editor, sample project and resources; build logs are uploaded per configuration.
 
@@ -431,7 +431,7 @@ CI needs no private SDK and reads no secrets, so pull requests from forks build 
 | Windowing / UI | GLFW (X11 + Wayland), Dear ImGui (docking), ImGuizmo |
 | Physics | Jolt Physics (3D), Box2D (2D) |
 | ECS | EnTT |
-| Scripting | Coral (.NET 9 / C#) |
+| Scripting | Coral (.NET 10 / C#) |
 | Assets | Assimp, stb, rapidyaml |
 | Text | msdf-atlas-gen / msdfgen, FreeType |
 | Audio | miniaudio (+ MiniaudioCpp), Soundwave (in-tree acoustics) |
@@ -447,7 +447,7 @@ Core/            Engine static library
   Source/Lux/      C++ source by subsystem (Renderer, Scene, Audio, Physics, Asset, Scripting, ...)
   Platform/        Linux/ and Windows/ platform implementations
   vendor/          Vendored C++ dependencies (miniaudio, soundwave/ acoustics, ...)
-ScriptCore/      C# scripting API (net9.0)
+ScriptCore/      C# scripting API (net10.0)
 Editor/          Editor application + LuxSampleProject
 Lux-Runtime/     Standalone runtime player
 scripts/         Setup, project generation, build and run scripts

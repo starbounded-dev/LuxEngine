@@ -68,7 +68,7 @@ graph TB
 
     subgraph Script["Scripting"]
         SCENE --> SE[ScriptEngine]
-        SE --> CORAL[Coral / .NET 9]
+        SE --> CORAL[Coral / .NET 10]
         SE --> SG[ScriptGlue]
     end
 
@@ -261,7 +261,8 @@ not the abstract `Shader`.
 
 **Shader packs** (`Renderer/ShaderPack.h`): `ShaderPack.lsp` (LXSP v1) holds compiled SPIR-V for
 builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`). Exports write a stamped pack (`WriteStampedPack`)
-into the package. The Dist Editor loads `Editor/Resources/ShaderPack.lsp` (set in `LuxEditorApp.cpp`
+into the package, and copy the generated material-graph include beside it (the `Resources` copy skips
+`Cache/`), so the player hashes the same inputs the stamp recorded. The Dist Editor loads `Editor/Resources/ShaderPack.lsp` (set in `LuxEditorApp.cpp`
 under `LUX_DIST`), written by Application Settings → Refresh shader pack in a compiler-enabled
 editor. Beside it, `<pack>.stamp` (YAML) records the shader-source identity (FNV over every
 `Resources/Shaders` source and the generated material-graph include), the global macros, the GPU
@@ -654,7 +655,9 @@ No abstraction layer — Box2D is small enough to use directly.
 
 ### 2.7 Scripting (C# / Coral)
 
-`ScriptEngine` (`Scripting/ScriptEngine.h`) hosts .NET 9 through Coral (`Core/vendor/Coral/`).
+`ScriptEngine` (`Scripting/ScriptEngine.h`) hosts .NET 10 through Coral (`Core/vendor/Coral/`).
+Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to one runtime major.
+`ScriptBuilder` rewrites a game script project that still says `net9.0` to `net10.0` before it builds.
 
 - Host lifecycle: `InitializeHost` / `ShutdownHost`, then `Initialize(project)` / `Shutdown`. The
   CoreCLR host is per process (it cannot start twice); `Application` brings it up once and each
@@ -2403,7 +2406,7 @@ luxengine/
 │   ├── Platform/{Windows,Linux}/  # Per-platform FileSystem / Thread / RenderThread / NativeWindow
 │   └── vendor/                    # Box2D, JoltPhysics, GLFW, imgui, NRI (fork), Coral, tracy,
 │                                  #   msdf-atlas-gen, NFD-Extended, rapidyaml, FastNoise, miniaudio, …
-├── ScriptCore/                    # C# scripting assembly (.NET 9)
+├── ScriptCore/                    # C# scripting assembly (.NET 10)
 ├── Editor/
 │   ├── Source/                    # EditorLayer, LuxEditorApp, Panels/, Viewport/
 │   ├── Resources/Shaders/         # GLSL shader corpus (+ Include/, PostProcessing/)

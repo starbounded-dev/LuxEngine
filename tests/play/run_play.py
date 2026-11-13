@@ -9,7 +9,7 @@ fails on a missing PASS, any FAIL, a managed exception or a graphics/validation 
 
     python tests/play/run_play.py [--config debug|release] [--policies Single,Multi] [--frames 900]
 
-Needs the .NET 9 SDK and a built editor. Never touches the sample project or your preferences.
+Needs the .NET 10 SDK and a built editor. Never touches the sample project or your preferences.
 """
 import argparse
 import math
@@ -164,7 +164,7 @@ def build_scripts(project, work):
     output = project / "Assets/Scripts/Binaries"
     (build / "PlayTest.csproj").write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework><OutputType>Library</OutputType><AssemblyName>PlayTest</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType><AssemblyName>PlayTest</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Nullable>disable</Nullable><OutDir>{escape(str(output))}/</OutDir>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

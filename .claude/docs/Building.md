@@ -195,7 +195,7 @@ stdin isn't a TTY, `Menu.py` degrades to plain prompts so the same path works un
 | Group | Project | Kind |
 |---|---|---|
 | Core | `Core` | StaticLib — the engine. PCH `lpch.h`. |
-| Core | `ScriptCore` | C# (.NET 9) scripting assembly |
+| Core | `ScriptCore` | C# (.NET 10) scripting assembly |
 | Tools | `Editor` | The editor application |
 | Tools | `Lux-Watchdog` | Windows only: the editor's crash watchdog, built into the editor's output folder (`Editor` depends on it) |
 | Runtime | `Lux-Runtime` | Standalone runtime player |
@@ -204,14 +204,14 @@ stdin isn't a TTY, `Menu.py` degrades to plain prompts so the same path works un
 | Dependencies/Renderer | NRI, NRI-VK, NRI-Validation, NRI-NONE, NRI-Shared | NRI's own `premake5.lua` (see below) |
 
 **C# is built by MSBuild inside the solution.** `Coral.Managed` and `ScriptCore` are
-premake-generated C# projects, not a separate `dotnet build` step. The .NET 9 SDK is still required
+premake-generated C# projects, not a separate `dotnet build` step. The .NET 10 SDK is still required
 for MSBuild to build them. `Core`'s post-build copies `Coral.Managed.dll` / `.runtimeconfig.json` /
 `.deps.json` (and `.pdb` outside Dist) into `Editor/DotNet/`, which is the `CoralDirectory` the
 `ScriptEngine` host points at.
 
 **The manual's C# API reference is generated.** `ScriptCore` writes `ScriptCore.xml` next to the DLL
 (`GenerateDocumentationFile`; CS1591/CS1573 are off because the generator's check replaces them).
-`tools/ScriptApiDocs` (a developer-only .NET 9 console tool, not in the solution) reads both and writes
+`tools/ScriptApiDocs` (a developer-only .NET console tool, not in the solution) reads both and writes
 `Editor/Resources/Docs/api/*.md`, the Help panel's "API Reference" section:
 `dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs`.
 With `--check` it writes nothing and fails on a stale or extra page, a public member (enum values and
@@ -341,7 +341,7 @@ Git LFS content wasn't pulled. `git lfs pull`, or re-run `scripts\Setup.bat`.
 ### Editor starts, then fails in `ScriptEngine` with a missing Coral host
 
 `Editor/DotNet/Coral.Managed.dll` isn't there. That file is produced by `Core`'s post-build step —
-build `Core` (not just `Editor`), and confirm the .NET 9 SDK is installed so the C# projects
+build `Core` (not just `Editor`), and confirm the .NET 10 SDK is installed so the C# projects
 actually built.
 
 ### Windows: "nethost.dll was not found" (Editor, Lux-Runtime, or an exported game)
@@ -419,7 +419,7 @@ in-memory checksum corruption is investigated. Keep the Linux runner service sto
 investigation is resolved, then enable the service and variable together. Windows trusted builds
 continue using the dedicated runner.
 
-The self-hosted job accounts are unprivileged. Administrators provision Python, .NET 9, Git/LFS,
+The self-hosted job accounts are unprivileged. Administrators provision Python, .NET 10, Git/LFS,
 CMake, Vulkan SDK `1.4.335.0` and platform build libraries in the VM images; Windows also needs
 PowerShell 7, Git Bash, Visual Studio 2022 C++ Build Tools and 7-Zip. Hosted jobs install their
 own prerequisites. Missing provisioned tools fail the build rather than invoking sudo or UAC.

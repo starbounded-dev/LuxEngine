@@ -113,7 +113,7 @@ namespace Lux {
 			case Coral::CoralInitStatus::CoralManagedInitError:
 				LUX_CORE_ERROR("[Scripting] Failed to initialize Coral.Managed."); break;
 			case Coral::CoralInitStatus::DotNetNotFound:
-				LUX_CORE_ERROR("[Scripting] .NET 9 runtime not found. Install it from https://dotnet.microsoft.com/download/dotnet/9.0"); break;
+				LUX_CORE_ERROR("[Scripting] .NET 10 runtime not found. Install it from https://dotnet.microsoft.com/download/dotnet/10.0"); break;
 			default: break;
 		}
 

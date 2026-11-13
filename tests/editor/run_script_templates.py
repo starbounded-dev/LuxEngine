@@ -37,7 +37,7 @@ def main():
     (output / "NuGet.Config").write_text('<configuration><packageSources><clear /></packageSources></configuration>')
     (output / "TemplateTests.csproj").write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework><OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework><OutputType>Library</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <Configurations>Debug;Release;Dist</Configurations>
   </PropertyGroup>

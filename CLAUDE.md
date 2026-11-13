@@ -181,7 +181,7 @@ Core/
   Source/lpch.h        # Precompiled header (include via lpch.h)
   vendor/              # All vendored C++ dependencies
 ScriptCore/
-  Source/Lux/          # C# scripting API (net9.0)
+  Source/Lux/          # C# scripting API (net10.0)
   ScriptCore.csproj
 Editor/
   Source/              # Editor application (ImGui panels, EditorLayer)
@@ -220,7 +220,7 @@ premake5.lua           # Workspace definition
 - Asset types are declared in `AssetTypes.h` and file extension mappings in `AssetExtensions.h`.
 
 ### Scripting (C# / Coral)
-- `ScriptEngine` manages the .NET 9 runtime via Coral (`Core/vendor/Coral/`).
+- `ScriptEngine` manages the .NET 10 runtime via Coral (`Core/vendor/Coral/`).
 - `ScriptGlue` registers C++ internal calls that `ScriptCore` calls via `[MethodImpl(MethodImplOptions.InternalCall)]`.
 - `ScriptCore` (C# assembly) lives in `ScriptCore/Source/Lux/` and provides the public API to game scripts.
 - Built assemblies are deployed to `Editor/Resources/Scripts/`.

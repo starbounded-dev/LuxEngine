@@ -12,7 +12,7 @@ end
 project "ScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "net9.0"
+	dotnetframework "net10.0"
 	clr "Unsafe"
 
 	targetdir ("../Editor/Resources/Scripts")
@@ -22,7 +22,7 @@ project "ScriptCore"
 
 	-- EnableDynamicLoading emits ScriptCore.deps.json so the assembly is loadable into a Coral
 	-- AssemblyLoadContext. AppendTargetFrameworkToOutputPath keeps ScriptCore.dll directly in
-	-- the target dir (no net9.0/ subfolder).
+	-- the target dir (no net10.0/ subfolder).
 	vsprops {
 		AppendTargetFrameworkToOutputPath = "false",
 		Nullable = "enable",

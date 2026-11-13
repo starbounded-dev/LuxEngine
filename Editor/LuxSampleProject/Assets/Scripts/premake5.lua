@@ -16,7 +16,7 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 project "LuxSample"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "net9.0"
+	dotnetframework "net10.0"
 	clr "Unsafe"
 
 	targetdir ("Binaries")

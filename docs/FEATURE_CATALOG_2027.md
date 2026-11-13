@@ -56,7 +56,7 @@ that builds but was never run.**
 | M4 | **C# API completion** (§2.7): physics queries, scene loading, time, maths types, entity active | Scripts cannot raycast or change scene today | L |
 | M5 | **Beam basics** (§3): never lose work, C# build errors inline, click an error to open the line | The product principle says no external IDE; then the built-in one must be enough | L |
 | M6 | **Export that stands alone** (§4): works from the release zip with no source tree, lean layout, no .NET install for players, game name and icon | The whole point of a release | L |
-| M7 | **.NET 10** (§2.7 SC9) | .NET 9 leaves support about now; a 2027 release cannot require it | M |
+| M7 | **Done (2026-11-13).** **.NET 10** (§2.7 SC9) | .NET 9 leaves support about now; a 2027 release cannot require it | M |
 | M8 | **Project format version + upgrade path** (§6 X3) | Projects made in 2027.1 must open in 2027.2 | M |
 | M9 | **Test on AMD and Intel GPUs** (§2.1 R26) | Every measurement in the notes is one RTX 4070 Ti | M |
 | M10 | **Two sample games made only with the release zip**, one 3D and one 2D (§6 X6) | They are the acceptance test for the bar above | L |
