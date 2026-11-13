@@ -91,6 +91,20 @@ The browser, workspace and material runners accept `LUX_TEST_EDITOR=<executable>
 a separately linked review executable while the regular editor remains open. Verify that
 executable's timestamp; their default remains the ordinary Debug Editor.
 
+Suites that compile a test host with `cl.exe` (`run_workspaces.py`, `run_project_templates.py`,
+`run_script_templates.py`) need the MSVC environment. Run them through the wrapper:
+`python scripts/run_with_msvc.py python tests/editor/run_workspaces.py`. It finds `vcvars64.bat`
+(vswhere, then the Visual Studio 18 Community path), captures its environment once and runs the command.
+
+To build by hand, use Visual Studio 18's MSBuild:
+`"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" Lux.sln -restore -m -p:Configuration=Release "-p:Platform=Mixed Platforms"`.
+The VS2022 Build Tools MSBuild fails on the C# projects with MSB4236 (it cannot find
+`Microsoft.NET.Sdk`; hardening finding F1). Any CI machine that builds `Lux.sln` needs the .NET SDK
+workload component installed with Visual Studio.
+
+CI runs the editor runners (`tests/editor/run_*.py`) and `tests/play/run_play.py` on the self-hosted
+Windows runner, in the Release build job. Each runner sets `LUX_USER_DATA_DIR` to its own temporary folder.
+
 Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 
 | Config | Optimize | Symbols | Notes |

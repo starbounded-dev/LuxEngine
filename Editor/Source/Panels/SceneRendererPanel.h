@@ -59,6 +59,7 @@ namespace Lux {
 		bool m_CardShadows = false;
 		bool m_CardPostFX = false;
 		bool m_CardColorGrading = false;
+		bool m_QualityCategoriesOpen = false;
 	};
 
 }

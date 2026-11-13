@@ -654,7 +654,8 @@ namespace Lux {
 		for (MaterialGraphNode& node : graph.Nodes)
 		{
 			const ImVec2 position = ed::GetNodePosition(node.ID);
-			if (position.x != FLT_MAX && (position.x != node.Position.x || position.y != node.Position.y))
+			// A sub-pixel drift (editor round-trip of a fresh float, e.g. a paste at the mouse) is not an edit.
+			if (position.x != FLT_MAX && (std::abs(position.x - node.Position.x) > 0.01f || std::abs(position.y - node.Position.y) > 0.01f))
 				node.Position = glm::vec2(position.x, position.y);
 		}
 		for (MaterialGraphComment& comment : graph.Comments)
@@ -750,6 +751,22 @@ namespace Lux {
 		auto place = [&](std::string_view type)
 		{
 			glm::vec2 position(m_PalettePosition.x, m_PalettePosition.y);
+			// Step down until clear of existing nodes (a typical node's footprint when its size is unknown).
+			for (int attempt = 0; type != "Comment" && attempt < 32; attempt++)
+			{
+				bool overlaps = false;
+				for (const MaterialGraphNode& other : graph.Nodes)
+				{
+					ImVec2 size = ed::GetNodeSize(other.ID);
+					if (size.x <= 0.0f || size.y <= 0.0f)
+						size = ImVec2(200.0f, 120.0f);
+					overlaps |= position.x < other.Position.x + size.x && other.Position.x < position.x + 200.0f &&
+								position.y < other.Position.y + size.y && other.Position.y < position.y + 120.0f;
+				}
+				if (!overlaps)
+					break;
+				position.y += 40.0f;
+			}
 			if (type == "Comment")
 			{
 				MaterialGraphComment comment;
@@ -1019,7 +1036,7 @@ namespace Lux {
 			const uint32_t id = graph.NextID++;
 			remap[node.ID] = id;
 			node.ID = id;
-			node.Position += offset;
+			node.Position = glm::round(node.Position + offset); // whole units, like authored nodes: no round-trip drift
 			graph.Nodes.push_back(node);
 		}
 		for (const MaterialGraphLink& link : m_ClipboardLinks)

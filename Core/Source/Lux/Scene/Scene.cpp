@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include <ranges>
 #include "Lux/Audio/AudioAccessibility.h"
 #include "Lux/Utilities/FileSystem.h"
 
@@ -239,8 +240,10 @@ namespace Lux {
 		std::unordered_map<UUID, entt::entity> enttMap;
 
 		// Create entities in new scene
+		// A view iterates newest-first, so create in reverse to keep the source's iteration order.
 		auto idView = srcSceneRegistry.view<IDComponent>();
-		for (auto e : idView)
+		const std::vector<entt::entity> srcEntities(idView.begin(), idView.end());
+		for (auto e : srcEntities | std::views::reverse)
 		{
 			UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& srcTag = srcSceneRegistry.get<TagComponent>(e);
@@ -2118,8 +2121,10 @@ namespace Lux {
 		target->m_SoundBanks = m_SoundBanks;
 
 		std::unordered_map<UUID, entt::entity> enttMap;
+		// A view iterates newest-first, so create in reverse to keep this scene's iteration order.
 		auto idView = m_Registry.view<IDComponent>();
-		for (auto entity : idView)
+		const std::vector<entt::entity> srcEntities(idView.begin(), idView.end());
+		for (auto entity : srcEntities | std::views::reverse)
 		{
 			UUID uuid = m_Registry.get<IDComponent>(entity).ID;
 			const auto& tag = m_Registry.get<TagComponent>(entity);

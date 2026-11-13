@@ -101,6 +101,7 @@ namespace Lux {
 		std::string m_PathLabel;
 
 		bool m_IsRenaming = false;
+		bool m_FocusRename = false; // focus the rename field on its first frame only
 		bool m_IsDragging = false;
 
 	private:

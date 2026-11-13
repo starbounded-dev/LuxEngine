@@ -335,7 +335,12 @@ namespace Lux {
 										  m_Context->GetOutputViewportHeight(),
 										  m_Context->GetRenderResolutionScale() * 100.0f)
 								  .c_str());
-		if (!searching && ImGuiEx::BoundedCollapsingHeader("Quality per category"))
+		if (!searching)
+			ImGui::SetNextItemOpen(m_QualityCategoriesOpen, ImGuiCond_Always);
+		const bool qualityCategoriesShown = !searching && ImGuiEx::BoundedCollapsingHeader("Quality per category");
+		if (!searching)
+			m_QualityCategoriesOpen = qualityCategoriesShown;
+		if (qualityCategoriesShown)
 		{
 			const char* tierLabels[] = {"Low", "Medium", "High", "Ultra", "Cinematic", "Custom"};
 			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
@@ -826,6 +831,7 @@ namespace Lux {
 		out << Yaml::Key << "ShadowsOpen" << Yaml::Value << m_CardShadows;
 		out << Yaml::Key << "PostFXOpen" << Yaml::Value << m_CardPostFX;
 		out << Yaml::Key << "ColorGradingOpen" << Yaml::Value << m_CardColorGrading;
+		out << Yaml::Key << "QualityCategoriesOpen" << Yaml::Value << m_QualityCategoriesOpen;
 	}
 
 	void SceneRendererPanel::LoadState(const Yaml::Node& state)
@@ -836,6 +842,7 @@ namespace Lux {
 		m_CardShadows = state["ShadowsOpen"].as<bool>(m_CardShadows);
 		m_CardPostFX = state["PostFXOpen"].as<bool>(m_CardPostFX);
 		m_CardColorGrading = state["ColorGradingOpen"].as<bool>(m_CardColorGrading);
+		m_QualityCategoriesOpen = state["QualityCategoriesOpen"].as<bool>(m_QualityCategoriesOpen);
 	}
 
 

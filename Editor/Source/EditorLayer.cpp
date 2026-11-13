@@ -396,8 +396,9 @@ namespace Lux {
 				return false;
 			}
 
-			ShaderPack::CreateFromLibrary(shaderLibrary, shaderPackPath);
-			if (!FileExists(shaderPackPath))
+			// Stamped so the exported runtime can tell a stale pack (Renderer::Init evaluates the sidecar).
+			if (!ShaderPack::WriteStampedPack(shaderLibrary, shaderPackPath, Renderer::CaptureShaderPackEnvironment())
+				|| !FileExists(shaderPackPath))
 			{
 				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing shader pack '{}'.", shaderPackPath.string());
 				return false;

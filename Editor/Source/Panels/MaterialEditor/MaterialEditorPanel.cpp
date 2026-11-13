@@ -112,6 +112,8 @@ namespace Lux
 					MaterialGraphRegistry::Register(handle);
 				}
 				material->MarkChanged();
+				// Instances share the parent's graph object: a replaced one leaves them on a graph nothing compiles.
+				MaterialAsset::PropagateToInstances(handle);
 				MaterialGraphRegistry::MarkDirty();
 			}
 		}
@@ -405,6 +407,12 @@ namespace Lux
 			ImGui::End();
 			return;
 		}
+
+		// Assets deleted while open: registry Get() would throw for them.
+		const AssetRegistry& registry = Project::GetEditorAssetManager()->GetAssetRegistry();
+		for (size_t i = m_Documents.size(); i-- > 0;)
+			if (!registry.Contains(m_Documents[i].Handle))
+				CloseDocument(i);
 
 		if (m_Documents.empty())
 		{

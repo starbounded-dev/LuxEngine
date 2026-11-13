@@ -369,10 +369,13 @@ namespace Lux
 			const std::string sceneBefore = SceneSerializer(panel.m_Scene).SerializeToString();
 			ProjectSceneRendererSettings before;
 			renderer->WriteProjectSettings(before);
-			panel.LoadState(Yaml::Load("ShadowsOpen: true\nPostFXOpen: true\nColorGradingOpen: true\n"));
+			panel.LoadState(Yaml::Load("ShadowsOpen: true\nPostFXOpen: true\nColorGradingOpen: true\nQualityCategoriesOpen: true\n"));
 			const auto state = StateOf(panel);
 			Require(state["ShadowsOpen"].as<bool>() && state["PostFXOpen"].as<bool>(),
 					"Scene Renderer lost existing card layout state");
+			Require(state["QualityCategoriesOpen"].as<bool>(false),
+					"Scene Renderer lost the Quality per category open state");
+			panel.m_QualityCategoriesOpen = false;
 			ImGui::NewFrame();
 			bool open = true;
 			panel.OnImGuiRender(open);

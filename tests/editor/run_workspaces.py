@@ -17,8 +17,9 @@ def main():
         install = subprocess.check_output([str(vswhere), "-latest", "-property", "installationPath"], text=True).strip()
         setup = Path(install) / "Common7/Tools/VsDevCmd.bat"
         settings = subprocess.check_output(f'cmd /d /s /c ""{setup}" -arch=x64 >nul && set"', text=True)
+        env = {k: v for k, v in env.items() if k.lower() != "path"}  # the env var may be "PATH" or "Path"
         env.update(line.split("=", 1) for line in settings.splitlines() if "=" in line and not line.startswith("="))
-        compiler = shutil.which("cl", path=env["Path"])
+        compiler = shutil.which("cl", path=next(v for k, v in env.items() if k.lower() == "path"))
     if not compiler:
         raise RuntimeError("Use an x64 developer prompt or set CXX")
     output = ROOT / "bin/workspace-tests" / str(time.time_ns())

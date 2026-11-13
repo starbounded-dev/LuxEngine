@@ -111,7 +111,11 @@ namespace Lux {
 			if (m_IsRenaming)
 			{
 				ImGui::SetCursorScreenPos(ImVec2(nameX, itemRect.Min.y + 3.0f));
-				ImGui::SetKeyboardFocusHere();
+				if (m_FocusRename)
+				{
+					ImGui::SetKeyboardFocusHere();
+					m_FocusRename = false;
+				}
 				ImGui::SetNextItemWidth(itemRect.Max.x - nameX - 10.0f);
 				ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
 				if (ImGui::IsItemDeactivatedAfterEdit() || Input::IsKeyDown(KeyCode::Enter))
@@ -120,6 +124,8 @@ namespace Lux {
 					m_IsRenaming = false;
 					result.Set(ContentBrowserAction::Renamed, true);
 				}
+				else if (ImGui::IsItemDeactivated())
+					StopRenaming(); // Escape or click-away without an edit cancels
 			}
 			else
 			{
@@ -193,7 +199,11 @@ namespace Lux {
 
 			if (m_IsRenaming)
 			{
-				ImGui::SetKeyboardFocusHere();
+				if (m_FocusRename)
+				{
+					ImGui::SetKeyboardFocusHere();
+					m_FocusRename = false;
+				}
 				ImGui::SetNextItemWidth(infoRect.GetWidth() - textPadding * 2.0f);
 				ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
 
@@ -203,6 +213,8 @@ namespace Lux {
 					m_IsRenaming = false;
 					result.Set(ContentBrowserAction::Renamed, true);
 				}
+				else if (ImGui::IsItemDeactivated())
+					StopRenaming(); // Escape or click-away without an edit cancels
 			}
 			else
 			{
@@ -324,6 +336,7 @@ namespace Lux {
 		memset(s_RenameBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
 		memcpy(s_RenameBuffer, m_FileName.c_str(), std::min<size_t>(m_FileName.size(), MAX_INPUT_BUFFER_LENGTH - 1));
 		m_IsRenaming = true;
+		m_FocusRename = true;
 	}
 
 	void ContentBrowserItem::StopRenaming()

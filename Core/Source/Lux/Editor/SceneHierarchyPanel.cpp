@@ -2095,6 +2095,13 @@ namespace Lux {
 						// Route through the prefab writer so a variant keeps its base link.
 						PrefabSerializer::WritePrefabFile(path, prefab->GetScene(), prefab->GetBasePrefab());
 					};
+					// Other un-overridden instances in this scene adopt the applied values (as saving from prefab edit mode does).
+					auto propagateApply = [&](const Ref<Scene>& oldPrefab)
+					{
+						serializePrefab();
+						m_Context->PropagatePrefabEdits(firstComponent.PrefabID, oldPrefab, prefab->GetScene());
+						EditorStack::Get().MarkSceneEdited("Apply Prefab Override");
+					};
 
 					// One override row: label + per-component Revert (prefab -> instance) and Apply
 					// (instance -> prefab, then re-serialize). T reconciles add/replace/remove.
@@ -2125,6 +2132,7 @@ namespace Lux {
 						ImGui::SameLine();
 						if (ImGui::SmallButton("Apply"))
 						{
+							const Ref<Scene> oldPrefab = Scene::Copy(prefab->GetScene());
 							if (instanceEntity.HasComponent<T>())
 								sourceEntity.AddOrReplaceComponent<T>(instanceEntity.GetComponent<T>());
 							else
@@ -2134,7 +2142,7 @@ namespace Lux {
 								if (auto* listener = sourceEntity.TryGetComponent<AudioListenerComponent>())
 									listener->AttenuationTarget = Scene::MapPrefabEntityReference(listener->AttenuationTarget, instanceEntity, sourceEntity);
 							}
-							serializePrefab();
+							propagateApply(oldPrefab);
 							LUX_CORE_INFO_TAG("Prefab", "Applied {} to prefab '{}'", label, prefabName);
 						}
 					};
@@ -2199,12 +2207,13 @@ namespace Lux {
 						if (ImGui::BeginPopupModal("Apply to Prefab?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 						{
 							ImGui::TextUnformatted("Overwrite the prefab asset with this instance's values?\n"
-								"Other instances keep their current values until reverted.");
+								"Other un-overridden instances follow.");
 							ImGui::Spacing();
 							if (ImGui::Button("Apply"))
 							{
+								const Ref<Scene> oldPrefab = Scene::Copy(prefab->GetScene());
 								Scene::ReconcilePrefabComponents(sourceEntity, instanceEntity);
-								serializePrefab();
+								propagateApply(oldPrefab);
 								LUX_CORE_INFO_TAG("Prefab", "Applied instance to prefab '{}'", prefabName);
 								ImGui::CloseCurrentPopup();
 							}
@@ -3662,6 +3671,9 @@ namespace Lux {
 				ImGui::PopItemFlag();
 
 				AssetHandle materialHandle = firstComponent.MaterialTable && firstComponent.MaterialTable->HasMaterial(0) ? firstComponent.MaterialTable->GetMaterial(0) : AssetHandle{};
+				// A primitive's built-in default material is not a registered asset; show None, not a red Invalid.
+				if (materialHandle && !AssetManager::IsAssetHandleValid(materialHandle))
+					materialHandle = 0;
 				const bool mixedMaterial = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
 				{
 					auto& smc = entity.GetComponent<StaticMeshComponent>();

@@ -466,6 +466,17 @@ Not done in this phase: `MaterialShowcase` in the exported player. The export ro
 (`run_remaster_export.py`) already shows a graph material in the Dist player; a capture path in
 the player does not exist.
 
+### Phase 6 (in progress, 2026-11-13)
+
+- **Fixed:** F4 (`run_workspaces.py` no longer assumes the env key is `Path`), F5 (`scripts/run_with_msvc.py` sets up the MSVC environment for any command).
+- **Added:** the editor runners and `tests/play/run_play.py` run in the Release build job on the self-hosted Windows runner (`.github/workflows/main.yml`). Not in CI: Play `--export` (no Dist Editor there) and golden captures.
+- **Documented:** F1, in `.claude/docs/Building.md` (use the VS 18 MSBuild; CI machines need the .NET SDK component).
+- **Fixed in code:** F16(1) (exports write a stamped shader pack; Dist export run passes), F17, F18, F19, F20, F21, F22, F23, F25, and the editor finds `Resources/` when started from `bin/`.
+- **Not fixed:** F16(2), the Coral `Setting properties is not allowed` warning. The fix is in the Coral submodule, whose remote is upstream; it needs a fork first.
+- **Runs (2026-11-13):** every `tests/editor/run_*.py` passes in Debug and in Release (`LUX_TEST_EDITOR`), `run_remaster_export.py` passes with the Dist player, `run_play.py` passes in Debug and Release. Release needed a larger Play budget (6000 frames; the editor runs ~500 fps).
+- **Not yet seen in a live editor:** F19 (paste then undo), F21, F22, F23b, F25. Check them during the Phase 5 list.
+- **Waiting for you:** F3 (re-record or retire the YAML oracle) and F24 (allow Show Physics Colliders during Play, or change check 6.3).
+
 ### Part 4b — Phase 5 checklist (yours, about an hour)
 
 Everything a script cannot judge. Use the **Release** editor on the **sample project**, rebuilt

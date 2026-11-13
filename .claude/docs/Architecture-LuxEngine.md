@@ -260,7 +260,7 @@ the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()
 not the abstract `Shader`.
 
 **Shader packs** (`Renderer/ShaderPack.h`): `ShaderPack.lsp` (LXSP v1) holds compiled SPIR-V for
-builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`). Exports write a bare pack
+builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`). Exports write a stamped pack (`WriteStampedPack`)
 into the package. The Dist Editor loads `Editor/Resources/ShaderPack.lsp` (set in `LuxEditorApp.cpp`
 under `LUX_DIST`), written by Application Settings → Refresh shader pack in a compiler-enabled
 editor. Beside it, `<pack>.stamp` (YAML) records the shader-source identity (FNV over every

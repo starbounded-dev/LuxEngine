@@ -199,6 +199,11 @@ namespace Lux {
 			return;
 		}
 
+		// Assets added by any code path (e.g. Create Prefab from Selection) show up without a restart.
+		if (m_RegistryRevision != Project::GetEditorAssetManager()->GetAssetRegistry().GetRevision() &&
+			std::ranges::none_of(m_CurrentItems.Items, [](const auto& item) { return item->IsRenaming(); }))
+			Refresh();
+
 		RenderTopBar();
 		ImGui::Separator();
 		const auto split =
@@ -1098,6 +1103,7 @@ namespace Lux {
 			m_CurrentDirectory = m_BaseDirectory;
 
 		ChangeDirectory(m_CurrentDirectory);
+		m_RegistryRevision = Project::GetEditorAssetManager()->GetAssetRegistry().GetRevision();
 	}
 
 	void ContentBrowserPanel::UpdateInput()

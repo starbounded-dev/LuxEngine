@@ -306,6 +306,22 @@ namespace Lux
 		ImGui::FocusWindow(nullptr);
 		if (!layout.Ini.empty())
 			ImGui::LoadIniSettingsFromMemory(layout.Ini.data(), layout.Ini.size());
+		// Windows join their dock nodes over several frames, and ImGui selects the last tab to
+		// arrive. Re-request each node's saved "Selected=" tab so DrawDockSpace can honour it.
+		for (size_t pos = 0; pos < layout.Ini.size();)
+		{
+			size_t end = layout.Ini.find('\n', pos);
+			if (end == std::string::npos)
+				end = layout.Ini.size();
+			const std::string line = layout.Ini.substr(pos, end - pos);
+			pos = end + 1;
+			unsigned node = 0, tab = 0;
+			const char* idText = strstr(line.c_str(), " ID=0x");
+			const char* selectedText = strstr(line.c_str(), " Selected=0x");
+			if (line.find("Dock") != std::string::npos && idText && selectedText && sscanf(idText, " ID=0x%x", &node) == 1 &&
+				sscanf(selectedText, " Selected=0x%x", &tab) == 1 && node && tab)
+				m_PendingDockTabs.emplace_back(node, tab);
+		}
 		if (!layout.PreservedPanels.empty() && !m_Panels->ApplyState(layout.PreservedPanels))
 			throw std::runtime_error("Cannot apply preserved panel state for " + layout.Name);
 		if (!layout.Panels.empty() && !m_Panels->ApplyState(layout.Panels))

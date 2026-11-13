@@ -14,6 +14,38 @@
 
 namespace Lux {
 
+	// Every "Resources/..." load is relative to the working directory, so an Editor.exe started from
+	// anywhere else (double-click in bin/) cannot find its shaders. Walk up from the executable to the
+	// first folder that holds Resources/Shaders (the Editor/ source folder, or a packaged install).
+	static void EnsureResourcesWorkingDirectory()
+	{
+		std::error_code ec;
+		if (std::filesystem::exists("Resources/Shaders", ec))
+			return;
+
+#ifdef LUX_PLATFORM_WINDOWS
+		wchar_t buffer[32768];
+		const DWORD length = GetModuleFileNameW(nullptr, buffer, 32768);
+		const std::filesystem::path exePath = length ? std::filesystem::path(std::wstring(buffer, length)) : std::filesystem::path();
+#else
+		const std::filesystem::path exePath = std::filesystem::read_symlink("/proc/self/exe", ec);
+#endif
+		for (std::filesystem::path dir = exePath.parent_path(); !dir.empty(); dir = dir.parent_path())
+		{
+			for (const std::filesystem::path& candidate : { dir, dir / "Editor" })
+			{
+				if (std::filesystem::exists(candidate / "Resources" / "Shaders", ec))
+				{
+					std::filesystem::current_path(candidate, ec);
+					return;
+				}
+			}
+			if (dir == dir.parent_path())
+				break;
+		}
+		LUX_CORE_ERROR("Could not find the Resources folder; start the editor from the Editor/ folder.");
+	}
+
 	// Per-user editor data used to live in the working directory (App.lsettings, imgui.ini) and in a
 	// persistent-storage folder named "Editor". Copy anything the LuxEngine folder does not have yet,
 	// so moving there resets nothing. Known files only: a folder called "Editor" may belong to another
@@ -60,6 +92,8 @@ namespace Lux {
 
 	Application* CreateApplication(int argc, char** argv)
 	{
+
+		EnsureResourcesWorkingDirectory();
 
 		Lux::CommandLineParser cli(argc, argv);
 

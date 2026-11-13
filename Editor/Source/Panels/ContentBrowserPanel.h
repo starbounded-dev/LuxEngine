@@ -311,6 +311,7 @@ namespace Lux {
 		AssetHandle m_StatusSelection = 0;
 		size_t m_StatusCount = 0;
 		std::string m_StatusText;
+		uint64_t m_RegistryRevision = 0;
 
 		bool m_IsAnyItemHovered = false;
 		bool m_IsContentBrowserHovered = false;

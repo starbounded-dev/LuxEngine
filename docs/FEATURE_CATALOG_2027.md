@@ -50,7 +50,7 @@ that builds but was never run.**
 
 | # | Item | Why it blocks the release | Size |
 |---|---|---|---|
-| M1 | **Hardening pass** — run every backlog item marked "builds, not run" (material graph, prefab sync, character controller, fixed update, layouts, quality tiers, area-light shadows, asset-upload fix) | The backlog lists more than a dozen finished features nobody has driven. Each is a release bug waiting | L |
+| M1 | **In progress (2026-11-13): Phases 0-4 passed, Phase 5 partly run, Phase 6 fixes under way; see `docs/HARDENING_PLAN.md`.** **Hardening pass** — run every backlog item marked "builds, not run" (material graph, prefab sync, character controller, fixed update, layouts, quality tiers, area-light shadows, asset-upload fix) | The backlog lists more than a dozen finished features nobody has driven. Each is a release bug waiting | L |
 | M2 | **Skeletal animation** (§2.2) | No characters without it | XL |
 | M3 | **Game UI** (§2.9) | No menus or HUDs without custom code | XL |
 | M4 | **C# API completion** (§2.7): physics queries, scene loading, time, maths types, entity active | Scripts cannot raycast or change scene today | L |

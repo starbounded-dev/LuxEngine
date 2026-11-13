@@ -241,12 +241,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="debug", choices=["debug", "release"])
     parser.add_argument("--policies", default="Single,Multi")
-    parser.add_argument("--frames", type=int, default=900, help="frames of Play; the slowest check ends at 7 s of physics")
+    parser.add_argument("--frames", type=int, default=0, help="frames of Play (default 900 Debug, 6000 Release); the slowest check ends at 7 s of physics")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--only", default="", help="bisecting: keep only these top-level entities (comma list)")
     parser.add_argument("--export", action="store_true", help="export the project and run the checks in the packaged player")
     parser.add_argument("--runtime-config", default="dist", choices=["debug", "release", "dist"], help="player configuration for --export")
     args = parser.parse_args()
+    # shortcut: a frame budget scales with frame rate (Release runs ~500 fps); count Play time in the editor hook if a faster GPU outruns 6000.
+    args.frames = args.frames or (6000 if args.config == "release" else 900)
 
     platform = "windows" if os.name == "nt" else "linux"
     editor = ROOT / f"bin/{args.config.capitalize()}-{platform}-x86_64/Editor" / ("Editor.exe" if os.name == "nt" else "Editor")
