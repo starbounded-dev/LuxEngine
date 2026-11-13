@@ -419,10 +419,11 @@ in-memory checksum corruption is investigated. Keep the Linux runner service sto
 investigation is resolved, then enable the service and variable together. Windows trusted builds
 continue using the dedicated runner.
 
-The self-hosted job accounts are unprivileged. Administrators provision Python, .NET 10, Git/LFS,
+The self-hosted job accounts are unprivileged. Administrators provision Python, Git/LFS,
 CMake, Vulkan SDK `1.4.335.0` and platform build libraries in the VM images; Windows also needs
 PowerShell 7, Git Bash, Visual Studio 2022 C++ Build Tools and 7-Zip. Hosted jobs install their
-own prerequisites. Missing provisioned tools fail the build rather than invoking sudo or UAC.
+own prerequisites. The .NET 10 SDK is the exception: every build job installs it with `actions/setup-dotnet`,
+on self-hosted runners into the runner's tool cache (`DOTNET_INSTALL_DIR`; no admin, kept between jobs). Missing provisioned tools fail the build rather than invoking sudo or UAC.
 The Linux service exports `VULKAN_SDK=/opt/vulkan/1.4.335.0/x86_64`; the Windows service inherits
 `VULKAN_SDK=C:\VulkanSDK\1.4.335.0`. Windows evaluation media requires a valid license for
 long-term use; the VM is independent of the existing GPU-passthrough Windows VM.

@@ -307,8 +307,11 @@ jobs:
       # Coral.Managed, ScriptCore and game scripts target net10.0,
       # so the .NET 10 SDK is required for the dotnet builds run by Setup.py.
       - name: Set up .NET 10
-        if: runner.environment != 'self-hosted'
         uses: actions/setup-dotnet@v4
+        env:
+          # Self-hosted accounts are unprivileged: install into the runner's own tool cache (kept
+          # between jobs, no admin) instead of relying on a machine-wide SDK that may be older.
+          DOTNET_INSTALL_DIR: ${{ runner.environment == 'self-hosted' && format('{0}/dotnet', runner.tool_cache) || '' }}
         with:
           dotnet-version: '10.0.x'
 
@@ -562,8 +565,11 @@ jobs:
 
       # Coral.Managed, ScriptCore and game scripts target net10.0.
       - name: Set up .NET 10
-        if: runner.environment != 'self-hosted'
         uses: actions/setup-dotnet@v4
+        env:
+          # Self-hosted accounts are unprivileged: install into the runner's own tool cache (kept
+          # between jobs, no admin) instead of relying on a machine-wide SDK that may be older.
+          DOTNET_INSTALL_DIR: ${{ runner.environment == 'self-hosted' && format('{0}/dotnet', runner.tool_cache) || '' }}
         with:
           dotnet-version: '10.0.x'
 
