@@ -6,6 +6,9 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/Core/ApplicationSettings.h"
+#include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Core/Input.h"
+#include "Lux/ImGui/PanelControls.h"
 //#include "Lux/Core/Events/SceneEvents.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -16,6 +19,7 @@
 #include <imgui/imgui_internal.h>
 
 #include <format>
+#include <imgui/misc/cpp/imgui_stdlib.h>
 
 namespace Lux {
 
@@ -65,6 +69,37 @@ namespace Lux {
 
 	void EditorConsolePanel::OnEvent(Event& event)
 	{
+		if (!m_IsFocused)
+			return;
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[this](KeyPressedEvent& key)
+			{
+				if (ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0)
+					return true;
+				const bool control =
+					Input::IsKeyDown(Key::LeftControl) || Input::IsKeyDown(Key::RightControl);
+				if (key.GetKeyCode() == Key::F && control && !key.GetRepeatCount())
+				{
+					m_FocusSearch = true;
+					return true;
+				}
+				return false;
+			});
+	}
+
+	void EditorConsolePanel::CloseDetails()
+	{
+		m_DetailedPanelOpen = false;
+		ImGuiEx::ClosePopupByID(m_DetailsPopupID);
+		m_DetailsPopupID = 0;
+	}
+
+	void EditorConsolePanel::OnClose()
+	{
+		m_IsFocused = false;
+		m_FocusSearch = false;
+		CloseDetails();
 	}
 
 	void EditorConsolePanel::OnScenePlay()
@@ -83,44 +118,67 @@ namespace Lux {
 
 	void EditorConsolePanel::DrainPendingMessages()
 	{
+		m_DrainBuffer.clear();
 		{
 			std::scoped_lock<std::mutex> lock(s_PendingMessageMutex);
 			if (s_PendingMessages.empty())
 				return;
 
-			for (const ConsoleMessage& message : s_PendingMessages)
-				m_KnownTags.insert(message.Tag);
-
-			m_MessageBuffer.insert(m_MessageBuffer.end(), std::make_move_iterator(s_PendingMessages.begin()), std::make_move_iterator(s_PendingMessages.end()));
-			s_PendingMessages.clear();
+			m_DrainBuffer.swap(s_PendingMessages);
 		}
-
-		TrimToCapacity(m_MessageBuffer);
+		for (auto& message : m_DrainBuffer)
+			AppendMessage(std::move(message));
+		m_DrainBuffer.clear();
+		if (m_MessageBuffer.size() > s_MaxMessages)
+			m_MessageBuffer.erase(m_MessageBuffer.begin(),
+								  m_MessageBuffer.begin() + (m_MessageBuffer.size() - s_MaxMessages));
 		m_VisibleMessagesDirty = true;
+	}
 
-		if (m_EnableScrollToLatest)
-			m_ScrollToLatest = true;
+	void EditorConsolePanel::AppendMessage(ConsoleMessage message)
+	{
+		std::tm time{};
+#ifdef LUX_PLATFORM_WINDOWS
+		const bool validTime = localtime_s(&time, &message.Time) == 0;
+#else
+		const bool validTime = localtime_r(&message.Time, &time) != nullptr;
+#endif
+		char timestamp[16]{};
+		if (!validTime || !std::strftime(timestamp, sizeof(timestamp), "%H:%M:%S", &time))
+			std::strcpy(timestamp, "Invalid time");
+		std::string caption = std::format("{} | {} | {}", GetMessageType(message), timestamp, message.Tag);
+		m_KnownTags.insert(message.Tag);
+		m_MessageBuffer.push_back({std::move(message), m_NextMessageID++, timestamp, std::move(caption)});
+		m_VisibleMessagesDirty = true;
 	}
 
 	void EditorConsolePanel::OnImGuiRender(bool& isOpen)
 	{
-		// Drained even while the panel is closed, so reopening it shows everything logged meanwhile.
+		m_IsFocused = false;
+		// Closed panels retain the bounded pending queue until PanelManager renders them again.
 		DrainPendingMessages();
-
 		if (ImGui::Begin(m_PanelName, &isOpen))
 		{
-			ImVec2 consoleSize = ImGui::GetContentRegionAvail();
-			consoleSize.y -= 32.0f;
-
-			RenderMenu({ consoleSize.x, 28.0f });
-			RenderConsole(consoleSize);
+			m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+			RenderMenu();
+			RenderConsole(ImGui::GetContentRegionAvail());
+			RenderDetails();
 		}
 		ImGui::End();
 	}
 
 	void EditorConsolePanel::OnProjectChanged(const Ref<Project>& project)
 	{
+		OnClose();
 		m_MessageBuffer.clear();
+		m_VisibleMessages.clear();
+		m_KnownTags.clear();
+		m_HiddenTags.clear();
+		m_SearchQuery.clear();
+		m_SearchCommitPending = false;
+		m_DetailedMessage.clear();
+		m_DetailedCaption.clear();
+		ClearProgress();
 		m_VisibleMessagesDirty = true;
 	}
 
@@ -144,100 +202,112 @@ namespace Lux {
 		m_Progress = 0.0f;
 	}
 
-	void EditorConsolePanel::RenderMenu(const ImVec2& size)
+	void EditorConsolePanel::RenderMenu()
 	{
-		ImGuiEx::ScopedStyleStack frame(ImGuiStyleVar_FrameBorderSize, 0.0f, ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		ImGui::BeginChild("Toolbar", size);
-
-		const float ToolbarHeight = 28.0f;
-
-		if (ImGui::Button("Clear", { 75.0f, ToolbarHeight }))
+		enum Action
 		{
+			Clear,
+			Follow,
+			ClearOnPlay,
+			Info,
+			Warning,
+			Error,
+			Tags,
+			Recent
+		};
+		const ImGuiEx::PanelAction actions[] = {
+			{Clear, "Clear", LUX_ICON_TRASH, nullptr, true, false, true},
+			{Follow, "Follow latest", LUX_ICON_ARROW_DOWN, nullptr, true, m_EnableScrollToLatest},
+			{Info, "Info", LUX_ICON_INFO_CIRCLE, nullptr, true,
+			 (m_MessageFilters & static_cast<int16_t>(ConsoleMessageFlags::Info)) != 0},
+			{Warning, "Warnings", LUX_ICON_EXCLAMATION_TRIANGLE, nullptr, true,
+			 (m_MessageFilters & static_cast<int16_t>(ConsoleMessageFlags::Warning)) != 0},
+			{Error, "Errors", LUX_ICON_EXCLAMATION_CIRCLE, nullptr, true,
+			 (m_MessageFilters & static_cast<int16_t>(ConsoleMessageFlags::Error)) != 0},
+			{Tags, "Tags", LUX_ICON_TAG},
+			{Recent, "Recent searches", LUX_ICON_HISTORY},
+			{ClearOnPlay, "Clear on Play", nullptr, nullptr, true, m_ClearOnPlay, false, true}};
+		const int action = ImGuiEx::PanelActionBar("##log_actions", actions);
+		switch (action)
+		{
+		case Clear:
 			m_MessageBuffer.clear();
 			m_VisibleMessagesDirty = true;
-		}
-
-		ImGui::SameLine();
-
-		const auto& style = ImGui::GetStyle();
-		const std::string clearOnPlayText = std::format("{} Clear on Play", m_ClearOnPlay ? LUX_ICON_CHECK : LUX_ICON_TIMES);
-		ImVec4 textColor = m_ClearOnPlay ? style.Colors[ImGuiCol_Text] : style.Colors[ImGuiCol_TextDisabled];
-		if (ImGuiEx::ColoredButton(clearOnPlayText.c_str(), GetToolbarButtonColor(m_ClearOnPlay), textColor, ImVec2(110.0f, ToolbarHeight)))
+			break;
+		case Follow:
+			m_EnableScrollToLatest = !m_EnableScrollToLatest;
+			break;
+		case ClearOnPlay:
 			m_ClearOnPlay = !m_ClearOnPlay;
-
-		{
-			// Match the toolbar buttons' height. Popped right after BeginCombo so the dropdown's
-			// checkboxes keep normal padding.
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, (ToolbarHeight - ImGui::GetFontSize()) * 0.5f));
-
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(220.0f);
-			if (ImGuiEx::Widgets::SearchWidget(m_SearchQuery, "Search log..."))
-			{
-				m_VisibleMessagesDirty = true;
-				m_SearchEditTime = ImGui::GetTime();
-				m_SearchCommitPending = true;
-			}
-
-			if (m_SearchCommitPending && ImGui::GetTime() - m_SearchEditTime >= s_SearchCommitDelay)
-			{
-				AddRecentSearch(m_SearchQuery);
-				m_SearchCommitPending = false;
-			}
-
-			ImGui::SameLine();
-			if (ImGui::Button(LUX_ICON_HISTORY, ImVec2(ToolbarHeight, ToolbarHeight)))
-				ImGui::OpenPopup("RecentLogSearches");
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Recent searches");
-
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(150.0f);
-			const std::string tagPreview = m_HiddenTags.empty()
-				? std::string("All tags")
-				: std::format("{} of {} tags", m_KnownTags.size() - m_HiddenTags.size(), m_KnownTags.size());
-			const bool tagComboOpen = ImGui::BeginCombo("##LogTags", tagPreview.c_str(), ImGuiComboFlags_HeightLarge);
-			ImGui::PopStyleVar();
-
-			if (tagComboOpen)
-			{
-				if (ImGui::Selectable("Show all", false, ImGuiSelectableFlags_NoAutoClosePopups))
-				{
-					m_HiddenTags.clear();
-					m_VisibleMessagesDirty = true;
-				}
-				if (ImGui::Selectable("Hide all", false, ImGuiSelectableFlags_NoAutoClosePopups))
-				{
-					m_HiddenTags = m_KnownTags;
-					m_VisibleMessagesDirty = true;
-				}
-				ImGui::Separator();
-
-				for (const std::string& tag : m_KnownTags)
-				{
-					bool shown = !m_HiddenTags.contains(tag);
-					if (ImGui::Checkbox(tag.c_str(), &shown))
-					{
-						if (shown)
-							m_HiddenTags.erase(tag);
-						else
-							m_HiddenTags.insert(tag);
-						m_VisibleMessagesDirty = true;
-					}
-				}
-				ImGui::EndCombo();
-			}
+			break;
+		case Info:
+		case Warning:
+		case Error:
+			m_MessageFilters ^= static_cast<int16_t>(1u << (action - Info));
+			m_VisibleMessagesDirty = true;
+			break;
+		case Tags:
+			ImGui::OpenPopup("LogTags");
+			break;
+		case Recent:
+			ImGui::OpenPopup("RecentLogSearches");
+			break;
+		default:
+			break;
 		}
-
+		if (m_FocusSearch)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_FocusSearch = false;
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::InputTextWithHint("##log_search", "Search log... (Ctrl+F)", &m_SearchQuery))
+		{
+			m_VisibleMessagesDirty = true;
+			m_SearchEditTime = ImGui::GetTime();
+			m_SearchCommitPending = true;
+		}
+		if (m_SearchCommitPending && ImGui::GetTime() - m_SearchEditTime >= s_SearchCommitDelay)
+		{
+			AddRecentSearch(m_SearchQuery);
+			m_SearchCommitPending = false;
+		}
+		if (ImGui::BeginPopup("LogTags"))
+		{
+			if (ImGui::MenuItem("Show all"))
+			{
+				m_HiddenTags.clear();
+				m_VisibleMessagesDirty = true;
+			}
+			if (ImGui::MenuItem("Hide all"))
+			{
+				m_HiddenTags = m_KnownTags;
+				m_VisibleMessagesDirty = true;
+			}
+			ImGui::Separator();
+			for (const auto& tag : m_KnownTags)
+			{
+				ImGuiEx::ScopedID id(tag.c_str());
+				bool shown = !m_HiddenTags.contains(tag);
+				if (ImGui::Checkbox(tag.c_str(), &shown))
+				{
+					if (shown)
+						m_HiddenTags.erase(tag);
+					else
+						m_HiddenTags.insert(tag);
+					m_VisibleMessagesDirty = true;
+				}
+			}
+			if (m_KnownTags.empty())
+				ImGui::TextUnformatted("No tags have been logged yet.");
+			ImGui::EndPopup();
+		}
 		if (ImGui::BeginPopup("RecentLogSearches"))
 		{
 			if (m_RecentSearches.empty())
-				ImGui::TextDisabled("No recent searches");
-
-			// Copied: picking an entry reorders m_RecentSearches.
-			const std::vector<std::string> recentSearches = m_RecentSearches;
-			for (const std::string& query : recentSearches)
-			{
+				ImGui::TextUnformatted("No recent searches");
+			const auto searches = m_RecentSearches;
+			for (const auto& query : searches)
 				if (ImGui::Selectable(query.c_str()))
 				{
 					m_SearchQuery = query;
@@ -245,62 +315,18 @@ namespace Lux {
 					m_VisibleMessagesDirty = true;
 					AddRecentSearch(query);
 				}
-			}
-
-			if (!m_RecentSearches.empty())
+			if (!m_RecentSearches.empty() && ImGui::MenuItem("Clear history"))
 			{
-				ImGui::Separator();
-				if (ImGui::Selectable("Clear history"))
-				{
-					m_RecentSearches.clear();
-					SaveRecentSearches();
-				}
+				m_RecentSearches.clear();
+				SaveRecentSearches();
 			}
 			ImGui::EndPopup();
 		}
-
 		if (!m_ProgressLabel.empty())
 		{
-			ImGui::SameLine();
-			std::string progressBarText = std::format("{} ({}%)", m_ProgressLabel, (int)(m_Progress * 100 + 0.01f));
-			ImGui::ProgressBar(m_Progress, ImVec2(ImGui::GetContentRegionAvail().x / 2.0f, ToolbarHeight), progressBarText.c_str());
+			ImGui::ProgressBar(m_Progress, {-FLT_MIN, ImGui::GetFrameHeight()}, m_ProgressLabel.c_str());
+			ImGui::SetItemTooltip("%s (%.0f%%)", m_ProgressLabel.c_str(), m_Progress * 100.0f);
 		}
-
-		{
-			const ImVec2 buttonSize(ToolbarHeight, ToolbarHeight);
-
-			ImGui::SameLine(ImGui::GetContentRegionAvail().x - 100.0f, 0.0f);
-			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Info) ? s_InfoTint : style.Colors[ImGuiCol_TextDisabled];
-			if (ImGuiEx::ColoredButton(LUX_ICON_INFO_CIRCLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Info), textColor, buttonSize))
-			{
-				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Info;
-				m_VisibleMessagesDirty = true;
-			}
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Toggle info messages");
-
-			ImGui::SameLine();
-			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Warning) ? s_WarningTint : style.Colors[ImGuiCol_TextDisabled];
-			if (ImGuiEx::ColoredButton(LUX_ICON_EXCLAMATION_TRIANGLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Warning), textColor, buttonSize))
-			{
-				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Warning;
-				m_VisibleMessagesDirty = true;
-			}
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Toggle warning and Vulkan validation warning messages");
-
-			ImGui::SameLine();
-			textColor = (m_MessageFilters & (int16_t)ConsoleMessageFlags::Error) ? s_ErrorTint : style.Colors[ImGuiCol_TextDisabled];
-			if (ImGuiEx::ColoredButton(LUX_ICON_EXCLAMATION_CIRCLE, GetToolbarButtonColor(m_MessageFilters & (int16_t)ConsoleMessageFlags::Error), textColor, buttonSize))
-			{
-				m_MessageFilters ^= (int16_t)ConsoleMessageFlags::Error;
-				m_VisibleMessagesDirty = true;
-			}
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Toggle error, Vulkan validation error, and shader compile error messages");
-		}
-
-		ImGui::EndChild();
 	}
 
 	void EditorConsolePanel::AddRecentSearch(const std::string& query)
@@ -369,12 +395,13 @@ namespace Lux {
 		m_VisibleMessages.clear();
 		for (uint32_t i = 0; i < m_MessageBuffer.size(); i++)
 		{
-			const ConsoleMessage& message = m_MessageBuffer[i];
+			const ConsoleMessage& message = m_MessageBuffer[i].Message;
 			if (!(m_MessageFilters & message.Flags))
 				continue;
 			if (m_HiddenTags.contains(message.Tag))
 				continue;
-			if (!ImGuiEx::IsMatchingSearch(message.LongMessage, m_SearchQuery))
+			if (!ImGuiEx::IsMatchingSearch(message.LongMessage, m_SearchQuery) &&
+				!ImGuiEx::IsMatchingSearch(message.Tag, m_SearchQuery))
 				continue;
 
 			m_VisibleMessages.push_back(i);
@@ -385,109 +412,141 @@ namespace Lux {
 
 	void EditorConsolePanel::RenderConsole(const ImVec2& size)
 	{
-		static const char* s_Columns[] = { "Type", "Timestamp", "Message" };
-
-		// The panel mirrors every engine log line, so the buffer runs to thousands of rows: gather
-		// the ones passing the filters, then let the clipper submit only those on screen.
 		RebuildVisibleMessages();
-
-		ImGuiEx::Table("Console", s_Columns, 3, size, [&]()
+		const bool compact = size.x < ImGui::GetFontSize() * 35.0f;
+		const float lineHeight = ImGui::GetTextLineHeight();
+		const float cellHeight =
+			compact ? lineHeight * 2.0f + ImGui::GetStyle().ItemInnerSpacing.y : lineHeight;
+		const float rowHeight = cellHeight + ImGui::GetStyle().CellPadding.y * 2.0f;
+		const float bodyHeight = std::max(lineHeight, size.y - lineHeight - ImGui::GetStyle().ItemSpacing.y);
+		bool openDetails = false;
+		const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg |
+									  ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit;
+		const char* tableName = compact ? "##console_compact" : "Console";
+		if (ImGui::BeginTable(tableName, compact ? 1 : 3, flags, {0.0f, bodyHeight}))
+		{
+			if (!compact)
 			{
-				float scrollY = ImGui::GetScrollY();
-				if (scrollY < m_PreviousScrollY)
-					m_EnableScrollToLatest = false;
-
-				if (scrollY >= ImGui::GetScrollMaxY())
-					m_EnableScrollToLatest = true;
-
-				m_PreviousScrollY = scrollY;
-
-				const float rowHeight = 24.0f;
-				bool openDetailedPopup = false;
-
-				ImGuiListClipper clipper;
-				clipper.Begin((int)m_VisibleMessages.size(), rowHeight);
-				while (clipper.Step())
+				ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed,
+										ImGui::GetFontSize() * 5.0f);
+				ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed,
+										ImGui::GetFontSize() * 6.0f);
+			}
+			ImGui::TableSetupColumn("Message", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableHeadersRow();
+			auto* window = ImGui::GetCurrentWindow();
+			const bool scrollDrag = GImGui->ActiveId == ImGui::GetWindowScrollbarID(window, ImGuiAxis_Y);
+			const bool keyboardInspect = ImGui::IsWindowFocused() && (ImGui::IsKeyPressed(ImGuiKey_PageUp) ||
+																	  ImGui::IsKeyPressed(ImGuiKey_Home));
+			if (scrollDrag || (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel > 0.0f) ||
+				keyboardInspect)
+				m_EnableScrollToLatest = false;
+			ImGuiListClipper clipper;
+			clipper.Begin(static_cast<int>(m_VisibleMessages.size()), rowHeight);
+			while (clipper.Step())
+				for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index)
 				{
-					for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
+					const auto& row = m_MessageBuffer[m_VisibleMessages[static_cast<size_t>(index)]];
+					const auto& message = row.Message;
+					ImGuiEx::ScopedID id(reinterpret_cast<const void*>(row.ID));
+					ImGui::TableNextRow(0, rowHeight);
+					ImGui::TableNextColumn();
+					if (!compact)
 					{
-						const auto& msg = m_MessageBuffer[m_VisibleMessages[row]];
-
-						ImGui::PushID(row);
-
-						const bool clicked = ImGuiEx::TableRowClickable(msg.ShortMessage.c_str(), rowHeight);
-
-						ImGuiEx::Separator(ImVec2(4.0f, ImGui::CalcTextSize(msg.ShortMessage.c_str()).y), GetMessageColor(msg));
-						ImGui::SameLine();
-						ImGui::TextColored(GetMessageColor(msg), "%s", GetMessageType(msg));
+						ImGui::TextColored(GetMessageColor(message), "%s", GetMessageType(message));
 						ImGui::TableNextColumn();
-						ImGuiEx::ShiftCursorX(4.0f);
-
-						std::stringstream timeString;
-						tm* timeBuffer = localtime(&msg.Time);
-						timeString << std::put_time(timeBuffer, "%T");
-
-						// Timestamp + message in the mono face, like the concept's log; timestamp dimmed.
-						ImGuiEx::Fonts::PushFont("Mono");
-						ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
-						ImGui::TextUnformatted(timeString.str().c_str());
-						ImGui::PopStyleColor();
-
+						ImGui::TextUnformatted(row.Time.c_str());
 						ImGui::TableNextColumn();
-						ImGuiEx::ShiftCursorX(4.0f);
-						ImGui::TextUnformatted(msg.ShortMessage.c_str());
-						ImGuiEx::Fonts::PopFont();
-
-						if (clicked)
-						{
-							// Copied, not indexed: the buffer can be trimmed or cleared while the popup is open.
-							m_DetailedMessage = msg.LongMessage;
-							openDetailedPopup = true;
-						}
-
-						if (ImGui::BeginPopupContextItem("ConsoleMessageContext"))
-						{
-							if (ImGui::MenuItem("Copy Full Message"))
-								ImGui::SetClipboardText(msg.LongMessage.c_str());
-							if (ImGui::MenuItem("Copy Short Message"))
-								ImGui::SetClipboardText(msg.ShortMessage.c_str());
-							ImGui::EndPopup();
-						}
-
-						ImGui::PopID();
 					}
-				}
-
-				if (m_ScrollToLatest)
-				{
-					ImGui::SetScrollHereY(1.0f);
-					m_ScrollToLatest = false;
-				}
-
-				if (openDetailedPopup)
-				{
-					ImGui::OpenPopup("Detailed Message");
-					auto [width, height] = Application::Get().GetWindow().GetSize();
-					auto [xPos, yPos] = Application::Get().GetWindow().GetWindowPos();
-					ImGui::SetNextWindowSize({ (float)width * 0.5f, (float)height * 0.5f });
-					ImGui::SetNextWindowPos({ xPos + (float)width / 2.0f, yPos + (float)height / 2.5f }, 0, { 0.5, 0.5 });
-					m_DetailedPanelOpen = true;
-				}
-
-				if (m_DetailedPanelOpen)
-				{
-					ImGuiEx::ScopedStyle windowPadding(ImGuiStyleVar_WindowPadding, ImVec2(4.0f, 4.0f));
-					ImGuiEx::ScopedStyle framePadding(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 8.0f));
-
-					if (ImGui::BeginPopupModal("Detailed Message", &m_DetailedPanelOpen, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
+					const ImVec2 textMin = ImGui::GetCursorScreenPos();
+					const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+					if (ImGui::Selectable("##message", false, ImGuiSelectableFlags_SpanAllColumns,
+										  {0.0f, cellHeight}))
 					{
-						ImGui::TextWrapped("%s", m_DetailedMessage.c_str());
-						if (ImGui::Button("Copy Full Message", ImVec2(150.0f, 28.0f)))
-							ImGui::SetClipboardText(m_DetailedMessage.c_str());
+						m_DetailedMessage = message.LongMessage;
+						m_DetailedCaption = row.Caption;
+						openDetails = true;
+					}
+					if (ImGui::BeginPopupContextItem("ConsoleMessageContext"))
+					{
+						if (ImGui::MenuItem("Copy Full Message"))
+							ImGui::SetClipboardText(message.LongMessage.c_str());
+						if (ImGui::MenuItem("Copy Short Message"))
+							ImGui::SetClipboardText(message.ShortMessage.c_str());
 						ImGui::EndPopup();
 					}
+					ImVec2 messageMin = textMin;
+					if (compact)
+					{
+						ImGuiEx::ScopedColour severity(ImGuiCol_Text, GetMessageColor(message));
+						ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), textMin,
+												  {textMin.x + width, textMin.y + lineHeight},
+												  textMin.x + width, row.Caption.c_str(),
+												  row.Caption.c_str() + row.Caption.size(), nullptr);
+						messageMin.y += lineHeight + ImGui::GetStyle().ItemInnerSpacing.y;
+					}
+					ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), messageMin,
+											  {messageMin.x + width, messageMin.y + lineHeight},
+											  messageMin.x + width, message.ShortMessage.c_str(),
+											  message.ShortMessage.c_str() + message.ShortMessage.size(),
+											  nullptr);
 				}
-			});
+			if (m_EnableScrollToLatest)
+			{
+				// The clipper preserves the content-end position for this scrolling helper.
+				ImGui::SetScrollHereY(1.0f);
+			}
+			ImGui::EndTable();
+		}
+		char count[64];
+		std::snprintf(count, sizeof(count), "%zu / %zu messages", m_VisibleMessages.size(),
+					  m_MessageBuffer.size());
+		const ImVec2 minimum = ImGui::GetCursorScreenPos();
+		const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+		ImGui::Dummy({width, lineHeight});
+		ImGui::SetItemTooltip(
+			"%zu shown / %zu retained. Scroll up to inspect; Follow latest resumes live following.",
+			m_VisibleMessages.size(), m_MessageBuffer.size());
+		ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), minimum,
+								  {minimum.x + width, minimum.y + lineHeight}, minimum.x + width, count,
+								  nullptr, nullptr);
+		if (openDetails)
+		{
+			m_DetailsPopupID = ImGui::GetID("Detailed Message");
+			m_DetailedPanelOpen = true;
+			ImGui::OpenPopup("Detailed Message");
+		}
+	}
+
+	void EditorConsolePanel::RenderDetails()
+	{
+		const auto* viewport = ImGui::GetWindowViewport();
+		const float font = ImGui::GetFontSize();
+		ImGui::SetNextWindowSize({std::min(font * 44.0f, viewport->WorkSize.x * 0.9f),
+								  std::min(font * 24.0f, viewport->WorkSize.y * 0.85f)},
+								 ImGuiCond_Appearing);
+		ImGui::SetNextWindowPos(viewport->GetWorkCenter(), ImGuiCond_Appearing, {0.5f, 0.5f});
+		if (ImGui::BeginPopupModal("Detailed Message", &m_DetailedPanelOpen))
+		{
+			const ImGuiEx::PanelAction actions[] = {
+				{0, "Copy full message", LUX_ICON_FILES_O},
+				{1, "Close", LUX_ICON_TIMES, "Escape", true, false, true}};
+			const int action = ImGuiEx::PanelActionBar("##message_actions", actions);
+			if (action == 0)
+				ImGui::SetClipboardText(m_DetailedMessage.c_str());
+			if (action == 1 || ImGui::IsKeyPressed(ImGuiKey_Escape))
+			{
+				ImGui::CloseCurrentPopup();
+				m_DetailedPanelOpen = false;
+			}
+			ImGui::TextWrapped("%s", m_DetailedCaption.c_str());
+			ImGui::Separator();
+			ImGui::BeginChild("##message_text", {0.0f, 0.0f});
+			ImGui::TextWrapped("%s", m_DetailedMessage.c_str());
+			ImGui::EndChild();
+			ImGui::EndPopup();
+		}
 	}
 
 	const char* EditorConsolePanel::GetMessageType(const ConsoleMessage& message) const
@@ -504,12 +563,6 @@ namespace Lux {
 		if (message.Flags & (int16_t)ConsoleMessageFlags::Warning) return s_WarningTint;
 		if (message.Flags & (int16_t)ConsoleMessageFlags::Error) return s_ErrorTint;
 		return s_InfoTint;
-	}
-
-	ImVec4 EditorConsolePanel::GetToolbarButtonColor(const bool value) const
-	{
-		const auto& style = ImGui::GetStyle();
-		return value ? style.Colors[ImGuiCol_Header] : style.Colors[ImGuiCol_FrameBg];
 	}
 
 	void EditorConsolePanel::PushMessage(const ConsoleMessage& message)

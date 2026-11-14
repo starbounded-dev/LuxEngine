@@ -19,6 +19,9 @@
 layout(location = 0) in vec3 a_Position;
 layout(location = 1) in vec4 a_QTangent; // tangent frame, QTangent.glslh
 layout(location = 2) in vec2 a_TexCoord;
+// The attribute stream (Mesh.h VertexAttributes): vertex colour and a second UV set.
+layout(location = 3) in vec4 a_Color;
+layout(location = 4) in vec2 a_TexCoord1;
 
 #include <QTangent.glslh>
 
@@ -39,6 +42,8 @@ struct VertexOutput
 
 layout(location = 0) out VertexOutput Output;
 layout(location = 18) flat out uint OutputObjectIndex;
+layout(location = 19) out vec4 OutputVertexColor;
+layout(location = 20) out vec2 OutputTexCoord1;
 
 layout(push_constant) uniform Material
 {
@@ -63,6 +68,8 @@ void main()
 	const mat3 tbn = QTangent_ToTBN(a_QTangent); // columns: tangent, binormal, normal
 	Output.Normal = mat3(transform) * tbn[2];
 	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
+	OutputVertexColor = a_Color;
+	OutputTexCoord1 = vec2(a_TexCoord1.x, 1.0 - a_TexCoord1.y);
 	Output.WorldNormals = mat3(transform) * tbn;
 	Output.WorldTransform = mat3(transform);
 	Output.Binormal = tbn[1];
@@ -94,6 +101,9 @@ void main()
 #include <ShadowMapping.glslh>
 #include <Samplers.glslh>
 #include <LTC.glslh>
+#include <MaterialLobes.glslh>
+#include <MaterialMapping.glslh>
+#include <MaterialGraph.glslh>
 
 // The opaque scene before transparents, pre-convolved by roughness (SceneRenderer binds it only on
 // frames with refractive materials, a black texture otherwise).
@@ -156,6 +166,8 @@ struct VertexOutput
  
 layout(location = 0) in VertexOutput Input;
 layout(location = 18) flat in uint InputObjectIndex;
+layout(location = 19) in vec4 InputVertexColor;
+layout(location = 20) in vec2 InputTexCoord1;
 
 layout(location = 0) out vec4 color;
 layout(location = 1) out vec4 o_ViewNormalsLuminance;
@@ -240,53 +252,67 @@ void main()
 	bool materialUseNormalMap = GetGPUMaterialUsesNormalMap(gpuMaterial, false);
 	uint materialFlags = gpuMaterial.Metadata.x;
 	uint channelSelects = gpuMaterial.ExtraTextureIndices.w;
-	vec2 uv = GetGPUMaterialUV(gpuMaterial, Input.TexCoord);
+	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
+	const vec3 vertexNormal = Input.Normal * faceSign;
+	LuxMaterialCoords coords = LuxMaterialMapping(gpuMaterial, Input.TexCoord, Input.WorldPosition, vertexNormal, InputObjectIndex);
 
-	vec4 albedoTexColor = SampleMaterialSceneTexture(
-		gpuMaterial.TextureIndices.x,
-		uv,
-		materialMipBias);
-	m_Params.Albedo = albedoTexColor.rgb * materialBaseColor;
+	vec4 albedoTexColor = LuxSampleMaterial(coords, gpuMaterial.TextureIndices.x, materialMipBias);
+	float detailMask = LuxDetailMask(gpuMaterial, coords, materialMipBias);
+	m_Params.Albedo = LuxApplyDetailAlbedo(gpuMaterial, albedoTexColor.rgb * materialBaseColor, Input.TexCoord, detailMask, materialMipBias);
 	float alpha = albedoTexColor.a * materialOpacity;
 	if (materialAlphaMode == GPU_MATERIAL_ALPHA_MASKED && alpha < GetGPUMaterialAlphaCutoff(gpuMaterial, 0.5))
 		discard;
 	m_Params.Metalness = materialMetalness;
-	m_Params.Roughness = SelectGPUMaterialChannel(SampleMaterialSceneTexture(
-		gpuMaterial.TextureIndices.w,
-		uv,
-		materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS) * materialRoughness;
+	m_Params.Roughness = SelectGPUMaterialChannel(LuxSampleMaterial(coords, gpuMaterial.TextureIndices.w, materialMipBias),
+		channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_ROUGHNESS) * materialRoughness;
 	o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
 	m_Params.Roughness = max(m_Params.Roughness, 0.05); // Minimum roughness of 0.05 to keep specular highlight
 
 	// Normals (either from vertex or map). A two-sided material's back-faces draw is lit as the side
 	// the camera sees, as GBuffer_Static does: the normal and tangent frame flip.
-	const float faceSign = gl_FrontFacing ? 1.0 : -1.0;
-	const vec3 vertexNormal = Input.Normal * faceSign;
 	m_Params.Normal = normalize(vertexNormal);
 	if (materialUseNormalMap)
-	{
-		vec4 normalTexColor = SampleMaterialSceneTexture(
-			gpuMaterial.TextureIndices.y,
-			uv,
-			materialMipBias);
-		m_Params.Normal = LuxApplyNormalMap(vertexNormal, Input.WorldNormals * faceSign, normalTexColor.rgb, gpuMaterial.Surface.y);
-	}
+		m_Params.Normal = LuxSampleMaterialNormal(coords, gpuMaterial.TextureIndices.y, materialMipBias, vertexNormal, Input.WorldNormals * faceSign, gpuMaterial.Surface.y);
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_HEIGHT_TEXTURE))
 	{
-		float height = SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.z, uv, materialMipBias).r;
+		float height = LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.z, materialMipBias).r;
 		m_Params.Normal = PerturbNormalFromHeight(m_Params.Normal, Input.WorldPosition, height, gpuMaterial.Surface.w);
 	}
+	m_Params.Normal = LuxApplyDetailNormal(gpuMaterial, m_Params.Normal, Input.WorldNormals * faceSign, Input.TexCoord, detailMask, materialMipBias);
 
 	float occlusion = 1.0;
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_OCCLUSION_TEXTURE))
 	{
-		float occlusionSample = SelectGPUMaterialChannel(SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.y, uv, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION);
+		float occlusionSample = SelectGPUMaterialChannel(LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.y, materialMipBias), channelSelects, GPU_MATERIAL_CHANNEL_SHIFT_OCCLUSION);
 		occlusion = mix(1.0, occlusionSample, gpuMaterial.Emissive.w);
 	}
 
 	vec3 emissive = GetGPUMaterialEmissive(gpuMaterial);
 	if (HasGPUMaterialFlag(materialFlags, GPU_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE))
-		emissive *= SampleMaterialSceneTexture(gpuMaterial.ExtraTextureIndices.x, uv, materialMipBias).rgb;
+		emissive *= LuxSampleMaterial(coords, gpuMaterial.ExtraTextureIndices.x, materialMipBias).rgb;
+	float specular = GetGPUMaterialSpecular(gpuMaterial, 0.5);
+
+#if LUX_MATERIAL_GRAPH_COUNT > 0
+	// A graph material: its graph sets the values its output connects; the rest stay as above.
+	uint graphIndex = gpuMaterial.TransmissionTextureIndices.y;
+	if (graphIndex != 0u)
+	{
+		LuxGraphInput graphInput = LuxMakeGraphInput(gpuMaterial, Input.TexCoord, Input.WorldPosition, vertexNormal, Input.WorldNormals * faceSign, InputObjectIndex, materialMipBias);
+		graphInput.VertexColor = InputVertexColor;
+		graphInput.UV1 = InputTexCoord1;
+		LuxGraphOutput graph = LuxGraphOutput(m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, emissive, alpha, occlusion, m_Params.Normal, specular);
+		LuxEvaluateMaterialGraph(graphIndex, graphInput, graph);
+		m_Params.Albedo = max(graph.BaseColor, vec3(0.0));
+		m_Params.Metalness = clamp(graph.Metallic, 0.0, 1.0);
+		m_Params.Roughness = clamp(graph.Roughness, 0.05, 1.0);
+		emissive = max(graph.Emission, vec3(0.0));
+		alpha = graph.Opacity;
+		occlusion = clamp(graph.Occlusion, 0.0, 1.0);
+		m_Params.Normal = graph.Normal;
+		specular = clamp(graph.Specular, 0.0, 1.0);
+		o_MetalnessRoughness = vec4(m_Params.Metalness, m_Params.Roughness, 0.0, 1.0);
+	}
+#endif
 
 	// View normals
 	o_ViewNormalsLuminance.xyz = Input.CameraView * m_Params.Normal;
@@ -294,11 +320,14 @@ void main()
 	m_Params.View = GetViewDirection(Input.WorldPosition);
 	m_Params.NdotV = max(dot(m_Params.Normal, m_Params.View), 0.0);
 
+	vec3 lobeTangent = LuxAnisotropyTangent(gpuMaterial, Input.WorldNormals[0] * faceSign, Input.WorldNormals[1] * faceSign);
+	LuxSetupMaterialLobes(gpuMaterial, m_Params.Normal, lobeTangent);
+
 	// Specular reflection vector
-	vec3 Lr = reflect(-m_Params.View, m_Params.Normal);
+	vec3 Lr = LuxLobeReflection(m_Params.Normal, m_Params.View, m_Params.Roughness);
 
 	// Fresnel reflectance, metals use albedo
-	vec3 F0 = mix(LuxDielectricF0(GetGPUMaterialSpecular(gpuMaterial, 0.5)), m_Params.Albedo, m_Params.Metalness);
+	vec3 F0 = mix(LuxDielectricF0(specular), m_Params.Albedo, m_Params.Metalness);
 
 	// Transmission takes its share from the diffuse lobe (glTF); the base colour then tints what
 	// comes through instead.
@@ -384,7 +413,8 @@ void main()
 	lightContribution += emissive;
 
 	// Indirect lighting (material AO occludes ambient light only, as in deferred lighting)
-	vec3 iblContribution = IBL(F0, Lr, materialEnvMapRotation) * occlusion * u_Scene.EnvironmentMapIntensity;
+	vec3 iblContribution = LuxApplyLobesIBL(IBL(F0, Lr, materialEnvMapRotation), u_EnvRadianceTex, u_EnvIrradianceTex,
+		m_Params.Normal, m_Params.View, materialEnvMapRotation + u_Scene.EnvironmentMapRotation, 1.0) * occlusion * u_Scene.EnvironmentMapIntensity;
 
 	color = vec4(iblContribution + lightContribution, materialAlphaMode == GPU_MATERIAL_ALPHA_OPAQUE ? 1.0 : alpha);
 

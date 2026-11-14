@@ -17,8 +17,9 @@
 namespace Lux {
 
 	// Live-image registry (debug/stats). Written by RT_Invalidate on the render thread and read by
-	// the main thread's memory statistics, so every access holds s_ImageReferencesMutex.
-	static std::map<nri::Texture*, WeakRef<Image2D>> s_ImageReferences;
+	// the main thread's memory statistics, so every access holds s_ImageReferencesMutex. An image
+	// erases its entry under that mutex in Release, before its members go, so an entry is always live.
+	static std::map<nri::Texture*, Image2D*> s_ImageReferences;
 	static std::mutex s_ImageReferencesMutex;
 
 	// NVRHI samplers leave the LOD range unclamped.
@@ -361,10 +362,7 @@ namespace Lux {
 		// while it is freed.
 		std::scoped_lock lock(s_ImageReferencesMutex);
 		for (const auto& [handle, image] : s_ImageReferences)
-		{
-			if (image)
-				fn(*image);
-		}
+			fn(*image);
 	}
 
 	void Image2D::SetData(Buffer buffer)

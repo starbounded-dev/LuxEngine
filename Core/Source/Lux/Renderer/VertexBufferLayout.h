@@ -12,7 +12,9 @@ namespace Lux {
 	enum class ShaderDataType
 	{
 		None = 0, Float, Float2, Float3, Float4, Mat3, Mat4, Int, Int2, Int3, Int4, Bool,
-		Short4N // four int16 read as signed-normalized floats in [-1, 1]
+		Short4N, // four int16 read as signed-normalized floats in [-1, 1]
+		UByte4N, // four uint8 read as unsigned-normalized floats in [0, 1] (a colour)
+		Half2    // two float16
 	};
 
 	static uint32_t ShaderDataTypeSize(ShaderDataType type)
@@ -22,6 +24,8 @@ namespace Lux {
 		case ShaderDataType::Float:    return 4;
 		case ShaderDataType::Float2:   return 4 * 2;
 		case ShaderDataType::Short4N:  return 2 * 4;
+		case ShaderDataType::UByte4N:  return 4;
+		case ShaderDataType::Half2:    return 2 * 2;
 		case ShaderDataType::Float3:   return 4 * 3;
 		case ShaderDataType::Float4:   return 4 * 4;
 		case ShaderDataType::Mat3:     return 4 * 3 * 3;
@@ -59,6 +63,8 @@ namespace Lux {
 			case ShaderDataType::Float:   return 1;
 			case ShaderDataType::Float2:  return 2;
 			case ShaderDataType::Short4N: return 4;
+			case ShaderDataType::UByte4N: return 4;
+			case ShaderDataType::Half2:   return 2;
 			case ShaderDataType::Float3:  return 3;
 			case ShaderDataType::Float4:  return 4;
 			case ShaderDataType::Mat3:    return 3 * 3;

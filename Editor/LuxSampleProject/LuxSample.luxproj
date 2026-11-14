@@ -99,12 +99,8 @@ Project:
         DepthTolerance: 0.8
   Audio:
     FileStreamingDurationThreshold: 1
-    StudioProjectPath: Audio/SampleProject/SampleProject.fspro
-    StudioPlatform: Desktop
     Windows:
       Enabled: false
-      StudioPlatform: Desktop
-      BankOutputPath: Build/Desktop
       Performance:
         MuteWhenUnfocused: false
         RealVoices: 64
@@ -115,8 +111,6 @@ Project:
           bus:/: 64
     Linux:
       Enabled: false
-      StudioPlatform: Desktop
-      BankOutputPath: Build/Desktop
       Performance:
         MuteWhenUnfocused: false
         RealVoices: 64
@@ -125,9 +119,6 @@ Project:
         BankMemoryMiB: 64
         BusVoices:
           bus:/: 64
-    StudioBankOutputPath: Build/Desktop
-    RebuildBanksOnPlay: true
-    EnableLiveUpdate: true
     AcousticMaterials: {}
     SurfaceTable: 0
     DialogueTable: 0

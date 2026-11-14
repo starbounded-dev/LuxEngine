@@ -16,11 +16,13 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 project "LuxSample"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "net9.0"
+	dotnetframework "net10.0"
 	clr "Unsafe"
 
 	targetdir ("Binaries")
-	objdir ("Intermediates")
+	-- Outside Assets/, like a new project's .csproj (EditorLayer WriteScriptProject): generated .cs
+	-- files in here would otherwise be registered as assets.
+	objdir ("../../Cache/ScriptBuild")
 
 	vsprops {
 		AppendTargetFrameworkToOutputPath = "false",

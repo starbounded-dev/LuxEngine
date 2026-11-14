@@ -1,0 +1,11 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 1, 1]
+  Metalness: 0
+  Roughness: 0.9
+  UseNormalMap: true
+  AlbedoMap: Textures/Bricks097/Bricks097_1K-JPG_Color.jpg
+  NormalMap: Textures/Bricks097/Bricks097_1K-JPG_NormalGL.jpg
+  Mapping: TriplanarWorld
+  TriplanarSharpness: 4
+  UVTiling: [0.5, 0.5]

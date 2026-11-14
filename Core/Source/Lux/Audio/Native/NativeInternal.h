@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+
+#pragma once
+
+// Private to the native backend (Audio/Native/). Engine code outside this folder talks to
+// AudioEngine and AudioEventInstance; nothing outside it and the native tests may include this.
+
+#include "Lux/Audio/AudioAccessibilitySettings.h"
+#include "Lux/Audio/AudioMixerSettings.h"
+#include "Lux/Audio/AudioPerformanceSettings.h"
+#include "Lux/Audio/Sound.h"
+
+#include <glm/glm.hpp>
+
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <string>
+
+struct ma_engine;
+typedef void ma_node;
+typedef void ma_vfs;
+
+namespace Lux { class SoundBank; }
+
+namespace Lux::NativeInternal {
+
+	struct EngineConfig
+	{
+		bool NoDevice = false;     // render on demand with ma_engine_read_pcm_frames (the tests)
+		uint32_t Channels = 0;     // 0 = the output device's; required with NoDevice
+		uint32_t SampleRate = 0;   // 0 = the output device's; required with NoDevice
+		AudioPerformanceSettings Performance;
+		AudioMixerSettings Mixer;
+	};
+	// What AudioEngine::Init starts with: the active project's settings and the default output device.
+	// Defined in NativeAudioEngineConfig.cpp; the native tests define their own (no device).
+	EngineConfig GetEngineConfig();
+
+	// Null before AudioEngine::Init succeeds and after Shutdown.
+	ma_engine* GetEngine();
+	// The node a voice on this bus plays into: the bus's group, or the endpoint for the master and for
+	// a bus the mixer does not have (reported once). Null without an engine.
+	ma_node* GetBusInput(const std::string& path);
+	// The built-in reverb return's input, where voices send; null without one (more than 2 output channels).
+	ma_node* GetReverbReturn();
+	// Whether id names a snapshot of the running mixer (AudioMixerSnapshot::ID).
+	bool IsMixerSnapshot(uint64_t id);
+	// One snapshot instance's contribution: started (active) at an intensity, or removed. Bus
+	// volumes follow at once. Main thread.
+	void SetSnapshotState(const void* instance, uint64_t id, bool active, float intensity);
+	// Global parameter values by name (case-insensitive); fallback when one was never set.
+	float GetGlobalParameterValue(const std::string& name, float fallback);
+	void SetGlobalParameterValue(const std::string& name, float value);
+	void ClearGlobalParameters();
+	// The accessibility mixer's controls: a gain per bus on top of its mix volume ("bus:/" is the
+	// master), and mono fold and compression on the master output. Reset clears all three.
+	bool HasMixerBus(const std::string& path);
+	void SetAccessibilityGain(const std::string& path, float gain);
+	void SetAccessibilityProcessing(bool mono, AudioDynamicRange range);
+	void ResetAccessibility();
+
+	// Resolves a playback reference: a Sound asset handle in decimal (AudioEventRef::GetReference) or
+	// a Sound's path relative to the project's Assets directory. False with the reason in outError.
+	// Defined in NativeSoundResolver.cpp against the asset manager; the native tests define their own.
+	bool ResolveSound(const std::string& reference, Ref<Sound>& outSound, std::string& outError);
+	// The path of a clip (an Audio asset). Defined beside ResolveSound. A clip from an asset pack has
+	// no file: its path is a "luxpack/" name RegisterPackedClip has pointed into the pack.
+	bool ResolveClip(AssetHandle clip, std::filesystem::path& outPath, std::string& outError);
+	// A Sound Bank asset. Defined beside ResolveSound; the native tests define their own.
+	bool ResolveSoundBank(AssetHandle bank, Ref<SoundBank>& outBank, std::string& outError);
+
+	// The resource manager's file system (NativePackVFS.cpp): "luxpack/" names read a clip in place
+	// inside its pack, any other name a loose file. miniaudio's job threads read through it.
+	ma_vfs* GetPackVFS();
+	// Names a clip that sits at offset, size bytes long, inside the pack file (once per name, until
+	// ClearPackedClips). False, and nothing registered, when the bytes do not decode.
+	bool RegisterPackedClip(const std::filesystem::path& name, const std::filesystem::path& pack, uint64_t offset, uint64_t size);
+	bool IsPackedClip(const std::filesystem::path& path);
+	double GetPackedClipSeconds(const std::filesystem::path& path);
+	void ClearPackedClips();
+
+	// The clip cache (NativeClipCache.cpp), main thread only. A clip stays decoded while a loaded bank
+	// lists it or a voice plays it; one a bank let go of is freed with its last voice, and one only
+	// ever played (in no loaded bank) stays until AudioEngine::ReleaseUnusedClips.
+	// UseClip counts a voice (decoding the clip first unless it streams); DropClip uncounts it.
+	int UseClip(const std::filesystem::path& file, bool stream, uint64_t soundHandle, std::string& outError);
+	void DropClip(const std::filesystem::path& file);
+	// Frees every clip and bank, before the resource manager is torn down.
+	void ReleaseClips();
+
+	// Seeds the generator Random containers and variations draw from (the tests make choices repeatable).
+	void SeedRandom(uint32_t seed);
+
+	// A decimal asset handle: digits only and nonzero.
+	bool ParseHandle(const std::string& reference, uint64_t& outHandle);
+
+	// The listeners AudioListener::Apply last set, with weights normalized to sum to 1. With no
+	// active listener it holds one neutral listener at the origin.
+	struct Listener
+	{
+		uint32_t Index = 0;                 // the engine slot, which is also the miniaudio listener index
+		float Weight = 1.0f;
+		glm::vec3 AttenuationPoint{ 0.0f }; // the listener position, or its attenuation target
+	};
+	struct ListenerSet
+	{
+		std::array<Listener, 8> Listeners{};
+		uint32_t Count = 1;
+	};
+	const ListenerSet& GetListeners();
+
+	// Voices (AudioEventInstance) live on the main thread; the engine drives them through these.
+	// Recomputes every voice's gain, pitch, filters and panning listener after a listener change.
+	void RefreshVoices();
+	// Publishes end-of-playback to playback status and the script mailbox.
+	void PollVoices();
+	int CountPlayingVoices();
+	// Keeps at most realVoices voices mixing: the rest, lowest priority first (higher Priority
+	// number) then quietest, go virtual - stopped, their time still passing - and resume where they
+	// would be when room frees up. Returns how many are virtual. Main thread, at 4 Hz.
+	int ApplyVoiceBudget(uint32_t realVoices);
+	// Playing voices whose Sound plays into this bus or one below it ("bus:/" counts every voice).
+	int CountPlayingVoicesOn(const std::string& busPath);
+	// The bus's loudest sample since the last read and its latest block RMS, both linear, measured
+	// after its volume (the master: before accessibility processing). False for an unknown bus.
+	bool ReadBusMeter(const std::string& busPath, float& outPeak, float& outRMS);
+	// The device callback's mixing time as a share of the audio it produced, since the last call, in
+	// percent. False without a device (NoDevice renders) or before the device has run.
+	bool ReadAudioLoad(float& outPercent);
+	// Memory held by decoded clips, plus the pages of the streams playing.
+	uint64_t GetClipMemoryBytes();
+	// Stops and frees every voice's miniaudio objects, before the engine is torn down. The
+	// wrappers stay alive but invalid (the generation check).
+	void ReleaseVoices();
+
+	// Distance gain for one listener, as documented on SoundAttenuation.
+	float Attenuate(const SoundSpatialSettings& spatial, float distance);
+	// The occlusion low-pass cutoff for a low-band gain: 20 kHz at gain 1 (bypassed), falling one
+	// octave per 6 dB of loss, floored at 125 Hz.
+	float OcclusionCutoffHz(float occlusionGainLF);
+}

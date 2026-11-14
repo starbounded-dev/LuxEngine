@@ -7,6 +7,7 @@
 #include "Shader.h"
 
 #include "Renderer2D.h"
+#include "MaterialGraph/MaterialGraphRegistry.h"
 #include "RendererAPI.h"
 //#include "SceneRenderer.h"
 #include "ShaderPack.h"
@@ -25,6 +26,7 @@
 #include "Lux/Renderer/RHI/StagingMemory.h"
 #include "Lux/Renderer/RHI/UploadContext.h"
 #include "Lux/Renderer/RHI/RHISwapChain.h"
+#include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -50,17 +52,6 @@
 #include "IndexBuffer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "ltc/LTCTables.h"
-
-namespace std {
-	template<>
-	struct hash<Lux::WeakRef<Lux::Shader>>
-	{
-		size_t operator()(const Lux::WeakRef<Lux::Shader>& shader) const noexcept
-		{
-			return shader->GetHash();
-		}
-	};
-}
 
 namespace Lux {
 
@@ -94,8 +85,8 @@ namespace Lux {
 	{
 		// Macro name, set of shaders with that macro.
 		std::unordered_map<std::string, std::unordered_map<size_t, WeakRef<Shader>>> ShaderGlobalMacrosMap;
-		// Shaders waiting to be reloaded.
-		std::unordered_set<WeakRef<Shader>> DirtyShaders;
+		// Shaders waiting to be reloaded, by shader hash.
+		std::unordered_map<size_t, WeakRef<Shader>> DirtyShaders;
 		ShaderPermutationCache PermutationCache;
 	};
 	static GlobalShaderInfo s_GlobalShaderInfo;
@@ -210,20 +201,20 @@ namespace Lux {
 		}
 		for (auto& pipeline : dependencies.Pipelines)
 		{
-			if (pipeline)
-				pipeline->Invalidate();
+			if (auto strong = pipeline.Lock())
+				strong->Invalidate();
 		}
 
 		for (auto& computePipeline : dependencies.ComputePipelines)
 		{
-			if (computePipeline)
-				computePipeline->CreatePipeline();
+			if (auto strong = computePipeline.Lock())
+				strong->CreatePipeline();
 		}
 
 		for (auto& material : dependencies.Materials)
 		{
-			if (material)
-				material->OnShaderReloaded();
+			if (auto strong = material.Lock())
+				strong->OnShaderReloaded();
 		}
 
 		// Passes re-bake after the pipelines above are rebuilt: an in-place
@@ -231,14 +222,14 @@ namespace Lux {
 		// were created against, so drawing with them is a use-after-free.
 		for (auto& renderPass : dependencies.Passes)
 		{
-			if (renderPass)
-				renderPass->OnShaderReloaded();
+			if (auto strong = renderPass.Lock())
+				strong->OnShaderReloaded();
 		}
 
 		for (auto& computePass : dependencies.ComputePasses)
 		{
-			if (computePass)
-				computePass->OnShaderReloaded();
+			if (auto strong = computePass.Lock())
+				strong->OnShaderReloaded();
 		}
 	}
 
@@ -385,6 +376,12 @@ namespace Lux {
 		desc.DynamicShadingRate = pipeline.HasNRIDynamicShadingRate();
 		desc.DrawSetIndex = shader->GetNRISetIndex(0);
 		desc.VertexStride = pipeline.GetNRIVertexStride(0);
+		if (const PipelineSpecification& spec = pipeline.GetSpecification(); spec.AttributeLayout.GetElementCount())
+		{
+			// Streams are numbered over the layouts that have elements, in PipelineSpecification order.
+			desc.AttributeSlot = (spec.Layout.GetElementCount() ? 1u : 0u) + (spec.InstanceLayout.GetElementCount() ? 1u : 0u) + (spec.BoneInfluenceLayout.GetElementCount() ? 1u : 0u);
+			desc.AttributeStride = pipeline.GetNRIVertexStride(desc.AttributeSlot);
+		}
 		desc.RootConstants = shader->HasNRIRootConstants();
 		return nullptr;
 	}
@@ -449,6 +446,7 @@ namespace Lux {
 
 	void Renderer::Init()
 	{
+		MaterialGraphRegistry::EnsureGeneratedInclude();
 		LUX_PROFILE_FUNCTION_AUTO;
 		s_Data = lnew RendererData();
 		s_RendererData = lnew RendererData();
@@ -477,8 +475,55 @@ namespace Lux {
 
 		s_Data->m_ShaderLibrary = Ref<ShaderLibrary>::Create();
 
+		// Validate before consuming: a build with no shader compiler (Renderer/Shader.h:16 defines
+		// LUX_HAS_SHADER_COMPILER as !LUX_DIST) cannot rebuild the SPIR-V inside a pack, so an inputs
+		// difference - a source edit or a changed generated material-graph include (macros are only
+		// recorded) - must stop the run rather than render programs that no longer match this build.
+		// Device drift is reported, not refused: SPIR-V is portable across drivers by the Vulkan spec,
+		// so another vendor is a difference to state rather than an assumed bug (Rendering.md §
+		// Validation errors are bugs: the inputs class is a real bug, the device class is not
+		// automatically one). Absent / truncated / empty packs are structural faults too, because
+		// ShaderPack.cpp:26-35 decides a pack is loaded on the LXSP magic match alone - an empty pack
+		// would otherwise report success and serve nothing. Unstamped packs are only a warning: the
+		// runtime-export path (EditorLayer.cpp:398-407) has always written a bare pack, so every
+		// existing package keeps working exactly as it does today. LUX_CORE_VERIFY breaks into the
+		// debugger instead of throwing (Assert.h:10 __debugbreak), so a verification runner rejects
+		// the launch rather than the wrongness being papered over, and the message names the fix.
 		if (!s_Config.ShaderPackPath.empty())
+		{
+			const ShaderPackStamp environment = Renderer::CaptureShaderPackEnvironment();
+			const ShaderPackState state = ShaderPack::Evaluate(s_Config.ShaderPackPath, environment);
+			switch (state)
+			{
+			case ShaderPackState::InputsChanged:
+				// Fatal: these programs were compiled from a different source set or macro set, and
+				// this build has no way to produce current ones.
+				LUX_CORE_VERIFY(false, "Shader pack is stale for a build with no shader compiler: regenerate it with the Application Settings action 'Refresh shader pack' in a compiler-enabled editor, or export a stamped package");
+				break;
+			case ShaderPackState::Unreadable:
+				LUX_CORE_VERIFY(false, "Shader pack is absent, truncated, or carries no programs: the reader decides a pack is loaded on the LXSP magic match alone (ShaderPack.cpp:26-35)");
+				break;
+			case ShaderPackState::DeviceChanged:
+			{
+				// Report and keep going: SPIR-V is portable by spec, and the identities are printed so a
+				// vendor-specific fault can be traced to it instead of guessed at.
+				ShaderPackStamp recorded;
+				ShaderPack::ReadStamp(s_Config.ShaderPackPath, recorded);
+				LUX_CORE_WARN_TAG("Renderer", "Shader pack {} was compiled on {} (vendor {}, driver {}); this device is {} (vendor {}, driver {}) - consuming it anyway, since SPIR-V is portable by spec",
+					s_Config.ShaderPackPath, recorded.m_RendererName, recorded.m_VendorID, recorded.m_DriverVersion,
+					environment.m_RendererName, environment.m_VendorID, environment.m_DriverVersion);
+				break;
+			}
+			case ShaderPackState::NoStamp:
+				// Legacy bare pack (the export path predates the sidecar): consumed without a freshness
+				// check, which is the behaviour every existing package already relies on.
+				LUX_CORE_WARN_TAG("Renderer", "Shader pack {} carries no freshness stamp: consumed without validation", s_Config.ShaderPackPath);
+				break;
+			default:
+				break;
+			}
 			Renderer::GetShaderLibrary()->LoadShaderPack(s_Config.ShaderPackPath);
+		}
 
 
 		// NOTE: some shaders (compute) need to have optimization disabled because of a shaderc internal error
@@ -534,6 +579,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ShadowCulling.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterBuild.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterLightCulling.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SoundwaveReverb.glsl");
 
 		// Renderer2D Shaders
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Renderer2D.glsl");
@@ -816,19 +862,21 @@ namespace Lux {
 		uint32_t warmedCount = 0;
 		for (auto& pipeline : graphicsPipelines)
 		{
-			if (!pipeline)
+			Ref<Pipeline> strong = pipeline.Lock();
+			if (!strong)
 				continue;
 
-			pipeline->Invalidate();
+			strong->Invalidate();
 			warmedCount++;
 		}
 
 		for (auto& computePipeline : computePipelines)
 		{
-			if (!computePipeline)
+			Ref<PipelineCompute> strong = computePipeline.Lock();
+			if (!strong)
 				continue;
 
-			computePipeline->CreatePipeline();
+			strong->CreatePipeline();
 			warmedCount++;
 		}
 
@@ -1613,6 +1661,7 @@ namespace Lux {
 		const bool drawSetUnbound = pass.DrawSetIndex != RHIShader::k_NoNRISet && !draw.MaterialSet.Set && !pass.DescriptorSets[pass.DrawSetIndex].Set;
 		const char* problem = drawSetUnbound ? "a draw leaves set 0 unbound"
 			: !draw.Vertices || !draw.Vertices->GetRHIBuffer() || !draw.Indices || !draw.Indices->GetRHIBuffer() ? "a draw's vertex or index buffer has no NRI buffer"
+			: pass.AttributeStride && (!draw.Attributes || !draw.Attributes->GetRHIBuffer()) ? "a draw has no vertex attribute buffer for a pipeline that reads one"
 			: draw.IndirectArguments && !draw.IndirectArguments->GetRHIBuffer() ? "a draw's indirect arguments have no NRI buffer"
 			: nullptr;
 		if (problem)
@@ -1624,6 +1673,7 @@ namespace Lux {
 		RenderCommandBuffer::NRIDrawBindings bindings;
 		bindings.DrawSet = draw.MaterialSet;
 		bindings.VertexBuffer = &draw.Vertices->GetBuffer();
+		bindings.AttributeBuffer = pass.AttributeStride ? &draw.Attributes->GetBuffer() : nullptr;
 		bindings.IndexBuffer = &draw.Indices->GetBuffer();
 		bindings.IndirectArguments = draw.IndirectArguments ? &draw.IndirectArguments->GetBuffer() : nullptr;
 		bindings.RootConstants = draw.Constants;
@@ -1904,6 +1954,19 @@ namespace Lux {
 		return *s_CommandQueue[s_RenderCommandQueueSubmissionIndex];
 	}
 
+	RenderCommandQueueStats Renderer::GetRenderCommandQueueStats()
+	{
+		if (!s_CommandQueue[0] || !s_CommandQueue[1])
+			return {};
+
+		RenderCommandQueueStats stats = s_CommandQueue[GetRenderQueueIndex()]->GetStats();
+		const RenderCommandQueueStats other = s_CommandQueue[GetRenderQueueSubmissionIndex()]->GetStats();
+		stats.MaxCommandCount = std::max(stats.MaxCommandCount, other.MaxCommandCount);
+		stats.MaxBytes = std::max(stats.MaxBytes, other.MaxBytes);
+		stats.MaxPageCount = std::max(stats.MaxPageCount, other.MaxPageCount);
+		return stats;
+	}
+
 	uint32_t Renderer::RT_GetCurrentFrameIndex()
 	{
 		return static_cast<uint32_t>(s_RTFrameNumber % s_Config.FramesInFlight);
@@ -1978,6 +2041,47 @@ namespace Lux {
 		return s_Supported;
 	}
 
+	// Main thread (Threading.md § Main): walks the shader sources and reads CPU-side renderer
+	// state. The refresh action and Renderer::Init are the only callers, both on main.
+	ShaderPackStamp Renderer::CaptureShaderPackEnvironment()
+	{
+		ShaderPackStamp stamp;
+		// The sources and the generated material-graph include, hashed by content (ShaderPack.cpp).
+		stamp.m_ShaderInputs = ShaderPack::ComputeShaderInputIdentity();
+		// The macros are the other input to the SPIR-V: Renderer::Init expands the AO / GTAO /
+		// reflection settings into the shader sources (Renderer.cpp:468-470) and SceneRenderer
+		// re-sets them live from panel properties (SceneRenderer.cpp:1168-1172), so a session that
+		// changes them must not be described by the previous pack. Sorted so the chain is byte
+		// identical across launches - the stamp is compared by equality, and unordered iteration
+		// would make every launch look stale.
+		// Snapshot the pairs before formatting: the map is mutated while panels run, so this
+		// describes the moment being stamped rather than a live view that could change mid-loop.
+		std::vector<std::string> macroLines;
+		macroLines.reserve(Renderer::GetGlobalShaderMacros().size());
+		for (const auto& [name, value] : Renderer::GetGlobalShaderMacros())
+			macroLines.push_back(name + "=" + value);
+		std::ranges::sort(macroLines);
+		for (const std::string& line : macroLines)
+			stamp.m_Macros += line + ";";
+		// The GPU identity is recorded where it is read: VulkanDevice.cpp:462-464 captures vendor
+		// and driver from the single getProperties() call, so the stamp costs no second driver
+		// query here.
+		// A null device manager would mean Renderer::Init ran before Window::Init created the
+		// device (Application.cpp:91 Window::Init -> :105 Renderer::Init), an invariant of startup:
+		// stamping zeros would let a pack look current against no identity at all, so this is
+		// verified rather than defaulted.
+		const VulkanDevice* device = Application::Get().GetWindow().GetDeviceManager();
+		LUX_CORE_VERIFY(device != nullptr, "Renderer::Init ran before the render device was created");
+		if (device != nullptr)
+		{
+			stamp.m_RendererName = device->GetRendererString();
+			stamp.m_VendorID = device->GetVendorID();
+			stamp.m_DriverVersion = device->GetDriverVersion();
+		}
+		return stamp;
+	}
+
+
 	bool Renderer::SupportsVariableRateShading()
 	{
 		// Attachment shading rates (and the combiners), NRI's tier 2.
@@ -2002,7 +2106,7 @@ namespace Lux {
 		key.ShaderName = shader->GetName();
 		key.Macros.emplace_back(name, value);
 		s_GlobalShaderInfo.PermutationCache.Add(key);
-		s_GlobalShaderInfo.DirtyShaders.emplace(shader.Raw());
+		s_GlobalShaderInfo.DirtyShaders[shader->GetHash()] = shader;
 	}
 
 	void Renderer::SetGlobalMacroInShaders(const std::string& name, const std::string& value)
@@ -2027,14 +2131,19 @@ namespace Lux {
 		}
 
 		LUX_CORE_ASSERT(s_GlobalShaderInfo.ShaderGlobalMacrosMap.find(name) != s_GlobalShaderInfo.ShaderGlobalMacrosMap.end(), "Macro has not been passed from any shader!");
+		// A shader that consumed the macro may have been destroyed since (a library reload): forget it.
+		std::erase_if(s_GlobalShaderInfo.ShaderGlobalMacrosMap.at(name), [](const auto& entry) { return !entry.second.IsValid(); });
 		for (auto& [hash, shader] : s_GlobalShaderInfo.ShaderGlobalMacrosMap.at(name))
 		{
-			LUX_CORE_ASSERT(shader.IsValid(), "Shader is deleted!");
+			Ref<Shader> strong = shader.Lock();
+			if (!strong)
+				continue;
+
 			ShaderPermutationKey key;
-			key.ShaderName = shader->GetName();
+			key.ShaderName = strong->GetName();
 			key.Macros.emplace_back(name, value);
 			s_GlobalShaderInfo.PermutationCache.Add(key);
-			s_GlobalShaderInfo.DirtyShaders.emplace(shader);
+			s_GlobalShaderInfo.DirtyShaders[hash] = shader;
 		}
 	}
 
@@ -2049,10 +2158,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO(Yan): how is this going to work for dist?
 		const bool updatedAnyShaders = s_GlobalShaderInfo.DirtyShaders.size();
-		for (WeakRef<Shader> shader : s_GlobalShaderInfo.DirtyShaders)
+		for (const auto& [hash, shader] : s_GlobalShaderInfo.DirtyShaders)
 		{
-			LUX_CORE_ASSERT(shader.IsValid(), "Shader is deleted!");
-			shader->RT_Reload(true);
+			// Destroyed after it was marked: nothing left to reload.
+			if (Ref<Shader> strong = shader.Lock())
+				strong->RT_Reload(true);
 		}
 		s_GlobalShaderInfo.DirtyShaders.clear();
 

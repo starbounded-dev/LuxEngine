@@ -1,0 +1,263 @@
+Scene: MaterialShowcase
+PostProcess:
+  Exposure: 1
+  ExposureMode: 0
+  Aperture: 16
+  ShutterSpeed: 0.008
+  ISO: 100
+  ExposureEV100: 12
+  ExposureCompensation: 0
+  AutoMinEV100: -2
+  AutoMaxEV100: 16
+  AutoAdaptationSpeedUp: 3
+  AutoAdaptationSpeedDown: 1
+  ColorFilter: [1, 1, 1]
+  Saturation: 1
+  Contrast: 1
+  Gamma: 2.2
+  Tonemap: 0
+  WhiteTemperature: 0
+  WhiteTint: 0
+  Lift: [0, 0, 0]
+  GradeGamma: [1, 1, 1]
+  Gain: [1, 1, 1]
+Entities:
+  - Entity: 17100000000000000001
+    TagComponent:
+      Tag: Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.2, 5.2]
+      Rotation: [-0.32, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.1
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 17100000000000000002
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.75, -0.55, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 9.4248
+      Radiance: [1, 0.95, 0.9]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 17100000000000000003
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.35
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.9]
+  - Entity: 17100000000000000004
+    TagComponent:
+      Tag: Ground
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, -2]
+      Rotation: [0, 0, 0]
+      Scale: [30, 1, 30]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001000
+      Visible: true
+  - Entity: 17100000000000000005
+    TagComponent:
+      Tag: Sphere_Standard
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-3.125, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000001
+      Visible: true
+  - Entity: 17100000000000000006
+    TagComponent:
+      Tag: Sphere_Clearcoat
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.875, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000002
+      Visible: true
+  - Entity: 17100000000000000007
+    TagComponent:
+      Tag: Sphere_Sheen
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-0.625, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000003
+      Visible: true
+  - Entity: 17100000000000000008
+    TagComponent:
+      Tag: Sphere_Subsurface
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0.625, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000004
+      Visible: true
+  - Entity: 17100000000000000009
+    TagComponent:
+      Tag: Sphere_Anisotropy
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.875, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000005
+      Visible: true
+  - Entity: 17100000000000000010
+    TagComponent:
+      Tag: Sphere_Triplanar
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3.125, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000006
+      Visible: true
+  - Entity: 17100000000000000011
+    TagComponent:
+      Tag: Sphere_Detail
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.525, 0.5, -1.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000007
+      Visible: true
+  - Entity: 17100000000000000012
+    TagComponent:
+      Tag: Sphere_Graph
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.275, 0.5, -1.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000008
+      Visible: true
+  - Entity: 17100000000000000013
+    TagComponent:
+      Tag: Sphere_GraphInstance
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-0.025, 0.5, -1.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000009
+      Visible: true
+  - Entity: 17100000000000000014
+    TagComponent:
+      Tag: Sphere_FunctionUser
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.225, 0.5, -1.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000010
+      Visible: true
+  - Entity: 17100000000000000015
+    TagComponent:
+      Tag: Sphere_CutoutGraph
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.475, 1.8, -1.6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 17000000000000000012
+      Visible: true

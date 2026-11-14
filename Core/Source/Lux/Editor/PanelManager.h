@@ -23,6 +23,12 @@ namespace Lux {
 		// IsOpen as last written to EditorLayout.yaml. Panels are opened from many places (View
 		// menu, commands, layout modes), so the manager saves whenever the two differ.
 		mutable bool SavedIsOpen = false;
+		bool ObservedIsOpen = false;
+		const char* GetWindowName() const
+		{
+			const char* title = Panel ? Panel->GetWindowName() : nullptr;
+			return title ? title : Name;
+		}
 	};
 
 	// NOTE(Peter): For now this just corresponds to what menu the panel will be listed in (in Hazelnut)
@@ -49,8 +55,16 @@ namespace Lux {
 		void SetSceneContext(const Ref<Scene>& context);
 		void OnProjectChanged(const Ref<Project>& project);
 
-		void Serialize() const;
-		void Deserialize();
+		// The open state and SaveState of every panel. Without a path: the per-user
+		// EditorLayout.yaml; a saved layout passes its own file.
+		void Serialize(const std::filesystem::path& path = {}) const;
+		void Deserialize(const std::filesystem::path& path = {});
+		std::string CaptureState() const;
+		bool ApplyState(const std::string& text);
+		void SetOpen(uint32_t panelID, bool open);
+		// An editor workspace owner replaces the legacy global layout persistence.
+		void SetWorkspaceManaged(bool managed) { m_WorkspaceManaged = managed; }
+		uint64_t GetVisibilityRevision() const { return m_VisibilityRevision; }
 
 		std::unordered_map<uint32_t, PanelData>& GetPanels(PanelCategory category) { return m_Panels[(size_t)category]; }
 		const std::unordered_map<uint32_t, PanelData>& GetPanels(PanelCategory category) const { return m_Panels[(size_t)category]; }
@@ -71,6 +85,7 @@ namespace Lux {
 			}
 
 			panelMap[id] = panelData;
+			panelMap[id].ObservedIsOpen = panelData.IsOpen;
 			return panelData.Panel.As<TPanel>();
 		}
 
@@ -110,6 +125,8 @@ namespace Lux {
 		// Panels start at their registered defaults and the saved layout is read on project load;
 		// saving before that would overwrite the user's layout with the defaults.
 		bool m_LayoutLoaded = false;
+		bool m_WorkspaceManaged = false;
+		uint64_t m_VisibilityRevision = 0;
 	};
 
 }

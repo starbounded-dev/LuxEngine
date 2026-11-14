@@ -1,4 +1,5 @@
 Scene: Benchmark
+SoundBanks: [8412860126786977355, 8412860126786977356]
 PostProcess:
   Exposure: 1
   ExposureMode: 0
@@ -2287,14 +2288,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000007184
     TagComponent:
       Tag: Capsule 0119
@@ -31295,9 +31290,7 @@ Entities:
       PlayOnAwake: true
       Priority: 69
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006380
     TagComponent:
@@ -31358,14 +31351,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000006377
     TagComponent:
       Tag: Floor
@@ -31398,14 +31385,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000006376
     TagComponent:
       Tag: Door Lintel
@@ -31644,9 +31625,7 @@ Entities:
       PlayOnAwake: true
       Priority: 68
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006366
     TagComponent:
@@ -31707,14 +31686,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000006363
     TagComponent:
       Tag: Floor
@@ -31747,14 +31720,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000006362
     TagComponent:
       Tag: Door Lintel
@@ -31993,9 +31960,7 @@ Entities:
       PlayOnAwake: true
       Priority: 67
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006352
     TagComponent:
@@ -32056,14 +32021,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000006349
     TagComponent:
       Tag: Floor
@@ -32096,14 +32055,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000006348
     TagComponent:
       Tag: Door Lintel
@@ -32342,9 +32295,7 @@ Entities:
       PlayOnAwake: true
       Priority: 66
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006338
     TagComponent:
@@ -32405,14 +32356,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000006335
     TagComponent:
       Tag: Floor
@@ -32445,14 +32390,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000006334
     TagComponent:
       Tag: Door Lintel
@@ -32691,9 +32630,7 @@ Entities:
       PlayOnAwake: true
       Priority: 65
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006324
     TagComponent:
@@ -32754,14 +32691,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000006321
     TagComponent:
       Tag: Floor
@@ -32794,14 +32725,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000006320
     TagComponent:
       Tag: Door Lintel
@@ -33040,9 +32965,7 @@ Entities:
       PlayOnAwake: true
       Priority: 64
       DistanceCulling: true
-      EventGuid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 8743721474366396702
       ParameterOverrides: []
   - Entity: 16100000000000006310
     TagComponent:
@@ -33103,14 +33026,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000006307
     TagComponent:
       Tag: Floor
@@ -33143,14 +33060,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000006306
     TagComponent:
       Tag: Door Lintel
@@ -33911,13 +33822,8 @@ Entities:
       FadeTime: 0.5
       Volume: 0.35
       AmbienceEvent:
-        Guid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+        Sound: 8743721474366396702
+      Snapshot: {}
   - Entity: 16100000000000006271
     TagComponent:
       Tag: Sponza
@@ -129091,9 +128997,7 @@ Entities:
       Scale: [1, 1, 1]
     MusicDirectorComponent:
       Event:
-        Guid: '{755abc01-cd89-4daf-a27b-04d57b807b3d}'
-        Path: ""
-        BankName: ""
+        Sound: 8743721474366396703
       PlayOnAwake: true
       InitialState: ""
       Intensity: 0.5
@@ -129107,14 +129011,18 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1.2, 1.2, 1.2]
     ScriptComponent:
-      ClassName: LuxSample.FmodAudioDemo
-      ScriptID: 326709275
+      ClassName: LuxSample.AudioDemo
+      ScriptID: 2540223341
       StoredFields:
-        - ID: 4158056058
+        - ID: 540913990
+          Name: Sound
+          Type: Sound
+          Data: 9117899157295655424
+        - ID: 4191703384
           Name: PlayOnStart
           Type: Bool
           Data: false
-        - ID: 2314636909
+        - ID: 1161945767
           Name: Volume
           Type: Float
           Data: 0.6
@@ -129129,9 +129037,7 @@ Entities:
       PlayOnAwake: false
       Priority: 128
       DistanceCulling: true
-      EventGuid: '{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}'
-      EventPath: ""
-      EventBank: ""
+      EventSound: 9117899157295655424
       ParameterOverrides: []
   - Entity: 16100000000000000025
     TagComponent:
@@ -129480,14 +129386,8 @@ Entities:
       BlendDistance: 1.5
       FadeTime: 0.5
       Volume: 1
-      AmbienceEvent:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      Snapshot:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      AmbienceEvent: {}
+      Snapshot: {}
   - Entity: 16100000000000000003
     TagComponent:
       Tag: Ground
@@ -129520,14 +129420,8 @@ Entities:
       StrideLength: 0.7
       GroundProbeDistance: 1.2
       FootstepWeight: 75
-      FootstepOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
-      ImpactOverride:
-        Guid: ""
-        Path: ""
-        BankName: ""
+      FootstepOverride: {}
+      ImpactOverride: {}
   - Entity: 16100000000000000002
     TagComponent:
       Tag: Sky

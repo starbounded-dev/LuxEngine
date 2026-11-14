@@ -1,0 +1,196 @@
+#ifndef LUX_NOISE_GLSLH
+#define LUX_NOISE_GLSLH
+
+// Procedural noise for material graphs, written for LuxEngine from the published algorithms:
+// PCG3D hashing [Jarzynski & Olano 2020], gradient noise [Perlin 2002, quintic fade], Musgrave's
+// fractal sums [Ebert et al., "Texturing & Modeling"] in Blender's 4.1+ parameters (Detail =
+// octaves, Roughness = gain per octave, Lacunarity = frequency step), and Worley cell noise.
+
+uvec3 LuxPcg3d(uvec3 v)
+{
+	v = v * 1664525u + 1013904223u;
+	v.x += v.y * v.z;
+	v.y += v.z * v.x;
+	v.z += v.x * v.y;
+	v ^= v >> 16u;
+	v.x += v.y * v.z;
+	v.y += v.z * v.x;
+	v.z += v.x * v.y;
+	return v;
+}
+
+// Three values in [0, 1) for an integer lattice cell.
+vec3 LuxHashCell(ivec3 cell)
+{
+	return vec3(LuxPcg3d(uvec3(cell))) * (1.0 / 4294967295.0);
+}
+
+float LuxGradientCorner(ivec3 cell, vec3 offset)
+{
+	vec3 gradient = normalize(LuxHashCell(cell) * 2.0 - 1.0 + vec3(1e-6));
+	return dot(gradient, offset);
+}
+
+// Gradient noise, about [-1, 1].
+float LuxGradientNoise(vec3 p)
+{
+	ivec3 i = ivec3(floor(p));
+	vec3 f = fract(p);
+	vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+	float n000 = LuxGradientCorner(i + ivec3(0, 0, 0), f - vec3(0.0, 0.0, 0.0));
+	float n100 = LuxGradientCorner(i + ivec3(1, 0, 0), f - vec3(1.0, 0.0, 0.0));
+	float n010 = LuxGradientCorner(i + ivec3(0, 1, 0), f - vec3(0.0, 1.0, 0.0));
+	float n110 = LuxGradientCorner(i + ivec3(1, 1, 0), f - vec3(1.0, 1.0, 0.0));
+	float n001 = LuxGradientCorner(i + ivec3(0, 0, 1), f - vec3(0.0, 0.0, 1.0));
+	float n101 = LuxGradientCorner(i + ivec3(1, 0, 1), f - vec3(1.0, 0.0, 1.0));
+	float n011 = LuxGradientCorner(i + ivec3(0, 1, 1), f - vec3(0.0, 1.0, 1.0));
+	float n111 = LuxGradientCorner(i + ivec3(1, 1, 1), f - vec3(1.0, 1.0, 1.0));
+
+	float x00 = mix(n000, n100, u.x);
+	float x10 = mix(n010, n110, u.x);
+	float x01 = mix(n001, n101, u.x);
+	float x11 = mix(n011, n111, u.x);
+	return mix(mix(x00, x10, u.y), mix(x01, x11, u.y), u.z) * 1.15;
+}
+
+// Fractal noise. mode: 0 fBm (0..1), 1 multifractal, 2 ridged (0..1), 3 hybrid multifractal.
+// The fraction of Detail blends in the last octave, so Detail animates smoothly.
+float LuxNoiseFractal(vec3 p, float detail, float roughness, float lacunarity, int mode)
+{
+	detail = clamp(detail, 0.0, 15.0);
+	int octaves = int(detail);
+	float lastWeight = detail - float(octaves);
+	roughness = max(roughness, 0.0);
+	lacunarity = max(lacunarity, 1.0);
+
+	if (mode == 1)
+	{
+		float value = 1.0;
+		float amplitude = 1.0;
+		for (int i = 0; i <= octaves; i++)
+		{
+			value *= amplitude * LuxGradientNoise(p) + 1.0;
+			amplitude *= roughness;
+			p *= lacunarity;
+		}
+		if (lastWeight > 0.0)
+			value *= lastWeight * amplitude * LuxGradientNoise(p) + 1.0;
+		return value * 0.5;
+	}
+
+	if (mode == 2)
+	{
+		float signal = 1.0 - abs(LuxGradientNoise(p));
+		signal *= signal;
+		float result = signal;
+		float total = 1.0;
+		float amplitude = 1.0;
+		for (int i = 1; i <= octaves; i++)
+		{
+			p *= lacunarity;
+			float weight = clamp(signal * 2.0, 0.0, 1.0);
+			amplitude *= roughness;
+			signal = 1.0 - abs(LuxGradientNoise(p));
+			signal *= signal * weight;
+			result += signal * amplitude;
+			total += amplitude;
+		}
+		return result / total;
+	}
+
+	if (mode == 3)
+	{
+		float value = LuxGradientNoise(p) + 0.75;
+		float weight = value;
+		float amplitude = roughness;
+		p *= lacunarity;
+		for (int i = 1; i <= octaves; i++)
+		{
+			weight = min(weight, 1.0);
+			float signal = (LuxGradientNoise(p) + 0.75) * amplitude;
+			value += weight * signal;
+			weight *= signal;
+			amplitude *= roughness;
+			p *= lacunarity;
+		}
+		return value * 0.5;
+	}
+
+	float sum = 0.0;
+	float amplitude = 1.0;
+	float total = 0.0;
+	for (int i = 0; i <= octaves; i++)
+	{
+		sum += LuxGradientNoise(p) * amplitude;
+		total += amplitude;
+		amplitude *= roughness;
+		p *= lacunarity;
+	}
+	if (lastWeight > 0.0)
+	{
+		sum += LuxGradientNoise(p) * amplitude * lastWeight;
+		total += amplitude * lastWeight;
+	}
+	return 0.5 + 0.5 * sum / max(total, 1e-5);
+}
+
+struct LuxVoronoiResult
+{
+	float Distance;
+	vec3 Color;    // a random colour per cell
+	vec3 Position; // the nearest feature point, in the noise's space
+};
+
+// Worley cell noise. mode: 0 distance to the nearest point (F1), 1 to the second nearest (F2),
+// 2 distance to the edge between the two nearest cells.
+LuxVoronoiResult LuxVoronoi(vec3 p, float randomness, int mode)
+{
+	randomness = clamp(randomness, 0.0, 1.0);
+	ivec3 cell = ivec3(floor(p));
+	vec3 local = fract(p);
+
+	float f1 = 1e9;
+	float f2 = 1e9;
+	vec3 p1 = vec3(0.0);
+	vec3 p2 = vec3(0.0);
+	ivec3 nearestCell = cell;
+	for (int z = -1; z <= 1; z++)
+	{
+		for (int y = -1; y <= 1; y++)
+		{
+			for (int x = -1; x <= 1; x++)
+			{
+				ivec3 offset = ivec3(x, y, z);
+				vec3 point = vec3(offset) + LuxHashCell(cell + offset) * randomness;
+				float d = distance(point, local);
+				if (d < f1)
+				{
+					f2 = f1;
+					p2 = p1;
+					f1 = d;
+					p1 = point;
+					nearestCell = cell + offset;
+				}
+				else if (d < f2)
+				{
+					f2 = d;
+					p2 = point;
+				}
+			}
+		}
+	}
+
+	LuxVoronoiResult result;
+	if (mode == 1)
+		result.Distance = f2;
+	else if (mode == 2)
+		result.Distance = abs(dot(0.5 * (p1 + p2) - local, normalize(p2 - p1 + vec3(1e-6))));
+	else
+		result.Distance = f1;
+	result.Color = LuxHashCell(nearestCell + ivec3(17, 31, 47));
+	result.Position = vec3(cell) + p1;
+	return result;
+}
+
+#endif // LUX_NOISE_GLSLH

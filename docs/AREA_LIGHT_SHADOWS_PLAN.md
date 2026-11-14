@@ -1,5 +1,7 @@
 # LuxEngine Area Light Shadows Plan
 
+**Status (2026-11-09): done; the owner confirmed it works in the editor.**
+
 Adds shadows to the area lights that `docs/RENDER_FEATURES_PLAN.md` phases 1–2 shipped unshadowed
 (`AreaLightComponent`: rect, disk, sphere, tube; LTC in the "Area Lights" pass and in
 `HazelPBR_Transparent.glsl`). Each shadowed area light renders one or more tiles of the existing

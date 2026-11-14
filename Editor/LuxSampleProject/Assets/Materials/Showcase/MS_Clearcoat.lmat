@@ -1,0 +1,7 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.7, 0.18, 0.15]
+  Metalness: 0
+  Roughness: 0.6
+  Clearcoat: 1
+  ClearcoatRoughness: 0.03

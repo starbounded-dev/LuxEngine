@@ -29,9 +29,15 @@ namespace Lux
 
 		void OnImGuiRender(bool& isOpen) override;
 		void OnProjectChanged(const Ref<Project>& project) override;
+		void OnEvent(Event& event) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
 
 		void OpenMaterial(AssetHandle handle);
 		void SetUndoCallback(UndoPushFn callback) { m_PushUndo = std::move(callback); }
+#ifndef LUX_DIST
+		static bool RunSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+#endif
 
 	private:
 		// Every property the editor can change, so a whole edit can be captured, compared, undone,
@@ -51,6 +57,9 @@ namespace Lux
 			AssetHandle RoughnessMap = 0;
 			MaterialSurfaceParameters Surface;
 			int32_t AcousticTag = -1;
+			AssetHandle Parent = 0;
+			std::set<std::string, std::less<>> Overrides;
+			std::map<std::string, MaterialGraphParameterValue, std::less<>> GraphParameters;
 
 			bool operator==(const MaterialState& other) const = default;
 
@@ -63,18 +72,27 @@ namespace Lux
 			AssetHandle Handle = 0;
 			MaterialState Saved;          // state on disk (captured at open and on save)
 			MaterialState EditBaseline;   // state before the edit currently in progress
+			MaterialState Propagated;     // state last pushed to the material's instances
+			std::string SavedGraph;       // the graph on disk (MaterialGraphCanvas::Snapshot), empty without one
+			std::string SaveError;
+			std::string TabLabel;
+			std::string DisplayPath;
+			std::filesystem::path LabelPath;
 			bool EditInProgress = false;
 		};
 
 		Document* GetActiveDocument();
 		void CloseDocument(size_t index);
-		void SaveDocument(Document& document);
+		bool SaveDocument(Document& document);
+		void RevertDocument(Document& document, Ref<MaterialAsset> material);
 		bool IsDirty(const Document& document) const;
 
 		void UI_Tabs();
 		void UI_Toolbar(Document& document, Ref<MaterialAsset> material);
 		void UI_Preview(float width);
 		void UI_Properties(Document& document, Ref<MaterialAsset> material);
+		void UI_Instance(Ref<MaterialAsset> material);
+		void UI_GraphParameters(Ref<MaterialAsset> material);
 		void UI_CloseConfirm();
 		void TrackEdit(Document& document, Ref<MaterialAsset> material);
 
@@ -87,6 +105,14 @@ namespace Lux
 		bool m_OpenCloseConfirm = false;
 
 		Ref<MaterialPreview> m_Preview;
+		Scope<class MaterialGraphCanvas> m_GraphCanvas;
+		bool m_ShowGraph = false;
+		bool m_ShowPreview = true;
+		bool m_NarrowPreview = false;
+		bool m_Compact = false;
+		bool m_KeyboardFocus = false;
+		float m_PreviewFraction = 0.3f;
+		AssetHandle m_OpenAfterFrame = 0;
 		UndoPushFn m_PushUndo;
 	};
 }

@@ -13,6 +13,11 @@
 #include <regex>
 
 namespace Lux::Utils {
+	std::string PathToUTF8(const std::filesystem::path& path)
+	{
+		const auto utf8 = path.generic_u8string();
+		return {reinterpret_cast<const char*>(utf8.data()), utf8.size()};
+	}
 
 	namespace String {
 

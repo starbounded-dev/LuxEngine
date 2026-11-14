@@ -8,6 +8,7 @@
 #include "AudioOcclusionSettings.h"
 #include "Lux/Core/UUID.h"
 #include <glm/glm.hpp>
+#include <soundwave/AcousticPath.h>
 #include <array>
 #include <functional>
 #include <span>
@@ -27,7 +28,7 @@ namespace Lux
 	};
 
 	// One obstruction on the path. Solid walls have a thickness (End - Start); flat walls are
-	// one-sided or non-watertight surfaces, which Asterwave also treats as a fixed per-touch loss.
+	// one-sided or non-watertight surfaces, which Soundwave also treats as a fixed per-touch loss.
 	struct AudioOcclusionWall
 	{
 		UUID Entity = 0;
@@ -48,11 +49,13 @@ namespace Lux
 		float LossLF = 0.0f; // dB, sum over walls, capped
 		float LossHF = 0.0f;
 		std::vector<AudioOcclusionWall> Walls;
+		// The library owns the reduction; Walls retains entity IDs for the editor overlay.
+		Soundwave::Path Measurement;
 	};
 
-	// Engine-side occlusion from raycasts through the acoustic geometry. This is the default
-	// source for the Studio Occlusion parameter; projects can select the ray-traced result instead.
-	// It uses the same material semantics as Asterwave: TransmissionLF/HF is the thickness that costs
+	// Engine-side occlusion from physics raycasts through the acoustic geometry: the temporary
+	// comparison oracle for Soundwave (CompareRaycast). It uses the same material semantics so the
+	// two agree: TransmissionLF/HF is the thickness that costs
 	// 30 dB, FlatTransmissionLF/HF the energy fraction lost on a one-sided surface.
 	//
 	// Main thread only. The caller supplies the raycast so this stays independent of Physics.
@@ -71,7 +74,7 @@ namespace Lux
 		void Configure(const AcousticMaterialSettings& materials, const AudioOcclusionSettings& settings = {});
 
 		// Acoustic geometry for this update: mesh colliders become materials by entity, portals
-		// become boxes. portalOpen returns the Open that Asterwave last applied for a portal entity.
+		// become boxes. portalOpen, when set, overrides a portal entity's authored Open.
 		void SetGeometry(std::span<const AudioGeometryInput> inputs, const std::function<float(UUID)>& portalOpen);
 
 		// Re-evaluates due sources within the cast budget and smooths every source's gain.

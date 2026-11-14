@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "MaterialSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -9,6 +10,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Material.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <fstream>
@@ -100,6 +102,29 @@ namespace Lux
 				return MaterialAlphaMode::Cutout;
 			if (value == "Blend")
 				return MaterialAlphaMode::Blend;
+			return fallback;
+		}
+
+		static const char* MappingToString(MaterialMapping mapping)
+		{
+			switch (mapping)
+			{
+				case MaterialMapping::UV: return "UV";
+				case MaterialMapping::TriplanarWorld: return "TriplanarWorld";
+				case MaterialMapping::TriplanarObject: return "TriplanarObject";
+			}
+			return "UV";
+		}
+
+		static MaterialMapping ReadMapping(const Yaml::Node& node, MaterialMapping fallback)
+		{
+			const std::string value = node ? node.as<std::string>("") : std::string{};
+			if (value == "UV")
+				return MaterialMapping::UV;
+			if (value == "TriplanarWorld")
+				return MaterialMapping::TriplanarWorld;
+			if (value == "TriplanarObject")
+				return MaterialMapping::TriplanarObject;
 			return fallback;
 		}
 
@@ -310,11 +335,101 @@ namespace Lux
 			}
 			if (surface.DiffuseTransmissionMap)
 				WriteTextureReference(out, "DiffuseTransmissionMap", surface.DiffuseTransmissionMap, textureReferenceSerialization);
+			if (surface.Clearcoat != defaults.Clearcoat)
+				out << Yaml::Key << "Clearcoat" << Yaml::Value << surface.Clearcoat;
+			if (surface.ClearcoatRoughness != defaults.ClearcoatRoughness)
+				out << Yaml::Key << "ClearcoatRoughness" << Yaml::Value << surface.ClearcoatRoughness;
+			if (surface.SheenColor != defaults.SheenColor)
+			{
+				out << Yaml::Key << "SheenColor" << Yaml::Value;
+				WriteVec3(out, surface.SheenColor);
+			}
+			if (surface.SheenRoughness != defaults.SheenRoughness)
+				out << Yaml::Key << "SheenRoughness" << Yaml::Value << surface.SheenRoughness;
+			if (surface.SubsurfaceColor != defaults.SubsurfaceColor)
+			{
+				out << Yaml::Key << "SubsurfaceColor" << Yaml::Value;
+				WriteVec3(out, surface.SubsurfaceColor);
+			}
+			if (surface.SubsurfaceThickness != defaults.SubsurfaceThickness)
+				out << Yaml::Key << "SubsurfaceThickness" << Yaml::Value << surface.SubsurfaceThickness;
+			if (surface.Anisotropy != defaults.Anisotropy)
+				out << Yaml::Key << "Anisotropy" << Yaml::Value << surface.Anisotropy;
+			if (surface.AnisotropyRotation != defaults.AnisotropyRotation)
+				out << Yaml::Key << "AnisotropyRotation" << Yaml::Value << surface.AnisotropyRotation;
+			if (surface.Mapping != defaults.Mapping)
+				out << Yaml::Key << "Mapping" << Yaml::Value << MappingToString(surface.Mapping);
+			if (surface.TriplanarSharpness != defaults.TriplanarSharpness)
+				out << Yaml::Key << "TriplanarSharpness" << Yaml::Value << surface.TriplanarSharpness;
+			if (surface.DetailAlbedoMap)
+				WriteTextureReference(out, "DetailAlbedoMap", surface.DetailAlbedoMap, textureReferenceSerialization);
+			if (surface.DetailNormalMap)
+				WriteTextureReference(out, "DetailNormalMap", surface.DetailNormalMap, textureReferenceSerialization);
+			if (surface.DetailMaskMap)
+				WriteTextureReference(out, "DetailMaskMap", surface.DetailMaskMap, textureReferenceSerialization);
+			if (surface.DetailTiling != defaults.DetailTiling)
+			{
+				out << Yaml::Key << "DetailTiling" << Yaml::Value;
+				WriteVec2(out, surface.DetailTiling);
+			}
+			if (surface.DetailNormalStrength != defaults.DetailNormalStrength)
+				out << Yaml::Key << "DetailNormalStrength" << Yaml::Value << surface.DetailNormalStrength;
 			const int32_t acousticTag = materialAsset->GetAcousticTag();
 			if (acousticTag >= 0 && IsValidAcousticMaterial(static_cast<AcousticMaterial>(acousticTag)))
 				out << Yaml::Key << "AcousticMaterial" << Yaml::Value << AcousticMaterialName(static_cast<AcousticMaterial>(acousticTag));
 
 			out << Yaml::Key << "MaterialFlags" << Yaml::Value << materialFlags;
+
+			// A graph: written by the material that owns it; an asset pack also gives every instance its
+			// own copy and the graph's index in the exported shaders.
+			const bool packed = textureReferenceSerialization == TextureReferenceSerialization::AssetHandles;
+			if (Ref<MaterialGraph> graph = materialAsset->GetGraph(); graph && (packed || !materialAsset->GetParent()))
+			{
+				out << Yaml::Key << "Graph" << Yaml::Value;
+				graph->Serialize(out);
+				if (packed)
+				{
+					out << Yaml::Key << "GraphIndex" << Yaml::Value << graph->DispatchIndex;
+					out << Yaml::Key << "GraphLayout" << Yaml::Value << Yaml::BeginSeq;
+					for (const MaterialGraphParameter& parameter : graph->GetParameters())
+					{
+						out << Yaml::BeginMap;
+						out << Yaml::Key << "Name" << Yaml::Value << parameter.Name;
+						out << Yaml::Key << "Kind" << Yaml::Value << static_cast<uint32_t>(parameter.Kind);
+						out << Yaml::Key << "Slot" << Yaml::Value << parameter.Slot;
+						out << Yaml::Key << "Default" << Yaml::Value << parameter.Default;
+						out << Yaml::Key << "DefaultTexture" << Yaml::Value << static_cast<uint64_t>(parameter.DefaultTexture);
+						out << Yaml::Key << "SRGB" << Yaml::Value << parameter.SRGB;
+						out << Yaml::Key << "Exposed" << Yaml::Value << parameter.Exposed;
+						out << Yaml::EndMap;
+					}
+					out << Yaml::EndSeq;
+				}
+			}
+			if (!materialAsset->GetGraphParameters().empty())
+			{
+				out << Yaml::Key << "GraphParameters" << Yaml::Value << Yaml::BeginMap;
+				for (const auto& [name, value] : materialAsset->GetGraphParameters())
+				{
+					out << Yaml::Key << name << Yaml::Value << Yaml::BeginMap;
+					out << Yaml::Key << "Value" << Yaml::Value << value.Value;
+					if (value.Texture)
+						WriteTextureReference(out, "Texture", value.Texture, textureReferenceSerialization);
+					out << Yaml::EndMap;
+				}
+				out << Yaml::EndMap;
+			}
+
+			// A material instance: its parent and the values it sets itself. The values above are
+			// all written anyway, so the file loads as it was saved without the parent.
+			if (const AssetHandle parent = materialAsset->GetParent())
+			{
+				out << Yaml::Key << "Parent" << Yaml::Value << static_cast<uint64_t>(parent);
+				out << Yaml::Key << "Overrides" << Yaml::Value << Yaml::BeginSeq;
+				for (const std::string& key : materialAsset->GetOverrides())
+					out << key;
+				out << Yaml::EndSeq;
+			}
 
 			out << Yaml::EndMap;
 			out << Yaml::EndMap;
@@ -347,6 +462,9 @@ namespace Lux
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["OcclusionMap"]), handle);
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["HeightMap"]), handle);
 			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DiffuseTransmissionMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DetailAlbedoMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DetailNormalMap"]), handle);
+			AssetManager::RegisterDependency(ResolveTextureReference(materialNode["DetailMaskMap"]), handle);
 		}
 
 		static bool DeserializeMaterialFromYAML(const std::string& yamlString, Ref<MaterialAsset>& targetMaterialAsset, AssetHandle handle)
@@ -412,6 +530,21 @@ namespace Lux
 			surface.DiffuseTransmission = materialNode["DiffuseTransmission"].as<float>(surface.DiffuseTransmission);
 			surface.DiffuseTransmissionColor = ReadVec3(materialNode["DiffuseTransmissionColor"], surface.DiffuseTransmissionColor);
 			surface.DiffuseTransmissionMap = ResolveTextureReference(materialNode["DiffuseTransmissionMap"]);
+			surface.Clearcoat = materialNode["Clearcoat"].as<float>(surface.Clearcoat);
+			surface.ClearcoatRoughness = materialNode["ClearcoatRoughness"].as<float>(surface.ClearcoatRoughness);
+			surface.SheenColor = ReadVec3(materialNode["SheenColor"], surface.SheenColor);
+			surface.SheenRoughness = materialNode["SheenRoughness"].as<float>(surface.SheenRoughness);
+			surface.SubsurfaceColor = ReadVec3(materialNode["SubsurfaceColor"], surface.SubsurfaceColor);
+			surface.SubsurfaceThickness = materialNode["SubsurfaceThickness"].as<float>(surface.SubsurfaceThickness);
+			surface.Anisotropy = materialNode["Anisotropy"].as<float>(surface.Anisotropy);
+			surface.AnisotropyRotation = materialNode["AnisotropyRotation"].as<float>(surface.AnisotropyRotation);
+			surface.Mapping = ReadMapping(materialNode["Mapping"], surface.Mapping);
+			surface.TriplanarSharpness = materialNode["TriplanarSharpness"].as<float>(surface.TriplanarSharpness);
+			surface.DetailAlbedoMap = ResolveTextureReference(materialNode["DetailAlbedoMap"]);
+			surface.DetailNormalMap = ResolveTextureReference(materialNode["DetailNormalMap"]);
+			surface.DetailMaskMap = ResolveTextureReference(materialNode["DetailMaskMap"]);
+			surface.DetailTiling = ReadVec2(materialNode["DetailTiling"], surface.DetailTiling);
+			surface.DetailNormalStrength = materialNode["DetailNormalStrength"].as<float>(surface.DetailNormalStrength);
 
 			// Before the maps: the albedo's mip chain depends on the alpha mode and cutoff, so it is built
 			// once, for the ones the file has.
@@ -446,38 +579,111 @@ namespace Lux
 			if (materialNode["MaterialFlags"])
 				targetMaterialAsset->GetMaterial()->SetFlags(materialNode["MaterialFlags"].as<uint32_t>());
 
+			if (const Yaml::Node graphNode = materialNode["Graph"])
+			{
+				if (Ref<MaterialGraph> graph = MaterialGraph::Deserialize(graphNode))
+				{
+					graph->DispatchIndex = materialNode["GraphIndex"].as<uint32_t>(0);
+					if (const Yaml::Node layout = materialNode["GraphLayout"])
+					{
+						graph->HasPackedParameters = true;
+						for (const Yaml::Node item : layout)
+						{
+							MaterialGraphParameter parameter;
+							parameter.Name = item["Name"].as<std::string>("");
+							parameter.Kind = static_cast<MaterialGraphParameterKind>(item["Kind"].as<uint32_t>(0));
+							parameter.Slot = item["Slot"].as<uint32_t>(0);
+							parameter.Default = item["Default"].as<glm::vec4>(glm::vec4(0.0f));
+							parameter.DefaultTexture = item["DefaultTexture"].as<uint64_t>(0);
+							parameter.SRGB = item["SRGB"].as<bool>(true);
+							parameter.Exposed = item["Exposed"].as<bool>(true);
+							graph->PackedParameters.push_back(parameter);
+						}
+					}
+					targetMaterialAsset->SetGraph(graph);
+				}
+			}
+			std::map<std::string, MaterialGraphParameterValue, std::less<>> graphParameters;
+			for (const auto& entry : materialNode["GraphParameters"])
+			{
+				MaterialGraphParameterValue value;
+				value.Value = entry.second["Value"].as<glm::vec4>(glm::vec4(0.0f));
+				value.Texture = ResolveTextureReference(entry.second["Texture"]);
+				graphParameters[entry.first.as<std::string>("")] = value;
+			}
+			targetMaterialAsset->SetGraphParameters(std::move(graphParameters));
+
+			if (const AssetHandle parent = materialNode["Parent"].as<uint64_t>(0))
+			{
+				std::set<std::string, std::less<>> overrides;
+				for (const Yaml::Node key : materialNode["Overrides"])
+					overrides.emplace(key.as<std::string>(""));
+				targetMaterialAsset->SetOverrides(std::move(overrides));
+				targetMaterialAsset->Handle = handle;
+				AssetManager::RegisterDependency(parent, handle);
+
+				// In the editor, take the parent's current values; a pack already holds the resolved
+				// ones. Loading the parent loads its own parent, so a loop in the files is cut off.
+				static thread_local int s_ParentDepth = 0;
+				if (!Project::GetEditorAssetManager())
+				{
+					targetMaterialAsset->SetParent(0);
+				}
+				else if (s_ParentDepth >= 32 || !targetMaterialAsset->SetParent(parent))
+					LUX_CORE_WARN_TAG("AssetManager", "Material {}: parent {} is not a material or makes a loop; keeping its own values", static_cast<uint64_t>(handle), static_cast<uint64_t>(parent));
+				else
+				{
+					s_ParentDepth++;
+					Ref<MaterialAsset> parentAsset = AssetManager::GetAsset<MaterialAsset>(parent);
+					s_ParentDepth--;
+					if (parentAsset)
+						targetMaterialAsset->InheritFrom(*parentAsset);
+					else
+						LUX_CORE_WARN_TAG("AssetManager", "Material {}: parent {} is missing; keeping its own values", static_cast<uint64_t>(handle), static_cast<uint64_t>(parent));
+				}
+			}
+
+			// The editor compiles the graphs a project's materials own into the surface shaders.
+			if (targetMaterialAsset->GetGraph() && !targetMaterialAsset->GetParent() && Project::GetEditorAssetManager())
+				MaterialGraphRegistry::Register(handle);
+
 			return true;
 		}
 	}
 
 	void MaterialSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
 	{
+		TrySerialize(metadata, asset);
+	}
+
+	bool MaterialSerializer::TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+	{
 		Ref<MaterialAsset> materialAsset = asset.As<MaterialAsset>();
 		LUX_CORE_ASSERT(materialAsset);
 		if (!materialAsset || !materialAsset->GetMaterial())
 		{
-			LUX_CORE_ERROR("MaterialSerializer: Cannot serialize material '{}' because renderer resources are unavailable", metadata.FilePath.string());
-			return;
+			LUX_CORE_ERROR_TAG("AssetManager",
+							   "Cannot serialize material {}: renderer resources are unavailable",
+							   static_cast<uint64_t>(metadata.Handle));
+			return false;
 		}
 
 		const std::string serializedMaterial = SerializeMaterialToYAML(materialAsset, TextureReferenceSerialization::AssetPaths);
 		if (serializedMaterial.empty())
-			return;
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Cannot serialize material {}: the source snapshot is empty",
+							   static_cast<uint64_t>(metadata.Handle));
+			return false;
+		}
 
 		// The YAML writer ends a document with a newline; files from the older emitter (every committed
 		// .lmat) do not. That alone is no change, and rewriting for it would dirty each imported material
 		// whenever its mesh source loads.
 		if (Utils::String::TrimWhitespace(ReadMaterialYAML(metadata)) == Utils::String::TrimWhitespace(serializedMaterial))
-			return;
+			return true;
 
-		std::ofstream fout(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
-		if (!fout.is_open())
-		{
-			LUX_CORE_ERROR("MaterialSerializer: Could not open '{}' for writing", metadata.FilePath.string());
-			return;
-		}
-
-		fout << serializedMaterial;
+		return FileSystem::WriteFileAtomically(Project::GetEditorAssetManager()->GetFileSystemPath(metadata),
+											   serializedMaterial);
 	}
 
 	bool MaterialSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

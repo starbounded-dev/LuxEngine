@@ -363,13 +363,11 @@ after the file changes.
 ## Audio Debugger
 
 Read-only view of the live audio stack — backends, banks, events, voices, acoustics timings, bus
-meters and project validation — plus the controls for the ray-traced acoustics overlay drawn into
+meters and project validation — plus the controls for the Soundwave acoustics overlay drawn into
 the viewport. `Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, opened with **View → Audio
 Debugger**, closed by default and docked bottom in the default layout.
 
-Two things to know before editing it: it must not branch on `LUX_ENABLE_FMOD` /
-`LUX_ENABLE_RAYTRACED_AUDIO` (Core-only defines, invisible to the Editor — each backend reports
-itself through its stats struct), and its `AudioVisualisationSettings` is *edited* here but *drawn*
+One thing to know before editing it: its `AudioVisualisationSettings` is *edited* here but *drawn*
 by `EditorLayer::OnOverlayRender`.
 
 Full page: **[Audio](Audio.md)**.

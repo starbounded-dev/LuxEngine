@@ -12,10 +12,37 @@
 
 namespace Lux {
 
+	class RefCounted;
+
+	// The weak half of a RefCounted object, created when its first WeakRef is. It outlives the object
+	// while WeakRefs remain, so a WeakRef tells a destroyed object from a new one that reuses the
+	// address, and WeakRef::Lock can take a strong reference without racing the final release.
+	struct WeakControlBlock
+	{
+		std::atomic<uint32_t> WeakCount = 0;       // one per WeakRef, plus one held by the live object
+		std::atomic<RefCounted*> Instance = nullptr; // cleared under Guard when the object is destroyed
+		std::atomic_flag Guard;
+	};
+
+	namespace RefUtils {
+		WeakControlBlock* AcquireWeakControl(const RefCounted& object);
+		void ReleaseWeakControl(WeakControlBlock* block);
+		void DetachWeakControl(const RefCounted& object);
+		// Adds a strong reference to the block's object and returns true, or false when it is
+		// destroyed or being destroyed (its count already reached zero).
+		bool TryLockWeakControl(WeakControlBlock* block);
+		// The same test without taking a reference: true while the object has strong references.
+		bool IsWeakControlAlive(WeakControlBlock* block);
+	}
+
 	class RefCounted
 	{
 	public:
-		virtual ~RefCounted() = default;
+		virtual ~RefCounted()
+		{
+			if (m_WeakControl.load(std::memory_order_acquire))
+				RefUtils::DetachWeakControl(*this);
+		}
 
 		RefCounted() = default;
 		RefCounted(const RefCounted&) {}
@@ -36,16 +63,28 @@ namespace Lux {
 			return --m_RefCount;
 		}
 
+		// Increments only a count that is not zero, so a weak lock never revives an object whose last
+		// strong reference is already gone.
+		bool TryIncRefCount() const
+		{
+			uint32_t count = m_RefCount.load();
+			while (count != 0)
+			{
+				if (m_RefCount.compare_exchange_weak(count, count + 1))
+					return true;
+			}
+			return false;
+		}
+
 		uint32_t GetRefCount() const { return m_RefCount.load(); }
 	private:
 		mutable std::atomic<uint32_t> m_RefCount = 0;
-	};
+		// Each object has its own; copying an object never shares its weak references.
+		mutable std::atomic<WeakControlBlock*> m_WeakControl = nullptr;
 
-	namespace RefUtils {
-		void AddToLiveReferences(void* instance);
-		void RemoveFromLiveReferences(void* instance);
-		bool IsLive(void* instance);
-	}
+		friend WeakControlBlock* RefUtils::AcquireWeakControl(const RefCounted& object);
+		friend void RefUtils::DetachWeakControl(const RefCounted& object);
+	};
 
 	template<typename T>
 	class Ref
@@ -207,13 +246,7 @@ namespace Lux {
 		void IncRef() const
 		{
 			if (m_Instance)
-			{
-				// The registry only needs the object while it lives, so register on the first reference
-				// alone. Every copy used to take the registry mutex and hash the pointer, which made Ref
-				// copies a measurable share of main-thread time.
-				if (m_Instance->IncRefCount() == 1)
-					RefUtils::AddToLiveReferences((void*)m_Instance);
-			}
+				m_Instance->IncRefCount();
 		}
 
 		void DecRef() const
@@ -225,7 +258,6 @@ namespace Lux {
 				// safe: two threads can't both see 0 and double-delete.
 				if (m_Instance->DecRefCount() == 0)
 				{
-					RefUtils::RemoveFromLiveReferences((void*)m_Instance);
 					delete m_Instance;
 					m_Instance = nullptr;
 				}
@@ -243,32 +275,64 @@ namespace Lux {
 	public:
 		WeakRef() = default;
 
-		WeakRef(Ref<T> ref)
+		WeakRef(const Ref<T>& ref)
+			: WeakRef(const_cast<T*>(ref.Raw()))
 		{
-			m_Instance = ref.Raw();
 		}
 
+		// Also valid for an object not yet owned by a Ref (its constructor registering `this`): it
+		// reads as dead until a Ref owns it.
 		WeakRef(T* instance)
+			: m_Instance(instance), m_Control(instance ? RefUtils::AcquireWeakControl(*instance) : nullptr)
 		{
-			m_Instance = instance;
 		}
 
-		T* operator->() { return m_Instance; }
-		const T* operator->() const { return m_Instance; }
+		WeakRef(const WeakRef& other)
+			: m_Instance(other.m_Instance), m_Control(other.m_Control)
+		{
+			if (m_Control)
+				m_Control->WeakCount.fetch_add(1, std::memory_order_relaxed);
+		}
 
-		T& operator*() { return *m_Instance; }
-		const T& operator*() const { return *m_Instance; }
+		WeakRef(WeakRef&& other) noexcept
+			: m_Instance(other.m_Instance), m_Control(other.m_Control)
+		{
+			other.m_Instance = nullptr;
+			other.m_Control = nullptr;
+		}
 
-		bool IsValid() const { return m_Instance ? RefUtils::IsLive(m_Instance) : false; }
+		WeakRef& operator=(WeakRef other) noexcept
+		{
+			std::swap(m_Instance, other.m_Instance);
+			std::swap(m_Control, other.m_Control);
+			return *this;
+		}
+
+		~WeakRef()
+		{
+			RefUtils::ReleaseWeakControl(m_Control);
+		}
+
+		// A strong reference that keeps the object alive while it is used, or null once it is
+		// destroyed or being destroyed. The only way to reach the object: a validity check followed
+		// by a raw access can lose the object to another thread in between.
+		Ref<T> Lock() const
+		{
+			if (!m_Control || !RefUtils::TryLockWeakControl(m_Control))
+				return nullptr;
+
+			// TryLockWeakControl's reference keeps the object alive until `strong` holds its own.
+			Ref<T> strong(m_Instance);
+			m_Instance->DecRefCount();
+			return strong;
+		}
+
+		// True while the object has strong references. Advisory across threads: use Lock to act on it.
+		bool IsValid() const { return m_Control && RefUtils::IsWeakControlAlive(m_Control); }
 		operator bool() const { return IsValid(); }
-
-		template<typename T2>
-		WeakRef<T2> As() const
-		{
-			return WeakRef<T2>(dynamic_cast<T2*>(m_Instance));
-		}
 	private:
 		T* m_Instance = nullptr;
+		WeakControlBlock* m_Control = nullptr;
 	};
 
 	// Helper function to create Ref objects (similar to std::make_shared)

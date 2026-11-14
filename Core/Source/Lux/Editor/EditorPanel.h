@@ -8,6 +8,8 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Core/Events/Event.h"
 
+namespace Lux::Yaml { class Writer; class Node; }
+
 namespace Lux {
 
 	class EditorPanel : public RefCounted
@@ -20,6 +22,15 @@ namespace Lux {
 		virtual void OnProjectChanged(const Ref<Project>& project){}
 		virtual void SetSceneContext(const Ref<Scene>& context){}
 		virtual void OnClose() {}
+		// Override when the ImGui title differs from the registered display name (e.g. an icon).
+		// Return a stable, null-terminated title; nullptr uses the display name.
+		virtual const char* GetWindowName() const { return nullptr; }
+
+		// What the panel remembers between sessions and in saved layouts, written as keys of a map
+		// beside its open state (PanelManager). Store choices the user made (open sections, the
+		// current page); a key missing on load keeps the panel's default.
+		virtual void SaveState(Yaml::Writer& out) const {}
+		virtual void LoadState(const Yaml::Node& state) {}
 	};
 
 }

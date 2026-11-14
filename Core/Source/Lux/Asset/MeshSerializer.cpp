@@ -11,10 +11,6 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Mesh.h"
 
-#ifndef LUX_DIST
-#include "AssimpMeshImporter.h"
-#endif
-
 #include <fstream>
 #include <sstream>
 
@@ -24,6 +20,9 @@ namespace Lux
 {
 	namespace
 	{
+		// Written once at startup, before the asset thread exists; read from that thread after.
+		MeshSourceSerializer::SourceImporter s_SourceImporter = nullptr;
+
 		static std::string ReadMeshYAML(const AssetMetadata& metadata)
 		{
 			std::ifstream stream(Project::GetActiveAssetDirectory() / metadata.FilePath);
@@ -152,21 +151,26 @@ namespace Lux
 	{
 	}
 
+	void MeshSourceSerializer::SetSourceImporter(SourceImporter importer)
+	{
+		s_SourceImporter = importer;
+	}
+
 	bool MeshSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
 	{
-#ifdef LUX_DIST
-		LUX_CORE_ERROR("MeshSourceSerializer cannot import source meshes in Dist builds: {}", metadata.FilePath.string());
-		return false;
-#else
-		AssimpMeshImporter importer(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
-		Ref<MeshSource> meshSource = importer.ImportToMeshSource();
+		if (!s_SourceImporter)
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "No source mesh importer is registered (MeshSourceSerializer::SetSourceImporter), cannot import {}", metadata.FilePath.string());
+			return false;
+		}
+
+		Ref<MeshSource> meshSource = s_SourceImporter(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
 		if (!meshSource)
 			return false;
 
 		meshSource->Handle = metadata.Handle;
 		asset = meshSource;
 		return true;
-#endif
 	}
 
 	bool MeshSourceSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const

@@ -1,5 +1,9 @@
 # Audio zones and snapshots — Phase 8
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Audio zones blend authored FMOD ambience and mixer snapshots as listeners move through the scene.
 They work in the editor's Play mode and exported runtime. FMOD Studio remains responsible for the
 sound, routing, spatialization, effects and snapshot mixer scope.
@@ -36,19 +40,19 @@ Multiple zones using the same snapshot share one instance with their summed, cap
 FMOD averages separate instances of the same snapshot, so independently starting that snapshot
 from scripts can change the resulting mix. Studio's own snapshot priority and scope still apply.
 
-## Zone reverb and Asterwave
+## Zone reverb and Soundwave
 
 Project Settings → Audio → **Zone Reverb** is saved with the project and included in exports:
 
 | Setting | Result |
 |---|---|
-| Layer zones and Asterwave | Both zone snapshots and Asterwave-driven event reverb are active. Default. |
-| Prefer zones | Active zone snapshot coverage reduces the Asterwave `ReverbSend` parameter. |
-| Prefer Asterwave | Zone snapshots are suppressed while Asterwave has valid ambience; otherwise zones apply. |
+| Layer zones and Soundwave | Both zone snapshots and Soundwave-driven event reverb are active. Default. |
+| Prefer zones | Active zone snapshot coverage reduces Soundwave's `ReverbSend` parameter. |
+| Prefer Soundwave | Zone snapshots are suppressed while Soundwave has a reverb measurement; otherwise zones apply. |
 
-Ambience beds and Asterwave occlusion are independent of this choice. The engine adjusts authored Studio
+Ambience beds and occlusion are independent of this choice. The engine adjusts authored Studio
 parameters; it does not create a second reverb DSP path. Missing banks or snapshots without the
-required intensity parameter are reported in the Audio log and do not suppress Asterwave reverb.
+required intensity parameter are reported in the Audio log and do not suppress Soundwave reverb.
 
 ## C#
 
@@ -101,7 +105,7 @@ Regenerate Premake projects because Phase 8 adds native source files.
 
 Verification for this implementation covers production zone geometry and priority blending,
 weighted/attenuation listeners, real FMOD SDK snapshot intensity and instance coalescing, ambience
-volume/fade/pause, Asterwave policy, bank/system reload and cleanup. The headless FMOD fixture uses a
+volume/fade/pause, reverb policy, bank/system reload and cleanup. The headless FMOD fixture uses a
 continuous Intensity parameter automating the snapshot dial. Project serializer tests cover YAML,
 format 19, older-format defaults and invalid/truncated mode bytes. Scene YAML tests cover every
 zone field and malformed values; the built-in scene roundtrip suite also covers copy/prefab data.

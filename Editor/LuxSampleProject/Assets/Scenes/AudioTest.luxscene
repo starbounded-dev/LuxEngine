@@ -88,7 +88,4 @@ Entities:
       PlayOnAwake: false
       Priority: 128
       DistanceCulling: false
-      EventGuid: "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
-      EventPath: event:/Fart
-      EventBank: Master.bank
       ParameterOverrides: []

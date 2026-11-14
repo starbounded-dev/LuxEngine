@@ -8,6 +8,11 @@ project "Editor"
 
 	links { "Core" }
 
+	-- The crash watchdog is built next to Editor.exe, where CrashWatchdog::Start looks for it.
+	if os.target() == "windows" then
+		dependson { "Lux-Watchdog" }
+	end
+
 	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE", }
 
 	if _OPTIONS["discord"] then
@@ -53,13 +58,6 @@ project "Editor"
 			}
 		end
 
-		-- Validated SDK roots are shared with the linker configuration.
-		do -- FMOD is required.
-			postbuildcommands {
-				'{COPY} "' .. FMODSDKRoot .. '/api/core/lib/x64/fmod.dll" "%{cfg.targetdir}"',
-				'{COPY} "' .. FMODSDKRoot .. '/api/studio/lib/x64/fmodstudio.dll" "%{cfg.targetdir}"',
-			}
-		end
 
 		-- Coral links nethost.lib on Windows (never statically), so the exe cannot start without
 		-- nethost.dll beside it. Take it from the .NET SDK pack Coral.Native found.
@@ -67,14 +65,31 @@ project "Editor"
 			'{COPY} "' .. _G["CORAL_NETHOST_BASE_PATH"] .. 'nethost.dll" "%{cfg.targetdir}"',
 		}
 
+		-- The shader compiler links shaderc_shared and dxcompiler from the Vulkan SDK, so copy them
+		-- beside the exe as well: a machine without the SDK's Bin on PATH (a user's PC, the
+		-- self-hosted CI runner) otherwise fails to start with "DLL not found" (0xC0000135).
+		-- Runtime export ships every DLL in this folder.
+		postbuildcommands {
+			'{COPY} "' .. os.getenv("VULKAN_SDK") .. '/Bin/dxcompiler.dll" "%{cfg.targetdir}"',
+		}
+
+		-- vulkan-1.dll comes with the GPU driver, not the SDK. Delay-load it so the exe still starts
+		-- for --version on a machine without one (the CI runner VM); EntryPoint.h reports a missing
+		-- loader before the engine needs it. xinput1_4.dll (gamepad rumble) is absent on Windows Server;
+		-- it is only called once an Xbox pad is connected.
+		linkoptions { "/DELAYLOAD:vulkan-1.dll", "/DELAYLOAD:xinput1_4.dll" }
+		links { "delayimp" }
+
 	filter { "system:windows", "configurations:Debug or configurations:Debug-AS" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.dll" "%{cfg.targetdir}"',
+			'{COPY} "' .. os.getenv("VULKAN_SDK") .. '/Bin/shaderc_sharedd.dll" "%{cfg.targetdir}"',
 		}
 
 	filter { "system:windows", "configurations:Release or configurations:Dist" }
 		postbuildcommands {
 			'{COPY} "../Core/vendor/assimp/bin/windows/Release/assimp-vc143-mt.dll" "%{cfg.targetdir}"',
+			'{COPY} "' .. os.getenv("VULKAN_SDK") .. '/Bin/shaderc_shared.dll" "%{cfg.targetdir}"',
 		}
 
 	-- Nsight Aftermath is loaded at runtime when present (Platform/Vulkan/Debug/Aftermath.cpp), in
@@ -104,17 +119,6 @@ project "Editor"
 		-- would otherwise have already dropped it.
 		linkoptions { "-Wl,--start-group", "-Wl,-rpath,'$$ORIGIN/lib'", "-Wl,--no-as-needed,-latomic,--as-needed" }
 
-		-- The $ORIGIN/lib rpath resolves FMOD. The linker embeds libfmod.so.14 as the
-		-- SONAME (confirmed via readelf -d), not the unversioned libfmod.so, so only that exact
-		-- filename needs to exist at runtime - {COPYFILE} (unlike {COPY}, whose glob would sit
-		-- inside quotes and never expand) follows the symlink and writes it under that name.
-		do -- FMOD is required.
-			postbuildcommands {
-				'{MKDIR} "%{cfg.targetdir}/lib"',
-				'{COPYFILE} "' .. FMODSDKRoot .. '/api/core/lib/x86_64/libfmod.so.14" "%{cfg.targetdir}/lib/libfmod.so.14"',
-				'{COPYFILE} "' .. FMODSDKRoot .. '/api/studio/lib/x86_64/libfmodstudio.so.14" "%{cfg.targetdir}/lib/libfmodstudio.so.14"',
-			}
-		end
 
 		-- Link nethost for Coral .NET hosting
 		if os.host() == "linux" then
@@ -168,5 +172,17 @@ project "Editor"
 		defines { "LUX_DIST" }
 
 		ProcessDependencies("Dist")
+		-- The Dist editor imports source meshes (LuxEditorApp.cpp registers AssimpMeshImporter).
+		-- The dependency table links Assimp in Debug and Release only, so the Dist player stays
+		-- free of it; link it here. Assimp has no Dist build: use Release.
+		AddDependencyIncludes(Dependencies.Assimp)
 
 		flags { "ExcludeFromBuild" }
+
+	filter { "system:windows", "configurations:Dist" }
+		libdirs { "%{wks.location}/Core/vendor/assimp/bin/windows/Release/" }
+		links { Dependencies.Assimp.Windows.LibName }
+
+	filter { "system:linux", "configurations:Dist" }
+		libdirs { Dependencies.Assimp.Linux.LibDir }
+		links { Dependencies.Assimp.Linux.LibName }

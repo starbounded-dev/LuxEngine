@@ -256,20 +256,21 @@ namespace Lux
 		s_Cues.clear();
 		std::erase_if(s_Sources, [&](Source& source)
 		{
-			if (!source.Instance.IsValid() || source.Instance->GetPlaybackToken() != source.Token || !source.Instance->IsValid())
+			const Ref<AudioEventInstance> instance = source.Instance.Lock();
+			if (!instance || instance->GetPlaybackToken() != source.Token || !instance->IsValid())
 			{
 				EndSource(source);
 				return true;
 			}
-			const auto status = source.Instance->GetPlaybackStatus();
-			const auto position = source.Instance->GetPosition();
+			const auto status = instance->GetPlaybackStatus();
+			const auto position = instance->GetPosition();
 			source.Caption.SpeakerPosition = position;
 			source.Caption.IsOffScreen = source.Spatial && OffScreen(position);
 			RefreshSubtitle(source.Caption);
 			source.Cue.Position = position;
 			source.Cue.Direction = source.Spatial ? DirectionTo(position) : glm::vec3(0.0f);
 			const float distance = source.Spatial ? glm::distance(position, view.Position) : 0.0f;
-			source.Cue.Intensity = source.Metadata.Intensity * std::clamp(source.Instance->GetVolume(), 0.0f, 1.0f) * std::clamp(1.0f - distance / source.Metadata.MaxDistance, 0.0f, 1.0f);
+			source.Cue.Intensity = source.Metadata.Intensity * std::clamp(instance->GetVolume(), 0.0f, 1.0f) * std::clamp(1.0f - distance / source.Metadata.MaxDistance, 0.0f, 1.0f);
 			if (!paused && status.Started && !status.Error && !source.Started)
 			{
 				source.Started = true;

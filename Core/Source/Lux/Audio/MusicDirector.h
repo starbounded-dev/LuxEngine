@@ -9,7 +9,6 @@
 
 namespace Lux
 {
-	enum class MusicSync { Immediate, NextBeat, NextBar, NextMarker, NextSection };
 
 	// Scene-owned, main-thread service. Studio authors the score; the director owns its lifetime.
 	class MusicDirector
@@ -39,7 +38,9 @@ namespace Lux
 		friend class AudioScriptBindings;
 		Ref<AudioEventInstance> Prepare(const std::string& reference, bool oneShot);
 		bool ApplyParameters(Ref<AudioEventInstance> instance);
-		bool Activate(Ref<AudioEventInstance> instance);
+		bool Activate(Ref<AudioEventInstance> instance, bool alreadyStarted = false);
+		// Drops the queued transition; a scheduled one also takes back the bed's scheduled stop.
+		void CancelPending();
 		Ref<AudioEventInstance> m_Bed, m_Pending;
 		std::vector<Ref<AudioEventInstance>> m_Stingers;
 		std::string m_Reference, m_State;
@@ -47,6 +48,10 @@ namespace Lux
 		MusicSync m_Sync = MusicSync::Immediate;
 		float m_Intensity = 0.0f;
 		bool m_HasIntensity = false, m_Paused = false, m_Stopping = false;
+		// The pending bed is already scheduled to start at m_PendingStartTime (engine frames), and the bed
+		// to stop there: a sample-accurate switch the backend runs on its audio clock.
+		bool m_PendingScheduled = false;
+		uint64_t m_PendingStartTime = 0;
 		int m_Beat = 0, m_Bar = 0;
 		uint64_t m_RetryRevision = 0, m_TransitionAfterSequence = 0;
 		std::function<void(int, int)> m_TempoCallback, m_ScriptTempoCallback;

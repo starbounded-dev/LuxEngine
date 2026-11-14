@@ -7,12 +7,18 @@
 #include "ContentBrowserPanel.h"
 
 #include "Lux/Core/Application.h"
+#include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/ImGui/PanelControls.h"
+#include "Lux/Editor/FontAwesome.h"
+#include "Lux/Serialization/Yaml.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/ShaderPack.h"
 #include "Lux/Social/DiscordSocial.h"
 #include "Lux/Utilities/FileSystem.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui.h>
 
@@ -74,52 +80,78 @@ namespace Lux {
 
 	void ApplicationSettingsPanel::OnImGuiRender(bool& isOpen)
 	{
+		m_IsFocused = false;
 		if (!isOpen)
 			return;
 
 		if (ImGui::Begin("Application Settings", &isOpen))
 		{
-			const ImGuiTableFlags tableFlags = ImGuiTableFlags_Resizable
-				| ImGuiTableFlags_SizingFixedFit
-				| ImGuiTableFlags_BordersInnerV;
-
-			if (ImGui::BeginTable("##application_settings_table", 2, tableFlags, ImGui::GetContentRegionAvail()))
+			m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+			const float font = ImGui::GetFontSize();
+			const auto split = ImGuiEx::PanelSplitWidths(ImGui::GetContentRegionAvail().x, m_PageFraction,
+														 font * 12.0f, font * 24.0f);
+			if (split.SideBySide)
 			{
-				ImGui::TableSetupColumn("Pages", ImGuiTableColumnFlags_WidthFixed, 220.0f);
-				ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthStretch);
-
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				DrawPageList();
-
-				ImGui::TableSetColumnIndex(1);
-				if (m_CurrentPage < m_Pages.size())
-				{
-					ImGui::BeginChild("##application_settings_content", ImGui::GetContentRegionAvail(), false);
-					m_Pages[m_CurrentPage].RenderFunction();
-					ImGui::EndChild();
-				}
-
-				ImGui::EndTable();
+				if (ImGui::BeginChild("##application_settings_pages", {split.First, 0.0f}))
+					DrawPageList();
+				ImGui::EndChild();
+				ImGui::SameLine();
+				ImGuiEx::PanelSplitHandle("##settings_split", split, m_PageFraction);
+				ImGui::SameLine();
 			}
+			else
+			{
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::BeginCombo("##settings_page", m_Pages[m_CurrentPage].Name))
+				{
+					DrawPageList();
+					ImGui::EndCombo();
+				}
+			}
+			if (ImGui::BeginChild("##application_settings_content"))
+				m_Pages[m_CurrentPage].RenderFunction();
+			ImGui::EndChild();
 		}
 
 		ImGui::End();
 	}
 
+	void ApplicationSettingsPanel::OnEvent(Event& event)
+	{
+		if (!m_IsFocused)
+			return;
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[](KeyPressedEvent&) { return ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0; });
+	}
+
 	void ApplicationSettingsPanel::DrawPageList()
 	{
-		if (!ImGui::BeginChild("##application_settings_pages"))
-			return;
-
 		for (uint32_t i = 0; i < m_Pages.size(); i++)
 		{
 			const bool selected = (m_CurrentPage == i);
 			if (ImGui::Selectable(m_Pages[i].Name, selected, ImGuiSelectableFlags_SpanAllColumns))
 				m_CurrentPage = i;
+			if (selected)
+				ImGui::SetItemDefaultFocus();
 		}
+	}
 
-		ImGui::EndChild();
+	void ApplicationSettingsPanel::SaveState(Yaml::Writer& out) const
+	{
+		out << Yaml::Key << "Page" << Yaml::Value << m_Pages[m_CurrentPage].Name;
+		out << Yaml::Key << "PageFraction" << Yaml::Value << m_PageFraction;
+	}
+
+	void ApplicationSettingsPanel::LoadState(const Yaml::Node& state)
+	{
+		const std::string page = state["Page"].as<std::string>("");
+		for (uint32_t index = 0; index < m_Pages.size(); ++index)
+			if (page == m_Pages[index].Name)
+				m_CurrentPage = index;
+		const float fraction = state["PageFraction"].as<float>(m_PageFraction);
+		if (std::isfinite(fraction))
+			m_PageFraction = std::clamp(fraction, 0.1f, 0.8f);
 	}
 
 	void ApplicationSettingsPanel::DrawEditorPage()
@@ -130,7 +162,7 @@ namespace Lux {
 		ImGui::TextUnformatted("Editor");
 		ImGui::Separator();
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (m_Bindings.VSync && ImGuiEx::Property("VSync", *m_Bindings.VSync))
 			notifyBindings = true;
 
@@ -237,7 +269,7 @@ namespace Lux {
 
 			static const char* s_ThreadingOptions[] = { "Multi-threaded", "Single-threaded" };
 
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			if (ImGuiEx::PropertyDropdown("Threading Mode", s_ThreadingOptions, 2, &selected))
 			{
 				settings.Set("Core.ThreadingPolicy", selected == 1 ? "Single" : "Multi");
@@ -245,7 +277,10 @@ namespace Lux {
 			}
 			ImGuiEx::EndPropertyGrid();
 
-			ImGui::TextDisabled("Applies after restarting the editor.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Applies after restarting the editor.");
+			}
 
 			// Async transfer queue — routes mesh/texture uploads onto the GPU's
 			// dedicated copy queue so asset streaming doesn't stall rendering.
@@ -253,7 +288,7 @@ namespace Lux {
 			bool asyncTransfer = settings.Get("Renderer.AsyncTransferQueue", "false") != "false";
 			const bool transferAvailable = Renderer::HasDedicatedTransferQueue();
 
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			if (ImGuiEx::Property("Async Transfer Queue", asyncTransfer))
 			{
 				settings.Set("Renderer.AsyncTransferQueue", asyncTransfer ? "true" : "false");
@@ -263,9 +298,16 @@ namespace Lux {
 			ImGuiEx::EndPropertyGrid();
 
 			if (transferAvailable)
-				ImGui::TextDisabled("Uploads meshes/textures on the GPU's dedicated copy queue.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Uploads meshes/textures on the GPU's dedicated copy queue.");
+			}
 			else
-				ImGui::TextDisabled("No dedicated transfer queue on this GPU; uploads use the graphics queue.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped(
+					"No dedicated transfer queue on this GPU; uploads use the graphics queue.");
+			}
 		}
 
 		ImGui::Spacing();
@@ -273,35 +315,125 @@ namespace Lux {
 		ImGui::Separator();
 
 		const std::string startupProject = (m_UserPreferences && !m_UserPreferences->StartupProject.empty()) ? m_UserPreferences->StartupProject : "None";
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		ImGuiEx::Property("Project", startupProject);
-
-		if (Project::GetActive())
-		{
-			if (ImGui::Button("Use Current Project"))
-			{
-				m_UserPreferences->StartupProject = Project::GetActive()->GetProjectFilePath().generic_string();
-				SaveUserPreferences();
-			}
-			ImGui::SameLine();
-		}
-
+		ImGuiEx::EndPropertyGrid();
 		const bool hasStartupProject = m_UserPreferences && !m_UserPreferences->StartupProject.empty();
-		ImGui::BeginDisabled(!hasStartupProject);
-		if (ImGui::Button("Clear Startup Project"))
+		const ImGuiEx::PanelAction startupActions[] = {
+			{0, "Use current project", LUX_ICON_FOLDER_OPEN, nullptr,
+			 m_UserPreferences && Project::GetActive()},
+			{1, "Clear startup project", LUX_ICON_TIMES, nullptr, hasStartupProject}};
+		switch (ImGuiEx::PanelActionBar("##startup_actions", startupActions))
 		{
+		case 0:
+			m_UserPreferences->StartupProject = Utils::PathToUTF8(Project::GetActive()->GetProjectFilePath());
+			SaveUserPreferences();
+			break;
+		case 1:
 			m_UserPreferences->StartupProject.clear();
 			SaveUserPreferences();
+			break;
+		default:
+			break;
 		}
-		ImGui::EndDisabled();
 
 		ImGui::Spacing();
+		// --- Editor shader pack: the artifact a Dist editor consumes. A Dist config has no shader
+		// compiler (Renderer/Shader.h:16 defines LUX_HAS_SHADER_COMPILER as !LUX_DIST), so the pack
+		// beside Resources/Shaders can only be authored by a compiler-enabled editor. The state row
+		// and the refresh action share one source of truth with the startup check - Renderer::
+		// CaptureShaderPackEnvironment plus ShaderPack::Evaluate, which is exactly what Renderer::Init
+		// runs at Renderer.cpp:492-526 - so the panel cannot report "current" while a launch disagrees.
+		// The identity hashes the whole shader tree, so it is computed at most once per launch and
+		// cached here rather than per drawn frame (Conventions.md § Nothing expensive per frame);
+		// the second action recomputes it after an edit made during a session.
+		ImGui::TextUnformatted("Editor Shader Pack");
+		ImGui::Separator();
+
+		{
+			static ShaderPackState s_PackState = ShaderPackState::Unreadable;
+			static bool s_PackStateComputed = false;
+			static bool s_PackRefreshFailed = false;   // kept until the next action, not one frame
+			const std::filesystem::path packPath = "Resources/ShaderPack.lsp";
+			// Relative to the working directory, like every "Resources/Shaders/..." load string:
+			// HelpPanel.cpp:290 documents running the editor from the Editor folder, and the runtime
+			// resolves the same spelling for a package pack (Lux-Runtime/src/RuntimeApplication.cpp:92).
+			const ImGuiEx::PanelAction packActions[] = {
+		#if LUX_HAS_SHADER_COMPILER
+				{0, "Refresh shader pack", LUX_ICON_COG, nullptr, true, false, true},
+		#endif
+				{1, "Re-check pack state", nullptr, nullptr, s_PackStateComputed},
+			};
+			const int packAction = ImGuiEx::PanelActionBar("##editor_shader_pack_actions", packActions);
+			switch (packAction)
+			{
+			case 0:
+			{
+		#if LUX_HAS_SHADER_COMPILER
+				// Authoring needs the compiled library: the shaders are loaded by the time a panel draws,
+				// which is the same point the runtime-export pack is written from (EditorLayer.cpp:4849).
+				// WriteStampedPack logs every failure reason (ShaderPack.cpp), so the row only says the
+				// refresh failed and points at that entry rather than restating it here.
+				s_PackRefreshFailed = !ShaderPack::WriteStampedPack(Renderer::GetShaderLibrary(), packPath,
+					Renderer::CaptureShaderPackEnvironment());
+				// Recompute so the row shows the new state instead of the pre-refresh verdict.
+				s_PackStateComputed = false;
+		#else
+				// A Dist config has no compiled library to serialize, and the refresh action is not even
+				// offered above (the #if omits it). Saying nothing here would be the silent failure the
+				// rules forbid, so the row states why the pack cannot be authored in this build.
+				ImGui::TextWrapped("This build has no shader compiler: the pack can only be authored by a compiler-enabled editor");
+		#endif
+				break;
+			}
+			case 1:
+				// Recompute after an edit during a session: the cached verdict is one launch old otherwise.
+				s_PackStateComputed = false;
+				s_PackRefreshFailed = false;
+				break;
+			default:
+				break;
+			}
+			if (s_PackRefreshFailed)
+			{
+				ImGuiEx::ScopedColour errorText(ImGuiCol_Text, Colors::Theme::textError);
+				ImGui::TextWrapped("Refresh failed: the Renderer log names why (pack path, temp, or stamp)");
+			}
+			if (!s_PackStateComputed)
+			{
+				s_PackState = ShaderPack::Evaluate(packPath, Renderer::CaptureShaderPackEnvironment());
+				s_PackStateComputed = true;
+			}
+			// Wording mirrors the startup verdicts (Renderer.cpp:492-526) so a user reads the same rule
+			// in both places: only InputsChanged and Unreadable stop a compilerless launch.
+			switch (s_PackState)
+			{
+			case ShaderPackState::Current:
+				ImGui::TextWrapped("Current: a Dist editor can consume this pack");
+				break;
+			case ShaderPackState::InputsChanged:
+				ImGui::TextWrapped("Stale: the shader sources changed - a Dist editor refuses it");
+				break;
+			case ShaderPackState::DeviceChanged:
+				ImGui::TextWrapped("Authored on another GPU: still consumable, SPIR-V is portable by spec");
+				break;
+			case ShaderPackState::NoStamp:
+				ImGui::TextWrapped("Unstamped: consumed without validation (the bare-pack export path)");
+				break;
+			case ShaderPackState::Unreadable:
+			default:
+				ImGui::TextWrapped("Missing or unusable: create it with Refresh shader pack in a compiler-enabled editor");
+				break;
+			}
+		}
 		ImGui::TextUnformatted("Recent Projects");
 		ImGui::Separator();
 
 		const int recentProjectCount = m_UserPreferences ? (int)m_UserPreferences->RecentProjects.size() : 0;
 		ImGui::Text("%d recent project%s saved", recentProjectCount, recentProjectCount == 1 ? "" : "s");
 
-		if (ImGui::Button("Clear Recent Projects"))
+		const ImGuiEx::PanelAction recentActions[] = {{0, "Clear recent projects", LUX_ICON_TRASH}};
+		if (ImGuiEx::PanelActionBar("##recent_actions", recentActions) == 0)
 			ClearRecentProjects();
 
 		ImGui::Spacing();
@@ -309,7 +441,10 @@ namespace Lux {
 		{
 			if (recentProjectCount == 0)
 			{
-				ImGui::TextDisabled("No recent projects stored.");
+				{
+					ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextWrapped("No recent projects stored.");
+				}
 			}
 			else
 			{
@@ -319,7 +454,9 @@ namespace Lux {
 					if (i++ >= s_MaxRecentProjects)
 						break;
 
+					ImGui::PushTextWrapPos();
 					ImGui::BulletText("%s", recentProject.FilePath.c_str());
+					ImGui::PopTextWrapPos();
 				}
 			}
 		}
@@ -333,7 +470,7 @@ namespace Lux {
 		ImGui::TextUnformatted("Viewport");
 		ImGui::Separator();
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (m_Bindings.UseGizmoSnap && ImGuiEx::Property("Enable Gizmo Snap", *m_Bindings.UseGizmoSnap))
 			notifyBindings = true;
 
@@ -367,7 +504,7 @@ namespace Lux {
 			ImGui::TextUnformatted("Grid");
 			ImGui::Separator();
 
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			notifyBindings |= ImGuiEx::PropertyColor("X Axis Colour", grid.XAxisColor);
 			notifyBindings |= ImGuiEx::PropertyColor("Z Axis Colour", grid.ZAxisColor);
 			notifyBindings |= ImGuiEx::PropertyColor("Minor Line Colour", grid.MinorColor);
@@ -380,7 +517,8 @@ namespace Lux {
 			notifyBindings |= ImGuiEx::Property("Fade Distance", grid.FadeDistance, 1.0f, 1.0f, 100000.0f, "Metres from the camera.");
 			ImGuiEx::EndPropertyGrid();
 
-			if (ImGui::Button("Reset Grid"))
+			const ImGuiEx::PanelAction gridActions[] = {{0, "Reset grid", LUX_ICON_UNDO}};
+			if (ImGuiEx::PanelActionBar("##grid_actions", gridActions) == 0)
 			{
 				grid = SceneRenderer::GridSettings{};
 				notifyBindings = true;
@@ -393,7 +531,7 @@ namespace Lux {
 			ImGui::TextUnformatted("Gamepad");
 			ImGui::Separator();
 
-			ImGuiEx::BeginPropertyGrid();
+			ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 			if (ImGuiEx::Property("Gamepad Navigation", *m_Bindings.GamepadNavigation,
 				"Navigate the editor UI with a controller (D-pad to move, A to activate, B to cancel).\nSuspended while playing so the game receives the controller."))
 				notifyBindings = true;
@@ -417,7 +555,11 @@ namespace Lux {
 		const int activeID = (imguiLayer && imguiLayer->GetNavGamepad() >= 0) ? imguiLayer->GetNavGamepad() : selection.JoystickID;
 		bool changed = false;
 
-		ImGui::TextDisabled("Controller that drives the editor UI. Press a button to see which row lights up.");
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped(
+				"Controller that drives the editor UI. Press a button to see which row lights up.");
+		}
 
 		const float listHeight = ImGui::GetFrameHeightWithSpacing() * (float)std::clamp((int)gamepads.size() + 2, 3, 8);
 		if (ImGui::BeginChild("##gamepad_devices", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders))
@@ -469,7 +611,10 @@ namespace Lux {
 			}
 
 			if (gamepads.empty())
-				ImGui::TextDisabled("No controllers connected.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("No controllers connected.");
+			}
 		}
 		ImGui::EndChild();
 
@@ -483,14 +628,17 @@ namespace Lux {
 
 		if (!m_ContentBrowserPanel)
 		{
-			ImGui::TextDisabled("Content Browser panel is not available.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Content Browser panel is not available.");
+			}
 			return;
 		}
 
 		float thumbnailSize = m_ContentBrowserPanel->GetThumbnailSize();
 		bool showAssetTypes = m_ContentBrowserPanel->GetShowAssetTypes();
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (ImGuiEx::Property("Thumbnail Size", thumbnailSize, 1.0f, 32.0f, 256.0f))
 			m_ContentBrowserPanel->SetThumbnailSize(thumbnailSize);
 
@@ -499,7 +647,10 @@ namespace Lux {
 		ImGuiEx::EndPropertyGrid();
 
 		ImGui::Spacing();
-		ImGui::TextDisabled("Changes apply immediately and are stored in the editor settings file.");
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped("Changes apply immediately and are stored in the editor settings file.");
+		}
 	}
 
 	void ApplicationSettingsPanel::DrawDiscordPage()
@@ -512,15 +663,22 @@ namespace Lux {
 		// that would hide the very toggle needed to switch it on.
 		if (!DiscordSocial::IsAvailable())
 		{
-			ImGui::TextDisabled("The Discord integration is not compiled into this build.");
-			ImGui::TextDisabled("Regenerate projects with \"Win-GenProjects.bat --discord\" to enable it.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("The Discord integration is not compiled into this build.");
+			}
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped(
+					"Regenerate projects with \"Win-GenProjects.bat --discord\" to enable it.");
+			}
 			return;
 		}
 
 		auto& settings = Application::Get().GetSettings();
 		bool enabled = settings.Get("Discord.RichPresenceEnabled", "false") == "true";
 
-		ImGuiEx::BeginPropertyGrid();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 		if (ImGuiEx::Property("Enable Rich Presence", enabled))
 		{
 			settings.Set("Discord.RichPresenceEnabled", enabled ? "true" : "false");
@@ -534,8 +692,14 @@ namespace Lux {
 		}
 		ImGuiEx::EndPropertyGrid();
 
-		ImGui::TextDisabled("Applies after restarting the editor.");
-		ImGui::TextDisabled("Create an application at discord.com/developers to get an ID.");
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped("Applies after restarting the editor.");
+		}
+		{
+			ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+			ImGui::TextWrapped("Create an application at discord.com/developers to get an ID.");
+		}
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Connection");
@@ -547,11 +711,20 @@ namespace Lux {
 		if (DiscordSocial::GetState() == DiscordSocial::State::Disabled)
 		{
 			if (!enabled)
-				ImGui::TextDisabled("Turn on 'Enable Rich Presence' above, then restart the editor.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Turn on 'Enable Rich Presence' above, then restart the editor.");
+			}
 			else if (m_DiscordApplicationID.empty())
-				ImGui::TextDisabled("Set an Application ID above, then restart the editor.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Set an Application ID above, then restart the editor.");
+			}
 			else
-				ImGui::TextDisabled("Enabled. Restart the editor to initialize Discord.");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Enabled. Restart the editor to initialize Discord.");
+			}
 			return;
 		}
 
@@ -567,10 +740,16 @@ namespace Lux {
 				break;
 			}
 			case DiscordSocial::State::Authenticating:
-				ImGui::TextDisabled("Waiting for authorization in your browser...");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Waiting for authorization in your browser...");
+			}
 				break;
 			case DiscordSocial::State::Connecting:
-				ImGui::TextDisabled("Connecting...");
+			{
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("Connecting...");
+			}
 				break;
 			case DiscordSocial::State::Failed:
 			{
@@ -583,13 +762,19 @@ namespace Lux {
 			}
 			default:
 			{
-				ImGui::TextDisabled("Not connected.");
+				{
+					ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextWrapped("Not connected.");
+				}
 
 				if (ImGui::Button("Connect"))
 					DiscordSocial::Connect();
 
 				ImGui::SameLine();
-				ImGui::TextDisabled("Opens your browser to authorize Lux.");
+				{
+					ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+					ImGui::TextWrapped("Opens your browser to authorize Lux.");
+				}
 				break;
 			}
 		}

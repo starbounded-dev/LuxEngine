@@ -12,7 +12,7 @@ end
 project "ScriptCore"
 	kind "SharedLib"
 	language "C#"
-	dotnetframework "net9.0"
+	dotnetframework "net10.0"
 	clr "Unsafe"
 
 	targetdir ("../Editor/Resources/Scripts")
@@ -22,12 +22,19 @@ project "ScriptCore"
 
 	-- EnableDynamicLoading emits ScriptCore.deps.json so the assembly is loadable into a Coral
 	-- AssemblyLoadContext. AppendTargetFrameworkToOutputPath keeps ScriptCore.dll directly in
-	-- the target dir (no net9.0/ subfolder).
+	-- the target dir (no net10.0/ subfolder).
 	vsprops {
 		AppendTargetFrameworkToOutputPath = "false",
 		Nullable = "enable",
 		EnableDynamicLoading = "true",
+		-- ScriptCore.xml feeds the manual's API reference (tools/ScriptApiDocs); its --check reports
+		-- undocumented members, so the per-member CS1591 warnings stay off (below; disablewarnings merges
+		-- with the workspace's 4068, a NoWarn vsprop would be overridden by it).
+		GenerateDocumentationFile = "true",
 	}
+
+	-- 1573: a doc comment may explain only the parameters that need it.
+	disablewarnings { "1591", "1573" }
 
 	files {
 		"Source/**.cs"

@@ -4,7 +4,12 @@
 #pragma once
 
 #include "Lux/Core/Log.h"
+#include "Lux/Audio/AudioEventInstance.h"
+#include "Lux/Audio/AudioLegacyCleanup.h"
 #include "Lux/Editor/EditorPanel.h"
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace Lux {
 
@@ -20,6 +25,15 @@ namespace Lux {
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
 		virtual void OnClose() override;
+		void OnEvent(Event& event) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& state) override;
+#ifndef LUX_DIST
+		static bool RunPanelSelfTests(std::vector<std::string>& failures);
+#endif
+		void SetSceneContext(const Ref<Scene>& context) override { m_SceneContext = context; }
+		// Startup-only: requires main thread, before any editor ImGui/render frame.
+		static bool RunAcousticSettingsSelfTests(std::vector<std::string>& failures);
 
 	private:
 		void SyncBuffersFromProject();
@@ -29,7 +43,10 @@ namespace Lux {
 		void RenderRuntimeExportSettings();
 		void RenderRendererSettings();
 		void RenderAudioSettings();
-		void RenderAudioBankStatus();
+		void RenderLegacyAudioData();
+		void RemoveLegacyAudioData();
+		void PreviewDialogue(const Sound& sound, AssetHandle clip, std::string id);
+		void StopDialoguePreview();
 		void RenderScriptingSettings();
 		void RenderPhysicsSettings();
 		void RenderLogSettings();
@@ -37,9 +54,17 @@ namespace Lux {
 	private:
 		RuntimeExport::RuntimeBuildJob& m_RuntimeBuildJob;
 		Ref<Project> m_Project;
+		Ref<Scene> m_SceneContext;
+		std::optional<AudioLegacyCleanup::ScanResult> m_LegacyScan;
+		std::vector<std::string> m_LegacyErrors; // from the last Remove
+		Ref<AudioEventInstance> m_DialoguePreview;
+		std::string m_DialoguePreviewID;          // "<line key>/<language>" of the line playing
 		AssetHandle m_DefaultScene = 0;
 		AssetHandle m_RuntimeIcon = 0;
 		bool m_Dirty = false;
+		uint32_t m_CurrentPage = 0;
+		bool m_OpenPage = true;
+		bool m_IsFocused = false;
 
 		char m_NameBuffer[256]{};
 		char m_RuntimeGameNameBuffer[256]{};

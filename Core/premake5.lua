@@ -52,11 +52,22 @@ project "Core"
 
 		"vendor/FastNoise/**.cpp",
 
+		"vendor/soundwave/include/**.h",
+		"vendor/soundwave/src/**.cpp",
+		"vendor/soundwave/src/**.h",
+
+		"vendor/meshoptimizer/**.h",
+		"vendor/meshoptimizer/**.cpp",
+
 		"vendor/rapidyaml/ryml_all.hpp",
 		"vendor/rapidyaml/ryml.cpp",
 
 		"vendor/imgui/misc/cpp/imgui_stdlib.cpp",
-		"vendor/imgui/misc/cpp/imgui_stdlib.h"
+		"vendor/imgui/misc/cpp/imgui_stdlib.h",
+
+		-- Node canvas for the material graph (thedmd/imgui-node-editor, MIT).
+		"vendor/imgui-node-editor/**.h",
+		"vendor/imgui-node-editor/**.cpp"
 	}
 	
 	removefiles {
@@ -69,6 +80,8 @@ project "Core"
 	if _OPTIONS["no-aftermath"] then
 		removefiles { "Source/Lux/Platform/Vulkan/Debug/**.cpp" }
 	end
+
+	files { "vendor/MiniaudioCpp/include/**.h", "vendor/MiniaudioCpp/src/**.cpp", "vendor/MiniaudioCpp/src/**.h" }
 
 	includedirs { "Source/", "vendor/", }
 
@@ -84,15 +97,11 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	do -- Asterwave acoustics are required.
-		defines { "LUX_ENABLE_RAYTRACED_AUDIO" }
-	end
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/MiniaudioCpp/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	flags { "NoPCH" }
 
-	do -- FMOD is required.
-		defines { "LUX_ENABLE_FMOD" }
-	end
-
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	-- miniaudio's implementation unit is C and must not see the C++ precompiled header.
+	filter "files:Source/Lux/Audio/Native/MiniaudioImplementation.c"
 	flags { "NoPCH" }
 
 	filter "system:windows"
@@ -148,11 +157,15 @@ project "Core"
 		isaextensions { "BMI", "POPCNT", "LZCNT", "F16C" }
 		defines { "LUX_DIST" }
 		IncludeDependencies("Dist")
+		-- AssimpMeshImporter.cpp is compiled in Dist too: the Dist editor imports source meshes.
+		-- It reaches an executable only through MeshSourceSerializer::SetSourceImporter, which
+		-- the editor calls and the player does not, so the player still does not link Assimp.
+		-- The dependency table lists Assimp for Debug and Release only; add its headers here.
+		AddDependencyIncludes(Dependencies.Assimp)
 
 		removefiles {
 			"Source/Lux/Platform/Vulkan/ShaderCompiler/**.cpp",
 			"Source/Lux/Platform/Vulkan/Debug/**.cpp",
 
 			"Source/Lux/Asset/AssimpAnimationImporter.cpp",
-			"Source/Lux/Asset/AssimpMeshImporter.cpp",
 		}

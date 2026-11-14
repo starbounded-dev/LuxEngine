@@ -5,6 +5,7 @@
 
 #include "Lux/Editor/EditorPanel.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/ImGui/DiagnosticPlot.h"
 
 #include <string>
 #include <vector>
@@ -13,6 +14,9 @@ namespace Lux {
 
 	class RendererDebuggerPanel : public EditorPanel
 	{
+#ifndef LUX_DIST
+		friend class ProfilerPanel;
+#endif
 	public:
 		RendererDebuggerPanel() = default;
 		virtual ~RendererDebuggerPanel() = default;
@@ -54,15 +58,19 @@ namespace Lux {
 		bool m_SerializerSelfTestRan = false;
 		bool m_SerializerSelfTestPassed = false;
 		std::vector<std::string> m_SerializerSelfTestFailures;
-		std::vector<float> m_FrameCPUHistory;
-		std::vector<float> m_FrameGPUHistory;
-		// X positions (-(N-1)..0) for the frame-history plot, rebuilt to match the ring size.
-		std::vector<float> m_FrameHistoryAxis;
+		bool m_ToolHostSelfTestRan = false;
+		bool m_ToolHostSelfTestPassed = false;
+		std::vector<std::string> m_ToolHostSelfTestFailures;
+		ImGuiEx::TimingPlotState m_TimingPlot;
 		// Reused per-frame scratch for the per-pass GPU bar chart (values + tick positions/labels),
 		// so the chart doesn't reallocate every frame.
 		std::vector<float> m_PassChartValues;
 		std::vector<double> m_PassChartTicks;
 		std::vector<const char*> m_PassChartLabels;
+		std::vector<std::string> m_PassChartNames;
+		std::vector<size_t> m_PassChartOrder;
+		bool m_PassChartFrozen = false;
+		bool m_PassChartFit = true;
 		uint32_t m_LastReloadedShaderCount = 0;
 		uint32_t m_LastWarmedPipelineCount = 0;
 		bool m_DebugViewsRuntimeSuspended = false;

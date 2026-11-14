@@ -132,8 +132,8 @@ determined by the engine's own code, and say that you skipped it.
 - **Known pitfalls** — issue trackers, postmortems, and talks where the obvious approach failed.
 - **Primary documentation for the exact versions the engine vendors.** Read the version from the
   repo first: Dear ImGui `IMGUI_VERSION` in `Core/vendor/imgui/imgui.h`, Tracy in
-  `Core/vendor/tracy/tracy/public/common/TracyVersion.hpp`, FMOD `FMOD_VERSION` in the SDK's
-  `api/core/inc/fmod_common.h`, Asterwave's exact revision in `scripts/dependencies/Asterwave.json`, and
+  `Core/vendor/tracy/tracy/public/common/TracyVersion.hpp`, miniaudio `MA_VERSION_STRING` in
+  `Core/vendor/miniaudio/miniaudio.h`, and
   the Vulkan SDK from `VULKAN_SDK`. Advice for another version is a hypothesis until checked against the vendored
   source.
 

@@ -484,17 +484,16 @@ namespace Lux {
 	{
 		bool Enabled = true; // false: the event never starts; switching it off during Play stops it
 		AudioSourceConfig Config;
-		int Priority = 128; // FMOD channel priority: 0 is highest, 256 is lowest.
+		int Priority = 128; // voice priority: 0 is highest, 256 is lowest.
 		bool DistanceCulling = false; // Opt in: distant loops suspend; one-shots are discarded.
 
-		// The FMOD Studio event this source plays:
-		// spatialisation, attenuation, randomisation and DSP then come from the event as authored.
+		// The Sound this source plays: spatialization, attenuation, randomization and the bus come from
+		// the Sound as authored.
 		AudioEventRef Event;
 
-		// Author-defined event parameters applied when the instance is created, so two entities can
-		// share one event and still sound different - a large and a small door, one alarm that is
-		// more urgent than another. Names must match parameters authored on the event; anything
-		// else is ignored by FMOD rather than failing.
+		// Parameters applied when the instance is created, so two entities can share one Sound and
+		// still sound different - a large and a small door, one alarm that is more urgent than another.
+		// Names must match parameters on the Sound; anything else is ignored rather than failing.
 		std::vector<std::pair<std::string, float>> ParameterOverrides;
 
 		// Migration data only. Preserved on save; never used for playback.
@@ -543,6 +542,13 @@ namespace Lux {
 	{
 		AssetHandle PrefabID = 0;
 		UUID EntityID = 0;
+		// On an instance root only, by prefab entity UUID: children the user deleted from this instance,
+		// and children the user moved (within it or out of it). Scene::SyncPrefabInstance leaves them be.
+		std::vector<UUID> RemovedEntities;
+		std::vector<UUID> ReparentedEntities;
+		// The records above are kept for this instance. False on instances saved before they existed:
+		// their first sync turns what they lack or have moved into records.
+		bool Tracked = false;
 
 		PrefabComponent() = default;
 		PrefabComponent(const PrefabComponent&) = default;

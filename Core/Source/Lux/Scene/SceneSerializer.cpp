@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "SceneSerializer.h"
 
 #include "Components.h"
@@ -9,6 +10,7 @@
 #include "Prefab.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AudioEventRefSerializer.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
@@ -315,6 +317,17 @@ namespace Lux {
 				out << Yaml::BeginMap;
 				out << Yaml::Key << "Prefab" << Yaml::Value << prefab.PrefabID;
 				out << Yaml::Key << "Entity" << Yaml::Value << prefab.EntityID;
+				if (prefab.Tracked)
+					out << Yaml::Key << "Tracked" << Yaml::Value << true;
+				for (const auto& [key, ids] : { std::pair{ "Removed", &prefab.RemovedEntities }, std::pair{ "Reparented", &prefab.ReparentedEntities } })
+				{
+					if (ids->empty())
+						continue;
+					out << Yaml::Key << key << Yaml::Value << Yaml::BeginSeq;
+					for (UUID id : *ids)
+						out << (uint64_t)id;
+					out << Yaml::EndSeq;
+				}
 				out << Yaml::EndMap;
 			}
 
@@ -740,11 +753,7 @@ namespace Lux {
 			{
 				const auto& music = entity.GetComponent<MusicDirectorComponent>();
 				out << Yaml::Key << "MusicDirectorComponent" << Yaml::BeginMap;
-				out << Yaml::Key << "Event" << Yaml::BeginMap;
-				out << Yaml::Key << "Guid" << Yaml::Value << music.Event.Guid;
-				out << Yaml::Key << "Path" << Yaml::Value << music.Event.Path;
-				out << Yaml::Key << "BankName" << Yaml::Value << music.Event.BankName;
-				out << Yaml::EndMap;
+				AudioEventRefSerializer::Write(out, "Event", music.Event);
 				out << Yaml::Key << "PlayOnAwake" << Yaml::Value << music.PlayOnAwake;
 				out << Yaml::Key << "InitialState" << Yaml::Value << music.InitialState;
 				out << Yaml::Key << "Intensity" << Yaml::Value << music.Intensity;
@@ -764,16 +773,8 @@ namespace Lux {
 				out << Yaml::Key << "BlendDistance" << Yaml::Value << zone.BlendDistance;
 				out << Yaml::Key << "FadeTime" << Yaml::Value << zone.FadeTime;
 				out << Yaml::Key << "Volume" << Yaml::Value << zone.Volume;
-				out << Yaml::Key << "AmbienceEvent" << Yaml::BeginMap;
-				out << Yaml::Key << "Guid" << Yaml::Value << zone.AmbienceEvent.Guid;
-				out << Yaml::Key << "Path" << Yaml::Value << zone.AmbienceEvent.Path;
-				out << Yaml::Key << "BankName" << Yaml::Value << zone.AmbienceEvent.BankName;
-				out << Yaml::EndMap;
-				out << Yaml::Key << "Snapshot" << Yaml::BeginMap;
-				out << Yaml::Key << "Guid" << Yaml::Value << zone.Snapshot.Guid;
-				out << Yaml::Key << "Path" << Yaml::Value << zone.Snapshot.Path;
-				out << Yaml::Key << "BankName" << Yaml::Value << zone.Snapshot.BankName;
-				out << Yaml::EndMap;
+				AudioEventRefSerializer::Write(out, "AmbienceEvent", zone.AmbienceEvent);
+				AudioEventRefSerializer::Write(out, "Snapshot", zone.Snapshot);
 				out << Yaml::EndMap;
 			}
 
@@ -801,15 +802,8 @@ namespace Lux {
 				out << Yaml::Key << "StrideLength" << Yaml::Value << surface.StrideLength;
 				out << Yaml::Key << "GroundProbeDistance" << Yaml::Value << surface.GroundProbeDistance;
 				out << Yaml::Key << "FootstepWeight" << Yaml::Value << surface.FootstepWeight;
-				auto writeEvent = [&](const char* name, const AudioEventRef& reference)
-				{
-					out << Yaml::Key << name << Yaml::BeginMap;
-					out << Yaml::Key << "Guid" << Yaml::Value << reference.Guid;
-					out << Yaml::Key << "Path" << Yaml::Value << reference.Path;
-					out << Yaml::Key << "BankName" << Yaml::Value << reference.BankName << Yaml::EndMap;
-				};
-				writeEvent("FootstepOverride", surface.FootstepOverride);
-				writeEvent("ImpactOverride", surface.ImpactOverride);
+				AudioEventRefSerializer::Write(out, "FootstepOverride", surface.FootstepOverride);
+				AudioEventRefSerializer::Write(out, "ImpactOverride", surface.ImpactOverride);
 				out << Yaml::EndMap;
 			}
 
@@ -832,9 +826,7 @@ namespace Lux {
 				out << Yaml::Key << "Priority" << Yaml::Value << audioSource.Priority;
 				out << Yaml::Key << "DistanceCulling" << Yaml::Value << audioSource.DistanceCulling;
 
-				out << Yaml::Key << "EventGuid" << Yaml::Value << audioSource.Event.Guid;
-				out << Yaml::Key << "EventPath" << Yaml::Value << audioSource.Event.Path;
-				out << Yaml::Key << "EventBank" << Yaml::Value << audioSource.Event.BankName;
+				AudioEventRefSerializer::WriteFlat(out, "Event", audioSource.Event);
 				out << Yaml::Key << "ParameterOverrides" << Yaml::Value << Yaml::BeginSeq;
 				for (const auto& [name, value] : audioSource.ParameterOverrides)
 				{
@@ -950,6 +942,15 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
 					component.PrefabID = prefab["Prefab"].as<uint64_t>(0);
 					component.EntityID = prefab["Entity"].as<uint64_t>(0);
+					component.Tracked = prefab["Tracked"].as<bool>(false);
+					for (const auto& [key, ids] : { std::pair{ "Removed", &component.RemovedEntities }, std::pair{ "Reparented", &component.ReparentedEntities } })
+					{
+						if (const auto list = prefab[key])
+						{
+							for (const auto id : list)
+								ids->emplace_back(id.as<uint64_t>(0));
+						}
+					}
 				}
 
 				if (const auto transform = entity["TransformComponent"])
@@ -1270,12 +1271,7 @@ namespace Lux {
 				if (const auto node = entity["MusicDirectorComponent"])
 				{
 					auto& music = deserializedEntity.AddComponent<MusicDirectorComponent>();
-					if (const auto reference = node["Event"])
-					{
-						music.Event.Guid = reference["Guid"].as<std::string>("");
-						music.Event.Path = reference["Path"].as<std::string>("");
-						music.Event.BankName = reference["BankName"].as<std::string>("");
-					}
+					music.Event = AudioEventRefSerializer::Read(node["Event"]);
 					music.PlayOnAwake = node["PlayOnAwake"].as<bool>(music.PlayOnAwake);
 					music.InitialState = node["InitialState"].as<std::string>(music.InitialState);
 					music.Intensity = node["Intensity"].as<float>(music.Intensity);
@@ -1298,18 +1294,8 @@ namespace Lux {
 					zone.BlendDistance = node["BlendDistance"].as<float>(zone.BlendDistance);
 					zone.FadeTime = node["FadeTime"].as<float>(zone.FadeTime);
 					zone.Volume = node["Volume"].as<float>(zone.Volume);
-					if (const auto reference = node["AmbienceEvent"])
-					{
-						zone.AmbienceEvent.Guid = reference["Guid"].as<std::string>("");
-						zone.AmbienceEvent.Path = reference["Path"].as<std::string>("");
-						zone.AmbienceEvent.BankName = reference["BankName"].as<std::string>("");
-					}
-					if (const auto reference = node["Snapshot"])
-					{
-						zone.Snapshot.Guid = reference["Guid"].as<std::string>("");
-						zone.Snapshot.Path = reference["Path"].as<std::string>("");
-						zone.Snapshot.BankName = reference["BankName"].as<std::string>("");
-					}
+					zone.AmbienceEvent = AudioEventRefSerializer::Read(node["AmbienceEvent"]);
+					zone.Snapshot = AudioEventRefSerializer::Read(node["Snapshot"]);
 					if (!AudioZoneSystem::Validate(zone))
 						throw std::runtime_error("Invalid audio zone dimensions or blend settings");
 				}
@@ -1347,13 +1333,8 @@ namespace Lux {
 						|| !std::isfinite(component.GroundProbeDistance) || component.GroundProbeDistance <= 0.0f
 						|| !std::isfinite(component.FootstepWeight) || component.FootstepWeight <= 0.0f)
 						throw std::runtime_error("Invalid footstep settings");
-					auto readEvent = [&](const char* name)
-					{
-						const auto value = surface[name];
-						return value ? AudioEventRef{ value["Guid"].as<std::string>(""), value["Path"].as<std::string>(""), value["BankName"].as<std::string>("") } : AudioEventRef{};
-					};
-					component.FootstepOverride = readEvent("FootstepOverride");
-					component.ImpactOverride = readEvent("ImpactOverride");
+					component.FootstepOverride = AudioEventRefSerializer::Read(surface["FootstepOverride"]);
+					component.ImpactOverride = AudioEventRefSerializer::Read(surface["ImpactOverride"]);
 				}
 
 				if (const auto audioSource = entity["AudioSourceComponent"])
@@ -1375,7 +1356,7 @@ namespace Lux {
 					component.LegacyLooping = audioSource["Looping"].as<bool>(false);
 
 					// Spatialization, AttenuationModel, RollOff, Min/MaxGain, Min/MaxDistance, the
-					// cone angles and DopplerFactor were removed: an FMOD Studio event authors all
+					// cone angles and DopplerFactor were removed: the Sound authors all
 					// of them. Scenes saved before that still carry the keys, and they are ignored
 					// here deliberately rather than by accident - reading them would resurrect
 					// settings that no longer reach the mixer.
@@ -1390,9 +1371,7 @@ namespace Lux {
 						}
 					}
 
-					component.Event.Guid = audioSource["EventGuid"].as<std::string>(std::string{});
-					component.Event.Path = audioSource["EventPath"].as<std::string>(std::string{});
-					component.Event.BankName = audioSource["EventBank"].as<std::string>(std::string{});
+					component.Event = AudioEventRefSerializer::ReadFlat(audioSource, "Event");
 				}
 
 				if (const auto audioListener = entity["AudioListenerComponent"])
@@ -1453,6 +1432,13 @@ namespace Lux {
 	static void SerializeSceneMetadata(Yaml::Writer& out, const Ref<Scene>& scene)
 	{
 		out << Yaml::Key << "Scene" << Yaml::Value << scene->GetName();
+		if (!scene->GetSoundBanks().empty())
+		{
+			out << Yaml::Key << "SoundBanks" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
+			for (const AssetHandle bank : scene->GetSoundBanks())
+				out << static_cast<uint64_t>(bank);
+			out << Yaml::EndSeq;
+		}
 
 		// Scene-wide post-processing. Previously authored per PostProcessVolume entity; the
 		// volume system is gone, so it lives here as one block.
@@ -1496,6 +1482,15 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to read scene name: {0}", e.what());
 			return false;
 		}
+
+		std::vector<AssetHandle> banks;
+		if (const auto list = data["SoundBanks"]; list && list.IsSequence())
+		{
+			for (const auto& bank : list)
+				if (const uint64_t handle = bank.as<uint64_t>(0); handle && std::find(banks.begin(), banks.end(), AssetHandle(handle)) == banks.end())
+					banks.push_back(handle);
+		}
+		scene->SetSoundBanks(std::move(banks));
 
 		// Absent in scenes written before post-processing moved off volumes; those simply
 		// keep the struct defaults.
@@ -1746,7 +1741,8 @@ namespace Lux {
 		childA.AddComponent<PointLightComponent>().Radiance = { 0.5f, 0.25f, 0.1f };
 		childB.AddComponent<DirectionalLightComponent>();
 		auto& audio = childB.AddComponent<AudioSourceComponent>();
-		audio.Event = { "{12345678-1234-1234-1234-123456789abc}", "event:/Test/Door", "Test.bank" };
+		// Both backends' references, so every copy and roundtrip below proves neither is dropped.
+		audio.Event = { "{12345678-1234-1234-1234-123456789abc}", "event:/Test/Door", "Test.bank", 0x5EED5u };
 		audio.ParameterOverrides = { { "Size", 0.75f }, { "Urgency", 2.0f } };
 		audio.Config.PlayOnAwake = false;
 		audio.Priority = 12;
@@ -1767,7 +1763,7 @@ namespace Lux {
 		auto& surface = childB.AddComponent<AudioSurfaceComponent>();
 		surface.Material = AcousticMaterial::Carpet;
 		surface.FootstepOverride = audio.Event;
-		surface.ImpactOverride = { "{11111111-1234-1234-1234-123456789abc}", "event:/Impact", "Impact.bank" };
+		surface.ImpactOverride = { "{11111111-1234-1234-1234-123456789abc}", "event:/Impact", "Impact.bank", 0x1A2B3Cu };
 		surface.AutoFootsteps = true;
 		surface.PhysicsSounds = false;
 		surface.StrideLength = 1.1f;
@@ -1823,9 +1819,11 @@ namespace Lux {
 				if (copied->FootstepOverride.Guid != expectedSurface.FootstepOverride.Guid
 					|| copied->FootstepOverride.Path != expectedSurface.FootstepOverride.Path
 					|| copied->FootstepOverride.BankName != expectedSurface.FootstepOverride.BankName
+					|| copied->FootstepOverride.Sound != expectedSurface.FootstepOverride.Sound
 					|| copied->ImpactOverride.Guid != expectedSurface.ImpactOverride.Guid
 					|| copied->ImpactOverride.Path != expectedSurface.ImpactOverride.Path
 					|| copied->ImpactOverride.BankName != expectedSurface.ImpactOverride.BankName
+					|| copied->ImpactOverride.Sound != expectedSurface.ImpactOverride.Sound
 					|| copied->AutoFootsteps != expectedSurface.AutoFootsteps || copied->PhysicsSounds != expectedSurface.PhysicsSounds
 					|| copied->StrideLength != expectedSurface.StrideLength || copied->GroundProbeDistance != expectedSurface.GroundProbeDistance
 					|| copied->FootstepWeight != expectedSurface.FootstepWeight)
@@ -1834,7 +1832,8 @@ namespace Lux {
 			if (const auto* copiedMusic = entity.TryGetComponent<MusicDirectorComponent>())
 			{
 				if (copiedMusic->Event.Guid != expectedMusic.Event.Guid || copiedMusic->Event.Path != expectedMusic.Event.Path
-					|| copiedMusic->Event.BankName != expectedMusic.Event.BankName || copiedMusic->InitialState != expectedMusic.InitialState
+					|| copiedMusic->Event.BankName != expectedMusic.Event.BankName || copiedMusic->Event.Sound != expectedMusic.Event.Sound
+					|| copiedMusic->InitialState != expectedMusic.InitialState
 					|| copiedMusic->Intensity != expectedMusic.Intensity || copiedMusic->PlayOnAwake != expectedMusic.PlayOnAwake)
 					fail(std::format("{} changed music startup settings", operation));
 			}
@@ -1850,12 +1849,14 @@ namespace Lux {
 					|| copiedZone.Radius != expectedZone.Radius || copiedZone.Priority != expectedZone.Priority
 					|| copiedZone.BlendDistance != expectedZone.BlendDistance || copiedZone.FadeTime != expectedZone.FadeTime
 					|| copiedZone.Volume != expectedZone.Volume || copiedZone.AmbienceEvent.Guid != expectedZone.AmbienceEvent.Guid
+					|| copiedZone.AmbienceEvent.Sound != expectedZone.AmbienceEvent.Sound
 					|| copiedZone.Snapshot.Guid != expectedZone.Snapshot.Guid || copiedZone.Snapshot.Path != expectedZone.Snapshot.Path
 					|| copiedZone.Snapshot.BankName != expectedZone.Snapshot.BankName)
 					fail(std::format("{} changed audio zone data", operation));
 			}
 			const auto& copied = entity.GetComponent<AudioSourceComponent>();
-			if (copied.Event.Guid != expectedAudio.Event.Guid || copied.ParameterOverrides != expectedAudio.ParameterOverrides
+			if (copied.Event.Guid != expectedAudio.Event.Guid || copied.Event.Sound != expectedAudio.Event.Sound
+				|| copied.ParameterOverrides != expectedAudio.ParameterOverrides
 				|| copied.Config.PlayOnAwake || copied.ScriptPaused
 				|| copied.LegacyAudio != expectedAudio.LegacyAudio || copied.LegacyLooping != expectedAudio.LegacyLooping)
 				fail(std::format("{} changed audio event data or copied runtime playback state", operation));
@@ -1999,7 +2000,8 @@ namespace Lux {
 			checkAudioCopy(restoredAudioEntity, "Scene roundtrip");
 			const auto& restoredAudio = restoredAudioEntity.GetComponent<AudioSourceComponent>();
 			if (restoredAudio.Event.Guid != expectedAudio.Event.Guid || restoredAudio.Event.Path != expectedAudio.Event.Path
-				|| restoredAudio.Event.BankName != expectedAudio.Event.BankName || restoredAudio.ParameterOverrides != expectedAudio.ParameterOverrides
+				|| restoredAudio.Event.BankName != expectedAudio.Event.BankName || restoredAudio.Event.Sound != expectedAudio.Event.Sound
+				|| restoredAudio.ParameterOverrides != expectedAudio.ParameterOverrides
 				|| restoredAudio.Priority != 12 || !restoredAudio.DistanceCulling
 				|| restoredAudio.Config.PlayOnAwake || restoredAudio.ScriptPaused
 				|| restoredAudio.LegacyAudio != expectedAudio.LegacyAudio || restoredAudio.LegacyLooping != expectedAudio.LegacyLooping)
@@ -2070,13 +2072,11 @@ namespace Lux {
 		return ok;
 	}
 
-	void SceneSerializer::Serialize(const std::filesystem::path& filepath)
+	bool SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
 		Yaml::Writer out;
 		SerializeToYAML(out);
-
-		std::ofstream fout(filepath);
-		fout << out.c_str();
+		return FileSystem::WriteFileAtomically(filepath, out.c_str());
 	}
 
 	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)

@@ -19,9 +19,27 @@ namespace Lux {
 		virtual ~LightSettingsPanel() = default;
 
 		virtual void OnImGuiRender(bool& isOpen) override;
+		void OnEvent(Event& event) override;
+		void OnClose() override
+		{
+			m_IsFocused = false;
+		}
 
-		void SetSceneContext(const Ref<Scene>& context) { m_Context = context; }
-		Ref<Scene> GetSceneContext() const { return m_Context; }
+		void SetSceneContext(const Ref<Scene>& context) override
+		{
+			m_Context = context;
+		}
+		void OnProjectChanged(const Ref<Project>& project) override
+		{
+			// OpenProject installs the new scene before broadcasting the project change.
+			if (!project)
+				m_Context = nullptr;
+			m_IsFocused = false;
+		}
+		Ref<Scene> GetSceneContext() const
+		{
+			return m_Context;
+		}
 
 	private:
 		void RenderDirectionalLight();
@@ -31,6 +49,7 @@ namespace Lux {
 
 	private:
 		Ref<Scene> m_Context;
+		bool m_IsFocused = false;
 		int m_SelectedLightIndex = -1;
 	};
 

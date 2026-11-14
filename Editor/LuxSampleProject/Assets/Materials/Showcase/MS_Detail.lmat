@@ -1,0 +1,7 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.6, 0.6, 0.6]
+  Metalness: 0
+  Roughness: 0.6
+  DetailAlbedoMap: Textures/Checkerboard.png
+  DetailTiling: [6, 6]

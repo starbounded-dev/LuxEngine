@@ -7,17 +7,22 @@
 #include "SceneHierarchyPanel.h"
 
 #include "Lux/Audio/AudioEngine.h"
+#include "Lux/Audio/Sound.h"
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetImporter.h"
 #include "Lux/Core/Events/KeyEvent.h"
 #include "Lux/Core/Events/MouseEvent.h"
 #include "Lux/Core/Input.h"
+#include "Lux/Editor/ComponentDocs.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
@@ -291,85 +296,54 @@ namespace Lux {
 			component.FontHandle = defaultFont;
 		}
 
-		static bool DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 110.0f)
+		static uint32_t DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f)
 		{
-			bool changed = false;
-
-			ImGui::PushID(label.c_str());
-
-			ImGui::Columns(2);
-			ImGui::SetColumnWidth(0, columnWidth);
+			ImGuiEx::ScopedID id(label.c_str());
+			const float available = ImGui::GetContentRegionAvail().x;
+			const float spacing = ImGui::GetStyle().ItemSpacing.x;
+			const float buttonWidth = ImGui::GetFrameHeight();
+			const float minimumAxis = buttonWidth + ImGui::GetFontSize() * 4.5f;
+			const bool inlineLabel = available >= ImGui::GetFontSize() * 34.0f;
+			const float labelWidth = inlineLabel ? ImGui::GetFontSize() * 8.0f : 0.0f;
+			ImGui::AlignTextToFramePadding();
 			ImGui::TextUnformatted(label.c_str());
-			ImGui::NextColumn();
-
-			ImGui::PushMultiItemsWidths(3, ImGui::CalcItemWidth());
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2{ 0, 0 });
-
-			ImFont* boldFont = ImGui::GetIO().Fonts->Fonts[0];
-			const float lineHeight = ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.y * 2.0f;
-			const ImVec2 buttonSize = { lineHeight + 3.0f, lineHeight };
-
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.9f, 0.2f, 0.2f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f });
-			ImGui::PushFont(boldFont);
-			if (ImGui::Button("X", buttonSize))
+			if (inlineLabel)
+				ImGui::SameLine(labelWidth);
+			const float axesWidth = inlineLabel ? available - labelWidth : available;
+			const bool inlineAxes = axesWidth >= minimumAxis * 3.0f + spacing * 2.0f;
+			const float axisWidth = inlineAxes ? (axesWidth - spacing * 2.0f) / 3.0f : axesWidth;
+			constexpr const char* axes[] = {"X", "Y", "Z"};
+			constexpr ImVec4 colors[] = {
+				{0.8f, 0.1f, 0.15f, 1.0f}, {0.2f, 0.7f, 0.2f, 1.0f}, {0.1f, 0.25f, 0.8f, 1.0f}};
+			uint32_t changedAxes = 0;
+			for (int axis = 0; axis < 3; ++axis)
 			{
-				values.x = resetValue;
-				changed = true;
+				ImGuiEx::ScopedID axisID(axis);
+				bool changed = false;
+				if (axis && inlineAxes)
+					ImGui::SameLine(0.0f, spacing);
+				ImGui::BeginGroup();
+				{
+					ImGuiEx::ScopedColour button(ImGuiCol_Button, colors[axis]);
+					if (ImGui::Button(axes[axis], {buttonWidth, 0.0f}))
+					{
+						values[axis] = resetValue;
+						changed = true;
+					}
+					ImGui::SetItemTooltip("Reset %s to %.2f", axes[axis], resetValue);
+				}
+				ImGui::SameLine(0.0f, 0.0f);
+				ImGui::SetNextItemWidth(std::max(1.0f, axisWidth - buttonWidth));
+				changed |= ImGuiEx::DragFloat("##value", &values[axis], 0.1f, 0.0f, 0.0f, "%.2f");
+				changed |=
+					ImGuiEx::NumericControlMenu(values[axis], 0.0f, 0.0f, std::optional<float>(resetValue));
+				ImGui::EndGroup();
+				if (changed)
+					changedAxes |= BIT(axis);
 			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat("##X", &values.x, 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-			ImGui::SameLine(0.0f, 8.0f);
-
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f });
-			ImGui::PushFont(boldFont);
-			if (ImGui::Button("Y", buttonSize))
-			{
-				values.y = resetValue;
-				changed = true;
-			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat("##Y", &values.y, 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-			ImGui::SameLine(0.0f, 8.0f);
-
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f });
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f });
-			ImGui::PushFont(boldFont);
-			if (ImGui::Button("Z", buttonSize))
-			{
-				values.z = resetValue;
-				changed = true;
-			}
-			ImGui::PopFont();
-			ImGui::PopStyleColor(3);
-
-			ImGui::SameLine();
-			changed |= ImGui::DragFloat("##Z", &values.z, 0.1f, 0.0f, 0.0f, "%.2f");
-			ImGui::PopItemWidth();
-
-			ImGui::PopStyleVar();
-			ImGui::Columns(1);
-			ImGui::Dummy(ImVec2(0.0f, 5.0f)); // vertical breathing room between vec3 rows
-			ImGui::PopID();
-
-			// These are raw DragFloats (not ImGuiEx::Property), so they don't raise the undo signal
-			// on their own — flag it here so transform edits are captured like every other field.
-			if (changed)
+			if (changedAxes)
 				EditorStack::Get().MarkEditTargetEdited("Edit Transform");
-
-			return changed;
+			return changedAxes;
 		}
 
 		template<typename TComponent, typename Fn>
@@ -389,10 +363,10 @@ namespace Lux {
 			TComponent& firstComponent = firstEntity.GetComponent<TComponent>();
 
 			ImGui::PushID((void*)typeid(TComponent).hash_code());
-			const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
+
 			(void)icon; // texture section icons dropped for the flat concept look
 
-			// Flat collapsible section: an uppercase label + chevron drawn over an empty-label node,
+			// Flat collapsible section: a clipped label + chevron drawn over an empty-label node,
 			// with a faint hover/active wash — no framed header or Hazel texture icon.
 			ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(255, 255, 255, 10));
 			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, IM_COL32(255, 255, 255, 16));
@@ -401,6 +375,14 @@ namespace Lux {
 				| ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_FramePadding;
 			const bool open = ImGui::TreeNodeEx("##section", sectionFlags, "");
 			ImGui::PopStyleColor(3);
+
+			const ImRect sectionRect = ImGuiEx::GetItemRect();
+			const ImVec2 afterHeader = ImGui::GetCursorScreenPos();
+			const float lineHeight = ImGui::GetFrameHeight();
+			const float settingsX = sectionRect.Max.x - lineHeight;
+			const float labelRight = settingsX -
+									 (ComponentDocTopic<TComponent>::Topic.empty() ? 0.0f : lineHeight) -
+									 ImGui::GetStyle().ItemInnerSpacing.x;
 
 			{
 				const ImRect secRect = ImGuiEx::GetItemRect();
@@ -438,17 +420,28 @@ namespace Lux {
 				}
 
 				const float labelY = secRect.Min.y + (secRect.GetHeight() - ImGui::GetTextLineHeight()) * 0.5f;
-				ImGui::GetWindowDrawList()->AddText(ImVec2(labelX, labelY), enabled ? Colors::Theme::textBrighter : Colors::Theme::textDarker,
-					Utils::String::ToUpperCopy(name).c_str());
+				ImGuiEx::ScopedColour title(ImGuiCol_Text, enabled ? Colors::Theme::textBrighter
+																   : Colors::Theme::textDarker);
+				ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), {labelX, labelY},
+										  {std::max(labelX, labelRight), secRect.Max.y},
+										  std::max(labelX, labelRight), name, nullptr, nullptr);
 			}
-
-			const float lineHeight = ImGui::GetFrameHeight();
 
 			bool resetComponent = false;
 			bool removeComponent = false;
 
-			ImGui::SameLine(contentRegionAvailable.x - lineHeight - 5.0f);
-			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{ lineHeight, lineHeight }))
+			// The component's manual page, left of the settings gear.
+			if constexpr (!ComponentDocTopic<TComponent>::Topic.empty())
+			{
+				ImGui::SetCursorScreenPos({settingsX - lineHeight, sectionRect.Min.y});
+				const ImVec2 docsMin = ImGui::GetCursorScreenPos();
+				ImGuiEx::DocsButton("##ComponentDocs", ComponentDocTopic<TComponent>::Topic, ComponentDocTopic<TComponent>::Title,
+					ImRect(docsMin, ImVec2(docsMin.x + lineHeight, docsMin.y + lineHeight)));
+			}
+
+			ImGui::SetCursorScreenPos({settingsX, sectionRect.Min.y});
+			if (ImGui::InvisibleButton("##ComponentSettings", ImVec2{lineHeight, lineHeight},
+									   ImGuiButtonFlags_EnableNav))
 				ImGui::OpenPopup("ComponentSettings");
 
 			ImGuiEx::DrawButtonImage(EditorResources::GearIcon,
@@ -456,6 +449,10 @@ namespace Lux {
 				IM_COL32(160, 160, 160, 255),
 				IM_COL32(160, 160, 160, 150),
 				ImGuiEx::GetItemRect());
+
+			ImGui::SetItemTooltip("%s settings", name);
+			ImGui::SetCursorScreenPos(afterHeader);
+			ImGui::Dummy({0.0f, 0.0f});
 
 			if (ImGui::BeginPopup("ComponentSettings"))
 			{
@@ -517,6 +514,11 @@ namespace Lux {
 		SelectionManager::DeselectAll(m_SelectionContext);
 		m_Context = context;
 		m_SearchString.clear();
+		m_ComponentSearch.clear();
+		m_ActivateSearchWidget = false;
+		m_IsHierarchyFocused = false;
+		m_IsPropertiesFocused = false;
+		m_QueuedEntityDeletions.clear();
 	}
 
 	Entity SceneHierarchyPanel::GetSelectedEntity() const
@@ -627,7 +629,10 @@ namespace Lux {
 		{
 			Entity entity = m_Context->GetEntityByUUID(entityID);
 			if (entity)
+			{
+				Scene::RecordPrefabRemoval(entity); // a prefab child deleted from an instance stays deleted
 				m_Context->DestroyEntity(entity);
+			}
 		}
 
 		if (!queuedDeletions.empty())
@@ -638,6 +643,7 @@ namespace Lux {
 
 	void SceneHierarchyPanel::OnImGuiRender(bool& isOpen)
 	{
+		m_IsHierarchyFocused = false;
 		if (!isOpen)
 			return;
 
@@ -658,33 +664,25 @@ namespace Lux {
 
 		m_IsHierarchyFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
-		const float edgeOffset = 4.0f;
-
-		// Uppercase section header with a live entity count, like the concept's sidebar.
+		const ImGuiEx::PanelAction actions[] = {
+			{0, "Create", LUX_ICON_PLUS, nullptr, m_Context != nullptr, false, true}};
+		if (ImGuiEx::PanelActionBar("##hierarchy_actions", actions) == 0)
+			ImGui::OpenPopup("CreateEntity");
+		if (ImGui::BeginPopup("CreateEntity"))
 		{
-			uint32_t entityCount = 0;
-			if (m_Context)
-			{
-				auto view = m_Context->GetAllEntitiesWith<TagComponent>();
-				for (auto e : view)
-				{
-					(void)e;
-					entityCount++;
-				}
-			}
-			ImGui::SetCursorPosX(edgeOffset * 3.0f);
-			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker));
-			ImGui::Text("HIERARCHY  ·  %u", entityCount);
-			ImGui::PopStyleColor();
-			ImGui::Spacing();
+			DrawEntityCreateMenu({});
+			ImGui::EndPopup();
 		}
-
-		ImGui::SetCursorPosX(edgeOffset * 3.0f);
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - edgeOffset * 3.0f);
-		ImGuiEx::Widgets::SearchWidget(m_SearchString, "Search entities...", &m_ActivateSearchWidget);
-		ImGui::Spacing();
+		if (m_ActivateSearchWidget)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_ActivateSearchWidget = false;
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		ImGui::InputTextWithHint("##hierarchy_search", "Search entities... (Ctrl+F)", &m_SearchString);
 		ImGui::Separator();
+		ImGui::BeginChild("##hierarchy_entities");
+		m_VisibleEntityCount = 0;
 
 		if (m_Context)
 		{
@@ -714,7 +712,10 @@ namespace Lux {
 					{
 						Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 						if (draggedEntity)
+						{
+							Scene::RecordPrefabReparent(draggedEntity, {});
 							draggedEntity.SetParent({});
+						}
 					}
 					EditorStack::Get().MarkSceneEdited("Reparent");
 				}
@@ -737,6 +738,13 @@ namespace Lux {
 			}
 		}
 
+		if (!m_VisibleEntityCount)
+			ImGuiEx::PanelEmptyState(
+				"##hierarchy_empty", m_SearchString.empty() ? "No entities" : "No matching entities",
+				m_Context ? (m_SearchString.empty() ? "Use Create to add an entity."
+													: "Change the search to see other entities.")
+						  : "Open a scene to browse its entities.");
+
 		if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)
 			&& ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)
 			&& !ImGui::IsAnyItemHovered())
@@ -750,31 +758,53 @@ namespace Lux {
 			ImGui::EndPopup();
 		}
 
+		ImGui::EndChild();
+
 		if (m_IsWindow)
 			ImGui::End();
 
-		if (!isOpen)
-			return;
-
 		FlushQueuedEntityDeletions();
+	}
 
-		ImGui::Begin("Properties", &isOpen);
-		m_IsHierarchyOrPropertiesFocused = m_IsHierarchyFocused || ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		DrawComponents(SelectionManager::GetSelections(s_ActiveSelectionContext));
+	void SceneHierarchyPanel::OnPropertiesImGuiRender(bool& isOpen)
+	{
+		m_IsPropertiesFocused = false;
+		PruneInvalidSelection();
+		FlushQueuedEntityDeletions();
+		s_ActiveSelectionContext = m_SelectionContext;
+		if (ImGui::Begin("Properties", &isOpen))
+		{
+			m_IsPropertiesFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+			DrawComponents(SelectionManager::GetSelections(m_SelectionContext));
+		}
 		ImGui::End();
 	}
 
 	void SceneHierarchyPanel::OnEvent(Event& e)
 	{
-		if (!m_IsHierarchyOrPropertiesFocused)
+		if (!m_IsHierarchyFocused)
+			return;
+		OnPropertiesEvent(e);
+	}
+
+	void SceneHierarchyPanel::OnPropertiesEvent(Event& e)
+	{
+		if (!m_IsHierarchyFocused && !m_IsPropertiesFocused)
 			return;
 
 		EventDispatcher dispatcher(e);
-		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& event)
-		{
-			switch (event.GetKeyCode())
+		dispatcher.Dispatch<KeyPressedEvent>(
+			[this](KeyPressedEvent& event)
 			{
+				if (ImGui::GetIO().WantTextInput || GImGui->OpenPopupStack.Size > 0)
+					return true;
+				if (event.GetRepeatCount() != 0)
+					return false;
+				switch (event.GetKeyCode())
+				{
 				case Key::F:
+					if (!m_IsHierarchyFocused || !ImGui::GetIO().KeyCtrl)
+						return false;
 					m_ActivateSearchWidget = true;
 					return true;
 				case Key::Escape:
@@ -782,8 +812,8 @@ namespace Lux {
 					return true;
 				default:
 					return false;
-			}
-		});
+				}
+			});
 	}
 
 	void SceneHierarchyPanel::DrawEntityCreateMenu(Entity parent)
@@ -965,16 +995,19 @@ namespace Lux {
 		const bool locked = tagComponent.Locked;
 		const auto& relationship = entity.GetComponent<RelationshipComponent>();
 		const bool hasChildren = !relationship.Children.empty();
-		const bool hasChildMatchingSearch = TagSearchRecursive(entity, searchFilter, 10);
+		const bool hasChildMatchingSearch =
+			TagSearchRecursive(entity, searchFilter,
+							   static_cast<uint32_t>(m_Context->GetAllEntitiesWith<TagComponent>().size()));
 		const bool isSelected = SelectionManager::IsSelected(s_ActiveSelectionContext, entity.GetUUID());
 
 		if (!ImGuiEx::IsMatchingSearch(tag, searchFilter) && !hasChildMatchingSearch)
 			return;
 
+		++m_VisibleEntityCount;
 		ImGuiTreeNodeFlags flags = (isSelected ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (hasChildMatchingSearch)
-			flags |= ImGuiTreeNodeFlags_DefaultOpen;
+			ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 		if (!hasChildren)
 			flags |= ImGuiTreeNodeFlags_Leaf;
 
@@ -989,6 +1022,7 @@ namespace Lux {
 		ImGui::PopStyleColor(3);
 
 		const bool rowHovered = ImGui::IsItemHovered();
+		const bool showTooltip = ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip);
 		const ImRect rowRect = ImGuiEx::GetItemRect();
 		ImGuiContext& g = *GImGui;
 
@@ -1114,7 +1148,10 @@ namespace Lux {
 				{
 					Entity draggedEntity = m_Context->GetEntityByUUID(entityIDs[i]);
 					if (draggedEntity && draggedEntity != entity)
+					{
+						Scene::RecordPrefabReparent(draggedEntity, entity);
 						draggedEntity.SetParent(entity);
+					}
 				}
 				EditorStack::Get().MarkSceneEdited("Reparent");
 			}
@@ -1194,6 +1231,17 @@ namespace Lux {
 				deleteRequested = true;
 
 			ImGui::EndPopup();
+		}
+
+		// Tooltip submission replaces LastItemData. Finish row selection, drag/drop and context actions
+		// first.
+		if (showTooltip && ImGui::BeginTooltip())
+		{
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+			ImGui::TextUnformatted(tag.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::Text("Entity %llu", static_cast<unsigned long long>(entity.GetUUID()));
+			ImGui::EndTooltip();
 		}
 
 		if (opened)
@@ -1317,149 +1365,86 @@ namespace Lux {
 			if (ImGui::SmallButton(std::format("{}  Edit {}##edit_material_slot_{}", LUX_ICON_PENCIL, GetAssetDisplayName(materialHandle), slot).c_str()))
 				m_OpenMaterialCallback(materialHandle);
 		}
+
+		// A graph material's exposed parameters, editable here without opening the material. They
+		// belong to the material asset (every entity using it changes), and are saved to it.
+		for (AssetHandle materialHandle : listed)
+		{
+			Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
+			Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
+			if (!graph)
+				continue;
+
+			std::vector<MaterialGraphParameter> exposed;
+			for (const MaterialGraphParameter& parameter : graph->GetParameters())
+			{
+				if (parameter.Exposed)
+					exposed.push_back(parameter);
+			}
+			ImGuiEx::ScopedID materialID(static_cast<int>(static_cast<uint64_t>(materialHandle) & 0x7fffffff));
+			if (exposed.empty() || !ImGuiEx::PropertyGridHeader(std::format("{} Parameters", GetAssetDisplayName(materialHandle)), false))
+				continue;
+
+			ImGuiEx::BeginPropertyGrid();
+			for (const MaterialGraphParameter& parameter : exposed)
+			{
+				MaterialGraphParameterValue value = material->GetGraphParameter(parameter);
+				bool changed = false;
+				switch (parameter.Kind)
+				{
+					case MaterialGraphParameterKind::Float:
+						changed = ImGuiEx::Property(parameter.Name.c_str(), value.Value.x, 0.01f, 0.0f, 0.0f, "", false);
+						break;
+					case MaterialGraphParameterKind::Color:
+						changed = ImGuiEx::PropertyColor(parameter.Name.c_str(), value.Value, "", false);
+						break;
+					case MaterialGraphParameterKind::Texture:
+						changed = ImGuiEx::PropertyAssetReference<Texture2D>(parameter.Name.c_str(), value.Texture, "", nullptr, {}, false);
+						break;
+				}
+				if (changed)
+				{
+					material->SetGraphParameter(parameter.Name, value);
+					m_PendingMaterialSave = materialHandle;
+				}
+			}
+			ImGuiEx::EndPropertyGrid();
+			ImGui::TreePop();
+		}
+
+		if (m_PendingMaterialSave && !ImGui::IsAnyItemActive())
+		{
+			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(m_PendingMaterialSave))
+				AssetImporter::Serialize(material.As<Asset>());
+			m_PendingMaterialSave = 0;
+		}
 	}
 
 	void SceneHierarchyPanel::DrawAudioEventPicker(AudioSourceComponent& component, const std::vector<UUID>& selectedEntities)
 	{
-		const std::vector<AudioEventInfo>& events = AudioEngine::GetEvents();
-
-		// Resolve the assignment against what is actually loaded. A stored event whose GUID is not
-		// in any loaded bank is shown and flagged rather than reading as "nothing assigned", which
-		// would invite someone to silently reassign it.
-		const std::string assignedGuid = Utils::String::ToLowerCopy(component.Event.Guid);
-		const auto assigned = std::find_if(events.begin(), events.end(),
-			[&](const AudioEventInfo& info) { return info.Guid == assignedGuid; });
-		const bool resolved = assigned != events.end();
-
-		if (resolved)
+		AssetHandle sound = component.Event.Sound;
+		const bool mixed = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
 		{
-			// The designer may have renamed or re-banked the event since this scene was saved; the
-			// GUID kept the reference working, so refresh the labels that describe it.
-			component.Event.Path = assigned->Path;
-			component.Event.BankName = assigned->BankName;
-		}
-
-		// Follow a new selection or assignment, but preserve the user's filter while browsing.
-		const UUID firstEntity = selectedEntities.empty() ? UUID(0) : selectedEntities.front();
-		const uint64_t generation = AudioEngine::GetEventGeneration();
-		if (m_AudioEventPickerEntity != firstEntity || m_AudioEventPickerGuid != component.Event.Guid
-			|| m_AudioEventPickerGeneration != generation)
+			return AssetHandle(entity.GetComponent<AudioSourceComponent>().Event.Sound);
+		});
+		ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixed);
+		if (ImGuiEx::PropertyAssetReference<Sound>("Sound", sound, "The Sound asset this source plays. Create one from an audio file in the Content Browser."))
 		{
-			m_AudioEventPickerEntity = firstEntity;
-			m_AudioEventPickerGuid = component.Event.Guid;
-			m_AudioEventPickerGeneration = generation;
-			m_AudioEventBankFilter = resolved ? assigned->BankName : std::string{};
-			m_AudioEventSearch.clear();
+			component.Event.Sound = sound;
+			ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities, [sound](AudioSourceComponent& audioComponent, Entity)
+			{
+				audioComponent.Event.Sound = sound;
+			});
 		}
-
-		auto propertyRow = [](const char* label)
-			{
-				ImGuiEx::ShiftCursor(10.0f, 9.0f);
-				ImGui::TextUnformatted(label);
-				ImGui::NextColumn();
-				ImGuiEx::ShiftCursorY(4.0f);
-				ImGui::PushItemWidth(-1.0f);
-			};
-
-		auto endPropertyRow = []()
-			{
-				ImGui::PopItemWidth();
-				ImGui::NextColumn();
-				ImGuiEx::Draw::Underline();
-			};
-
-		// --- Bank -------------------------------------------------------------------------------
-		propertyRow("Bank");
+		ImGui::PopItemFlag();
+		if (m_OpenSoundCallback && !mixed && sound && AssetManager::GetAssetType(sound) == AssetType::Sound)
 		{
-			const std::vector<AudioBankInfo>& banks = AudioEngine::GetLoadedBanks();
-			const char* bankPreview = m_AudioEventBankFilter.empty() ? "All banks" : m_AudioEventBankFilter.c_str();
-
-			if (ImGui::BeginCombo("##audio_event_bank", bankPreview))
-			{
-				if (ImGui::Selectable("All banks", m_AudioEventBankFilter.empty()))
-					m_AudioEventBankFilter.clear();
-
-				for (const AudioBankInfo& bank : banks)
-				{
-					// A strings bank carries the path table, not events - offering it as a filter
-					// would produce a permanently empty list.
-					if (bank.IsStringsBank || bank.EventCount == 0)
-						continue;
-
-					if (ImGui::Selectable(bank.Name.c_str(), m_AudioEventBankFilter == bank.Name))
-						m_AudioEventBankFilter = bank.Name;
-				}
-
-				ImGui::EndCombo();
-			}
+			ImGui::NextColumn();
+			ImGuiEx::ShiftCursorY(4.0f);
+			if (ImGui::SmallButton(std::format("{}  Edit Sound##edit_audio_source_sound", LUX_ICON_PENCIL).c_str()))
+				m_OpenSoundCallback(sound);
+			ImGui::NextColumn();
 		}
-		endPropertyRow();
-
-		// --- Event ------------------------------------------------------------------------------
-		propertyRow("Event");
-		{
-			std::string preview = "None";
-			if (component.Event.IsValid())
-				preview = resolved ? component.Event.Path
-					: (component.Event.Path.empty() ? component.Event.Guid : component.Event.Path);
-
-			if (ImGui::BeginCombo("##audio_event", preview.c_str()))
-			{
-				// Kept inside the popup so it is where the eye already is when the list is long.
-				ImGui::SetNextItemWidth(-1.0f);
-				char search[128] = {};
-				std::snprintf(search, sizeof(search), "%s", m_AudioEventSearch.c_str());
-				if (ImGui::InputTextWithHint("##audio_event_search", "Search events...", search, sizeof(search)))
-					m_AudioEventSearch = search;
-
-				ImGui::Separator();
-
-				if (ImGui::Selectable("None", !component.Event.IsValid()))
-				{
-					component.Event = {};
-					ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities,
-						[](AudioSourceComponent& audioComponent, Entity) { audioComponent.Event = {}; });
-				}
-
-				int shown = 0;
-				for (const AudioEventInfo& info : events)
-				{
-					if (info.IsSnapshot || (!m_AudioEventBankFilter.empty() && info.BankName != m_AudioEventBankFilter))
-						continue;
-
-					if (!ImGuiEx::IsMatchingSearch(info.Path, m_AudioEventSearch, false, false, true))
-						continue;
-
-					shown++;
-					ImGuiEx::ScopedID bankID(info.BankName.c_str());
-					ImGuiEx::ScopedID eventID(info.Guid.c_str());
-					if (ImGui::Selectable(info.Path.c_str(), info.Guid == assignedGuid))
-					{
-						AudioEventRef picked{ info.Guid, info.Path, info.BankName };
-						component.Event = picked;
-						ApplyToSelection<AudioSourceComponent>(m_Context, selectedEntities,
-							[picked](AudioSourceComponent& audioComponent, Entity) { audioComponent.Event = picked; });
-					}
-
-					if (ImGui::IsItemHovered())
-					{
-						ImGui::SetTooltip("%s\n%s  -  %s%s", info.Guid.c_str(), info.BankName.c_str(),
-							info.Is3D ? "3D" : "2D", info.IsOneshot ? ", oneshot" : "");
-					}
-				}
-
-				if (shown == 0)
-					ImGui::TextDisabled(events.empty() ? "No events in the loaded banks." : "Nothing matches.");
-
-				ImGui::EndCombo();
-			}
-
-			if (component.Event.IsValid() && !resolved)
-				ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.31f, 1.0f), "Not in any loaded bank - build the project.");
-			else if (events.empty())
-				ImGui::TextDisabled("No events yet - author them in FMOD Studio.");
-		}
-		endPropertyRow();
 	}
 
 	void SceneHierarchyPanel::DrawComponents(const std::vector<UUID>& entityIDs)
@@ -1470,7 +1455,8 @@ namespace Lux {
 		EditorStack::ScopedEditTarget editTarget(entityIDs);
 		if (!m_Context || entityIDs.empty())
 		{
-			ImGui::TextDisabled("Select an entity to inspect its properties.");
+			ImGuiEx::PanelEmptyState("##properties_empty", "No entity selected",
+									 "Select an entity in Scene Hierarchy to inspect its properties.");
 			return;
 		}
 
@@ -1481,8 +1467,6 @@ namespace Lux {
 		const bool isMultiSelect = entityIDs.size() > 1;
 		// A folder is purely organizational: no editable transform, no components to add.
 		const bool isFolder = !isMultiSelect && firstEntity.HasComponent<FolderComponent>();
-		const ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
-
 		// Inspector-wide: every input renders as a bordered, slightly-inset "field box" (the
 		// concept's .field look). Scoped RAII so it unwinds cleanly across this function's returns.
 		ImGuiEx::ScopedStyle frameBorderSize(ImGuiStyleVar_FrameBorderSize, 1.0f);
@@ -1499,9 +1483,8 @@ namespace Lux {
 			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f);
 			{
 				ImGuiEx::ScopedColour lockText(ImGuiCol_Text, Colors::Theme::textDarker);
-				ImGui::TextUnformatted(LUX_ICON_LOCK "  This entity is locked.");
+				ImGui::TextWrapped(LUX_ICON_LOCK "  This entity is locked.");
 			}
-			ImGui::SameLine();
 			if (ImGui::SmallButton("Unlock"))
 			{
 				firstEntity.GetComponent<TagComponent>().Locked = false;
@@ -1552,41 +1535,33 @@ namespace Lux {
 				tagValue = "---";
 			}
 
-			char buffer[256];
-			std::memset(buffer, 0, sizeof(buffer));
-			std::strncpy(buffer, tagValue.c_str(), sizeof(buffer) - 1);
-
-			ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
-			ImGui::PushItemWidth(contentRegionAvailable.x * 0.55f);
-			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::InputText("##Tag", &tagValue))
 			{
-				const std::string newName = buffer[0] == 0 ? "Unnamed Entity" : std::string(buffer);
+				const std::string newName = tagValue.empty() ? "Unnamed Entity" : tagValue;
 				ApplyToSelection<TagComponent>(m_Context, entityIDs, [&newName](TagComponent& component, Entity)
 				{
 					component.Tag = newName;
 				});
-				EditorStack::Get().MarkSceneEdited("Rename");
+				EditorStack::Get().MarkEntitiesEdited(entityIDs, "Rename");
 			}
-			ImGui::PopItemWidth();
-			ImGui::PopFont();
-
+			if (ImGui::BeginItemTooltip())
+			{
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
+				ImGui::TextUnformatted(firstEntity.GetName().c_str());
+				ImGui::PopTextWrapPos();
+				ImGui::EndTooltip();
+			}
 			if (isMultiSelect)
 			{
-				ImGui::SameLine();
-				ImGui::TextDisabled("(%zu selected)", entityIDs.size());
+				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+				ImGui::TextWrapped("%zu entities selected", entityIDs.size());
 			}
-
 			if (!isFolder)
 			{
-				const float addButtonWidth = 90.0f;
-				ImGui::SameLine(contentRegionAvailable.x - addButtonWidth - 6.0f);
-				// Lime call-to-action, matching the concept's accent Add button.
-				ImGuiEx::ScopedColour addBg(ImGuiCol_Button, Colors::Theme::accent);
-				ImGuiEx::ScopedColour addBgH(ImGuiCol_ButtonHovered, Colors::Theme::accent);
-				ImGuiEx::ScopedColour addBgA(ImGuiCol_ButtonActive, Colors::Theme::accent);
-				ImGuiEx::ScopedColour addTxt(ImGuiCol_Text, Colors::Theme::titlebar);
-				ImGuiEx::ScopedColour addBorder(ImGuiCol_Border, Colors::Theme::accent);
-				if (ImGui::Button(LUX_ICON_PLUS "  ADD", ImVec2(addButtonWidth, 0.0f)))
+				const ImGuiEx::PanelAction actions[] = {
+					{0, "Add component", LUX_ICON_PLUS, nullptr, true, false, true}};
+				if (ImGuiEx::PanelActionBar("##inspector_actions", actions) == 0)
 					ImGui::OpenPopup("AddComponentPanel");
 			}
 		}
@@ -1595,8 +1570,22 @@ namespace Lux {
 		ImGui::Separator();
 		ImGui::Spacing();
 
+		ImGui::SetNextWindowSize(
+			{std::min(ImGui::GetFontSize() * 24.0f, ImGui::GetMainViewport()->WorkSize.x * 0.9f), 0.0f});
 		if (ImGui::BeginPopup("AddComponentPanel"))
 		{
+			if (ImGui::IsWindowAppearing())
+			{
+				m_ComponentSearch.clear();
+				ImGui::SetKeyboardFocusHere();
+			}
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::InputTextWithHint("##component_search", "Search components...", &m_ComponentSearch);
+			ImGui::BeginChild(
+				"##component_choices",
+				{0.0f, std::min(ImGui::GetFontSize() * 18.0f, ImGui::GetMainViewport()->WorkSize.y * 0.6f)});
+			size_t matchingComponents = 0;
+			const char* category = "";
 			auto canAddComponent = [this, &entityIDs]<typename TComponent>() -> bool
 			{
 				for (UUID entityID : entityIDs)
@@ -1609,8 +1598,14 @@ namespace Lux {
 				return false;
 			};
 
-			auto addComponentRow = [this, &entityIDs](const char* label, const Ref<Texture2D>& icon, const std::function<void()>& addCallback)
+			auto addComponentRow = [this, &entityIDs, &matchingComponents,
+									&category](const char* label, const Ref<Texture2D>& icon,
+											   const std::function<void()>& addCallback)
 			{
+				if (!ImGuiEx::IsMatchingSearch(label, m_ComponentSearch) &&
+					!ImGuiEx::IsMatchingSearch(category, m_ComponentSearch))
+					return;
+				++matchingComponents;
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				if (icon)
@@ -1627,8 +1622,11 @@ namespace Lux {
 				}
 			};
 
-			auto addCategoryHeader = [](const char* label)
+			auto addCategoryHeader = [this, &category](const char* label)
 			{
+				category = label;
+				if (!m_ComponentSearch.empty())
+					return;
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				ImGui::Dummy(ImVec2(16.0f, 4.0f));
@@ -2044,6 +2042,11 @@ namespace Lux {
 				ImGui::EndTable();
 			}
 
+			if (!matchingComponents)
+				ImGuiEx::PanelEmptyState(
+					"##no_components", "No components available",
+					"Change the search. Components already on every selected entity are omitted.");
+			ImGui::EndChild();
 			ImGui::EndPopup();
 		}
 
@@ -2092,6 +2095,13 @@ namespace Lux {
 						// Route through the prefab writer so a variant keeps its base link.
 						PrefabSerializer::WritePrefabFile(path, prefab->GetScene(), prefab->GetBasePrefab());
 					};
+					// Other un-overridden instances in this scene adopt the applied values (as saving from prefab edit mode does).
+					auto propagateApply = [&](const Ref<Scene>& oldPrefab)
+					{
+						serializePrefab();
+						m_Context->PropagatePrefabEdits(firstComponent.PrefabID, oldPrefab, prefab->GetScene());
+						EditorStack::Get().MarkSceneEdited("Apply Prefab Override");
+					};
 
 					// One override row: label + per-component Revert (prefab -> instance) and Apply
 					// (instance -> prefab, then re-serialize). T reconciles add/replace/remove.
@@ -2122,6 +2132,7 @@ namespace Lux {
 						ImGui::SameLine();
 						if (ImGui::SmallButton("Apply"))
 						{
+							const Ref<Scene> oldPrefab = Scene::Copy(prefab->GetScene());
 							if (instanceEntity.HasComponent<T>())
 								sourceEntity.AddOrReplaceComponent<T>(instanceEntity.GetComponent<T>());
 							else
@@ -2131,7 +2142,7 @@ namespace Lux {
 								if (auto* listener = sourceEntity.TryGetComponent<AudioListenerComponent>())
 									listener->AttenuationTarget = Scene::MapPrefabEntityReference(listener->AttenuationTarget, instanceEntity, sourceEntity);
 							}
-							serializePrefab();
+							propagateApply(oldPrefab);
 							LUX_CORE_INFO_TAG("Prefab", "Applied {} to prefab '{}'", label, prefabName);
 						}
 					};
@@ -2196,12 +2207,13 @@ namespace Lux {
 						if (ImGui::BeginPopupModal("Apply to Prefab?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 						{
 							ImGui::TextUnformatted("Overwrite the prefab asset with this instance's values?\n"
-								"Other instances keep their current values until reverted.");
+								"Other un-overridden instances follow.");
 							ImGui::Spacing();
 							if (ImGui::Button("Apply"))
 							{
+								const Ref<Scene> oldPrefab = Scene::Copy(prefab->GetScene());
 								Scene::ReconcilePrefabComponents(sourceEntity, instanceEntity);
-								serializePrefab();
+								propagateApply(oldPrefab);
 								LUX_CORE_INFO_TAG("Prefab", "Applied instance to prefab '{}'", prefabName);
 								ImGui::CloseCurrentPopup();
 							}
@@ -2209,6 +2221,31 @@ namespace Lux {
 							if (ImGui::Button("Cancel"))
 								ImGui::CloseCurrentPopup();
 							ImGui::EndPopup();
+						}
+					}
+
+					// Prefab children deleted from this instance stay deleted when the prefab changes. An
+					// instance saved before deletions were recorded had its missing children taken as deleted
+					// (Scene::SyncPrefabInstance); Restore brings them back from the prefab.
+					if (Entity instanceRoot = Scene::FindPrefabInstanceRoot(instanceEntity))
+					{
+						const size_t removed = instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.size();
+						if (removed > 0)
+						{
+							ImGui::Spacing();
+							{
+								ImGuiEx::ScopedColour note(ImGuiCol_Text, Colors::Theme::textDarker);
+								ImGui::Text("%zu prefab %s deleted from this instance", removed, removed == 1 ? "child" : "children");
+							}
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Restore##PrefabRemovals"))
+							{
+								const AssetHandle rootPrefabID = instanceRoot.GetComponent<PrefabComponent>().PrefabID;
+								instanceRoot.GetComponent<PrefabComponent>().RemovedEntities.clear();
+								if (Ref<Prefab> rootPrefab = AssetManager::GetAsset<Prefab>(rootPrefabID))
+									m_Context->SyncPrefabInstance(instanceRoot, rootPrefab->GetScene());
+								EditorStack::Get().MarkSceneEdited("Restore Prefab Children");
+							}
 						}
 					}
 				}
@@ -2223,32 +2260,42 @@ namespace Lux {
 				glm::vec3 rotation = glm::degrees(firstComponent.GetRotationEuler());
 				glm::vec3 scale = firstComponent.Scale;
 
-				if (DrawVec3Control("Translation", translation))
+				if (const uint32_t axes = DrawVec3Control("Translation", translation))
 				{
-					firstComponent.Translation = translation;
-					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&translation](TransformComponent& component, Entity)
-					{
-						component.Translation = translation;
-					});
+					ApplyToSelection<TransformComponent>(
+						m_Context, selectedEntities,
+						[&translation, axes](TransformComponent& component, Entity)
+						{
+							for (int axis = 0; axis < 3; ++axis)
+								if (axes & BIT(axis))
+									component.Translation[axis] = translation[axis];
+						});
 				}
 
-				if (DrawVec3Control("Rotation", rotation))
+				if (const uint32_t axes = DrawVec3Control("Rotation", rotation))
 				{
 					const glm::vec3 rotationRadians = glm::radians(rotation);
-					firstComponent.SetRotationEuler(rotationRadians);
-					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&rotationRadians](TransformComponent& component, Entity)
-					{
-						component.SetRotationEuler(rotationRadians);
-					});
+					ApplyToSelection<TransformComponent>(
+						m_Context, selectedEntities,
+						[&rotationRadians, axes](TransformComponent& component, Entity)
+						{
+							glm::vec3 current = component.GetRotationEuler();
+							for (int axis = 0; axis < 3; ++axis)
+								if (axes & BIT(axis))
+									current[axis] = rotationRadians[axis];
+							component.SetRotationEuler(current);
+						});
 				}
 
-				if (DrawVec3Control("Scale", scale, 1.0f))
+				if (const uint32_t axes = DrawVec3Control("Scale", scale, 1.0f))
 				{
-					firstComponent.Scale = scale;
-					ApplyToSelection<TransformComponent>(m_Context, selectedEntities, [&scale](TransformComponent& component, Entity)
-					{
-						component.Scale = scale;
-					});
+					ApplyToSelection<TransformComponent>(m_Context, selectedEntities,
+														 [&scale, axes](TransformComponent& component, Entity)
+														 {
+															 for (int axis = 0; axis < 3; ++axis)
+																 if (axes & BIT(axis))
+																	 component.Scale[axis] = scale[axis];
+														 });
 				}
 			});
 
@@ -3037,7 +3084,7 @@ namespace Lux {
 						return entity.GetComponent<MeshColliderComponent>().AcousticMotion;
 					});
 					ImGuiEx::ScopedItemFlags flags(ImGuiItemFlags_MixedValue, mixed);
-					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from Asterwave.", false))
+					if (ImGuiEx::PropertyDropdown("Acoustic Motion", modes, 3, &mode, "Dynamic follows world transforms; Static captures the initial transform. Disabled excludes this mesh from acoustics.", false))
 						ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [mode](MeshColliderComponent& component, Entity)
 						{
 							component.AcousticMotion = static_cast<AcousticGeometryMode>(mode);
@@ -3213,7 +3260,7 @@ namespace Lux {
 				auto& component = firstComponent;
 				auto& config = component.Config;
 
-				// Studio authors the event; gameplay controls placement, volume and pitch.
+				// The Sound authors the audio; gameplay controls placement, volume and pitch.
 				ImGuiEx::BeginPropertyGrid();
 				DrawAudioEventPicker(component, selectedEntities);
 
@@ -3233,7 +3280,7 @@ namespace Lux {
 				};
 				property("Priority", &AudioSourceComponent::Priority, [](const char* label, int& value)
 				{
-					return ImGuiEx::Property(label, value, 0, 256, "0 is highest priority; FMOD allocates real voices accordingly.", false);
+					return ImGuiEx::Property(label, value, 0, 256, "0 is highest priority; the voice budget keeps the highest priorities mixing.", false);
 				});
 				property("Distance Culling", &AudioSourceComponent::DistanceCulling, [](const char* label, bool& value)
 				{
@@ -3268,8 +3315,12 @@ namespace Lux {
 				DrawAudioParameterOverrides(component);
 
 				if (component.LegacyAudio && !component.Event.IsValid())
-					ImGui::TextWrapped("Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Author an FMOD Studio event and assign it above.", static_cast<unsigned long long>(component.LegacyAudio));
-				ImGui::TextDisabled("Looping and spatialization are authored in FMOD Studio.");
+					ImGui::TextWrapped("Raw-file playback has been removed. Legacy asset %llu is preserved for migration. Create a Sound from it and assign it above.",
+						static_cast<unsigned long long>(component.LegacyAudio));
+				else if (!component.Event.IsValid() && component.Event.HasReference())
+					ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "This source names an FMOD event (%s) but no Sound, so it is silent. Create a Sound and assign it above.",
+						component.Event.Path.empty() ? component.Event.Guid.c_str() : component.Event.Path.c_str());
+				ImGui::TextDisabled("Looping and spatialization are set on the Sound.");
 
 				if (isMultiEdit)
 					ImGui::TextDisabled("Parameter overrides apply to the first selected entity.");
@@ -3282,7 +3333,7 @@ namespace Lux {
 				auto reference = first.Event;
 				const bool mixedEvent = IsSelectionInconsistent<std::string>(m_Context, selected, [](Entity entity)
 				{
-					return entity.GetComponent<MusicDirectorComponent>().Event.Guid;
+					return entity.GetComponent<MusicDirectorComponent>().Event.GetReference();
 				});
 				if (ImGuiEx::SurfaceEventPicker("Music Event", reference, false, mixedEvent, true))
 					ApplyToSelection<MusicDirectorComponent>(m_Context, selected, [&reference](MusicDirectorComponent& component, Entity)
@@ -3428,40 +3479,57 @@ namespace Lux {
 				{
 					ImGuiEx::ScopedID id(label);
 					const auto& reference = first.*member;
-					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selected, [member](Entity entity)
 					{
-						return (entity.GetComponent<AudioZoneComponent>().*member).Guid;
-					});
-					const char* preview = mixed ? "Multiple values" : reference.Guid.empty() ? "None" : reference.Path.empty() ? reference.Guid.c_str() : reference.Path.c_str();
-					if (ImGui::BeginCombo(label, preview))
-					{
-						auto assign = [&](const AudioEventRef& value)
+						// A looping Sound for ambience and a mixer snapshot by ID, both in the reference's Sound slot.
+						const bool mixedNative = IsSelectionInconsistent<uint64_t>(m_Context, selected, [member](Entity entity)
+						{
+							return static_cast<uint64_t>((entity.GetComponent<AudioZoneComponent>().*member).Sound);
+						});
+						AudioEventRef value = reference;
+						bool changed = false;
+						if (!snapshot)
+							changed = ImGuiEx::SurfaceEventPicker(label, value, false, mixedNative);
+						else
+						{
+							const auto project = Project::GetActive();
+							static const std::vector<AudioMixerSnapshot> s_None;
+							const auto& snapshots = project ? project->GetConfig().Audio.Mixer.Snapshots : s_None;
+							const auto assigned = std::find_if(snapshots.begin(), snapshots.end(), [&](const AudioMixerSnapshot& entry) { return entry.ID == value.Sound; });
+							const std::string preview = mixedNative ? "Multiple values" : value.Sound == 0 ? "None"
+								: assigned != snapshots.end() ? assigned->Name : "Missing snapshot";
+							if (ImGui::BeginCombo(label, preview.c_str()))
+							{
+								if (ImGui::Selectable("None", value.Sound == 0))
+								{
+									value.Sound = 0;
+									changed = true;
+								}
+								for (const AudioMixerSnapshot& entry : snapshots)
+								{
+									ImGuiEx::ScopedID snapshotID(&entry);
+									if (ImGui::Selectable(entry.Name.c_str(), entry.ID == value.Sound))
+									{
+										value.Sound = entry.ID;
+										changed = true;
+									}
+								}
+								if (snapshots.empty())
+									ImGui::TextDisabled("No snapshots. Add one in View > Audio Mixer.");
+								ImGui::EndCombo();
+							}
+						}
+						if (changed)
 						{
 							ApplyToSelection<AudioZoneComponent>(m_Context, selected, [member, &value](AudioZoneComponent& component, Entity)
 							{
-								component.*member = value;
+								(component.*member).Sound = value.Sound;
 							});
-						};
-						if (ImGui::Selectable("None", reference.Guid.empty()))
-							assign({});
-						for (const auto& info : AudioEngine::GetEvents())
-						{
-							if (info.IsSnapshot != snapshot || (!snapshot && info.IsOneshot))
-								continue;
-							ImGuiEx::ScopedID eventID(info.Guid.c_str());
-							ImGuiEx::ScopedID bankID(info.BankName.c_str());
-							if (ImGui::Selectable(info.Path.empty() ? info.Guid.c_str() : info.Path.c_str(), info.Guid == reference.Guid))
-								assign({ info.Guid, info.Path, info.BankName });
 						}
-						ImGui::EndCombo();
 					}
-					if (!reference.Guid.empty() && std::none_of(AudioEngine::GetEvents().begin(), AudioEngine::GetEvents().end(),
-						[&](const auto& info) { return info.Guid == reference.Guid && info.IsSnapshot == snapshot; }))
-						ImGui::TextWrapped("Assigned reference is unavailable or has the wrong type. Build/load its bank.");
 				};
-				picker("Ambience Event", &AudioZoneComponent::AmbienceEvent, false);
+				picker("Ambience", &AudioZoneComponent::AmbienceEvent, false);
 				picker("Snapshot", &AudioZoneComponent::Snapshot, true);
-				ImGui::TextWrapped("Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. Expose the snapshot Intensity dial as a 0-100 parameter in FMOD Studio.");
+				ImGui::TextWrapped("Blend Distance fades inward from the boundary in metres. Higher priorities consume the mix first; equal priorities share it. The zone weight is the snapshot's intensity (View > Audio Mixer).");
 				if (first.Shape == AudioZoneShape::Collider)
 					ImGui::TextWrapped("Collider mode supports exactly one box, sphere or capsule on this entity. Mesh and 2D colliders are unsupported.");
 				if (m_Context->IsRunning() && selected.size() == 1)
@@ -3528,7 +3596,7 @@ namespace Lux {
 					auto reference = firstComponent.*member;
 					const bool mixed = IsSelectionInconsistent<std::string>(m_Context, selectedEntities, [member](Entity entity)
 					{
-						return (entity.GetComponent<AudioSurfaceComponent>().*member).Guid;
+						return (entity.GetComponent<AudioSurfaceComponent>().*member).GetReference();
 					});
 					if (ImGuiEx::SurfaceEventPicker(label, reference, true, mixed))
 						ApplyToSelection<AudioSurfaceComponent>(m_Context, selectedEntities, [member, &reference](AudioSurfaceComponent& component, Entity)
@@ -3539,7 +3607,7 @@ namespace Lux {
 				picker("Footstep Override", &AudioSurfaceComponent::FootstepOverride);
 				picker("Impact Override", &AudioSurfaceComponent::ImpactOverride);
 				ImGui::TextWrapped("Overrides the collider acoustic material and the project surface table events. The collider underfoot "
-								   "supplies footstep overrides. Asterwave material changes apply on Play; physics audio uses current surface tags.");
+								   "supplies footstep overrides. Acoustic material changes apply on Play; physics audio uses current surface tags.");
 			});
 
 		DrawComponentSection<AudioListenerComponent>(m_Context, entityIDs, "Audio Listener", EditorResources::AudioListenerIcon,
@@ -3570,7 +3638,7 @@ namespace Lux {
 					});
 				}
 				if (firstComponent.UseAttenuationTarget && ImGuiEx::PropertyEntityReference("Attenuation Target", firstComponent.AttenuationTarget,
-					m_Context, "Studio events pan at this listener and attenuate at the target. A missing target uses the listener position. Prefabs retain only targets within their own hierarchy."))
+					m_Context, "Sounds pan at this listener and attenuate at the target. A missing target uses the listener position. Prefabs retain only targets within their own hierarchy."))
 				{
 					ApplyToSelection<AudioListenerComponent>(m_Context, selectedEntities, [&firstComponent](AudioListenerComponent& component, Entity)
 					{
@@ -3578,7 +3646,7 @@ namespace Lux {
 					});
 				}
 				ImGuiEx::EndPropertyGrid();
-				ImGui::TextWrapped("Weights blend Studio listeners. Ray-traced acoustics use the highest-weight listener (lowest index on a tie).");
+				ImGui::TextWrapped("Weights blend listeners. Ray-traced acoustics use the highest-weight listener (lowest index on a tie).");
 			});
 
 		DrawComponentSection<StaticMeshComponent>(m_Context, entityIDs, "Static Mesh", EditorResources::StaticMeshIcon,
@@ -3603,6 +3671,9 @@ namespace Lux {
 				ImGui::PopItemFlag();
 
 				AssetHandle materialHandle = firstComponent.MaterialTable && firstComponent.MaterialTable->HasMaterial(0) ? firstComponent.MaterialTable->GetMaterial(0) : AssetHandle{};
+				// A primitive's built-in default material is not a registered asset; show None, not a red Invalid.
+				if (materialHandle && !AssetManager::IsAssetHandleValid(materialHandle))
+					materialHandle = 0;
 				const bool mixedMaterial = selectedEntities.size() > 1 && IsSelectionInconsistent<AssetHandle>(m_Context, selectedEntities, [](Entity entity)
 				{
 					auto& smc = entity.GetComponent<StaticMeshComponent>();

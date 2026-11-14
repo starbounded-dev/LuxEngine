@@ -243,7 +243,7 @@ namespace Lux {
 	}
 
 	DescriptorSetManager::DescriptorSetManager(const DescriptorSetManager& other)
-		: m_Specification(other.m_Specification)
+		: m_Specification(other.m_Specification), m_OptionalUniformInputs(other.m_OptionalUniformInputs)
 	{
 		Init();
 		InputResources = other.InputResources;
@@ -367,6 +367,11 @@ namespace Lux {
 
 		Init();
 
+		// A material graph can introduce uniforms that the previous permutation never declared.
+		for (const auto& [name, buffers] : m_OptionalUniformInputs)
+			if (IsInputValid(name))
+				SetInput(name, buffers);
+
 		// Re-apply the saved inputs wherever the new reflection still declares
 		// them. Bindings that vanished from this permutation are dropped; new
 		// ones keep Init's defaults until the usual SetInput calls fill them.
@@ -401,6 +406,13 @@ namespace Lux {
 		{
 			LUX_CORE_WARN_TAG("Renderer", "[RenderPass ({})] Input {} not found", m_Specification.DebugName, name);
 		}
+	}
+
+	void DescriptorSetManager::SetOptionalInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet)
+	{
+		m_OptionalUniformInputs.insert_or_assign(std::string(name), uniformBufferSet);
+		if (IsInputValid(name))
+			SetInput(name, std::move(uniformBufferSet));
 	}
 
 	void DescriptorSetManager::SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer)

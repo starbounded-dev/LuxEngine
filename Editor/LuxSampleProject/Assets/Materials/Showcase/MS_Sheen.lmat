@@ -1,0 +1,7 @@
+Material:
+  Transparent: false
+  AlbedoColor: [0.08, 0.08, 0.25]
+  Metalness: 0
+  Roughness: 0.9
+  SheenColor: [1, 1, 1]
+  SheenRoughness: 0.3

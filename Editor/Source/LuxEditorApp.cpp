@@ -2,14 +2,49 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "EditorLayer.h"
+#include "Lux/Asset/AssimpMeshImporter.h"
+#include "Lux/Asset/MeshSerializer.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Core/ApplicationSettings.h"
 
 #define LUX_LOGS_IN_PERSISTENT_STORAGE
+#define LUX_CRASH_WATCHDOG L"Editor"
 #include "Lux/EntryPoint.h"
 
 namespace Lux {
+
+	// Every "Resources/..." load is relative to the working directory, so an Editor.exe started from
+	// anywhere else (double-click in bin/) cannot find its shaders. Walk up from the executable to the
+	// first folder that holds Resources/Shaders (the Editor/ source folder, or a packaged install).
+	static void EnsureResourcesWorkingDirectory()
+	{
+		std::error_code ec;
+		if (std::filesystem::exists("Resources/Shaders", ec))
+			return;
+
+#ifdef LUX_PLATFORM_WINDOWS
+		wchar_t buffer[32768];
+		const DWORD length = GetModuleFileNameW(nullptr, buffer, 32768);
+		const std::filesystem::path exePath = length ? std::filesystem::path(std::wstring(buffer, length)) : std::filesystem::path();
+#else
+		const std::filesystem::path exePath = std::filesystem::read_symlink("/proc/self/exe", ec);
+#endif
+		for (std::filesystem::path dir = exePath.parent_path(); !dir.empty(); dir = dir.parent_path())
+		{
+			for (const std::filesystem::path& candidate : { dir, dir / "Editor" })
+			{
+				if (std::filesystem::exists(candidate / "Resources" / "Shaders", ec))
+				{
+					std::filesystem::current_path(candidate, ec);
+					return;
+				}
+			}
+			if (dir == dir.parent_path())
+				break;
+		}
+		LUX_CORE_ERROR("Could not find the Resources folder; start the editor from the Editor/ folder.");
+	}
 
 	// Per-user editor data used to live in the working directory (App.lsettings, imgui.ini) and in a
 	// persistent-storage folder named "Editor". Copy anything the LuxEngine folder does not have yet,
@@ -58,6 +93,8 @@ namespace Lux {
 	Application* CreateApplication(int argc, char** argv)
 	{
 
+		EnsureResourcesWorkingDirectory();
+
 		Lux::CommandLineParser cli(argc, argv);
 
 		auto raw = cli.GetRawArgs();
@@ -84,7 +121,13 @@ namespace Lux {
 		specification.DeferWindowShow = true;   // EditorLayer shows it once the startup splash closes
 		specification.VSync = true;
 		specification.SettingsPath = FileSystem::GetPersistentStoragePath() / "App.lsettings";
-		//specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+		// Dist compiles no shaders (Renderer/Shader.h:16 sets LUX_HAS_SHADER_COMPILER to !LUX_DIST), so
+		// the editor must consume the pack that compiler-enabled editors keep refreshed beside
+		// Resources/Shaders. The path is relative to the editor's working directory, which is how
+		// every "Resources/Shaders/..." load resolves (HelpPanel.cpp:290 says to run from Editor/).
+#ifdef LUX_DIST
+		specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+#endif
 
 		/*specification.ScriptConfig.CoreAssemblyPath = "Resources/Scripts/Hazel-ScriptCore.dll";
 		specification.ScriptConfig.EnableDebugging = true;
@@ -108,6 +151,13 @@ namespace Lux {
 			if (FileSystem::HasEnvironmentVariable("LUX_THREADING_POLICY"))
 				specification.CoreThreadingPolicy = Lux::ThreadingPolicyFromString(FileSystem::GetEnvironmentVariable("LUX_THREADING_POLICY"));
 		}
+
+		// The editor imports source meshes in every config, Dist included; the player never does
+		// (MeshSerializer.h). Registered before the Application exists, so before any asset loads.
+		MeshSourceSerializer::SetSourceImporter([](const std::filesystem::path& path)
+		{
+			return AssimpMeshImporter(path).ImportToMeshSource();
+		});
 
 		return new LuxEditor(specification);
 	}

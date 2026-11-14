@@ -4,6 +4,7 @@
 #pragma once
 #include "AudioEventInstance.h"
 #include "AudioListener.h"
+#include "AudioEventRef.h"
 #include <map>
 namespace Lux
 {
@@ -27,7 +28,8 @@ namespace Lux
 	private:
 		void Apply();
 		Ref<AudioEventInstance> m_Instance;
-		std::string m_Guid;
+		AudioEventRef m_Event;     // the assignment last applied
+		std::string m_Reference;   // its GetReference(), what this backend resolves
 		uint64_t m_Revision = 0;
 		bool m_Attempted = false, m_Metadata = false, m_Spatial = false, m_OneShot = false;
 		bool m_Culled = false, m_AwakeHandled = false, m_WantsPlayback = false, m_Started = false;

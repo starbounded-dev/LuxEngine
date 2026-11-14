@@ -1,332 +1,268 @@
 # LuxEngine Full Bindless Plan
 
-This plan takes LuxEngine from "material textures are bindless" to a renderer where every opaque and
-shadow draw reaches its geometry, instance, material and textures by index. Each of those passes
-becomes one GPU-driven multi-draw instead of a bind-and-draw per mesh. The remaining per-pass
-textures move into one resource heap, and a mesh-shader G-buffer builds on the same data. Rendering
-is the feature LuxEngine wants to be known for, and this is the data model that GPU-driven
-rendering, mesh shaders and a future material graph all assume.
+Rebuilt on 2026-11-09 from `feature/native-audio-system` at `87462d63`, replacing the 2026-09-25
+version. That version was written for NVRHI and never started. This version is grounded in today's
+renderer: Lux's `Renderer/RHI` layer over NRI. It is a planning document, not a description of what
+exists. `.claude/docs/Architecture-LuxEngine.md` (Renderer) and `.claude/docs/Rendering.md`
+(§ Bindless textures) describe what is built.
 
-This is a planning document written on 2026-09-25. For what is actually built, see
-`.claude/docs/Architecture-LuxEngine.md` (Renderer) and `.claude/docs/Rendering.md § Bindless
-textures`.
+The plan takes the renderer from "material textures are bindless" to "every opaque and shadow draw
+reaches its geometry, instance, material and textures by index". Each of those passes becomes a
+handful of multi-draws instead of a bind-and-draw per mesh. All textures then sit in one directly
+indexed descriptor heap, and a mesh-shader G-buffer builds on the same data.
 
-**Goal card**
+## Goal card
 
-- **Goal:** "Full bindless". Opaque and shadow passes draw through one multi-draw each, reading
-  geometry from a shared pool, per-draw data by `firstInstance`, and every texture from a bindless
-  heap. Then the G-buffer moves to mesh shaders on GPUs that support them.
+- **Goal:** "full bindless". Pre-depth, G-buffer and shadow passes draw through a few multi-draws
+  each, reading geometry from a shared pool, per-draw data through `firstInstance`, and every
+  texture from one heap. Then the G-buffer moves to mesh shaders where the GPU supports them.
 - **Success:**
-  1. In `FMODDemo` and a generated benchmark scene, pre-depth, G-buffer and the directional/spot
-     shadow passes each issue a handful of `drawIndexedIndirect` calls, not one per mesh.
-  2. Measured CPU submission time for those passes drops against the Phase 0 baseline.
-  3. No validation errors, on both the mutable-heap path and the per-kind fallback.
-  4. Images are pixel-identical to the baseline.
-  5. On the Windows mesh-shader GPU, the G-buffer runs on mesh shaders with the same image.
+  1. On `Benchmark` and `AudioDemo`, each converted pass issues one `CmdDrawIndexedIndirect` per
+     (pipeline variant, pool block), not one per mesh.
+  2. CPU submission time for those passes drops against the Phase 0 baseline.
+  3. Golden captures stay pixel-identical to the reference (`lm8`), within the documented settle
+     residual.
+  4. No validation errors on the heap path or on the forced fallback path.
+  5. On the RTX 4070 Ti, the G-buffer runs on mesh shaders with the same image.
 - **Non-goals:**
-  - moving transparent, selection, wireframe or collider passes (they keep today's path)
-  - a GPU-compacted draw count (a later phase)
-  - `VK_EXT_descriptor_heap` or `VK_EXT_descriptor_buffer`
-  - any temporal technique
-  - skinned meshes (skeletal animation doesn't exist yet)
+  - transparent, selection, wireframe and collider passes (they keep today's path);
+  - skinned meshes (no skeletal animation exists);
+  - `VK_EXT_descriptor_buffer`;
+  - any temporal technique.
 - **Constraints:**
-  - Vulkan through NVRHI, which stays: the raw-Vulkan escape hatch is allowed, a backend swap is not.
-  - Existing scenes, materials and exports still load.
-  - Your Renoir laptop has no mesh shaders, so every phase except Phase 6 must work there.
-  - Order of work: make it work, then good, then fast.
-- **User decisions (2026-09-25):**
-  - Scope is "everything bindless", including the mesh-shader G-buffer.
-  - A shared geometry pool.
-  - Opaque and shadow passes first.
-  - The CPU decides the draw count first.
-  - A mutable heap **with a per-kind fallback**.
-  - Mesh shaders are tested on your Windows PC.
+  - Existing scenes, materials and projects load unchanged.
+  - Exports and the editor's Dist `ShaderPack.lsp` are regenerated.
+  - Every phase works on the RTX 4070 Ti and on a forced fallback path that stands in for
+    laptop-class GPUs (no descriptor heap, no mesh shaders).
+  - Make it work, then good, then fast.
+- **User decisions (2026-09-25, re-confirmed 2026-11-09):** same scope, including the mesh-shader
+  G-buffer; a shared geometry pool; opaque and shadow passes first; mesh shaders tested on the PC.
+- **User decisions (2026-11-09):**
+  - **Draw count:** the CPU sets it first; the GPU writes it in a later phase.
+  - **Heap:** use the **descriptor heap mode** (`NRIDescriptorHeap`, `VK_EXT_descriptor_heap`)
+    instead of mutable descriptor sets.
+  - **Targets:** the PC plus a laptop fallback path.
 
-**Decisions this plan is built on**
+## Decisions this plan is built on
 
 | Decision | Choice | Consequence |
 |---|---|---|
-| Geometry access | **Shared geometry pool** (user). Static meshes suballocate from pooled vertex and index buffers; draws use `vertexOffset`/`firstIndex` | Keeps fixed-function vertex input and the GPU's post-transform cache. Needs a pool allocator. |
-| Per-draw data | `firstInstance` = today's `ObjectIndexBase` (`gl_InstanceIndex` already includes it) | Removes the per-draw push constant. Per-pass constants (for example `Cascade`) stay push constants. Needs `drawIndirectFirstInstance`, which your GPU has. |
-| Draw count | **CPU-known count** through NVRHI's `drawIndexedIndirect(offset, drawCount)` (user) | Needs the `multiDrawIndirect` device feature, which isn't enabled today. Culled draws keep zero instances, as they do now. |
-| Pool growth | **Fixed-size blocks** (for example 64 MiB vertex and 32 MiB index); a pass issues one multi-draw per block | No reallocation or GPU copy while frames are in flight. A new block only adds a draw group. |
-| Heap model | **Mutable resource heap** at set 4 when `VK_EXT_mutable_descriptor_type` exists; **per-kind tables at sets 4–7** otherwise (user) | One slot index space in both paths. GLSL declarations are chosen by a global shader macro. The fallback can be forced to test it on the laptop. |
-| Kinds in the heap | Texture2D, TextureCube, Texture2DArray, Texture3D | Four kinds fit the fallback's four sets. Buffers use device addresses instead, needing no set. |
-| Buffers | **Buffer device addresses** (NVRHI adds the usage flag automatically when the extension is on; `IBuffer::getGpuVirtualAddress`) | No buffer descriptors at all; the mesh-shader path reads meshlets through addresses. Needs `shaderInt64` and `GL_EXT_buffer_reference`. |
-| Render targets in the heap | Explicit `setTextureState(ShaderResource)` + `commitBarriers` before the passes that sample them, and back afterwards | NVRHI doesn't track resources reached only through descriptor tables (see Risks). Material textures are already permanently in shader-resource state (`Image.cpp:190`). |
+| Heap model | **Descriptor heap** where `features.descriptorHeap` is true (user). Elsewhere, a **descriptor-set fallback**: one `MUTABLE` range at set 4 when `features.mutableDescriptorType`, else per-kind ranges at sets 4–7 (technical: the laptop needs something) | Two backends behind one slot space. Shaders reach textures through NEW `Bindless.glslh` macros, chosen by a global shader macro (`LUX_BINDLESS_HEAP`). A switch forces the fallback for testing. |
+| Heap pipelines | Converted passes use heap pipeline layouts: **no descriptor sets**, `RESOURCE_HEAP_DIRECTLY_INDEXED` (+ `SAMPLER_HEAP_DIRECTLY_INDEXED`) (NRI rule, `NRIDescs.h:1003-1009`) | Per-pass buffers (`GPUMaterials` at set 2, samplers at set 3, the scene buffers) must also come from the heap or from buffer device addresses in those passes. Other passes keep their sets. Phase 0 proves the mix is valid in one command buffer. |
+| Heap slot lifetime | One heap. Slots are freed through a retire queue keyed by render frame number, reusable only after `FramesInFlight` frames (technical) | Replaces today's per-frame tables (`BindlessTextureTable::m_Frames`). NRI writes are host-side and thread-safe except on overlapping indices (`NRIDescriptorHeap.h`); all writes happen on the render thread. |
+| Kinds | Texture2D, TextureCube, Texture2DArray, Texture3D in one index space (as before) | The heap needs no per-kind split. The per-kind fallback uses 4 sets. |
+| Geometry | **Shared pool** (user) of fixed blocks for each of today's three streams: position vertices, attributes, indices (`MeshSource::m_VertexBuffer/m_AttributeBuffer/m_IndexBuffer`) | Keeps fixed-function vertex input and the post-transform cache. A pass issues one multi-draw per (pipeline, block). |
+| Per-draw data | `firstInstance` = today's `ObjectIndexBase`, the G-buffer's only per-draw push constant (`GBuffer_Static.glsl:30`, `MeshDrawPushConstants`) | Needs `drawIndirectFirstInstance`. `LightIndex` (the cascade) stays a per-pass push constant. |
+| Draw count | CPU-known `drawNum` through `CmdDrawIndexedIndirect(buffer, offset, drawNum, stride, nullptr, 0)` (user) | Needs `multiDrawIndirect`, which `VulkanDevice` does not enable today. Culled draws keep zero instances, as now. The GPU-written count (`countBuffer`, `features.drawIndirectCount`) is Phase 6. |
+| Buffers in shaders | Buffer device addresses (`GetBufferDeviceAddress`, `NRI.h:268`; `bufferDeviceAddress` is already enabled) for the mesh-shader path and wherever heap pipelines need a buffer | Needs `GL_EXT_buffer_reference` and `shaderInt64`. No shader uses device addresses today. |
 
----
-
-## Part 0 — Where we are (verified 2026-09-25)
+## Part 0 — Where we are
 
 | Capability | State | Evidence |
 |---|---|---|
-| Bindless material textures | ✅ Built. Rendered `FMODDemo` in Debug with validation and no errors. ⚠️ No one has looked at the image yet, and it isn't run on Windows. | `ef645e9`; `Renderer/BindlessTextureTable.{h,cpp}`; set 4, `u_GPUMaterialTextures[]` |
-| Instance, object-index and material tables | ✅ Storage buffers, indexed by shaders | `GPUSceneInstances`, `ObjectIndexes`, `GPUMaterials` (set 2, binding 7) |
-| Per-draw state | ⚠️ Each mesh binds its own VB/IB, a `ObjectIndexBase` push constant, and an indirect draw with count 1 | `SceneRenderer::RT_DrawStaticMesh` (≈`SceneRenderer.cpp:8655`–8740) |
-| Legacy material set 0 per draw | ⚠️ Bound per draw, but `GBuffer_Static.glsl` declares no set 0 | `RT_BindMaterialDescriptorSet` in `RT_DrawStaticMesh`; grep of `set = 0` |
-| GPU culling | ✅ Writes visible instance counts into indirect args | `MeshCulling.glsl:186` (`atomicAdd` on `b_IndirectDrawCommands`); `m_SBSIndirectDrawCommands` (4096 args) |
-| Mesh buffers | ⚠️ One VB and one IB per `MeshSource`; `Vertex` = pos, normal, tangent, binormal, uv | `Mesh.cpp:536-537`; `Mesh.h:20` |
-| Meshlets | ⚠️ Pre-depth only; a per-mesh binding set of 4 buffers | `MeshSource::RT_GetOrCreateMeshletBindingSet` (`Mesh.cpp:548`); `SceneRenderer.cpp:7290` |
-| Device features | `multiDrawIndirect` ❌ not enabled; buffer device address ✅; descriptor indexing and partially bound ✅; mutable descriptors ❌ not requested | `VulkanDeviceManager.cpp:544-565` |
-| Your laptop | multiDrawIndirect, drawIndirectCount, firstInstance, shaderInt64, BDA, mutable descriptors ✅; **mesh shaders ❌**; 32 descriptor sets | `vulkaninfo` (RADV Renoir) |
-| NVRHI (June 2026) | multi-draw ✅; bindless layouts ✅ (immutable and mutable); **no draw-indirect-count** | `nvrhi.h:3321`; `vulkan-resource-bindings.cpp:112-163`, 878-894 |
-| Bindless write semantics | ⚠️ An immutable layout writes *every* register space of the matching type | `writeDescriptorTable`, `vulkan-resource-bindings.cpp:886-893`. This is why 2D and cube can't share an immutable table. |
-| Global shader macros | ✅ Exist | `Renderer::SetGlobalMacroInShaders` (`Renderer.cpp:2141`) |
-| Benchmark scenes | ⚠️ Generator exists; no scenes generated | `scripts/GenerateBenchmarkScenes.py` |
+| Bindless material textures | ✅ Working (renders every scene) | `Renderer/BindlessTextureTable.h`: `DescriptorSet = 4`, `MaxCapacity = 16384`, one `texture2D u_GPUMaterialTextures[]` (`MaterialScene.glslh`). Per-frame sets, written on the render thread. **2D only.** sRGB slots since `ece01f54`. |
+| Material table, samplers | ✅ Working | `GPUMaterials` storage buffer at set 2, binding 7 (`TextureIndices` per material); samplers at set 3, bindings 0–4 (`Samplers.glslh`). |
+| Per-draw state | ⚠️ One draw per mesh | `SceneRenderer::RT_DrawStaticMesh` (`SceneRenderer.cpp:10363`, 9 call sites) binds the mesh's own vertex, attribute and index buffers, an optional material set 0 and push constants. `Renderer::RT_DrawIndexed` (`Renderer.cpp:1653`) issues `CmdDrawIndexedIndirect(..., 1, ...)` or `CmdDrawIndexed`. |
+| GPU culling | ✅ Working | `MeshCulling.glsl` and `ShadowCulling.glsl` write instance counts into `m_SBSIndirectDrawCommands` (4096 args); args built per `MeshKey`/LOD in `SceneRenderer.cpp:7720-7742`. Retained render scene plan done (`docs/RENDER_SCENE_RETAINED_PLAN.md`). |
+| Pipeline variants | ✅ Known | Opaque draws already split by `TwoSided`, `AlphaMasked` and `Mirrored` (`SceneRenderer.h:1002-1058`; pipelines `GeometryTwoSidedPipeline`, `PreDepthMaskedPipeline`, …). Multi-draws must group by these. |
+| Mesh storage | ⚠️ Per mesh | One position VB, one attribute VB and one IB per `MeshSource` (`Mesh.h:321-339`); QTangent attributes (`QTangent.glslh`). |
+| Meshlets | ⚠️ Pre-depth only | `PreDepth_Meshlet.glsl`; `MeshSource::RT_GetOrCreateMeshletSet` (a per-mesh set). Built only when `Renderer::SupportsMeshShaders()`. |
+| Renderer capabilities | ✅ Available, partly unused | `NRIDescs.h`: `CmdDrawIndexedIndirect` takes `drawNum` and an optional `countBuffer`; `features.drawIndirectCount`, `mutableDescriptorType`, `descriptorHeap`, `meshShader`; `DescriptorRangeBits::PARTIALLY_BOUND/VARIABLE_SIZED_ARRAY/ALLOW_UPDATE_AFTER_SET`; `NRIDescriptorHeap.h` (`CreateDescriptorHeap`, `WriteResourceDescriptors`, `CmdSetDescriptorHeap`). |
+| Device features | ⚠️ Partial | `VulkanDevice.cpp:590-642` enables descriptor indexing, partially bound, variable count, update-after-bind and buffer device address. It does **not** enable `multiDrawIndirect`, `drawIndirectFirstInstance`, mutable descriptors or `VK_EXT_descriptor_heap`. |
+| Descriptor heap toolchain | ⚠️ Unproven | `VK_EXT_descriptor_heap` arrived in Vulkan 1.4.340 ([Phoronix](https://phoronix.com/news/vulkan-1.4.340-descriptor-heap)). Local SDK is 1.4.341.1 and `scripts/Vulkan.py` installs 1.4.341.1, but **CI pins 1.4.335.0** (`main.yml`). Driver 616.56 (NVIDIA supports it from 610). GLSL support (`GL_EXT_descriptor_heap`) through the bundled shaderc is unverified. |
+| Benchmarks | ✅ Exist | `Benchmark.luxscene`, `Scenes/Benchmarks/`, `tests/rendering/golden_run.py`; golden reference `lm8`. |
 
-## Part 1 — Goals and non-goals
+Only the bindless material textures are verified at runtime. Every other row was read from source.
 
-See the Goal card. The order is deliberate: measure, then the heap (the shape everything else binds
-to), then geometry, then single multi-draws, then shadows, then the remaining textures, then mesh
-shaders. Every phase leaves the engine shippable, and the laptop can run everything but Phase 6.
-
-## Part 2 — Design
+## Part 1 — Design
 
 ```
 Renderer (process-wide)
- ├─ BindlessResourceHeap layout   set 4 mutable heap │ fallback: sets 4-7 per kind   (NEW, grows from
- │                                                                                     BindlessTextureTable)
- └─ GeometryPool                  64 MiB VB blocks + 32 MiB IB blocks, free-list      (NEW)
-SceneRenderer (per instance)
- ├─ heap tables × FramesInFlight  (own slot space; render-thread writes, as today)
- └─ per pass: indirect args grouped by pool block → drawIndexedIndirect(offset, count) per block
+ ├─ BindlessResourceHeap (NEW, replaces BindlessTextureTable)
+ │    ├─ Heap backend:     one NRI DescriptorHeap (resources + samplers), CmdSetDescriptorHeap per cmd buffer
+ │    └─ Fallback backend: set 4 MUTABLE range | sets 4-7 per kind   (forced by LUX_BINDLESS_FALLBACK=1)
+ │    one slot allocator, retire queue keyed by render frame number
+ └─ GeometryPool (NEW): position / attribute / index blocks, free-list suballocation
+SceneRenderer
+ └─ per converted pass: indirect args grouped by (pipeline variant, pool block)
+                        → CmdDrawIndexedIndirect(offset, drawNum) per group
 Shaders
+ ├─ Bindless.glslh (NEW): LUX_TEXTURE2D(i), LUX_TEXTURECUBE(i), LUX_SAMPLER(i)… for either backend
  ├─ gl_InstanceIndex (= firstInstance + i) → ObjectIndexes → GPUSceneInstances → GPUMaterials
- ├─ textures: LUX_BINDLESS_MUTABLE ? aliased arrays at (4,0) : one array per set 4..7
- └─ buffers: GL_EXT_buffer_reference addresses (mesh-shader path)
+ └─ buffers in heap pipelines: device addresses passed in a per-pass root constant / buffer
 ```
 
 **Threads.**
-- **Asset worker:** decodes meshes. Suballocation happens when a mesh first syncs to the main
-  thread, under a pool mutex. The upload goes through the existing batched upload path
-  (`Rendering.md § Batched resource uploads`) into the block, on the render thread.
-- **Render thread:** heap and table writes, as in `BindlessTextureTable` today.
-- **Main thread:** all ECS work.
-- **Both threading policies:** correct under each, because every GPU write goes through
-  `Renderer::Submit`.
+- **Main thread:** records slot requests (as `BindlessTextureTable::SetSlot` does today) and all ECS work.
+- **Render thread:** heap writes, pool block uploads (through the batched upload path,
+  `Rendering.md § Batched resource uploads`), indirect argument writes.
+- **Asset thread:** decodes meshes. Pool suballocation happens when a mesh first syncs on the main
+  thread, under the pool's mutex.
+- Correct under both threading policies, since every GPU write goes through `Renderer::Submit`.
 
 **Ownership.**
-- **Pool ranges:** each `MeshSource` owns its range in the pool. Freeing a range is deferred with
-  `Renderer::SubmitResourceFree`, so in-flight frames finish first.
-- **Blocks:** live until shutdown.
-- **Heap slots:** owned per `SceneRenderer`, as today.
+- Pool ranges belong to their `MeshSource`. Freeing goes through `Renderer::SubmitResourceFree`, so
+  in-flight frames finish first.
+- Blocks live until shutdown.
+- Heap slots belong to their owner (each `SceneRenderer` keeps its own index space, as today) and
+  retire after `FramesInFlight` frames.
+- Scene switches already drain the GPU (`scene-switch` rule); the heap adds no new teardown.
+
+**Renderer invariants** (`Rendering.md`):
+- New sets 5–7 (fallback only) are grepped for collisions in Phase 1.
+- Pipelines are created once in `Init()`.
+- The pass `Reads`/`Writes` lists stay accurate.
+- `ComputeStructureHash()` folds in the backend choice.
+- Render targets sampled through the heap get explicit state transitions, because the RHI tracks
+  only bound resources.
 
 **Compatibility.**
-- Scene, material and project formats don't change.
-- Exported games must be re-exported: the shader pack changes (set 4 layout and the new macros).
+- No scene, material or project format change.
+- Exports must be re-exported. The editor's Dist `Editor/Resources/ShaderPack.lsp` is refreshed (its
+  stamp catches the stale sources).
 
-## Part 3 — Phases
+## Part 2 — Phases
 
 Every phase:
-- builds Core and Editor in Debug and Release, plus `Lux-Runtime`
-- regenerates projects when it adds files
-- clears `Editor/Resources/Cache/Shader` when it changes a shared GLSL header
-- runs the Debug editor on `FMODDemo` under validation (expected: no validation errors, no
-  "no table" reports)
-- ends with `/cr`
-- is committed on its own
+- builds Debug, Release and Dist (Editor and `Lux-Runtime`);
+- regenerates projects when it adds files;
+- clears `Editor/Resources/Cache/Shader` after shared GLSL header edits;
+- runs `Benchmark` and `AudioDemo` under validation, on the heap path **and** with
+  `LUX_BINDLESS_FALLBACK=1`, with zero validation errors;
+- captures goldens with `tests/rendering/golden_run.py` against `lm8`.
 
-### Phase 0 — Baseline and correctness check (no engine changes)
+### Phase 0 — Baseline and the heap spike
+**Goal:** know the starting numbers, and whether the descriptor heap works in this engine, before
+building on it.
+**Changes (throwaway branch):**
+- `/profile` protocol on `Benchmark` and `AudioDemo` (Release, 1280×720): CPU submission ms and draw
+  counts for pre-depth, G-buffer and directional/spot shadows; GPU time per pass.
+- Spike: compile one GLSL fragment shader with `GL_EXT_descriptor_heap` through the engine's shaderc
+  path; create an NRI descriptor heap; draw a test quad that samples a heap texture; bind heap
+  pipelines and set-based pipelines in one command buffer; run under validation.
+**Exit:**
+- Baseline numbers are recorded in this file.
+- The spike renders with no validation errors, **or** the plan switches the heap backend to the
+  mutable-set path and records why. That decision is shown to the user before Phase 1.
+- If submission time is already small, the plan's numbers target is restated before going on.
+**Rollback:** nothing merged.
 
-**Goal:** numbers to beat, and proof that `ef645e9` renders correctly.
-
-**Work**
-- Generate the benchmark scenes with `scripts/GenerateBenchmarkScenes.py`.
-- `/profile` with a fixed protocol on `FMODDemo` and the largest benchmark scene: fixed camera,
-  VSync off, Release. Record:
-  - CPU time of the pre-depth, G-buffer and shadow passes' recording, from Tracy zones in
-    `SceneRenderer`
-  - the number of draws and binding commits per pass (`Renderer Debugger`, `RenderStatsPanel`)
-  - GPU time per pass
-- Screenshot reference images.
-- Check that `FMODDemo` looks the same before and after `ef645e9`, on the laptop and on Windows.
-
-**Exit:** a baseline table appended to this document, and reference images committed next to it.
-
-### Phase 1 — One resource heap, with the per-kind fallback
-
-**Goal:** `BindlessTextureTable` becomes a heap that can hold 2D, cube, 2D-array and 3D textures in
-one index space, on both paths. Material textures keep working unchanged.
-
-**Changes**
-- `VulkanDeviceManager.cpp`: request `VK_EXT_mutable_descriptor_type` and its feature when
-  present, and log the chosen path.
-- `Renderer/BindlessTextureTable.{h,cpp}`, renamed or grown into **NEW** `BindlessResourceHeap`.
-  One slot allocator; `SetSlot(slot, texture, kind)`.
-  - **Mutable path:** an NVRHI `LayoutType::MutableSrvUavCbv` layout, and writes carry the item's
-    `dimension`.
-  - **Fallback path:** four immutable layouts at sets 4–7, one per kind, sharing the slot numbers.
-  - **Forced fallback:** `LUX_BINDLESS_FALLBACK=1` for testing.
-- `VulkanShader::CreateDescriptors` substitutes the right layout for sets 4–7.
-  `RenderPass::GetBindingSets` places one table (mutable) or four (fallback).
-- `Include/GLSL/MaterialScene.glslh`, or a **NEW** `Bindless.glslh`: the declarations.
-  - `LUX_BINDLESS_MUTABLE`: aliased `texture2D`/`textureCube`/`texture2DArray`/`texture3D` arrays at
-    `(4, 0)`.
-  - Otherwise: one array per set 4–7.
-  - The macro is set through `Renderer::SetGlobalMacroInShaders` before any shader loads.
-
-**Verification**
-- Validation-clean `FMODDemo` on both the mutable path and the forced fallback on the laptop.
-- Material images match Phase 0.
-
-**Docs**
-- `Rendering.md § Bindless textures` becomes § Bindless resource heap, and sets 4–7 are reserved in
-  the fallback.
-- Architecture renderer section.
-- `Building.md` gets the env var.
-
-**Rollback:** revert to the `BindlessTextureTable` from `ef645e9`; the shader macros default to it.
+### Phase 1 — One heap for every texture kind
+**Goal:** `BindlessResourceHeap` holds 2D, cube, 2D-array and 3D textures in one slot space on both
+backends. Material textures move to it with identical images.
+**Changes:**
+- `VulkanDevice.cpp`: enable `VK_EXT_descriptor_heap` (and `VK_KHR_shader_untyped_pointers`) and
+  mutable descriptors when present; log the chosen backend.
+- `Renderer/BindlessTextureTable.{h,cpp}` → **NEW** `Renderer/BindlessResourceHeap.{h,cpp}`: slot
+  allocator, `SetSlot(slot, texture, kind)`, retire queue, both backends.
+- **NEW** `Editor/Resources/Shaders/Include/GLSL/Bindless.glslh`; `MaterialScene.glslh` uses it.
+- `Renderer::Init`: `LUX_BINDLESS_HEAP` global macro.
+- CI: Vulkan SDK 1.4.335.0 → 1.4.341.1 in `main.yml`, so CI matches `scripts/Vulkan.py`.
+- Grep the shader corpus for sets 5–7 before using them in the fallback.
+**Playbook:** none (no component, asset type or pass).
+**Verification:**
+- Goldens identical.
+- A cube-map and a 3D texture sampled by slot in a debug view on both backends.
+- The Renderer Debugger shows the backend and slot use.
+**Docs:** `Rendering.md` § Bindless textures (backends, slot lifetime); `Building.md` (SDK version).
 
 ### Phase 2 — Shared geometry pool
+**Goal:** static meshes live in pooled position, attribute and index blocks. Draws still go one per
+mesh, but bind the block with `baseVertex`/`baseIndex` offsets.
+**Changes:**
+- **NEW** `Renderer/GeometryPool.{h,cpp}`: fixed blocks (sizes from Phase 0's totals), a free-list
+  per block under a mutex, `Allocate(vertex, attribute, index bytes)`.
+- `MeshSource`: pool ranges replace its own buffers. `GetVertexBuffer`/`GetAttributeBuffer`/
+  `GetIndexBuffer` return the block, plus offsets.
+- `RT_DrawStaticMesh` and the meshlet path apply the offsets.
+**Verification:** goldens identical; mesh hot-reload and project switch free ranges (no VMA leak
+assert at exit, `18514538`); memory per block shown in the Renderer Debugger.
+**Docs:** `Rendering.md` (geometry pool, ownership); Architecture § Mesh.
 
-**Goal:** every static mesh's vertices and indices live in pooled blocks. Draws still go through
-today's per-mesh path, but bind the block and use `vertexOffset`/`firstIndex`.
-
-**Changes**
-- **NEW** `Renderer/GeometryPool.{h,cpp}`:
-  - fixed blocks (vertex 64 MiB, index 32 MiB; tuned from Phase 0 numbers)
-  - a free-list suballocator per block, under a mutex
-  - `Allocate(vertexBytes, indexBytes) → {block, vertexOffset, firstIndex}`
-  - deferred `Free`
-- `MeshSource` (`Mesh.cpp:536`): allocate a range and upload into it instead of creating its own
-  VB and IB. Keep its own buffers for meshlets and any consumer not yet migrated (listed in the
-  phase).
-- `SceneRenderer::RT_DrawStaticMesh`: bind the block's buffers, and set the offsets in the draw and
-  indirect arguments.
-
-**Verification**
-- Images identical to Phase 0.
-- Load, unload and reload a scene repeatedly: pool usage returns to baseline, with no validation
-  errors (catches free-while-in-flight).
-- Hot-reload a mesh.
-
-**Docs:** Architecture renderer (the pool, and who owns ranges), `Rendering.md` (buffer rules).
-
-### Phase 3 — One multi-draw per pass per block (opaque)
-
-**Goal:** pre-depth and G-buffer issue `drawIndexedIndirect(offset, count)` once per pool block.
-
-**Changes**
-- `VulkanDeviceManager.cpp`: enable `multiDrawIndirect` and `drawIndirectFirstInstance`.
-- `SceneRenderer`: build the indirect arguments contiguously per pass and block, with
-  `firstInstance` = object index base, instead of one draw per `MeshKey`.
-- `PreDepth.glsl`, `GBuffer_Static.glsl`: drop `ObjectIndexBase`; `objectIndex = gl_InstanceIndex`.
-- Stop binding legacy set 0 for passes whose shader doesn't declare it.
-- GPU culling (`MeshCulling.glsl`) keeps writing instance counts into the same arguments.
-
-**Verification**
-- Images identical to Phase 0.
-- Draw calls per pass fall to about the number of pool blocks.
-- `/profile` CPU submission time on the benchmark scene against the Phase 0 table.
-
-**Docs:** `Rendering.md` (per-draw data through `firstInstance`; the multi-draw rule).
+### Phase 3 — Multi-draw for pre-depth and G-buffer
+**Goal:** the opaque passes issue one indirect multi-draw per (pipeline variant, block).
+**Changes:**
+- `VulkanDevice.cpp`: enable `multiDrawIndirect`, `drawIndirectFirstInstance`.
+- `SceneRenderer`: build indirect args contiguously per (variant, block) with `firstInstance` =
+  object index base; issue `CmdDrawIndexedIndirect(offset, drawNum)` (a new
+  `Renderer::RT_DrawIndexedIndirectMulti`).
+- `PreDepth*.glsl`, `GBuffer_Static.glsl`: drop `ObjectIndexBase`; `objectIndex = gl_InstanceIndex`.
+  Heap backend: converted pipelines take heap layouts and reach `GPUMaterials` and scene buffers by
+  device address.
+- Stop binding material set 0 for passes whose shader declares none.
+**Verification:** draw counts drop to the group count (Renderer Debugger); goldens identical; CPU
+submission ms against Phase 0.
+**Docs:** `Rendering.md` (multi-draw rule, per-draw data through `firstInstance`).
 
 ### Phase 4 — Shadows on the same path
+**Goal:** directional cascades and spot shadows (including the `_Masked` variants) multi-draw.
+**Changes:** `DirShadowMap*.glsl`, `SpotShadowMap*.glsl`, the shadow cull groups and shadow pass
+recording in `SceneRenderer`.
+**Verification:** shadow goldens identical, including cut-out and two-sided casters; moving-light
+captures match.
 
-**Goal:** the directional (per cascade) and spot shadow passes use the same multi-draw.
+### Phase 5 — Every remaining texture through the heap
+**Goal:** per-pass textures (environment maps, LUTs, shadow maps sampled by lighting) and samplers
+come from the heap. Lighting passes stop binding per-pass texture sets.
+**Changes:** the lighting and post passes that sample those textures; the sampler heap (heap backend)
+or set 3 (fallback); explicit state transitions for render targets sampled by index.
+**Verification:** goldens identical; validation clean with render targets reached only by index.
 
-**Changes**
-- `DirShadowMap.glsl` and `SpotShadowMap.glsl` read the object index from `gl_InstanceIndex`;
-  `Cascade` stays a per-pass push constant.
-- `SceneRenderer`'s shadow submission builds arguments per cascade or light and block.
+### Phase 6 — GPU-written draw count
+**Goal:** culling compacts visible draws and writes the count, so empty draws vanish.
+**Changes:** `MeshCulling.glsl`/`ShadowCulling.glsl` compaction; `countBuffer` passed where
+`features.drawIndirectCount` is true; the CPU count stays as the fallback.
+**Verification:** identical images; fewer GPU draws in a capture; fallback still correct.
 
-**Verification:** identical shadows; draw and CPU numbers as in Phase 3.
+### Phase 7 — Mesh-shader G-buffer
+**Goal:** on mesh-shader GPUs, the G-buffer uses task and mesh shaders reading meshlets through
+device addresses and materials through the heap. Other GPUs keep Phase 3's path.
+**Changes:** **NEW** `GBuffer_Meshlet.glsl` (task/mesh/fragment); meshlet data in the pool or in its
+own block addressed by device address (replacing `RT_GetOrCreateMeshletSet`); per-meshlet culling in
+the task stage.
+**Verification:** RTX 4070 Ti goldens identical; G-buffer GPU time against Phase 3; non-mesh-shader
+path unchanged.
+**Docs:** `Rendering.md` (mesh-shader G-buffer), Architecture § Renderer.
 
-### Phase 5 — Everything else through the heap
+## Part 3 — Risks
 
-**Goal:** the textures opaque and shadow passes still bind per pass (environment radiance and
-irradiance cubes, the BRDF LUT, shadow maps, noise volumes) are heap slots, reached by index from
-`RendererData` or `SceneData`.
-
-**Changes**
-- Heap slots for those textures, with indices added to the relevant UBOs. Edit the C++ `UB*`
-  structs and their GLSL blocks together (`Rendering.md` must-fix).
-- **The render-target rule:**
-  - Shadow maps and other attachments aren't tracked by NVRHI when reached only through the heap,
-    so the passes that sample them call `setTextureState(ShaderResource)` + `commitBarriers` first,
-    and restore the attachment state afterwards.
-  - Use the existing command-list access; NVRHI's `setTextureState` is public.
-
-**Verification:** identical images; no validation layout errors, with the shadow map sampled from
-the heap.
-
-**Docs:** the render-target rule in `Rendering.md`.
-
-### Phase 6 — Mesh-shader G-buffer (Windows mesh-shader GPU)
-
-**Goal:** on GPUs with `VK_EXT_mesh_shader`, the G-buffer is drawn by task and mesh shaders reading
-meshlets through buffer device addresses and materials through the heap. Other GPUs keep Phase 3's
-path.
-
-**Changes**
-- **NEW** `GBuffer_Meshlet.glsl` (with `GL_EXT_buffer_reference` and `shaderInt64`).
-- Meshlet buffers suballocated from the pool.
-- Meshlets addressed per instance through a GPU address table instead of
-  `RT_GetOrCreateMeshletBindingSet`.
-- `SceneRenderer` chooses the path by `Renderer::SupportsMeshShaders()`.
-- Pre-depth meshlets move to the same addressing.
-
-**Verification:**
-- **Windows:** identical G-buffer against Phase 3, validation clean.
-- **Laptop:** unchanged, because the path is disabled there.
-- `/profile` GPU time for the G-buffer on Windows, both paths.
-
-**Docs:** Architecture renderer section; `Rendering.md` (the mesh-shader rules).
-
-## Part 4 — Verification
-
-Each phase compares against Phase 0's reference images and numbers. The whole feature is proven
-when all of these hold:
-- The benchmark scene on the laptop shows the draw and CPU drop from Phases 3 and 4.
-- Both heap paths are validation-clean.
-- The Windows mesh-shader path matches the traditional path.
-
-## Part 5 — Risks
-
-| Risk | Likelihood | Detection |
+| Risk | Likelihood | Early detection |
 |---|---|---|
-| NVRHI doesn't track state for resources only reachable through descriptor tables | Certain for render targets | Phase 5 rule. Material textures are safe (`keepInitialState`). Validation on image layouts. |
-| Mutable-heap writes need the right `dimension` / view type per kind | Medium | Phase 1 tests every kind on both paths. |
-| Pool fragmentation with heavy streaming | Medium | Phase 2 load/unload loop logs pool usage; blocks cap the damage. |
-| Old exports with the previous shader pack | Certain | Re-export note in the release notes. |
-| Mesh shaders untestable on the laptop | Certain | Phase 6 is last, gated by capability, verified on Windows only. |
-| CPU savings smaller than expected on small scenes | Medium | Phase 0 numbers decide whether Phase 3 onward is worth it before building on it. |
+| GLSL descriptor heaps aren't supported by the bundled shaderc, or heap and set pipelines can't mix in one command buffer | Medium | Phase 0 spike; fall back to the mutable-set backend for heap passes. |
+| CI's SDK bump changes other shader output | Low | Phase 1 goldens on CI artifacts; the shader-pack stamp flags it. |
+| The laptop's driver lacks mutable descriptors | Medium | Per-kind fallback (sets 4–7); forced fallback runs every phase. |
+| Multi-draw gains are small because submission is already cheap (retained plan cut main-thread time) | Medium | Phase 0 baseline; restate the target before Phase 3. |
+| Render targets read by index without tracked state transitions | Medium | Phase 5 validation; explicit transitions around those passes. |
+| Pool fragmentation after many reloads | Low | Free-list stats in the Renderer Debugger; block size tuning. |
 
-## Part 6 — Open questions
+## Part 4 — Open questions
 
-- Final block sizes: settled by Phase 0's measured mesh memory.
-- Whether the thumbnailer and material preview `SceneRenderer`s should share pool blocks (they do:
-  the pool is process-wide) and heap tables (they don't: separate index spaces). Confirm no
-  per-renderer assumption in `MeshSource`.
-- Which GPU the Windows PC has, for Phase 6's expected numbers.
+- Does `VK_EXT_descriptor_heap` work on the laptop's AMD Mesa (RADV) driver? Unknown. The fallback
+  covers it either way; checking would let the laptop use the heap.
+- In heap pipelines, should per-pass constants (camera, scene buffer addresses) be root constants or
+  one small address table? Decide in Phase 3 from the spike.
+- Is the D3D12 future backend (`LUX_HAS_DX12` scaffolding) a reason to keep heap-mode shaders
+  portable to HLSL SM 6.6 `ResourceDescriptorHeap`? Out of scope; note it if the macros allow both.
 
-**What would invalidate the plan:** if Phase 0 shows mesh submission isn't a meaningful part of
-frame time, Phases 3–4 lose their performance motivation. Stop and decide with the user whether
-bindless is still wanted for the mesh-shader and material-graph future alone.
+## Part 5 — Research notes
 
-## Part 7 — Research notes
+- **Descriptor heap concept:** NRI's "descriptor heap" mode means no descriptor sets plus
+  directly indexed resource and sampler heaps, mirroring HLSL SM 6.6 dynamic resources
+  (`NRIDescs.h:1003-1009`, `NRIDescriptorHeap.h`).
+- **Vulkan extension:** `VK_EXT_descriptor_heap`, Vulkan 1.4.340, multi-vendor. It needs buffer
+  device address and `VK_KHR_shader_untyped_pointers`
+  ([proposal](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_descriptor_heap.html),
+  [guide](https://docs.vulkan.org/guide/latest/descriptor_heap.html)).
+- **Driver support:** NVIDIA supports it from driver 610, with samples and tooling
+  ([NVIDIA blog](https://developer.nvidia.com/blog/streamlining-resource-binding-with-end-to-end-support-for-vulkan-descriptor-heaps/));
+  Sascha Willems has heap samples ([blog](https://saschawillems.de/blog/2026/06/13/new-vulkan-samples-for-using-descriptor-heaps/)).
+- **GLSL:** glslang has `GL_EXT_descriptor_heap` tests, and 16.4.0 notes a structured descriptor
+  heap extension. The exact name and shaderc support are unverified, which is why Phase 0 exists.
+- **Rejected:**
+  - temporal anything (standing rule);
+  - `VK_EXT_descriptor_buffer` (superseded by the heap extension, and a non-goal);
+  - resuming the 2026-09-25 NVRHI phases (their layout mechanics no longer apply).
 
-**Goal:** every opaque and shadow draw reachable by index; one multi-draw per pass.
+## Handoff
 
-- **Concept:** a shared VB/IB plus multi-draw indirect with `firstInstance` as the per-draw index is
-  the standard GPU-driven layout.
-  [Khronos multi-draw indirect sample](https://docs.vulkan.org/samples/latest/samples/performance/multi_draw_indirect/README.html) ·
-  [Vulkan Guide: GPU-driven engines](https://vkguide.dev/docs/gpudriven/gpu_driven_engines/)
-- **Concept:** `VK_EXT_mutable_descriptor_type` exists to give Vulkan a single D3D12-style resource
-  heap instead of parallel per-type arrays.
-  [Khronos proposal](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_mutable_descriptor_type.html)
-- **Prior art:** Wicked Engine went bindless on Vulkan and DX12, and uses buffer device addresses
-  in place of buffer descriptors, citing Vulkan's buffer-descriptor limits.
-  [Wicked Engine: bindless descriptors](https://wickedengine.net/2021/04/bindless-descriptors/comment-page-1/)
-- **Pitfall:** NVRHI's immutable bindless layouts write every register space of the matching type
-  (read in the vendored source), so parallel 2D and cube arrays can't share one immutable layout.
-  Hence the fallback puts one kind per set.
-- **Rejected:** vertex pulling for all geometry. It loses the post-transform cache on indexed
-  meshes, and the user chose the pool.
-- **Deferred:** `VK_EXT_descriptor_heap` (NVIDIA drivers 610+). Too new, and NVRHI doesn't support
-  it. [NVIDIA blog](https://developer.nvidia.com/blog/streamlining-resource-binding-with-end-to-end-support-for-vulkan-descriptor-heaps/)
-- **Rejected:** any temporal technique (engine rule).
-
-**Still unknown:** mutable-descriptor behaviour on the Windows PC's driver; checked in Phase 1 on
-Windows.
+Start with Phase 0. Implement each phase with `/dev`, review with `/cr`, and ship with `/send-pr`.

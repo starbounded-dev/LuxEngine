@@ -2,10 +2,16 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "EditorLayer.h"
+#include "Lux/ImGui/ImGuiScaling.h"
+#include "Panels/PropertiesPanel.h"
+#include "Panels/SceneViewPanel.h"
 #include "RuntimeExportUtils.h"
+#include "ProjectTemplate.h"
+#include "ScriptTemplate.h"
 
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Audio/AudioValidation.h"
+#include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Core/Application.h"
@@ -15,15 +21,18 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/ShaderPack.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Serialization/AssetPack.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Social/DiscordSocial.h"
 
 #include "Lux/Utilities/FileSystem.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <fstream>
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Core/Math/AABB.h"
@@ -40,6 +49,7 @@
 #include "Lux/Debug/Profiler.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/ImGuiFonts.h"
+#include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/Utilities/CommandLineParser.h"
@@ -50,15 +60,18 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
-#include "Lux/Audio/AudioBankBuilder.h"
 #include "Panels/AudioDebugPanel.h"
 #include "Panels/GameViewPanel.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Renderer/DebugPalette.h"
 #include "Lux/Physics/PhysicsScene.h"
 #include "Panels/ProfilerPanel.h"
+#include "Panels/HelpPanel.h"
 #include "Panels/UndoHistoryPanel.h"
 #include "Panels/MaterialEditor/MaterialEditorPanel.h"
+#include "Panels/SoundEditor/SoundEditorPanel.h"
+#include "Panels/AudioMixerPanel.h"
+#include "Panels/SoundBankEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -101,13 +114,78 @@ namespace Lux {
 #define GAME_VIEW_PANEL_ID "GameViewPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
 #define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
+#define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
+#define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
+#define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
+#define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
 		constexpr int s_MaxRecentProjects = 10;
+		constexpr float k_ViewportGearSize = 24.0f;
+		constexpr float k_ViewportGearPadding = 6.0f;
+		constexpr float k_OrientationRadius = 30.0f;
+		constexpr float k_OrientationPadding = 14.0f;
+		constexpr float k_OrientationTipRadius = 10.0f;
+		constexpr float k_ViewportReadoutWidthInFonts = 26.0f;
 
 		std::string GetRecentProjectKey(size_t index)
 		{
 			return "RecentProjects." + std::to_string(index);
+		}
+
+		// The C# project a new game's scripts build with (Project::GetScriptProjectPath; built by
+		// ScriptBuilder from Project Settings and the runtime export). It compiles Source/, writes the
+		// module where ProjectConfig::ScriptModulePath points (Scripts/Binaries), keeps intermediates
+		// in the project's Cache so generated .cs files stay out of the asset registry, and references
+		// the ScriptCore and Coral assemblies this editor loads, so nothing else needs installing.
+		bool WriteScriptProject(const std::filesystem::path& csprojPath, const std::string& name)
+		{
+			const std::filesystem::path editorDirectory = FileSystem::GetWorkingDirectory();
+			const std::string scriptCore = std::filesystem::absolute(editorDirectory / "Resources" / "Scripts" / "ScriptCore.dll").string();
+			const std::string coral = std::filesystem::absolute(editorDirectory / "DotNet" / "Coral.Managed.dll").string();
+			const std::string project = std::format(R"(<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>{0}</AssemblyName>
+    <RootNamespace>{0}</RootNamespace>
+    <Configurations>Debug;Release;Dist</Configurations>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>Binaries\</OutputPath>
+    <IntermediateOutputPath>..\..\Cache\ScriptBuild\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Source\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="ScriptCore">
+      <HintPath>{1}</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Coral.Managed">
+      <HintPath>{2}</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
+)", name, scriptCore, coral);
+
+			std::ofstream stream(csprojPath, std::ios::binary | std::ios::trunc);
+			stream << project;
+			stream.close();
+			if (!stream)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Could not write the script project '{}'", csprojPath.string());
+				return false;
+			}
+			return true;
 		}
 
 		std::filesystem::path NormalizeProjectPath(const std::filesystem::path& path)
@@ -208,7 +286,6 @@ namespace Lux {
 		constexpr const char* s_RuntimeExportStepLabels[] = {
 			"Checking the export and clearing its folder",
 			"Building the asset pack",
-			"Copying audio banks",
 			"Writing the runtime project",
 			"Copying Lux-Runtime",
 			"Copying resources",
@@ -319,8 +396,9 @@ namespace Lux {
 				return false;
 			}
 
-			ShaderPack::CreateFromLibrary(shaderLibrary, shaderPackPath);
-			if (!FileExists(shaderPackPath))
+			// Stamped so the exported runtime can tell a stale pack (Renderer::Init evaluates the sidecar).
+			if (!ShaderPack::WriteStampedPack(shaderLibrary, shaderPackPath, Renderer::CaptureShaderPackEnvironment())
+				|| !FileExists(shaderPackPath))
 			{
 				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing shader pack '{}'.", shaderPackPath.string());
 				return false;
@@ -379,11 +457,75 @@ namespace Lux {
 	void EditorLayer::OnAttach()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnAttach");
+#ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_PLAY_SELFTEST"))
+		{
+			const std::string frames = FileSystem::GetEnvironmentVariable("LUX_PLAY_SELFTEST");
+			std::from_chars(frames.data(), frames.data() + frames.size(), m_PlayTestFrames);
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_DIAGNOSTIC_PLOTS_SELFTEST"))
+		{
+			std::vector<std::string> failures;
+			const bool passed = ProfilerPanel::RunDiagnosticSelfTests(failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			const std::string path =
+				FileSystem::GetEnvironmentVariable("LUX_DIAGNOSTIC_PLOTS_SELFTEST") + ".status";
+			if (!FileSystem::WriteFileAtomically(path, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish diagnostic-plot self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_PANEL_CONTROLS_SELFTEST"))
+		{
+			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_PANEL_CONTROLS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = TextEditorPanel::RunPanelControlsSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			if (!FileSystem::WriteFileAtomically(directory.string() + ".status", report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish panel-control self-test report");
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_WORKSPACES_SELFTEST"))
+		{
+			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_WORKSPACES_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = EditorWorkspaceManager::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			if (!FileSystem::WriteFileAtomically(directory.string() + ".status", report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish workspace self-test report");
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+#endif
+		// Explicit developer probe, before the first startup ImGui/render frame. It
+		// uses an isolated context and local settings; no user project is edited.
+		if (FileSystem::HasEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST"))
+		{
+			std::vector<std::string> failures;
+			const bool passed = ProjectSettingsWindow::RunAcousticSettingsSelfTests(failures);
+			const auto path = FileSystem::GetEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST");
+			std::ofstream report(path,std::ios::trunc);
+			report << (passed ? "PASS" : "FAIL") << '\n';
+			for (const auto& failure : failures)
+				report << failure << '\n';
+			report.flush();
+			if (!passed || !report.good())
+				LUX_CORE_ERROR_TAG("Editor", "Acoustic settings UI self-test failed; report '{}'", path);
+			else
+				LUX_CORE_INFO_TAG("Editor", "Acoustic settings UI self-test passed; report '{}'", path);
+		}
 
 		// Per-user, like App.lsettings. ImGui reads the ini lazily on its first frame, so this has to
 		// come before the startup splash draws one; it keeps a pointer, hence the member string.
 		m_ImGuiIniPath = (FileSystem::GetPersistentStoragePath() / "imgui.ini").string();
 		ImGui::GetIO().IniFilename = m_ImGuiIniPath.c_str();
+		m_Workspaces = CreateScope<EditorWorkspaceManager>(FileSystem::GetPersistentStoragePath());
+		m_Workspaces->PrimeImGui();
 
 		m_StartupSplash = CreateScope<StartupSplash>();
 		StartupSplash::Report(0.05f, "Loading editor resources");
@@ -404,6 +546,7 @@ namespace Lux {
 		m_PanelManager = CreateScope<PanelManager>();
 
 		m_SceneHierarchyPanel = m_PanelManager->AddPanel<SceneHierarchyPanel>(PanelCategory::View, SCENE_HIERARCHY_PANEL_ID, "Scene Hierarchy", true);
+		m_PanelManager->AddPanel<PropertiesPanel>(PanelCategory::View, "PropertiesPanel", "Properties", true, m_SceneHierarchyPanel);
 		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
 		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Beam", true);
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
@@ -412,6 +555,10 @@ namespace Lux {
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
+
+		// The offline manual. Inspector help buttons (Core) reach it through EditorDocs.
+		m_HelpPanel = m_PanelManager->AddPanel<HelpPanel>(PanelCategory::View, HELP_PANEL_ID, "Help", false);
+		EditorDocs::SetOpenTopicHandler([this](std::string_view topic) { OpenHelpTopic(topic); });
 
 		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, MATERIAL_EDITOR_PANEL_ID, "Material Editor", false);
 		materialEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
@@ -426,7 +573,38 @@ namespace Lux {
 		};
 		m_SceneHierarchyPanel->SetOpenMaterialCallback(openMaterialEditor);
 
-		// Reads AudioEngine / RaytracedAudioScene directly and takes its scene from
+		Ref<SoundEditorPanel> soundEditorPanel = m_PanelManager->AddPanel<SoundEditorPanel>(PanelCategory::View, SOUND_EDITOR_PANEL_ID, "Sound Editor", false);
+		soundEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+		auto openSoundEditor = [this, soundEditorPanel](AssetHandle soundHandle) mutable
+		{
+			soundEditorPanel->OpenSound(soundHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SOUND_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+		m_SceneHierarchyPanel->SetOpenSoundCallback(openSoundEditor);
+
+		Ref<SoundBankEditorPanel> soundBankEditorPanel = m_PanelManager->AddPanel<SoundBankEditorPanel>(PanelCategory::View, SOUND_BANK_EDITOR_PANEL_ID, "Sound Bank Editor", false);
+		soundBankEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+		auto openSoundBankEditor = [this, soundBankEditorPanel](AssetHandle bankHandle) mutable
+		{
+			soundBankEditorPanel->OpenBank(bankHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SOUND_BANK_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+
+		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
+		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		{
+			PushUndoCommand(label, std::move(undo), std::move(redo));
+		});
+
+		// Reads AudioEngine / the scene's Soundwave state directly and takes its scene from
 		// PanelManager::SetSceneContext; the handle is kept only so OnOverlayRender can read the
 		// panel's 3D visualisation settings.
 		m_AudioDebugPanel = m_PanelManager->AddPanel<AudioDebugPanel>(PanelCategory::View, "AudioDebugPanel", "Audio Debugger", false);
@@ -477,7 +655,7 @@ namespace Lux {
 		editorPreferencesBindings.Grid = &m_GridSettings;
 		editorPreferencesBindings.GamepadNavigation = &m_GamepadNavigation;
 		editorPreferencesBindings.GamepadNavigationDevice = &m_GamepadNavigationDevice;
-		editorPreferencesBindings.SimpleLayout = &m_SimpleLayout;
+
 		editorPreferencesBindings.GlassOverlays = &m_GlassOverlays;
 		editorPreferencesBindings.OnLayoutModeChanged = [this](bool simple)
 			{
@@ -500,13 +678,29 @@ namespace Lux {
 		m_CommandPalette = CreateScope<CommandPalette>();
 		RegisterCommands();
 
+		m_ToolHost = CreateScope<EditorToolHost>();
+		m_ToolHost->SetUndoHook([this](const std::string& label, const std::vector<UUID>& entities, bool sceneWide)
+		{
+			// Committed at once, so each tool request is its own undo step.
+			EditorStack& stack = EditorStack::Get();
+			if (sceneWide)
+				stack.MarkSceneEdited();
+			else
+				stack.MarkEntitiesEdited(entities);
+			stack.ConsumeSceneEdit();
+			stack.ConsumeLabel();
+			m_PendingUndoLabel = label;
+			CommitSceneSnapshot();
+			stack.ClearEditScope();
+		});
+
 		{
 			SplashScreen::Callbacks splashCallbacks;
 			splashCallbacks.IsProjectOpen = []() { return Project::GetActive() != nullptr; };
 			splashCallbacks.GetRecentProjects = [this]() { return GetRecentProjects(); };
 			splashCallbacks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 			splashCallbacks.BrowseForProject = [this]() { return OpenProject(); };
-			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location) { return CreateProject(name, location); };
+			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location, const std::string& scriptClass) { return CreateProject(name, location, scriptClass); };
 			splashCallbacks.RemoveRecentProject = [this](const std::filesystem::path& path) { RemoveRecentProject(path); };
 			splashCallbacks.GetShowOnStartup = [this]() { return m_UserPreferences && m_UserPreferences->ShowSplashScreen; };
 			splashCallbacks.SetShowOnStartup = [this](bool show)
@@ -551,6 +745,8 @@ namespace Lux {
 
 		m_EditorViewport = Ref<Viewport>::Create("Scene View");
 		m_EditorViewport->Init(m_ActiveScene, fbSpec, sceneRendererSpec);
+		m_PanelManager->AddPanel<SceneViewPanel>(PanelCategory::View, "SceneViewPanel", "Scene View", true, m_EditorViewport, [this](bool& open) { UI_DrawSceneView(open); });
+		RegisterCommands();
 		m_Framebuffer = m_EditorViewport->GetFramebuffer();
 		m_SceneRenderer = m_EditorViewport->GetSceneRenderer();
 		m_SceneRenderer->GetOptions().ShowGrid = Application::Get().GetSettings().GetInt("Editor.ShowGrid", 1) != 0;
@@ -568,6 +764,8 @@ namespace Lux {
 		m_PanelManager->SetSceneContext(m_EditorScene);
 		m_PanelManager->OnProjectChanged(Project::GetActive());
 		ApplyEditorPreferences();
+		m_Workspaces->Initialize(*m_PanelManager, m_SimpleLayout);
+		Application::Get().GetImGuiLayer()->SetBeforeFrameCallback([this]() { m_Workspaces->BeforeFrame(); });
 
 		if (contentBrowserPanel)
 		{
@@ -587,34 +785,19 @@ namespace Lux {
 				openMaterialEditor(metadata.Handle);
 			});
 
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Sound, [openSoundEditor](const AssetMetadata& metadata) mutable
+			{
+				openSoundEditor(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::SoundBank, [openSoundBankEditor](const AssetMetadata& metadata) mutable
+			{
+				openSoundBankEditor(metadata.Handle);
+			});
+
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)
 			{
 				EnterPrefabEditMode(metadata.Handle);
-			});
-
-			// Audio is authored in FMOD Studio, not in this editor, so activating either the project
-			// or one of its built banks hands off to Studio. A bank opens its owning project —
-			// Studio has no notion of opening a bank on its own, and the project is what the
-			// designer actually needs in front of them.
-			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::AudioProject, [](const AssetMetadata& metadata)
-			{
-				AudioBankBuilder::OpenInStudio(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
-			});
-
-			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::AudioBank, [](const AssetMetadata&)
-			{
-				Ref<Project> project = Project::GetActive();
-				if (!project)
-					return;
-
-				const std::filesystem::path studioProject = project->GetStudioProjectPath();
-				if (studioProject.empty())
-				{
-					LUX_CORE_WARN_TAG("Audio", "This project has no FMOD Studio project configured, so there is nothing to open for that bank");
-					return;
-				}
-
-				AudioBankBuilder::OpenInStudio(studioProject);
 			});
 
 			if (textEditorPanel)
@@ -635,6 +818,153 @@ namespace Lux {
 		if (std::filesystem::path startupProject = GetStartupProjectPath(); !startupProject.empty())
 			OpenProject(startupProject);
 
+#ifndef LUX_DIST
+		if (FileSystem::HasEnvironmentVariable("LUX_AUDIO_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_AUDIO_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			bool passed = Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory;
+			if (passed)
+			{
+				passed = SoundBankEditorPanel::RunSelfTests(failures);
+				passed &= SoundEditorPanel::RunPersistenceSelfTests(failures);
+				passed &= SoundEditorPanel::RunEditorSelfTests(failures);
+				passed &= AudioMixerPanel::RunSelfTests(failures);
+				passed &= AudioDebugPanel::RunSelfTests(failures);
+			}
+			else
+				failures.push_back("Audio panel tests require the active disposable runner project");
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish audio-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_SETTINGS_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_SETTINGS_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			bool passed = Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory;
+			if (passed)
+			{
+				passed = ApplicationSettingsPanel::RunSelfTests(failures);
+				passed &= HelpPanel::RunSelfTests(failures);
+				passed &= ProjectSettingsWindow::RunPanelSelfTests(failures);
+				passed &= SceneRendererPanel::RunPanelSelfTests(m_SceneRenderer, failures);
+				passed &= GameViewPanel::RunPanelSelfTests(failures);
+				passed &= RunViewportOverlaySelfTests(failures);
+				passed &= RunTitlebarSelfTests(failures);
+			}
+			else
+				failures.push_back("Settings panels require the active disposable runner project");
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish settings-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_DIAGNOSTIC_CONTROLS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_DIAGNOSTIC_CONTROLS_SELFTEST");
+			std::vector<std::string> failures;
+			bool passed = Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory;
+			if (passed)
+			{
+				passed = m_ConsolePanel->RunSelfTests(failures);
+				passed &= AssetManagerPanel::RunSelfTests(failures);
+				passed &= UndoHistoryPanel::RunSelfTests(failures);
+			}
+			else
+				failures.push_back("Diagnostic controls require the active disposable runner project");
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish diagnostic-control self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_HIERARCHY_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_HIERARCHY_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = Project::GetActive() &&
+								Project::GetActive()->GetProjectDirectory() == directory &&
+								SceneHierarchyPanel::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish hierarchy-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_BROWSER_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_BROWSER_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = ContentBrowserPanel::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish browser-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_WORKSPACE_DOCUMENTS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_WORKSPACE_DOCUMENTS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = TextEditorPanel::RunWorkspaceSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish workspace-document self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_MATERIAL_PANELS_SELFTEST"))
+		{
+			const std::filesystem::path directory =
+				FileSystem::GetEnvironmentVariable("LUX_MATERIAL_PANELS_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = MaterialEditorPanel::RunSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish material-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+#endif
+
 		// Like Blender: the splash shows over whatever loaded at startup. With no project it shows
 		// regardless of the preference.
 		if (m_SplashScreen && m_UserPreferences && m_UserPreferences->ShowSplashScreen)
@@ -646,6 +976,8 @@ namespace Lux {
 		m_EntityBookmarks.clear();   // bookmarks are per-scene UUIDs
 
 		GoldenCapture::Hooks goldenHooks;
+		goldenHooks.StartPlay = [this]() { OnScenePlay(); return m_SceneState == SceneState::Play; };
+		goldenHooks.StopPlay = [this]() { OnSceneStop(); };
 		goldenHooks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 		goldenHooks.OpenScene = [this](const std::filesystem::path& path)
 		{
@@ -657,7 +989,25 @@ namespace Lux {
 			OpenScene(handle);
 			return m_EditorScene != previousScene;
 		};
+		goldenHooks.StartRuntimeExport = [this](const std::filesystem::path& folder, std::string& error)
+		{
+			ExportRuntimeNow(folder);
+			error = m_RuntimeExportError;
+			return m_PendingRuntimeExport.has_value();
+		};
+		goldenHooks.PollRuntimeExport = [this](std::filesystem::path& root, std::filesystem::path& executable, std::string& error)
+		{
+			if (m_PendingRuntimeExport)
+				return false;
+			root = m_LastRuntimeExportRoot;
+			executable = m_LastRuntimeExportExecutable;
+			error = m_RuntimeExportError;
+			if (root.empty() && error.empty())
+				error = "Runtime export stopped before producing a package";
+			return true;
+		};
 		m_GoldenCapture = GoldenCapture::CreateFromEnvironment(std::move(goldenHooks));
+		ContentBrowserPanel::SetThumbnailWorkPaused(m_GoldenCapture != nullptr);
 
 		// The splash stays up through the first frames (UI_StartupSplashHandOff), so the main window
 		// appears with the editor already drawn in it.
@@ -670,6 +1020,11 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION("EditorLayer::OnDetach");
 		m_GoldenCapture.reset();
 		SaveEditorPreferences();
+		Application::Get().GetImGuiLayer()->SetBeforeFrameCallback({});
+		if (m_Workspaces)
+			m_Workspaces->Shutdown();
+		if (m_PanelManager)
+			m_PanelManager->Serialize();
 
 		// The build subprocess cannot be interrupted, and its worker writes into m_RuntimeBuildJob.
 		m_PendingRuntimeExport.reset();
@@ -678,7 +1033,7 @@ namespace Lux {
 		// io.IniFilename points into m_ImGuiIniPath, which dies with this layer, but ImGui saves its
 		// settings again when the ImGui overlay destroys the context afterwards. Save now, while the
 		// path is valid, and stop ImGui from reading the freed string later.
-		if (ImGui::GetCurrentContext() && !m_ImGuiIniPath.empty())
+		if (ImGui::GetCurrentContext() && !m_ImGuiIniPath.empty() && !m_Workspaces)
 		{
 			ImGui::SaveIniSettingsToDisk(m_ImGuiIniPath.c_str());
 			ImGui::GetIO().IniFilename = nullptr;
@@ -708,6 +1063,8 @@ namespace Lux {
 		m_SceneRenderer.reset();
 		m_RendererDebuggerPanel.reset();
 		m_ProfilerPanel.reset();
+		EditorDocs::SetOpenTopicHandler(nullptr);
+		m_HelpPanel.reset();
 		m_AudioDebugPanel.reset();
 		m_SceneRendererPanel.reset();
 		m_SceneHierarchyPanel.reset();
@@ -729,6 +1086,30 @@ namespace Lux {
 		if (!m_ActiveScene || !m_EditorViewport || !Project::GetActive())
 			return;
 
+		// The scripts in the scene judge the run and log PLAYTEST PASS/FAIL; this only plays it.
+		// Before anything reads m_ActiveScene, which Play and Stop replace.
+		if (m_PlayTestFrames > 0)
+		{
+			if (!m_PlayTestStarted)
+			{
+				m_PlayTestStarted = true;
+				OnScenePlay();
+				LUX_CORE_INFO_TAG("Editor", "[PlayTest] {} for {} frames", m_SceneState == SceneState::Play ? "playing" : "could not enter Play", m_PlayTestFrames);
+			}
+			if (m_SceneState != SceneState::Play || --m_PlayTestFrames == 0)
+			{
+				m_PlayTestFrames = 0;
+				if (m_SceneState == SceneState::Play)
+					OnSceneStop();
+				LUX_CORE_INFO_TAG("Editor", "[PlayTest] done");
+				Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+				return;
+			}
+		}
+
+		// Compiles changed material graphs into the surface shaders; cheap when nothing changed.
+		MaterialGraphRegistry::Update();
+
 		if (m_GoldenCapture)
 			m_GoldenCapture->ConfigureViewport(*m_EditorViewport);
 		m_EditorViewport->SyncSceneViewport(m_ActiveScene);
@@ -749,7 +1130,7 @@ namespace Lux {
 		// capture every other frame and the camera could not fly or orbit.
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		const bool cameraWasCaptured = viewportCamera.IsMouseCaptured();
-		viewportCamera.SetActive(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured);
+		viewportCamera.SetActive(m_EditorViewport->IsVisible() && (m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured));
 
 		if (m_SceneRenderer)
 		{
@@ -830,12 +1211,13 @@ namespace Lux {
 		}
 
 		if (m_GoldenCapture)
-			m_GoldenCapture->EndFrame(m_SceneRenderer);
+			m_GoldenCapture->EndFrame(m_SceneRenderer, m_ActiveScene);
 	}
 
 	void EditorLayer::OnImGuiRender()
 	{
 		LUX_PROFILE_FUNCTION("EditorLayer::OnImGuiRender");
+		m_Workspaces->SetEnabled(Project::GetActive() != nullptr);
 
 		// Must be called once per frame before any other ImGuizmo function.
 		// Without this, IsOver() / IsUsing() return stale state and Manipulate()
@@ -881,9 +1263,7 @@ namespace Lux {
 		if (dockspaceVisible)
 		{
 			ImGuiIO& io = ImGui::GetIO();
-			ImGuiStyle& style = ImGui::GetStyle();
-			const float minWinSizeX = style.WindowMinSize.x;
-			style.WindowMinSize.x = 370.0f;
+			m_TitlebarHeight = 57.0f * ImGui::GetStyle()._MainScale;
 
 			UI_DrawTitlebar();
 			if (!isWindowMaximized)
@@ -893,6 +1273,7 @@ namespace Lux {
 			}
 
 			ImGui::SetCursorPosY(m_TitlebarHeight);
+			ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
 			// No project open: an empty workspace with the splash over it (it cannot be dismissed until a
 			// project opens). The dockspace is kept alive without being drawn, so the saved layout is
@@ -901,7 +1282,6 @@ namespace Lux {
 			{
 				if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 					ImGui::DockSpace(ImGui::GetID("MyDockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly);
-				style.WindowMinSize.x = minWinSizeX;
 
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 				UI_AboutPopup();
@@ -910,34 +1290,31 @@ namespace Lux {
 				return;
 			}
 
+			m_Workspaces->SetEnabled(Project::GetActive() != nullptr);
+			m_Workspaces->DrawPopups();
 			if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
 			{
-				const ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
-				ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
-
-				// DockSpace() creates the node as an unsplit leaf when imgui.ini had nothing saved
-				// for it; a node that's already split means a saved layout was restored, so this
-				// only ever fires on first run (or after the per-user imgui.ini is cleared).
-				if (!ImGui::DockBuilderGetNode(dockspace_id)->IsSplitNode())
-					ResetDefaultDockLayout(dockspace_id);
-				else
-					DockViewsWhereLegacyViewportWas();
-
-				// A layout-mode switch requested from a menu last frame is applied here, where the
-				// dockspace id is valid.
-				if (m_PendingLayoutReset)
-				{
-					ResetDefaultDockLayout(dockspace_id);
-					m_PendingLayoutReset = false;
-				}
+				const ImGuiID dockspace = ImGui::GetID("MyDockSpace");
+				m_Workspaces->DrawDockSpace(dockspace, ImGui::GetContentRegionAvail());
 			}
-			style.WindowMinSize.x = minWinSizeX;
 
+			if (m_FocusSceneViewRequested)
+				m_PanelManager->SetOpen(Hash::GenerateFNVHash("SceneViewPanel"), true);
+			Application::Get().GetImGuiLayer()->AllowInputEvents(false);
 			m_PanelManager->OnImGuiRender();
 
 			// After the panels have drawn (and possibly signalled an edit), decide whether to record
 			// an undo snapshot. Runs here so it sees this frame's edits and the final active-item state.
 			PollSceneEditForUndo();
+
+			// Tool requests run against the scene the user sees, and only between the user's own
+			// edits, so a tool edit never merges into (or splits) a user's undo step.
+			if (m_ToolHost)
+			{
+				m_ToolHost->SetScene(m_ActiveScene, m_SceneState == SceneState::Edit);
+				if (!m_UndoCommitPending && !EditorStack::Get().HasPendingSceneEdit() && !ImGui::IsAnyItemActive())
+					m_ToolHost->ProcessQueue();
+			}
 			UI_UndoToast();
 			UI_ScriptToast();
 			UI_PrefabEditBanner();
@@ -965,175 +1342,178 @@ namespace Lux {
 
 			if (m_SplashScreen)
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
-
-			// Scene View panel
-			if (m_FocusSceneViewRequested)
-			{
-				ImGui::SetNextWindowFocus();
-				m_FocusSceneViewRequested = false;
-			}
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
-			const bool viewportReady = m_EditorViewport && m_EditorViewport->BeginImGui();
-			if (m_EditorViewport)
-			{
-				Application::Get().GetImGuiLayer()->AllowInputEvents(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
-
-				if (viewportReady)
-				{
-					const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-					const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
-
-					Ref<Image2D> viewportImage = m_EditorViewport->GetDisplayImage();
-					bool renderedViewportImage = false;
-					if (viewportImage)
-					{
-						// Draw into the letterboxed rect rather than filling the panel, so a render
-						// whose aspect differs from the panel (a fixed 1920x1080 target on a 4K or
-						// ultrawide viewport) keeps its framing instead of being stretched. The
-						// panel background shows through as the bars.
-						const glm::vec2* imageBounds = m_EditorViewport->GetImageBounds();
-						const glm::vec2 imageSize = m_EditorViewport->GetImageSize();
-						const ImVec2 cursor = ImGui::GetCursorPos();
-						ImGui::SetCursorPos(ImVec2{
-							cursor.x + (imageBounds[0].x - viewportBounds[0].x),
-							cursor.y + (imageBounds[0].y - viewportBounds[0].y) });
-
-						ImTextureID texID = GetImGuiTextureID(viewportImage);
-						ImGui::Image(texID, ImVec2{ imageSize.x, imageSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
-						renderedViewportImage = true;
-					}
-
-					if (renderedViewportImage && ImGui::BeginDragDropTarget())
-					{
-						if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-						{
-							AssetHandle handle = *(AssetHandle*)payload->Data;
-							const AssetType assetType = AssetManager::GetAssetType(handle);
-							if (assetType == AssetType::Scene)
-							{
-								OpenScene(handle);
-							}
-							else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
-							{
-								std::string entityName = "Static Mesh";
-								if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
-								{
-									const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
-									if (metadata.IsValid() && !metadata.FilePath.empty())
-										entityName = metadata.FilePath.stem().string();
-								}
-
-								Entity entity = m_ActiveScene->CreateEntity(entityName);
-								auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
-								staticMesh.StaticMesh = handle;
-
-								if (m_SceneHierarchyPanel)
-									m_SceneHierarchyPanel->SetSelectedEntity(entity);
-							}
-						}
-						ImGui::EndDragDropTarget();
-					}
-
-					if (m_EditorViewport->IsHovered())
-						m_HoveredEntity = CastMousePick();
-					else
-						m_HoveredEntity = {};
-
-					UI_ViewportPerformanceHUD();
-					UI_AcousticMaterialLegend();
-					UI_RoomAcousticsReadout();
-
-					// Gizmos
-					Entity selectedEntity = {};
-					if (m_SceneHierarchyPanel)
-						selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
-					// Folders have no user-editable transform, so they get no gizmo.
-					if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
-					{
-						ImGuizmo::SetOrthographic(false);
-						ImGuizmo::SetDrawlist();
-						// The image rect, not the panel rect - the gizmo has to line up with the
-						// rendered image, which is inset by the letterbox bars when the render
-						// aspect differs from the panel's.
-						const glm::vec2* gizmoBounds = m_EditorViewport->GetImageBounds();
-						const glm::vec2 gizmoSize = m_EditorViewport->GetImageSize();
-						ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
-
-						glm::mat4 cameraView, cameraProjection;
-						GetViewportCameraMatrices(cameraView, cameraProjection);
-
-						auto& tc = selectedEntity.GetComponent<TransformComponent>();
-						glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
-
-						const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-						bool snap = m_UseGizmoSnap || controlSnap;
-						float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
-							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
-						float snapValues[3] = { snapValue, snapValue, snapValue };
-
-						ImGuizmo::Manipulate(
-							glm::value_ptr(cameraView),
-							glm::value_ptr(cameraProjection),
-							(ImGuizmo::OPERATION)m_GizmoType,
-							ImGuizmo::LOCAL,
-							glm::value_ptr(transform),
-							nullptr,
-							snap ? snapValues : nullptr);
-
-						if (ImGuizmo::IsUsing())
-						{
-							glm::vec3 translation, scale;
-							glm::quat rotationQuat;
-							bool parentInvertible = true;
-							if (Entity parent = selectedEntity.GetParent())
-							{
-								const glm::mat4 parentTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(parent);
-								const float determinant = glm::determinant(parentTransform);
-								parentInvertible = determinant != 0.0f && std::isfinite(determinant);
-								if (parentInvertible)
-									transform = glm::inverse(parentTransform) * transform;
-							}
-							if (parentInvertible && Math::DecomposeTransform(transform, translation, rotationQuat, scale))
-							{
-								tc.Translation = translation;
-								tc.SetRotationEuler(glm::eulerAngles(rotationQuat));
-								tc.Scale = scale;
-							}
-							else if (!m_GizmoWasUsing)
-							{
-								LUX_CORE_ERROR_TAG("Editor", "Cannot edit entity {}: gizmo or parent transform is singular", selectedEntity.Name());
-							}
-						}
-
-						// Record one undo step when a gizmo drag finishes (the transform is mutated above
-						// but not through a property widget, so it doesn't raise the ImGuiEx signal).
-						const bool gizmoUsing = ImGuizmo::IsUsing();
-						if (m_GizmoWasUsing && !gizmoUsing)
-						{
-							const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
-								: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
-							EditorStack::Get().MarkEntitiesEdited({ selectedEntity.GetUUID() }, gizmoLabel);
-						}
-						m_GizmoWasUsing = gizmoUsing;
-					}
-				}
-
-				m_EditorViewport->EndImGui();
-			}
-			ImGui::PopStyleVar();
-
-			// Gizmo tools + transport live in the titlebar. The other viewport overlays only show
-			// while the viewport is the visible tab, so they never sit over Beam.
-			if (m_EditorViewport->IsVisible())
-			{
-				UI_ViewportSettings();
-				UI_ViewportOrientationGizmo();
-				UI_ViewportSelectionBadge();
-			}
 		}
 
 		ImGui::End(); // Lux Editor
 		UI_StartupSplashHandOff();
+	}
+
+	void EditorLayer::UI_DrawSceneView(bool& open)
+	{
+		// Scene View panel
+		if (m_FocusSceneViewRequested)
+		{
+			ImGui::SetNextWindowFocus();
+			m_FocusSceneViewRequested = false;
+		}
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
+		const bool viewportReady = m_EditorViewport && m_EditorViewport->BeginImGui(&open);
+		if (m_EditorViewport)
+		{
+			Application::Get().GetImGuiLayer()->AllowInputEvents(m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered());
+
+			if (viewportReady)
+			{
+				const glm::vec2& viewportSize = m_EditorViewport->GetSize();
+				const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
+
+				Ref<Image2D> viewportImage = m_EditorViewport->GetDisplayImage();
+				bool renderedViewportImage = false;
+				if (viewportImage)
+				{
+					// Draw into the letterboxed rect rather than filling the panel, so a render
+					// whose aspect differs from the panel (a fixed 1920x1080 target on a 4K or
+					// ultrawide viewport) keeps its framing instead of being stretched. The
+					// panel background shows through as the bars.
+					const glm::vec2* imageBounds = m_EditorViewport->GetImageBounds();
+					const glm::vec2 imageSize = m_EditorViewport->GetImageSize();
+					const ImVec2 cursor = ImGui::GetCursorPos();
+					ImGui::SetCursorPos(ImVec2{
+						cursor.x + (imageBounds[0].x - viewportBounds[0].x),
+						cursor.y + (imageBounds[0].y - viewportBounds[0].y) });
+
+					ImTextureID texID = GetImGuiTextureID(viewportImage);
+					ImGui::Image(texID, ImVec2{ imageSize.x, imageSize.y }, ImVec2{ 0, 0 }, ImVec2{ 1, 1 });
+					renderedViewportImage = true;
+				}
+
+				if (renderedViewportImage && ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						AssetHandle handle = *(AssetHandle*)payload->Data;
+						const AssetType assetType = AssetManager::GetAssetType(handle);
+						if (assetType == AssetType::Scene)
+						{
+							OpenScene(handle);
+						}
+						else if ((assetType == AssetType::MeshSource || assetType == AssetType::StaticMesh) && m_ActiveScene)
+						{
+							std::string entityName = "Static Mesh";
+							if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
+							{
+								const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
+								if (metadata.IsValid() && !metadata.FilePath.empty())
+									entityName = metadata.FilePath.stem().string();
+							}
+
+							Entity entity = m_ActiveScene->CreateEntity(entityName);
+							auto& staticMesh = entity.AddComponent<StaticMeshComponent>();
+							staticMesh.StaticMesh = handle;
+
+							if (m_SceneHierarchyPanel)
+								m_SceneHierarchyPanel->SetSelectedEntity(entity);
+						}
+					}
+					ImGui::EndDragDropTarget();
+				}
+
+				if (m_EditorViewport->IsHovered())
+					m_HoveredEntity = CastMousePick();
+				else
+					m_HoveredEntity = {};
+
+				UI_ViewportPerformanceHUD();
+				UI_AcousticMaterialLegend();
+				UI_RoomAcousticsReadout();
+
+				// Gizmos
+				Entity selectedEntity = {};
+				if (m_SceneHierarchyPanel)
+					selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
+				// Folders have no user-editable transform, so they get no gizmo.
+				if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
+				{
+					ImGuizmo::SetOrthographic(false);
+					ImGuizmo::SetDrawlist();
+					// The image rect, not the panel rect - the gizmo has to line up with the
+					// rendered image, which is inset by the letterbox bars when the render
+					// aspect differs from the panel's.
+					const glm::vec2* gizmoBounds = m_EditorViewport->GetImageBounds();
+					const glm::vec2 gizmoSize = m_EditorViewport->GetImageSize();
+					ImGuizmo::SetRect(gizmoBounds[0].x, gizmoBounds[0].y, gizmoSize.x, gizmoSize.y);
+
+					glm::mat4 cameraView, cameraProjection;
+					GetViewportCameraMatrices(cameraView, cameraProjection);
+
+					auto& tc = selectedEntity.GetComponent<TransformComponent>();
+					glm::mat4 transform = m_ActiveScene->GetWorldSpaceTransformMatrix(selectedEntity);
+
+					const bool controlSnap = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+					bool snap = m_UseGizmoSnap || controlSnap;
+					float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
+						: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
+					float snapValues[3] = { snapValue, snapValue, snapValue };
+
+					ImGuizmo::Manipulate(
+						glm::value_ptr(cameraView),
+						glm::value_ptr(cameraProjection),
+						(ImGuizmo::OPERATION)m_GizmoType,
+						ImGuizmo::LOCAL,
+						glm::value_ptr(transform),
+						nullptr,
+						snap ? snapValues : nullptr);
+
+					if (ImGuizmo::IsUsing())
+					{
+						glm::vec3 translation, scale;
+						glm::quat rotationQuat;
+						bool parentInvertible = true;
+						if (Entity parent = selectedEntity.GetParent())
+						{
+							const glm::mat4 parentTransform = m_ActiveScene->GetWorldSpaceTransformMatrix(parent);
+							const float determinant = glm::determinant(parentTransform);
+							parentInvertible = determinant != 0.0f && std::isfinite(determinant);
+							if (parentInvertible)
+								transform = glm::inverse(parentTransform) * transform;
+						}
+						if (parentInvertible && Math::DecomposeTransform(transform, translation, rotationQuat, scale))
+						{
+							tc.Translation = translation;
+							tc.SetRotationEuler(glm::eulerAngles(rotationQuat));
+							tc.Scale = scale;
+						}
+						else if (!m_GizmoWasUsing)
+						{
+							LUX_CORE_ERROR_TAG("Editor", "Cannot edit entity {}: gizmo or parent transform is singular", selectedEntity.Name());
+						}
+					}
+
+					// Record one undo step when a gizmo drag finishes (the transform is mutated above
+					// but not through a property widget, so it doesn't raise the ImGuiEx signal).
+					const bool gizmoUsing = ImGuizmo::IsUsing();
+					if (m_GizmoWasUsing && !gizmoUsing)
+					{
+						const char* gizmoLabel = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? "Rotate"
+							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? "Scale" : "Move";
+						EditorStack::Get().MarkEntitiesEdited({ selectedEntity.GetUUID() }, gizmoLabel);
+					}
+					m_GizmoWasUsing = gizmoUsing;
+				}
+			}
+
+			m_EditorViewport->EndImGui();
+		}
+		ImGui::PopStyleVar();
+
+		// Gizmo tools + transport live in the titlebar. The other viewport overlays only show
+		// while the viewport is the visible tab, so they never sit over Beam.
+		if (m_EditorViewport->IsVisible())
+		{
+			UI_ViewportSettings();
+			UI_ViewportOrientationGizmo();
+			UI_ViewportSelectionBadge();
+		}
 	}
 
 	void EditorLayer::UI_StartupSplashHandOff()
@@ -1169,87 +1549,10 @@ namespace Lux {
 		}
 	}
 
-	void EditorLayer::ResetDefaultDockLayout(ImGuiID dockspaceId)
-	{
-		ImGui::DockBuilderRemoveNode(dockspaceId);
-		ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-		ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->Size);
-
-		ImGuiID center = dockspaceId;
-		const ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
-		const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-		const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.30f, nullptr, &center);
-
-		// Core panels, present in both layouts.
-		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
-		ImGui::DockBuilderDockWindow("Properties", right);
-		ImGui::DockBuilderDockWindow("Content Browser", bottom);
-		ImGui::DockBuilderDockWindow("Log", bottom);
-		ImGui::DockBuilderDockWindow("Scene View", center);
-		ImGui::DockBuilderDockWindow("Game View", center);
-		ImGui::DockBuilderDockWindow("Beam", center);
-
-		// Advanced mode fills out the workspace with the diagnostic panels: a left-bottom group
-		// under the hierarchy (Scene Renderer / Light Settings / Profiler) and the Renderer
-		// Debugger tabbed into the bottom dock. In Simple mode these stay closed (see
-		// SetEditorLayoutMode) and are absent from the default arrangement.
-		if (!m_SimpleLayout)
-		{
-			const ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.5f, nullptr, nullptr);
-			ImGui::DockBuilderDockWindow("Scene Renderer", leftBottom);
-			ImGui::DockBuilderDockWindow("Light Settings", leftBottom);
-			ImGui::DockBuilderDockWindow("Profiler", leftBottom);
-			ImGui::DockBuilderDockWindow("Renderer Debugger", bottom);
-			// Given a home next to the Renderer Debugger, but deliberately left out of
-			// s_AdvancedPanels below: it stays closed until the user opens it from the View menu.
-			ImGui::DockBuilderDockWindow("Audio Debugger", bottom);
-		}
-
-		ImGui::DockBuilderFinish(dockspaceId);
-	}
-
-	void EditorLayer::DockViewsWhereLegacyViewportWas()
-	{
-		if (m_LegacyViewportDockChecked)
-			return;
-		m_LegacyViewportDockChecked = true;
-
-		// The Scene View was called "Viewport" before the Game View existed, so a layout saved back
-		// then knows neither window and they would open floating. Dock both where the old viewport
-		// was. A window the saved layout already has is left where the user put it.
-		const ImGuiWindowSettings* legacyViewport = ImGui::FindWindowSettingsByID(ImHashStr("Viewport"));
-		if (!legacyViewport || legacyViewport->DockId == 0 || !ImGui::DockBuilderGetNode(legacyViewport->DockId))
-			return;
-
-		for (const char* windowName : { "Scene View", "Game View" })
-		{
-			if (!ImGui::FindWindowSettingsByID(ImHashStr(windowName)))
-				ImGui::DockBuilderDockWindow(windowName, legacyViewport->DockId);
-		}
-	}
-
 	void EditorLayer::SetEditorLayoutMode(bool simple)
 	{
 		m_SimpleLayout = simple;
-
-		// The advanced-only panels follow the mode: opened when entering Advanced, closed when
-		// returning to Simple. Everything else keeps whatever the user set.
-		static const char* const s_AdvancedPanels[] = { "Scene Renderer", "Light Settings", "Profiler", "Renderer Debugger" };
-		auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
-		for (auto& [id, panelData] : viewPanels)
-		{
-			for (const char* advancedName : s_AdvancedPanels)
-			{
-				if (std::strcmp(panelData.Name, advancedName) == 0)
-				{
-					panelData.IsOpen = !simple;
-					break;
-				}
-			}
-		}
-
-		SaveEditorPreferences();
-		m_PendingLayoutReset = true;
+		m_Workspaces->RequestDefault(simple);
 	}
 
 	void EditorLayer::RegisterCommands()
@@ -1289,7 +1592,7 @@ namespace Lux {
 		add("Stop", "Scene", "", [this] { OnSceneStop(); }, [this] { return m_SceneState != SceneState::Edit; });
 
 		// View
-		add("Reset Window Layout", "View", "", [this] { ResetDefaultDockLayout(ImGui::GetID("MyDockSpace")); });
+		add("Reset Window Layout", "View", "", [this] { m_Workspaces->RequestReset(); });
 		add("Bookmark Selected Entity", "View", "Ctrl+B", [this] { ToggleEntityBookmark(); },
 			[this] { return SelectionManager::GetSelectionCount(SelectionContext::Scene) > 0; });
 		add("Create Prefab from Selection", "Edit", "", [this] { CreatePrefabFromSelection(); },
@@ -1309,6 +1612,8 @@ namespace Lux {
 		// Tools
 		add("ImGui Metrics", "Tools", "", [this] { m_ShowImGuiMetrics = true; });
 		add("ImGui Style Editor", "Tools", "", [this] { m_ShowImGuiStyleEditor = true; });
+		add("Manual", "Help", "F1", [this] { OpenHelpTopic(HelpPanel::HomeTopic); });
+		add("Getting Started: Your First Game", "Help", "", [this] { OpenHelpTopic("getting-started/first-game"); });
 		add("Open User Data Folder", "Help", "", [] { FileSystem::OpenDirectoryInExplorer(FileSystem::GetPersistentStoragePath()); });
 		add("About LuxEngine", "Help", "", [this] { m_ShowAboutPopup = true; });
 	}
@@ -1377,6 +1682,7 @@ namespace Lux {
 				auto& prefabComponent = linked.AddOrReplaceComponent<PrefabComponent>();
 				prefabComponent.PrefabID = handle;
 				prefabComponent.EntityID = prefabUUID;
+				prefabComponent.Tracked = sourceUUID == entity.GetUUID(); // the root keeps the instance's records
 			}
 			EditorStack::Get().MarkSceneEdited("Create Prefab");
 			LUX_CONSOLE_LOG_INFO("Created prefab '{}'", relativePath.generic_string());
@@ -1522,7 +1828,12 @@ namespace Lux {
 			if (ImGui::BeginMenu("View"))
 			{
 				if (ImGui::MenuItem("Reset Layout"))
-					ResetDefaultDockLayout(ImGui::GetID("MyDockSpace"));
+					m_Workspaces->RequestReset();
+				if (ImGui::BeginMenu("Workspaces"))
+				{
+					m_Workspaces->DrawMenu();
+					ImGui::EndMenu();
+				}
 
 				if (ImGui::BeginMenu("Camera Bookmarks"))
 				{
@@ -1537,7 +1848,7 @@ namespace Lux {
 						char setLabel[40];
 						std::snprintf(setLabel, sizeof(setLabel), "Set %d from current view", slot);
 						char setShortcut[16];
-						std::snprintf(setShortcut, sizeof(setShortcut), "Ctrl+%d", slot);
+						std::snprintf(setShortcut, sizeof(setShortcut), "Ctrl+Shift+%d", slot);
 						if (ImGui::MenuItem(setLabel, setShortcut))
 							SetCameraBookmark(slot);
 
@@ -1579,9 +1890,11 @@ namespace Lux {
 
 				ImGui::Separator();
 
-				auto& viewPanels = m_PanelManager->GetPanels(PanelCategory::View);
-				for (auto& [id, panelData] : viewPanels)
-					ImGui::MenuItem(panelData.Name, nullptr, &panelData.IsOpen);
+				if (ImGui::BeginMenu("Panels"))
+				{
+					m_Workspaces->DrawPanelsMenu();
+					ImGui::EndMenu();
+				}
 				ImGui::EndMenu();
 			}
 
@@ -1597,6 +1910,11 @@ namespace Lux {
 
 			if (ImGui::BeginMenu("Help"))
 			{
+				if (ImGui::MenuItem("Manual", "F1"))
+					OpenHelpTopic(HelpPanel::HomeTopic);
+				if (ImGui::MenuItem("Getting Started"))
+					OpenHelpTopic("getting-started/first-game");
+				ImGui::Separator();
 				if (ImGui::MenuItem("Splash Screen") && m_SplashScreen)
 					m_SplashScreen->Open();
 				if (ImGui::MenuItem("Open User Data Folder"))
@@ -1613,6 +1931,7 @@ namespace Lux {
 		}
 
 		ImGui::EndGroup();
+
 	}
 
 	void EditorLayer::UI_DrawTitlebar()
@@ -1644,7 +1963,7 @@ namespace Lux {
 		const float markSize = 15.0f; // a multiple of 3 keeps every cell of the 3x3 mark on whole pixels
 		const float markCY = windowPos.y + m_TitlebarHeight * 0.5f;
 		ImGuiEx::Draw::LuxMark(drawList, ImVec2(markX, markCY - markSize * 0.5f), markSize, Colors::Theme::textBrighter, Colors::Brand::lux);
-		const float fontScale = ImGuiEx::Fonts::GetScale();
+		const float fontScale = ImGui::GetStyle()._MainScale;
 		ImFont* displayFont = ImGuiEx::Fonts::Get("Display");
 		const float wordmarkSize = 17.0f * fontScale;
 		const char* wordmarkText = "LUX";
@@ -1655,7 +1974,9 @@ namespace Lux {
 		GLFWwindow* nativeWindow = Application::Get().GetWindow().GetNativeWindow();
 		const bool isMaximized = nativeWindow && glfwGetWindowAttrib(nativeWindow, GLFW_MAXIMIZED);
 
-		const float menuBarX = wordmarkX + wordmarkSizeVec.x + 18.0f;
+		// Cursor and native hit-test rectangles are window-local. The wordmark's
+		// draw-list position is desktop-relative when platform viewports are enabled.
+		const float menuBarX = wordmarkX - windowPos.x + wordmarkSizeVec.x + 18.0f;
 		const float iconWidth = 14.0f;
 		const float iconHeight = 14.0f;
 		const float buttonWidth = 46.0f;
@@ -1710,33 +2031,6 @@ namespace Lux {
 		m_TitleBarDragRectMin.x = std::max(m_TitleBarDragRectMin.x, menuBarRight);
 #endif
 
-		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
-		{
-			ImFont* monoFont = ImGuiEx::Fonts::Get("Mono");
-			const float bcSize = 13.0f * fontScale;
-			const std::string projectName = GetProjectDisplayName();
-			const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
-
-			float x = windowPos.x + menuBarRight + 16.0f;
-			// Clip to the drag-zone's right edge so a long project/scene name can't overrun the
-			// window controls (the old project box ellipsized; clipping is the equivalent guard).
-			drawList->PushClipRect(ImVec2(x, windowPos.y), ImVec2(windowPos.x + dragZoneMaxX, windowPos.y + m_TitlebarHeight), true);
-			drawList->AddLine(ImVec2(x, windowPos.y + 12.0f), ImVec2(x, windowPos.y + m_TitlebarHeight - 12.0f), Colors::Theme::muted, 1.0f);
-			x += 12.0f;
-
-			const float glyphH = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "X").y;
-			const float textY = markCY - glyphH * 0.5f;
-
-			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textDarker, projectName.c_str());
-			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, projectName.c_str()).x + 6.0f;
-			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::muted, "/");
-			x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "/").x + 6.0f;
-			const ImVec2 sceneSz = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, sceneName.c_str());
-			drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textBrighter, sceneName.c_str());
-			// Subtle lime accent under the active scene segment.
-			drawList->AddLine(ImVec2(x, textY + sceneSz.y + 2.0f), ImVec2(x + sceneSz.x, textY + sceneSz.y + 2.0f), Colors::Theme::accent, 1.5f);
-			drawList->PopClipRect();
-		}
 
 		const ImU32 buttonColN = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 0.9f);
 		const ImU32 buttonColH = ImGuiEx::ColourWithMultipliedValue(Colors::Theme::text, 1.2f);
@@ -1801,9 +2095,63 @@ namespace Lux {
 				});
 			});
 
-		// Play / simulate / stop, centred in the titlebar (drawn last so it overlaps the drag zone).
+		// Reserve scene controls before clipping project/scene identification.
+		m_TitleBarTransportRectMin = m_TitleBarTransportRectMax = {};
 		if (Project::GetActive())
-			UI_TitlebarTransport(window->Size.x);
+			UI_TitlebarTransport(window->Size.x, menuBarRight + 8.0f * fontScale,
+								 dragZoneMaxX - 8.0f * fontScale);
+
+		// --- Breadcrumb: Project / Scene, in the mono face, just after the menu bar. ---
+		{
+			ImFont* monoFont = ImGuiEx::Fonts::Get("Mono");
+			const float bcSize = 13.0f * fontScale;
+			const std::string projectName = GetProjectDisplayName();
+			const std::string sceneName = GetSceneDisplayName(m_EditorScenePath);
+			// Identification stays available even when the control group leaves no label space.
+			if (ImGui::IsWindowHovered() &&
+				ImGui::IsMouseHoveringRect({markX, windowPos.y},
+										   {windowPos.x + menuBarX, windowPos.y + m_TitlebarHeight}))
+			{
+				ImGui::SetNextWindowSize({ImGui::GetFontSize() * 30.0f, 0.0f});
+				if (ImGui::BeginTooltip())
+				{
+					ImGui::TextWrapped("%s\n%s", projectName.c_str(), sceneName.c_str());
+					ImGui::EndTooltip();
+				}
+			}
+
+			float x = windowPos.x + menuBarRight + 16.0f * fontScale;
+			const float right =
+				windowPos.x + (m_TitleBarTransportRectMax.x > m_TitleBarTransportRectMin.x
+								   ? std::min(dragZoneMaxX, m_TitleBarTransportRectMin.x - 8.0f * fontScale)
+								   : dragZoneMaxX);
+			if (right > x)
+			{
+				drawList->PushClipRect(ImVec2(x, windowPos.y), ImVec2(right, windowPos.y + m_TitlebarHeight),
+									   true);
+				drawList->AddLine(ImVec2(x, windowPos.y + 12.0f),
+								  ImVec2(x, windowPos.y + m_TitlebarHeight - 12.0f), Colors::Theme::muted,
+								  1.0f);
+				x += 12.0f;
+
+				const float glyphH = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "X").y;
+				const float textY = markCY - glyphH * 0.5f;
+
+				drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textDarker,
+								  projectName.c_str());
+				x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, projectName.c_str()).x + 6.0f;
+				drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::muted, "/");
+				x += monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, "/").x + 6.0f;
+				const ImVec2 sceneSz = monoFont->CalcTextSizeA(bcSize, kNoWrap, 0.0f, sceneName.c_str());
+				drawList->AddText(monoFont, bcSize, ImVec2(x, textY), Colors::Theme::textBrighter,
+								  sceneName.c_str());
+				// Subtle lime accent under the active scene segment.
+				drawList->AddLine(ImVec2(x, textY + sceneSz.y + 2.0f),
+								  ImVec2(x + sceneSz.x, textY + sceneSz.y + 2.0f), Colors::Theme::accent,
+								  1.5f);
+				drawList->PopClipRect();
+			}
+		}
 	}
 
 	namespace
@@ -1868,27 +2216,72 @@ namespace Lux {
 		}
 	}
 
-	// Gizmo tools (select / move / rotate / scale) as a floating overlay at the viewport's
-	// top-left. Only drawn while the viewport is the visible tab (gated by the caller).
-	// The viewport toolbar, centred in the titlebar: gizmo tools (select / move / rotate / scale) +
-	// a divider + transport (play / simulate / stop). The gizmo half only appears while the viewport
-	// is the visible tab; the transport is always shown. The whole group's local rect is recorded so
-	// the window drag zone excludes it (OnTitleBarHitTest), keeping the buttons clickable.
-	void EditorLayer::UI_TitlebarTransport(float titlebarWidth)
+	// Center scene tools/playback when space permits, keeping menus and native controls separate.
+	// The local hit rectangle also excludes this group from native titlebar dragging.
+	void EditorLayer::UI_TitlebarTransport(float titlebarWidth, float minimumX, float maximumX)
 	{
-		const ImVec2 buttonSize(24.0f, 24.0f);
-		const float transportSpacing = 6.0f;
-		const float gizmoSpacing = 3.0f;
-		const float dividerBlock = 16.0f; // 8px gap + line + 8px gap
+		const float scale = ImGui::GetStyle()._MainScale;
+		const ImVec2 buttonSize(24.0f * scale, 24.0f * scale);
+		const float transportSpacing = 6.0f * scale;
+		const float gizmoSpacing = 3.0f * scale;
+		const float dividerGap = 8.0f * scale;
+		const float dividerWidth = scale;
+		const float dividerBlock = dividerGap * 2.0f + dividerWidth;
+		const float hitPadding = 4.0f * scale;
+		const float availableWidth = maximumX - minimumX - hitPadding * 2.0f;
+		if (availableWidth < 1.0f)
+			return;
 
 		const bool showGizmo = m_EditorViewport && m_EditorViewport->IsVisible();
 
 		const float transportWidth = buttonSize.x * 3.0f + transportSpacing * 2.0f;
 		const float gizmoWidth = buttonSize.x * 4.0f + gizmoSpacing * 3.0f;
-		const float totalWidth = transportWidth + (showGizmo ? gizmoWidth + dividerBlock : 0.0f);
+		const float fullWidth = transportWidth + (showGizmo ? gizmoWidth + dividerBlock : 0.0f);
+		const bool compact = fullWidth > availableWidth;
+		const float totalWidth = compact
+									 ? std::min(availableWidth, ImGui::CalcTextSize("Controls").x +
+																	ImGui::GetStyle().FramePadding.x * 2.0f)
+									 : fullWidth;
 
-		const float startX = (titlebarWidth - totalWidth) * 0.5f;
+		// Clamp remaining space, so a fractional DPI cannot round absolute bounds past each other.
+		const float startX = minimumX + hitPadding +
+							 std::clamp((titlebarWidth - totalWidth) * 0.5f - minimumX - hitPadding, 0.0f,
+										availableWidth - totalWidth);
 		const float startY = (m_TitlebarHeight - buttonSize.y) * 0.5f;
+		m_TitleBarTransportRectMin = ImVec2(startX - hitPadding, 0.0f);
+		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + hitPadding, m_TitlebarHeight);
+		if (compact)
+		{
+			ImGui::SetCursorPos({startX, startY});
+			ImGui::SetNextItemAllowOverlap();
+			if (ImGui::Button("Controls##titlebar_controls", {totalWidth, buttonSize.y}))
+				ImGui::OpenPopup("##titlebar_controls_popup");
+			ImGui::SetItemTooltip("Scene tools and playback");
+			if (ImGui::BeginPopup("##titlebar_controls_popup"))
+			{
+				if (showGizmo)
+				{
+					for (const auto& [name, mode] : {std::pair{"Select", -1},
+													 {"Move", static_cast<int>(ImGuizmo::TRANSLATE)},
+													 {"Rotate", static_cast<int>(ImGuizmo::ROTATE)},
+													 {"Scale", static_cast<int>(ImGuizmo::SCALE)}})
+						if (ImGui::MenuItem(name, nullptr, m_GizmoType == mode))
+							m_GizmoType = mode;
+					ImGui::Separator();
+				}
+				if (ImGui::MenuItem("Play", nullptr, m_SceneState == SceneState::Play,
+									m_SceneState != SceneState::Play))
+					OnScenePlay();
+				if (ImGui::MenuItem("Simulate Physics", nullptr, m_SceneState == SceneState::Simulate,
+									m_SceneState != SceneState::Simulate))
+					OnSceneSimulate();
+				if (ImGui::MenuItem("Stop", nullptr, false, m_SceneState != SceneState::Edit))
+					OnSceneStop();
+				ImGui::EndPopup();
+			}
+			return;
+		}
+		ImGuiEx::ClosePopupByID(ImGui::GetID("##titlebar_controls_popup"));
 
 		auto gizmoButton = [&](const char* id, ToolGlyph glyph, int mode)
 			{
@@ -1940,14 +2333,14 @@ namespace Lux {
 			gizmoButton("##tb_gizmo_scale", ToolGlyph::Scale, ImGuizmo::SCALE);
 			ImGui::PopStyleVar();
 
-			ImGui::SameLine(0.0f, 8.0f);
+			ImGui::SameLine(0.0f, dividerGap);
 			{
 				ImDrawList* dl = ImGui::GetWindowDrawList();
 				const ImVec2 p = ImGui::GetCursorScreenPos();
 				dl->AddLine(ImVec2(p.x, p.y + 4.0f), ImVec2(p.x, p.y + buttonSize.y - 4.0f), Colors::Theme::muted, 1.0f);
-				ImGui::Dummy(ImVec2(1.0f, buttonSize.y));
+				ImGui::Dummy(ImVec2(dividerWidth, buttonSize.y));
 			}
-			ImGui::SameLine(0.0f, 8.0f);
+			ImGui::SameLine(0.0f, dividerGap);
 		}
 
 		const bool playing = m_SceneState == SceneState::Play;
@@ -1971,9 +2364,6 @@ namespace Lux {
 			editing, [this]() { if (m_SceneState != SceneState::Edit) OnSceneStop(); });
 		ImGui::PopStyleVar();
 
-		// Local-space rect (window is at 0,0) over the whole group, matching the hit-test event space.
-		m_TitleBarTransportRectMin = ImVec2(startX - 4.0f, 0.0f);
-		m_TitleBarTransportRectMax = ImVec2(startX + totalWidth + 4.0f, m_TitlebarHeight);
 	}
 
 	// Legend for the acoustic material view: the tags present in the scene, with their tint.
@@ -2000,12 +2390,22 @@ namespace Lux {
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[1].y - 12.0f), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float width = std::min(m_EditorViewport->GetOverlayFontSize() * k_ViewportReadoutWidthInFonts,
+									 m_ShowViewportPerformanceHUD
+										 ? (availableWidth - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
+										 : availableWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+		if (width < 1.0f)
+			return;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 1.0f}, {}, width))
+			return;
+		ImGui::SetNextWindowSize({width, 0.0f});
 		ImGui::SetNextWindowBgAlpha(0.48f);
-		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-		ImGui::Begin("##acoustic_material_legend", nullptr, flags);
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
+		m_EditorViewport->BeginOverlay("##acoustic_material_legend", flags);
 		ImGuiLayer::RequestGlassBackdrop();
-		ImGui::TextUnformatted("Acoustic materials");
+		ImGui::TextWrapped("Acoustic materials");
 		bool any = false;
 		for (size_t i = 0; i < AcousticMaterialCount; ++i)
 		{
@@ -2014,12 +2414,14 @@ namespace Lux {
 			any = true;
 			ImGuiEx::ScopedID id(static_cast<int>(i));
 			const glm::vec3& color = DebugCategoryPalette[i];
-			ImGui::ColorButton("##swatch", ImVec4(color.r, color.g, color.b, 1.0f), ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop, ImVec2(12.0f, 12.0f));
+			ImGui::ColorButton("##swatch", ImVec4(color.r, color.g, color.b, 1.0f),
+							   ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+							   ImVec2(12.0f * scale, 12.0f * scale));
 			ImGui::SameLine();
-			ImGui::TextUnformatted(AcousticMaterialName(static_cast<AcousticMaterial>(i)));
+			ImGui::TextWrapped("%s", AcousticMaterialName(static_cast<AcousticMaterial>(i)));
 		}
 		if (!any)
-			ImGui::TextDisabled("No acoustic geometry in this scene");
+			ImGui::TextWrapped("No acoustic geometry in this scene");
 		ImGui::End();
 	}
 
@@ -2063,25 +2465,36 @@ namespace Lux {
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[1].y - 12.0f), ImGuiCond_Always, ImVec2(1.0f, 1.0f));
+		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float width = std::min(m_EditorViewport->GetOverlayFontSize() * k_ViewportReadoutWidthInFonts,
+									 m_SceneRenderer->GetOptions().ShowDebugCategories
+										 ? (availableWidth - ImGui::GetStyle().ItemSpacing.x * 3.0f) * 0.5f
+										 : availableWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+		if (width < 1.0f)
+			return;
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 1.0f}, {}, width))
+			return;
+		ImGui::SetNextWindowSize({width, 0.0f});
 		ImGui::SetNextWindowBgAlpha(0.48f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-		ImGui::Begin("##viewport_performance_hud", nullptr, flags);
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
+		m_EditorViewport->BeginOverlay("##viewport_performance_hud", flags);
 		ImGuiLayer::RequestGlassBackdrop();
 		// Numeric readout in the monospace face (JetBrains Mono), like the mock's fps/ms pill.
 		ImGuiEx::Fonts::PushFont("Mono");
-		ImGui::Text("FPS %.0f  %.2f ms", fps, frameTimeMs);
-		ImGui::Text("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
-		ImGui::Text("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
-		ImGui::Text("GPU Visible %u", stats.GPUVisibleInstances);
+		ImGui::TextWrapped("FPS %.0f  %.2f ms", fps, frameTimeMs);
+		ImGui::TextWrapped("CPU %.2f ms  GPU %.2f ms", wholeCPUTime, wholeGPUTime);
+		ImGui::TextWrapped("Draws %u  Visible %u", stats.DrawCalls, stats.VisibleInstances);
+		ImGui::TextWrapped("GPU Visible %u", stats.GPUVisibleInstances);
 		if (memory.BudgetBytes > 0)
-			ImGui::Text("VRAM %s / %s", Utils::BytesToString(memory.UsedBytes).c_str(), Utils::BytesToString(memory.BudgetBytes).c_str());
+			ImGui::TextWrapped("VRAM %s / %s", Utils::BytesToString(memory.UsedBytes).c_str(),
+							   Utils::BytesToString(memory.BudgetBytes).c_str());
 		else
-			ImGui::Text("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
-		ImGui::Text("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(), m_SceneRenderer->GetOutputViewportHeight());
+			ImGui::TextWrapped("VRAM %s", Utils::BytesToString(memory.UsedBytes).c_str());
+		ImGui::TextWrapped("Scale %.0f%%  %ux%u", renderScale, m_SceneRenderer->GetOutputViewportWidth(),
+						   m_SceneRenderer->GetOutputViewportHeight());
 		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
-		ImGui::PopStyleVar();
 	}
 
 	void EditorLayer::UI_ViewportSettings()
@@ -2090,21 +2503,24 @@ namespace Lux {
 			return;
 
 		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
 		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
+			return;
+		ImGuiEx::ScopedWindowScale windowScale("Scene View");
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 0.0f}))
 			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 44.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.55f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
-		ImGui::Begin("##viewport_settings_toolbar", nullptr, flags);
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding,
+									 ImVec2(k_ViewportGearPadding * scale, k_ViewportGearPadding * scale));
+		m_EditorViewport->BeginOverlay("##viewport_settings_toolbar", flags);
 		ImGuiLayer::RequestGlassBackdrop();
 
-		const ImVec2 buttonSize(24.0f, 24.0f);
+		const ImVec2 buttonSize(k_ViewportGearSize * scale, k_ViewportGearSize * scale);
 		ImGui::InvisibleButton("##viewport_settings_btn", buttonSize);
 		ImGuiEx::DrawButtonImage(EditorResources::GearIcon, IM_COL32(215, 215, 215, 220), IM_COL32(255, 255, 255, 255), IM_COL32(235, 235, 235, 255), ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f));
 		if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
@@ -2192,7 +2608,7 @@ namespace Lux {
 				bool seeTheSound = m_AudioDebugPanel->IsSeeTheSoundEnabled();
 				if (ImGui::Checkbox("See the Sound", &seeTheSound))
 					m_AudioDebugPanel->SetSeeTheSoundEnabled(seeTheSound);
-				ImGui::SetItemTooltip("Occlusion paths with wall labels, Asterwave rays and emitters, drawn during Play.");
+				ImGui::SetItemTooltip("Soundwave paths with wall labels, zones and emitters, drawn during Play.");
 			}
 			if (m_SceneRenderer)
 			{
@@ -2219,7 +2635,6 @@ namespace Lux {
 		}
 
 		ImGui::End();
-		ImGui::PopStyleVar();
 	}
 
 	void EditorLayer::UI_ViewportOrientationGizmo()
@@ -2227,23 +2642,29 @@ namespace Lux {
 		if (!m_EditorViewport)
 			return;
 
-		const glm::vec2& viewportSize = m_EditorViewport->GetImageSize();
-		const glm::vec2* viewportBounds = m_EditorViewport->GetImageBounds();
+		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
 		if (viewportSize.x <= 0.0f || viewportSize.y <= 0.0f)
 			return;
 
-		const float gizmoRadius = 30.0f;
-		const float windowExtent = (gizmoRadius + 14.0f) * 2.0f;
+		ImGuiEx::ScopedWindowScale windowScale("Scene View");
+		const float scale = ImGui::GetStyle()._MainScale;
+		const auto& gap = ImGui::GetStyle().ItemSpacing;
+		const float topInset = (k_ViewportGearSize + k_ViewportGearPadding * 2.0f) * scale + gap.y;
+		if (!m_EditorViewport->PrepareOverlay({1.0f, 0.0f}, {0.0f, topInset}))
+			return;
+		const float windowExtent =
+			std::min({(k_OrientationRadius + k_OrientationPadding) * 2.0f * scale,
+					  viewportSize.x - gap.x * 2.0f, viewportSize.y - gap.y * 2.0f - topInset});
+		const float gizmoRadius = std::max(0.0f, windowExtent * 0.5f - k_OrientationPadding * scale);
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
 		// Top-right, tucked below the settings gear so the two don't overlap.
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[1].x - 12.0f, viewportBounds[0].y + 48.0f), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		ImGui::Begin("##viewport_orientation_gizmo", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##viewport_orientation_gizmo", flags);
 		ImGui::Dummy(ImVec2(windowExtent, windowExtent));
 
 		const ImVec2 winMin = ImGui::GetItemRectMin();
@@ -2286,7 +2707,8 @@ namespace Lux {
 			for (int idx = 5; idx >= 0; idx--)
 			{
 				const ImVec2 delta(mouse.x - projected[order[idx]].tip.x, mouse.y - projected[order[idx]].tip.y);
-				if (delta.x * delta.x + delta.y * delta.y <= 100.0f)
+				if (delta.x * delta.x + delta.y * delta.y <=
+					k_OrientationTipRadius * k_OrientationTipRadius * scale * scale)
 				{
 					hoveredAxis = order[idx];
 					break;
@@ -2305,8 +2727,9 @@ namespace Lux {
 		for (int idx = 0; idx < 6; idx++)
 		{
 			const Projected& p = projected[order[idx]];
-			drawList->AddLine(center, p.tip, p.color, 2.0f);
-			drawList->AddCircleFilled(p.tip, 10.0f, order[idx] == hoveredAxis ? Colors::Theme::text : p.color);
+			drawList->AddLine(center, p.tip, p.color, 2.0f * scale);
+			drawList->AddCircleFilled(p.tip, k_OrientationTipRadius * scale,
+									  order[idx] == hoveredAxis ? Colors::Theme::text : p.color);
 			const ImVec2 labelSize = ImGui::CalcTextSize(p.label);
 			drawList->AddText(ImVec2(p.tip.x - labelSize.x * 0.5f, p.tip.y - labelSize.y * 0.5f), Colors::Theme::titlebar, p.label);
 		}
@@ -2327,28 +2750,47 @@ namespace Lux {
 		Entity selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 		if (!selectedEntity)
 			return;
+		ImGuiEx::ScopedWindowScale windowScale("Scene View");
 
-		const std::string badgeText = Utils::String::ToUpperCopy(selectedEntity.Name()) + " SELECTED";
+		if (m_SelectionBadgeName != selectedEntity.Name() || m_SelectionBadgeLabel.empty())
+		{
+			m_SelectionBadgeName = selectedEntity.Name();
+			m_SelectionBadgeLabel = Utils::String::ToUpperCopy(m_SelectionBadgeName) + " SELECTED";
+		}
+		const float fontSize = m_EditorViewport->GetOverlayFontSize();
+		const float margin = ImGui::GetStyle().ItemSpacing.x;
+		const ImVec2 pad(fontSize * 0.6f, fontSize * 0.2f);
+		const float availableWidth = viewportBounds[1].x - viewportBounds[0].x;
+		const float maximumWidth =
+			std::min(fontSize * 36.0f, availableWidth - margin * 2.0f - fontSize * 7.0f);
+		if (maximumWidth <= pad.x * 2.0f)
+			return;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}))
+			return;
 
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
 
 		// Top-left corner: the gizmo/tool toolbar moved to the centre, so this owns the corner now.
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always);
 		ImGui::SetNextWindowBgAlpha(0.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		ImGui::Begin("##viewport_selection_badge", nullptr, flags);
+		m_EditorViewport->BeginOverlay("##viewport_selection_badge", flags);
 
-		const ImVec2 textSize = ImGui::CalcTextSize(badgeText.c_str());
-		const ImVec2 pad(8.0f, 3.0f);
-		ImGui::Dummy(ImVec2(textSize.x + pad.x * 2.0f, textSize.y + pad.y * 2.0f));
+		const ImVec2 textSize = ImGui::CalcTextSize(m_SelectionBadgeLabel.c_str());
+		ImGui::Dummy(ImVec2(std::min(maximumWidth, textSize.x + pad.x * 2.0f), textSize.y + pad.y * 2.0f));
 
 		const ImVec2 rectMin = ImGui::GetItemRectMin();
 		const ImVec2 rectMax = ImGui::GetItemRectMax();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		drawList->AddRectFilled(rectMin, rectMax, Colors::Theme::accent, 2.0f);
-		drawList->AddText(ImVec2(rectMin.x + pad.x, rectMin.y + pad.y), Colors::Theme::titlebar, badgeText.c_str());
+		{
+			ImGuiEx::ScopedColour text(ImGuiCol_Text, Colors::Theme::titlebar);
+			ImGui::RenderTextEllipsis(drawList, {rectMin.x + pad.x, rectMin.y + pad.y},
+									  {rectMax.x - pad.x, rectMax.y - pad.y}, rectMax.x - pad.x,
+									  m_SelectionBadgeLabel.c_str(),
+									  m_SelectionBadgeLabel.c_str() + m_SelectionBadgeLabel.size(), nullptr);
+		}
 
 		ImGui::End();
 		ImGui::PopStyleVar();
@@ -2376,6 +2818,28 @@ namespace Lux {
 			return;
 		}
 
+		// Workspace navigation is global, including focused document and graph editors.
+		EventDispatcher workspaceDispatcher(e);
+		workspaceDispatcher.Dispatch<KeyPressedEvent>(
+			[this](KeyPressedEvent& key)
+			{
+				const bool control =
+					Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+				const bool shift =
+					Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+				const bool alt = Input::IsKeyPressed(Key::LeftAlt) || Input::IsKeyPressed(Key::RightAlt);
+				if (!Project::GetActive() || !control || shift || alt || key.GetKeyCode() < Key::D1 ||
+					key.GetKeyCode() > Key::D9 || ImGui::GetTopMostPopupModal() ||
+					(m_EditorViewport && m_EditorViewport->GetCamera().IsMouseCaptured()))
+					return false;
+				if (key.GetRepeatCount() == 0)
+					m_Workspaces->RequestShortcut(static_cast<size_t>(key.GetKeyCode()) -
+												  static_cast<size_t>(Key::D0));
+				return true;
+			});
+		if (e.Handled)
+			return;
+
 		// Hover reads false while the camera holds the mouse, and right-drag + scroll sets fly speed.
 		if (m_EditorViewport && (m_EditorViewport->IsHovered() || m_EditorViewport->GetCamera().IsMouseCaptured()))
 			m_EditorViewport->GetCamera().OnEvent(e);
@@ -2390,8 +2854,14 @@ namespace Lux {
 
 	bool EditorLayer::OnKeyPressed(KeyPressedEvent& e)
 	{
+		// Popup navigation consumes an unmodified key by matching a menu item's first letter, so
+		// while a popup is open that key must not also edit the scene underneath it. Ctrl/Shift
+		// chords stay live: an open popup (the narrow-window Controls menu, a panel's More overflow)
+		// must not swallow Save, Undo or Open Project.
 		bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
 		bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
+		if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopup) && !control && !shift)
+			return true;
 
 		// On the start screen only Open Project applies; everything else acts on a scene or project.
 		if (!Project::GetActive())
@@ -2418,6 +2888,7 @@ namespace Lux {
 			}
 			break;
 		case Key::D: if (control) OnDuplicateEntity(); break;
+		case Key::F1: OpenHelpTopic(HelpPanel::HomeTopic); break;
 		case Key::B: if (control) ToggleEntityBookmark(); break;
 
 		// Undo/redo. Skipped while a text field is active so ImGui's own in-field undo keeps Ctrl+Z.
@@ -2445,14 +2916,14 @@ namespace Lux {
 		default: break;
 		}
 
-		// Viewport camera bookmarks: Ctrl+<1-9> stores the current view, <1-9> jumps to it. Gated on
+		// Viewport camera bookmarks: Ctrl+Shift+<1-9> stores the view, <1-9> jumps to it. Gated on
 		// the viewport being hovered and no text field active, so digits typed elsewhere are untouched.
 		const int keyCode = static_cast<int>(e.GetKeyCode());
 		if (keyCode >= static_cast<int>(Key::D1) && keyCode <= static_cast<int>(Key::D9)
 			&& m_EditorViewport && m_EditorViewport->IsHovered() && !ImGui::GetIO().WantTextInput)
 		{
 			const int slot = keyCode - static_cast<int>(Key::D0);
-			if (control && !shift)
+			if (control && shift)
 				SetCameraBookmark(slot);
 			else if (!control && !shift)
 				JumpToCameraBookmark(slot);
@@ -3065,101 +3536,11 @@ namespace Lux {
 	{
 		if (!m_AudioDebugPanel || !m_ActiveScene)
 			return;
-
-		Ref<RaytracedAudioScene> raytraced = m_ActiveScene->GetRaytracedAudioScene();
-		if (!raytraced)
-			return;
-
-		// Pushed every frame, whether or not the Audio Debugger is open: entering Play builds a new
-		// RaytracedAudioScene that has never seen these settings. The setter is cheap and idempotent.
 		const AudioVisualisationSettings& settings = m_AudioDebugPanel->GetVisualisationSettings();
-		raytraced->SetVisualisationEnabled(settings.Enabled, settings.RayCount, settings.BounceCount, settings.UpdateIntervalMs);
-		if (!settings.Enabled && !settings.ShowOcclusion && !settings.ShowAllZones)
-			return;
-
-		// Ray-type colours follow the simulation's own semantics rather than the editor theme:
-		// warm for the direct/reverb energy leaving the listener, cool for the surfaces it lands on.
-		constexpr glm::vec4 kRayNearColor{ 1.0f, 0.78f, 0.35f, 0.9f };
-		constexpr glm::vec4 kRayFarColor{ 0.85f, 0.32f, 0.55f, 0.9f };
-		constexpr glm::vec4 kBounceColor{ 0.45f, 0.85f, 1.0f, 1.0f };
-		constexpr glm::vec4 kNormalColor{ 0.35f, 1.0f, 0.6f, 0.9f };
-		constexpr glm::vec4 kListenerColor{ 0.4f, 1.0f, 0.45f, 1.0f };
-		constexpr glm::vec4 kSourceColor{ 1.0f, 0.6f, 0.2f, 1.0f };
-		constexpr glm::vec4 kBoundsColor{ 0.35f, 0.45f, 0.7f, 0.6f };
-
-		const RaytracedAudioStats stats = raytraced->GetStats();
-
-		// How far above and below a bounce point the material probe reaches.
-		constexpr float kBounceProbeDistance = 0.1f;
-		Ref<PhysicsScene> physics = settings.ColorBouncesByMaterial ? m_ActiveScene->GetPhysicsScene() : nullptr;
-
-		RaytracedAudioVisualisation snapshot;
-		if (settings.Enabled)
-			raytraced->GetVisualisation(snapshot);
-
-		if (settings.Enabled && (settings.DrawRayPaths || settings.DrawBouncePoints || settings.DrawNormals))
-		{
-			const int bounceCount = std::max(snapshot.BounceCount, 1);
-			for (int ray = 0; ray < snapshot.RayCount; ray++)
-			{
-				glm::vec3 previous = snapshot.Origin;
-
-				for (int bounce = 0; bounce < bounceCount; bounce++)
-				{
-					const size_t index = (size_t)ray * (size_t)bounceCount + (size_t)bounce;
-					if (index >= snapshot.Bounces.size())
-						break;
-
-					const RaytracedAudioBounce& hit = snapshot.Bounces[index];
-
-					// A ray that hit nothing ends here — its remaining slots are miss placeholders
-					// well outside the world, and connecting to them would fire lines off to
-					// infinity through the viewport.
-					if (!hit.Hit)
-						break;
-
-					if (settings.DrawRayPaths)
-					{
-						// Fade along the path so the listener end reads as the origin and later
-						// bounces recede, which is what makes a few hundred rays legible at once.
-						const float t = bounceCount > 1 ? (float)bounce / (float)(bounceCount - 1) : 0.0f;
-						glm::vec4 color = glm::mix(kRayNearColor, kRayFarColor, t);
-						color.a *= 1.0f - settings.PathFadeStrength * t;
-						m_Renderer2D->DrawLine(previous, hit.Position, color);
-					}
-
-					if (settings.DrawBouncePoints)
-					{
-						glm::vec4 bounceColor = kBounceColor;
-						if (settings.ColorBouncesByMaterial && physics)
-						{
-							// Probe back into the surface the bounce landed on to find what it is.
-							RayCastInfo probe;
-							probe.Origin = hit.Position + hit.Normal * kBounceProbeDistance;
-							probe.Direction = -hit.Normal;
-							probe.MaxDistance = kBounceProbeDistance * 2.0f;
-							SceneQueryHit surface;
-							if (physics->CastRay(&probe, surface))
-							{
-								Entity entity = m_ActiveScene->TryGetEntityWithUUID(surface.HitEntity);
-								const auto* collider = entity ? entity.TryGetComponent<MeshColliderComponent>() : nullptr;
-								if (collider && collider->AcousticMotion != AcousticGeometryMode::Disabled)
-									bounceColor = glm::vec4(DebugCategoryPalette[static_cast<size_t>(m_ActiveScene->ResolveAcousticMaterial(entity))], 1.0f);
-							}
-						}
-						m_Renderer2D->DrawCircle(hit.Position, glm::vec3(0.0f), 0.05f, bounceColor);
-					}
-
-					if (settings.DrawNormals)
-						m_Renderer2D->DrawLine(hit.Position, hit.Position + hit.Normal * settings.NormalLength, kNormalColor);
-
-					previous = hit.Position;
-				}
-			}
-		}
-
 		if (settings.DrawEmitters)
 		{
+			constexpr glm::vec4 kListenerColor{ 0.4f, 1.0f, 0.45f, 1.0f };
+			constexpr glm::vec4 kSourceColor{ 1.0f, 0.6f, 0.2f, 1.0f };
 			// Three rings per emitter so it reads as a sphere from any angle, rather than
 			// disappearing when the camera lines up with a single circle's plane.
 			auto drawEmitterGizmo = [this](const glm::vec3& position, float radius, const glm::vec4& color)
@@ -3168,49 +3549,23 @@ namespace Lux {
 					m_Renderer2D->DrawCircle(position, glm::vec3(glm::half_pi<float>(), 0.0f, 0.0f), radius, color);
 					m_Renderer2D->DrawCircle(position, glm::vec3(0.0f, glm::half_pi<float>(), 0.0f), radius, color);
 				};
-
-			drawEmitterGizmo(stats.ListenerPosition, settings.EmitterRadius, kListenerColor);
-
-			auto sources = m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioSourceComponent>();
-			for (entt::entity entityHandle : sources)
+			if (const AudioListenerState* listener = m_ActiveScene->GetPrimaryAudioListener())
+				drawEmitterGizmo(listener->UseAttenuationPosition ? listener->AttenuationPosition : listener->Position, settings.EmitterRadius, kListenerColor);
+			for (entt::entity entityHandle : m_ActiveScene->GetAllEntitiesWith<TransformComponent, AudioSourceComponent>())
 			{
 				Entity entity = { entityHandle, m_ActiveScene.Raw() };
-				const glm::vec3 position = glm::vec3(m_ActiveScene->GetWorldSpaceTransformMatrix(entity)[3]);
-				drawEmitterGizmo(position, settings.EmitterRadius * 0.75f, kSourceColor);
-
-				// A line to the listener makes the occlusion relationship visible: this is the path
-				// the simulation is measuring for that source. The occlusion view draws a richer one.
-				if (!settings.ShowOcclusion)
-					m_Renderer2D->DrawLine(position, stats.ListenerPosition, kSourceColor * glm::vec4(1.0f, 1.0f, 1.0f, 0.35f));
+				drawEmitterGizmo(glm::vec3(m_ActiveScene->GetWorldSpaceTransformMatrix(entity)[3]), settings.EmitterRadius * 0.75f, kSourceColor);
 			}
 		}
-
 		if (settings.ShowOcclusion)
 			DrawAudioOcclusion(view, settings);
 		if (settings.ShowAllZones)
 			DrawAudioZoneWeights(view);
-
-		if (settings.Enabled && settings.DrawWorldBounds && stats.WorldSize.x > 0.0f)
-		{
-			const glm::vec3 min = stats.WorldMin;
-			const glm::vec3 max = stats.WorldMin + stats.WorldSize;
-			const glm::vec3 corners[8] = {
-				{ min.x, min.y, min.z }, { max.x, min.y, min.z }, { max.x, max.y, min.z }, { min.x, max.y, min.z },
-				{ min.x, min.y, max.z }, { max.x, min.y, max.z }, { max.x, max.y, max.z }, { min.x, max.y, max.z },
-			};
-			constexpr int edges[12][2] = {
-				{ 0,1 }, { 1,2 }, { 2,3 }, { 3,0 },
-				{ 4,5 }, { 5,6 }, { 6,7 }, { 7,4 },
-				{ 0,4 }, { 1,5 }, { 2,6 }, { 3,7 },
-			};
-			for (const auto& edge : edges)
-				m_Renderer2D->DrawLine(corners[edge[0]], corners[edge[1]], kBoundsColor);
-		}
 	}
 
-	// Each source's engine occlusion path: listener to source, coloured by how much the walls on it
-	// remove, with every wall's entry and exit marked and labelled. Drawn over the scene so the
-	// part of the path inside a wall stays visible, which is the whole point of the view.
+	// Each source's Soundwave paths: the direct path coloured by how much the walls on it remove,
+	// every wall's entry and exit marked and labelled, and the reflection/opening routes the solve
+	// kept. Drawn over the scene so the part of a path inside a wall stays visible.
 	void EditorLayer::DrawAudioOcclusion(const glm::mat4& view, const AudioVisualisationSettings& settings)
 	{
 		constexpr glm::vec4 kClearColor{ 0.4f, 1.0f, 0.45f, 0.95f };
@@ -3223,8 +3578,9 @@ namespace Lux {
 		// Text is depth tested, so a label sits this far in front of the wall face nearest the camera.
 		constexpr float kLabelStandOff = 0.15f;
 		constexpr float kMarkerScale = 0.006f;
+		constexpr glm::vec4 kIndirectAlpha{ 1.0f, 1.0f, 1.0f, 0.45f };
 
-		const AudioOcclusion& occlusion = m_ActiveScene->GetAudioOcclusion();
+		const AudioAcoustics& acoustics = m_ActiveScene->GetAudioAcoustics();
 		const glm::mat3 cameraToWorld = glm::transpose(glm::mat3(view));
 		const glm::vec3 cameraPosition = glm::vec3(glm::inverse(view)[3]);
 		UUID selected = 0;
@@ -3260,22 +3616,31 @@ namespace Lux {
 			const UUID id = Entity{ entityHandle, m_ActiveScene.Raw() }.GetUUID();
 			if (selected && id != selected)
 				continue;
-			const AudioOcclusionPath* path = occlusion.GetPath(id);
-			if (!path)
+			const Soundwave::SolveResult* result = acoustics.GetResult(id);
+			if (!result)
 				continue;
-			const float length = glm::distance(path->From, path->To);
+			const auto point = [](const Soundwave::Position& p) { return glm::vec3(p.X, p.Y, p.Z); };
+			for (const Soundwave::PropagationPath& route : result->Indirect)
+			{
+				const float lossDb = -20.0f * std::log10(std::max(route.GainLF, 1e-6f));
+				for (uint32_t i = 1; i < route.PointCount; ++i)
+					m_Renderer2D->DrawLine(point(route.Points[i - 1]), point(route.Points[i]), lossColor(lossDb) * kIndirectAlpha, true);
+			}
+			const Soundwave::Path* path = &result->Direct;
+			const glm::vec3 from = point(path->From), to = point(path->To);
+			const float length = glm::distance(from, to);
 			if (length <= 0.0f)
 				continue;
-			const glm::vec3 direction = (path->To - path->From) / length;
+			const glm::vec3 direction = (to - from) / length;
 
-			m_Renderer2D->DrawLine(path->From, path->To, lossColor(path->LossLF), true);
-			for (const AudioOcclusionWall& wall : path->Walls)
+			m_Renderer2D->DrawLine(from, to, lossColor(path->LossLF), true);
+			for (const Soundwave::Crossing& wall : path->Crossings)
 			{
-				const glm::vec3 entry = path->From + direction * wall.Start;
-				const glm::vec3 exit = path->From + direction * wall.End;
+				const glm::vec3 entry = from + direction * wall.Start;
+				const glm::vec3 exit = from + direction * wall.End;
 				const glm::vec4 color = wall.Portal ? kPortalColor : kWallColor;
 				drawMarker(entry, color);
-				if (!wall.Flat)
+				if (!wall.OneSided)
 				{
 					drawMarker(exit, color);
 					m_Renderer2D->DrawLine(entry, exit, kBlockedColor, true);
@@ -3283,11 +3648,11 @@ namespace Lux {
 				if (!settings.DrawOcclusionLabels)
 					continue;
 
-				const char* material = AcousticMaterialName(wall.Material);
+				const char* material = AcousticMaterialName(static_cast<AcousticMaterial>(wall.Material));
 				std::string text;
 				if (wall.Portal)
 					text = std::format("Portal ({}) {:.2f} m  -{:.1f} dB", material, wall.End - wall.Start, wall.LossLF);
-				else if (wall.Flat)
+				else if (wall.OneSided)
 					text = std::format("{} surface  -{:.1f} dB", material, wall.LossLF);
 				else
 					text = std::format("{} {:.2f} m  -{:.1f} dB", material, wall.End - wall.Start, wall.LossLF);
@@ -3297,8 +3662,8 @@ namespace Lux {
 
 			if (settings.DrawOcclusionLabels)
 			{
-				const std::string total = path->Walls.empty() ? std::string("clear") : std::format("-{:.1f} dB", path->LossLF);
-				drawLabel(total, path->To + glm::normalize(cameraPosition - path->To) * kLabelStandOff, lossColor(path->LossLF));
+				const std::string total = path->Crossings.empty() ? std::string("clear") : std::format("-{:.1f} dB", path->LossLF);
+				drawLabel(total, to + glm::normalize(cameraPosition - to) * kLabelStandOff, lossColor(path->LossLF));
 			}
 		}
 	}
@@ -3363,30 +3728,42 @@ namespace Lux {
 		}
 	}
 
-	// The listener's room as Asterwave measures it, from the copy the scene takes inside the Asterwave join.
+	// The listener's room as Soundwave last measured it.
 	void EditorLayer::UI_RoomAcousticsReadout()
 	{
 		if (!m_AudioDebugPanel || !m_AudioDebugPanel->GetVisualisationSettings().ShowRoomAcoustics || !m_EditorViewport || !m_EditorViewport->IsVisible() || !m_ActiveScene)
 			return;
-		const RaytracedAudioAmbience& ambience = m_ActiveScene->GetLastAudioAmbience();
-		if (!ambience.Valid)
+		const Soundwave::ReverbResult* reverb = m_ActiveScene->GetAudioAcoustics().GetReverb();
+		if (!reverb)
+			return;
+		const auto* viewportBounds = m_EditorViewport->GetBounds();
+		const float width =
+			std::min(m_EditorViewport->GetOverlayFontSize() * k_ViewportReadoutWidthInFonts,
+					 viewportBounds[1].x - viewportBounds[0].x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
+		if (width < 1.0f)
 			return;
 
-		const glm::vec2* viewportBounds = m_EditorViewport->GetBounds();
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
 			ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize |
 			ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
-		ImGui::SetNextWindowPos(ImVec2(viewportBounds[0].x + 12.0f, viewportBounds[0].y + 12.0f), ImGuiCond_Always, ImVec2(0.0f, 0.0f));
+		const float topInset =
+			m_SceneHierarchyPanel && m_SceneHierarchyPanel->GetSelectedEntity()
+				? ImGui::GetTextLineHeight() + ImGui::GetFontSize() * 0.4f + ImGui::GetStyle().ItemSpacing.y
+				: 0.0f;
+		if (!m_EditorViewport->PrepareOverlay({0.0f, 0.0f}, {0.0f, topInset}, width))
+			return;
+		ImGui::SetNextWindowSize({width, 0.0f});
 		ImGui::SetNextWindowBgAlpha(0.48f);
-		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
-		ImGui::Begin("##room_acoustics_readout", nullptr, flags);
+		const float scale = ImGui::GetStyle()._MainScale;
+		ImGuiEx::ScopedStyle padding(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * scale, 6.0f * scale));
+		m_EditorViewport->BeginOverlay("##room_acoustics_readout", flags);
 		ImGuiLayer::RequestGlassBackdrop();
-		ImGui::TextUnformatted("Room (Asterwave measured)");
+		ImGui::TextWrapped("Room (Soundwave)");
 		ImGuiEx::Fonts::PushFont("Mono");
-		ImGui::Text("Returned %5.1f%%  Outside %5.1f%%", ambience.ReturnedPercent * 100.0f, ambience.OutsidePercent * 100.0f);
-		ImGui::Text("Decay    LF %4.2f s  HF %4.2f s", ambience.MeasuredDecayTimeLF, ambience.MeasuredDecayTimeHF);
-		ImGui::Text("Absorb   LF %4.2f    HF %4.2f", ambience.MaterialAbsorptionLF, ambience.MaterialAbsorptionHF);
-		ImGui::Text("Scatter  %4.2f", ambience.MaterialRoughness);
+		ImGui::TextWrapped("Decay  %4.2f s   Send %5.1f%%", reverb->DecaySeconds,
+						   m_ActiveScene->GetAudioAcoustics().GetReverbSend() * 100.0f);
+		ImGui::TextWrapped("Outside %5.1f%%  Free path %4.1f m", reverb->EscapedFraction * 100.0f,
+						   reverb->MeanFreePath);
 		ImGuiEx::Fonts::PopFont();
 		ImGui::End();
 	}
@@ -3625,7 +4002,8 @@ namespace Lux {
 
 	void EditorLayer::AddRecentProject(const std::filesystem::path& projectPath)
 	{
-		if (!m_UserPreferences)
+		// Capture fixtures are temporary projects, not user recent-project choices.
+		if (!m_UserPreferences || FileSystem::HasEnvironmentVariable("LUX_GOLDEN_DIR"))
 			return;
 
 		const std::filesystem::path normalizedPath = NormalizeProjectPath(projectPath);
@@ -3730,6 +4108,8 @@ namespace Lux {
 		StartupSplash::Report(0.5f, std::format("Loading {}", path.filename().string()));
 		if (Project::Load(path))
 		{
+			// Imported meshes keep their generated LODs in the project's Cache between launches.
+			MeshSource::SetGeometryCacheDirectory(Project::GetActive()->GetCacheDirectory() / "Geometry");
 			AddRecentProject(path);
 			if (m_SplashScreen)
 				m_SplashScreen->Close();
@@ -3740,8 +4120,6 @@ namespace Lux {
 			else
 				NewScene();   // don't carry the previous project's scene (and its asset handles) over
 			m_PanelManager->OnProjectChanged(Project::GetActive());
-			StartupSplash::Report(0.9f, "Loading audio banks");
-			LoadAudioBanksForActiveProject();
 			if (m_SceneRenderer)
 				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);
 		}
@@ -3757,8 +4135,15 @@ namespace Lux {
 		return true;
 	}
 
-	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location)
+	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass)
 	{
+		std::string templateText, scriptSource, scriptError;
+		if (!ScriptTemplate::Load(FileSystem::GetWorkingDirectory() / "Resources" / "Templates" / "NewClassTemplate.cs", templateText, scriptError)
+			|| !ScriptTemplate::Render(templateText, scriptClass, name, scriptSource, scriptError))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Could not create the starter script: {}", scriptError);
+			return false;
+		}
 		const std::filesystem::path projectDirectory = location / name;
 		const std::filesystem::path projectFilePath = projectDirectory / (name + ".luxproj");
 
@@ -3767,8 +4152,6 @@ namespace Lux {
 		config.Name = name;
 		config.DefaultNamespace = name;
 		config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (name + ".dll");
-		// The default names the sample's FMOD Studio project; a new project has no authored audio yet.
-		config.Audio.StudioProjectPath.clear();
 
 		const std::filesystem::path assetDirectory = projectDirectory / config.AssetDirectory;
 		for (const std::filesystem::path& folder : { assetDirectory / "Scenes", assetDirectory / "Scripts" / "Source", assetDirectory / "Materials", assetDirectory / config.MeshSourcePath, assetDirectory / "Textures" })
@@ -3781,6 +4164,26 @@ namespace Lux {
 				return false;
 			}
 		}
+
+		std::string templateError;
+		if (!ProjectTemplate::CopyDefaultMeshes(FileSystem::GetWorkingDirectory() / "Resources" / "Meshes" / "Default",
+			assetDirectory / config.MeshSourcePath / "Default", templateError))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Could not initialize default meshes: {}", templateError);
+			return false;
+		}
+
+		const auto scriptPath = assetDirectory / "Scripts" / "Source" / (scriptClass + ".cs");
+		if (FileSystem::Exists(scriptPath))
+		{
+			LUX_CORE_ERROR_TAG("Project", "A starter script already exists at '{}'", scriptPath.string());
+			return false;
+		}
+		if (!FileSystem::WriteFileAtomically(scriptPath, scriptSource))
+			return false;
+
+		if (!WriteScriptProject(assetDirectory / "Scripts" / (name + ".csproj"), name))
+			return false;
 
 		ProjectSerializer serializer(project);
 		if (!serializer.Serialize(projectFilePath))
@@ -3807,6 +4210,7 @@ namespace Lux {
 		// Drop the scene's references into this project's assets before its asset manager goes away.
 		NewScene();
 		Project::SetActive(nullptr);
+		MeshSource::SetGeometryCacheDirectory({});
 		m_PanelManager->OnProjectChanged(nullptr);
 	}
 
@@ -3979,13 +4383,7 @@ namespace Lux {
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
 		drawStatus("DotNet", !dotnet.empty(), dotnet.string(), "missing");
-		if (config.Audio.StudioProjectPath.empty())
-			ImGui::TextUnformatted("FMOD banks: none configured in Project Settings > Audio");
-		else
-		{
-			ImGui::Text("FMOD bank output: %s", project->GetStudioBankDirectory().string().c_str());
-			ImGui::TextWrapped("Export validates all banks and stops if they are missing or stale. Build banks in FMOD Studio before exporting.");
-		}
+		ImGui::TextWrapped("Audio: every Sound, Sound Bank and clip is packed into the asset pack. Export stops on audio validation errors.");
 
 		ImGui::Spacing();
 		{
@@ -4026,7 +4424,7 @@ namespace Lux {
 		if (m_PendingRuntimeExport && !ImGui::IsPopupOpen(s_RuntimeExportPopupID))
 			ImGui::OpenPopup(s_RuntimeExportPopupID);
 
-		const float scale = ImGuiEx::Fonts::GetScale();
+		const float scale = ImGui::GetStyle()._MainScale;
 		const ImGuiViewport* viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 		ImGui::SetNextWindowSize(ImVec2(k_ExportOverlayWidth * scale, 0.0f), ImGuiCond_Always);
@@ -4153,6 +4551,8 @@ namespace Lux {
 
 		if (++pending.NextStep == static_cast<uint32_t>(RuntimeExportStep::Count))
 		{
+			m_LastRuntimeExportRoot = pending.ExportRoot;
+			m_LastRuntimeExportExecutable = pending.ExportedExe;
 			m_PendingRuntimeExport.reset();
 			m_ShowRuntimeExportWindow = false;
 		}
@@ -4171,9 +4571,23 @@ namespace Lux {
 		m_ShowRuntimeExportWindow = true;
 	}
 
-	void EditorLayer::ExportRuntimeNow()
+	void EditorLayer::ExportRuntimeNow(const std::filesystem::path& targetFolder)
 	{
 		m_RuntimeExportError.clear();
+		m_LastRuntimeExportRoot.clear();
+		m_LastRuntimeExportExecutable.clear();
+		if (!targetFolder.empty())
+		{
+			std::error_code ec;
+			const bool exists = std::filesystem::exists(targetFolder, ec);
+			const bool empty = !exists || std::filesystem::is_empty(targetFolder, ec);
+			if (ec || !targetFolder.is_absolute() || !empty)
+			{
+				m_RuntimeExportError = "Automated export requires an absolute, empty destination: " + targetFolder.string();
+				LUX_CORE_ERROR_TAG("Editor", "{}", m_RuntimeExportError);
+				return;
+			}
+		}
 		Ref<Project> project = Project::GetActive();
 		if (!project)
 		{
@@ -4187,7 +4601,8 @@ namespace Lux {
 		SaveScene();
 		SaveProject();
 
-		const std::filesystem::path selectedFolder = FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str());
+		const std::filesystem::path selectedFolder = targetFolder.empty()
+			? FileSystem::OpenFolderDialog(project->GetProjectDirectory().string().c_str()) : targetFolder;
 		if (selectedFolder.empty())
 			return;
 
@@ -4200,8 +4615,7 @@ namespace Lux {
 		// Before any build, so a blocked export fails without waiting a minute for one. The overlay
 		// locks the editor from here on, so nothing these checks read can change before the export
 		// writes.
-		AudioBankManifest audioBanks;
-		if (!ValidateRuntimeExportAudio(project, audioBanks))
+		if (!ValidateRuntimeExportAudio(project))
 			return;
 
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
@@ -4227,17 +4641,14 @@ namespace Lux {
 		}
 
 		// UpdateRuntimeBuild writes the export once any build has finished.
-		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings, audioBanks };
+		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings };
 		m_PendingRuntimeExport->Writing = !buildRuntime && !buildScripts;
+		m_PendingRuntimeExport->OpenFolderWhenDone = targetFolder.empty();
 	}
 
-	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks)
+	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project)
 	{
-		if (!RuntimeExport::PrepareAudioBanks(*project, audioBanks))
-		{
-			m_RuntimeExportError = "Export blocked: FMOD banks are missing, stale or unreadable. Check Project Settings > Audio, build the selected platform's banks, then try again.";
-			return false;
-		}
+		// Each clip's audio goes into the asset pack (AudioAssetSerializer); nothing else to prepare.
 		const auto audioValidation = AudioValidation::ValidateProject(*project, m_EditorScene.Raw());
 		audioValidation.Log();
 		if (audioValidation.HasErrors())
@@ -4261,7 +4672,6 @@ namespace Lux {
 		std::error_code ec;
 		const Ref<Project>& project = pending.ExportedProject;
 		const ProjectRuntimeExportSettings& runtimeSettings = pending.Settings;
-		const AudioBankManifest& audioBanks = pending.AudioBanks;
 		const RuntimeExportTarget targetConfig = runtimeSettings.TargetConfig;
 		// Resolved by the Prepare step, used by the steps after it.
 		std::filesystem::path& runtimeExe = pending.RuntimeExe;
@@ -4277,6 +4687,9 @@ namespace Lux {
 		{
 		case RuntimeExportStep::Prepare:
 		{
+			// Every graph in the project, not only the loaded ones, goes into the surface shaders before
+			// the asset pack records graph indices; the shaders recompile before the ShaderPack step.
+			MaterialGraphRegistry::ScanProject();
 			runtimeExe = GetRuntimeExecutablePath(targetConfig);
 			std::filesystem::path repositoryRoot = FindRepositoryRootFrom(project->GetProjectDirectory());
 			if (repositoryRoot.empty())
@@ -4386,15 +4799,11 @@ namespace Lux {
 			return true;
 		}
 
-		case RuntimeExportStep::AudioBanks:
-			return RuntimeExport::CopyAudioBanks(*project, audioBanks, exportAssets)
-				&& RuntimeExport::CopyAudioLibraries(runtimeExe.parent_path(), exportRoot);
-
 		case RuntimeExportStep::RuntimeProject:
 		{
 			ProjectSerializer serializer(project);
 			const std::filesystem::path runtimeProjectFile = exportAssets / s_RuntimeProjectFile;
-			if (!serializer.SerializeRuntime(runtimeProjectFile, audioBanks))
+			if (!serializer.SerializeRuntime(runtimeProjectFile, {}))
 			{
 				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing '{}'.", runtimeProjectFile.string());
 				return false;
@@ -4409,22 +4818,36 @@ namespace Lux {
 		case RuntimeExportStep::Executable:
 		{
 			if (!CopyFileIfExists(runtimeExe, exportedExe, true))
+			{
 				LUX_CONSOLE_LOG_WARN("Build the Lux-Runtime project once before exporting a standalone executable.");
+				return false;
+			}
 
 			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
 			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
 			{
 #ifdef LUX_PLATFORM_LINUX
 				const std::filesystem::path libDir = exportRoot / "lib";
-				std::filesystem::create_directories(libDir, ec);
-				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
+				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })
 				{
-					if (!entry.is_regular_file(ec))
-						continue;
+					for (std::filesystem::directory_iterator it(sourceDirectory, ec), end; !ec && it != end; it.increment(ec))
+					{
+						const bool regularFile = it->is_regular_file(ec);
+						if (ec)
+							break;
+						if (!regularFile)
+							continue;
 
-					const std::string filename = entry.path().filename().string();
-					if (filename.find(".so") != std::string::npos)
-						CopyFileIfExists(entry.path(), libDir / entry.path().filename());
+						const std::string filename = it->path().filename().string();
+						if (filename.find(".so") != std::string::npos && RuntimeExport::ShipsLibrary(filename) &&
+							!CopyFileIfExists(it->path(), libDir / it->path().filename(), true))
+							return false;
+					}
+					if (ec)
+					{
+						LUX_CORE_ERROR_TAG("Project", "Cannot enumerate runtime libraries at '{}': {}", sourceDirectory.string(), ec.message());
+						return false;
+					}
 				}
 #else
 				for (const auto& entry : std::filesystem::directory_iterator(runtimeDirectory, ec))
@@ -4433,6 +4856,8 @@ namespace Lux {
 						continue;
 
 					const std::filesystem::path extension = entry.path().extension();
+					if (!RuntimeExport::ShipsLibrary(entry.path().filename().string()))
+						continue;
 					if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
 						CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
 				}
@@ -4449,6 +4874,9 @@ namespace Lux {
 			return true;
 
 		case RuntimeExportStep::ShaderPack:
+			// The stamp hashes the generated material-graph include, which the Resources copy skips (Cache/):
+			// ship the same bytes, or the player sees a different input set and refuses the pack.
+			CopyFileIfExists(MaterialGraphRegistry::GetGeneratedIncludePath(), exportRoot / MaterialGraphRegistry::GetGeneratedIncludePath());
 			return WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile);
 
 		case RuntimeExportStep::Scripts:
@@ -4519,7 +4947,8 @@ namespace Lux {
 #endif
 
 			LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
-			FileSystem::OpenDirectoryInExplorer(exportRoot);
+			if (pending.OpenFolderWhenDone)
+				FileSystem::OpenDirectoryInExplorer(exportRoot);
 			return true;
 		}
 
@@ -4581,6 +5010,8 @@ namespace Lux {
 			LUX_CORE_ERROR("Failed to open scene asset {0}; scene copy failed.", handle);
 			return;
 		}
+		// Prefabs edited while this scene was closed: their instances catch up with the hierarchy.
+		newScene->SyncAllPrefabInstances();
 
 		ApplyEditorScene(newScene, Project::GetActive()->GetEditorAssetManager()->GetFilePath(handle));
 
@@ -5121,6 +5552,16 @@ namespace Lux {
 		ImGui::End();
 	}
 
+	void EditorLayer::OpenHelpTopic(std::string_view topic)
+	{
+		if (!m_HelpPanel)
+			return;
+
+		m_HelpPanel->OpenTopic(topic);
+		if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(HELP_PANEL_ID)))
+			panelData->IsOpen = true;
+	}
+
 	void EditorLayer::ReloadScriptsWithFeedback()
 	{
 		if (!Project::GetActive())
@@ -5402,7 +5843,11 @@ namespace Lux {
 	void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
 	{
 		SceneSerializer serializer(scene);
-		serializer.Serialize(Project::GetActiveAssetDirectory() / path);
+		if (!serializer.Serialize(Project::GetActiveAssetDirectory() / path))
+		{
+			LUX_CONSOLE_LOG_ERROR("Could not save scene '{}'; the file on disk is unchanged.", path.string());
+			return;
+		}
 
 		// Their field values are saved back as loaded, so nothing is lost, but they cannot be
 		// edited until the assembly has the class; say so, as saving used to drop them silently.
@@ -5573,50 +6018,6 @@ namespace Lux {
 		DiscordSocial::SetPresence(presence);
 	}
 
-	void EditorLayer::RebuildAudioBanksIfNeeded()
-	{
-		Ref<Project> project = Project::GetActive();
-		if (!project)
-			return;
-
-		const std::filesystem::path studioProject = project->GetStudioProjectPath();
-		if (studioProject.empty())
-			return;
-
-		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();
-
-		if (project->GetConfig().Audio.RebuildBanksOnPlay
-			&& AudioBankBuilder::NeedsRebuild(studioProject, bankDirectory))
-		{
-			// Failure is logged by the builder. Existing output for this profile can still be used.
-			AudioBankBuilder::Build(studioProject, project->GetStudioPlatform());
-		}
-
-		// A profile/output directory may have changed since project open. Resolve the current
-		// selection even when another catalog is already loaded.
-		if (!AudioEngine::LoadBanks(bankDirectory))
-		{
-			// Do not play a previous profile's catalog when the newly selected output is missing.
-			AudioEngine::UnloadAllBanks();
-			LUX_CORE_ERROR_TAG("Audio", "Play will continue without project banks: cannot load the selected audio profile at '{}'", bankDirectory.string());
-		}
-	}
-
-	void EditorLayer::LoadAudioBanksForActiveProject()
-	{
-		Ref<Project> project = Project::GetActive();
-		if (!project)
-			return;
-
-		const std::filesystem::path bankDirectory = project->GetStudioBankDirectory();
-		if (bankDirectory.empty())
-			return;
-
-		// Loaded on project open rather than on Play so the editor can list a project's events
-		// while editing - the event picker and the Audio Debugger both need them in Edit mode.
-		AudioEngine::LoadBanks(bankDirectory);
-	}
-
 	void EditorLayer::OnScenePlay()
 	{
 		if (m_PrefabEditMode)   // no play while editing a prefab in isolation
@@ -5624,16 +6025,11 @@ namespace Lux {
 		if (m_SceneState == SceneState::Simulate)
 			OnSceneStop();
 
-		// First, so anything logged while starting this session (bank rebuilds, script errors) stays.
+		// First, so anything logged while starting this session (script errors) stays.
 		if (m_ConsolePanel)
 			m_ConsolePanel->OnScenePlay();
 
-		// Before the runtime starts, so the banks it loads are the ones matching what the designer
-		// last saved in FMOD Studio. A timestamp check makes this free when nothing changed; a
-		// failed build is logged and play continues, since a stale bank still plays something and
-		// blocking Play on an audio tool would be worse than the staleness.
-		RebuildAudioBanksIfNeeded();
-
+		m_Workspaces->BeginPlay();
 		SuspendRendererDebugViewsForPlay();
 		m_SceneState = SceneState::Play;
 
@@ -5730,7 +6126,7 @@ namespace Lux {
 		if (restoreDebugViews)
 		{
 			RestoreRendererDebugViewsAfterPlay();
-			m_FocusSceneViewRequested = true;   // back to editing, where Play brought the Game View forward
+			m_FocusSceneViewRequested = m_Workspaces->EndPlay();
 		}
 
 		if (m_SceneRendererPanel)

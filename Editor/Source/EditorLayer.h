@@ -30,10 +30,12 @@
 #include "Lux/Renderer/VertexBuffer.h"
 
 #include "entt/entt.hpp"
+#include "Lux/Editor/EditorToolHost.h"
 #include "Lux/Editor/PanelManager.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Tools/GoldenCapture.h"
 #include "Viewport/Viewport.h"
+#include "Workspace/EditorWorkspaceManager.h"
 
 namespace Lux
 {
@@ -41,6 +43,7 @@ namespace Lux
 	class SceneRendererPanel;
 	class RendererDebuggerPanel;
 	class ProfilerPanel;
+	class HelpPanel;
 	class AudioDebugPanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
@@ -58,6 +61,10 @@ namespace Lux
 		virtual void OnImGuiRender() override;
 		virtual void OnEvent(Event& e) override;
 	private:
+#ifndef LUX_DIST
+		bool RunViewportOverlaySelfTests(std::vector<std::string>& failures);
+		bool RunTitlebarSelfTests(std::vector<std::string>& failures);
+#endif
 		bool OnKeyPressed(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
 		bool OnTitleBarHitTest(WindowTitleBarHitTestEvent& e);
@@ -72,15 +79,9 @@ namespace Lux
 		void DrawOverlayLabel(const std::string& text, const glm::vec3& position, const glm::vec4& color, const glm::mat4& view);
 		void UI_RoomAcousticsReadout();
 
-		// Rebuilds the project's FMOD banks when the .fspro has changed since they were last built.
-		// Called on entering Play; a no-op when the project has no Studio project or the feature is
-		// switched off in project settings.
-		void RebuildAudioBanksIfNeeded();
 
-		// Loads the active project's built banks. Called on project open so the editor can list
-		// events in Edit mode, not only while playing.
-		void LoadAudioBanksForActiveProject();
 		void UI_DrawTitlebar();
+		void UI_DrawSceneView(bool& open);
 		void UI_DrawMenubar();
 		void UI_AboutPopup();
 		void UI_StartupSplashHandOff();
@@ -90,10 +91,8 @@ namespace Lux
 		void ToggleEntityBookmark();            // pins/unpins the current selection
 		void JumpToEntityBookmark(UUID entityID); // select + frame the camera on it
 		void CreatePrefabFromSelection();       // saves the first selected entity as a .lprefab asset
-		void ResetDefaultDockLayout(ImGuiID dockspaceId);
-		void DockViewsWhereLegacyViewportWas();
 		void SetEditorLayoutMode(bool simple);
-		void UI_TitlebarTransport(float titlebarWidth);
+		void UI_TitlebarTransport(float titlebarWidth, float minimumX, float maximumX);
 		void UI_ViewportSettings();
 		void UI_ViewportOrientationGizmo();
 		void UI_ViewportSelectionBadge();
@@ -106,19 +105,19 @@ namespace Lux
 		void NewProject();
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
-		// Writes <location>/<name>/<name>.luxproj plus an empty asset tree, then opens it.
-		bool CreateProject(const std::string& name, const std::filesystem::path& location);
+		// Writes the project, default geometry and a named C# starter, then opens it.
+		bool CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass);
 		void CloseProject();   // back to the splash screen
 		void SaveProject();
 		void ExportRuntime();
 		// Export... in the export window. It starts m_PendingRuntimeExport: a Lux-Runtime or script
 		// build on m_RuntimeBuildJob when one is stale, then the writing steps, one per frame from
 		// UpdateRuntimeBuild, while UI_RuntimeExportProgress locks the editor.
-		void ExportRuntimeNow();
-		bool ValidateRuntimeExportAudio(const Ref<Project>& project, AudioBankManifest& audioBanks);
+		void ExportRuntimeNow(const std::filesystem::path& targetFolder = {});
+		bool ValidateRuntimeExportAudio(const Ref<Project>& project);
 		enum class RuntimeExportStep : uint8_t
 		{
-			Prepare, AssetPack, AudioBanks, RuntimeProject, Executable, Resources, ShaderPack, Scripts, Finish, Count
+			Prepare, AssetPack, RuntimeProject, Executable, Resources, ShaderPack, Scripts, Finish, Count
 		};
 		struct PendingRuntimeExport;
 		bool RunRuntimeExportStep(PendingRuntimeExport& pending, RuntimeExportStep step);
@@ -183,6 +182,7 @@ namespace Lux
 		void UI_UndoToast();                                      // transient "Undo/Redo: <label>" overlay
 		void UI_ScriptToast();                                    // transient C#-reload status overlay
 		void ReloadScriptsWithFeedback();                         // reload C# + sync storage + toast the result
+		void OpenHelpTopic(std::string_view topic);               // shows the Help panel at a manual topic
 		void AdoptEditorScene(const Ref<Scene>& scene);           // retarget panels/viewport/renderer
 
 		// Play-mode undo (Phase 7): a transient stack over the runtime scene, discarded on Stop. An
@@ -234,6 +234,7 @@ namespace Lux
 		// Before m_PanelManager: ProjectSettingsWindow holds a reference to it.
 		RuntimeExport::RuntimeBuildJob m_RuntimeBuildJob;
 		Scope<PanelManager> m_PanelManager;
+		Scope<EditorWorkspaceManager> m_Workspaces;
 
 		bool m_VSync = true;
 		// Frames per second the main loop is paced to when VSync is off. 0 == unlimited.
@@ -250,10 +251,17 @@ namespace Lux
 		Ref<SceneRenderer> m_SceneRenderer;
 		// Renderer regression capture; null unless LUX_GOLDEN_DIR is set.
 		Scope<GoldenCapture> m_GoldenCapture;
+		// LUX_PLAY_SELFTEST=<frames> (tests/play/run_play.py): Play the start scene that many
+		// frames, then close. 0 when unset; never set in Dist.
+		uint32_t m_PlayTestFrames = 0;
+		bool m_PlayTestStarted = false;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
+		std::string m_SelectionBadgeName;
+		std::string m_SelectionBadgeLabel;
 		Ref<SceneRendererPanel> m_SceneRendererPanel;
 		Ref<RendererDebuggerPanel> m_RendererDebuggerPanel;
 		Ref<ProfilerPanel> m_ProfilerPanel;
+		Ref<HelpPanel> m_HelpPanel;
 		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
@@ -262,6 +270,9 @@ namespace Lux
 		Ref<GameViewPanel> m_GameViewPanel;
 
 		Scope<CommandPalette> m_CommandPalette;
+		// Scene queries and edits for scripted or external tools; its queue runs after the undo poll,
+		// between user edits, and each completed edit is one undo step.
+		Scope<EditorToolHost> m_ToolHost;
 		Scope<SplashScreen> m_SplashScreen;   // startup / Help → Splash Screen; forced while no project is open
 		Scope<StartupSplash> m_StartupSplash; // the loading splash: OnAttach, then the first few frames
 
@@ -375,13 +386,10 @@ namespace Lux
 		bool m_SimpleLayout = true;
 		// Frosted-glass backdrops behind popups and the translucent viewport overlays.
 		bool m_GlassOverlays = true;
-		// ResetDefaultDockLayout needs the live dockspace id, only valid inside OnImGuiRender, so a
-		// mode switch requested from a menu defers the rebuild to the next frame via this flag.
-		bool m_PendingLayoutReset = false;
-		bool m_LegacyViewportDockChecked = false;
 		bool m_FocusSceneViewRequested = false;
 		bool m_ShowRuntimeExportWindow = false;
 		std::string m_RuntimeExportError;
+		std::filesystem::path m_LastRuntimeExportRoot, m_LastRuntimeExportExecutable;
 		// The export in progress, with the settings Export was clicked with. While it exists the export
 		// overlay locks the editor.
 		struct PendingRuntimeExport
@@ -389,9 +397,9 @@ namespace Lux
 			Ref<Project> ExportedProject;
 			std::filesystem::path Folder;
 			ProjectRuntimeExportSettings Settings;
-			AudioBankManifest AudioBanks;
 			// False while its build runs. Then one RuntimeExportStep per frame, so the overlay redraws.
 			bool Writing = false;
+			bool OpenFolderWhenDone = true;
 			uint32_t NextStep = 0;
 			// Resolved by RuntimeExportStep::Prepare for the steps after it.
 			std::filesystem::path RuntimeExe;

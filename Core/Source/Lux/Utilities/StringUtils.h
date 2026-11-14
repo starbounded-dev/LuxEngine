@@ -39,6 +39,8 @@ namespace Lux::Utils {
 	// Insert delimiter before each upper case character.
 	std::string SplitAtUpperCase(std::string_view string, std::string_view delimiter = " ", bool ifLowerCaseOnTheRight = true);
 	std::string BytesToString(uint64_t bytes);
+	// UTF-8 with portable separators for ImGui labels and persisted portable paths.
+	std::string PathToUTF8(const std::filesystem::path& path);
 
 	int SkipBOM(std::istream& in);
 	std::string ReadFileAndSkipBOM(const std::filesystem::path& filepath);

@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "DialogueTable.h"
+#include "AudioEventRefSerializer.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
 #include "Lux/Serialization/Yaml.h"
@@ -37,7 +38,7 @@ namespace Lux
 		}
 		for (const auto& [key, line] : Lines)
 		{
-			if (!ValidText(key, kMaxKeyBytes) || !line.Event.IsValid() || line.Priority > DialoguePriority::Critical
+			if (!ValidText(key, kMaxKeyBytes) || !line.Event.HasReference() || line.Priority > DialoguePriority::Critical
 				|| line.Translations.size() > kMaxLanguages || !line.Translations.contains(DefaultLanguage))
 			{
 				LUX_CORE_ERROR_TAG("Audio", "Dialogue line '{}' needs an event and a translation in '{}'", key, DefaultLanguage);
@@ -67,10 +68,7 @@ namespace Lux
 		for (const auto& [key, line] : Lines)
 		{
 			out << Yaml::Key << key << Yaml::BeginMap;
-			out << Yaml::Key << "Event" << Yaml::BeginMap;
-			out << Yaml::Key << "Guid" << Yaml::Value << line.Event.Guid;
-			out << Yaml::Key << "Path" << Yaml::Value << line.Event.Path;
-			out << Yaml::Key << "BankName" << Yaml::Value << line.Event.BankName << Yaml::EndMap;
+			AudioEventRefSerializer::Write(out, "Event", line.Event);
 			out << Yaml::Key << "Priority" << Yaml::Value << static_cast<uint32_t>(line.Priority);
 			out << Yaml::Key << "Interruptible" << Yaml::Value << line.Interruptible;
 			out << Yaml::Key << "Translations" << Yaml::BeginMap;
@@ -79,7 +77,11 @@ namespace Lux
 				out << Yaml::Key << language << Yaml::BeginMap;
 				out << Yaml::Key << "Text" << Yaml::Value << translation.Text;
 				out << Yaml::Key << "SpeakerName" << Yaml::Value << translation.SpeakerName;
-				out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey << Yaml::EndMap;
+				if (!translation.AudioKey.empty()) // legacy, FMOD's audio-table key
+					out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey;
+				if (translation.Clip != 0)
+					out << Yaml::Key << "Clip" << Yaml::Value << static_cast<uint64_t>(translation.Clip);
+				out << Yaml::EndMap;
 			}
 			out << Yaml::EndMap << Yaml::EndMap;
 		}
@@ -109,12 +111,7 @@ namespace Lux
 						throw std::runtime_error("duplicate dialogue key: " + key);
 					auto& line = parsed.Lines[key];
 					const auto node = entry.second;
-					if (auto reference = node["Event"])
-					{
-						line.Event.Guid = reference["Guid"].as<std::string>("");
-						line.Event.Path = reference["Path"].as<std::string>("");
-						line.Event.BankName = reference["BankName"].as<std::string>("");
-					}
+					line.Event = AudioEventRefSerializer::Read(node["Event"]);
 					const auto priority = node["Priority"].as<uint32_t>(1);
 					if (priority > static_cast<uint32_t>(DialoguePriority::Critical))
 						throw std::runtime_error("invalid dialogue priority");
@@ -132,6 +129,7 @@ namespace Lux
 						value.Text = localized.second["Text"].as<std::string>("");
 						value.SpeakerName = localized.second["SpeakerName"].as<std::string>("");
 						value.AudioKey = localized.second["AudioKey"].as<std::string>("");
+						value.Clip = localized.second["Clip"].as<uint64_t>(0);
 					}
 				}
 			}

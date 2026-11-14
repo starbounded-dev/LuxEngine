@@ -51,6 +51,7 @@ namespace Lux {
 		{
 			glm::vec3 Start, End;
 			glm::vec4 Color;
+			bool OnTop = true; // false: hidden behind geometry
 		};
 
 		struct ColliderDebugItem
@@ -80,6 +81,7 @@ namespace Lux {
 
 		std::vector<Draw2DItem> Draw2D;
 		std::vector<DebugLine> AudioZoneLines;
+		std::vector<DebugLine> ScriptLines; // C# Gizmos (Scene::AddDebugLine)
 		std::vector<ColliderDebugItem> ColliderDebug;
 
 		void Reset()
@@ -90,6 +92,7 @@ namespace Lux {
 			MeshSyncMs = 0.0f;
 			Draw2D.clear();
 			AudioZoneLines.clear();
+			ScriptLines.clear();
 			ColliderDebug.clear();
 		}
 	};

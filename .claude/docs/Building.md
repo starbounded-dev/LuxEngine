@@ -51,6 +51,7 @@ run the editor. Platform is **x64**.
 
 ```bash
 scripts/Linux-Build.sh          # prompts for a config, or: Linux-Build.sh release
+LUX_RUN_AUDIO_TESTS=1 scripts/Linux-Build.sh debug-as  # instrumented build and audio checks
 scripts/Linux-Run.sh            # rebuilds if needed, then runs the editor
 scripts/Linux-RunRuntime.sh     # standalone runtime player
 scripts/Linux-RenderDoc.sh      # the editor inside RenderDoc (LUX_RENDERDOC=1 Linux-Run.sh)
@@ -82,6 +83,32 @@ changed. Set `LUX_SKIP_BUILD=1` to skip that check and launch immediately.
 
 ## Configurations
 
+`python tests/editor/run_browser_panels.py` runs browser/navigation and asset-picker regressions
+under Single/Multi in disposable projects. The non-Dist editor hook is
+`LUX_BROWSER_PANELS_SELFTEST=<active disposable project directory>`; it writes a sibling `.status`
+report. Re-run project generation when adding the test source to an existing solution.
+The browser, workspace and material runners accept `LUX_TEST_EDITOR=<executable>` for testing
+a separately linked review executable while the regular editor remains open. Verify that
+executable's timestamp; their default remains the ordinary Debug Editor.
+
+Suites that compile a test host with `cl.exe` (`run_workspaces.py`, `run_project_templates.py`,
+`run_script_templates.py`) need the MSVC environment. Run them through the wrapper:
+`python scripts/run_with_msvc.py python tests/editor/run_workspaces.py`. It finds `vcvars64.bat`
+(vswhere, then the Visual Studio 18 Community path), captures its environment once and runs the command.
+
+To build by hand, use Visual Studio 18's MSBuild:
+`"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" Lux.sln -restore -m -p:Configuration=Release "-p:Platform=Mixed Platforms"`.
+The VS2022 Build Tools MSBuild fails on the C# projects with MSB4236 (it cannot find
+`Microsoft.NET.Sdk`; hardening finding F1). Any CI machine that builds `Lux.sln` needs the .NET SDK
+workload component installed with Visual Studio.
+
+CI runs only the runners that compile a test host (`run_workspaces`, `run_project_templates`,
+`run_script_templates`), in the Release build job. The runners that launch the editor, `tests/play/run_play.py`
+and the golden captures need a GPU and a desktop session, which the self-hosted Windows runner (Server Core,
+no GPU passthrough) lacks: run them locally with `python tests/run_local.py [--build] [--only <name> ...]`,
+which runs every editor runner, the Play checks in Debug and Release and the managed audio checks inside
+the MSVC environment and prints one summary. Each runner sets `LUX_USER_DATA_DIR` to its own temporary folder.
+
 Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 
 | Config | Optimize | Symbols | Notes |
@@ -91,11 +118,34 @@ Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 | `Release` | On | Default | `NDEBUG`; asserts compile out, `VERIFY` stays, Tracy on |
 | `Dist` | Full | Off | `NDEBUG` + LTO; Tracy and Aftermath compiled out |
 
+**Dist is an optimisation level, not "the player".** `Core` Dist drops the shader compiler and
+Aftermath, but keeps `AssimpMeshImporter.cpp`: the Dist editor imports source meshes. The
+dependency table lists Assimp for Debug and Release only, so `Core/premake5.lua` adds its headers
+for Dist and `Editor/premake5.lua` links it for Dist (the Release library; Assimp has no Dist
+build). `Lux-Runtime` must not link it: the importer reaches an executable only through
+`MeshSourceSerializer::SetSourceImporter`, which only the editor calls. Check with a search for
+`assimp-vc143` in `bin/Dist-windows-x86_64/Lux-Runtime/Lux-Runtime.exe` (must be absent).
+
 Jolt's `JPH_FLOATING_POINT_EXCEPTIONS_ENABLED` (`Core/vendor/JoltPhysics/JoltPhysicsPremake.lua`) traps
 FP divide-by-zero/invalid/overflow as a hardware exception on physics worker threads — useful for
 catching NaN/Inf bugs while developing, but it turns any degenerate physics state (not necessarily
 an engine bug — Jolt's own math is written to tolerate producing Inf/NaN internally) into a hard
 crash. Keep it **Debug-only**; do not add it back to `Release` or `Dist`.
+
+Linux `Debug-AS` enables `-fsanitize=address` for native C/C++ compilation and executable
+linking, with frame pointers retained. It uses its own `Debug-AS-linux-x86_64` dependency and
+engine output directories. The Linux build/run helpers accept `debug-as`; no new Premake option
+is needed. Clang requires matching compiler-rt development libraries; Ubuntu CI installs
+[libclang-rt-dev](https://packages.ubuntu.com/resolute/libclang-rt-dev). These are developer
+build tools, not game runtime prerequisites.
+
+With `LUX_RUN_AUDIO_TESTS=1`, Debug and Debug-AS both run the independent Soundwave checks
+and the complete headless audio suite before the engine build. Debug-AS instruments those
+test compilations/links too, uses matching Jolt/ImGui archives, and checks the production
+`AudioAcoustics.o` for ASan memory-access instrumentation. CI builds Core, Editor and Runtime
+in this additional Linux configuration, verifies fresh artifacts, and inspects Core/Runtime
+sanitizer symbols. Audio logs have separate per-configuration artifact names. No sanitizer
+errors or leak reports are suppressed by this gate.
 
 `LUX_CORE_VERIFY` is enabled in **every** config (`LUX_ENABLE_VERIFY` is unconditional in
 `Assert.h`) — it is the assert that survives into Dist.
@@ -120,7 +170,8 @@ Two kinds of toggle, both driven off the single `OPTIONS` table in `scripts/Buil
 | `--discord` | Enables the Discord Social SDK integration; defines `LUX_ENABLE_DISCORD`. Requires `Core/vendor/discord_social_sdk/` (fetched manually — `Configure.warn_missing_discord_sdk` warns if absent). |
 | `--no-tracy` | Omits `TRACY_ENABLE` / `TRACY_ON_DEMAND` / `TRACY_CALLSTACK`, reducing vendored Tracy to a stub and compiling every `LUX_PROFILE_*` away. Cuts link times. |
 | `--no-aftermath` | Defines `LUX_DISABLE_AFTERMATH` **and** `removefiles` the `Platform/Vulkan/Debug/**.cpp` crash-tracker sources (they include `GFSDK_Aftermath.h` unconditionally, so `#ifdef` alone isn't enough). `Debug/Aftermath.h` then supplies inline no-ops, so callers need no `#if`. |
-| Audio dependencies (required) | FMOD Core + Studio SDK and the pinned Asterwave C++ static library are always linked. No fallback backend. Legacy flags remain accepted for command compatibility. |
+| Audio | Always the vendored miniaudio (`Audio/Native/`; its one implementation unit, `Audio/Native/MiniaudioImplementation.c`, is `NoPCH`) and the MiniaudioCpp wrapper (`Core/vendor/MiniaudioCpp/src`, `NoPCH`). No SDK, no flag, no deployed libraries. The `--audio-backend` option and the FMOD backend were removed in November 2026. |
+| Acoustics | The in-tree Soundwave library (`Core/vendor/soundwave/`, globbed into `Core`): no SDK and no flag. |
 
 **Script options** (change what the Python does; premake never sees them): `skip-submodules`,
 `skip-vulkan-check`, `skip-scripts`.
@@ -148,18 +199,49 @@ stdin isn't a TTY, `Menu.py` degrades to plain prompts so the same path works un
 | Group | Project | Kind |
 |---|---|---|
 | Core | `Core` | StaticLib — the engine. PCH `lpch.h`. |
-| Core | `ScriptCore` | C# (.NET 9) scripting assembly |
+| Core | `ScriptCore` | C# (.NET 10) scripting assembly |
 | Tools | `Editor` | The editor application |
+| Tools | `Lux-Watchdog` | Windows only: the editor's crash watchdog, built into the editor's output folder (`Editor` depends on it) |
 | Runtime | `Lux-Runtime` | Standalone runtime player |
 | Dependencies | Box2D, JoltPhysics, GLFW, imgui, Tracy, NFD-Extended, Coral.Native, Coral.Managed, Coral.Generator (stub) | |
 | Dependencies/Text | msdf-atlas-gen | |
 | Dependencies/Renderer | NRI, NRI-VK, NRI-Validation, NRI-NONE, NRI-Shared | NRI's own `premake5.lua` (see below) |
 
 **C# is built by MSBuild inside the solution.** `Coral.Managed` and `ScriptCore` are
-premake-generated C# projects, not a separate `dotnet build` step. The .NET 9 SDK is still required
+premake-generated C# projects, not a separate `dotnet build` step. The .NET 10 SDK is still required
 for MSBuild to build them. `Core`'s post-build copies `Coral.Managed.dll` / `.runtimeconfig.json` /
 `.deps.json` (and `.pdb` outside Dist) into `Editor/DotNet/`, which is the `CoralDirectory` the
 `ScriptEngine` host points at.
+
+**The manual's C# API reference is generated.** `ScriptCore` writes `ScriptCore.xml` next to the DLL
+(`GenerateDocumentationFile`; CS1591/CS1573 are off because the generator's check replaces them).
+`tools/ScriptApiDocs` (a developer-only .NET console tool, not in the solution) reads both and writes
+`Editor/Resources/Docs/api/*.md`, the Help panel's "API Reference" section:
+`dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs`.
+With `--check` it writes nothing and fails on a stale or extra page, a public member (enum values and
+default constructors aside) without a `<summary>`, or a doc comment on something no longer public. CI
+runs the check after the Windows Release build, so a public ScriptCore change needs its `///` comment
+and the regenerated pages in the same commit.
+
+### Soundwave source library
+
+`Core/vendor/soundwave/include` is registered in `Dependencies.lua`. Its `src/**.cpp` files
+compile directly into `Core` with `NoPCH`, so they include no engine headers and add no DLL
+or separate link input. New files still require regeneration on both platforms.
+
+### Acoustic verification commands
+
+`scripts/Lux-BuildTest.ps1` regenerates the Visual Studio solution, builds Debug/Release/Dist and
+checks nonempty Core/Runtime artifacts against their source timestamps, plus Editor in Debug/Release.
+The solution intentionally excludes Editor in Dist; an older Dist Editor binary is not evidence.
+It also runs the independent Soundwave and production occlusion checks. An x64 Visual Studio
+developer prompt can run these individually with `tests/audio/run_soundwave.py` and
+`tests/audio/run_occlusion_windows.py`.
+
+`scripts/Lux-GoldenRun.ps1` wraps the existing renderer capture
+runner with fresh-artifact and zero-validation checks; `scripts/lm9-golden-run.py` is a compatibility
+entry point to that same runner. Golden summaries record the editor exit code, including crashes
+after a status file was written.
 
 ### Vendored-submodule workarounds live in `premake5.lua`, not in the submodules
 
@@ -213,6 +295,7 @@ Read this **before** opening the file you think is broken.
 | Pulled a branch that bumped the Vulkan SDK | `scripts\Setup.bat` | Re-runs `Vulkan.CheckVulkanSDK()` |
 | Changed a shader (`.glsl` / `.glslh`) | nothing — hot-reload, or restart | Shaders compile at runtime and are cached; see `.claude/docs/Rendering.md` |
 | Changed C# in `ScriptCore` or a project's scripts | rebuild the solution | MSBuild builds the C# projects in-solution |
+| Changed `ScriptCore`'s public API | document it (`///`), rebuild, rerun `tools/ScriptApiDocs` | CI's API reference check fails otherwise |
 
 If in doubt, `scripts\Win-GenProjects.bat --last` is fast and always safe. `scripts\Setup.bat` is
 the heavier hammer and is also safe to re-run.
@@ -240,41 +323,10 @@ project's script solution is generated with `include_options=False` precisely be
 manually and is gitignored (it is very large). Either check it out or re-run generation without the
 option.
 
-### Asterwave source is missing or its revision does not match
+### miniaudio struct mismatches
 
-Asterwave is compiled as a native C++20 static library. Fetch its exact private revision explicitly:
-
-```powershell
-python scripts/FetchAsterwave.py
-python scripts/FetchAsterwave.py --check
-```
-
-The fetcher reads `scripts/dependencies/Asterwave.json` and uses ambient Git credentials. It needs
-read access to the private repository. The default checkout is gitignored `Core/vendor/Asterwave`;
-use `--root PATH` or `LUX_ASTERWAVE_ROOT` for another location. `--check` performs offline
-revision/layout validation. Premake also validates the pin and required source files without
-fetching. Regenerate after changing the root or pinned revision.
-
-The `Asterwave` Premake project builds the native source for the target configuration. Editor and
-Lux-Runtime link it statically. There is no acoustics runtime DLL/shared object to copy or load,
-and no .NET delegation. Keep Asterwave's private source and unchanged upstream licence/provenance
-records out of the public engine tree; its source availability does not make it permissively licensed.
-
-### FMOD build fails with `fmod.hpp: No such file or directory`
-
-Extract the native FMOD Engine SDK beneath `Core/vendor/FMOD/`, or set `LUX_FMOD_SDK` to its
-package root containing `api/`, then regenerate. `Dependencies.lua` discovers packages by target
-header/library layout rather than folder name; multiple matching packages require an explicit
-override. The same root supplies headers, link inputs and Editor/Runtime post-build copies.
-Windows requires Core/Studio `.lib` and `.dll` files; Linux requires link `.so` files and the
-deployed `.so.14` files. Generation fails with the exact missing path instead of building a
-silent fallback. `LUX_ASTERWAVE_ROOT` independently selects the pinned Asterwave source checkout.
-These environment variables must be set in the shell that runs generation; generated projects
-keep the resolved roots until regenerated.
-
-See `docs/AUDIO_DESKTOP_PLATFORMS.md` for setup and project profiles. Linux native builds and
-disposable Windows SDK-layout tests are verified; a native Windows build/listening test still
-requires the Windows FMOD SDK and Windows host. Console SDK/hardware work is on hold.
+Native code includes miniaudio only through `Audio/Native/Miniaudio.h`, never `<miniaudio.h>`
+directly: the wrapper sets `MA_ENGINE_MAX_LISTENERS`, which changes miniaudio's struct sizes.
 
 ### Aftermath headers not found
 
@@ -293,7 +345,7 @@ Git LFS content wasn't pulled. `git lfs pull`, or re-run `scripts\Setup.bat`.
 ### Editor starts, then fails in `ScriptEngine` with a missing Coral host
 
 `Editor/DotNet/Coral.Managed.dll` isn't there. That file is produced by `Core`'s post-build step —
-build `Core` (not just `Editor`), and confirm the .NET 9 SDK is installed so the C# projects
+build `Core` (not just `Editor`), and confirm the .NET 10 SDK is installed so the C# projects
 actually built.
 
 ### Windows: "nethost.dll was not found" (Editor, Lux-Runtime, or an exported game)
@@ -304,6 +356,24 @@ post-build steps copy it from the .NET SDK pack `Coral.Native/premake5.lua` foun
 exported game gets it from there. Before this copy existed, only hand-placed copies in the Debug and
 Release folders made it work, and Dist exports shipped without it. Regenerate and relink after
 pulling the change: an up-to-date exe does not rerun post-build commands.
+
+### Windows: exit code 0xC0000135 / "shaderc_shared.dll or dxcompiler.dll was not found"
+
+The shader compiler links `shaderc_shared` (`shaderc_sharedd` in Debug) and `dxcompiler` from the
+Vulkan SDK. The Editor and Lux-Runtime post-build steps copy both from `%VULKAN_SDK%\Bin` beside the
+exe, and runtime export ships them with the other DLLs. Before this copy, the exes only started where
+the SDK's `Bin` was on PATH. The self-hosted CI runner's Release `--version` check failed on this, and
+the packaged editor zip and Release game exports shipped without them. Regenerate and relink after
+pulling, as for nethost.
+
+`vulkan-1.dll` is different: it comes with the GPU driver, not the SDK, and is delay-loaded
+(`/DELAYLOAD` in both premake files). `--version` therefore works on a machine with no graphics
+driver, such as the self-hosted CI runner VM. At real startup, `EntryPoint.h` shows a "Vulkan not
+found" message box when the loader is missing, instead of a raw DLL error. `xinput1_4.dll`
+(gamepad rumble) is delay-loaded too, because Windows Server installs lack it; it is only called
+once an Xbox pad is connected. When `--version` fails in CI, the zip step prints each `MISSING:` DLL.
+Tracy builds define `TRACY_TIMER_FALLBACK`: on a CPU without invariant TSC (most VMs) Tracy would
+otherwise show "CPU doesn't support invariant TSC" and exit before `main`.
 
 ### Linux runtime fails to load `Archivo-Bold.ttf`
 
@@ -342,31 +412,97 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 
 ## CI
 
-`.github/workflows/main.yml` — builds on `windows-2025` for `Debug`, `Release`, `Dist`
-(`fail-fast: false`), triggered on push to `master` / `dev` / `features/**` and on PRs to `master` /
-`dev`. Checks out with `submodules: recursive` and `lfs: true`, installs Vulkan SDK `1.4.335.0`,
-generates with `vs2022`, and builds `Lux.sln` with platform `Mixed Platforms`.
+`.github/workflows/main.yml` supports trusted push/manual builds on the dedicated
+Proxmox runners `pve-lux-windows` (Windows Server 2022 Core, UEFI, no GPU passthrough) and
+`pve-lux-linux` (Ubuntu 26.04). Both carry the `luxengine` label plus `windows-build` or
+`linux-build`; jobs also require the matching OS and X64 labels. Pull requests from forks use disposable
+GitHub-hosted `windows-2025` / `ubuntu-26.04` runners. A same-repository PR gets no run of its own:
+the branch's push run reports on the same commit, and is faster (incremental self-hosted Windows, warm
+Linux compiler cache); before this, every push ran CI twice.
+Trusted Linux jobs use `pve-lux-linux` only when the repository variable `LUX_SELF_HOSTED_LINUX`
+is `true`; otherwise they use GitHub-hosted Ubuntu. It is currently disabled while recurring
+in-memory checksum corruption is investigated. Keep the Linux runner service stopped until that
+investigation is resolved, then enable the service and variable together. Windows trusted builds
+continue using the dedicated runner.
 
-Linux builds run on `ubuntu-26.04` for the same configurations via `scripts/Linux-Build.sh`.
-Asterwave compiles with the host toolchain. The former prebuilt acoustics library's glibc 2.43
-requirement no longer applies; this does not establish support for untested older distributions.
+The self-hosted job accounts are unprivileged. Administrators provision Python, Git/LFS,
+CMake, Vulkan SDK `1.4.335.0` and platform build libraries in the VM images; Windows also needs
+PowerShell 7, Git Bash, Visual Studio 2022 C++ Build Tools and 7-Zip. Hosted jobs install their
+own prerequisites. The .NET 10 SDK is the exception: every build job installs it with `actions/setup-dotnet`,
+on self-hosted runners into the runner's tool cache (`DOTNET_INSTALL_DIR`; no admin, kept between jobs). Missing provisioned tools fail the build rather than invoking sudo or UAC.
+The Linux service exports `VULKAN_SDK=/opt/vulkan/1.4.335.0/x86_64`; the Windows service inherits
+`VULKAN_SDK=C:\VulkanSDK\1.4.335.0`. Windows evaluation media requires a valid license for
+long-term use; the VM is independent of the existing GPU-passthrough Windows VM.
 
-**Audio inputs come from private repositories.** FMOD is staged into `.audio-sdk/` from
-`AUDIO_SDK_REPOSITORY` using the read-only `AUDIO_SDK_TOKEN` secret. `LUX_FMOD_SDK` selects
-`.audio-sdk/FMOD/windows` or `.audio-sdk/FMOD/linux`. Populate that repository with
-`scripts/ci/StageAudioSDKs.py`; it stages FMOD headers, link/runtime libraries and licence files.
+Windows builds `Debug`, `Release`, `Dist` (`fail-fast: false`), generates with `vs2022`, and builds
+`Lux.sln` with platform `Mixed Platforms`. Linux additionally builds `Debug-AS` through
+`scripts/Linux-Build.sh`. Triggers are push to `master` / `dev` / `feature/**` and PRs to
+`master` / `dev`, with recursive submodules and LFS in both platform jobs. Linux runs only on
+`master` / `dev` pushes, manual runs and fork PRs; a `feature/**` push builds Windows only. A commit
+that only touches `docs/`, `specs/`, `.claude/`, `.agents/`, `.specify/` or root `*.md` runs nothing
+(`paths-ignore`; editor help under `Editor/Resources/Docs` still runs, for the API reference check).
+After saving its compiler cache (keyed by commit), each Linux build deletes that branch's older entries
+for the same configuration, which keeps the repository under the 10 GB cache limit.
 
-Asterwave is checked out separately at the exact revision in `scripts/dependencies/Asterwave.json`
-using the read-only `ASTERWAVE_TOKEN` secret; `LUX_ASTERWAVE_ROOT` selects that checkout.
-Generation verifies its pin and source layout offline. Fork pull requests have no access to
-these secrets and stop at the dependency access check.
+Jobs are named by phase, in this order: **Prepare** (`version`), **Test** (`test`, `test-linux`:
+the native audio CMake suite in Debug and Release, with no engine build, so a test failure never
+skips or hides a build), **Build** (`build`, `build-linux`: compile, artifact verification, and on
+Linux the Debug/Debug-AS audio integration checks in `tests/audio/run.py`, which need the
+generated Core Makefile), **Package** (the `Package:` steps of the Release builds) and **Ship**
+(`release`, dev pushes only, gated on every Test and Build job). `Diagnose` is the manual Linux
+Vulkan probe.
 
-CI retains build/test logs but publishes no editor/runtime binaries, packages or releases. The
-private Asterwave implementation is statically linked, so removing DLLs cannot remove it from
-an executable. Upstream licence/provenance records remain unchanged.
 
-Note the branch globs: CI matches `features/**`, so a branch named `feature/foo` (singular) will
-**not** be built.
+The Linux VM (901) boots a live dashboard in both the regular Proxmox console and serial console.
+Use `O` for overview, `S` for observed steps, `L` for the larger log view, arrows/Page Up/Page Down
+for history, and `F` to follow output. It shows the service state, VM CPU/RAM/disk usage, workflow,
+branch, commit, current step and the real completed-job result. The job-start/completion hooks and
+collector read the runner's already-masked job-level log pages; they never scrape runner credentials.
+Logs rotate under `/var/lib/lux-runner-console/live.log` (five files of up to 10 MiB each).
+The source lives at `/usr/local/lib/lux-runner-console/console.py`, with
+`lux-runner-console-collector.service` and `lux-runner-console@tty1` / `@ttyS0` display services.
+The Windows VM (902) opens a matching dashboard when the standard `luxrunner` account signs in.
+Its collector starts at boot as the `LuxRunnerConsoleCollector` scheduled task; the runner service
+continues working while the console is signed out. It uses the same overview/steps/logs controls,
+with `Q` returning to PowerShell. Source and hooks live in `C:\Program Files\LuxRunnerConsole`;
+rotating masked output lives in `C:\ProgramData\LuxRunnerConsole\live.log`.
+Both runner VMs use 128 GiB disks on `local-lvm`; the Linux cloud-init snippet is on local storage.
+
+### Persistent CI build cache
+
+Trusted self-hosted checkouts use `clean: false`, preserving configuration-specific native
+objects/PCHs, managed restore data, and the local Git/LFS object store. Pull requests remain on
+clean disposable hosted runners. `scripts/ci/PersistentBuild.py` fingerprints generator scripts,
+compiler, .NET/CMake and Vulkan headers; a changed fingerprint discards only known generated
+build trees. It refuses redirected paths and paths outside the checkout. Logs, packaging trees,
+and the current configuration's final Core archive / Editor / Lux-Runtime executables are
+removed before each build, so they are freshly linked and the existing artifact timestamp
+checks remain valid. Other configurations' outputs are retained. `cold_build` forces a cold
+self-hosted build; a new toolchain also starts cold automatically.
+
+Native CMake test build directories include the configuration. The generated commit-version
+header is written only when its content changes, and `Version.h` stays outside `lpch.h` so a
+new commit does not invalidate the entire Core PCH. Version consumers include it explicitly.
+SDK and NuGet/pip caches remain machine/user-owned outside checkout cleaning.
+
+Hosted Linux uses a content-checked ccache through compiler wrappers and a 1 GiB per-job cache.
+Only trusted non-PR jobs save shared compiler caches; PRs may restore them but cannot publish
+shared entries through this workflow. Cache misses compile normally. Existing test failures
+are not skipped or converted to success by caching. See the reusable guidance in
+[sheazywi/actions-runner-console](https://github.com/sheazywi/actions-runner-console/blob/main/docs/caching.md).
+
+The baseline run `42078010543` failed native audio checks on Windows and hosted Linux before
+complete engine builds; full-engine cold/warm timing is therefore still unmeasured. Cache
+invalidation/relinking has dedicated tests under `tests/ci`; use an identical commit and then
+an implementation-file edit for an end-to-end warm-build measurement after those checks pass.
+Linux VM integrity quarantine remains independent of cache configuration.
+
+Before building, every job runs `tests/audio/native` (the vendored miniaudio's offline
+decode/render checks, and the engine's native backend driven through `AudioEngine`/
+`AudioEventInstance`); it needs no audio SDK or device.
+
+The jobs read no secrets, so they also run for fork pull requests, and packaging fails if an FMOD
+library left by an old build reaches an editor artifact.
 
 If a change affects generation (new premake option, new project, new dependency), make sure the CI
 path still works with the non-interactive generator invocation — CI never gets a TTY.
@@ -392,12 +528,139 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 ## Environment variables
 
+- `LUX_PLAY_SELFTEST=<frames>` — Debug/Release editor only. The editor enters Play on the project's
+  start scene, plays that many frames, stops and closes (`EditorLayer::OnUpdate`). It judges
+  nothing itself: `python tests/play/run_play.py` writes a throw-away project (physics lanes, a
+  prefab and an older instance of it, the C# checks in `tests/play/Scripts`), builds the scripts
+  with `dotnet`, runs Single and Multi, and requires every `PLAYTEST PASS <name>` line, no
+  `PLAYTEST FAIL`, no managed exception and a clean graphics log. Checks count physics steps, not
+  wall time. `--export` instead exports the project through the editor pipeline
+  (`golden_run.py --export-dir`) and runs the same checks in the packaged player (`--runtime-config`,
+  Dist by default); the scene's `Finisher` script ends it with `Application.Quit()` once every check
+  reported, and the runner reads the game's `logs/LUX_*` and `APP_*` files. `--only <entities>` keeps a subset of the scene for bisecting a crash;
+  `LUX_TEST_EDITOR` selects another executable. The project's script and field IDs use
+  `Hash::GenerateFNVHash`, which hashes a trailing zero byte as well (`run_play.fnv1a`).
+
+- `LUX_AUDIO_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_audio_panels.py` exercises Sound Bank automatic-save rejection/retry,
+  undo and cached inventory, checked Sound saves and authored asset-pack round trips, Sound Editor
+  section/tree reflow, real waveform/marker/curve input and undo, clip reload and audition teardown, plus Mixer
+  reflow, state, save/retry, Apply refusal during Play and snapshot audition teardown. Audio Debugger
+  probes cover captured source ownership, search, pause/refresh, narrow pages and context teardown. The runner
+  uses Single/Multi, writes sibling `.status` files and exits. New C++ tests require regeneration;
+  `LUX_TEST_EDITOR` can select a separately verified executable.
+
+- `LUX_SETTINGS_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_settings_panels.py` runs Application/Project Settings and offline Help
+  reflow, optional panel-state round trips, text isolation, project save/failure/retry, acoustic
+  controls and Light Settings context checks under Single/Multi. It also exercises Scene Renderer
+  narrow/DPI cards, fixed/dynamic resolution controls, save/failure/retry and Game View's wrapped
+  no-camera guidance without creating a renderer. It writes a sibling `.status`
+  and exits. New C++ tests require project
+  regeneration; `LUX_TEST_EDITOR` can select a separately verified executable.
+
+- `LUX_DIAGNOSTIC_CONTROLS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_diagnostic_controls.py` runs Log filtering/follow/retention/detail lifetime,
+  asset metadata refresh and History navigation under Single/Multi. It writes a sibling `.status`
+  and exits. `LUX_TEST_EDITOR` optionally selects a separately verified executable. New C++ test
+  files require project regeneration.
+
+- `LUX_HIERARCHY_PANELS_SELFTEST` — Debug/Release editor-only active disposable project directory.
+  `python tests/editor/run_hierarchy_panels.py` drives Single/Multi coverage of hierarchy/inspector
+  reflow, text isolation, multi-entity edits, component search and scene snapshot persistence.
+  Writes a sibling `.status` and an authored scene inside the fixture, then exits. The runner
+  accepts optional `LUX_TEST_EDITOR`, like the browser/workspace/material runners.
+
+- `LUX_DIAGNOSTIC_PLOTS_SELFTEST` — Debug/Release editor-only status-file stem. Exercises the
+  production bounded timing history, missing GPU data, legend toggling, first-gesture inspection,
+  pause/resume, outliers, scale/width changes and frozen GPU pass snapshots in isolated ImGui/ImPlot
+  contexts. Writes `<stem>.status` and exits. `python tests/editor/run_diagnostic_plots.py` creates
+  separate user data for Single and Multi without opening a project.
+
+- `LUX_MATERIAL_PANELS_SELFTEST` — Debug/Release editor-only disposable project directory. The
+  active project's directory must match. After startup project loading, exercises material save,
+  failed-save/retry/reload, undo, removed-graph Revert, graph scope balance, responsive composition
+  and presentation state in an isolated ImGui context, then drives normal application frames for
+  shader-permutation reloads, invalid-graph repair, node previews and close/project teardown.
+  Writes `<directory>.status` and exits.
+  `python tests/editor/run_material_panels.py` creates separate Single/Multi projects and user data.
+
+- `LUX_PANEL_CONTROLS_SELFTEST` — Debug/Release editor-only fixture directory, which must not
+  exist. Exercises shared action-bar sizing/overflow in an isolated ImGui context and Beam's save,
+  immediate edit/close, retry and document-retention APIs; also covers duplicate names, path aliases,
+  Unicode paths, cancelled/failed Save As, failed close-save, many-tab navigation, popup focus/Enter
+  handoff and the real vendored Find/Replace layout at multiple scales. Writes `<directory>.status` and exits.
+  `python tests/editor/run_panel_controls.py` runs this under Single and Multi. Native Beam UI
+  verification covers text entry, dialogs, shortcuts, workspace switching and resizing separately.
+
+- `LUX_USER_DATA_DIR` — optional complete per-user storage override on Windows/Linux; use a new
+  directory for editor verification so settings, layouts and logs never touch real preferences.
+- `LUX_WORKSPACES_SELFTEST` — Debug/Release editor-only workspace fixture directory, which must
+  not already exist. Runs production layout lifecycle/persistence tests in a separate ImGui context,
+  writes `<directory>.status`, then exits normally. `python tests/editor/run_workspace_smoke.py`
+  drives Single and Multi launches. `python tests/editor/run_workspaces.py` exercises docking/DPI
+  against the vendored ImGui without a GPU.
+
 - `LUX_DIR` — repo root. Set by `Setup.py` via `setx` on Windows; derived from the script location
   on Linux.
 - `VULKAN_SDK` — used if set, otherwise the vendored `Core/vendor/VulkanSDK/x86_64` on Linux.
   `Dependencies.lua` reads it for Core's Vulkan headers and libraries.
 - `VULKAN_VERSION`, `PREMAKE_VERSION` — override the pins in `scripts/Linux-Fetch.sh`.
 - `BUILD_CONFIG`, `JOBS` — consumed by `scripts/Linux-Build.sh`.
+- `LUX_RUN_AUDIO_TESTS=1`: optional Debug verification in `scripts/Linux-Build.sh`: runs the
+  complete audio suite after dependency builds and before Core/Editor, then continues the full
+  engine build. CI enables it for Debug. Compiled test outputs are checked for freshness.
 - `LUX_GOLDEN_*` — read by the editor's golden-image capture (`Rendering.md § Golden image
-  capture`). Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
+  capture`). `LUX_GOLDEN_PLAY=1` enters normal Play and adds fresh Soundwave/Scene gain evidence. Its output goes to `bin/golden/`, which `/bin` in `.gitignore` already keeps out of
   commits.
+
+### Linux CI Vulkan capability probe
+
+The existing Build LuxEngine workflow accepts a manual `linux_vulkan_probe=true` input. It
+runs only an Ubuntu 26.04 Xvfb/lavapipe capability probe; normal build jobs are skipped for
+that explicit invocation. Push/PR/default manual builds retain the ordinary matrix. The probe
+installs tools only on its disposable CI runner, accesses no licensed audio SDK and uploads
+Vulkan summary/full-feature evidence. It checks the core features unconditionally requested by
+VulkanDevice before attempting a native player check on CI. Passing the probe proves neither
+engine startup nor audio playback/export, and cannot substitute for the real runtime gate.
+
+Manual `linux_audio_check=runtime` selects only the Linux Debug job and drives the actual
+Sponza Play/export/player runner under Xvfb/lavapipe and a PulseAudio null sink. `soundwave_cases`
+is a space-separated list accepted by the native runner (default `corner`). The normal build,
+full audio regressions, export validations and native report checks still apply; the CI job
+uploads only logs/reports, never licensed SDK libraries or complete game packages. This tests
+correctness on software Vulkan, not GPU performance or Phase 4 hardware parity. The native
+fixture copies the sample's `Audio` folder (Sounds, clips, the demo Sound Bank) into its own tree;
+it never writes through a link into the original project.
+
+Manual `linux_audio_check=debug-as` selects only the Linux Debug-AS job. Native Core/Editor/Runtime
+build before optional audio regressions; a regression failure still fails the job, while the
+fresh-artifact and native sanitizer-symbol check runs afterward to retain independent evidence.
+The ordinary push/PR/default manual matrix is unchanged. Use either audio mode or the standalone
+Vulkan probe in one invocation. These switches only change disposable CI orchestration.
+
+The runtime CI services create their private XDG runtime directory before exporting it to
+subsequent steps: .NET's NuGet named mutexes use that directory during managed builds, before
+the native window/audio test starts. An exported but nonexistent directory fails those builds.
+
+### Linux exported runtime cannot find a vendored shared library
+
+Every Linux Lux-Runtime configuration runs `scripts/Stage-LinuxRuntimeLibraries.sh` after linking
+and explicit audio-library deployment. It uses the build system's bash/ldd/coreutils to copy only
+the resolved Assimp/Aftermath/Vulkan-SDK shared-library closure into the runtime's `lib/`, keeping
+loader filenames and dereferencing input symlinks. It checks resolution again with only that
+directory in LD_LIBRARY_PATH and fails on unresolved or unstaged vendored libraries. It does not
+copy all Vulkan tooling, replace system desktop libraries, or run tools during editor export.
+
+Regenerate projects after the premake change and rebuild Lux-Runtime. Export copies staged
+shared objects into the package's `lib/` and stops on copy/enumeration failure. Native acoustic
+package checks use only that package directory for LD_LIBRARY_PATH; build-tree paths cannot hide
+missing dependencies. A build or Play pass alone does not prove the exported loader path works.
+
+Linux Debug package verification still enables Vulkan validation. Its developer runner writes a
+capture-local copy of the SDK Khronos layer manifest with an absolute library path and sets
+VK_LAYER_PATH to it. Only that diagnostic tool is resolved from the SDK; LD_LIBRARY_PATH remains
+the package's lib directory, so SDK paths cannot hide missing game dependencies. Source SDK
+manifests/settings are untouched. Release/Dist package checks need no validation-layer override.
+The manual Linux Vulkan probe now exercises this exact helper and loader setup before engine
+compilation, without fetching private audio SDKs; its manifest and tool output are retained.

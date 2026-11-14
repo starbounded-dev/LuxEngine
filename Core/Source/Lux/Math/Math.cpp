@@ -122,21 +122,14 @@ namespace Lux::Math {
 		//Skew.y /= Scale.z;
 		//Skew.x /= Scale.z;
 
-#if _DEBUG
-		// At this point, the matrix (in rows[]) is orthonormal.
-		// Check for a coordinate system flip.  If the determinant
-		// is -1, then negate the matrix and the scaling factors.
-		vec3 Pdum3 = cross(Row[1], Row[2]); // v3Cross(row[1], row[2], Pdum3);
-		LUX_CORE_ASSERT(dot(Row[0], Pdum3) >= static_cast<T>(0));
-#endif
-		//if (dot(Row[0], Pdum3) < 0)
-		//{
-		//	for (length_t i = 0; i < 3; i++)
-		//	{
-		//		scale[i] *= static_cast<T>(-1);
-		//		Row[i] *= static_cast<T>(-1);
-		//	}
-		//}
+		// A mirrored matrix (negative determinant) has no rotation: the reflection goes into the scale,
+		// on X, which leaves a proper rotation. The decomposition still rebuilds the same matrix, though a
+		// mirror authored on another axis comes back as X plus a half turn.
+		if (dot(Row[0], cross(Row[1], Row[2])) < static_cast<T>(0))
+		{
+			scale.x = -scale.x;
+			Row[0] = -Row[0];
+		}
 
 		// Rotation as XYZ Euler angles
 		//rotation.y = asin(-Row[0][2]);

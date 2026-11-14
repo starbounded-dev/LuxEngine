@@ -1,0 +1,11 @@
+Material:
+  Transparent: false
+  AlbedoColor: [1, 1, 1]
+  Metalness: 0
+  Roughness: 0.5
+  Parent: 17000000000000000008
+  Overrides:
+    - Param.Tint
+  GraphParameters:
+    Tint:
+      Value: [0.2, 0.55, 1, 1]
