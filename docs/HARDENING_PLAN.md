@@ -469,7 +469,7 @@ the player does not exist.
 ### Phase 6 (in progress, 2026-11-13)
 
 - **Fixed:** F4 (`run_workspaces.py` no longer assumes the env key is `Path`), F5 (`scripts/run_with_msvc.py` sets up the MSVC environment for any command).
-- **Added:** the editor runners and `tests/play/run_play.py` run in the Release build job on the self-hosted Windows runner (`.github/workflows/main.yml`). Not in CI: Play `--export` (no Dist Editor there) and golden captures.
+- **Added:** the three compiler-host runners (workspaces, project and script templates) run in the Release build job (`.github/workflows/main.yml`). The runners that launch the editor, `run_play.py` and golden captures stay local: the self-hosted Windows runner has no GPU (2026-11-14, after a first attempt timed out there).
 - **Documented:** F1, in `.claude/docs/Building.md` (use the VS 18 MSBuild; CI machines need the .NET SDK component).
 - **Fixed in code:** F16(1) (exports write a stamped shader pack; Dist export run passes), F17, F18, F19, F20, F21, F22, F23, F25, and the editor finds `Resources/` when started from `bin/`.
 - **Not fixed:** F16(2), the Coral `Setting properties is not allowed` warning. The fix is in the Coral submodule, whose remote is upstream; it needs a fork first.

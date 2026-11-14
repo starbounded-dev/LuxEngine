@@ -350,31 +350,19 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
-      # Editor self-test runners need a GPU and a desktop session, so only the self-hosted runner runs
-      # them. Each runner isolates itself with its own LUX_USER_DATA_DIR. The compiler-host runners
-      # (workspaces, project/script templates) go through the MSVC wrapper.
-      # Not run here: tests/play/run_play.py --export needs a Dist Editor, and the Dist matrix leg builds
-      # none; tests/rendering/golden_run.py is not run in CI at all (no GPU image diffs).
-      - name: 'Test: editor runners'
+      # The runners that compile and run a test host (no editor, no GPU). The ones that launch the
+      # editor, tests/play/run_play.py and tests/rendering/golden_run.py need a GPU and a desktop
+      # session, which pve-lux-windows (Server Core, no GPU passthrough) does not have; run them locally.
+      - name: 'Test: compiler-host runners'
         if: matrix.configuration == 'Release' && runner.environment == 'self-hosted'
         working-directory: ${{env.GITHUB_WORKSPACE}}
-        env:
-          LUX_TEST_EDITOR: ${{ github.workspace }}/bin/Release-windows-x86_64/Editor/Editor.exe
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $skip = 'run_remaster_export.py'  # replays golden captures against a Dist player
-          $compilerHost = 'run_workspaces.py', 'run_project_templates.py', 'run_script_templates.py'
-          foreach ($runner in Get-ChildItem tests/editor/run_*.py | Where-Object { $_.Name -ne $skip }) {
-            if ($compilerHost -contains $runner.Name) { python scripts/run_with_msvc.py python $runner.FullName }
-            else { python $runner.FullName }
-            if ($LASTEXITCODE -ne 0) { throw "$($runner.Name) failed" }
+          foreach ($runner in 'run_workspaces.py', 'run_project_templates.py', 'run_script_templates.py') {
+            python scripts/run_with_msvc.py python tests/editor/$runner
+            if ($LASTEXITCODE -ne 0) { throw "$runner failed" }
           }
-
-      - name: 'Test: Play in the editor'
-        if: matrix.configuration == 'Release' && runner.environment == 'self-hosted'
-        working-directory: ${{env.GITHUB_WORKSPACE}}
-        run: python tests/play/run_play.py --config release
 
       # The manual's C# API reference (Editor/Resources/Docs/api) is generated from the built
       # ScriptCore.dll and its XML docs. Fails when a page is stale (regenerate it with the same

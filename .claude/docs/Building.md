@@ -102,8 +102,10 @@ The VS2022 Build Tools MSBuild fails on the C# projects with MSB4236 (it cannot 
 `Microsoft.NET.Sdk`; hardening finding F1). Any CI machine that builds `Lux.sln` needs the .NET SDK
 workload component installed with Visual Studio.
 
-CI runs the editor runners (`tests/editor/run_*.py`) and `tests/play/run_play.py` on the self-hosted
-Windows runner, in the Release build job. Each runner sets `LUX_USER_DATA_DIR` to its own temporary folder.
+CI runs only the runners that compile a test host (`run_workspaces`, `run_project_templates`,
+`run_script_templates`), in the Release build job. The runners that launch the editor, `tests/play/run_play.py`
+and the golden captures need a GPU and a desktop session, which the self-hosted Windows runner (Server Core,
+no GPU passthrough) lacks: run them locally. Each runner sets `LUX_USER_DATA_DIR` to its own temporary folder.
 
 Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 
