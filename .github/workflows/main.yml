@@ -29,10 +29,26 @@ on:
       - master
       - dev
       - 'feature/**'
+    # A commit that only touches these builds nothing; editor help (Editor/Resources/Docs) is not listed,
+    # because the C# API reference check reads it.
+    paths-ignore:
+      - 'docs/**'
+      - 'specs/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.specify/**'
+      - '*.md'
   pull_request:
     branches:
       - master
       - dev
+    paths-ignore:
+      - 'docs/**'
+      - 'specs/**'
+      - '.claude/**'
+      - '.agents/**'
+      - '.specify/**'
+      - '*.md'
 
 env:
   GITHUB_WORKSPACE: ${{ github.workspace }}
@@ -173,7 +189,9 @@ jobs:
   # (LUX_VERSION_SERIES), so the binaries, the zips and the release tag (v<version>) agree.
   version:
     name: 'Prepare: version'
-    if: ${{ !inputs.linux_vulkan_probe }}
+    # A same-repository PR gets no run of its own: the branch's push run reports on the same commit,
+    # faster (self-hosted incremental Windows, warm Linux cache). Skipping this skips both build jobs.
+    if: ${{ !inputs.linux_vulkan_probe && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ubuntu-latest
     outputs:
       series: ${{ steps.version.outputs.series }}
@@ -206,7 +224,7 @@ jobs:
 
   test:
     name: 'Test: Windows (${{ matrix.configuration }})'
-    if: ${{ !inputs.linux_vulkan_probe && (!inputs.linux_audio_check || inputs.linux_audio_check == 'off') }}
+    if: ${{ !inputs.linux_vulkan_probe && (!inputs.linux_audio_check || inputs.linux_audio_check == 'off') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
     runs-on: ${{ fromJSON(github.event_name != 'pull_request' && '["self-hosted", "Windows", "X64", "luxengine", "windows-build"]' || '["windows-2025"]') }}
     strategy:
       fail-fast: false
@@ -491,7 +509,8 @@ jobs:
 
   test-linux:
     name: 'Test: Linux (${{ matrix.configuration }})'
-    if: ${{ !inputs.linux_vulkan_probe }}
+    # Linux is verified on dev/master pushes, manual runs and fork PRs; feature-branch pushes build Windows only.
+    if: ${{ !inputs.linux_vulkan_probe && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && (github.event_name != 'push' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
     runs-on: ${{ fromJSON(github.event_name != 'pull_request' && vars.LUX_SELF_HOSTED_LINUX == 'true' && '["self-hosted", "Linux", "X64", "luxengine", "linux-build"]' || '["ubuntu-26.04"]') }}
     strategy:
       fail-fast: false
@@ -517,6 +536,10 @@ jobs:
   build-linux:
     name: 'Build: Linux (${{ matrix.configuration }})'
     needs: version
+    permissions:
+      contents: read
+      actions: write  # prune superseded compiler caches
+    if: ${{ (github.event_name != 'push' || github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/master') }}
     runs-on: ${{ fromJSON(github.event_name != 'pull_request' && vars.LUX_SELF_HOSTED_LINUX == 'true' && '["self-hosted", "Linux", "X64", "luxengine", "linux-build"]' || '["ubuntu-26.04"]') }}
     strategy:
       fail-fast: false
@@ -867,11 +890,25 @@ jobs:
           if command -v ccache >/dev/null 2>&1; then ccache --show-stats; fi
 
       - name: Save trusted hosted compiler cache
+        id: save-ccache
         if: always() && runner.environment != 'self-hosted' && github.event_name != 'pull_request'
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/luxengine/ccache
           key: linux-ccache-v1-${{ runner.arch }}-${{ matrix.configuration }}-${{ hashFiles('**/premake5.lua', 'Dependencies.lua') }}-${{ github.sha }}
+
+      # Every save is keyed by commit; the entries it supersedes would otherwise sit in the 10 GB
+      # repository cache until LRU eviction pushes out the useful ones (dev's Vulkan SDK, other configs).
+      - name: Prune superseded compiler caches
+        if: always() && steps.save-ccache.outcome == 'success'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CURRENT: linux-ccache-v1-${{ runner.arch }}-${{ matrix.configuration }}-${{ hashFiles('**/premake5.lua', 'Dependencies.lua') }}-${{ github.sha }}
+        run: |
+          gh cache list --ref "$GITHUB_REF" --key "linux-ccache-v1-${{ runner.arch }}-${{ matrix.configuration }}-${{ hashFiles('**/premake5.lua', 'Dependencies.lua') }}-" --limit 100 --json id,key \
+            --jq ".[] | select(.key != \"$CURRENT\") | .id" | xargs -r -n1 gh cache delete
 
       - name: Report persistent build cache
         if: always() && runner.environment == 'self-hosted'

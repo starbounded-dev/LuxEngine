@@ -105,7 +105,9 @@ workload component installed with Visual Studio.
 CI runs only the runners that compile a test host (`run_workspaces`, `run_project_templates`,
 `run_script_templates`), in the Release build job. The runners that launch the editor, `tests/play/run_play.py`
 and the golden captures need a GPU and a desktop session, which the self-hosted Windows runner (Server Core,
-no GPU passthrough) lacks: run them locally. Each runner sets `LUX_USER_DATA_DIR` to its own temporary folder.
+no GPU passthrough) lacks: run them locally with `python tests/run_local.py [--build] [--only <name> ...]`,
+which runs every editor runner, the Play checks in Debug and Release and the managed audio checks inside
+the MSVC environment and prints one summary. Each runner sets `LUX_USER_DATA_DIR` to its own temporary folder.
 
 Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 
@@ -413,8 +415,10 @@ rebuild. Stale-project and stale-PCH are the two dominant classes of mystery bre
 `.github/workflows/main.yml` supports trusted push/manual builds on the dedicated
 Proxmox runners `pve-lux-windows` (Windows Server 2022 Core, UEFI, no GPU passthrough) and
 `pve-lux-linux` (Ubuntu 26.04). Both carry the `luxengine` label plus `windows-build` or
-`linux-build`; jobs also require the matching OS and X64 labels. Every pull request uses disposable
-GitHub-hosted `windows-2025` / `ubuntu-26.04` runners, including same-repository PRs.
+`linux-build`; jobs also require the matching OS and X64 labels. Pull requests from forks use disposable
+GitHub-hosted `windows-2025` / `ubuntu-26.04` runners. A same-repository PR gets no run of its own:
+the branch's push run reports on the same commit, and is faster (incremental self-hosted Windows, warm
+Linux compiler cache); before this, every push ran CI twice.
 Trusted Linux jobs use `pve-lux-linux` only when the repository variable `LUX_SELF_HOSTED_LINUX`
 is `true`; otherwise they use GitHub-hosted Ubuntu. It is currently disabled while recurring
 in-memory checksum corruption is investigated. Keep the Linux runner service stopped until that
@@ -432,8 +436,13 @@ long-term use; the VM is independent of the existing GPU-passthrough Windows VM.
 
 Windows builds `Debug`, `Release`, `Dist` (`fail-fast: false`), generates with `vs2022`, and builds
 `Lux.sln` with platform `Mixed Platforms`. Linux additionally builds `Debug-AS` through
-`scripts/Linux-Build.sh`. Triggers remain push to `master` / `dev` / `feature/**` and PRs to
-`master` / `dev`, with recursive submodules and LFS in both platform jobs.
+`scripts/Linux-Build.sh`. Triggers are push to `master` / `dev` / `feature/**` and PRs to
+`master` / `dev`, with recursive submodules and LFS in both platform jobs. Linux runs only on
+`master` / `dev` pushes, manual runs and fork PRs; a `feature/**` push builds Windows only. A commit
+that only touches `docs/`, `specs/`, `.claude/`, `.agents/`, `.specify/` or root `*.md` runs nothing
+(`paths-ignore`; editor help under `Editor/Resources/Docs` still runs, for the API reference check).
+After saving its compiler cache (keyed by commit), each Linux build deletes that branch's older entries
+for the same configuration, which keeps the repository under the 10 GB cache limit.
 
 Jobs are named by phase, in this order: **Prepare** (`version`), **Test** (`test`, `test-linux`:
 the native audio CMake suite in Debug and Release, with no engine build, so a test failure never
