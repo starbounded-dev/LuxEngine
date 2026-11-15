@@ -259,18 +259,29 @@ store them (`RHITypes.cpp` checks them). Textures and buffers are described by `
 the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()`). `RecordResourceUpload` callbacks take an `UploadContext` (P13). SPIR-V lives on `RHIShader` (`GetSPIRV(ShaderStage)`),
 not the abstract `Shader`.
 
-**Shader packs** (`Renderer/ShaderPack.h`): `ShaderPack.lsp` (LXSP v1) holds compiled SPIR-V for
-builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`). Exports write a stamped pack (`WriteStampedPack`)
-into the package, and copy the generated material-graph include beside it (the `Resources` copy skips
-`Cache/`), so the player hashes the same inputs the stamp recorded. The Dist Editor loads `Editor/Resources/ShaderPack.lsp` (set in `LuxEditorApp.cpp`
-under `LUX_DIST`), written by Application Settings → Refresh shader pack in a compiler-enabled
-editor. Beside it, `<pack>.stamp` (YAML) records the shader-source identity (FNV over every
-`Resources/Shaders` source and the generated material-graph include), the global macros, the GPU
-and the program count. `Renderer::Init` runs `ShaderPack::Evaluate` against
-`Renderer::CaptureShaderPackEnvironment()` before loading: changed sources or an unreadable/empty
-pack stop the launch (macros are recorded, not compared, because SceneRenderer replaces Init's
-defaults from project settings) (`LUX_CORE_VERIFY`); another GPU or a missing stamp only warn, so exported
-packages keep working. Main thread only (file I/O).
+**Shader packs** (`Renderer/ShaderPack.h`, plan `docs/SHADER_PACK_PLAN.md`): `ShaderPack.lsp` (LXSP v1)
+holds compiled SPIR-V for builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`),
+one variant per shader. Two kinds (`ShaderPackKind`, recorded as `Kind:` in the stamp):
+- **Engine** — `Editor/Resources/ShaderPack.lsp`, loaded by the Dist editor (`LuxEditorApp.cpp` under
+  `LUX_DIST`). Built only by `Editor.exe --build-shader-pack[=path]` from a Debug/Release editor:
+  `CreateApplication` resets the material-graph include to the no-graph text
+  (`MaterialGraphRegistry::ResetGeneratedInclude`), pushes `ShaderPackBuildLayer` instead of
+  `EditorLayer`, writes the pack and exits (`g_ApplicationExitCode`, `EntryPoint.h`), opening no
+  project, so no project's graphs reach it. Judged against `MaterialGraphRegistry::GetEmptyIncludeText()`,
+  never the live include. `tests/shaders/check_engine_pack.py` recomputes its identity without a GPU
+  (CI Release job, `run_local.py`); keep it in step with `ComputeShaderInputIdentity`.
+- **Export** — `<export>/Assets/ShaderPack.lsp`, written by `WriteRuntimeShaderPack` from the live
+  library after `MaterialGraphRegistry::ScanProject` (graphs included); the export copies the live
+  include beside it and the player is judged against that copy.
+Beside a pack, `<pack>.stamp` (YAML) records the kind, the input identity (FNV chain over every
+`Resources/Shaders` source and the include text, paths with `/`, carriage returns dropped, so every
+OS and checkout agree), the global macros, the GPU and the program count. `Renderer::Init` reads the
+stamp's kind, runs `ShaderPack::Evaluate` against `CaptureShaderPackEnvironment(kind)`, and stops on
+changed inputs or an unreadable/empty pack (`LUX_CORE_VERIFY`); another GPU or a missing stamp only
+warn. Macros are recorded, not compared; a compilerless build keeps them in `s_PackedShaderMacros`
+and `SetGlobalMacroInShaders` warns once when asked for a value the pack doesn't hold. The Dist
+editor's start on the engine pack is checked by `tests/editor/run_dist_editor_start.py`
+(`LUX_STARTUP_SELFTEST`, the one startup self-test compiled into Dist). Main thread only (file I/O).
 
 **NRI device** (`Renderer/RHI/RHIDevice.h`, NRI migration Phase 6): a static facade over an NRI
 device created with `nriCreateDeviceFromVKDevice` on the VkDevice, queues and extension lists

@@ -20,6 +20,8 @@
 
 extern Lux::Application* Lux::CreateApplication(int argc, char** argv);
 bool g_ApplicationRunning = true;
+// What the process returns; a command-line tool mode (Editor --build-shader-pack) sets it on failure.
+int g_ApplicationExitCode = 0;
 
 namespace Lux {
 
@@ -65,7 +67,7 @@ namespace Lux {
 			ShutdownCore();
 		}
 		CrashWatchdog::MarkCleanExit();
-		return 0;
+		return g_ApplicationExitCode;
 	}
 
 }

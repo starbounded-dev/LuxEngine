@@ -27,12 +27,23 @@ namespace Lux
 
 	namespace
 	{
+		// Content hash with carriage returns dropped: a Windows checkout has CRLF where git stores LF,
+		// and the identity must not depend on how the files were checked out.
+		uint32_t HashShaderText(std::string_view text)
+		{
+			std::string normalized;
+			normalized.reserve(text.size());
+			std::ranges::copy_if(text, std::back_inserter(normalized), [](char c) { return c != '\r'; });
+			return Hash::GenerateFNVHash(normalized);
+		}
+
 		// The sidecar text, written by WriteStampedPack and read by ReadStamp through one pair of
 		// spellings, so the description of a pack can never drift from how it is parsed back.
 		std::string RenderStampText(const ShaderPackStamp& stamp)
 		{
 			Yaml::Writer out;
 			out << Yaml::BeginMap;
+			out << Yaml::Key << "Kind" << Yaml::Value << stamp.m_Kind;
 			out << Yaml::Key << "ShaderInputs" << Yaml::Value << stamp.m_ShaderInputs;
 			out << Yaml::Key << "GlobalMacros" << Yaml::Value << stamp.m_Macros;
 			out << Yaml::Key << "RendererName" << Yaml::Value << stamp.m_RendererName;
@@ -234,15 +245,17 @@ namespace Lux
 	
 	// Walked sorted and hashed by content because the stamp is compared by equality: a
 	// nondeterministic walk would make every launch look stale. The generated material-graph include
-	// is an input rather than a by-product - MaterialGraphRegistry.h:23-24 documents
-	// Resources/Cache/Shader/Generated/MaterialGraphs.glslh as an include the shaders consume, so a
-	// project-authored graph changes the SPIR-V a pack carries and must invalidate it.
-	// A 32-bit FNV chain is staleness detection, not integrity (ShaderPack.h § m_ShaderInputs): a miss
-	// asks for a regeneration and nothing here may treat a match as proof a pack is correct.
-	std::string ShaderPack::ComputeShaderInputIdentity()
+	// is an input - the six surface shaders include it (MaterialGraphRegistry.h) - but its text comes
+	// from the caller: the live file belongs to whichever project an editor opened last, so an engine
+	// pack is judged against the no-graph text and an export pack against the include it shipped with.
+	// Paths use forward slashes and contents drop carriage returns, so a stamp written on one OS or
+	// checkout matches on another, and
+	// tests/shaders/check_engine_pack.py recomputes this exact chain without a GPU: change both together.
+	// A 32-bit FNV chain is staleness detection, not integrity (ShaderPack.h § m_ShaderInputs).
+	std::string ShaderPack::ComputeShaderInputIdentity(std::string_view generatedInclude)
 	{
 		std::error_code ec;
-		std::vector<std::string> inputs;
+		std::vector<std::pair<std::string, std::string>> inputs; // path, content hash
 		for (std::filesystem::recursive_directory_iterator it{"Resources/Shaders", ec}, end; it != end;
 			it.increment(ec))
 		{
@@ -252,33 +265,28 @@ namespace Lux
 			if (extension != ".glsl" and extension != ".glslh" and extension != ".hlsl"
 				and extension != ".hlslh" and extension != ".slh")
 				continue;
-			inputs.push_back(it->path().lexically_normal().string());
+			const std::filesystem::path path = it->path().lexically_normal();
+			const Buffer content = FileSystem::ReadBytes(path);
+			// An unreadable source must not hash like an empty file, or a broken tree would look current.
+			if (!content.Data)
+				LUX_CORE_WARN_TAG("Renderer", "Shader source {} could not be read for the pack identity", path.string());
+			inputs.emplace_back(path.generic_string(), content.Data
+				? std::to_string(HashShaderText(std::string_view{static_cast<const char*>(content.Data), static_cast<size_t>(content.Size)}))
+				: std::string("unreadable"));
 		}
 		if (ec)
 			// Without the walk the identity would silently describe nothing, and a compilerless build would
 			// consume a pack that matches nothing: report, and let the caller refuse on the difference.
 			LUX_CORE_WARN_TAG("Renderer", "Could not enumerate shader sources under Resources/Shaders: {}", ec.message());
-		const std::filesystem::path generatedInclude = MaterialGraphRegistry::GetGeneratedIncludePath();
-		if (FileSystem::Exists(generatedInclude))
-			inputs.push_back(generatedInclude.lexically_normal().string());
+		inputs.emplace_back(MaterialGraphRegistry::GetGeneratedIncludePath().generic_string(),
+			std::to_string(HashShaderText(generatedInclude)));
 		std::ranges::sort(inputs);
 		std::string chain;
-		for (const std::string& path : inputs)
-		{
-			const Buffer content = FileSystem::ReadBytes(path);
-			if (!content.Data)
-			{
-				// An unreadable source must not hash like an empty file, or a broken tree would look current.
-				LUX_CORE_WARN_TAG("Renderer", "Shader source {} could not be read for the pack identity", path);
-				chain += path + ":unreadable;";
-				continue;
-			}
-			const std::string_view bytes{static_cast<const char*>(content.Data), static_cast<size_t>(content.Size)};
-			chain += path + ":" + std::to_string(Hash::GenerateFNVHash(bytes)) + ";";
-		}
+		for (const auto& [path, hash] : inputs)
+			chain += path + ":" + hash + ";";
 		return std::to_string(Hash::GenerateFNVHash(chain));
 	}
-	
+
 	// Absent is not an error: the runtime-export path (EditorLayer.cpp:398-407) has always written a
 	// bare pack, so every exported package to date has no stamp and must keep working. A stamp that
 	// exists but cannot be read or parsed is a real fault and is logged, because the caller maps
@@ -291,6 +299,7 @@ namespace Lux
 		try
 		{
 			const Yaml::Node document = Yaml::LoadFile(stampPath);
+			stampOut.m_Kind = document["Kind"].as<std::string>("Export");
 			stampOut.m_ShaderInputs = document["ShaderInputs"].as<std::string>("");
 			stampOut.m_Macros = document["GlobalMacros"].as<std::string>("");
 			stampOut.m_RendererName = document["RendererName"].as<std::string>("");

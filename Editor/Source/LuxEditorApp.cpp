@@ -7,12 +7,41 @@
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/CommandLineParser.h"
 #include "Lux/Core/ApplicationSettings.h"
+#include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
+#include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/ShaderPack.h"
 
 #define LUX_LOGS_IN_PERSISTENT_STORAGE
 #define LUX_CRASH_WATCHDOG L"Editor"
 #include "Lux/EntryPoint.h"
 
 namespace Lux {
+
+	// `Editor --build-shader-pack[=path]`: writes the engine shader pack and exits, opening no project
+	// (Lucky Engine's flow). CreateApplication has already replaced the material-graph include with
+	// the no-graph one, so Renderer::Init compiled every shader without any project's graphs.
+	class ShaderPackBuildLayer : public Layer
+	{
+	public:
+		explicit ShaderPackBuildLayer(std::filesystem::path output)
+			: Layer("ShaderPackBuild"), m_Output(std::move(output)) {}
+
+		void OnAttach() override
+		{
+#if LUX_HAS_SHADER_COMPILER
+			const bool built = ShaderPack::WriteStampedPack(Renderer::GetShaderLibrary(), m_Output,
+				Renderer::CaptureShaderPackEnvironment(ShaderPackKind::Engine));
+#else
+			LUX_CORE_ERROR_TAG("Editor", "--build-shader-pack needs a Debug or Release editor: Dist has no shader compiler");
+			const bool built = false;
+#endif
+			g_ApplicationExitCode = built ? 0 : 1;
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+
+	private:
+		std::filesystem::path m_Output;
+	};
 
 	// Every "Resources/..." load is relative to the working directory, so an Editor.exe started from
 	// anywhere else (double-click in bin/) cannot find its shaders. Walk up from the executable to the
@@ -79,10 +108,13 @@ namespace Lux {
 	class LuxEditor : public Application
 	{
 	public:
-		LuxEditor(const ApplicationSpecification& spec)
+		LuxEditor(const ApplicationSpecification& spec, std::filesystem::path shaderPackOutput)
 			: Application(spec)
 		{
-			PushLayer(new EditorLayer());
+			if (shaderPackOutput.empty())
+				PushLayer(new EditorLayer());
+			else
+				PushLayer(new ShaderPackBuildLayer(std::move(shaderPackOutput)));
 		}
 		~LuxEditor()
 		{
@@ -159,6 +191,14 @@ namespace Lux {
 			return AssimpMeshImporter(path).ImportToMeshSource();
 		});
 
-		return new LuxEditor(specification);
+		std::filesystem::path shaderPackOutput;
+		if (cli.HaveOpt("build-shader-pack"))
+		{
+			const std::string_view output = cli.GetOpt("build-shader-pack");
+			shaderPackOutput = output.empty() ? std::filesystem::path("Resources/ShaderPack.lsp") : std::filesystem::path(output);
+			MaterialGraphRegistry::ResetGeneratedInclude(); // before Renderer::Init compiles the shaders
+		}
+
+		return new LuxEditor(specification, std::move(shaderPackOutput));
 	}
 }

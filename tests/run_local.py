@@ -3,12 +3,14 @@
 
     python tests/run_local.py [--build] [--only substring ...]
 
-Sets up the MSVC environment once (scripts/run_with_msvc.py), optionally builds Debug and Release,
-then runs every tests/editor/run_*.py (sorted: run_remaster_export reuses the panel runners' saved
-fixtures, which sort before it), the Play checks in Debug and Release, and the managed audio checks.
+Sets up the MSVC environment once (scripts/run_with_msvc.py), optionally builds Debug, Release and
+the Dist editor, then checks the engine shader pack and runs every tests/editor/run_*.py (sorted:
+run_remaster_export reuses the panel runners' saved fixtures, which sort before it), the Play checks
+in Debug and Release, and the managed audio checks.
 Each runner isolates itself with its own LUX_USER_DATA_DIR. Logs: bin/local-tests/<time>/.
 """
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -22,7 +24,7 @@ from run_with_msvc import msvc_env  # noqa: E402
 
 def suites():
     found = [[path.relative_to(ROOT).as_posix()] for path in sorted((ROOT / "tests/editor").glob("run_*.py"))]
-    return found + [["tests/play/run_play.py"], ["tests/play/run_play.py", "--config", "release"],
+    return [["tests/shaders/check_engine_pack.py"]] + found + [["tests/play/run_play.py"], ["tests/play/run_play.py", "--config", "release"],
                     ["tests/audio/run_managed.py"]]
 
 
@@ -55,6 +57,10 @@ def main():
             if not run(f"build {config}", [msbuild, "Lux.sln", "-restore", "-m", f"-p:Configuration={config}",
                                            "-p:Platform=Mixed Platforms", "-v:m", "-nologo"]):
                 break  # testing a stale binary would report the old code
+        else:
+            # The Dist editor is not in the solution's Dist build (run_dist_editor_start.py needs it).
+            run("build Dist editor", [msbuild, "Editor/Editor.vcxproj", "-m", "-p:Configuration=Dist", "-p:Platform=x64",
+                                      f"-p:SolutionDir={ROOT}{os.sep}", "-v:m", "-nologo"])
     if all(code == 0 for _, code, _, _ in results):
         for suite in suites():
             name = " ".join(suite)

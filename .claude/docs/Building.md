@@ -293,7 +293,7 @@ Read this **before** opening the file you think is broken.
 | Added a build toggle | Add to `BuildOptions.OPTIONS` + `newoption` in `premake5.lua`, then regenerate | |
 | Pulled a branch that bumped a submodule | `scripts\Setup.bat` | Runs `git submodule update --init --recursive` + `git lfs pull` |
 | Pulled a branch that bumped the Vulkan SDK | `scripts\Setup.bat` | Re-runs `Vulkan.CheckVulkanSDK()` |
-| Changed a shader (`.glsl` / `.glslh`) | nothing — hot-reload, or restart | Shaders compile at runtime and are cached; see `.claude/docs/Rendering.md` |
+| Changed a shader (`.glsl` / `.glslh`) | nothing to run it — hot-reload, or restart. Before committing: from `Editor/`, `..\bin\Release-windows-x86_64\Editor\Editor.exe --build-shader-pack`, then commit `Resources/ShaderPack.lsp` and `.stamp` | Shaders compile at runtime and are cached (`.claude/docs/Rendering.md`); the Dist editor can't compile and refuses a stale engine pack, and CI's `tests/shaders/check_engine_pack.py` fails until it is rebuilt |
 | Changed C# in `ScriptCore` or a project's scripts | rebuild the solution | MSBuild builds the C# projects in-solution |
 | Changed `ScriptCore`'s public API | document it (`///`), rebuild, rerun `tools/ScriptApiDocs` | CI's API reference check fails otherwise |
 
@@ -527,6 +527,12 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 ---
 
 ## Environment variables
+
+- `LUX_STARTUP_SELFTEST=<report path>` — every config, Dist included. Once `EditorLayer::OnAttach`
+  runs (so `Renderer::Init` accepted its shaders), the editor writes `PASS` there and closes.
+  `python tests/editor/run_dist_editor_start.py` uses it to prove the Dist editor starts on the engine
+  shader pack after a project's graphs changed the material-graph include (needs the Dist editor:
+  `tests/run_local.py --build` builds it).
 
 - `LUX_PLAY_SELFTEST=<frames>` — Debug/Release editor only. The editor enters Play on the project's
   start scene, plays that many frames, stops and closes (`EditorLayer::OnUpdate`). It judges

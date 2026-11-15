@@ -24,6 +24,10 @@ namespace Lux {
 		static std::filesystem::path GetGeneratedIncludePath();
 		// Writes the no-graph include when there is none, so the shaders compile. Before any shader loads.
 		static void EnsureGeneratedInclude();
+		// The include with no graphs: what an engine shader pack is compiled against and hashed with.
+		static std::string GetEmptyIncludeText();
+		// Overwrites the include with the no-graph text. `Editor --build-shader-pack`, before Renderer::Init.
+		static void ResetGeneratedInclude();
 
 		// A material that owns a graph was loaded or created (or no longer has one). Applied by Update.
 		static void Register(AssetHandle material);

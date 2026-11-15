@@ -384,6 +384,13 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$runner failed" }
           }
 
+      # The Dist editor refuses a shader pack older than the sources; catch a forgotten rebuild here
+      # (no GPU: it recomputes the stamp's source identity). Rebuild: Editor.exe --build-shader-pack.
+      - name: Check the engine shader pack is current
+        if: matrix.configuration == 'Release'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: python tests/shaders/check_engine_pack.py
+
       # The manual's C# API reference (Editor/Resources/Docs/api) is generated from the built
       # ScriptCore.dll and its XML docs. Fails when a page is stale (regenerate it with the same
       # command without --check) or a public member has no <summary>.

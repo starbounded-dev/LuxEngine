@@ -179,9 +179,18 @@ namespace Lux {
 
 	void MaterialGraphRegistry::EnsureGeneratedInclude()
 	{
+		if (!std::filesystem::exists(GetGeneratedIncludePath()))
+			ResetGeneratedInclude();
+	}
+
+	std::string MaterialGraphRegistry::GetEmptyIncludeText()
+	{
+		return EmptyInclude();
+	}
+
+	void MaterialGraphRegistry::ResetGeneratedInclude()
+	{
 		const std::filesystem::path path = GetGeneratedIncludePath();
-		if (std::filesystem::exists(path))
-			return;
 		std::filesystem::create_directories(path.parent_path());
 		std::ofstream stream(path, std::ios::binary | std::ios::trunc);
 		stream << EmptyInclude();

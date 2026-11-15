@@ -354,7 +354,9 @@ namespace Lux {
 		// that finds a mismatch cannot recover by rebuilding - it can only refuse, which is what
 		// Renderer::Init does with LUX_CORE_VERIFY (Assert.h:25 makes VERIFY unconditional in every
 		// config, Building.md § Configurations).
-		[[nodiscard]] static ShaderPackStamp CaptureShaderPackEnvironment();
+		// kind picks the material-graph include it is judged against: Engine, the no-graph text;
+		// Export, the include file beside the running build (the one an export ships).
+		[[nodiscard]] static ShaderPackStamp CaptureShaderPackEnvironment(ShaderPackKind kind);
 		static uint32_t GetShaderPermutationCacheSize();
 		// Returns true if any shader is actually updated.
 		static bool UpdateDirtyShaders();

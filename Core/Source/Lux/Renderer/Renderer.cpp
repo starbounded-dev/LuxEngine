@@ -28,6 +28,7 @@
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include "Lux/Asset/AssetManager.h"
@@ -60,6 +61,12 @@ namespace Lux {
 	// uses it; before, GenerateMips built a fresh pipeline per texture.
 	static std::unordered_map<size_t, Ref<PipelineCompute>> s_MipGenPipelineCache;
 	static std::mutex s_MipGenPipelineCacheMutex;
+
+	// The global macros the consumed shader pack was compiled with ("name=value;", from its stamp).
+	// A build with no shader compiler cannot switch variants, so SetGlobalMacroInShaders reports any
+	// value the pack doesn't hold instead of silently rendering the packed variant. Main thread.
+	static std::string s_PackedShaderMacros;
+	static std::unordered_set<std::string> s_ReportedMacroMismatches;
 
 	struct ShaderDependencies
 	{
@@ -491,14 +498,19 @@ namespace Lux {
 		// the launch rather than the wrongness being papered over, and the message names the fix.
 		if (!s_Config.ShaderPackPath.empty())
 		{
-			const ShaderPackStamp environment = Renderer::CaptureShaderPackEnvironment();
+			// The stamp says which kind of pack this is, and so which include the environment uses.
+			ShaderPackStamp recordedStamp;
+			const bool stamped = ShaderPack::ReadStamp(s_Config.ShaderPackPath, recordedStamp);
+			const ShaderPackKind kind = stamped && recordedStamp.m_Kind == "Engine" ? ShaderPackKind::Engine : ShaderPackKind::Export;
+			const ShaderPackStamp environment = Renderer::CaptureShaderPackEnvironment(kind);
 			const ShaderPackState state = ShaderPack::Evaluate(s_Config.ShaderPackPath, environment);
+			s_PackedShaderMacros = stamped ? recordedStamp.m_Macros : std::string{};
 			switch (state)
 			{
 			case ShaderPackState::InputsChanged:
 				// Fatal: these programs were compiled from a different source set or macro set, and
 				// this build has no way to produce current ones.
-				LUX_CORE_VERIFY(false, "Shader pack is stale for a build with no shader compiler: regenerate it with the Application Settings action 'Refresh shader pack' in a compiler-enabled editor, or export a stamped package");
+				LUX_CORE_VERIFY(false, "Shader pack is stale for a build with no shader compiler: rebuild the engine pack with a Debug or Release editor (Editor.exe --build-shader-pack, from the Editor folder), or export the game again");
 				break;
 			case ShaderPackState::Unreadable:
 				LUX_CORE_VERIFY(false, "Shader pack is absent, truncated, or carries no programs: the reader decides a pack is loaded on the LXSP magic match alone (ShaderPack.cpp:26-35)");
@@ -2043,11 +2055,21 @@ namespace Lux {
 
 	// Main thread (Threading.md § Main): walks the shader sources and reads CPU-side renderer
 	// state. The refresh action and Renderer::Init are the only callers, both on main.
-	ShaderPackStamp Renderer::CaptureShaderPackEnvironment()
+	ShaderPackStamp Renderer::CaptureShaderPackEnvironment(ShaderPackKind kind)
 	{
 		ShaderPackStamp stamp;
-		// The sources and the generated material-graph include, hashed by content (ShaderPack.cpp).
-		stamp.m_ShaderInputs = ShaderPack::ComputeShaderInputIdentity();
+		stamp.m_Kind = kind == ShaderPackKind::Engine ? "Engine" : "Export";
+		// The sources and the generated material-graph include, hashed by content (ShaderPack.cpp). An
+		// engine pack never depends on a project, so it is judged against the no-graph include; an export
+		// is judged against the include it shipped with (the live file, written by its editor's project).
+		std::string include = MaterialGraphRegistry::GetEmptyIncludeText();
+		if (kind == ShaderPackKind::Export)
+		{
+			const Buffer content = FileSystem::ReadBytes(MaterialGraphRegistry::GetGeneratedIncludePath());
+			if (content.Data)
+				include.assign(static_cast<const char*>(content.Data), static_cast<size_t>(content.Size));
+		}
+		stamp.m_ShaderInputs = ShaderPack::ComputeShaderInputIdentity(include);
 		// The macros are the other input to the SPIR-V: Renderer::Init expands the AO / GTAO /
 		// reflection settings into the shader sources (Renderer.cpp:468-470) and SceneRenderer
 		// re-sets them live from panel properties (SceneRenderer.cpp:1168-1172), so a session that
@@ -2119,6 +2141,15 @@ namespace Lux {
 		}
 
 		s_Data->GlobalShaderMacros[name] = value;
+
+#if !LUX_HAS_SHADER_COMPILER
+		// No compiler: the shaders keep the variant the pack was built with. Say so once per value.
+		const std::string wanted = name + "=" + value + ";";
+		if (!s_PackedShaderMacros.empty() && s_PackedShaderMacros.find(wanted) == std::string::npos
+			&& s_ReportedMacroMismatches.insert(wanted).second)
+			LUX_CORE_WARN_TAG("Renderer", "{} asks for shader variant {}={}, which the shader pack does not hold (built with {}); this build cannot compile it, so the packed variant stays",
+				name, name, value, s_PackedShaderMacros);
+#endif
 
 		if (s_GlobalShaderInfo.ShaderGlobalMacrosMap.find(name) == s_GlobalShaderInfo.ShaderGlobalMacrosMap.end())
 		{

@@ -397,7 +397,7 @@ namespace Lux {
 			}
 
 			// Stamped so the exported runtime can tell a stale pack (Renderer::Init evaluates the sidecar).
-			if (!ShaderPack::WriteStampedPack(shaderLibrary, shaderPackPath, Renderer::CaptureShaderPackEnvironment())
+			if (!ShaderPack::WriteStampedPack(shaderLibrary, shaderPackPath, Renderer::CaptureShaderPackEnvironment(ShaderPackKind::Export))
 				|| !FileExists(shaderPackPath))
 			{
 				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing shader pack '{}'.", shaderPackPath.string());
@@ -502,6 +502,14 @@ namespace Lux {
 			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 		}
 #endif
+		// Startup smoke check, in every config (Dist included): reaching OnAttach means Renderer::Init
+		// accepted its shaders (a refused pack VERIFY-fails before this). tests/editor/run_dist_editor_start.py.
+		if (FileSystem::HasEnvironmentVariable("LUX_STARTUP_SELFTEST"))
+		{
+			if (!FileSystem::WriteFileAtomically(FileSystem::GetEnvironmentVariable("LUX_STARTUP_SELFTEST"), std::string("PASS\n")))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish the startup self-test report");
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		// Explicit developer probe, before the first startup ImGui/render frame. It
 		// uses an isolated context and local settings; no user project is edited.
 		if (FileSystem::HasEnvironmentVariable("LUX_AUDIO_SETTINGS_SELFTEST"))

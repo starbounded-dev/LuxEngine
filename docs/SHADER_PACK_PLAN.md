@@ -23,7 +23,7 @@ document; what is built is described in `.claude/docs/Architecture-LuxEngine.md`
 - **User's words:** "properly implement shaderpacks … visit luckyengine to know how they did it and
   do it like how they do it [or] do it yourself."
 
-**Decisions this plan is built on** (recommendations; D1–D4 are yours, see Part 6)
+**Decisions this plan is built on** (D1–D4 accepted as recommended by the user, 2026-11-15)
 
 | # | Decision | Recommendation | Consequence |
 |---|---|---|---|
@@ -135,6 +135,17 @@ discipline-only approach is exactly how today's bug would go unnoticed.
 **Exit:** D4 is "not needed" or "Phase 3 needed"; D1's first-launch cost is a number.
 **Rollback:** nothing to roll back.
 
+**Results (2026-11-15):**
+- *Compile cost:* Release editor, isolated, quick-exit start: warm cache 2.3–2.4 s, emptied cache
+  5.3–5.4 s (3 runs; the cold run rebuilt all 232 cache files). A shipped editor that compiles pays
+  about 3 s once. A seed pack in Phase 4 is a nicety, not a need.
+- *Macros:* settled by reading, not run. No player code changes the AO macros after startup (no C#
+  quality API; `SceneRenderer::ApplyProjectSettings` sets them once from the project), so an export's
+  packed variant matches its startup settings. The live risk was the Dist editor's quality panel,
+  which Phase 4 removes. **D4: Phase 3 not needed now**; it becomes needed when games can change
+  quality at run time. Added instead (Phase 1): a compilerless build warns once when asked for a
+  macro value its pack doesn't hold (`s_PackedShaderMacros`, `Renderer.cpp`).
+
 ### Phase 1 — An engine pack no project can break
 
 **Goal:** success criteria 1 and 3: the Dist editor starts after any session on any project, and a
@@ -161,6 +172,13 @@ passes; open `MaterialShowcase` in Release, then rerun it (still passes); edit a
 § new "Rebuilding the engine shader pack".
 **Exit:** all of the above; CI green with the new check.
 **Rollback:** revert the commit; the old pack and stamp come back with it.
+
+**Status (2026-11-15):** code done. Found while building it: the stamp hashed raw bytes, but a
+Windows checkout is CRLF where git stores LF, so the identity now drops carriage returns (C++ and
+Python). `Hash::GenerateFNVHash` hashes a trailing NUL, which the Python mirror copies; both give
+`23729104` on this tree. `run_dist_editor_start.py` fails on the committed pack with today's
+"Shader pack is stale" and passes with a pack from `--build-shader-pack`. **Waiting on you:** commit
+the rebuilt `Editor/Resources/ShaderPack.lsp` and `.stamp` (until then the CI check and that runner fail).
 
 ### Phase 2 — Exported games stand alone
 
@@ -230,7 +248,7 @@ played on a second machine with another GPU (device drift is a warning, never a 
 
 ## Part 6 — Open questions and your decisions
 
-- **D1–D4** (top table). Recommended: D1 yes, D2 Lucky's CLI plus CI check, D3 yes, D4 spike first.
+- **D1–D4:** accepted as recommended (2026-11-15): D1 yes, D2 Lucky's CLI plus CI check, D3 yes, D4 spike first.
 - **Permission:** Phase 1 rebuilds and commits `Editor/Resources/ShaderPack.lsp` and `.stamp`, which
   you asked me to leave alone.
 - **Unverified:** whether the Dist player imports `shaderc_shared.dll` today (Phase 2 checks); the

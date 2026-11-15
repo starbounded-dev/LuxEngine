@@ -21,8 +21,16 @@ namespace Lux {
 	// 74; written at ShaderPack.cpp:142, read at :26) - so the identity lives in a sidecar beside
 	// the pack ("<pack>.stamp") and the pack bytes stay readable by every exported package that
 	// exists today (Lux-Runtime/src/RuntimeApplication.cpp:92-94, EditorLayer.cpp:398-407).
+	// Engine: Editor/Resources/ShaderPack.lsp, built by `Editor --build-shader-pack` with no project
+	// open, so it is compiled against the no-graph material include and no project can make it stale.
+	// Export: a game's pack, compiled with that project's graphs and shipped with the include it used.
+	enum class ShaderPackKind : uint8_t { Engine, Export };
+
 	struct ShaderPackStamp
 	{
+		// "Engine" or "Export" (ShaderPackKind). Stamps without it are export stamps: only exports
+		// wrote stamps before the engine pack got its own kind.
+		std::string m_Kind;
 		// FNV chain over "path:contentFNV" of every shader source and the generated material-graph
 		// include, walked sorted. Staleness detection - edit, add, remove, rename - not integrity:
 		// a 32-bit digest is not a checksum, and a miss only ever asks for a regeneration.
@@ -75,11 +83,13 @@ namespace Lux {
 		// the two files that describe one pack.
 		[[nodiscard]] static std::filesystem::path StampPathFor(const std::filesystem::path& packPath);
 
-		// Identity chain over every shader source and the generated material-graph include, walked
-		// sorted. A 32-bit FNV chain: staleness detection, not integrity (see ShaderPackStamp
-		// m_ShaderInputs). Main thread only - it reads the file system (Threading.md § Main: long
-		// blocking work, file I/O).
-		[[nodiscard]] static std::string ComputeShaderInputIdentity();
+		// Identity chain over every shader source and the given text of the generated material-graph
+		// include, walked sorted, paths spelled with forward slashes so every OS agrees. The include
+		// is passed in, never read here: the live file is rewritten for whichever project an editor
+		// opened, so an engine pack hashes the no-graph text instead (tests/shaders/check_engine_pack.py
+		// mirrors this). A 32-bit FNV chain: staleness detection, not integrity. Main thread only - it
+		// reads the file system (Threading.md § Main: long blocking work, file I/O).
+		[[nodiscard]] static std::string ComputeShaderInputIdentity(std::string_view generatedInclude);
 
 		// Read the sidecar; false when it is absent or unreadable, leaving stampOut untouched so the
 		// caller can report "no stamp" separately from "a stamp that disagrees".
