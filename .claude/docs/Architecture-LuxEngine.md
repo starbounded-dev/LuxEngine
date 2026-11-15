@@ -646,6 +646,9 @@ Layered so the backend can be swapped:
   crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
   points along the ray is where it leaves a solid. Audio occlusion uses it to measure thickness.
 - `MeshCookingFactory` / `MeshColliderCache` — mesh colliders are cooked and cached, not rebuilt.
+  `MeshColliderComponent::SubmeshIndex` picks one part of a multi-part mesh; `AllSubmeshes`
+  (`UINT32_MAX`, the default for new colliders since 2026-11-15; any out-of-range index acts the
+  same) takes every part, as the acoustics already did. Saved scenes keep their stored index.
 - `PhysicsCaptureManager`, `PhysicsContactCallback`, `PhysicsSettings`.
 
 Stepping is driven by `Scene::StepPhysics(ts)` from the scene update — there is **no** fixed-phase
@@ -1051,7 +1054,9 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   (F10 menu), and Play opens and focuses it (Stop refocuses the Scene View). `EditorLayer::OnUpdate`
   calls `GameViewPanel::PrepareFrame` before the scene update and `Render` after it; scene cameras
   (`Scene::OnViewportResize`) take the Game View's render size while it is open, else the Scene
-  View's. Debug views are still suspended in the Scene View during Play.
+  View's. Debug views are still suspended in the Scene View during Play, except Show Physics
+  Colliders (off on entering Play, can be turned on there, restored on Stop; a Play-time toggle
+  is not saved as the preference).
 - `SceneRendererPanel` keeps its save/overflow actions, quality selector and search outside the
   scrolling settings. Bounded card headers and property labels retain full hover text; fixed
   resolution presets use the shared action bar. Search temporarily expands matching cards without

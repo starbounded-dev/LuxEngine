@@ -3101,7 +3101,17 @@ namespace Lux {
 					});
 				}
 
-				if (ImGuiEx::Property("Submesh Index", firstComponent.SubmeshIndex, 0u))
+				bool allSubmeshes = firstComponent.SubmeshIndex == MeshColliderComponent::AllSubmeshes;
+				if (ImGuiEx::Property("All Submeshes", allSubmeshes, "Collide with every part of the mesh; off collides with one part, picked by index."))
+				{
+					const uint32_t index = allSubmeshes ? MeshColliderComponent::AllSubmeshes : 0u;
+					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [index](MeshColliderComponent& component, Entity)
+					{
+						component.SubmeshIndex = index;
+					});
+				}
+
+				if (!allSubmeshes && ImGuiEx::Property("Submesh Index", firstComponent.SubmeshIndex, 0u))
 				{
 					ApplyToSelection<MeshColliderComponent>(m_Context, selectedEntities, [&firstComponent](MeshColliderComponent& component, Entity)
 					{

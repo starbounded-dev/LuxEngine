@@ -31,7 +31,7 @@ def main():
         if result.returncode or not status.is_file() or status.read_text() != "PASS\n":
             raise RuntimeError(f"{policy} hierarchy tests failed (exit {result.returncode}): {status.read_text() if status.exists() else 'no status'}; log: {log}")
         require_clean_graphics_log(log)
-        print(f"PASS: {policy} hierarchy/inspector reflow, multi-edit, component search, text isolation and persistence", flush=True)
+        print(f"PASS: {policy} hierarchy/inspector reflow, multi-edit, component search, text isolation, persistence and tool-edit undo", flush=True)
     print("Evidence:", output)
 
 

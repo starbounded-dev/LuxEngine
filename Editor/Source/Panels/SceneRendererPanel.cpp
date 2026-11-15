@@ -388,23 +388,24 @@ namespace Lux {
 				if (!searching)
 					ImGuiEx::PanelMessage("Editor-only debug views",
 										  m_DebugViewsRuntimeSuspended
-											  ? "Suspended while Play is running; restored on Stop."
+											  ? "Suspended while Play is running (colliders excepted); restored on Stop."
 											  : "Reset is available in More.");
 
-				if (m_DebugViewsRuntimeSuspended)
-					ImGui::BeginDisabled();
 				bool debugViewsChanged = false;
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				// Colliders stay available in Play: that is where they are checked against moving bodies.
+				debugViewsChanged |= toggle("Show Physics Colliders", options.ShowPhysicsColliders);
+				if (m_DebugViewsRuntimeSuspended)
+					ImGui::BeginDisabled();
 				debugViewsChanged |= toggle("Show Grid", options.ShowGrid);
 				debugViewsChanged |= toggle("Show Selected Wireframe", options.ShowSelectedInWireframe);
-				debugViewsChanged |= toggle("Show Physics Colliders", options.ShowPhysicsColliders);
 				debugViewsChanged |= toggle("Show Shadow Cascades", options.ShowShadowCascades);
 				debugViewsChanged |= toggle("Show Cascade Frustums", options.ShowCascadeFrustums);
 				debugViewsChanged |= toggle("Show Light Complexity", options.ShowLightComplexity);
 				debugViewsChanged |= toggle("Show Material Complexity", options.ShowMaterialComplexity);
-				ImGuiEx::EndPropertyGrid();
 				if (m_DebugViewsRuntimeSuspended)
 					ImGui::EndDisabled();
+				ImGuiEx::EndPropertyGrid();
 
 				if (debugViewsChanged && m_OnDebugViewsChanged)
 					m_OnDebugViewsChanged();

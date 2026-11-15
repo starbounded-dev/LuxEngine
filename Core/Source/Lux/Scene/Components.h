@@ -383,8 +383,10 @@ namespace Lux {
 
 	struct MeshColliderComponent
 	{
+		static constexpr uint32_t AllSubmeshes = UINT32_MAX;
+
 		AssetHandle ColliderAsset = 0;
-		uint32_t SubmeshIndex = 0;
+		uint32_t SubmeshIndex = AllSubmeshes;   // one part of a multi-part mesh, or AllSubmeshes
 		bool UseSharedShape = false;
 		ColliderMaterial Material;
 		AcousticMaterial Acoustic = AcousticMaterial::Default;

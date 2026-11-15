@@ -350,7 +350,7 @@ and after).
 |---|---|---|---|
 | F1 | The VS 2022 Build Tools MSBuild cannot build the C# projects (.NET SDK resolver missing). Same fault your note records for the self-hosted CI runner. Local builds work with the VS 2026 MSBuild | S | Fix the Build Tools install (add the .NET SDK component), or CI stays red on Windows |
 | F2 | The `Editor.exe` in the Dist folder is older than the Dist shader-pack commits. `scripts/Lux-BuildTest.ps1` already says "an old Editor.exe is not Dist evidence". Build `Editor/Editor.vcxproj` in Dist before Phase 1 | S | Phase 1, first step |
-| F3 | The YAML oracle's reference is 6 days stale, so the suite fails on any asset change. With yaml-cpp gone it can only be re-recorded from `Lux::Yaml` itself; it is now a change detector for sample assets. Re-record it once your staged sample changes are committed, or retire it | S | Phase 6; your call |
+| F3 | The YAML oracle's reference is 6 days stale, so the suite fails on any asset change. With yaml-cpp gone it can only be re-recorded from `Lux::Yaml` itself; it is now a change detector for sample assets. Re-record it once your staged sample changes are committed, or retire it | S | **Re-recorded 2026-11-15** (228 files, includes the staged sample changes); all three checks pass |
 | F4 | `tests/editor/run_workspaces.py` reads `env["Path"]`; from Git Bash the key is `PATH` and it raises `KeyError` | S | Phase 6 |
 | F5 | Five suites need an MSVC developer environment and say so only when they fail. A wrapper script that sets it up and runs every suite would make the baseline one command | S | Phase 6 |
 | F6 | Catalog rows marked "?" that these tests answer: multi-entity editing exists (E3), a prefab editor context exists (E11), Beam already has save and recovery (part of E7/M5) | — | Catalog update in Phase 6 |
@@ -477,8 +477,19 @@ the player does not exist.
 - **Live pass (2026-11-14, Release editor, throwaway copy of the sample project under an isolated user-data folder):** F17 (delete an open instance, then Ctrl+2/Ctrl+1: no crash; its tab closes), F18 (Revert on `MS_Graph`: the instance stays green, Graph Parameters stay), F19 (paste, Ctrl+Z removes it, Ctrl+Y brings it back), F20 (Apply All asks "Apply to Prefab?"; the other instance takes Intensity 2000), F21 (typing in the Material Editor no longer renames the new asset; Escape cancels a rename), F22 (Create Prefab from Selection shows at once), F23 (a saved personal layout brings back the selected dock tab and the open Quality per category section, also after a restart), F25 (Play and Stop keep the hierarchy order) all pass. Phase 5 items 3.4, 3.5, 4.3 and 6.4 pass too (gizmo line steady over three captures in Play).
 - **Found and fixed in that pass:** F26, reopening a scene from the Content Browser brought back the version first loaded that session (`OpenScene` copied the cached asset; a save never refreshed it), so a second save would have overwritten newer work; `OpenScene` now calls `AssetManager::EnsureCurrent`. And F25's fix had made every save reverse the file's entity order (the hierarchy flipped on each save and reopen): `SceneSerializer` now writes entities in the order the hierarchy lists them. Both re-checked live: save, reopen, Play and Stop keep the order.
 - **More runs (2026-11-14):** the Dist editor rebuilt on .NET 10; `run_play.py --export` passes 12/12 in both policies and now also checks that a `net9.0` script project is migrated to `net10.0` by the export.
-- **Still open for you:** 1.5 (comment resize; the docked canvas was too small to drag reliably), 6.1, 6.2 (no player script in the sample), 6.3 (F24), 7.1, 7.2, 7.4.
-- **Waiting for you:** F3 (re-record or retire the YAML oracle) and F24 (allow Show Physics Colliders during Play, or change check 6.3).
+- **Last pass (2026-11-15, Release editor, throwaway project copy with generated test scenes and two driver scripts, kept in `bin/live-check/`):**
+  - **1.5** pass: a comment drag-resized (300 → 348 wide), saved, closed and reopened at 348 × 200. (The tool's drag must start with a 1–2 px move inside the edge zone, as a real mouse does; the minimap covers a comment's corner when it sits bottom-right.)
+  - **6.1** pass, measured by a logging script: 4 m/s on flat ground; stops at x = 3.98 against a wall face at 4.5 (radius 0.5); climbs a 20° slope onto a 2.1 m ledge (y 3.10); walks off it and lands (3.10 → 2.53 → 1.00); one jump per press, a 2 s hold gives one jump. Frame rate was ~120–200 fps only; other frame rates not tried.
+  - **6.2** pass: the crate is pushed 5.8 m and settles (y 0.49–0.55), no jitter.
+  - **6.3** pass after F24: colliders line up with the cubes and with a ball resting where physics left it.
+  - **6.5** pass again: Stop restores positions and the edit-mode debug views.
+  - **7.1** pass after F27: three cubes, each picks the entity, the mirrored one renders right side out, and all three stop a falling ball.
+  - **7.2** pass: 40 sprites with 40 different textures, rotated every 0.5 s by a script, never blank; 36 texts in 36 fonts (every bundled font) all draw; no errors in the log.
+  - **7.4** pass, as a self-test: nothing in the editor submits tool requests yet (no Log or palette entry), so `run_hierarchy_panels.py` now submits `entity.create` through `EditorToolHost` and checks it adds one undo step that one Undo removes, in both threading policies.
+- **F24 decided (2026-11-15):** Show Physics Colliders now works during Play, in the viewport menu and the Scene Renderer panel's Debug Views; it starts off, and Stop restores the edit-mode setting. The other debug views stay suspended.
+- **F27 found and fixed (2026-11-15):** a new Mesh Collider took only submesh 0, so on a multi-part mesh (SharedMeshNodes) only one cube collided. New colliders now default to All Submeshes (`MeshColliderComponent::AllSubmeshes`), with an All Submeshes toggle in the inspector; saved scenes keep their index.
+- **F3:** the YAML oracle was re-recorded; it now matches the staged sample files, so re-record again if those change before they are committed.
+- **Not reproduced by the tool, left as is:** clicks on the Scene View overlays (gear, view cube) did not register from the input tool, while the docked panels did; a real mouse has not been reported to fail there.
 
 ### Part 4b — Phase 5 checklist (yours, about an hour)
 
@@ -594,7 +605,7 @@ and quick key taps can be missed (held chords work).
 | 5.1–5.3 | Pass (Low: hard shadows, 50 % scale; Cinematic: reflections, AO, 100 %; Shadows → Custom alone; tiers survive a restart) |
 | 5.4 | Done (restored from the index) |
 | 6.1, 6.2 | **Not run**: the sample has no player script; the Benchmark `Character` has a controller but nothing drives it |
-| 6.3 | **Blocked, F24**: Debug Views (colliders included) are suspended during Play by design |
+| 6.3 | **Blocked, F24**: Debug Views (colliders included) are suspended during Play by design (F24 since decided and fixed; 6.3 passes, 2026-11-15) |
 | 6.4 | Not run (the Phase 2 runner draws gizmos; steadiness still needs eyes) |
 | 6.5 | Pass, but **F25**: during Play the hierarchy lists the roots in reverse order |
 | 7.1, 7.2, 7.4 | **Not run** (7.1 needs drag-and-drop) |
@@ -624,7 +635,7 @@ and quick key taps can be missed (held chords work).
   it until a restart.
 - **F23.** A saved personal layout doesn't bring back the open Scene Renderer sections or which tab
   is selected in each dock.
-- **F24.** Decision needed: allow Show Physics Colliders during Play, or change check 6.3.
+- **F24.** Decision needed: allow Show Physics Colliders during Play, or change check 6.3. **Done 2026-11-15:** allowed.
 - **F25.** Play mode lists the hierarchy roots in reverse order; Stop restores the order.
 - **Minor:**
   - A node from Add Node lands on top of existing nodes.

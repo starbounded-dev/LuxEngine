@@ -902,8 +902,27 @@ namespace Lux {
 			const std::filesystem::path directory =
 				FileSystem::GetEnvironmentVariable("LUX_HIERARCHY_PANELS_SELFTEST");
 			std::vector<std::string> failures;
+			// Phase 5 check 7.4: a tool request lands as one undo step, which one Undo takes back.
+			auto toolEditUndoesInOneStep = [this, &failures]()
+			{
+				auto count = [this]() { return m_EditorScene->GetAllEntitiesWith<IDComponent>().size(); };
+				const size_t entities = count(), steps = m_UndoStack.size();
+				m_ToolHost->SetScene(m_EditorScene, true);
+				EditorToolHost::Ticket ticket = m_ToolHost->Submit("entity.create", R"({"name":"ToolUndoProbe"})");
+				m_ToolHost->ProcessQueue();
+				if (ticket.Result.get().Outcome != ToolOutcome::Completed || count() != entities + 1 || m_UndoStack.size() != steps + 1)
+					failures.push_back("Tool host: entity.create did not add one entity as one undo step");
+				else
+				{
+					UndoSceneEdit();
+					if (count() != entities)
+						failures.push_back("Tool host: one Undo did not remove the tool's entity");
+				}
+				return failures.empty();
+			};
 			const bool passed = Project::GetActive() &&
 								Project::GetActive()->GetProjectDirectory() == directory &&
+								toolEditUndoesInOneStep() &&
 								SceneHierarchyPanel::RunSelfTests(directory, failures);
 			std::string report = passed ? "PASS\n" : "FAIL\n";
 			for (const auto& failure : failures)
@@ -2580,15 +2599,6 @@ namespace Lux {
 					settings.SetInt("Editor.ShowGrid", options.ShowGrid ? 1 : 0);
 					settings.Serialize();
 				}
-				int colliderMode = static_cast<int>(options.PhysicsColliderMode);
-				if (ImGui::Combo("Collider Scope", &colliderMode, "Selected Entity\0All Entities\0"))
-					options.PhysicsColliderMode = static_cast<SceneRendererOptions::PhysicsColliderView>(colliderMode);
-				ImGui::Checkbox("Colliders On Top", &options.ShowPhysicsCollidersOnTop);
-				if (ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders))
-				{
-					m_ShowPhysicsColliders = options.ShowPhysicsColliders;
-					settingsChanged = true;
-				}
 			}
 
 			if (ImGui::Checkbox("Performance HUD", &m_ShowViewportPerformanceHUD))
@@ -2601,7 +2611,23 @@ namespace Lux {
 			if (m_PlayModeDebugViewsSuspended)
 				ImGui::EndDisabled();
 
-			// Outside the suspended block: the acoustics only run in Play, so this is where it matters.
+			// Outside the suspended block: colliders are checked against moving bodies, so they stay
+			// available in Play (off on entry, restored on Stop; the Scene View keeps the editor camera).
+			if (m_SceneRenderer)
+			{
+				auto& options = m_SceneRenderer->GetOptions();
+				int colliderMode = static_cast<int>(options.PhysicsColliderMode);
+				if (ImGui::Combo("Collider Scope", &colliderMode, "Selected Entity\0All Entities\0"))
+					options.PhysicsColliderMode = static_cast<SceneRendererOptions::PhysicsColliderView>(colliderMode);
+				ImGui::Checkbox("Colliders On Top", &options.ShowPhysicsCollidersOnTop);
+				if (ImGui::Checkbox("Show Physics Colliders", &options.ShowPhysicsColliders))
+				{
+					m_ShowPhysicsColliders = options.ShowPhysicsColliders;
+					settingsChanged |= !m_PlayModeDebugViewsSuspended; // a Play-only toggle isn't the saved preference
+				}
+			}
+
+			// The acoustics only run in Play, so this is where it matters.
 			if (m_AudioDebugPanel)
 			{
 				ImGui::Separator();
