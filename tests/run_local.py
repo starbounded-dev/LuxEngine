@@ -9,6 +9,7 @@ fixtures, which sort before it), the Play checks in Debug and Release, and the m
 Each runner isolates itself with its own LUX_USER_DATA_DIR. Logs: bin/local-tests/<time>/.
 """
 import argparse
+import shutil
 import subprocess
 import sys
 import time
@@ -46,8 +47,12 @@ def main():
         return code == 0
 
     if args.build:
+        # Windows resolves the program from this process's PATH, not env's: look it up in the MSVC one.
+        msbuild = shutil.which("msbuild", path=next(v for k, v in env.items() if k.lower() == "path"))
+        if not msbuild:
+            raise SystemExit("msbuild not found in the MSVC environment")
         for config in ("Debug", "Release"):
-            if not run(f"build {config}", ["msbuild", "Lux.sln", "-restore", "-m", f"-p:Configuration={config}",
+            if not run(f"build {config}", [msbuild, "Lux.sln", "-restore", "-m", f"-p:Configuration={config}",
                                            "-p:Platform=Mixed Platforms", "-v:m", "-nologo"]):
                 break  # testing a stale binary would report the old code
     if all(code == 0 for _, code, _, _ in results):

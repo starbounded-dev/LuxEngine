@@ -4997,6 +4997,9 @@ namespace Lux {
 		if (m_SceneState != SceneState::Edit)
 			OnSceneStop();
 
+		// Saving writes the file, not the cached asset: reload it if the file is newer, or reopening a scene
+		// saved this session brings back the version first loaded (and a save would then overwrite the file).
+		AssetManager::EnsureCurrent(handle);
 		Ref<Scene> readOnlyScene = AssetManager::GetAsset<Scene>(handle);
 		if (!readOnlyScene)
 		{

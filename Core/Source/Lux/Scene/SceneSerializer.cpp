@@ -1531,8 +1531,15 @@ namespace Lux {
 
 		out << Yaml::Key << "Entities" << Yaml::Value << Yaml::BeginSeq;
 
-		auto view = m_Scene->m_Registry.view<IDComponent>();
-		for (auto entityID : view)
+		// In the order the hierarchy lists them (registry order; Deserialize recreates it from file order). The
+		// IDComponent view's order is whatever SortEntities left, so writing it flipped the roots on every save.
+		std::vector<entt::entity> entities;
+		m_Scene->m_Registry.each([&](entt::entity entityID)
+		{
+			if (m_Scene->m_Registry.has<IDComponent>(entityID))
+				entities.push_back(entityID);
+		});
+		for (auto entityID : entities)
 			SerializeEntity(out, { entityID, m_Scene.get() });
 
 		out << Yaml::EndSeq;

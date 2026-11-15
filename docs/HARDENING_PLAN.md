@@ -466,7 +466,7 @@ Not done in this phase: `MaterialShowcase` in the exported player. The export ro
 (`run_remaster_export.py`) already shows a graph material in the Dist player; a capture path in
 the player does not exist.
 
-### Phase 6 (in progress, 2026-11-13)
+### Phase 6 (code done, 2026-11-14)
 
 - **Fixed:** F4 (`run_workspaces.py` no longer assumes the env key is `Path`), F5 (`scripts/run_with_msvc.py` sets up the MSVC environment for any command).
 - **Added:** the three compiler-host runners (workspaces, project and script templates) run in the Release build job (`.github/workflows/main.yml`). The runners that launch the editor, `run_play.py` and golden captures stay local: the self-hosted Windows runner has no GPU (2026-11-14, after a first attempt timed out there).
@@ -474,7 +474,10 @@ the player does not exist.
 - **Fixed in code:** F16(1) (exports write a stamped shader pack; Dist export run passes), F17, F18, F19, F20, F21, F22, F23, F25, and the editor finds `Resources/` when started from `bin/`.
 - **Not fixed:** F16(2), the Coral `Setting properties is not allowed` warning. The fix is in the Coral submodule, whose remote is upstream; it needs a fork first.
 - **Runs (2026-11-13):** every `tests/editor/run_*.py` passes in Debug and in Release (`LUX_TEST_EDITOR`), `run_remaster_export.py` passes with the Dist player, `run_play.py` passes in Debug and Release. Release needed a larger Play budget (6000 frames; the editor runs ~500 fps).
-- **Not yet seen in a live editor:** F19 (paste then undo), F21, F22, F23b, F25. Check them during the Phase 5 list.
+- **Live pass (2026-11-14, Release editor, throwaway copy of the sample project under an isolated user-data folder):** F17 (delete an open instance, then Ctrl+2/Ctrl+1: no crash; its tab closes), F18 (Revert on `MS_Graph`: the instance stays green, Graph Parameters stay), F19 (paste, Ctrl+Z removes it, Ctrl+Y brings it back), F20 (Apply All asks "Apply to Prefab?"; the other instance takes Intensity 2000), F21 (typing in the Material Editor no longer renames the new asset; Escape cancels a rename), F22 (Create Prefab from Selection shows at once), F23 (a saved personal layout brings back the selected dock tab and the open Quality per category section, also after a restart), F25 (Play and Stop keep the hierarchy order) all pass. Phase 5 items 3.4, 3.5, 4.3 and 6.4 pass too (gizmo line steady over three captures in Play).
+- **Found and fixed in that pass:** F26, reopening a scene from the Content Browser brought back the version first loaded that session (`OpenScene` copied the cached asset; a save never refreshed it), so a second save would have overwritten newer work; `OpenScene` now calls `AssetManager::EnsureCurrent`. And F25's fix had made every save reverse the file's entity order (the hierarchy flipped on each save and reopen): `SceneSerializer` now writes entities in the order the hierarchy lists them. Both re-checked live: save, reopen, Play and Stop keep the order.
+- **More runs (2026-11-14):** the Dist editor rebuilt on .NET 10; `run_play.py --export` passes 12/12 in both policies and now also checks that a `net9.0` script project is migrated to `net10.0` by the export.
+- **Still open for you:** 1.5 (comment resize; the docked canvas was too small to drag reliably), 6.1, 6.2 (no player script in the sample), 6.3 (F24), 7.1, 7.2, 7.4.
 - **Waiting for you:** F3 (re-record or retire the YAML oracle) and F24 (allow Show Physics Colliders during Play, or change check 6.3).
 
 ### Part 4b — Phase 5 checklist (yours, about an hour)

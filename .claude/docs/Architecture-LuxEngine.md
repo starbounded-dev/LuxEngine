@@ -596,7 +596,10 @@ orchestrators.
   into `m_PostUpdateQueue`. C# `Entity.Destroy()` goes through it too (`Scene_DestroyEntity`), so a
   script's entity is gone, and its `OnDestroy` has run, at the end of the frame.
 - `Scene::Copy` / `CopyTo` back play-mode duplication, scene open (the editor edits a copy of the
-  scene asset) and prefab edit mode; a component that isn't copied there silently vanishes on Play.
+  scene asset, which `OpenScene` first refreshes with `AssetManager::EnsureCurrent`: a save writes only
+  the file) and prefab edit mode; a component that isn't copied there silently vanishes on Play. Both keep
+  the source's entity order, and `SceneSerializer` writes entities in the hierarchy's (registry) order,
+  so open → save → reopen and Play → Stop keep the order the hierarchy shows.
   They copy the `ScriptStorage` too, so script field values reach Play and survive open → save.
   Paths that copy a `ScriptComponent` to another UUID or scene (`DuplicateEntity`, prefab
   instantiation, `Prefab::Create`, `ReconcilePrefabComponents`) copy its values with

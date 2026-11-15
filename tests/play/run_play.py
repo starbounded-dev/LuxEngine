@@ -266,6 +266,11 @@ def main():
         build_scripts(project, root)
         user.mkdir(parents=True, exist_ok=True)
         if args.export:
+            # Stands in for a game made before .NET 10: the export must migrate it before building (ScriptBuilder).
+            scripts = project / "Assets/Scripts"
+            shutil.copy2(root / "scripts/NuGet.Config", scripts / "NuGet.Config")
+            (scripts / "PlayTest.csproj").write_text((root / "scripts/PlayTest.csproj").read_text().replace(
+                "<TargetFramework>net10.0<", "<TargetFramework>net9.0<"))
             code, log, played = run_exported(project, root, policy, args)
         else:
             code, log, played = run_editor(editor, project, root, policy, args)
@@ -279,6 +284,9 @@ def main():
         problems += [f"FAIL {f}" for f in failures]
         problems += [f"exception: {x}" for x in exceptions[:5]]
         problems += [f"no result from {name}" for name in missing]
+        if args.export and not any("Migrated PlayTest.csproj from net9.0 to net10.0" in p.read_text(encoding="utf-8", errors="replace")
+                                   for p in (root / "user/logs").glob("LUX_*.log")):
+            problems.append("the export did not migrate the net9.0 script project to net10.0")
         try:
             require_clean_graphics_log(log)
         except RuntimeError as error:
