@@ -29,6 +29,8 @@ on:
       - master
       - dev
       - 'feature/**'
+      - 'fix/**'
+      # fix/** too: bug-fix branches need a push run for the merge gate (merge-gate.yml).
     # A commit that only touches these builds nothing; editor help (Editor/Resources/Docs) is not listed,
     # because the C# API reference check reads it.
     paths-ignore:

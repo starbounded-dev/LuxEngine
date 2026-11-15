@@ -1,0 +1,53 @@
+name: PR checklist
+
+# Fails while any box under "## Required" in the pull request description is
+# unticked. Branch protection requires this job, so the checklist in
+# .github/pull_request_template.md has to be completed before a merge.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  checklist:
+    name: Required checklist complete
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check the Required section
+        env:
+          # Passed through the environment, never interpolated into the
+          # script, so a PR description can't inject shell commands.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PYTHONIOENCODING: utf-8
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+
+          body = (os.environ.get("PR_BODY") or "").replace("\r\n", "\n")
+          match = re.search(r"^## Required[^\n]*\n(.*?)(?=^## |\Z)", body, re.M | re.S)
+          if not match:
+              print("::error::The description has no '## Required' section. "
+                    "Start from .github/pull_request_template.md.")
+              sys.exit(1)
+
+          section = match.group(1)
+          done = re.findall(r"^\s*[-*] \[[xX]\] (.+)$", section, re.M)
+          open_ = re.findall(r"^\s*[-*] \[ \] (.+)$", section, re.M)
+
+          for item in done:
+              print(f"done:     {item.strip()}")
+          for item in open_:
+              print(f"::error::Not ticked: {item.strip()}")
+
+          if not done and not open_:
+              print("::error::The Required section has no checkboxes.")
+              sys.exit(1)
+          if open_:
+              print(f"{len(open_)} required item(s) still open.")
+              sys.exit(1)
+          print(f"All {len(done)} required items are ticked.")
+          PY
