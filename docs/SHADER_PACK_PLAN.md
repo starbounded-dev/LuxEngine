@@ -177,8 +177,8 @@ passes; open `MaterialShowcase` in Release, then rerun it (still passes); edit a
 Windows checkout is CRLF where git stores LF, so the identity now drops carriage returns (C++ and
 Python). `Hash::GenerateFNVHash` hashes a trailing NUL, which the Python mirror copies; both give
 `23729104` on this tree. `run_dist_editor_start.py` fails on the committed pack with today's
-"Shader pack is stale" and passes with a pack from `--build-shader-pack`. **Waiting on you:** commit
-the rebuilt `Editor/Resources/ShaderPack.lsp` and `.stamp` (until then the CI check and that runner fail).
+"Shader pack is stale" and passes with a pack from `--build-shader-pack`. The rebuilt engine pack
+(`Kind: Engine`, inputs `23729104`, 56 programs) is committed with your OK; Phase 1 is done.
 
 ### Phase 2 — Exported games stand alone
 
