@@ -240,6 +240,24 @@ time recorded against Phase 0; `run_local.py` passes; Dist export 12/12.
 DLLs), `CLAUDE.md` § Configuration Macros if `LUX_HAS_SHADER_COMPILER` goes.
 **Rollback:** revert; the Dist editor goes back to pack-only.
 
+**Phase 4 ledger (2026-11-15, read before starting; no code changed yet):**
+- Only four call sites reach the compiler: `ShaderLibrary::Load` (`VulkanShaderCompiler::Compile`),
+  `RHIShader::RT_Reload` (`TryRecompile`), `MaterialGraphRegistry` `TestCompile` (`TryCompileGLSL`), and
+  `Renderer` shutdown (`ClearUniformBuffers`). Compile-time gates: `Shader.h` define plus `Renderer.cpp`
+  (3), `RHIShader.cpp` (2), `Shader.cpp` (2), `LuxEditorApp.cpp` (1); `MaterialGraphRegistry::Update`
+  returns under `LUX_DIST`. The compiler sources have no Dist code of their own.
+- Design: a hook table (Compile, Recompile, TryCompileGLSL, ClearUniformBuffers) behind
+  `Renderer::HasShaderCompiler()`; non-Dist `Renderer::Init` registers `VulkanShaderCompiler`, the Dist
+  editor registers it in `CreateApplication`, the Dist player never does. With a compiler present, a
+  stale or unreadable pack is skipped with a warning instead of VERIFY-failing (the engine pack becomes
+  a first-launch seed).
+- Linking: `ShaderC`, `ShaderCUtil`, `SPIRVCrossCore`, `SPIRVCrossGLSL`, `SPIRVTools` are
+  `Configurations = "Debug,Release"` in `Dependencies.lua`. Follow the Assimp precedent: Core Dist adds
+  their include dirs and stops removing `ShaderCompiler/**.cpp`; only `Editor/premake5.lua`'s Dist filter
+  links them (Release libs); `Lux-Runtime` Dist links nothing new. `DirectXCompiler` already links in
+  every config (an unreferenced import lib adds no import). Exit check: `dumpbin /dependents` on the Dist
+  player shows no `shaderc_shared.dll`.
+
 ## Part 4 — Verification of the whole
 
 After Phase 4, on a clean checkout: build all configs; `Editor.exe --build-shader-pack`;
