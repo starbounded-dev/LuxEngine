@@ -182,6 +182,12 @@ project "Editor"
 	filter { "system:windows", "configurations:Dist" }
 		libdirs { "%{wks.location}/Core/vendor/assimp/bin/windows/Release/" }
 		links { Dependencies.Assimp.Windows.LibName }
+		-- The Dist editor compiles shaders (LuxEditorApp.cpp installs the compiler); the dependency table
+		-- links these in Debug and Release only, so the Dist player stays free of them.
+		links {
+			Dependencies.ShaderC.LibName, Dependencies.ShaderCUtil.LibName, Dependencies.SPIRVCrossCore.LibName,
+			Dependencies.SPIRVCrossGLSL.LibName, Dependencies.SPIRVTools.LibName,
+		}
 
 	filter { "system:linux", "configurations:Dist" }
 		libdirs { Dependencies.Assimp.Linux.LibDir }

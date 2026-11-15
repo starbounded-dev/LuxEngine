@@ -255,6 +255,10 @@ namespace Lux
 		// frames, then close. 0 when unset; never set in Dist.
 		uint32_t m_PlayTestFrames = 0;
 		bool m_PlayTestStarted = false;
+		// LUX_STARTUP_SELFTEST=<report> (tests/editor/run_dist_editor_start.py), every config: after this
+		// many frames (so material graphs had their Update), write PASS there and close. 0 when unset.
+		uint32_t m_StartupTestFrames = 0;
+		std::string m_StartupTestReport;
 		Ref<SceneHierarchyPanel> m_SceneHierarchyPanel;
 		std::string m_SelectionBadgeName;
 		std::string m_SelectionBadgeLabel;

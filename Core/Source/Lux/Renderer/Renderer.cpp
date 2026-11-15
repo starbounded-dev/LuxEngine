@@ -36,7 +36,7 @@
 #include "Lux/Renderer/MaterialAsset.h"
 
 
-#if LUX_HAS_SHADER_COMPILER
+#ifndef LUX_DIST
 #include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 #endif
 
@@ -482,9 +482,14 @@ namespace Lux {
 		MeshSource::SetBuildMeshlets(Renderer::SupportsMeshShaders());
 
 		s_Data->m_ShaderLibrary = Ref<ShaderLibrary>::Create();
+#ifndef LUX_DIST
+		// Every non-Dist build compiles. In Dist only the editor does, by installing the compiler itself
+		// (LuxEditorApp.cpp); the player never references it, so it never links shaderc.
+		VulkanShaderCompiler::InstallAsShaderCompiler();
+#endif
 
-		// Validate before consuming: a build with no shader compiler (Renderer/Shader.h:16 defines
-		// LUX_HAS_SHADER_COMPILER as !LUX_DIST) cannot rebuild the SPIR-V inside a pack, so an inputs
+		// Validate before consuming: a build with no shader compiler (the Dist player; ShaderCompiler::
+		// IsAvailable) cannot rebuild the SPIR-V inside a pack, so an inputs
 		// difference - a source edit or a changed generated material-graph include (macros are only
 		// recorded) - must stop the run rather than render programs that no longer match this build.
 		// Device drift is reported, not refused: SPIR-V is portable across drivers by the Vulkan spec,
@@ -506,27 +511,34 @@ namespace Lux {
 			const ShaderPackStamp environment = Renderer::CaptureShaderPackEnvironment(kind);
 			const ShaderPackState state = ShaderPack::Evaluate(s_Config.ShaderPackPath, environment);
 			s_PackedShaderMacros = stamped ? recordedStamp.m_Macros : std::string{};
+			// A build that can compile never needs a bad pack: it skips it and compiles from source. One that
+			// can't must stop, because rendering programs that no longer match the build is worse.
+			bool consume = true;
+			const auto refuse = [&consume](const std::string& reason)
+			{
+				consume = false;
+				if (ShaderCompiler::IsAvailable())
+					LUX_CORE_WARN_TAG("Renderer", "{} - compiling from source instead", reason);
+				else
+					LUX_CORE_VERIFY(false, "{}", reason);
+			};
 			switch (state)
 			{
 			case ShaderPackState::InputsChanged:
-				// Fatal: these programs were compiled from a different source set or macro set, and
-				// this build has no way to produce current ones.
-				LUX_CORE_VERIFY(false, "Shader pack is stale for a build with no shader compiler: rebuild the engine pack with a Debug or Release editor (Editor.exe --build-shader-pack, from the Editor folder), or export the game again");
+				refuse("Shader pack is older than the shader sources: rebuild the engine pack with a Debug or Release editor (Editor.exe --build-shader-pack, from the Editor folder), or export the game again");
 				break;
 			case ShaderPackState::EngineChanged:
-				LUX_CORE_VERIFY(false, "Shader pack {} was written by Lux {} and this is Lux {}: export the game again", s_Config.ShaderPackPath, recordedStamp.m_EngineVersion, environment.m_EngineVersion);
+				refuse(std::format("Shader pack {} was written by Lux {} and this is Lux {}: export the game again", s_Config.ShaderPackPath, recordedStamp.m_EngineVersion, environment.m_EngineVersion));
 				break;
 			case ShaderPackState::Unreadable:
-				LUX_CORE_VERIFY(false, "Shader pack is absent, truncated, or carries no programs: the reader decides a pack is loaded on the LXSP magic match alone (ShaderPack.cpp:26-35)");
+				refuse("Shader pack is absent, truncated, or carries no programs");
 				break;
 			case ShaderPackState::DeviceChanged:
 			{
 				// Report and keep going: SPIR-V is portable by spec, and the identities are printed so a
 				// vendor-specific fault can be traced to it instead of guessed at.
-				ShaderPackStamp recorded;
-				ShaderPack::ReadStamp(s_Config.ShaderPackPath, recorded);
 				LUX_CORE_WARN_TAG("Renderer", "Shader pack {} was compiled on {} (vendor {}, driver {}); this device is {} (vendor {}, driver {}) - consuming it anyway, since SPIR-V is portable by spec",
-					s_Config.ShaderPackPath, recorded.m_RendererName, recorded.m_VendorID, recorded.m_DriverVersion,
+					s_Config.ShaderPackPath, recordedStamp.m_RendererName, recordedStamp.m_VendorID, recordedStamp.m_DriverVersion,
 					environment.m_RendererName, environment.m_VendorID, environment.m_DriverVersion);
 				break;
 			}
@@ -538,6 +550,9 @@ namespace Lux {
 			default:
 				break;
 			}
+			if (!consume)
+				s_PackedShaderMacros.clear();
+			else
 			Renderer::GetShaderLibrary()->LoadShaderPack(s_Config.ShaderPackPath);
 		}
 
@@ -786,9 +801,8 @@ namespace Lux {
 		s_ResourceUploadBatch = nullptr;
 
 
-#if LUX_HAS_SHADER_COMPILER
-		VulkanShaderCompiler::ClearUniformBuffers();
-#endif
+		if (ShaderCompiler::IsAvailable())
+			ShaderCompiler::Get().ClearUniformBuffers();
 		delete s_RendererData;
 		// END
 
@@ -2143,14 +2157,12 @@ namespace Lux {
 
 		s_Data->GlobalShaderMacros[name] = value;
 
-#if !LUX_HAS_SHADER_COMPILER
 		// No compiler: the shaders keep the variant the pack was built with. Say so once per value.
 		const std::string wanted = name + "=" + value + ";";
-		if (!s_PackedShaderMacros.empty() && s_PackedShaderMacros.find(wanted) == std::string::npos
+		if (!ShaderCompiler::IsAvailable() && !s_PackedShaderMacros.empty() && s_PackedShaderMacros.find(wanted) == std::string::npos
 			&& s_ReportedMacroMismatches.insert(wanted).second)
 			LUX_CORE_WARN_TAG("Renderer", "{} asks for shader variant {}={}, which the shader pack does not hold (built with {}); this build cannot compile it, so the packed variant stays",
 				name, name, value, s_PackedShaderMacros);
-#endif
 
 		if (s_GlobalShaderInfo.ShaderGlobalMacrosMap.find(name) == s_GlobalShaderInfo.ShaderGlobalMacrosMap.end())
 		{

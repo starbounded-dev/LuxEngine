@@ -10,6 +10,7 @@
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/ShaderPack.h"
+#include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 
 #define LUX_LOGS_IN_PERSISTENT_STORAGE
 #define LUX_CRASH_WATCHDOG L"Editor"
@@ -28,13 +29,10 @@ namespace Lux {
 
 		void OnAttach() override
 		{
-#if LUX_HAS_SHADER_COMPILER
-			const bool built = ShaderPack::WriteStampedPack(Renderer::GetShaderLibrary(), m_Output,
-				Renderer::CaptureShaderPackEnvironment(ShaderPackKind::Engine));
-#else
-			LUX_CORE_ERROR_TAG("Editor", "--build-shader-pack needs a Debug or Release editor: Dist has no shader compiler");
-			const bool built = false;
-#endif
+			// Every editor compiles (CreateApplication installs the compiler in Dist too), and no pack was
+			// loaded for this run, so the library holds freshly compiled programs.
+			const bool built = ShaderCompiler::IsAvailable()
+				&& ShaderPack::WriteStampedPack(Renderer::GetShaderLibrary(), m_Output, Renderer::CaptureShaderPackEnvironment(ShaderPackKind::Engine));
 			g_ApplicationExitCode = built ? 0 : 1;
 			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 		}
@@ -153,12 +151,11 @@ namespace Lux {
 		specification.DeferWindowShow = true;   // EditorLayer shows it once the startup splash closes
 		specification.VSync = true;
 		specification.SettingsPath = FileSystem::GetPersistentStoragePath() / "App.lsettings";
-		// Dist compiles no shaders (Renderer/Shader.h:16 sets LUX_HAS_SHADER_COMPILER to !LUX_DIST), so
-		// the editor must consume the pack that compiler-enabled editors keep refreshed beside
-		// Resources/Shaders. The path is relative to the editor's working directory, which is how
-		// every "Resources/Shaders/..." load resolves (HelpPanel.cpp:290 says to run from Editor/).
 #ifdef LUX_DIST
-		specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+		// The editor compiles in every config, Dist included, so material graphs and shader edits work in
+		// the editor that ships. Non-Dist builds install the compiler in Renderer::Init; the Dist player
+		// never installs it and so never links shaderc.
+		VulkanShaderCompiler::InstallAsShaderCompiler();
 #endif
 
 		/*specification.ScriptConfig.CoreAssemblyPath = "Resources/Scripts/Hazel-ScriptCore.dll";
@@ -198,6 +195,15 @@ namespace Lux {
 			shaderPackOutput = output.empty() ? std::filesystem::path("Resources/ShaderPack.lsp") : std::filesystem::path(output);
 			MaterialGraphRegistry::ResetGeneratedInclude(); // before Renderer::Init compiles the shaders
 		}
+#ifdef LUX_DIST
+		else
+		{
+			// The engine pack seeds the Dist editor's first launch (no 56-shader compile, ~3 s); a stale one
+			// is skipped and compiled from source (Renderer::Init). Relative to the working directory, like
+			// every "Resources/Shaders/..." load (the editor runs from Editor/, HelpPanel.cpp).
+			specification.RenderConfig.ShaderPackPath = "Resources/ShaderPack.lsp";
+		}
+#endif
 
 		return new LuxEditor(specification, std::move(shaderPackOutput));
 	}

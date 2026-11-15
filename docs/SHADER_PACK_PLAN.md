@@ -240,6 +240,15 @@ time recorded against Phase 0; `run_local.py` passes; Dist export 12/12.
 DLLs), `CLAUDE.md` § Configuration Macros if `LUX_HAS_SHADER_COMPILER` goes.
 **Rollback:** revert; the Dist editor goes back to pack-only.
 
+**Phase 4 status (2026-11-15): done.** `ShaderCompiler` hook table in `Renderer/Shader.h` (the
+`LUX_HAS_SHADER_COMPILER` define is gone); `VulkanShaderCompiler::InstallAsShaderCompiler` fills it, from
+non-Dist `Renderer::Init` and the Dist editor's `CreateApplication`. Core Dist compiles the compiler;
+only the Dist editor links it. `dumpbin`: the Dist editor imports `shaderc_shared.dll` + `dxcompiler.dll`,
+the Dist player neither. With a compiler, a bad pack is skipped with a warning (checked with a faked
+stale stamp: the Dist editor starts and compiles). `run_dist_editor_start.py` now also opens a project
+with `MS_Graph.lmat` in the Dist editor and requires "Material graphs: 1 compiled";
+`LUX_STARTUP_SELFTEST` reports after 30 frames for that.
+
 **Phase 4 ledger (2026-11-15, read before starting; no code changed yet):**
 - Only four call sites reach the compiler: `ShaderLibrary::Load` (`VulkanShaderCompiler::Compile`),
   `RHIShader::RT_Reload` (`TryRecompile`), `MaterialGraphRegistry` `TestCompile` (`TryCompileGLSL`), and

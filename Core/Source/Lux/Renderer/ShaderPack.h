@@ -15,8 +15,8 @@
 namespace Lux {
 
 	// What produced the SPIR-V inside a pack, so a consumer with no shader compiler can tell
-	// whether that pack still describes this build. A Dist config compiles nothing (Renderer/
-	// Shader.h:16 defines LUX_HAS_SHADER_COMPILER as !LUX_DIST), and the LXSP v1 header is 16
+	// whether that pack still describes this build. The Dist player compiles nothing (it never
+	// installs ShaderCompiler, Renderer/Shader.h), and the LXSP v1 header is 16
 	// fixed bytes read and written raw with no spare field (Serialization/ShaderPackFile.h:69-
 	// 74; written at ShaderPack.cpp:142, read at :26) - so the identity lives in a sidecar beside
 	// the pack ("<pack>.stamp") and the pack bytes stay readable by every exported package that

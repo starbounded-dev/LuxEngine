@@ -118,8 +118,13 @@ Declared in `premake5.lua`: `Debug`, `Debug-AS`, `Release`, `Dist`.
 | `Release` | On | Default | `NDEBUG`; asserts compile out, `VERIFY` stays, Tracy on |
 | `Dist` | Full | Off | `NDEBUG` + LTO; Tracy and Aftermath compiled out |
 
-**Dist is an optimisation level, not "the player".** `Core` Dist drops the shader compiler and
-Aftermath, but keeps `AssimpMeshImporter.cpp`: the Dist editor imports source meshes. The
+**Dist is an optimisation level, not "the player".** `Core` Dist drops Aftermath, but keeps the shader
+compiler (`Platform/Vulkan/ShaderCompiler/`) and `AssimpMeshImporter.cpp`: the Dist editor compiles
+shaders and imports source meshes. The compiler is reached only through `ShaderCompiler::Install`
+(`Renderer/Shader.h`), which non-Dist `Renderer::Init` and the Dist editor's `CreateApplication` call
+and the Dist player never does; `Core/premake5.lua` adds the shaderc headers for Dist and
+`Editor/premake5.lua` links shaderc, shaderc_util and SPIRV-Cross/-Tools for Dist (Release libraries).
+`dumpbin /dependents` on the Dist player must show no `shaderc_shared.dll` / `dxcompiler.dll`. The
 dependency table lists Assimp for Debug and Release only, so `Core/premake5.lua` adds its headers
 for Dist and `Editor/premake5.lua` links it for Dist (the Release library; Assimp has no Dist
 build). `Lux-Runtime` must not link it: the importer reaches an executable only through
@@ -532,8 +537,9 @@ Builds write to the real filesystem, so run them with the sandbox disabled, and 
 
 - `LUX_STARTUP_SELFTEST=<report path>` — every config, Dist included. Once `EditorLayer::OnAttach`
   runs (so `Renderer::Init` accepted its shaders), the editor writes `PASS` there and closes.
-  `python tests/editor/run_dist_editor_start.py` uses it to prove the Dist editor starts on the engine
-  shader pack after a project's graphs changed the material-graph include (needs the Dist editor:
+  It reports after 30 frames, so an open project's material graphs have been compiled by then.
+  `python tests/editor/run_dist_editor_start.py` uses it to prove the Dist editor starts after another
+  project's graphs changed the material-graph include, and compiles a graph project (needs the Dist editor:
   `tests/run_local.py --build` builds it).
 
 - `LUX_PLAY_SELFTEST=<frames>` — Debug/Release editor only. The editor enters Play on the project's

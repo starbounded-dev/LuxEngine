@@ -194,6 +194,19 @@ namespace Lux {
 		return true;
 	}
 
+	void VulkanShaderCompiler::InstallAsShaderCompiler()
+	{
+		ShaderCompilerHooks hooks;
+		hooks.Compile = [](const std::filesystem::path& source, bool forceCompile, bool disableOptimization)
+		{
+			return VulkanShaderCompiler::Compile(source, forceCompile, disableOptimization);
+		};
+		hooks.Recompile = [](Ref<RHIShader> shader) { return VulkanShaderCompiler::TryRecompile(shader); };
+		hooks.TryCompileGLSL = [](const std::string& source, ShaderStage stage) { return VulkanShaderCompiler::TryCompileGLSL(source, stage); };
+		hooks.ClearUniformBuffers = []() { VulkanShaderCompiler::ClearUniformBuffers(); };
+		ShaderCompiler::Install(hooks);
+	}
+
 	void VulkanShaderCompiler::ClearUniformBuffers()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

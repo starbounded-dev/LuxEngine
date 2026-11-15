@@ -5,10 +5,10 @@
 #include "MaterialGraphRegistry.h"
 
 #include "Lux/Asset/AssetManager.h"
-#include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/RHITypes.h"
 
 #include <format>
 #include <fstream>
@@ -69,11 +69,8 @@ namespace Lux {
 				"\tLuxMaterialGraphCandidate(IN, OUT);\n"
 				"\to_Color = vec4(OUT.BaseColor + OUT.Emission + OUT.Normal, OUT.Metallic + OUT.Roughness + OUT.Opacity + OUT.Occlusion + OUT.Specular);\n"
 				"}\n";
-#ifdef LUX_DIST
-			return {}; // unreachable: Update does nothing in Dist, which has no shader compiler
-#else
-			return VulkanShaderCompiler::TryCompileGLSL(source, ShaderStage::Pixel);
-#endif
+			// Update returns early without a compiler, so this always has one.
+			return ShaderCompiler::Get().TryCompileGLSL(source, ShaderStage::Pixel);
 		}
 
 		void ScanProjectFiles()
@@ -217,11 +214,8 @@ namespace Lux {
 
 	void MaterialGraphRegistry::Update()
 	{
-#ifdef LUX_DIST
-		// Dist has no shader compiler: graphs are already in the shipped shader pack.
-		return;
-#endif
-		if (!Project::GetEditorAssetManager())
+		// No compiler (the Dist player): the graphs are already in the shipped shader pack.
+		if (!ShaderCompiler::IsAvailable() || !Project::GetEditorAssetManager())
 			return;
 
 		if (Project::GetActive().Raw() != s_Project)

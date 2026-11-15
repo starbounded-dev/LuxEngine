@@ -49,6 +49,9 @@ namespace Lux {
 		const std::unordered_set<std::string>& GetAcknowledgedMacros() const { return m_AcknowledgedMacros; }
 
 		static void ClearUniformBuffers();
+		// Makes this the engine's shader compiler (ShaderCompiler::Install, Renderer/Shader.h). Calling it is
+		// what links the compiler into an executable; the Dist player never does.
+		static void InstallAsShaderCompiler();
 
 		static Ref<RHIShader> Compile(const std::filesystem::path& shaderSourcePath, bool forceCompile = false, bool disableOptimization = false);
 		static bool TryRecompile(Ref<RHIShader> shader);

@@ -503,12 +503,12 @@ namespace Lux {
 		}
 #endif
 		// Startup smoke check, in every config (Dist included): reaching OnAttach means Renderer::Init
-		// accepted its shaders (a refused pack VERIFY-fails before this). tests/editor/run_dist_editor_start.py.
+		// accepted its shaders (a refused pack VERIFY-fails before this). The report is written 30 frames
+		// later (OnUpdate), once an open project's material graphs had their update. run_dist_editor_start.py.
 		if (FileSystem::HasEnvironmentVariable("LUX_STARTUP_SELFTEST"))
 		{
-			if (!FileSystem::WriteFileAtomically(FileSystem::GetEnvironmentVariable("LUX_STARTUP_SELFTEST"), std::string("PASS\n")))
-				LUX_CORE_ERROR_TAG("Editor", "Cannot publish the startup self-test report");
-			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+			m_StartupTestReport = FileSystem::GetEnvironmentVariable("LUX_STARTUP_SELFTEST");
+			m_StartupTestFrames = 30;
 		}
 		// Explicit developer probe, before the first startup ImGui/render frame. It
 		// uses an isolated context and local settings; no user project is edited.
@@ -1104,6 +1104,13 @@ namespace Lux {
 
 		// Before the early-out below: presence should still reflect "no project open".
 		UpdateDiscordPresence();
+
+		if (m_StartupTestFrames > 0 && --m_StartupTestFrames == 0)
+		{
+			if (!FileSystem::WriteFileAtomically(m_StartupTestReport, std::string("PASS\n")))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish the startup self-test report");
+			Application::Get().QueueEvent([]() { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 
 		// May open the capture's project and scene, so it runs before the no-project early-out.
 		if (m_GoldenCapture)

@@ -6,10 +6,6 @@
 
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
 
-#if LUX_HAS_SHADER_COMPILER
-#include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
-#endif
-
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Hash.h"
 #include "Lux/ImGui/ImGuiCore.h"
@@ -248,12 +244,9 @@ namespace Lux {
 	void RHIShader::RT_Reload(const bool forceCompile)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-#if LUX_HAS_SHADER_COMPILER 
-		if (!VulkanShaderCompiler::TryRecompile(this))
-		{
+		// Without a compiler (the Dist player) the packed program stays.
+		if (ShaderCompiler::IsAvailable() && !ShaderCompiler::Get().Recompile(Ref<RHIShader>(this)))
 			LUX_CORE_FATAL("Failed to recompile shader!");
-		}
-#endif
 	}
 
 	void RHIShader::Reload(bool forceCompile)

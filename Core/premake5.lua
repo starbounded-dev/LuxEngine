@@ -162,9 +162,13 @@ project "Core"
 		-- the editor calls and the player does not, so the player still does not link Assimp.
 		-- The dependency table lists Assimp for Debug and Release only; add its headers here.
 		AddDependencyIncludes(Dependencies.Assimp)
+		-- The shader compiler is compiled in Dist too, for the Dist editor. Like Assimp it is reached only
+		-- through ShaderCompiler::Install (Renderer/Shader.h), which the Dist editor calls and the player
+		-- does not, so the player still links no shaderc. Only the Editor's Dist filter links its libraries.
+		AddDependencyIncludes(Dependencies.ShaderC)
+		AddDependencyIncludes(Dependencies.ShaderCUtil)
 
 		removefiles {
-			"Source/Lux/Platform/Vulkan/ShaderCompiler/**.cpp",
 			"Source/Lux/Platform/Vulkan/Debug/**.cpp",
 
 			"Source/Lux/Asset/AssimpAnimationImporter.cpp",

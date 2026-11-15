@@ -260,10 +260,13 @@ the NRI texture (renderer-internal); buffers have no handle getter (`GetBuffer()
 not the abstract `Shader`.
 
 **Shader packs** (`Renderer/ShaderPack.h`, plan `docs/SHADER_PACK_PLAN.md`): `ShaderPack.lsp` (LXSP v1)
-holds compiled SPIR-V for builds with no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`),
-one variant per shader. Two kinds (`ShaderPackKind`, recorded as `Kind:` in the stamp):
-- **Engine** — `Editor/Resources/ShaderPack.lsp`, loaded by the Dist editor (`LuxEditorApp.cpp` under
-  `LUX_DIST`). Built only by `Editor.exe --build-shader-pack[=path]` from a Debug/Release editor:
+holds compiled SPIR-V, one variant per shader, for builds with no shader compiler. The compiler is a
+runtime capability (`ShaderCompiler::Install` / `IsAvailable`, `Renderer/Shader.h`): non-Dist
+`Renderer::Init` and the Dist editor install `VulkanShaderCompiler::InstallAsShaderCompiler`; the Dist
+player never does, so only it is pack-only. With a compiler, a stale/unreadable/other-version pack is
+skipped with a warning and shaders compile from source; without one, `Renderer::Init` VERIFY-fails. Two kinds (`ShaderPackKind`, recorded as `Kind:` in the stamp):
+- **Engine** — `Editor/Resources/ShaderPack.lsp`, the Dist editor's first-launch seed (`LuxEditorApp.cpp`
+  under `LUX_DIST`) and the installer's pack. Built only by `Editor.exe --build-shader-pack[=path]` from a Debug/Release editor:
   `CreateApplication` resets the material-graph include to the no-graph text
   (`MaterialGraphRegistry::ResetGeneratedInclude`), pushes `ShaderPackBuildLayer` instead of
   `EditorLayer`, writes the pack and exits (`g_ApplicationExitCode`, `EntryPoint.h`), opening no
