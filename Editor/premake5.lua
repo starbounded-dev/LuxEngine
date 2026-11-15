@@ -192,3 +192,8 @@ project "Editor"
 	filter { "system:linux", "configurations:Dist" }
 		libdirs { Dependencies.Assimp.Linux.LibDir }
 		links { Dependencies.Assimp.Linux.LibName }
+		-- As on Windows: the Dist editor compiles shaders, the Dist player doesn't link the compiler.
+		links {
+			Dependencies.ShaderC.LibName, Dependencies.ShaderCUtil.LibName, Dependencies.SPIRVCrossCore.LibName,
+			Dependencies.SPIRVCrossGLSL.LibName, Dependencies.SPIRVTools.LibName,
+		}

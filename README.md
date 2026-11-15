@@ -371,13 +371,13 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **ECS scenes** (EnTT) with entity hierarchies, organizational folders, **prefabs with variants** (per-component overrides, revert/apply, propagation), YAML serialization, and editor Play / Simulate / Stop.
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
 - **C# scripting** (.NET 10 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities, transforms, input, assets, audio, music, dialogue and accessibility.
-- **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
+- **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, automatic mesh LODs (meshoptimizer), and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
 - **Tooling & debugging** — Tracy CPU/GPU profiling on every pass, Nvidia Aftermath GPU crash dumps, shader hot-reload with a SPIR-V reflection cache, memory tracking, and tiering/quality settings serialized per project.
 
 ### Editor
-Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos, **snapshot-based undo/redo** with a History panel, a **command palette**, an in-editor **Profiler**, a rebuilt **Content Browser** (filter chips, grid/list, sort, favourites, thumbnail cache), **Beam** multi-tab text editor, material editor, scene renderer and renderer debugger panels, render stats, light settings, asset manager, **Audio Debugger**, project settings, entity lock/colour labels, pinned bookmarks and numbered camera bookmarks. Full manual in [`docs/Editor/`](docs/Editor/README.md).
+Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos, **snapshot-based undo/redo** with a History panel, a **command palette**, an in-editor **Profiler**, a rebuilt **Content Browser** (filter chips, grid/list, sort, favourites, thumbnail cache), **Beam** multi-tab text editor, material editor, scene renderer and renderer debugger panels, render stats, light settings, asset manager, **Audio Debugger**, project settings, entity lock/colour labels, pinned bookmarks and numbered camera bookmarks. An offline **Help** panel (F1) carries the user manual, with a **?** button on each component. Full manual in [`docs/Editor/`](docs/Editor/README.md).
 
 ***
 

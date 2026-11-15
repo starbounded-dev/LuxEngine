@@ -14,6 +14,10 @@ Physics runs while the game plays or while you **Simulate** (see [The Editor at 
 
 Each collider has a material: **Friction** (how much it grips), **Restitution** (how much it bounces) and **Density**. A Mesh Collider that uses the full triangle mesh only works on a static body; the engine makes such a body static and says so in the Log.
 
+A model can be made of several parts, for example one imported mesh placed by several nodes. A new Mesh Collider covers all of them. To collide with one part only, untick **All Submeshes** and pick the part with **Submesh Index**.
+
+To check that colliders match what you see while the game runs, turn on **Show Physics Colliders** in the Scene View settings (the gear) or in the Scene Renderer panel under Debug Views. It is off when you press Play, and Stop puts back the setting you had. The other debug views stay off during Play.
+
 ## Rigidbody
 
 An entity with a collider and **no** Rigidbody is static: walls and floors that never move. Add a **Rigidbody** to choose:
