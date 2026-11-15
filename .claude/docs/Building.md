@@ -361,7 +361,9 @@ pulling the change: an up-to-date exe does not rerun post-build commands.
 
 The shader compiler links `shaderc_shared` (`shaderc_sharedd` in Debug) and `dxcompiler` from the
 Vulkan SDK. The Editor and Lux-Runtime post-build steps copy both from `%VULKAN_SDK%\Bin` beside the
-exe, and runtime export ships them with the other DLLs. Before this copy, the exes only started where
+exe, and Debug/Release runtime exports ship them with the other DLLs; Dist exports leave them out
+(the Dist player has no shader compiler and imports neither; `RuntimeExport::ShipsLibrary`), and no
+export ships Assimp, which only the editor links. Before this copy, the exes only started where
 the SDK's `Bin` was on PATH. The self-hosted CI runner's Release `--version` check failed on this, and
 the packaged editor zip and Release game exports shipped without them. Regenerate and relink after
 pulling, as for nethost.

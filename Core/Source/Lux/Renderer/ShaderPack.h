@@ -31,6 +31,9 @@ namespace Lux {
 		// "Engine" or "Export" (ShaderPackKind). Stamps without it are export stamps: only exports
 		// wrote stamps before the engine pack got its own kind.
 		std::string m_Kind;
+		// LUX_VERSION of the build that wrote the pack ("2026.1-a3f9c1d" from CI, the series locally).
+		// An export pack is judged by this, not by sources: a shipped game carries none.
+		std::string m_EngineVersion;
 		// FNV chain over "path:contentFNV" of every shader source and the generated material-graph
 		// include, walked sorted. Staleness detection - edit, add, remove, rename - not integrity:
 		// a 32-bit digest is not a checksum, and a miss only ever asks for a regeneration.
@@ -60,7 +63,8 @@ namespace Lux {
 	enum class ShaderPackState : uint8_t
 	{
 		Current,          // consume the SPIR-V in this pack
-		InputsChanged,    // pack predates an edit to the shader sources
+		InputsChanged,    // pack predates an edit to the shader sources (engine pack)
+		EngineChanged,    // an export pack written by another engine version
 		DeviceChanged,    // authored on another GPU: consumable, reported
 		NoStamp,          // unstamped pack (an exported package): reported, not validated
 		Unreadable,       // header absent/truncated, or zero programs: structural fault

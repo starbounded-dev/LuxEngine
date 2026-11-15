@@ -65,17 +65,16 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Shader> shader;
-		if (!forceCompile && m_ShaderPack)
-		{
-			if (m_ShaderPack->Contains(path))
-				shader = m_ShaderPack->LoadShader(path);
-		}
+		if (!forceCompile && m_ShaderPack && m_ShaderPack->Contains(path))
+			shader = m_ShaderPack->LoadShader(path);
 		else
 		{
-			// Try compile from source
-			// Unavailable at runtime
 #if LUX_HAS_SHADER_COMPILER
+			// No pack, or the pack lacks it: compile from source.
 			shader = VulkanShaderCompiler::Compile(path, forceCompile, disableOptimization);
+#else
+			// Nothing can produce it here, and rendering without it fails later in a way that names nothing.
+			LUX_CORE_VERIFY(!m_ShaderPack, "Shader '{}' is not in the shader pack and this build cannot compile it: rebuild the engine pack (Editor.exe --build-shader-pack) or export the game again", path);
 #endif
 		}
 

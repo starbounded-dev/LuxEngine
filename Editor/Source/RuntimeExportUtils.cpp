@@ -16,9 +16,14 @@
 
 namespace Lux::RuntimeExport {
 
-	bool ShipsLibrary(const std::string& filename)
+	bool ShipsLibrary(const std::string& filename, RuntimeExportTarget target)
 	{
 		if (filename.find("vaudionative") != std::string::npos)
+			return false;
+		const auto named = [&filename](std::string_view name) { return filename.starts_with(name) || filename.starts_with(std::string("lib") + std::string(name)); };
+		if (named("assimp"))
+			return false;
+		if (target == RuntimeExportTarget::Dist && (named("shaderc") || named("dxcompiler")))
 			return false;
 		// FMOD's, left in the shared output folder by an FMOD build from before its removal.
 		return !filename.starts_with("fmod") && !filename.starts_with("libfmod");
@@ -71,7 +76,8 @@ namespace Lux::RuntimeExport {
 		return true;
 	}
 
-	bool CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination, bool skipDebugFiles)
+	bool CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination, bool skipDebugFiles,
+		std::initializer_list<std::string_view> skip)
 	{
 		std::error_code ec;
 		if (!std::filesystem::exists(source, ec) || ec)
@@ -86,7 +92,8 @@ namespace Lux::RuntimeExport {
 			if (ec)
 				continue;
 
-			if (!relativePath.empty() && *relativePath.begin() == "Cache")
+			if (!relativePath.empty() && (*relativePath.begin() == "Cache"
+				|| std::ranges::find(skip, relativePath.begin()->string()) != skip.end()))
 				continue;
 
 			const std::filesystem::path target = destination / relativePath;

@@ -29,7 +29,7 @@ def main():
         env = dict(os.environ, LUX_USER_DATA_DIR=str(user), LUX_MATERIAL_PANELS_SELFTEST=str(project), LUX_THREADING_POLICY=policy, LUX_NO_WATCHDOG="1")
         log = root / "editor.log"
         with log.open("w", encoding="utf-8") as stream:
-            result = subprocess.run([str(editor)], cwd=ROOT / "Editor", env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=180)
+            result = subprocess.run([str(editor)], cwd=ROOT / "Editor", env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=300)  # Debug graph compiles: ~100 s per policy on an idle machine
         status = project.with_suffix(".status")
         if result.returncode or not status.is_file() or status.read_text() != "PASS\n":
             raise RuntimeError(f"{policy} material tests failed: {status.read_text() if status.exists() else 'no status'}; log: {log}")

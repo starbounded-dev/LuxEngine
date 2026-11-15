@@ -271,9 +271,15 @@ one variant per shader. Two kinds (`ShaderPackKind`, recorded as `Kind:` in the 
   never the live include. `tests/shaders/check_engine_pack.py` recomputes its identity without a GPU
   (CI Release job, `run_local.py`); keep it in step with `ComputeShaderInputIdentity`.
 - **Export** — `<export>/Assets/ShaderPack.lsp`, written by `WriteRuntimeShaderPack` from the live
-  library after `MaterialGraphRegistry::ScanProject` (graphs included); the export copies the live
-  include beside it and the player is judged against that copy.
-Beside a pack, `<pack>.stamp` (YAML) records the kind, the input identity (FNV chain over every
+  library after `MaterialGraphRegistry::ScanProject` (graphs included). Judged by `EngineVersion`
+  (`LUX_VERSION` of the writer; `EngineChanged` refuses another version) instead of sources: a Dist
+  export ships no `Resources/Shaders`, and no export ships the editor's `Resources/ShaderPack.lsp`
+  (`RuntimeExportStep::Resources`). Debug/Release exports keep the sources, because a project macro
+  that differs from `Renderer::Init`'s defaults recompiles at startup there.
+`ShaderLibrary::Load` falls back to compiling when a pack lacks a shader, or VERIFY-fails naming it in a
+compilerless build. `RuntimeExport::ShipsLibrary(filename, target)` leaves Assimp out of every export and
+`shaderc`/`dxcompiler` out of Dist exports (the Dist player imports neither).
+Beside a pack, `<pack>.stamp` (YAML) records the kind, the engine version, the input identity (engine packs) (FNV chain over every
 `Resources/Shaders` source and the include text, paths with `/`, carriage returns dropped, so every
 OS and checkout agree), the global macros, the GPU and the program count. `Renderer::Init` reads the
 stamp's kind, runs `ShaderPack::Evaluate` against `CaptureShaderPackEnvironment(kind)`, and stops on

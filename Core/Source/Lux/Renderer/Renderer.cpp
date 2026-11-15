@@ -28,6 +28,7 @@
 #include "Lux/Renderer/RHI/RHISwapChain.h"
 #include "Lux/Platform/Vulkan/VulkanDevice.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Core/Version.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -511,6 +512,9 @@ namespace Lux {
 				// Fatal: these programs were compiled from a different source set or macro set, and
 				// this build has no way to produce current ones.
 				LUX_CORE_VERIFY(false, "Shader pack is stale for a build with no shader compiler: rebuild the engine pack with a Debug or Release editor (Editor.exe --build-shader-pack, from the Editor folder), or export the game again");
+				break;
+			case ShaderPackState::EngineChanged:
+				LUX_CORE_VERIFY(false, "Shader pack {} was written by Lux {} and this is Lux {}: export the game again", s_Config.ShaderPackPath, recordedStamp.m_EngineVersion, environment.m_EngineVersion);
 				break;
 			case ShaderPackState::Unreadable:
 				LUX_CORE_VERIFY(false, "Shader pack is absent, truncated, or carries no programs: the reader decides a pack is loaded on the LXSP magic match alone (ShaderPack.cpp:26-35)");
@@ -2062,14 +2066,11 @@ namespace Lux {
 		// The sources and the generated material-graph include, hashed by content (ShaderPack.cpp). An
 		// engine pack never depends on a project, so it is judged against the no-graph include; an export
 		// is judged against the include it shipped with (the live file, written by its editor's project).
-		std::string include = MaterialGraphRegistry::GetEmptyIncludeText();
-		if (kind == ShaderPackKind::Export)
-		{
-			const Buffer content = FileSystem::ReadBytes(MaterialGraphRegistry::GetGeneratedIncludePath());
-			if (content.Data)
-				include.assign(static_cast<const char*>(content.Data), static_cast<size_t>(content.Size));
-		}
-		stamp.m_ShaderInputs = ShaderPack::ComputeShaderInputIdentity(include);
+		// An export pack is judged by the engine version instead (a Dist game ships no sources), so its
+		// stamp records no source identity.
+		stamp.m_EngineVersion = LUX_VERSION;
+		if (kind == ShaderPackKind::Engine)
+			stamp.m_ShaderInputs = ShaderPack::ComputeShaderInputIdentity(MaterialGraphRegistry::GetEmptyIncludeText());
 		// The macros are the other input to the SPIR-V: Renderer::Init expands the AO / GTAO /
 		// reflection settings into the shader sources (Renderer.cpp:468-470) and SceneRenderer
 		// re-sets them live from panel properties (SceneRenderer.cpp:1168-1172), so a session that

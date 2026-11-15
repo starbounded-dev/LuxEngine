@@ -198,6 +198,17 @@ reports the engine-build mismatch by name.
 **Exit / Rollback:** as above; revert restores today's export.
 **Coordinate:** `OBFUSCATION_PLAN.md` Phase 3 edits the same `WriteRuntimeShaderPack`; land this first.
 
+**Status (2026-11-15): done.** As built, with one change from the plan: only **Dist** exports drop
+`Resources/Shaders`. A Debug/Release player recompiles at startup when a project macro (GTAO bent
+normals, say) differs from `Renderer::Init`'s defaults, and a missing source is `LUX_CORE_FATAL` there.
+The engine-build id is `LUX_VERSION` (CI appends the commit; local builds share the series). Also found:
+the Release player doesn't import Assimp either, so no export ships it; and `ShaderLibrary::Load` used
+to log and carry on when a pack lacked a shader, even in builds that could compile it. Results: Dist
+export 126 → 94 MB; `run_play.py --export` (Dist and Release) 12/12 with the new contents checks; a
+stamp faked to `2025.9-0000000` stops the player with "written by Lux 2025.9-0000000 and this is Lux
+2026.1: export the game again". Not done: `Resources/` still carries editor-only folders (`Editor`,
+`Docs`, `AgentDocs`, `Templates`, `Robots`…), a follow-up outside this plan.
+
 ### Phase 3 — Macro variants in packs (only if Phase 0 shows a problem)
 
 **Goal:** a quality change that flips a global macro renders the same in Dist as in Release.

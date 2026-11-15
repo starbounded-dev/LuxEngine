@@ -202,6 +202,19 @@ def run_editor(editor, project, root, policy, args):
     return result.returncode, log, "[PlayTest] playing" in text and "[PlayTest] done" in text
 
 
+def check_export_contents(package, runtime_config):
+    """docs/SHADER_PACK_PLAN.md Phase 2: a game carries its own stamped pack and nothing it cannot use."""
+    stamp = package / "Assets/ShaderPack.lsp.stamp"
+    if not stamp.is_file() or "Kind: Export" not in stamp.read_text(encoding="utf-8") or "EngineVersion:" not in stamp.read_text(encoding="utf-8"):
+        raise RuntimeError(f"{stamp} is missing or not an export stamp with an engine version")
+    unwanted = [package / "Resources/ShaderPack.lsp", *package.glob("assimp*.dll")]
+    if runtime_config == "dist":
+        unwanted += [package / "Resources/Shaders", *package.glob("shaderc*.dll"), *package.glob("dxcompiler*.dll")]
+    present = [path.relative_to(package).as_posix() for path in unwanted if path.exists()]
+    if present:
+        raise RuntimeError(f"the {runtime_config} export ships what its player cannot use: {', '.join(present)}")
+
+
 def run_exported(project, root, policy, args):
     """Exports the project through the editor's normal pipeline (golden_run --export-dir), then runs the
     packaged player. Finisher calls Application.Quit once the checks reported. Returns (exit code, log, played)."""
@@ -217,6 +230,7 @@ def run_exported(project, root, policy, args):
     metadata = (ROOT / "bin/golden" / label / "PlayTest.export.yaml").read_text(encoding="utf-8")
     fields = dict(line.split(": ", 1) for line in metadata.splitlines() if ": " in line)
     package, executable = Path(fields["Root"].strip().strip("'\"")), Path(fields["Executable"].strip().strip("'\""))
+    check_export_contents(package, args.runtime_config)
     env = {k: v for k, v in os.environ.items() if not k.startswith("LUX_GOLDEN_")}
     env.update(LUX_THREADING_POLICY=policy, LUX_NO_WATCHDOG="1")
     started = time.time()

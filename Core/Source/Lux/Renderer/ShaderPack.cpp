@@ -44,6 +44,7 @@ namespace Lux
 			Yaml::Writer out;
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "Kind" << Yaml::Value << stamp.m_Kind;
+			out << Yaml::Key << "EngineVersion" << Yaml::Value << stamp.m_EngineVersion;
 			out << Yaml::Key << "ShaderInputs" << Yaml::Value << stamp.m_ShaderInputs;
 			out << Yaml::Key << "GlobalMacros" << Yaml::Value << stamp.m_Macros;
 			out << Yaml::Key << "RendererName" << Yaml::Value << stamp.m_RendererName;
@@ -300,6 +301,7 @@ namespace Lux
 		{
 			const Yaml::Node document = Yaml::LoadFile(stampPath);
 			stampOut.m_Kind = document["Kind"].as<std::string>("Export");
+			stampOut.m_EngineVersion = document["EngineVersion"].as<std::string>("");
 			stampOut.m_ShaderInputs = document["ShaderInputs"].as<std::string>("");
 			stampOut.m_Macros = document["GlobalMacros"].as<std::string>("");
 			stampOut.m_RendererName = document["RendererName"].as<std::string>("");
@@ -411,8 +413,15 @@ namespace Lux
 		// Macros are recorded, not compared: Init's defaults are always replaced by SceneRenderer from
 		// project settings, so the startup values never match a refreshed pack, and a compilerless
 		// build cannot recompile for other macros anyway.
-		if (recorded.m_ShaderInputs != environment.m_ShaderInputs)
-			return ShaderPackState::InputsChanged;
+		// An engine pack is judged by the sources beside it. An export pack is judged by the engine that
+		// wrote it: its game ships no shader sources, and the pack and player come from one export.
+		if (recorded.m_Kind == "Engine")
+		{
+			if (recorded.m_ShaderInputs != environment.m_ShaderInputs)
+				return ShaderPackState::InputsChanged;
+		}
+		else if (!recorded.m_EngineVersion.empty() && recorded.m_EngineVersion != environment.m_EngineVersion)
+			return ShaderPackState::EngineChanged;
 		if (recorded.m_RendererName != environment.m_RendererName
 			or recorded.m_VendorID != environment.m_VendorID
 			or recorded.m_DriverVersion != environment.m_DriverVersion)

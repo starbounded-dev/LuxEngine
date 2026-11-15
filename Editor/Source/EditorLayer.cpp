@@ -4873,7 +4873,7 @@ namespace Lux {
 							continue;
 
 						const std::string filename = it->path().filename().string();
-						if (filename.find(".so") != std::string::npos && RuntimeExport::ShipsLibrary(filename) &&
+						if (filename.find(".so") != std::string::npos && RuntimeExport::ShipsLibrary(filename, targetConfig) &&
 							!CopyFileIfExists(it->path(), libDir / it->path().filename(), true))
 							return false;
 					}
@@ -4890,7 +4890,7 @@ namespace Lux {
 						continue;
 
 					const std::filesystem::path extension = entry.path().extension();
-					if (!RuntimeExport::ShipsLibrary(entry.path().filename().string()))
+					if (!RuntimeExport::ShipsLibrary(entry.path().filename().string(), targetConfig))
 						continue;
 					if (extension == ".dll" || (extension == ".pdb" && targetConfig != RuntimeExportTarget::Dist))
 						CopyFileIfExists(entry.path(), exportRoot / entry.path().filename());
@@ -4901,16 +4901,19 @@ namespace Lux {
 		}
 
 		case RuntimeExportStep::Resources:
-			if (!resourcesSource.empty())
-				CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", targetConfig == RuntimeExportTarget::Dist);
+			// The game reads its own Assets/ShaderPack.lsp, never the editor's engine pack. A Dist player
+			// cannot compile, so its export ships no shader sources either; Debug/Release players keep them,
+			// because a project setting that differs from Renderer::Init's macro defaults recompiles at startup.
+			if (!resourcesSource.empty() && targetConfig == RuntimeExportTarget::Dist)
+				CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders" });
+			else if (!resourcesSource.empty())
+				CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp" });
 			else
 				LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
 			return true;
 
 		case RuntimeExportStep::ShaderPack:
-			// The stamp hashes the generated material-graph include, which the Resources copy skips (Cache/):
-			// ship the same bytes, or the player sees a different input set and refuses the pack.
-			CopyFileIfExists(MaterialGraphRegistry::GetGeneratedIncludePath(), exportRoot / MaterialGraphRegistry::GetGeneratedIncludePath());
+			// Judged by the engine version that wrote it (ShaderPack::Evaluate), so nothing else ships with it.
 			return WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile);
 
 		case RuntimeExportStep::Scripts:
