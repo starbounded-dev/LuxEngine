@@ -36,8 +36,25 @@ namespace Lux::Soundwave
 		float Absorbed, Travelled;
 		std::uint32_t Hits, Traces; // Traces bit 31 = escaped
 	};
+	// SoundwaveVisibility.glsl's independent segment tests. The request points at the same
+	// flattened geometry as the reverb shader. Result values: 0 clear, 1 blocked, 2 invalid.
+	struct alignas(16) FlatVisibilityRequest
+	{
+		std::uint32_t Roots[2], SegmentCount, PortalCount;
+	};
+	struct alignas(16) FlatVisibilitySegment
+	{
+		float From[4], To[4];
+		std::uint32_t IgnoredInstance[2], MarginBits, Pad;
+	};
+	struct alignas(16) FlatPortal
+	{
+		float WorldToBox[16];
+		std::uint32_t Instance[2], Active, Pad;
+	};
 	static_assert(sizeof(FlatNode) == 48 && sizeof(FlatTriangle) == 64);
 	static_assert(sizeof(FlatReverbRequest) == 48 + 16 * kMaterialTagCount && sizeof(FlatReverbRay) == 16);
+	static_assert(sizeof(FlatVisibilityRequest) == 16 && sizeof(FlatVisibilitySegment) == 48 && sizeof(FlatPortal) == 80);
 
 	inline constexpr std::uint32_t kFlatActive = 1, kFlatPortal = 2;
 

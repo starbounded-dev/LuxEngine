@@ -1,6 +1,6 @@
 // Soundwave acoustic geometry on the GPU: the flattened view (soundwave/Flatten.h) and the
 // traversal that mirrors GeometryView::Trace. Storage-buffer (set, binding) slots are a global
-// namespace (Rendering.md, Invariant 1): set 1, bindings 30-34 belong to Soundwave.
+// namespace (Rendering.md, Invariant 1): set 1, bindings 30-38 belong to Soundwave.
 #ifndef SOUNDWAVE_GLSLH
 #define SOUNDWAVE_GLSLH
 

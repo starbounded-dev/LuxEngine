@@ -446,6 +446,37 @@ namespace Lux::Soundwave
 		}
 	}
 
+	EvaluationError PrepareCandidates(const GeometryView& geometry, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, PreparedCandidates& output)
+	{
+		SolveResult measured;
+		if (const auto error = EvaluateDirect(geometry, portals, materials, settings, listener, source,
+			sourceInstance, scratch.Direct, measured.Direct); error != EvaluationError::None)
+			return error;
+		PreparedCandidates next;
+		next.Direct = measured.Direct;
+		if ((!settings.ReflectionDepth && settings.OpeningGridSize == 1) || measured.Direct.Distance <= kSurfaceMargin)
+		{
+			output = std::move(next);
+			return EvaluationError::None;
+		}
+		Context context{ geometry,portals,materials,settings,listener,source,sourceInstance,scratch,measured,settings.CandidateBudget };
+		// OpeningSamples clears this for the occluded case; clear it here as well so
+		// reusing a scratch object for a clear source cannot return old candidates.
+		scratch.Openings.clear();
+		Prepare(context);
+		if (settings.OpeningGridSize > 1 && (measured.Direct.GainLF() < 1 || measured.Direct.GainHF() < 1))
+			OpeningSamples(context);
+		if (context.Invalid)
+			return EvaluationError::NumericalFailure;
+		next.ReflectionTriangles = scratch.Triangles;
+		next.Openings = scratch.Openings;
+		next.Diagnostics = measured.Diagnostics;
+		output = std::move(next);
+		return EvaluationError::None;
+	}
+
 	EvaluationError Solve(const Grid& grid, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, SolveResult& output)

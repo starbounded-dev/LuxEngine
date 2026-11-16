@@ -6,7 +6,9 @@
 
 #include <soundwave/Flatten.h>
 #include <soundwave/Reverb.h>
+#include <soundwave/Solve.h>
 #include <vulkan/vulkan.h>
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -126,8 +128,8 @@ namespace
 		void Write(const void* data, size_t bytes) { Check(bytes <= Size, "buffer overflow"); std::memcpy(Mapped, data, bytes); }
 	};
 
-	// Runs one compute shader with storage buffers at set 1, bindings 30..30+N-1.
-	void Dispatch(Gpu& gpu, const std::vector<uint32_t>& spirv, std::vector<HostBuffer*> buffers, uint32_t groups)
+	// Geometry is always at 30-32; the pass-specific buffers start at customStart.
+	void Dispatch(Gpu& gpu, const std::vector<uint32_t>& spirv, std::vector<HostBuffer*> buffers, uint32_t groups, uint32_t customStart = 33)
 	{
 		VkShaderModuleCreateInfo moduleInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 		moduleInfo.codeSize = spirv.size() * 4;
@@ -136,7 +138,7 @@ namespace
 		Vk(vkCreateShaderModule(gpu.Device, &moduleInfo, nullptr, &module), "vkCreateShaderModule");
 		std::vector<VkDescriptorSetLayoutBinding> bindings;
 		for (uint32_t i = 0; i < buffers.size(); ++i)
-			bindings.push_back({ 30 + i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr });
+			bindings.push_back({ i < 3 ? 30 + i : customStart + i - 3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr });
 		VkDescriptorSetLayoutCreateInfo layoutInfo{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
 		VkDescriptorSetLayout empty, layout;
 		Vk(vkCreateDescriptorSetLayout(gpu.Device, &layoutInfo, nullptr, &empty), "empty set layout");
@@ -172,7 +174,7 @@ namespace
 			infos.push_back({ buffer->Buffer, 0, VK_WHOLE_SIZE });
 		std::vector<VkWriteDescriptorSet> writes;
 		for (uint32_t i = 0; i < buffers.size(); ++i)
-			writes.push_back({ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 30 + i, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &infos[i], nullptr });
+			writes.push_back({ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, i < 3 ? 30 + i : customStart + i - 3, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &infos[i], nullptr });
 		vkUpdateDescriptorSets(gpu.Device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 		VkCommandPoolCreateInfo commandPoolInfo{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
 		commandPoolInfo.queueFamilyIndex = gpu.Family;
@@ -243,8 +245,9 @@ namespace
 
 int main(int argc, char** argv)
 {
-	Check(argc == 2, "usage: SoundwaveGpuParity <SoundwaveReverb.spv>");
+	Check(argc == 3, "usage: SoundwaveGpuParity <SoundwaveReverb.spv> <SoundwaveVisibility.spv>");
 	const auto reverbShader = ReadSpirv(argv[1]);
+	const auto visibilityShader = ReadSpirv(argv[2]);
 	Gpu gpu;
 	std::cout << "Device: " << gpu.Name << '\n';
 
@@ -317,5 +320,109 @@ int main(int argc, char** argv)
 			<< cpu.DecaySeconds << " gpu=" << gpuResult.DecaySeconds << ", rays with different paths " << differing << '/' << settings.ReverbRays << '\n';
 		Check(gap <= 0.5, std::string(scene.Name) + ": GPU reverb send outside 0.5 dB of the CPU reference");
 	}
-	std::cout << "PASS: Soundwave GPU reverb within " << worst << " dB of the CPU reference on " << scenes.size() << " scenes\n";
+	// A real corner fixture exercises every pair in the bounded opening graph, including
+	// segments that skim a surface. The shader must make the same binary visibility decision
+	// as the CPU trace before it can replace the search's expensive visibility calls.
+	{
+		std::vector<Triangle> walls;
+		Box(walls, {-0.1f,-2,-2}, {0.1f,2,0}, 2, 0);
+		Grid grid;
+		Check(grid.Build(walls) == GeometryError::None, "visibility corner geometry invalid");
+		GeometryView view(grid);
+		Settings settings;
+		settings.ReflectionDepth = 0;
+		SolveScratch scratch;
+		PreparedCandidates prepared;
+		const Position listener{1,0,-0.5f}, source{-1,0,-0.5f};
+		Check(PrepareCandidates(view, {}, DefaultMaterials(), settings, listener, source, 0, scratch, prepared) == EvaluationError::None &&
+			!prepared.Openings.empty(), "visibility corner has no opening candidates");
+		std::vector<Position> points{listener};
+		for (const auto& opening : prepared.Openings)
+			points.push_back(opening.Point);
+		points.push_back(source);
+		std::vector<FlatVisibilitySegment> segments;
+		segments.reserve(points.size() * points.size());
+		for (const auto& from : points)
+			for (const auto& to : points)
+			{
+				FlatVisibilitySegment item{};
+				item.From[0] = from.X; item.From[1] = from.Y; item.From[2] = from.Z;
+				item.To[0] = to.X; item.To[1] = to.Y; item.To[2] = to.Z;
+				segments.push_back(item);
+			}
+		FlatGeometry flat;
+		Check(Flatten(view, flat, 64u * 1024u * 1024u) == FlatError::None, "visibility corner flatten failed");
+		HostBuffer nodes(gpu, flat.Nodes.size() * sizeof(FlatNode)), order(gpu, flat.Order.size() * 4),
+			triangles(gpu, flat.Triangles.size() * sizeof(FlatTriangle)), request(gpu, sizeof(FlatVisibilityRequest)),
+			input(gpu, segments.size() * sizeof(FlatVisibilitySegment)), portals(gpu, sizeof(FlatPortal)),
+			output(gpu, segments.size() * sizeof(uint32_t));
+		nodes.Write(flat.Nodes.data(), flat.Nodes.size() * sizeof(FlatNode));
+		order.Write(flat.Order.data(), flat.Order.size() * 4);
+		triangles.Write(flat.Triangles.data(), flat.Triangles.size() * sizeof(FlatTriangle));
+		FlatVisibilityRequest block{};
+		block.Roots[0] = flat.Roots[0]; block.Roots[1] = flat.Roots[1];
+		block.SegmentCount = static_cast<uint32_t>(segments.size());
+		request.Write(&block, sizeof(block));
+		input.Write(segments.data(), segments.size() * sizeof(FlatVisibilitySegment));
+		Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
+			(block.SegmentCount + 63) / 64, 35);
+		const auto* visible = static_cast<const uint32_t*>(output.Mapped);
+		std::vector<RayHit> hits;
+		uint32_t different = 0, blocked = 0;
+		for (size_t i = 0; i < segments.size(); ++i)
+		{
+			const Position from = points[i / points.size()], to = points[i % points.size()];
+			Check(view.Trace(from, to, 0, hits), "CPU visibility corner trace failed");
+			const uint32_t expected = hits.empty() ? 0u : 1u;
+			blocked += expected;
+			if (visible[i] != expected)
+			{
+				if (different < 4)
+					std::cerr << "visibility difference pair " << i / points.size() << ',' << i % points.size()
+						<< ": CPU=" << expected << " GPU=" << visible[i] << '\n';
+				++different;
+			}
+		}
+		std::cout << "corner visibility: " << segments.size() << " pairs, " << blocked << " blocked, " << different << " different\n";
+		Check(different == 0, "GPU corner visibility differs from CPU trace");
+	}
+	// Analytic portal boxes also block visibility when their captured triangles are absent.
+	{
+		Grid empty;
+		Check(empty.Build({}) == GeometryError::None, "empty portal fixture invalid");
+		FlatGeometry flat;
+		Check(Flatten(GeometryView(empty), flat, 1024) == FlatError::None, "empty portal flatten failed");
+		HostBuffer nodes(gpu, 16), order(gpu, 16), triangles(gpu, 64),
+			request(gpu, sizeof(FlatVisibilityRequest)), input(gpu, 5 * sizeof(FlatVisibilitySegment)),
+			portals(gpu, sizeof(FlatPortal)), output(gpu, 5 * sizeof(uint32_t));
+		FlatVisibilityRequest block{};
+		block.Roots[0] = flat.Roots[0]; block.Roots[1] = flat.Roots[1];
+		block.SegmentCount = 5; block.PortalCount = 1;
+		request.Write(&block, sizeof(block));
+		FlatPortal portal{};
+		portal.WorldToBox[0] = portal.WorldToBox[5] = portal.WorldToBox[10] = portal.WorldToBox[15] = 1;
+		portal.WorldToBox[12] = -5;
+		portal.Instance[0] = portal.Instance[2] = 1;
+		portals.Write(&portal, sizeof(portal));
+		FlatVisibilitySegment segments[5]{};
+		const auto segment = [&](uint32_t index, Position a, Position b, float margin)
+		{
+			segments[index].From[0] = a.X; segments[index].From[1] = a.Y; segments[index].From[2] = a.Z;
+			segments[index].To[0] = b.X; segments[index].To[1] = b.Y; segments[index].To[2] = b.Z;
+			segments[index].MarginBits = std::bit_cast<uint32_t>(margin);
+		};
+		segment(0, {2,0,0}, {8,0,0}, 0); // through the box
+		segment(1, {2,2,0}, {8,2,0}, 0); // over it
+		segment(2, {2,0,0}, {3,0,0}, 0); // before it
+		segment(3, {2,0,0}, {8,0,0}, 2); // margin leaves a blocking interior
+		segment(4, {2,0,0}, {8,0,0}, 4); // margin excludes the whole box
+		input.Write(segments, sizeof(segments));
+		Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output}, 1, 35);
+		const auto* results = static_cast<const uint32_t*>(output.Mapped);
+		const uint32_t expected[] = {1,0,0,1,0};
+		for (uint32_t i = 0; i < 5; ++i)
+			Check(results[i] == expected[i], "GPU analytic portal clipping differs from the authored visibility cases");
+	}
+	std::cout << "PASS: Soundwave GPU reverb within " << worst << " dB on " << scenes.size()
+		<< " scenes; corner graph visibility and analytic portal clipping passed\n";
 }

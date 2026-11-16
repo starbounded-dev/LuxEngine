@@ -106,6 +106,21 @@ namespace Lux::Soundwave
 		std::vector<SearchState> States;
 		std::vector<float> BestDistance;
 	};
+	// Geometry-dependent candidates prepared on a CPU worker before a parallel propagation
+	// evaluator. Triangle and opening indices refer to the immutable GeometryView supplied to
+	// PrepareCandidates. The direct measurement is kept for comparison and as a safe fallback.
+	struct PreparedCandidates
+	{
+		Path Direct;
+		std::vector<std::uint32_t> ReflectionTriangles;
+		std::vector<SolveScratch::OpeningNode> Openings;
+		SolveDiagnostics Diagnostics;
+	};
+	// Produces the same bounded triangle pool and off-surface opening samples the CPU reference
+	// uses, without running its serial visibility search. Output is unchanged on validation error.
+	[[nodiscard]] EvaluationError PrepareCandidates(const GeometryView& geometry, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, PreparedCandidates& output);
 
 	// CPU reference. Reflection paths feed the later echogram; visible edge routes can
 	// improve dry audibility. It never changes the direct-only measurement. Work/path

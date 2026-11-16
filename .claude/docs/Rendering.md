@@ -53,9 +53,12 @@ object is `Renderer/RHI/RHIShader`, descriptor sets `Renderer/DescriptorSetManag
 
 ## Invariant 1 — `(set, binding)` is a GLOBAL namespace
 
-Claimed outside the renderer passes: **set 1, bindings 30–34** — Soundwave's acoustic compute
+Claimed outside the renderer passes: **set 1, bindings 30–38** — Soundwave's acoustic compute
 (`SoundwaveNodes`, `SoundwaveOrder`, `SoundwaveTriangles`, `SoundwaveReverbRequest`,
-`SoundwaveReverbRays`; `Include/GLSL/Soundwave.glslh`, `SoundwaveReverb.glsl`). Its pass is built
+`SoundwaveReverbRays`, `SoundwaveVisibilityRequest`, `SoundwaveVisibilitySegments`,
+`SoundwaveVisibilityPortals`, `SoundwaveVisibilityResults`; `Include/GLSL/Soundwave.glslh`,
+`SoundwaveReverb.glsl`, `SoundwaveVisibility.glsl`). The visibility stage has standalone Vulkan
+parity coverage; source-solver submission is still in progress. The reverb pass is built
 when acoustic geometry changes, not per frame, and records on its own command buffer
 (`AudioAcousticKernel`, see `Threading.md` § Acoustic geometry).
 

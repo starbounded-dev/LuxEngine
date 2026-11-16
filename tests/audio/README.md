@@ -149,6 +149,12 @@ the instanced GeometryView. Scene now captures shared local meshes; broad scene/
 marble room near Sabine's decay, a closed corridor shorter than that room, open corridor ends
 shorter still, a carpeted room far drier, and open ground with no send at all.
 
+`run_soundwave_gpu.py` compiles the shipped reverb shader and the experimental parallel
+visibility shader, then runs `SoundwaveGpuParity.cpp` on a Vulkan device. It compares listener
+reverb with the CPU reference across five spaces, all opening-node pairs of a thick corner
+against the CPU geometry trace, and analytic portal clipping cases. This validates the ray
+stage; it does not yet validate a GPU source search or engine readback.
+
 The production adapter tests also detach a blocked job retaining a shared mesh owner, drop the
 Scene/caller refs, and prove the owner survives until the worker finishes. Inline publication
 checks two transformed instances share twelve stored triangles, reject an ownerless replacement
