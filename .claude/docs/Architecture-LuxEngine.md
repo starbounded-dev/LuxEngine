@@ -1568,7 +1568,12 @@ reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, i
 `SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)
 the CPU job measures instead; the same `FinishReverb` reduces CPU or GPU rays in ray order.
 `Soundwave::Flatten` copies the published view (exclusions baked in) into std430 records the
-shader reads. `tests/audio/run_soundwave_gpu.py` checks the engine shader against the CPU on a
+shader reads. Its explicit byte budget caps all upload arrays below the guaranteed Vulkan storage
+buffer range, and a failed flatten leaves the previous output intact. The engine uses a 64 MiB
+budget; if flattening, dispatch, or readback fails, it reports the cause and measures reverb on a
+CPU worker for the rest of the session. `AudioAcoustics::ReverbBackend::PollResult` distinguishes
+pending, ready, and failed readbacks; the Audio Debugger shows when GPU fallback is active.
+`tests/audio/run_soundwave_gpu.py` checks the engine shader against the CPU on a
 real Vulkan device (≤ 0.5 dB; measured 0.009 dB on an RTX 4070 Ti). The user chose workers rather
 than a GPU propagation search: the search is serial and heap-driven, so a GPU twin would run one
 thread per source and stall frames; a parallel GPU search is a documented follow-up.

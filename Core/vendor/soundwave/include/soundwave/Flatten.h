@@ -4,6 +4,7 @@
 
 #include "soundwave/GeometryView.h"
 #include <array>
+#include <cstddef>
 #include <vector>
 
 namespace Lux::Soundwave
@@ -51,5 +52,7 @@ namespace Lux::Soundwave
 		std::vector<FlatTriangle> Triangles;
 		std::array<std::uint32_t, 2> Roots{ kInvalidGeometryIndex, kInvalidGeometryIndex };
 	};
-	[[nodiscard]] bool Flatten(const GeometryView& geometry, FlatGeometry& output);
+	enum class FlatError { None, InvalidGeometry, BudgetExceeded, AllocationFailed };
+	// The byte budget covers all three upload arrays. On failure output retains its last valid value.
+	[[nodiscard]] FlatError Flatten(const GeometryView& geometry, FlatGeometry& output, std::size_t maxBytes);
 }

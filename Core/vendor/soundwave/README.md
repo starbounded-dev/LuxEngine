@@ -5,6 +5,16 @@ library; `Lux::Soundwave` does not include engine, physics, renderer or audio-ba
 LuxEngine compiles `src/*.cpp` directly into `Core`, without its precompiled header or a new DLL.
 The include root is registered in `Dependencies.lua`.
 
+## Release path
+
+The current integration runs source propagation on a JobSystem worker and listener reverb rays
+on the GPU when the shader and renderer are available. `Flatten` returns a `FlatError`, accepts
+an explicit byte budget for its three upload arrays, and preserves the last valid output on
+failure. LuxEngine uses a 64 MiB budget and falls back to CPU reverb if flattening, dispatch, or
+readback fails. The same Core path is used by the editor and standalone runtime. The phase notes
+below record the implementation history; deferred echogram, caustic/spread, and parallel GPU
+propagation work is outside this release path.
+
 ## Current contract
 
 - `MaterialProperties` holds LF/HF absorption, scattering, solid transmission distances and

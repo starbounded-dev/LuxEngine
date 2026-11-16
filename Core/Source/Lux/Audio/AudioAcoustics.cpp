@@ -18,6 +18,19 @@ namespace Lux
 		// means frames are not rendering (minimized, paused) and is reported, not waited on.
 		constexpr uint32_t kReverbStallUpdates = 30;
 		constexpr float kReflattenSeconds = 1.0f;
+		// Below Vulkan's guaranteed 128 MiB storage-buffer range, including all upload arrays.
+		constexpr size_t kFlatUploadBudget = 64u * 1024u * 1024u;
+		const char* FlattenErrorName(Soundwave::FlatError error)
+		{
+			switch (error)
+			{
+				case Soundwave::FlatError::InvalidGeometry: return "invalid geometry";
+				case Soundwave::FlatError::BudgetExceeded: return "upload budget exceeded";
+				case Soundwave::FlatError::AllocationFailed: return "allocation failed";
+				case Soundwave::FlatError::None: return "unexpected empty result";
+			}
+			return "unknown error";
+		}
 		bool Finite(Soundwave::Position point)
 		{
 			return std::isfinite(point.X) && std::isfinite(point.Y) && std::isfinite(point.Z);
@@ -437,7 +450,15 @@ namespace Lux
 				m_ReverbGeometry = 0; // measure again on the fresh upload
 			}
 			else
-				LUX_CORE_ERROR_TAG("Audio", "Soundwave could not flatten acoustic geometry for the GPU; retaining the last upload");
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Soundwave GPU geometry flatten failed ({}); measuring reverb on the CPU for the rest of this session",
+					FlattenErrorName(m_FlattenPending->Error));
+				m_ReverbBackend = nullptr;
+				m_ReverbOnGpu = m_ReverbStalled = false;
+				m_ReverbGpuFailed = true;
+				m_ReverbAttempted = false;
+				m_ReverbWaitUpdates = 0;
+			}
 			m_FlattenPending = nullptr;
 		}
 		if (m_ReverbCheckPending && m_ReverbCheckPending->Done.load(std::memory_order_acquire))
@@ -456,7 +477,17 @@ namespace Lux
 		}
 		if (m_ReverbOnGpu)
 		{
-			if (m_ReverbBackend->Poll(m_ReverbRays))
+			const auto poll = m_ReverbBackend->Poll(m_ReverbRays);
+			if (poll == ReverbBackend::PollResult::Failed)
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Soundwave GPU reverb readback failed; measuring on the CPU for the rest of this session");
+				m_ReverbBackend = nullptr;
+				m_ReverbOnGpu = m_ReverbStalled = false;
+				m_ReverbGpuFailed = true;
+				m_ReverbAttempted = false;
+				m_ReverbWaitUpdates = 0;
+			}
+			else if (poll == ReverbBackend::PollResult::Ready)
 			{
 				m_ReverbOnGpu = m_ReverbStalled = false;
 				m_ReverbWaitUpdates = 0;
@@ -489,7 +520,7 @@ namespace Lux
 				}
 #endif
 			}
-			else if (++m_ReverbWaitUpdates == kReverbStallUpdates)
+			else if (poll == ReverbBackend::PollResult::Pending && ++m_ReverbWaitUpdates == kReverbStallUpdates)
 			{
 				m_ReverbStalled = true;
 				LUX_CORE_WARN_TAG("Audio", "Soundwave GPU reverb has not returned for {} updates; frames are probably not rendering", kReverbStallUpdates);
@@ -513,12 +544,15 @@ namespace Lux
 				{
 					auto geometry = Ref<ReverbBackend::Geometry>::Create();
 					geometry->Generation = generation;
-					if (Soundwave::Flatten(Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded), geometry->Flat))
+					job->Error = Soundwave::Flatten(Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded),
+						geometry->Flat, kFlatUploadBudget);
+					if (job->Error == Soundwave::FlatError::None)
 						job->Result = geometry;
 				}
 				catch (const std::exception&)
 				{
 					job->Result = nullptr;
+					job->Error = Soundwave::FlatError::AllocationFailed;
 				}
 				job->Done.store(true, std::memory_order_release);
 			});
@@ -546,6 +580,7 @@ namespace Lux
 			}
 			LUX_CORE_WARN_TAG("Audio", "Soundwave GPU reverb could not dispatch; measuring on the CPU for the rest of this session");
 			m_ReverbBackend = nullptr;
+			m_ReverbGpuFailed = true;
 		}
 		m_ReverbPending = Ref<ReverbJob>::Create();
 		// Only immutable snapshot Refs and copied values cross to the worker.
@@ -591,6 +626,7 @@ namespace Lux
 		result.ReverbMeasurements = m_ReverbMeasurements;
 		result.ReverbOnGpu = m_ReverbBackend != nullptr;
 		result.ReverbStalled = m_ReverbStalled;
+		result.ReverbGpuFailed = m_ReverbGpuFailed;
 		result.SolvesPending = m_SolvePending != nullptr;
 		result.StaticTriangles = m_Snapshots[0] ? m_Snapshots[0]->Grid.GetTriangleCount() : 0;
 		result.MovingTriangles = m_Snapshots[1] ? m_Snapshots[1]->Grid.GetTriangleCount() : 0;
@@ -635,6 +671,7 @@ namespace Lux
 		m_Flat = nullptr;
 		m_SolvePending = nullptr;
 		m_ReverbOnGpu = m_ReverbStalled = false;
+		m_ReverbGpuFailed = false;
 		m_ReverbWaitUpdates = 0;
 		m_ReverbCheckPending = nullptr;
 		m_ReverbCheckValid = false;

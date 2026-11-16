@@ -254,7 +254,7 @@ void RunAudioAcousticsTests()
 		struct FakeBackend : AudioAcoustics::ReverbBackend
 		{
 			uint32_t Dispatches = 0, Polls = 0, Triangles = 0;
-			bool Returns = true;
+			bool Returns = true, Fails = false;
 			bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position, const Soundwave::Settings&, const Soundwave::MaterialTable&) override
 			{
 				++Dispatches;
@@ -262,12 +262,14 @@ void RunAudioAcousticsTests()
 				Polls = 0;
 				return true;
 			}
-			bool Poll(std::vector<Soundwave::ReverbRay>& rays) override
+			PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) override
 			{
+				if (Fails)
+					return PollResult::Failed;
 				if (!Returns || ++Polls < 3)
-					return false;
+					return PollResult::Pending;
 				rays.assign(256, { 0.3f, 4.0f, 1, 2, 0 }); // a closed room: no ray escapes
-				return true;
+				return PollResult::Ready;
 			}
 		};
 		auto backend = Ref<FakeBackend>::Create();
@@ -289,6 +291,11 @@ void RunAudioAcousticsTests()
 		for (int i = 0; i < 40; ++i)
 			assert(audio.Update(0.1f, listener, {}));
 		assert(backend->Dispatches == 2 && audio.GetDiagnostics().ReverbStalled && audio.GetReverb()->Send == expected.Send);
+		backend->Fails = true;
+		assert(audio.Update(0.1f, listener, {}) && audio.Update(0.1f, listener, {}));
+		assert(backend->Dispatches == 2 && audio.GetDiagnostics().ReverbGpuFailed &&
+			!audio.GetDiagnostics().ReverbOnGpu && !audio.GetDiagnostics().ReverbStalled &&
+			audio.GetDiagnostics().ReverbMeasurements == 2 && audio.GetReverb());
 	}
 	{
 		std::atomic<bool> destroyed{false};

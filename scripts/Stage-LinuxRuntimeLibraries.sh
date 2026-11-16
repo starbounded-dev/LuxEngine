@@ -21,6 +21,10 @@ if [ ! -f "$runtime_binary" ]; then
 fi
 mkdir -p -- "$2"
 stage_directory=$(CDPATH= cd -- "$2" && pwd -P)
+# The Vulkan loader belongs to the installed GPU driver stack. The SDK copy can expose an
+# extension but leave its dispatch entry null on a different host loader/driver combination.
+# Remove a previously staged copy so incremental builds also resolve the system loader.
+rm -f -- "$stage_directory/libvulkan.so.1"
 
 # Prefer current vendored inputs to previously staged copies on incremental builds.
 vendor_directories=()
@@ -50,6 +54,9 @@ while IFS= read -r entry; do
 	resolved=${resolved% \(0x*}
 	[[ "$resolved" == /* ]] || continue
 	canonical=$(readlink -f -- "$resolved")
+	if [ "${resolved##*/}" = "libvulkan.so.1" ]; then
+		continue
+	fi
 	for vendor_directory in "${vendor_directories[@]}"; do
 		case "$canonical" in
 			"$vendor_directory"/*)

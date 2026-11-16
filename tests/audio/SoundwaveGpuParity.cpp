@@ -278,7 +278,7 @@ int main(int argc, char** argv)
 		Check(EvaluateReverb(view, materials, settings, scene.Listener, hits, cpu) == EvaluationError::None, "CPU reverb failed");
 
 		FlatGeometry flat;
-		Check(Flatten(view, flat), "flatten failed");
+		Check(Flatten(view, flat, 64u * 1024u * 1024u) == FlatError::None, "flatten failed");
 		HostBuffer nodes(gpu, flat.Nodes.size() * sizeof(FlatNode)), order(gpu, flat.Order.size() * 4),
 			triangles(gpu, flat.Triangles.size() * sizeof(FlatTriangle)), request(gpu, sizeof(ReverbRequest)),
 			output(gpu, settings.ReverbRays * sizeof(GpuReverbRay));

@@ -459,6 +459,10 @@ buffer only once `RT_GetFrameNumber() >= recorded + FramesInFlight` (RT_BeginFra
 the recording frame) and publishes through an atomic; main polls it and runs `FinishReverb`. No
 thread waits on the GPU. Updates without a result are counted: 30 report `ReverbStalled` (frames
 not rendering). Single-threaded Linux runs the same lambdas inline at render time.
+The readback publishes either ready rays or failure through release/acquire atomics. Main does
+not wait or retry a failed GPU request: it detaches the backend and submits the CPU reverb job.
+Flattening has a 64 MiB upload budget and retains its previous output on failure; the engine
+likewise switches to CPU reverb instead of resubmitting a failing flatten job each update.
 
 Phase 3's listener reverb (`Soundwave::EvaluateReverb`) is one more AudioAcoustics JobSystem job:
 it captures the published snapshot Refs plus copies of the exclusion list, material table,

@@ -55,12 +55,13 @@ namespace Lux
 			uint32_t StaticInertTriangles = 0, MovingInertTriangles = 0;
 			uint32_t StaticStoredTriangles = 0, MovingStoredTriangles = 0, StaticMeshInstances = 0, MovingMeshInstances = 0;
 			bool Ready = false, GeometryFailed = false;
-			bool ReverbOnGpu = false, ReverbStalled = false, SolvesPending = false;
+			bool ReverbOnGpu = false, ReverbStalled = false, ReverbGpuFailed = false, SolvesPending = false;
 		};
 		// Where the listener reverb's rays run. Without one (headless tests, no GPU) a JobSystem
 		// job measures on the CPU; with one, FinishReverb reduces the returned rays on main.
 		struct ReverbBackend : RefCounted
 		{
+			enum class PollResult { Pending, Ready, Failed };
 			struct Geometry : RefCounted
 			{
 				Soundwave::FlatGeometry Flat;
@@ -69,8 +70,8 @@ namespace Lux
 			// Main thread. Records one measurement over geometry; false when it cannot.
 			virtual bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
 				const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) = 0;
-			// Main thread, never waits: true once that measurement's rays reached the CPU.
-			virtual bool Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
+			// Main thread, never waits. Failed means the caller must use its CPU fallback.
+			virtual PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
 		};
 		// Kept across Clear(); the owner replaces or drops it.
 		void SetReverbBackend(Ref<ReverbBackend> backend) { m_ReverbBackend = std::move(backend); }
@@ -153,6 +154,7 @@ namespace Lux
 		{
 			std::atomic<bool> Done{ false };
 			Ref<ReverbBackend::Geometry> Result;
+			Soundwave::FlatError Error = Soundwave::FlatError::None;
 		};
 		void UpdateReverb(float timestep, Soundwave::Position listener);
 		void PublishReverb(Soundwave::EvaluationError error, const Soundwave::ReverbResult& result);
@@ -189,7 +191,7 @@ namespace Lux
 		Soundwave::Settings m_ReverbRequestSettings;
 		uint32_t m_ReverbWaitUpdates = 0;
 		float m_SinceFlatten = 0;
-		bool m_ReverbOnGpu = false, m_ReverbStalled = false;
+		bool m_ReverbOnGpu = false, m_ReverbStalled = false, m_ReverbGpuFailed = false;
 		Soundwave::ReverbResult m_Reverb;
 		Soundwave::Position m_ReverbListener;
 		Soundwave::EvaluationError m_ReverbError = Soundwave::EvaluationError::None;

@@ -23,7 +23,7 @@ namespace Lux
 		~AudioAcousticKernel() override; // members are only forward-declared here
 		bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
 			const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) override;
-		bool Poll(std::vector<Soundwave::ReverbRay>& rays) override;
+		PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) override;
 
 	private:
 		struct Readback;

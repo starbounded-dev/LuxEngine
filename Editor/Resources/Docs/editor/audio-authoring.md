@@ -51,6 +51,7 @@ Add a parameter with this name to a Sound and the engine sets it. Each is option
 | `Layer_<name>` | `Music.SetLayerEnabled("<name>", ...)` | 0 or 1, to fade a layer in and out. |
 
 Walls and closed doors muffle every 3D Sound on their own (a low-pass and a gain), and the space's reverb sends it to the mixer's reverb return; no parameter is needed.
+The Audio Debugger shows whether listener reverb is using GPU rays or a CPU worker. If GPU preparation or readback fails, the CPU worker continues the measurement and the debugger shows a warning; the Log has the cause.
 
 ## Mixing for the player
 

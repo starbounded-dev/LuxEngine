@@ -213,6 +213,8 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
             "Export metadata points outside the isolated destination")
     for path in (executable, package/"Assets/Project.luxruntime", package/"Assets/AssetPack.lap", package/"Assets/ShaderPack.lsp"):
         require(path.is_file() and path.stat().st_size > 0, f"Missing exported artifact: {path}")
+    if os.name != "nt":
+        require(not (package/"lib/libvulkan.so.1").exists(), "Export bundled the Vulkan SDK loader instead of using the host driver stack")
     report_path = capture/"AudioDemo.runtime-audio.yaml"
     env = {key: value for key, value in os.environ.items() if not key.startswith("LUX_GOLDEN_")}
     env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",

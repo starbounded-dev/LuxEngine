@@ -10,6 +10,7 @@
 #include "Lux/Renderer/StorageBuffer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include <atomic>
+#include <new>
 
 namespace Lux
 {
@@ -41,6 +42,7 @@ namespace Lux
 		uint64_t Dispatch = 0;      // render thread: which dispatch Buffer holds
 		std::vector<GpuRay> Rays;   // written by the render thread before Ready
 		std::atomic<uint64_t> Ready{ 0 };
+		std::atomic<uint64_t> Failed{ 0 };
 		std::atomic<bool> PollQueued{ false }; // at most one check queued, even while frames do not render
 	};
 
@@ -134,12 +136,18 @@ namespace Lux
 				desc.DebugName = "SoundwaveReverbReadback";
 				readback->Buffer = NRIBuffer::Create(desc);
 				if (!readback->Buffer)
+				{
+					readback->Failed.store(id, std::memory_order_release);
 					return;
+				}
 			}
 			commands->RT_RequireBufferState(rays->GetBuffer().GetTracked(), ResourceState::CopySource);
 			nri::CommandBuffer* nriCommands = commands->RT_BeginNRITransfer();
 			if (!nriCommands)
+			{
+				readback->Failed.store(id, std::memory_order_release);
 				return;
+			}
 			RHIDevice::API().CmdCopyBuffer(*nriCommands, *readback->Buffer.Get(), 0, *rays->GetBuffer().Get(), 0, bytes);
 			commands->RT_EndNRISegment();
 			readback->Recorded = Renderer::RT_GetFrameNumber();
@@ -150,20 +158,30 @@ namespace Lux
 		return true;
 	}
 
-	bool AudioAcousticKernel::Poll(std::vector<Soundwave::ReverbRay>& rays)
+	AudioAcoustics::ReverbBackend::PollResult AudioAcousticKernel::Poll(std::vector<Soundwave::ReverbRay>& rays)
 	{
+		if (m_Readback->Failed.load(std::memory_order_acquire) == m_Dispatch)
+			return PollResult::Failed;
 		if (m_Readback->Ready.load(std::memory_order_acquire) == m_Dispatch)
 		{
-			rays.resize(m_Readback->Rays.size());
+			try
+			{
+				rays.resize(m_Readback->Rays.size());
+			}
+			catch (const std::bad_alloc&)
+			{
+				m_Readback->Failed.store(m_Dispatch, std::memory_order_release);
+				return PollResult::Failed;
+			}
 			for (size_t i = 0; i < rays.size(); ++i)
 			{
 				const auto& ray = m_Readback->Rays[i];
 				rays[i] = { ray.Absorbed, ray.Travelled, ray.Hits, ray.Traces & 0x7FFFFFFFu, ray.Traces >> 31 };
 			}
-			return true;
+			return PollResult::Ready;
 		}
 		if (m_Readback->PollQueued.exchange(true))
-			return false;
+			return PollResult::Pending;
 		// RT_BeginFrame of frame Recorded + FramesInFlight has waited for the recording frame, so
 		// the copy is complete then; earlier the lambda simply leaves it for a later update.
 		Renderer::Submit([readback = m_Readback, expected = m_Dispatch]() mutable
@@ -175,11 +193,23 @@ namespace Lux
 			const auto count = readback->Buffer.GetSize() / sizeof(GpuRay);
 			const auto* mapped = static_cast<const GpuRay*>(readback->Buffer.Map(0, readback->Buffer.GetSize()));
 			if (!mapped)
+			{
+				readback->Failed.store(expected, std::memory_order_release);
 				return;
-			readback->Rays.assign(mapped, mapped + count);
+			}
+			try
+			{
+				readback->Rays.assign(mapped, mapped + count);
+			}
+			catch (const std::bad_alloc&)
+			{
+				readback->Buffer.Unmap();
+				readback->Failed.store(expected, std::memory_order_release);
+				return;
+			}
 			readback->Buffer.Unmap();
 			readback->Ready.store(expected, std::memory_order_release);
 		});
-		return false;
+		return PollResult::Pending;
 	}
 }

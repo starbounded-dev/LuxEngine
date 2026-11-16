@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include <soundwave/Reverb.h>
+#include <soundwave/Flatten.h>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -107,5 +108,18 @@ int main()
 	invalid.ReverbRays = 0;
 	Check(EvaluateReverb(GeometryView(empty), DefaultMaterials(), invalid, {}, hits, none) == EvaluationError::InvalidSettings,
 		"invalid reverb settings accepted");
+	FlatGeometry flat;
+	Check(Flatten(GeometryView(empty), flat, 0) == FlatError::None, "empty geometry did not flatten");
+	Check(flat.Nodes.empty() && flat.Triangles.empty(), "empty flatten produced geometry");
+	Grid wall;
+	Check(wall.Build(geometry) == GeometryError::None, "flatten test geometry invalid");
+	Check(Flatten(GeometryView(wall), flat, 64u * 1024u * 1024u) == FlatError::None, "flatten test failed");
+	const auto previousCount = flat.Triangles.size();
+	const auto previousRoot = flat.Roots[0];
+	Check(Flatten(GeometryView(wall), flat, 1) == FlatError::BudgetExceeded, "flatten accepted undersized budget");
+	Check(flat.Triangles.size() == previousCount && flat.Roots[0] == previousRoot, "failed flatten replaced valid geometry");
+	const GeometryView invalidView(wall, &wall);
+	Check(Flatten(invalidView, flat, 64u * 1024u * 1024u) == FlatError::InvalidGeometry, "invalid flatten view accepted");
+	Check(flat.Triangles.size() == previousCount, "invalid flatten replaced valid geometry");
 	std::cout << "Soundwave reverb checks passed\n";
 }

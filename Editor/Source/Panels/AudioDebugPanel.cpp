@@ -667,6 +667,8 @@ namespace Lux {
 				DrawStatColored("Solve Failures", std::to_string(stats.SolveFailures).c_str(), kWarnColor);
 			DrawStat("Reverb Measurements", static_cast<uint64_t>(stats.ReverbMeasurements));
 			DrawStat("Reverb Rays On", stats.ReverbOnGpu ? "GPU" : "CPU worker");
+			if (stats.ReverbGpuFailed)
+				DrawStatColored("GPU Reverb", "Unavailable; CPU fallback active (see Log)", kWarnColor);
 			if (stats.ReverbStalled)
 				DrawStatColored("Reverb", "Stalled (frames not rendering)", kWarnColor);
 			DrawStat("Source Solves", stats.SolvesPending ? "Batch on worker" : "Idle");
