@@ -82,6 +82,8 @@ int main()
 	materials[0].Scattering = 0.75f;
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, result) == EvaluationError::None, "scattering solve failed");
 	Near(result.Indirect[0].GainLF, reflection.GainLF * 0.5f, "specular energy was not split by scattering");
+	Near(result.Indirect[0].ScatteringGain, 0.5f, "scattering share is not observable");
+	Near(result.Indirect[0].SpreadGain, 2.0f / std::sqrt(8.0f), "relative path spreading is not observable");
 	materials[0].Scattering = 0;
 	Check(result.Diagnostics.PathsByInteractions[1] == 1 && result.Diagnostics.PathsByInteractions[0] == 0,
 		"single reflection not counted by its interaction count");

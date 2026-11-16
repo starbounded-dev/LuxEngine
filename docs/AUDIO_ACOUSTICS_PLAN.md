@@ -1,5 +1,15 @@
 # Acoustic Kernel Plan — Soundwave: the acoustics Vercidium Audio gives LuxEngine, rebuilt in the engine
 
+**Full-roadmap audit (2026-11-16):** the original seven-phase roadmap is not complete.
+The standalone library now has a path-arrival echogram, but LuxEngine does not yet cache
+per-zone echograms or use them to drive reverb. GPU listener reverb is verified; GPU source
+propagation remains on the CPU worker. Air absorption and deeper bounces are implemented;
+the Audio Debugger now displays each selected path's spread and scattering factors, while
+the full Phase 5 authoring and diagnostics audit remains open. SDK removal, editor Play and exported
+runtime pass on Linux Debug and Release; Windows verification remains outstanding. The
+2026-11-02 status below describes the later revised release path, not completion of the
+original roadmap.
+
 **Status (2026-11-02): implemented through Phase 7, tracked in Spec Kit
 `specs/001-soundwave-completion/` (spec, plan, research, tasks).** Phases 1-3 landed earlier on
 this branch. Phase 7 + the Phase 6 file migration: Vercidium Audio is gone from build, link,

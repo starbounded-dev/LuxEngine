@@ -11,6 +11,7 @@
 
 #include <string>
 #include <optional>
+#include <vector>
 
 namespace Lux {
 
@@ -75,6 +76,7 @@ namespace Lux {
 			std::optional<float> Distance;
 			bool Simulated = false;
 			float GainLF = 1.0f, GainHF = 1.0f;
+			std::vector<Soundwave::PropagationPath> IndirectPaths;
 		};
 		// All pages share readings captured together on main; paused data owns no scene pointers.
 		void UI_Performance();

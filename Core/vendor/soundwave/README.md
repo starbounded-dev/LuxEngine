@@ -12,8 +12,9 @@ on the GPU when the shader and renderer are available. `Flatten` returns a `Flat
 an explicit byte budget for its three upload arrays, and preserves the last valid output on
 failure. LuxEngine uses a 64 MiB budget and falls back to CPU reverb if flattening, dispatch, or
 readback fails. The same Core path is used by the editor and standalone runtime. The phase notes
-below record the implementation history; deferred echogram, caustic/spread, and parallel GPU
-propagation work is outside this release path.
+below record the implementation history. The full roadmap remains open: per-zone echogram reverb,
+parallel GPU propagation, and complete spread diagnostics are still being developed.
+`BuildEchogram` now supplies a bounded path-arrival histogram as groundwork; it does not yet drive Play.
 
 ## Current contract
 

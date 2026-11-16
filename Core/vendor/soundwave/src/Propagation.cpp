@@ -228,7 +228,7 @@ namespace Lux::Soundwave
 							valid = OnTriangle(path.Points[i + 1], triangle);
 						}
 					}
-					float energyLF = 1, energyHF = 1;
+					float energyLF = 1, energyHF = 1, specularShare = 1;
 					for (std::uint32_t i = 1; valid && i <= depth; ++i)
 					{
 						const auto& triangle = context.World.GetTriangle(pool[sequence[depth - i]]);
@@ -237,6 +237,7 @@ namespace Lux::Soundwave
 						const float after = Math::Dot(Math::Subtract(path.Points[i + 1], triangle.A), normal);
 						valid = before * after > 0;
 						const auto& material = context.Materials[triangle.Material];
+						specularShare *= 1 - material.Scattering;
 						energyLF *= (1 - context.Config.Absorption * material.AbsorptionLF) * (1 - material.Scattering);
 						energyHF *= (1 - context.Config.Absorption * material.AbsorptionHF) * (1 - material.Scattering);
 					}
@@ -247,6 +248,8 @@ namespace Lux::Soundwave
 					}
 					if (valid)
 					{
+						path.SpreadGain = context.Spread(path.Distance);
+						path.ScatteringGain = std::sqrt(specularShare);
 						path.GainLF = std::sqrt(energyLF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionLF);
 						path.GainHF = std::sqrt(energyHF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionHF);
 						context.Accept(path);
@@ -373,6 +376,7 @@ namespace Lux::Soundwave
 			}
 			for (std::uint32_t i = 1; i < path.PointCount; ++i)
 				path.Distance += Distance(path.Points[i - 1], path.Points[i]);
+			path.SpreadGain = context.Spread(path.Distance);
 			path.GainLF = GainFromLossDb(lossLF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionLF);
 			path.GainHF = GainFromLossDb(lossHF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionHF);
 			context.Accept(path);

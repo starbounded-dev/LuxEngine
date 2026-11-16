@@ -269,6 +269,8 @@ namespace Lux {
 					row.Paths =
 						std::format("{}R {}O x{}{}", diagnostics.ReflectionPaths, diagnostics.OpeningPaths,
 									deepest, diagnostics.WorkLimited || diagnostics.PathsLimited ? " !" : "");
+					if (row.Entity == m_SelectedSource)
+						row.IndirectPaths = result->Indirect;
 				}
 				m_Sources.push_back(std::move(row));
 			}
@@ -809,11 +811,39 @@ namespace Lux {
 												   ? std::format("{:.1f} m", *selected->Distance).c_str()
 												   : "Unavailable (no listener)");
 			if (selected->Simulated)
+			{
 				ImGui::TextWrapped(
 					"Occlusion: %.1f%%\nGain LF: %.4f\nGain HF: %.4f\nMuffle (relative high-frequency loss): "
 					"%.3f\nPaths: %s",
 					OcclusionAmount(selected->GainLF) * 100.0f, selected->GainLF, selected->GainHF,
 					RelativeHighFrequencyLoss(selected->GainLF, selected->GainHF), selected->Paths.c_str());
+				if (!selected->IndirectPaths.empty() && ImGui::BeginTable("##soundwave_path_diagnostics", 6,
+					ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+				{
+					for (const char* label : {"Path", "Length", "LF gain", "HF gain", "Spread", "Specular share"})
+						ImGui::TableSetupColumn(label);
+					ImGui::TableHeadersRow();
+					for (size_t index = 0; index < selected->IndirectPaths.size(); ++index)
+					{
+						const auto& path = selected->IndirectPaths[index];
+						ImGui::TableNextRow();
+						ImGui::TableNextColumn();
+						ImGui::Text("%zu %s (%u bounces)", index + 1,
+							path.Kind == Soundwave::PathKind::Reflection ? "reflection" : "opening", path.Reflections);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.2f m", path.Distance);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.GainLF);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.GainHF);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.SpreadGain);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.ScatteringGain);
+					}
+					ImGui::EndTable();
+				}
+			}
 			else
 				ImGui::TextWrapped("Acoustic reading unavailable: this source has not been simulated.");
 		}

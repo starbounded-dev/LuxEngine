@@ -69,6 +69,9 @@ namespace Lux::Soundwave
 		std::uint32_t PointCount = 0;
 		std::uint32_t Reflections = 0, Diffractions = 0;
 		float Distance = 0, GainLF = 0, GainHF = 0;
+		// Amplitude factors retained for authoring diagnostics. Spread is relative to the
+		// direct path; scattering is the specular share of the reflecting surfaces.
+		float SpreadGain = 1.0f, ScatteringGain = 1.0f;
 	};
 	struct SolveDiagnostics
 	{
