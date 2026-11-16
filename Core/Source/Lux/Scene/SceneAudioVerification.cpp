@@ -97,6 +97,8 @@ namespace Lux
 			out << Yaml::Key << "Send" << Yaml::Value << response->Send;
 			out << Yaml::Key << "DecaySeconds" << Yaml::Value << response->DecaySeconds;
 			out << Yaml::Key << "Arrivals" << Yaml::Value << echogram->PathCount;
+			out << Yaml::Key << "BinSeconds" << Yaml::Value << echogram->BinSeconds;
+			out << Yaml::Key << "WindowLimited" << Yaml::Value << echogram->WindowLimited;
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;

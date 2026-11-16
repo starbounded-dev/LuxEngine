@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <string_view>
+#include <soundwave/Echogram.h>
 #include <soundwave/Settings.h>
 #include <set>
 namespace Lux
@@ -22,9 +23,9 @@ namespace Lux
 		constexpr uint32_t kMaximumCastBudget = 1024;
 		constexpr float kMaximumStrength = 4.0f;
 		constexpr uint32_t kKernelSettingsVersion = 1;
-		constexpr std::array<std::string_view, 14> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
+		constexpr std::array<std::string_view, 16> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
 			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast", "ReverbRays", "ReverbBounces",
-			"ReverbReferenceSeconds", "AirAbsorptionLF", "AirAbsorptionHF" };
+			"ReverbReferenceSeconds", "EchogramWindowSeconds", "EchogramSmoothingSeconds", "AirAbsorptionLF", "AirAbsorptionHF" };
 
 		void ValidateKernelKeys(const Yaml::Node& node)
 		{
@@ -59,11 +60,18 @@ namespace Lux
 		settings.AirAbsorptionHF = AirAbsorptionHF;
 		return settings;
 	}
+	Soundwave::EchogramSettings AudioOcclusionSettings::GetEchogramSettings() const
+	{
+		Soundwave::EchogramSettings settings;
+		settings.WindowSeconds = EchogramWindowSeconds;
+		settings.SmoothingSeconds = EchogramSmoothingSeconds;
+		return settings;
+	}
 	bool AudioOcclusionSettings::Validate() const
 	{
 		return std::isfinite(UpdateRateHz) && UpdateRateHz >= kMinimumRateHz &&
 			UpdateRateHz <= kMaximumRateHz && CastBudget > 0 && CastBudget <= kMaximumCastBudget && std::isfinite(Strength) &&
-			Strength >= 0.0f && Strength <= kMaximumStrength && GetKernelSettings().Validate();
+			Strength >= 0.0f && Strength <= kMaximumStrength && GetKernelSettings().Validate() && GetEchogramSettings().Validate();
 	}
 	void AudioOcclusionSettings::SerializeYAML(Yaml::Writer& out) const
 	{
@@ -84,6 +92,8 @@ namespace Lux
 		out << Yaml::Key << "ReverbRays" << Yaml::Value << ReverbRays;
 		out << Yaml::Key << "ReverbBounces" << Yaml::Value << ReverbBounces;
 		out << Yaml::Key << "ReverbReferenceSeconds" << Yaml::Value << ReverbReferenceSeconds;
+		out << Yaml::Key << "EchogramWindowSeconds" << Yaml::Value << EchogramWindowSeconds;
+		out << Yaml::Key << "EchogramSmoothingSeconds" << Yaml::Value << EchogramSmoothingSeconds;
 		out << Yaml::Key << "AirAbsorptionLF" << Yaml::Value << AirAbsorptionLF;
 		out << Yaml::Key << "AirAbsorptionHF" << Yaml::Value << AirAbsorptionHF;
 		out << Yaml::EndMap;
@@ -138,6 +148,10 @@ namespace Lux
 						parsed.ReverbBounces = kernel["ReverbBounces"].as<uint32_t>();
 					if (kernel["ReverbReferenceSeconds"])
 						parsed.ReverbReferenceSeconds = kernel["ReverbReferenceSeconds"].as<float>();
+					if (kernel["EchogramWindowSeconds"])
+						parsed.EchogramWindowSeconds = kernel["EchogramWindowSeconds"].as<float>();
+					if (kernel["EchogramSmoothingSeconds"])
+						parsed.EchogramSmoothingSeconds = kernel["EchogramSmoothingSeconds"].as<float>();
 					if (kernel["AirAbsorptionLF"])
 						parsed.AirAbsorptionLF = kernel["AirAbsorptionLF"].as<float>();
 					if (kernel["AirAbsorptionHF"])

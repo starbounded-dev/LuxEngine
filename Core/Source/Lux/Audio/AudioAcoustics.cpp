@@ -38,7 +38,8 @@ namespace Lux
 	}
 
 	AudioAcoustics::AudioAcoustics()
-		: m_Materials(Soundwave::DefaultMaterials()), m_KernelSettings(m_Settings.GetKernelSettings())
+		: m_Materials(Soundwave::DefaultMaterials()), m_KernelSettings(m_Settings.GetKernelSettings()),
+		  m_EchogramSettings(m_Settings.GetEchogramSettings())
 	{
 	}
 
@@ -63,6 +64,7 @@ namespace Lux
 		m_Materials = table;
 		m_Settings = settings;
 		m_KernelSettings = settings.GetKernelSettings();
+		m_EchogramSettings = settings.GetEchogramSettings();
 		++m_SettingsGeneration;
 		return true;
 	}
@@ -370,7 +372,7 @@ namespace Lux
 				state.SettingsGeneration = m_SettingsGeneration;
 				m_NextZone = (firstZone + i + 1) % zones.size();
 				JobSystem::Submit([job = m_ZonePending, snapshots = m_Snapshots, excluded = m_Excluded,
-					materials = m_Materials, settings = m_KernelSettings]() mutable
+					materials = m_Materials, settings = m_KernelSettings, echogramSettings = m_EchogramSettings]() mutable
 				{
 					LUX_PROFILE_SCOPE("Soundwave::MeasureZone");
 					try
@@ -378,7 +380,7 @@ namespace Lux
 						std::vector<Soundwave::RayHit> hits;
 						job->Error = Soundwave::EvaluateZoneReverb(
 							Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded),
-							materials, settings, {}, job->Position, hits, job->Echogram, job->Reverb);
+							materials, settings, echogramSettings, job->Position, hits, job->Echogram, job->Reverb);
 					}
 					catch (const std::exception&)
 					{

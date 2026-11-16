@@ -238,6 +238,7 @@ namespace Lux {
 				if (const auto* echogram = acoustics.GetZoneEchogram(entity.GetUUID()))
 				{
 					row.Arrivals = echogram->PathCount;
+					row.WindowLimited = echogram->WindowLimited;
 					row.Measured = true;
 				}
 				m_Zones.push_back(std::move(row));
@@ -723,8 +724,8 @@ namespace Lux {
 				{
 					const std::string label = std::format("{} (weight {:.0f}%%)", zone.Name, zone.Weight * 100.0f);
 					const std::string value = zone.Reverb && zone.Measured
-						? std::format("send {:.0f}%%, {:.2f} s, {} arrivals", zone.Reverb->Send * 100.0f,
-							zone.Reverb->DecaySeconds, zone.Arrivals)
+						? std::format("send {:.0f}%%, {:.2f} s, {} arrivals{}", zone.Reverb->Send * 100.0f,
+							zone.Reverb->DecaySeconds, zone.Arrivals, zone.WindowLimited ? " (window limited)" : "")
 						: "Measuring";
 					DrawStat(label.c_str(), value.c_str());
 				}

@@ -383,6 +383,10 @@ jobs:
             python scripts/run_with_msvc.py python tests/editor/$runner
             if ($LASTEXITCODE -ne 0) { throw "$runner failed" }
           }
+          foreach ($runner in 'run_soundwave.py', 'run_occlusion_windows.py') {
+            python scripts/run_with_msvc.py python tests/audio/$runner
+            if ($LASTEXITCODE -ne 0) { throw "$runner failed" }
+          }
 
       # The Dist editor refuses a shader pack older than the sources; catch a forgotten rebuild here
       # (no GPU: it recomputes the stamp's source identity). Rebuild: Editor.exe --build-shader-pack.

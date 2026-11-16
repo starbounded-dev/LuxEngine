@@ -3,10 +3,10 @@
 **Full-roadmap audit (2026-11-16):** the original seven-phase roadmap is not complete.
 The standalone library now has path-arrival and ray-probe echograms. LuxEngine caches per-zone
 probe measurements and blends their sends into playback. Linux Release Play and exported Runtime
-verify the stone-room/corridor contrast and the applied per-source send. GPU listener reverb is verified; GPU source
-propagation remains on the CPU worker. Air absorption and deeper bounces are implemented;
-the Audio Debugger now displays each selected path's spread and scattering factors, while
-the full Phase 5 authoring and diagnostics audit remains open. SDK removal, editor Play and exported
+verify the stone-room/corridor contrast and the applied per-source send. The histogram window and
+smoothing are now authored, serialized, validated and passed to the zone worker. GPU listener reverb
+is verified; GPU source propagation remains on the CPU worker. Air absorption, scattering/spread and
+up to 16 interactions are authored, serialized, tested and observable in path diagnostics. SDK removal, editor Play and exported
 runtime pass on Linux Debug and Release; Windows verification remains outstanding. The
 2026-11-02 status below describes the later revised release path, not completion of the
 original roadmap.

@@ -171,6 +171,8 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
         "Kernel": {"Version": 1, "ReflectionDepth": 0, "OpeningGridSize": 1 if case.get("direct") else 8,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
                    "OpeningNodeBudget": 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
+    if case.get("zone"):
+        audio["Occlusion"]["Kernel"].update({"EchogramWindowSeconds": 3.0, "EchogramSmoothingSeconds": 0.04})
     path = directory/"Acoustics.luxproj"
     path.write_text(yaml.safe_dump(project, sort_keys=False), encoding="utf-8")
     return path
@@ -198,6 +200,8 @@ def verify(data, case, triangle_counts):
         zone = data["Zones"][0]
         require(zone["Weight"] > 0.99 and zone["Arrivals"] > 0 and 0 <= zone["Send"] <= 1,
                 "Zone response did not publish a timed, weighted measurement")
+        require(abs(zone["BinSeconds"] - 3.0 / 256.0) < 0.00001,
+                "Authored echogram window did not reach the zone worker")
         require(abs(source["AppliedReverbSend"] - zone["Send"]) < 0.001,
                 "Zone response did not drive the source's playback reverb send")
         require(source["RawGainLF"] == 1, "Clear zone source is occluded")

@@ -84,6 +84,7 @@ namespace Lux {
 			float Weight = 0.0f;
 			std::optional<Soundwave::ReverbResult> Reverb;
 			uint32_t Arrivals = 0;
+			bool WindowLimited = false;
 			bool Measured = false;
 		};
 		// All pages share readings captured together on main; paused data owns no scene pointers.

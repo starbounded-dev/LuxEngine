@@ -199,6 +199,7 @@ namespace Lux
 		Soundwave::MaterialTable m_Materials;
 		AudioOcclusionSettings m_Settings;
 		Soundwave::Settings m_KernelSettings;
+		Soundwave::EchogramSettings m_EchogramSettings;
 		Soundwave::SolveScratch m_Scratch;
 		std::vector<uint64_t> m_ActiveInstances, m_Excluded, m_SourceIDs;
 		std::vector<Soundwave::PortalBox> m_Portals;

@@ -83,7 +83,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 - [Application](Application) — The running game.
 - [CursorMode](CursorMode) — How the mouse cursor behaves over the game window, for [`Input.SetCursorMode`](Input).
-- [EventInstance](EventInstance) — An owned Studio event.
+- [EventInstance](EventInstance) — An owned Sound instance.
 - [ForceMode](ForceMode) — How [`RigidBodyComponent.AddForce`](RigidBodyComponent) treats its vector.
 - [GamepadTrigger](GamepadTrigger) — The left or right trigger, for adaptive trigger effects.
 - [GamepadType](GamepadType) — Which family a gamepad belongs to, to pick its button prompts.

@@ -2137,7 +2137,9 @@ read-only accessors — `AudioEngine::GetStats()` and the scene's `AudioAcoustic
 `GetZoneReverb()`, `GetZoneEchogram()`) — alongside
 cached performance meters and an explicit validation action. Sources show Sound names, playback,
 virtual and culled state with Soundwave's gains; the acoustics section shows snapshot counts,
-solves, failures, the listener reverb measurement and each zone's cached send, decay and arrival count.
+solves, failures, the listener reverb measurement and each zone's cached send, decay, arrival count
+and time-window limit. Project audio settings serialize the echogram window and smoothing alongside
+reverb rays and reference decay; the zone worker captures those values with its geometry generation.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
 called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws emitter gizmos,
