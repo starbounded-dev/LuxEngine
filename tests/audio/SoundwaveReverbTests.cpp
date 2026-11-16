@@ -38,6 +38,19 @@ namespace
 			<< " mfp=" << result.MeanFreePath << '\n';
 		return result;
 	}
+	ReverbResult MeasureZone(const std::vector<Triangle>& triangles, Position probe)
+	{
+		Grid grid;
+		Check(grid.Build(triangles) == GeometryError::None, "zone geometry invalid");
+		std::vector<RayHit> hits;
+		Echogram echogram;
+		ReverbResult result;
+		Check(EvaluateZoneReverb(GeometryView(grid), DefaultMaterials(), {}, {}, probe, hits, echogram, result) ==
+			EvaluationError::None, "zone reverb evaluation failed");
+		Check(echogram.PathCount > 0 && echogram.TotalEnergyLF > 0 && echogram.BinSeconds > 0,
+			"zone response has no timed surface arrivals");
+		return result;
+	}
 	constexpr MaterialTag kCarpet = 2, kMarble = 10;
 }
 
@@ -46,6 +59,7 @@ int main()
 	std::vector<Triangle> geometry;
 	Box(geometry, {-5,0,-5}, {5,4,5}, kMarble);
 	const auto stone = Measure(geometry, {0,1.7f,0});
+	const auto stoneZone = MeasureZone(geometry, {0,1.7f,0});
 	const auto again = Measure(geometry, {0,1.7f,0});
 	Check(stone.DecaySeconds == again.DecaySeconds && stone.Send == again.Send && stone.Traces == again.Traces,
 		"reverb is not deterministic");
@@ -65,8 +79,10 @@ int main()
 	geometry.clear();
 	Box(geometry, {-1,0,-10}, {1,3,10}, kMarble);
 	const auto corridor = Measure(geometry, {0,1.7f,0});
+	const auto corridorZone = MeasureZone(geometry, {0,1.7f,0});
 	Check(corridor.DecaySeconds < 0.75f * stone.DecaySeconds && corridor.Send < stone.Send - 0.1f,
 		"a corridor and a stone room of the same material sound alike");
+	Check(corridorZone.Send < stoneZone.Send - 0.05f, "zone echogram did not distinguish the corridor");
 
 	geometry.clear();
 	Box(geometry, {-1,0,-10}, {1,3,10}, kMarble, true);
@@ -77,13 +93,17 @@ int main()
 	geometry.clear();
 	Box(geometry, {-5,0,-5}, {5,4,5}, kCarpet);
 	const auto carpet = Measure(geometry, {0,1.7f,0});
+	const auto carpetZone = MeasureZone(geometry, {0,1.7f,0});
 	Check(carpet.DecaySeconds < 0.25f * stone.DecaySeconds, "absorbent room rang like stone");
+	Check(carpetZone.Send < 0.5f * stoneZone.Send, "zone echogram ignored authored absorption");
 
 	geometry.clear();
 	geometry.push_back({ {-50,0,-50},{50,0,50},{50,0,-50},1,0,kMarble,false });
 	geometry.push_back({ {-50,0,-50},{-50,0,50},{50,0,50},1,0,kMarble,false });
 	const auto field = Measure(geometry, {0,1.7f,0});
+	const auto fieldZone = MeasureZone(geometry, {0,1.7f,0});
 	Check(field.EscapedFraction == 1 && field.Send < 0.05f, "open ground reverberates");
+	Check(fieldZone.Send == 0.0f, "zone echogram reverberates open ground");
 
 	// A 60 m stone courtyard floor. The clear direct path is the backend's distance fade, so air
 	// absorption must not charge it again (no double fade).

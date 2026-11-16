@@ -5,6 +5,7 @@
 #include "soundwave/Solve.h"
 #include <array>
 #include <cstdint>
+#include <span>
 
 namespace Lux::Soundwave
 {
@@ -21,6 +22,14 @@ namespace Lux::Soundwave
 	{
 		float EnergyLF = 0.0f;
 		float EnergyHF = 0.0f;
+	};
+
+	// A reflected ray contributes energy at each surface arrival. Delay is measured from the
+	// probe, so this form can represent a room response without an authored audio source.
+	struct EchogramArrival
+	{
+		float DelaySeconds = 0.0f;
+		float EnergyLF = 0.0f, EnergyHF = 0.0f;
 	};
 
 	// Arrival times are relative to the direct path. Each bin holds linear energy, not dB or
@@ -40,5 +49,7 @@ namespace Lux::Soundwave
 	// Retains output on invalid input. Paths outside the authored time window are counted but
 	// reported by WindowLimited rather than folded into the last bin.
 	[[nodiscard]] EvaluationError BuildEchogram(const SolveResult& solve,
+		const EchogramSettings& settings, Echogram& output);
+	[[nodiscard]] EvaluationError BuildEchogram(std::span<const EchogramArrival> arrivals,
 		const EchogramSettings& settings, Echogram& output);
 }

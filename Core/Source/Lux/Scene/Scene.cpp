@@ -386,6 +386,7 @@ namespace Lux {
 		}
 
 		m_AppliedAudioOcclusion.erase(entity.GetUUID());
+		m_AppliedAudioReverbSend.erase(entity.GetUUID());
 	}
 
 	void Scene::ReleaseAllRuntimeAudio()
@@ -946,6 +947,20 @@ namespace Lux {
 			AudioPerformance::SubmitScene(acousticsTimer.ElapsedMillis(), GetCulledAudioSourceCount(), true);
 			if (m_SceneAcoustics.GetKernel().IsRaycastComparisonEnabled())
 				UpdateAudioOcclusion(static_cast<float>(ts), acousticListener);
+			float reverbSend = m_SceneAcoustics.GetKernel().GetReverbSend();
+			float zoneWeight = 0.0f, zoneSend = 0.0f;
+			for (const auto& zone : m_AudioZoneInputs)
+			{
+				const auto* response = m_SceneAcoustics.GetKernel().GetZoneReverb(zone.ID);
+				if (!response)
+					continue;
+				const float weight = m_AudioZones.GetWeight(zone.ID);
+				zoneWeight += weight;
+				zoneSend += weight * response->Send;
+			}
+			if (zoneWeight > 0.0f)
+				reverbSend += std::min(zoneWeight, 1.0f) * (zoneSend / zoneWeight - reverbSend);
+			reverbSend *= m_AudioZones.GetRaytracedReverbGain();
 
 
 			m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
@@ -955,16 +970,19 @@ namespace Lux {
 				if (!source.Event.IsValid() || !source.Enabled || IsInactive(entityHandle) || IsAudioSourceCulled(id))
 				{
 					m_AppliedAudioOcclusion.erase(id);
+					m_AppliedAudioReverbSend.erase(id);
 					return;
 				}
 				AudioEventAcoustics acoustics;
 				acoustics.OcclusionGainLF = m_SceneAcoustics.GetKernel().GetGainLF(id);
-				acoustics.ReverbSend = m_SceneAcoustics.GetKernel().GetReverbSend() * m_AudioZones.GetRaytracedReverbGain();
+				acoustics.ReverbSend = reverbSend;
 				m_AppliedAudioOcclusion[id] = acoustics.OcclusionGainLF;
+				m_AppliedAudioReverbSend[id] = acoustics.ReverbSend;
 				if (auto instance = GetRuntimeEventInstance(id))
 					instance->SetAcoustics(acoustics);
 			});
 			std::erase_if(m_AppliedAudioOcclusion, [&](const auto& item) { return !m_RuntimeEventInstances.contains(item.first); });
+			std::erase_if(m_AppliedAudioReverbSend, [&](const auto& item) { return !m_RuntimeEventInstances.contains(item.first); });
 		}
 		else if (m_IsPaused)
 		{
@@ -2279,6 +2297,12 @@ namespace Lux {
 		return found != m_AppliedAudioOcclusion.end() ? found->second : 1.0f;
 	}
 
+	float Scene::GetAudioSourceReverbSend(UUID source) const
+	{
+		const auto found = m_AppliedAudioReverbSend.find(source);
+		return found != m_AppliedAudioReverbSend.end() ? found->second : 0.0f;
+	}
+
 	void Scene::UpdateAudioOcclusion(float timestep, const glm::vec3& listener)
 	{
 		m_AudioOcclusion.SetGeometry(m_AudioGeometryInputs, {});
@@ -2320,6 +2344,7 @@ namespace Lux {
 		m_SceneAcoustics.Clear();
 		m_AudioOcclusion.Clear();
 		m_AppliedAudioOcclusion.clear();
+		m_AppliedAudioReverbSend.clear();
 		m_AudioGeometryInputs.clear();
 		m_AudioPortalInputs.clear();
 	}

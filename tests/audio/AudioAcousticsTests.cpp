@@ -27,6 +27,15 @@ namespace
 		for (int i = 0; i < 36; i += 3)
 			input.Triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),10,0,0,false});
 	}
+	void Room(AudioAcoustics::GeometryInput& input)
+	{
+		constexpr int indices[] = {0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2,
+			1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3};
+		const auto point = [](int i) { return Soundwave::Position{i & 1 ? 5.0f : -5.0f,
+			i & 2 ? 4.0f : 0.0f,i & 4 ? 5.0f : -5.0f}; };
+		for (int i = 0; i < 36; i += 3)
+			input.Triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),10,0,10,false});
+	}
 	struct MeshOwner : AudioAcoustics::MeshGeometry
 	{
 		std::atomic<bool>* Destroyed = nullptr;
@@ -220,6 +229,22 @@ void RunAudioAcousticsTests()
 		assert(gate->Finished.try_acquire_for(5s) && destroyed);
 		audio.PollGeometry();
 		assert(!audio.GetDiagnostics().Ready);
+	}
+	{
+		AudioAcoustics audio;
+		assert(audio.Configure(materials, settings));
+		assert(audio.RequestGeometry(1, [](auto& input, auto&) { Room(input); return true; }, empty));
+		Drain(audio);
+		const std::array<AudioAcoustics::ZoneProbe,1> zones{{{700,{0,1.7f,0}}}};
+		const auto deadline = std::chrono::steady_clock::now() + 5s;
+		while (!audio.GetZoneReverb(700))
+		{
+			assert(audio.Update(0.01f, listener, {}, zones));
+			assert(std::chrono::steady_clock::now() < deadline && "zone measurement did not publish");
+			std::this_thread::yield();
+		}
+		assert(audio.GetZoneReverb(700)->Send > 0.0f && audio.GetZoneEchogram(700)->PathCount > 0);
+		assert(audio.Update(0.01f, listener, {}) && !audio.GetZoneReverb(700) && !audio.GetZoneEchogram(700));
 	}
 	JobSystem::Shutdown();
 	JobSystem::Init(0);

@@ -19,12 +19,15 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ID = 73049999999999901
 LISTENER_ID = 73049999999999902
 SPONZA_ID = 73049999999999910
+ZONE_ID = 73049999999999930
 CASES = {
     "corner": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "audible": True},
     "doorway-open": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "audible": True},
     "doorway-closed": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "closed": True},
     "direct-blocked": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "direct": True},
     "direct-clear": {"listener": [0, 1.6, 0], "source": [2, 1.6, 0], "direct": True, "clear": True},
+    "zone-stone": {"listener": [0, 1.6, 0], "source": [0, 1.6, 1], "zone": True, "clear": True},
+    "zone-corridor": {"listener": [0, 1.6, 0], "source": [0, 1.6, 1], "zone": True, "clear": True},
 }
 
 
@@ -108,7 +111,24 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     emitter["AudioSourceComponent"].update({"VolumeMultiplier": 0.02, "DistanceCulling": False, "Enabled": True})
     light = copy.deepcopy(next(e for e in demo["Entities"] if "DirectionalLightComponent" in e))
     light["Parent"], light["Children"] = 0, []
-    entities = [model, listener, emitter, light]
+    entities = [listener, emitter, light] if case.get("zone") else [model, listener, emitter, light]
+    if case.get("zone"):
+        corridor = case_name == "zone-corridor"
+        low, high = ([-1, 0, -10], [1, 3, 10]) if corridor else ([-5, 0, -5], [5, 4, 5])
+        thickness = 0.1
+        bounds = [([low[0], -thickness, low[2]], [high[0], 0, high[2]]),
+                  ([low[0], high[1], low[2]], [high[0], high[1] + thickness, high[2]]),
+                  ([low[0] - thickness, low[1], low[2]], [low[0], high[1], high[2]]),
+                  ([high[0], low[1], low[2]], [high[0] + thickness, high[1], high[2]]),
+                  ([low[0], low[1], low[2] - thickness], [high[0], high[1], low[2]]),
+                  ([low[0], low[1], high[2]], [high[0], high[1], high[2] + thickness])]
+        for index, (wall_low, wall_high) in enumerate(bounds):
+            entities.append(box(SPONZA_ID + index + 1, f"Zone wall {index}", wall_low, wall_high,
+                                handles["Meshes/Source/Default/Cube.gltf"]))
+        zone = entity(ZONE_ID, "Measured room", [0, 1.5, 0])
+        zone["AudioZoneComponent"] = {"Shape": 0, "Enabled": True, "HalfExtents": [1, 1, 10] if corridor else [5, 3, 5],
+                                      "BlendDistance": 0, "FadeTime": 0, "Volume": 1}
+        entities.append(zone)
     if case.get("bay"):
         # Sponza's neighboring open arches are alternate physical routes. Authored
         # partitions seal this bay's sides/back/floor/ceiling, leaving its real arch.
@@ -145,6 +165,8 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     audio["EnableLiveUpdate"] = False
     audio["AcousticMaterials"] = {"Default": {"AbsorptionLF": 0.2, "AbsorptionHF": 0.7, "Scattering": 0.1,
         "TransmissionLF": 0.001, "TransmissionHF": 0.001, "FlatTransmissionLF": 1, "FlatTransmissionHF": 1}}
+    if case.get("zone"):
+        audio["AcousticMaterials"]["Default"].update({"AbsorptionLF": 0.05, "AbsorptionHF": 0.1})
     audio["Occlusion"] = {"Source": "Engine", "UpdateRateHz": 1, "CastBudget": 32, "Strength": 1,
         "Kernel": {"Version": 1, "ReflectionDepth": 0, "OpeningGridSize": 1 if case.get("direct") else 8,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
@@ -159,10 +181,10 @@ def verify(data, case, triangle_counts):
     require(data.get("ReverbOn") == "GPU" and data.get("ReverbMeasurements", 0) > 0,
             f"Listener reverb did not run on the GPU: {data.get('ReverbOn')} x{data.get('ReverbMeasurements')}")
     require(0 <= data["ReverbSend"] <= 1 and data["ReverbDecaySeconds"] >= 0, "Listener reverb values out of range")
-    expected = triangle_counts["Sponza"] + (5*triangle_counts["Default"] if case.get("bay") else 0)
+    expected = 6 * triangle_counts["Default"] if case.get("zone") else triangle_counts["Sponza"] + (5*triangle_counts["Default"] if case.get("bay") else 0)
     require(data["StaticTriangles"] == expected, f"Sponza/partition geometry missing: {data['StaticTriangles']} != {expected}")
     require(data["MovingTriangles"] == (12 if case.get("closed") else 0), "Portal shutter capture disagrees with the authored state")
-    require(data["StaticMeshInstances"] == (6 if case.get("bay") else 1), "A rendered model/partition instance was omitted")
+    require(data["StaticMeshInstances"] == (6 if case.get("zone") or case.get("bay") else 1), "A rendered model/partition instance was omitted")
     require(data["MovingMeshInstances"] == (1 if case.get("closed") else 0), "Portal instance state disagrees with its authoring")
     require(data["CheckedSources"] == 1 and len(data["Sources"]) == 1, "Probe did not verify its audio source")
     source = data["Sources"][0]
@@ -171,6 +193,17 @@ def verify(data, case, triangle_counts):
         actual = source[name.title()]
         require(len(actual) == 3 and all(abs(a-b) < 0.00001 for a, b in zip(actual, case[name])), f"{name} moved during the pinned probe")
     require(source["DirectGainLFBits"] == source["EngineRayGainLFBits"], "Direct gain differs from the actual engine-ray oracle")
+    if case.get("zone"):
+        require(len(data["Zones"]) == 1 and data["Zones"][0]["UUID"] == ZONE_ID, "Active zone response missing")
+        zone = data["Zones"][0]
+        require(zone["Weight"] > 0.99 and zone["Arrivals"] > 0 and 0 <= zone["Send"] <= 1,
+                "Zone response did not publish a timed, weighted measurement")
+        require(abs(source["AppliedReverbSend"] - zone["Send"]) < 0.001,
+                "Zone response did not drive the source's playback reverb send")
+        require(source["RawGainLF"] == 1, "Clear zone source is occluded")
+        return {"ZoneSend": zone["Send"], "ZoneDecaySeconds": zone["DecaySeconds"],
+                "DirectGainLFBits": source["DirectGainLFBits"], "EngineRayGainLFBits": source["EngineRayGainLFBits"],
+                "OpeningPaths": source["OpeningPaths"], "RawGainLF": source["RawGainLF"]}
     if case.get("clear"):
         require(source["RawGainLF"] == 1 and source["EngineRayGainLF"] == 1, "Clear control is obstructed")
     else:
@@ -252,6 +285,9 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     # Same listener, geometry and kernel: the GPU reverb must agree between Play and the package.
     require(abs(data["ReverbDecaySeconds"] - play["ReverbDecaySeconds"]) <= 0.01 * max(play["ReverbDecaySeconds"], 0.01),
             "Play/runtime listener reverb differs")
+    if case.get("zone"):
+        require(abs(data["Zones"][0]["Send"] - play["Zones"][0]["Send"]) < 0.02,
+                "Play/runtime zone reverb differs")
     return {"package": str(package), "report": str(report_path), "values": verified}
 
 
@@ -302,6 +338,9 @@ def main():
             require(summary["runs"][0]["validationMessages"] == 0, "Native run reported Vulkan validation messages")
             results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts)
             results[name]["capture"] = str(capture)
+            if "zone-stone" in results and "zone-corridor" in results:
+                require(results["zone-stone"]["ZoneSend"] > results["zone-corridor"]["ZoneSend"] + 0.05,
+                        "Stone room and corridor zone sends sound alike")
             if args.export_runtime:
                 results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading, args.runtime_config or args.config)
             print(name + ": PASS " + json.dumps(results[name]), flush=True)

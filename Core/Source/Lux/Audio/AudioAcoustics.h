@@ -7,6 +7,7 @@
 #include "Lux/Core/Ref.h"
 #include "Lux/Core/UUID.h"
 #include <soundwave/Flatten.h>
+#include <soundwave/Echogram.h>
 #include <soundwave/Reverb.h>
 #include <array>
 #include <atomic>
@@ -44,6 +45,11 @@ namespace Lux
 		};
 		using Builder = std::function<bool(GeometryInput&, std::string& error)>;
 		struct Source
+		{
+			UUID Entity = 0;
+			Soundwave::Position Position;
+		};
+		struct ZoneProbe
 		{
 			UUID Entity = 0;
 			Soundwave::Position Position;
@@ -87,12 +93,15 @@ namespace Lux
 		[[nodiscard]] bool SetActiveInstances(std::span<const uint64_t> instances);
 		// Selects due sources and solves them on a worker. Results publish in PollSolves, which this
 		// calls; with the inline job policy that is the same update, otherwise a later one.
-		[[nodiscard]] bool Update(float timestep, Soundwave::Position listener, std::span<const Source> sources);
+		[[nodiscard]] bool Update(float timestep, Soundwave::Position listener, std::span<const Source> sources,
+			std::span<const ZoneProbe> zones = {});
 		// Main thread: publishes a finished solve batch, if any. Never waits.
 		void PollSolves();
 		float GetGainLF(UUID source) const;
 		float GetGainHF(UUID source) const;
 		const Soundwave::SolveResult* GetResult(UUID source) const;
+		const Soundwave::ReverbResult* GetZoneReverb(UUID zone) const;
+		const Soundwave::Echogram* GetZoneEchogram(UUID zone) const;
 		// Smoothed listener reverb send, 0 until the first measurement completes.
 		float GetReverbSend() const { return m_ReverbSend; }
 		// The last completed measurement; nullptr before one exists.
@@ -137,6 +146,25 @@ namespace Lux
 			Soundwave::ReverbResult Result;
 			Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 		};
+		struct ZoneState
+		{
+			Soundwave::Position Position;
+			Soundwave::Echogram Echogram;
+			Soundwave::ReverbResult Reverb;
+			uint64_t SeenUpdate = 0, GeometryGeneration = 0, SettingsGeneration = 0;
+			Soundwave::EvaluationError LastError = Soundwave::EvaluationError::None;
+			bool Valid = false, Attempted = false;
+		};
+		struct ZoneJob : RefCounted
+		{
+			std::atomic<bool> Done{ false };
+			UUID Entity = 0;
+			Soundwave::Position Position;
+			uint64_t GeometryGeneration = 0, SettingsGeneration = 0;
+			Soundwave::Echogram Echogram;
+			Soundwave::ReverbResult Reverb;
+			Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
+		};
 		struct SolveJob : RefCounted
 		{
 			struct Item
@@ -157,6 +185,7 @@ namespace Lux
 			Soundwave::FlatError Error = Soundwave::FlatError::None;
 		};
 		void UpdateReverb(float timestep, Soundwave::Position listener);
+		void PollZone();
 		void PublishReverb(Soundwave::EvaluationError error, const Soundwave::ReverbResult& result);
 		void RefreshGeometryView();
 		bool CanPrepare() const;
@@ -174,6 +203,10 @@ namespace Lux
 		std::vector<uint64_t> m_ActiveInstances, m_Excluded, m_SourceIDs;
 		std::vector<Soundwave::PortalBox> m_Portals;
 		std::unordered_map<UUID, SourceState> m_Sources;
+		std::unordered_map<UUID, ZoneState> m_Zones;
+		std::vector<uint64_t> m_ZoneIDs;
+		Ref<ZoneJob> m_ZonePending;
+		size_t m_NextZone = 0;
 		uint64_t m_UpdateIndex = 0, m_GeometryGeneration = 0, m_SettingsGeneration = 0;
 		uint64_t m_Evaluations = 0, m_SolveFailures = 0;
 		size_t m_NextSource = 0;

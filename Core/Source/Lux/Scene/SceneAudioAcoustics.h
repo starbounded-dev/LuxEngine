@@ -24,6 +24,7 @@ namespace Lux
 		Scope<Data> m_Data;
 		AudioAcoustics m_Kernel;
 		std::vector<AudioAcoustics::Source> m_Sources;
+		std::vector<AudioAcoustics::ZoneProbe> m_Zones;
 		bool m_Configured = false;
 	};
 }

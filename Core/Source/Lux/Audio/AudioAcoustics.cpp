@@ -286,7 +286,8 @@ namespace Lux
 		std::sort(m_Portals.begin(), m_Portals.end(), [](const auto& a, const auto& b) { return a.Instance < b.Instance; });
 	}
 
-	bool AudioAcoustics::Update(float timestep, Soundwave::Position listener, std::span<const Source> sources)
+	bool AudioAcoustics::Update(float timestep, Soundwave::Position listener, std::span<const Source> sources,
+		std::span<const ZoneProbe> zones)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!std::isfinite(timestep) || timestep < 0 || !Finite(listener))
@@ -310,7 +311,35 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Duplicate source UUID in Soundwave update");
 			return false;
 		}
+		m_ZoneIDs.clear();
+		for (const auto& zone : zones)
+		{
+			if (zone.Entity == 0 || !Finite(zone.Position))
+			{
+				LUX_CORE_ERROR_TAG("Audio", "Invalid Soundwave zone UUID or probe position ({})", static_cast<uint64_t>(zone.Entity));
+				return false;
+			}
+			m_ZoneIDs.push_back(zone.Entity);
+		}
+		std::sort(m_ZoneIDs.begin(), m_ZoneIDs.end());
+		if (std::adjacent_find(m_ZoneIDs.begin(), m_ZoneIDs.end()) != m_ZoneIDs.end())
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Duplicate zone UUID in Soundwave update");
+			return false;
+		}
 		++m_UpdateIndex;
+		for (const auto& zone : zones)
+		{
+			auto& state = m_Zones[zone.Entity];
+			state.SeenUpdate = m_UpdateIndex;
+			if (state.Position.X != zone.Position.X || state.Position.Y != zone.Position.Y || state.Position.Z != zone.Position.Z)
+			{
+				state.Valid = false;
+				state.Attempted = false;
+			}
+			state.Position = zone.Position;
+		}
+		PollZone();
 		for (const auto& source : sources)
 		{
 			auto& state = m_Sources[source.Entity];
@@ -320,6 +349,48 @@ namespace Lux
 		const float interval = 1.0f / m_Settings.UpdateRateHz;
 		const float smoothing = 1.0f - std::exp(-timestep / kSmoothingSeconds);
 		const bool ready = m_Snapshots[0] && m_Snapshots[1];
+		if (ready && !m_ZonePending && !zones.empty())
+		{
+			const size_t firstZone = m_NextZone % zones.size();
+			for (size_t i = 0; i < zones.size(); ++i)
+			{
+				const auto& zone = zones[(firstZone + i) % zones.size()];
+				auto& state = m_Zones[zone.Entity];
+				if (state.Attempted && state.GeometryGeneration == m_GeometryGeneration &&
+					state.SettingsGeneration == m_SettingsGeneration)
+					continue;
+				m_ZonePending = Ref<ZoneJob>::Create();
+				m_ZonePending->Entity = zone.Entity;
+				m_ZonePending->Position = zone.Position;
+				m_ZonePending->GeometryGeneration = m_GeometryGeneration;
+				m_ZonePending->SettingsGeneration = m_SettingsGeneration;
+				state.Attempted = true;
+				state.Valid = false;
+				state.GeometryGeneration = m_GeometryGeneration;
+				state.SettingsGeneration = m_SettingsGeneration;
+				m_NextZone = (firstZone + i + 1) % zones.size();
+				JobSystem::Submit([job = m_ZonePending, snapshots = m_Snapshots, excluded = m_Excluded,
+					materials = m_Materials, settings = m_KernelSettings]() mutable
+				{
+					LUX_PROFILE_SCOPE("Soundwave::MeasureZone");
+					try
+					{
+						std::vector<Soundwave::RayHit> hits;
+						job->Error = Soundwave::EvaluateZoneReverb(
+							Soundwave::GeometryView(snapshots[0]->Grid, &snapshots[1]->Grid, excluded),
+							materials, settings, {}, job->Position, hits, job->Echogram, job->Reverb);
+					}
+					catch (const std::exception&)
+					{
+						job->Error = Soundwave::EvaluationError::NumericalFailure;
+					}
+					job->Done.store(true, std::memory_order_release);
+				});
+				PollZone(); // inline job policy
+				break;
+			}
+		}
+		std::erase_if(m_Zones, [&](const auto& entry) { return entry.second.SeenUpdate != m_UpdateIndex; });
 		PollSolves();
 		std::vector<SolveJob::Item> due;
 		const size_t first = sources.empty() ? 0 : m_NextSource % sources.size();
@@ -381,6 +452,37 @@ namespace Lux
 		if (ready)
 			UpdateReverb(timestep, listener);
 		return true;
+	}
+
+	void AudioAcoustics::PollZone()
+	{
+		if (!m_ZonePending || !m_ZonePending->Done.load(std::memory_order_acquire))
+			return;
+		const auto found = m_Zones.find(m_ZonePending->Entity);
+		if (found != m_Zones.end())
+		{
+			auto& state = found->second;
+			const auto& job = *m_ZonePending;
+			if (state.Position.X == job.Position.X && state.Position.Y == job.Position.Y && state.Position.Z == job.Position.Z &&
+				job.GeometryGeneration == m_GeometryGeneration && job.SettingsGeneration == m_SettingsGeneration)
+			{
+				if (job.Error == Soundwave::EvaluationError::None)
+				{
+					state.Echogram = job.Echogram;
+					state.Reverb = job.Reverb;
+					state.Valid = true;
+					state.LastError = Soundwave::EvaluationError::None;
+				}
+				else
+				{
+					if (state.LastError != job.Error)
+						LUX_CORE_ERROR_TAG("Audio", "Soundwave zone {} measurement failed (error {})",
+							static_cast<uint64_t>(job.Entity), static_cast<uint32_t>(job.Error));
+					state.LastError = job.Error;
+				}
+			}
+		}
+		m_ZonePending = nullptr;
 	}
 
 	void AudioAcoustics::PollSolves()
@@ -617,6 +719,18 @@ namespace Lux
 		const auto found = m_Sources.find(source);
 		return found != m_Sources.end() && found->second.Evaluated ? &found->second.Result : nullptr;
 	}
+
+	const Soundwave::ReverbResult* AudioAcoustics::GetZoneReverb(UUID zone) const
+	{
+		const auto found = m_Zones.find(zone);
+		return found != m_Zones.end() && found->second.Valid ? &found->second.Reverb : nullptr;
+	}
+
+	const Soundwave::Echogram* AudioAcoustics::GetZoneEchogram(UUID zone) const
+	{
+		const auto found = m_Zones.find(zone);
+		return found != m_Zones.end() && found->second.Valid ? &found->second.Echogram : nullptr;
+	}
 	AudioAcoustics::Diagnostics AudioAcoustics::GetDiagnostics() const
 	{
 		Diagnostics result;
@@ -658,6 +772,10 @@ namespace Lux
 		m_Portals.clear();
 		m_SourceIDs.clear();
 		m_Sources.clear();
+		m_Zones.clear();
+		m_ZoneIDs.clear();
+		m_ZonePending = nullptr;
+		m_NextZone = 0;
 		m_HasActiveInstances = false;
 		m_NextSource = 0;
 		m_ReverbPending = nullptr;

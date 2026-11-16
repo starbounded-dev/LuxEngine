@@ -100,4 +100,22 @@ namespace Lux::Soundwave
 		output = std::move(next);
 		return EvaluationError::None;
 	}
+
+	EvaluationError BuildEchogram(std::span<const EchogramArrival> arrivals,
+		const EchogramSettings& settings, Echogram& output)
+	{
+		if (!settings.Validate())
+			return EvaluationError::InvalidSettings;
+		for (const auto& arrival : arrivals)
+			if (!std::isfinite(arrival.DelaySeconds) || arrival.DelaySeconds < 0.0f ||
+				!std::isfinite(arrival.EnergyLF) || arrival.EnergyLF < 0.0f ||
+				!std::isfinite(arrival.EnergyHF) || arrival.EnergyHF < 0.0f)
+				return EvaluationError::NumericalFailure;
+		Echogram next;
+		next.BinSeconds = settings.WindowSeconds / static_cast<float>(kEchogramBins);
+		for (const auto& arrival : arrivals)
+			Add(next, arrival.DelaySeconds, arrival.EnergyLF, arrival.EnergyHF, settings);
+		output = std::move(next);
+		return EvaluationError::None;
+	}
 }

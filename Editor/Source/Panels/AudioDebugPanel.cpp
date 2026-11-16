@@ -128,6 +128,7 @@ namespace Lux {
 		m_HasReadings = false;
 		m_Paused = false;
 		m_Sources.clear();
+		m_Zones.clear();
 		m_FilteredSources.clear();
 		m_Banks.clear();
 		m_Clips.clear();
@@ -218,6 +219,7 @@ namespace Lux {
 		m_Reverb.reset();
 		m_ReverbSend = 0.0f;
 		m_Sources.clear();
+		m_Zones.clear();
 		m_HaveListener = false;
 		if (m_Context)
 		{
@@ -225,6 +227,22 @@ namespace Lux {
 			if (const auto* reverb = acoustics.GetReverb())
 				m_Reverb = *reverb;
 			m_ReverbSend = acoustics.GetReverbSend();
+			for (auto handle : m_Context->GetAllEntitiesWith<AudioZoneComponent>())
+			{
+				Entity entity{handle, m_Context.Raw()};
+				ZoneRow row;
+				row.Name = entity.GetName();
+				row.Weight = m_Context->GetAudioZoneWeight(entity.GetUUID());
+				if (const auto* reverb = acoustics.GetZoneReverb(entity.GetUUID()))
+					row.Reverb = *reverb;
+				if (const auto* echogram = acoustics.GetZoneEchogram(entity.GetUUID()))
+				{
+					row.Arrivals = echogram->PathCount;
+					row.Measured = true;
+				}
+				m_Zones.push_back(std::move(row));
+			}
+			std::ranges::sort(m_Zones, {}, &ZoneRow::Name);
 			const auto* listener = m_Context->GetPrimaryAudioListener();
 			m_HaveListener = listener != nullptr;
 			const auto listenerPosition =
@@ -694,6 +712,25 @@ namespace Lux {
 		}
 		ImGui::Spacing();
 		ImGui::TextWrapped("Each source's voice applies Soundwave's occlusion as a low-pass and gain, and its reverb send feeds the mixer's reverb return (View > Audio Mixer).");
+		if (!m_Zones.empty())
+		{
+			ImGui::Spacing();
+			ImGui::TextWrapped("Zone echograms (cached by geometry generation)");
+			if (ImGui::BeginTable("##audio_debugger_zone_echograms", 2,
+				ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				for (const auto& zone : m_Zones)
+				{
+					const std::string label = std::format("{} (weight {:.0f}%%)", zone.Name, zone.Weight * 100.0f);
+					const std::string value = zone.Reverb && zone.Measured
+						? std::format("send {:.0f}%%, {:.2f} s, {} arrivals", zone.Reverb->Send * 100.0f,
+							zone.Reverb->DecaySeconds, zone.Arrivals)
+						: "Measuring";
+					DrawStat(label.c_str(), value.c_str());
+				}
+				ImGui::EndTable();
+			}
+		}
 
 	}
 
