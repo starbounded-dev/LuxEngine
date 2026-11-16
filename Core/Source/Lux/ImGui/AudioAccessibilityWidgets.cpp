@@ -36,7 +36,7 @@ namespace Lux::ImGuiEx
 			ScopedDisable disabled(!available);
 			changed |= ImGui::SliderFloat(AudioCategoryNames[i], &preferences.Volumes[i], 0, 1, "%.2f");
 			if (!available && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-				ImGui::SetTooltip("This category needs a loaded FMOD bus mapped in Project Settings > Audio.");
+				ImGui::SetTooltip("This category needs a mixer bus mapped in Project Settings > Audio.");
 		}
 		changed |= ImGui::Checkbox("Mono audio", &preferences.Mono);
 		int range = static_cast<int>(preferences.DynamicRange);

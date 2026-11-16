@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Single- vs multi-threaded A/B of the editor (see .claude/docs/Rendering.md § Golden image capture).
 
-    threading_ab.py [--config release] [--runs 3] [--scenes FMODDemo,Benchmark] [--no-build]
+    threading_ab.py [--config release] [--runs 3] [--scenes AudioDemo,Benchmark] [--no-build]
 
 Builds the editor first (Windows: premake with the saved options, then MSBuild; Linux: make Core and
 Editor), then captures the scene set under each policy with golden_run.py --threading, alternating
@@ -93,7 +93,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default="release", choices=["debug", "release", "dist"])
     parser.add_argument("--runs", type=int, default=3, help="captures per policy; the report uses the median")
-    parser.add_argument("--scenes", default="FMODDemo,Benchmark,Physics,LaptopStart,SkyDiver")
+    parser.add_argument("--scenes", default="AudioDemo,Benchmark,Physics,LaptopStart,SkyDiver")
     parser.add_argument("--no-build", action="store_true", help="use the editor that is already built")
     args = parser.parse_args()
     args.scenes = [scene for scene in args.scenes.split(",") if scene]

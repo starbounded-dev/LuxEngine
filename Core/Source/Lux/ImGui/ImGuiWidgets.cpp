@@ -9,169 +9,151 @@
 #include "Lux/Scene/Components.h"
 //#include "Lux/Script/ScriptEngine.h"
 
-#include <format>
-#include <tuple>
-#include <unordered_set>
+#include <algorithm>
 
 namespace Lux::ImGuiEx
 {
-	bool Widgets::AssetSearchPopup(const char* ID, AssetHandle& selected, bool* cleared, const char* hint, ImVec2 size, std::initializer_list<AssetType> assetTypes)
+	namespace
 	{
-		ImGuiEx::ScopedColour popupBG(ImGuiCol_PopupBg, ImGuiEx::ColourWithMultipliedValue(Colors::Theme::background, 1.6f));
+		struct AssetPickerRow
+		{
+			AssetHandle Handle;
+			std::string Name;
+			std::string Path;
+			std::string Type;
+		};
+		struct AssetPickerCache
+		{
+			const EditorAssetManager* Owner = nullptr;
+			ImGuiID Popup = 0;
+			uint64_t Revision = 0;
+			std::vector<AssetType> Types;
+			std::vector<AssetPickerRow> Rows;
+			std::vector<size_t> Matches;
+			char Search[256]{};
+			std::string Filter;
+			bool Focus = false;
+		};
+		// One visible picker snapshot; owns labels and handles, never a project/asset manager.
+		AssetPickerCache s_AssetPicker;
+	} // namespace
 
+	bool Widgets::AssetSearchPopup(const char* ID, AssetHandle& selected, bool* cleared, const char* hint,
+								   ImVec2 size, std::initializer_list<AssetType> assetTypes)
+	{
+		ScopedColour popupBG(ImGuiCol_PopupBg, ColourWithMultipliedValue(Colors::Theme::background, 1.6f));
+		const float fontScale = ImGui::GetStyle()._MainScale;
+		ImGui::SetNextWindowSize({std::min(size.x * fontScale, ImGui::GetMainViewport()->WorkSize.x), 0.0f});
 		bool modified = false;
-
-		ImGui::SetNextWindowSize({ size.x, 0.0f });
-
-		static bool grabFocus = true;
-
 		if (ImGuiEx::BeginPopup(ID, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize))
 		{
-			Ref<Project> project = Project::GetActive();
-			Ref<AssetManagerBase> assetManagerBase = project ? Project::GetAssetManager() : nullptr;
-			Ref<EditorAssetManager> assetManager = project ? Project::GetEditorAssetManager() : nullptr;
-			if (!assetManagerBase || !assetManager)
+			const auto project = Project::GetActive();
+			auto manager = project ? Project::GetEditorAssetManager() : nullptr;
+			if (!manager)
 			{
-				ImGui::TextDisabled("No active asset manager");
+				ImGui::TextWrapped("Open a project to choose an asset.");
 				ImGuiEx::EndPopup();
 				return false;
 			}
-
-			AssetHandle current = selected;
-			static std::string searchString;
-
-			if (ImGui::GetCurrentWindow()->Appearing)
+			auto& cache = s_AssetPicker;
+			const ImGuiID popup = ImGui::GetCurrentWindow()->ID;
+			const bool appearing = ImGui::IsWindowAppearing();
+			if (appearing)
 			{
-				grabFocus = true;
-				searchString.clear();
+				cache.Search[0] = 0;
+				cache.Focus = true;
 			}
-
-			// Search widget
-			ImGuiEx::ShiftCursor(3.0f, 2.0f);
-			ImGui::SetNextItemWidth(ImGui::GetWindowWidth() - ImGui::GetCursorPosX() * 2.0f);
-			SearchWidget(searchString, hint, &grabFocus);
-
-			const bool searching = !searchString.empty();
-
-			// Clear property button
-			if (cleared != nullptr)
+			const auto& registry = manager->GetAssetRegistry();
+			const bool typesChanged = cache.Types.size() != assetTypes.size() ||
+									  !std::equal(cache.Types.begin(), cache.Types.end(), assetTypes.begin());
+			const bool rebuild = appearing || cache.Popup != popup || cache.Owner != manager.Raw() ||
+								 cache.Revision != registry.GetRevision() || typesChanged;
+			if (rebuild)
 			{
-				ImGuiEx::ScopedColourStack buttonColours(
-					ImGuiCol_Button, ImGuiEx::ColourWithMultipliedValue(Colors::Theme::background, 1.0f),
-					ImGuiCol_ButtonHovered, ImGuiEx::ColourWithMultipliedValue(Colors::Theme::background, 1.2f),
-					ImGuiCol_ButtonActive, ImGuiEx::ColourWithMultipliedValue(Colors::Theme::background, 0.9f));
-
-				ImGuiEx::ScopedStyle border(ImGuiStyleVar_FrameBorderSize, 0.0f);
-
-				ImGui::SetCursorPosX(0);
-
-				ImGui::PushItemFlag(ImGuiItemFlags_NoNav, searching);
-
-				if (ImGui::Button("CLEAR", { ImGui::GetWindowWidth(), 0.0f }))
+				cache.Popup = popup;
+				cache.Owner = manager.Raw();
+				cache.Revision = registry.GetRevision();
+				cache.Types.assign(assetTypes.begin(), assetTypes.end());
+				cache.Rows.clear();
+				cache.Rows.reserve(registry.Count());
+				for (const auto& [handle, metadata] : registry)
 				{
-					*cleared = true;
-					modified = true;
+					if (!metadata.IsValid() || metadata.FilePath.empty() ||
+						metadata.Type == AssetType::None || manager->IsMemoryAsset(handle) ||
+						(!cache.Types.empty() &&
+						 std::ranges::find(cache.Types, metadata.Type) == cache.Types.end()))
+						continue;
+					cache.Rows.push_back({handle, Utils::PathToUTF8(metadata.FilePath.stem()),
+										  Utils::PathToUTF8(metadata.FilePath),
+										  std::string(AssetTypeToString(metadata.Type))});
 				}
-
-				ImGui::PopItemFlag();
+				std::ranges::sort(cache.Rows, {}, &AssetPickerRow::Path);
 			}
-
-			// List of assets
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (cache.Focus)
 			{
-				ImGuiEx::ScopedColour listBoxBg(ImGuiCol_FrameBg, IM_COL32_DISABLE);
-				ImGuiEx::ScopedColour listBoxBorder(ImGuiCol_Border, IM_COL32_DISABLE);
-
-				ImGuiID listID = ImGui::GetID("##SearchListBox");
-				if (ImGui::BeginListBox("##SearchListBox", ImVec2(-FLT_MIN, 0.0f)))
-				{
-					bool forwardFocus = false;
-
-					ImGuiContext& g = *GImGui;
-					if (g.NavJustMovedToId != 0)
+				ImGui::SetKeyboardFocusHere();
+				cache.Focus = false;
+			}
+			const bool commitSearch =
+				ImGui::InputTextWithHint("##asset_search", hint, cache.Search, sizeof(cache.Search),
+										 ImGuiInputTextFlags_EnterReturnsTrue);
+			if (rebuild || cache.Filter != cache.Search)
+			{
+				cache.Filter = cache.Search;
+				cache.Matches.clear();
+				cache.Matches.reserve(cache.Rows.size());
+				for (size_t i = 0; i < cache.Rows.size(); ++i)
+					if (!cache.Search[0] || IsMatchingSearch(cache.Rows[i].Path, cache.Search))
+						cache.Matches.push_back(i);
+			}
+			if (cleared && ImGui::Button("Clear selection", {-FLT_MIN, 0.0f}))
+			{
+				*cleared = true;
+				modified = true;
+			}
+			const float rowHeight = ImGui::GetTextLineHeight() * 2.0f + ImGui::GetStyle().ItemSpacing.y;
+			const float listHeight = std::min(std::max(rowHeight, size.y * fontScale),
+											  ImGui::GetMainViewport()->WorkSize.y * 0.6f);
+			if (ImGui::BeginListBox("##SearchListBox", {-FLT_MIN, listHeight}))
+			{
+				ImGuiListClipper clipper;
+				clipper.Begin(static_cast<int>(cache.Matches.size()),
+							  rowHeight + ImGui::GetStyle().ItemSpacing.y);
+				while (clipper.Step())
+					for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
 					{
-						if (g.NavJustMovedToId == listID)
+						const auto& row = cache.Rows[cache.Matches[static_cast<size_t>(i)]];
+						ScopedID id(reinterpret_cast<const void*>(static_cast<uint64_t>(row.Handle)));
+						if (ImGui::Selectable("##asset", selected == row.Handle, 0, {0.0f, rowHeight}))
 						{
-							forwardFocus = true;
-							// ActivateItem moves keyboard navigation focus inside of the window
-							ImGui::ActivateItemByID(listID);
-							ImGui::SetKeyboardFocusHere(1);
-						}
-					}
-
-					std::vector<std::tuple<std::string, AssetType, AssetHandle>> assets;
-					std::unordered_set<AssetHandle> seenHandles;
-
-					for (AssetType requestedType : assetTypes)
-					{
-						if (requestedType == AssetType::None)
-							continue;
-
-						for (AssetHandle handle : assetManagerBase->GetAllAssetsWithType(requestedType))
-						{
-							if (!handle || !seenHandles.insert(handle).second || assetManagerBase->IsMemoryAsset(handle))
-								continue;
-
-							const AssetMetadata metadata = assetManager->GetMetadata(handle);
-							if (!metadata.IsValid() || metadata.FilePath.empty() || metadata.Type != requestedType)
-								continue;
-
-							const std::string assetName = metadata.FilePath.stem().string();
-							if (assetName.empty())
-								continue;
-
-							if (!searchString.empty() && !ImGuiEx::IsMatchingSearch(assetName, searchString))
-								continue;
-
-							assets.emplace_back(std::format("{}##{}", assetName, metadata.FilePath.string()), metadata.Type, handle);
-						}
-					}
-
-					std::sort(assets.begin(), assets.end(), [](const auto& a, const auto& b) { return std::get<0>(a) < std::get<0>(b); });
-
-					if (assets.empty())
-						ImGui::TextDisabled("No matching assets");
-
-					for (const auto& [label, type, handle] : assets)
-					{
-						bool is_selected = (current == handle);
-						if (ImGui::Selectable(label.c_str(), is_selected))
-						{
-							current = handle;
-							selected = handle;
+							selected = row.Handle;
 							modified = true;
 						}
-
-						{
-							auto assetType = Utils::String::ToUpperCopy(Utils::AssetTypeToString(type));
-							ImVec2 textSize = ImGui::CalcTextSize(assetType.c_str());
-							ImVec2 rectSize = ImGui::GetItemRectSize();
-							float paddingX = ImGui::GetStyle().FramePadding.x;
-
-							ImGui::SameLine(rectSize.x - textSize.x - paddingX);
-
-							ImGuiEx::ScopedColour textColour(ImGuiCol_Text, Colors::Theme::textDarker);
-							ImGui::TextUnformatted(assetType.c_str());
-						}
-
-						if (forwardFocus)
-						{
-							forwardFocus = false;
-						}
-						else if (is_selected)
-						{
+						ImGui::SetItemTooltip("%s\n%s", row.Path.c_str(), row.Type.c_str());
+						if (selected == row.Handle)
 							ImGui::SetItemDefaultFocus();
-						}
+						const ImVec2 minimum = ImGui::GetItemRectMin(), maximum = ImGui::GetItemRectMax();
+						ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), minimum, maximum, maximum.x,
+												  row.Name.c_str(), nullptr, nullptr);
+						ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
+						ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(),
+												  {minimum.x, minimum.y + ImGui::GetTextLineHeight()},
+												  maximum, maximum.x, row.Path.c_str(), nullptr, nullptr);
 					}
-
-					ImGui::EndListBox();
-				}
+				if (cache.Matches.empty())
+					ImGui::TextWrapped("No matching assets. Change the search or import a compatible asset.");
+				ImGui::EndListBox();
+			}
+			if (commitSearch && !cache.Matches.empty())
+			{
+				selected = cache.Rows[cache.Matches.front()].Handle;
+				modified = true;
 			}
 			if (modified)
 				ImGui::CloseCurrentPopup();
-
 			ImGuiEx::EndPopup();
 		}
-
 		return modified;
 	}
 

@@ -508,7 +508,8 @@ namespace Lux
 	void AssimpMeshImporter::TraverseNodes(Ref<MeshSource> meshSource,
 		aiNode* node,
 		const glm::mat4& parentTransform,
-		uint32_t parentIndex)
+		uint32_t parentIndex,
+		std::vector<bool>& placedSubmeshes)
 	{
 		glm::mat4 localTransform = AssimpMat4ToGlm(node->mTransformation);
 		glm::mat4 worldTransform = parentTransform * localTransform;
@@ -529,6 +530,19 @@ namespace Lux
 		for (uint32_t i = 0; i < node->mNumMeshes; i++)
 		{
 			uint32_t submeshIndex = node->mMeshes[i];
+			if (placedSubmeshes[submeshIndex])
+			{
+				// Several nodes place the same mesh (glTF/FBX instancing). A submesh has one transform, so
+				// this placement gets a copy of the descriptor: same vertex/index range and material, so
+				// the geometry is shared (BuildRenderGeometry shares its LODs too), with its own transform.
+				// Appending keeps the indices of every file mesh, which explicit submesh lists refer to.
+				const Submesh placement = meshSource->m_Submeshes[submeshIndex];
+				submeshIndex = static_cast<uint32_t>(meshSource->m_Submeshes.size());
+				meshSource->m_Submeshes.push_back(placement);
+				placedSubmeshes.push_back(true);
+			}
+			placedSubmeshes[submeshIndex] = true;
+
 			currentNode.Submeshes.push_back(submeshIndex);
 			meshSource->m_Submeshes[submeshIndex].Transform = worldTransform;
 			meshSource->m_Submeshes[submeshIndex].LocalTransform = localTransform;
@@ -536,7 +550,7 @@ namespace Lux
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; i++)
-			TraverseNodes(meshSource, node->mChildren[i], worldTransform, nodeIndex);
+			TraverseNodes(meshSource, node->mChildren[i], worldTransform, nodeIndex, placedSubmeshes);
 	}
 
 	Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource()
@@ -569,12 +583,14 @@ namespace Lux
 
 		// ── Reserve submeshes ─────────────────────────────────────────────────
 		meshSource->m_Submeshes.reserve(scene->mNumMeshes);
+		// Vertex colours and second UVs are kept for every vertex once any mesh in the file has them, so
+		// the array lines up with m_Vertices.
+		bool hasVertexAttributes = false;
+		for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+			hasVertexAttributes |= scene->mMeshes[m]->HasVertexColors(0) || scene->mMeshes[m]->HasTextureCoords(1);
 
 		uint32_t vertexCount = 0;
 		uint32_t indexCount = 0;
-
-		meshSource->m_BoundingBox.Min = { FLT_MAX,  FLT_MAX,  FLT_MAX };
-		meshSource->m_BoundingBox.Max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
 
 		for (uint32_t m = 0; m < scene->mNumMeshes; m++)
 		{
@@ -621,14 +637,22 @@ namespace Lux
 				aabb.Max.z = glm::max(vertex.Position.z, aabb.Max.z);
 
 				meshSource->m_Vertices.push_back(vertex);
-			}
 
-			meshSource->m_BoundingBox.Min.x = glm::min(aabb.Min.x, meshSource->m_BoundingBox.Min.x);
-			meshSource->m_BoundingBox.Min.y = glm::min(aabb.Min.y, meshSource->m_BoundingBox.Min.y);
-			meshSource->m_BoundingBox.Min.z = glm::min(aabb.Min.z, meshSource->m_BoundingBox.Min.z);
-			meshSource->m_BoundingBox.Max.x = glm::max(aabb.Max.x, meshSource->m_BoundingBox.Max.x);
-			meshSource->m_BoundingBox.Max.y = glm::max(aabb.Max.y, meshSource->m_BoundingBox.Max.y);
-			meshSource->m_BoundingBox.Max.z = glm::max(aabb.Max.z, meshSource->m_BoundingBox.Max.z);
+				// Colours and a second UV set, kept for the whole file once any mesh in it has them.
+				if (hasVertexAttributes)
+				{
+					VertexAttributes attributes = VertexAttributes::Default(vertex.Texcoord);
+					if (mesh->HasVertexColors(0))
+					{
+						const aiColor4D& color = mesh->mColors[0][v];
+						const glm::u8vec4 bytes = glm::u8vec4(glm::round(glm::clamp(glm::vec4(color.r, color.g, color.b, color.a), 0.0f, 1.0f) * 255.0f));
+						attributes.Color = static_cast<uint32_t>(bytes.r) | (static_cast<uint32_t>(bytes.g) << 8) | (static_cast<uint32_t>(bytes.b) << 16) | (static_cast<uint32_t>(bytes.a) << 24);
+					}
+					if (mesh->HasTextureCoords(1))
+						attributes.UV1 = glm::packHalf2x16(glm::vec2(mesh->mTextureCoords[1][v].x, mesh->mTextureCoords[1][v].y));
+					meshSource->m_VertexAttributes.push_back(attributes);
+				}
+			}
 
 			// ── Indices ───────────────────────────────────────────────────────
 			for (uint32_t f = 0; f < mesh->mNumFaces; f++)
@@ -646,7 +670,42 @@ namespace Lux
 		// ── Node hierarchy ────────────────────────────────────────────────────
 		// Insert sentinel root so every real node has a valid parentIndex
 		meshSource->m_Nodes.emplace_back(); // root placeholder
-		TraverseNodes(meshSource, scene->mRootNode, glm::mat4(1.0f), s_InvalidParentIndex);
+		std::vector<bool> placedSubmeshes(meshSource->m_Submeshes.size(), false);
+		TraverseNodes(meshSource, scene->mRootNode, glm::mat4(1.0f), s_InvalidParentIndex, placedSubmeshes);
+
+		// A mirrored placement (negative scale) reverses the winding of its triangles, so back-face culling
+		// and one-sided collision would see it inside out. It indexes a reversed copy of its range instead,
+		// one copy per range however many mirrored placements share it.
+		std::unordered_map<uint32_t, uint32_t> mirroredBaseIndices; // BaseIndex -> BaseIndex of the reversed copy
+		for (Submesh& submesh : meshSource->m_Submeshes)
+		{
+			if (glm::determinant(glm::mat3(submesh.Transform)) >= 0.0f)
+				continue;
+
+			const uint32_t reversedBaseIndex = static_cast<uint32_t>(meshSource->m_Indices.size()) * 3;
+			const auto [it, inserted] = mirroredBaseIndices.try_emplace(submesh.BaseIndex, reversedBaseIndex);
+			if (inserted)
+			{
+				const uint32_t firstTriangle = submesh.BaseIndex / 3;
+				for (uint32_t t = 0; t < submesh.IndexCount / 3; t++)
+				{
+					Index triangle = meshSource->m_Indices[firstTriangle + t];
+					std::swap(triangle.V2, triangle.V3);
+					meshSource->m_Indices.push_back(triangle);
+				}
+			}
+			submesh.BaseIndex = it->second;
+		}
+
+		// The mesh's bounds are what its entity covers: every placement, in mesh space.
+		meshSource->m_BoundingBox.Min = { FLT_MAX,  FLT_MAX,  FLT_MAX };
+		meshSource->m_BoundingBox.Max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+		for (const Submesh& submesh : meshSource->m_Submeshes)
+		{
+			const AABB placed = submesh.BoundingBox.Transformed(submesh.Transform);
+			meshSource->m_BoundingBox.Min = glm::min(meshSource->m_BoundingBox.Min, placed.Min);
+			meshSource->m_BoundingBox.Max = glm::max(meshSource->m_BoundingBox.Max, placed.Max);
+		}
 
 		ImportAssimpMaterials(m_Path, scene, meshSource);
 

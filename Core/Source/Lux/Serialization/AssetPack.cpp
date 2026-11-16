@@ -6,6 +6,8 @@
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/Sound.h"
+#include "Lux/Audio/SoundBank.h"
 #include "Lux/Core/Platform.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/Components.h"
@@ -56,6 +58,9 @@ namespace Lux
 				case AssetType::Audio:
 				case AssetType::DialogueTable:
 				case AssetType::AudioSurfaceTable:
+				case AssetType::Sound:
+				case AssetType::SoundBank:
+				case AssetType::Prefab:
 					return true;
 				default:
 					return false;
@@ -175,8 +180,11 @@ namespace Lux
 		FileStreamReader stream(m_Path);
 		stream.SetStreamPosition(m_File.Index.PackedAppBinaryOffset);
 		Buffer buffer;
-		stream.ReadBuffer(buffer);
-		LUX_CORE_VERIFY(m_File.Index.PackedAppBinarySize == (buffer.Size + sizeof(uint64_t)));
+		if (!stream.ReadBuffer(buffer) || m_File.Index.PackedAppBinarySize != buffer.Size + sizeof(uint64_t))
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "'{}' is damaged: the app binary does not match its index entry", m_Path.string());
+			buffer.Release();
+		}
 		return buffer;
 	}
 
@@ -223,7 +231,12 @@ namespace Lux
 		}
 
 		const float progressIncrement = 0.5f / (float)sceneCount;
-		const std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
+		// Audio ships whole: components, zones, the music director, dialogue and scripts all name clips and Sounds.
+		std::unordered_set<AssetHandle> audioFiles = AssetManager::GetAllAssetsWithType<AudioFile>();
+		const std::unordered_set<AssetHandle> sounds = AssetManager::GetAllAssetsWithType<Sound>();
+		audioFiles.insert(sounds.begin(), sounds.end());
+		const std::unordered_set<AssetHandle> banks = AssetManager::GetAllAssetsWithType<SoundBank>();
+		audioFiles.insert(banks.begin(), banks.end());
 		fullAssetList.insert(audioFiles.begin(), audioFiles.end());
 
 		for (AssetHandle sceneHandle : sceneHandles)
@@ -238,6 +251,7 @@ namespace Lux
 				LUX_CORE_ERROR("Failed to deserialize scene '{}' ({})", metadata.FilePath.string(), sceneHandle);
 				continue;
 			}
+			scene->SyncAllPrefabInstances(); // the hierarchy that ships, so its assets are the ones listed
 
 			std::unordered_set<AssetHandle> sceneAssetList = CollectSceneAssetList(scene);
 			sceneAssetList.insert(audioFiles.begin(), audioFiles.end());
@@ -315,9 +329,8 @@ namespace Lux
 		Ref<AssetPack> assetPack = Ref<AssetPack>::Create();
 		assetPack->m_Path = path;
 
-		const bool success = AssetPackSerializer::DeserializeIndex(assetPack->m_Path, assetPack->m_File);
-		LUX_CORE_VERIFY(success);
-		if (!success)
+		// DeserializeIndex reports what is wrong; a missing or damaged pack is the caller's to handle.
+		if (!AssetPackSerializer::DeserializeIndex(assetPack->m_Path, assetPack->m_File))
 			return nullptr;
 
 		for (const auto& [sceneHandle, sceneInfo] : assetPack->m_File.Index.Scenes)

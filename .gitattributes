@@ -1,2 +1,8 @@
 # Batch labels and goto misbehave in LF-only files; check them out with CRLF everywhere.
 *.bat text eol=crlf
+
+# Shell helpers run in Linux/WSL and Git Bash; CRLF breaks their shebangs and shell options.
+*.sh text eol=lf
+
+# Spec Kit scripts are run by bash on Windows (Git Bash) and Linux; CRLF breaks them.
+/.specify/scripts/bash/*.sh text eol=lf

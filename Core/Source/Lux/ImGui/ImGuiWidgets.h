@@ -264,7 +264,10 @@ namespace Lux::ImGuiEx
 				const float outlineSpacing = 1.0f;
 				const float lineHeight = ImGui::GetTextLineHeight() + framePadding * 2.0f;
 				const ImVec2 buttonSize = { lineHeight + 2.0f, lineHeight };
-				const float inputItemWidth = size.x / 3.0f - buttonSize.x;
+				const bool stacked =
+					size.x < 3.0f * (buttonSize.x + ImGui::GetFontSize() * 4.0f + outlineSpacing);
+				const float axisWidth = stacked ? size.x : (size.x - outlineSpacing * 2.0f) / 3.0f;
+				const float inputItemWidth = std::max(1.0f, axisWidth - buttonSize.x - outlineSpacing);
 
 				ImGuiEx::ShiftCursorY(framePadding);
 
@@ -311,10 +314,12 @@ namespace Lux::ImGuiEx
 
 				drawControl("X", value.x, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f }, ImVec4{ 0.9f, 0.2f, 0.2f, 1.0f }, ImVec4{ 0.8f, 0.1f, 0.15f, 1.0f }, (renderMultiSelectAxes & VectorAxis::X) == VectorAxis::X, speed, v_min.x, v_max.x, format, flags);
 
-				ImGui::SameLine(0.0f, outlineSpacing);
+				if (!stacked)
+					ImGui::SameLine(0.0f, outlineSpacing);
 				drawControl("Y", value.y, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f }, ImVec4{ 0.3f, 0.8f, 0.3f, 1.0f }, ImVec4{ 0.2f, 0.7f, 0.2f, 1.0f }, (renderMultiSelectAxes & VectorAxis::Y) == VectorAxis::Y, speed, v_min.y, v_max.y, format, flags);
 
-				ImGui::SameLine(0.0f, outlineSpacing);
+				if (!stacked)
+					ImGui::SameLine(0.0f, outlineSpacing);
 				drawControl("Z", value.z, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f }, ImVec4{ 0.2f, 0.35f, 0.9f, 1.0f }, ImVec4{ 0.1f, 0.25f, 0.8f, 1.0f }, (renderMultiSelectAxes & VectorAxis::Z) == VectorAxis::Z, speed, v_min.z, v_max.z, format, flags);
 
 				//				ImGui::EndChild();

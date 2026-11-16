@@ -1,5 +1,7 @@
 # LuxEngine NRI Migration Plan
 
+**Status (2026-11-09): closed by the owner. P16 hardening matrix and numbers will not be done.**
+
 This plan moves LuxEngine's renderer backend from **NVRHI** (StudioCherno's `hazel` fork at
 `Core/vendor/nvrhi`) to **NVIDIA NRI** (NVIDIA Render Interface), and shrinks
 `Core/Source/Lux/Platform/Vulkan/` to the small amount of code that really has to talk to Vulkan

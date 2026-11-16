@@ -62,6 +62,8 @@ namespace Lux {
 			const uint32_t firstTriangle = submesh.BaseIndex / 3;
 			const uint32_t triangleCount = submesh.IndexCount / 3;
 			const uint32_t lastTriangle = std::min<uint32_t>(firstTriangle + triangleCount, (uint32_t)indices.size());
+			// A mirroring scale turns the triangles inside out; swapping two corners turns them back.
+			const bool mirrored = scale.x * scale.y * scale.z < 0.0f;
 
 			for (uint32_t triangleIndex = firstTriangle; triangleIndex < lastTriangle; triangleIndex++)
 			{
@@ -75,7 +77,7 @@ namespace Lux {
 				const glm::vec3 p0 = glm::vec3(submesh.Transform * glm::vec4(meshSource.GetVertexPosition(i0), 1.0f)) * scale;
 				const glm::vec3 p1 = glm::vec3(submesh.Transform * glm::vec4(meshSource.GetVertexPosition(i1), 1.0f)) * scale;
 				const glm::vec3 p2 = glm::vec3(submesh.Transform * glm::vec4(meshSource.GetVertexPosition(i2), 1.0f)) * scale;
-				triangles.emplace_back(JoltUtils::ToJoltVector(p0), JoltUtils::ToJoltVector(p1), JoltUtils::ToJoltVector(p2));
+				triangles.emplace_back(JoltUtils::ToJoltVector(p0), JoltUtils::ToJoltVector(mirrored ? p2 : p1), JoltUtils::ToJoltVector(mirrored ? p1 : p2));
 			}
 		}
 
@@ -145,8 +147,11 @@ namespace Lux {
 		if (!meshSource)
 			return;
 
+		// Signed, unlike the primitives: a mesh need not be symmetric, so a mirrored entity's collider is
+		// mirrored too (the body takes the decomposition's rotation, which goes with this scale).
 		const TransformComponent transform = entity.GetScene()->GetWorldSpaceTransform(entity);
-		const glm::vec3 scale = glm::max(glm::abs(transform.Scale), glm::vec3(0.001f));
+		const glm::vec3 scale = glm::max(glm::abs(transform.Scale), glm::vec3(0.001f))
+			* glm::vec3(transform.Scale.x < 0.0f ? -1.0f : 1.0f, transform.Scale.y < 0.0f ? -1.0f : 1.0f, transform.Scale.z < 0.0f ? -1.0f : 1.0f);
 		JPH::TriangleList triangles;
 		const auto& submeshes = meshSource->GetSubmeshes();
 		if (collider.SubmeshIndex < submeshes.size())

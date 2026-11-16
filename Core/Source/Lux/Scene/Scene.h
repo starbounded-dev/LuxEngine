@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Entity.h"
+#include "SceneAudioAcoustics.h"
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
@@ -14,7 +15,7 @@
 #include "Lux/Audio/PhysicsAudioSystem.h"
 #include "Lux/Audio/MusicDirector.h"
 #include "Lux/Audio/DialogueDirector.h"
-#include "Lux/Physics/PhysicsContactEvent.h"
+#include "Lux/Physics/ContactPairTracker.h"
 #include "Lux/Physics/SceneQueries.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
@@ -43,7 +44,6 @@ namespace Lux {
 	class RenderScene;
 	class SceneRenderer;
 	class AudioEventInstance;
-	class RaytracedAudioScene;
 	class Mesh;
 	class StaticMesh;
 
@@ -78,6 +78,10 @@ namespace Lux {
 		PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
 		const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
 		void SetPostProcessSettings(const PostProcessSettings& settings) { m_PostProcessSettings = settings; }
+
+		// The Sound Banks this scene loads before it starts playing and unloads when it stops.
+		const std::vector<AssetHandle>& GetSoundBanks() const { return m_SoundBanks; }
+		void SetSoundBanks(std::vector<AssetHandle> banks) { m_SoundBanks = std::move(banks); }
 		void SetName(const std::string& name) { m_Name = name; }
 
 		Entity CreateEntity(const std::string& name = std::string());
@@ -120,22 +124,44 @@ namespace Lux {
 		const AudioListenerState* GetPrimaryAudioListener() const;
 		DialogueDirector& GetDialogueDirector() { return m_Dialogue; }
 		MusicDirector& GetMusicDirector() { return m_Music; }
-		size_t GetPendingAudioGeometryCount() const { return m_AudioGeometry.GetPendingCount(); }
 		float GetAudioZoneWeight(UUID id) const { return m_AudioZones.GetWeight(id); }
 		AudioZoneVolume GetAudioZoneVolume(Entity entity);
 		// Wire lines of zone volumes and portal boxes, for debug drawing. Main thread.
 		using AudioZoneLineVisitor = std::function<void(Entity entity, const glm::vec3& a, const glm::vec3& b, bool secondary)>;
 		void ForEachAudioZoneLine(const std::function<bool(Entity)>& include, const AudioZoneLineVisitor& visit);
 		// The low-frequency occlusion gain applied to a source's Occlusion parameter (1 = clear),
-		// from whichever source the project selects; 1 when the source is not being simulated.
+		// from Soundwave; 1 when the source is not being simulated.
 		float GetAudioSourceOcclusion(UUID source) const;
-		// The listener's Asterwave ambience as read in the last join window. Safe to read any time on the
-		// main thread; this is the applied scene value, separate from the backend's latest result.
-		const RaytracedAudioAmbience& GetLastAudioAmbience() const { return m_LastAudioAmbience; }
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
 		void PropagatePrefabEdits(AssetHandle prefabID, Ref<Scene> oldPrefab, Ref<Scene> newPrefab);
+
+		// A line drawn by a script (C# Gizmos), main thread. It belongs to the update phase drawing it and
+		// stays until that phase runs again: OnUpdate (and collision/trigger callbacks) redraw every
+		// frame, OnFixedUpdate every physics step, so fixed-step lines hold still on frames without a
+		// step. A duration > 0 keeps it that many seconds instead. Drawn in Play, not in Dist builds.
+		void AddDebugLine(const glm::vec3& start, const glm::vec3& end, const glm::vec4& color, float duration, bool depthTest);
+
+		// Prefab structure (backlog 3.10, Unity-style overrides). An instance follows its prefab's
+		// hierarchy: children the prefab gained are added, children it lost are removed (instance-only
+		// children under them move up), and re-parented children follow the prefab. What the user did to
+		// the instance wins: an entity deleted or moved in the instance is recorded on the instance root
+		// (RecordPrefabRemoval / RecordPrefabReparent, called by the editor before the edit) and left alone,
+		// and children the user added are never touched. Returns true when the instance changed.
+		// `baseline` is the prefab the instance last matched (the pre-edit prefab when saving one), used
+		// to tell an untracked instance's own edits from the prefab's.
+		bool SyncPrefabInstance(Entity instanceRoot, const Ref<Scene>& prefabScene, const Ref<Scene>& baseline = nullptr);
+		// Every instance in this scene, against the prefab assets the AssetManager holds now (editor: on
+		// scene open and before packing). Prefabs that are not assets here (the runtime) are skipped.
+		void SyncAllPrefabInstances();
+		// Instances placed before instances were linked carry PrefabID 0; links each to the prefab that
+		// owns its EntityID. Returns how many entities it linked.
+		uint32_t RelinkPrefabInstances(const std::vector<Ref<Prefab>>& prefabs);
+		static void RecordPrefabRemoval(Entity entity);
+		static void RecordPrefabReparent(Entity entity, Entity newParent);
+		// The top of the prefab instance `entity` belongs to, or null.
+		static Entity FindPrefabInstanceRoot(Entity entity);
 
 		// This scene is a prefab variant sharing the base's entity UUIDs; after the base is edited,
 		// each entity un-overridden vs oldBase adopts newBase's values (overridden entities kept).
@@ -244,24 +270,34 @@ namespace Lux {
 		void OnPhysics2DStop();
 		void OnPhysics3DStart();
 		void OnPhysics3DStop();
-		void OnRaytracedAudioStart();
-		void OnRaytracedAudioStop();
-		void StepPhysics(Timestep ts);
+		void OnAcousticsStart();
+		void OnAcousticsStop();
+		// Steps 3D physics at its fixed rate; with runScripts, C# OnFixedUpdate(fixedDt) runs before each step.
+		void StepPhysics(Timestep ts, bool runScripts = false);
+		void InvokeScriptFixedUpdate(float fixedTimestep);
 		void RenderScene(EditorCamera& camera);
 		Ref<AudioEventInstance> GetOrCreateRuntimeEventInstance(Entity entity, const AudioSourceComponent& source, const glm::mat4& worldTransform, bool allowPlayOnAwake = true, float timestep = 0.0f);
 		void ReleaseRuntimeAudio(Entity entity);
 		void ReleaseAllRuntimeAudio();
 		void SyncAudioListeners(float timestep);
 		void UpdateAudioZones(float timestep, bool raytracedReverbValid);
-		void SyncAudioGeometry(bool initial = false);
-		bool BuildAcousticGeometry(const AudioGeometryInput& input, AcousticGeometry& geometry);
+		void SyncAudioGeometry();
 		void UpdateAudioOcclusion(float timestep, const glm::vec3& listener);
 		void UpdatePhysicsAudio(float timestep);
 		AudioSurfaceSounds GetSurfaceSounds(Entity entity, AcousticMaterial& material) const;
 		void CaptureAcousticMaterialDebug(FrameRenderPacket& packet) const;
 		bool ResolveMeshColliderDebug(Entity entity, const MeshColliderComponent& collider, Ref<StaticMesh>& staticMesh, Ref<MeshSource>& meshSource, glm::mat4& transform) const;
 		Ref<::Lux::RenderScene> SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const;
-		Entity CreatePrefabEntity(Entity entity, Entity parent, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
+		// One entity's prefab-tracked components, Active flag and script fields, with no parent or
+		// PrefabComponent; `uuid` 0 makes a new one.
+		Entity ClonePrefabEntity(Entity source, UUID uuid);
+		// During Play: the script instance and OnCreate for one entity, as OnRuntimeStart does.
+		void StartScriptInstance(Entity entity);
+		// During Play or Simulate: physics bodies, character controllers and (Play) scripts for a hierarchy just
+		// instantiated (the component hooks run before an entity's colliders exist, so physics waits).
+		void StartSpawnedHierarchy(Entity root);
+		bool m_SpawningPrefab = false;
+		Entity CreatePrefabEntity(Entity entity, Entity parent, AssetHandle prefabID, const glm::vec3* translation = nullptr, const glm::vec3* rotation = nullptr, const glm::vec3* scale = nullptr);
 
 		// Rebuilds m_InactiveEntities: every entity switched off by its own TagComponent::Active or by
 		// an ancestor's. Called at each update and render-packet entry point; one pass over the tags,
@@ -274,6 +310,7 @@ namespace Lux {
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 
 		PostProcessSettings m_PostProcessSettings;
+		std::vector<AssetHandle> m_SoundBanks;
 
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;
@@ -299,13 +336,11 @@ namespace Lux {
 		std::unordered_map<UUID, AudioSourcePlayback> m_RuntimeEventInstances;
 		AudioListener::States m_RuntimeAudioListeners;
 		AudioZoneSystem m_AudioZones;
-		AudioGeometrySystem m_AudioGeometry;
 		std::vector<AudioGeometryInput> m_AudioGeometryInputs;
 		std::vector<AudioPortalInput> m_AudioPortalInputs;
 		AudioOcclusion m_AudioOcclusion;
-		AudioOcclusionSource m_OcclusionSource = AudioOcclusionSource::Engine;
-		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // written in the Asterwave join window
-		RaytracedAudioAmbience m_LastAudioAmbience;               // written in the Asterwave join window
+		SceneAudioAcoustics m_SceneAcoustics;
+		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // Soundwave gains applied on main
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;
@@ -314,6 +349,23 @@ namespace Lux {
 		UUID m_MusicOwner = 0;
 		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
 		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
+		// C# OnCollisionBegin/End (3D bodies and character controllers) and OnTriggerBegin/End.
+		void DispatchCollisionEvents();
+		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
+		std::vector<PhysicsContactEvent> m_CharacterContactEvents;
+		ContactPairTracker m_ScriptContacts;
+
+		struct ScriptDebugLine
+		{
+			glm::vec3 Start, End;
+			glm::vec4 Color;
+			bool OnTop = false;
+			float Remaining = 0.0f;
+		};
+		std::vector<ScriptDebugLine> m_DebugLinesFrame, m_DebugLinesFixed, m_DebugLinesTimed;
+		bool m_DrawingFixedStep = false;
+		void CaptureScriptDebugLines(FrameRenderPacket& packet) const;
+		ContactPairTracker m_ScriptTriggers;
 		struct FootstepState
 		{
 			glm::vec3 Position{ 0.0f };
@@ -324,7 +376,6 @@ namespace Lux {
 		bool m_AudioZoneRaytracedValid = false;
 		std::vector<AudioZoneInput> m_AudioZoneInputs;
 		uint32_t m_AudioListenerWarnings = 0;
-		Ref<RaytracedAudioScene> m_RaytracedAudioScene;
 
 		// Per-entity C# script field values (serialized with the scene) and live instances.
 		ScriptStorage m_ScriptStorage;
@@ -342,14 +393,13 @@ namespace Lux {
 		// Defined out-of-line (PhysicsScene need not be complete in this header).
 		Ref<PhysicsScene> GetPhysicsScene() const;
 
-		// Defined out-of-line (RaytracedAudioScene need not be complete in this header).
-		Ref<RaytracedAudioScene> GetRaytracedAudioScene() const;
 		// The acoustic tag an entity's geometry uses: its AudioSurfaceComponent, else its mesh
 		// collider's tag, else Default. The one rule for geometry, surface sounds and debug views.
 		AcousticMaterial ResolveAcousticMaterial(Entity entity) const;
 		int32_t GetRenderMaterialAcousticTag(Entity entity, const MeshColliderComponent& collider) const;
 		// Last engine occlusion paths per source, for editor overlays. Main thread, read-only.
 		const AudioOcclusion& GetAudioOcclusion() const { return m_AudioOcclusion; }
+		const AudioAcoustics& GetAudioAcoustics() const { return m_SceneAcoustics.GetKernel(); }
 
 		// The live voice playing for an entity, or null when it has none. Editor tooling only -
 		// gameplay drives sources through the component, not by reaching in here.
@@ -360,6 +410,7 @@ namespace Lux {
 
 	private:
 		friend class Entity;
+		friend class SceneAudioAcoustics;
 		friend class SceneSerializer;
 		friend class SceneHierarchyPanel;
 	};

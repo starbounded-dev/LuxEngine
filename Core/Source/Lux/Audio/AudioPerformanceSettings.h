@@ -30,13 +30,10 @@ namespace Lux
 	struct AudioDesktopProfile
 	{
 		bool Enabled = false;
-		std::string StudioPlatform = "Desktop";
-		std::filesystem::path BankOutputPath = "Build/Desktop";
 		AudioPerformanceSettings Performance;
 		bool Validate() const;
 		void SerializeYAML(Yaml::Writer& out) const;
 		bool DeserializeYAML(const Yaml::Node& node);
 	};
-	bool IsValidStudioPlatform(const std::string& name);
 
 }

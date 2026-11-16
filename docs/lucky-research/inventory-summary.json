@@ -1,0 +1,268 @@
+{
+  "historyCount": 6583,
+  "baselineCount": 2248,
+  "afterBaseline": 4335,
+  "missingParents": [],
+  "years": {
+    "2018": 19,
+    "2019": 32,
+    "2020": 71,
+    "2021": 571,
+    "2022": 755,
+    "2023": 640,
+    "2024": 283,
+    "2025": 593,
+    "2026": 3619
+  },
+  "trackedEntries": 4200,
+  "sourceTextFiles": 2258,
+  "sourceTextLines": 579596,
+  "submoduleCount": 24,
+  "textMismatches": [],
+  "areas": {
+    ".agents": [
+      8,
+      117
+    ],
+    ".claude": [
+      41,
+      8138
+    ],
+    ".codex": [
+      1,
+      3
+    ],
+    ".github": [
+      9,
+      1552
+    ],
+    ".vscode": [
+      4,
+      610
+    ],
+    "AGENTS.md": [
+      1,
+      57
+    ],
+    "CLAUDE.md": [
+      1,
+      47
+    ],
+    "CMakePresets.json": [
+      1,
+      73
+    ],
+    "Hazel": [
+      18,
+      3832
+    ],
+    "Hazel-Launcher": [
+      13,
+      3484
+    ],
+    "Hazel-ScriptCore": [
+      137,
+      89300
+    ],
+    "Hazel-ScriptGen": [
+      2,
+      17
+    ],
+    "Hazel/src/Hazel/Animation": [
+      34,
+      8227
+    ],
+    "Hazel/src/Hazel/Asset": [
+      57,
+      11320
+    ],
+    "Hazel/src/Hazel/Audio": [
+      115,
+      22640
+    ],
+    "Hazel/src/Hazel/Auth": [
+      4,
+      1421
+    ],
+    "Hazel/src/Hazel/Core": [
+      76,
+      11429
+    ],
+    "Hazel/src/Hazel/CrashReporter": [
+      6,
+      2154
+    ],
+    "Hazel/src/Hazel/Data": [
+      46,
+      12990
+    ],
+    "Hazel/src/Hazel/Debug": [
+      3,
+      256
+    ],
+    "Hazel/src/Hazel/Editor": [
+      101,
+      38494
+    ],
+    "Hazel/src/Hazel/EntryPoint.h": [
+      1,
+      96
+    ],
+    "Hazel/src/Hazel/Gizmos": [
+      8,
+      4267
+    ],
+    "Hazel/src/Hazel/Grpc": [
+      4,
+      948
+    ],
+    "Hazel/src/Hazel/Hub": [
+      15,
+      1521
+    ],
+    "Hazel/src/Hazel/ImGui": [
+      58,
+      20321
+    ],
+    "Hazel/src/Hazel/Learn": [
+      11,
+      1269
+    ],
+    "Hazel/src/Hazel/Lidar": [
+      4,
+      1965
+    ],
+    "Hazel/src/Hazel/Math": [
+      2,
+      378
+    ],
+    "Hazel/src/Hazel/Physics": [
+      67,
+      14589
+    ],
+    "Hazel/src/Hazel/Physics2D": [
+      4,
+      179
+    ],
+    "Hazel/src/Hazel/Platform": [
+      37,
+      10914
+    ],
+    "Hazel/src/Hazel/Project": [
+      11,
+      1491
+    ],
+    "Hazel/src/Hazel/Reflection": [
+      50,
+      4927
+    ],
+    "Hazel/src/Hazel/Renderer": [
+      104,
+      51351
+    ],
+    "Hazel/src/Hazel/Robots": [
+      44,
+      13399
+    ],
+    "Hazel/src/Hazel/Scene": [
+      22,
+      14592
+    ],
+    "Hazel/src/Hazel/Script": [
+      81,
+      15282
+    ],
+    "Hazel/src/Hazel/Serialization": [
+      17,
+      2133
+    ],
+    "Hazel/src/Hazel/Tiering": [
+      2,
+      105
+    ],
+    "Hazel/src/Hazel/UI": [
+      6,
+      3099
+    ],
+    "Hazel/src/Hazel/Utilities": [
+      37,
+      5615
+    ],
+    "HazelnutLauncher": [
+      3,
+      612
+    ],
+    "LuckyEditor": [
+      340,
+      86703
+    ],
+    "LuckyEditor-Agent": [
+      88,
+      21291
+    ],
+    "LuckyRuntime": [
+      4,
+      714
+    ],
+    "Misc": [
+      1,
+      187
+    ],
+    "Modules": [
+      28,
+      6820
+    ],
+    "Net": [
+      28,
+      3770
+    ],
+    "README.md": [
+      1,
+      16
+    ],
+    "UnitTests": [
+      144,
+      24643
+    ],
+    "WARP.md": [
+      1,
+      337
+    ],
+    "cmake": [
+      12,
+      1103
+    ],
+    "conanfile.py": [
+      1,
+      135
+    ],
+    "docs": [
+      50,
+      19018
+    ],
+    "linux.install.notes.devrim.md": [
+      1,
+      750
+    ],
+    "scripts": [
+      47,
+      11114
+    ],
+    "tests": [
+      226,
+      13958
+    ],
+    "tools": [
+      1,
+      134
+    ],
+    "wasm": [
+      18,
+      3484
+    ],
+    "wasm-project.md": [
+      1,
+      205
+    ]
+  }
+}

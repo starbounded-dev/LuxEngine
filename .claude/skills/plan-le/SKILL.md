@@ -132,8 +132,8 @@ determined by the engine's own code, and say that you skipped it.
 - **Known pitfalls** — issue trackers, postmortems, and talks where the obvious approach failed.
 - **Primary documentation for the exact versions the engine vendors.** Read the version from the
   repo first: Dear ImGui `IMGUI_VERSION` in `Core/vendor/imgui/imgui.h`, Tracy in
-  `Core/vendor/tracy/tracy/public/common/TracyVersion.hpp`, FMOD `FMOD_VERSION` in the SDK's
-  `api/core/inc/fmod_common.h`, Asterwave's exact revision in `scripts/dependencies/Asterwave.json`, and
+  `Core/vendor/tracy/tracy/public/common/TracyVersion.hpp`, miniaudio `MA_VERSION_STRING` in
+  `Core/vendor/miniaudio/miniaudio.h`, and
   the Vulkan SDK from `VULKAN_SDK`. Advice for another version is a hypothesis until checked against the vendored
   source.
 
@@ -185,7 +185,7 @@ For each new piece of the design, answer every row. "N/A" needs a reason.
 | Serialization | Saved in the scene, the project, user preferences, or an asset? Do **existing files still load**? What is the migration for old `.luxproj` / `.luxscene`? | Architecture 2.13 |
 | Editor | Panel, inspector UI, undo, and whether settings leak into `LuxSample.luxproj`. For every UI phase, plan the ImGui verification: scopes closed on every path, unique IDs per scope (stable `PushID` in loops, `###` for labels that change), matching popup/window/dock names, and each new UI state driven in the editor | Architecture 2.9, `Conventions.md § ImGui correctness` |
 | Scripting | Does it need a C# API (`ScriptCore` + `ScriptGlue` internal calls)? | Architecture 2.7 |
-| Runtime and Dist | Does it work in `Lux-Runtime`, in Dist (no shader compiler, no Tracy), and after runtime export (asset packs, `ShaderPack.lsp`)? | `Building.md` |
+| Runtime and Dist | Does it work in `Lux-Runtime`, in Dist (the player has no shader compiler; no Tracy), and after runtime export (asset packs, `ShaderPack.lsp`)? | `Building.md` |
 | Linux | Does a `Platform/Windows/` change have a `Platform/Linux/` counterpart? Remember Linux defaults to single-threaded | `Threading.md` |
 | Build | New files → project regeneration. New dependency → `Dependencies.lua`. New toggle → `BuildOptions.OPTIONS` + `newoption` | `Building.md` |
 | Docs | Which shared doc becomes stale, and must be updated in the same phase? | `CLAUDE.md` |

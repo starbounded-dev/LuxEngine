@@ -1,0 +1,35 @@
+Sound:
+  Version: 2
+  Bus: bus:/Music
+  Volume: 1
+  Pitch: 1
+  InstanceLimit: 0
+  Steal: Oldest
+  Cooldown: 0
+  Stream: true
+  Spatial:
+    Enabled: false
+    Attenuation: Inverse
+    MinDistance: 2
+    MaxDistance: 40
+    Rolloff: 1
+  Parameters:
+    - Name: Intensity
+      Minimum: 0
+      Maximum: 1
+      Default: 0.5
+  Nodes:
+    - Type: Clip
+      Name: Music_1
+      Clip: 6962752638689701569
+      StartOffset: 0
+      Loop: true
+      Weight: 1
+      Volume: 1
+      Pitch: 1
+      VolumeVariation: 0
+      PitchVariation: 0
+      Curves:
+        - Parameter: Intensity
+          Target: Volume
+          Points: [[0, 0.5], [1, 1]]

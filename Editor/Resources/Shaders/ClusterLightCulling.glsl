@@ -53,60 +53,83 @@ layout(std430, set = 1, binding = 25) writeonly buffer SpotLightIndexListBuffer
 } s_SpotList;
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// Lights are walked in chunks of 64: each invocation transforms one light of the chunk to view space
+// into shared memory, then all test the whole chunk, so a light is transformed once per workgroup
+// instead of once per froxel.
+#define LIGHT_CHUNK 64u
+shared vec4 s_Lights[LIGHT_CHUNK]; // view-space position, range
+
+const uint PointLights = 0u;
+const uint SpotLights = 1u;
+
+vec4 LoadViewSpaceLight(uint type, uint index)
+{
+	vec3 position = type == PointLights ? u_PointLights.Lights[index].Position : u_SpotLights.Lights[index].Position;
+	float range = type == PointLights ? u_PointLights.Lights[index].Radius : u_SpotLights.Lights[index].Range;
+	return vec4((u_Camera.ViewMatrix * vec4(position, 1.0)).xyz, range);
+}
+
+// Counts the lights of `type` touching the froxel and, with `write`, stores the first `capacity` of them
+// at `offset` in that type's list. Every invocation runs it (the barriers need uniform control flow);
+// `valid` is false for invocations past the grid.
+uint AssignLights(uint type, uint count, bool write, uint offset, uint capacity, vec3 mn, vec3 mx, bool valid)
+{
+	uint hits = 0u;
+	for (uint base = 0u; base < count; base += LIGHT_CHUNK)
+	{
+		memoryBarrierShared();
+		barrier(); // the previous chunk is read by everyone
+		uint index = base + gl_LocalInvocationIndex;
+		if (index < count)
+			s_Lights[gl_LocalInvocationIndex] = LoadViewSpaceLight(type, index);
+		memoryBarrierShared();
+		barrier();
+
+		uint chunk = min(LIGHT_CHUNK, count - base);
+		for (uint j = 0u; j < chunk; ++j)
+		{
+			vec4 light = s_Lights[j];
+			if (!valid || !ClusterSphereIntersectsAABB(light.xyz, light.w, mn, mx))
+				continue;
+			if (write && hits < capacity)
+			{
+				if (type == PointLights)
+					s_PointList.Indices[offset + hits] = base + j;
+				else
+					s_SpotList.Indices[offset + hits] = base + j;
+			}
+			++hits;
+		}
+	}
+	return hits;
+}
+
 void main()
 {
 	uint cluster = gl_GlobalInvocationID.x;
-	if (cluster >= uint(CLUSTER_COUNT))
-		return;
+	bool valid = cluster < uint(CLUSTER_COUNT);
+	uint clamped = min(cluster, uint(CLUSTER_COUNT) - 1u);
+	vec3 mn = s_Clusters.Clusters[clamped].MinPoint.xyz;
+	vec3 mx = s_Clusters.Clusters[clamped].MaxPoint.xyz;
 
-	vec3 mn = s_Clusters.Clusters[cluster].MinPoint.xyz;
-	vec3 mx = s_Clusters.Clusters[cluster].MaxPoint.xyz;
-
-	mat4 view = u_Camera.ViewMatrix;
-
-	// ── Point lights ─────────────────────────────────────────────────────────
+	// Counters[0]/[1] end as the total entries every froxel asked for; past the list capacity the
+	// renderer reports the overflow (SceneRenderer::Statistics::ClusterPointLightsDropped).
 	uint pointCount = min(u_PointLights.LightCount, 1000u);
-	uint visiblePoints = 0u;
-	for (uint i = 0u; i < pointCount; ++i)
-	{
-		vec3 posVS = (view * vec4(u_PointLights.Lights[i].Position, 1.0)).xyz;
-		if (ClusterSphereIntersectsAABB(posVS, u_PointLights.Lights[i].Radius, mn, mx))
-			++visiblePoints;
-	}
-
-	uint pointOffset = atomicAdd(s_Counter.Counters[0], visiblePoints);
+	uint visiblePoints = AssignLights(PointLights, pointCount, false, 0u, 0u, mn, mx, valid);
+	uint pointOffset = valid ? atomicAdd(s_Counter.Counters[0], visiblePoints) : 0u;
 	uint pointCapacity = (pointOffset >= CLUSTER_MAX_POINT_INDICES)
 		? 0u : min(visiblePoints, CLUSTER_MAX_POINT_INDICES - pointOffset);
+	uint pointWritten = min(AssignLights(PointLights, pointCount, true, pointOffset, pointCapacity, mn, mx, valid), pointCapacity);
+	if (valid)
+		s_PointGrid.Grid[cluster] = uvec2(pointOffset, pointWritten);
 
-	uint pointWritten = 0u;
-	for (uint i = 0u; i < pointCount && pointWritten < pointCapacity; ++i)
-	{
-		vec3 posVS = (view * vec4(u_PointLights.Lights[i].Position, 1.0)).xyz;
-		if (ClusterSphereIntersectsAABB(posVS, u_PointLights.Lights[i].Radius, mn, mx))
-			s_PointList.Indices[pointOffset + pointWritten++] = i;
-	}
-	s_PointGrid.Grid[cluster] = uvec2(pointOffset, pointWritten);
-
-	// ── Spot lights ──────────────────────────────────────────────────────────
 	uint spotCount = min(u_SpotLights.LightCount, 1024u);
-	uint visibleSpots = 0u;
-	for (uint i = 0u; i < spotCount; ++i)
-	{
-		vec3 posVS = (view * vec4(u_SpotLights.Lights[i].Position, 1.0)).xyz;
-		if (ClusterSphereIntersectsAABB(posVS, u_SpotLights.Lights[i].Range, mn, mx))
-			++visibleSpots;
-	}
-
-	uint spotOffset = atomicAdd(s_Counter.Counters[1], visibleSpots);
+	uint visibleSpots = AssignLights(SpotLights, spotCount, false, 0u, 0u, mn, mx, valid);
+	uint spotOffset = valid ? atomicAdd(s_Counter.Counters[1], visibleSpots) : 0u;
 	uint spotCapacity = (spotOffset >= CLUSTER_MAX_SPOT_INDICES)
 		? 0u : min(visibleSpots, CLUSTER_MAX_SPOT_INDICES - spotOffset);
-
-	uint spotWritten = 0u;
-	for (uint i = 0u; i < spotCount && spotWritten < spotCapacity; ++i)
-	{
-		vec3 posVS = (view * vec4(u_SpotLights.Lights[i].Position, 1.0)).xyz;
-		if (ClusterSphereIntersectsAABB(posVS, u_SpotLights.Lights[i].Range, mn, mx))
-			s_SpotList.Indices[spotOffset + spotWritten++] = i;
-	}
-	s_SpotGrid.Grid[cluster] = uvec2(spotOffset, spotWritten);
+	uint spotWritten = min(AssignLights(SpotLights, spotCount, true, spotOffset, spotCapacity, mn, mx, valid), spotCapacity);
+	if (valid)
+		s_SpotGrid.Grid[cluster] = uvec2(spotOffset, spotWritten);
 }

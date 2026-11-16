@@ -170,11 +170,15 @@ namespace Lux
 		project->m_Config.ProjectFileName = project->m_ProjectFilePath.filename().string();
 
 		SetActiveRuntime(project, assetPack);
-		if (!AudioEngine::LoadRuntimeBanks(project->GetAssetDirectory(), project->GetConfig().Audio.RuntimeBanks))
+		if (!AudioEngine::HasInitializedEngine())
 		{
+			LUX_CORE_ERROR_TAG("Audio", "Cannot start runtime audio: audio initialization failed");
 			SetActiveRuntime(nullptr, nullptr);
 			return nullptr;
 		}
+		// Exports made with FMOD list banks; their Sound assets (if any) still play.
+		if (!project->GetConfig().Audio.RuntimeBanks.Banks.empty())
+			LUX_CORE_WARN_TAG("Audio", "This export carries FMOD banks, which are ignored; re-export to drop them");
 		return s_ActiveProject;
 	}
 

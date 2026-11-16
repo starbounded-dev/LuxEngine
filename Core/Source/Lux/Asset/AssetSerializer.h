@@ -27,6 +27,13 @@ namespace Lux
 		// Serialize the asset back to its source representation (YAML, binary, etc.)
 		virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const = 0;
 
+		// Checked source saves are opt-in. Unsupported serializers fail without writing; callers
+		// must retain unsaved work rather than treating the legacy void API as success.
+		virtual bool TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+		{
+			return false;
+		}
+
 		// Attempt to load the asset described by metadata.
 		// Returns true and sets asset on success; returns false on failure.
 		virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const = 0;

@@ -41,6 +41,7 @@ namespace Lux
 		uint64_t GetStreamPosition() final { return m_ReadPos; }
 		void SetStreamPosition(uint64_t position) final { m_ReadPos = position; }
 		bool ReadData(char* destination, size_t size) final;
+		uint64_t GetStreamSize() final { return m_Buffer.Size; }
 
 	private:
 		const Buffer& m_Buffer;

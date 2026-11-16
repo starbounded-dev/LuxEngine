@@ -13,10 +13,30 @@
 #include <string>
 #include <glm/glm.hpp>
 
-#define LUX_HAS_SHADER_COMPILER !LUX_DIST
-
 namespace Lux
 {
+	class RHIShader;
+	enum class ShaderStage : uint16_t;
+
+	// The shader compiler, reached only through this table so an executable that never installs it
+	// never links shaderc (the Assimp pattern, MeshSourceSerializer::SetSourceImporter). Non-Dist builds
+	// install it in Renderer::Init; the Dist editor installs it in CreateApplication; the Dist player
+	// never does, so it consumes shader packs only. Main thread installs it, before Renderer::Init.
+	struct ShaderCompilerHooks
+	{
+		Ref<RHIShader> (*Compile)(const std::filesystem::path& source, bool forceCompile, bool disableOptimization) = nullptr;
+		bool (*Recompile)(Ref<RHIShader> shader) = nullptr;
+		// The compiler's messages for one GLSL stage, empty when it compiled (generated-code checks).
+		std::string (*TryCompileGLSL)(const std::string& source, ShaderStage stage) = nullptr;
+		void (*ClearUniformBuffers)() = nullptr;
+	};
+
+	namespace ShaderCompiler {
+		void Install(const ShaderCompilerHooks& hooks);
+		bool IsAvailable();
+		const ShaderCompilerHooks& Get();
+	}
+
 	namespace ShaderUtils {
 		enum class SourceLang
 		{

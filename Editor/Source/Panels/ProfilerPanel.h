@@ -5,6 +5,7 @@
 
 #include "Lux/Editor/EditorPanel.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/ImGui/DiagnosticPlot.h"
 
 namespace Lux {
 
@@ -18,13 +19,15 @@ namespace Lux {
 		ProfilerPanel() = default;
 		virtual ~ProfilerPanel() = default;
 
-		void SetContext(const Ref<SceneRenderer>& context) { m_Context = context; }
+		void SetContext(const Ref<SceneRenderer>& context);
+		const char* GetWindowName() const override;
 
 		virtual void OnImGuiRender(bool& isOpen) override;
+#ifndef LUX_DIST
+		static bool RunDiagnosticSelfTests(std::vector<std::string>& failures);
+#endif
 
 	private:
-		void PushFrameSample(float cpuMs, float gpuMs);
-		void UI_Graph(float cpuMs, float gpuMs);
 		void UI_CPUBreakdown(float cpuFrameMs);
 		void UI_GPUBreakdown();
 		void UI_SceneAndMemory();
@@ -32,14 +35,7 @@ namespace Lux {
 	private:
 		Ref<SceneRenderer> m_Context;
 
-		static constexpr int kHistory = 180;   // ~3s at 60fps
-		float m_CPUHistory[kHistory] = {};
-		float m_GPUHistory[kHistory] = {};
-		int m_HistoryHead = 0;                  // next slot to write
-		int m_HistoryCount = 0;                 // valid samples, saturating at kHistory
-
-		bool m_Paused = false;
-		float m_TargetMs = 1000.0f / 60.0f;     // frame-budget reference line
+		ImGuiEx::TimingPlotState m_TimingPlot;
 	};
 
 }

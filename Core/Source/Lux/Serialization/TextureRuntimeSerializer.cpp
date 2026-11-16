@@ -111,10 +111,25 @@ namespace Lux {
 	Ref<Texture2D> TextureRuntimeSerializer::DeserializeTexture2D(FileStreamReader& stream)
 	{
 		Texture2DMetadata metadata;
-		stream.ReadRaw<Texture2DMetadata>(metadata);
-
 		Buffer buffer;
-		stream.ReadBuffer(buffer);
+		if (!stream.ReadData(reinterpret_cast<char*>(&metadata), sizeof(metadata)) || !stream.ReadBuffer(buffer))
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Packed texture is truncated");
+			return nullptr;
+		}
+
+		// The pixels go straight to the GPU upload, which trusts the size: they must be exactly one
+		// mip of a colour format at these dimensions.
+		const ImageFormat format = (ImageFormat)metadata.Format;
+		constexpr uint32_t k_MaxDimension = 16384;
+		const bool validFormat = format >= ImageFormat::RED8UN && format <= ImageFormat::BC7_SRGB;
+		if (!validFormat || metadata.Width == 0 || metadata.Height == 0 || metadata.Width > k_MaxDimension || metadata.Height > k_MaxDimension
+			|| buffer.Size != Utils::GetImageMemorySize(format, metadata.Width, metadata.Height, 1, 1))
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Packed texture is damaged ({}x{}, format {}, {} bytes)", metadata.Width, metadata.Height, metadata.Format, buffer.Size);
+			buffer.Release();
+			return nullptr;
+		}
 
 		TextureSpecification spec;
 		spec.Width = metadata.Width;

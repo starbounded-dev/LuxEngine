@@ -21,7 +21,8 @@ namespace Lux
 	public:
 		SceneSerializer(const Ref<Scene>& scene);
 
-		void Serialize(const std::filesystem::path& filepath);
+		// False, logged, when the file could not be written; the previous file is then intact.
+		bool Serialize(const std::filesystem::path& filepath);
 		void SerializeToYAML(Yaml::Writer& out);
 		std::string SerializeToString();   // SerializeToYAML wrapped as a string (round-trips with DeserializeFromYAML)
 		bool DeserializeFromYAML(const std::string& yamlString);

@@ -15,6 +15,7 @@ namespace Lux
 	void AssetRegistry::Set(AssetHandle handle, const AssetMetadata& metadata)
 	{
 		m_AssetRegistry[handle] = metadata;
+		++m_Revision;
 	}
 
 	bool AssetRegistry::Contains(AssetHandle handle) const
@@ -24,11 +25,18 @@ namespace Lux
 
 	size_t AssetRegistry::Remove(AssetHandle handle)
 	{
-		return m_AssetRegistry.erase(handle);
+		const size_t removed = m_AssetRegistry.erase(handle);
+		if (removed)
+			++m_Revision;
+		return removed;
 	}
 
 	void AssetRegistry::Clear()
 	{
-		m_AssetRegistry.clear();
+		if (!m_AssetRegistry.empty())
+		{
+			m_AssetRegistry.clear();
+			++m_Revision;
+		}
 	}
 }

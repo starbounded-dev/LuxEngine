@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory(prefix="lux-dialogue-managed-") as temporary:
     project = directory / "DialogueTests.csproj"
     project.write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
     <UseAppHost>false</UseAppHost><RollForward>Major</RollForward>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>enable</Nullable>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

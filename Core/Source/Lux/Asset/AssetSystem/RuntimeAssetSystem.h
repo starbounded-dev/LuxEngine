@@ -24,7 +24,9 @@ namespace Lux
 
 		void QueueAssetLoad(const RuntimeAssetLoadRequest& request);
 		Ref<Asset> GetAsset(AssetHandle sceneHandle, AssetHandle assetHandle);
-		bool RetrieveReadyAssets(std::vector<Ref<Asset>>& outAssetList);
+		// Hands over the assets loaded and the handles that failed to load since the last call. True
+		// when either list is not empty.
+		bool RetrieveReadyAssets(std::vector<Ref<Asset>>& outAssetList, std::vector<AssetHandle>& outFailedHandles);
 		void UpdateLoadedAssetList(const AssetMap& loadedAssets);
 
 		void SetAssetPack(Ref<AssetPack> assetPack) { m_AssetPack = assetPack; }
@@ -47,6 +49,7 @@ namespace Lux
 		std::condition_variable m_AssetLoadingQueueCV;
 
 		std::vector<Ref<Asset>> m_LoadedAssets;
+		std::vector<AssetHandle> m_FailedAssets; // queued loads that failed, guarded by m_LoadedAssetsMutex
 		std::mutex m_LoadedAssetsMutex;
 
 		AssetMap m_AMLoadedAssets;

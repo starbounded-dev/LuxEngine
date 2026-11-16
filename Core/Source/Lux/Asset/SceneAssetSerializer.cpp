@@ -48,6 +48,7 @@ namespace Lux
 			return false;
 
 		scene->Handle = handle;
+		scene->SyncAllPrefabInstances(); // ship instances with their prefab's current hierarchy
 		return serializer.SerializeToAssetPack(stream, outInfo);
 	}
 

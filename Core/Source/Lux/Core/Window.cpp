@@ -295,6 +295,17 @@ namespace Lux {
 			data.SizeDirty = true;
 		});
 
+		glfwSetDropCallback(m_WindowHandle, [](GLFWwindow* window, int count, const char** paths)
+		{
+			auto& data = *((WindowData*)glfwGetWindowUserPointer(window));
+			// GLFW hands over UTF-8; the char8_t constructor keeps non-ASCII names intact on Windows.
+			std::vector<std::filesystem::path> dropped;
+			for (int i = 0; i < count; ++i)
+				dropped.emplace_back(reinterpret_cast<const char8_t*>(paths[i]));
+			WindowDropEvent event(std::move(dropped));
+			data.EventCallback(event);
+		});
+
 		glfwSetWindowCloseCallback(m_WindowHandle, [](GLFWwindow* window)
 		{
 			auto& data = *((WindowData*)glfwGetWindowUserPointer(window));

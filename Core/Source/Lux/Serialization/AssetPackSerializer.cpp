@@ -136,11 +136,19 @@ namespace Lux {
 		if (!stream.IsStreamGood())
 			return false;
 
-		stream.ReadRaw<AssetPackFile::FileHeader>(file.Header);
-		bool validHeader = memcmp(file.Header.HEADER, "LZAP", 4) == 0;
-		LUX_CORE_ASSERT(validHeader);
-		if (!validHeader)
+		// Everything below is read from a file that may be damaged: each failure is an error the
+		// runtime reports, never an assert.
+		auto invalid = [&](const char* what)
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "'{}' is damaged: {}", path.string(), what);
+			file.Index = {};
 			return false;
+		};
+
+		if (stream.GetStreamSize() < sizeof(AssetPackFile::FileHeader) || !stream.ReadData(reinterpret_cast<char*>(&file.Header), sizeof(file.Header)))
+			return invalid("the header is truncated");
+		if (memcmp(file.Header.HEADER, "LZAP", 4) != 0)
+			return invalid("it is not an asset pack (bad magic)");
 
 		AssetPackFile current;
 		if (file.Header.Version != current.Header.Version)
@@ -149,23 +157,45 @@ namespace Lux {
 			return false;
 		}
 
-		// Read app binary info
-		stream.ReadRaw<uint64_t>(file.Index.PackedAppBinaryOffset);
-		stream.ReadRaw<uint64_t>(file.Index.PackedAppBinarySize);
+		// A packed range must lie inside the file.
+		const uint64_t fileSize = stream.GetStreamSize();
+		auto inFile = [fileSize](uint64_t offset, uint64_t size) { return offset <= fileSize && size <= fileSize - offset; };
 
+		// Read app binary info
 		uint32_t sceneCount = 0;
-		stream.ReadRaw<uint32_t>(sceneCount); // Read scene map size
+		if (!stream.ReadData(reinterpret_cast<char*>(&file.Index.PackedAppBinaryOffset), sizeof(uint64_t))
+			|| !stream.ReadData(reinterpret_cast<char*>(&file.Index.PackedAppBinarySize), sizeof(uint64_t))
+			|| !stream.ReadData(reinterpret_cast<char*>(&sceneCount), sizeof(sceneCount)))
+			return invalid("the index is truncated");
+		if (!inFile(file.Index.PackedAppBinaryOffset, file.Index.PackedAppBinarySize))
+			return invalid("the app binary lies outside the file");
+
+		// Smallest scene entry: handle, offset, size, flags and an empty asset map.
+		constexpr uint64_t k_MinimumSceneEntrySize = sizeof(uint64_t) * 3 + sizeof(uint16_t) + sizeof(uint32_t);
+		if (sceneCount == 0 || sceneCount > stream.GetRemainingBytes() / k_MinimumSceneEntrySize)
+			return invalid("the scene count does not fit the file");
+
 		for (uint32_t i = 0; i < sceneCount; i++)
 		{
 			uint64_t sceneHandle = 0;
-			stream.ReadRaw<uint64_t>(sceneHandle);
+			AssetPackFile::SceneInfo sceneInfo;
+			if (!stream.ReadData(reinterpret_cast<char*>(&sceneHandle), sizeof(sceneHandle))
+				|| !stream.ReadData(reinterpret_cast<char*>(&sceneInfo.PackedOffset), sizeof(uint64_t))
+				|| !stream.ReadData(reinterpret_cast<char*>(&sceneInfo.PackedSize), sizeof(uint64_t))
+				|| !stream.ReadData(reinterpret_cast<char*>(&sceneInfo.Flags), sizeof(uint16_t))
+				|| !stream.ReadMap(sceneInfo.Assets))
+				return invalid("the scene table is truncated");
+			if (sceneHandle == 0 || file.Index.Scenes.contains(sceneHandle))
+				return invalid("a scene handle is null or listed twice");
+			if (!inFile(sceneInfo.PackedOffset, sceneInfo.PackedSize))
+				return invalid("a scene lies outside the file");
+			for (const auto& [assetHandle, assetInfo] : sceneInfo.Assets)
+			{
+				if (assetHandle == 0 || !inFile(assetInfo.PackedOffset, assetInfo.PackedSize))
+					return invalid("an asset is null or lies outside the file");
+			}
 
-			AssetPackFile::SceneInfo& sceneInfo = file.Index.Scenes[sceneHandle];
-			stream.ReadRaw<uint64_t>(sceneInfo.PackedOffset);
-			stream.ReadRaw<uint64_t>(sceneInfo.PackedSize);
-			stream.ReadRaw<uint16_t>(sceneInfo.Flags);
-
-			stream.ReadMap(sceneInfo.Assets);
+			file.Index.Scenes.emplace(sceneHandle, std::move(sceneInfo));
 		}
 
 		LUX_CORE_TRACE_TAG("Asset Pack", "Deserialized index with {} scenes from AssetPack", sceneCount);

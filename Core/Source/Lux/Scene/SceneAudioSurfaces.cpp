@@ -83,6 +83,8 @@ namespace Lux
 			m_PhysicsContactEvents.clear();
 		for (const auto& event : m_PhysicsContactEvents)
 		{
+			if (event.Trigger)
+				continue; // overlaps make no sound
 			PhysicsAudioContact contact;
 			contact.Key = event.Key;
 			contact.End = event.State == PhysicsContactEvent::Type::End;

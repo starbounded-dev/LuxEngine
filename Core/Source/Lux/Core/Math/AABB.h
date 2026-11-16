@@ -30,5 +30,20 @@ namespace Lux {
 			float radius = glm::length(Size()) * 0.5f;
 			return BoundingSphere(center, radius);
 		}
+
+		// The smallest axis-aligned box enclosing this box after an affine `transform`.
+		AABB Transformed(const glm::mat4& transform) const
+		{
+			const glm::vec3 center = glm::vec3(transform * glm::vec4(Center(), 1.0f));
+			const glm::vec3 halfExtent = Size() * 0.5f;
+			glm::vec3 transformedHalfExtent;
+			for (int axis = 0; axis < 3; axis++)
+			{
+				transformedHalfExtent[axis] = glm::abs(transform[0][axis]) * halfExtent.x
+					+ glm::abs(transform[1][axis]) * halfExtent.y
+					+ glm::abs(transform[2][axis]) * halfExtent.z;
+			}
+			return AABB(center - transformedHalfExtent, center + transformedHalfExtent);
+		}
 	};
 }

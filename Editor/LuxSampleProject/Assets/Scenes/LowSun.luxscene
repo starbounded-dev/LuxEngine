@@ -1,0 +1,226 @@
+Scene: LowSun
+Entities:
+  - Entity: 16200000000003000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.174533, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 30
+      Radiance: [1, 0.85, 0.7]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 16200000000003000002
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.4
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 16200000000003000003
+    TagComponent:
+      Tag: Ground
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, -100]
+      Rotation: [0, 0, 0]
+      Scale: [400, 1, 400]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001004
+      Visible: true
+  - Entity: 16200000000003000004
+    TagComponent:
+      Tag: Pillar Behind 0
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-30, 30, 90]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000005
+    TagComponent:
+      Tag: Pillar Behind 1
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-18, 30, 110]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000006
+    TagComponent:
+      Tag: Pillar Behind 2
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-6, 30, 130]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000007
+    TagComponent:
+      Tag: Pillar Behind 3
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [6, 30, 90]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000008
+    TagComponent:
+      Tag: Pillar Behind 4
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [18, 30, 110]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000009
+    TagComponent:
+      Tag: Pillar Behind 5
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [30, 30, 130]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000010
+    TagComponent:
+      Tag: Pillar Ahead 0
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-14, 4, -40]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 8, 1.5]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000011
+    TagComponent:
+      Tag: Pillar Ahead 1
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [6, 4, -50]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 8, 1.5]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000012
+    TagComponent:
+      Tag: Pillar Ahead 2
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [20, 4, -60]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 8, 1.5]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003000013
+    TagComponent:
+      Tag: Reference Sphere
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1, -12]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 16000000000000001010
+      Visible: true
+  - Entity: 16200000000003009999
+    TagComponent:
+      Tag: LowSun Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.2, 0]
+      Rotation: [-0.08, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 60
+        PerspectiveNear: 0.1
+        PerspectiveFar: 600
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

@@ -6,85 +6,13 @@
 
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
-#include <asterwave/simulation.hpp>
+#include <soundwave/AcousticMaterialSettings.h>
 #include "Lux/Serialization/Yaml.h"
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace Lux
 {
-	namespace
-	{
-		constexpr int kCustomMaterialBase = 1000;
-		// Keep 30 / metres representable without changing the authored or serialized value.
-		const float kMinimumNativeTransmission = std::nextafter(30.0f / std::numeric_limits<float>::max(),
-			std::numeric_limits<float>::infinity());
-		constexpr std::array<asterwave::MaterialType, AcousticMaterialCount> kPresets = {
-			asterwave::MaterialType::Concrete,
-			asterwave::MaterialType::Brick,
-			asterwave::MaterialType::Cloth,
-			asterwave::MaterialType::Cloth,
-			asterwave::MaterialType::Concrete,
-			asterwave::MaterialType::ConcretePolished,
-			asterwave::MaterialType::Dirt,
-			asterwave::MaterialType::Glass,
-			asterwave::MaterialType::Grass,
-			asterwave::MaterialType::Gravel,
-			asterwave::MaterialType::Marble,
-			asterwave::MaterialType::Metal,
-			asterwave::MaterialType::Gyprock,
-			asterwave::MaterialType::WoodIndoor,
-			asterwave::MaterialType::Rock,
-			asterwave::MaterialType::Snow,
-			asterwave::MaterialType::Mud,
-			asterwave::MaterialType::Water,
-			asterwave::MaterialType::WoodOutdoor,
-			asterwave::MaterialType::WoodIndoor,
-			asterwave::MaterialType::Tile,
-			asterwave::MaterialType::Cloth,
-			asterwave::MaterialType::Leaf,
-		};
-		constexpr std::array<const char*, AcousticMaterialCount> kPresetNames = {
-			"Concrete",
-			"Brick",
-			"Cloth",
-			"Cloth",
-			"Concrete",
-			"ConcretePolished",
-			"Dirt",
-			"Glass",
-			"Grass",
-			"Gravel",
-			"Marble",
-			"Metal",
-			"Gyprock",
-			"WoodIndoor",
-			"Rock",
-			"Snow",
-			"Mud",
-			"Water",
-			"WoodOutdoor",
-			"WoodIndoor",
-			"Tile",
-			"Cloth",
-			"Leaf",
-		};
-
-		AcousticMaterialProperties ReadProperties(const asterwave::MaterialProperties& source)
-		{
-			AcousticMaterialProperties properties;
-			properties.AbsorptionLF = source.AbsorptionLF();
-			properties.AbsorptionHF = source.AbsorptionHF();
-			properties.Scattering = source.Scattering();
-			properties.TransmissionLF = source.TransmissionLF();
-			properties.TransmissionHF = source.TransmissionHF();
-			properties.FlatTransmissionLF = source.FlatTransmissionLF();
-			properties.FlatTransmissionHF = source.FlatTransmissionHF();
-			return properties;
-		}
-	}
-
 	bool IsValidAcousticMaterial(AcousticMaterial material)
 	{
 		return static_cast<size_t>(material) < AcousticMaterialCount;
@@ -134,52 +62,9 @@ namespace Lux
 
 	AcousticMaterialProperties GetDefaultAcousticMaterialProperties(AcousticMaterial material)
 	{
-		static const auto s_Defaults = []()
-		{
-			std::array<AcousticMaterialProperties, AcousticMaterialCount> result{};
-			const auto presets = asterwave::DefaultMaterials();
-			for (size_t i = 0; i < result.size(); ++i)
-				result[i] = ReadProperties(presets[static_cast<size_t>(kPresets[i])]);
-			return result;
-		}();
-		return s_Defaults[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
-	}
-
-	const char* AcousticMaterialPresetName(AcousticMaterial material)
-	{
-		return kPresetNames[IsValidAcousticMaterial(material) ? static_cast<size_t>(material) : 0];
-	}
-
-	int AcousticMaterialID(AcousticMaterial material)
-	{
-		return kCustomMaterialBase + (IsValidAcousticMaterial(material) ? static_cast<int>(material) : 0);
-	}
-
-	bool ConfigureAcousticMaterials(asterwave::World& world, const AcousticMaterialSettings& settings)
-	{
-		if (!settings.Validate())
-			return false;
-		for (size_t i = 0; i < AcousticMaterialCount; ++i)
-		{
-			const auto material = static_cast<AcousticMaterial>(i);
-			const auto properties = settings.Overrides[i].Enabled ? settings.Overrides[i].Properties : GetDefaultAcousticMaterialProperties(material);
-			try
-			{
-				// Legacy projects permit flat loss above one. Native transmission multiplies by
-				// (1 - loss), so saturate complete loss instead of generating negative energy.
-				world.set_material(AcousticMaterialID(material), asterwave::MaterialProperties(
-					properties.AbsorptionLF, properties.AbsorptionHF, properties.Scattering,
-					std::max(properties.TransmissionLF, kMinimumNativeTransmission),
-					std::max(properties.TransmissionHF, kMinimumNativeTransmission),
-					std::min(properties.FlatTransmissionLF, 1.0f), std::min(properties.FlatTransmissionHF, 1.0f)));
-			}
-			catch (const std::exception& error)
-			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot configure Asterwave material {0}: {1}", AcousticMaterialNames[i], error.what());
-				return false;
-			}
-		}
-		return true;
+		static_assert(AcousticMaterialCount == Soundwave::kMaterialTagCount);
+		const auto& p = Soundwave::GetDefaultMaterialProperties(static_cast<Soundwave::MaterialTag>(IsValidAcousticMaterial(material) ? material : AcousticMaterial::Default));
+		return { p.AbsorptionLF, p.AbsorptionHF, p.Scattering, p.TransmissionLF, p.TransmissionHF, p.FlatTransmissionLF, p.FlatTransmissionHF };
 	}
 
 	void AcousticMaterialSettings::SerializeYAML(Yaml::Writer& out) const

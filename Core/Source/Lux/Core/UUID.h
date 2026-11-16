@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 namespace Lux {
 
 	class UUID

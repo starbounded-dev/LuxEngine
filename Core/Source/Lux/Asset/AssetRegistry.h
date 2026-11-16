@@ -19,6 +19,12 @@ namespace Lux
 		const AssetMetadata& Get(AssetHandle handle) const;
 		void Set(AssetHandle handle, const AssetMetadata& metadata);
 
+		// Main-thread registry mutations invalidate editor metadata views.
+		uint64_t GetRevision() const
+		{
+			return m_Revision;
+		}
+
 		size_t Count() const { return m_AssetRegistry.size(); }
 		size_t size() const { return m_AssetRegistry.size(); }
 		bool empty() const { return m_AssetRegistry.empty(); }
@@ -39,5 +45,6 @@ namespace Lux
 
 	private:
 		RegistryMap m_AssetRegistry;
+		uint64_t m_Revision = 0;
 	};
 }

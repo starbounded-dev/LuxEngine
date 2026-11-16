@@ -7,6 +7,7 @@
 #include "../ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Audio/AudioEngine.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Editor/EditorResources.h"
 #include "Lux/ImGui/Colors.h"
@@ -38,8 +39,9 @@ namespace Lux {
 		}
 	}
 
-	ContentBrowserItem::ContentBrowserItem(ItemType type, AssetHandle id, const std::string& name, const Ref<Texture2D>& icon)
-		: m_Type(type), m_ID(id), m_DisplayName(name), m_FileName(name), m_Icon(icon)
+	ContentBrowserItem::ContentBrowserItem(ItemType type, AssetHandle id, const std::string& name,
+										   const Ref<Texture2D>& icon, std::string path)
+		: m_Type(type), m_ID(id), m_FileName(name), m_Icon(icon), m_PathLabel(std::move(path))
 	{
 	}
 
@@ -53,11 +55,11 @@ namespace Lux {
 	{
 		CBItemActionResult result;
 
-		const float thumbnailSize = context->GetThumbnailSize();
+		const float thumbnailSize =
+			std::min(context->GetThumbnailSize(), std::max(1.0f, ImGui::GetContentRegionAvail().x));
 		const bool showAssetTypes = context->GetShowAssetTypes();
 		const bool isSelected = context->IsItemSelected(m_ID);
 
-		SetDisplayNameFromFileName(thumbnailSize);
 
 		auto* drawList = ImGui::GetWindowDrawList();
 		ImRect itemRect;
@@ -109,35 +111,44 @@ namespace Lux {
 			if (m_IsRenaming)
 			{
 				ImGui::SetCursorScreenPos(ImVec2(nameX, itemRect.Min.y + 3.0f));
-				ImGui::SetKeyboardFocusHere();
+				if (m_FocusRename)
+				{
+					ImGui::SetKeyboardFocusHere();
+					m_FocusRename = false;
+				}
 				ImGui::SetNextItemWidth(itemRect.Max.x - nameX - 10.0f);
 				ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
 				if (ImGui::IsItemDeactivatedAfterEdit() || Input::IsKeyDown(KeyCode::Enter))
 				{
 					Rename(s_RenameBuffer);
 					m_IsRenaming = false;
-					SetDisplayNameFromFileName(thumbnailSize);
 					result.Set(ContentBrowserAction::Renamed, true);
 				}
+				else if (ImGui::IsItemDeactivated())
+					StopRenaming(); // Escape or click-away without an edit cancels
 			}
 			else
 			{
-				drawList->AddText(ImVec2(nameX, textY), isSelected ? Colors::Theme::accent : Colors::Theme::text, m_FileName.c_str());
-				if (showAssetTypes && m_Type == ItemType::Asset)
-				{
-					const std::string typeText = std::string(AssetTypeToString(AssetManager::GetAssetType(m_ID)));
-					const float tw = ImGui::CalcTextSize(typeText.c_str()).x;
-					drawList->AddText(ImVec2(itemRect.Max.x - tw - 12.0f, textY), Colors::Theme::textDarker, typeText.c_str());
-				}
+				const bool showType =
+					showAssetTypes && m_Type == ItemType::Asset && rowWidth > ImGui::GetFontSize() * 20.0f;
+				const char* type = showType ? AssetTypeToString(AssetManager::GetAssetType(m_ID)).data() : "";
+				const float typeWidth =
+					showType ? ImGui::CalcTextSize(type).x + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+				ImGui::RenderTextEllipsis(
+					drawList, {nameX, textY}, {std::max(nameX, itemRect.Max.x - typeWidth), itemRect.Max.y},
+					std::max(nameX, itemRect.Max.x - typeWidth), m_FileName.c_str(), nullptr, nullptr);
+				if (showType)
+					drawList->AddText({itemRect.Max.x - typeWidth, textY}, Colors::Theme::textDarker, type);
 			}
 
 			ImGui::SetCursorScreenPos(itemRect.Max);
+			ImGui::Dummy({0.0f, 0.0f});
 		}
 		else
 		{
-			const float textPadding = 6.0f;
+			const float textPadding = std::min(ImGui::GetStyle().FramePadding.x, thumbnailSize * 0.1f);
 			const float typeLineHeight = showAssetTypes && m_Type == ItemType::Asset ? ImGui::GetTextLineHeight() + 2.0f : 0.0f;
-			const float infoPanelHeight = ImGui::GetTextLineHeight() * 2.0f + typeLineHeight + textPadding;
+			const float infoPanelHeight = ImGui::GetTextLineHeight() + typeLineHeight + textPadding;
 			const ImVec2 itemSize(thumbnailSize, thumbnailSize + infoPanelHeight);
 
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
@@ -169,7 +180,11 @@ namespace Lux {
 			Ref<Texture2D> thumbnail = m_Type == ItemType::Asset ? context->GetItemThumbnail(m_ID) : nullptr;
 			if (thumbnail)
 			{
-				DrawThumbnail(thumbnail, ImGuiEx::RectExpanded(thumbRect, -k_GridThumbnailPadding, -k_GridThumbnailPadding), k_GridThumbnailRounding);
+				DrawThumbnail(thumbnail,
+							  ImGuiEx::RectExpanded(thumbRect,
+													-std::min(k_GridThumbnailPadding, thumbnailSize * 0.1f),
+													-std::min(k_GridThumbnailPadding, thumbnailSize * 0.1f)),
+							  k_GridThumbnailRounding);
 			}
 			else if (m_Icon)
 			{
@@ -184,7 +199,11 @@ namespace Lux {
 
 			if (m_IsRenaming)
 			{
-				ImGui::SetKeyboardFocusHere();
+				if (m_FocusRename)
+				{
+					ImGui::SetKeyboardFocusHere();
+					m_FocusRename = false;
+				}
 				ImGui::SetNextItemWidth(infoRect.GetWidth() - textPadding * 2.0f);
 				ImGuiEx::InputText("##Rename", s_RenameBuffer, MAX_INPUT_BUFFER_LENGTH, ImGuiInputTextFlags_EnterReturnsTrue);
 
@@ -192,25 +211,33 @@ namespace Lux {
 				{
 					Rename(s_RenameBuffer);
 					m_IsRenaming = false;
-					SetDisplayNameFromFileName(thumbnailSize);
 					result.Set(ContentBrowserAction::Renamed, true);
 				}
+				else if (ImGui::IsItemDeactivated())
+					StopRenaming(); // Escape or click-away without an edit cancels
 			}
 			else
 			{
-				ImGui::TextWrapped("%s", m_DisplayName.c_str());
+				const ImVec2 nameMin = ImGui::GetCursorScreenPos();
+				ImGui::RenderTextEllipsis(drawList, nameMin, {infoRect.Max.x - textPadding, infoRect.Max.y},
+										  infoRect.Max.x - textPadding, m_FileName.c_str(), nullptr, nullptr);
+				ImGui::Dummy(
+					{std::max(1.0f, thumbnailSize - textPadding * 2.0f), ImGui::GetTextLineHeight()});
 
 				if (showAssetTypes && m_Type == ItemType::Asset)
 				{
 					const AssetType assetType = AssetManager::GetAssetType(m_ID);
 					std::string assetTypeText = Utils::String::ToUpperCopy(std::string(AssetTypeToString(assetType)));
 					ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);
-					ImGui::TextWrapped("%s", assetTypeText.c_str());
+					ImGui::RenderTextEllipsis(
+						drawList, ImGui::GetCursorScreenPos(), {infoRect.Max.x - textPadding, infoRect.Max.y},
+						infoRect.Max.x - textPadding, assetTypeText.c_str(), nullptr, nullptr);
 				}
 			}
 
 			ImGui::PopTextWrapPos();
 			ImGui::SetCursorScreenPos(itemRect.Max);
+			ImGui::Dummy({0.0f, 0.0f});
 		}
 
 		if (!m_IsRenaming && context->IsFocused() && isSelected && Input::IsKeyDown(KeyCode::F2))
@@ -249,6 +276,8 @@ namespace Lux {
 
 		if (hovered)
 		{
+			if (!m_IsRenaming && !m_IsDragging)
+				ImGui::SetTooltip("%s\n%s", m_FileName.c_str(), m_PathLabel.c_str());
 			result.Set(ContentBrowserAction::Hovered, true);
 
 			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !m_IsRenaming)
@@ -307,28 +336,19 @@ namespace Lux {
 		memset(s_RenameBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
 		memcpy(s_RenameBuffer, m_FileName.c_str(), std::min<size_t>(m_FileName.size(), MAX_INPUT_BUFFER_LENGTH - 1));
 		m_IsRenaming = true;
+		m_FocusRename = true;
 	}
 
 	void ContentBrowserItem::StopRenaming()
 	{
 		m_IsRenaming = false;
 		memset(s_RenameBuffer, 0, MAX_INPUT_BUFFER_LENGTH);
-		SetDisplayNameFromFileName(ContentBrowserPanel::Get().GetThumbnailSize());
 	}
 
 	void ContentBrowserItem::Rename(const std::string& newName)
 	{
 		if (!newName.empty())
 			OnRenamed(newName);
-	}
-
-	void ContentBrowserItem::SetDisplayNameFromFileName(float thumbnailSize)
-	{
-		const int maxCharacters = static_cast<int>(0.00152587f * (thumbnailSize * thumbnailSize));
-		if (static_cast<int>(m_FileName.size()) > maxCharacters && maxCharacters > 4)
-			m_DisplayName = m_FileName.substr(0, static_cast<size_t>(maxCharacters)) + "...";
-		else
-			m_DisplayName = m_FileName;
 	}
 
 	void ContentBrowserItem::OnContextMenuOpen(CBItemActionResult& actionResult, ContentBrowserPanel* context)
@@ -349,6 +369,18 @@ namespace Lux {
 			&& ImGui::MenuItem("Create Variant"))
 			actionResult.Set(ContentBrowserAction::CreateVariant, true);
 
+		// With several clips selected, one Random Sound plays a different one each time.
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Audio)
+		{
+			const size_t clips = ContentBrowserPanel::Get().GetSoundClips(m_ID).size();
+			const std::string label = clips > 1 ? std::format("Create Random Sound ({} clips)###create_sound", clips) : std::string("Create Sound###create_sound");
+			if (ImGui::MenuItem(label.c_str()))
+				actionResult.Set(ContentBrowserAction::CreateSound, true);
+		}
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Material
+			&& ImGui::MenuItem("Create Instance"))
+			actionResult.Set(ContentBrowserAction::CreateVariant, true);
+
 		if (ImGui::MenuItem("Delete"))
 			actionResult.Set(ContentBrowserAction::OpenDeleteDialogue, true);
 
@@ -364,7 +396,10 @@ namespace Lux {
 	}
 
 	ContentBrowserDirectory::ContentBrowserDirectory(const Ref<DirectoryInfo>& directoryInfo)
-		: ContentBrowserItem(ItemType::Directory, directoryInfo->Handle, directoryInfo->FilePath.filename().string(), EditorResources::FolderIcon), m_DirectoryInfo(directoryInfo)
+		: ContentBrowserItem(ItemType::Directory, directoryInfo->Handle,
+							 Utils::PathToUTF8(directoryInfo->FilePath.filename()),
+							 EditorResources::FolderIcon, Utils::PathToUTF8(directoryInfo->FilePath)),
+		  m_DirectoryInfo(directoryInfo)
 	{
 		if (m_FileName.empty())
 			m_FileName = Project::GetActive()->GetConfig().AssetDirectory.string();
@@ -405,7 +440,9 @@ namespace Lux {
 	}
 
 	ContentBrowserAsset::ContentBrowserAsset(const AssetMetadata& assetInfo, const Ref<Texture2D>& icon)
-		: ContentBrowserItem(ItemType::Asset, assetInfo.Handle, assetInfo.FilePath.stem().string(), icon), m_AssetInfo(assetInfo)
+		: ContentBrowserItem(ItemType::Asset, assetInfo.Handle, Utils::PathToUTF8(assetInfo.FilePath.stem()),
+							 icon, Utils::PathToUTF8(assetInfo.FilePath)),
+		  m_AssetInfo(assetInfo)
 	{
 	}
 

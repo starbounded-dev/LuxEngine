@@ -317,7 +317,7 @@ namespace Lux {
 			if (!FindQueueFamilies(dev))
 			{
 				// device doesn't have all the queue families we need
-				errorStream << std::endl << "  - does not support the necessary queue types";
+				errorStream << std::endl << "  - no graphics family supports required compute/presentation work";
 				deviceIsGood = false;
 			}
 		
@@ -356,56 +356,57 @@ namespace Lux {
 	bool VulkanDevice::FindQueueFamilies(vk::PhysicalDevice physicalDevice)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		auto props = physicalDevice.getQueueFamilyProperties();
+		const auto props = physicalDevice.getQueueFamilyProperties();
+		QueueFamilyIndices indices;
 
 		for (int i = 0; i < int(props.size()); i++)
 		{
 			const auto& queueFamily = props[i];
 
-			// The swapchain presents from the graphics queue (RHISwapChain), so with a window that
-			// family must be able to present.
-			if (m_QueueFamilyIndices.Graphics == -1)
+			// Draws and ordinary compute passes share graphics. With a window, this family
+			// must also present. Dedicated compute is only for optional asynchronous work.
+			if (indices.Graphics == -1)
 			{
 				if (queueFamily.queueCount > 0 &&
 					(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) &&
+					(queueFamily.queueFlags & vk::QueueFlagBits::eCompute) &&
 					(m_DeviceParams.headlessDevice || glfwGetPhysicalDevicePresentationSupport(m_VulkanInstance, physicalDevice, i)))
 				{
-					m_QueueFamilyIndices.Graphics = i;
+					indices.Graphics = i;
 				}
 			}
 
-			if (m_QueueFamilyIndices.Compute == -1)
+			if (indices.Compute == -1)
 			{
 				if (queueFamily.queueCount > 0 &&
 					(queueFamily.queueFlags & vk::QueueFlagBits::eCompute) &&
 					!(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics))
 				{
-					m_QueueFamilyIndices.Compute = i;
+					indices.Compute = i;
 				}
 			}
 
-			if (m_QueueFamilyIndices.Transfer == -1)
+			if (indices.Transfer == -1)
 			{
 				if (queueFamily.queueCount > 0 &&
 					(queueFamily.queueFlags & vk::QueueFlagBits::eTransfer) &&
 					!(queueFamily.queueFlags & vk::QueueFlagBits::eCompute) &&
 					!(queueFamily.queueFlags & vk::QueueFlagBits::eGraphics))
 				{
-					m_QueueFamilyIndices.Transfer = i;
+					indices.Transfer = i;
 				}
 			}
 		}
 
-		if (m_QueueFamilyIndices.Graphics == -1 ||
-			(m_QueueFamilyIndices.Compute == -1 && m_DeviceParams.enableComputeQueue))
+		if (indices.Graphics == -1)
 		{
 			return false;
 		}
 
-		// A dedicated transfer family is OPTIONAL: many GPUs expose one, but device
-		// selection must not fail when they don't. When absent, async asset uploads
-		// fall back to the graphics queue (see Renderer::FlushResourceUploads).
-
+		// Missing dedicated compute/transfer families remain absent in NRI. Their work
+		// uses the graphics queue, without advertising aliased queues or adding waits.
+		// Publish only this device's selection; candidate probes must not reuse indices.
+		m_QueueFamilyIndices = indices;
 		return true;
 	}
 
@@ -460,6 +461,11 @@ namespace Lux {
 
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
+		// The GPU identity that the shader-pack stamp sidecar records (ShaderPack.h § stamp): which
+		// vendor/driver compiled the SPIR-V inside a pack. Captured here, on the one getProperties()
+		// call, so a consumer on a different GPU can be reported instead of silently served.
+		m_VendorID = physicalDeviceProperties.vendorID;
+		m_DriverVersion = physicalDeviceProperties.driverVersion;
 		m_DeviceAPIVersion = std::min(m_InstanceAPIVersion, physicalDeviceProperties.apiVersion);
 		const bool vulkan14 = m_DeviceAPIVersion >= VK_API_VERSION_1_4;
 
@@ -538,7 +544,7 @@ namespace Lux {
 		std::unordered_set<int> uniqueQueueFamilies = {
 			m_QueueFamilyIndices.Graphics };
 
-		if (m_DeviceParams.enableComputeQueue)
+		if (IsComputeQueueAvailable())
 			uniqueQueueFamilies.insert(m_QueueFamilyIndices.Compute);
 
 		// The transfer family is optional — only request it when the GPU actually
@@ -612,6 +618,8 @@ namespace Lux {
 			.setDualSrcBlend(true)
 			.setIndependentBlend(true)
 			.setFillModeNonSolid(true)
+			// Shadow pancaking uses depth-clamped pipelines; NRI cannot enable this for our wrapped device.
+			.setDepthClamp(physicalDeviceFeatures2.features.depthClamp)
 			.setWideLines(true)
 			.setPipelineStatisticsQuery(true);
 
@@ -664,7 +672,7 @@ namespace Lux {
 		}
 
 		m_VulkanDevice.getQueue(m_QueueFamilyIndices.Graphics, 0, &m_GraphicsQueue);
-		if (m_DeviceParams.enableComputeQueue)
+		if (IsComputeQueueAvailable())
 			m_VulkanDevice.getQueue(m_QueueFamilyIndices.Compute, 0, &m_ComputeQueue);
 		m_TransferQueueAvailable = m_DeviceParams.enableCopyQueue && m_QueueFamilyIndices.Transfer != -1;
 		if (m_TransferQueueAvailable)
@@ -718,6 +726,8 @@ namespace Lux {
 		CHECK(FindQueueFamilies(m_VulkanPhysicalDevice))
 		CHECK(createDevice())
 
+		if (m_DeviceParams.enableComputeQueue && !IsComputeQueueAvailable())
+			LUX_CORE_INFO_TAG("Renderer", "No dedicated compute queue on this GPU; compute passes use the graphics queue.");
 		if (m_TransferQueueAvailable)
 			LUX_CORE_INFO_TAG("Renderer", "Dedicated transfer queue enabled (family {}) for async asset uploads.", m_QueueFamilyIndices.Transfer);
 		else if (m_DeviceParams.enableCopyQueue)

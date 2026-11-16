@@ -20,7 +20,9 @@ with tempfile.TemporaryDirectory(prefix="lux-runtime-resources-") as temporary:
     (source / "DotNet").mkdir()
     (source / "DotNet/Coral.Managed.dll").write_bytes(b"first version")
     for config in ("debug", "debug-as", "release", "dist"):
-        block = makefile.split("ifeq ($(config)," + config + ")", 1)[1].split("endif", 1)[0]
+        # Up to the next configuration, not the first endif: each block opens with nested
+        # ifeq ($(origin CC), default) ... endif checks before its POSTBUILDCMDS.
+        block = makefile.split("ifeq ($(config)," + config + ")", 1)[1].split("ifeq ($(config),", 1)[0]
         postbuild = block.split("define POSTBUILDCMDS", 1)[1].split("endef", 1)[0]
         copies = [shlex.split(line.strip()) for line in postbuild.splitlines()
                   if '"../Editor/Resources"' in line or '"../Editor/DotNet"' in line]

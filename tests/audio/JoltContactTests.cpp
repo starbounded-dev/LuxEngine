@@ -111,15 +111,29 @@ int main()
 		}
 		system.Update(1.0f / 60, 1, &temp, &jobs);
 		listener.Drain(events);
-		assert(std::any_of(events.begin(), events.end(), [](const auto& event)
-		{
-			return event.State == Lux::PhysicsContactEvent::Type::End;
-		}));
+		assert(events.size() == 2);
+		assert(events[0].State == Lux::PhysicsContactEvent::Type::End && !events[0].Trigger);
+		assert(events[1].State == Lux::PhysicsContactEvent::Type::Begin && events[1].Trigger);
+		assert(events[0].Key == events[1].Key);
 		++removed;
+		// Converting back closes the trigger lifetime before beginning a real collision again.
+		bi.SetIsSensor(moving, false);
+		bi.SetPosition(moving, RVec3(0, 0.49f, 0), EActivation::Activate);
+		bi.SetLinearVelocity(moving, Vec3(1, 0, 0));
+		system.Update(1.0f / 60, 1, &temp, &jobs);
+		listener.Drain(events);
+		assert(events.size() == 2);
+		assert(events[0].State == Lux::PhysicsContactEvent::Type::End && events[0].Trigger);
+		assert(events[1].State == Lux::PhysicsContactEvent::Type::Begin && !events[1].Trigger);
+		assert(events[0].Key == events[1].Key);
 		bi.RemoveBody(moving);
 		bi.DestroyBody(moving);
 		system.Update(1.0f / 60, 1, &temp, &jobs);
 		listener.Drain(events);
+		assert(std::any_of(events.begin(), events.end(), [](const auto& event)
+		{
+			return event.State == Lux::PhysicsContactEvent::Type::End && !event.Trigger;
+		}));
 		for (auto& e : events)
 			if (e.State == Lux::PhysicsContactEvent::Type::End)
 				removed++;
@@ -131,8 +145,9 @@ int main()
 		auto sensor = bi.CreateAndAddBody(ball, EActivation::Activate);
 		system.Update(1.0f / 60, 1, &temp, &jobs);
 		listener.Drain(events);
-		for (auto& e : events)
-			assert(e.State == Lux::PhysicsContactEvent::Type::End);
+		assert(std::any_of(events.begin(), events.end(), [](const auto& event) { return event.Trigger; }));
+		for (const auto& event : events)
+			assert(event.Trigger || event.State == Lux::PhysicsContactEvent::Type::End);
 		bi.RemoveBody(sensor);
 		bi.DestroyBody(sensor);
 		bi.RemoveBody(ground);
@@ -193,6 +208,6 @@ int main()
 	}
 	UnregisterTypes();
 	Factory::sInstance = nullptr;
-	std::cout << "PASS: real Jolt multi-worker impacts, masses, estimated impulse, persistent contacts, removal/sleep "
+	std::cout << "PASS: real Jolt multi-worker impacts, masses, estimated impulse, persistent contacts, solid/sensor transitions, removal/sleep "
 				 "and sensor exclusion; all-hit rays report solid entries and exits\n";
 }

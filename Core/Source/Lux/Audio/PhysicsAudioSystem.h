@@ -37,7 +37,7 @@ namespace Lux
 		struct Voice
 		{
 			UUID Owner = 0, Other = 0;
-			std::string Guid;
+			AudioEventRef Event;
 			Ref<AudioEventInstance> Instance;
 		};
 		struct Motion

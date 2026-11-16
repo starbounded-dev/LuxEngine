@@ -74,8 +74,8 @@ namespace Lux {
 
 		// What the open rendering scope has bound; reset whenever a scope opens.
 		std::array<nri::DescriptorSet*, MaxDescriptorSets> BoundSets = {};
-		nri::Buffer* VertexBuffer = nullptr;
-		uint32_t VertexStride = 0;
+		std::array<nri::Buffer*, 4> VertexBuffers = {};
+		std::array<uint32_t, 4> VertexStrides = {};
 		nri::Buffer* IndexBuffer = nullptr;
 		bool IndexBuffer16 = false;
 		std::array<uint8_t, k_NRIRootConstantCacheSize> RootConstants = {};
@@ -350,6 +350,7 @@ namespace Lux {
 		// are forgotten, as NVRHI's pass began without any.
 		RT_BeginRequirements(RequiredBindPoint::Graphics);
 		m_RequiredBindings.VertexBuffer = nullptr;
+		m_RequiredBindings.AttributeBuffer = nullptr;
 		m_RequiredBindings.IndexBuffer = nullptr;
 		m_RequiredBindings.IndirectArguments = nullptr;
 		RT_RequireNRIRenderPass();
@@ -442,8 +443,8 @@ namespace Lux {
 			api.CmdSetShadingRate(commandBuffer, state.ShadingRate);
 
 		state.BoundSets = {};
-		state.VertexBuffer = nullptr;
-		state.VertexStride = 0;
+		state.VertexBuffers = {};
+		state.VertexStrides = {};
 		state.IndexBuffer = nullptr;
 		state.RootConstantsSize = 0;
 		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
@@ -470,6 +471,8 @@ namespace Lux {
 		pass.DynamicShadingRate = desc.DynamicShadingRate;
 		pass.DrawSetIndex = desc.DrawSetIndex;
 		pass.VertexStride = desc.VertexStride;
+		pass.AttributeSlot = desc.AttributeSlot;
+		pass.AttributeStride = desc.AttributeStride;
 		pass.RootConstants = desc.RootConstants;
 		for (size_t i = 0; i < desc.DescriptorSets.size(); i++)
 			state.PassGroups[i] = desc.DescriptorSets[i].Group;
@@ -553,6 +556,8 @@ namespace Lux {
 		if (hasDrawSet)
 			RT_RequireSet(pass.DrawSetIndex, drawSet);
 		RT_RequireBuffer(m_RequiredBindings.VertexBuffer, bindings.VertexBuffer, ResourceState::VertexBuffer);
+		if (pass.AttributeStride)
+			RT_RequireBuffer(m_RequiredBindings.AttributeBuffer, bindings.AttributeBuffer, ResourceState::VertexBuffer);
 		RT_RequireBuffer(m_RequiredBindings.IndexBuffer, bindings.IndexBuffer, ResourceState::IndexBuffer);
 		RT_RequireBuffer(m_RequiredBindings.IndirectArguments, bindings.IndirectArguments, ResourceState::IndirectArgument);
 
@@ -571,6 +576,8 @@ namespace Lux {
 			RT_SetNRIDescriptorSet(pass.DrawSetIndex, drawSet.Set);
 		if (bindings.VertexBuffer)
 			RT_SetNRIVertexBuffer(bindings.VertexBuffer->Get(), pass.VertexStride);
+		if (pass.AttributeStride && bindings.AttributeBuffer)
+			RT_SetNRIVertexBuffer(bindings.AttributeBuffer->Get(), pass.AttributeStride, pass.AttributeSlot);
 		if (bindings.IndexBuffer)
 			RT_SetNRIIndexBuffer(bindings.IndexBuffer->Get(), bindings.IndexBuffer16);
 		if (bindings.RootConstants && bindings.RootConstantsSize && pass.RootConstants)
@@ -635,17 +642,17 @@ namespace Lux {
 		RHIDevice::API().CmdSetDescriptorSet(*m_NRICommandBuffer, setDesc);
 	}
 
-	void RenderCommandBuffer::RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride)
+	void RenderCommandBuffer::RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride, uint32_t slot)
 	{
 		NRIRenderState& state = *m_NRIRender;
-		LUX_CORE_ASSERT(state.Rendering && buffer);
-		if (state.VertexBuffer == buffer && state.VertexStride == stride)
+		LUX_CORE_ASSERT(state.Rendering && buffer && slot < state.VertexBuffers.size());
+		if (state.VertexBuffers[slot] == buffer && state.VertexStrides[slot] == stride)
 			return;
 
-		state.VertexBuffer = buffer;
-		state.VertexStride = stride;
+		state.VertexBuffers[slot] = buffer;
+		state.VertexStrides[slot] = stride;
 		const nri::VertexBufferDesc vertexBuffer = { buffer, 0, stride };
-		RHIDevice::API().CmdSetVertexBuffers(*m_NRICommandBuffer, 0, &vertexBuffer, 1);
+		RHIDevice::API().CmdSetVertexBuffers(*m_NRICommandBuffer, slot, &vertexBuffer, 1);
 	}
 
 	void RenderCommandBuffer::RT_SetNRIIndexBuffer(nri::Buffer* buffer, bool use16BitIndices)

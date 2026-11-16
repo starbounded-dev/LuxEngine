@@ -5,13 +5,13 @@ section of Project Settings, the five audio components in the Inspector, and the
 visualisation drawn into the viewport.
 
 > Scope: the editor-facing surface. The runtime design — `AudioEngine`, `AudioEventInstance`,
-> `RaytracedAudioScene`, bank lifetime, zones, music, dialogue, budgets — is documented in
-> `.claude/docs/Architecture-LuxEngine.md` §2.10. Authoring workflow for the sample project lives in
-> `Editor/LuxSampleProject/FMOD_SETUP.md`.
+> `AudioAcoustics` / Soundwave, bank lifetime, zones, music, dialogue, budgets — is documented in
+> `.claude/docs/Architecture-LuxEngine.md` §2.10. The sample project's demo and authoring walkthrough
+> lives in `Editor/LuxSampleProject/AUDIO_DEMO.md`.
 
-The stack is **FMOD Studio** for playback and **Asterwave** for ray-traced acoustics.
-FMOD is a required SDK; Asterwave is compiled statically from the pinned private C++ source.
-Both are build requirements. Asterwave needs no separate runtime library installation.
+The stack is the **built-in audio engine** (miniaudio, Sound assets authored in the Sound Editor, the
+Audio Mixer) for playback and **Soundwave**, the engine's own acoustic kernel, for occlusion, sound
+around corners and through doorways, and room reverb. Both are built in and need nothing installed.
 
 ---
 
@@ -20,9 +20,9 @@ Both are build requirements. Asterwave needs no separate runtime library install
 | Where | What it covers |
 |---|---|
 | **View → Audio Debugger** | Read-only runtime state: backends, banks, events, voices, acoustics, budgets, validation |
-| **Project Settings → Audio** | Studio project wiring, budgets, desktop profiles, surface/dialogue tables, accessibility |
+| **Project Settings → Audio** | Budgets, desktop profiles, surface/dialogue tables, accessibility, acoustics, removing old FMOD data |
 | **Inspector → Add Component → Audio** | Audio Source, Portal, Zone, Surface, Listener |
-| **Viewport** | Ray paths, bounce points, emitters, zone/portal wireframes |
+| **Viewport** | Sound paths, emitters, zone/portal wireframes, room readout |
 
 ---
 
@@ -31,10 +31,9 @@ Both are build requirements. Asterwave needs no separate runtime library install
 ### What it is
 
 A read-only window onto the live audio stack. It is **pure visualisation** — it reads data the two
-backends already publish (`AudioEngine::GetStats` / `GetReverbSnapshot`, and
-`RaytracedAudioScene::GetStats` / `GetResult` / `GetAmbience` / `GetVisualisation`) and adds no
-instrumentation of its own. Nothing you do here changes what you hear, with one exception: the
-visualisation controls, which drive debug raytracing work.
+backends already publish (`AudioEngine::GetStats` / `GetReverbSnapshot`, and the scene's
+`AudioAcoustics` diagnostics, results and reverb) and adds no instrumentation of its own. Nothing you
+do here changes what you hear.
 
 Registered in `EditorLayer.cpp:393` under `PanelCategory::View` as `"AudioDebugPanel"`. It is
 **closed by default**; the default layout docks it to the bottom region (`EditorLayer.cpp:1025`).
@@ -48,17 +47,13 @@ Sections, in draw order:
 
 | Section | What it tells you |
 |---|---|
-| **Backends** | Whether FMOD and Asterwave initialised, the acoustics backend name, state and product version |
-| **Playback** | Channels playing, DSP CPU, event instance count |
-| **FMOD Studio** | Studio system state and live-update status |
-| **Banks** | Every loaded bank — name, event count, kind |
-| **Events** | Searchable table of events the loaded banks describe — path, kind, GUID |
-| **Acoustics** | World bounds, acoustic/dynamic triangle and primitive counts, latest completed batch timings (main-thread time includes waiting) |
-| **Ambience (listener)** | Ambient gain LF/HF and energy returned/outside at the dominant listener |
-| **Analysis / Reverb** | The EAX-style reverb Asterwave computed — decay time, density, diffusion, echo, HF/LF ratios |
-| **Sources** | Per-source table: entity, event, distance, playback state, and the acoustics Asterwave resolved for it — occlusion, gain LF/HF, muffle |
-| **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, memory, per-bus input peak/RMS in dBFS |
-| **Audio Validation** | The project's validation results — missing events, wrong event kinds, corrupt banks |
+| **Backends** | Whether the audio engine (miniaudio) initialised, its version and sample rate; the acoustics backend (Soundwave) and whether it is running |
+| **Playback** | Sound instances playing |
+| **Sound Banks and Clips** | Every loaded Sound Bank (loads, ready or decoding, resident) and every clip in memory (size, streaming, bank and voice references) |
+| **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
+| **Sources** | Per-source table: entity, Sound, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle, and *Paths* (`3R 1O x2`: reflections, openings, deepest bounce; `!` when a work or path budget ran out) |
+| **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, clip memory, per-bus input peak/RMS in dBFS |
+| **Audio Validation** | The project's validation results — missing Sounds or clips, wrong playback kinds, Sounds in no Sound Bank |
 
 **Audio Validation is the one to check before exporting.** It reports the same failures that make
 an exported game silent, and it is much easier to read here than in the log.
@@ -71,104 +66,134 @@ turns on the showcase set below and restores your previous settings when you tur
 
 | Control | Default | What it shows |
 |---|---|---|
-| Show Occlusion Paths | off | Each source's line from the listener, green (clear) to red (blocked), with every wall it crosses marked and labelled `Brick 0.30 m -9.0 dB`, plus the source's total. Drawn through walls so the blocked part stays visible. *Wall Labels* and *Selected Source Only* refine it. Engine occlusion only; costs nothing extra |
+| Show Occlusion Paths | off | Each source's line from the listener, green (clear) to red (blocked), with every wall it crosses marked and labelled `Brick 0.30 m -9.0 dB`, plus the source's total, and the reflection and doorway routes Soundwave found, fainter. Drawn through walls so the blocked part stays visible. *Wall Labels* and *Selected Source Only* refine it. Reuses the solve's results; costs nothing extra |
 | All Zones and Portals | off | Every zone and portal, brightened by its live weight (zones) or how open it is (portals), labelled with the number |
-| Room Acoustics Readout | off | Top-left of the viewport: returned vs escaping energy, LF/HF decay, absorption and scattering, as Asterwave measures the listener's room |
-| Colour Bounces by Material | off | Tints each Asterwave bounce point with the acoustic material it landed on (one short raycast per bounce while shown) |
+| Room Acoustics Readout | off | Top-left of the viewport: the listener room's 60 dB decay, reverb send, escaping energy and mean free path, as Soundwave measures it |
+| Draw Emitters | off | Rings at the listener and every source (radius 0.35) |
 
 **Acoustic Materials** (viewport options popup, edit mode and Play) tints every surface the acoustics
 see — non-Disabled mesh colliders and closed portal shutters — by its effective acoustic material,
 with a legend of the materials in the scene. It replaces the physics collider view while on.
 
-The Asterwave ray controls below request diagnostic rays from the native simulation:
-
-| Control | Default | Notes |
-|---|---|---|
-| Show Asterwave Rays | **off** | The ray settings below are inert until this is on |
-| Ray Count | 64 | Passed to Asterwave |
-| Bounce Count | 4 | Passed to Asterwave |
-| Update Interval | 50 ms | How often the debug trace refreshes |
-| Draw Ray Paths | on | Faded along their length, listener end brightest |
-| Draw Bounce Points | on | |
-| Draw Emitters | on | Radius 0.35 |
-| Draw Surface Normals | off | Length 0.25 |
-| Draw World Bounds | off | Asterwave's world box |
-
-> **These cost real raytracing work and feed nothing back into the audio.** They are a diagnostic
-> view, off by default and deliberately modest when on. Turn the whole section off when you are
-> done looking at it.
-
 ### How it was built
 
-Two decisions in `AudioDebugPanel.h` are worth knowing before you change anything:
-
-**It does not branch on `LUX_ENABLE_FMOD` / `LUX_ENABLE_RAYTRACED_AUDIO`.** Those defines are set
-only for the Core project (`Core/premake5.lua`), so the Editor cannot see them. Each backend
-identifies itself through its stats struct instead. Adding an `#ifdef LUX_ENABLE_FMOD` here
-compiles to nothing and silently removes the section.
+Two decisions are worth knowing before you change anything:
 
 **The visualisation settings live in the panel, but the panel does not draw them.**
 `AudioVisualisationSettings` is owned by `AudioDebugPanel` because that is where it is edited, and
 read by `EditorLayer::DrawAudioVisualisation`, called from `OnOverlayRender`, which owns the only
-`Renderer2D` with a camera already set up for the frame. It also applies the Asterwave ray settings every
-frame, so they work with the panel closed. The panel is the editing half; the overlay is the
-drawing half.
+`Renderer2D` with a camera already set up for the frame. The panel is the editing half; the
+overlay is the drawing half.
 
-**The overlay reads completed snapshots.** The main thread joins the Asterwave batch, then copies
-the applied occlusion, room ambience and debug bounces. Overlay settings take effect at the next
-idle update; disabling clears the displayed rays immediately.
+**Everything the overlay reads was published on the main thread.** Soundwave's worker jobs hand
+finished snapshots and measurements back to main, so the panel and overlay never see work in
+progress.
 
 ### How to modify
 
 - **Add a readout:** extend the relevant backend's stats struct first, then add a row. Do not reach
-  into FMOD or Asterwave from the panel — that would put instrumentation in the editor, where it cannot be
+  into miniaudio or Soundwave from the panel — that would put instrumentation in the editor, where it cannot be
   reused by the runtime or the tests.
 - **Add a visualisation mode:** add the field to `AudioVisualisationSettings`, a control in the
   panel's visualisation table, and the drawing in `EditorLayer::OnOverlayRender`.
 
 ---
 
+## Audio Mixer
+
+View → Audio Mixer edits the project's mixer. Defaults: Music, SFX, Dialogue and Ambience
+under the master.
+
+| Control | What it does |
+|---|---|
+| Bus table | Every bus by depth, with a linear volume (0–4, its dB beside it) and Mute. Both apply live while the native engine runs |
+| Add Child / Rename / Remove | Act on the selected bus. Rename moves the buses below it too; Remove deletes them. Sounds on a missing bus play through the master |
+| Effects | The selected bus's chain: low-pass, high-pass, peaking EQ, delay and compressor, applied top to bottom after the bus volume. Add (up to 8), reorder, bypass and remove; changes need Apply |
+| VCAs | Name bus groups for `Audio.SetVCAVolume("vca:/Name", volume)`; tick the buses each one scales |
+| Reverb Return | Room size, damping, width and return volume of the built-in reverb every voice sends to (Soundwave's ReverbSend plus Send curves) |
+| Snapshots | Add, rename and remove named mix changes; each has a priority and per-bus volume overrides. Preview Intensity auditions the selected one live |
+| Apply | Restarts the audio engine so bus layout, reverb and snapshot changes take effect; disabled during Play |
+| Save Project | Writes the mixer to the `.luxproj` (`Audio.Mixer`) |
+
+Each completed edit is one undo step. A Sound picks its bus in the Sound Editor (`Bus`). An Audio Zone's
+Snapshot picker lists these snapshots in the native build; the zone's weight is the snapshot's intensity.
+
+**Scene Sound Banks** (bottom of the panel) lists the Sound Banks the open scene loads before it plays and
+unloads when it stops. Drop a bank on *Add Bank* or pick one; *Remove* drops a row. It is part of the
+scene: edits go on the scene's undo stack and are saved with the scene. Disabled during Play.
+
+## Sound Editor
+
+Saving a Sound reaches the instances playing now, in Play and in previews: volume, pitch, curves,
+parameters, attenuation and the bus change in place; a change to the node tree, its clips or loops,
+streaming or 3D on/off restarts them. The **Music** section draws the first clip's waveform under its
+bar and beat lines and markers; drag a marker to move it (one undo step).
+
+## Sound Banks
+
+A Sound Bank (`.lbank`, Content Browser **New › Sound Bank**, seeded with the selected Sounds) lists
+Sounds that load together. Double-click one to open the
+**Sound Bank Editor**:
+
+| Control | What it does |
+|---|---|
+| Resident | Load it when the game starts and never unload it: for Sounds every scene uses |
+| Sounds | Drop a Sound on *Add Sound* or pick one; *Remove* drops a row. A Sound may be in several banks |
+| Memory when loaded | The decoded size of its non-streaming Sounds' clips; streamed Sounds hold only stream pages |
+| Sounds in no bank | Every Sound no bank holds, with *Add* to put it in this one |
+
+Edits save at once and are undoable. The Sound Editor's **Sound Banks** section shows which banks hold
+the open Sound and adds it to another. A Sound in no loaded bank still plays: it loads when it first
+plays, which can stall that frame, and a Debug build warns once. Export validation warns about each Sound
+a scene plays that no bank holds, and reports banks or scenes that name missing assets.
+
 ## Project Settings → Audio
 
 Open with **View → Project Settings**, then the **Audio** section. Settings are saved with the
 project and most take effect on reopen.
 
-**FMOD Studio**
-- *Studio Project (.fspro)* — relative to the project's `Assets` directory.
-- *Bank Output* — the **directory** Studio builds into (e.g. `Build/Desktop`), relative to the
-  `.fspro`. Not a `.bank` file; this is the single most common misconfiguration.
-- *Rebuild Banks On Play* — requires Studio's command-line tool `fmodstudiocl` on PATH, or
-  `LUX_FMOD_STUDIO_CL` pointing at it.
-- *Live Update* — lets Studio connect to the running editor.
+**Surface Table** and **Dialogue Table** — the project's shared footstep/impact Sounds and its
+localized speech (each line a Sound, with a recording per language).
 
-**Voice and Performance Budgets** — Real Voices, CPU warning %, Asterwave warning (ms of worker raytracing
-time), FMOD memory (MiB), per-bus voice limits, and *Mute When Unfocused*. These drive the warnings
+**Voice and Performance Budgets** — Real Voices, CPU warning %, Acoustics warning (ms of Soundwave's
+main-thread update), clip memory (MiB), per-bus voice limits, and *Mute When Unfocused*. These drive the warnings
 the Audio Debugger's budget section reports.
 
 **Desktop Audio Profiles** — optional per-OS overrides (*Windows*, *Linux*). Each has *Override
-defaults*, a *Studio Platform* name that must match a platform configured in your Studio project,
-a *Bank Output* directory, and its own budgets. *Copy Default Budgets* seeds a profile from the
-project defaults. The host OS selects its enabled profile for bank builds, Play, validation and
-export.
+defaults* and its own budgets. *Copy Default Budgets* seeds a profile from the project defaults.
+The host OS selects its enabled profile for Play, validation and export.
 
-**Zone Reverb** — how zone reverb and Asterwave combine: *Layer zones and Asterwave*, *Prefer zones*, or
-*Prefer Asterwave*.
+**Legacy FMOD Data** — for projects made before FMOD was removed. *Scan for FMOD Data* lists every
+FMOD reference still in the project's files (file and line, field, value): event GUIDs, paths and
+banks on sources, zones, music directors and surface overrides, dialogue audio-table keys, the old
+Studio settings, GUID-keyed accessibility entries, and FMOD bank entries in the asset registry. They
+never play. *Remove FMOD Data* asks first, then deletes them from every file and leaves every other
+line as it was; the open scene is cleared too, as one undo step. Studio project folders on disk are
+left alone. Not available during Play.
 
-**Occlusion** — what muffles a source behind a wall, through its event's `Occlusion` parameter:
-*Engine raycasts* (default) or *Asterwave (raytraced)*. Engine occlusion casts from the listener to each
-source through acoustic mesh colliders and closed portals and costs each wall 30 dB per its
-material's transmission distance (a 0.3 m brick wall is about 18 dB). *Occlusion Strength* scales
-every wall (1 follows the material data); *Rate* and *Casts / Frame* bound the cost. The Asterwave
-option uses the completed ray-traced per-source result. Applies on the next Play. The Audio
-Debugger's validation warns about source events with no `Occlusion` parameter.
+**Zone Reverb** — how zone reverb and Soundwave's reverb combine: *Layer zones and Soundwave*,
+*Prefer zones*, or *Prefer Soundwave*.
+
+**Soundwave acoustics** — what muffles a source behind a wall (a low-pass and gain on its voice)
+and how wet the room sounds (its send to the mixer's reverb return). Soundwave walks the direct path through acoustic geometry
+and closed portals, costing each wall 30 dB per its material's transmission distance (a 0.3 m brick
+wall is about 18 dB), and adds reflection and doorway routes so a source around a corner stays
+audible. *Transmission Strength* scales every wall; *Acoustic Rate* and *Sources per Frame* bound the
+cost; *Maximum Bounces*, *Reflection Depth*, *Opening Samples* and the work budgets bound the search.
+*Reverb Rays*, *Reverb Bounces* and *Reverb Reference Decay* control the listener reverb
+measurement. *Air Absorption LF/HF* (dB per 100 m) darken reflected and doorway sound over their
+extra length and shorten the reverb; the Sound's distance attenuation still owns how a source fades with
+distance, so nothing is faded twice. *Compare Engine Ray* also runs the old physics-ray occlusion as a diagnostic. Applies on
+the next Play. Projects saved with the old *Engine raycasts / VA (raytraced)* choice load unchanged
+and play on Soundwave.
 
 **Surface Sounds** — the `.lsurfaces` *Surface Table* plus impact cooldown, minimum impulse (in
 Jolt's estimated kg·m/s) and minimum motion speed, with Footstep / Impact / Scrape / Roll event
 slots per material. Edited in place and written with *Save Surface Table*.
 
 **Dialogue Lines** — the `.ldialogue` *Dialogue Table*, default language, bark cooldown and radius,
-then per-line speech event, priority, interruptibility and per-language subtitle text. *Save
-Dialogue Table* writes it.
+then per-line speech Sound, priority, interruptibility and per-language subtitle text and *Clip*
+(drop an audio file on it). *Play* auditions the line in that language. *Save Dialogue Table* writes it.
 
 **Audio Accessibility** — the built-in caption/cue overlay, the runtime menu, default player
 preferences and the caption fallback language.
@@ -189,7 +214,7 @@ instead of loading into memory.
 | Component | What it does |
 |---|---|
 | **Audio Source** | Plays a Studio event from the entity |
-| **Audio Portal** | A rectangular Asterwave shutter that opens between two zones |
+| **Audio Portal** | A rectangular acoustic shutter that opens between two zones |
 | **Audio Zone** | A region contributing to listener zone weights |
 | **Audio Surface** | Overrides the acoustic material tag from the mesh collider |
 | **Audio Listener** | The listening position (index 0–7, weighted) |
@@ -225,5 +250,5 @@ in the viewport. The engine-side rules for all three are in `Architecture-LuxEng
 
 - [Panels](Panels.md) — every other panel
 - [Viewport & Camera](Viewport-and-Camera.md) — the overlay the acoustics visualisation draws into
-- `Editor/LuxSampleProject/FMOD_SETUP.md` — hooking a Studio project up, start to finish
+- `Editor/LuxSampleProject/AUDIO_DEMO.md` — the demo scene and authoring your own Sounds
 - `.claude/docs/Architecture-LuxEngine.md` §2.10 — the runtime audio architecture

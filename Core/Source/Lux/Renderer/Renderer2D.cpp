@@ -18,6 +18,13 @@
 
 namespace Lux {
 
+	namespace {
+
+		const std::string k_QuadTextureArrayName = "u_Textures";
+		const std::string k_FontAtlasArrayName = "u_FontAtlases";
+
+	}
+
 	Renderer2D::Renderer2D(const Renderer2DSpecification& specification)
 		: m_Specification(specification),
 		c_MaxVertices(specification.MaxQuads * 4),
@@ -115,9 +122,6 @@ namespace Lux {
 		}
 
 		m_WhiteTexture = Renderer::GetWhiteTexture();
-
-		// Set all texture slots to 0
-		m_TextureSlots[0] = m_WhiteTexture;
 
 		m_QuadVertexPositions[0] = { -0.5f, -0.5f, 0.0f, 1.0f };
 		m_QuadVertexPositions[1] = { -0.5f,  0.5f, 0.0f, 1.0f };
@@ -376,14 +380,8 @@ namespace Lux {
 		for (uint32_t i = 0; i < m_CircleVertexBufferPtr.size(); i++)
 			m_CircleVertexBufferPtr[i] = m_CircleVertexBufferBases[i][frameIndex];
 
-		m_TextureSlotIndex = 1;
-		m_FontTextureSlotIndex = 0;
-
-		for (uint32_t i = 1; i < m_TextureSlots.size(); i++)
-			m_TextureSlots[i] = nullptr;
-
-		for (uint32_t i = 0; i < m_FontTextureSlots.size(); i++)
-			m_FontTextureSlots[i] = nullptr;
+		m_QuadTextureSlots.clear();
+		m_FontTextureSlots.clear();
 	}
 
 	void Renderer2D::EndScene()
@@ -402,17 +400,10 @@ namespace Lux {
 			dataSize = (uint32_t)((uint8_t*)m_QuadVertexBufferPtr[i] - (uint8_t*)m_QuadVertexBufferBases[i][frameIndex]);
 			if (dataSize)
 			{
-				uint32_t indexCount = i == m_QuadBufferWriteIndex ? m_QuadIndexCount - (c_MaxIndices * i) : c_MaxIndices;
+				// Counted from the data: a chunk can end early when its texture table fills.
+				const uint32_t indexCount = dataSize / (4 * sizeof(QuadVertex)) * 6;
 				m_QuadVertexBuffers[i][frameIndex]->SetData(m_QuadVertexBufferBases[i][frameIndex], dataSize);
-
-				// FIX: renamed inner loop variable from 'i' to 'texSlot' to avoid shadowing the outer 'i'
-				for (uint32_t texSlot = 0; texSlot < m_TextureSlots.size(); texSlot++)
-				{
-					if (m_TextureSlots[texSlot])
-						m_QuadMaterial->Set("u_Textures", m_TextureSlots[texSlot], texSlot);
-					else
-						m_QuadMaterial->Set("u_Textures", m_WhiteTexture, texSlot);
-				}
+				SubmitTextureSlots(m_QuadMaterial, k_QuadTextureArrayName, i < m_QuadTextureSlots.size() ? &m_QuadTextureSlots[i] : nullptr);
 
 				Renderer::BeginRenderPass(m_RenderCommandBuffer, m_QuadPass);
 				Renderer::RenderGeometry(m_RenderCommandBuffer, m_QuadPass->GetPipeline(), m_QuadMaterial, m_QuadVertexBuffers[i][frameIndex], m_QuadIndexBuffer, glm::mat4(1.0f), indexCount);
@@ -429,17 +420,10 @@ namespace Lux {
 			dataSize = (uint32_t)((uint8_t*)m_TextVertexBufferPtr[i] - (uint8_t*)m_TextVertexBufferBases[i][frameIndex]);
 			if (dataSize)
 			{
-				uint32_t indexCount = i == m_TextBufferWriteIndex ? m_TextIndexCount - (c_MaxIndices * i) : c_MaxIndices;
+				// Counted from the data: a chunk can end early when its atlas table fills.
+				const uint32_t indexCount = dataSize / (4 * sizeof(TextVertex)) * 6;
 				m_TextVertexBuffers[i][frameIndex]->SetData(m_TextVertexBufferBases[i][frameIndex], dataSize);
-
-				// FIX: renamed inner loop variable from 'i' to 'texSlot'
-				for (uint32_t texSlot = 0; texSlot < m_FontTextureSlots.size(); texSlot++)
-				{
-					if (m_FontTextureSlots[texSlot])
-						m_TextMaterial->Set("u_FontAtlases", m_FontTextureSlots[texSlot], texSlot);
-					else
-						m_TextMaterial->Set("u_FontAtlases", m_WhiteTexture, texSlot);
-				}
+				SubmitTextureSlots(m_TextMaterial, k_FontAtlasArrayName, i < m_FontTextureSlots.size() ? &m_FontTextureSlots[i] : nullptr);
 
 				Renderer::BeginRenderPass(m_RenderCommandBuffer, m_TextPass);
 				Renderer::RenderGeometry(m_RenderCommandBuffer, m_TextPass->GetSpecification().Pipeline, m_TextMaterial, m_TextVertexBuffers[i][frameIndex], m_TextIndexBuffer, glm::mat4(1.0f), indexCount);
@@ -514,6 +498,49 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		// TODO(Yan)
+	}
+
+	float Renderer2D::AcquireTextureSlot(std::vector<TextureSlotTable>& tables, uint32_t& indexCount, uint32_t firstSlot, const Ref<Texture2D>& texture)
+	{
+		auto tableForChunk = [&](uint32_t chunk) -> TextureSlotTable&
+		{
+			while (tables.size() <= chunk)
+				tables.emplace_back().Next = firstSlot;
+			return tables[chunk];
+		};
+
+		uint32_t chunk = indexCount / c_MaxIndices;
+		TextureSlotTable* table = &tableForChunk(chunk);
+		const uint64_t hash = texture->GetHash();
+		for (uint32_t slot = firstSlot; slot < table->Next; slot++)
+		{
+			if (table->Slots[slot]->GetHash() == hash)
+				return static_cast<float>(slot);
+		}
+
+		if (table->Next == MaxTextureSlots)
+		{
+			// This chunk's draw already binds a full table: the primitive goes to the next chunk.
+			chunk++;
+			indexCount = chunk * c_MaxIndices;
+			table = &tableForChunk(chunk);
+		}
+
+		table->Slots[table->Next] = texture;
+		return static_cast<float>(table->Next++);
+	}
+
+	void Renderer2D::SubmitTextureSlots(const Ref<Material>& material, const std::string& arrayName, const TextureSlotTable* table)
+	{
+		std::array<Ref<Texture2D>, MaxTextureSlots> textures;
+		for (uint32_t slot = 0; slot < MaxTextureSlots; slot++)
+			textures[slot] = table && table->Slots[slot] ? table->Slots[slot] : m_WhiteTexture;
+
+		Renderer::Submit([material = Ref<Material>(material), &arrayName, textures]() mutable
+			{
+				for (uint32_t slot = 0; slot < MaxTextureSlots; slot++)
+					material->Set(arrayName, textures[slot], slot);
+			});
 	}
 
 	Ref<RenderPass> Renderer2D::GetTargetRenderPass()
@@ -780,22 +807,7 @@ namespace Lux {
 		constexpr size_t quadVertexCount = 4;
 		glm::vec2 textureCoords[] = { uv0, { uv1.x, uv0.y }, uv1, { uv0.x, uv1.y } };
 
-		float textureIndex = 0.0f;
-		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
-		{
-			if (m_TextureSlots[i]->GetHash() == texture->GetHash())
-			{
-				textureIndex = (float)i;
-				break;
-			}
-		}
-
-		if (textureIndex == 0.0f)
-		{
-			textureIndex = (float)m_TextureSlotIndex;
-			m_TextureSlots[m_TextureSlotIndex] = texture;
-			m_TextureSlotIndex++;
-		}
+		const float textureIndex = AcquireTextureSlot(m_QuadTextureSlots, m_QuadIndexCount, 1, texture);
 
 		// FIX: was accessing m_QuadVertexBufferPtr[m_QuadBufferWriteIndex] directly without
 		// advancing the write index, causing vertex data to land in the wrong/reset buffer slot.
@@ -874,22 +886,7 @@ namespace Lux {
 	void Renderer2D::DrawQuad(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor, glm::vec2 uv0, glm::vec2 uv1)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		float textureIndex = 0.0f;
-		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
-		{
-			if (*m_TextureSlots[i].Raw() == *texture.Raw())
-			{
-				textureIndex = (float)i;
-				break;
-			}
-		}
-
-		if (textureIndex == 0.0f)
-		{
-			textureIndex = (float)m_TextureSlotIndex;
-			m_TextureSlots[m_TextureSlotIndex] = texture;
-			m_TextureSlotIndex++;
-		}
+		const float textureIndex = AcquireTextureSlot(m_QuadTextureSlots, m_QuadIndexCount, 1, texture);
 
 		glm::vec2 textureCoords[] = { uv0, { uv1.x, uv0.y }, uv1, { uv0.x, uv1.y } };
 
@@ -976,22 +973,7 @@ namespace Lux {
 	void Renderer2D::DrawQuadBillboard(const glm::vec3& position, const glm::vec2& size, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		float textureIndex = 0.0f;
-		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
-		{
-			if (m_TextureSlots[i]->GetHash() == texture->GetHash())
-			{
-				textureIndex = (float)i;
-				break;
-			}
-		}
-
-		if (textureIndex == 0.0f)
-		{
-			textureIndex = (float)m_TextureSlotIndex;
-			m_TextureSlots[m_TextureSlotIndex] = texture;
-			m_TextureSlotIndex++;
-		}
+		const float textureIndex = AcquireTextureSlot(m_QuadTextureSlots, m_QuadIndexCount, 1, texture);
 
 		glm::vec3 camRightWS = { m_CameraView[0][0], m_CameraView[1][0], m_CameraView[2][0] };
 		glm::vec3 camUpWS = { m_CameraView[0][1], m_CameraView[1][1], m_CameraView[2][1] };
@@ -1089,22 +1071,7 @@ namespace Lux {
 	void Renderer2D::DrawRotatedQuad(const glm::vec3& position, const glm::vec2& size, float rotation, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		float textureIndex = 0.0f;
-		for (uint32_t i = 1; i < m_TextureSlotIndex; i++)
-		{
-			if (m_TextureSlots[i]->GetHash() == texture->GetHash())
-			{
-				textureIndex = (float)i;
-				break;
-			}
-		}
-
-		if (textureIndex == 0.0f)
-		{
-			textureIndex = (float)m_TextureSlotIndex;
-			m_TextureSlots[m_TextureSlotIndex] = texture;
-			m_TextureSlotIndex++;
-		}
+		const float textureIndex = AcquireTextureSlot(m_QuadTextureSlots, m_QuadIndexCount, 1, texture);
 
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::rotate(glm::mat4(1.0f), rotation, { 0.0f, 0.0f, 1.0f })
@@ -1341,28 +1308,21 @@ namespace Lux {
 		if (string.empty())
 			return;
 
-		float textureIndex = -1.0f;
-
 		std::u32string utf32string = To_UTF32(string);
 
 		Ref<Texture2D> fontAtlas = font->GetFontAtlas();
 		LUX_CORE_ASSERT(fontAtlas);
 
-		for (uint32_t i = 0; i < m_FontTextureSlotIndex; i++)
+		// The atlas slot belongs to one text chunk's table; a long string can run into the next chunk,
+		// which needs the atlas in its own table.
+		float textureIndex = 0.0f;
+		uint32_t atlasChunk = 0;
+		auto acquireAtlasSlot = [&]()
 		{
-			if (*m_FontTextureSlots[i].Raw() == *fontAtlas.Raw())
-			{
-				textureIndex = (float)i;
-				break;
-			}
-		}
-
-		if (textureIndex == -1.0f)
-		{
-			textureIndex = (float)m_FontTextureSlotIndex;
-			m_FontTextureSlots[m_FontTextureSlotIndex] = fontAtlas;
-			m_FontTextureSlotIndex++;
-		}
+			textureIndex = AcquireTextureSlot(m_FontTextureSlots, m_TextIndexCount, 0, fontAtlas);
+			atlasChunk = m_TextIndexCount / c_MaxIndices;
+		};
+		acquireAtlasSlot();
 
 		auto& fontGeometry = font->GetMSDFData()->FontGeometry;
 		const auto& metrics = fontGeometry.getMetrics();
@@ -1451,6 +1411,9 @@ namespace Lux {
 				double texelWidth = 1. / fontAtlas->GetWidth();
 				double texelHeight = 1. / fontAtlas->GetHeight();
 				l *= texelWidth; b *= texelHeight; r *= texelWidth; t *= texelHeight;
+
+				if (m_TextIndexCount / c_MaxIndices != atlasChunk)
+					acquireAtlasSlot();
 
 				auto& bufferPtr = GetWriteableTextBuffer();
 				bufferPtr->Position = transform * glm::vec4(pl, pb, 0.0f, 1.0f);

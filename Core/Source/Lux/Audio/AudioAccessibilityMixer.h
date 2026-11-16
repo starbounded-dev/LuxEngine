@@ -8,7 +8,8 @@
 
 namespace Lux
 {
-	// Owns extra FMOD DSPs, leaving authored bus volumes and gameplay bus controls intact.
+	// Owns the accessibility processing (category gains, mono fold, compression), leaving the mixer's
+	// bus volumes and gameplay bus controls intact.
 	class AudioAccessibilityMixer
 	{
 	public:

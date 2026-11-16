@@ -336,7 +336,10 @@ namespace Lux::Yaml {
 
 		const size_t node = impl.NextNode();
 		impl.Tree.set_val(node, impl.Tree.copy_to_arena(c4::csubstr(text.data(), text.size())));
-		if (quoteIfAmbiguous && ReadsAsNull(text))
+		// Indented multiline text cannot be represented by rapidyaml's automatically
+		// chosen single-quoted style. Explicit double quotes preserve every newline and
+		// indentation byte (e.g. nested YAML or ImGui docking snapshots).
+		if (quoteIfAmbiguous && (ReadsAsNull(text) || text.find_first_of("\r\n") != std::string_view::npos))
 			impl.Tree.set_val_style(node, c4::yml::VAL_DQUO);
 		return *this;
 	}

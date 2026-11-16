@@ -119,25 +119,14 @@ namespace Lux
 			return false;
 		}
 	}
-	bool IsValidStudioPlatform(const std::string& name)
-	{
-		return !name.empty() && name.size() <= 64 && name.front() != ' ' && name.back() != ' ' &&
-			std::all_of(name.begin(), name.end(), [](unsigned char c)
-			{
-				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '_' || c == '-';
-			});
-	}
 	bool AudioDesktopProfile::Validate() const
 	{
-		return IsValidStudioPlatform(StudioPlatform) && !BankOutputPath.empty() &&
-			BankOutputPath.generic_string().find('\0') == std::string::npos && Performance.Validate();
+		return Performance.Validate();
 	}
 	void AudioDesktopProfile::SerializeYAML(Yaml::Writer& out) const
 	{
 		out << Yaml::BeginMap;
 		out << Yaml::Key << "Enabled" << Yaml::Value << Enabled;
-		out << Yaml::Key << "StudioPlatform" << Yaml::Value << StudioPlatform;
-		out << Yaml::Key << "BankOutputPath" << Yaml::Value << BankOutputPath.generic_string();
 		out << Yaml::Key << "Performance" << Yaml::Value;
 		Performance.SerializeYAML(out);
 		out << Yaml::EndMap;
@@ -153,15 +142,12 @@ namespace Lux
 					throw std::runtime_error("expected a desktop audio profile map");
 				if (node["Enabled"])
 					parsed.Enabled = node["Enabled"].as<bool>();
-				if (node["StudioPlatform"])
-					parsed.StudioPlatform = node["StudioPlatform"].as<std::string>();
-				if (node["BankOutputPath"])
-					parsed.BankOutputPath = node["BankOutputPath"].as<std::string>();
+				// StudioPlatform and BankOutputPath are FMOD-era keys: skipped, and gone on the next save.
 				if (!parsed.Performance.DeserializeYAML(node["Performance"]))
 					return false;
 			}
 			if (!parsed.Validate())
-				throw std::runtime_error("invalid platform name, bank directory or performance budget");
+				throw std::runtime_error("invalid performance budget");
 			*this = std::move(parsed);
 			return true;
 		}

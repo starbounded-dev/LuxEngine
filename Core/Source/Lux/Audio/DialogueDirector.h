@@ -29,7 +29,7 @@ namespace Lux
 		bool IsOffScreen = false;
 	};
 
-	// Main-thread scene service. FMOD callback threads never access this object or its resolver.
+	// Main-thread scene service. Audio threads never access this object or its resolver.
 	class DialogueDirector
 	{
 	public:

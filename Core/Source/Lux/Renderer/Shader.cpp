@@ -9,14 +9,18 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/RHI/RHIShader.h"
 
-#if LUX_HAS_SHADER_COMPILER
-#include "Lux/Platform/Vulkan/ShaderCompiler/VulkanShaderCompiler.h"
-#endif
-
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/ShaderPack.h"
 
 namespace Lux {
+
+	namespace {
+		ShaderCompilerHooks s_ShaderCompiler;
+	}
+
+	void ShaderCompiler::Install(const ShaderCompilerHooks& hooks) { s_ShaderCompiler = hooks; }
+	bool ShaderCompiler::IsAvailable() { return s_ShaderCompiler.Compile != nullptr; }
+	const ShaderCompilerHooks& ShaderCompiler::Get() { return s_ShaderCompiler; }
 
 	Ref<Shader> Shader::Create(const std::string& filepath, bool forceCompile, bool disableOptimization)
 	{
@@ -65,19 +69,14 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<Shader> shader;
-		if (!forceCompile && m_ShaderPack)
-		{
-			if (m_ShaderPack->Contains(path))
-				shader = m_ShaderPack->LoadShader(path);
-		}
+		if (!forceCompile && m_ShaderPack && m_ShaderPack->Contains(path))
+			shader = m_ShaderPack->LoadShader(path);
+		else if (ShaderCompiler::IsAvailable())
+			// No pack, or the pack lacks it: compile from source.
+			shader = ShaderCompiler::Get().Compile(std::filesystem::path(path), forceCompile, disableOptimization);
 		else
-		{
-			// Try compile from source
-			// Unavailable at runtime
-#if LUX_HAS_SHADER_COMPILER
-			shader = VulkanShaderCompiler::Compile(path, forceCompile, disableOptimization);
-#endif
-		}
+			// Nothing can produce it here, and rendering without it fails later in a way that names nothing.
+			LUX_CORE_VERIFY(!m_ShaderPack, "Shader '{}' is not in the shader pack and this build cannot compile it: rebuild the engine pack (Editor.exe --build-shader-pack) or export the game again", path);
 
 		if (!shader)
 		{

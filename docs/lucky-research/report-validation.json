@@ -1,0 +1,18 @@
+{
+  "path": "C:\\Git\\luxengine\\docs\\LuckyEngine-Comparison.md",
+  "lines": 1039,
+  "words": 26478,
+  "characters": 228068,
+  "localLinks": 273,
+  "uniqueLocalLinks": 264,
+  "headings": 96,
+  "luckyCommits": 6583,
+  "trackedEntries": 4200,
+  "errors": [],
+  "reportSha256": "1b11091a4485c669b9b1836c25f43a473a6512e860e095d68e2a466810ff721f",
+  "luckyHead": "b9ec0f117224f3c4556340d94d827ce7d159f9e7",
+  "luxDev": "cc25be60385cf342a61030c2b12204c226b94ffa",
+  "luxRenderFeature": "7ae13e595bf289b08b6d2f9b9021fed26ef7c00a",
+  "unknownCommitTokens": [],
+  "staleLocalLuxImplementationLinks": []
+}

@@ -30,9 +30,14 @@ namespace Lux {
 		void Start();
 		void Destroy();
 		void Stop();
-		void Simulate(Timestep timestep);
+		// Adds a frame's time to the fixed-step clock and returns how many SimulateStep calls are due
+		// (0..8; time beyond eight steps is dropped). Scene::StepPhysics runs scripts' OnFixedUpdate before each.
+		uint32_t AdvanceFixedClock(Timestep timestep);
+		float GetFixedTimestep() const;
 		void SimulateStep(float fixedTimestep);
 		void DrainContactEvents(std::vector<PhysicsContactEvent>& events);
+		// Character controllers starting and stopping to touch bodies (Begin/End only; main thread).
+		void DrainCharacterContactEvents(std::vector<PhysicsContactEvent>& events);
 
 		glm::vec3 GetGravity() const;
 		void SetGravity(const glm::vec3& gravity);

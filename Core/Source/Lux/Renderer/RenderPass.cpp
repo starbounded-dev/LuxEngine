@@ -51,6 +51,11 @@ namespace Lux {
 		m_DescriptorSetManager.SetInput(name, uniformBufferSet);
 	}
 
+	void RenderPass::SetOptionalInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet)
+	{
+		m_DescriptorSetManager.SetOptionalInput(name, std::move(uniformBufferSet));
+	}
+
 	void RenderPass::SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

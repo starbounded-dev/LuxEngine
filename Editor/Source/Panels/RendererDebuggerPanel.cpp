@@ -6,10 +6,14 @@
 
 #include "Lux/Core/Application.h"
 #include "Lux/ImGui/Colors.h"
+#include "Lux/ImGui/PanelControls.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
+#include "Lux/Editor/EditorToolHost.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -18,6 +22,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <format>
@@ -28,12 +33,6 @@ namespace Lux {
 
 	namespace {
 
-		// 60/30 FPS frame budgets and the graph-semantic series colours (data colours, not theme UI
-		// colours).
-		constexpr float kBudget60FPS = 1000.0f / 60.0f; // 16.67 ms
-		constexpr ImU32 kCPUColor = IM_COL32(120, 170, 255, 255);   // blue-ish CPU series
-		constexpr ImU32 kGPUColor = IM_COL32(200, 255, 77, 255);    // lime GPU series (on-brand)
-		constexpr ImU32 kBarColor = IM_COL32(200, 255, 77, 255);    // per-pass GPU bars
 		// Shadow atlas tile outlines by light type.
 		constexpr ImU32 kSpotTileColor = IM_COL32(120, 170, 255, 255);
 		constexpr ImU32 kPointTileColor = IM_COL32(200, 255, 77, 255);
@@ -69,24 +68,6 @@ namespace Lux {
 		float PercentOf(float value, float total)
 		{
 			return total > 0.0f ? (value / total) * 100.0f : 0.0f;
-		}
-
-		void PushHistorySample(std::vector<float>& history, float value)
-		{
-			constexpr size_t maxHistorySamples = 240;
-			history.push_back(value);
-			if (history.size() > maxHistorySamples)
-				history.erase(history.begin(), history.begin() + (history.size() - maxHistorySamples));
-		}
-
-		float GetHistoryMax(const std::vector<float>& a, const std::vector<float>& b, float fallback)
-		{
-			float maxValue = fallback;
-			for (float value : a)
-				maxValue = std::max(maxValue, value);
-			for (float value : b)
-				maxValue = std::max(maxValue, value);
-			return maxValue;
 		}
 
 		const char* DebugViewModeToString(SceneRenderer::DebugViewMode mode)
@@ -394,139 +375,131 @@ namespace Lux {
 
 	void RendererDebuggerPanel::SetContext(const Ref<SceneRenderer>& context)
 	{
+		if (m_Context != context)
+		{
+			m_TimingPlot.Clear();
+			m_PassChartValues.clear();
+			m_PassChartNames.clear();
+			m_PassChartLabels.clear();
+			m_PassChartFrozen = false;
+			m_PassChartFit = true;
+		}
 		m_Context = context;
 	}
 
 	void RendererDebuggerPanel::UpdateProfilingHistory(const SceneRenderer::Statistics& stats)
 	{
-		PushHistorySample(m_FrameCPUHistory, stats.TotalCPUTime);
-		PushHistorySample(m_FrameGPUHistory, stats.TotalGPUTime);
+		m_TimingPlot.Record(stats.TotalCPUTime, stats.TotalGPUTime);
 	}
 
 	void RendererDebuggerPanel::DrawFrameHistoryPlot()
 	{
-		const size_t sampleCount = std::max(m_FrameCPUHistory.size(), m_FrameGPUHistory.size());
-		if (sampleCount == 0)
-			return;
-
-		float maxValue = kBudget60FPS;
-		maxValue = GetHistoryMax(m_FrameCPUHistory, m_FrameGPUHistory, maxValue);
-
-		// X positions run from -(N-1)..0 so the newest frame sits at x=0 (right edge), scrolling left.
-		m_FrameHistoryAxis.resize(sampleCount);
-		for (size_t i = 0; i < sampleCount; i++)
-			m_FrameHistoryAxis[i] = (float)i - (float)(sampleCount - 1);
-
-		ImGui::TextUnformatted("Frame History (CPU / GPU ms)");
-		ImPlot::PushStyleColor(ImPlotCol_FrameBg, Colors::Theme::backgroundDark);
-		ImPlot::PushStyleColor(ImPlotCol_PlotBg, Colors::Theme::backgroundDark);
-		ImPlot::PushStyleVar(ImPlotStyleVar_PlotPadding, ImVec2(0.0f, 0.0f));
-
-		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoMouseText | ImPlotFlags_NoBoxSelect;
-		ImGuiEx::Fonts::PushFont("Mono"); // mono axis/tick labels, Tracy-style
-		if (ImPlot::BeginPlot("##frame_history", ImVec2(-1.0f, 130.0f), plotFlags))
-		{
-			ImPlot::SetupAxis(ImAxis_X1, nullptr, ImPlotAxisFlags_NoTickLabels | ImPlotAxisFlags_NoGridLines | ImPlotAxisFlags_Lock);
-			ImPlot::SetupAxis(ImAxis_Y1, "ms", ImPlotAxisFlags_LockMin);
-			ImPlot::SetupAxisLimits(ImAxis_X1, -(double)m_FrameHistoryAxis.size(), 0.0, ImGuiCond_Always);
-			ImPlot::SetupAxisLimits(ImAxis_Y1, 0.0, (double)maxValue * 1.15, ImGuiCond_Always);
-			ImPlot::SetupLegend(ImPlotLocation_NorthWest);
-
-			if (!m_FrameCPUHistory.empty())
-			{
-				ImPlotSpec cpuSpec;
-				cpuSpec.LineColor = ImGui::ColorConvertU32ToFloat4(kCPUColor);
-				cpuSpec.LineWeight = 1.5f;
-				ImPlot::PlotLine("CPU", m_FrameHistoryAxis.data(), m_FrameCPUHistory.data(), (int)m_FrameCPUHistory.size(), cpuSpec);
-			}
-			if (!m_FrameGPUHistory.empty())
-			{
-				ImPlotSpec gpuSpec;
-				gpuSpec.LineColor = ImGui::ColorConvertU32ToFloat4(kGPUColor);
-				gpuSpec.LineWeight = 1.5f;
-				gpuSpec.FillColor = gpuSpec.LineColor;
-				gpuSpec.FillAlpha = 0.18f;
-				gpuSpec.Flags = ImPlotLineFlags_Shaded;
-				ImPlot::PlotLine("GPU", m_FrameHistoryAxis.data(), m_FrameGPUHistory.data(), (int)m_FrameGPUHistory.size(), gpuSpec);
-			}
-
-			double budget = kBudget60FPS;
-			ImPlotSpec budgetSpec;
-			budgetSpec.LineColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::muted);
-			budgetSpec.LineWeight = 1.0f;
-			budgetSpec.Flags = ImPlotInfLinesFlags_Horizontal | ImPlotItemFlags_NoLegend;
-			ImPlot::PlotInfLines("##budget", &budget, 1, budgetSpec);
-
-			ImPlot::EndPlot();
-		}
-		ImGuiEx::Fonts::PopFont();
-
-		ImPlot::PopStyleVar();
-		ImPlot::PopStyleColor(2);
+		ImGuiEx::DrawTimingPlot("renderer_history", m_TimingPlot, "scene CPU pass sum");
 	}
 
 	void RendererDebuggerPanel::DrawPassGPUChart(const SceneRenderer::Statistics& stats)
 	{
-		// Gather the active passes, sorted by GPU time descending — the heaviest at the top.
-		std::vector<size_t> order;
-		order.reserve(stats.PassProfiles.size());
-		for (size_t i = 0; i < stats.PassProfiles.size(); i++)
+		LUX_PROFILE_FUNCTION_AUTO;
+		const ImGuiEx::PanelAction actions[] = {{0, m_PassChartFrozen ? "Resume passes" : "Freeze passes",
+												 m_PassChartFrozen ? LUX_ICON_PLAY : LUX_ICON_PAUSE, nullptr,
+												 true, m_PassChartFrozen, true},
+												{1, "Fit", LUX_ICON_EXPAND}};
+		const int action = ImGuiEx::PanelActionBar("pass_chart_controls", actions);
+		if (action == 0)
 		{
-			const auto& p = stats.PassProfiles[i];
-			if (p.Active || p.GPUTime > 0.0f)
-				order.push_back(i);
+			m_PassChartFrozen = !m_PassChartFrozen;
+			m_PassChartFit = true;
 		}
-		if (order.empty())
-			return;
+		if (action == 1)
+			m_PassChartFit = true;
 
-		std::sort(order.begin(), order.end(), [&](size_t a, size_t b)
+		if (!m_PassChartFrozen)
+		{
+			m_PassChartOrder.clear();
+			for (size_t i = 0; i < stats.PassProfiles.size(); ++i)
+				if (std::isfinite(stats.PassProfiles[i].GPUTime) && stats.PassProfiles[i].GPUTime > 0.0f)
+					m_PassChartOrder.push_back(i);
+			std::sort(m_PassChartOrder.begin(), m_PassChartOrder.end(),
+					  [&](size_t a, size_t b)
+					  {
+						  const float first = stats.PassProfiles[a].GPUTime,
+									  second = stats.PassProfiles[b].GPUTime;
+						  return first != second ? first > second : a < b;
+					  });
+			const size_t count = m_PassChartOrder.size();
+			m_PassChartValues.resize(count);
+			m_PassChartTicks.resize(count);
+			m_PassChartNames.resize(count);
+			m_PassChartLabels.resize(count);
+			for (size_t i = 0; i < count; ++i)
 			{
-				return stats.PassProfiles[a].GPUTime > stats.PassProfiles[b].GPUTime;
-			});
-
-		// Bars are drawn against a Y position; index 0 is the bottom, so put the heaviest pass at the
-		// top by giving it the largest Y and labelling ticks accordingly.
-		const int count = (int)order.size();
-		m_PassChartValues.resize(count);
-		m_PassChartTicks.resize(count);
-		m_PassChartLabels.resize(count);
-		float maxGPU = 0.0f;
-		for (int i = 0; i < count; i++)
-		{
-			const auto& p = stats.PassProfiles[order[i]];
-			const int slot = count - 1 - i; // heaviest (i=0) -> top slot
-			m_PassChartValues[slot] = p.GPUTime;
-			m_PassChartTicks[slot] = (double)slot;
-			m_PassChartLabels[slot] = p.Name;
-			maxGPU = std::max(maxGPU, p.GPUTime);
+				const auto& pass = stats.PassProfiles[m_PassChartOrder[i]];
+				const size_t slot = count - 1 - i;
+				m_PassChartValues[slot] = pass.GPUTime;
+				m_PassChartTicks[slot] = static_cast<double>(slot);
+				m_PassChartNames[slot] = pass.Name;
+			}
+			// Names own the frozen snapshot; rebuild pointers after any vector/string reallocations.
+			for (size_t i = 0; i < count; ++i)
+				m_PassChartLabels[i] = m_PassChartNames[i].c_str();
 		}
 
-		ImGui::TextUnformatted("GPU Time by Pass (ms)");
+		ImGui::TextWrapped("%s GPU pass timings (ms). Only completed positive measurements are shown.",
+						   m_PassChartFrozen ? "Frozen" : "Live");
+		const int count = static_cast<int>(m_PassChartValues.size());
+		if (!count)
+		{
+			ImGui::TextWrapped(
+				"GPU pass timings unavailable / pending. Resume passes to collect measurements.");
+			return;
+		}
+		const float maximum = *std::max_element(m_PassChartValues.begin(), m_PassChartValues.end());
+		if (ImGui::GetContentRegionAvail().x < ImGui::GetFontSize() * 40.0f)
+		{
+			// A full name and value per row remain readable when an axis would consume the canvas.
+			for (int i = count - 1; i >= 0; --i)
+			{
+				ImGuiEx::ScopedID id(m_PassChartLabels[i]);
+				ImGui::TextWrapped("%s", m_PassChartLabels[i]);
+				char value[32];
+				std::snprintf(value, sizeof(value), "%.3f ms", m_PassChartValues[i]);
+				ImGuiEx::ScopedColour color(ImGuiCol_PlotHistogram, Colors::Theme::titlebarOrange);
+				ImGui::ProgressBar(m_PassChartValues[i] / maximum, {-1.0f, 0.0f}, value);
+			}
+			return;
+		}
+
 		ImPlot::PushStyleColor(ImPlotCol_FrameBg, Colors::Theme::backgroundDark);
 		ImPlot::PushStyleColor(ImPlotCol_PlotBg, Colors::Theme::backgroundDark);
-
-		const float chartHeight = std::max(120.0f, count * 20.0f + 20.0f);
-		const ImPlotFlags plotFlags = ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText | ImPlotFlags_NoBoxSelect;
-		ImGuiEx::Fonts::PushFont("Mono"); // mono axis/tick labels, Tracy-style
-		if (ImPlot::BeginPlot("##pass_gpu_chart", ImVec2(-1.0f, chartHeight), plotFlags))
+		const float height =
+			std::max(ImGui::GetFontSize() * 8.0f, (count + 1) * ImGui::GetTextLineHeightWithSpacing());
+		const ImPlotFlags flags = ImPlotFlags_NoTitle | ImPlotFlags_NoLegend | ImPlotFlags_NoMouseText |
+								  (m_PassChartFrozen ? ImPlotFlags_None : ImPlotFlags_NoInputs);
+		if (ImPlot::BeginPlot("##pass_gpu_chart", {-1.0f, height}, flags))
 		{
-			ImPlot::SetupAxis(ImAxis_X1, "ms", ImPlotAxisFlags_LockMin);
-			ImPlot::SetupAxis(ImAxis_Y1, nullptr, ImPlotAxisFlags_NoGridLines | ImPlotAxisFlags_Lock);
-			ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, (double)maxGPU * 1.15 + 0.001, ImGuiCond_Always);
-			ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0, (double)count, ImGuiCond_Always);
+			ImPlot::SetupAxis(ImAxis_X1, "ms");
+			ImPlot::SetupAxis(ImAxis_Y1, nullptr, ImPlotAxisFlags_NoGridLines);
+			if (!m_PassChartFrozen || m_PassChartFit)
+			{
+				ImPlot::SetupAxisLimits(ImAxis_X1, 0.0, maximum * 1.15, ImPlotCond_Always);
+				ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0, static_cast<double>(count), ImPlotCond_Always);
+				m_PassChartFit = false;
+			}
 			ImPlot::SetupAxisTicks(ImAxis_Y1, m_PassChartTicks.data(), count, m_PassChartLabels.data());
-
-			ImPlotSpec barSpec;
-			barSpec.FillColor = ImGui::ColorConvertU32ToFloat4(kBarColor);
-			barSpec.LineColor = barSpec.FillColor;
-			barSpec.Flags = ImPlotBarsFlags_Horizontal;
-			// Single-array overload: bars at implicit Y positions 0..count-1, length = value along X.
-			ImPlot::PlotBars("GPU ms", m_PassChartValues.data(), count, 0.67, 0.0, barSpec);
-
+			ImPlotSpec spec;
+			spec.FillColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::titlebarOrange);
+			spec.LineColor = spec.FillColor;
+			spec.Flags = ImPlotBarsFlags_Horizontal;
+			ImPlot::PlotBars("GPU ms", m_PassChartValues.data(), count, 0.67, 0.0, spec);
+			if (ImPlot::IsPlotHovered() && ImGui::BeginTooltip())
+			{
+				const int slot =
+					std::clamp(static_cast<int>(std::round(ImPlot::GetPlotMousePos().y)), 0, count - 1);
+				ImGui::Text("%s: %.3f ms", m_PassChartLabels[slot], m_PassChartValues[slot]);
+				ImGui::EndTooltip();
+			}
 			ImPlot::EndPlot();
 		}
-		ImGuiEx::Fonts::PopFont();
-
 		ImPlot::PopStyleColor(2);
 	}
 
@@ -720,6 +693,9 @@ namespace Lux {
 			DrawStat("Saved Draws", stats.SavedDraws);
 			DrawStat("Indirect Draws", stats.IndirectDraws);
 			DrawStat("Spot Shadowcasters", stats.SpotlightShadowcasters);
+			DrawStat("Cluster Point Entries", stats.ClusterPointIndicesRequested);
+			DrawStat("Cluster Spot Entries", stats.ClusterSpotIndicesRequested);
+			DrawStat("Cluster Lights Dropped", stats.ClusterPointLightsDropped + stats.ClusterSpotLightsDropped);
 			ImGui::EndTable();
 		}
 
@@ -1073,6 +1049,27 @@ namespace Lux {
 			{
 				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_SerializerSelfTestFailures.size());
 				for (const std::string& failure : m_SerializerSelfTestFailures)
+					ImGui::TextWrapped("%s", failure.c_str());
+			}
+		}
+
+		if (ImGui::Button("Run Editor Tool Host Self Tests"))
+		{
+			m_ToolHostSelfTestFailures.clear();
+			m_ToolHostSelfTestPassed = EditorToolHost::RunSelfTests(&m_ToolHostSelfTestFailures);
+			m_ToolHostSelfTestRan = true;
+		}
+		if (m_ToolHostSelfTestRan)
+		{
+			ImGui::SameLine();
+			if (m_ToolHostSelfTestPassed)
+			{
+				ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.35f, 1.0f), "Self tests passed");
+			}
+			else
+			{
+				ImGui::TextColored(ImVec4(0.95f, 0.25f, 0.25f, 1.0f), "Self tests failed (%zu)", m_ToolHostSelfTestFailures.size());
+				for (const std::string& failure : m_ToolHostSelfTestFailures)
 					ImGui::TextWrapped("%s", failure.c_str());
 			}
 		}
@@ -1540,6 +1537,7 @@ namespace Lux {
 		}
 
 		const auto& stats = m_Context->GetStatistics();
+		ImGuiEx::TimingPlotControls("renderer_history_controls", m_TimingPlot);
 		UpdateProfilingHistory(stats);
 
 		// Sections are grouped into tabs so the panel is scanned by concern rather than scrolled as

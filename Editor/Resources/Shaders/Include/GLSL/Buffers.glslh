@@ -166,7 +166,7 @@ layout(std140, set = 2, binding = 1) uniform RendererData
 	uniform uint ShadowBlockerSampleCount; // PCSS blocker-search taps, 1..SHADOW_KERNEL_SIZE
 	uniform vec4 ShadowFilterParams; // x = directional PCF radius in texels, y = spot PCF radius in texels
 	uniform uint ShadowFilterSampleCount;  // PCSS filter taps, 1..SHADOW_KERNEL_SIZE
-	uniform uint ShadowKernelPadding0;
+	uniform float Time; // seconds since the application started, for material graphs
 	uniform uint ShadowKernelPadding1;
 	uniform uint ShadowKernelPadding2;
 	// Unit-disk sample offsets built on the CPU: xy = filter tap i of ShadowFilterSampleCount,

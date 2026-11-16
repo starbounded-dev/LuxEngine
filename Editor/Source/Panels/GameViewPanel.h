@@ -39,6 +39,9 @@ namespace Lux {
 
 		// Brings the panel's tab to the front on its next draw.
 		void RequestFocus() { m_FocusRequested = true; }
+#ifndef LUX_DIST
+		static bool RunPanelSelfTests(std::vector<std::string>& failures);
+#endif
 
 	private:
 		void InitRenderer();

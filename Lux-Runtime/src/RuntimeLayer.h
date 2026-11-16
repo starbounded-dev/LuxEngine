@@ -45,12 +45,15 @@ namespace Lux
 		void DrawVRStats(glm::vec2& position);
 		void DrawVersionInfo();
 		void DrawString(const std::string& text, const glm::vec2& position, const glm::vec4& color = glm::vec4(1.0f), float size = 24.0f, bool shadow = true);
+		void UpdateAudioVerification();
 		void UpdateFPSStat();
 		void UpdatePerformanceTimers();
 		bool ShouldShowIntroVersion() const;
 
 	private:
 		std::filesystem::path m_ProjectPath;
+		std::filesystem::path m_AudioVerificationPath;
+		uint32_t m_AudioVerificationFrames = 0;
 
 		Ref<Project> m_RuntimeProject;
 		Ref<Scene> m_RuntimeScene;

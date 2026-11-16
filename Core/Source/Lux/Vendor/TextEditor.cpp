@@ -46,6 +46,7 @@ SOFTWARE.
 #include "imgui_internal.h"
 
 #include "TextEditor.h"
+#include "Lux/ImGui/ImGuiUtilities.h"
 
 //
 //	TextEditor::TextEditor
@@ -4154,149 +4155,89 @@ static bool inputString(const char* label, std::string* value, ImGuiInputTextFla
 //	TextEditor::renderFindReplace
 //
 
-void TextEditor::renderFindReplace(ImVec2 pos, float width) {
-	// render find/replace window (if required)
-	if (findReplaceVisible) {
-		// save current screen position
-		auto currentScreenPosition = ImGui::GetCursorScreenPos();
-
-		// calculate sizes
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 4.0f));
-		auto& style = ImGui::GetStyle();
-		auto fieldWidth = 250.0f;
-
-		auto button1Width = ImGui::CalcTextSize(findButtonLabel.c_str()).x + style.ItemSpacing.x * 2.0f;
-		auto button2Width = ImGui::CalcTextSize(findAllButtonLabel.c_str()).x + style.ItemSpacing.x * 2.0f;
-		auto optionWidth = ImGui::CalcTextSize("Aa").x + style.ItemSpacing.x * 2.0f;
-
-		if (!readOnly) {
-			button1Width = std::max(button1Width, ImGui::CalcTextSize(replaceButtonLabel.c_str()).x + style.ItemSpacing.x * 2.0f);
-			button2Width = std::max(button2Width, ImGui::CalcTextSize(replaceAllButtonLabel.c_str()).x + style.ItemSpacing.x * 2.0f);
-		}
-
-		auto windowHeight =
-			style.ChildBorderSize * 2.0f +
-			style.WindowPadding.y * 2.0f +
-			ImGui::GetFrameHeight() +
-			(readOnly ? 0.0f : (style.ItemSpacing.y + ImGui::GetFrameHeight()));
-
-		auto windowWidth =
-			style.ChildBorderSize * 2.0f +
-			style.WindowPadding.x * 2.0f +
-			fieldWidth + style.ItemSpacing.x +
-			button1Width + style.ItemSpacing.x +
-			button2Width + style.ItemSpacing.x +
-			optionWidth * 3.0f + style.ItemSpacing.x * 2.0f;
-
-		// create window
-		ImGui::SetNextWindowPos(ImVec2(
-			pos.x + width - windowWidth - style.ItemSpacing.x,
-			pos.y + style.ItemSpacing.y * 2.0f));
-
-		ImGui::SetNextWindowSize(ImVec2(windowWidth, windowHeight));
-		ImGui::SetNextWindowBgAlpha(0.75f);
-
-		ImGui::BeginChild("find-replace", ImVec2(windowWidth, windowHeight), ImGuiChildFlags_Borders);
-		ImGui::SetNextItemWidth(fieldWidth);
-
-		if (focusOnFind) {
+void TextEditor::renderFindReplace(ImVec2 pos, float width)
+{
+	if (!findReplaceVisible)
+		return;
+	const ImVec2 previousPosition = ImGui::GetCursorScreenPos();
+	Lux::ImGuiEx::ScopedStyle spacing(ImGuiStyleVar_ItemSpacing,
+		ImVec2(ImGui::GetFontSize() * 0.4f, ImGui::GetFontSize() * 0.25f));
+	const auto& style = ImGui::GetStyle();
+	const float gap = style.ItemSpacing.x;
+	const float fieldWidth = ImGui::GetFontSize() * 18.0f;
+	const float button1Width = ImGui::CalcTextSize(readOnly ? findButtonLabel.c_str() : replaceButtonLabel.c_str()).x + style.FramePadding.x * 2.0f;
+	const float button2Width = ImGui::CalcTextSize(readOnly ? findAllButtonLabel.c_str() : replaceAllButtonLabel.c_str()).x + style.FramePadding.x * 2.0f;
+	const float optionWidth = ImGui::GetFrameHeight();
+	const float idealWidth = fieldWidth + button1Width + button2Width + optionWidth * 3.0f + gap * 7.0f +
+		style.WindowPadding.x * 2.0f + style.ChildBorderSize * 2.0f;
+	const float windowWidth = std::max(1.0f, std::min(idealWidth, width - gap * 2.0f));
+	const bool compact = windowWidth < idealWidth;
+	const float maximumHeight = std::max(1.0f, visibleHeight - style.ItemSpacing.y * 2.0f);
+	ImGui::SetCursorScreenPos({pos.x + std::max(0.0f, width - windowWidth - gap), pos.y + style.ItemSpacing.y});
+	ImGui::SetNextWindowSizeConstraints({windowWidth, 1.0f}, {windowWidth, maximumHeight});
+	const bool visible = ImGui::BeginChild("find-replace", {windowWidth, 0.0f}, ImGuiChildFlags_Borders |
+		ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize);
+	if (visible)
+	{
+		auto nextButton = [&](float requestedWidth)
+		{
+			ImGui::SameLine();
+			if (ImGui::GetContentRegionAvail().x < requestedWidth)
+				ImGui::NewLine();
+			return std::max(1.0f, std::min(requestedWidth, ImGui::GetContentRegionAvail().x));
+		};
+		ImGui::SetNextItemWidth(compact ? -1.0f : fieldWidth);
+		if (focusOnFind || findCancelledAutocomplete)
+		{
 			ImGui::SetKeyboardFocusHere();
 			focusOnFind = false;
-
-		} else if (findCancelledAutocomplete) {
-			ImGui::SetKeyboardFocusHere();
 			findCancelledAutocomplete = false;
 		}
-
-		if (inputString("###find", &findText, ImGuiInputTextFlags_AutoSelectAll)) {
-			if (findText.size()) {
+		if (inputString("###find", &findText, ImGuiInputTextFlags_AutoSelectAll))
+		{
+			if (!findText.empty())
 				selectFirstOccurrenceOf(findText, caseSensitiveFind, wholeWordFind);
-
-			} else {
+			else
 				cursors.clearAll();
-			}
 		}
-
-		if (ImGui::IsItemDeactivated()) {
-			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-				closeFindReplace();
-
-			} else if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-				focusOnEditor = true;
-				focusOnFind = false;
-			}
+		ImGui::SetItemTooltip("Find text. Enter returns to the editor; Escape closes search.");
+		if (ImGui::IsItemDeactivated() && ImGui::IsKeyPressed(ImGuiKey_Enter))
+		{
+			focusOnEditor = true;
+			focusOnFind = false;
 		}
-
-		bool disableFindButtons = !findText.size();
-
-		if (disableFindButtons) {
-			ImGui::BeginDisabled();
+		{
+			Lux::ImGuiEx::ScopedDisable disabled(findText.empty());
+			if (ImGui::Button(findButtonLabel.c_str(), {nextButton(button1Width), 0.0f}))
+				find();
+			if (ImGui::Button(findAllButtonLabel.c_str(), {nextButton(button2Width), 0.0f}))
+				findAll();
 		}
-
-		ImGui::SameLine();
-
-		if (ImGui::Button(findButtonLabel.c_str(), ImVec2(button1Width, 0.0f))) {
+		if (latchButton("Aa", &caseSensitiveFind, {nextButton(optionWidth), 0.0f}))
 			find();
-		}
-
-		ImGui::SameLine();
-
-		if (ImGui::Button(findAllButtonLabel.c_str(), ImVec2(button2Width, 0.0f))) {
-			findAll();
-		}
-
-		if (disableFindButtons) {
-			ImGui::EndDisabled();
-		}
-
-		ImGui::SameLine();
-
-		if (latchButton("Aa", &caseSensitiveFind, ImVec2(optionWidth, 0.0f))) {
+		ImGui::SetItemTooltip("Match case");
+		if (latchButton("[]", &wholeWordFind, {nextButton(optionWidth), 0.0f}))
 			find();
-		}
-
-		ImGui::SameLine();
-
-		if (latchButton("[]", &wholeWordFind, ImVec2(optionWidth, 0.0f))) {
-			find();
-		}
-
-		ImGui::SameLine();
-
-		if (ImGui::Button("x", ImVec2(optionWidth, 0.0f))) {
+		ImGui::SetItemTooltip("Match whole word");
+		if (ImGui::Button("x", {nextButton(optionWidth), 0.0f}))
 			closeFindReplace();
-		}
-
-		if (!readOnly) {
-			ImGui::SetNextItemWidth(fieldWidth);
+		ImGui::SetItemTooltip("Close search");
+		if (!readOnly)
+		{
+			ImGui::SetNextItemWidth(compact ? -1.0f : fieldWidth);
 			inputString("###replace", &replaceText);
-			ImGui::SameLine();
-
-			bool disableReplaceButtons = !findText.size() || !replaceText.size();
-
-			if (disableReplaceButtons) {
-				ImGui::BeginDisabled();
-			}
-
-			if (ImGui::Button(replaceButtonLabel.c_str(), ImVec2(button1Width, 0.0f))) {
+			ImGui::SetItemTooltip("Replacement text (leave empty to remove matches)");
+			Lux::ImGuiEx::ScopedDisable disabled(findText.empty());
+			if (ImGui::Button(replaceButtonLabel.c_str(), {nextButton(button1Width), 0.0f}))
 				replace();
-			}
-
-			ImGui::SameLine();
-
-			if (ImGui::Button(replaceAllButtonLabel.c_str(), ImVec2(button2Width, 0.0f))) {
+			if (ImGui::Button(replaceAllButtonLabel.c_str(), {nextButton(button2Width), 0.0f}))
 				replaceAll();
-			}
-
-			if (disableReplaceButtons) {
-				ImGui::EndDisabled();
-			}
 		}
-
-		ImGui::EndChild();
-		ImGui::PopStyleVar();
-		ImGui::SetCursorScreenPos(currentScreenPosition);
+		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Escape))
+			closeFindReplace();
 	}
+	ImGui::EndChild();
+	ImGui::SetCursorScreenPos(previousPosition);
 }
 
 

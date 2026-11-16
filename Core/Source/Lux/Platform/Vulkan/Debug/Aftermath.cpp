@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Aftermath.h"
 
+#include "Lux/Core/Version.h"
 #include "Lux/Core/SharedLibrary.h"
 #include "Lux/Utilities/StringUtils.h"
 

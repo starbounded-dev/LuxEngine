@@ -152,11 +152,74 @@ vec3 LuxPreservedSaturationClamp(vec3 color, float maxValue)
 	return largest <= maxValue ? color : color * (maxValue / largest);
 }
 
+// Advanced material lobes (clearcoat, sheen, subsurface, anisotropy). LuxSetupMaterialLobes
+// (MaterialLobes.glslh) sets these per pixel from the material row; g_LobeFlags stays 0 for a plain
+// material and in every shader that never calls it, which then shades exactly as before. All spatial.
+const uint LUX_LOBE_CLEARCOAT = 1u;
+const uint LUX_LOBE_SHEEN = 2u;
+const uint LUX_LOBE_SUBSURFACE = 4u;
+const uint LUX_LOBE_ANISOTROPY = 8u;
+uint g_LobeFlags = 0u;
+float g_Clearcoat = 0.0;
+float g_ClearcoatRoughness = 0.1;
+vec3 g_SheenColor = vec3(0.0);
+float g_SheenRoughness = 0.5;
+vec3 g_SubsurfaceColor = vec3(0.0);
+float g_SubsurfaceThickness = 0.5;
+float g_Anisotropy = 0.0;
+vec3 g_AnisotropyTangent = vec3(1.0, 0.0, 0.0);
+vec3 g_AnisotropyBitangent = vec3(0.0, 1.0, 0.0);
+
+// Sharpness of the forward-scattering lobe of subsurface light [Filament].
+const float LUX_SUBSURFACE_POWER = 12.234;
+// shortcut: a constant directional albedo for the sheen lobe, which scales the layer under it; a
+// Charlie DFG table would make it depend on angle and roughness.
+const float LUX_SHEEN_ALBEDO = 0.2;
+
+float LuxMax3(vec3 v) { return max(v.x, max(v.y, v.z)); }
+
+// Anisotropic GGX: distribution and height-correlated visibility [Burley 2012; Heitz 2014; Filament].
+float LuxDistributionGGXAnisotropic(float at, float ab, float ToH, float BoH, float NoH)
+{
+	float a2 = at * ab;
+	vec3 v = vec3(ab * ToH, at * BoH, a2 * NoH);
+	float w2 = a2 / max(dot(v, v), 1e-7);
+	return a2 * w2 * w2 / PI;
+}
+
+float LuxVisibilityGGXAnisotropic(float at, float ab, float ToV, float BoV, float ToL, float BoL, float NoV, float NoL)
+{
+	float lambdaV = NoL * length(vec3(at * ToV, ab * BoV, NoV));
+	float lambdaL = NoV * length(vec3(at * ToL, ab * BoL, NoL));
+	return 0.5 / max(lambdaV + lambdaL, 1e-7);
+}
+
+// Sheen: "Charlie" distribution [Estevez & Kulla 2017] and Neubelt visibility [Neubelt 2013].
+float LuxDistributionCharlie(float roughness, float NoH)
+{
+	float invAlpha = 1.0 / max(roughness * roughness, 1e-3);
+	float sin2h = max(1.0 - NoH * NoH, 0.0078125);
+	return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
+}
+
+float LuxVisibilityNeubelt(float NoV, float NoL)
+{
+	return 1.0 / max(4.0 * (NoL + NoV - NoL * NoV), 1e-4);
+}
+
+float LuxSheenScaling()
+{
+	return 1.0 - LuxMax3(g_SheenColor) * LUX_SHEEN_ALBEDO;
+}
+
 // Outgoing radiance per unit of light illuminance arriving from direction L, cosine included.
 vec3 LuxEvaluateDirectBRDF(vec3 F0, vec3 albedo, float metalness, float roughness, vec3 N, vec3 V, vec3 L)
 {
-	float NdotL = max(dot(N, L), 0.0);
-	if (NdotL <= 0.0)
+	float NdotLSigned = dot(N, L);
+	float NdotL = max(NdotLSigned, 0.0);
+	// Subsurface light also reaches the side facing away from the light.
+	bool subsurface = (g_LobeFlags & LUX_LOBE_SUBSURFACE) != 0u;
+	if (NdotL <= 0.0 && !subsurface)
 		return vec3(0.0);
 
 	vec3 H = normalize(L + V);
@@ -168,11 +231,59 @@ vec3 LuxEvaluateDirectBRDF(vec3 F0, vec3 albedo, float metalness, float roughnes
 	float alpha = LuxRoughnessToAlpha(roughness);
 
 	vec3 diffuse = (1.0 - F) * (1.0 - metalness) * LuxDiffuseFrostbite(albedo, roughness, NdotV, NdotL, VdotH);
-	vec3 specular = LuxDistributionGGX(NdotH, alpha) * LuxVisibilitySmithGGXCorrelated(NdotV, NdotL, alpha) * F
-		* LuxMultiScatterCompensation(F0, roughness, NdotV);
+	float specularDV;
+	if ((g_LobeFlags & LUX_LOBE_ANISOTROPY) != 0u)
+	{
+		float at = max(alpha * (1.0 + g_Anisotropy), LUX_MIN_GGX_ALPHA);
+		float ab = max(alpha * (1.0 - g_Anisotropy), LUX_MIN_GGX_ALPHA);
+		vec3 T = g_AnisotropyTangent;
+		vec3 B = g_AnisotropyBitangent;
+		specularDV = LuxDistributionGGXAnisotropic(at, ab, dot(T, H), dot(B, H), NdotH)
+			* LuxVisibilityGGXAnisotropic(at, ab, dot(T, V), dot(B, V), dot(T, L), dot(B, L), NdotV, NdotL);
+	}
+	else
+	{
+		specularDV = LuxDistributionGGX(NdotH, alpha) * LuxVisibilitySmithGGXCorrelated(NdotV, NdotL, alpha);
+	}
+	vec3 specular = specularDV * F * LuxMultiScatterCompensation(F0, roughness, NdotV);
 	specular = LuxPreservedSaturationClamp(specular, LUX_MAX_DIRECT_SPECULAR);
 
-	return (diffuse + specular) * NdotL;
+	if (g_LobeFlags == 0u)
+		return (diffuse + specular) * NdotL;
+
+	// Subsurface [Filament]: energy-conserving wrapped diffuse, plus light scattered through the
+	// material, forward toward the viewer and back out, less of it the thicker the material.
+	vec3 result;
+	if (subsurface)
+	{
+		result = diffuse * clamp((NdotLSigned + 0.5) / 2.25, 0.0, 1.0) + specular * NdotL;
+		float forwardScatter = exp2(clamp(dot(V, -L), 0.0, 1.0) * LUX_SUBSURFACE_POWER - LUX_SUBSURFACE_POWER);
+		float backScatter = clamp(NdotLSigned * g_SubsurfaceThickness + (1.0 - g_SubsurfaceThickness), 0.0, 1.0) * 0.5;
+		float scatter = mix(backScatter, 1.0, forwardScatter) * (1.0 - g_SubsurfaceThickness);
+		result += g_SubsurfaceColor * (scatter / PI);
+	}
+	else
+	{
+		result = (diffuse + specular) * NdotL;
+	}
+
+	if (NdotL > 0.0 && (g_LobeFlags & LUX_LOBE_SHEEN) != 0u)
+	{
+		float sheen = LuxDistributionCharlie(g_SheenRoughness, NdotH) * LuxVisibilityNeubelt(NdotV, NdotL);
+		result = result * LuxSheenScaling() + g_SheenColor * (sheen * NdotL);
+	}
+
+	// Clearcoat [Kelemen 2001 visibility; Filament]: a dielectric layer (F0 4%) on top, which takes
+	// its Fresnel share from everything under it.
+	if (NdotL > 0.0 && (g_LobeFlags & LUX_LOBE_CLEARCOAT) != 0u)
+	{
+		float coatAlpha = LuxRoughnessToAlpha(g_ClearcoatRoughness);
+		float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * g_Clearcoat;
+		float coat = LuxDistributionGGX(NdotH, coatAlpha) * (0.25 / max(VdotH * VdotH, 1e-4)) * Fc;
+		result = result * (1.0 - Fc) + vec3(min(coat, LUX_MAX_DIRECT_SPECULAR) * NdotL);
+	}
+
+	return result;
 }
 
 // Inverse-square falloff windowed to reach exactly zero at the light's range [Karis 2013].

@@ -225,6 +225,9 @@ namespace Lux {
 		static DescriptorSetManager Copy(const DescriptorSetManager& other);
 
 		void SetInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet);
+		// Pass initialization: retain a binding that some shader permutations omit. Shader reload
+		// reapplies it before baking if the new reflection declares it. No GPU work here.
+		void SetOptionalInput(std::string_view name, Ref<UniformBufferSet> uniformBufferSet);
 		void SetInput(std::string_view name, Ref<UniformBuffer> uniformBuffer);
 		void SetInput(std::string_view name, Ref<StorageBufferSet> storageBufferSet);
 		void SetInput(std::string_view name, Ref<StorageBuffer> storageBuffer);
@@ -285,6 +288,7 @@ namespace Lux {
 	private:
 		DescriptorSetManagerSpecification m_Specification;
 		State m_State = State::None;
+		std::map<std::string, Ref<UniformBufferSet>, std::less<>> m_OptionalUniformInputs;
 
 		// Frame->set->binding->element: the resource each element was baked with (its NRI buffer,
 		// texture or sampler descriptor; null when missing), which InvalidateAndUpdate compares with

@@ -11,11 +11,16 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Utilities/FileSystem.h"
 
+#include <array>
 #include <format>
 
 namespace Lux {
 
 	using namespace msdf_atlas;
+
+	// Bump when atlas generation or the cache file layout changes; older cache files then regenerate.
+	static constexpr uint32_t k_FontAtlasCacheVersion = 1;
+	static constexpr std::array<char, 4> k_FontAtlasCacheMagic = { 'L', 'X', 'F', 'A' };
 
 	struct FontInput {
 		Buffer fontData;
@@ -64,46 +69,109 @@ namespace Lux {
 
 	struct AtlasHeader
 	{
-		uint32_t Type = 0;
+		std::array<char, 4> Magic = k_FontAtlasCacheMagic;
+		uint32_t Version = k_FontAtlasCacheVersion;
+		uint64_t SourceKey = 0;
 		uint32_t Width = 0, Height = 0;
 	};
 
-	static bool TryReadFontAtlasFromCache(const std::string& fontName, float fontSize, AtlasHeader& header, void*& pixels, Buffer& storageBuffer)
+	// Identifies what an atlas is generated from: the font's bytes and every setting that changes its
+	// pixels. A font replaced under the same name, or different settings, never reads a stale atlas.
+	static uint64_t GetFontAtlasCacheKey(Buffer fontData, const Configuration& config)
 	{
-		std::string filename = std::format("{0}-{1}.hfa", fontName, fontSize);
-		std::filesystem::path filepath = Utils::GetCacheDirectory() / filename;
-
-		if (std::filesystem::exists(filepath))
+		uint64_t hash = 14695981039346656037ull; // FNV-1a
+		auto mix = [&hash](const void* data, size_t size)
 		{
-			storageBuffer = FileSystem::ReadBytes(filepath);
-			header = *storageBuffer.As<AtlasHeader>();
-			pixels = (uint8_t*)storageBuffer.Data + sizeof(AtlasHeader);
-			return true;
-		}
-		return false;
+			const uint8_t* bytes = static_cast<const uint8_t*>(data);
+			for (size_t i = 0; i < size; i++)
+			{
+				hash ^= bytes[i];
+				hash *= 1099511628211ull;
+			}
+		};
+		mix(fontData.Data, fontData.Size);
+		mix(&config.imageType, sizeof(config.imageType));
+		mix(&config.width, sizeof(config.width));
+		mix(&config.height, sizeof(config.height));
+		mix(&config.emSize, sizeof(config.emSize));
+		mix(&config.pxRange, sizeof(config.pxRange));
+		mix(&config.angleThreshold, sizeof(config.angleThreshold));
+		mix(&config.miterLimit, sizeof(config.miterLimit));
+		mix(&config.coloringSeed, sizeof(config.coloringSeed));
+		return hash;
 	}
 
-	static void CacheFontAtlas(const std::string& fontName, float fontSize, AtlasHeader header, const void* pixels)
+	static std::filesystem::path GetFontAtlasCachePath(const std::string& fontName, double emSize, uint64_t key)
+	{
+		return Utils::GetCacheDirectory() / std::format("{}-{}-{:016x}.lfa", fontName, emSize, key);
+	}
+
+	// Reads the atlas cached for `key`. A missing file is a miss; a file that is not exactly the atlas
+	// `config` describes (truncated, from another font or version) is a miss too, and is regenerated.
+	static bool TryReadFontAtlasFromCache(const std::filesystem::path& filepath, uint64_t key, const Configuration& config, Buffer& storageBuffer)
+	{
+		if (!FileSystem::Exists(filepath))
+			return false;
+
+		storageBuffer = FileSystem::ReadBytes(filepath);
+		const uint64_t pixelBytes = static_cast<uint64_t>(config.width) * static_cast<uint64_t>(config.height) * sizeof(float) * 4;
+		bool valid = storageBuffer.Size == sizeof(AtlasHeader) + pixelBytes;
+		if (valid)
+		{
+			const AtlasHeader& header = *storageBuffer.As<AtlasHeader>();
+			valid = header.Magic == k_FontAtlasCacheMagic && header.Version == k_FontAtlasCacheVersion && header.SourceKey == key
+				&& header.Width == static_cast<uint32_t>(config.width) && header.Height == static_cast<uint32_t>(config.height);
+		}
+
+		if (!valid)
+		{
+			LUX_CORE_WARN_TAG("Renderer", "Font atlas cache '{}' does not match its font; regenerating it", filepath.string());
+			storageBuffer.Release();
+		}
+		return valid;
+	}
+
+	// Writes through a temporary file, so an interrupted write never leaves a cache file that reads as valid.
+	static void CacheFontAtlas(const std::filesystem::path& filepath, const AtlasHeader& header, const void* pixels)
 	{
 		Utils::CreateCacheDirectoryIfNeeded();
 
-		std::string filename = std::format("{0}-{1}.hfa", fontName, fontSize);
-		std::filesystem::path filepath = Utils::GetCacheDirectory() / filename;
-
-		std::ofstream stream(filepath, std::ios::binary | std::ios::trunc);
-		if (!stream)
+		const std::filesystem::path temporary = filepath.string() + ".tmp";
 		{
+			std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+			stream.write(reinterpret_cast<const char*>(&header), sizeof(AtlasHeader));
+			stream.write(static_cast<const char*>(pixels), static_cast<std::streamsize>(header.Width) * header.Height * sizeof(float) * 4);
 			stream.close();
-			LUX_CORE_ERROR_TAG("Renderer", "Failed to cache font atlas to {0}", filepath.string());
-			return;
+			if (!stream)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Failed to cache font atlas to {0}", temporary.string());
+				std::error_code error;
+				std::filesystem::remove(temporary, error);
+				return;
+			}
 		}
 
-		stream.write((char*)&header, sizeof(AtlasHeader));
-		stream.write((char*)pixels, header.Width * header.Height * sizeof(float) * 4);
+		FileSystem::ReplaceFileAtomically(temporary, filepath);
+	}
+
+	// Removes this font's atlases from earlier font files or settings (and the unversioned pre-key
+	// `.hfa` file), so editing a font does not accumulate stale atlases.
+	static void RemoveSupersededFontAtlases(const std::string& fontName, double emSize, const std::filesystem::path& current)
+	{
+		std::error_code error;
+		std::filesystem::remove(Utils::GetCacheDirectory() / std::format("{}-{}.hfa", fontName, emSize), error);
+
+		const std::string prefix = std::format("{}-{}-", fontName, emSize);
+		for (const auto& entry : std::filesystem::directory_iterator(Utils::GetCacheDirectory(), error))
+		{
+			const std::string filename = entry.path().filename().string();
+			if (entry.path() != current && entry.path().extension() == ".lfa" && filename.starts_with(prefix))
+				std::filesystem::remove(entry.path(), error);
+		}
 	}
 
 	template <typename T, typename S, int N, GeneratorFunction<S, N> GEN_FN>
-	static Ref<Texture2D> CreateAndCacheAtlas(const std::string& fontName, float fontSize, const std::vector<GlyphGeometry>& glyphs, const FontGeometry& fontGeometry, const Configuration& config)
+	static Ref<Texture2D> CreateAndCacheAtlas(const std::filesystem::path& cachePath, uint64_t cacheKey, const std::vector<GlyphGeometry>& glyphs, const FontGeometry& fontGeometry, const Configuration& config)
 	{
 		ImmediateAtlasGenerator<S, N, GEN_FN, BitmapAtlasStorage<T, N>> generator(config.width, config.height);
 		generator.setAttributes(config.generatorAttributes);
@@ -113,9 +181,10 @@ namespace Lux {
 		msdfgen::BitmapConstRef<T, N> bitmap = (msdfgen::BitmapConstRef<T, N>) generator.atlasStorage();
 
 		AtlasHeader header;
+		header.SourceKey = cacheKey;
 		header.Width = bitmap.width;
 		header.Height = bitmap.height;
-		CacheFontAtlas(fontName, fontSize, header, bitmap.pixels);
+		CacheFontAtlas(cachePath, header, bitmap.pixels);
 
 		TextureSpecification spec;
 		spec.Format = ImageFormat::RGBA32F;
@@ -340,12 +409,13 @@ namespace Lux {
 		}
 
 		// Check cache here
+		const uint64_t cacheKey = GetFontAtlasCacheKey(buffer, config);
+		const std::filesystem::path cachePath = GetFontAtlasCachePath(m_Name, config.emSize, cacheKey);
 		Buffer storageBuffer;
-		AtlasHeader header;
-		void* pixels;
-		if (TryReadFontAtlasFromCache(m_Name, (float)config.emSize, header, pixels, storageBuffer))
+		if (TryReadFontAtlasFromCache(cachePath, cacheKey, config, storageBuffer))
 		{
-			m_TextureAtlas = CreateCachedAtlas(header, pixels);
+			const AtlasHeader& header = *storageBuffer.As<AtlasHeader>();
+			m_TextureAtlas = CreateCachedAtlas(header, static_cast<uint8_t*>(storageBuffer.Data) + sizeof(AtlasHeader));
 			storageBuffer.Release();
 		}
 		else
@@ -356,19 +426,20 @@ namespace Lux {
 			{
 			case ImageType::MSDF:
 				if (floatingPointFormat)
-					texture = CreateAndCacheAtlas<float, float, 3, msdfGenerator>(m_Name, (float)config.emSize, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
+					texture = CreateAndCacheAtlas<float, float, 3, msdfGenerator>(cachePath, cacheKey, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
 				else
-					texture = CreateAndCacheAtlas<byte, float, 3, msdfGenerator>(m_Name, (float)config.emSize, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
+					texture = CreateAndCacheAtlas<byte, float, 3, msdfGenerator>(cachePath, cacheKey, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
 				break;
 			case ImageType::MTSDF:
 				if (floatingPointFormat)
-					texture = CreateAndCacheAtlas<float, float, 4, mtsdfGenerator>(m_Name, (float)config.emSize, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
+					texture = CreateAndCacheAtlas<float, float, 4, mtsdfGenerator>(cachePath, cacheKey, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
 				else
-					texture = CreateAndCacheAtlas<byte, float, 4, mtsdfGenerator>(m_Name, (float)config.emSize, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
+					texture = CreateAndCacheAtlas<byte, float, 4, mtsdfGenerator>(cachePath, cacheKey, m_MSDFData->Glyphs, m_MSDFData->FontGeometry, config);
 				break;
 			}
 
 			m_TextureAtlas = texture;
+			RemoveSupersededFontAtlases(m_Name, config.emSize, cachePath);
 		}
 	}
 

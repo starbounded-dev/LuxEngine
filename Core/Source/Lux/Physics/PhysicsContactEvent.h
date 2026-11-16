@@ -21,5 +21,6 @@ namespace Lux
 		float SlipSpeed = 0.0f;
 		float RollSpeed = 0.0f;
 		float Mass1 = 0.0f, Mass2 = 0.0f;
+		bool Trigger = false; // one of the bodies is a trigger (sensor): an overlap, not a collision
 	};
 }

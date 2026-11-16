@@ -6,11 +6,13 @@
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Audio/AudioAccessibilitySettings.h"
 #include "Lux/Audio/AudioPerformanceSettings.h"
+#include "Lux/Audio/AudioMixerSettings.h"
 #include "Lux/Audio/AudioOcclusionSettings.h"
 
 #include "Lux/Audio/AudioZoneSettings.h"
 
 #include <filesystem>
+#include <array>
 #include <map>
 #include <string>
 #include <vector>
@@ -55,34 +57,19 @@ namespace Lux
 
 		// Populated only from the binary runtime package, never from editor YAML.
 		AudioBankManifest RuntimeBanks;
+		// Runtime package only: each Sound's and Sound Bank's path relative to Assets, without its
+		// extension and '/'-separated ("Audio/Sounds/Fart"), so scripts can name them by path.
+		std::map<std::string, AssetHandle> AudioAssetPaths;
 		AssetHandle SurfaceTable = 0;
 		DialogueSettings Dialogue;
 		AudioAccessibilityConfig Accessibility;
 		AudioPerformanceSettings Performance;
 		AudioDesktopProfile Windows, Linux;
-		std::string StudioPlatform = "Desktop";
 		AcousticMaterialSettings AcousticMaterials;
 		AudioZoneReverbMode ZoneReverbMode = AudioZoneReverbMode::Layered;
 		AudioOcclusionSettings Occlusion;
-
-		// The FMOD Studio project (.fspro) that authors this game's audio, relative to the asset
-		// directory. Sound designers work in the Studio app; the engine consumes only the banks it
-		// builds. Empty means the project has no authored audio yet.
-		std::filesystem::path StudioProjectPath = "Audio/SampleProject/SampleProject.fspro";
-
-		// Where fmodstudiocl writes built banks, relative to the .fspro's own directory. "Desktop"
-		// is FMOD's default platform name; a project targeting consoles would build several of
-		// these side by side.
-		std::filesystem::path StudioBankOutputPath = "Build/Desktop";
-
-		// Rebuild banks from the .fspro before entering Play when any source file is newer than the
-		// built banks. Stale banks are the most common "why didn't my change take effect", and the
-		// check is a timestamp comparison, so it costs nothing when nothing changed.
-		bool RebuildBanksOnPlay = true;
-
-		// Let the FMOD Studio app connect to the running engine and remix live. Costs a socket and
-		// a little memory; the reason to author in Studio at all.
-		bool EnableLiveUpdate = true;
+		// The project's buses, effects, reverb return, snapshots and VCAs (View > Audio Mixer).
+		AudioMixerSettings Mixer;
 	};
 
 	struct ProjectPhysicsLayer
@@ -107,6 +94,11 @@ namespace Lux
 	struct ProjectSceneRendererSettings
 	{
 		uint32_t QualityPreset = 1; // Lux::QualityPreset
+		// One Lux::QualityPreset per Lux::QualityCategory. A label only: the values below are what
+		// load. Custom (5), the default and what a project saved before the categories gets, means
+		// the values are the project's own.
+		static constexpr uint32_t QualityCategoryCount = 7;
+		std::array<uint32_t, QualityCategoryCount> QualityCategories = { 5, 5, 5, 5, 5, 5, 5 };
 		bool EnableFrustumCulling = true;
 		bool EnableOcclusionCulling = true;
 		bool EnableGPUDrivenRendering = true;
@@ -266,19 +258,6 @@ namespace Lux
 			return GetAssetDirectory() / m_Config.AudioCommandsRegistryPath;
 		}
 
-		// Absolute path to the FMOD Studio project file, or an empty path when the project has no
-		// authored audio. Callers must check emptiness rather than assuming a .fspro exists.
-		std::filesystem::path GetStudioProjectPath() const
-		{
-			if (m_Config.Audio.StudioProjectPath.empty())
-				return {};
-
-			if (m_Config.Audio.StudioProjectPath.is_absolute())
-				return m_Config.Audio.StudioProjectPath;
-
-			return GetAssetDirectory() / m_Config.Audio.StudioProjectPath;
-		}
-
 		// Native desktop builds select their host OS profile; runtime exports flatten its settings.
 		const AudioDesktopProfile& GetAudioDesktopProfile() const
 		{
@@ -292,25 +271,6 @@ namespace Lux
 		{
 			const auto& profile = GetAudioDesktopProfile();
 			return profile.Enabled ? profile.Performance : m_Config.Audio.Performance;
-		}
-		const std::string& GetStudioPlatform() const
-		{
-			const auto& profile = GetAudioDesktopProfile();
-			return profile.Enabled ? profile.StudioPlatform : m_Config.Audio.StudioPlatform;
-		}
-
-		// Absolute bank directory, relative to the .fspro for authoring or Assets for runtime manifests.
-		std::filesystem::path GetStudioBankDirectory() const
-		{
-			if (!m_Config.Audio.RuntimeBanks.Directory.empty())
-				return GetAssetDirectory() / m_Config.Audio.RuntimeBanks.Directory;
-
-			const std::filesystem::path studioProject = GetStudioProjectPath();
-			if (studioProject.empty())
-				return {};
-
-			const auto& profile = GetAudioDesktopProfile();
-			return studioProject.parent_path() / (profile.Enabled ? profile.BankOutputPath : m_Config.Audio.StudioBankOutputPath);
 		}
 
 		std::filesystem::path GetMeshPath() const

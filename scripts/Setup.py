@@ -48,15 +48,13 @@ else:
     subprocess.call(["git", "submodule", "update", "--init", "--recursive"])
 
 Configure.warn_missing_discord_sdk(config, ROOT)
-Configure.warn_missing_asterwave(config, ROOT)
-Configure.warn_missing_fmod_sdk(config, ROOT)
 
 if not os.path.exists("Editor/DotNet/"):
     os.makedirs("Editor/DotNet/")
 
 # Coral.Managed and ScriptCore are now premake-generated C# projects inside Lux.sln (built by
 # MSBuild alongside the C++ projects). Coral.Managed is deployed to Editor/DotNet by the Core
-# project's postbuild step. The .NET 9 SDK is still required for MSBuild to build them.
+# project's postbuild step. The .NET 10 SDK is still required for MSBuild to build them.
 print(f"{Style.BRIGHT}{Back.GREEN}Generating {config.generator} solution.{Style.RESET_ALL}")
 result = Configure.run_premake(config, PREMAKE)
 if result != 0:

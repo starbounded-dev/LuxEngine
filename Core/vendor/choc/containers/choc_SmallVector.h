@@ -19,6 +19,8 @@
 #ifndef CHOC_SMALLVECTOR_HEADER_INCLUDED
 #define CHOC_SMALLVECTOR_HEADER_INCLUDED
 
+#include <algorithm>
+#include "choc_Span.h" // Lux: as upstream does since 2022; the header was not self-contained
 #include "choc_SingleReaderMultipleWriterFIFO.h"
 
 namespace choc

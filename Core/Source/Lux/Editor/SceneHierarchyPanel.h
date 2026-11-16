@@ -27,6 +27,13 @@ namespace Lux {
 
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnEvent(Event& e) override;
+		void OnPropertiesImGuiRender(bool& isOpen);
+		void OnPropertiesEvent(Event& event);
+		void OnPropertiesClosed() { m_IsPropertiesFocused = false; }
+		void OnClose() override { m_IsHierarchyFocused = false; }
+#ifndef LUX_DIST
+		static bool RunSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+#endif
 
 		Entity GetSelectedEntity() const;
 		std::vector<Entity> GetSelectedEntities() const;
@@ -35,6 +42,7 @@ namespace Lux {
 
 		// Invoked by the material slots' Edit buttons; the editor opens the Material Editor.
 		void SetOpenMaterialCallback(std::function<void(AssetHandle)> callback) { m_OpenMaterialCallback = std::move(callback); }
+		void SetOpenSoundCallback(std::function<void(AssetHandle)> callback) { m_OpenSoundCallback = std::move(callback); }
 	private:
 		void PruneInvalidSelection();
 		void QueueEntityDeletion(const std::vector<UUID>& entityIDs);
@@ -44,7 +52,7 @@ namespace Lux {
 		void DrawComponents(const std::vector<UUID>& entityIDs);
 		void DrawStaticMeshMaterialSlots(struct StaticMeshComponent& component, const std::vector<UUID>& selectedEntities);
 
-		// The FMOD Studio event assignment for an Audio Source. Lists what the loaded banks
+		// The Sound assignment for an Audio Source, with an Edit Sound button. Lists what the loaded banks
 		// describe, so it is empty until the project's banks are built.
 		void DrawAudioEventPicker(struct AudioSourceComponent& component, const std::vector<UUID>& selectedEntities);
 
@@ -52,13 +60,6 @@ namespace Lux {
 		// created. First-selected entity only, since the list is variable-length.
 		void DrawAudioParameterOverrides(struct AudioSourceComponent& component);
 
-		// Editor-only picker state: which bank the event list is filtered to, and the search inside
-		// the event dropdown. Follows the assigned event when there is one.
-		std::string m_AudioEventBankFilter;
-		std::string m_AudioEventSearch;
-		UUID m_AudioEventPickerEntity = 0;
-		std::string m_AudioEventPickerGuid;
-		uint64_t m_AudioEventPickerGeneration = 0;
 		bool TagSearchRecursive(Entity entity, std::string_view searchFilter, uint32_t maxSearchDepth, uint32_t currentDepth = 1);
 	private:
 		Ref<Scene> m_Context;
@@ -66,10 +67,15 @@ namespace Lux {
 		SelectionContext m_SelectionContext = SelectionContext::Scene;
 		bool m_IsWindow = true;
 		bool m_IsHierarchyFocused = false;
-		bool m_IsHierarchyOrPropertiesFocused = false;
+		bool m_IsPropertiesFocused = false;
 		bool m_ActivateSearchWidget = false;
+		std::string m_ComponentSearch;
+		size_t m_VisibleEntityCount = 0;
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
+		std::function<void(AssetHandle)> m_OpenSoundCallback;
+		// A material whose graph parameter was edited here: saved once no widget is active.
+		AssetHandle m_PendingMaterialSave = 0;
 
 		static SelectionContext s_ActiveSelectionContext;
 	};

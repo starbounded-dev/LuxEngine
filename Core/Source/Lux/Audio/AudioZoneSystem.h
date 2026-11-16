@@ -4,6 +4,7 @@
 #pragma once
 
 #include "AudioEventInstance.h"
+#include "AudioEventRef.h"
 #include "AudioListener.h"
 #include "AudioZoneSettings.h"
 
@@ -75,6 +76,9 @@ namespace Lux {
 		{
 			Voice Ambience;
 			float Weight = 0.0f;
+			// The component's assignments last seen, and what they resolve to in this backend.
+			AudioEventRef AmbienceEvent, SnapshotEvent;
+			std::string AmbienceReference;
 			std::string SnapshotReference;
 			std::string SnapshotKey;
 			bool Seen = false;

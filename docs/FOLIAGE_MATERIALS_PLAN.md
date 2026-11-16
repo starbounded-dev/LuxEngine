@@ -1,5 +1,7 @@
 # LuxEngine Foliage Materials Plan
 
+**Status (2026-11-09): done.** Phases 0-6 landed on 2026-10-21 (`da389ce5` to `dfece249`) and merged in PR #34 (`cc25be60`).
+
 Finishes alpha-tested and two-sided materials across the renderer, so foliage (Sponza's plants
 first) keeps its shape at a distance, glows when back-lit, and every alpha-tested or two-sided
 surface renders the same in every pass. It is a planning document, not a description of what

@@ -5,6 +5,7 @@
 #include "AssetImporter.h"
 #include "AudioSurfaceTableSerializer.h"
 #include "DialogueTableSerializer.h"
+#include "SoundSerializer.h"
 
 #include "AudioAssetSerializer.h"
 #include "MaterialSerializer.h"
@@ -34,6 +35,8 @@ namespace Lux
 			s_Serializers[AssetType::EnvMap] = std::make_unique<TextureSerializer>();
 			s_Serializers[AssetType::AudioSurfaceTable] = CreateScope<AudioSurfaceTableSerializer>();
 			s_Serializers[AssetType::DialogueTable] = CreateScope<DialogueTableSerializer>();
+			s_Serializers[AssetType::Sound] = CreateScope<SoundSerializer>();
+			s_Serializers[AssetType::SoundBank] = CreateScope<SoundBankSerializer>();
 			s_Serializers[AssetType::Audio] = std::make_unique<AudioAssetSerializer>();
 			s_Serializers[AssetType::MeshSource] = std::make_unique<MeshSourceSerializer>();
 			s_Serializers[AssetType::Mesh] = std::make_unique<MeshSerializer>();
@@ -78,6 +81,27 @@ namespace Lux
 			return;
 
 		Serialize(Project::GetEditorAssetManager()->GetMetadata(asset->Handle), asset);
+	}
+
+	bool AssetImporter::TrySerialize(const Ref<Asset>& asset)
+	{
+		EnsureInitialized();
+		const Ref<EditorAssetManager> manager = Project::GetEditorAssetManager();
+		if (!asset || !manager)
+		{
+			LUX_CORE_ERROR_TAG("AssetManager",
+							   "Cannot save a source asset without an asset and editor project");
+			return false;
+		}
+		const AssetMetadata metadata = manager->GetMetadata(asset->Handle);
+		const auto serializer = s_Serializers.find(metadata.Type);
+		if (!metadata.IsValid() || serializer == s_Serializers.end())
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Cannot save asset {}: missing metadata or serializer",
+							   static_cast<uint64_t>(asset->Handle));
+			return false;
+		}
+		return serializer->second->TrySerialize(metadata, asset);
 	}
 
 	bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)
@@ -145,7 +169,17 @@ namespace Lux
 		if (serializerIt == s_Serializers.end())
 			return nullptr;
 
-		return serializerIt->second->DeserializeFromAssetPack(stream, assetInfo);
+		// A damaged entry can hold YAML that does not parse or a size nothing can allocate; the asset
+		// fails to load instead of taking the player down.
+		try
+		{
+			return serializerIt->second->DeserializeFromAssetPack(stream, assetInfo);
+		}
+		catch (const std::exception& e)
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Packed {} at offset {} is damaged: {}", Utils::AssetTypeToString(assetType), assetInfo.PackedOffset, e.what());
+			return nullptr;
+		}
 	}
 
 	Ref<Scene> AssetImporter::DeserializeSceneFromAssetPack(FileStreamReader& stream, const AssetPackFile::SceneInfo& sceneInfo)
@@ -160,6 +194,14 @@ namespace Lux
 		if (!sceneSerializer)
 			return nullptr;
 
-		return sceneSerializer->DeserializeSceneFromAssetPack(stream, sceneInfo);
+		try
+		{
+			return sceneSerializer->DeserializeSceneFromAssetPack(stream, sceneInfo);
+		}
+		catch (const std::exception& e)
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "Packed scene at offset {} is damaged: {}", sceneInfo.PackedOffset, e.what());
+			return nullptr;
+		}
 	}
 }

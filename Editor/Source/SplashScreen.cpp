@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "SplashScreen.h"
+#include "ScriptTemplate.h"
 
 #include "Lux/Core/Version.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -137,13 +138,13 @@ namespace Lux {
 
 		ImVec2 MeasureText(const char* font, float size, const char* text, float wrapWidth = 0.0f)
 		{
-			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), S(size));
+			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), size);
 			return ImGui::CalcTextSize(text, nullptr, false, wrapWidth > 0.0f ? wrapWidth : -1.0f);
 		}
 
 		void DrawText(ImDrawList* drawList, const char* font, float size, ImVec2 pos, ImU32 colour, const char* text, float wrapWidth = 0.0f)
 		{
-			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), S(size));
+			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), size);
 			drawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(), pos, colour, text, nullptr, wrapWidth);
 		}
 
@@ -249,7 +250,7 @@ namespace Lux {
 		// `width` is in scaled pixels.
 		bool Field(const char* id, char* buffer, size_t bufferSize, float width, const char* hint, const char* font, float fontSize, ImGuiInputTextFlags flags = 0)
 		{
-			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), S(fontSize));
+			ImGuiEx::ScopedFont scopedFont(ImGuiEx::Fonts::Get(font), fontSize);
 			const float padY = std::max(0.0f, (S(k_FieldHeight) - ImGui::GetFontSize()) * 0.5f);
 			ImGuiEx::ScopedStyleStack style(ImGuiStyleVar_FramePadding, ImVec2(S(12.0f), padY), ImGuiStyleVar_FrameRounding, S(k_ControlRounding), ImGuiStyleVar_FrameBorderSize, 1.0f);
 			ImGuiEx::ScopedColourStack colours(ImGuiCol_FrameBg, Theme::propertyField, ImGuiCol_Border, Theme::borderSubtle, ImGuiCol_Text, Theme::textBrighter);
@@ -326,7 +327,7 @@ namespace Lux {
 		if (!m_Open)
 			return;
 
-		s_UiScale = ImGuiEx::Fonts::GetScale();
+		s_UiScale = ImGui::GetStyle()._MainScale;
 
 		const ImGuiViewport* viewport = ImGui::GetMainViewport();
 		ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -618,7 +619,7 @@ namespace Lux {
 
 		const float localTop = ImGui::GetCursorPosY();
 		{
-			ImGuiEx::ScopedFont font(ImGuiEx::Fonts::Get("Default"), S(k_NoteSize));
+			ImGuiEx::ScopedFont font(ImGuiEx::Fonts::Get("Default"), k_NoteSize);
 			ImGuiEx::ScopedStyleStack style(ImGuiStyleVar_FramePadding, S(3.0f, 3.0f), ImGuiStyleVar_FrameRounding, S(4.0f), ImGuiStyleVar_FrameBorderSize, 1.0f, ImGuiStyleVar_ItemInnerSpacing, S(8.0f, 0.0f));
 			ImGuiEx::ScopedColourStack colours(ImGuiCol_FrameBg, Theme::propertyField, ImGuiCol_Border, Theme::muted, ImGuiCol_CheckMark, Theme::accent, ImGuiCol_Text, Theme::text);
 			const float checkboxY = localTop + (S(k_FooterHeight) - ImGui::GetFrameHeight()) * 0.5f;
@@ -668,8 +669,10 @@ namespace Lux {
 	{
 		if (!m_NewProjectName[0])
 			return "Enter a project name.";
-		if (!IsValidProjectName(m_NewProjectName))
-			return "Use letters, digits and underscores, starting with a letter. The name is also the C# namespace.";
+		if (!IsValidProjectName(m_NewProjectName) || !ScriptTemplate::IsNamespace(m_NewProjectName))
+			return "Use a C# name with letters, digits and underscores. Keywords are not allowed; the name is also the C# namespace.";
+		if (!ScriptTemplate::IsClassName(m_NewScriptClass))
+			return "Choose a valid starter class name. Use letters, digits or underscores; keywords, reserved filenames and starter member names are not allowed.";
 		if (!m_NewProjectLocation[0])
 			return "Choose a location.";
 
@@ -744,6 +747,17 @@ namespace Lux {
 			const ImVec2 pos = ImGui::GetCursorScreenPos();
 			DrawText(drawList, "Small", k_SmallSize, pos, Theme::textCaption, help, contentWidth);
 			ImGui::Dummy(ImVec2(contentWidth, MeasureText("Small", k_SmallSize, help, contentWidth).y));
+		}
+		ImGui::Dummy(S(0.0f, 18.0f));
+
+		label("Starter C# class");
+		Field("##new_project_script_class", m_NewScriptClass, sizeof(m_NewScriptClass), contentWidth, "GameController", "Default", k_BodySize);
+		ImGui::Dummy(S(0.0f, 8.0f));
+		{
+			const std::string help = std::format("Creates Assets/Scripts/Source/{}.cs with OnCreate and OnUpdate examples.", m_NewScriptClass);
+			const ImVec2 pos = ImGui::GetCursorScreenPos();
+			DrawText(drawList, "Small", k_SmallSize, pos, Theme::textCaption, help.c_str(), contentWidth);
+			ImGui::Dummy(ImVec2(contentWidth, MeasureText("Small", k_SmallSize, help.c_str(), contentWidth).y));
 		}
 		ImGui::Dummy(S(0.0f, 18.0f));
 
@@ -865,7 +879,7 @@ namespace Lux {
 
 		if ((create || (submitted && error.empty())) && m_Callbacks.CreateProject)
 		{
-			m_CreateFailed = !m_Callbacks.CreateProject(m_NewProjectName, std::filesystem::path(m_NewProjectLocation));
+			m_CreateFailed = !m_Callbacks.CreateProject(m_NewProjectName, std::filesystem::path(m_NewProjectLocation), m_NewScriptClass);
 			if (!m_CreateFailed)
 			{
 				m_NewProjectName[0] = 0;

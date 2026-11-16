@@ -3,6 +3,9 @@
 
 #include "lpch.h"
 #include "Application.h"
+#include "Version.h"
+
+#include "Lux/Debug/CrashWatchdog.h"
 
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Framebuffer.h"
@@ -147,6 +150,10 @@ namespace Lux {
 			delete layer;
 		}
 
+		// Scene teardown detaches owned preparation jobs. Join the existing pool here,
+		// while mesh refs and their deferred GPU frees still have a live renderer.
+		JobSystem::Shutdown();
+
 		// Rumble and adaptive-trigger effects persist on the controller; clear them before exiting.
 		Input::ShutdownGamepadOutput();
 
@@ -154,14 +161,14 @@ namespace Lux {
 		//Project::SetActive(nullptr);
 		PhysicsSystem::Shutdown();
 		Font::Shutdown();
-		// Layers and their scene/audio instances have been destroyed above.
 		AudioEngine::Shutdown();
 
+		// Worker-side mesh destruction queues resource frees through the background
+		// handoff. All producers have stopped; replay it before renderer queues retire.
+		Renderer::ExecuteBackgroundThreadSubmits();
 		Renderer::Shutdown();
 
 		DiscordSocial::Shutdown();
-
-		JobSystem::Shutdown();
 
 		delete m_Profiler;
 		m_Profiler = nullptr;
@@ -266,8 +273,11 @@ namespace Lux {
 	void Application::Run()
 	{
 		OnInit();
+		CrashWatchdog::SetHangDetection(true);
 		while (m_Running)
 		{
+			CrashWatchdog::Heartbeat();
+
 			// Wait for render thread to finish frame
 			{
 				LUX_PROFILE_SCOPE("Wait");
@@ -387,6 +397,8 @@ namespace Lux {
 
 			LimitFrameRate();
 		}
+		// Shutdown may take long (the GPU drains, assets release); a crash in it is still reported.
+		CrashWatchdog::SetHangDetection(false);
 		OnShutdown();
 	}
 

@@ -8,8 +8,8 @@
 
 namespace Lux {
 
-	// Builds the user's C# script project. SDK-style net9.0 projects are built with the dotnet
-	// CLI (dotnet must be on PATH; the .NET 9 SDK is a prerequisite of the engine). Mirrors
+	// Builds the user's C# script project. SDK-style net10.0 projects are built with the dotnet
+	// CLI (dotnet must be on PATH; the .NET 10 SDK is a prerequisite of the engine). Mirrors
 	// Hazel's ScriptBuilder, but shells `dotnet build` rather than a hardcoded MSBuild path.
 	class ScriptBuilder
 	{

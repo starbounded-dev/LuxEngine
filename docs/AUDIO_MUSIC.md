@@ -1,5 +1,9 @@
 # Interactive music (Phase 10)
 
+> **Point-in-time record.** This guide describes the FMOD-era audio system. FMOD was removed in
+> November 2026: audio is now built in (Sound assets, Sound Banks, the Audio Mixer). Current
+> behaviour is in [docs/Editor/Audio.md](Editor/Audio.md) and `.claude/docs/Architecture-LuxEngine.md` §2.10.
+
 Lux owns one music bed per running scene. FMOD Studio owns the arrangement, transition regions,
 parameter automation, instruments, and mix. Music uses 2D Studio events; spatial emitters still
 use Audio Source components. Stingers are separate finite one-shots over the bed.

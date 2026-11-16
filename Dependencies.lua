@@ -1,96 +1,5 @@
 include "./vendor/premake_customization/ordered_pairs.lua"
 
--- One SDK root drives headers, link inputs, validation and deployed libraries.
-FMODSDKRoot = os.getenv("LUX_FMOD_SDK")
-if not FMODSDKRoot then
-	local candidates = os.matchdirs("Core/vendor/FMOD/*")
-	table.sort(candidates)
-	local matches = {}
-	for _, candidate in ipairs(candidates) do
-		local library = os.target() == "windows" and "/api/core/lib/x64/fmod_vc.lib" or "/api/core/lib/x86_64/libfmod.so"
-		if os.isfile(candidate .. "/api/core/inc/fmod.hpp") and os.isfile(candidate .. library) then
-			table.insert(matches, candidate)
-		end
-	end
-	if #matches > 1 then
-		error("Multiple FMOD SDKs found; set LUX_FMOD_SDK to the package root containing api/.")
-	end
-	FMODSDKRoot = matches[1] or (os.target() == "windows" and "Core/vendor/FMOD/FMOD Studio API Windows" or "Core/vendor/FMOD/fmodstudioapi20314linux")
-end
-FMODSDKRoot = path.getabsolute(FMODSDKRoot)
-AsterwaveRoot = path.getabsolute(os.getenv("LUX_ASTERWAVE_ROOT") or "Core/vendor/Asterwave")
-local manifestFile = assert(io.open(path.join(_SCRIPT_DIR, "scripts/dependencies/Asterwave.json"), "r"))
-AsterwaveManifest = json.decode(manifestFile:read("*a"))
-manifestFile:close()
-
-local function QuoteGitPath(value)
-	if os.host() == "windows" then
-		-- cmd expands percent variables even inside quotes; reject them instead of validating
-		-- a different directory. Windows filenames cannot contain a double quote.
-		if value:find('["%%\r\n]') then
-			error("Unsupported characters in Asterwave checkout path: " .. value)
-		end
-		return '"' .. value .. '"'
-	end
-	return "'" .. value:gsub("'", "'\\''") .. "'"
-end
-
-local function ReadAsterwaveGit(arguments)
-	local output, exitCode = os.outputof("git -C " .. QuoteGitPath(AsterwaveRoot) .. " " .. arguments)
-	if exitCode ~= 0 then
-		error("Cannot validate Asterwave checkout with Git: " .. AsterwaveRoot .. " (" .. arguments .. ")")
-	end
-	return (output or ""):gsub("%s+$", "")
-end
-
-function ValidateAsterwaveSource()
-	for _, collection in ipairs({ AsterwaveManifest.sources, AsterwaveManifest.required_files }) do
-		for _, file in ipairs(collection) do
-			if not os.isfile(AsterwaveRoot .. "/" .. file) then
-				error("Required Asterwave source file missing: " .. AsterwaveRoot .. "/" .. file .. ". Run python scripts/FetchAsterwave.py or set LUX_ASTERWAVE_ROOT.")
-			end
-		end
-	end
-	local root = path.getabsolute(ReadAsterwaveGit("rev-parse --show-toplevel"))
-	local expectedRoot = AsterwaveRoot
-	if os.host() == "windows" then
-		root, expectedRoot = root:lower(), expectedRoot:lower()
-	end
-	if root ~= expectedRoot then
-		error("Asterwave must be its own Git checkout: " .. AsterwaveRoot)
-	end
-	local revision = ReadAsterwaveGit("rev-parse HEAD")
-	if revision ~= AsterwaveManifest.revision then
-		error("Asterwave revision mismatch: expected " .. AsterwaveManifest.revision .. ", found " .. revision .. ". Run python scripts/FetchAsterwave.py.")
-	end
-	if ReadAsterwaveGit("status --porcelain --untracked-files=all"):find("%S") then
-		error("Asterwave checkout has local changes: " .. AsterwaveRoot .. ". Preserve them separately before using the pinned dependency.")
-	end
-end
-
-function ValidateAudioSDK()
-	local files = {
-		FMODSDKRoot .. "/api/core/inc/fmod.hpp",
-		FMODSDKRoot .. "/api/studio/inc/fmod_studio.hpp"
-	}
-	local libraries = os.target() == "windows" and {
-		"core/lib/x64/fmod_vc.lib", "core/lib/x64/fmod.dll",
-		"studio/lib/x64/fmodstudio_vc.lib", "studio/lib/x64/fmodstudio.dll"
-	} or {
-		"core/lib/x86_64/libfmod.so", "core/lib/x86_64/libfmod.so.14",
-		"studio/lib/x86_64/libfmodstudio.so", "studio/lib/x86_64/libfmodstudio.so.14"
-	}
-	for _, library in ipairs(libraries) do
-		table.insert(files, FMODSDKRoot .. "/api/" .. library)
-	end
-	for _, file in ipairs(files) do
-		if not os.isfile(file) then
-			error("Required audio SDK file missing: " .. file .. ". Set LUX_FMOD_SDK to a complete SDK package root.")
-		end
-	end
-	ValidateAsterwaveSource()
-end
-
 -- Utility function for converting the first character to uppercase
 function firstToUpper(str)
 	return (str:gsub("^%l", string.upper))
@@ -207,6 +116,10 @@ Dependencies = {
 		LibName = "Coral.Native",
 		IncludeDir = "%{wks.location}/Core/vendor/Coral/Coral.Native/Include",
 	},
+	-- Soundwave sources are archived into Core; only its public include root crosses the seam.
+	Soundwave = {
+		IncludeDir = "%{wks.location}/Core/vendor/soundwave/include",
+	},
 	FastNoise = {
 		IncludeDir = "%{wks.location}/Core/vendor/FastNoise",
 	},
@@ -224,29 +137,15 @@ Dependencies = {
 		IncludeDir = "%{wks.location}/Core/vendor/discord_social_sdk/include",
 		Windows = { LibName = "discord_partner_sdk", LibDir = "%{wks.location}/Core/vendor/discord_social_sdk/lib/release/" },
 	} or nil,
-	-- Built from the pinned private C++ source by the Asterwave Premake project.
-	Asterwave = {
-		LibName = "Asterwave",
-		IncludeDir = AsterwaveRoot .. "/include",
+	-- The audio engine. Header-only, public domain or MIT-0: Core compiles
+	-- its single implementation unit (Audio/Native/MiniaudioImplementation.c), so nothing is linked
+	-- or deployed. Linux loads ALSA/PulseAudio/JACK with dlopen at runtime.
+	Miniaudio = {
+		IncludeDir = "%{wks.location}/Core/vendor/miniaudio",
 	},
-	-- Required audio backend. Two entries because FMOD ships the Studio
-	-- API as a separate library layered on the Core one: Studio owns the events and banks the game
-	-- actually plays, and creates a Core system internally for the low-level work (3D listener,
-	-- reverb, CPU stats). Both must be linked - Studio alone does not resolve.
-	--
-	-- We link the release build in every configuration: DebugLibName below is only honoured on
-	-- Windows (see ProcessDependencies). FMOD allocator statistics work with release libraries;
-	-- detailed Studio allocation attribution requires the optional logging build.
-	--
-	-- Package roots are discovered or explicitly configured above. Generation verifies every
-	-- header, import library and deployed DLL/so for the target platform.
-	FMOD = {
-		Windows = { LibName = "fmod_vc", IncludeDir = FMODSDKRoot .. "/api/core/inc", LibDir = FMODSDKRoot .. "/api/core/lib/x64/" },
-		Linux = { LibName = "fmod", IncludeDir = FMODSDKRoot .. "/api/core/inc", LibDir = FMODSDKRoot .. "/api/core/lib/x86_64/" },
-	},
-	FMODStudio = {
-		Windows = { LibName = "fmodstudio_vc", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x64/" },
-		Linux = { LibName = "fmodstudio", IncludeDir = FMODSDKRoot .. "/api/studio/inc", LibDir = FMODSDKRoot .. "/api/studio/lib/x86_64/" },
+	-- C++ wrappers over miniaudio (ISC), compiled into Core.
+	MiniaudioCpp = {
+		IncludeDir = "%{wks.location}/Core/vendor/MiniaudioCpp/include",
 	},
 	ACL = {
 		IncludeDir = "%{wks.location}/Core/vendor/acl/include"

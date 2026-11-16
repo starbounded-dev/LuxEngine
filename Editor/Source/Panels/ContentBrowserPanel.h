@@ -5,11 +5,13 @@
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Editor/EditorPanel.h"
+#include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Project/Project.h"
 
 #include "ContentBrowser/ContentBrowserItem.h"
 #include "ThumbnailCache.h"
 #include "MaterialEditor/MaterialThumbnailer.h"
+#include "ContentBrowser/WaveformThumbnailer.h"
 
 #include <functional>
 #include <limits>
@@ -148,9 +150,17 @@ namespace Lux {
 	public:
 		ContentBrowserPanel();
 
+		// Golden captures: no thumbnail rendering while frames are timed or captured.
+		static void SetThumbnailWorkPaused(bool paused) { s_ThumbnailWorkPaused = paused; }
+
 		virtual void OnImGuiRender(bool& isOpen) override;
 		virtual void OnEvent(Event& e) override;
 		virtual void OnProjectChanged(const Ref<Project>& project) override;
+		void SaveState(Yaml::Writer& out) const override;
+		void LoadState(const Yaml::Node& node) override;
+#ifndef LUX_DIST
+		static bool RunSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
+#endif
 
 		ContentBrowserItemList& GetCurrentItems() { return m_CurrentItems; }
 		Ref<DirectoryInfo> GetDirectory(const std::filesystem::path& filepath) const;
@@ -165,6 +175,9 @@ namespace Lux {
 		size_t GetSelectionCount() const { return m_SelectedItems.SelectionCount(); }
 		const AssetHandle* GetSelectionData() const { return m_SelectedItems.SelectionData(); }
 		AssetHandle GetSelection(size_t index) const { return m_SelectedItems[index]; }
+		// The audio clips a "Create Sound" on this item applies to: the selection when the item is in
+		// it, else the item alone.
+		std::vector<AssetHandle> GetSoundClips(AssetHandle item) const;
 		AssetHandle GetSelectionAnchor() const { return m_SelectionAnchor; }
 
 		void SelectItem(AssetHandle handle);
@@ -193,7 +206,7 @@ namespace Lux {
 		enum class ViewMode { Grid, List };
 		enum class SortMode { Name, Type, Modified };
 
-		float GetThumbnailSize() const { return m_ThumbnailSize; }
+		float GetThumbnailSize() const;
 		bool GetShowAssetTypes() const { return m_ShowAssetType; }
 		bool IsListView() const { return m_ViewMode == ViewMode::List; }
 		bool IsFocused() const { return m_IsContentBrowserFocused; }
@@ -206,6 +219,10 @@ namespace Lux {
 			return *s_Instance;
 		}
 
+		// Creates "<parent> Instance" next to `parent`: a material instance with no overrides yet.
+		// Registers it, rescans, and starts renaming it. 0 when `parent` is not a loaded material.
+		AssetHandle CreateMaterialInstance(AssetHandle parent);
+
 	private:
 		AssetHandle ProcessDirectory(const std::filesystem::path& directoryPath, const Ref<DirectoryInfo>& parent);
 		void ChangeDirectory(const Ref<DirectoryInfo>& directory);
@@ -213,7 +230,9 @@ namespace Lux {
 		void OnBrowseForward();
 
 		void RenderDirectoryHierarchy(const Ref<DirectoryInfo>& directory);
-		void RenderTopBar(float height);
+		void RenderTopBar();
+		void RenderFolders();
+		void RebuildItems();
 		void RenderItems();
 		void RenderBottomBar(float height);
 
@@ -226,6 +245,7 @@ namespace Lux {
 
 		bool OnKeyPressedEvent(KeyPressedEvent& e);
 		bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
+		bool OnFilesDropped(WindowDropEvent& e);
 
 		void PasteCopiedAssets();
 		void RenderDeleteDialogue();
@@ -244,11 +264,18 @@ namespace Lux {
 		void StartRenamingItem(AssetHandle handle);
 		void ActivateAsset(const AssetMetadata& metadata);
 
+		void BeginNewScript();
+		void UpdateScriptPreview();
+		void RenderNewScriptDialogue();
 		bool CreateNewFolder();
 		AssetHandle CreateSceneAsset();
 		AssetHandle CreateMaterialAsset();
 		AssetHandle CreateAudioSurfaceTable();
 		AssetHandle CreateDialogueTable();
+		// A Sound playing clip (an Audio asset), or an empty one when clip is 0. Named after the clip.
+		// One clip makes a Sound playing it; several make a Random container of them.
+		AssetHandle CreateSoundAsset(const std::vector<AssetHandle>& clips = {});
+		AssetHandle CreateSoundBankAsset();
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;
@@ -257,6 +284,7 @@ namespace Lux {
 		Ref<Project> m_Project;
 		Ref<ThumbnailCache> m_ThumbnailCache;
 		Ref<MaterialThumbnailer> m_MaterialThumbnailer; // created on the first material thumbnail
+		Ref<WaveformThumbnailer> m_WaveformThumbnailer; // created on the first audio or Sound thumbnail
 
 		std::map<std::string, Ref<Texture2D>> m_AssetIconMap;
 
@@ -275,12 +303,28 @@ namespace Lux {
 
 		char m_SearchBuffer[MAX_INPUT_BUFFER_LENGTH]{};
 		std::vector<Ref<DirectoryInfo>> m_BreadCrumbData;
-		bool m_UpdateNavigationPath = false;
+		std::vector<Ref<DirectoryInfo>> m_FolderRoots;
+		std::string m_LocationLabel;
+		float m_FolderFraction = 0.2f;
+		bool m_ShowFolders = true;
+		size_t m_VisibleItems = 0;
+		AssetHandle m_StatusSelection = 0;
+		size_t m_StatusCount = 0;
+		std::string m_StatusText;
+		uint64_t m_RegistryRevision = 0;
 
 		bool m_IsAnyItemHovered = false;
 		bool m_IsContentBrowserHovered = false;
 		bool m_IsContentBrowserFocused = false;
 		bool m_OpenDeletePopup = false;
+		bool m_OpenNewScriptPopup = false;
+		bool m_NewScriptDialogOpen = false;
+		bool m_FocusNewScriptName = false;
+		char m_NewScriptName[128]{};
+		std::string m_ScriptTemplate;
+		std::string m_ScriptPreview;
+		std::string m_ScriptTemplateError;
+		std::string m_ScriptCreateError;
 		bool m_FocusSearchWidget = false;
 
 		float m_ThumbnailSize = 128.0f;
@@ -301,6 +345,8 @@ namespace Lux {
 
 	private:
 		static ContentBrowserPanel* s_Instance;
+
+		inline static bool s_ThumbnailWorkPaused = false;
 	};
 
 }

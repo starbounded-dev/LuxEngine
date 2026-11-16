@@ -159,6 +159,9 @@ namespace Lux
 		}
 		bool enableVR = false;
 		ApplyRuntimeSettings(specification, projectPath, enableVR);
+		// Match the editor's launch-only verification override without saving preferences.
+		if (FileSystem::HasEnvironmentVariable("LUX_THREADING_POLICY"))
+			specification.CoreThreadingPolicy = ThreadingPolicyFromString(FileSystem::GetEnvironmentVariable("LUX_THREADING_POLICY"));
 
 		// --vr wins over the settings file. It takes no value, so a raw argument right after it was
 		// meant as the project path; the parser cannot tell, so say how to write it instead.

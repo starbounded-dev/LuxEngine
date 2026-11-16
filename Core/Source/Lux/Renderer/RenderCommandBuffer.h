@@ -146,6 +146,10 @@ namespace Lux {
 			// stride of vertex buffer 0 and whether the layout has root constants.
 			uint32_t DrawSetIndex = UINT32_MAX;
 			uint32_t VertexStride = 0;
+			// The pipeline's attribute stream (PipelineSpecification::AttributeLayout): its binding slot
+			// and stride, or a stride of 0 when it has none.
+			uint32_t AttributeSlot = 0;
+			uint32_t AttributeStride = 0;
 			bool RootConstants = false;
 		};
 		// Requires the attachments and the pass's sets, then opens the pass. False, with nothing
@@ -174,6 +178,7 @@ namespace Lux {
 			// Bound at the pass's DrawSetIndex; an empty one leaves the pass's own set there.
 			BoundDescriptorSet DrawSet;
 			const NRIBuffer* VertexBuffer = nullptr;
+			const NRIBuffer* AttributeBuffer = nullptr; // bound when the pass's pipeline has an attribute stream
 			const NRIBuffer* IndexBuffer = nullptr;
 			bool IndexBuffer16 = false;
 			const NRIBuffer* IndirectArguments = nullptr;
@@ -251,7 +256,7 @@ namespace Lux {
 		void RT_SuspendNRIRendering(const char* reason);
 		// Bind into the open rendering scope; repeated arguments are skipped.
 		void RT_SetNRIDescriptorSet(uint32_t setIndex, nri::DescriptorSet* descriptorSet);
-		void RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride);
+		void RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride, uint32_t slot = 0);
 		void RT_SetNRIIndexBuffer(nri::Buffer* buffer, bool use16BitIndices);
 		void RT_SetNRIRootConstants(const void* data, uint32_t size);
 	private:
@@ -274,6 +279,7 @@ namespace Lux {
 			RequiredBindPoint BindPoint = RequiredBindPoint::None;
 			std::array<nri::DescriptorSet*, MaxDescriptorSets> Sets = {};
 			const void* VertexBuffer = nullptr;
+			const void* AttributeBuffer = nullptr;
 			const void* IndexBuffer = nullptr;
 			const void* IndirectArguments = nullptr;
 		};

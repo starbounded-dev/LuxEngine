@@ -2,9 +2,11 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "ProjectSerializer.h"
 
 #include "ProjectRuntimeFormat.h"
+#include "Lux/Asset/AssetManager/EditorAssetManager.h"
 
 #include "Lux/Core/Log.h"
 #include "Lux/Serialization/FileStream.h"
@@ -114,6 +116,7 @@ namespace Lux
 				case 2: return "High";
 				case 3: return "Ultra";
 				case 4: return "Cinematic";
+				case 5: return "Custom";
 				default:
 					return "Medium";
 			}
@@ -129,8 +132,15 @@ namespace Lux
 				return 3;
 			if (value == "Cinematic" || value == "4")
 				return 4;
+			if (value == "Custom" || value == "5")
+				return 5;
 			return 1;
 		}
+
+		// In Lux::QualityCategory order.
+		constexpr const char* s_QualityCategoryKeys[ProjectSceneRendererSettings::QualityCategoryCount] = {
+			"Shadows", "AmbientOcclusion", "Reflections", "AntiAliasing", "Textures", "ResolutionScale", "PostProcessing"
+		};
 
 		const char* ShadowResolutionToString(uint32_t resolution)
 		{
@@ -212,6 +222,10 @@ namespace Lux
 			out << Yaml::Key << "Rendering" << Yaml::Value;
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "QualityPreset" << Yaml::Value << QualityPresetToString(settings.QualityPreset);
+			out << Yaml::Key << "QualityCategories" << Yaml::Value << Yaml::BeginMap;
+			for (uint32_t i = 0; i < ProjectSceneRendererSettings::QualityCategoryCount; i++)
+				out << Yaml::Key << s_QualityCategoryKeys[i] << Yaml::Value << QualityPresetToString(settings.QualityCategories[i]);
+			out << Yaml::EndMap;
 			out << Yaml::Key << "FrustumCulling" << Yaml::Value << settings.EnableFrustumCulling;
 			out << Yaml::Key << "OcclusionCulling" << Yaml::Value << settings.EnableOcclusionCulling;
 			out << Yaml::Key << "GPUDrivenRendering" << Yaml::Value << settings.EnableGPUDrivenRendering;
@@ -318,6 +332,12 @@ namespace Lux
 			if (auto rendering = node["Rendering"])
 			{
 				settings.QualityPreset = QualityPresetFromString(rendering["QualityPreset"].as<std::string>(QualityPresetToString(settings.QualityPreset)));
+				// Missing (a project saved before the categories): every category stays Custom.
+				if (auto categories = rendering["QualityCategories"])
+				{
+					for (uint32_t i = 0; i < ProjectSceneRendererSettings::QualityCategoryCount; i++)
+						settings.QualityCategories[i] = QualityPresetFromString(categories[s_QualityCategoryKeys[i]].as<std::string>("Custom"));
+				}
 				settings.EnableFrustumCulling = rendering["FrustumCulling"].as<bool>(settings.EnableFrustumCulling);
 				settings.EnableOcclusionCulling = rendering["OcclusionCulling"].as<bool>(settings.EnableOcclusionCulling);
 				settings.EnableGPUDrivenRendering = rendering["GPUDrivenRendering"].as<bool>(settings.EnableGPUDrivenRendering);
@@ -720,20 +740,15 @@ namespace Lux
 			{
 				out << Yaml::BeginMap;
 				out << Yaml::Key << "FileStreamingDurationThreshold" << Yaml::Value << config.Audio.FileStreamingDurationThreshold;
-				out << Yaml::Key << "StudioProjectPath" << Yaml::Value << config.Audio.StudioProjectPath.generic_string();
-				if (!IsValidStudioPlatform(config.Audio.StudioPlatform) || !config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
+				if (!config.Audio.Windows.Validate() || !config.Audio.Linux.Validate())
 				{
 					LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid desktop audio profiles");
 					return false;
 				}
-				out << Yaml::Key << "StudioPlatform" << Yaml::Value << config.Audio.StudioPlatform;
 				out << Yaml::Key << "Windows" << Yaml::Value;
 				config.Audio.Windows.SerializeYAML(out);
 				out << Yaml::Key << "Linux" << Yaml::Value;
 				config.Audio.Linux.SerializeYAML(out);
-				out << Yaml::Key << "StudioBankOutputPath" << Yaml::Value << config.Audio.StudioBankOutputPath.generic_string();
-				out << Yaml::Key << "RebuildBanksOnPlay" << Yaml::Value << config.Audio.RebuildBanksOnPlay;
-				out << Yaml::Key << "EnableLiveUpdate" << Yaml::Value << config.Audio.EnableLiveUpdate;
 				if (!config.Audio.AcousticMaterials.Validate())
 					return false;
 				out << Yaml::Key << "AcousticMaterials" << Yaml::Value;
@@ -748,6 +763,8 @@ namespace Lux
 				out << Yaml::Key << "ZoneReverbMode" << Yaml::Value << static_cast<uint32_t>(config.Audio.ZoneReverbMode);
 				out << Yaml::Key << "Occlusion" << Yaml::Value;
 				config.Audio.Occlusion.SerializeYAML(out);
+				out << Yaml::Key << "Mixer" << Yaml::Value;
+				config.Audio.Mixer.SerializeYAML(out);
 				out << Yaml::EndMap;
 			}
 
@@ -808,11 +825,8 @@ namespace Lux
 		out << Yaml::EndMap;
 
 		CreateDirectoriesIfNeeded(filepath);
-		std::ofstream fout(filepath);
-		if (!fout.is_open())
+		if (!FileSystem::WriteFileAtomically(filepath, out.c_str()))
 			return false;
-
-		fout << out.c_str();
 		m_Project->OnSerialized();
 		return true;
 	}
@@ -900,6 +914,24 @@ namespace Lux
 		WriteSceneRendererRuntimeSettings(serializer, m_Project->GetConfig().SceneRenderer);
 		serializer.WriteString(m_Project->GetConfig().Name);
 		serializer.WriteString(m_Project->GetConfig().ScriptModulePath.generic_string());
+		if (!m_Project->GetConfig().Audio.Mixer.Serialize(serializer))
+			return false;
+		// Sounds and Sound Banks by path, for scripts (Audio.PlayOneShot("Audio/Sounds/Fart")).
+		std::map<std::string, uint64_t> audioPaths;
+		if (const auto editor = Project::GetEditorAssetManager())
+		{
+			for (const auto& [handle, metadata] : editor->GetAssetRegistry())
+			{
+				if (metadata.Type == AssetType::Sound || metadata.Type == AssetType::SoundBank)
+					audioPaths[std::filesystem::path(metadata.FilePath).replace_extension().generic_string()] = static_cast<uint64_t>(handle);
+			}
+		}
+		serializer.WriteRaw<uint32_t>(static_cast<uint32_t>(audioPaths.size()));
+		for (const auto& [path, handle] : audioPaths)
+		{
+			serializer.WriteString(path);
+			serializer.WriteRaw<uint64_t>(handle);
+		}
 
 		if (!serializer.IsStreamGood())
 		{
@@ -994,24 +1026,22 @@ namespace Lux
 		config.Audio.Performance = {};
 		config.Audio.Windows = {};
 		config.Audio.Linux = {};
-		config.Audio.StudioPlatform = "Desktop";
 		config.Audio.AcousticMaterials = {};
 		config.Audio.ZoneReverbMode = AudioZoneReverbMode::Layered;
 		config.Audio.Occlusion = {};
 		if (auto audioNode = projectNode["Audio"])
 		{
 			config.Audio.FileStreamingDurationThreshold = audioNode["FileStreamingDurationThreshold"].as<double>(config.Audio.FileStreamingDurationThreshold);
-			config.Audio.StudioProjectPath = audioNode["StudioProjectPath"].as<std::string>(config.Audio.StudioProjectPath.generic_string());
-			config.Audio.StudioBankOutputPath = audioNode["StudioBankOutputPath"].as<std::string>(config.Audio.StudioBankOutputPath.generic_string());
-			config.Audio.RebuildBanksOnPlay = audioNode["RebuildBanksOnPlay"].as<bool>(config.Audio.RebuildBanksOnPlay);
-			config.Audio.EnableLiveUpdate = audioNode["EnableLiveUpdate"].as<bool>(config.Audio.EnableLiveUpdate);
-			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
-			config.Audio.StudioPlatform = audioNode["StudioPlatform"].as<std::string>("Desktop");
-			if (!IsValidStudioPlatform(config.Audio.StudioPlatform))
+			// FMOD-era settings: read past, and gone from the file on the next save.
+			for (const char* key : { "StudioProjectPath", "StudioPlatform", "StudioBankOutputPath", "RebuildBanksOnPlay", "EnableLiveUpdate" })
 			{
-				LUX_CORE_ERROR_TAG("Audio", "Cannot load invalid FMOD Studio platform name");
-				return false;
+				if (audioNode[key])
+				{
+					LUX_CORE_INFO_TAG("Audio", "FMOD Studio settings are ignored; use Project Settings > Audio > Remove FMOD data");
+					break;
+				}
 			}
+			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
 			if (!config.Audio.Windows.DeserializeYAML(audioNode["Windows"]) || !config.Audio.Linux.DeserializeYAML(audioNode["Linux"]))
 				return false;
 			if (!config.Audio.Performance.DeserializeYAML(audioNode["Performance"]))
@@ -1035,6 +1065,8 @@ namespace Lux
 			if (!config.Audio.AcousticMaterials.DeserializeYAML(audioNode["AcousticMaterials"]))
 				return false;
 			if (!config.Audio.Occlusion.DeserializeYAML(audioNode["Occlusion"]))
+				return false;
+			if (!config.Audio.Mixer.DeserializeYAML(audioNode["Mixer"]))
 				return false;
 		}
 
@@ -1129,18 +1161,9 @@ namespace Lux
 		config.StartSceneHandle = projectInfo.StartScene;
 		config.Audio = {};
 		config.Audio.FileStreamingDurationThreshold = projectInfo.AudioInfo.FileStreamingDurationThreshold;
-		config.Audio.StudioProjectPath.clear();
-		config.Audio.StudioBankOutputPath.clear();
-		config.Audio.RebuildBanksOnPlay = false;
-		config.Audio.EnableLiveUpdate = false;
-		if (projectInfo.HeaderData.Version >= 17)
-		{
-			if (!config.Audio.RuntimeBanks.Deserialize(stream))
-				return false;
-			config.Audio.EnableLiveUpdate = config.Audio.RuntimeBanks.EnableLiveUpdate;
-		}
-		else
-			LUX_CORE_WARN_TAG("Audio", "Runtime project predates packaged FMOD banks; re-export it to enable Studio events");
+		// Formats 17+ carry a bank manifest (FMOD-era exports list banks in it; new ones leave it empty).
+		if (projectInfo.HeaderData.Version >= 17 && !config.Audio.RuntimeBanks.Deserialize(stream))
+			return false;
 
 		if (projectInfo.HeaderData.Version >= 18 && !config.Audio.AcousticMaterials.Deserialize(stream))
 			return false;
@@ -1173,7 +1196,6 @@ namespace Lux
 		config.Audio.Performance = {};
 		config.Audio.Windows = {};
 		config.Audio.Linux = {};
-		config.Audio.StudioPlatform = "Desktop";
 		if (projectInfo.HeaderData.Version >= 21 && !config.Audio.Dialogue.Deserialize(stream))
 			return false;
 		if (projectInfo.HeaderData.Version >= 22 && !config.Audio.Accessibility.Deserialize(stream))
@@ -1212,6 +1234,12 @@ namespace Lux
 		Log::SetDefaultTagSettings();
 		uint32_t tagCount = 0;
 		stream.ReadRaw<uint32_t>(tagCount);
+		// Each tag is at least a string length, a flag and a level.
+		if (tagCount > stream.GetRemainingBytes() / (sizeof(size_t) + 2))
+		{
+			LUX_CORE_ERROR_TAG("Project", "Damaged runtime project (log tag count): {0}", filepath.string());
+			return false;
+		}
 		for (uint32_t i = 0; i < tagCount; i++)
 		{
 			std::string name;
@@ -1239,6 +1267,35 @@ namespace Lux
 			stream.ReadString(scriptModulePath);
 			if (!scriptModulePath.empty())
 				config.ScriptModulePath = scriptModulePath;
+		}
+		config.Audio.Mixer = {};
+		if (projectInfo.HeaderData.Version >= 30 && !config.Audio.Mixer.Deserialize(stream))
+			return false;
+		config.Audio.AudioAssetPaths.clear();
+		if (projectInfo.HeaderData.Version >= 31)
+		{
+			uint32_t count = 0;
+			stream.ReadRaw<uint32_t>(count);
+			if (count > 1u << 20)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Runtime project lists {} audio paths; the file is damaged", count);
+				return false;
+			}
+			for (uint32_t i = 0; i < count && stream.IsStreamGood(); ++i)
+			{
+				std::string path;
+				uint64_t handle = 0;
+				stream.ReadString(path);
+				stream.ReadRaw<uint64_t>(handle);
+				config.Audio.AudioAssetPaths[path] = handle;
+			}
+		}
+
+		// A short file fails its reads (no assert since 2026-10-26); refuse it rather than run on half a config.
+		if (!stream.IsStreamGood())
+		{
+			LUX_CORE_ERROR_TAG("Project", "Truncated runtime project: {0}", filepath.string());
+			return false;
 		}
 
 		const std::filesystem::path overridesFile = filepath.parent_path() / "Project.yaml";

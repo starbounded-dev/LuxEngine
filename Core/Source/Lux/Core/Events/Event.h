@@ -22,7 +22,8 @@ namespace Lux {
 		EditorExitPlayMode,
 		SelectionChanged,
 		AssetReloaded,
-		AnimationGraphCompiled
+		AnimationGraphCompiled,
+		WindowDrop
 	};
 
 	enum EventCategory

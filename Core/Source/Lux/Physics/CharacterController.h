@@ -35,7 +35,9 @@ namespace Lux {
 		virtual void SetLinearVelocity(const glm::vec3& velocity) = 0;
 
 	private:
-		virtual void PreSimulate(float deltaTime) {}
+		// One fixed step, in Jolt's recommended order: Simulate moves the character before the world
+		// steps (so a platform's velocity this step is the one it carries the character with), and
+		// PostSimulate writes the result to the entity afterwards.
 		virtual void Simulate(float deltaTime) = 0;
 		virtual void PostSimulate() {}
 

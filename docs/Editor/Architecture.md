@@ -178,7 +178,9 @@ scene that is now active.
 **Debug-view suspension.** Entering Play snapshots the renderer's debug views into
 `m_PlayModeDebugViewState` and suspends them (`SuspendRendererDebugViewsForPlay`), restoring them on
 Stop — so wireframe/collider overlays don't bleed into a play session. See
-`RestoreRendererDebugViewsAfterPlay`.
+`RestoreRendererDebugViewsAfterPlay`. **Show Physics Colliders** is the exception: it starts off in Play
+but can be turned on there (viewport settings or Scene Renderer → Debug Views), because colliders are
+checked against moving bodies; a Play-time toggle isn't saved as the preference.
 
 ---
 

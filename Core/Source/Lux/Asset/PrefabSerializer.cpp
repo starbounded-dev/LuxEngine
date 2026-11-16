@@ -2,8 +2,10 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Utilities/FileSystem.h"
 #include "PrefabSerializer.h"
 
+#include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
@@ -37,8 +39,8 @@ namespace Lux
 			sceneYaml += '\n';
 		sceneYaml += "BasePrefab: " + std::to_string(static_cast<uint64_t>(basePrefab)) + "\n";
 
-		std::ofstream fout(path);
-		fout << sceneYaml;
+		if (!FileSystem::WriteFileAtomically(path, sceneYaml))
+			LUX_CORE_ERROR_TAG("Asset", "Could not save prefab '{}'; the file on disk is unchanged", path.string());
 	}
 
 	void PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
@@ -98,5 +100,39 @@ namespace Lux
 
 		asset = prefab;
 		return true;
+	}
+
+	bool PrefabSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+	{
+		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(handle);
+		if (!prefab || !prefab->GetScene())
+			return false;
+		SceneSerializer serializer(prefab->GetScene());
+		return serializer.SerializeToAssetPack(stream, outInfo);
+	}
+
+	Ref<Asset> PrefabSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const
+	{
+		AssetPackFile::SceneInfo range;
+		range.PackedOffset = assetInfo.PackedOffset;
+		range.PackedSize = assetInfo.PackedSize;
+
+		Ref<Scene> scene = Ref<Scene>::Create();
+		SceneSerializer serializer(scene);
+		if (!serializer.DeserializeFromAssetPack(stream, range))
+			return nullptr;
+
+		for (auto handle : scene->GetAllEntitiesWith<IDComponent>())
+		{
+			Entity root{ handle, scene.Raw() };
+			if (root.HasParent())
+				continue;
+			Ref<Prefab> prefab = Ref<Prefab>::Create();
+			prefab->m_Scene = scene;
+			prefab->m_Entity = root;
+			return prefab;
+		}
+		LUX_CORE_ERROR_TAG("Asset Pack", "Packed prefab at offset {} has no root entity", assetInfo.PackedOffset);
+		return nullptr;
 	}
 }

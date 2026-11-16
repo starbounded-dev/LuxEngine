@@ -23,7 +23,8 @@ namespace Lux::ImGuiEx {
 	void ShiftCursorY(float distance);
 	void ShiftCursor(float x, float y);
 
-	void BeginPropertyGrid(uint32_t columns = 2);
+	void BeginPropertyGrid(uint32_t columns = 2, float labelWidth = 0.0f, float maxControlWidth = 0.0f);
+	float GetPropertyItemWidth();
 	void EndPropertyGrid();
 
 	bool BeginTreeNode(const char* name, bool defaultOpen = true);

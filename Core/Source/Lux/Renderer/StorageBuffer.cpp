@@ -37,9 +37,20 @@ namespace Lux {
 	void StorageBuffer::SetData(Ref<RenderCommandBuffer> cmd, Buffer buffer, uint32_t offset)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
+		Ref<StorageBuffer> instance = this;
+		if (m_Specification.GPUOnly)
+		{
+			// GPU-only buffers keep no CPU staging copy (m_LocalStorage is empty), so the render
+			// thread writes from an owned one.
+			Renderer::Submit([instance, offset, cmd, copy = Buffer::Copy(buffer)]() mutable
+				{
+					instance->RT_SetData(cmd, copy, offset);
+					copy.Release();
+				});
+			return;
+		}
 		m_LocalStorage.Write(buffer);
 
-		Ref<StorageBuffer> instance = this;
 		Renderer::Submit([instance, offset, cmd]() mutable
 			{
 				instance->RT_SetData(cmd, instance->m_LocalStorage, offset);

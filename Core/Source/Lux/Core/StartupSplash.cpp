@@ -21,7 +21,7 @@ namespace Lux {
 	namespace {
 
 		// Board 06 of the Lux brand sheet, in unscaled pixels; everything follows the UI scale
-		// (ImGuiEx::Fonts::GetScale) the way the editor's own cards do.
+		// (the current ImGui style scale) the way the editor's own cards do.
 		constexpr float k_Width = 960.0f;
 		constexpr float k_Height = 540.0f;
 		constexpr float k_Margin = 48.0f;
@@ -68,7 +68,7 @@ namespace Lux {
 		m_WindowIsCard = !m_OwnWindow && !app.GetSpecification().Fullscreen;
 		if (m_WindowIsCard)
 		{
-			const float scale = ImGuiEx::Fonts::GetScale();
+			const float scale = ImGui::GetStyle()._MainScale;
 			window.SetSize(static_cast<uint32_t>(std::round(k_Width * scale)), static_cast<uint32_t>(std::round(k_Height * scale)));
 			window.CenterWindow();
 		}
@@ -146,7 +146,7 @@ namespace Lux {
 
 	void StartupSplash::Draw() const
 	{
-		const float scale = ImGuiEx::Fonts::GetScale();
+		const float scale = ImGui::GetStyle()._MainScale;
 		const auto S = [scale](float value) { return std::round(value * scale); };
 
 		const ImGuiViewport* mainViewport = ImGui::GetMainViewport();

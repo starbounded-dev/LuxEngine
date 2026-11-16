@@ -10,7 +10,7 @@ measured before a change is the scene measured after it. Re-running replaces the
 
 What the scene holds, by district:
   Plaza (centre)        PBR spheres, glass pavilion (forward/transparent pass), emissive lamp posts,
-                        spot lights (two shadowed), FMOD emitter + script, music director
+                        spot lights (two shadowed), audio emitter + script, music director
   Material field (N)    --objects mixed primitives over --materials distinct materials
   Sponza (E)            the textured Sponza mesh, triangle mesh collider for acoustics, an ambience zone
   Village (W)           six houses: textured walls with acoustic mesh colliders, audio zones, doors with
@@ -69,9 +69,13 @@ TEXTURE_SETS = (
 CHECKERBOARD_TEXTURE = 4617627115470858524
 LOGO_TEXTURE = 3523050505664199236
 
-# FMOD Studio events in the sample project's Master bank.
-EVENT_FART = "{0e6cd051-9f6f-4b17-95e6-f2b1b5a4cc40}"
-EVENT_MUSIC = "{755abc01-cd89-4daf-a27b-04d57b807b3d}"
+# Sounds under Assets/Audio/Sounds/: Fart, spatial Music and the 2D MusicBed.
+SOUND_FART = "9117899157295655424"
+SOUND_MUSIC = "8743721474366396702"
+SOUND_MUSIC_BED = "8743721474366396703"
+# Assets/Audio/Banks/AudioDemo.lbank: both Sounds, loaded with the scene.
+SOUND_BANK_DEMO = "8412860126786977355"
+SOUND_BANK_BENCHMARK = "8412860126786977356"
 
 # Stable id ranges: generated materials and scene entities never collide with editor-made UUIDs
 # in practice, and regenerating keeps every reference valid.
@@ -301,6 +305,7 @@ class Scene:
 		self.next_uuid = uuid_base
 		self.stats: dict[str, int] = {}
 		self.outdoor_zone: Entity | None = None  # set by add_environment; house portals open onto it
+		self.sound_banks: list[str] = []
 
 	def count(self, key: str, amount: int = 1) -> None:
 		self.stats[key] = self.stats.get(key, 0) + amount
@@ -319,7 +324,7 @@ class Scene:
 		return entity
 
 	def write(self, path: Path) -> None:
-		out = [f"Scene: {self.name}", "PostProcess:"]
+		out = [f"Scene: {self.name}", *([f"SoundBanks: [{', '.join(self.sound_banks)}]"] if self.sound_banks else []), "PostProcess:"]
 		out += [f"  {line}" for line in (
 			"Exposure: 1", "ExposureMode: 0", "Aperture: 16", "ShutterSpeed: 0.008", "ISO: 100",
 			"ExposureEV100: 12", "ExposureCompensation: 0", "AutoMinEV100: -2", "AutoMaxEV100: 16",
@@ -395,29 +400,29 @@ def mesh_collider(entity: Entity, mesh: int, acoustic: str) -> Entity:
 		"CollisionComplexity: 2"])
 
 
-def event_ref(guid: str) -> list[str]:
-	return [f"  Guid: {text_value(guid)}", '  Path: ""', '  BankName: ""']
+# An AudioEventRef as the engine writes it: only the Sound, or an empty map.
+def event_ref(key: str, sound: str) -> list[str]:
+	return [f"{key}:", f"  Sound: {sound}"] if sound else [f"{key}: {{}}"]
 
 
-def audio_source(entity: Entity, event: str, volume: float, play_on_awake: bool, priority: int = 128) -> Entity:
+def audio_source(entity: Entity, sound: str, volume: float, play_on_awake: bool, priority: int = 128) -> Entity:
 	return entity.add("AudioSourceComponent", [
 		f"VolumeMultiplier: {num(volume)}", "PitchMultiplier: 1", f"PlayOnAwake: {boolean(play_on_awake)}",
-		f"Priority: {priority}", "DistanceCulling: true", f"EventGuid: {text_value(event)}", 'EventPath: ""',
-		'EventBank: ""', "ParameterOverrides:", "  []"])
+		f"Priority: {priority}", "DistanceCulling: true", *([f"EventSound: {sound}"] if sound else []), "ParameterOverrides:", "  []"])
 
 
 def audio_zone(entity: Entity, half_extents, priority: float, ambience: str = "", volume: float = 1.0) -> Entity:
 	return entity.add("AudioZoneComponent", [
 		"Shape: 0", "Enabled: true", "Offset: [0, 0, 0]", f"HalfExtents: {vec(half_extents)}", "Radius: 5",
 		f"Priority: {num(priority)}", "BlendDistance: 1.5", "FadeTime: 0.5", f"Volume: {num(volume)}",
-		"AmbienceEvent:", *event_ref(ambience), "Snapshot:", *event_ref("")])
+		*event_ref("AmbienceEvent", ambience), *event_ref("Snapshot", "")])
 
 
 def audio_surface(entity: Entity, acoustic: str, footsteps: bool = False) -> Entity:
 	return entity.add("AudioSurfaceComponent", [
 		f"Material: {acoustic}", "PhysicsSounds: true", f"AutoFootsteps: {boolean(footsteps)}", "StrideLength: 0.7",
-		"GroundProbeDistance: 1.2", "FootstepWeight: 75", "FootstepOverride:", *event_ref(""),
-		"ImpactOverride:", *event_ref("")])
+		"GroundProbeDistance: 1.2", "FootstepWeight: 75", *event_ref("FootstepOverride", ""),
+		*event_ref("ImpactOverride", "")])
 
 
 def script(entity: Entity, class_name: str, fields: list[tuple[str, str, str]] | None = None) -> Entity:
@@ -517,12 +522,12 @@ def add_plaza(scene: Scene, specials: dict[str, int], field_materials: list[int]
 
 	emitter = scene.entity("Plaza Emitter - K replays", (0.0, 2.2, 0.0), scale=(1.2, 1.2, 1.2), parent=plaza)
 	static_mesh(emitter, SPHERE, specials["Chrome"], scene)
-	script(emitter, "LuxSample.FmodAudioDemo", [("PlayOnStart", "Bool", "false"), ("Volume", "Float", "0.6")])
-	audio_source(emitter, EVENT_FART, 0.6, play_on_awake=False)
+	script(emitter, "LuxSample.AudioDemo", [("Sound", "Sound", SOUND_FART), ("PlayOnStart", "Bool", "false"), ("Volume", "Float", "0.6")])
+	audio_source(emitter, SOUND_FART, 0.6, play_on_awake=False)
 	scene.count("audio sources")
 
 	music = scene.entity("Music Director", (0.0, 4.0, 0.0), parent=plaza)
-	music.add("MusicDirectorComponent", ["Event:", *event_ref(EVENT_MUSIC), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
+	music.add("MusicDirectorComponent", [*event_ref("Event", SOUND_MUSIC_BED), "PlayOnAwake: true", 'InitialState: ""', "Intensity: 0.5"])
 
 	for i in range(12):
 		angle = i / 12.0 * math.tau
@@ -593,7 +598,7 @@ def add_sponza(scene: Scene) -> None:
 	static_mesh(sponza, SPONZA, None, scene)
 	mesh_collider(sponza, SPONZA, "Rock")
 	zone = scene.entity("Sponza Audio Zone", (80.0, 7.0, 10.0), parent=folder)
-	audio_zone(zone, (15.0, 7.0, 9.0), priority=5.0, ambience=EVENT_MUSIC, volume=0.35)
+	audio_zone(zone, (15.0, 7.0, 9.0), priority=5.0, ambience=SOUND_MUSIC, volume=0.35)
 	for i in range(24):
 		x = 68.0 + (i % 8) * 3.4
 		z = 6.0 if i < 8 else (14.0 if i < 16 else 10.0)
@@ -640,7 +645,7 @@ def add_house(scene: Scene, parent: Entity, index: int, cx: float, cz: float, sp
 
 	emitter = scene.entity("Emitter", (cx - 2.5, 1.2, cz - 4.5), scale=(0.4, 0.4, 0.4), parent=house)
 	static_mesh(emitter, SPHERE, specials["Chrome"], scene)
-	audio_source(emitter, EVENT_MUSIC, 0.25, play_on_awake=True, priority=64 + index)
+	audio_source(emitter, SOUND_MUSIC, 0.25, play_on_awake=True, priority=64 + index)
 	scene.count("audio sources")
 	light = scene.entity("Ceiling Light", (cx, 2.6, cz - 3.4), parent=house)
 	point_light(light, PALETTE[index % len(PALETTE)], 3.0, 9.0, shadows=True)
@@ -937,6 +942,7 @@ def main() -> None:
 	update_registry(materials)
 
 	scene = Scene("Benchmark")
+	scene.sound_banks = [SOUND_BANK_DEMO, SOUND_BANK_BENCHMARK]
 	add_environment(scene, specials)
 	add_camera(scene)
 	add_plaza(scene, specials, field_materials)

@@ -1,0 +1,159 @@
+// Soundwave acoustic geometry on the GPU: the flattened view (soundwave/Flatten.h) and the
+// traversal that mirrors GeometryView::Trace. Storage-buffer (set, binding) slots are a global
+// namespace (Rendering.md, Invariant 1): set 1, bindings 30-34 belong to Soundwave.
+#ifndef SOUNDWAVE_GLSLH
+#define SOUNDWAVE_GLSLH
+
+#define SOUNDWAVE_INVALID 0xFFFFFFFFu
+#define SOUNDWAVE_ACTIVE 1u
+#define SOUNDWAVE_PORTAL 2u
+#define SOUNDWAVE_MATERIALS 23
+#define SOUNDWAVE_BARYCENTRIC_EPSILON 1e-6
+
+struct SoundwaveNode
+{
+	vec4 Min;   // xyz, w = First (bits)
+	vec4 Max;   // xyz, w = Count (bits)
+	uvec4 Links; // Left, Right
+};
+struct SoundwaveTriangle
+{
+	vec4 A; // w = Material (bits)
+	vec4 B; // w = Flags (bits)
+	vec4 C;
+	uvec4 Instance; // low, high
+};
+
+layout(std430, set = 1, binding = 30) readonly buffer SoundwaveNodes { SoundwaveNode Nodes[]; } b_SoundwaveNodes;
+layout(std430, set = 1, binding = 31) readonly buffer SoundwaveOrder { uint Order[]; } b_SoundwaveOrder;
+layout(std430, set = 1, binding = 32) readonly buffer SoundwaveTriangles { SoundwaveTriangle Triangles[]; } b_SoundwaveTriangles;
+
+struct SoundwaveHit
+{
+	float Distance;
+	uint Triangle;
+	bool Exit;
+};
+
+bool Soundwave_IntersectsBox(vec3 low, vec3 high, vec3 from, vec3 direction, float len)
+{
+	float start = 0.0, end = len;
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		const float origin = from[axis], delta = direction[axis];
+		if (delta == 0.0)
+		{
+			if (origin < low[axis] || origin > high[axis])
+				return false;
+			continue;
+		}
+		const float a = (low[axis] - origin) / delta, b = (high[axis] - origin) / delta;
+		start = max(start, min(a, b));
+		end = min(end, max(a, b));
+		if (start > end)
+			return false;
+	}
+	return true;
+}
+
+// Mirrors Queries::IntersectTriangle (which widens to double on the CPU; the authored tolerance
+// covers the difference).
+bool Soundwave_IntersectTriangle(SoundwaveTriangle t, vec3 from, vec3 direction, out float distance, out bool exitHit)
+{
+	distance = 0.0;
+	exitHit = false;
+	const vec3 edge1 = t.B.xyz - t.A.xyz, edge2 = t.C.xyz - t.A.xyz;
+	const vec3 area = cross(edge1, edge2);
+	if (dot(area, area) == 0.0)
+		return false;
+	const vec3 p = cross(direction, edge2);
+	const float determinant = dot(edge1, p);
+	if (determinant == 0.0)
+		return false;
+	const float inverse = 1.0 / determinant;
+	const vec3 offset = from - t.A.xyz;
+	const float u = dot(offset, p) * inverse;
+	if (u < -SOUNDWAVE_BARYCENTRIC_EPSILON || u > 1.0 + SOUNDWAVE_BARYCENTRIC_EPSILON)
+		return false;
+	const vec3 q = cross(offset, edge1);
+	const float v = dot(direction, q) * inverse;
+	if (v < -SOUNDWAVE_BARYCENTRIC_EPSILON || u + v > 1.0 + SOUNDWAVE_BARYCENTRIC_EPSILON)
+		return false;
+	distance = dot(edge2, q) * inverse;
+	exitHit = determinant < 0.0;
+	return !isinf(distance) && !isnan(distance);
+}
+
+// GeometryView's sort order: distance, then instance, then entry before exit, then index.
+bool Soundwave_Before(SoundwaveHit a, SoundwaveHit b)
+{
+	if (a.Distance != b.Distance)
+		return a.Distance < b.Distance;
+	const uvec4 x = b_SoundwaveTriangles.Triangles[a.Triangle].Instance, y = b_SoundwaveTriangles.Triangles[b.Triangle].Instance;
+	if (x.y != y.y)
+		return x.y < y.y;
+	if (x.x != y.x)
+		return x.x < y.x;
+	if (a.Exit != b.Exit)
+		return !a.Exit;
+	return a.Triangle < b.Triangle;
+}
+
+// The first hit along from->to that GeometryView::Trace would sort first. ignored is the
+// instance a ray must not see (0 = none, as no captured instance is 0).
+bool Soundwave_NearestHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float margin, out SoundwaveHit nearest)
+{
+	nearest = SoundwaveHit(0.0, SOUNDWAVE_INVALID, false);
+	const vec3 delta = to - from;
+	const float len = length(delta);
+	if (len == 0.0 || len <= 2.0 * margin)
+		return false;
+	const vec3 direction = delta / len;
+	uint stack[64];
+	uint pending = 0u;
+	if (roots.x != SOUNDWAVE_INVALID)
+		stack[pending++] = roots.x;
+	if (roots.y != SOUNDWAVE_INVALID)
+		stack[pending++] = roots.y;
+	bool found = false;
+	while (pending > 0u)
+	{
+		const SoundwaveNode node = b_SoundwaveNodes.Nodes[stack[--pending]];
+		if (!Soundwave_IntersectsBox(node.Min.xyz, node.Max.xyz, from, direction, len))
+			continue;
+		const uint count = floatBitsToUint(node.Max.w);
+		if (count == 0u)
+		{
+			if (node.Links.y != SOUNDWAVE_INVALID)
+				stack[pending++] = node.Links.y;
+			stack[pending++] = node.Links.x;
+			continue;
+		}
+		const uint first = floatBitsToUint(node.Min.w);
+		for (uint i = first; i < first + count; ++i)
+		{
+			const uint index = b_SoundwaveOrder.Order[i];
+			const SoundwaveTriangle t = b_SoundwaveTriangles.Triangles[index];
+			if ((floatBitsToUint(t.B.w) & SOUNDWAVE_ACTIVE) == 0u || t.Instance.xy == ignored)
+				continue;
+			float distance;
+			bool exitHit;
+			if (!Soundwave_IntersectTriangle(t, from, direction, distance, exitHit) || distance <= margin || distance >= len - margin)
+				continue;
+			const SoundwaveHit hit = SoundwaveHit(distance, index, exitHit);
+			if (!found || Soundwave_Before(hit, nearest))
+			{
+				nearest = hit;
+				found = true;
+			}
+		}
+	}
+	return found;
+}
+
+vec3 Soundwave_Normal(SoundwaveTriangle t)
+{
+	return normalize(cross(t.B.xyz - t.A.xyz, t.C.xyz - t.A.xyz));
+}
+
+#endif

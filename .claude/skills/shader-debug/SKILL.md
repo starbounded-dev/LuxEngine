@@ -96,9 +96,9 @@ These are the facts the triage relies on. Each is from the source, not from conv
 
 **Shipped games**
 
-- Dist has no shader compiler (`LUX_HAS_SHADER_COMPILER` is `!LUX_DIST`); the runtime loads
-  `ShaderPack.lsp`, written during runtime export (`ShaderPack::CreateFromLibrary`). A source fix
-  does not reach an exported build until it is exported again.
+- The Dist player has no shader compiler (it never calls `ShaderCompiler::Install`); it loads
+  `Assets/ShaderPack.lsp`, written during runtime export (`WriteRuntimeShaderPack`). A source fix does
+  not reach an exported build until it is exported again. Every editor, Dist included, compiles.
 
 ---
 

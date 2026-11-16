@@ -1,0 +1,36 @@
+Sound:
+  Version: 2
+  Bus: bus:/SFX
+  Volume: 1
+  Pitch: 1
+  InstanceLimit: 0
+  Steal: Oldest
+  Cooldown: 0
+  Stream: false
+  Spatial:
+    Enabled: true
+    Attenuation: Inverse
+    MinDistance: 1
+    MaxDistance: 30
+    Rolloff: 1
+  Parameters: []
+  Nodes:
+    - Type: Random
+      Name: Fart
+      Children: [1]
+      AvoidRepeat: false
+      Weight: 1
+      Volume: 1
+      Pitch: 1
+      VolumeVariation: 0
+      PitchVariation: 0
+    - Type: Clip
+      Name: fart-01
+      Clip: 15477231389038173681
+      StartOffset: 0
+      Loop: false
+      Weight: 1
+      Volume: 1
+      Pitch: 1
+      VolumeVariation: 1.5
+      PitchVariation: 2
