@@ -385,7 +385,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 
 - **No macOS, no mobile, no consoles.** Windows and Linux x64 only.
 - **Vulkan only.** No DirectX, Metal, or OpenGL backends. The renderer is on NVIDIA NRI's Vulkan backend; Direct3D branches are reserved but unbuilt.
-- **Skeletal animation is partly done.** Rigged glTF and FBX (binary or text) meshes import with their skeletons and clips, and a `SkeletonComponent` skins them on the GPU through every pass. Clip playback, blending, an animation graph, events and the C# API are not built yet, so a rigged mesh holds its rest pose (the editor can bend one bone to test the skinning).
+- **Skeletal animation is new and Windows-only so far.** Rigged glTF and FBX models import with their skeletons and clips, skin on the GPU, play with cross-fades, root motion, compressed clips, events and an animation graph (state machine), and are scriptable from C#. There is no node-based graph editor (graphs are text files), no blend trees or layers, no retargeting, and it is not yet built or run on Linux.
 - **No particle system.**
 - **No terrain in-tree yet.** A GPU clipmap terrain with Jolt heightfield collision is in development on a branch, not merged.
 - **Scripting API is still partial.** No physics or renderer bindings yet.
@@ -402,7 +402,7 @@ Recent work has been the **audio system** (acoustics, zones, music, dialogue, ac
 Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md](docs/ENGINE_OPTIMIZATION_PLAN.md)) — Tracy-instrumented baselines, render-graph compile caching, eliminating per-frame allocations on the submission path, descriptor-set churn fixes, and LTO'd Dist builds.
 
 **Next up (roughly in order):**
-- Skeletal animation playback (import and GPU skinning are in; next are clip playback and blending, then the animation graph, events and the C# API)
+- Skeletal animation follow-ups (blend trees and layers, a graph editor, Linux)
 - Merging the procedural terrain system
 - Broader C# scripting API (physics, renderer)
 - Asset streaming / async upload hardening
