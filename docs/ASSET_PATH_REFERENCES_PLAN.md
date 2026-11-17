@@ -208,20 +208,21 @@ erases a reference.
 | `SceneSerializer::RunRoundTripSelfTests` (incl. new `AssetReference` cases) | PASS |
 | Scene pack (`SerializeToAssetPack`) and packed `.lsound`/`.lbank` text | no path strings: numeric |
 | Second save equals first | equal as entity sets (34 entities); **byte order differs**: entities are written in a different order on each load/save. The cause was not isolated; this change does not touch ordering |
-| Benchmark (6,911 meshes, 13,876 refs), load+save twice | 3.7 s numeric, 5.7 s path form; lookups are O(1), the extra ~2 s was not profiled |
+| Benchmark (6,911 meshes, 13,876 refs), `Deserialize` alone | 107 ms numeric, 113 ms path form. A first build showed 2,100 ms: the registry path index was never populated (an edit that silently did not apply), so every read scanned the registry; found by timing, fixed, re-measured |
 | Committed scenes still load | `AudioDemo` and `AudioSponza` numeric forms resolve with the committed registry |
 
+**Built:** Core Release and Debug, Editor Release, Lux-Runtime Release (all compile with this change).
 **Not verified:** editor open/Play/save, the Dist player loading a pack exported with this build,
-the editor audio-panel UI tests (`tests/editor/run_audio_panels.py`; they launch the editor), a
-Debug build (Release of Core and the harness built), Linux, and any scene other than the
-`Audio*` pair and `Benchmark`.
+the editor audio-panel UI tests (`tests/editor/run_audio_panels.py`; they launch the editor), Linux,
+and any scene other than the `Audio*` pair and `Benchmark`. The converted scene was not opened in
+the user's own checkout, whose working registry holds uncommitted changes.
 
 **Verdict: go.** References as paths work end to end for meshes, collider, material tables,
 audio refs, banks, sounds and script asset fields, and old numeric files keep loading. Remaining
 for the full plan: texture and material refs inside `.lmat`, prefabs, `.luxproj`, a "Repair asset
 references" action, then gitignoring `AssetRegistry.lzr` once nothing depends on its handles being
-stable. Two things to settle first: the entity-order instability (it makes every converted scene a
+stable. Surface and dialogue tables use the same scope on save. Two things to settle first: the entity-order instability (it makes every converted scene a
 whole-file diff), and whether to convert committed scenes in one deliberate commit.
 
-**Converted in this spike (separate commit):** `AudioSponza.luxscene`, `Audio/Sounds/*.lsound`,
+**Converted in this spike (separate commit; `AudioSponza` is a whole-file diff because entity order changes on save):** `AudioSponza.luxscene`, `Audio/Sounds/*.lsound`,
 `Audio/Banks/*.lbank`.

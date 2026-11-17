@@ -757,8 +757,9 @@ Rules:
   `SerializeRuntime` and asset packs stay numeric because the player has no path map. A path that names no
   registered asset keeps a stable hashed handle and is written back unchanged, so a save never erases a
   broken reference. Converted so far: scene mesh/material/collider refs, `AudioEventRef`, `SoundBanks`, script
-  asset fields, and the `.lsound`/`.lbank` files. Textures in materials, prefabs, `.luxproj` and the pack
-  format are still handle-based (see `docs/ASSET_PATH_REFERENCES_PLAN.md`).
+  asset fields, and the `.lsound`/`.lbank`, surface-table and dialogue-table files when saved. A file
+  created by the Content Browser (`file << ToYAML()`) starts numeric until its first save. Textures in
+  materials, prefabs, `.luxproj` and the pack format are still handle-based (see `docs/ASSET_PATH_REFERENCES_PLAN.md`).
 - Memory-only assets (procedural meshes, runtime textures) are registered with
   `AssetManager::AddMemoryOnlyAsset` and live in a **separate map** (`m_MemoryAssets`, guarded by a
   `std::shared_mutex`), queried via `IsMemoryAsset`. They are *not* marked with a flag —

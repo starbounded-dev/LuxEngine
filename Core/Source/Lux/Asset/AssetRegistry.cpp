@@ -14,7 +14,12 @@ namespace Lux
 
 	void AssetRegistry::Set(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		m_AssetRegistry[handle] = metadata;
+		AssetMetadata& entry = m_AssetRegistry[handle];
+		if (const auto old = m_PathIndex.find(PathKey(entry.FilePath)); old != m_PathIndex.end() && old->second == handle)
+			m_PathIndex.erase(old);
+		entry = metadata;
+		if (!metadata.FilePath.empty())
+			m_PathIndex[PathKey(metadata.FilePath)] = handle;
 		++m_Revision;
 	}
 
@@ -25,6 +30,11 @@ namespace Lux
 
 	size_t AssetRegistry::Remove(AssetHandle handle)
 	{
+		if (const auto it = m_AssetRegistry.find(handle); it != m_AssetRegistry.end())
+		{
+			if (const auto index = m_PathIndex.find(PathKey(it->second.FilePath)); index != m_PathIndex.end() && index->second == handle)
+				m_PathIndex.erase(index);
+		}
 		const size_t removed = m_AssetRegistry.erase(handle);
 		if (removed)
 			++m_Revision;

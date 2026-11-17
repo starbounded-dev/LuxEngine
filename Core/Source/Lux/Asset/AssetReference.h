@@ -12,7 +12,8 @@
 // diffs and asset packs stay numeric because the player has no path map.
 //
 // Thread: lookups take only the registry's shared lock and never import, so they are safe on the
-// asset worker (Threading.md: the worker never mutates the registry).
+// asset worker (Threading.md: the worker never mutates the registry). Editor only: the player has no
+// EditorAssetManager, so a path read there resolves to a hashed handle; packs stay numeric.
 
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 #include "Lux/Core/Log.h"
@@ -89,7 +90,11 @@ namespace Lux::AssetReference
 
 	inline Ref<EditorAssetManager> Manager()
 	{
-		return Project::GetAssetManager() ? Project::GetEditorAssetManager() : Ref<EditorAssetManager>();
+		// Ref::As is unchecked, so confirm the type: the player's manager is a RuntimeAssetManager.
+		Ref<AssetManagerBase> base = Project::GetAssetManager();
+		if (!base || !dynamic_cast<EditorAssetManager*>(base.Raw()))
+			return {};
+		return base.As<EditorAssetManager>();
 	}
 
 	inline AssetHandle ResolvePath(const std::string& path)
