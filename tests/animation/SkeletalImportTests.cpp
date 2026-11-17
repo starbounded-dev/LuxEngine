@@ -7,8 +7,11 @@
 #include "lpch.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "Lux/Animation/SkinPalette.h"
 #include "Lux/Asset/SkeletalImporter.h"
 #include "Lux/Serialization/FileStream.h"
+
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -189,6 +192,51 @@ int main(int argc, char** argv)
 					for (int row = 0; row < 4; row++)
 						CHECK(Near(skinning[column][row], expectedRest[column][row], 1e-3f));
 			}
+
+			// --- the skin palette (BuildModelPose, BuildSkinPalette) ---------------------------------------
+			const auto sameMatrix = [&](const glm::mat4& a, const glm::mat4& b)
+			{
+				for (int column = 0; column < 4; column++)
+					for (int row = 0; row < 4; row++)
+						if (!Near(a[column][row], b[column][row], 1e-3f))
+							return false;
+				return true;
+			};
+
+			// At rest: the model pose is the skeleton's own, and every bone's palette matrix is the root
+			// transform the inverse binds were authored below.
+			const std::vector<glm::mat4> restPose = BuildModelPose(*skeleton);
+			bool poseMatches = restPose.size() == skeleton->GetNumBones();
+			for (uint32_t i = 0; i < restPose.size() && poseMatches; i++)
+				poseMatches = sameMatrix(restPose[i], skeleton->GetModelSpaceRestPose()[i]);
+			CHECK(poseMatches);
+			uint32_t missing = 99;
+			const std::vector<glm::mat4> restPalette = BuildSkinPalette(*skeleton, restPose, bones, &missing);
+			CHECK(missing == 0 && restPalette.size() == bones.size());
+			for (const glm::mat4& matrix : restPalette)
+				CHECK(sameMatrix(matrix, expectedRest));
+
+			// No bend (a zero angle, or no bone) is the rest pose.
+			CHECK(sameMatrix(BuildModelPose(*skeleton, bone, 0.0f)[bone1], restPose[bone1]));
+			CHECK(sameMatrix(BuildModelPose(*skeleton, Skeleton::NullIndex, 45.0f)[bone1], restPose[bone1]));
+
+			// Bending "Bone" 30 degrees about its local X turns it and its child about the bone's pivot:
+			// palette = modelRest(Bone) * Rx * modelRest(Bone)^-1 * (rest palette).
+			const glm::mat4 bend = glm::rotate(glm::mat4(1.0f), glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+			const glm::mat4 expectedBent = restPose[bone] * bend * glm::inverse(restPose[bone]) * expectedRest;
+			const std::vector<glm::mat4> bentPalette = BuildSkinPalette(*skeleton, BuildModelPose(*skeleton, bone, 30.0f), bones);
+			for (const glm::mat4& matrix : bentPalette)
+				CHECK(sameMatrix(matrix, expectedBent));
+			CHECK(!sameMatrix(expectedBent, expectedRest)); // the bend really moved something
+
+			// A mesh bone the skeleton lacks gets the identity and is counted.
+			std::vector<BoneInfo> withStranger = bones;
+			BoneInfo stranger;
+			stranger.Name = "NoSuchBone";
+			withStranger.push_back(stranger);
+			uint32_t strangerMissing = 0;
+			const std::vector<glm::mat4> strangerPalette = BuildSkinPalette(*skeleton, restPose, withStranger, &strangerMissing);
+			CHECK(strangerMissing == 1 && strangerPalette.size() == bones.size() + 1 && sameMatrix(strangerPalette.back(), glm::mat4(1.0f)));
 
 			// A mesh list that does not match the scene is refused.
 			std::vector<BoneInfluence> none;

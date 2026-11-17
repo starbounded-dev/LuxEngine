@@ -98,7 +98,7 @@ format v2) is committed at `58a38631`.
 
 ## Part 2 — Phases
 
-### Phase 1 — Pose data and component, no rendering change
+### Phase 1 — Pose data and component, no rendering change (done)
 **Goal:** a `SkeletonComponent` exists, saves and loads, and a pure function turns a skeleton, a mesh's
 bones and a bone pose into a palette. The component carries the debug bend (D2): one bone index and
 an angle, editor-only, applied to the rest pose before the palette is built.
@@ -112,6 +112,14 @@ authored root transform for the sample rig; a rotated bone moves a child bone's 
 rotation; a scene with the component round-trips. Editor: add the component in the inspector, save
 and reopen a scene (needs an editor launch, D3).
 **Exit:** old scenes load; the new component survives save, load, duplicate and Play.
+**Result:** done. `BuildModelPose` / `BuildSkinPalette` are verified in `tests/animation/run_windows.py`
+(rest palette equals the authored root transform for every bone; a 30 degree bend of `Bone` moves it
+and its child by the expected pivot rotation; a zero bend and a missing bone behave). The component
+passes `SceneSerializer::RunRoundTripSelfTests` (extended with a `SkeletonComponent` of non-default
+values: snapshot round trip, copies, duplicates) and a headless harness run (save and load a scene,
+`Scene::Copy`, an old scene stays without it), all without opening the editor. Not done, on purpose:
+the unused palette field on `StaticMeshSyncInputs` (it arrives with its first reader in phase 3). Added:
+`Scene::GetAssetList` collects the skeleton handle so an export ships the `.lskel`.
 **Rollback:** revert the commit; no renderer state exists yet.
 
 ### Phase 2 — Skinning kernel and GPU buffers in isolation

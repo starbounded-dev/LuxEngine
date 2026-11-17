@@ -1182,7 +1182,7 @@ namespace Lux {
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
+			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 			FolderComponent>;
@@ -1253,7 +1253,7 @@ namespace Lux {
 		ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-		MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
@@ -1425,7 +1425,7 @@ namespace Lux {
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
@@ -3582,6 +3582,10 @@ namespace Lux {
 			addMaterialTableDependencies(staticMesh.MaterialTable);
 		}
 
+		auto skeletonView = m_Registry.view<SkeletonComponent>();
+		for (auto entity : skeletonView)
+			addIfValid(skeletonView.get<SkeletonComponent>(entity).SkeletonAsset);
+
 		auto meshColliderView = m_Registry.view<MeshColliderComponent>();
 		for (auto entity : meshColliderView)
 			addMeshDependencies(meshColliderView.get<MeshColliderComponent>(entity).ColliderAsset);
@@ -3810,6 +3814,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SkeletonComponent>(Entity entity, SkeletonComponent& component)
 	{
 	}
 

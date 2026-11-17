@@ -26,6 +26,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Animation/Skeleton.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scene/Scene.h"
@@ -1647,6 +1648,7 @@ namespace Lux {
 				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
 				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
 				const bool canAddStaticMesh = canAddComponent.template operator()<StaticMeshComponent>();
+				const bool canAddSkeleton = canAddComponent.template operator()<SkeletonComponent>();
 				const bool canAddRigidBody2D = canAddComponent.template operator()<RigidBody2DComponent>();
 				const bool canAddBoxCollider2D = canAddComponent.template operator()<BoxCollider2DComponent>();
 				const bool canAddCircleCollider2D = canAddComponent.template operator()<CircleCollider2DComponent>();
@@ -1753,6 +1755,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<StaticMeshComponent>())
 								entity.AddComponent<StaticMeshComponent>();
+						}
+					});
+				}
+
+				if (canAddSkeleton)
+				{
+					addComponentRow("Skeleton", EditorResources::SkeletonIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<SkeletonComponent>())
+								entity.AddComponent<SkeletonComponent>();
 						}
 					});
 				}
@@ -2163,6 +2178,7 @@ namespace Lux {
 						// override could have no row here (and Revert All wouldn't reconcile it).
 						row.operator()<TransformComponent>("TransformComponent", "Transform");
 						row.operator()<StaticMeshComponent>("StaticMeshComponent", "Static Mesh");
+						row.operator()<SkeletonComponent>("SkeletonComponent", "Skeleton");
 						row.operator()<MeshComponent>("MeshComponent", "Mesh");
 						row.operator()<SubmeshComponent>("SubmeshComponent", "Submesh");
 						row.operator()<MeshTagComponent>("MeshTagComponent", "Mesh Tag");
@@ -3713,6 +3729,44 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 
 				DrawStaticMeshMaterialSlots(firstComponent, selectedEntities);
+			});
+
+		DrawComponentSection<SkeletonComponent>(m_Context, entityIDs, "Skeleton", EditorResources::SkeletonIcon,
+			[this](SkeletonComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				AssetHandle skeletonHandle = firstComponent.SkeletonAsset;
+				if (ImGuiEx::PropertyAssetReference<Skeleton>("Skeleton", skeletonHandle, "The skeleton asset (.lskel) whose bones skin this mesh"))
+				{
+					firstComponent.SkeletonAsset = skeletonHandle;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [skeletonHandle](SkeletonComponent& component, Entity)
+					{
+						component.SkeletonAsset = skeletonHandle;
+					});
+				}
+
+				std::string debugBone = firstComponent.DebugBone;
+				if (ImGuiEx::Property("Debug Bone", debugBone, "Bone to bend for testing, by name (editor preview until animation exists)"))
+				{
+					firstComponent.DebugBone = debugBone;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [debugBone](SkeletonComponent& component, Entity)
+					{
+						component.DebugBone = debugBone;
+					});
+				}
+
+				float debugBend = firstComponent.DebugBendDegrees;
+				if (ImGuiEx::Property("Debug Bend", debugBend, 1.0f, -180.0f, 180.0f, "Degrees about the debug bone's local X axis"))
+				{
+					firstComponent.DebugBendDegrees = debugBend;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [debugBend](SkeletonComponent& component, Entity)
+					{
+						component.DebugBendDegrees = debugBend;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
 			});
 
 		DrawComponentSection<DirectionalLightComponent>(m_Context, entityIDs, "Directional Light", EditorResources::DirectionalLightIcon,

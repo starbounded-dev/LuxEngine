@@ -802,6 +802,15 @@ Rules:
   baked LODs, bounded and validated on read); that changed the mesh entry format, so
   `k_MeshSourceFileVersion` is 2 and packs from an older editor are refused. Nothing uploads or
   draws skin data yet: the GPU buffer, the bone palette and the skinned passes are the rest of R12.
+- **`SkeletonComponent` marks a static-mesh entity as skinned** (`Scene/Components.h`): `SkeletonAsset`
+  (the `.lskel`, collected into asset packs by `Scene::GetAssetList`), `Enabled` (serialized only
+  when false), and an editor-only debug bend (`DebugBone` by name, `DebugBendDegrees` about its local
+  X) standing in for animation playback. It is wired like any component: `AllComponents`, the
+  duplicate / prefab-instantiate / prefab-sync lists, `Prefab.cpp`, `SceneSerializer` both ways, the
+  inspector section and its override row, and `OnComponentAdded`. `BuildModelPose` and
+  `BuildSkinPalette` (`Animation/SkinPalette.h`) turn a skeleton and a bone pose into the per-mesh-bone
+  matrices `modelPose[bone with that name] * InverseBindPose`; a mesh bone the skeleton lacks gets the
+  identity. Nothing reads the component in the renderer yet (R12 phase 3).
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own

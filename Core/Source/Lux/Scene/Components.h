@@ -571,6 +571,17 @@ namespace Lux {
 			: StaticMesh(staticMesh) {}
 	};
 
+	// Makes a static-mesh entity skinned: the mesh's bones are driven by this skeleton's pose (the
+	// renderer's skinned draw path, R12). The pose itself is computed at runtime, not stored.
+	struct SkeletonComponent
+	{
+		bool Enabled = true;           // false: the mesh draws unskinned
+		AssetHandle SkeletonAsset = 0; // the .lskel whose bones the mesh's bone names are resolved against
+		// Editor preview until animation playback exists: bend one bone (by name) about its local X axis.
+		std::string DebugBone;
+		float DebugBendDegrees = 0.0f;
+	};
+
 	struct SubmeshComponent
 	{
 		AssetHandle Mesh = 0;
@@ -722,7 +733,7 @@ namespace Lux {
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
-		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
+		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 		FolderComponent>;
