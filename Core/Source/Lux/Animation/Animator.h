@@ -30,6 +30,13 @@ namespace Lux
 		AssetHandle Sound = 0;
 	};
 
+	// An entity that follows a bone of the animated skeleton (script AttachToBone).
+	struct AnimatorAttachment
+	{
+		uint64_t Entity = 0;
+		uint32_t Bone = 0;
+	};
+
 	// Everything playback changes while a scene runs. Runtime only: never serialized, rebuilt on every start.
 	struct AnimatorState
 	{
@@ -52,6 +59,9 @@ namespace Lux
 		// every advance, so the caller takes them straight after it. Events of a clip being faded out do not fire.
 		std::vector<FiredAnimationEvent> FiredEvents;
 		bool EventsStarted = false; // false until the first playing advance, which also fires events at time 0
+
+		// Entities that follow a bone; the scene moves them after each advance. Cleared with the rest of the state.
+		std::vector<AnimatorAttachment> Attachments;
 
 		// The pose the last advance evaluated: model-space transform of every skeleton bone. What the renderer's
 		// skin palette and "read bone transform" read; empty until the first advance.

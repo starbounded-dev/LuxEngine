@@ -23,3 +23,7 @@ Import a rigged model (glTF, or binary or text FBX, such as a Mixamo character).
 - Clips and the skeleton must come from the same model file, or their bone names will not match.
 - Until both the mesh and the skeleton have loaded, the mesh draws in its rest shape.
 - Meshes that use skin weights need the skeleton's bone names to match the model's. Extracting both from the same file guarantees this.
+
+## In scripts
+
+`GetComponent<SkeletonComponent>()` gives a script control of the animation: `Playing`, `Time`, `Speed` and `Loop`; `CrossFade(clipHandle, seconds)` to switch clips; `PlayState("Walk")`, `SetFloat("Speed", v)`, `SetBool`, `SetTrigger("Jump")` and `CurrentState` when the mesh uses an [Animation Graph](animation-graph); `GetBoneTransform("Hand.R", out position, out rotation)` for a bone's world transform; and `AttachToBone(entity, "Hand.R")` to make another entity, such as a weapon, follow a bone. The members are listed in the [C# API reference](../api/SkeletonComponent).

@@ -246,6 +246,9 @@ namespace Lux {
 		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		void CaptureColliderDebug(FrameRenderPacket& packet,
 			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
+		// Moves every entity attached to a bone (SkeletonComponent::State.Attachments) to that bone's world transform.
+		// The running-scene updates call it; the golden capture calls it to check the follow-the-bone path.
+		void ApplyBoneAttachments();
 		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderRuntime(Ref<SceneRenderer> renderer);

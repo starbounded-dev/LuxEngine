@@ -31,6 +31,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [MeshColliderComponent](MeshColliderComponent) — A collider shaped like a mesh; also acoustic geometry.
 - [RigidBody2DComponent](RigidBody2DComponent) — A 2D physics body (Box2D).
 - [RigidBodyComponent](RigidBodyComponent) — A 3D physics body (Jolt).
+- [SkeletonComponent](SkeletonComponent) — A skinned mesh's animation: playback of a clip or an animation graph, graph parameters, bone transforms and bone attachments.
 - [SphereColliderComponent](SphereColliderComponent) — A sphere shape for the entity's 3D rigid body or character.
 - [SpriteRendererComponent](SpriteRendererComponent) — Draws a textured or colored quad (2D).
 - [TagComponent](TagComponent) — The entity's name.

@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "ScriptGlue.h"
+#include "AnimationScriptBindings.h"
 #include "AudioScriptBindings.h"
 #include "ScriptEngine.h"
 
@@ -744,6 +745,7 @@ namespace Lux {
 		RegisterManagedComponent<AudioSurfaceComponent>(coreAssembly);
 		RegisterManagedComponent<AudioZoneComponent>(coreAssembly);
 		RegisterManagedComponent<AudioPortalComponent>(coreAssembly);
+		RegisterManagedComponent<SkeletonComponent>(coreAssembly);
 
 		// 3D physics
 		RegisterManagedComponent<RigidBodyComponent>(coreAssembly);
@@ -936,6 +938,7 @@ namespace Lux {
 		RegisterComponentTypes(coreAssembly);
 		RegisterInternalCalls(coreAssembly);
 		AudioScriptBindings::Register(coreAssembly);
+		AnimationScriptBindings::Register(coreAssembly);
 		coreAssembly.UploadInternalCalls();
 
 		s_InputType = &coreAssembly.GetLocalType("Lux.Input");

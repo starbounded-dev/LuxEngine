@@ -269,6 +269,9 @@ Assets:
   - Handle: 7400000000000000013
     FilePath: Scenes/LuxBipedGraph.luxscene
     Type: Scene
+  - Handle: 7400000000000000014
+    FilePath: Scenes/LuxBipedAttach.luxscene
+    Type: Scene
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture
@@ -380,6 +383,9 @@ Assets:
   - Handle: 10740953653777413167
     FilePath: Meshes/Source/Sponza/Materials/Sponza_12_Material_12.lmat
     Type: Material
+  - Handle: 10747198735764448055
+    FilePath: Scenes/AudioSponza.luxscene
+    Type: Scene
   - Handle: 10757355412620758746
     FilePath: Meshes/Source/Sponza/2185409758123873465.jpg
     Type: Texture

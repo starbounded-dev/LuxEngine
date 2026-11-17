@@ -13,6 +13,8 @@
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Animation/AnimationGraph.h"
+#include "Lux/Animation/Skeleton.h"
+#include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Renderer/Image.h"
@@ -94,7 +96,7 @@ namespace Lux {
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -400,6 +402,29 @@ namespace Lux {
 				m_Selected = true;
 			}
 		}
+
+		// Attach=<entity name>:<bone name>: attaches that entity to a bone of the first skinned mesh, as a script's
+		// AttachToBone would, and applies it every frame (no Play needed), so the follow-the-bone path is captured.
+		if (const auto it = m_Options.find("Attach"); it != m_Options.end() && m_AttachedScene != &scene)
+		{
+			const size_t colon = it->second.find(':');
+			Entity child = colon == std::string::npos ? Entity{} : scene.FindEntityByName(it->second.substr(0, colon));
+			for (const entt::entity handle : scene.GetAllEntitiesWith<SkeletonComponent>())
+			{
+				auto& skeletonComponent = Entity{ handle, &scene }.GetComponent<SkeletonComponent>();
+				Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(skeletonComponent.SkeletonAsset);
+				const uint32_t bone = skeleton && colon != std::string::npos ? skeleton->GetBoneIndex(it->second.substr(colon + 1)) : Skeleton::NullIndex;
+				if (child && bone != Skeleton::NullIndex && !skeletonComponent.State.ModelPose.empty()) // after the first pose: starting the animator clears its state
+				{
+					skeletonComponent.State.Attachments.push_back({ static_cast<uint64_t>(child.GetUUID()), bone });
+					m_AttachedScene = &scene;
+				}
+				break;
+			}
+		}
+
+		if (m_AttachedScene == &scene)
+			scene.ApplyBoneAttachments();
 
 		if (m_MoveEntityCount > 0)
 			MoveEntities(scene);

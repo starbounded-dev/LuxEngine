@@ -869,6 +869,20 @@ Rules:
   hook rules, strings passed as `Coral::String`), and an event with a Sound plays through
   `PhysicsAudioSystem::OneShot` at the entity's world position. `Scene::GetAssetList` collects event sounds
   with the clip. Tested headless in `SkeletalImportTests.cpp` (`CheckEvents`) and by `run_export_rig.py`.
+- **The C# `SkeletonComponent`** (`ScriptCore/Source/Lux/Skeleton.cs`, bindings in
+  `Scripting/AnimationScriptBindings.cpp`, registered from `ScriptGlue.cpp`): `Playing`, `Time`, `Speed`,
+  `Loop`, `CrossFade(clip handle, seconds)` (refused while a graph is assigned), `PlayState` and
+  `CurrentState` for graphs, `SetFloat/SetBool/SetTrigger/GetFloat` (false for an unknown name or a
+  parameter of another type), `GetBoneTransform` (world position and Euler rotation from
+  `State.ModelPose`) and `AttachToBone` / `Detach`. Every binding checks the main thread and the
+  component, and logs rather than throws on a missing one. Attachments live in
+  `AnimatorState::Attachments`; `Scene::ApplyBoneAttachments` (public, called right after the animators
+  advance in running scenes and by the golden capture's `Attach=<entity>:<bone>` option) sets the child's
+  local transform from `ownerWorld * ModelPose[bone]` through its parent, keeping the child's scale, and
+  forgets an entity that is gone. Clip handles are `ulong`: a typed `AnimationClip` script field needs a new
+  script field kind (`ScriptEngine` `DataType`, inspector, serialization) and is not built. Tested without a
+  native host by `tests/animation/run_managed.py` (ScriptCore compiled with mocked internal calls); the
+  attachment path by the `LuxBipedAttach` golden scene.
 - **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
   one invocation per vertex over four raw word buffers at `set = 1`, `binding = 49..52` (source
   `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing

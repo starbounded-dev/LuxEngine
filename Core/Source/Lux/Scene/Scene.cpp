@@ -948,6 +948,7 @@ namespace Lux {
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
+		ApplyBoneAttachments();
 		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
@@ -1178,6 +1179,7 @@ namespace Lux {
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
 		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
+		ApplyBoneAttachments();
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -2514,6 +2516,37 @@ namespace Lux {
 		if (!entity.GetComponent<ScriptComponent>().Enabled || IsInactive(entity))
 			return;
 		instance->second.Invoke(method, (uint64_t)other);
+	}
+
+	void Scene::ApplyBoneAttachments()
+	{
+		for (auto e : m_Registry.view<SkeletonComponent>())
+		{
+			SkeletonComponent& component = m_Registry.get<SkeletonComponent>(e);
+			if (component.State.Attachments.empty() || component.State.ModelPose.empty())
+				continue;
+			const glm::mat4 owner = GetWorldSpaceTransformMatrix(Entity{ e, this });
+			std::erase_if(component.State.Attachments, [&](const AnimatorAttachment& attachment)
+			{
+				Entity child = TryGetEntityWithUUID(attachment.Entity);
+				if (!child || !child.HasComponent<TransformComponent>())
+					return true; // the entity is gone: forget it
+				if (attachment.Bone >= component.State.ModelPose.size())
+					return true;
+				glm::mat4 world = owner * component.State.ModelPose[attachment.Bone];
+				if (const Entity parent = child.GetParent())
+					world = glm::inverse(GetWorldSpaceTransformMatrix(parent)) * world;
+				glm::vec3 translation, scale;
+				glm::quat rotation;
+				if (Math::DecomposeTransform(world, translation, rotation, scale))
+				{
+					TransformComponent& transform = child.GetComponent<TransformComponent>();
+					transform.Translation = translation; // the child keeps its own scale
+					transform.SetRotationEuler(glm::eulerAngles(rotation));
+				}
+				return false;
+			});
+		}
 	}
 
 	void Scene::DispatchAnimationEvent(Entity entity, const FiredAnimationEvent& event)
