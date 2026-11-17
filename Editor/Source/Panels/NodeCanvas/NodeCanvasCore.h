@@ -70,6 +70,7 @@ namespace Lux
 		static bool IsSearchOpen(Search search);
 		uint32_t DrawSearch(Search search, bool open, std::span<const SearchItem> choices, uint32_t selected = 0);
 		static ClipboardAction ReadClipboardAction();
+		static void DrawGroup(uint32_t id, const char* title, ImVec4 color, ImVec2 size);
 
 	private:
 		void CreateContext();

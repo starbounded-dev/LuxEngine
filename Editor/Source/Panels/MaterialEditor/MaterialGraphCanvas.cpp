@@ -381,30 +381,23 @@ namespace Lux {
 			errorNodes.insert(error.Node);
 
 		const NodeCanvasCore::ContextScope context(m_Canvas);
-		m_Canvas.Begin("MaterialGraph", !ImGui::GetIO().WantTextInput &&
-			!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+		const bool shortcuts = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+			!ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
+		m_Canvas.Begin("MaterialGraph", shortcuts);
 
 		// Comments first, so nodes draw over them.
 		for (const MaterialGraphComment& comment : graph.Comments)
 		{
 			if (m_Placed.insert(comment.ID).second)
 				ed::SetNodePosition(comment.ID, ImVec2(comment.Position.x, comment.Position.y));
-			const ImVec4 color(comment.Color.r, comment.Color.g, comment.Color.b, comment.Color.a);
-			ed::PushStyleColor(ed::StyleColor_NodeBg, color);
-			ed::PushStyleColor(ed::StyleColor_NodeBorder, ImVec4(color.x, color.y, color.z, 1.0f));
 			if (m_ResizeComment == comment.ID)
 			{
 				ed::SetGroupSize(comment.ID, ImVec2(comment.Size.x, comment.Size.y));
 				m_CommentNodeSizes.erase(comment.ID); // the new node size is not a drag-resize
 				m_ResizeComment = 0;
 			}
-			ed::BeginNode(comment.ID);
-			ImGui::PushID(static_cast<int>(comment.ID));
-			ImGui::TextUnformatted(comment.Text.empty() ? "Comment" : comment.Text.c_str());
-			ed::Group(ImVec2(comment.Size.x, comment.Size.y));
-			ImGui::PopID();
-			ed::EndNode();
-			ed::PopStyleColor(2);
+			NodeCanvasCore::DrawGroup(comment.ID, comment.Text.c_str(),
+				{ comment.Color.r, comment.Color.g, comment.Color.b, comment.Color.a }, { comment.Size.x, comment.Size.y });
 		}
 
 		for (const MaterialGraphNode& node : graph.Nodes)
@@ -571,9 +564,7 @@ namespace Lux {
 			m_PaletteAtCenter = false;
 		}
 		if (ed::ShowBackgroundContextMenu() ||
-			(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
-			 !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) && !ImGui::GetIO().WantTextInput &&
-			 ImGui::IsKeyPressed(ImGuiKey_Space, false)))
+			(shortcuts && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Space, false)))
 		{
 			m_OpenPalette = true;
 			m_PaletteFromNode = 0;

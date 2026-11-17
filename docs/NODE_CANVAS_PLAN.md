@@ -96,6 +96,19 @@ A new document type, only after the material graph is stable. Its scope belongs 
 ### Phase 6 - Hardening and docs
 Large graphs (150+ nodes, `/profile` canvas cost per tab; inactive tabs must cost nothing), narrow-panel layout, shortcuts scoped to the focused canvas. Update `.claude/docs/Architecture-LuxEngine.md` (editor panels) and `docs/EDITOR_REMASTER_PLAN.md`, which describes the Material Editor as a standalone panel.
 
+### Decisions from implementation
+
+- Keep Sound authoring in the Sound Editor for this rollout. Its tree exposes sibling order for
+  sequences and labelled branches for switches, and owns the waveform and audition controls for the
+  selected node. A Sound document will need to preserve those ordered operations alongside the
+  canvas. `SoundEditorPanel::UI_Tree`, `UI_TreeNode`, and `UI_Clip` are the starting points.
+- Existing procedural nodes remain available in material documents. A separate procedural-material
+  graph model needs its own design before it can become a document type.
+- Windows Release editor checks covered material saves and reloads, independent undo, narrow/wide
+  layout, and workspace restore in Single and Multi render-thread modes. The 181-node material canvas
+  took 0.774 ms (Single) and 0.726 ms (Multi) median CPU draw time. With that tab inactive, the active
+  small graph took 0.055 ms and 0.052 ms, compared to 0.060 ms and 0.052 ms with only the small graph.
+
 ## Part 3 - Risks and open questions
 
 | Risk or question | Likelihood | Handling |

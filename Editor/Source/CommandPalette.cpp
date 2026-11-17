@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "CommandPalette.h"
+#include "EditorSearch.h"
 
 #include "Lux/ImGui/Colors.h"
 #include "Lux/Editor/FontAwesome.h"
@@ -13,42 +14,6 @@
 #include <algorithm>
 
 namespace Lux {
-
-	namespace {
-
-		// Subsequence fuzzy match with contiguity and word-start bonuses. Returns false when the pattern
-		// is not a subsequence of the haystack; otherwise fills `outScore` (higher is better).
-		bool FuzzyMatch(const std::string& pattern, const std::string& haystack, int& outScore)
-		{
-			if (pattern.empty())
-			{
-				outScore = 0;
-				return true;
-			}
-
-			int score = 0;
-			int patternIndex = 0;
-			int lastMatch = -2;
-			for (int i = 0; i < static_cast<int>(haystack.size()) && patternIndex < static_cast<int>(pattern.size()); i++)
-			{
-				if (haystack[i] != pattern[patternIndex])
-					continue;
-
-				score += (i == lastMatch + 1) ? 6 : 1;                        // contiguous run
-				if (i == 0 || haystack[i - 1] == ' ' || haystack[i - 1] == '/')
-					score += 4;                                              // start of a word
-				lastMatch = i;
-				patternIndex++;
-			}
-
-			if (patternIndex != static_cast<int>(pattern.size()))
-				return false;
-
-			outScore = score - static_cast<int>(haystack.size()) / 8;                     // slight bias toward shorter names
-			return true;
-		}
-
-	}
 
 	void CommandPalette::Open()
 	{
@@ -76,7 +41,7 @@ namespace Lux {
 		{
 			const std::string haystack = Utils::String::ToLowerCopy(m_Commands[i].Category + " " + m_Commands[i].Name);
 			int score = 0;
-			if (FuzzyMatch(query, haystack, score))
+			if (EditorSearch::FuzzyMatch(query, haystack, score))
 				scored.emplace_back(score, i);
 		}
 

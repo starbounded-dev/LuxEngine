@@ -24,6 +24,7 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui_internal.h>
+#include <chrono>
 #include <fstream>
 #include <stdexcept>
 #ifdef _MSC_VER
@@ -193,6 +194,72 @@ namespace Lux
 				}
 			}
 			Require(!document->IsDirty(), "View-only graph resizing changed the asset");
+			if (FileSystem::HasEnvironmentVariable("LUX_NODE_CANVAS_PROFILE"))
+			{
+				Require(FileSystem::WriteFileAtomically(directory / "Assets/CanvasProfile.lmat",
+					"Material:\n  Roughness: 0.5\n"), "Cannot write the canvas profile fixture");
+				const AssetHandle largeHandle = AssetManager::ImportAsset("CanvasProfile.lmat");
+				auto largeMaterial = AssetManager::GetAsset<MaterialAsset>(largeHandle);
+				Require(static_cast<bool>(largeMaterial), "Cannot load the canvas profile fixture");
+				auto largeGraph = MaterialGraph::CreateDefault();
+				for (uint32_t i = 0; i < 180; ++i)
+				{
+					Require(largeGraph->AddNode("Float", { 180.0f * (i % 12 + 1), 100.0f * (i / 12) }),
+						"Could not add the large graph's profile nodes");
+				}
+				largeMaterial->SetGraph(largeGraph);
+
+				NodeCanvasPanel probe("Node Canvas Profile");
+				probe.LoadState(Yaml::Load("ShowPreview: false\nShowGraph: true\n"));
+				Require(probe.OpenAsset(handle), "Cannot open the profile control graph");
+				const auto profileFrame = [&]
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+					ImGui::SetNextWindowSize({ 1250.0f, 700.0f });
+					ImGui::SetNextWindowFocus();
+					probe.OnImGuiRender(open);
+					ImGui::Render();
+				};
+				const auto profile = [&](const char* label)
+				{
+					std::array<double, 3> runs;
+					for (auto& run : runs)
+					{
+						for (int warmup = 0; warmup < 30; ++warmup)
+							profileFrame();
+						std::array<double, 90> samples;
+						for (auto& sample : samples)
+						{
+							const auto start = std::chrono::steady_clock::now();
+							profileFrame();
+							sample = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+						}
+						std::ranges::sort(samples);
+						run = samples[samples.size() / 2];
+					}
+					std::ranges::sort(runs);
+					LUX_CORE_INFO_TAG("Editor", "NODE_CANVAS_PROFILE {} median {:.3f} ms", label, runs[1]);
+				};
+
+				profile("small graph");
+				Require(probe.OpenAsset(largeHandle) && probe.OpenAsset(handle), "Cannot open the inactive profile graph");
+				auto& largeDocument = static_cast<MaterialGraphDocument&>(*probe.m_Documents.back());
+				profile("small graph with 181-node tab inactive");
+				const auto view = [&]
+				{
+					Yaml::Writer state;
+					state << Yaml::BeginMap;
+					largeDocument.SaveView(state, true);
+					state << Yaml::EndMap;
+					return Yaml::Load(state.str())["CanvasView"].as<std::string>("");
+				};
+				Require(view().empty(), "The inactive large graph drew and captured a view");
+				Require(probe.OpenAsset(largeHandle), "Cannot select the large profile graph");
+				profile("181-node graph");
+				Require(!view().empty(), "The large graph did not draw when selected");
+			}
+
 			NodeCanvasCore beforeRestart, afterRestart;
 			const auto drawProbe = [&](NodeCanvasCore& canvas, bool select)
 			{
