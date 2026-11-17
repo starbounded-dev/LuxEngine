@@ -67,6 +67,10 @@ int main()
 		"coplanar floor diagonal was cached as a diffracting edge");
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, result) == EvaluationError::None &&
 		result.Diagnostics.ReflectionPaths == 1, "analytic first reflection missing or counted twice on shared diagonal");
+	PreparedCandidates prepared;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, prepared) == EvaluationError::None &&
+		!prepared.ReflectionTriangles.empty() && prepared.Openings.empty() && prepared.Direct.GainLF() == result.Direct.GainLF(),
+		"reflection candidate preparation lost its bounded pool or direct reference");
 	const auto reflection = result.Indirect[0];
 	Check(reflection.Reflections == 1 && reflection.Diffractions == 0 && reflection.PointCount == 3, "reflection path topology wrong");
 	Near(reflection.Points[1].X, 0, "reflection point X differs from image source");
@@ -141,6 +145,79 @@ int main()
 		"corner solve failed");
 	Check(result.Direct.GainLF() <= 0.001001f && result.OcclusionGainLF > 0.01f && result.HasAudibleOpening,
 		"thick corner remained inaudible when the direct ray was blocked");
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, prepared) == EvaluationError::None &&
+		!prepared.Openings.empty() && prepared.Openings.size() <= settings.OpeningNodeBudget &&
+		prepared.Diagnostics.Work <= settings.CandidateBudget,
+		"occluded corner candidate preparation did not respect the authored bounds");
+	std::vector<Position> visibilityPoints{{1,0,-0.5f}};
+	for (const auto& opening : prepared.Openings)
+		visibilityPoints.push_back(opening.Point);
+	visibilityPoints.push_back({-1,0,-0.5f});
+	std::vector<std::uint32_t> visibility(visibilityPoints.size() * visibilityPoints.size());
+	for (std::size_t from = 0; from < visibilityPoints.size(); ++from)
+		for (std::size_t to = 0; to < visibilityPoints.size(); ++to)
+		{
+			std::vector<RayHit> hits;
+			Check(grid.Trace(visibilityPoints[from], visibilityPoints[to], 0, hits), "corner visibility reference trace failed");
+			visibility[from * visibilityPoints.size() + to] = hits.empty() ? 0 : 1;
+		}
+	SolveResult reduced;
+	Check(ReduceOpeningVisibility(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, prepared, visibility, scratch, reduced) == EvaluationError::None && reduced.HasAudibleOpening &&
+		std::bit_cast<std::uint32_t>(reduced.OcclusionGainLF) == std::bit_cast<std::uint32_t>(result.OcclusionGainLF) &&
+		std::bit_cast<std::uint32_t>(reduced.OcclusionGainHF) == std::bit_cast<std::uint32_t>(result.OcclusionGainHF),
+		"visibility-matrix opening search diverged from the CPU reference");
+	Settings reflectedSettings = settings;
+	reflectedSettings.ReflectionDepth = 2;
+	PreparedCandidates reflectedPrepared;
+	SolveResult reflectedCpu, reflectedReduced;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, scratch, reflectedPrepared) == EvaluationError::None &&
+		reflectedPrepared.Openings.size() == prepared.Openings.size(), "reflection setting changed opening candidate indices");
+	Check(Solve(grid, {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, reflectedCpu) == EvaluationError::None &&
+		ReduceOpeningVisibility(GeometryView(grid), {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+			0, reflectedPrepared, visibility, scratch, reflectedReduced) == EvaluationError::None,
+		"default-depth source reduction failed");
+	Check(std::bit_cast<std::uint32_t>(reflectedCpu.OcclusionGainLF) == std::bit_cast<std::uint32_t>(reflectedReduced.OcclusionGainLF) &&
+		std::bit_cast<std::uint32_t>(reflectedCpu.OcclusionGainHF) == std::bit_cast<std::uint32_t>(reflectedReduced.OcclusionGainHF) &&
+		reflectedCpu.Diagnostics.ReflectionPaths == reflectedReduced.Diagnostics.ReflectionPaths &&
+		reflectedCpu.Diagnostics.OpeningPaths == reflectedReduced.Diagnostics.OpeningPaths,
+		"default-depth visibility reduction changed the source gain");
+	// Preparation speculates before reflections. The staged solve must keep the same
+	// path results and exhaust the same work budget as the serial reference.
+	Settings tightSettings = reflectedSettings;
+	tightSettings.CandidateBudget = 32;
+	PreparedCandidates tightPrepared;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, tightSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, scratch, tightPrepared) == EvaluationError::None &&
+		tightPrepared.Diagnostics.Work == tightSettings.CandidateBudget && !tightPrepared.Openings.empty(),
+		"tight-budget fixture did not fill the opening sample budget");
+	const auto tightWidth = tightPrepared.Openings.size() + 2;
+	std::vector<std::uint32_t> tightVisibility(tightWidth * tightWidth);
+	SolveResult tightCpu, tightReduced;
+	Check(Solve(grid, {}, materials, tightSettings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, tightCpu) == EvaluationError::None &&
+		ReduceOpeningVisibility(GeometryView(grid), {}, materials, tightSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+			0, tightPrepared, tightVisibility, scratch, tightReduced) == EvaluationError::None,
+		"staged solve rejected a valid tight-budget job after reflections");
+	Check(tightReduced.Diagnostics.Work == tightCpu.Diagnostics.Work && tightReduced.Diagnostics.WorkLimited &&
+		tightReduced.Diagnostics.VisibilityRays == tightCpu.Diagnostics.VisibilityRays &&
+		tightReduced.Diagnostics.ReflectionPaths == tightCpu.Diagnostics.ReflectionPaths &&
+		tightReduced.OcclusionGainLF == tightCpu.OcclusionGainLF && tightReduced.OcclusionGainHF == tightCpu.OcclusionGainHF,
+		"staged solve did not preserve the reference under a tight opening sample budget");
+	const auto reducedLF = reduced.OcclusionGainLF;
+	visibility[1] = 3;
+	Check(ReduceOpeningVisibility(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, prepared, visibility, scratch, reduced) == EvaluationError::NumericalFailure && reduced.OcclusionGainLF == reducedLF,
+		"invalid visibility matrix changed a published solve");
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {1,0,-1}, 0, scratch, prepared) == EvaluationError::None &&
+		prepared.Openings.empty() && prepared.Direct.GainLF() == 1,
+		"clear source inherited opening candidates from a previous solve");
+	const auto preparedDirect = prepared.Direct;
+	settings.CandidateBudget = 0;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, prepared) == EvaluationError::InvalidSettings &&
+		prepared.Direct.Distance == preparedDirect.Distance && prepared.Openings.empty(),
+		"invalid candidate preparation changed the last valid result");
+	settings.CandidateBudget = 4096;
 	Check(result.AudibleOpening.Diffractions == 2 && result.OcclusionGainHF < result.OcclusionGainLF,
 		"corner route did not cross both edges or lacked frequency-dependent diffraction");
 	for (const auto& path : result.Indirect)

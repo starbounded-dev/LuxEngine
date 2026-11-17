@@ -123,6 +123,7 @@ namespace Lux::Soundwave
 		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, PreparedCandidates& output);
 	// Complete the bounded opening search from row-major GPU/CPU visibility statuses over
 	// [listener, prepared openings..., source]. Status 0 is clear, 1 blocked, 2 invalid.
+	// Reduction honors the reference's remaining work budget after reflections.
 	// The direct measurement and candidate snapshot must belong to these inputs; callers keep
 	// their immutable geometry/portal snapshot alive until this reduction completes.
 	[[nodiscard]] EvaluationError ReduceOpeningVisibility(const GeometryView& geometry, std::span<const PortalBox> portals,

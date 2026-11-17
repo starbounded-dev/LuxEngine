@@ -1571,7 +1571,8 @@ Disabled or removed zones leave the cache. The three reverb rows live in the pro
 **Workers and the GPU (plan Phase 4):** a source batch uses a worker to prepare bounded opening
 nodes and row-major segment endpoints, a render-thread Vulkan compute pass for independent
 visibility rays, frame-retired readback, and a worker reduction of the opening graph in fixed
-order. The CPU reference still handles reflection paths and the final graph search; the GPU
+order. Opening samples share the CPU reference's work budget after reflection traversal.
+The CPU reference still handles reflection paths and the final graph search; the GPU
 stage supplies the expensive independent visibility decisions. One batch is in flight and
 `AudioAcoustics::PollSolves` publishes it on main. Without a current flattened geometry, with
 oversized authored node budgets, or after a GPU stage failure, the complete `Solve` runs on a

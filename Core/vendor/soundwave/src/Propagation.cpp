@@ -74,34 +74,33 @@ namespace Lux::Soundwave
 				if (!Spend())
 					return false;
 				++Result.Diagnostics.VisibilityRays;
-				if (!Visibility.empty())
-				{
-					const auto indexOf = [&](Position point)
-					{
-						if (point.X == Listener.X && point.Y == Listener.Y && point.Z == Listener.Z)
-							return std::uint32_t{0};
-						for (std::uint32_t i = 0; i < Scratch.Openings.size(); ++i)
-							if (const auto& node = Scratch.Openings[i].Point;
-								node.X == point.X && node.Y == point.Y && node.Z == point.Z)
-								return i + 1;
-						if (point.X == Source.X && point.Y == Source.Y && point.Z == Source.Z)
-							return static_cast<std::uint32_t>(Scratch.Openings.size()) + 1;
-						return kInvalidGeometryIndex;
-					};
-					const auto fromIndex = indexOf(from), toIndex = indexOf(to);
-					if (margin != 0 || fromIndex == kInvalidGeometryIndex || toIndex == kInvalidGeometryIndex)
-					{
-						Invalid = true;
-						return false;
-					}
-					const auto width = Scratch.Openings.size() + 2;
-					const auto status = Visibility[static_cast<std::size_t>(fromIndex) * width + toIndex];
-					Invalid |= status > 1;
-					return status == 0;
-				}
 				const auto visibility = Detail::SegmentVisible(World, Portals, from, to, SourceInstance, Scratch.Hits, margin);
 				Invalid |= visibility == Detail::Visibility::Invalid;
 				return visibility == Detail::Visibility::Clear;
+			}
+			bool OpeningVisible(std::uint32_t from, std::uint32_t to)
+			{
+				const auto count = static_cast<std::uint32_t>(Scratch.Openings.size());
+				if (Visibility.empty())
+				{
+					const auto point = [&](std::uint32_t index)
+					{
+						if (index == 0)
+							return Listener;
+						if (index == count + 1)
+							return Source;
+						return Scratch.Openings[index - 1].Point;
+					};
+					return Visible(point(from), point(to), 0);
+				}
+
+				if (!Spend())
+					return false;
+				++Result.Diagnostics.VisibilityRays;
+				const std::size_t width = Scratch.Openings.size() + 2;
+				const auto status = Visibility[from * width + to];
+				Invalid |= status > 1;
+				return status == 0;
 			}
 			void Accept(const PropagationPath& path)
 			{
@@ -383,17 +382,21 @@ namespace Lux::Soundwave
 			path.PointCount = state.Depth + 2;
 			path.Points[0] = context.Listener;
 			path.Points[state.Depth + 1] = context.Source;
+			std::array<std::uint32_t, kMaximumInteractions + 2> nodes{};
+			nodes[state.Depth + 1] = static_cast<std::uint32_t>(scratch.Openings.size()) + 1;
 			std::uint32_t current = stateIndex;
 			for (std::uint32_t i = state.Depth; i > 0; --i)
 			{
-				path.Points[i] = scratch.Openings[scratch.States[current].Node].Point;
+				const auto node = scratch.States[current].Node;
+				nodes[i] = node + 1;
+				path.Points[i] = scratch.Openings[node].Point;
 				current = scratch.States[current].Parent;
 			}
 			float lossLF = 0, lossHF = 0;
 			for (std::uint32_t i = 1; i + 1 < path.PointCount; ++i)
 			{
 				// An unnecessary bend in clear space is not a diffraction event.
-				if (context.Visible(path.Points[i - 1], path.Points[i + 1], 0) || context.Invalid || context.Result.Diagnostics.Work >= context.Limit)
+				if (context.OpeningVisible(nodes[i - 1], nodes[i + 1]) || context.Invalid || context.Result.Diagnostics.Work >= context.Limit)
 					return;
 				const float excess = Distance(path.Points[i - 1], path.Points[i]) + Distance(path.Points[i], path.Points[i + 1]) -
 					Distance(path.Points[i - 1], path.Points[i + 1]);
@@ -443,8 +446,8 @@ namespace Lux::Soundwave
 			scratch.SourceVisible.assign(count, 0);
 			for (std::uint32_t i = 0; i < count && context.Result.Diagnostics.Work < context.Limit && !context.Invalid; ++i)
 			{
-				scratch.SourceVisible[i] = context.Visible(scratch.Openings[i].Point, context.Source, 0);
-				if (context.Visible(context.Listener, scratch.Openings[i].Point, 0))
+				scratch.SourceVisible[i] = context.OpeningVisible(i + 1, count + 1);
+				if (context.OpeningVisible(0, i + 1))
 					push(i, 1, kInvalidGeometryIndex, Distance(context.Listener, scratch.Openings[i].Point), scratch.SourceVisible[i] != 0);
 			}
 			while (!scratch.SearchHeap.empty() && context.Result.Diagnostics.Work < context.Limit && !context.Invalid)
@@ -463,7 +466,7 @@ namespace Lux::Soundwave
 						bool repeated = false;
 						for (auto prior = index; prior != kInvalidGeometryIndex; prior = scratch.States[prior].Parent)
 							repeated |= scratch.Openings[scratch.States[prior].Node].EdgeIndex == scratch.Openings[next].EdgeIndex;
-						if (!repeated && context.Visible(node.Point, scratch.Openings[next].Point, 0))
+						if (!repeated && context.OpeningVisible(state.Node + 1, next + 1))
 							push(next, state.Depth + 1, index, state.Distance + Distance(node.Point, scratch.Openings[next].Point), scratch.SourceVisible[next] != 0);
 					}
 			}
@@ -532,7 +535,6 @@ namespace Lux::Soundwave
 		const auto preparationWork = next.Diagnostics.Work;
 		next.Diagnostics.Work = 0;
 		scratch.Triangles = prepared.ReflectionTriangles;
-		scratch.Openings = prepared.Openings;
 		Context context{ geometry,portals,materials,settings,listener,source,sourceInstance,scratch,next,settings.CandidateBudget };
 		if (settings.ReflectionDepth && !scratch.Triangles.empty())
 		{
@@ -541,19 +543,23 @@ namespace Lux::Soundwave
 			Reflections(context);
 		}
 		context.Limit = settings.CandidateBudget;
-		// The CPU reference samples opening nodes after reflections. Preparation can run
-		// earlier on a worker, but only the same samples fit after the reflection work.
-		if (context.Invalid || preparationWork > settings.CandidateBudget - next.Diagnostics.Work)
+		if (context.Invalid)
 			return EvaluationError::NumericalFailure;
-		next.Diagnostics.Work += preparationWork;
-		if (!scratch.Openings.empty() && settings.OpeningGridSize > 1 &&
-			(next.OcclusionGainLF < 1 || next.OcclusionGainHF < 1))
+
+		// The reference samples openings after reflections. If those samples exhaust the
+		// remaining work, it never queries their visibility or searches the graph.
+		const auto sampleBudget = settings.CandidateBudget - next.Diagnostics.Work;
+		next.Diagnostics.Work += std::min(preparationWork, sampleBudget);
+		if (next.Diagnostics.Work < settings.CandidateBudget && !prepared.Openings.empty() &&
+			settings.OpeningGridSize > 1 && (next.OcclusionGainLF < 1 || next.OcclusionGainHF < 1))
 		{
+			scratch.Openings = prepared.Openings;
 			context.Visibility = visibility;
 			SearchOpenings(context);
 			if (context.Invalid)
 				return EvaluationError::NumericalFailure;
 		}
+		next.Diagnostics.WorkLimited |= next.Diagnostics.Work >= settings.CandidateBudget;
 		output = std::move(next);
 		return EvaluationError::None;
 	}
