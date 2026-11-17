@@ -12,6 +12,7 @@
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Editor/SelectionManager.h"
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Renderer/Image.h"
@@ -763,7 +764,8 @@ namespace Lux {
 
 		// The scene round trip (every component written, read back and copied) rides along: no editor clicks needed.
 		std::vector<std::string> sceneFailures;
-		const bool scenePassed = SceneSerializer::RunRoundTripSelfTests(&sceneFailures);
+		bool scenePassed = SceneSerializer::RunRoundTripSelfTests(&sceneFailures);
+		scenePassed = RunAnimationGraphSelfTests(&sceneFailures) && scenePassed;
 		std::ofstream sceneFile(m_OutputDirectory / "scene-serializer-selftest.txt", std::ios::trunc);
 		sceneFile << (scenePassed ? "PASS" : "FAIL") << "\n";
 		for (const std::string& failure : sceneFailures)

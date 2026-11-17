@@ -47,6 +47,7 @@ namespace Lux
 			s_Serializers[AssetType::Prefab] = std::make_unique<PrefabSerializer>();
 			s_Serializers[AssetType::Skeleton] = CreateScope<SkeletonSerializer>();
 			s_Serializers[AssetType::Animation] = CreateScope<AnimationSerializer>();
+			s_Serializers[AssetType::AnimationGraph] = CreateScope<AnimationGraphSerializer>();
 		}
 
 		void EnsureInitialized()

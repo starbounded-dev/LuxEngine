@@ -28,6 +28,7 @@ ASSETS = ROOT / "Editor/LuxSampleProject/Assets"
 MESH, SKELETON, SCENE = 7400000000000000001, 7400000000000000002, 7300000000000000001
 MATERIAL_A, MATERIAL_B = 2110506557084641280, 8419695537258757221
 CLIP = 7400000000000000004
+GRAPH, IDLE = 7400000000000000012, 7400000000000000003
 
 PROJECT = """Project:
   Name: RigExport
@@ -53,13 +54,17 @@ RIGS = {
 }
 
 
-def registry_text(rig, scene_handle):
+def registry_text(rig, scene_handle, graph=False):
     folder, mesh, skeleton, clip, materials = RIGS[rig]
     entries = [(scene_handle, "Scenes/RigExport.luxscene", "Scene"),
                (MESH, f"Meshes/Source/{folder}/{mesh}", "MeshSource"),
                (SKELETON, f"Meshes/Source/{folder}/{skeleton}", "Skeleton")]
     if clip:
         entries.append((CLIP, f"Meshes/Source/{folder}/{clip}", "Animation"))
+    if graph:
+        # the graph names both clips; the pack collector has to find them through it
+        entries.append((IDLE, f"Meshes/Source/{folder}/LuxBiped_Idle.lanim", "Animation"))
+        entries.append((GRAPH, f"Meshes/Source/{folder}/LuxBiped.lanimgraph", "AnimationGraph"))
     entries += [(h, f"Meshes/Source/{folder}/Materials/{f}", "Material") for h, f in materials]
     return "Assets:\n" + "".join(f"  - Handle: {h}\n    FilePath: {p}\n    Type: {t}\n" for h, p, t in entries)
 
@@ -143,13 +148,18 @@ Entities:
 """
 
 
-def write_project(project, config, rig):
+def write_project(project, config, rig, graph=False):
     assets = project / "Assets"
     (assets / "Scenes").mkdir(parents=True)
     shutil.copytree(ASSETS / "Meshes/Source" / RIGS[rig][0], assets / "Meshes/Source" / RIGS[rig][0])
     extra = f"      Clip: {CLIP}\n" if RIGS[rig][3] else "      DebugBone: Bone.001\n      DebugBendDegrees: 55\n"
+    if graph:
+        extra = f"      Graph: {GRAPH}\n"
+        # Speed defaults to 1: the graph starts in Idle and moves to Walk on the first update
+        text = (ASSETS / "Meshes/Source/LuxBiped/LuxBiped.lanimgraph").read_text(encoding="utf-8")
+        (assets / "Meshes/Source/LuxBiped/LuxBiped.lanimgraph").write_text(text.replace("      Type: Float\n", "      Type: Float\n      Default: 1\n", 1), encoding="utf-8", newline="\n")
     (project / "RigExport.luxproj").write_text(PROJECT.format(scene=SCENE, config=config.capitalize()), encoding="utf-8", newline="\n")
-    (assets / "AssetRegistry.lzr").write_text(registry_text(rig, SCENE), encoding="utf-8", newline="\n")
+    (assets / "AssetRegistry.lzr").write_text(registry_text(rig, SCENE, graph), encoding="utf-8", newline="\n")
     (assets / "Scenes/RigExport.luxscene").write_text(SCENE_YAML.format(mesh=MESH, skeleton=SKELETON, skeleton_extra=extra), encoding="utf-8", newline="\n")
 
 
@@ -158,6 +168,7 @@ def main():
     parser.add_argument("--config", default="release", choices=["debug", "release"], help="editor configuration")
     parser.add_argument("--runtime-config", choices=["debug", "release", "dist"], help="the exported player's configuration (default: --config); dist has no shader compiler, so it needs Skinning.glsl in the shader pack")
     parser.add_argument("--rig", default="luxbiped", choices=sorted(RIGS), help="luxbiped: binary FBX with a playing clip; simple: glTF with the debug bend")
+    parser.add_argument("--graph", action="store_true", help="luxbiped only: play through an animation graph instead of one clip")
     parser.add_argument("--seconds", type=float, default=15.0, help="how long the player runs before it is stopped")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
@@ -165,7 +176,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="lux-rig-export-") as temporary:
         root = Path(temporary)
         project = root / "project"
-        write_project(project, args.runtime_config or args.config, args.rig)
+        write_project(project, args.runtime_config or args.config, args.rig, args.graph)
         user = root / "user"
         user.mkdir()
         (user / "UserPreferences.yaml").write_text("UserPrefs:\n  ShowSplashScreen: false\n  RecentProjects: []\n", encoding="utf-8")
@@ -207,6 +218,8 @@ def main():
             problems.append("the player exited by itself before it was stopped")
         if "Skinning '" not in text:
             problems.append("the player never built a skinning pass (no \"Skinning '...'\" line): the skinned mesh or its skeleton did not reach the renderer")
+        if args.graph and "graph state 'Walk'" not in text:
+            problems.append("the animation graph never moved to its Walk state (no \"graph state 'Walk'\" line): the graph or its clips did not load from the asset pack")
         if RIGS[args.rig][3] and "playing clip '" not in text:
             problems.append("the player never played the clip (no \"playing clip '...'\" line): the animation did not load from the asset pack")
         for line in text.splitlines():

@@ -440,6 +440,8 @@ namespace Lux {
 					out << Yaml::Key << "DebugBendDegrees" << Yaml::Value << skeleton.DebugBendDegrees;
 				if (skeleton.Clip)
 					out << Yaml::Key << "Clip" << Yaml::Value << skeleton.Clip;
+				if (skeleton.Graph)
+					out << Yaml::Key << "Graph" << Yaml::Value << skeleton.Graph;
 				if (skeleton.StartTime != 0.0f)
 					out << Yaml::Key << "StartTime" << Yaml::Value << skeleton.StartTime;
 				if (skeleton.Speed != 1.0f)
@@ -1046,6 +1048,7 @@ namespace Lux {
 					component.DebugBone = skeleton["DebugBone"].as<std::string>("");
 					component.DebugBendDegrees = skeleton["DebugBendDegrees"].as<float>(0.0f);
 					component.Clip = skeleton["Clip"].as<uint64_t>(0);
+					component.Graph = skeleton["Graph"].as<uint64_t>(0);
 					component.StartTime = skeleton["StartTime"].as<float>(0.0f);
 					component.Speed = skeleton["Speed"].as<float>(1.0f);
 					component.Loop = skeleton["Loop"].as<bool>(true);
@@ -1837,6 +1840,7 @@ namespace Lux {
 		skeleton.DebugBone = "Bone.001";
 		skeleton.DebugBendDegrees = 25.0f;
 		skeleton.Clip = 0xC11Full;
+		skeleton.Graph = 0x6A4Full;
 		skeleton.StartTime = 0.5f;
 		skeleton.Speed = -1.5f;
 		skeleton.Loop = false;
@@ -1887,7 +1891,7 @@ namespace Lux {
 			{
 				if (copied->SkeletonAsset != expectedSkeleton.SkeletonAsset || copied->Enabled != expectedSkeleton.Enabled
 					|| copied->DebugBone != expectedSkeleton.DebugBone || copied->DebugBendDegrees != expectedSkeleton.DebugBendDegrees
-					|| copied->Clip != expectedSkeleton.Clip || copied->StartTime != expectedSkeleton.StartTime || copied->Speed != expectedSkeleton.Speed
+					|| copied->Clip != expectedSkeleton.Clip || copied->Graph != expectedSkeleton.Graph || copied->StartTime != expectedSkeleton.StartTime || copied->Speed != expectedSkeleton.Speed
 					|| copied->Loop != expectedSkeleton.Loop || copied->PlayOnStart != expectedSkeleton.PlayOnStart || copied->FadeSeconds != expectedSkeleton.FadeSeconds
 					|| copied->RootMotion != expectedSkeleton.RootMotion || copied->RootBone != expectedSkeleton.RootBone)
 					fail(std::format("{} changed skeleton data", operation));

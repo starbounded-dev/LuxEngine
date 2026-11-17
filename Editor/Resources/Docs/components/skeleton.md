@@ -11,6 +11,7 @@ Import a rigged model (glTF, or binary or text FBX, such as a Mixamo character).
 - **Skeleton** — the skeleton file the mesh is skinned to. Drag it from the Content Browser.
 - **Enabled** (the header checkbox) — turn it off to draw the mesh unskinned.
 - **Clip** — the animation file to play. Changing it while the clip plays fades from the old clip to the new one over **Fade Seconds**.
+- **Graph** — an animation graph file (create one with **Create → Animation Graph** in the Content Browser). It replaces **Clip**: the graph chooses the clip from parameters that scripts set. See [Animation Graph](animation-graph).
 - **Play On Start** — play when the scene starts. Off holds the pose at **Start Time** until a script or animation graph plays it; in the editor, changing **Start Time** scrubs the pose in the viewport.
 - **Loop**, **Speed** — wrap at the end of the clip or hold the last pose; play faster, slower or backwards.
 - **Root Motion** and **Root Bone** — while the scene runs, move the entity by the root bone's horizontal travel instead of animating the mesh in place. **Root Bone** names the bone; empty picks the first bone with a position track. In the editor the mesh is pinned in place and the entity never moves, so editing a scene does not change it.

@@ -271,6 +271,7 @@ namespace Lux {
 		AssetHandle CreateSceneAsset();
 		AssetHandle CreateMaterialAsset();
 		AssetHandle CreateAudioSurfaceTable();
+		AssetHandle CreateAnimationGraph();
 		AssetHandle CreateDialogueTable();
 		// A Sound playing clip (an Audio asset), or an empty one when clip is 0. Named after the clip.
 		// One clip makes a Sound playing it; several make a Random container of them.

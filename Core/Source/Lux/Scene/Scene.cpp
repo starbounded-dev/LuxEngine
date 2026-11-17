@@ -34,6 +34,7 @@
 #include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/PhysicalLight.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Animator.h"
 #include "Lux/Animation/AnimationPose.h"
 #include "Lux/Animation/SkinPalette.h"
@@ -863,19 +864,10 @@ namespace Lux {
 			for (auto entity : skeletonView)
 			{
 				SkeletonComponent& component = skeletonView.get<SkeletonComponent>(entity);
-				if (!component.Enabled || !component.Clip || (onlyMissingPose && !component.State.ModelPose.empty()))
+				if (!component.Enabled || (!component.Clip && !component.Graph) || (onlyMissingPose && !component.State.ModelPose.empty()))
 					continue;
-				Ref<Animation> clip = AssetManager::GetAsset<Animation>(component.Clip);
 				Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
-				static thread_local std::unordered_set<AssetHandle> reported;
-				if (reported.insert(component.Clip).second)
-				{
-					if (clip)
-						LUX_CORE_INFO("Animation: playing clip '{}': {} tracks, {:.2f} s", clip->GetName(), clip->GetTracks().size(), clip->GetDuration());
-					else
-						LUX_CORE_WARN("Animation: clip {} could not be loaded", static_cast<uint64_t>(component.Clip));
-				}
-				if (!clip || !skeleton || skeleton->IsEmpty())
+				if (!skeleton || skeleton->IsEmpty())
 					continue;
 
 				AnimatorState& state = component.State;
@@ -884,18 +876,58 @@ namespace Lux {
 					ResetAnimator(state, component.StartTime, component.PlayOnStart);
 					state.PlayMode = play;
 				}
+
+				// An animation graph chooses the clip: its current state's, with that state's speed and loop.
+				Ref<AnimationGraph> graph = component.Graph ? AssetManager::GetAsset<AnimationGraph>(component.Graph) : nullptr;
+				if (component.Graph && (!graph || graph->States.empty()))
+					continue;
+				if (graph && !state.Graph.Initialized)
+				{
+					ResetGraph(*graph, state.Graph);
+					state.GraphClip = graph->States[state.Graph.CurrentState].Clip;
+				}
+				AssetHandle clipHandle = graph ? state.GraphClip : component.Clip;
+				Ref<Animation> clip = AssetManager::GetAsset<Animation>(clipHandle);
+				static thread_local std::unordered_set<AssetHandle> reported;
+				if (reported.insert(clipHandle).second)
+				{
+					if (clip)
+						LUX_CORE_INFO("Animation: playing clip '{}': {} tracks, {:.2f} s", clip->GetName(), clip->GetTracks().size(), clip->GetDuration());
+					else
+						LUX_CORE_WARN("Animation: clip {} could not be loaded", static_cast<uint64_t>(clipHandle));
+				}
+				if (!clip)
+					continue;
+
 				// An editor preview that is not playing follows the authored start time, so scrubbing it shows.
 				if (!play && !component.PlayOnStart)
 					state.Time = component.StartTime;
 
+				// One graph transition per update; the fade runs inside the animator.
+				if (graph && !paused && ts > 0.0f && state.Playing)
+				{
+					const float normalized = clip->GetDuration() > 0.0f ? state.Time / clip->GetDuration() : 0.0f;
+					const AnimationGraphStep step = UpdateGraph(*graph, state.Graph, normalized);
+					if (step.Transitioned)
+					{
+						StartCrossFade(state, state.GraphClip, step.FadeSeconds);
+						state.GraphClip = graph->States[step.State].Clip;
+						LUX_CORE_INFO("Animation: graph state '{}'", graph->States[step.State].Name);
+						clipHandle = state.GraphClip;
+						clip = AssetManager::GetAsset<Animation>(clipHandle);
+						if (!clip)
+							continue;
+					}
+				}
+
 				AnimatorSettings settings;
-				settings.Speed = component.Speed;
-				settings.Loop = component.Loop;
+				settings.Speed = component.Speed * (graph ? graph->States[state.Graph.CurrentState].Speed : 1.0f);
+				settings.Loop = graph ? graph->States[state.Graph.CurrentState].Loop : component.Loop;
 				if (component.RootMotion)
 					settings.RootBone = component.RootBone.empty() ? FindRootMotionBone(*skeleton, *clip) : skeleton->GetBoneIndex(component.RootBone);
 				Ref<Animation> fadeFrom = state.FadeFromClip ? AssetManager::GetAsset<Animation>(state.FadeFromClip) : nullptr;
 
-				const glm::vec3 travel = AdvanceAnimator(state, settings, *skeleton, *clip, component.Clip, fadeFrom.Raw(), paused ? 0.0f : ts);
+				const glm::vec3 travel = AdvanceAnimator(state, settings, *skeleton, *clip, clipHandle, fadeFrom.Raw(), paused ? 0.0f : ts);
 				if (play && !paused && component.RootMotion)
 				{
 					if (TransformComponent* transform = registry.try_get<TransformComponent>(entity))
@@ -3699,12 +3731,25 @@ namespace Lux {
 		{
 			const auto& skeleton = skeletonView.get<SkeletonComponent>(entity);
 			addIfValid(skeleton.SkeletonAsset);
-			addIfValid(skeleton.Clip);
-			// A packed clip never ships without the skeleton it was authored against.
-			if (skeleton.Clip)
+			// A packed clip never ships without the skeleton it was authored against; a graph ships every clip it plays.
+			const auto addClip = [&](AssetHandle handle)
 			{
-				if (Ref<Animation> clip = AssetManager::GetAsset<Animation>(skeleton.Clip))
-					addIfValid(clip->GetSkeletonHandle());
+				addIfValid(handle);
+				if (handle)
+				{
+					if (Ref<Animation> clip = AssetManager::GetAsset<Animation>(handle))
+						addIfValid(clip->GetSkeletonHandle());
+				}
+			};
+			addClip(skeleton.Clip);
+			addIfValid(skeleton.Graph);
+			if (skeleton.Graph)
+			{
+				if (Ref<AnimationGraph> graph = AssetManager::GetAsset<AnimationGraph>(skeleton.Graph))
+				{
+					for (const AnimationGraphState& state : graph->States)
+						addClip(state.Clip);
+				}
 			}
 		}
 

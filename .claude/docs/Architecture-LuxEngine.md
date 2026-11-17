@@ -842,6 +842,21 @@ Rules:
   the real binary-FBX rig (travel per loop across wraps, held pose, backwards, cross-fade ends).
   `Scene::GetAssetList` collects the clip and the skeleton the clip names, so an export never ships a
   clip without it; `tests/animation/run_export_rig.py` plays the packaged FBX rig and clip.
+- **`AnimationGraph` (`.lanimgraph`) is a state machine that picks the clip** (`Animation/AnimationGraph.h`):
+  parameters (Float, Bool, Trigger), states (a clip, speed, loop each), ordered transitions (conditions,
+  optional exit time, cross-fade seconds, `Any` source). It is YAML text (`AnimationGraphYaml.cpp`), also
+  the pack form (a length-prefixed string, 4 MiB cap); `AnimationGraphSerializer`
+  (`AnimationAssetSerializer.cpp`) is registered in `AssetImporter.cpp` and the type is in
+  `IsSerializedByAssetPack`. `Validate` resolves condition parameter indices and refuses a graph that does
+  not hold together at load, save and pack time. `SkeletonComponent::Graph` replaces `Clip`; its runtime
+  is `AnimatorState::Graph` (`AnimationGraphRuntime`: current state, parameter values) and
+  `AdvanceAnimators` calls `UpdateGraph` once per update, which takes at most one transition (first match
+  in file order; a taken transition clears the triggers it tested) and starts a cross-fade through the
+  animator. `SetGraphFloat/Bool/Trigger` are the gameplay-facing setters (A5 binds them).
+  `Scene::GetAssetList` collects the graph, every state clip and each clip's skeleton. The logic is
+  tested headless (`SkeletalImportTests.cpp`, `CheckGraph`); the YAML half by
+  `RunAnimationGraphSelfTests`, run from the golden capture's self-test; the exported game by
+  `run_export_rig.py --graph`. Blend trees, layers and the graph editor are not built.
 - **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
   one invocation per vertex over four raw word buffers at `set = 1`, `binding = 40..43` (source
   `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing

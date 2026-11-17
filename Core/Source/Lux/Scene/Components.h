@@ -585,6 +585,7 @@ namespace Lux {
 		// Playback of one clip (Animation asset). With no Clip the mesh holds the rest pose (plus the debug bend).
 		// These are authored and saved; what playback changes lives in State and is never saved.
 		AssetHandle Clip = 0;
+		AssetHandle Graph = 0;     // an AnimationGraph that picks the clip (and Speed and Loop per state); Clip is then ignored
 		float StartTime = 0.0f;    // seconds into the clip where playback starts (or holds, when not playing on start)
 		float Speed = 1.0f;        // playback rate; negative plays backwards
 		bool Loop = true;

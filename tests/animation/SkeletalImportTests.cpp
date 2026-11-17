@@ -7,6 +7,7 @@
 #include "lpch.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Animator.h"
 #include "Lux/Animation/AnimationPose.h"
 #include "Lux/Animation/SkinPalette.h"
@@ -19,6 +20,7 @@
 #include <assimp/scene.h>
 
 #include <cmath>
+#include <limits>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -276,6 +278,69 @@ static void CheckCompression(const std::filesystem::path& folder, const std::fil
 	}
 	Ref<Animation> empty = Ref<Animation>::Create(), emptyBack;
 	CHECK(Load(emptyBack, Save(empty, out / "empty.lanim")) && emptyBack->GetTracks().empty());
+}
+
+// A3: the state machine's logic (parameters, conditions, exit time, Any, triggers). Built in code; the YAML form is
+// tested by RunAnimationGraphSelfTests in the golden capture.
+static void CheckGraph()
+{
+	AnimationGraph graph;
+	graph.Parameters = { { "Speed", AnimationParameterType::Float, 0.0f }, { "Grounded", AnimationParameterType::Bool, 1.0f }, { "Jump", AnimationParameterType::Trigger, 0.0f } };
+	graph.States = { { "Idle", 1, 1.0f, true }, { "Walk", 2, 1.0f, true }, { "Jump", 3, 1.0f, false } };
+	graph.Transitions.push_back({ 0, 1, 0.25f, -1.0f, { { "Speed", AnimationConditionOp::Greater, 0.1f, 0 } } });
+	graph.Transitions.push_back({ 1, 0, 0.25f, -1.0f, { { "Speed", AnimationConditionOp::Less, 0.1f, 0 } } });
+	graph.Transitions.push_back({ AnimationGraphTransition::AnyState, 2, 0.1f, -1.0f, { { "Jump", AnimationConditionOp::Triggered, 0.0f, 0 }, { "Grounded", AnimationConditionOp::True, 0.0f, 0 } } });
+	graph.Transitions.push_back({ 2, 0, 0.3f, 0.9f, {} }); // out of Jump once 90% of it has played
+	std::string error;
+	CHECK(graph.Validate(&error));
+	CHECK(graph.Transitions[0].Conditions[0].ParameterIndex == 0 && graph.Transitions[2].Conditions[1].ParameterIndex == 1);
+
+	AnimationGraphRuntime runtime;
+	ResetGraph(graph, runtime);
+	CHECK(runtime.CurrentState == 0 && runtime.Values.size() == 3 && runtime.Values[1] == 1.0f);
+	CHECK(!UpdateGraph(graph, runtime, 0.0f).Transitioned); // Speed 0: stays idle
+
+	CHECK(SetGraphFloat(graph, runtime, "Speed", 1.0f));
+	AnimationGraphStep step = UpdateGraph(graph, runtime, 0.0f);
+	CHECK(step.Transitioned && step.State == 1 && runtime.CurrentState == 1 && Near(step.FadeSeconds, 0.25f));
+	CHECK(!UpdateGraph(graph, runtime, 0.5f).Transitioned); // walking, speed still above the threshold
+
+	// A trigger is consumed by the transition that tests it, and only fires when its other conditions hold.
+	CHECK(SetGraphBool(graph, runtime, "Grounded", false));
+	CHECK(SetGraphTrigger(graph, runtime, "Jump"));
+	CHECK(!UpdateGraph(graph, runtime, 0.5f).Transitioned && runtime.Values[2] == 1.0f); // airborne: the trigger waits
+	CHECK(SetGraphBool(graph, runtime, "Grounded", true));
+	step = UpdateGraph(graph, runtime, 0.5f);
+	CHECK(step.Transitioned && step.State == 2 && runtime.Values[2] == 0.0f && Near(step.FadeSeconds, 0.1f));
+
+	// Exit time: Jump waits until 90% of the clip has played, then the next one fires (one per update).
+	CHECK(!UpdateGraph(graph, runtime, 0.5f).Transitioned);
+	step = UpdateGraph(graph, runtime, 0.95f);
+	CHECK(step.Transitioned && step.State == 0);
+	step = UpdateGraph(graph, runtime, 0.0f);
+	CHECK(step.Transitioned && step.State == 1); // idle -> walk, Speed is still 1
+
+	// The setters refuse unknown names, wrong types and non-finite values.
+	CHECK(!SetGraphFloat(graph, runtime, "Nope", 1.0f) && !SetGraphFloat(graph, runtime, "Grounded", 1.0f) && !SetGraphBool(graph, runtime, "Speed", true));
+	CHECK(!SetGraphTrigger(graph, runtime, "Speed") && !SetGraphFloat(graph, runtime, "Speed", std::numeric_limits<float>::infinity()));
+	float value = -1.0f;
+	CHECK(GetGraphFloat(graph, runtime, "Speed", value) && value == 1.0f && !GetGraphFloat(graph, runtime, "Nope", value));
+
+	// A graph that does not hold together is refused.
+	AnimationGraph bad = graph;
+	bad.Transitions.push_back({ 0, 9, 0.1f, -1.0f, {} });
+	CHECK(!bad.Validate(&error));
+	bad = graph;
+	bad.Transitions[0].Conditions[0].Parameter = "Nope";
+	CHECK(!bad.Validate(&error));
+	bad = graph;
+	bad.States[1].Name = "Idle";
+	CHECK(!bad.Validate(&error));
+	bad = graph;
+	bad.Transitions[2].Conditions[1].Op = AnimationConditionOp::Triggered; // Triggered on a Bool
+	CHECK(!bad.Validate(&error));
+	AnimationGraph empty;
+	CHECK(!empty.Validate(&error));
 }
 
 static glm::vec3 Horizontal3(const glm::vec3& v) { return { v.x, 0.0f, v.z }; }
@@ -657,6 +722,7 @@ int main(int argc, char** argv)
 	CheckFormatsAgree(model.parent_path());
 	CheckPlayback();
 	CheckAnimator(model.parent_path());
+	CheckGraph();
 	CheckCompression(model.parent_path(), out);
 
 	// A file that cannot be read reports failure and produces nothing.

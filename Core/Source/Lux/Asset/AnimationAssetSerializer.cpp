@@ -6,8 +6,11 @@
 
 #include "AssetManager.h"
 #include "Lux/Animation/Animation.h"
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Skeleton.h"
 #include "Lux/Project/Project.h"
+
+#include <fstream>
 
 namespace Lux
 {
@@ -74,6 +77,92 @@ namespace Lux
 			}
 			return typed;
 		}
+	}
+
+	namespace
+	{
+		constexpr uint64_t k_MaxGraphBytes = 4 * 1024 * 1024; // the loader, the saver and the pack share one limit
+	}
+
+	bool AnimationGraphSerializer::TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+	{
+		Ref<Asset> mutableAsset = asset; // Validate resolves indices, so it needs a non-const graph
+		Ref<AnimationGraph> graph = mutableAsset.As<AnimationGraph>();
+		std::string error;
+		if (!graph || !graph->Validate(&error))
+		{
+			LUX_CORE_ERROR("Cannot save invalid animation graph '{}': {}", metadata.FilePath.string(), error);
+			return false;
+		}
+		const std::string text = graph->ToYAML();
+		if (text.size() > k_MaxGraphBytes)
+		{
+			LUX_CORE_ERROR("Animation graph '{}' exceeds the serialized size limit; not saved", metadata.FilePath.string());
+			return false;
+		}
+		std::ofstream file(Project::GetActiveAssetDirectory() / metadata.FilePath, std::ios::binary | std::ios::trunc);
+		file << text;
+		file.flush();
+		if (!file)
+		{
+			LUX_CORE_ERROR("Failed to save animation graph '{}'", metadata.FilePath.string());
+			return false;
+		}
+		return true;
+	}
+
+	void AnimationGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const { TrySerialize(metadata, asset); }
+
+	bool AnimationGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
+	{
+		std::ifstream file(Project::GetActiveAssetDirectory() / metadata.FilePath, std::ios::binary | std::ios::ate);
+		if (!file || file.tellg() < 0 || static_cast<uint64_t>(file.tellg()) > k_MaxGraphBytes)
+		{
+			LUX_CORE_ERROR("Cannot read animation graph '{}' (missing or oversized)", metadata.FilePath.string());
+			return false;
+		}
+		std::string text(static_cast<size_t>(file.tellg()), '\0');
+		file.seekg(0);
+		if (!file.read(text.data(), text.size()))
+			return false;
+		auto graph = Ref<AnimationGraph>::Create();
+		if (!graph->FromYAML(text))
+			return false;
+		graph->Handle = metadata.Handle;
+		asset = graph;
+		return true;
+	}
+
+	bool AnimationGraphSerializer::SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const
+	{
+		const auto graph = AssetManager::GetAsset<AnimationGraph>(handle);
+		if (!graph)
+			return false;
+		const std::string text = graph->ToYAML();
+		if (text.size() > k_MaxGraphBytes)
+			return false;
+		outInfo.Offset = stream.GetStreamPosition();
+		stream.WriteRaw<uint64_t>(text.size());
+		stream.WriteData(text.data(), text.size());
+		outInfo.Size = stream.GetStreamPosition() - outInfo.Offset;
+		return stream.IsStreamGood();
+	}
+
+	Ref<Asset> AnimationGraphSerializer::DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& info) const
+	{
+		stream.SetStreamPosition(info.PackedOffset);
+		uint64_t size = 0;
+		if (info.PackedSize < sizeof(size) || !stream.ReadData(reinterpret_cast<char*>(&size), sizeof(size))
+			|| size > k_MaxGraphBytes || size != info.PackedSize - sizeof(size))
+		{
+			LUX_CORE_ERROR("Invalid packed animation graph size");
+			return nullptr;
+		}
+		std::string text(static_cast<size_t>(size), '\0');
+		if (!stream.ReadData(text.data(), text.size()))
+			return nullptr;
+		auto graph = Ref<AnimationGraph>::Create();
+		return graph->FromYAML(text) ? graph : nullptr;
 	}
 
 	void SkeletonSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const { TrySerialize(metadata, asset); }

@@ -63,6 +63,7 @@ namespace Lux
 				case AssetType::Prefab:
 				case AssetType::Skeleton:
 				case AssetType::Animation:
+				case AssetType::AnimationGraph:
 					return true;
 				default:
 					return false;

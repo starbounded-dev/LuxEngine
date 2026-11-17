@@ -10,6 +10,7 @@
 #include "Lux/Audio/Sound.h"
 
 #include "Lux/Animation/Animation.h"
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetImporter.h"
@@ -3774,6 +3775,17 @@ namespace Lux {
 					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [clipHandle, fade](SkeletonComponent& component, Entity)
 					{
 						component.CrossFadeTo(clipHandle, fade ? component.FadeSeconds : 0.0f);
+					});
+				}
+
+				AssetHandle graphHandle = firstComponent.Graph;
+				if (ImGuiEx::PropertyAssetReference<AnimationGraph>("Graph", graphHandle, "An animation graph (.lanimgraph) that chooses the clip from parameters. Replaces Clip."))
+				{
+					firstComponent.Graph = graphHandle;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [graphHandle](SkeletonComponent& component, Entity)
+					{
+						component.Graph = graphHandle;
+						component.State = AnimatorState(); // restart from the graph's default state
 					});
 				}
 

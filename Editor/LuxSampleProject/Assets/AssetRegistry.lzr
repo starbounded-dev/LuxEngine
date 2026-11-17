@@ -263,6 +263,12 @@ Assets:
   - Handle: 7400000000000000011
     FilePath: Scenes/LuxBipedRootMotion.luxscene
     Type: Scene
+  - Handle: 7400000000000000012
+    FilePath: Meshes/Source/LuxBiped/LuxBiped.lanimgraph
+    Type: AnimationGraph
+  - Handle: 7400000000000000013
+    FilePath: Scenes/LuxBipedGraph.luxscene
+    Type: Scene
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture

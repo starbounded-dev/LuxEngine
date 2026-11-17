@@ -17,6 +17,17 @@ namespace Lux
 		Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
 	};
 
+	// .lanimgraph: YAML text (AnimationGraph::ToYAML), the same text in asset packs.
+	class AnimationGraphSerializer : public AssetSerializer
+	{
+	public:
+		void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+		bool TrySerialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+		bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+		bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+		Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+	};
+
 	// .lanim: the "LZAN" blob (Animation::Serialize), the same bytes in asset packs.
 	class AnimationSerializer : public AssetSerializer
 	{

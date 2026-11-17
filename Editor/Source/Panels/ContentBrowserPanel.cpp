@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Audio/AudioEngine.h"
@@ -245,6 +246,8 @@ namespace Lux {
 								CreateMaterialAsset();
 							if (ImGui::MenuItem("Audio Surface Table"))
 								CreateAudioSurfaceTable();
+							if (ImGui::MenuItem("Animation Graph"))
+								CreateAnimationGraph();
 							if (ImGui::MenuItem("Dialogue Table"))
 								CreateDialogueTable();
 							if (ImGui::MenuItem("Sound"))
@@ -1671,6 +1674,34 @@ namespace Lux {
 		if (!file)
 		{
 			LUX_CORE_ERROR_TAG("Audio", "Could not create surface table '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateAnimationGraph()
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / "New Animation Graph.lanimgraph");
+		// One empty state, so the file is valid; assign its clip and add states and transitions by editing the file
+		// (the graph editor panel arrives with the editor animation tools).
+		AnimationGraph graph;
+		graph.States.push_back({ "Idle", 0, 1.0f, true });
+		std::ofstream file(path);
+		file << graph.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR("Could not create animation graph '{}'", path.string());
 			return 0;
 		}
 		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
