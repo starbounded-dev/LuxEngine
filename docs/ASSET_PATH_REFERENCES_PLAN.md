@@ -226,3 +226,155 @@ whole-file diff), and whether to convert committed scenes in one deliberate comm
 
 **Converted in this spike (separate commit; `AudioSponza` is a whole-file diff because entity order changes on save):** `AudioSponza.luxscene`, `Audio/Sounds/*.lsound`,
 `Audio/Banks/*.lbank`.
+
+---
+
+# Part 8 — Next slice: finish the conversion and retire the committed registry
+
+Written 2026-11-17 after the spike (commits `4978800f`..`bf065e64`). Plan only. Web research was
+skipped: the design is fixed by the engine's own serializers and the spike's Part 6 prior-art notes.
+
+**Goal card**
+- **Goal:** every reference the engine saves is an Assets-relative path, saves are stable (no
+  reordering churn), broken references are reported with candidates, and `AssetRegistry.lzr` can leave git.
+- **Success:** in a fresh sparse worktree with the registry deleted, **all 13 committed scenes** and
+  every `.lmat`/`.lsound`/`.lbank`/`.lprefab` load with 0 unresolved references (harness `check`);
+  a second save is **byte-identical**; opening a project never modifies a tracked file; the registry
+  is untracked and the sample still opens.
+- **Non-goals:** the asset-pack format (stays handle-based and numeric), runtime player changes,
+  Linux, content-hash identity, `.meta` sidecars.
+- **Constraints:** old numeric files keep loading; packs, snapshots and undo diffs stay numeric;
+  never launch the editor without explicit OK that turn; never `Project::Load` against the main checkout.
+- **Owner's words:** "it should work in a relative location from the asset folder."
+
+## 8.0 Where we are (ledger; ✅ read in source this session, ⚠️ read, not run)
+
+| Fact | State | Evidence |
+|---|---|---|
+| **Material texture refs already save as paths**, packs as handles, via `TextureReferenceSerialization::{AssetPaths,AssetHandles}` | ✅ | `Asset/MaterialSerializer.cpp` `WriteTextureReference`, `TrySerialize` (paths) vs `SerializeToAssetPack` (handles); the committed `.lmat` files already hold paths (`AlbedoMap: Meshes/Source/Sponza/<n>.jpg`) |
+| Material `Parent` is a bare number in files | ✅ | `MaterialSerializer.cpp` write ~line 425, read ~616 (`as<uint64_t>`); 2 of 213 `.lmat` hold a numeric `Parent`/`Texture`/`Graph` |
+| Material graph nodes write `Texture` and `Graph` as numbers; `MaterialGraph::Serialize` is shared by file and pack | ✅ | `Renderer/MaterialGraph/MaterialGraph.cpp` ~784/786 write, ~838/846 read |
+| Prefab base files go through `SceneSerializer::Serialize(path)`, so they are **already path form** after the spike | ✅ | `Asset/PrefabSerializer.cpp` `WritePrefabFile` |
+| Prefab **variants** use `SerializeToString()` (numeric) plus `BasePrefab: <number>` | ✅ | same function; read in `TryLoadData` as `node["BasePrefab"].as<uint64_t>` |
+| `.lmesh` / `.lsmesh` / `.lmc` write `MeshSource` / `Mesh` as numbers | ✅ | `Asset/MeshSerializer.cpp` lines 44, 80; the sample project has **no** such files, so this content is untested |
+| `.luxproj` holds one handle, `RuntimeExport.IconHandle`; `StartScene` is already a path with a numeric fallback | ✅ | `Project/ProjectSerializer.cpp` 733, 842–844, 1011–1017; `LuxSample.luxproj` line 22 |
+| Scene `FontHandle` is a number; the default font is a memory asset | ✅ | `SceneSerializer.cpp`; `Editor/Source/Panels/SceneHierarchyPanel.cpp` `Font::GetDefaultFont()->Handle` |
+| The repo has one project, one registry, 13 scenes | ✅ | `git ls-files` |
+| **Entity order flips on every save** | observed; ⚠️ cause is a hypothesis | `SceneSerializer::SerializeToYAML` iterates `m_Registry.each`; Deserialize creates entities in file order. If `each` visits newest first, every save reverses the file. Commit `bd9c7391` wrote the current loop to fix an earlier reversal: check what it assumed |
+| Unresolved paths are remembered (`AssetReference::Unresolved()`); unresolved numbers are not | ✅ | `Asset/AssetReference.h` |
+| Loading a project already rewrites the registry (3 added lines in a clean worktree) | observed | spike worktree `git status` after `Project::Load` |
+
+## 8.1 Decisions
+
+| Decision | Options | Recommendation | Consequence |
+|---|---|---|---|
+| Entity order | A: make load → save the identity. B: leave it | **A, first** | Otherwise every converted scene is a whole-file diff (Benchmark is 129k lines) |
+| Retiring the registry | A: gitignore after every ref converts (a rebuilt cache). B: keep it committed and only repair | **A, last, gated by a measurement** | Needs all tracked files converted; a clean clone re-imports every file |
+| Repair | A: report with candidates in Core. B: an editor modal | **A now, B later** | B needs ImGui and an editor launch to verify, which needs your OK |
+| Converting committed scenes | A: one deliberate commit after the order fix. B: lazily on next save | **A** | One reviewable diff of reference lines |
+| Memory-only assets (default font, procedural meshes) | stay numeric | stay numeric | They are not registry-backed, so they never broke |
+
+## 8.2 Design additions
+
+- **Rule unchanged:** write paths only inside `AssetReference::PathModeScope` opened by a *file*
+  save; reads accept both; packs, snapshots and `SerializeRuntime` stay numeric.
+- **Material file save** opens the scope when `textureReferenceSerialization == AssetPaths`. That
+  covers `Parent` and the graph's `Texture`/`Graph`. The pack path stays unscoped, so the shared
+  `MaterialGraph::Serialize` stays numeric there.
+- **NEW `AssetReference::Report()` / `FindCandidates(path)`:** drains the unresolved store into
+  (path, count, candidates) for a log summary after a project loads. No UI.
+- **Threads:** lookups stay read-only (asset-worker safe). `Report` runs on the main thread after
+  `SyncWithAssetThread`. Nothing touches the render thread or the GPU.
+- **Runtime/Dist:** unchanged; the player reads numeric pack text. Re-verified by harness `packcheck`.
+
+## 8.3 Phases
+
+### Phase A — Stable saves (byte-identical round trip)
+**Goal:** `load → save → load → save` gives identical bytes.
+**Changes:** `Scene/SceneSerializer.cpp` `SerializeToYAML`: emit entities in the order a load
+recreated them (settle the `each` direction by experiment in the harness first).
+`SerializeEntitySnapshots` is keyed by UUID and stays.
+**Verification:** harness `resave` on all 13 scenes: byte-identical; `RunRoundTripSelfTests` passes;
+the file order of `AudioDemo` is unchanged after one save.
+**Docs:** none. **Exit:** 13 of 13 identical. **Rollback:** revert the loop.
+
+### Phase B — Remaining file serializers
+**Goal:** `.lmat` `Parent` and graph refs, prefab variants (`BasePrefab`), and `.lmesh`/`.lsmesh`/`.lmc`
+read and write paths.
+**Changes:** `MaterialSerializer.cpp` (scope in `TrySerialize`; `Parent` through `AssetReference`),
+`MaterialGraph.cpp` (`Texture`/`Graph`), `PrefabSerializer.cpp` (scope around the variant's
+`SerializeToString`, path `BasePrefab`), `MeshSerializer.cpp` (three writers and readers). Replace
+`MaterialSerializer.cpp:142` `TryParseAssetHandle` with `AssetReference::TryParseHandle` and delete the duplicate.
+**Verification:** the sample has no `.lmesh`/`.lprefab`, so the harness writes minimal fixtures with
+the engine's own writers in the worktree; convert, delete the registry, `check` shows 0 unresolved;
+`packcheck` shows the packed material text numeric.
+**Exit:** fixtures resolve with the registry deleted; packs numeric. **Rollback:** per file.
+
+### Phase C — Project file and scene leftovers
+**Goal:** `IconHandle` and a file-backed `FontHandle` save as paths.
+**Changes:** `Project/ProjectSerializer.cpp` 733 and 995 (path with numeric fallback);
+`SceneSerializer.cpp` `FontHandle` write/read. The default font stays numeric.
+**Verification:** `check` on `LuxSample.luxproj` with the registry deleted. The file also stores every
+renderer setting (`luxproj-settings-regression-trap`): diff it before and after.
+**Exit:** no asset number left in the converted files. **Rollback:** revert.
+
+### Phase D — Convert committed content, with an inventory
+**Goal:** every tracked `.luxscene`, `.lmat`, `.lsound`, `.lbank`, `.luxproj` is in path form.
+**Changes:** the harness `convert`/`convertasset` over the clean worktree (committed registry), copy
+back. **NEW** harness mode `inventory` counts numeric vs path references per file type and fails if
+any numeric asset reference remains.
+**Verification:** registry deleted → `inventory` 0 numeric, `check` 0 unresolved on all 13 scenes;
+Benchmark `Deserialize` stays near the spike's 113 ms.
+**Exit:** one data commit, reference lines only (Phase A keeps it small). **Rollback:** `git revert`;
+numeric files still load.
+
+### Phase E — Registry as a rebuilt cache
+**Goal:** `AssetRegistry.lzr` is untracked and a clean clone opens.
+**Measure first (headless, `/profile` method):** `Project::Load` with the registry present vs deleted on
+the sample. A deleted-registry open must cost at most a few seconds, and an existing registry must not
+re-import. If the cost is higher, plan an untracked persisted cache instead of a rebuild.
+**Changes:** `.gitignore` and `git rm --cached` the file; engine code only if the measurement demands.
+**Verification:** a fresh clone in a scratch folder passes `check` on every scene with no registry;
+two opens leave `git status` clean.
+**Docs:** Architecture §2.8 (the registry is a cache; rewrite the "opening the editor must not modify
+tracked project files" rule), `Building.md` if CI relied on the file.
+**Exit:** clean clone passes. **Rollback:** re-add the file.
+
+### Phase F — Repair report (Core only; UI deferred)
+**Goal:** after a load, unresolved references are listed with their filename candidates.
+**Changes:** **NEW** `AssetReference::Report()` and `FindCandidates(path)` using `AssetRegistry`
+filename matches. A tie returns a list and is never auto-picked (LuckyEngine scores candidates and
+leaves ties as a `TODO`). Log only.
+**Verification:** harness: rename one asset in the worktree, load, expect one unresolved path with the
+moved file as the single candidate; two same-named files give a tie.
+**Exit:** both cases correct. **Follow-up needing your OK to launch the editor:** a "Repair asset
+references" modal (ImGui scopes, unique IDs, every state driven in the editor per
+`Conventions.md § ImGui correctness`).
+
+## 8.4 Verification beyond phases
+- Final run of the spike battery plus `inventory`, on a fresh sparse worktree: registry deleted, then
+  a second worktree where an agent imports a new asset independently and the two merge.
+- Debug Core, Release Editor and Lux-Runtime build; `RunRoundTripSelfTests` passes.
+- Not coverable headlessly: editor open/Play/save UI, the audio-panel UI tests, the Dist player on a
+  new pack, Linux. Say so in the PR.
+
+## 8.5 Risks
+| Risk | Likelihood | Detection |
+|---|---|---|
+| The `each` direction guess is wrong and the fix reorders something else | Medium | Phase A experiment on 13 scenes before any other change |
+| A clean-clone registry rebuild is slow | Medium | Phase E measurement gates the gitignore |
+| Old or hand-written files hold backslashes or `./` paths | Low | `ResolvePath` normalises as a fallback; `inventory` flags misses |
+| Prefab-variant and `.lmesh` formats are untested content | Medium | Minimal fixtures from the engine's own writers (Phase B) |
+| Converting Benchmark rewrites a 129k-line file | Certain | Phase A first; review only reference lines |
+| Two assets share a filename, so repair is ambiguous | Low | Report returns ties and never auto-picks |
+
+## 8.6 Open questions
+- The direction of `entt::registry::each` and what `bd9c7391` assumed (Phase A).
+- Whether anything outside the serializers keys on registry handles across sessions (thumbnail
+  cache, recent-scene list, editor layout): grep before Phase E.
+- Whether the default font handle is stable across runs (scenes mostly store 0).
+- What would invalidate this plan: Phase E measuring a rebuild far over budget, or Phase A showing
+  the entity order is deliberately unstable.
+
+**First phase to implement:** Phase A (it keeps every later diff small). Implement with `/dev`,
+review with `/cr`, ship with `/send-pr`. Not started.
