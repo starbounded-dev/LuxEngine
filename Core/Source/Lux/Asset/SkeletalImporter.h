@@ -47,9 +47,5 @@ namespace Lux
 	// matches the meshes' inverse bind poses. outSkeleton stays null when the file has no bones,
 	// outClips stays empty when it has no animations, and clip tracks index into outSkeleton (tracks
 	// for nodes outside it are dropped). Needs no GPU. Returns false only if the file cannot be read.
-	//
-	// shortcut: no unit scale (FBX centimetres); the mesh importer applies aiProcess_GlobalScale to the
-	// root node, which this skeleton includes, so a scaled FBX needs the same factor here when FBX
-	// support lands.
 	bool ImportSkeletonAndAnimations(const std::filesystem::path& path, Ref<Skeleton>& outSkeleton, std::vector<Ref<Animation>>& outClips);
 }

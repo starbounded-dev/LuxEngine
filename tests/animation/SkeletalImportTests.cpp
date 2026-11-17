@@ -93,6 +93,99 @@ namespace
 	}
 }
 
+// The rest-pose skinned bounds of a model: every vertex through its bone palette, as the renderer's skinning
+// pass computes it. Also the number of mesh bones, to compare formats.
+static bool SkinnedRestBounds(const std::filesystem::path& path, glm::vec3& low, glm::vec3& high, size_t& meshBones, float& paletteSpread)
+{
+	Ref<Skeleton> skeleton;
+	std::vector<Ref<Animation>> clips;
+	if (!ImportSkeletonAndAnimations(path, skeleton, clips) || !skeleton)
+		return false;
+	Assimp::Importer importer;
+	const aiScene* scene = importer.ReadFile(path.string(), k_MeshImportFlags);
+	if (!scene)
+		return false;
+	std::vector<uint32_t> bases;
+	uint32_t total = 0;
+	for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+	{
+		bases.push_back(total);
+		total += scene->mMeshes[m]->mNumVertices;
+	}
+	std::vector<BoneInfluence> influences;
+	std::vector<BoneInfo> bones;
+	if (!ExtractSkinWeights(*scene, bases, total, influences, bones) || influences.empty())
+		return false;
+	const std::vector<glm::mat4> palette = BuildSkinPalette(*skeleton, BuildModelPose(*skeleton), bones);
+	paletteSpread = 0.0f;
+	for (const glm::mat4& matrix : palette)
+		for (int c = 0; c < 4; c++)
+			for (int r = 0; r < 4; r++)
+				paletteSpread = std::max(paletteSpread, std::abs(matrix[c][r] - palette.front()[c][r]));
+	meshBones = bones.size();
+	low = glm::vec3(1e30f);
+	high = glm::vec3(-1e30f);
+	for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+	{
+		for (uint32_t v = 0; v < scene->mMeshes[m]->mNumVertices; v++)
+		{
+			const aiVector3D& p = scene->mMeshes[m]->mVertices[v];
+			const BoneInfluence& influence = influences[bases[m] + v];
+			glm::mat4 skin(0.0f);
+			for (int slot = 0; slot < 4; slot++)
+				skin += palette[influence.BoneInfoIndices[slot]] * influence.Weights[slot];
+			const glm::vec3 world = glm::vec3(skin * glm::vec4(p.x, p.y, p.z, 1.0f));
+			low = glm::min(low, world);
+			high = glm::max(high, world);
+		}
+	}
+	return true;
+}
+
+// LuxBiped is one model in two files. A binary FBX (units, node scale, axes of its own) and a glTF must
+// import to the same rig: the same mesh bones and clips, and the same skinned shape at rest.
+static void CheckFormatsAgree(const std::filesystem::path& folder)
+{
+	glm::vec3 fbxLow, fbxHigh, gltfLow, gltfHigh;
+	size_t fbxBones = 0, gltfBones = 0;
+	float fbxSpread = 1.0f, gltfSpread = 1.0f;
+	CHECK(SkinnedRestBounds(folder / "LuxBiped.fbx", fbxLow, fbxHigh, fbxBones, fbxSpread));
+	CHECK(SkinnedRestBounds(folder / "LuxBiped.gltf", gltfLow, gltfHigh, gltfBones, gltfSpread));
+	CHECK(fbxBones == gltfBones && fbxBones == 17);
+	CHECK(fbxSpread < 1e-2f && gltfSpread < 1e-3f); // every bone agrees at rest (FBX in 100x matrices)
+	for (int axis = 0; axis < 3; axis++)
+	{
+		CHECK(Near(fbxLow[axis], gltfLow[axis], 0.01f));
+		CHECK(Near(fbxHigh[axis], gltfHigh[axis], 0.01f));
+	}
+	CHECK(Near(fbxHigh.y - fbxLow.y, 1.75f, 0.02f));
+
+	Ref<Skeleton> fbxSkeleton, gltfSkeleton;
+	std::vector<Ref<Animation>> fbxClips, gltfClips;
+	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.fbx", fbxSkeleton, fbxClips));
+	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.gltf", gltfSkeleton, gltfClips));
+	CHECK(fbxClips.size() == 2 && gltfClips.size() == 2);
+	if (fbxSkeleton && gltfSkeleton && fbxClips.size() == 2 && gltfClips.size() == 2)
+	{
+		for (uint32_t i = 0; i < gltfSkeleton->GetNumBones(); i++)
+			CHECK(fbxSkeleton->GetBoneIndex(gltfSkeleton->GetBoneName(i)) != Skeleton::NullIndex);
+		for (size_t i = 0; i < 2; i++)
+			CHECK(Near(fbxClips[i]->GetDuration(), gltfClips[i]->GetDuration(), 0.05f)); // the exporters pad the end differently
+	}
+
+	// A model that is only on this machine (licensed, not in the repo) gets the same sanity checks.
+	const std::filesystem::path local = folder / "local" / "X Bot.fbx";
+	if (std::filesystem::exists(local))
+	{
+		glm::vec3 low, high;
+		size_t bones = 0;
+		float spread = 1.0f;
+		CHECK(SkinnedRestBounds(local, low, high, bones, spread));
+		CHECK(high.y - low.y > 1.2f && high.y - low.y < 2.4f);
+		std::cout << "local FBX '" << local.filename().string() << "': " << bones << " mesh bones, height " << (high.y - low.y) << " m" << std::endl;
+	}
+}
+
 int main(int argc, char** argv)
 {
 	if (argc < 3)
@@ -311,6 +404,8 @@ int main(int argc, char** argv)
 		Ref<Animation> loaded;
 		CHECK(!Load(loaded, out / "unordered.lanim"));
 	}
+
+	CheckFormatsAgree(model.parent_path());
 
 	// A file that cannot be read reports failure and produces nothing.
 	{

@@ -78,6 +78,32 @@ namespace Lux
 		}
 	}
 
+	namespace
+	{
+		glm::mat4 NodeWorld(const aiNode* node)
+		{
+			glm::mat4 world(1.0f);
+			for (; node; node = node->mParent)
+				world = glm::transpose(glm::make_mat4(&node->mTransformation.a1)) * world;
+			return world;
+		}
+
+		const aiNode* FindMeshNode(const aiNode* node, uint32_t meshIndex)
+		{
+			for (uint32_t i = 0; i < node->mNumMeshes; i++)
+			{
+				if (node->mMeshes[i] == meshIndex)
+					return node;
+			}
+			for (uint32_t i = 0; i < node->mNumChildren; i++)
+			{
+				if (const aiNode* found = FindMeshNode(node->mChildren[i], meshIndex))
+					return found;
+			}
+			return nullptr;
+		}
+	}
+
 	bool ExtractSkinWeights(const aiScene& scene, const std::vector<uint32_t>& meshBaseVertex, uint32_t totalVertices,
 		std::vector<BoneInfluence>& influences, std::vector<BoneInfo>& boneInfo)
 	{
@@ -91,9 +117,27 @@ namespace Lux
 		std::unordered_map<std::string, uint32_t> boneIndexByName;
 		bool anyBones = false;
 
+		// FBX stores the skin in mesh-local units (Assimp's offsets leave the node scale and axes out); glTF's
+		// skinned result is already final and ignores the mesh node, so only FBX gets a correction below.
+		aiString format;
+		const bool isFbx = scene.mMetaData && scene.mMetaData->Get("SourceAsset_Format", format) && std::string(format.C_Str()).find("FBX") != std::string::npos;
+
 		for (uint32_t m = 0; m < scene.mNumMeshes; m++)
 		{
 			const aiMesh& mesh = *scene.mMeshes[m];
+			// Each bone's offset gets a correction Z with restPalette * Z = the mesh node's world transform, so a
+			// skinned mesh at rest sits where the static mesh does (shortcut: one Z per mesh, from its first bone).
+			glm::mat4 correction(1.0f);
+			if (isFbx && mesh.mNumBones > 0)
+			{
+				const aiNode* meshNode = FindMeshNode(scene.mRootNode, m);
+				const aiNode* boneNode = scene.mRootNode->FindNode(mesh.mBones[0]->mName);
+				if (meshNode && boneNode)
+				{
+					const glm::mat4 rest = NodeWorld(boneNode) * glm::transpose(glm::make_mat4(&mesh.mBones[0]->mOffsetMatrix.a1));
+					correction = glm::inverse(rest) * NodeWorld(meshNode);
+				}
+			}
 			for (uint32_t b = 0; b < mesh.mNumBones; b++)
 			{
 				const aiBone& bone = *mesh.mBones[b];
@@ -103,7 +147,7 @@ namespace Lux
 					BoneInfo info;
 					info.Name = bone.mName.C_Str();
 					// aiMatrix4x4 is row-major, glm column-major.
-					info.InverseBindPose = glm::transpose(glm::make_mat4(&bone.mOffsetMatrix.a1));
+					info.InverseBindPose = glm::transpose(glm::make_mat4(&bone.mOffsetMatrix.a1)) * correction;
 					bones.push_back(std::move(info));
 				}
 
@@ -134,7 +178,7 @@ namespace Lux
 
 		Assimp::Importer importer;
 		importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
-		const aiScene* scene = importer.ReadFile(path.string(), aiProcess_Triangulate | aiProcess_LimitBoneWeights | aiProcess_ValidateDataStructure);
+		const aiScene* scene = importer.ReadFile(path.string(), k_MeshImportFlags);
 		if (!scene || !scene->mRootNode)
 		{
 			LUX_CORE_ERROR("SkeletalImporter: failed to read '{}': {}", path.string(), importer.GetErrorString());
