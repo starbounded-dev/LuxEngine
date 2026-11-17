@@ -444,10 +444,17 @@ Failed capture revisions stay latched until the failing layer changes; unrelated
 Scene teardown detaches its Ref to pending state; workers finish using their own refs. There is
 no worker callback into Scene. JobSystem's existing inline policy follows the same path.
 
-Per-source solves run on a JobSystem worker: `AudioAcoustics::Update` selects the due batch on
-main (same budget and cadence rules) and submits one job holding copies plus immutable snapshot
-Refs; `PollSolves` publishes it on main. One batch is in flight; under the inline policy it
-publishes in the same update, otherwise in a later one. Gain interpolation stays on main.
+Per-source solves use one batch in flight: `AudioAcoustics::Update` selects due sources on main
+and captures immutable snapshot Refs and values. GPU batches contain at most 64 sources;
+round-robin scheduling defers the rest. With current flattened geometry, a worker prepares
+opening nodes, direct measurement and geometric reflection candidates. The render thread records
+four cached compute passes for endpoint/adjacency/reflection visibility and fixed-order source
+reduction. GPU work runs on the compute queue (or the renderer's graphics fallback), then joins
+the graphics frame timeline before frame-retired readback. Main polls without waiting and
+submits a worker to validate and expand retained paths. The visibility-only backend remains
+supported. A missing GPU, stale flatten or failed readback uses the full CPU solve; hard GPU
+failures disable that stage for the session. `PollSolves` publishes on main and gain interpolation
+stays there. The inline job policy uses the same state machine.
 Vercidium Audio and its worker join are gone (2026-11-02); no acoustic code waits on another thread.
 
 The listener reverb's rays run on the GPU when `SceneAudioAcoustics` injects an
@@ -459,6 +466,10 @@ buffer only once `RT_GetFrameNumber() >= recorded + FramesInFlight` (RT_BeginFra
 the recording frame) and publishes through an atomic; main polls it and runs `FinishReverb`. No
 thread waits on the GPU. Updates without a result are counted: 30 report `ReverbStalled` (frames
 not rendering). Single-threaded Linux runs the same lambdas inline at render time.
+The readback publishes either ready rays or failure through release/acquire atomics. Main does
+not wait or retry a failed GPU request: it detaches the backend and submits the CPU reverb job.
+Flattening has a 64 MiB upload budget and retains its previous output on failure; the engine
+likewise switches to CPU reverb instead of resubmitting a failing flatten job each update.
 
 Phase 3's listener reverb (`Soundwave::EvaluateReverb`) is one more AudioAcoustics JobSystem job:
 it captures the published snapshot Refs plus copies of the exclusion list, material table,

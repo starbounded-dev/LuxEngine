@@ -52,6 +52,44 @@ All items below were checked against the tree at `03588551` on 2026-11-01.
   duplication (the worker solve already computes it; 1 of ~2,800 traces).
 - **Follow-up:** a parallel GPU search (workgroup per source) needs the candidate order redefined.
 
+## R3c — Original GPU propagation scope reopened (2026-11-16)
+
+- **User request:** finish all seven phases of the original roadmap. The earlier CPU-worker release
+  path remains the working fallback, but it does not satisfy the original Phase 4 GPU source solve.
+- **Measured CPU baseline:** a standalone Linux Release `-O2 -ffp-contract=off` benchmark of a
+  15,852-triangle floor, wall and pillar scene, with the default 4,096-work budget, measured a
+  median 2.639 ms per source over three 50-solve runs after ten warm-up solves. The final solve
+  spent 3,198 work units and 988 visibility rays and found four opening paths. This is a
+  source-solver microbenchmark, not an editor frame or GPU measurement.
+- **Constraint:** the CPU priority-heap search orders visibility tests serially. One GPU invocation
+  per source would retain that dependency chain and is unlikely to beat a CPU core; this is an
+  inference from the algorithm and CPU measurement, not a measured GPU result.
+- **Candidate design to benchmark:** prepare bounded reflection sequences and opening samples on
+  a worker; dispatch independent visibility and material evaluations in compute; reduce a bounded
+  opening graph in a second compute stage using a fixed tie-break and reduction order; read back
+  after the frame slot retires, with the CPU reference as a reported fallback. A GPU direct walk
+  must cover thick solids, flat surfaces and analytic portal boxes. The two gains and path
+  diagnostics must pass the 0.5 dB, corner/doorway and platform gates before this can ship.
+- **Decision still needed from evidence:** benchmark the candidate stages against the CPU baseline
+  on the same scene and GPU before replacing the worker path; neither a shader translation nor a
+  direct-only GPU stage is sufficient to mark Phase 4 complete.
+- **2026-11-16 progress:** the standalone `PrepareCandidates` API passed all seven Release CTest
+  targets and a scratch-reuse regression. On the same scene, its median was 0.732 ms/source
+  (three 50-preparation runs after ten warm-ups); the full CPU solve measured 2.772 ms/source
+  in that run. The independent Vulkan visibility shader matched the CPU geometry trace for all
+  16,900 pairs in a 128-opening corner fixture on AMD RADV, and its analytic portal-box cases
+  passed. This proves a ray stage and ABI, not the opening search, reflection reduction, async
+  engine submission or a frame-time win. Those remain required before shipping GPU source gains.
+- **Later same-day verification:** the engine now submits the visibility shader on its render
+  thread and reads its output only after the recording frame retires. A worker reduces the
+  matrix in fixed order; reflection paths still use the CPU reference. AMD RADV returned 0 dB
+  LF/HF difference for the 128-opening corner with default reflection depth, and Release Editor
+  Play plus exported Runtime both reported completed GPU source batches for the bounded corner
+  and stone-zone scenes with no Vulkan validation output. The 16,900-ray corner shader measured
+  0.131 ms median GPU time across three timestamped dispatches; this is a 12-triangle
+  microbenchmark and excludes preparation, upload, frame scheduling and CPU reduction. The
+  exported game still requires a representative large-scene/frame-budget measurement.
+
 ## R4 — Vercidium removal surface (Phase 7)
 
 Tracked files referencing it (excluding `docs/vercidium-repro/`, `specs/`):

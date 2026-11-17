@@ -4,6 +4,7 @@
 
 #include "soundwave/GeometryView.h"
 #include <array>
+#include <cstddef>
 #include <vector>
 
 namespace Lux::Soundwave
@@ -35,8 +36,25 @@ namespace Lux::Soundwave
 		float Absorbed, Travelled;
 		std::uint32_t Hits, Traces; // Traces bit 31 = escaped
 	};
+	// SoundwaveVisibility.glsl's independent segment tests. The request points at the same
+	// flattened geometry as the reverb shader. Result values: 0 clear, 1 blocked, 2 invalid.
+	struct alignas(16) FlatVisibilityRequest
+	{
+		std::uint32_t Roots[2], SegmentCount, PortalCount;
+	};
+	struct alignas(16) FlatVisibilitySegment
+	{
+		float From[4], To[4];
+		std::uint32_t IgnoredInstance[2], MarginBits, Pad;
+	};
+	struct alignas(16) FlatPortal
+	{
+		float WorldToBox[16];
+		std::uint32_t Instance[2], Active, Pad;
+	};
 	static_assert(sizeof(FlatNode) == 48 && sizeof(FlatTriangle) == 64);
 	static_assert(sizeof(FlatReverbRequest) == 48 + 16 * kMaterialTagCount && sizeof(FlatReverbRay) == 16);
+	static_assert(sizeof(FlatVisibilityRequest) == 16 && sizeof(FlatVisibilitySegment) == 48 && sizeof(FlatPortal) == 80);
 
 	inline constexpr std::uint32_t kFlatActive = 1, kFlatPortal = 2;
 
@@ -51,5 +69,7 @@ namespace Lux::Soundwave
 		std::vector<FlatTriangle> Triangles;
 		std::array<std::uint32_t, 2> Roots{ kInvalidGeometryIndex, kInvalidGeometryIndex };
 	};
-	[[nodiscard]] bool Flatten(const GeometryView& geometry, FlatGeometry& output);
+	enum class FlatError { None, InvalidGeometry, BudgetExceeded, AllocationFailed };
+	// The byte budget covers all three upload arrays. On failure output retains its last valid value.
+	[[nodiscard]] FlatError Flatten(const GeometryView& geometry, FlatGeometry& output, std::size_t maxBytes);
 }

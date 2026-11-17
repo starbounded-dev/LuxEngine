@@ -7,6 +7,8 @@
 #include "Lux/Core/Ref.h"
 #include "Lux/Core/UUID.h"
 #include <soundwave/Flatten.h>
+#include <soundwave/GpuOpening.h>
+#include <soundwave/Echogram.h>
 #include <soundwave/Reverb.h>
 #include <array>
 #include <atomic>
@@ -48,6 +50,11 @@ namespace Lux
 			UUID Entity = 0;
 			Soundwave::Position Position;
 		};
+		struct ZoneProbe
+		{
+			UUID Entity = 0;
+			Soundwave::Position Position;
+		};
 		struct Diagnostics
 		{
 			uint64_t GeometryGeneration = 0, Evaluations = 0, SolveFailures = 0, ReverbMeasurements = 0;
@@ -55,12 +62,16 @@ namespace Lux
 			uint32_t StaticInertTriangles = 0, MovingInertTriangles = 0;
 			uint32_t StaticStoredTriangles = 0, MovingStoredTriangles = 0, StaticMeshInstances = 0, MovingMeshInstances = 0;
 			bool Ready = false, GeometryFailed = false;
-			bool ReverbOnGpu = false, ReverbStalled = false, SolvesPending = false;
+			bool ReverbOnGpu = false, ReverbStalled = false, ReverbGpuFailed = false, SolvesPending = false;
+			bool SourceVisibilityOnGpu = false, SourceVisibilityGpuFailed = false, SourceSolveOnGpu = false;
+			float SourceGpuMilliseconds = 0;
+			uint64_t SourceVisibilityBatches = 0;
 		};
 		// Where the listener reverb's rays run. Without one (headless tests, no GPU) a JobSystem
 		// job measures on the CPU; with one, FinishReverb reduces the returned rays on main.
 		struct ReverbBackend : RefCounted
 		{
+			enum class PollResult { Pending, Ready, Failed };
 			struct Geometry : RefCounted
 			{
 				Soundwave::FlatGeometry Flat;
@@ -69,8 +80,34 @@ namespace Lux
 			// Main thread. Records one measurement over geometry; false when it cannot.
 			virtual bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
 				const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) = 0;
-			// Main thread, never waits: true once that measurement's rays reached the CPU.
-			virtual bool Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
+			// Main thread, never waits. Failed means the caller must use its CPU fallback.
+			virtual PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
+			// Optional source visibility stage. Segment order is the fixed reduction order;
+			// a backend without source compute keeps the worker-only CPU path.
+			struct SourceInput
+			{
+				Soundwave::GpuOpeningRequest Request;
+				std::vector<Soundwave::GpuOpeningNode> Nodes;
+				std::vector<Soundwave::GpuReflection> Reflections;
+			};
+			struct SourceOutput
+			{
+				Soundwave::GpuOpeningResult Result;
+				std::vector<Soundwave::GpuOpeningPath> Paths;
+				std::vector<uint32_t> Reflections;
+			};
+			virtual float SourceGpuMilliseconds() const { return 0; }
+			virtual bool SupportsSources() const { return false; }
+			virtual bool DispatchSources(
+				const Ref<Geometry>&, std::span<const SourceInput>, std::span<const Soundwave::FlatPortal>)
+			{
+				return false;
+			}
+			virtual PollResult PollSources(std::vector<SourceOutput>&) { return PollResult::Failed; }
+			virtual bool SupportsVisibility() const { return false; }
+			virtual bool DispatchVisibility(const Ref<Geometry>&, std::span<const Soundwave::FlatVisibilitySegment>,
+				std::span<const Soundwave::FlatPortal>) { return false; }
+			virtual PollResult PollVisibility(std::vector<std::uint32_t>&) { return PollResult::Failed; }
 		};
 		// Kept across Clear(); the owner replaces or drops it.
 		void SetReverbBackend(Ref<ReverbBackend> backend) { m_ReverbBackend = std::move(backend); }
@@ -86,12 +123,16 @@ namespace Lux
 		[[nodiscard]] bool SetActiveInstances(std::span<const uint64_t> instances);
 		// Selects due sources and solves them on a worker. Results publish in PollSolves, which this
 		// calls; with the inline job policy that is the same update, otherwise a later one.
-		[[nodiscard]] bool Update(float timestep, Soundwave::Position listener, std::span<const Source> sources);
+		[[nodiscard]] bool Update(float timestep, Soundwave::Position listener, std::span<const Source> sources,
+			std::span<const ZoneProbe> zones = {});
 		// Main thread: publishes a finished solve batch, if any. Never waits.
 		void PollSolves();
 		float GetGainLF(UUID source) const;
 		float GetGainHF(UUID source) const;
+		float GetFocusedReflectionSend(UUID source) const;
 		const Soundwave::SolveResult* GetResult(UUID source) const;
+		const Soundwave::ReverbResult* GetZoneReverb(UUID zone) const;
+		const Soundwave::Echogram* GetZoneEchogram(UUID zone) const;
 		// Smoothed listener reverb send, 0 until the first measurement completes.
 		float GetReverbSend() const { return m_ReverbSend; }
 		// The last completed measurement; nullptr before one exists.
@@ -126,6 +167,7 @@ namespace Lux
 		{
 			Soundwave::SolveResult Result;
 			float GainLF = 1, GainHF = 1, TargetLF = 1, TargetHF = 1, SinceEvaluation = 0;
+			float FocusSend = 0, TargetFocusSend = 0;
 			uint64_t SeenUpdate = 0, GeometryGeneration = 0, SettingsGeneration = 0;
 			Soundwave::EvaluationError LastError = Soundwave::EvaluationError::None;
 			bool Evaluated = false, Attempted = false;
@@ -136,25 +178,69 @@ namespace Lux
 			Soundwave::ReverbResult Result;
 			Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 		};
+		struct ZoneState
+		{
+			Soundwave::Position Position;
+			Soundwave::Echogram Echogram;
+			Soundwave::ReverbResult Reverb;
+			uint64_t SeenUpdate = 0, GeometryGeneration = 0, SettingsGeneration = 0;
+			Soundwave::EvaluationError LastError = Soundwave::EvaluationError::None;
+			bool Valid = false, Attempted = false;
+		};
+		struct ZoneJob : RefCounted
+		{
+			std::atomic<bool> Done{ false };
+			UUID Entity = 0;
+			Soundwave::Position Position;
+			uint64_t GeometryGeneration = 0, SettingsGeneration = 0;
+			Soundwave::Echogram Echogram;
+			Soundwave::ReverbResult Reverb;
+			Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
+		};
 		struct SolveJob : RefCounted
 		{
+			enum class Phase { Cpu, Preparing, GpuPending, Reducing };
 			struct Item
 			{
 				UUID Entity = 0;
 				Soundwave::Position Position;
 				Soundwave::SolveResult Result;
+				Soundwave::PreparedCandidates Prepared;
+				Soundwave::PreparedReflections Reflections;
+				size_t VisibilityOffset = 0, VisibilityCount = 0, OpeningVisibilityCount = 0;
+				size_t SourceIndex = SIZE_MAX;
 				Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 			};
 			std::atomic<bool> Done{ false };
+			Phase Current = Phase::Cpu;
+			bool GpuFailed = false, GpuSkipped = false, GpuSources = false;
+			float WorstGpuGapDb = 0;
 			std::vector<Item> Items;
 			Soundwave::SolveScratch Scratch;
+			std::array<Ref<Snapshot>, 2> Snapshots;
+			Ref<ReverbBackend::Geometry> Flat;
+			Ref<ReverbBackend> Backend;
+			std::vector<uint64_t> Excluded;
+			std::vector<Soundwave::PortalBox> Portals;
+			Soundwave::MaterialTable Materials;
+			Soundwave::Settings Settings;
+			Soundwave::Position Listener;
+			std::vector<Soundwave::FlatVisibilitySegment> Segments;
+			std::vector<Soundwave::FlatPortal> FlatPortals;
+			std::vector<uint32_t> Visibility;
+			std::vector<ReverbBackend::SourceInput> SourceInputs;
+			std::vector<ReverbBackend::SourceOutput> SourceOutputs;
 		};
 		struct FlattenJob : RefCounted
 		{
 			std::atomic<bool> Done{ false };
 			Ref<ReverbBackend::Geometry> Result;
+			Soundwave::FlatError Error = Soundwave::FlatError::None;
 		};
 		void UpdateReverb(float timestep, Soundwave::Position listener);
+		void PollZone();
+		void SubmitCpuSolves(Ref<SolveJob> job);
+		void SubmitVisibilityReduction(Ref<SolveJob> job);
 		void PublishReverb(Soundwave::EvaluationError error, const Soundwave::ReverbResult& result);
 		void RefreshGeometryView();
 		bool CanPrepare() const;
@@ -168,10 +254,16 @@ namespace Lux
 		Soundwave::MaterialTable m_Materials;
 		AudioOcclusionSettings m_Settings;
 		Soundwave::Settings m_KernelSettings;
+		Soundwave::EchogramSettings m_EchogramSettings;
 		Soundwave::SolveScratch m_Scratch;
+		std::vector<Soundwave::FlatVisibilitySegment> m_VisibilitySegmentScratch;
 		std::vector<uint64_t> m_ActiveInstances, m_Excluded, m_SourceIDs;
 		std::vector<Soundwave::PortalBox> m_Portals;
 		std::unordered_map<UUID, SourceState> m_Sources;
+		std::unordered_map<UUID, ZoneState> m_Zones;
+		std::vector<uint64_t> m_ZoneIDs;
+		Ref<ZoneJob> m_ZonePending;
+		size_t m_NextZone = 0;
 		uint64_t m_UpdateIndex = 0, m_GeometryGeneration = 0, m_SettingsGeneration = 0;
 		uint64_t m_Evaluations = 0, m_SolveFailures = 0;
 		size_t m_NextSource = 0;
@@ -189,7 +281,11 @@ namespace Lux
 		Soundwave::Settings m_ReverbRequestSettings;
 		uint32_t m_ReverbWaitUpdates = 0;
 		float m_SinceFlatten = 0;
-		bool m_ReverbOnGpu = false, m_ReverbStalled = false;
+		bool m_ReverbOnGpu = false, m_ReverbStalled = false, m_ReverbGpuFailed = false;
+		bool m_SourceVisibilityOnGpu = false, m_SourceVisibilityGpuFailed = false;
+		bool m_SourceVisibilityLimitReported = false;
+		uint64_t m_SourceVisibilityBatches = 0;
+		uint32_t m_VisibilityWaitUpdates = 0;
 		Soundwave::ReverbResult m_Reverb;
 		Soundwave::Position m_ReverbListener;
 		Soundwave::EvaluationError m_ReverbError = Soundwave::EvaluationError::None;

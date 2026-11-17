@@ -47,12 +47,15 @@ Project Settings → Audio → **Zone Reverb** is saved with the project and inc
 | Setting | Result |
 |---|---|
 | Layer zones and Soundwave | Both zone snapshots and Soundwave-driven event reverb are active. Default. |
-| Prefer zones | Active zone snapshot coverage reduces Soundwave's `ReverbSend` parameter. |
+| Prefer zones | Active zone snapshot coverage reduces Soundwave's event reverb send. |
 | Prefer Soundwave | Zone snapshots are suppressed while Soundwave has a reverb measurement; otherwise zones apply. |
 
-Ambience beds and occlusion are independent of this choice. The engine adjusts authored Studio
-parameters; it does not create a second reverb DSP path. Missing banks or snapshots without the
-required intensity parameter are reported in the Audio log and do not suppress Soundwave reverb.
+Soundwave caches a timed LF/HF ray-arrival histogram at each active zone probe. The measured zone
+send is blended by zone weight into each source's send to the mixer's built-in reverb return.
+Project Settings → Audio → Soundwave acoustics exposes the histogram window and temporal smoothing;
+changes apply on the next Play and are included in exports. Ambience beds and occlusion are
+independent of this choice. Missing Sound Banks and invalid snapshots are reported by audio
+validation; no external reverb parameter is required.
 
 ## C#
 

@@ -4911,21 +4911,22 @@ namespace Lux {
 			// The game reads its own Assets/ShaderPack.lsp, never the editor's engine pack. A Dist player
 			// cannot compile, so its export ships no shader sources either; Debug/Release players keep them,
 			// because a project setting that differs from Renderer::Init's macro defaults recompiles at startup.
-			if (!resourcesSource.empty() && targetConfig == RuntimeExportTarget::Dist)
-				CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders" });
-			else if (!resourcesSource.empty())
-				CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp" });
-			else
-				LUX_CONSOLE_LOG_WARN("Runtime export could not find an editor Resources directory to copy.");
-			return true;
+			if (resourcesSource.empty())
+			{
+				LUX_CONSOLE_LOG_ERROR("Runtime export could not find the editor Resources directory.");
+				return false;
+			}
+			if (targetConfig == RuntimeExportTarget::Dist)
+				return CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders" });
+			return CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp" });
 
 		case RuntimeExportStep::ShaderPack:
 			// Judged by the engine version that wrote it (ShaderPack::Evaluate), so nothing else ships with it.
 			return WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile);
 
 		case RuntimeExportStep::Scripts:
-			if (!dotnetSource.empty())
-				CopyDirectoryRecursive(dotnetSource, exportRoot / "DotNet", targetConfig == RuntimeExportTarget::Dist);
+			if (!dotnetSource.empty() && !CopyDirectoryRecursive(dotnetSource, exportRoot / "DotNet", targetConfig == RuntimeExportTarget::Dist))
+				return false;
 
 			if (std::filesystem::exists(scriptModule, ec))
 				CopyFileIfExists(scriptModule, exportAssets / project->GetConfig().ScriptModulePath);

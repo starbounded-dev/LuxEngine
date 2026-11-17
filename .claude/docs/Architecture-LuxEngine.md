@@ -1521,19 +1521,21 @@ Create Sound makes one from the audio file). New sources do not write legacy key
 authored on the Sound's clips.
 
 **Acoustics:** `Scene` owns a `SceneAudioAcoustics` (main-thread capture of acoustic geometry) and
-through it an `AudioAcoustics` (prepared snapshots, per-UUID source state, listener reverb). Both
+through it an `AudioAcoustics` (prepared snapshots, per-UUID source state, listener reverb and
+zone echograms). Both
 start on Play. Soundwave simulates one listener: highest weight wins, lowest index breaks ties, and
 an attenuation target overrides its acoustic position. Vercidium Audio was removed on 2026-11-02;
 nothing in the build, deploy or tests references it.
 
 Event components receive `AudioEventAcoustics`: the low-frequency direct gain (`OcclusionGainLF`)
-drives the voice's gain and low-pass, and Soundwave's listener reverb send times the zone gain
+drives the voice's gain and low-pass, and Soundwave's listener/zone blended reverb send times the zone gain
 becomes `ReverbSend`, the voice's send into the mixer's reverb return. The HF gain and the
 path/reverb details remain diagnostic outputs.
 
 **Native acoustic verification:** `SceneAudioVerification` is a Core-owned main-thread
-report over a running Scene's acoustic diagnostics, physics comparison and the acoustics applied
-to each source (`CheckedSources`). It returns Pending/Passed/Failed with owned YAML/error strings and never waits.
+report over a running Scene's acoustic diagnostics, physics comparison, zone responses and the
+occlusion/reverb sends applied to each source (`CheckedSources`). It returns Pending/Passed/Failed
+with owned YAML/error strings and never waits.
 GoldenCapture and the opt-in RuntimeLayer report use the same check; Core has no editor-app
 dependency. `LUX_GOLDEN_EXPORT_DIR` starts the existing validated EditorLayer export after
 Play/Stop and image capture. It polls the normal build/export state, records the resulting
@@ -1559,19 +1561,46 @@ absorption plus escaped rays per metre travelled, and maps it to
 job over the published snapshot Refs and copied values when geometry or settings change or the
 listener moves over 1 m, one job in flight; main polls it and smooths the send (0.5 s). Scene
 multiplies that send by the zone system's raytraced-reverb gain, and zones treat a completed
-measurement as "raytraced reverb valid". The three reverb rows live in the project audio block's `Kernel` map.
+measurement as "raytraced reverb valid". Each enabled, valid audio zone also contributes a probe at
+its volume centre. `AudioAcoustics` measures timed LF/HF reflected arrivals and decay for that
+probe on a worker, caches the result by UUID, probe position, geometry and settings generations,
+and publishes it without a main-thread wait. Scene blends completed zone sends by the zone
+system's listener weights, falling back to the listener measurement for zones still measuring.
+Disabled or removed zones leave the cache. The three reverb rows live in the project audio block's `Kernel` map.
 
-**Workers and the GPU (plan Phase 4, as decided 2026-11-02):** per-source `Solve` runs on a
-JobSystem worker (one batch in flight, published by `AudioAcoustics::PollSolves`); the listener
-reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
+**Caustic focus:** the optional project setting estimates curvature from adjacent smooth
+faces on the same acoustic instance. Image-source paths carry bounded LF/HF focusing gains.
+Only retained paths contribute added energy. The engine smooths the resulting per-source
+reverb send and combines it with the listener/zone send before applying zone gain. The dry
+occlusion and the existing two-float voice contract are preserved. The setting defaults to 0
+for existing projects and exports.
+
+**Workers and the GPU (plan Phase 4):** a source batch uses a worker to prepare bounded opening
+nodes, geometric image-source paths and direct measurement. Four cached Vulkan compute passes
+test endpoints, pruned adjacency and reflection legs, then perform fixed-order source reduction
+and opening search. The GPU charges the shared work/path budgets and retains routes in CPU
+reference order. Batches contain at most 64 sources; round-robin scheduling defers the rest.
+The compute command buffer joins the graphics frame timeline before frame-retired readback.
+A worker validates and expands returned paths; `AudioAcoustics::PollSolves` publishes on main.
+There is one batch in flight and no main-thread GPU wait. Missing current geometry or a failed
+GPU stage uses the complete worker `Solve`; failures disable that GPU stage for the session.
+The older visibility-only backend remains supported. Debug compares GPU-derived LF/HF gains
+against the CPU reference within 0.5 dB. The listener reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
 `AudioAcousticKernel` (`Core/Source/Lux/Audio/`, renderer-side) and injected by
 `SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)
 the CPU job measures instead; the same `FinishReverb` reduces CPU or GPU rays in ray order.
 `Soundwave::Flatten` copies the published view (exclusions baked in) into std430 records the
-shader reads. `tests/audio/run_soundwave_gpu.py` checks the engine shader against the CPU on a
-real Vulkan device (≤ 0.5 dB; measured 0.009 dB on an RTX 4070 Ti). The user chose workers rather
-than a GPU propagation search: the search is serial and heap-driven, so a GPU twin would run one
-thread per source and stall frames; a parallel GPU search is a documented follow-up.
+shader reads. Its explicit byte budget caps all upload arrays below the guaranteed Vulkan storage
+buffer range, and a failed flatten leaves the previous output intact. The engine uses a 64 MiB
+budget; if flattening, dispatch, or readback fails, it reports the cause and measures reverb on a
+CPU worker for the rest of the session. `AudioAcoustics::ReverbBackend::PollResult` distinguishes
+pending, ready, and failed readbacks; the Audio Debugger shows when GPU fallback is active.
+`tests/audio/run_soundwave_gpu.py` checks both shaders on a real Vulkan device: reverb within
+0.5 dB, 16,900 corner visibility pairs against the CPU trace, and the resulting source gains.
+Release Play and export verify the GPU source stage in a bounded corner and stone-zone fixture.
+The full Phase 4 GPU path search/reduction and its broader platform and frame-budget gates remain
+outstanding; the earlier one-thread-per-source shader translation was rejected after profiling
+the serial CPU priority-heap search.
 
 **Air absorption, scattering, bounce diagnostics (plan Phase 5):** `AirAbsorptionLF/HF` (dB per
 100 m, defaults 0.1 / 2.5, range 0–20, `Kernel` map) charge reflection and opening paths only on
@@ -2120,10 +2149,13 @@ retains its existing pause behavior. Budget and focus changes apply on project r
 **Editor observability:** `AudioDebugPanel` (`Editor/Source/Panels/AudioDebugPanel.{h,cpp}`, View →
 Audio Debugger, closed by default) renders both halves of the stack. Playback and acoustics use
 read-only accessors — `AudioEngine::GetStats()` and the scene's `AudioAcoustics`
-(`GetDiagnostics()`, `GetResult()`, `GetGainLF/HF()`, `GetReverb()`, `GetReverbSend()`) — alongside
+(`GetDiagnostics()`, `GetResult()`, `GetGainLF/HF()`, `GetReverb()`, `GetReverbSend()`,
+`GetZoneReverb()`, `GetZoneEchogram()`) — alongside
 cached performance meters and an explicit validation action. Sources show Sound names, playback,
 virtual and culled state with Soundwave's gains; the acoustics section shows snapshot counts,
-solves, failures and the listener reverb measurement.
+solves, failures, the listener reverb measurement and each zone's cached send, decay, arrival count
+and time-window limit. Project audio settings serialize the echogram window and smoothing alongside
+reverb rays and reference decay; the zone worker captures those values with its geometry generation.
 
 The panel owns the `AudioVisualisationSettings` but does not draw: `EditorLayer::DrawAudioVisualisation()`,
 called from `OnOverlayRender()` with the overlay's view matrix, reads them and draws emitter gizmos,

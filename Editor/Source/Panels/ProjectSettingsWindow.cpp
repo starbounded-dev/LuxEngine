@@ -103,7 +103,7 @@ namespace Lux {
 		enum class AcousticControl : size_t
 		{
 			Strength, Rate, Sources, Bounces, Depth, Openings, Absorption, Candidates, Paths, Nodes, Compare,
-			ReverbRays, ReverbBounces, ReverbReference, AirLF, AirHF, Count
+			ReverbRays, ReverbBounces, ReverbReference, EchogramWindow, EchogramSmoothing, AirLF, AirHF, CausticFocus, Count
 		};
 		using AcousticControlIDs = std::array<ImGuiID, static_cast<size_t>(AcousticControl::Count)>;
 
@@ -151,10 +151,16 @@ namespace Lux {
 				"Surface hits followed per reverb ray before it stops.", false));
 			record(AcousticControl::ReverbReference, ImGuiEx::Property("Reverb Reference Decay (s)", settings.ReverbReferenceSeconds, 0.05f, 0.1f, 10.0f,
 				"A space that takes this long to fall 60 dB gets a 63% reverb send. Lower values make rooms wetter.", false));
+			record(AcousticControl::EchogramWindow, ImGuiEx::Property("Echogram Window (s)", settings.EchogramWindowSeconds, 0.05f, 0.1f, 4.0f,
+				"Time window for each zone's reflected ray arrivals. Later arrivals are reported as window-limited.", false));
+			record(AcousticControl::EchogramSmoothing, ImGuiEx::Property("Echogram Smoothing (s)", settings.EchogramSmoothingSeconds, 0.005f, 0.0f, 0.1f,
+				"Spreads an arrival across nearby time bins while preserving its energy.", false));
 			record(AcousticControl::AirLF, ImGuiEx::Property("Air Absorption LF (dB/100 m)", settings.AirAbsorptionLF, 0.05f, 0.0f, 20.0f,
 				"Low-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. The Sound's distance attenuation still owns the direct sound.", false));
 			record(AcousticControl::AirHF, ImGuiEx::Property("Air Absorption HF (dB/100 m)", settings.AirAbsorptionHF, 0.05f, 0.0f, 20.0f,
 				"High-frequency loss in air on reflected and doorway routes beyond the direct path, and on the reverb. 2.5 is about 20 C at 50% humidity.", false));
+			record(AcousticControl::CausticFocus, ImGuiEx::Property("Caustic Focus", settings.CausticFocus, 0.02f, 0.0f, 1.0f,
+				"Smooth concave reflectors can concentrate acoustic energy into the source's reverb send. Zero preserves planar spreading.", false));
 			ImGuiEx::EndPropertyGrid();
 			if (!changed)
 				return false;
@@ -171,8 +177,11 @@ namespace Lux {
 			settings.ReverbRays = std::clamp(settings.ReverbRays, 16u, 4096u);
 			settings.ReverbBounces = std::clamp(settings.ReverbBounces, 1u, 64u);
 			settings.ReverbReferenceSeconds = std::clamp(settings.ReverbReferenceSeconds, 0.1f, 10.0f);
+			settings.EchogramWindowSeconds = std::clamp(settings.EchogramWindowSeconds, 0.1f, 4.0f);
+			settings.EchogramSmoothingSeconds = std::clamp(settings.EchogramSmoothingSeconds, 0.0f, 0.1f);
 			settings.AirAbsorptionLF = std::clamp(settings.AirAbsorptionLF, 0.0f, 20.0f);
 			settings.AirAbsorptionHF = std::clamp(settings.AirAbsorptionHF, 0.0f, 20.0f);
+			settings.CausticFocus = std::clamp(settings.CausticFocus, 0.0f, 1.0f);
 			if (!settings.Validate())
 			{
 				settings = before;
@@ -282,15 +291,19 @@ namespace Lux {
 		edit(AcousticControl::ReverbRays,"512");
 		edit(AcousticControl::ReverbBounces,"9");
 		edit(AcousticControl::ReverbReference,"2.5");
+		edit(AcousticControl::EchogramWindow,"3.0");
+		edit(AcousticControl::EchogramSmoothing,"0.04");
 		edit(AcousticControl::AirLF,"0.4");
 		edit(AcousticControl::AirHF,"6");
+		edit(AcousticControl::CausticFocus,"0.6");
 		ImGui::ActivateItemByID(ids[static_cast<size_t>(AcousticControl::Compare)]);
 		frame();
 		check(settings.CompareRaycast && settings.Strength == 0.5f && settings.UpdateRateHz == 73 && settings.CastBudget == 7 &&
 			settings.MaxBounces == 3 && settings.ReflectionDepth == 3 && settings.OpeningGridSize == 12 && settings.Absorption == 0.25f &&
 			settings.CandidateBudget == 4321 && settings.PathBudget == 11 && settings.OpeningNodeBudget == 111 &&
 			settings.ReverbRays == 512 && settings.ReverbBounces == 9 && settings.ReverbReferenceSeconds == 2.5f &&
-			settings.AirAbsorptionLF == 0.4f && settings.AirAbsorptionHF == 6.0f,
+			settings.EchogramWindowSeconds == 3.0f && settings.EchogramSmoothingSeconds == 0.04f &&
+			settings.AirAbsorptionLF == 0.4f && settings.AirAbsorptionHF == 6.0f && settings.CausticFocus == 0.6f,
 			"Audio controls did not apply their typed values or comparison toggle");
 		Yaml::Writer out;
 		settings.SerializeYAML(out);
@@ -299,7 +312,9 @@ namespace Lux {
 			restored.CastBudget == 7 && restored.MaxBounces == 3 && restored.ReflectionDepth == 3 && restored.OpeningGridSize == 12 &&
 			restored.Absorption == 0.25f && restored.CandidateBudget == 4321 && restored.PathBudget == 11 &&
 			restored.OpeningNodeBudget == 111 && restored.CompareRaycast && restored.ReverbRays == 512 && restored.ReverbBounces == 9 &&
-			restored.ReverbReferenceSeconds == 2.5f && restored.AirAbsorptionLF == 0.4f && restored.AirAbsorptionHF == 6.0f, "Edited acoustic controls did not survive serialization");
+			restored.ReverbReferenceSeconds == 2.5f && restored.EchogramWindowSeconds == 3.0f &&
+			restored.EchogramSmoothingSeconds == 0.04f && restored.AirAbsorptionLF == 0.4f && restored.AirAbsorptionHF == 6.0f && restored.CausticFocus == 0.6f,
+			"Edited acoustic controls did not survive serialization");
 		edit(AcousticControl::Bounces,"1");
 		check(settings.MaxBounces == 1 && settings.ReflectionDepth == 1, "Lowering bounces did not limit reflection depth");
 		edit(AcousticControl::Depth,"0");
@@ -317,12 +332,16 @@ namespace Lux {
 		edit(AcousticControl::ReverbRays,"999999");
 		edit(AcousticControl::ReverbBounces,"999");
 		edit(AcousticControl::ReverbReference,"999");
+		edit(AcousticControl::EchogramWindow,"999");
+		edit(AcousticControl::EchogramSmoothing,"999");
 		edit(AcousticControl::AirLF,"999");
 		edit(AcousticControl::AirHF,"999");
+		edit(AcousticControl::CausticFocus,"999");
 		check(settings.MaxBounces == Soundwave::kMaximumInteractions && settings.OpeningGridSize == 32 &&
 			settings.CandidateBudget == 65536 && settings.PathBudget == 4096 && settings.OpeningNodeBudget == 2048 &&
 			settings.ReverbRays == 4096 && settings.ReverbBounces == 64 && settings.ReverbReferenceSeconds == 10 &&
-			settings.AirAbsorptionLF == 20 && settings.AirAbsorptionHF == 20,
+			settings.EchogramWindowSeconds == 4.0f && settings.EchogramSmoothingSeconds == 0.1f &&
+			settings.AirAbsorptionLF == 20 && settings.AirAbsorptionHF == 20 && settings.CausticFocus == 1.0f,
 			"Typed work limits bypassed kernel bounds");
 		edit(AcousticControl::Sources,"0");
 		edit(AcousticControl::Rate,"999");

@@ -88,7 +88,7 @@ Check each plan's status section before starting; these lines summarise them.
 | 4.11 | Async compute | Scaffolded and serialized; GTAO/SSR not on compute | ◐ note |
 | 4.12 | Retained render scene | `FlushDrawList` ~1.4 ms and the moving-shadow +0.2 ms remain | ◐ note |
 | 4.13 | Golden settle residual | Lighting penumbra not bit-stable after a hitch (60 px, max 1) | ◐ note |
-| 4.14 | Vercidium EULA clause 5.1(d) | Resolve before audio work ships in an engine release | ◐ note — **Decision** (legal) |
+| 4.14 | Former acoustic SDK | Support reproduction removed from the current tree. Windows and Linux packages reject retired audio SDK libraries. Historical disclosure review remains a release-owner decision. | Technical packaging verified |
 
 | 4.15 | Lean exported game | Your ask (2026-10-27): an exported game (runtime or project export) ships as few files as possible. No loose `Resources/` folder; everything the game needs under one folder (e.g. `data/`), with what stays loose renamed sensibly; as much as possible moved into the asset pack, and the pack encrypted so only Lux reads it. First step is a `/plan-le`: inventory today's export layout (`EditorLayer` runtime export steps: AssetPack, AudioBanks, RuntimeProject, Executable, Resources, ShaderPack, Scripts), decide what must stay loose (the executable, .NET runtime and `DotNet/` assemblies, native DLLs, FMOD/VA libraries), fold `Resources/` and the shader pack into the pack, and choose the encryption (note: a key the runtime can read only deters casual extraction, it cannot stop a determined one) | ◐ new — needs a plan |
 

@@ -234,7 +234,7 @@ namespace Lux
 		}
 	}
 
-	/// <summary>An owned Studio event. Dispose on the main thread; scene teardown also releases it.</summary>
+	/// <summary>An owned Sound instance. Dispose on the main thread; scene teardown also releases it.</summary>
 	public sealed unsafe class EventInstance : IDisposable
 	{
 		private ulong m_Handle;

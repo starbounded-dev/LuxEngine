@@ -35,6 +35,12 @@ muffling go as the door opens. **Acoustic Materials** (same menu, works outside 
 by the material it sounds like. **C** flies the camera around the building, the easiest way to
 record the demo.
 
+For zone reverb, open `Assets/Scenes/Benchmark.luxscene` in Play and select **View > Audio Debugger >
+Acoustics**. Its authored zones show their live blend weight and cached Soundwave send, decay and
+arrival count. Moving the listener across a zone boundary changes the measured send that reaches
+each playing source; a `window limited` note means some late arrivals fell outside the project's
+Echogram Window setting.
+
 ## Benchmark music
 
 Benchmark's Music Director uses `Audio/Sounds/MusicBed.lsound`, a 2D looping stream loaded by

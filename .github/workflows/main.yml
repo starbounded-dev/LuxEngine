@@ -383,6 +383,10 @@ jobs:
             python scripts/run_with_msvc.py python tests/editor/$runner
             if ($LASTEXITCODE -ne 0) { throw "$runner failed" }
           }
+          foreach ($runner in 'run_soundwave.py', 'run_occlusion_windows.py') {
+            python scripts/run_with_msvc.py python tests/audio/$runner
+            if ($LASTEXITCODE -ne 0) { throw "$runner failed" }
+          }
 
       # The Dist editor refuses a shader pack older than the sources; catch a forgotten rebuild here
       # (no GPU: it recomputes the stamp's source identity). Rebuild: Editor.exe --build-shader-pack.
@@ -447,10 +451,11 @@ jobs:
             }
           }
 
-          # The engine deploys no audio libraries; an FMOD library left by an old build must never ship.
-          $fmod = Get-ChildItem -Path $artifactRoot -Recurse -File -Include "fmod*.dll"
-          if ($fmod) {
-            throw "FMOD libraries in the artifact: $($fmod.FullName -join ', ')"
+          # The native audio backend needs no legacy audio SDK files.
+          $retiredAudio = Get-ChildItem -LiteralPath $artifactRoot -Recurse -File |
+            Where-Object Name -Match '^(lib)?(fmod|vaudionative|asterwave).*\.dll$'
+          if ($retiredAudio) {
+            throw "Retired audio SDK libraries in the artifact: $($retiredAudio.FullName -join ', ')"
           }
 
       - name: 'Package: upload editor artifact'
@@ -553,7 +558,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: ${{ fromJSON(inputs.linux_audio_check == 'debug-as' && '["Debug-AS"]' || inputs.linux_audio_check == 'runtime' && '["Debug"]' || '["Debug", "Debug-AS", "Release", "Dist"]') }}
+        configuration: ${{ fromJSON(inputs.linux_audio_check == 'debug-as' && '["Debug-AS"]' || inputs.linux_audio_check == 'runtime' && '["Debug", "Release"]' || '["Debug", "Debug-AS", "Release", "Dist"]') }}
 
     steps:
       - name: Checkout repository
@@ -646,6 +651,10 @@ jobs:
         if: inputs.linux_audio_check == 'runtime' && runner.environment != 'self-hosted'
         run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml pulseaudio pulseaudio-utils
 
+      - name: Test native scene verifier
+        if: inputs.linux_audio_check == 'runtime'
+        run: python3 tests/audio/test_scene_acoustics.py
+
       - name: Select the native runtime software driver
         if: inputs.linux_audio_check == 'runtime'
         run: |
@@ -737,6 +746,7 @@ jobs:
         shell: bash
         env:
           LUX_SOUNDWAVE_CASES: ${{ inputs.soundwave_cases }}
+          LUX_SOUNDWAVE_CONFIGURATION: ${{ matrix.configuration }}
         run: |
           set -euo pipefail
           mkdir -p "$XDG_RUNTIME_DIR" logs
@@ -749,14 +759,14 @@ jobs:
             exit 1
           fi
           xvfb-run -a -s '-screen 0 1280x720x24' python3 -u tests/audio/run_scene_acoustics.py \
-            --config debug --threading single --export-runtime --cases "${scene_cases[@]}" --timeout 900 \
+            --config "${LUX_SOUNDWAVE_CONFIGURATION,,}" --threading single --export-runtime --cases "${scene_cases[@]}" --timeout 900 \
             2>&1 | tee logs/soundwave-native-runtime.log
 
       - name: Upload native runtime evidence
         if: always() && inputs.linux_audio_check == 'runtime'
         uses: actions/upload-artifact@v4
         with:
-          name: soundwave-native-linux-runtime
+          name: soundwave-native-linux-runtime-${{ matrix.configuration }}
           path: |
             logs/soundwave-native-runtime.log
             logs/pulseaudio.log
@@ -834,9 +844,10 @@ jobs:
             done
           done
 
-          # The engine deploys no audio libraries; an FMOD library left by an old build must never ship.
-          if find "$root" -name 'libfmod*' | grep -q .; then
-            echo "FMOD libraries in the artifact" >&2
+          # The native audio backend needs no legacy audio SDK files.
+          retired_audio="$(find "$root" -type f \( -iname '*fmod*.so*' -o -iname '*vaudionative*.so*' -o -iname '*asterwave*.so*' \) -print)"
+          if [ -n "$retired_audio" ]; then
+            printf 'Retired audio SDK libraries in the artifact:\n%s\n' "$retired_audio" >&2
             exit 1
           fi
 

@@ -132,6 +132,7 @@ namespace Lux {
 		// The low-frequency occlusion gain applied to a source's Occlusion parameter (1 = clear),
 		// from Soundwave; 1 when the source is not being simulated.
 		float GetAudioSourceOcclusion(UUID source) const;
+		float GetAudioSourceReverbSend(UUID source) const;
 
 		// After a prefab is edited, refresh this scene's instances of it: un-overridden instances
 		// (identical to oldPrefab) adopt newPrefab's values; modified instances are left untouched.
@@ -341,6 +342,7 @@ namespace Lux {
 		AudioOcclusion m_AudioOcclusion;
 		SceneAudioAcoustics m_SceneAcoustics;
 		std::unordered_map<UUID, float> m_AppliedAudioOcclusion; // Soundwave gains applied on main
+		std::unordered_map<UUID, float> m_AppliedAudioReverbSend;
 		std::vector<AudioOcclusion::Source> m_AudioOcclusionSources;
 		std::vector<SceneQueryHit> m_AudioOcclusionHits;
 		PhysicsAudioSystem m_PhysicsAudio;

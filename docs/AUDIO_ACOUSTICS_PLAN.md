@@ -1,5 +1,35 @@
 # Acoustic Kernel Plan — Soundwave: the acoustics Vercidium Audio gives LuxEngine, rebuilt in the engine
 
+**GPU source checkpoint (2026-11-17):** four Vulkan compute passes now evaluate endpoint,
+adjacency and reflection visibility and perform fixed-order source reduction/opening search.
+CPU workers prepare geometry/candidates/direct measurement and validate retained-path readbacks.
+The RTX 4070 Ti headless harness matches CPU gains, counts and route order, including the full
+262,267-triangle Sponza fixture at 2,048 nodes and reflection depths 0–2. Linux software Vulkan
+parity passed. Warm Sponza stage sums measured approximately 6–9 ms; these are isolated GPU
+measurements, not an end-to-end frame-budget result.
+
+Windows Debug/Release builds passed, and corner/reflection/caustic Editor Play and exported
+Runtime passed before the final compute-queue/timing change. Final compute-queue Play/export,
+cross-platform engine checks, the frame-budget proof and the complete Phase 6 audit remain open.
+The source passes now join the graphics frame timeline for asynchronous readback; the Audio
+Debugger and verification artifacts expose full-GPU selection and GPU time. The historical
+checkpoints below describe earlier implementations.
+
+**Full-roadmap audit (2026-11-16):** the original seven-phase roadmap is not complete.
+The standalone library now has path-arrival and ray-probe echograms. LuxEngine caches per-zone
+probe measurements and blends their sends into playback. Linux Release Play and exported Runtime
+verify the stone-room/corridor contrast and the applied per-source send. The histogram window and
+smoothing are now authored, serialized, validated and passed to the zone worker. GPU listener reverb
+is verified. A new parallel GPU visibility stage supplies source opening-ray decisions through an
+asynchronous engine readback; the final opening search and reflections still run on a CPU worker,
+so the original Phase 4 GPU solve is not yet complete. AMD GPU/CPU corner gain parity is 0 dB in
+the bounded fixture, with Release Play/export GPU source batches verified. Air absorption, scattering/spread and
+up to 16 interactions are authored, serialized, tested and observable in path diagnostics. SDK removal, editor Play and exported
+runtime pass on Linux Debug and Release; Windows Debug/Release/Dist builds and native audio tests
+pass, while interactive Windows Play/export remains outstanding. The
+2026-11-02 status below describes the later revised release path, not completion of the
+original roadmap.
+
 **Status (2026-11-02): implemented through Phase 7, tracked in Spec Kit
 `specs/001-soundwave-completion/` (spec, plan, research, tasks).** Phases 1-3 landed earlier on
 this branch. Phase 7 + the Phase 6 file migration: Vercidium Audio is gone from build, link,
@@ -151,17 +181,14 @@ The old document's anchors had drifted and several were never true. Fixed agains
 
 ---
 
-## 3. The one pending chore (was: the decision gate)
+## 3. Retired SDK packaging
 
-Decision 1 (B) retires the legal question as a *gate*. What stays, honestly, as one line at the
-very end of the work — decided by nobody in that session, and not this plan's to interpret:
+The Soundwave branch removes the retired Vercidium support reproduction from the tracked
+source tree. LuxEngine is already public. Package verification rejects legacy audio SDK
+libraries, and Soundwave ships as Apache-2.0 source with the native playback backend.
 
-> **Pending:** the disclosure/removal/packaging chore around dropping Vercidium Audio, and whether
-> the repository becomes public while `docs/vercidium-repro/` and the EULA's "may not disclose"
-> clause sit in it. The user's own shape choice (Decision 2) makes Soundwave a named library, so
-> any claim that the clause speaks only to engine-internal features no longer holds for this plan.
-> Nothing in Phases 1-6 depends on this line; nothing ships in an engine release until it is
-> settled (`docs/NEXT_UP_BACKLOG.md:91`, row 4.14).
+This records the scope of the technical packaging work. Interpretation of the former SDK
+agreement and any decision over historical public material remain release-owner decisions.
 
 ---
 
@@ -398,8 +425,7 @@ commit, `/send-pr` ships. Two things must happen first, and neither is code:
   disprove published claims. Soundwave is authored from the engine's own captures and published
   acoustic concepts. The user's own sentiment that "VA's way of doing it was so much better" sets
   *scope* (rewrite, don't extend), not design input.
-- **9.2 The disclosure chore is still load-bearing**, just not a gate: § 3. Ask before the repo
-  becomes public.
+- **9.2 Retired SDK packaging and historical disclosure** are tracked separately in § 3.
 - **9.3 Decision 2's shape is the one the clause speaks about.** The user chose a named library;
   that is their call, recorded, and § 3 keeps it visible. This plan does not claim the shape is
   unambiguously permitted.

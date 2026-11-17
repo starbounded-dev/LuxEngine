@@ -2,7 +2,7 @@
 
 `public class EventInstance`
 
-An owned Studio event. Dispose on the main thread; scene teardown also releases it.
+An owned Sound instance. Dispose on the main thread; scene teardown also releases it.
 
 ## Properties
 

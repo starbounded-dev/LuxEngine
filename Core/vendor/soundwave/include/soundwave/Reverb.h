@@ -3,6 +3,7 @@
 #pragma once
 
 #include "soundwave/Solve.h"
+#include "soundwave/Echogram.h"
 
 namespace Lux::Soundwave
 {
@@ -37,4 +38,9 @@ namespace Lux::Soundwave
 		const Settings& settings, Position listener, std::uint32_t ray, std::vector<RayHit>& hits, ReverbRay& output);
 	// Sums rays in index order (doubles), then derives the decay and send.
 	[[nodiscard]] EvaluationError FinishReverb(std::span<const ReverbRay> rays, const Settings& settings, ReverbResult& output);
+	// CPU probe reference. Emits a time-shift response at each surface hit and derives the
+	// zone send from the resulting energy and the same decay estimator as listener reverb.
+	[[nodiscard]] EvaluationError EvaluateZoneReverb(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, const EchogramSettings& echogramSettings, Position probe,
+		std::vector<RayHit>& hits, Echogram& echogram, ReverbResult& reverb);
 }

@@ -49,7 +49,8 @@ namespace Lux::Soundwave
 		}
 
 		EvaluationError TraceRay(const GeometryView& geometry, const MaterialTable& materials, const Settings& settings,
-			Position listener, std::uint32_t ray, std::vector<RayHit>& hits, ReverbRay& output)
+			Position listener, std::uint32_t ray, std::vector<RayHit>& hits, ReverbRay& output,
+			std::vector<EchogramArrival>* arrivals = nullptr)
 		{
 			output = {};
 			// Fibonacci sphere: evenly spread, fixed order.
@@ -59,6 +60,7 @@ namespace Lux::Soundwave
 			const float angle = kGoldenAngle * static_cast<float>(ray);
 			Position direction{ radius * std::cos(angle), z, radius * std::sin(angle) };
 			Position origin = listener;
+			float energyLF = 1.0f, energyHF = 1.0f;
 			for (std::uint32_t bounce = 0; bounce < settings.ReverbBounces; ++bounce)
 			{
 				++output.Traces;
@@ -79,6 +81,15 @@ namespace Lux::Soundwave
 				output.Absorbed += settings.Absorption * 0.5f * (material.AbsorptionLF + material.AbsorptionHF);
 				output.Travelled += hit.Distance;
 				++output.Hits;
+				if (arrivals)
+				{
+					energyLF *= std::max(0.0f, 1.0f - settings.Absorption * material.AbsorptionLF);
+					energyHF *= std::max(0.0f, 1.0f - settings.Absorption * material.AbsorptionHF);
+					const float distance = output.Travelled;
+					const float airLF = std::pow(10.0f, -settings.AirAbsorptionLF * distance / 1000.0f);
+					const float airHF = std::pow(10.0f, -settings.AirAbsorptionHF * distance / 1000.0f);
+					arrivals->push_back({ distance / kSpeedOfSound, energyLF * airLF, energyHF * airHF });
+				}
 				// Restart just off the surface on the incoming side. An endpoint margin alone lets a
 				// corner bounce skip the adjacent face and leak out through the seam.
 				const Position outward = Math::Dot(direction, normal) > 0 ? Math::Scale(normal, -1.0f) : normal;
@@ -157,5 +168,36 @@ namespace Lux::Soundwave
 			if (const auto error = TraceRay(geometry, materials, settings, listener, ray, hits, rays[ray]); error != EvaluationError::None)
 				return error;
 		return FinishReverb(rays, settings, output);
+	}
+
+	EvaluationError EvaluateZoneReverb(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, const EchogramSettings& echogramSettings, Position probe,
+		std::vector<RayHit>& hits, Echogram& echogram, ReverbResult& reverb)
+	{
+		if (!echogramSettings.Validate())
+			return EvaluationError::InvalidSettings;
+		if (const auto error = ValidateInputs(geometry, materials, settings, probe); error != EvaluationError::None)
+			return error;
+		std::vector<ReverbRay> rays(settings.ReverbRays);
+		std::vector<EchogramArrival> arrivals;
+		arrivals.reserve(static_cast<size_t>(settings.ReverbRays) * settings.ReverbBounces);
+		for (std::uint32_t ray = 0; ray < settings.ReverbRays; ++ray)
+			if (const auto error = TraceRay(geometry, materials, settings, probe, ray, hits, rays[ray], &arrivals);
+				error != EvaluationError::None)
+				return error;
+		Echogram nextEchogram;
+		if (const auto error = BuildEchogram(arrivals, echogramSettings, nextEchogram); error != EvaluationError::None)
+			return error;
+		ReverbResult nextReverb;
+		if (const auto error = FinishReverb(rays, settings, nextReverb); error != EvaluationError::None)
+			return error;
+		const float returnedEnergy = 0.5f * (nextEchogram.TotalEnergyLF + nextEchogram.TotalEnergyHF) /
+			static_cast<float>(settings.ReverbRays);
+		nextReverb.Send *= 1.0f - std::exp(-returnedEnergy);
+		if (!std::isfinite(nextReverb.Send))
+			return EvaluationError::NumericalFailure;
+		echogram = std::move(nextEchogram);
+		reverb = nextReverb;
+		return EvaluationError::None;
 	}
 }

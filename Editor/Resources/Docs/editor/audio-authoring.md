@@ -51,6 +51,7 @@ Add a parameter with this name to a Sound and the engine sets it. Each is option
 | `Layer_<name>` | `Music.SetLayerEnabled("<name>", ...)` | 0 or 1, to fade a layer in and out. |
 
 Walls and closed doors muffle every 3D Sound on their own (a low-pass and a gain), and the space's reverb sends it to the mixer's reverb return; no parameter is needed.
+The Audio Debugger shows whether listener reverb is using GPU rays or a CPU worker. If GPU preparation or readback fails, the CPU worker continues the measurement and the debugger shows a warning; the Log has the cause.
 
 ## Mixing for the player
 
@@ -81,3 +82,15 @@ rerun it after authored edits. Visualisation controls affect the editor view, no
 ## Projects from before FMOD
 
 A project made with the FMOD version of the engine opens and plays its Sounds; its FMOD events never play. **Project Settings › Audio › Legacy FMOD Data** lists what is left (*Scan for FMOD Data*) and removes it in one step (*Remove FMOD Data*). Each Audio Source that names an FMOD event but no Sound needs a Sound assigned.
+
+### Caustic focus
+
+Set **Caustic Focus** in Project Settings → Audio to let smoothly curved parts of an acoustic
+mesh concentrate or spread reflected energy. Set it to 0 for planar spreading or to 1 for the
+full estimate. Keep the reflector faces in one mesh instance, with shared edge positions.
+The Audio Debugger shows LF/HF focus gains on each retained reflection. Added energy reaches
+the source through the built-in reverb return and leaves dry occlusion unchanged.
+
+The Acoustics page reports whether source propagation uses the GPU, its most recent GPU
+time, completed batches and fallback warnings. Geometry and candidate preparation remain on
+workers. Sources retain their last valid result while asynchronous work completes.

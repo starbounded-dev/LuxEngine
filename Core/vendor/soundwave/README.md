@@ -5,6 +5,19 @@ library; `Lux::Soundwave` does not include engine, physics, renderer or audio-ba
 LuxEngine compiles `src/*.cpp` directly into `Core`, without its precompiled header or a new DLL.
 The include root is registered in `Dependencies.lua`.
 
+## Release path
+
+The current integration runs listener reverb rays and bounded source path search/reduction
+on Vulkan compute. CPU workers prepare geometry/candidates/direct measurement and validate
+asynchronous readbacks; GPU failures fall back to the CPU reference. `GpuOpening.h` defines the
+bounded source ABI, and `shaders/` contains the canonical four-pass implementation. The engine's
+shader include copies must match these files. `Flatten` preserves the last valid output on failure
+and accepts an explicit upload byte budget; LuxEngine uses 64 MiB.
+Per-zone ray-probe echograms drive playback sends. `BuildEchogram` also provides path-arrival
+histograms. The same Core path serves the editor and exported runtime. Final compute-queue
+Play/export, cross-platform engine checks and the frame-budget proof remain open; the phase
+notes below record earlier implementation stages.
+
 ## Current contract
 
 - `MaterialProperties` holds LF/HF absorption, scattering, solid transmission distances and

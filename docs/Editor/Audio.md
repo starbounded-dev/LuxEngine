@@ -50,7 +50,7 @@ Sections, in draw order:
 | **Backends** | Whether the audio engine (miniaudio) initialised, its version and sample rate; the acoustics backend (Soundwave) and whether it is running |
 | **Playback** | Sound instances playing |
 | **Sound Banks and Clips** | Every loaded Sound Bank (loads, ready or decoding, resident) and every clip in memory (size, streaming, bank and voice references) |
-| **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
+| **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; GPU source-solve batches, GPU time and CPU fallback warnings; GPU or CPU reverb mode and a warning if GPU reverb failed; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
 | **Sources** | Per-source table: entity, Sound, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle, and *Paths* (`3R 1O x2`: reflections, openings, deepest bounce; `!` when a work or path budget ran out) |
 | **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, clip memory, per-bus input peak/RMS in dBFS |
 | **Audio Validation** | The project's validation results — missing Sounds or clips, wrong playback kinds, Sounds in no Sound Bank |
@@ -181,7 +181,10 @@ wall is about 18 dB), and adds reflection and doorway routes so a source around 
 audible. *Transmission Strength* scales every wall; *Acoustic Rate* and *Sources per Frame* bound the
 cost; *Maximum Bounces*, *Reflection Depth*, *Opening Samples* and the work budgets bound the search.
 *Reverb Rays*, *Reverb Bounces* and *Reverb Reference Decay* control the listener reverb
-measurement. *Air Absorption LF/HF* (dB per 100 m) darken reflected and doorway sound over their
+measurement. Each active zone also caches timed ray arrivals; *Echogram Window* bounds their
+duration and *Echogram Smoothing* spreads them across nearby bins without changing total energy.
+The Audio Debugger shows the measured zone send, decay, arrival count and window-limit warning.
+*Air Absorption LF/HF* (dB per 100 m) darken reflected and doorway sound over their
 extra length and shorten the reverb; the Sound's distance attenuation still owns how a source fades with
 distance, so nothing is faded twice. *Compare Engine Ray* also runs the old physics-ray occlusion as a diagnostic. Applies on
 the next Play. Projects saved with the old *Engine raycasts / VA (raytraced)* choice load unchanged
@@ -213,7 +216,7 @@ instead of loading into memory.
 
 | Component | What it does |
 |---|---|
-| **Audio Source** | Plays a Studio event from the entity |
+| **Audio Source** | Plays a Sound asset from the entity |
 | **Audio Portal** | A rectangular acoustic shutter that opens between two zones |
 | **Audio Zone** | A region contributing to listener zone weights |
 | **Audio Surface** | Overrides the acoustic material tag from the mesh collider |
@@ -221,17 +224,15 @@ instead of loading into memory.
 
 ### Audio Source
 
-The event picker is the main control: a **Bank** filter (defaults to *All banks*), a searchable
-event list, and *None* to clear. It lists only events the loaded banks actually describe — if the
-list is empty, the banks are not built or not loaded, which the Audio Debugger's Banks section will
-confirm.
+The **Sound** asset picker is the main control. Create a Sound from an audio file in the Content
+Browser, assign it here, and use **Edit Sound** to open its authoring graph. Include the Sound in a
+Sound Bank for predictable loading; the Audio Debugger shows loaded banks and clips.
 
-**Parameter Overrides** below it set authored Studio parameters per source: *Add Parameter*, pick
-the name, set the value. These are serialized with the component and reapplied when the instance is
-created.
+**Parameter Overrides** set parameters authored on the Sound when its instance is created. They
+are serialized with the component; a missing parameter is reported in the Audio log.
 
-Play On Awake, volume and pitch are on the same component. Looping is **not** — it is authored in
-the event's Studio timeline, not in the engine.
+Play On Awake, volume and pitch are on the same component. Looping and spatialization are authored
+on the Sound.
 
 ### Audio Surface, Zone, Portal
 
@@ -252,3 +253,11 @@ in the viewport. The engine-side rules for all three are in `Architecture-LuxEng
 - [Viewport & Camera](Viewport-and-Camera.md) — the overlay the acoustics visualisation draws into
 - `Editor/LuxSampleProject/AUDIO_DEMO.md` — the demo scene and authoring your own Sounds
 - `.claude/docs/Architecture-LuxEngine.md` §2.10 — the runtime audio architecture
+
+### Caustic focus
+
+Set **Caustic Focus** in Project Settings → Audio to let smoothly curved parts of an acoustic
+mesh concentrate or spread reflected energy. Set it to 0 for planar spreading or to 1 for the
+full estimate. Keep the reflector faces in one mesh instance, with shared edge positions.
+The Audio Debugger shows LF/HF focus gains on each retained reflection. Added energy reaches
+the source through the built-in reverb return and leaves dry occlusion unchanged.
