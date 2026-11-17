@@ -122,7 +122,7 @@ the unused palette field on `StaticMeshSyncInputs` (it arrives with its first re
 `Scene::GetAssetList` collects the skeleton handle so an export ships the `.lskel`.
 **Rollback:** revert the commit; no renderer state exists yet.
 
-### Phase 2 — Skinning kernel and GPU buffers in isolation
+### Phase 2 — Skinning kernel and GPU buffers in isolation (kernel done)
 **Goal:** the compute shader skins a mesh on the GPU and matches the CPU reference.
 **Changes:** `Editor/Resources/Shaders/Skinning.glsl` (**NEW**, includes `QTangent.glslh` plus a
 QTangent encode); `Renderer/SkinCache.{h,cpp}` (**NEW**: buffers, upload); a vertex+UAV buffer class
@@ -134,6 +134,19 @@ stated tolerance for positions, normals and tangents; Debug build; nothing is wi
 frame, so goldens are unaffected.
 **Exit:** parity passes; shader compiles through the engine's shader compiler too.
 **Rollback:** revert; the shader is unreferenced.
+**Result:** the kernel is done and verified. `Skinning.glsl` (set 1, bindings 40-43, free per a scan of
+every shader's `(set, binding)`), the GLSL QTangent encode, and `tests/animation/SkinningGpuParity.cpp`
+(raw Vulkan, run by `run_skinning_gpu.py`) agree with the CPU reference on a 6000-vertex synthetic
+mesh with scaled bones, mirrored frames, one-, two- and four-bone vertices and weightless vertices
+(worst position error 1.4e-6, worst frame cosine 0.99988). The engine loads the shader in
+`Renderer::Init`, `Editor --build-shader-pack` compiled it with the rest (57 programs), and the
+committed pack and stamp were rebuilt (`check_engine_pack.py` passes). Deferred to phase 3, where the
+first reader exists: the `SkinCache` buffer class (vertex + UAV flags), so no unused GPU code ships.
+**Correction found while building phase 1 and 2:** "skinned at rest equals the same mesh static" does
+not hold for files where the mesh node's own transform differs from the transform the inverse binds were
+authored below (the sample: node transform `Z_UP * Armature`, rest skinning `Z_UP`). glTF skinned meshes
+ignore the node transform, so phase 3's rest check compares against the importer-computed rest matrix
+(already asserted) and a review of the golden image, not a pixel match with the static draw.
 
 ### Phase 3 — Skinned draws through the retained path
 **Goal:** a skinned entity renders in the editor, in all passes.
