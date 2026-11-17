@@ -47,7 +47,8 @@ project "Editor"
 		defines { "LUX_PLATFORM_WINDOWS" }
 		files {
 			"Editor.rc",
-			"resource.h"
+			"resource.h",
+			"../Core/Platform/Windows/LongPaths.manifest"
 		}
 
 		-- We link the release SDK in every configuration, so copy that DLL everywhere too.

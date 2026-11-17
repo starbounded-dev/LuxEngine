@@ -80,41 +80,44 @@ namespace Lux::RuntimeExport {
 		std::initializer_list<std::string_view> skip)
 	{
 		std::error_code ec;
-		if (!std::filesystem::exists(source, ec) || ec)
-			return false;
-
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(source, ec))
+		std::filesystem::recursive_directory_iterator it(source, ec), end;
+		while (!ec && it != end)
 		{
-			if (ec)
-				break;
-
-			const std::filesystem::path relativePath = std::filesystem::relative(entry.path(), source, ec);
-			if (ec)
-				continue;
-
-			if (!relativePath.empty() && (*relativePath.begin() == "Cache"
-				|| std::ranges::find(skip, relativePath.begin()->string()) != skip.end()))
-				continue;
-
-			const std::filesystem::path target = destination / relativePath;
-			if (entry.is_directory(ec))
+			const auto& entry = *it;
+			const auto relativePath = entry.path().lexically_relative(source);
+			const auto first = relativePath.begin()->string();
+			if (first == "Cache" || std::ranges::find(skip, first) != skip.end())
+				it.disable_recursion_pending();
+			else
 			{
-				std::filesystem::create_directories(target, ec);
-				continue;
-			}
-
-			if (entry.is_regular_file(ec))
-			{
-				if (skipDebugFiles)
+				const auto target = destination / relativePath;
+				const auto status = entry.status(ec);
+				if (ec)
+					break;
+				if (std::filesystem::is_directory(status))
 				{
-					const std::filesystem::path extension = entry.path().extension();
-					if (extension == ".pdb" || extension == ".ilk" || extension == ".exp")
-						continue;
+					std::filesystem::create_directories(target, ec);
+					if (ec)
+					{
+						LUX_CORE_ERROR_TAG("Project", "Cannot create export directory '{}': {}", target.string(), ec.message());
+						return false;
+					}
 				}
-				CopyFileIfExists(entry.path(), target);
+				else if (std::filesystem::is_regular_file(status))
+				{
+					const auto extension = entry.path().extension();
+					const bool debugFile = extension == ".pdb" || extension == ".ilk" || extension == ".exp";
+					if ((!skipDebugFiles || !debugFile) && !CopyFileIfExists(entry.path(), target, true))
+						return false;
+				}
 			}
+			it.increment(ec);
 		}
-
+		if (ec)
+		{
+			LUX_CORE_ERROR_TAG("Project", "Cannot read export directory '{}': {}", source.string(), ec.message());
+			return false;
+		}
 		return true;
 	}
 
