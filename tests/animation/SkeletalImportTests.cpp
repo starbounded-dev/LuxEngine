@@ -10,6 +10,9 @@
 #include "Lux/Asset/SkeletalImporter.h"
 #include "Lux/Serialization/FileStream.h"
 
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -108,27 +111,91 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	// RiggedSimple: joints "Bone" (root) and "Bone.001" (its child).
-	CHECK(skeleton->GetNumBones() == 2);
-	CHECK(skeleton->GetBoneIndex("Bone") == 0 && skeleton->GetBoneIndex("Bone.001") == 1);
+	// RiggedSimple: joints "Bone" and its child "Bone.001", under the Armature and Z_UP nodes that the
+	// skeleton keeps so its model space matches the inverse bind poses.
+	const uint32_t bone = skeleton->GetBoneIndex("Bone");
+	const uint32_t bone1 = skeleton->GetBoneIndex("Bone.001");
+	CHECK(skeleton->GetNumBones() >= 4);
+	CHECK(bone != Skeleton::NullIndex && bone1 != Skeleton::NullIndex);
+	CHECK(skeleton->GetBoneIndex("Armature") != Skeleton::NullIndex && skeleton->GetBoneIndex("Z_UP") != Skeleton::NullIndex);
 	CHECK(skeleton->GetParentBoneIndex(0) == Skeleton::NullIndex);
-	CHECK(skeleton->GetParentBoneIndex(1) == 0);
-	CHECK(Near(skeleton->GetBoneTranslations()[1].z, 4.187077f, 1e-4f));  // the file's node translation
-	CHECK(Near(skeleton->GetBoneTranslations()[0].z, -4.18033f, 1e-4f));  // the file's node matrix
-	// The child's model-space rest translation is parent + child, and the inverse really inverts it.
-	CHECK(Near(skeleton->GetModelSpaceRestPose()[1][3].z, skeleton->GetBoneTranslations()[0].z + skeleton->GetBoneTranslations()[1].z, 1e-3f));
+	CHECK(skeleton->GetParentBoneIndex(bone1) == bone);
+	CHECK(skeleton->GetParentBoneIndex(bone) == skeleton->GetBoneIndex("Armature"));
+	CHECK(Near(skeleton->GetBoneTranslations()[bone1].z, 4.187077f, 1e-4f));  // the file's node translation
+	CHECK(Near(skeleton->GetBoneTranslations()[bone].z, -4.18033f, 1e-4f));   // the file's node matrix
+	// Every bone has its parent before it, and the inverse really inverts the model-space rest pose.
+	for (uint32_t i = 0; i < skeleton->GetNumBones(); i++)
+		CHECK(skeleton->GetParentBoneIndex(i) == Skeleton::NullIndex || skeleton->GetParentBoneIndex(i) < i);
 	const glm::vec4 probe(1.0f, 2.0f, 3.0f, 1.0f);
-	const glm::vec4 roundTrip = skeleton->GetModelSpaceRestPoseInverse()[1] * (skeleton->GetModelSpaceRestPose()[1] * probe);
+	const glm::vec4 roundTrip = skeleton->GetModelSpaceRestPoseInverse()[bone1] * (skeleton->GetModelSpaceRestPose()[bone1] * probe);
 	CHECK(Near(roundTrip.x, probe.x, 1e-4f) && Near(roundTrip.y, probe.y, 1e-4f) && Near(roundTrip.z, probe.z, 1e-4f));
 
 	Ref<Animation> clip = clips[0];
 	clip->SetSkeletonHandle(Lux::UUID(0x1234abcdULL));
 	CHECK(clip->GetTracks().size() == 1);
-	CHECK(clip->GetTracks()[0].BoneIndex == 1);
+	CHECK(clip->GetTracks()[0].BoneIndex == bone1);
 	CHECK(clip->GetTracks()[0].Translations.size() == 50 && clip->GetTracks()[0].Rotations.size() == 50 && clip->GetTracks()[0].Scales.size() == 50);
 	CHECK(Near(clip->GetDuration(), 2.083333f, 1e-4f));
 	CHECK(Near(clip->GetTracks()[0].Rotations.front().Time, 0.0416666f, 1e-4f));
 	CHECK(Near(glm::length(clip->GetTracks()[0].Rotations[10].Value), 1.0f, 1e-4f));
+
+	// --- skin weights, read the way the mesh importer reads them -----------------------------------
+	{
+		Assimp::Importer importer;
+		const aiScene* scene = importer.ReadFile(model.string(), k_MeshImportFlags);
+		CHECK(scene && scene->mNumMeshes > 0);
+		if (scene && scene->mNumMeshes > 0)
+		{
+			std::vector<uint32_t> bases;
+			uint32_t total = 0;
+			for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+			{
+				bases.push_back(total);
+				total += scene->mMeshes[m]->mNumVertices;
+			}
+			std::vector<BoneInfluence> influences;
+			std::vector<BoneInfo> bones;
+			CHECK(ExtractSkinWeights(*scene, bases, total, influences, bones));
+			CHECK(influences.size() == total && total > 0);
+			CHECK(bones.size() == 2);
+
+			// Every vertex is weighted, to bones the mesh lists, and the weights add up to 1.
+			bool allWeighted = true;
+			for (const BoneInfluence& influence : influences)
+			{
+				float sum = 0.0f;
+				for (int slot = 0; slot < 4; slot++)
+				{
+					sum += influence.Weights[slot];
+					if (influence.Weights[slot] > 0.0f)
+						allWeighted &= influence.BoneInfoIndices[slot] < bones.size();
+				}
+				allWeighted &= Near(sum, 1.0f, 1e-4f);
+			}
+			CHECK(allWeighted);
+
+			// Each bone maps to a skeleton bone. The skinning matrix is the bone's model-space pose times its
+			// inverse bind pose; at rest it is the transform of the node the inverse binds were authored
+			// below, here Z_UP (so a correctly skinned rest pose is just the Z-up to Y-up rotation).
+			const glm::mat4& expectedRest = skeleton->GetModelSpaceRestPose()[skeleton->GetBoneIndex("Z_UP")];
+			for (const BoneInfo& bone : bones)
+			{
+				const uint32_t index = skeleton->GetBoneIndex(bone.Name);
+				CHECK(index != Skeleton::NullIndex);
+				if (index == Skeleton::NullIndex)
+					continue;
+				const glm::mat4 skinning = skeleton->GetModelSpaceRestPose()[index] * bone.InverseBindPose;
+				for (int column = 0; column < 4; column++)
+					for (int row = 0; row < 4; row++)
+						CHECK(Near(skinning[column][row], expectedRest[column][row], 1e-3f));
+			}
+
+			// A mesh list that does not match the scene is refused.
+			std::vector<BoneInfluence> none;
+			std::vector<BoneInfo> noBones;
+			CHECK(!ExtractSkinWeights(*scene, {}, total, none, noBones) && none.empty() && noBones.empty());
+		}
+	}
 
 	// --- round trip through the .lskel / .lanim files --------------------------------------------
 	std::filesystem::create_directories(out);

@@ -17,7 +17,10 @@ namespace Lux
 			// cache encoding; MeshSource::SetBakedLODs). Packs without it generate LODs at load.
 			HasBakedLODs = BIT(1),
 			// VertexAttributes (vertex colours, UV1) lie between the vertex and index sections.
-			HasVertexAttributes = BIT(2)
+			HasVertexAttributes = BIT(2),
+			// Skin weights and bones follow the baked LODs (or the index buffer without them) to the end
+			// of the entry: SkinOffset, SkinSize.
+			HasSkin = BIT(3)
 		};
 
 		struct Metadata
@@ -39,12 +42,15 @@ namespace Lux
 
 			uint64_t IndexBufferOffset = 0;
 			uint64_t IndexBufferSize = 0;
+
+			uint64_t SkinOffset = 0;
+			uint64_t SkinSize = 0;
 		};
 
 		struct FileHeader
 		{
 			const char HEADER[4] = { 'L', 'Z', 'M', 'S' };
-			uint32_t Version = 1;
+			uint32_t Version = 2;
 		};
 
 		FileHeader Header;

@@ -10,9 +10,11 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Lux
@@ -36,14 +38,15 @@ namespace Lux
 			return false;
 		}
 
-		// Adds `node` and its descendants. Nodes above the topmost bone are skipped (the mesh already
-		// carries them); inside the skeleton, a node joins when it or something below it is a bone.
-		void AddSkeletonNodes(Skeleton& skeleton, const aiNode* node, uint32_t parentIndex, bool insideSkeleton,
+		// Adds `node` and its descendants. A node joins when it or something below it is a bone, so every
+		// bone's ancestors up to the scene root are kept: a glTF inverse bind matrix is the inverse of
+		// the joint's world transform, ancestors included, so the skeleton's model space has to be the
+		// scene's for rest pose * inverse bind to be the identity.
+		void AddSkeletonNodes(Skeleton& skeleton, const aiNode* node, uint32_t parentIndex,
 			const std::unordered_set<std::string>& boneNames)
 		{
-			insideSkeleton = insideSkeleton || IsBoneNode(node, boneNames);
 			uint32_t index = parentIndex;
-			if (insideSkeleton && HasBoneInSubtree(node, boneNames))
+			if (HasBoneInSubtree(node, boneNames))
 			{
 				aiVector3D scale, position;
 				aiQuaternion rotation;
@@ -57,7 +60,7 @@ namespace Lux
 				}
 			}
 			for (uint32_t i = 0; i < node->mNumChildren; i++)
-				AddSkeletonNodes(skeleton, node->mChildren[i], index, insideSkeleton, boneNames);
+				AddSkeletonNodes(skeleton, node->mChildren[i], index, boneNames);
 		}
 
 		template<typename Key, typename AiKey, typename Convert>
@@ -73,6 +76,55 @@ namespace Lux
 			}
 			std::stable_sort(out.begin(), out.end(), [](const Key& a, const Key& b) { return a.Time < b.Time; });
 		}
+	}
+
+	bool ExtractSkinWeights(const aiScene& scene, const std::vector<uint32_t>& meshBaseVertex, uint32_t totalVertices,
+		std::vector<BoneInfluence>& influences, std::vector<BoneInfo>& boneInfo)
+	{
+		influences.clear();
+		boneInfo.clear();
+		if (meshBaseVertex.size() != scene.mNumMeshes)
+			return false;
+
+		std::vector<BoneInfluence> result(totalVertices);
+		std::vector<BoneInfo> bones;
+		std::unordered_map<std::string, uint32_t> boneIndexByName;
+		bool anyBones = false;
+
+		for (uint32_t m = 0; m < scene.mNumMeshes; m++)
+		{
+			const aiMesh& mesh = *scene.mMeshes[m];
+			for (uint32_t b = 0; b < mesh.mNumBones; b++)
+			{
+				const aiBone& bone = *mesh.mBones[b];
+				const auto [it, inserted] = boneIndexByName.try_emplace(bone.mName.C_Str(), static_cast<uint32_t>(bones.size()));
+				if (inserted)
+				{
+					BoneInfo info;
+					info.Name = bone.mName.C_Str();
+					// aiMatrix4x4 is row-major, glm column-major.
+					info.InverseBindPose = glm::transpose(glm::make_mat4(&bone.mOffsetMatrix.a1));
+					bones.push_back(std::move(info));
+				}
+
+				for (uint32_t w = 0; w < bone.mNumWeights; w++)
+				{
+					const uint32_t vertex = meshBaseVertex[m] + bone.mWeights[w].mVertexId;
+					if (vertex >= totalVertices || bone.mWeights[w].mVertexId >= mesh.mNumVertices)
+						continue;
+					result[vertex].AddBoneData(it->second, bone.mWeights[w].mWeight);
+					anyBones = true;
+				}
+			}
+		}
+
+		if (!anyBones)
+			return true;
+		for (BoneInfluence& influence : result)
+			influence.NormalizeWeights();
+		influences = std::move(result);
+		boneInfo = std::move(bones);
+		return true;
 	}
 
 	bool ImportSkeletonAndAnimations(const std::filesystem::path& path, Ref<Skeleton>& outSkeleton, std::vector<Ref<Animation>>& outClips)
@@ -99,7 +151,7 @@ namespace Lux
 		if (!boneNames.empty())
 		{
 			Ref<Skeleton> skeleton = Ref<Skeleton>::Create();
-			AddSkeletonNodes(*skeleton, scene->mRootNode, Skeleton::NullIndex, false, boneNames);
+			AddSkeletonNodes(*skeleton, scene->mRootNode, Skeleton::NullIndex, boneNames);
 			skeleton->CalculateDerivedData();
 			if (!skeleton->IsEmpty())
 				outSkeleton = skeleton;

@@ -785,8 +785,23 @@ Rules:
   editor only, the Content Browser's "Extract Skeleton and Animations" on a MeshSource) calls to write
   `<model>.lskel` and `<model>_<clip>.lanim` beside the model and register them; re-running it
   overwrites the files and keeps the handles. Skin weights and inverse bind matrices are not part of
-  this: they belong to the mesh (R12). Compression, playback and retargeting are A2. Verified by
+  this: they belong to the mesh (R12, below). Compression, playback and retargeting are A2. Verified by
   `tests/animation/run_windows.py` (import of `RiggedSimple.gltf`, file round trip, malformed files).
+  The skeleton keeps **every ancestor of a bone up to the scene root** (not just the bone nodes), so
+  its model space is the scene's: a glTF inverse bind matrix is authored against the chain above the
+  bones, and the skinning matrix is `bone model-space pose * InverseBindPose`. At rest that is the
+  transform of the node the inverse binds were authored below (Z_UP in the sample, the Z-up to Y-up
+  rotation), not the identity; the order matters. The node transform of a skinned submesh must not
+  be applied on top.
+- **Skin data lives on the `MeshSource`.** `AssimpMeshImporter` calls `ExtractSkinWeights`
+  (`SkeletalImporter.cpp`) on the same scene it builds vertices from (`k_MeshImportFlags`, shared so
+  the vertex ids match): `MeshSource::GetBoneInfluences()` is one `BoneInfluence` (four bone indices
+  and weights summing to 1) per vertex, `GetBoneInfo()` lists each bone once by name with its
+  `InverseBindPose`, and rigged submeshes set `Submesh::IsRigged`. A pack carries them in the mesh
+  entry's skin section (`MeshFlags::HasSkin`, `Metadata::SkinOffset/SkinSize`, written after the
+  baked LODs, bounded and validated on read); that changed the mesh entry format, so
+  `k_MeshSourceFileVersion` is 2 and packs from an older editor are refused. Nothing uploads or
+  draws skin data yet: the GPU buffer, the bone palette and the skinned passes are the rest of R12.
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own

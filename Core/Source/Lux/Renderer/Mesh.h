@@ -57,22 +57,14 @@ namespace Lux {
 		static VertexAttributes Default(const glm::vec2& uv0);
 	};
 	static_assert(sizeof(VertexAttributes) == 8, "VertexAttributes must match the attribute stream layout");
-	/*
+	// One bone a mesh is skinned to: its name, which a Skeleton resolves to a bone index, and the
+	// transform from mesh space into that bone's rest space (Assimp's offset matrix, a glTF inverse
+	// bind matrix). Skinning is boneModelTransform * InverseBindPose.
 	struct BoneInfo
 	{
-		glm::mat4 InverseBindPose;
-		uint32_t BoneIndex = Skeleton::NullIndex;
-
-		static void Serialize(StreamWriter* serializer, const BoneInfo& instance)
-		{
-			serializer->WriteRaw(instance);
-		}
-
-		static void Deserialize(StreamReader* deserializer, BoneInfo& instance)
-		{
-			deserializer->ReadRaw(instance);
-		}
-	};*/
+		std::string Name;
+		glm::mat4 InverseBindPose = glm::mat4(1.0f);
+	};
 
 	struct BoneInfluence
 	{
@@ -304,6 +296,12 @@ namespace Lux {
 		void CompactCPUGeometry();
 		void BuildRenderGeometry();
 
+		// Skin data: one BoneInfluence per vertex (parallel to the vertices, indexing GetBoneInfo()), and the
+		// bones themselves. Both are empty for an unrigged mesh. Not uploaded to the GPU yet.
+		bool HasSkin() const { return !m_BoneInfluences.empty(); }
+		const std::vector<BoneInfluence>& GetBoneInfluences() const { return m_BoneInfluences; }
+		const std::vector<BoneInfo>& GetBoneInfo() const { return m_BoneInfo; }
+
 		//bool HasSkeleton() const { return (bool)m_Skeleton; }
 		//bool IsSubmeshRigged(uint32_t submeshIndex) const { return m_Submeshes[submeshIndex].IsRigged; }
 		//const Skeleton* GetSkeleton() const { return m_Skeleton.get(); }
@@ -312,7 +310,6 @@ namespace Lux {
 	//	std::vector<std::string> GetAnimationNames() const;
 		// note: can return nullptr (e.g. if named animation does not exist, or something goes wrong retrieving the animation)
 		//const Animation* GetAnimation(const std::string& animationName, const Skeleton& skeleton, bool extractRootMotion, uint32_t rootBoneIndex, const glm::bvec3& rootTranslationMask, const glm::bvec3& rootRotationMask, bool discardRootMotion) const;
-	//	const std::vector<BoneInfluence>& GetBoneInfluences() const { return m_BoneInfluences; }
 
 		std::vector<AssetHandle>& GetMaterials() { return m_Materials; }
 		const std::vector<AssetHandle>& GetMaterials() const { return m_Materials; }
@@ -362,8 +359,8 @@ namespace Lux {
 		std::vector<glm::vec3> m_CollisionPositions;
 		static bool s_RetainFullCPUGeometry;
 
-		//std::vector<BoneInfluence> m_BoneInfluences;
-		//std::vector<BoneInfo> m_BoneInfo;
+		std::vector<BoneInfluence> m_BoneInfluences; // empty, or one per vertex
+		std::vector<BoneInfo> m_BoneInfo;
 		//mutable Scope<Skeleton> m_Skeleton;
 		//std::vector<std::string> m_AnimationNames;
 		//mutable std::unordered_map<size_t, Scope<Animation>> m_Animations;
