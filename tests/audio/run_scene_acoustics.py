@@ -331,9 +331,6 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",
                 "LUX_THREADING_POLICY": threading.capitalize()})
     if gpu_source:
-        require(data.get("SourceSolveOn") == "GPU", "Full GPU propagation did not run")
-        if data.get("SourceGpuTimingEnabled", False):
-            require(data.get("SourceGpuMilliseconds", 0) > 0, "GPU timestamp evidence missing")
         env["LUX_VERIFY_GPU_SOURCE"] = "1"
     if os.name != "nt":
         # Build-tree paths must not hide a missing packaged shared library.

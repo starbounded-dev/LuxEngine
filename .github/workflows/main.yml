@@ -558,7 +558,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: ${{ fromJSON(inputs.linux_audio_check == 'debug-as' && '["Debug-AS"]' || inputs.linux_audio_check == 'runtime' && '["Debug"]' || '["Debug", "Debug-AS", "Release", "Dist"]') }}
+        configuration: ${{ fromJSON(inputs.linux_audio_check == 'debug-as' && '["Debug-AS"]' || inputs.linux_audio_check == 'runtime' && '["Debug", "Release"]' || '["Debug", "Debug-AS", "Release", "Dist"]') }}
 
     steps:
       - name: Checkout repository
@@ -651,6 +651,10 @@ jobs:
         if: inputs.linux_audio_check == 'runtime' && runner.environment != 'self-hosted'
         run: sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers vulkan-tools xvfb xauth python3-yaml pulseaudio pulseaudio-utils
 
+      - name: Test native scene verifier
+        if: inputs.linux_audio_check == 'runtime'
+        run: python3 tests/audio/test_scene_acoustics.py
+
       - name: Select the native runtime software driver
         if: inputs.linux_audio_check == 'runtime'
         run: |
@@ -742,6 +746,7 @@ jobs:
         shell: bash
         env:
           LUX_SOUNDWAVE_CASES: ${{ inputs.soundwave_cases }}
+          LUX_SOUNDWAVE_CONFIGURATION: ${{ matrix.configuration }}
         run: |
           set -euo pipefail
           mkdir -p "$XDG_RUNTIME_DIR" logs
@@ -754,14 +759,14 @@ jobs:
             exit 1
           fi
           xvfb-run -a -s '-screen 0 1280x720x24' python3 -u tests/audio/run_scene_acoustics.py \
-            --config debug --threading single --export-runtime --cases "${scene_cases[@]}" --timeout 900 \
+            --config "${LUX_SOUNDWAVE_CONFIGURATION,,}" --threading single --export-runtime --cases "${scene_cases[@]}" --timeout 900 \
             2>&1 | tee logs/soundwave-native-runtime.log
 
       - name: Upload native runtime evidence
         if: always() && inputs.linux_audio_check == 'runtime'
         uses: actions/upload-artifact@v4
         with:
-          name: soundwave-native-linux-runtime
+          name: soundwave-native-linux-runtime-${{ matrix.configuration }}
           path: |
             logs/soundwave-native-runtime.log
             logs/pulseaudio.log
