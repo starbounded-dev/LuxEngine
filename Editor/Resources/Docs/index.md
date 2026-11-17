@@ -29,6 +29,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 
 - [Transform](components/transform)
 - [Static Mesh](components/static-mesh)
+- [Skeleton](components/skeleton)
 - [Camera](components/camera)
 - [Lights](components/lights)
 - [Physics](components/physics)

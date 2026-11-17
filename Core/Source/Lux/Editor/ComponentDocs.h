@@ -28,6 +28,7 @@ namespace Lux {
 
 	LUX_COMPONENT_DOC_TOPIC(TransformComponent, "components/transform", "Transform")
 	LUX_COMPONENT_DOC_TOPIC(StaticMeshComponent, "components/static-mesh", "Static Mesh")
+	LUX_COMPONENT_DOC_TOPIC(SkeletonComponent, "components/skeleton", "Skeleton")
 	LUX_COMPONENT_DOC_TOPIC(CameraComponent, "components/camera", "Camera")
 	LUX_COMPONENT_DOC_TOPIC(ScriptComponent, "scripting/csharp-scripts", "C# Scripts")
 	LUX_COMPONENT_DOC_TOPIC(DirectionalLightComponent, "components/lights", "Lights")
