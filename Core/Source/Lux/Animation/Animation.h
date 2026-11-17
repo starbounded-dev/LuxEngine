@@ -37,8 +37,7 @@ namespace Lux
 		std::vector<Vec3Key> Scales;
 	};
 
-	// One clip: raw (uncompressed) keyframes per bone. Compression is A2's job; the on-disk format is
-	// versioned so it can change then.
+	// One clip: keyframes per bone, held uncompressed in memory and compressed on disk (see Serialize).
 	class Animation : public Asset
 	{
 	public:
@@ -63,7 +62,11 @@ namespace Lux
 		// "LZAN" blob shared by the .lanim file and the asset pack. Deserialize returns false and leaves
 		// the clip empty on a malformed stream (bad magic or version, counts above the limits, or
 		// key times out of order).
+		// Serialize writes the compressed form (version 2: keys that their neighbours reproduce within about
+		// 0.05 degrees / 0.1 mm are dropped, the rest quantized to 16 bits); SerializeRaw writes every key
+		// exactly (version 1). Deserialize reads both, so older files still load.
 		void Serialize(StreamWriter* writer) const;
+		void SerializeRaw(StreamWriter* writer) const;
 		bool Deserialize(StreamReader* reader);
 
 	private:

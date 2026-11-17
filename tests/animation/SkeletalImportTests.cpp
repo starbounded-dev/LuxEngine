@@ -206,6 +206,77 @@ static void CheckPlayback()
 	CHECK(RootMotionOffset(*skeleton, *clip, 7, 1.0f) == glm::vec3(0.0f)); // no such bone
 }
 
+// A2: the compressed .lanim is much smaller than the raw one and samples to within the tolerances; raw files still
+// load and round-trip exactly.
+static void CheckCompression(const std::filesystem::path& folder, const std::filesystem::path& out)
+{
+	Ref<Skeleton> skeleton;
+	std::vector<Ref<Animation>> clips;
+	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.fbx", skeleton, clips));
+	CHECK(skeleton && clips.size() == 2);
+	if (!skeleton)
+		return;
+	for (const Ref<Animation>& clip : clips)
+	{
+		const std::filesystem::path rawPath = out / "raw.lanim", packedPath = out / "packed.lanim";
+		{
+			FileStreamWriter writer(rawPath);
+			clip->SerializeRaw(&writer);
+		}
+		Save(clip, packedPath);
+		const uint64_t rawSize = std::filesystem::file_size(rawPath), packedSize = std::filesystem::file_size(packedPath);
+		std::cout << "clip '" << clip->GetName() << "': " << rawSize << " bytes raw, " << packedSize << " compressed" << std::endl;
+		CHECK(packedSize * 3 < rawSize); // at least 3x smaller
+
+		Ref<Animation> raw, packed;
+		CHECK(Load(raw, rawPath));
+		CHECK(Load(packed, packedPath));
+		if (!raw || !packed)
+			continue;
+		SameClip(*clip, *raw); // version 1 stays exact
+		CHECK(packed->GetNumKeys() < clip->GetNumKeys());
+		CHECK(packed->GetTracks().size() == clip->GetTracks().size() && packed->GetDuration() == clip->GetDuration());
+
+		// Sampled over the clip, the compressed pose stays within the tolerances of the original.
+		float worstAngle = 0.0f, worstMove = 0.0f;
+		for (int step = 0; step <= 200; step++)
+		{
+			const float time = clip->GetDuration() * static_cast<float>(step) / 200.0f;
+			LocalPose a = MakeRestPose(*skeleton), b = a;
+			SampleAnimation(*clip, time, a);
+			SampleAnimation(*packed, time, b);
+			for (uint32_t bone = 0; bone < skeleton->GetNumBones(); bone++)
+			{
+				worstAngle = std::max(worstAngle, 2.0f * std::acos(std::min(1.0f, std::abs(glm::dot(a.Rotations[bone], b.Rotations[bone])))));
+				worstMove = std::max(worstMove, glm::length(a.Translations[bone] - b.Translations[bone]));
+			}
+		}
+		std::cout << "  keys " << clip->GetNumKeys() << " -> " << packed->GetNumKeys() << ", worst rotation error " << glm::degrees(worstAngle) << " deg, worst move " << worstMove << std::endl;
+		CHECK(worstAngle < 0.004f); // 0.23 degrees
+		CHECK(worstMove < 0.002f);
+	}
+
+	// One key, constant channels and an empty clip survive the compressed format.
+	Ref<Animation> odd = Ref<Animation>::Create();
+	odd->SetDuration(1.0f);
+	BoneTrack track;
+	track.BoneIndex = 3;
+	track.Translations = { { 0.25f, glm::vec3(1, 2, 3) } };
+	track.Rotations = { { 0.0f, glm::angleAxis(1.0f, glm::vec3(0, 1, 0)) }, { 1.0f, glm::angleAxis(1.0f, glm::vec3(0, 1, 0)) } };
+	odd->GetTracksMutable() = { track };
+	Ref<Animation> oddBack;
+	CHECK(Load(oddBack, Save(odd, out / "odd.lanim")));
+	if (oddBack)
+	{
+		CHECK(oddBack->GetTracks().size() == 1 && oddBack->GetTracks()[0].BoneIndex == 3);
+		CHECK(oddBack->GetTracks()[0].Translations.size() == 1 && oddBack->GetTracks()[0].Translations[0].Value == glm::vec3(1, 2, 3) && oddBack->GetTracks()[0].Translations[0].Time == 0.25f);
+		CHECK(oddBack->GetTracks()[0].Rotations.size() == 2 && oddBack->GetTracks()[0].Scales.empty());
+		CHECK(std::abs(glm::dot(oddBack->GetTracks()[0].Rotations[1].Value, track.Rotations[1].Value)) > 0.99999f);
+	}
+	Ref<Animation> empty = Ref<Animation>::Create(), emptyBack;
+	CHECK(Load(emptyBack, Save(empty, out / "empty.lanim")) && emptyBack->GetTracks().empty());
+}
+
 // LuxBiped is one model in two files. A binary FBX (units, node scale, axes of its own) and a glTF must
 // import to the same rig: the same mesh bones and clips, and the same skinned shape at rest.
 static void CheckFormatsAgree(const std::filesystem::path& folder)
@@ -414,7 +485,11 @@ int main(int argc, char** argv)
 	if (skeleton2)
 		SameSkeleton(*skeleton, *skeleton2);
 	if (clip2)
-		SameClip(*clip, *clip2);
+		{
+			// RiggedSimple's clip is small and smooth: compressed, it keeps its tracks and duration and drops keys.
+			CHECK(clip2->GetName() == clip->GetName() && clip2->GetDuration() == clip->GetDuration());
+			CHECK(clip2->GetTracks().size() == clip->GetTracks().size() && clip2->GetNumKeys() <= clip->GetNumKeys());
+		}
 
 	// --- malformed blobs are refused and leave the object empty ----------------------------------
 	const uint64_t skelSize = std::filesystem::file_size(skelPath);
@@ -471,6 +546,7 @@ int main(int argc, char** argv)
 
 	CheckFormatsAgree(model.parent_path());
 	CheckPlayback();
+	CheckCompression(model.parent_path(), out);
 
 	// A file that cannot be read reports failure and produces nothing.
 	{
