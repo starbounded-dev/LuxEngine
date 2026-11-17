@@ -306,7 +306,11 @@ namespace Lux {
 			}
 		}
 
-		if (ImGui::BeginPopupContextItem("CBItemContextMenu"))
+		// The last item is a zero-size Dummy by now, so BeginPopupContextItem would never see a hover.
+		// Open from the item's own hover instead.
+		if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+			ImGui::OpenPopup("CBItemContextMenu");
+		if (ImGui::BeginPopup("CBItemContextMenu"))
 		{
 			if (!isSelected)
 			{
