@@ -23,7 +23,7 @@ namespace Lux::Yaml
 
 namespace Lux {
 
-	// The node canvas of the Material Editor for one material's graph (imgui-node-editor). The graph
+	// The material document's canvas for one graph (imgui-node-editor). The graph
 	// is the source of truth: the canvas draws it each frame and writes edits straight into it, and
 	// reports them so the registry recompiles the surface shaders once an edit is finished.
 	// Main thread (ImGui).

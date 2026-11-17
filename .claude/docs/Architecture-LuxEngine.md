@@ -423,7 +423,9 @@ Structurally:
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
   imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT). `Panels/NodeCanvas/NodeCanvasCore`
   owns the editor context, restores the previous current context after drawing, and provides
-  canvas styling, fit navigation, minimap drawing, Find and Add Node popups, and shortcut dispatch.
+  canvas styling, fit navigation, minimap and comment-group drawing, Find and Add Node popups, and
+  focused shortcut dispatch. The Find and Add Node popups share the editor's fuzzy matcher when
+  their direct search finds no matches.
   The material canvas supplies its nodes, links, palette entries and clipboard data.
   `GraphDocument` defines tab identity and save/discard operations. `MaterialGraphDocument` owns
   the material's saved snapshot, dirty checks and canvas context. Switching material tabs retains

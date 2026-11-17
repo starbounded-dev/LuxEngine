@@ -3,10 +3,12 @@
 
 #include "lpch.h"
 #include "NodeCanvasCore.h"
+#include "EditorSearch.h"
 
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/PanelControls.h"
+#include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui_internal.h>
 
@@ -193,11 +195,25 @@ namespace Lux
 		const bool visible = palette || ImGui::BeginChild("matches", { 0.0f, ImGui::GetTextLineHeightWithSpacing() * 8.0f });
 		if (visible)
 		{
+			const auto containsQuery = [&](const SearchItem& item)
+			{
+				return Matches(item.Label, query) || Matches(item.Alias, query) || Matches(item.Category, query);
+			};
+			const bool useFuzzy = !std::ranges::any_of(choices, containsQuery);
+			const std::string normalizedQuery = useFuzzy ? Utils::String::ToLowerCopy(query) : std::string();
+			const auto fuzzyMatches = [&](std::string_view text)
+			{
+				int score = 0;
+				return EditorSearch::FuzzyMatch(normalizedQuery, Utils::String::ToLowerCopy(std::string(text)), score);
+			};
 			bool found = false;
 			std::string_view category;
 			for (const SearchItem& item : choices)
 			{
-				if (!Matches(item.Label, query) && !Matches(item.Alias, query) && !Matches(item.Category, query))
+				const bool match = useFuzzy
+					? fuzzyMatches(item.Label) || fuzzyMatches(item.Alias) || fuzzyMatches(item.Category)
+					: containsQuery(item);
+				if (!match)
 					continue;
 				if (item.Category != category)
 				{
@@ -237,6 +253,20 @@ namespace Lux
 			action = ClipboardAction::Duplicate;
 		ed::EndShortcut();
 		return action;
+	}
+
+	void NodeCanvasCore::DrawGroup(uint32_t id, const char* title, ImVec4 color, ImVec2 size)
+	{
+		ed::PushStyleColor(ed::StyleColor_NodeBg, color);
+		ed::PushStyleColor(ed::StyleColor_NodeBorder, { color.x, color.y, color.z, 1.0f });
+		ed::BeginNode(id);
+		{
+			const ImGuiEx::ScopedID scope(static_cast<int>(id));
+			ImGui::TextUnformatted(*title ? title : "Comment");
+			ed::Group(size);
+		}
+		ed::EndNode();
+		ed::PopStyleColor(2);
 	}
 
 	void NodeCanvasCore::DrawMinimap(ImVec2 canvasMin, ImVec2 canvasMax, std::span<const MinimapRect> rects) const
