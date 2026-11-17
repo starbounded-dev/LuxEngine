@@ -3770,7 +3770,7 @@ namespace Lux {
 				AssetHandle clipHandle = firstComponent.Clip;
 				if (ImGuiEx::PropertyAssetReference<Animation>("Clip", clipHandle, "The animation clip (.lanim) to play. Changing it while playing cross-fades."))
 				{
-					const bool fade = firstComponent.Clip != 0 && firstComponent.Playing;
+					const bool fade = firstComponent.Clip != 0 && firstComponent.PlayOnStart;
 					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [clipHandle, fade](SkeletonComponent& component, Entity)
 					{
 						component.CrossFadeTo(clipHandle, fade ? component.FadeSeconds : 0.0f);
@@ -3795,12 +3795,12 @@ namespace Lux {
 						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity) { component.*member = value; });
 					}
 				};
-				editBool("Playing", &SkeletonComponent::Playing, "Advance the clip each frame");
+				editBool("Play On Start", &SkeletonComponent::PlayOnStart, "Play when the scene starts; off holds the pose at Start Time until something plays it");
 				editBool("Loop", &SkeletonComponent::Loop, "Wrap at the end of the clip instead of holding the last pose");
 				editFloat("Speed", &SkeletonComponent::Speed, 0.05f, -4.0f, 4.0f, "Playback rate, negative plays backwards");
-				editFloat("Time", &SkeletonComponent::Time, 0.01f, 0.0f, 3600.0f, "Seconds into the clip (scrub while paused)");
+				editFloat("Start Time", &SkeletonComponent::StartTime, 0.01f, 0.0f, 3600.0f, "Seconds into the clip where playback starts; scrubs the pose in the editor while Play On Start is off");
 				editFloat("Fade Seconds", &SkeletonComponent::FadeSeconds, 0.01f, 0.0f, 10.0f, "Cross-fade length when the clip is changed");
-				editBool("Root Motion", &SkeletonComponent::RootMotion, "Move the entity by the root bone's horizontal travel instead of animating it in place");
+				editBool("Root Motion", &SkeletonComponent::RootMotion, "While the scene runs, move the entity by the root bone's horizontal travel instead of animating it in place");
 				std::string rootBone = firstComponent.RootBone;
 				if (ImGuiEx::Property("Root Bone", rootBone, "Bone whose travel is the root motion; empty uses the first bone with a position track"))
 				{

@@ -8,7 +8,7 @@
 #   blender -b --factory-startup -P make_luxbiped.py -- <output folder>
 #
 # A 1.75 m, 17-bone biped made of tapered tubes, skinned by smooth distance weights (four bones per
-# vertex), with two clips: Idle (2 s) and Walk (1 s, in place).
+# vertex), with three clips: Idle (2 s), Walk (1 s, in place) and WalkForward (1 s, the hips travel 1.4 m).
 
 import math
 import os
@@ -207,8 +207,19 @@ def walk(frame):
     set_world_rotation("Hips", rotation("Z", -4 * swing))
 
 
+
+
+def walk_forward(frame):
+    """The Walk cycle with the hips travelling 1.4 m forward over the clip: a clip with root motion."""
+    walk(frame)
+    hips = pose.bones["Hips"]
+    travel = 1.4 * (frame - 1) / 30.0
+    hips.location = hips.location + rest_rotation(hips).transposed() @ Vector((0, -travel, 0))
+
+
 make_action("Idle", range(1, 62, 4), idle)
 make_action("Walk", range(1, 32, 3), walk)
+make_action("WalkForward", range(1, 32, 3), walk_forward)
 # Leave the rig in its rest pose: FBX stores the node transforms as they stand at export, and an importer
 # reads them as the rest pose, which must be the bind pose.
 clear_pose()

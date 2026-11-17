@@ -78,14 +78,37 @@ namespace Lux
 			return low + (high - low) * (static_cast<float>(q) / 65535.0f);
 		}
 
-		uint16_t QuantizeTime(float time, float duration)
+		// Key times are 16 bits over the duration, which is finer than a frame up to this length; longer clips
+		// store them as floats.
+		constexpr float k_MaxQuantizedDuration = 30.0f;
+
+		void WriteTime(StreamWriter* writer, float time, float duration)
 		{
-			return Quantize(time, 0.0f, duration);
+			if (duration > k_MaxQuantizedDuration)
+				writer->WriteRaw<float>(time);
+			else
+				writer->WriteRaw<uint16_t>(Quantize(time, 0.0f, duration));
 		}
 
-		float DequantizeTime(uint16_t q, float duration)
+		// Reads a time; ordering is checked on the decoded value so both widths share one rule.
+		bool ReadTime(StreamReader* reader, float duration, float& previous, float& time)
 		{
-			return std::min(Dequantize(q, 0.0f, duration), duration);
+			if (duration > k_MaxQuantizedDuration)
+			{
+				if (!reader->ReadRaw(time))
+					return false;
+			}
+			else
+			{
+				uint16_t q = 0;
+				if (!reader->ReadRaw(q))
+					return false;
+				time = std::min(Dequantize(q, 0.0f, duration), duration);
+			}
+			if (!(time >= previous) || time > duration) // also rejects NaN
+				return false;
+			previous = time;
+			return true;
 		}
 
 		// A vector channel: reduced, then 16 bits per component over the kept keys' bounds. One key is stored exactly.
@@ -106,7 +129,8 @@ namespace Lux
 				low = glm::min(low, key.Value);
 				high = glm::max(high, key.Value);
 			}
-			const float tolerance = baseTolerance + 1e-3f * glm::length(high - low);
+			// The extent term is capped: a root track that travels far must not get a coarse tolerance (foot sliding).
+			const float tolerance = baseTolerance + std::min(1e-3f * glm::length(high - low), 1e-3f);
 			const std::vector<uint32_t> kept = ReduceKeys(static_cast<uint32_t>(keys.size()), tolerance, [&](uint32_t i, uint32_t a, uint32_t b)
 			{
 				const float t = Fraction(keys[a].Time, keys[b].Time, keys[i].Time);
@@ -123,7 +147,7 @@ namespace Lux
 			writer->WriteRaw(keptHigh);
 			for (uint32_t i : kept)
 			{
-				writer->WriteRaw<uint16_t>(QuantizeTime(keys[i].Time, duration));
+				WriteTime(writer, keys[i].Time, duration);
 				for (int c = 0; c < 3; c++)
 					writer->WriteRaw<uint16_t>(Quantize(keys[i].Value[c], keptLow[c], keptHigh[c]));
 			}
@@ -144,14 +168,12 @@ namespace Lux
 			if (!reader->ReadRaw(kept) || kept < 2 || kept > count || !reader->ReadRaw(low) || !reader->ReadRaw(high))
 				return false;
 			keys.resize(kept);
-			uint16_t previous = 0;
+			float previous = 0.0f;
 			for (Vec3Key& key : keys)
 			{
-				uint16_t time = 0, q[3] = {};
-				if (!reader->ReadRaw(time) || !reader->ReadRaw(q[0]) || !reader->ReadRaw(q[1]) || !reader->ReadRaw(q[2]) || time < previous)
+				uint16_t q[3] = {};
+				if (!ReadTime(reader, duration, previous, key.Time) || !reader->ReadRaw(q[0]) || !reader->ReadRaw(q[1]) || !reader->ReadRaw(q[2]))
 					return false;
-				previous = time;
-				key.Time = DequantizeTime(time, duration);
 				for (int c = 0; c < 3; c++)
 					key.Value[c] = Dequantize(q[c], low[c], high[c]);
 			}
@@ -190,7 +212,7 @@ namespace Lux
 						largest = k;
 				}
 				const float sign = c[largest] < 0.0f ? -1.0f : 1.0f; // q and -q are the same rotation
-				writer->WriteRaw<uint16_t>(QuantizeTime(keys[i].Time, duration));
+				WriteTime(writer, keys[i].Time, duration);
 				writer->WriteRaw<uint8_t>(static_cast<uint8_t>(largest));
 				for (int k = 0; k < 4; k++)
 				{
@@ -214,14 +236,12 @@ namespace Lux
 			if (!reader->ReadRaw(kept) || kept < 2 || kept > count)
 				return false;
 			keys.resize(kept);
-			uint16_t previous = 0;
+			float previous = 0.0f;
 			for (QuatKey& key : keys)
 			{
-				uint16_t time = 0;
 				uint8_t largest = 0;
-				if (!reader->ReadRaw(time) || !reader->ReadRaw(largest) || largest > 3 || time < previous)
+				if (!ReadTime(reader, duration, previous, key.Time) || !reader->ReadRaw(largest) || largest > 3)
 					return false;
-				previous = time;
 				float c[4] = {};
 				float sum = 0.0f;
 				for (int k = 0; k < 4; k++)
@@ -235,7 +255,6 @@ namespace Lux
 					sum += c[k] * c[k];
 				}
 				c[largest] = std::sqrt(std::max(0.0f, 1.0f - sum));
-				key.Time = DequantizeTime(time, duration);
 				key.Value = glm::normalize(glm::quat(c[3], c[0], c[1], c[2]));
 			}
 			return true;

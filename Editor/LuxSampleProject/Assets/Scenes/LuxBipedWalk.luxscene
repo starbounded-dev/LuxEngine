@@ -69,8 +69,8 @@ Entities:
     SkeletonComponent:
       AssetID: 7400000000000000002
       Clip: 7400000000000000004
-      Time: 0.25
-      Playing: false
+      StartTime: 0.25
+      PlayOnStart: false
   - Entity: 7200000000000000005
     TagComponent:
       Tag: Camera

@@ -257,6 +257,12 @@ Assets:
   - Handle: 7400000000000000007
     FilePath: Scenes/LuxBipedStatic.luxscene
     Type: Scene
+  - Handle: 7400000000000000010
+    FilePath: Meshes/Source/LuxBiped/LuxBiped_WalkForward.lanim
+    Type: Animation
+  - Handle: 7400000000000000011
+    FilePath: Scenes/LuxBipedRootMotion.luxscene
+    Type: Scene
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture

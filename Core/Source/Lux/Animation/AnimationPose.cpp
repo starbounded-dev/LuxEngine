@@ -93,14 +93,11 @@ namespace Lux
 		return model;
 	}
 
-	namespace
+	glm::vec3 BoneModelPosition(const Skeleton& skeleton, const Animation& clip, uint32_t bone, float time)
 	{
-		glm::vec3 BoneModelPosition(const Skeleton& skeleton, const Animation& clip, uint32_t bone, float time)
-		{
-			LocalPose pose = MakeRestPose(skeleton);
-			SampleAnimation(clip, time, pose);
-			return glm::vec3(BuildModelPose(skeleton, pose)[bone][3]);
-		}
+		LocalPose pose = MakeRestPose(skeleton);
+		SampleAnimation(clip, time, pose);
+		return glm::vec3(BuildModelPose(skeleton, pose)[bone][3]);
 	}
 
 	glm::vec3 RootMotionOffset(const Skeleton& skeleton, const Animation& clip, uint32_t bone, float time)

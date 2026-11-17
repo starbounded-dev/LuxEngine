@@ -7,6 +7,7 @@
 #include "lpch.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "Lux/Animation/Animator.h"
 #include "Lux/Animation/AnimationPose.h"
 #include "Lux/Animation/SkinPalette.h"
 #include "Lux/Asset/SkeletalImporter.h"
@@ -213,7 +214,7 @@ static void CheckCompression(const std::filesystem::path& folder, const std::fil
 	Ref<Skeleton> skeleton;
 	std::vector<Ref<Animation>> clips;
 	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.fbx", skeleton, clips));
-	CHECK(skeleton && clips.size() == 2);
+	CHECK(skeleton && clips.size() == 3);
 	if (!skeleton)
 		return;
 	for (const Ref<Animation>& clip : clips)
@@ -277,6 +278,115 @@ static void CheckCompression(const std::filesystem::path& folder, const std::fil
 	CHECK(Load(emptyBack, Save(empty, out / "empty.lanim")) && emptyBack->GetTracks().empty());
 }
 
+static glm::vec3 Horizontal3(const glm::vec3& v) { return { v.x, 0.0f, v.z }; }
+
+// A2: the animator on the real binary-FBX rig. Fixed time steps across several loops of the travelling clip: the
+// entity's movement adds up to the clip's travel per loop, and the pose keeps the root in place.
+static void CheckAnimator(const std::filesystem::path& folder)
+{
+	Ref<Skeleton> skeleton;
+	std::vector<Ref<Animation>> clips;
+	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.fbx", skeleton, clips));
+	Ref<Animation> forward;
+	for (const Ref<Animation>& clip : clips)
+	{
+		if (clip->GetName().find("WalkForward") != std::string::npos)
+			forward = clip;
+	}
+	CHECK(skeleton && forward);
+	if (!skeleton || !forward)
+		return;
+	const uint32_t hips = skeleton->GetBoneIndex("Hips");
+	CHECK(hips != Skeleton::NullIndex);
+	CHECK(FindRootMotionBone(*skeleton, *forward) != Skeleton::NullIndex);
+
+	AnimatorSettings settings;
+	settings.RootBone = hips;
+	const glm::vec3 oneLoop = Horizontal3(BoneModelPosition(*skeleton, *forward, hips, forward->GetDuration())) - Horizontal3(BoneModelPosition(*skeleton, *forward, hips, 0.0f));
+	CHECK(glm::length(oneLoop) > 1.3f && glm::length(oneLoop) < 1.5f); // the authored 1.4 m
+
+	AnimatorState state;
+	ResetAnimator(state, 0.0f, true);
+	const float dt = 1.0f / 60.0f;
+	glm::vec3 total(0.0f);
+	const int frames = 210; // 3.5 loops
+	glm::vec3 pinned;
+	for (int i = 0; i < frames; i++)
+	{
+		total += AdvanceAnimator(state, settings, *skeleton, *forward, 1, nullptr, dt);
+		const glm::vec3 here = Horizontal3(glm::vec3(state.ModelPose[hips][3]));
+		if (i == 0)
+			pinned = here;
+		CHECK(glm::length(here - pinned) < 1e-3f); // the mesh stays in place relative to the entity
+	}
+	const float loops = static_cast<float>(frames) * dt / forward->GetDuration();
+	CHECK(Near(glm::length(total), glm::length(oneLoop) * loops, 0.02f));
+	CHECK(glm::dot(glm::normalize(total), glm::normalize(oneLoop)) > 0.999f);
+
+	// Held (not playing): no movement and the same pose, however often it is advanced.
+	AnimatorState held;
+	ResetAnimator(held, 0.3f, false);
+	const glm::vec3 first = AdvanceAnimator(held, settings, *skeleton, *forward, 1, nullptr, dt);
+	const std::vector<glm::mat4> heldPose = held.ModelPose;
+	const glm::vec3 second = AdvanceAnimator(held, settings, *skeleton, *forward, 1, nullptr, dt);
+	CHECK(glm::length(first) == 0.0f && glm::length(second) == 0.0f && Near(held.Time, 0.3f));
+	CHECK(heldPose == held.ModelPose);
+
+	// Without a root bone the pose keeps its travel and nothing moves the entity.
+	AnimatorSettings inPlace;
+	AnimatorState free;
+	ResetAnimator(free, 0.0f, true);
+	glm::vec3 moved(0.0f);
+	for (int i = 0; i < 30; i++)
+		moved += AdvanceAnimator(free, inPlace, *skeleton, *forward, 1, nullptr, dt);
+	CHECK(glm::length(moved) == 0.0f);
+	CHECK(glm::length(Horizontal3(glm::vec3(free.ModelPose[hips][3])) - pinned) > 0.1f);
+
+	// Playing backwards covers the same ground in the other direction.
+	AnimatorSettings backwards = settings;
+	backwards.Speed = -1.0f;
+	AnimatorState back;
+	ResetAnimator(back, 0.0f, true);
+	glm::vec3 backTotal(0.0f);
+	for (int i = 0; i < 90; i++)
+		backTotal += AdvanceAnimator(back, backwards, *skeleton, *forward, 1, nullptr, dt);
+	CHECK(glm::dot(backTotal, oneLoop) < 0.0f);
+	std::cout << "backwards travel " << glm::length(backTotal) << " of one loop " << glm::length(oneLoop) << std::endl;
+	CHECK(Near(glm::length(backTotal), glm::length(oneLoop) * 1.5f, 0.03f));
+
+	// Cross-fade: the weight runs from the old pose to the new one, and the fade ends.
+	Ref<Animation> idle;
+	for (const Ref<Animation>& clip : clips)
+	{
+		if (clip->GetName().find("Idle") != std::string::npos)
+			idle = clip;
+	}
+	AnimatorSettings plain;
+	AnimatorState fading;
+	ResetAnimator(fading, 0.0f, true);
+	AdvanceAnimator(fading, plain, *skeleton, *forward, 1, nullptr, 0.0f);
+	StartCrossFade(fading, 2, 0.5f);
+	AdvanceAnimator(fading, plain, *skeleton, *idle, 3, forward.Raw(), 0.0f);
+	const std::vector<glm::mat4> fadeStart = fading.ModelPose; // weight 0: the old clip
+	LocalPose oldPose = MakeRestPose(*skeleton);
+	SampleAnimation(*forward, 0.0f, oldPose);
+	const std::vector<glm::mat4> expectedStart = BuildModelPose(*skeleton, oldPose);
+	for (size_t i = 0; i < fadeStart.size(); i++)
+		for (int c = 0; c < 4; c++)
+			for (int r = 0; r < 4; r++)
+				CHECK(Near(fadeStart[i][c][r], expectedStart[i][c][r], 1e-4f));
+	for (int i = 0; i < 40; i++)
+		AdvanceAnimator(fading, plain, *skeleton, *idle, 3, forward.Raw(), dt);
+	CHECK(fading.FadeFromClip == 0); // 40 / 60 s is past the 0.5 s fade
+	LocalPose newPose = MakeRestPose(*skeleton);
+	SampleAnimation(*idle, fading.Time, newPose);
+	const std::vector<glm::mat4> expectedEnd = BuildModelPose(*skeleton, newPose);
+	for (size_t i = 0; i < expectedEnd.size(); i++)
+		for (int c = 0; c < 4; c++)
+			for (int r = 0; r < 4; r++)
+				CHECK(Near(fading.ModelPose[i][c][r], expectedEnd[i][c][r], 1e-4f));
+}
+
 // LuxBiped is one model in two files. A binary FBX (units, node scale, axes of its own) and a glTF must
 // import to the same rig: the same mesh bones and clips, and the same skinned shape at rest.
 static void CheckFormatsAgree(const std::filesystem::path& folder)
@@ -299,12 +409,12 @@ static void CheckFormatsAgree(const std::filesystem::path& folder)
 	std::vector<Ref<Animation>> fbxClips, gltfClips;
 	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.fbx", fbxSkeleton, fbxClips));
 	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.gltf", gltfSkeleton, gltfClips));
-	CHECK(fbxClips.size() == 2 && gltfClips.size() == 2);
-	if (fbxSkeleton && gltfSkeleton && fbxClips.size() == 2 && gltfClips.size() == 2)
+	CHECK(fbxClips.size() == 3 && gltfClips.size() == 3);
+	if (fbxSkeleton && gltfSkeleton && fbxClips.size() == 3 && gltfClips.size() == 3)
 	{
 		for (uint32_t i = 0; i < gltfSkeleton->GetNumBones(); i++)
 			CHECK(fbxSkeleton->GetBoneIndex(gltfSkeleton->GetBoneName(i)) != Skeleton::NullIndex);
-		for (size_t i = 0; i < 2; i++)
+		for (size_t i = 0; i < 3; i++)
 			CHECK(Near(fbxClips[i]->GetDuration(), gltfClips[i]->GetDuration(), 0.05f)); // the exporters pad the end differently
 	}
 
@@ -546,6 +656,7 @@ int main(int argc, char** argv)
 
 	CheckFormatsAgree(model.parent_path());
 	CheckPlayback();
+	CheckAnimator(model.parent_path());
 	CheckCompression(model.parent_path(), out);
 
 	// A file that cannot be read reports failure and produces nothing.

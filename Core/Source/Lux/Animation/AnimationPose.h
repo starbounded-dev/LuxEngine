@@ -37,6 +37,9 @@ namespace Lux
 	// Model-space transform of every bone for a local pose (parents come before children in a Skeleton).
 	std::vector<glm::mat4> BuildModelPose(const Skeleton& skeleton, const LocalPose& pose);
 
+	// Model-space position of `bone` with only `clip` applied at `time`.
+	glm::vec3 BoneModelPosition(const Skeleton& skeleton, const Animation& clip, uint32_t bone, float time);
+
 	// The horizontal (model-space X and Z) offset of `bone` at `time` relative to its offset at time 0:
 	// how far the clip has carried that bone from where it started. Used for root motion.
 	glm::vec3 RootMotionOffset(const Skeleton& skeleton, const Animation& clip, uint32_t bone, float time);

@@ -42,7 +42,7 @@ def main():
     defines = [v for v in defines if v and "%" not in v and not v.startswith(("TRACY", "LUX_TRACK_MEMORY"))]
     sources = [ROOT / "tests/animation/ModelInspect.cpp"]
     sources += [core / "Source/Lux" / (v + ".cpp") for v in (
-        "Animation/Skeleton", "Animation/Animation", "Animation/AnimationPose", "Animation/SkinPalette", "Asset/SkeletalImporter",
+        "Animation/Skeleton", "Animation/Animation", "Animation/Animator", "Animation/AnimationPose", "Animation/SkinPalette", "Asset/SkeletalImporter",
         "Serialization/FileStream", "Serialization/StreamReader", "Serialization/StreamWriter", "Core/UUID", "Core/Ref")]
     assimp = core / "vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.lib"
     executable = output / "ModelInspect.exe"

@@ -774,10 +774,15 @@ Rules:
   register an importer, or every mesh fails with "No source mesh importer is registered".
 - **Skeletons and clips are baked assets, not read from the model at runtime.** `Skeleton` (`.lskel`,
   `Animation/Skeleton.h`: bones parent-before-child, a bone-space rest pose, derived model-space rest
-  matrices) and `Animation` (`.lanim`, `Animation/Animation.h`: raw per-bone translation, rotation and
+  matrices) and `Animation` (`.lanim`, `Animation/Animation.h`: per-bone translation, rotation and
   scale keys in seconds, tracks indexing the skeleton the clip was imported against, the skeleton's
   handle stored on the clip) are binary blobs ("LZSK" / "LZAN", versioned, every count bounded, key
-  times checked ascending). `SkeletonSerializer` / `AnimationSerializer` (`AnimationAssetSerializer.cpp`)
+  times checked ascending). A clip is raw keyframes in memory; `Animation::Serialize` writes version 2,
+  which drops keys their neighbours reproduce (Douglas-Peucker; 0.05 degrees for rotations, 0.1 mm plus
+  at most 1 mm of extent for vectors, so a long root-motion track is not coarsened) and quantizes the
+  rest (16-bit times up to 30 s then floats, 16-bit vectors over the kept bounds, smallest-three
+  rotations); `SerializeRaw` writes version 1 and `Deserialize` reads both, validating times and counts
+  in each. LuxBiped Idle goes from 57 KB to 2.8 KB. `SkeletonSerializer` / `AnimationSerializer` (`AnimationAssetSerializer.cpp`)
   read and write the same bytes for the file and for `AssetPack.lap`, and both types are listed in
   `AssetPack.cpp` `IsSerializedByAssetPack`, so an exported game plays them without Assimp.
   `ImportSkeletonAndAnimations` (`SkeletalImporter.cpp`) is the only Assimp-facing step: it needs no
@@ -785,14 +790,19 @@ Rules:
   editor only, the Content Browser's "Extract Skeleton and Animations" on a MeshSource) calls to write
   `<model>.lskel` and `<model>_<clip>.lanim` beside the model and register them; re-running it
   overwrites the files and keeps the handles. Skin weights and inverse bind matrices are not part of
-  this: they belong to the mesh (R12, below). Compression, playback and retargeting are A2. Verified by
-  `tests/animation/run_windows.py` (import of `RiggedSimple.gltf`, file round trip, malformed files).
+  this: they belong to the mesh (R12, below). Retargeting is not built. Verified by
+  `tests/animation/run_windows.py` (import of `RiggedSimple.gltf` and the LuxBiped FBX/glTF pair, file
+  round trips, compression error, malformed files, the animator).
   The skeleton keeps **every ancestor of a bone up to the scene root** (not just the bone nodes), so
   its model space is the scene's: a glTF inverse bind matrix is authored against the chain above the
   bones, and the skinning matrix is `bone model-space pose * InverseBindPose`. At rest that is the
   transform of the node the inverse binds were authored below (Z_UP in the sample, the Z-up to Y-up
   rotation), not the identity; the order matters. The node transform of a skinned submesh must not
-  be applied on top.
+  be applied on top. FBX is the exception: Assimp's FBX offset matrices leave the node scale and axes
+  out, so for a file whose `SourceAsset_Format` metadata names FBX, `ExtractSkinWeights` multiplies each
+  bone's inverse bind by a per-mesh correction (rest palette times it = the mesh node's world transform),
+  which puts the skinned rest pose where the static mesh sits (checked pixel-identical in the LuxBipedRest
+  and LuxBipedStatic golden scenes, and against the glTF twin in `SkeletalImportTests`).
 - **Skin data lives on the `MeshSource`.** `AssimpMeshImporter` calls `ExtractSkinWeights`
   (`SkeletalImporter.cpp`) on the same scene it builds vertices from (`k_MeshImportFlags`, shared so
   the vertex ids match): `MeshSource::GetBoneInfluences()` is one `BoneInfluence` (four bone indices
@@ -804,8 +814,13 @@ Rules:
   draws skin data yet: the GPU buffer, the bone palette and the skinned passes are the rest of R12.
 - **`SkeletonComponent` marks a static-mesh entity as skinned** (`Scene/Components.h`): `SkeletonAsset`
   (the `.lskel`, collected into asset packs by `Scene::GetAssetList`), `Enabled` (serialized only
-  when false), and an editor-only debug bend (`DebugBone` by name, `DebugBendDegrees` about its local
-  X) standing in for animation playback. It is wired like any component: `AllComponents`, the
+  when false), an editor-only debug bend (`DebugBone` by name, `DebugBendDegrees` about its local X)
+  used when no clip is set, and the **authored playback settings**: `Clip`, `StartTime`, `Speed`,
+  `Loop`, `PlayOnStart`, `FadeSeconds`, `RootMotion`, `RootBone` (all serialized only when not default).
+  What playback changes lives in `SkeletonComponent::State` (`Animation/Animator.h`, `AnimatorState`):
+  the current time, the fade, the **cached model pose** and the root-motion bookkeeping. It is runtime
+  only: never serialized, rebuilt when a scene starts (`PlayMode` differs from the mode it last advanced
+  in), so editing and playing never write each other's state. It is wired like any component: `AllComponents`, the
   duplicate / prefab-instantiate / prefab-sync lists, `Prefab.cpp`, `SceneSerializer` both ways, the
   inspector section and its override row, and `OnComponentAdded`. `BuildModelPose` and
   `BuildSkinPalette` (`Animation/SkinPalette.h`) turn a skeleton and a bone pose into the per-mesh-bone
@@ -813,6 +828,20 @@ Rules:
   identity. `Scene::SyncRenderSceneMirror` builds the palette each frame for an entity with an enabled
   component whose mesh and skeleton have loaded and hands it to the render proxy; the renderer's side is
   in `Rendering.md` (skinned meshes are skinned once by a compute pass, then drawn like static ones).
+- **Playback is evaluated once per frame, in the scene update.** `AdvanceAnimators` (`Scene.cpp`) runs at
+  the top of `OnUpdateEditor` (preview: the pose animates, the entity is never moved and an unplaying clip
+  follows `StartTime`, so editing does not dirty a scene), `OnUpdateSimulation` and `OnUpdateRuntime`
+  (play: honours pause, moves an entity whose `RootMotion` is on). `OnRender*` calls it with `dt = 0` for
+  components without a pose, so a frame that renders before any update still shows the clip. The maths is
+  in two engine-independent units: `Animation/AnimationPose` (`LocalPose`, `SampleAnimation`,
+  `BlendPoses`, `BuildModelPose(skeleton, pose)`, root-motion offset and removal) and `Animation/Animator`
+  (`AdvanceAnimator`: time, loop wrap, cross-fade with a smoothstep weight, the evaluated
+  `AnimatorState::ModelPose`, and the root bone's horizontal travel since the last advance, with the
+  loop's travel added on a wrap). The render sync and later "read bone transform" read `State.ModelPose`;
+  nothing re-evaluates it. Both units are compiled into `tests/animation/run_windows.py` and tested on
+  the real binary-FBX rig (travel per loop across wraps, held pose, backwards, cross-fade ends).
+  `Scene::GetAssetList` collects the clip and the skeleton the clip names, so an export never ships a
+  clip without it; `tests/animation/run_export_rig.py` plays the packaged FBX rig and clip.
 - **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
   one invocation per vertex over four raw word buffers at `set = 1`, `binding = 40..43` (source
   `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing

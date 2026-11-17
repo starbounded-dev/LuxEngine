@@ -13,6 +13,7 @@
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RenderGraph.h"
 #include "Lux/Renderer/Renderer.h"
@@ -759,6 +760,18 @@ namespace Lux {
 			LUX_CORE_INFO_TAG("Editor", "[GoldenCapture] RenderGraph self-tests passed");
 		else
 			LUX_CORE_ERROR_TAG("Editor", "[GoldenCapture] RenderGraph self-tests failed ({} failures)", failures.size());
+
+		// The scene round trip (every component written, read back and copied) rides along: no editor clicks needed.
+		std::vector<std::string> sceneFailures;
+		const bool scenePassed = SceneSerializer::RunRoundTripSelfTests(&sceneFailures);
+		std::ofstream sceneFile(m_OutputDirectory / "scene-serializer-selftest.txt", std::ios::trunc);
+		sceneFile << (scenePassed ? "PASS" : "FAIL") << "\n";
+		for (const std::string& failure : sceneFailures)
+			sceneFile << failure << "\n";
+		if (scenePassed)
+			LUX_CORE_INFO_TAG("Editor", "[GoldenCapture] scene serializer self-tests passed");
+		else
+			LUX_CORE_ERROR_TAG("Editor", "[GoldenCapture] scene serializer self-tests failed ({} failures)", sceneFailures.size());
 	}
 
 	void GoldenCapture::Finish(bool success, const std::string& reason)

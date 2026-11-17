@@ -10,6 +10,7 @@
 
 #include "SceneCamera.h"
 
+#include "Lux/Animation/Animator.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AcousticMaterial.h"
@@ -582,30 +583,23 @@ namespace Lux {
 		float DebugBendDegrees = 0.0f;
 
 		// Playback of one clip (Animation asset). With no Clip the mesh holds the rest pose (plus the debug bend).
+		// These are authored and saved; what playback changes lives in State and is never saved.
 		AssetHandle Clip = 0;
-		float Time = 0.0f;         // seconds into the clip
+		float StartTime = 0.0f;    // seconds into the clip where playback starts (or holds, when not playing on start)
 		float Speed = 1.0f;        // playback rate; negative plays backwards
 		bool Loop = true;
-		bool Playing = true;
+		bool PlayOnStart = true;   // false: hold the pose at StartTime until something plays it
 		float FadeSeconds = 0.25f; // cross-fade length when Clip is changed while playing
-		bool RootMotion = false;   // move the entity by the root bone's horizontal travel instead of the mesh
+		bool RootMotion = false;   // in a running scene, move the entity by the root bone's horizontal travel instead of the mesh
 		std::string RootBone;      // bone whose travel is the root motion (default: the first bone with a position track)
 
-		// Runtime only, not serialized: the clip being faded out.
-		AssetHandle FadeFromClip = 0;
-		float FadeFromTime = 0.0f;
-		float FadeElapsed = 0.0f;
-		float FadeDuration = 0.0f;
+		AnimatorState State;       // runtime only
 
 		// Starts `clip` from its beginning and fades from what was playing over `seconds` (0: switch at once).
 		void CrossFadeTo(AssetHandle clip, float seconds)
 		{
-			FadeFromClip = seconds > 0.0f ? Clip : AssetHandle(0);
-			FadeFromTime = Time;
-			FadeElapsed = 0.0f;
-			FadeDuration = seconds;
+			StartCrossFade(State, Clip, seconds);
 			Clip = clip;
-			Time = 0.0f;
 		}
 	};
 

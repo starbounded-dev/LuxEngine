@@ -10,9 +10,10 @@ Import a rigged model (glTF, or binary or text FBX, such as a Mixamo character).
 
 - **Skeleton** — the skeleton file the mesh is skinned to. Drag it from the Content Browser.
 - **Enabled** (the header checkbox) — turn it off to draw the mesh unskinned.
-- **Clip** — the animation file to play. Changing it while the clip is playing fades from the old clip to the new one over **Fade Seconds**.
-- **Playing**, **Loop**, **Speed**, **Time** — advance the clip each frame (in the editor too, so it previews in the viewport), wrap at the end or hold the last pose, play faster, slower or backwards, and scrub to a moment while paused.
-- **Root Motion** and **Root Bone** — move the entity by the root bone's horizontal travel instead of animating the mesh in place. **Root Bone** names the bone; empty picks the first bone with a position track. Walk clips that travel need this to cover ground.
+- **Clip** — the animation file to play. Changing it while the clip plays fades from the old clip to the new one over **Fade Seconds**.
+- **Play On Start** — play when the scene starts. Off holds the pose at **Start Time** until a script or animation graph plays it; in the editor, changing **Start Time** scrubs the pose in the viewport.
+- **Loop**, **Speed** — wrap at the end of the clip or hold the last pose; play faster, slower or backwards.
+- **Root Motion** and **Root Bone** — while the scene runs, move the entity by the root bone's horizontal travel instead of animating the mesh in place. **Root Bone** names the bone; empty picks the first bone with a position track. In the editor the mesh is pinned in place and the entity never moves, so editing a scene does not change it.
 - **Debug Bone** and **Debug Bend** — bend one bone by an angle to check that the mesh deforms (used when no clip is set).
 
 ## Notes
