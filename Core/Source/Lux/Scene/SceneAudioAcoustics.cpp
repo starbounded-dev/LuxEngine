@@ -439,7 +439,11 @@ namespace Lux
 			if (source.Event.IsValid() && source.Enabled && !scene.IsInactive(handle) && !scene.IsAudioSourceCulled(entity.GetUUID()))
 				m_Sources.push_back({entity.GetUUID(),Position(glm::vec3(scene.GetWorldSpaceTransformMatrix(entity)[3]))});
 		}
-		if (!m_Kernel.Update(timestep, listener, m_Sources))
+		m_Zones.clear();
+		for (const auto& zone : scene.m_AudioZoneInputs)
+			if (zone.Enabled && zone.Volume.Valid)
+				m_Zones.push_back({zone.ID, Position(glm::vec3(zone.Volume.Transform[3]))});
+		if (!m_Kernel.Update(timestep, listener, m_Sources, m_Zones))
 			return;
 	}
 	void SceneAudioAcoustics::Clear()
@@ -454,6 +458,7 @@ namespace Lux
 		m_Data->SinceGeometryRequest = 0;
 		m_Data->Dirty = {true,true};
 		m_Sources.clear();
+		m_Zones.clear();
 		m_Configured = false;
 	}
 }

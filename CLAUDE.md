@@ -68,6 +68,8 @@ Two skills bracket a substantive coding session:
 
 **`/send-pr`** is the PR-time gate: same rule list, plus build verification, then it creates the PR.
 
+**`/bug-reporting`** files a GitHub bug issue — source-verified root cause, duplicate check, proposed fix, repo bug template. It reports; it does not fix.
+
 Three task skills sit around that loop:
 
 - **`/plan-le`** — before multi-file or multi-session work. Produces a source-grounded, phased plan

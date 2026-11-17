@@ -133,7 +133,7 @@ namespace
 		void Write(const void* data, size_t bytes) { Check(bytes <= Size, "buffer overflow"); std::memcpy(Mapped, data, bytes); }
 	};
 
-	constexpr uint32_t k_FirstBinding = 40; // Skinning.glsl: set 1, bindings 40..43
+	constexpr uint32_t k_FirstBinding = 49; // Skinning.glsl: set 1, bindings 49..52
 
 	struct PushConstants
 	{
@@ -143,7 +143,7 @@ namespace
 		uint32_t Pad0;
 	};
 
-	// Runs the shader with the four storage buffers at set 1, bindings 40..43 and its push constants.
+	// Runs the shader with the four storage buffers at set 1, bindings 49..52 and its push constants.
 	void Dispatch(Gpu& gpu, const std::vector<uint32_t>& spirv, std::vector<HostBuffer*> buffers, const PushConstants& push, uint32_t groups)
 	{
 		VkShaderModuleCreateInfo moduleInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };

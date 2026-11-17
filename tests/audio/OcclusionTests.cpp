@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <bit>
 #include <soundwave/Solve.h>
+#include <soundwave/Echogram.h>
 
 namespace Lux
 {
@@ -230,12 +231,14 @@ int main(int argc, char** argv)
 	{
 		FileStreamReader reader(file);
 		assert(copied.Deserialize(reader) && copied.UpdateRateHz == 12 && copied.CastBudget == 7 &&
-			copied.ReflectionDepth == 2 && copied.OpeningGridSize == 8 && copied.MaxBounces == 2);
+			copied.ReflectionDepth == 2 && copied.OpeningGridSize == 8 && copied.MaxBounces == 2 &&
+			copied.EchogramWindowSeconds == 2.0f && copied.EchogramSmoothingSeconds == 0.0f && copied.CausticFocus == 0.0f);
 	}
 	AudioOcclusionSettings authored;
 	assert(authored.DeserializeYAML(Yaml::Load(
 		"{ Strength: 0.75, Kernel: { Version: 1, ReflectionDepth: 3, OpeningGridSize: 12, MaxBounces: 4, "
-		"CandidateBudget: 1234, PathBudget: 20, OpeningNodeBudget: 48, Absorption: 0.35, CompareRaycast: true } }")));
+		"CandidateBudget: 1234, PathBudget: 20, OpeningNodeBudget: 48, Absorption: 0.35, CompareRaycast: true, "
+		"EchogramWindowSeconds: 3.0, EchogramSmoothingSeconds: 0.04, CausticFocus: 0.6 } }")));
 	const auto checkAuthored = [&](const AudioOcclusionSettings& actual)
 	{
 		assert(actual.ReflectionDepth == 3 && actual.OpeningGridSize == 12 && actual.MaxBounces == 4 &&
@@ -246,6 +249,12 @@ int main(int argc, char** argv)
 			kernel.CandidateBudget == 1234 && kernel.PathBudget == 20 && kernel.OpeningNodeBudget == 48);
 		SameBits(kernel.Absorption, actual.Absorption);
 		SameBits(kernel.Strength, 0.75f);
+		SameBits(actual.CausticFocus, 0.6f);
+		SameBits(kernel.CausticFocus, 0.6f);
+		const auto echogram = actual.GetEchogramSettings();
+		assert(echogram.Validate());
+		SameBits(echogram.WindowSeconds, 3.0f);
+		SameBits(echogram.SmoothingSeconds, 0.04f);
 	};
 	checkAuthored(authored);
 	Yaml::Writer settingsYaml;
@@ -266,6 +275,9 @@ int main(int argc, char** argv)
 		"{ OpeningGridSize: 33 }", "{ CandidateBudget: 0 }", "{ PathBudget: 4097 }", "{ OpeningNodeBudget: 2049 }",
 		"{ Absorption: .nan }", "{ Absorption: -0.1 }", "{ Absorption: 1.1 }", "{ Absorption: text }",
 		"{ CompareRaycast: maybe }", "{ ReflectionDepth: ~ }", "{ PathBudget: [1,2] }",
+		"{ EchogramWindowSeconds: 0 }", "{ EchogramWindowSeconds: 4.1 }",
+		"{ EchogramSmoothingSeconds: -0.01 }", "{ EchogramSmoothingSeconds: .nan }",
+		"{ CausticFocus: -0.1 }", "{ CausticFocus: 1.1 }", "{ CausticFocus: .nan }",
 		"{ MaxBounce: 2 }", "{ MaxBounces: 2, MaxBounces: 3 }" })
 	{
 		const auto text = std::string("Kernel: ") + kernel;

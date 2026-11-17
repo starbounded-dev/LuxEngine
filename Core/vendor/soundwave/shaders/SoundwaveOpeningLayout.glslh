@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+#ifndef SOUNDWAVE_OPENING_LAYOUT
+#define SOUNDWAVE_OPENING_LAYOUT
+layout(std430, set = 1, binding = 39) readonly buffer SoundwaveOpeningRequest
+{
+	uvec4 Config;	   // node count, max bounces, work budget, path budget
+	uvec4 Geometry;	   // two roots and ignored instance
+	vec4 Listener;	   // w = direct LF
+	vec4 Source;	   // w = direct HF
+	vec4 Air;		   // LF/HF in dB per 100m
+	uvec4 Initial;	   // work, rays, flags, portal count
+	uvec4 Reflections; // path count, candidate count, work limit, enabled/work-limited flags
+}
+requestBlock;
+struct OpeningNode
+{
+	vec3 Point;
+	uint Edge;
+};
+layout(std430, set = 1, binding = 40) readonly buffer SoundwaveOpeningNodes
+{
+	OpeningNode Nodes[];
+};
+layout(std430, set = 1, binding = 41) coherent buffer SoundwaveOpeningScratch
+{
+	uint Scratch[];
+};
+struct OpeningPath
+{
+	uint Chain[16];
+	float Length;
+	float LF;
+	float HF;
+	uint Depth;
+};
+layout(std430, set = 1, binding = 42) buffer SoundwaveOpeningResult
+{
+	uvec4 OutputDiagnostics; // work, traced rays, retained routes, flags
+	vec2 OutputGains;
+    float OutputFocusEnergy;
+    uint OutputReflectionCount;
+	OpeningPath Paths[]; // strongest LF opening, then retained paths in search order
+};
+
+layout(std430, set = 1, binding = 43) buffer SoundwaveOpeningMatrix
+{
+	uint Visibility[];
+};
+struct Proposal
+{
+	vec4 Value;
+	uvec4 Meta;
+};
+layout(std430, set = 1, binding = 44) coherent buffer SoundwaveOpeningProposals
+{
+	Proposal Proposals[];
+};
+struct SoundwaveOpeningPortal
+{
+	mat4 WorldToBox;
+	uvec4 Instance;
+};
+layout(std430, set = 1, binding = 45) readonly buffer SoundwaveOpeningPortals
+{
+	SoundwaveOpeningPortal Portals[];
+};
+struct Reflection
+{
+	vec4 Points[18];
+	uvec4 Metadata;
+	vec4 Energy;
+};
+layout(std430, set = 1, binding = 46) readonly buffer SoundwaveReflectionCandidates
+{
+	Reflection Reflections[];
+};
+layout(std430, set = 1, binding = 47) buffer SoundwaveReflectionVisibility
+{
+	uvec2 ReflectionVisibility[];
+};
+layout(std430, set = 1, binding = 48) buffer SoundwaveReflectionIndices
+{
+	uint ReflectionIndices[];
+};
+
+#endif

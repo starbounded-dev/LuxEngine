@@ -31,6 +31,9 @@ def main():
     spirv = output / "SoundwaveReverb.spv"
     subprocess.run([glslc, "-fshader-stage=comp", "--target-env=vulkan1.2", "-I", str(SHADERS / "Include/GLSL"),
                     str(SHADERS / "SoundwaveReverb.glsl"), "-o", str(spirv)], check=True)
+    visibility_spirv = output / "SoundwaveVisibility.spv"
+    subprocess.run([glslc, "-fshader-stage=comp", "--target-env=vulkan1.2", "-I", str(SHADERS / "Include/GLSL"),
+                    str(SHADERS / "SoundwaveVisibility.glsl"), "-o", str(visibility_spirv)], check=True)
     library = ROOT / "Core/vendor/soundwave"
     sources = [ROOT / "tests/audio/SoundwaveGpuParity.cpp", *sorted((library / "src").glob("*.cpp"))]
     executable = output / ("SoundwaveGpuParity" + (".exe" if os.name == "nt" else ""))
@@ -42,7 +45,7 @@ def main():
                    *map(str, sources), "-o", str(executable), "-L" + str(sdk / "lib"), "-lvulkan"]
     with (output / "build.log").open("w", encoding="utf-8") as log:
         subprocess.run(command, cwd=output, check=True, stdout=log, stderr=subprocess.STDOUT)
-    subprocess.run([str(executable), str(spirv)], cwd=output, check=True, timeout=120)
+    subprocess.run([str(executable), str(spirv), str(visibility_spirv)], cwd=output, check=True, timeout=120)
 
 
 if __name__ == "__main__":

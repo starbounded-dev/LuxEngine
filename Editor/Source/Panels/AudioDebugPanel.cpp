@@ -128,6 +128,7 @@ namespace Lux {
 		m_HasReadings = false;
 		m_Paused = false;
 		m_Sources.clear();
+		m_Zones.clear();
 		m_FilteredSources.clear();
 		m_Banks.clear();
 		m_Clips.clear();
@@ -218,6 +219,7 @@ namespace Lux {
 		m_Reverb.reset();
 		m_ReverbSend = 0.0f;
 		m_Sources.clear();
+		m_Zones.clear();
 		m_HaveListener = false;
 		if (m_Context)
 		{
@@ -225,6 +227,23 @@ namespace Lux {
 			if (const auto* reverb = acoustics.GetReverb())
 				m_Reverb = *reverb;
 			m_ReverbSend = acoustics.GetReverbSend();
+			for (auto handle : m_Context->GetAllEntitiesWith<AudioZoneComponent>())
+			{
+				Entity entity{handle, m_Context.Raw()};
+				ZoneRow row;
+				row.Name = entity.GetName();
+				row.Weight = m_Context->GetAudioZoneWeight(entity.GetUUID());
+				if (const auto* reverb = acoustics.GetZoneReverb(entity.GetUUID()))
+					row.Reverb = *reverb;
+				if (const auto* echogram = acoustics.GetZoneEchogram(entity.GetUUID()))
+				{
+					row.Arrivals = echogram->PathCount;
+					row.WindowLimited = echogram->WindowLimited;
+					row.Measured = true;
+				}
+				m_Zones.push_back(std::move(row));
+			}
+			std::ranges::sort(m_Zones, {}, &ZoneRow::Name);
 			const auto* listener = m_Context->GetPrimaryAudioListener();
 			m_HaveListener = listener != nullptr;
 			const auto listenerPosition =
@@ -269,6 +288,8 @@ namespace Lux {
 					row.Paths =
 						std::format("{}R {}O x{}{}", diagnostics.ReflectionPaths, diagnostics.OpeningPaths,
 									deepest, diagnostics.WorkLimited || diagnostics.PathsLimited ? " !" : "");
+					if (row.Entity == m_SelectedSource)
+						row.IndirectPaths = result->Indirect;
 				}
 				m_Sources.push_back(std::move(row));
 			}
@@ -667,9 +688,17 @@ namespace Lux {
 				DrawStatColored("Solve Failures", std::to_string(stats.SolveFailures).c_str(), kWarnColor);
 			DrawStat("Reverb Measurements", static_cast<uint64_t>(stats.ReverbMeasurements));
 			DrawStat("Reverb Rays On", stats.ReverbOnGpu ? "GPU" : "CPU worker");
+			if (stats.ReverbGpuFailed)
+				DrawStatColored("GPU Reverb", "Unavailable; CPU fallback active (see Log)", kWarnColor);
 			if (stats.ReverbStalled)
 				DrawStatColored("Reverb", "Stalled (frames not rendering)", kWarnColor);
 			DrawStat("Source Solves", stats.SolvesPending ? "Batch on worker" : "Idle");
+			DrawStat("Source Propagation",
+				stats.SourceSolveOnGpu ? "GPU solve" : (stats.SourceVisibilityOnGpu ? "GPU rays" : "CPU worker"));
+			DrawStat("Source GPU", stats.SourceGpuMilliseconds, " ms");
+			DrawStat("GPU Source Batches", static_cast<uint64_t>(stats.SourceVisibilityBatches));
+			if (stats.SourceVisibilityGpuFailed)
+				DrawStatColored("GPU Source Visibility", "Unavailable; CPU fallback active (see Log)", kWarnColor);
 			ImGui::EndTable();
 		}
 
@@ -690,6 +719,25 @@ namespace Lux {
 		}
 		ImGui::Spacing();
 		ImGui::TextWrapped("Each source's voice applies Soundwave's occlusion as a low-pass and gain, and its reverb send feeds the mixer's reverb return (View > Audio Mixer).");
+		if (!m_Zones.empty())
+		{
+			ImGui::Spacing();
+			ImGui::TextWrapped("Zone echograms (cached by geometry generation)");
+			if (ImGui::BeginTable("##audio_debugger_zone_echograms", 2,
+				ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				for (const auto& zone : m_Zones)
+				{
+					const std::string label = std::format("{} (weight {:.0f}%%)", zone.Name, zone.Weight * 100.0f);
+					const std::string value = zone.Reverb && zone.Measured
+						? std::format("send {:.0f}%%, {:.2f} s, {} arrivals{}", zone.Reverb->Send * 100.0f,
+							zone.Reverb->DecaySeconds, zone.Arrivals, zone.WindowLimited ? " (window limited)" : "")
+						: "Measuring";
+					DrawStat(label.c_str(), value.c_str());
+				}
+				ImGui::EndTable();
+			}
+		}
 
 	}
 
@@ -807,11 +855,41 @@ namespace Lux {
 												   ? std::format("{:.1f} m", *selected->Distance).c_str()
 												   : "Unavailable (no listener)");
 			if (selected->Simulated)
+			{
 				ImGui::TextWrapped(
 					"Occlusion: %.1f%%\nGain LF: %.4f\nGain HF: %.4f\nMuffle (relative high-frequency loss): "
 					"%.3f\nPaths: %s",
 					OcclusionAmount(selected->GainLF) * 100.0f, selected->GainLF, selected->GainHF,
 					RelativeHighFrequencyLoss(selected->GainLF, selected->GainHF), selected->Paths.c_str());
+				if (!selected->IndirectPaths.empty() && ImGui::BeginTable("##soundwave_path_diagnostics", 7,
+					ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+				{
+					for (const char* label : {"Path", "Length", "LF gain", "HF gain", "Spread", "Specular share", "Focus LF / HF"})
+						ImGui::TableSetupColumn(label);
+					ImGui::TableHeadersRow();
+					for (size_t index = 0; index < selected->IndirectPaths.size(); ++index)
+					{
+						const auto& path = selected->IndirectPaths[index];
+						ImGui::TableNextRow();
+						ImGui::TableNextColumn();
+						ImGui::Text("%zu %s (%u bounces)", index + 1,
+							path.Kind == Soundwave::PathKind::Reflection ? "reflection" : "opening", path.Reflections);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.2f m", path.Distance);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.GainLF);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.GainHF);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.SpreadGain);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.4f", path.ScatteringGain);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.3f / %.3f", path.FocusGainLF, path.FocusGainHF);
+					}
+					ImGui::EndTable();
+				}
+			}
 			else
 				ImGui::TextWrapped("Acoustic reading unavailable: this source has not been simulated.");
 		}

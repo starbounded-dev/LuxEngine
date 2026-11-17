@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+#include "SoundwaveOpeningLayout.glslh"
+#include "SoundwaveOpeningTrace.glslh"
+layout(local_size_x = 128) in;
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= requestBlock.Reflections.x)
+		return;
+	uint legs = Reflections[index].Metadata.y - 1u;
+	uint status = 0u, tested = 0u;
+	for (uint leg = 0u; leg < legs; ++leg)
+	{
+		status = SegmentTrace(Reflections[index].Points[leg].xyz, Reflections[index].Points[leg + 1u].xyz, 0.001);
+		++tested;
+		if (status != 0u)
+			break;
+	}
+	ReflectionVisibility[index] = uvec2(status, tested);
+}

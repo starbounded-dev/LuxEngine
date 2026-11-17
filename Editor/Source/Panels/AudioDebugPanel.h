@@ -11,6 +11,7 @@
 
 #include <string>
 #include <optional>
+#include <vector>
 
 namespace Lux {
 
@@ -75,6 +76,16 @@ namespace Lux {
 			std::optional<float> Distance;
 			bool Simulated = false;
 			float GainLF = 1.0f, GainHF = 1.0f;
+			std::vector<Soundwave::PropagationPath> IndirectPaths;
+		};
+		struct ZoneRow
+		{
+			std::string Name;
+			float Weight = 0.0f;
+			std::optional<Soundwave::ReverbResult> Reverb;
+			uint32_t Arrivals = 0;
+			bool WindowLimited = false;
+			bool Measured = false;
 		};
 		// All pages share readings captured together on main; paused data owns no scene pointers.
 		void UI_Performance();
@@ -107,6 +118,7 @@ namespace Lux {
 		std::optional<Soundwave::ReverbResult> m_Reverb;
 		float m_ReverbSend = 0.0f;
 		std::vector<SourceRow> m_Sources;
+		std::vector<ZoneRow> m_Zones;
 		std::vector<size_t> m_FilteredSources;
 		UUID m_SelectedSource = 0;
 		UUID m_SelectedBank = 0;

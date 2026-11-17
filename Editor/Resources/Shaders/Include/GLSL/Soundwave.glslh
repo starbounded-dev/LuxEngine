@@ -1,6 +1,6 @@
 // Soundwave acoustic geometry on the GPU: the flattened view (soundwave/Flatten.h) and the
 // traversal that mirrors GeometryView::Trace. Storage-buffer (set, binding) slots are a global
-// namespace (Rendering.md, Invariant 1): set 1, bindings 30-34 belong to Soundwave.
+// namespace (Rendering.md, Invariant 1): set 1, bindings 30-38 belong to Soundwave.
 #ifndef SOUNDWAVE_GLSLH
 #define SOUNDWAVE_GLSLH
 
@@ -99,9 +99,9 @@ bool Soundwave_Before(SoundwaveHit a, SoundwaveHit b)
 	return a.Triangle < b.Triangle;
 }
 
-// The first hit along from->to that GeometryView::Trace would sort first. ignored is the
-// instance a ray must not see (0 = none, as no captured instance is 0).
-bool Soundwave_NearestHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float margin, out SoundwaveHit nearest)
+// The nearest-hit path matches GeometryView::Trace's sort order. Visibility only needs any hit
+// and can stop at the first blocker. ignored is the instance a ray must not see (0 = none).
+bool Soundwave_TraceHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float margin, bool anyHit, out SoundwaveHit nearest)
 {
 	nearest = SoundwaveHit(0.0, SOUNDWAVE_INVALID, false);
 	const vec3 delta = to - from;
@@ -141,6 +141,11 @@ bool Soundwave_NearestHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float 
 			if (!Soundwave_IntersectTriangle(t, from, direction, distance, exitHit) || distance <= margin || distance >= len - margin)
 				continue;
 			const SoundwaveHit hit = SoundwaveHit(distance, index, exitHit);
+			if (anyHit)
+			{
+				nearest = hit;
+				return true;
+			}
 			if (!found || Soundwave_Before(hit, nearest))
 			{
 				nearest = hit;
@@ -149,6 +154,17 @@ bool Soundwave_NearestHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float 
 		}
 	}
 	return found;
+}
+
+bool Soundwave_NearestHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float margin, out SoundwaveHit nearest)
+{
+	return Soundwave_TraceHit(roots, from, to, ignored, margin, false, nearest);
+}
+
+bool Soundwave_AnyHit(uvec2 roots, vec3 from, vec3 to, uvec2 ignored, float margin)
+{
+	SoundwaveHit hit;
+	return Soundwave_TraceHit(roots, from, to, ignored, margin, true, hit);
 }
 
 vec3 Soundwave_Normal(SoundwaveTriangle t)

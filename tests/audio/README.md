@@ -113,8 +113,11 @@ opaque and work/node limits are authored at their maximum; truncation stays visi
 Without `--export-runtime`, these checks cover Play only. They do not prove performance,
 all routes at default budgets or GPU parity.
 
-Fixtures live under `bin/soundwave-scene-tests/<unique-run>/`; native capture evidence lives under
-`bin/golden/<run>-<case>/`. The script copies the project/registry, scene, compiled script module
+Fixtures live under `bin/soundwave-scene-tests/<unique-run>/` by default. Use `--output`
+with a short directory on Windows if the export destination would exceed the path limit. Native
+capture evidence lives under `bin/golden/<run>-<case>/`. The `gpu-sponza` case requires
+a completed full GPU source solve with the 2,048-node opening budget, including reflection
+visibility and opening search. Non-Dist captures also require a positive GPU timing sample. The script copies the project/registry, scene, compiled script module
 and Sponza/default model folders (the importer rewrites generated materials). Audio authoring
 files are copied too, excluding generated Build directories; the committed regression banks
 from `tests/audio/fixtures/banks` are copied into that fixture's Build/Desktop. Both desktop
@@ -148,6 +151,13 @@ the instanced GeometryView. Scene now captures shared local meshes; broad scene/
 `SoundwaveReverbTests.cpp` checks the listener reverb measurement: deterministic repeats, a closed
 marble room near Sabine's decay, a closed corridor shorter than that room, open corridor ends
 shorter still, a carpeted room far drier, and open ground with no send at all.
+
+`run_soundwave_gpu.py` compiles the shipped reverb and parallel visibility shaders, then runs
+`SoundwaveGpuParity.cpp` on a Vulkan device. It compares listener reverb with the CPU reference
+across five spaces, all opening-node pairs of a thick corner against the CPU geometry trace,
+analytic portal clipping, and the resulting LF/HF source gains. `run_scene_acoustics.py
+--config release --gpu-source --cases gpu-corner zone-stone --export-runtime` requires completed
+GPU source batches in Play and the packaged player. The path reduction still uses a CPU worker.
 
 The production adapter tests also detach a blocked job retaining a shared mesh owner, drop the
 Scene/caller refs, and prove the owner survives until the worker finishes. Inline publication

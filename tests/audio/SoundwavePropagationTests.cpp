@@ -67,6 +67,36 @@ int main()
 		"coplanar floor diagonal was cached as a diffracting edge");
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, result) == EvaluationError::None &&
 		result.Diagnostics.ReflectionPaths == 1, "analytic first reflection missing or counted twice on shared diagonal");
+	PreparedCandidates prepared;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, prepared) == EvaluationError::None &&
+		!prepared.ReflectionTriangles.empty() && prepared.Openings.empty() && prepared.Direct.GainLF() == result.Direct.GainLF(),
+		"reflection candidate preparation lost its bounded pool or direct reference");
+	// Reflecting on the shared diagonal produces two equivalent geometric candidates.
+	// The staged path keeps the serial work order and accepts the same single path.
+	PreparedReflections reflections;
+	const GeometryView floorView(grid);
+	Check(PrepareReflections(floorView, materials, settings, prepared, scratch, reflections) ==
+		EvaluationError::None && reflections.Paths.size() == 2, "reflecting candidates were lost before visibility");
+	const std::array<std::uint32_t, 4> emptyOpenings{};
+	std::array<std::uint32_t, 4> reflectionVisibility{};
+	SolveResult stagedReflection;
+	Check(ReduceOpeningVisibility(floorView, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, prepared,
+		emptyOpenings, scratch, stagedReflection, &reflections, reflectionVisibility) == EvaluationError::None &&
+		stagedReflection.Diagnostics.ReflectionPaths == result.Diagnostics.ReflectionPaths &&
+		stagedReflection.Diagnostics.Work == result.Diagnostics.Work &&
+		stagedReflection.Diagnostics.VisibilityRays == result.Diagnostics.VisibilityRays &&
+		stagedReflection.Indirect.front().GainLF == result.Indirect.front().GainLF,
+		"staged reflection reduction diverged from the serial solve");
+	reflectionVisibility = { 1, 2, 1, 2 };
+	Check(ReduceOpeningVisibility(floorView, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, prepared,
+		emptyOpenings, scratch, stagedReflection, &reflections, reflectionVisibility) == EvaluationError::None &&
+		stagedReflection.Indirect.empty() && stagedReflection.Diagnostics.VisibilityRays == 2,
+		"blocked reflection charged or consumed a subsequent leg");
+	reflectionVisibility[0] = 2;
+	Check(ReduceOpeningVisibility(floorView, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, prepared,
+		emptyOpenings, scratch, stagedReflection, &reflections, reflectionVisibility) == EvaluationError::NumericalFailure &&
+		stagedReflection.Indirect.empty() && stagedReflection.Diagnostics.VisibilityRays == 2,
+		"invalid reflection visibility replaced the last staged result");
 	const auto reflection = result.Indirect[0];
 	Check(reflection.Reflections == 1 && reflection.Diffractions == 0 && reflection.PointCount == 3, "reflection path topology wrong");
 	Near(reflection.Points[1].X, 0, "reflection point X differs from image source");
@@ -82,6 +112,8 @@ int main()
 	materials[0].Scattering = 0.75f;
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, result) == EvaluationError::None, "scattering solve failed");
 	Near(result.Indirect[0].GainLF, reflection.GainLF * 0.5f, "specular energy was not split by scattering");
+	Near(result.Indirect[0].ScatteringGain, 0.5f, "scattering share is not observable");
+	Near(result.Indirect[0].SpreadGain, 2.0f / std::sqrt(8.0f), "relative path spreading is not observable");
 	materials[0].Scattering = 0;
 	Check(result.Diagnostics.PathsByInteractions[1] == 1 && result.Diagnostics.PathsByInteractions[0] == 0,
 		"single reflection not counted by its interaction count");
@@ -104,6 +136,42 @@ int main()
 		result.Diagnostics.ReflectionPaths == 0, "a blocked reflection leg reached the listener");
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,-1,0}, 0, scratch, result) == EvaluationError::None &&
 		result.Diagnostics.ReflectionPaths == 0 && result.OcclusionGainLF <= 0.001001f, "mirror path transmitted through its own plane");
+
+	// A shallow concave strip bends reflected rays together. The convex control
+	// reverses the adjacent face normals, and the flat control has no curvature.
+	const auto focus = [&](float rimHeight, float strength)
+	{
+		std::vector<Triangle> strip;
+		const std::array<float, 4> boundaries{ -2, -1, 1, 2 };
+		for (std::size_t i = 1; i < boundaries.size(); ++i)
+		{
+			const float left = boundaries[i - 1], right = boundaries[i];
+			const float yLeft = i == 1 ? rimHeight : 0.0f;
+			const float yRight = i + 1 == boundaries.size() ? rimHeight : 0.0f;
+			strip.push_back({ {left,yLeft,-2},{right,yRight,2},{right,yRight,-2},1 });
+			strip.push_back({ {left,yLeft,-2},{left,yLeft,2},{right,yRight,2},1 });
+		}
+		Grid reflector;
+		Check(reflector.Build(strip) == GeometryError::None, "caustic geometry invalid");
+		Settings focusSettings = settings;
+		focusSettings.CausticFocus = strength;
+		SolveResult focused;
+		Check(Solve(reflector, {}, materials, focusSettings, {-0.5f,1,0}, {0.5f,1,0}, 0, scratch, focused) == EvaluationError::None &&
+			focused.Diagnostics.ReflectionPaths == 1 && focused.OcclusionGainLF == 1 && focused.OcclusionGainHF == 1,
+			"caustic control changed dry gain or lost the analytic reflection");
+		return focused;
+	};
+	const auto planar = focus(0.0f, 1.0f);
+	const auto disabled = focus(0.3f, 0.0f);
+	const auto concave = focus(0.3f, 1.0f);
+	const auto convex = focus(-0.3f, 1.0f);
+	Check(planar.AddedFocusEnergy == 0 && planar.Indirect.front().FocusGainHF == 1 &&
+		disabled.AddedFocusEnergy == 0 && planar.Indirect.front().GainHF == disabled.Indirect.front().GainHF,
+		"planar or disabled focusing changed baseline spreading");
+	Check(concave.AddedFocusEnergy > 0.01f && concave.Indirect.front().FocusGainHF > 1 &&
+		concave.Indirect.front().GainHF > disabled.Indirect.front().GainHF && concave.Indirect.front().GainHF <= 1 &&
+		convex.AddedFocusEnergy == 0 && convex.Indirect.front().FocusGainHF < 1,
+		"concave and convex acoustic curvature did not change reflection energy in opposite directions");
 
 	geometry.clear();
 	Box(geometry, {-2,-2,-2}, {2,2,2}, 1);
@@ -139,6 +207,102 @@ int main()
 		"corner solve failed");
 	Check(result.Direct.GainLF() <= 0.001001f && result.OcclusionGainLF > 0.01f && result.HasAudibleOpening,
 		"thick corner remained inaudible when the direct ray was blocked");
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, prepared) == EvaluationError::None &&
+		!prepared.Openings.empty() && prepared.Openings.size() <= settings.OpeningNodeBudget &&
+		prepared.Diagnostics.Work <= settings.CandidateBudget,
+		"occluded corner candidate preparation did not respect the authored bounds");
+	std::vector<Position> visibilityPoints{{1,0,-0.5f}};
+	for (const auto& opening : prepared.Openings)
+		visibilityPoints.push_back(opening.Point);
+	visibilityPoints.push_back({-1,0,-0.5f});
+	std::vector<std::uint32_t> visibility(visibilityPoints.size() * visibilityPoints.size());
+	for (std::size_t from = 0; from < visibilityPoints.size(); ++from)
+		for (std::size_t to = 0; to < visibilityPoints.size(); ++to)
+		{
+			std::vector<RayHit> hits;
+			Check(grid.Trace(visibilityPoints[from], visibilityPoints[to], 0, hits), "corner visibility reference trace failed");
+			visibility[from * visibilityPoints.size() + to] = hits.empty() ? 0 : 1;
+		}
+	SolveResult reduced;
+	Check(ReduceOpeningVisibility(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, prepared, visibility, scratch, reduced) == EvaluationError::None && reduced.HasAudibleOpening &&
+		std::bit_cast<std::uint32_t>(reduced.OcclusionGainLF) == std::bit_cast<std::uint32_t>(result.OcclusionGainLF) &&
+		std::bit_cast<std::uint32_t>(reduced.OcclusionGainHF) == std::bit_cast<std::uint32_t>(result.OcclusionGainHF),
+		"visibility-matrix opening search diverged from the CPU reference");
+	Settings reflectedSettings = settings;
+	reflectedSettings.ReflectionDepth = 2;
+	PreparedCandidates reflectedPrepared;
+	SolveResult reflectedCpu, reflectedReduced;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, scratch, reflectedPrepared) == EvaluationError::None &&
+		reflectedPrepared.Openings.size() == prepared.Openings.size(), "reflection setting changed opening candidate indices");
+	Check(Solve(grid, {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, reflectedCpu) == EvaluationError::None &&
+		ReduceOpeningVisibility(GeometryView(grid), {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+			0, reflectedPrepared, visibility, scratch, reflectedReduced) == EvaluationError::None,
+		"default-depth source reduction failed");
+	Check(std::bit_cast<std::uint32_t>(reflectedCpu.OcclusionGainLF) == std::bit_cast<std::uint32_t>(reflectedReduced.OcclusionGainLF) &&
+		std::bit_cast<std::uint32_t>(reflectedCpu.OcclusionGainHF) == std::bit_cast<std::uint32_t>(reflectedReduced.OcclusionGainHF) &&
+		reflectedCpu.Diagnostics.ReflectionPaths == reflectedReduced.Diagnostics.ReflectionPaths &&
+		reflectedCpu.Diagnostics.OpeningPaths == reflectedReduced.Diagnostics.OpeningPaths,
+		"default-depth visibility reduction changed the source gain");
+	PreparedReflections hybridReflections;
+	Check(PrepareReflections(GeometryView(grid), materials, reflectedSettings, reflectedPrepared, scratch, hybridReflections) ==
+		EvaluationError::None, "hybrid reflection preparation failed");
+	std::vector<std::uint32_t> hybridVisibility;
+	for (const auto& candidate : hybridReflections.Paths)
+	{
+		const auto& path = candidate.Path;
+		std::vector<RayHit> hits;
+		for (std::uint32_t leg = 1; leg < path.PointCount; ++leg)
+		{
+			Check(grid.Trace(path.Points[leg - 1], path.Points[leg], 0, hits, kReflectionEndpointMargin),
+				"hybrid reflection visibility trace failed");
+			hybridVisibility.push_back(hits.empty() ? 0u : 1u);
+		}
+	}
+	SolveResult hybrid;
+	Check(ReduceOpeningVisibility(GeometryView(grid), {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, reflectedPrepared, {}, scratch, hybrid, &hybridReflections, hybridVisibility) == EvaluationError::None &&
+		hybrid.HasAudibleOpening && hybrid.OcclusionGainLF == reflectedCpu.OcclusionGainLF &&
+		hybrid.OcclusionGainHF == reflectedCpu.OcclusionGainHF && hybrid.Diagnostics.Work == reflectedCpu.Diagnostics.Work &&
+		hybrid.Diagnostics.ReflectionPaths == reflectedCpu.Diagnostics.ReflectionPaths &&
+		hybrid.Diagnostics.OpeningPaths == reflectedCpu.Diagnostics.OpeningPaths,
+		"CPU opening visibility with staged reflections changed path results");
+	// Preparation speculates before reflections. The staged solve must keep the same
+	// path results and exhaust the same work budget as the serial reference.
+	Settings tightSettings = reflectedSettings;
+	tightSettings.CandidateBudget = 32;
+	PreparedCandidates tightPrepared;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, tightSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, scratch, tightPrepared) == EvaluationError::None &&
+		tightPrepared.Diagnostics.Work == tightSettings.CandidateBudget && !tightPrepared.Openings.empty(),
+		"tight-budget fixture did not fill the opening sample budget");
+	const auto tightWidth = tightPrepared.Openings.size() + 2;
+	std::vector<std::uint32_t> tightVisibility(tightWidth * tightWidth);
+	SolveResult tightCpu, tightReduced;
+	Check(Solve(grid, {}, materials, tightSettings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, tightCpu) == EvaluationError::None &&
+		ReduceOpeningVisibility(GeometryView(grid), {}, materials, tightSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+			0, tightPrepared, tightVisibility, scratch, tightReduced) == EvaluationError::None,
+		"staged solve rejected a valid tight-budget job after reflections");
+	Check(tightReduced.Diagnostics.Work == tightCpu.Diagnostics.Work && tightReduced.Diagnostics.WorkLimited &&
+		tightReduced.Diagnostics.VisibilityRays == tightCpu.Diagnostics.VisibilityRays &&
+		tightReduced.Diagnostics.ReflectionPaths == tightCpu.Diagnostics.ReflectionPaths &&
+		tightReduced.OcclusionGainLF == tightCpu.OcclusionGainLF && tightReduced.OcclusionGainHF == tightCpu.OcclusionGainHF,
+		"staged solve did not preserve the reference under a tight opening sample budget");
+	const auto reducedLF = reduced.OcclusionGainLF;
+	visibility[1] = 3;
+	Check(ReduceOpeningVisibility(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, prepared, visibility, scratch, reduced) == EvaluationError::NumericalFailure && reduced.OcclusionGainLF == reducedLF,
+		"invalid visibility matrix changed a published solve");
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {1,0,-1}, 0, scratch, prepared) == EvaluationError::None &&
+		prepared.Openings.empty() && prepared.Direct.GainLF() == 1,
+		"clear source inherited opening candidates from a previous solve");
+	const auto preparedDirect = prepared.Direct;
+	settings.CandidateBudget = 0;
+	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {1,0,-0.5f}, {-1,0,-0.5f}, 0, scratch, prepared) == EvaluationError::InvalidSettings &&
+		prepared.Direct.Distance == preparedDirect.Distance && prepared.Openings.empty(),
+		"invalid candidate preparation changed the last valid result");
+	settings.CandidateBudget = 4096;
 	Check(result.AudibleOpening.Diffractions == 2 && result.OcclusionGainHF < result.OcclusionGainLF,
 		"corner route did not cross both edges or lacked frequency-dependent diffraction");
 	for (const auto& path : result.Indirect)

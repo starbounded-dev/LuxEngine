@@ -4,7 +4,7 @@
 #pragma once
 #include <cstdint>
 namespace Lux::Yaml { class Node; class Writer; }
-namespace Lux::Soundwave { struct Settings; }
+namespace Lux::Soundwave { struct Settings; struct EchogramSettings; }
 namespace Lux
 {
 	class StreamReader;
@@ -25,10 +25,14 @@ namespace Lux
 		uint32_t ReverbRays = 256;     // listener reverb rays per measurement
 		uint32_t ReverbBounces = 16;
 		float ReverbReferenceSeconds = 1.5f; // decay time that gives a strong (63%) reverb send
+		float EchogramWindowSeconds = 2.0f;
+		float EchogramSmoothingSeconds = 0.0f;
 		float AirAbsorptionLF = 0.1f; // dB per 100 m beyond the direct path, and along reverb rays
 		float AirAbsorptionHF = 2.5f;
+		float CausticFocus = 0.0f;
 		bool CompareRaycast = false; // temporary engine-oracle diagnostics, never a playback mode
 		Soundwave::Settings GetKernelSettings() const;
+		Soundwave::EchogramSettings GetEchogramSettings() const;
 		bool Validate() const;
 		void SerializeYAML(Yaml::Writer& out) const;
 		bool DeserializeYAML(const Yaml::Node& node);

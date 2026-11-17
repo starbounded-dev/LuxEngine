@@ -17,26 +17,26 @@ layout(local_size_x = 64) in;
 
 // The mesh's vertices as raw words: PackedVertex (Mesh.h), 7 words each: position (3 floats), the QTangent
 // (four snorm16 in 2 words), texcoord (2 floats).
-layout(std430, set = 1, binding = 40) readonly buffer SkinSourceVertices
+layout(std430, set = 1, binding = 49) readonly buffer SkinSourceVertices
 {
 	uint Words[];
 } r_SkinSource;
 
 // BoneInfluence (Mesh.h), 8 words per vertex: four palette indices, then four float weights.
-layout(std430, set = 1, binding = 41) readonly buffer SkinInfluences
+layout(std430, set = 1, binding = 50) readonly buffer SkinInfluences
 {
 	uint Words[];
 } r_SkinInfluences;
 
 // Every skinned entity's palette, back to back; an entity's starts at PaletteBase.
-layout(std430, set = 1, binding = 42) readonly buffer SkinPalette
+layout(std430, set = 1, binding = 51) readonly buffer SkinPalette
 {
 	mat4 Matrices[];
 } r_SkinPalette;
 
 // Every skinned entity's copy, back to back: an entity's vertex v lands at OutputBase + v (same layout
 // as the source). A draw adds OutputBase to its base vertex.
-layout(std430, set = 1, binding = 43) writeonly buffer SkinnedVertices
+layout(std430, set = 1, binding = 52) writeonly buffer SkinnedVertices
 {
 	uint Words[];
 } b_SkinOutput;

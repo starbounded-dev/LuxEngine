@@ -604,6 +604,10 @@ namespace Lux
 			panel.m_Reverb = Soundwave::ReverbResult{};
 			panel.m_Reverb->DecaySeconds = 0.75f;
 			panel.m_ReverbSend = 0.5f;
+			Soundwave::ReverbResult zoneReverb;
+			zoneReverb.Send = 0.65f;
+			zoneReverb.DecaySeconds = 1.4f;
+			panel.m_Zones.push_back({"Sample room", 0.75f, zoneReverb, 16, true, true});
 			panel.m_Engine.HasMixerStats = true;
 			panel.m_Engine.ChannelsPlaying = 3;
 			panel.m_Engine.RealChannelsPlaying = 2;

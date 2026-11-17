@@ -69,6 +69,11 @@ namespace Lux::Soundwave
 		std::uint32_t PointCount = 0;
 		std::uint32_t Reflections = 0, Diffractions = 0;
 		float Distance = 0, GainLF = 0, GainHF = 0;
+		// Amplitude factors retained for authoring diagnostics. Spread is relative to the
+		// direct path; scattering is the specular share of the reflecting surfaces.
+		float SpreadGain = 1.0f, ScatteringGain = 1.0f;
+		float FocusGainLF = 1.0f, FocusGainHF = 1.0f;
+		float AddedFocusEnergy = 0.0f; // average LF/HF energy gained relative to planar spreading
 	};
 	struct SolveDiagnostics
 	{
@@ -85,6 +90,7 @@ namespace Lux::Soundwave
 		PropagationPath AudibleOpening;
 		bool HasAudibleOpening = false;
 		float OcclusionGainLF = 1, OcclusionGainHF = 1;
+		float AddedFocusEnergy = 0.0f; // sum over retained reflection paths
 		SolveDiagnostics Diagnostics;
 	};
 	struct SolveScratch
@@ -103,6 +109,50 @@ namespace Lux::Soundwave
 		std::vector<SearchState> States;
 		std::vector<float> BestDistance;
 	};
+	// Geometry-dependent candidates prepared on a CPU worker before a parallel propagation
+	// evaluator. Triangle and opening indices refer to the immutable GeometryView supplied to
+	// PrepareCandidates. The direct measurement is kept for comparison and as a safe fallback.
+	struct PreparedCandidates
+	{
+		Path Direct;
+		std::vector<std::uint32_t> ReflectionTriangles;
+		std::vector<SolveScratch::OpeningNode> Openings;
+		SolveDiagnostics Diagnostics;
+	};
+	// Produces the same bounded triangle pool and off-surface opening samples the CPU reference
+	// uses, without running its serial visibility search. Output is unchanged on validation error.
+	[[nodiscard]] EvaluationError PrepareCandidates(const GeometryView& geometry, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener,
+		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, PreparedCandidates& output);
+	// Speculatively prepare each geometrically valid image-source path, without tracing its legs.
+	// Candidate is its one-based ordinal in the serial search, including rejected geometry.
+	inline constexpr float kReflectionEndpointMargin = 0.001f;
+	struct PreparedReflection
+	{
+		PropagationPath Path;
+		std::uint32_t Candidate = 0;
+	};
+	struct PreparedReflections
+	{
+		std::vector<PreparedReflection> Paths;
+		std::uint32_t CandidateCount = 0;
+		bool WorkLimited = false;
+	};
+	[[nodiscard]] EvaluationError PrepareReflections(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, const PreparedCandidates& prepared, SolveScratch& scratch, PreparedReflections& output);
+	// Optional reflection statuses are concatenated by candidate in Paths order, one per leg.
+	// With no reflection batch, the same reducer traces reflection legs on the CPU.
+	// A reflection batch with an empty opening matrix traces opening legs on the CPU.
+	// Complete the bounded opening search from row-major GPU/CPU visibility statuses over
+	// [listener, prepared openings..., source]. Status 0 is clear, 1 blocked, 2 invalid.
+	// Reduction honors the reference's remaining work budget after reflections.
+	// The direct measurement and candidate snapshot must belong to these inputs; callers keep
+	// their immutable geometry/portal snapshot alive until this reduction completes.
+	[[nodiscard]] EvaluationError ReduceOpeningVisibility(const GeometryView& geometry, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener, Position source,
+		std::uint64_t sourceInstance, const PreparedCandidates& prepared, std::span<const std::uint32_t> visibility,
+		SolveScratch& scratch, SolveResult& output, const PreparedReflections* reflections = nullptr,
+		std::span<const std::uint32_t> reflectionVisibility = {});
 
 	// CPU reference. Reflection paths feed the later echogram; visible edge routes can
 	// improve dry audibility. It never changes the direct-only measurement. Work/path

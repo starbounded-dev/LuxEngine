@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 
 namespace Lux
@@ -41,8 +42,20 @@ namespace Lux
 			error = "Soundwave reverb stalled: its GPU measurement never returned";
 			return SceneAudioVerificationStatus::Failed;
 		}
+		const bool requireGpuSource = []
+		{
+			const char* value = std::getenv("LUX_VERIFY_GPU_SOURCE");
+			return value && value[0] == '1' && value[1] == '\0';
+		}();
+		if (requireGpuSource && stats.SourceVisibilityGpuFailed)
+		{
+			error = "Soundwave GPU source visibility failed and fell back to the CPU";
+			return SceneAudioVerificationStatus::Failed;
+		}
 		// The listener reverb lands a few frames after geometry (GPU readback or CPU job).
-		if (!stats.Ready || !stats.ReverbMeasurements || !kernel.GetReverb())
+		if (!stats.Ready || !stats.ReverbMeasurements || !kernel.GetReverb() ||
+			(requireGpuSource &&
+				(stats.SourceVisibilityBatches < 4 || !stats.SourceSolveOnGpu)))
 			return SceneAudioVerificationStatus::Pending;
 		if (!stats.Evaluations)
 		{
@@ -53,6 +66,16 @@ namespace Lux
 		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave";
 		out << Yaml::Key << "ReverbOn" << Yaml::Value << (stats.ReverbOnGpu ? "GPU" : "CPU");
 		out << Yaml::Key << "ReverbMeasurements" << Yaml::Value << stats.ReverbMeasurements;
+		out << Yaml::Key << "SourceVisibilityOn" << Yaml::Value << (stats.SourceVisibilityOnGpu ? "GPU" : "CPU");
+		out << Yaml::Key << "SourceSolveOn" << Yaml::Value << (stats.SourceSolveOnGpu ? "GPU" : "CPU");
+#if defined(LUX_DIST)
+        out << Yaml::Key << "SourceGpuTimingEnabled" << Yaml::Value << false;
+#else
+        out << Yaml::Key << "SourceGpuTimingEnabled" << Yaml::Value << true;
+#endif
+		out << Yaml::Key << "SourceGpuMilliseconds" << Yaml::Value << stats.SourceGpuMilliseconds;
+		out << Yaml::Key << "SourceVisibilityBatches" << Yaml::Value << stats.SourceVisibilityBatches;
+		out << Yaml::Key << "SourceVisibilityGpuFailed" << Yaml::Value << stats.SourceVisibilityGpuFailed;
 		// Audio budget evidence from the last 4 Hz sample. A session over budget also logs
 		// "Soundwave acoustics (ms) budget exceeded" once.
 		const AudioPerformanceStats& performance = AudioPerformance::GetStats();
@@ -81,6 +104,27 @@ namespace Lux
 				return SceneAudioVerificationStatus::Failed;
 			}
 		}
+		out << Yaml::Key << "Zones" << Yaml::Value << Yaml::BeginSeq;
+		for (auto handle : scene.GetAllEntitiesWith<AudioZoneComponent>())
+		{
+			Entity entity{handle, &scene};
+			const float weight = scene.GetAudioZoneWeight(entity.GetUUID());
+			if (weight <= 0.0f)
+				continue;
+			const auto* response = kernel.GetZoneReverb(entity.GetUUID());
+			const auto* echogram = kernel.GetZoneEchogram(entity.GetUUID());
+			if (!response || !echogram)
+				return SceneAudioVerificationStatus::Pending;
+			out << Yaml::BeginMap << Yaml::Key << "UUID" << Yaml::Value << entity.GetUUID();
+			out << Yaml::Key << "Weight" << Yaml::Value << weight;
+			out << Yaml::Key << "Send" << Yaml::Value << response->Send;
+			out << Yaml::Key << "DecaySeconds" << Yaml::Value << response->DecaySeconds;
+			out << Yaml::Key << "Arrivals" << Yaml::Value << echogram->PathCount;
+			out << Yaml::Key << "BinSeconds" << Yaml::Value << echogram->BinSeconds;
+			out << Yaml::Key << "WindowLimited" << Yaml::Value << echogram->WindowLimited;
+			out << Yaml::EndMap;
+		}
+		out << Yaml::EndSeq;
 		out << Yaml::Key << "StaticTriangles" << Yaml::Value << stats.StaticTriangles;
 		out << Yaml::Key << "MovingTriangles" << Yaml::Value << stats.MovingTriangles;
 		out << Yaml::Key << "StaticInertTriangles" << Yaml::Value << stats.StaticInertTriangles;
@@ -105,14 +149,23 @@ namespace Lux
 			if (!result)
 				return SceneAudioVerificationStatus::Pending; // its first solve batch is still on a worker
 			const float gain = kernel.GetGainLF(id), applied = scene.GetAudioSourceOcclusion(id);
+			const float appliedSend = scene.GetAudioSourceReverbSend(id);
 			if (!std::isfinite(gain) || std::abs(gain - applied) > k_AcousticTransportTolerance)
 			{
 				error = std::format("Soundwave LF gain did not reach Scene source {}", static_cast<uint64_t>(id));
 				return SceneAudioVerificationStatus::Failed;
 			}
+			if (!std::isfinite(appliedSend) || appliedSend < 0.0f || appliedSend > 1.0f)
+			{
+				error = std::format("Soundwave reverb send is invalid on Scene source {}", static_cast<uint64_t>(id));
+				return SceneAudioVerificationStatus::Failed;
+			}
 			out << Yaml::BeginMap << Yaml::Key << "Name" << Yaml::Value << entity.GetComponent<TagComponent>().Tag;
 			out << Yaml::Key << "UUID" << Yaml::Value << id;
 			out << Yaml::Key << "OcclusionGainLF" << Yaml::Value << gain;
+			out << Yaml::Key << "AppliedReverbSend" << Yaml::Value << appliedSend;
+			out << Yaml::Key << "AddedFocusEnergy" << Yaml::Value << result->AddedFocusEnergy;
+			out << Yaml::Key << "FocusedReflectionSend" << Yaml::Value << kernel.GetFocusedReflectionSend(id);
 			out << Yaml::Key << "DirectGainLF" << Yaml::Value << result->Direct.GainLF();
 			out << Yaml::Key << "DirectGainLFBits" << Yaml::Value << std::bit_cast<uint32_t>(result->Direct.GainLF());
 			out << Yaml::Key << "RawGainLF" << Yaml::Value << result->OcclusionGainLF;

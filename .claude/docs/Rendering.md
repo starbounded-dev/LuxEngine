@@ -53,11 +53,15 @@ object is `Renderer/RHI/RHIShader`, descriptor sets `Renderer/DescriptorSetManag
 
 ## Invariant 1 — `(set, binding)` is a GLOBAL namespace
 
-Claimed outside the renderer passes: **set 1, bindings 30–34** — Soundwave's acoustic compute
-(`SoundwaveNodes`, `SoundwaveOrder`, `SoundwaveTriangles`, `SoundwaveReverbRequest`,
-`SoundwaveReverbRays`; `Include/GLSL/Soundwave.glslh`, `SoundwaveReverb.glsl`). Its pass is built
-when acoustic geometry changes, not per frame, and records on its own command buffer
-(`AudioAcousticKernel`, see `Threading.md` § Acoustic geometry).
+Claimed outside the renderer passes: **set 1, bindings 30–48** — Soundwave's acoustic compute.
+Bindings 30–38 hold geometry, listener reverb and the legacy visibility-only requests/results
+(`Soundwave.glslh`, `SoundwaveReverb.glsl`, `SoundwaveVisibility.glsl`). Bindings 39–48 hold source
+requests, opening nodes, scratch, results, adjacency, proposals, portals, reflection candidates,
+reflection visibility and retained reflection indices (`SoundwaveOpeningLayout.glslh`).
+The four `SoundwaveOpening*` passes are cached and rebound when geometry or capacity changes.
+They record on a compute command buffer and join the graphics frame timeline for readback
+retirement. Listener reverb and legacy visibility keep separate command buffers.
+See `AudioAcousticKernel` and `Threading.md` § Acoustic geometry.
 
 **This is the highest-consequence rule in the renderer.**
 
@@ -958,7 +962,7 @@ crash or corruption on some driver even if it renders correctly on yours.
     own vertices.
   - It draws unskinned (with the node transform) until its mesh, skeleton and palette exist; a bone the
     skeleton lacks gets the identity.
-  `(set, binding)` 40-43 of set 1 belong to `Skinning.glsl`.
+  `(set, binding)` 49-52 of set 1 belong to `Skinning.glsl`.
 - **A mirroring entity transform is a raster variant too.** `MeshKey::Mirrored` is set when the
   entity's world transform has a negative determinant (`SubmitStaticMeshInternal`). Its draws take
   pipelines with `PipelineSpecification::Mirrored` (clockwise front faces), so culling and

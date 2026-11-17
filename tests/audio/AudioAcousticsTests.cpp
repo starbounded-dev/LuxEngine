@@ -27,6 +27,15 @@ namespace
 		for (int i = 0; i < 36; i += 3)
 			input.Triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),10,0,0,false});
 	}
+	void Room(AudioAcoustics::GeometryInput& input)
+	{
+		constexpr int indices[] = {0,2,3, 0,3,1, 4,5,7, 4,7,6, 0,4,6, 0,6,2,
+			1,3,7, 1,7,5, 0,1,5, 0,5,4, 2,6,7, 2,7,3};
+		const auto point = [](int i) { return Soundwave::Position{i & 1 ? 5.0f : -5.0f,
+			i & 2 ? 4.0f : 0.0f,i & 4 ? 5.0f : -5.0f}; };
+		for (int i = 0; i < 36; i += 3)
+			input.Triangles.push_back({point(indices[i]),point(indices[i+1]),point(indices[i+2]),10,0,10,false});
+	}
 	struct MeshOwner : AudioAcoustics::MeshGeometry
 	{
 		std::atomic<bool>* Destroyed = nullptr;
@@ -221,6 +230,22 @@ void RunAudioAcousticsTests()
 		audio.PollGeometry();
 		assert(!audio.GetDiagnostics().Ready);
 	}
+	{
+		AudioAcoustics audio;
+		assert(audio.Configure(materials, settings));
+		assert(audio.RequestGeometry(1, [](auto& input, auto&) { Room(input); return true; }, empty));
+		Drain(audio);
+		const std::array<AudioAcoustics::ZoneProbe,1> zones{{{700,{0,1.7f,0}}}};
+		const auto deadline = std::chrono::steady_clock::now() + 5s;
+		while (!audio.GetZoneReverb(700))
+		{
+			assert(audio.Update(0.01f, listener, {}, zones));
+			assert(std::chrono::steady_clock::now() < deadline && "zone measurement did not publish");
+			std::this_thread::yield();
+		}
+		assert(audio.GetZoneReverb(700)->Send > 0.0f && audio.GetZoneEchogram(700)->PathCount > 0);
+		assert(audio.Update(0.01f, listener, {}) && !audio.GetZoneReverb(700) && !audio.GetZoneEchogram(700));
+	}
 	JobSystem::Shutdown();
 	JobSystem::Init(0);
 	{
@@ -254,7 +279,8 @@ void RunAudioAcousticsTests()
 		struct FakeBackend : AudioAcoustics::ReverbBackend
 		{
 			uint32_t Dispatches = 0, Polls = 0, Triangles = 0;
-			bool Returns = true;
+			uint32_t VisibilityDispatches = 0, VisibilityPolls = 0, VisibilityCount = 0;
+			bool Returns = true, Fails = false, VisibilityFails = false;
 			bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position, const Soundwave::Settings&, const Soundwave::MaterialTable&) override
 			{
 				++Dispatches;
@@ -262,12 +288,32 @@ void RunAudioAcousticsTests()
 				Polls = 0;
 				return true;
 			}
-			bool Poll(std::vector<Soundwave::ReverbRay>& rays) override
+			PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) override
 			{
+				if (Fails)
+					return PollResult::Failed;
 				if (!Returns || ++Polls < 3)
-					return false;
+					return PollResult::Pending;
 				rays.assign(256, { 0.3f, 4.0f, 1, 2, 0 }); // a closed room: no ray escapes
+				return PollResult::Ready;
+			}
+			bool SupportsVisibility() const override { return true; }
+			bool DispatchVisibility(const Ref<Geometry>&, std::span<const Soundwave::FlatVisibilitySegment> segments,
+				std::span<const Soundwave::FlatPortal>) override
+			{
+				++VisibilityDispatches;
+				VisibilityCount = static_cast<uint32_t>(segments.size());
+				VisibilityPolls = 0;
 				return true;
+			}
+			PollResult PollVisibility(std::vector<uint32_t>& results) override
+			{
+				if (VisibilityFails)
+					return PollResult::Failed;
+				if (++VisibilityPolls < 2)
+					return PollResult::Pending;
+				results.assign(VisibilityCount, 0);
+				return PollResult::Ready;
 			}
 		};
 		auto backend = Ref<FakeBackend>::Create();
@@ -283,12 +329,24 @@ void RunAudioAcousticsTests()
 		assert(Soundwave::FinishReverb(rays, settings.GetKernelSettings(), expected) == Soundwave::EvaluationError::None);
 		assert(backend->Dispatches == 1 && backend->Triangles == 12 && audio.GetReverb() &&
 			audio.GetReverb()->Send == expected.Send && audio.GetDiagnostics().ReverbOnGpu && !audio.GetDiagnostics().ReverbStalled);
+		assert(SettledUpdate(audio, 0.1f, listener, std::span(sources).first(1)) &&
+			backend->VisibilityDispatches == 1 && audio.GetDiagnostics().SourceVisibilityBatches == 1 &&
+			!audio.GetDiagnostics().SourceVisibilityGpuFailed && audio.GetGainLF(100) <= 0.001001f);
+		backend->VisibilityFails = true;
+		assert(SettledUpdate(audio, 2.0f, listener, std::span(sources).first(1)) &&
+			backend->VisibilityDispatches == 2 && audio.GetDiagnostics().SourceVisibilityGpuFailed &&
+			!audio.GetDiagnostics().SourceVisibilityOnGpu && audio.GetGainLF(100) <= 0.001001f);
 		backend->Returns = false;
 		assert(audio.RequestGeometry(2, [](auto& input, auto&) { Wall(input); return true; }, {}));
 		Drain(audio);
 		for (int i = 0; i < 40; ++i)
 			assert(audio.Update(0.1f, listener, {}));
 		assert(backend->Dispatches == 2 && audio.GetDiagnostics().ReverbStalled && audio.GetReverb()->Send == expected.Send);
+		backend->Fails = true;
+		assert(audio.Update(0.1f, listener, {}) && audio.Update(0.1f, listener, {}));
+		assert(backend->Dispatches == 2 && audio.GetDiagnostics().ReverbGpuFailed &&
+			!audio.GetDiagnostics().ReverbOnGpu && !audio.GetDiagnostics().ReverbStalled &&
+			audio.GetDiagnostics().ReverbMeasurements == 2 && audio.GetReverb());
 	}
 	{
 		std::atomic<bool> destroyed{false};
