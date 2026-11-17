@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "Panels/NodeCanvas/NodeCanvasPanel.h"
+#include "Panels/NodeCanvas/AnimationGraphDocument.h"
 #include "MaterialGraphDocument.h"
 
 #ifndef LUX_DIST
@@ -10,9 +11,11 @@
 
 #include <imgui-node-editor/imgui_node_editor.h>
 #include "MaterialPreview.h"
+#include "Lux/Animation/Animation.h"
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/MaterialSerializer.h"
+#include "Lux/Editor/SelectionManager.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
@@ -21,6 +24,7 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui_internal.h>
+#include <fstream>
 #include <stdexcept>
 #ifdef _MSC_VER
 #include <crtdbg.h>
@@ -315,6 +319,133 @@ namespace Lux
 				"Materials or the active tab were lost when restoring the workspace");
 			panel.OnClose();
 			Require(panel.GetActiveDocument() == document, "Hiding materials destroyed an open document");
+			const auto animationPath = directory / "Assets/LuxBiped.lanimgraph";
+			const auto readGraphFile = [&]
+			{
+				std::ifstream file(animationPath, std::ios::binary);
+				Require(static_cast<bool>(file), "Cannot read the animation graph fixture");
+				return std::string(std::istreambuf_iterator<char>(file), {});
+			};
+			const std::string original = readGraphFile();
+			const AssetHandle animationHandle = AssetManager::ImportAsset("LuxBiped.lanimgraph");
+			NodeCanvasPanel animationCanvas(SecondaryName);
+			Require(animationCanvas.OpenAsset(animationHandle), "Cannot open the animation graph in a second canvas");
+			auto* animation = static_cast<AnimationGraphDocument*>(animationCanvas.GetActiveDocument());
+			Require(animation->Save() && readGraphFile() == original, "An unchanged animation graph was rewritten");
+
+			animation->AddState();
+			animation->RefreshDraft(true);
+			Require(animation->IsDirty() && animation->CanUndo(), "Adding a state did not create a draft and undo step");
+			animation->Undo();
+			Require(!animation->IsDirty(), "Animation undo did not restore the saved draft");
+			animation->Redo();
+			const auto source = AssetManager::GetAsset<AnimationGraph>(animationHandle);
+			const uint64_t revision = source->GetRevision();
+			const uint32_t to = animation->m_Draft->Transitions[0].To;
+			animation->m_Draft->Transitions[0].To = AnimationGraph::StateNone;
+			animation->MarkEdited();
+			Require(!animation->Save() && animation->m_InvalidTransition == 0 && readGraphFile() == original,
+				"Invalid transition overwrote the saved graph");
+			animation->m_Draft->Transitions[0].To = to;
+			animation->MarkEdited();
+			Require(animation->Save() && !animation->IsDirty() && source->GetRevision() == revision + 1 &&
+				source->States.size() == 3, "Saving the animation graph did not refresh the source");
+			AnimationGraph loadedGraph;
+			Require(loadedGraph.FromYAML(readGraphFile()) && loadedGraph.Transitions.size() == 2 && loadedGraph.States.size() == 3,
+				"Saved graph could not be loaded with its authored states and transitions");
+
+			for (float width : { 920.0f, 270.0f })
+			{
+				for (int pass = 0; pass < 2; ++pass)
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+					if (ImGui::FindWindowByName(SecondaryName))
+						ImGui::SetWindowSize(SecondaryName, { width, 700.0f }, ImGuiCond_Always);
+					panel.OnImGuiRender(open);
+					ImGui::SetNextWindowPos({ 960.0f, 0.0f });
+					animationCanvas.OnImGuiRender(open);
+					ImGui::Render();
+				}
+			}
+			Require(animationCanvas.HasDocument(animationHandle) && panel.HasDocument(handle),
+				"The two canvas instances did not retain their separate documents");
+
+			const auto drawTransitionCanvas = [&]
+			{
+				ImGui::NewFrame();
+				ImGui::SetNextWindowSize({ 500.0f, 320.0f });
+				ImGui::Begin("Animation transition canvas");
+				animation->DrawCanvas(AnimationGraph::StateNone);
+				ImGui::End();
+				ImGui::Render();
+			};
+			animation->m_SelectedTransition = 0;
+			animation->m_SyncLinkSelection = true;
+			drawTransitionCanvas();
+			const auto earlierTarget = animation->m_Draft->Transitions[0].To;
+			ImGui::NewFrame();
+			ImGui::SetNextWindowSize({ 500.0f, 320.0f });
+			ImGui::Begin("Animation transition controls");
+			const ImGuiID later = ImGui::GetID("Later");
+			GImGui->NavActivateId = later;
+			GImGui->NavActivateDownId = later;
+			GImGui->NavActivatePressedId = later;
+			animation->DrawTransition();
+			ImGui::End();
+			ImGui::Render();
+			drawTransitionCanvas();
+			{
+				const NodeCanvasCore::ContextScope current(animation->m_Canvas);
+				ax::NodeEditor::LinkId selected;
+				Require(ax::NodeEditor::GetSelectedLinks(&selected, 1) == 1 && selected.Get() == 2 &&
+					animation->m_SelectedTransition == 1 && animation->m_Draft->Transitions[1].To == earlierTarget,
+					"Reordering a transition lost the selection of the moved link");
+			}
+			animation->Discard();
+
+			auto scene = Ref<Scene>::Create();
+			auto entity = scene->CreateEntity("Animation preview");
+			auto& skeleton = entity.AddComponent<SkeletonComponent>();
+			skeleton.Graph = animationHandle;
+			ResetAnimator(skeleton.State, 0.0f, true);
+			SelectionManager::Select(SelectionContext::Scene, entity.GetUUID());
+			SyncAnimatorGraph(skeleton.State, source, 0.0f);
+			Require(animation->FindPreview(*scene) == &skeleton, "Selected skeleton did not resolve for preview");
+			--skeleton.State.GraphRevision;
+			Require(animation->FindPreview(*scene) == nullptr, "Preview exposed controls from a stale graph revision");
+			SyncAnimatorGraph(skeleton.State, source, 0.0f);
+			SelectionManager::Deselect(SelectionContext::Scene, entity.GetUUID());
+			auto clip = Ref<Animation>::Create();
+			clip->SetDuration(1.0f);
+			const AssetHandle clipHandle = AssetManager::AddMemoryOnlyAsset(clip);
+			skeleton.State.GraphClip = clipHandle;
+			const auto preview = [&](const char* action, int parameter = -1)
+			{
+				ImGui::NewFrame();
+				ImGui::SetNextWindowSize({ 500.0f, 320.0f });
+				ImGui::Begin("Animation preview controls");
+				ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+				if (parameter >= 0)
+					ImGui::PushID(parameter);
+				const ImGuiID id = ImGui::GetID(action);
+				if (parameter >= 0)
+					ImGui::PopID();
+				GImGui->NavActivateId = id;
+				GImGui->NavActivateDownId = id;
+				GImGui->NavActivatePressedId = id;
+				animation->DrawPreview(skeleton);
+				ImGui::End();
+				ImGui::Render();
+			};
+			preview("###transport");
+			Require(!skeleton.State.Playing && skeleton.State.PreviewOverride, "Preview Pause did not hold the animation");
+			preview("###transport");
+			Require(skeleton.State.Playing, "Preview Play did not resume the animation");
+			preview("Trigger", 1);
+			Require(skeleton.State.Graph.Values[1] == 1.0f && source->Parameters[1].Default == 0.0f &&
+				!animation->IsDirty(), "Preview trigger did not stay in the runtime parameter state");
+			AssetManager::RemoveAsset(clipHandle);
 			panel.OnProjectChanged(nullptr);
 			Require(panel.m_Documents.empty(),
 					"Project change retained material documents from the old project");

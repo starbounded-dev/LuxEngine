@@ -192,6 +192,7 @@ namespace Lux
 			States = std::move(parsed.States);
 			Transitions = std::move(parsed.Transitions);
 			DefaultState = parsed.DefaultState;
+			++m_Revision;
 			return true;
 		}
 		catch (const std::exception& error)

@@ -875,7 +875,7 @@ Rules:
   `Scene::GetAssetList` collects the graph, every state clip and each clip's skeleton. The logic is
   tested headless (`SkeletalImportTests.cpp`, `CheckGraph`); the YAML half by
   `RunAnimationGraphSelfTests`, run from the golden capture's self-test; the exported game by
-  `run_export_rig.py --graph`. Blend trees, layers and the graph editor are not built.
+  `run_export_rig.py --graph`. Node Canvas hosts the graph editor. Blend trees and layers are follow-ups.
 - **Clip events** (`Animation::GetEvents`, `.lanim` version 3: the compressed layout, then count, then per event
   time, name, argument, Sound handle; versions 1 and 2 still load). They are authored in
   `<model>.events.yaml` beside the model (`Animation/AnimationEvents.h`, `ApplyAnimationEvents`), which
@@ -1243,6 +1243,12 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   Only the active document draws and checks its full authoring snapshot. A removed or replaced source
   closes its tab with a notice. The project-scoped workspace data stores open asset paths, active tab
   and each canvas's view state. Workspace switches retain the in-memory documents and unsaved edits.
+  `AnimationGraphDocument` draws states and transition links, edits a draft with document-local undo,
+  and writes validated graphs through the checked animation serializer. A successful save refreshes
+  the loaded source graph. The scene reinitializes bound graph playback when its asset or revision
+  changes so old state and parameter indices are never read from a changed graph.
+  The animation tab can control the selected matching Skeleton's preview and live graph parameters
+  in Edit mode. It reads the saved graph for preview while a draft contains edits.
   `MaterialGraphDocument` provides the existing surface controls, graph details and preview.
   Material tabs in one instance share a lazily created `MaterialPreview` with a private scene and
   viewport (`EnableEditorRenderTargets = false`). Switching tabs ends the previous node preview.

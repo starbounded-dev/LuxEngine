@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "NodeCanvasPanel.h"
+#include "AnimationGraphDocument.h"
 
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/MaterialEditor/MaterialGraphDocument.h"
@@ -27,6 +28,7 @@ namespace Lux
 
 		constexpr DocumentType k_DocumentTypes[] = {
 			{ AssetType::Material, MaterialGraphDocument::MakeFactory },
+			{ AssetType::AnimationGraph, AnimationGraphDocument::MakeFactory },
 		};
 	}
 
@@ -78,6 +80,7 @@ namespace Lux
 				m_Notice = "Could not load the graph asset. Check its path and the Log panel.";
 				return false;
 			}
+			document->SetSceneContext(m_Scene.Lock());
 			document->LoadView(m_PresentationDefaults, false);
 			index = static_cast<int>(m_Documents.size());
 			m_Documents.push_back(std::move(document));
@@ -137,6 +140,13 @@ namespace Lux
 		m_Notice.clear();
 		if (project)
 			RestoreTabs();
+	}
+
+	void NodeCanvasPanel::SetSceneContext(const Ref<Scene>& scene)
+	{
+		m_Scene = scene;
+		for (const auto& document : m_Documents)
+			document->SetSceneContext(scene);
 	}
 
 	bool NodeCanvasPanel::IsSourceCurrent(const GraphDocument& document) const

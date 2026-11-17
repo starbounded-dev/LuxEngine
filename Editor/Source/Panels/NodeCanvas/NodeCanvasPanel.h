@@ -25,6 +25,7 @@ namespace Lux
 		void OnImGuiRender(bool& isOpen) override;
 		void OnClose() override;
 		void OnProjectChanged(const Ref<Project>& project) override;
+		void SetSceneContext(const Ref<Scene>& scene) override;
 		void OnEvent(Event& event) override;
 		void SaveState(Yaml::Writer& out) const override;
 		void LoadState(const Yaml::Node& state) override;
@@ -64,6 +65,7 @@ namespace Lux
 		bool m_KeyboardFocus = false;
 		bool m_TabsRestored = false;
 		double m_LastFocus = -1.0;
+		WeakRef<Scene> m_Scene;
 		Yaml::Node m_PresentationDefaults;
 		Yaml::Node m_PendingTabs;
 		std::string m_Notice;

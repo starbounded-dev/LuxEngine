@@ -73,6 +73,7 @@ namespace Lux {
 			ImGui::PushID("SkeletonAnimationTools");
 			ImGui::Separator();
 			AnimatorState& state = component.State;
+			const ImGuiEx::ScopedDisable previewDisabled(!component.Enabled || !state.Initialized || state.PlayMode);
 
 			// The clip being played: the graph's current state's, else the component's.
 			Ref<Animation> current = clip;
@@ -82,7 +83,7 @@ namespace Lux {
 			{
 				ImGui::Text("%s: %.2f s, %zu animated bones, %zu events", current->GetName().c_str(), current->GetDuration(), current->GetTracks().size(), current->GetEvents().size());
 
-				if (ImGui::Button(state.Playing ? "Pause##Preview" : "Play##Preview"))
+				if (ImGui::Button(state.Playing ? "Pause###Preview" : "Play###Preview"))
 				{
 					state.Playing = !state.Playing;
 					state.PreviewOverride = true;
@@ -90,9 +91,11 @@ namespace Lux {
 				ImGui::SameLine();
 				float time = state.Time;
 				ImGui::SetNextItemWidth(-1.0f);
-				if (ImGui::SliderFloat("##PreviewTime", &time, 0.0f, std::max(current->GetDuration(), 0.001f), "%.2f s"))
+				const ImGuiEx::ScopedDisable noDuration(current->GetDuration() <= 0.0f);
+				if (ImGui::SliderFloat("##PreviewTime", &time, 0.0f, current->GetDuration(), "%.2f s", ImGuiSliderFlags_AlwaysClamp))
 				{
 					state.Time = time;
+					state.FadeFromClip = 0;
 					state.Playing = false;
 					state.PreviewOverride = true;
 				}
@@ -3880,6 +3883,7 @@ namespace Lux {
 					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [clipHandle, fade](SkeletonComponent& component, Entity)
 					{
 						component.CrossFadeTo(clipHandle, fade ? component.FadeSeconds : 0.0f);
+						component.State.PreviewOverride = false;
 					});
 				}
 

@@ -47,8 +47,10 @@ namespace Lux
 		return StateNone;
 	}
 
-	bool AnimationGraph::Validate(std::string* error)
+	bool AnimationGraph::Validate(std::string* error, uint32_t* invalidTransition)
 	{
+		if (invalidTransition)
+			*invalidTransition = StateNone;
 		const auto fail = [&](std::string message)
 		{
 			if (error)
@@ -78,8 +80,11 @@ namespace Lux
 			if (!std::isfinite(state.Speed))
 				return fail("state '" + state.Name + "' has a non-finite speed");
 		}
-		for (AnimationGraphTransition& transition : Transitions)
+		for (uint32_t i = 0; i < Transitions.size(); ++i)
 		{
+			AnimationGraphTransition& transition = Transitions[i];
+			if (invalidTransition)
+				*invalidTransition = i;
 			if (transition.To >= States.size() || (transition.From != AnimationGraphTransition::AnyState && transition.From >= States.size()))
 				return fail("a transition names a state that does not exist");
 			if (!std::isfinite(transition.Duration) || transition.Duration < 0.0f || !std::isfinite(transition.ExitTime))
@@ -98,6 +103,8 @@ namespace Lux
 					return fail("a condition has a non-finite value");
 			}
 		}
+		if (invalidTransition)
+			*invalidTransition = StateNone;
 		return true;
 	}
 

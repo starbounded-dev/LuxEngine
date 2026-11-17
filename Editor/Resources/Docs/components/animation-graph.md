@@ -2,7 +2,14 @@
 
 An animation graph is a small state machine that picks which clip a [Skeleton](skeleton) plays. You set parameters (a speed, a grounded flag, a jump trigger) and the graph moves between states, cross-fading between their clips.
 
-Create one with **Create → Animation Graph** in the Content Browser, then assign it to the **Graph** field of a Skeleton. A new graph has one empty state; edit the file in a text editor to add parameters, states and transitions. A graph editor panel is planned.
+Create one with **Create → Animation Graph** in the Content Browser, then assign it to the **Graph** field of a Skeleton. Double-click the graph asset to open it in Node Canvas.
+
+- Choose **Add State**, select the state, and assign an animation clip. **Set as Entry** chooses the starting state.
+- Drag from a state's output to another state's input to create a transition. **Any State** can transition out of whichever state is active.
+- Select a link to edit its cross-fade, optional exit time, and conditions. **Earlier** and **Later** change the order in which transitions are checked.
+- Use **Parameters** to add Float, Bool, and Trigger values. **Save** validates the draft and updates the graph used by the scene.
+
+In Edit mode, select a Skeleton that uses this graph and expand **Preview Selected Skeleton** in Node Canvas. Play or scrub the clip and change the live parameters to test the saved graph. Preview edits affect only the preview.
 
 ## The file
 

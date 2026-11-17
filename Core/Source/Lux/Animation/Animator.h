@@ -49,6 +49,8 @@ namespace Lux
 		// When the component runs an animation graph: its state machine, and the clip its current state plays.
 		AnimationGraphRuntime Graph;
 		AssetHandle GraphClip = 0;
+		Ref<AnimationGraph> GraphSource;
+		uint64_t GraphRevision = 0;
 
 		// The clip being faded out, while FadeElapsed < FadeDuration.
 		AssetHandle FadeFromClip = 0;
@@ -85,6 +87,10 @@ namespace Lux
 
 	// Starts a clip from `startTime`, playing or held there.
 	void ResetAnimator(AnimatorState& state, float startTime, bool playing);
+
+	// Keeps state and parameter indices in sync when the bound graph is edited or replaced.
+	// The caller supplies a validated, nonempty graph.
+	void SyncAnimatorGraph(AnimatorState& state, const Ref<AnimationGraph>& graph, float startTime);
 
 	// Starts a new clip from its beginning and keeps fading out `fromClip` (at `fromTime`) over `seconds`.
 	void StartCrossFade(AnimatorState& state, AssetHandle fromClip, float seconds);

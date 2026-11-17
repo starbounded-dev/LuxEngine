@@ -85,10 +85,14 @@ namespace Lux
 
 		// Names unique, indices in range, conditions refer to parameters of a fitting type, numbers finite;
 		// resolves each condition's ParameterIndex. A graph that fails is not used. `error` says why.
-		bool Validate(std::string* error = nullptr);
+		bool Validate(std::string* error = nullptr, uint32_t* invalidTransition = nullptr);
 
+		uint64_t GetRevision() const { return m_Revision; }
 		std::string ToYAML() const;
 		bool FromYAML(const std::string& text); // leaves *this untouched and returns false on bad input
+
+	private:
+		uint64_t m_Revision = 0;
 	};
 
 	// Round trip and bad-input checks of the YAML form; appends one line per failure. Run by the golden capture's

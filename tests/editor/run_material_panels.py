@@ -24,6 +24,8 @@ def main():
         (project / "MaterialTest.luxproj").write_text("Project:\n  Name: MaterialTest\n  AssetDirectory: Assets\n  AssetRegistry: Assets/AssetRegistry.lzr\n  AutoSave: false\n")
         (project / "Assets/Surface.lmat").write_text("Material:\n  AlbedoColor: [0.3, 0.6, 0.2]\n  Roughness: 0.45\n  Metalness: 0.1\n")
         (project / "Assets/AssetRegistry.lzr").write_text("Assets: []\n")
+        shutil.copy2(ROOT / "Editor/LuxSampleProject/Assets/Meshes/Source/LuxBiped/LuxBiped.lanimgraph",
+                     project / "Assets/LuxBiped.lanimgraph")
         shutil.copytree(ROOT / "Editor/LuxSampleProject/Assets/Meshes/Source/Default", project / "Assets/Meshes/Source/Default")
         (user / "UserPreferences.yaml").write_text(f"UserPrefs:\n  ShowSplashScreen: false\n  StartupProject: {project.as_posix()}/MaterialTest.luxproj\n  RecentProjects: []\n")
         env = dict(os.environ, LUX_USER_DATA_DIR=str(user), LUX_MATERIAL_PANELS_SELFTEST=str(project), LUX_THREADING_POLICY=policy, LUX_NO_WATCHDOG="1")

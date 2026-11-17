@@ -32,4 +32,4 @@ Import a rigged model (glTF, or binary or text FBX, such as a Mixamo character).
 
 - **Skeleton view** — select an entity with a Skeleton and its bones are drawn in the Scene View as teal lines from each bone to its parent, following the animated pose.
 - **Clip preview** — under the Skeleton settings, **Play** and **Pause** run the clip in the editor and the slider scrubs it. These change only the preview, never the entity or the saved scene. Changing **Start Time**, **Play On Start**, **Speed** or **Loop** hands the preview back to those settings.
-- **Animation graph** — when the entity uses a graph, its states (the current one is marked), transitions with their conditions, and parameters are listed. Move a parameter slider, tick a Bool or press **Set** on a Trigger to test the graph while the preview plays.
+- **Animation graph** — open the graph asset in Node Canvas to edit its states and transitions. With a matching Skeleton selected, expand **Preview Selected Skeleton** to see the active state and test preview parameters.

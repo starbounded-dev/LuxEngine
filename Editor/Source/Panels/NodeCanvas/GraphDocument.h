@@ -17,6 +17,8 @@ namespace Lux::Yaml { class Node; class Writer; }
 
 namespace Lux
 {
+	class Scene;
+
 	// Shared tab identity and the file operations provided by each graph asset type.
 	class GraphDocument
 	{
@@ -32,6 +34,7 @@ namespace Lux
 		virtual void Discard() = 0;
 		virtual AssetHandle Draw() = 0;
 		virtual void OnDeactivate() {}
+		virtual void SetSceneContext(const Ref<Scene>& scene) {}
 		virtual void SaveView(Yaml::Writer& out, bool navigation) const = 0;
 		virtual void LoadView(const Yaml::Node& state, bool navigation) = 0;
 

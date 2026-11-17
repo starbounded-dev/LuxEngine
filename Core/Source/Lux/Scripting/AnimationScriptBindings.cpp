@@ -36,6 +36,11 @@ namespace Lux
 			auto* component = entity ? entity.TryGetComponent<SkeletonComponent>() : nullptr;
 			if (!component)
 				LUX_CORE_ERROR_TAG("Animation", "Entity {} has no SkeletonComponent", id);
+			else if (scene->IsRunning() && (!component->State.Initialized || !component->State.PlayMode))
+			{
+				ResetAnimator(component->State, component->StartTime, component->PlayOnStart);
+				component->State.PlayMode = true;
+			}
 			if (sceneOut)
 				*sceneOut = scene;
 			return component;
@@ -49,11 +54,7 @@ namespace Lux
 			Ref<AnimationGraph> graph = AssetManager::GetAsset<AnimationGraph>(component.Graph);
 			if (!graph || graph->States.empty())
 				return nullptr;
-			if (!component.State.Graph.Initialized)
-			{
-				ResetGraph(*graph, component.State.Graph);
-				component.State.GraphClip = graph->States[component.State.Graph.CurrentState].Clip;
-			}
+			SyncAnimatorGraph(component.State, graph, component.StartTime);
 			return graph;
 		}
 

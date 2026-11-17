@@ -884,11 +884,8 @@ namespace Lux {
 				Ref<AnimationGraph> graph = component.Graph ? AssetManager::GetAsset<AnimationGraph>(component.Graph) : nullptr;
 				if (component.Graph && (!graph || graph->States.empty()))
 					continue;
-				if (graph && !state.Graph.Initialized)
-				{
-					ResetGraph(*graph, state.Graph);
-					state.GraphClip = graph->States[state.Graph.CurrentState].Clip;
-				}
+				if (graph)
+					SyncAnimatorGraph(state, graph, component.StartTime);
 				AssetHandle clipHandle = graph ? state.GraphClip : component.Clip;
 				Ref<Animation> clip = AssetManager::GetAsset<Animation>(clipHandle);
 				static thread_local std::unordered_set<AssetHandle> reported;
@@ -902,9 +899,13 @@ namespace Lux {
 				if (!clip)
 					continue;
 
-				// An editor preview that is not playing follows the authored start time, so scrubbing it shows.
-				if (!play && !component.PlayOnStart && !state.PreviewOverride)
-					state.Time = component.StartTime;
+				// Releasing the transport returns both playback and the held time to authored settings.
+				if (!play && !state.PreviewOverride)
+				{
+					state.Playing = component.PlayOnStart;
+					if (!state.Playing)
+						state.Time = component.StartTime;
+				}
 
 				// One graph transition per update; the fade runs inside the animator.
 				if (graph && !paused && ts > 0.0f && state.Playing)
@@ -926,6 +927,8 @@ namespace Lux {
 				AnimatorSettings settings;
 				settings.Speed = component.Speed * (graph ? graph->States[state.Graph.CurrentState].Speed : 1.0f);
 				settings.Loop = graph ? graph->States[state.Graph.CurrentState].Loop : component.Loop;
+				if (!play && state.PreviewOverride && !state.Playing)
+					settings.Loop = false; // The scrubber can hold the exact last key of a looping clip.
 				if (component.RootMotion)
 					settings.RootBone = component.RootBone.empty() ? FindRootMotionBone(*skeleton, *clip) : skeleton->GetBoneIndex(component.RootBone);
 				Ref<Animation> fadeFrom = state.FadeFromClip ? AssetManager::GetAsset<Animation>(state.FadeFromClip) : nullptr;

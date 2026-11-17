@@ -9,6 +9,7 @@
 #include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Skeleton.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Utilities/FileSystem.h"
 
 #include <fstream>
 
@@ -100,15 +101,7 @@ namespace Lux
 			LUX_CORE_ERROR("Animation graph '{}' exceeds the serialized size limit; not saved", metadata.FilePath.string());
 			return false;
 		}
-		std::ofstream file(Project::GetActiveAssetDirectory() / metadata.FilePath, std::ios::binary | std::ios::trunc);
-		file << text;
-		file.flush();
-		if (!file)
-		{
-			LUX_CORE_ERROR("Failed to save animation graph '{}'", metadata.FilePath.string());
-			return false;
-		}
-		return true;
+		return FileSystem::WriteFileAtomically(Project::GetActiveAssetDirectory() / metadata.FilePath, text);
 	}
 
 	void AnimationGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const { TrySerialize(metadata, asset); }

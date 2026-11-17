@@ -26,6 +26,21 @@ namespace Lux
 		state.Time = startTime;
 	}
 
+	void SyncAnimatorGraph(AnimatorState& state, const Ref<AnimationGraph>& graph, float startTime)
+	{
+		if (state.Graph.Initialized && state.GraphSource == graph && state.GraphRevision == graph->GetRevision())
+			return;
+		if (state.Graph.Initialized)
+		{
+			StartCrossFade(state, 0, 0.0f);
+			state.Time = startTime;
+		}
+		ResetGraph(*graph, state.Graph);
+		state.GraphClip = graph->States[state.Graph.CurrentState].Clip;
+		state.GraphSource = graph;
+		state.GraphRevision = graph->GetRevision();
+	}
+
 	void CollectAnimationEvents(const Animation& clip, float before, float after, int wrapped, bool includeStart, std::vector<FiredAnimationEvent>& out)
 	{
 		const std::vector<AnimationEvent>& events = clip.GetEvents();
