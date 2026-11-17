@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2025-2026 starbounded-dev
 #include "lpch.h"
+#include <bit>
 #include "AudioAcoustics.h"
 #include "Lux/Core/JobSystem.h"
 #include "Lux/Debug/Profiler.h"
@@ -459,14 +460,37 @@ namespace Lux
 								job->Listener, item.Position, item.Entity, job->Scratch, item.Prepared);
 							if (item.Error != Soundwave::EvaluationError::None)
 								continue;
+							item.Error = Soundwave::PrepareReflections(geometry, job->Materials, job->Settings, item.Prepared,
+								job->Scratch, item.Reflections);
+							if (item.Error != Soundwave::EvaluationError::None)
+								continue;
+
 							const size_t width = item.Prepared.Openings.size() + 2;
-							if (width > kMaximumVisibilityNodesPerSource + 2 || width * width > kMaximumVisibilitySegments - job->Segments.size())
+							size_t count = width * width;
+							for (const auto& reflection : item.Reflections.Paths)
+								count += reflection.Path.PointCount - 1;
+							if (width > kMaximumVisibilityNodesPerSource + 2 || count > kMaximumVisibilitySegments - job->Segments.size())
 							{
 								job->GpuSkipped = true;
 								break;
 							}
 							item.VisibilityOffset = job->Segments.size();
-							item.VisibilityCount = width * width;
+							item.VisibilityCount = count;
+							const auto source = static_cast<uint64_t>(item.Entity);
+							const auto append = [&](Soundwave::Position from, Soundwave::Position to, float margin)
+							{
+								Soundwave::FlatVisibilitySegment segment{};
+								segment.From[0] = from.X;
+								segment.From[1] = from.Y;
+								segment.From[2] = from.Z;
+								segment.To[0] = to.X;
+								segment.To[1] = to.Y;
+								segment.To[2] = to.Z;
+								segment.IgnoredInstance[0] = static_cast<uint32_t>(source);
+								segment.IgnoredInstance[1] = static_cast<uint32_t>(source >> 32);
+								segment.MarginBits = std::bit_cast<uint32_t>(margin);
+								job->Segments.push_back(segment);
+							};
 							points.clear();
 							points.reserve(width);
 							points.push_back(job->Listener);
@@ -475,14 +499,13 @@ namespace Lux
 							points.push_back(item.Position);
 							for (const auto& from : points)
 								for (const auto& to : points)
-								{
-									Soundwave::FlatVisibilitySegment segment{};
-									segment.From[0] = from.X; segment.From[1] = from.Y; segment.From[2] = from.Z;
-									segment.To[0] = to.X; segment.To[1] = to.Y; segment.To[2] = to.Z;
-									segment.IgnoredInstance[0] = static_cast<uint32_t>(item.Entity);
-									segment.IgnoredInstance[1] = static_cast<uint32_t>(static_cast<uint64_t>(item.Entity) >> 32);
-									job->Segments.push_back(segment);
-								}
+									append(from, to, 0.0f);
+							for (const auto& reflection : item.Reflections.Paths)
+							{
+								const auto& path = reflection.Path;
+								for (uint32_t leg = 1; leg < path.PointCount; ++leg)
+									append(path.Points[leg - 1], path.Points[leg], Soundwave::kReflectionEndpointMargin);
+							}
 						}
 					}
 					catch (const std::exception&)
@@ -584,9 +607,12 @@ namespace Lux
 					continue;
 				try
 				{
-					const auto matrix = std::span<const uint32_t>(job->Visibility).subspan(item.VisibilityOffset, item.VisibilityCount);
+					const auto visibility = std::span<const uint32_t>(job->Visibility).subspan(item.VisibilityOffset, item.VisibilityCount);
+					const size_t width = item.Prepared.Openings.size() + 2;
+					const size_t openingResults = width * width;
 					item.Error = Soundwave::ReduceOpeningVisibility(geometry, job->Portals, job->Materials, job->Settings,
-						job->Listener, item.Position, item.Entity, item.Prepared, matrix, job->Scratch, item.Result);
+						job->Listener, item.Position, item.Entity, item.Prepared, visibility.first(openingResults), job->Scratch,
+						item.Result, &item.Reflections, visibility.subspan(openingResults));
 					if (item.Error != Soundwave::EvaluationError::None)
 					{
 						job->GpuFailed = true;

@@ -441,6 +441,89 @@ int main(int argc, char** argv)
 			gpuReduced.Diagnostics.OpeningPaths == cpu.Diagnostics.OpeningPaths,
 			"GPU visibility corner gain or path count outside the CPU reference gate");
 	}
+	// The reflector endpoints lie exactly on their surface. The GPU must apply the
+	// reflection margin, retain the unblocked candidate, and reject an analytic shutter.
+	{
+		const std::vector<Triangle> ground{
+			{{-5,0,-5}, {5,0,5}, {5,0,-5}, 1, 0, 0, false},
+			{{-5,0,-5}, {-5,0,5}, {5,0,5}, 1, 0, 0, false}
+		};
+		Grid grid;
+		Check(grid.Build(ground) == GeometryError::None, "reflection fixture invalid");
+		const GeometryView view(grid);
+		const auto materials = DefaultMaterials();
+		Settings settings;
+		settings.ReflectionDepth = 1;
+		settings.OpeningGridSize = 1;
+		const Position listener{-1,1,0}, source{1,1,0};
+		SolveScratch scratch;
+		PreparedCandidates prepared;
+		PreparedReflections reflections;
+		Check(PrepareCandidates(view, {}, materials, settings, listener, source, 0, scratch, prepared) == EvaluationError::None &&
+			PrepareReflections(view, materials, settings, prepared, scratch, reflections) == EvaluationError::None &&
+			!reflections.Paths.empty(), "reflection fixture has no candidates");
+
+		std::vector<FlatVisibilitySegment> segments;
+		for (const auto& reflection : reflections.Paths)
+		{
+			const auto& path = reflection.Path;
+			for (uint32_t leg = 1; leg < path.PointCount; ++leg)
+			{
+				FlatVisibilitySegment segment{};
+				const auto from = path.Points[leg - 1], to = path.Points[leg];
+				segment.From[0] = from.X; segment.From[1] = from.Y; segment.From[2] = from.Z;
+				segment.To[0] = to.X; segment.To[1] = to.Y; segment.To[2] = to.Z;
+				segment.MarginBits = std::bit_cast<uint32_t>(kReflectionEndpointMargin);
+				segments.push_back(segment);
+			}
+		}
+
+		FlatGeometry flat;
+		Check(Flatten(view, flat, 1024) == FlatError::None, "reflection flatten failed");
+		HostBuffer nodes(gpu, flat.Nodes.size() * sizeof(FlatNode)), order(gpu, flat.Order.size() * 4),
+			triangles(gpu, flat.Triangles.size() * sizeof(FlatTriangle)), request(gpu, sizeof(FlatVisibilityRequest)),
+			input(gpu, segments.size() * sizeof(FlatVisibilitySegment)), portals(gpu, sizeof(FlatPortal)),
+			output(gpu, segments.size() * sizeof(uint32_t));
+		nodes.Write(flat.Nodes.data(), flat.Nodes.size() * sizeof(FlatNode));
+		order.Write(flat.Order.data(), flat.Order.size() * 4);
+		triangles.Write(flat.Triangles.data(), flat.Triangles.size() * sizeof(FlatTriangle));
+		input.Write(segments.data(), segments.size() * sizeof(FlatVisibilitySegment));
+		PortalBox blocker;
+		blocker.Instance = 9;
+		blocker.WorldToBox = { 10,0,0,0, 0,10,0,0, 0,0,2,0, 5,-5,0,1 };
+		FlatPortal flatBlocker{};
+		std::copy(blocker.WorldToBox.begin(), blocker.WorldToBox.end(), flatBlocker.WorldToBox);
+		flatBlocker.Instance[0] = 9;
+		flatBlocker.Active = 1;
+		portals.Write(&flatBlocker, sizeof(flatBlocker));
+		FlatVisibilityRequest block{};
+		block.Roots[0] = flat.Roots[0]; block.Roots[1] = flat.Roots[1];
+		block.SegmentCount = static_cast<uint32_t>(segments.size());
+		const std::array<uint32_t, 4> emptyOpeningGraph{};
+		for (uint32_t closed = 0; closed <= 1; ++closed)
+		{
+			block.PortalCount = closed;
+			request.Write(&block, sizeof(block));
+			Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
+				(block.SegmentCount + 63) / 64, 35);
+			const std::span<const uint32_t> statuses(static_cast<const uint32_t*>(output.Mapped), segments.size());
+			const std::span<const PortalBox> shutters(&blocker, closed);
+			SolveResult cpu, staged;
+			Check(Solve(view, shutters, materials, settings, listener, source, 0, scratch, cpu) == EvaluationError::None &&
+				ReduceOpeningVisibility(view, shutters, materials, settings, listener, source, 0,
+					prepared, emptyOpeningGraph, scratch, staged, &reflections, statuses) == EvaluationError::None,
+				"GPU reflection reduction failed");
+			Check(cpu.Diagnostics.ReflectionPaths == 1 - closed &&
+				staged.Diagnostics.ReflectionPaths == cpu.Diagnostics.ReflectionPaths &&
+				staged.Diagnostics.Work == cpu.Diagnostics.Work && staged.Diagnostics.VisibilityRays == cpu.Diagnostics.VisibilityRays,
+				"GPU reflector acceptance or work differs from CPU");
+			if (!closed)
+				Check(DecibelGap(staged.Indirect[0].GainLF, cpu.Indirect[0].GainLF) <= 0.5 &&
+					DecibelGap(staged.Indirect[0].GainHF, cpu.Indirect[0].GainHF) <= 0.5,
+					"GPU reflection gain differs from CPU");
+		}
+		std::cout << "reflection visibility: " << segments.size() << " legs, clear and shutter-blocked paths match CPU\n";
+	}
 	// Exercise the flattened hierarchy at a scene size beyond the small analytic fixtures.
 	// The ray pattern is fixed and includes both clear rays and rays through many solids.
 	{

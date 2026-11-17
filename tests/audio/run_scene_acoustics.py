@@ -22,6 +22,7 @@ SPONZA_ID = 73049999999999910
 ZONE_ID = 73049999999999930
 CASES = {
     "gpu-corner": {"listener": [1, 0, -0.5], "source": [-1, 0, -0.5], "simple": True, "audible": True},
+    "gpu-reflection": {"listener": [-1, 1, 0], "source": [1, 1, 0], "simple": True, "reflective": True, "clear": True},
     "corner": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "audible": True},
     "doorway-open": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "audible": True},
     "doorway-closed": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "closed": True},
@@ -114,8 +115,12 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     light["Parent"], light["Children"] = 0, []
     entities = [listener, emitter, light] if case.get("zone") or case.get("simple") else [model, listener, emitter, light]
     if case.get("simple"):
-        entities.insert(0, box(SPONZA_ID, "Thick corner wall", [-0.1, -2, -2], [0.1, 2, 0],
-                               handles["Meshes/Source/Default/Cube.gltf"]))
+        if case.get("reflective"):
+            entities.insert(0, box(SPONZA_ID, "Reflective floor", [-5, -0.1, -5], [5, 0, 5],
+                                   handles["Meshes/Source/Default/Cube.gltf"]))
+        else:
+            entities.insert(0, box(SPONZA_ID, "Thick corner wall", [-0.1, -2, -2], [0.1, 2, 0],
+                                   handles["Meshes/Source/Default/Cube.gltf"]))
     if case.get("zone"):
         corridor = case_name == "zone-corridor"
         low, high = ([-1, 0, -10], [1, 3, 10]) if corridor else ([-5, 0, -5], [5, 4, 5])
@@ -172,7 +177,8 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     if case.get("zone"):
         audio["AcousticMaterials"]["Default"].update({"AbsorptionLF": 0.05, "AbsorptionHF": 0.1})
     audio["Occlusion"] = {"Source": "Engine", "UpdateRateHz": 1, "CastBudget": 32, "Strength": 1,
-        "Kernel": {"Version": 1, "ReflectionDepth": 0, "OpeningGridSize": 1 if case.get("direct") else 8,
+         "Kernel": {"Version": 1, "ReflectionDepth": 1 if case.get("reflective") else 0,
+                    "OpeningGridSize": 1 if case.get("direct") or case.get("reflective") else 8,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
                    "OpeningNodeBudget": 128 if gpu_source else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
     if case.get("zone"):
@@ -219,6 +225,8 @@ def verify(data, case, triangle_counts, gpu_source=False):
                 "OpeningPaths": source["OpeningPaths"], "RawGainLF": source["RawGainLF"]}
     if case.get("clear"):
         require(source["RawGainLF"] == 1 and source["EngineRayGainLF"] == 1, "Clear control is obstructed")
+        if case.get("reflective"):
+            require(source["ReflectionPaths"] > 0, "The verified source has no reflection path")
     else:
         require(source["EngineRayWalls"] > 0 and source["DirectGainLF"] <= 0.001001, "Control ray did not encounter the opaque geometry")
         if case.get("audible"):
@@ -228,7 +236,7 @@ def verify(data, case, triangle_counts, gpu_source=False):
         else:
             require(source["RawGainLF"] == source["DirectGainLF"] and source["OpeningPaths"] == 0,
                     "Closed/direct-only control acquired an unintended opening route")
-    return {key: source[key] for key in ("DirectGainLF", "RawGainLF", "OcclusionGainLF", "EngineRayGainLF", "OpeningPaths", "WorkLimited")}
+    return {key: source[key] for key in ("DirectGainLF", "RawGainLF", "OcclusionGainLF", "EngineRayGainLF", "OpeningPaths", "ReflectionPaths", "WorkLimited")}
 
 
 def prepare_linux_validation(environment, directory):
@@ -293,7 +301,7 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     play = yaml.safe_load((capture/"AudioDemo.audio.yaml").read_text(encoding="utf-8"))
     # Pinned scenes settle to the same reference result; compare raw solver output
     # rather than frame-rate-dependent smoothing during startup.
-    for key in ("DirectGainLFBits", "EngineRayGainLFBits", "OpeningPaths"):
+    for key in ("DirectGainLFBits", "EngineRayGainLFBits", "OpeningPaths", "ReflectionPaths"):
         require(data["Sources"][0][key] == play["Sources"][0][key], f"Play/runtime mismatch: {key}")
     require(abs(data["Sources"][0]["RawGainLF"] - play["Sources"][0]["RawGainLF"]) < 0.00001,
             "Play/runtime raw acoustic gains differ")

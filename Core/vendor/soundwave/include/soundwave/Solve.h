@@ -121,6 +121,24 @@ namespace Lux::Soundwave
 	[[nodiscard]] EvaluationError PrepareCandidates(const GeometryView& geometry, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, PreparedCandidates& output);
+	// Speculatively prepare each geometrically valid image-source path, without tracing its legs.
+	// Candidate is its one-based ordinal in the serial search, including rejected geometry.
+	inline constexpr float kReflectionEndpointMargin = 0.001f;
+	struct PreparedReflection
+	{
+		PropagationPath Path;
+		std::uint32_t Candidate = 0;
+	};
+	struct PreparedReflections
+	{
+		std::vector<PreparedReflection> Paths;
+		std::uint32_t CandidateCount = 0;
+		bool WorkLimited = false;
+	};
+	[[nodiscard]] EvaluationError PrepareReflections(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, const PreparedCandidates& prepared, SolveScratch& scratch, PreparedReflections& output);
+	// Optional reflection statuses are concatenated by candidate in Paths order, one per leg.
+	// With no reflection batch, the same reducer traces reflection legs on the CPU.
 	// Complete the bounded opening search from row-major GPU/CPU visibility statuses over
 	// [listener, prepared openings..., source]. Status 0 is clear, 1 blocked, 2 invalid.
 	// Reduction honors the reference's remaining work budget after reflections.
@@ -129,7 +147,8 @@ namespace Lux::Soundwave
 	[[nodiscard]] EvaluationError ReduceOpeningVisibility(const GeometryView& geometry, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener, Position source,
 		std::uint64_t sourceInstance, const PreparedCandidates& prepared, std::span<const std::uint32_t> visibility,
-		SolveScratch& scratch, SolveResult& output);
+		SolveScratch& scratch, SolveResult& output, const PreparedReflections* reflections = nullptr,
+		std::span<const std::uint32_t> reflectionVisibility = {});
 
 	// CPU reference. Reflection paths feed the later echogram; visible edge routes can
 	// improve dry audibility. It never changes the direct-only measurement. Work/path

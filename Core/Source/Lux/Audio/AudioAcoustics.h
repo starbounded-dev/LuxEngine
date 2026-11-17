@@ -182,6 +182,7 @@ namespace Lux
 				Soundwave::Position Position;
 				Soundwave::SolveResult Result;
 				Soundwave::PreparedCandidates Prepared;
+				Soundwave::PreparedReflections Reflections;
 				size_t VisibilityOffset = 0, VisibilityCount = 0;
 				Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 			};

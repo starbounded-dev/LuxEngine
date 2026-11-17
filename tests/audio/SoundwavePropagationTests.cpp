@@ -71,6 +71,32 @@ int main()
 	Check(PrepareCandidates(GeometryView(grid), {}, materials, settings, {-1,1,0}, {1,1,0}, 0, scratch, prepared) == EvaluationError::None &&
 		!prepared.ReflectionTriangles.empty() && prepared.Openings.empty() && prepared.Direct.GainLF() == result.Direct.GainLF(),
 		"reflection candidate preparation lost its bounded pool or direct reference");
+	// Reflecting on the shared diagonal produces two equivalent geometric candidates.
+	// The staged path keeps the serial work order and accepts the same single path.
+	PreparedReflections reflections;
+	const GeometryView floorView(grid);
+	Check(PrepareReflections(floorView, materials, settings, prepared, scratch, reflections) ==
+		EvaluationError::None && reflections.Paths.size() == 2, "reflecting candidates were lost before visibility");
+	const std::array<std::uint32_t, 4> emptyOpenings{};
+	std::array<std::uint32_t, 4> reflectionVisibility{};
+	SolveResult stagedReflection;
+	Check(ReduceOpeningVisibility(floorView, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, prepared,
+		emptyOpenings, scratch, stagedReflection, &reflections, reflectionVisibility) == EvaluationError::None &&
+		stagedReflection.Diagnostics.ReflectionPaths == result.Diagnostics.ReflectionPaths &&
+		stagedReflection.Diagnostics.Work == result.Diagnostics.Work &&
+		stagedReflection.Diagnostics.VisibilityRays == result.Diagnostics.VisibilityRays &&
+		stagedReflection.Indirect.front().GainLF == result.Indirect.front().GainLF,
+		"staged reflection reduction diverged from the serial solve");
+	reflectionVisibility = { 1, 2, 1, 2 };
+	Check(ReduceOpeningVisibility(floorView, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, prepared,
+		emptyOpenings, scratch, stagedReflection, &reflections, reflectionVisibility) == EvaluationError::None &&
+		stagedReflection.Indirect.empty() && stagedReflection.Diagnostics.VisibilityRays == 2,
+		"blocked reflection charged or consumed a subsequent leg");
+	reflectionVisibility[0] = 2;
+	Check(ReduceOpeningVisibility(floorView, {}, materials, settings, {-1,1,0}, {1,1,0}, 0, prepared,
+		emptyOpenings, scratch, stagedReflection, &reflections, reflectionVisibility) == EvaluationError::NumericalFailure &&
+		stagedReflection.Indirect.empty() && stagedReflection.Diagnostics.VisibilityRays == 2,
+		"invalid reflection visibility replaced the last staged result");
 	const auto reflection = result.Indirect[0];
 	Check(reflection.Reflections == 1 && reflection.Diffractions == 0 && reflection.PointCount == 3, "reflection path topology wrong");
 	Near(reflection.Points[1].X, 0, "reflection point X differs from image source");

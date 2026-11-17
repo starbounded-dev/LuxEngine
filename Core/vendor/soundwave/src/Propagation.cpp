@@ -14,7 +14,7 @@ namespace Lux::Soundwave
 {
 	namespace
 	{
-		constexpr float kSurfaceMargin = 0.001f;
+		constexpr float kSurfaceMargin = kReflectionEndpointMargin;
 		constexpr float kOpeningClearance = 0.004f;
 		constexpr float kReferenceDistance = 1.0f;
 		constexpr float kSpeedOfSound = 343.0f;
@@ -209,7 +209,8 @@ namespace Lux::Soundwave
 				(scratch.Triangles.size() == maximum && context.World.GetTriangleCount() > maximum);
 		}
 
-		void Reflections(Context& context)
+		template<class Visible, class Accept>
+		void EnumerateReflections(Context& context, const Visible& visible, const Accept& accept)
 		{
 			const auto& pool = context.Scratch.Triangles;
 			if (pool.empty())
@@ -266,18 +267,15 @@ namespace Lux::Soundwave
 						energyLF *= (1 - context.Config.Absorption * material.AbsorptionLF) * (1 - material.Scattering);
 						energyHF *= (1 - context.Config.Absorption * material.AbsorptionHF) * (1 - material.Scattering);
 					}
-					for (std::uint32_t i = 1; valid && i < path.PointCount; ++i)
+					if (valid && visible(path))
 					{
-						path.Distance += Distance(path.Points[i - 1], path.Points[i]);
-						valid = context.Visible(path.Points[i - 1], path.Points[i], kSurfaceMargin);
-					}
-					if (valid)
-					{
+						for (std::uint32_t i = 1; i < path.PointCount; ++i)
+							path.Distance += Distance(path.Points[i - 1], path.Points[i]);
 						path.SpreadGain = context.Spread(path.Distance);
 						path.ScatteringGain = std::sqrt(specularShare);
-						path.GainLF = std::sqrt(energyLF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionLF);
-						path.GainHF = std::sqrt(energyHF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionHF);
-						context.Accept(path);
+						path.GainLF = std::sqrt(energyLF) * path.SpreadGain * context.Air(path.Distance, context.Config.AirAbsorptionLF);
+						path.GainHF = std::sqrt(energyHF) * path.SpreadGain * context.Air(path.Distance, context.Config.AirAbsorptionHF);
+						accept(path);
 					}
 					for (std::uint32_t digit = depth; digit > 0; --digit)
 					{
@@ -289,6 +287,93 @@ namespace Lux::Soundwave
 					}
 				}
 			}
+		}
+
+		void Reflections(Context& context)
+		{
+			EnumerateReflections(context, [&](const PropagationPath& path)
+			{
+				for (std::uint32_t i = 1; i < path.PointCount; ++i)
+					if (!context.Visible(path.Points[i - 1], path.Points[i], kReflectionEndpointMargin))
+						return false;
+				return true;
+			}, [&](const PropagationPath& path)
+			{
+				context.Accept(path);
+			});
+		}
+
+		std::uint32_t ReflectionWorkLimit(const Settings& settings)
+		{
+			return settings.OpeningGridSize > 1 ? std::max(1u, settings.CandidateBudget / 2) : settings.CandidateBudget;
+		}
+
+		bool ValidReflectionVisibility(const Settings& settings, const PreparedReflections& prepared,
+			std::span<const std::uint32_t> visibility)
+		{
+			if (prepared.CandidateCount > ReflectionWorkLimit(settings))
+				return false;
+			std::size_t legs = 0;
+			std::uint32_t previous = 0;
+			for (const auto& candidate : prepared.Paths)
+			{
+				if (candidate.Candidate <= previous || candidate.Candidate > prepared.CandidateCount ||
+					candidate.Path.Reflections == 0 || candidate.Path.Reflections > settings.ReflectionDepth ||
+					candidate.Path.PointCount != candidate.Path.Reflections + 2)
+					return false;
+				previous = candidate.Candidate;
+				legs += candidate.Path.PointCount - 1;
+			}
+			return legs == visibility.size() &&
+				std::none_of(visibility.begin(), visibility.end(), [](auto status) { return status > 2; });
+		}
+
+		void ReduceReflections(Context& context, const PreparedReflections& prepared, std::span<const std::uint32_t> visibility)
+		{
+			auto& diagnostics = context.Result.Diagnostics;
+			const auto spendCandidates = [&](std::uint32_t count)
+			{
+				const auto available = context.Limit - diagnostics.Work;
+				diagnostics.Work += std::min(available, count);
+				diagnostics.WorkLimited |= count > available;
+				return count <= available;
+			};
+
+			std::uint32_t previous = 0;
+			std::size_t offset = 0;
+			for (const auto& candidate : prepared.Paths)
+			{
+				if (!spendCandidates(candidate.Candidate - previous))
+					return;
+				previous = candidate.Candidate;
+				const auto count = candidate.Path.PointCount - 1;
+				bool visible = true;
+				for (std::uint32_t leg = 0; leg < count; ++leg)
+				{
+					if (!context.Spend())
+						return;
+					++diagnostics.VisibilityRays;
+					const auto status = visibility[offset + leg];
+					if (status > 1)
+					{
+						context.Invalid = true;
+						return;
+					}
+					if (status == 1)
+					{
+						visible = false;
+						break;
+					}
+				}
+				if (visible)
+					context.Accept(candidate.Path);
+
+				// The GPU evaluated every leg. The serial solver charged only the prefix
+				// through the first blocker, so skip the uncharged suffix in the readback.
+				offset += count;
+			}
+			spendCandidates(prepared.CandidateCount - previous);
+			diagnostics.WorkLimited |= prepared.WorkLimited;
 		}
 
 		float ApexT(const Edge& edge, Position listener, Position source)
@@ -510,10 +595,45 @@ namespace Lux::Soundwave
 		return EvaluationError::None;
 	}
 
+	EvaluationError PrepareReflections(const GeometryView& geometry, const MaterialTable& materials,
+		const Settings& settings, const PreparedCandidates& prepared, SolveScratch& scratch, PreparedReflections& output)
+	{
+		if (!geometry.IsValid())
+			return EvaluationError::InvalidGeometry;
+		if (!settings.Validate())
+			return EvaluationError::InvalidSettings;
+		if (!Math::Finite(prepared.Direct.From) || !Math::Finite(prepared.Direct.To))
+			return EvaluationError::InvalidRay;
+		if (std::any_of(prepared.ReflectionTriangles.begin(), prepared.ReflectionTriangles.end(),
+			[&](auto triangle) { return triangle >= geometry.GetTriangleCount(); }))
+			return EvaluationError::InvalidGeometry;
+		for (const auto& material : materials)
+			if (!IsValidMaterialProperties(material))
+				return EvaluationError::InvalidMaterials;
+
+		PreparedReflections next;
+		SolveResult measurement;
+		measurement.Direct = prepared.Direct;
+		scratch.Triangles = prepared.ReflectionTriangles;
+		Context context{ geometry, {}, materials, settings, prepared.Direct.From, prepared.Direct.To, 0,
+			scratch, measurement, ReflectionWorkLimit(settings) };
+		EnumerateReflections(context, [](const PropagationPath&) { return true; }, [&](const PropagationPath& path)
+		{
+			next.Paths.push_back({ path, measurement.Diagnostics.Work });
+		});
+		if (context.Invalid)
+			return EvaluationError::NumericalFailure;
+		next.CandidateCount = measurement.Diagnostics.Work;
+		next.WorkLimited = measurement.Diagnostics.WorkLimited;
+		output = std::move(next);
+		return EvaluationError::None;
+	}
+
 	EvaluationError ReduceOpeningVisibility(const GeometryView& geometry, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener, Position source,
 		std::uint64_t sourceInstance, const PreparedCandidates& prepared, std::span<const std::uint32_t> visibility,
-		SolveScratch& scratch, SolveResult& output)
+		SolveScratch& scratch, SolveResult& output, const PreparedReflections* reflections,
+		std::span<const std::uint32_t> reflectionVisibility)
 	{
 		if (!geometry.IsValid())
 			return EvaluationError::InvalidGeometry;
@@ -525,7 +645,8 @@ namespace Lux::Soundwave
 			prepared.Openings.size() > settings.OpeningNodeBudget)
 			return EvaluationError::InvalidRay;
 		const std::size_t width = prepared.Openings.size() + 2;
-		if (visibility.size() != width * width || std::any_of(visibility.begin(), visibility.end(), [](auto status) { return status > 2; }))
+		if (visibility.size() != width * width || std::any_of(visibility.begin(), visibility.end(), [](auto status) { return status > 2; }) ||
+			(reflections && !ValidReflectionVisibility(settings, *reflections, reflectionVisibility)))
 			return EvaluationError::NumericalFailure;
 		SolveResult next;
 		next.Direct = prepared.Direct;
@@ -538,9 +659,11 @@ namespace Lux::Soundwave
 		Context context{ geometry,portals,materials,settings,listener,source,sourceInstance,scratch,next,settings.CandidateBudget };
 		if (settings.ReflectionDepth && !scratch.Triangles.empty())
 		{
-			if (settings.OpeningGridSize > 1)
-				context.Limit = std::max(1u, settings.CandidateBudget / 2);
-			Reflections(context);
+			context.Limit = ReflectionWorkLimit(settings);
+			if (reflections)
+				ReduceReflections(context, *reflections, reflectionVisibility);
+			else
+				Reflections(context);
 		}
 		context.Limit = settings.CandidateBudget;
 		if (context.Invalid)
@@ -591,8 +714,7 @@ namespace Lux::Soundwave
 		Prepare(context);
 		if (settings.ReflectionDepth)
 		{
-			if (settings.OpeningGridSize > 1)
-				context.Limit = std::max(1u, settings.CandidateBudget / 2);
+			context.Limit = ReflectionWorkLimit(settings);
 			Reflections(context);
 		}
 		context.Limit = settings.CandidateBudget;

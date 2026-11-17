@@ -1569,11 +1569,10 @@ system's listener weights, falling back to the listener measurement for zones st
 Disabled or removed zones leave the cache. The three reverb rows live in the project audio block's `Kernel` map.
 
 **Workers and the GPU (plan Phase 4):** a source batch uses a worker to prepare bounded opening
-nodes and row-major segment endpoints, a render-thread Vulkan compute pass for independent
-visibility rays, frame-retired readback, and a worker reduction of the opening graph in fixed
-order. Opening samples share the CPU reference's work budget after reflection traversal.
-The CPU reference still handles reflection paths and the final graph search; the GPU
-stage supplies the expensive independent visibility decisions. One batch is in flight and
+nodes and geometric image-source paths, a render-thread Vulkan compute pass for independent
+visibility rays along opening and reflection legs, and frame-retired readback. The worker
+replays reflection candidates in CPU reference order and charges rays up to the first blocked
+leg. It then uses the remaining work budget to search the opening graph. One batch is in flight and
 `AudioAcoustics::PollSolves` publishes it on main. Without a current flattened geometry, with
 oversized authored node budgets, or after a GPU stage failure, the complete `Solve` runs on a
 JobSystem worker. Debug validates GPU-derived LF/HF gains against that CPU reference within
