@@ -9,6 +9,7 @@
 
 #include "Lux/Renderer/IndexBuffer.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/StorageBuffer.h"
 #include "Lux/Renderer/UniformBuffer.h"
 #include "Lux/Renderer/VertexBuffer.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
@@ -298,9 +299,14 @@ namespace Lux {
 
 		// Skin data: one BoneInfluence per vertex (parallel to the vertices, indexing GetBoneInfo()), and the
 		// bones themselves. Both are empty for an unrigged mesh. Not uploaded to the GPU yet.
-		bool HasSkin() const { return !m_BoneInfluences.empty(); }
+		bool HasSkin() const { return !m_BoneInfo.empty(); }
 		const std::vector<BoneInfluence>& GetBoneInfluences() const { return m_BoneInfluences; }
 		const std::vector<BoneInfo>& GetBoneInfo() const { return m_BoneInfo; }
+		// GPU copies for the skinning pass, built with the render geometry of a skinned mesh (null for
+		// others): the PackedVertex array and the BoneInfluence array, one entry per vertex.
+		Ref<StorageBuffer> GetSkinSourceBuffer() const { return m_SkinSourceBuffer; }
+		Ref<StorageBuffer> GetSkinInfluenceBuffer() const { return m_SkinInfluenceBuffer; }
+		uint32_t GetSkinVertexCount() const { return m_SkinVertexCount; }
 
 		//bool HasSkeleton() const { return (bool)m_Skeleton; }
 		//bool IsSubmeshRigged(uint32_t submeshIndex) const { return m_Submeshes[submeshIndex].IsRigged; }
@@ -335,6 +341,9 @@ namespace Lux {
 		Ref<VertexBuffer> m_VertexBuffer;
 		Ref<VertexBuffer> m_AttributeBuffer;
 		Ref<VertexBuffer> m_BoneInfluenceBuffer;
+		Ref<StorageBuffer> m_SkinSourceBuffer;
+		Ref<StorageBuffer> m_SkinInfluenceBuffer;
+		uint32_t m_SkinVertexCount = 0;
 		Ref<IndexBuffer> m_IndexBuffer;
 
 		std::vector<Vertex> m_Vertices;

@@ -34,6 +34,7 @@
 #include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/PhysicalLight.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Animation/SkinPalette.h"
 #include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Physics/PhysicsScene.h"
@@ -2685,6 +2686,31 @@ namespace Lux {
 
 	Ref<::Lux::RenderScene> Scene::SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const
 	{
+		// The skin palette of a mesh entity with a SkeletonComponent, or false when it cannot be skinned (the
+		// mesh has no skin data, or the mesh or skeleton has not loaded yet: it draws unskinned meanwhile).
+		// A bone the skeleton lacks gets the identity (BuildSkinPalette).
+		auto buildSkinPalette = [](const SkeletonComponent& component, AssetHandle staticMeshHandle, std::vector<glm::mat4>& palette)
+		{
+			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(staticMeshHandle);
+			Ref<MeshSource> meshSource = staticMesh ? AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource()) : nullptr;
+			Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
+			if (!meshSource || !meshSource->HasSkin() || !skeleton || skeleton->IsEmpty())
+				return false;
+
+			const uint32_t bendBone = component.DebugBone.empty() ? Skeleton::NullIndex : skeleton->GetBoneIndex(component.DebugBone);
+			palette = BuildSkinPalette(*skeleton, BuildModelPose(*skeleton, bendBone, component.DebugBendDegrees), meshSource->GetBoneInfo());
+			return true;
+		};
+		// FNV-1a over the matrices' bytes: only compared with last frame's.
+		auto hashSkinPalette = [](const std::vector<glm::mat4>& palette)
+		{
+			uint64_t hash = 1469598103934665603ull;
+			const auto* bytes = reinterpret_cast<const uint8_t*>(palette.data());
+			for (size_t i = 0; i < palette.size() * sizeof(glm::mat4); i++)
+				hash = (hash ^ bytes[i]) * 1099511628211ull;
+			return hash | 1ull; // never 0, which means unskinned
+		};
+
 		struct StaticMeshSyncItem
 		{
 			UUID EntityID = 0;
@@ -2703,7 +2729,11 @@ namespace Lux {
 		// is retained across frames.
 		static thread_local std::vector<StaticMeshSyncItem> syncItems;
 		syncItems.clear();
+		// One palette per skinned entity; reserved to the most there can be so the sync items' pointers stay valid.
+		static thread_local std::vector<std::vector<glm::mat4>> skinPalettes;
+		skinPalettes.clear();
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
+		skinPalettes.reserve(m_Registry.view<const StaticMeshComponent>().size());
 		for (auto e : view)
 		{
 			const auto& meshComp = view.get<const StaticMeshComponent>(e);
@@ -2717,6 +2747,19 @@ namespace Lux {
 			syncItem.Inputs.ComponentMaterialTable = &meshComp.MaterialTable;
 			syncItem.Inputs.Visible = meshComp.Visible && !IsInactive(e);
 			syncItem.Inputs.Selected = isSelected ? isSelected(entity) : false;
+			if (const auto* skeleton = m_Registry.try_get<SkeletonComponent>(e); skeleton && skeleton->Enabled && skeleton->SkeletonAsset)
+			{
+				std::vector<glm::mat4>& palette = skinPalettes.emplace_back();
+				if (buildSkinPalette(*skeleton, meshComp.StaticMesh, palette))
+				{
+					syncItem.Inputs.SkinPalette = &palette;
+					syncItem.Inputs.SkinPaletteHash = hashSkinPalette(palette);
+				}
+				else
+				{
+					skinPalettes.pop_back();
+				}
+			}
 
 			// Defer world-transform computation to the parallel pass below (it's the expensive,
 			// write-disjoint part). Just record the entity and whether it needs a hierarchy walk.
@@ -2754,6 +2797,7 @@ namespace Lux {
 			renderScene->SyncStaticMesh(syncItem.EntityID, syncItem.Inputs);
 
 		syncItems.clear();
+		skinPalettes.clear();
 
 		renderScene->EndSync();
 		return renderScene;

@@ -810,15 +810,17 @@ Rules:
   inspector section and its override row, and `OnComponentAdded`. `BuildModelPose` and
   `BuildSkinPalette` (`Animation/SkinPalette.h`) turn a skeleton and a bone pose into the per-mesh-bone
   matrices `modelPose[bone with that name] * InverseBindPose`; a mesh bone the skeleton lacks gets the
-  identity. Nothing reads the component in the renderer yet (R12 phase 3).
-- **`Skinning.glsl` skins a mesh's vertices in a compute pass** (not yet scheduled by the renderer):
+  identity. `Scene::SyncRenderSceneMirror` builds the palette each frame for an entity with an enabled
+  component whose mesh and skeleton have loaded and hands it to the render proxy; the renderer's side is
+  in `Rendering.md` (skinned meshes are skinned once by a compute pass, then drawn like static ones).
+- **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
   one invocation per vertex over four raw word buffers at `set = 1`, `binding = 40..43` (source
   `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing
   the slots, the `(set, binding)` namespace is global), push constants `VertexCount`, `PaletteBase`.
   It blends up to four palette matrices, moves the position, rotates the tangent frame by the blended
   3x3 and re-encodes the QTangent (`QTangent_FromFrame`, the GLSL twin of `PackedVertex::PackedVertex`);
-  a vertex no bone touches is copied unchanged. It is loaded in `Renderer::Init` and is part of the
-  engine shader pack. `tests/animation/run_skinning_gpu.py` checks it against an independent CPU
+  a vertex no bone touches is copied unchanged. Its output lands at `OutputBase + vertex` of one shared
+  buffer. It is loaded in `Renderer::Init` and is part of the engine shader pack. `tests/animation/run_skinning_gpu.py` checks it against an independent CPU
   reference on a real Vulkan device (positions to 1e-6, frames to cosine 0.9998 on 6000 vertices).
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the

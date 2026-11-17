@@ -1690,8 +1690,9 @@ namespace Lux {
 		// Set 0 belongs to the draw: its material's, or else the pass's own.
 		const RenderCommandBuffer::NRIRenderPassDesc& pass = renderCommandBuffer.RT_GetNRIRenderPass();
 		const bool drawSetUnbound = pass.DrawSetIndex != RHIShader::k_NoNRISet && !draw.MaterialSet.Set && !pass.DescriptorSets[pass.DrawSetIndex].Set;
+		const bool haveVertices = draw.SkinnedVertices ? draw.SkinnedVertices->GetRHIBuffer() != nullptr : (draw.Vertices && draw.Vertices->GetRHIBuffer());
 		const char* problem = drawSetUnbound ? "a draw leaves set 0 unbound"
-			: !draw.Vertices || !draw.Vertices->GetRHIBuffer() || !draw.Indices || !draw.Indices->GetRHIBuffer() ? "a draw's vertex or index buffer has no NRI buffer"
+			: !haveVertices || !draw.Indices || !draw.Indices->GetRHIBuffer() ? "a draw's vertex or index buffer has no NRI buffer"
 			: pass.AttributeStride && (!draw.Attributes || !draw.Attributes->GetRHIBuffer()) ? "a draw has no vertex attribute buffer for a pipeline that reads one"
 			: draw.IndirectArguments && !draw.IndirectArguments->GetRHIBuffer() ? "a draw's indirect arguments have no NRI buffer"
 			: nullptr;
@@ -1703,7 +1704,8 @@ namespace Lux {
 
 		RenderCommandBuffer::NRIDrawBindings bindings;
 		bindings.DrawSet = draw.MaterialSet;
-		bindings.VertexBuffer = &draw.Vertices->GetBuffer();
+		bindings.VertexBuffer = draw.SkinnedVertices ? &draw.SkinnedVertices->GetBuffer() : &draw.Vertices->GetBuffer();
+		bindings.VertexBufferOffset = draw.SkinnedVertices ? draw.SkinnedVertexByteOffset : 0;
 		bindings.AttributeBuffer = pass.AttributeStride ? &draw.Attributes->GetBuffer() : nullptr;
 		bindings.IndexBuffer = &draw.Indices->GetBuffer();
 		bindings.IndirectArguments = draw.IndirectArguments ? &draw.IndirectArguments->GetBuffer() : nullptr;

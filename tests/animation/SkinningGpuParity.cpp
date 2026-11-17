@@ -139,8 +139,8 @@ namespace
 	{
 		uint32_t VertexCount;
 		uint32_t PaletteBase;
+		uint32_t OutputBase;
 		uint32_t Pad0;
-		uint32_t Pad1;
 	};
 
 	// Runs the shader with the four storage buffers at set 1, bindings 40..43 and its push constants.
@@ -322,6 +322,7 @@ int main(int argc, char** argv)
 	constexpr uint32_t vertexCount = 6000;
 	constexpr uint32_t boneCount = 12;
 	constexpr uint32_t paletteBase = 5; // the entity's palette starts part-way into the shared buffer
+	constexpr uint32_t outputBase = 9;  // and so does its output, in the shared skinned-vertex buffer
 
 	std::mt19937 random(12345);
 	auto uniform = [&](float low, float high) { return std::uniform_real_distribution<float>(low, high)(random); };
@@ -385,7 +386,7 @@ int main(int argc, char** argv)
 	HostBuffer sourceBuffer(gpu, source.size() * 4);
 	HostBuffer influenceBuffer(gpu, static_cast<VkDeviceSize>(vertexCount) * k_InfluenceWords * 4);
 	HostBuffer paletteBuffer(gpu, palette.size() * sizeof(glm::mat4));
-	HostBuffer outputBuffer(gpu, source.size() * 4);
+	HostBuffer outputBuffer(gpu, (source.size() + static_cast<size_t>(outputBase) * k_VertexWords) * 4);
 	sourceBuffer.Write(source.data(), source.size() * 4);
 	{
 		std::vector<uint32_t> words(static_cast<size_t>(vertexCount) * k_InfluenceWords);
@@ -401,9 +402,9 @@ int main(int argc, char** argv)
 	}
 	paletteBuffer.Write(palette.data(), palette.size() * sizeof(glm::mat4));
 
-	Dispatch(gpu, spirv, { &sourceBuffer, &influenceBuffer, &paletteBuffer, &outputBuffer }, { vertexCount, paletteBase, 0, 0 }, (vertexCount + 63) / 64);
+	Dispatch(gpu, spirv, { &sourceBuffer, &influenceBuffer, &paletteBuffer, &outputBuffer }, { vertexCount, paletteBase, outputBase, 0 }, (vertexCount + 63) / 64);
 
-	const uint32_t* output = static_cast<const uint32_t*>(outputBuffer.Mapped);
+	const uint32_t* output = static_cast<const uint32_t*>(outputBuffer.Mapped) + static_cast<size_t>(outputBase) * k_VertexWords;
 	float worstPosition = 0.0f, worstFrame = 1.0f;
 	uint32_t skinnedCount = 0, copiedCount = 0;
 	for (uint32_t v = 0; v < vertexCount; v++)

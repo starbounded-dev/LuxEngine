@@ -76,6 +76,7 @@ namespace Lux {
 		std::array<nri::DescriptorSet*, MaxDescriptorSets> BoundSets = {};
 		std::array<nri::Buffer*, 4> VertexBuffers = {};
 		std::array<uint32_t, 4> VertexStrides = {};
+		std::array<uint64_t, 4> VertexOffsets = {};
 		nri::Buffer* IndexBuffer = nullptr;
 		bool IndexBuffer16 = false;
 		std::array<uint8_t, k_NRIRootConstantCacheSize> RootConstants = {};
@@ -445,6 +446,7 @@ namespace Lux {
 		state.BoundSets = {};
 		state.VertexBuffers = {};
 		state.VertexStrides = {};
+		state.VertexOffsets = {};
 		state.IndexBuffer = nullptr;
 		state.RootConstantsSize = 0;
 		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
@@ -575,7 +577,7 @@ namespace Lux {
 		if (hasDrawSet && drawSet.Set)
 			RT_SetNRIDescriptorSet(pass.DrawSetIndex, drawSet.Set);
 		if (bindings.VertexBuffer)
-			RT_SetNRIVertexBuffer(bindings.VertexBuffer->Get(), pass.VertexStride);
+			RT_SetNRIVertexBuffer(bindings.VertexBuffer->Get(), pass.VertexStride, 0, bindings.VertexBufferOffset);
 		if (pass.AttributeStride && bindings.AttributeBuffer)
 			RT_SetNRIVertexBuffer(bindings.AttributeBuffer->Get(), pass.AttributeStride, pass.AttributeSlot);
 		if (bindings.IndexBuffer)
@@ -642,16 +644,17 @@ namespace Lux {
 		RHIDevice::API().CmdSetDescriptorSet(*m_NRICommandBuffer, setDesc);
 	}
 
-	void RenderCommandBuffer::RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride, uint32_t slot)
+	void RenderCommandBuffer::RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride, uint32_t slot, uint64_t offset)
 	{
 		NRIRenderState& state = *m_NRIRender;
 		LUX_CORE_ASSERT(state.Rendering && buffer && slot < state.VertexBuffers.size());
-		if (state.VertexBuffers[slot] == buffer && state.VertexStrides[slot] == stride)
+		if (state.VertexBuffers[slot] == buffer && state.VertexStrides[slot] == stride && state.VertexOffsets[slot] == offset)
 			return;
 
 		state.VertexBuffers[slot] = buffer;
 		state.VertexStrides[slot] = stride;
-		const nri::VertexBufferDesc vertexBuffer = { buffer, 0, stride };
+		state.VertexOffsets[slot] = offset;
+		const nri::VertexBufferDesc vertexBuffer = { buffer, offset, stride };
 		RHIDevice::API().CmdSetVertexBuffers(*m_NRICommandBuffer, slot, &vertexBuffer, 1);
 	}
 

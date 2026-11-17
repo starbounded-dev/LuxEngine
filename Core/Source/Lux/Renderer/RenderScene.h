@@ -39,6 +39,13 @@ namespace Lux {
 		BoundingSphere WorldBounds;
 		std::vector<GPUSceneInstanceRef> SubmeshInstances;
 
+		// Skinning (SkeletonComponent): one matrix per bone of the mesh, `bone model pose * inverse bind`,
+		// empty when the entity draws unskinned. A skinned proxy's rows ignore the submesh node transform,
+		// and its bounds cover every palette-transformed copy of the mesh bounds.
+		std::vector<glm::mat4> SkinPalette;
+		uint64_t SkinPaletteHash = 0;
+		bool IsSkinned() const { return !SkinPalette.empty(); }
+
 		bool Visible = true;
 		bool Selected = false;
 
@@ -59,6 +66,10 @@ namespace Lux {
 		glm::mat4 WorldTransform{ 1.0f };
 		bool Visible = true;
 		bool Selected = false;
+		// The entity's skin palette (null or empty: unskinned), and a hash that changes whenever it does.
+		// Only read while the sync call runs.
+		const std::vector<glm::mat4>* SkinPalette = nullptr;
+		uint64_t SkinPaletteHash = 0;
 	};
 
 	struct RenderSceneSyncStats
@@ -132,6 +143,7 @@ namespace Lux {
 			glm::mat4 WorldTransform{ 1.0f };
 			bool Visible = true;
 			bool Selected = false;
+			uint64_t SkinPaletteHash = 0;
 			bool Dirty = false; // changed that frame, so the next frame must refresh it (settle frame)
 		};
 

@@ -34,7 +34,8 @@ layout(std430, set = 1, binding = 42) readonly buffer SkinPalette
 	mat4 Matrices[];
 } r_SkinPalette;
 
-// The skinned copy, same layout and vertex numbering as the source.
+// Every skinned entity's copy, back to back: an entity's vertex v lands at OutputBase + v (same layout
+// as the source). A draw adds OutputBase to its base vertex.
 layout(std430, set = 1, binding = 43) writeonly buffer SkinnedVertices
 {
 	uint Words[];
@@ -44,8 +45,8 @@ layout(push_constant) uniform SkinPushConstants
 {
 	uint VertexCount;
 	uint PaletteBase;
+	uint OutputBase;
 	uint _pad0;
-	uint _pad1;
 } u_Skin;
 
 const uint SKIN_VERTEX_WORDS = 7u;
@@ -99,6 +100,7 @@ void main()
 
 	uint source = vertex * SKIN_VERTEX_WORDS;
 	uint influence = vertex * SKIN_INFLUENCE_WORDS;
+	uint target = (u_Skin.OutputBase + vertex) * SKIN_VERTEX_WORDS;
 
 	uvec4 indices = uvec4(r_SkinInfluences.Words[influence], r_SkinInfluences.Words[influence + 1u],
 		r_SkinInfluences.Words[influence + 2u], r_SkinInfluences.Words[influence + 3u]);
@@ -137,11 +139,11 @@ void main()
 		out4 = packSnorm2x16(q.zw);
 	}
 
-	b_SkinOutput.Words[source] = out0;
-	b_SkinOutput.Words[source + 1u] = out1;
-	b_SkinOutput.Words[source + 2u] = out2;
-	b_SkinOutput.Words[source + 3u] = out3;
-	b_SkinOutput.Words[source + 4u] = out4;
-	b_SkinOutput.Words[source + 5u] = r_SkinSource.Words[source + 5u];
-	b_SkinOutput.Words[source + 6u] = r_SkinSource.Words[source + 6u];
+	b_SkinOutput.Words[target] = out0;
+	b_SkinOutput.Words[target + 1u] = out1;
+	b_SkinOutput.Words[target + 2u] = out2;
+	b_SkinOutput.Words[target + 3u] = out3;
+	b_SkinOutput.Words[target + 4u] = out4;
+	b_SkinOutput.Words[target + 5u] = r_SkinSource.Words[source + 5u];
+	b_SkinOutput.Words[target + 6u] = r_SkinSource.Words[source + 6u];
 }

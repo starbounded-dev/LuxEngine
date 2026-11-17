@@ -148,7 +148,7 @@ authored below (the sample: node transform `Z_UP * Armature`, rest skinning `Z_U
 ignore the node transform, so phase 3's rest check compares against the importer-computed rest matrix
 (already asserted) and a review of the golden image, not a pixel match with the static draw.
 
-### Phase 3 — Skinned draws through the retained path
+### Phase 3 — Skinned draws through the retained path (done in the editor; see Result)
 **Goal:** a skinned entity renders in the editor, in all passes.
 **Changes:** `RenderScene.cpp` (proxy skin state; rows skip `submesh.Transform` for rigged submeshes);
 `SceneRenderer.cpp/.h` (skinning RenderGraph pass; `gpuCullGroup` forced off for skinned;
@@ -163,6 +163,20 @@ scene switch drains first.
 threading modes; (5) `/profile` shows zero cost with no skinned entity.
 **Exit:** all five hold.
 **Rollback:** the pass is feature-gated; reverting leaves static rendering untouched.
+**Result:** a skinned entity renders in every pass. On the sample rig (golden scenes `RigStatic`, `RigRest`,
+`RigPosed`, a pole with a joint at mid-height): skinned at rest matches the static draw (0.036% of pixels
+differ, max 27/255, the QTangent requantisation), and a 55 degree bend of `Bone.001` bends the pole, its
+shadow and its floor reflection (2.7% of pixels differ from rest). No validation messages on any capture.
+`tests/animation/SkinningGpuParity.cpp` still passes with the shared output buffer (`OutputBase`).
+**What it took, so the next change knows:** the first render showed nothing. The cause was not skinning:
+with the GPU cull groups kept between frames, `SubmitRenderScene` skips every proxy it thinks the groups
+already draw (`coveredByCullGroups`), and a skinned proxy is not in them, so it drew for a few frames and
+then vanished. The fix is one condition; finding it took a probe series (constant geometry from the shader,
+the mesh's own vertices, cull groups off) that cleared the shader, the buffers and the draw path first.
+**Design changes against the plan:** per-proxy skinned buffers became one shared buffer addressed by a
+vertex-buffer byte offset (a base-vertex offset would also shift the attribute stream); the `SkinCache`
+class became `SceneRenderer` members; the unused `StaticMeshSyncInputs` palette field of phase 1 arrived
+here with its reader.
 
 ### Phase 4 — Breadth and hardening
 **Goal:** the edges.
