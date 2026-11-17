@@ -10,10 +10,14 @@ Import a rigged model (glTF, or binary or text FBX, such as a Mixamo character).
 
 - **Skeleton** — the skeleton file the mesh is skinned to. Drag it from the Content Browser.
 - **Enabled** (the header checkbox) — turn it off to draw the mesh unskinned.
-- **Debug Bone** and **Debug Bend** — bend one bone by an angle to check that the mesh deforms. This is an editor-only check; animation playback arrives with the next animation feature.
+- **Clip** — the animation file to play. Changing it while the clip is playing fades from the old clip to the new one over **Fade Seconds**.
+- **Playing**, **Loop**, **Speed**, **Time** — advance the clip each frame (in the editor too, so it previews in the viewport), wrap at the end or hold the last pose, play faster, slower or backwards, and scrub to a moment while paused.
+- **Root Motion** and **Root Bone** — move the entity by the root bone's horizontal travel instead of animating the mesh in place. **Root Bone** names the bone; empty picks the first bone with a position track. Walk clips that travel need this to cover ground.
+- **Debug Bone** and **Debug Bend** — bend one bone by an angle to check that the mesh deforms (used when no clip is set).
 
 ## Notes
 
 - A skinned mesh ignores its own scale and placement inside the model file and sits where the unskinned mesh would. Move, rotate and scale the entity instead.
+- Clips and the skeleton must come from the same model file, or their bone names will not match.
 - Until both the mesh and the skeleton have loaded, the mesh draws in its rest shape.
 - Meshes that use skin weights need the skeleton's bone names to match the model's. Extracting both from the same file guarantees this.

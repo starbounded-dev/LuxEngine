@@ -29,6 +29,9 @@ Assets:
   - Handle: 1322044948598140383
     FilePath: Scripts/Source/CameraPath.cs
     Type: ScriptFile
+  - Handle: 1482404925294778034
+    FilePath: Meshes/Source/LuxBiped/Materials/LuxBiped_1_Material_1.lmat
+    Type: Material
   - Handle: 1485593981058217637
     FilePath: Environment/pink_sunrise_4k.hdr
     Type: EnvMap
@@ -233,6 +236,27 @@ Assets:
   - Handle: 7100000000000000002
     FilePath: Meshes/Source/Rig/RiggedSimple.lskel
     Type: Skeleton
+  - Handle: 7400000000000000001
+    FilePath: Meshes/Source/LuxBiped/LuxBiped.fbx
+    Type: MeshSource
+  - Handle: 7400000000000000002
+    FilePath: Meshes/Source/LuxBiped/LuxBiped.lskel
+    Type: Skeleton
+  - Handle: 7400000000000000003
+    FilePath: Meshes/Source/LuxBiped/LuxBiped_Idle.lanim
+    Type: Animation
+  - Handle: 7400000000000000004
+    FilePath: Meshes/Source/LuxBiped/LuxBiped_Walk.lanim
+    Type: Animation
+  - Handle: 7400000000000000005
+    FilePath: Scenes/LuxBipedRest.luxscene
+    Type: Scene
+  - Handle: 7400000000000000006
+    FilePath: Scenes/LuxBipedWalk.luxscene
+    Type: Scene
+  - Handle: 7400000000000000007
+    FilePath: Scenes/LuxBipedStatic.luxscene
+    Type: Scene
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture
@@ -347,6 +371,9 @@ Assets:
   - Handle: 10757355412620758746
     FilePath: Meshes/Source/Sponza/2185409758123873465.jpg
     Type: Texture
+  - Handle: 10881254862323545889
+    FilePath: Meshes/Source/LuxBiped/Materials/LuxBiped_0_LuxBipedMaterial.lmat
+    Type: Material
   - Handle: 10909522249527059136
     FilePath: Meshes/Source/Sponza/17876391417123941155.jpg
     Type: Texture

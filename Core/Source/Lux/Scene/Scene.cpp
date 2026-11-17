@@ -34,6 +34,7 @@
 #include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/PhysicalLight.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Animation/AnimationPose.h"
 #include "Lux/Animation/SkinPalette.h"
 #include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -848,8 +849,105 @@ namespace Lux {
 		OnPhysics2DStop();
 	}
 
+	namespace
+	{
+		// The bone whose travel is the clip's root motion: the named one, else the first bone with a position track.
+		uint32_t FindRootMotionBone(const SkeletonComponent& component, const Skeleton& skeleton, const Animation& clip)
+		{
+			if (!component.RootBone.empty())
+				return skeleton.GetBoneIndex(component.RootBone);
+			for (const BoneTrack& track : clip.GetTracks())
+			{
+				if (!track.Translations.empty() && track.BoneIndex < skeleton.GetNumBones())
+					return track.BoneIndex;
+			}
+			return Skeleton::NullIndex;
+		}
+
+		// The local pose of a SkeletonComponent that plays a clip: the clip at Time, cross-faded from the clip it
+		// replaced while FadeElapsed < FadeDuration, with the root bone's horizontal travel taken out when the
+		// entity carries it (RootMotion).
+		LocalPose EvaluateAnimatorPose(const SkeletonComponent& component, const Skeleton& skeleton)
+		{
+			LocalPose pose = MakeRestPose(skeleton);
+			Ref<Animation> clip = AssetManager::GetAsset<Animation>(component.Clip);
+			if (!clip)
+				return pose;
+			SampleAnimation(*clip, WrapAnimationTime(component.Time, clip->GetDuration(), component.Loop), pose);
+
+			if (component.FadeFromClip && component.FadeDuration > 0.0f && component.FadeElapsed < component.FadeDuration)
+			{
+				if (Ref<Animation> from = AssetManager::GetAsset<Animation>(component.FadeFromClip))
+				{
+					LocalPose old = MakeRestPose(skeleton);
+					SampleAnimation(*from, WrapAnimationTime(component.FadeFromTime, from->GetDuration(), true), old);
+					const float t = component.FadeElapsed / component.FadeDuration;
+					BlendPoses(old, pose, t * t * (3.0f - 2.0f * t), pose);
+				}
+			}
+
+			if (component.RootMotion)
+			{
+				const uint32_t bone = FindRootMotionBone(component, skeleton, *clip);
+				if (bone != Skeleton::NullIndex)
+					RemoveRootMotion(skeleton, bone, RootMotionOffset(skeleton, *clip, bone, WrapAnimationTime(component.Time, clip->GetDuration(), component.Loop)), pose);
+			}
+			return pose;
+		}
+
+		// Advances every playing clip by `ts` and moves entities that carry their root motion. Runs in the editor
+		// too, so a clip previews live in the viewport. Main thread only (it writes components).
+		void AdvanceAnimators(entt::registry& registry, float ts, bool paused)
+		{
+			if (paused || ts <= 0.0f)
+				return;
+			auto skeletonView = registry.view<SkeletonComponent>();
+			for (auto entity : skeletonView)
+			{
+				SkeletonComponent& component = skeletonView.get<SkeletonComponent>(entity);
+				if (!component.Enabled || !component.Clip || !component.Playing)
+					continue;
+				Ref<Animation> clip = AssetManager::GetAsset<Animation>(component.Clip);
+				if (!clip || clip->GetDuration() <= 0.0f)
+					continue;
+
+				const float before = component.Time;
+				component.Time += ts * component.Speed;
+				if (!component.Loop)
+					component.Time = std::clamp(component.Time, 0.0f, clip->GetDuration());
+				else
+					component.Time = WrapAnimationTime(component.Time, clip->GetDuration(), true);
+				if (component.FadeDuration > 0.0f)
+				{
+					component.FadeElapsed += ts;
+					component.FadeFromTime += ts * component.Speed;
+					if (component.FadeElapsed >= component.FadeDuration)
+						component.FadeFromClip = 0;
+				}
+
+				if (!component.RootMotion)
+					continue;
+				Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
+				TransformComponent* transform = registry.try_get<TransformComponent>(entity);
+				if (!skeleton || skeleton->IsEmpty() || !transform)
+					continue;
+				const uint32_t bone = FindRootMotionBone(component, *skeleton, *clip);
+				if (bone == Skeleton::NullIndex)
+					continue;
+				// Travel over this step; a loop that wrapped adds the whole clip's travel.
+				glm::vec3 delta = RootMotionOffset(*skeleton, *clip, bone, component.Time) - RootMotionOffset(*skeleton, *clip, bone, before);
+				if (component.Loop && component.Speed > 0.0f && component.Time < before)
+					delta += RootMotionOffset(*skeleton, *clip, bone, clip->GetDuration());
+				else if (component.Loop && component.Speed < 0.0f && component.Time > before)
+					delta -= RootMotionOffset(*skeleton, *clip, bone, clip->GetDuration());
+				transform->Translation += transform->GetRotation() * (delta * transform->Scale);
+			}
+		}
+	}
+
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		AdvanceAnimators(m_Registry, ts, m_IsPaused);
 		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
@@ -1061,6 +1159,7 @@ namespace Lux {
 
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
+		AdvanceAnimators(m_Registry, ts, m_IsPaused);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -1078,6 +1177,7 @@ namespace Lux {
 
 	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
+		AdvanceAnimators(m_Registry, ts, false);
 		// Render 2D
 		RenderScene(camera);
 
@@ -2697,6 +2797,11 @@ namespace Lux {
 			if (!meshSource || !meshSource->HasSkin() || !skeleton || skeleton->IsEmpty())
 				return false;
 
+			if (component.Clip)
+			{
+				palette = BuildSkinPalette(*skeleton, BuildModelPose(*skeleton, EvaluateAnimatorPose(component, *skeleton)), meshSource->GetBoneInfo());
+				return true;
+			}
 			const uint32_t bendBone = component.DebugBone.empty() ? Skeleton::NullIndex : skeleton->GetBoneIndex(component.DebugBone);
 			palette = BuildSkinPalette(*skeleton, BuildModelPose(*skeleton, bendBone, component.DebugBendDegrees), meshSource->GetBoneInfo());
 			return true;
@@ -3628,7 +3733,17 @@ namespace Lux {
 
 		auto skeletonView = m_Registry.view<SkeletonComponent>();
 		for (auto entity : skeletonView)
-			addIfValid(skeletonView.get<SkeletonComponent>(entity).SkeletonAsset);
+		{
+			const auto& skeleton = skeletonView.get<SkeletonComponent>(entity);
+			addIfValid(skeleton.SkeletonAsset);
+			addIfValid(skeleton.Clip);
+			// A packed clip never ships without the skeleton it was authored against.
+			if (skeleton.Clip)
+			{
+				if (Ref<Animation> clip = AssetManager::GetAsset<Animation>(skeleton.Clip))
+					addIfValid(clip->GetSkeletonHandle());
+			}
+		}
 
 		auto meshColliderView = m_Registry.view<MeshColliderComponent>();
 		for (auto entity : meshColliderView)

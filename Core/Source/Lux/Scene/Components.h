@@ -580,6 +580,33 @@ namespace Lux {
 		// Editor preview until animation playback exists: bend one bone (by name) about its local X axis.
 		std::string DebugBone;
 		float DebugBendDegrees = 0.0f;
+
+		// Playback of one clip (Animation asset). With no Clip the mesh holds the rest pose (plus the debug bend).
+		AssetHandle Clip = 0;
+		float Time = 0.0f;         // seconds into the clip
+		float Speed = 1.0f;        // playback rate; negative plays backwards
+		bool Loop = true;
+		bool Playing = true;
+		float FadeSeconds = 0.25f; // cross-fade length when Clip is changed while playing
+		bool RootMotion = false;   // move the entity by the root bone's horizontal travel instead of the mesh
+		std::string RootBone;      // bone whose travel is the root motion (default: the first bone with a position track)
+
+		// Runtime only, not serialized: the clip being faded out.
+		AssetHandle FadeFromClip = 0;
+		float FadeFromTime = 0.0f;
+		float FadeElapsed = 0.0f;
+		float FadeDuration = 0.0f;
+
+		// Starts `clip` from its beginning and fades from what was playing over `seconds` (0: switch at once).
+		void CrossFadeTo(AssetHandle clip, float seconds)
+		{
+			FadeFromClip = seconds > 0.0f ? Clip : AssetHandle(0);
+			FadeFromTime = Time;
+			FadeElapsed = 0.0f;
+			FadeDuration = seconds;
+			Clip = clip;
+			Time = 0.0f;
+		}
 	};
 
 	struct SubmeshComponent

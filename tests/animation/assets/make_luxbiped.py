@@ -229,6 +229,8 @@ bpy.ops.export_scene.fbx(
     bake_anim_simplify_factor=0.0,
     mesh_smooth_type="FACE",
     path_mode="AUTO",
+    apply_scale_options="FBX_SCALE_ALL",
+    bake_space_transform=True,
 )
 bpy.ops.export_scene.gltf(
     filepath=os.path.join(OUT, "LuxBiped.gltf"),

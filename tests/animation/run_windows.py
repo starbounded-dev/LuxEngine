@@ -42,7 +42,7 @@ def main():
     # Production units, compiled directly: nothing here is a test double.
     sources = [ROOT / "tests/animation/SkeletalImportTests.cpp"]
     sources += [core / "Source/Lux" / (v + ".cpp") for v in (
-        "Animation/Skeleton", "Animation/Animation", "Animation/SkinPalette", "Asset/SkeletalImporter",
+        "Animation/Skeleton", "Animation/Animation", "Animation/AnimationPose", "Animation/SkinPalette", "Asset/SkeletalImporter",
         "Serialization/FileStream", "Serialization/StreamReader", "Serialization/StreamWriter",
         "Core/UUID", "Core/Ref")]
     assimp = core / "vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.lib"

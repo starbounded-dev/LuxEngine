@@ -7,6 +7,7 @@
 #include "lpch.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "Lux/Animation/AnimationPose.h"
 #include "Lux/Animation/SkinPalette.h"
 #include "Lux/Asset/SkeletalImporter.h"
 #include "Lux/Serialization/FileStream.h"
@@ -140,6 +141,69 @@ static bool SkinnedRestBounds(const std::filesystem::path& path, glm::vec3& low,
 		}
 	}
 	return true;
+}
+
+// A2: sampling, blending, wrapping and root motion on a hand-made two-bone rig and clip.
+static void CheckPlayback()
+{
+	// Root at the origin, child one unit up it (parent-relative).
+	Ref<Skeleton> skeleton = Ref<Skeleton>::Create();
+	skeleton->AddBone("Root", Skeleton::NullIndex, glm::vec3(0.0f), glm::quat(1, 0, 0, 0), glm::vec3(1.0f));
+	skeleton->AddBone("Child", 0, glm::vec3(0.0f, 1.0f, 0.0f), glm::quat(1, 0, 0, 0), glm::vec3(1.0f));
+	skeleton->CalculateDerivedData();
+
+	Ref<Animation> clip = Ref<Animation>::Create();
+	clip->SetDuration(2.0f);
+	BoneTrack root;
+	root.BoneIndex = 0;
+	root.Translations = { { 0.0f, glm::vec3(0.0f) }, { 2.0f, glm::vec3(4.0f, 1.0f, 2.0f) } };
+	BoneTrack child;
+	child.BoneIndex = 1;
+	child.Rotations = { { 0.0f, glm::quat(1, 0, 0, 0) }, { 2.0f, glm::angleAxis(glm::radians(90.0f), glm::vec3(0, 0, 1)) } };
+	clip->GetTracksMutable() = { root, child };
+
+	// Wrapping and clamping.
+	CHECK(Near(WrapAnimationTime(2.5f, 2.0f, true), 0.5f));
+	CHECK(Near(WrapAnimationTime(-0.5f, 2.0f, true), 1.5f));
+	CHECK(Near(WrapAnimationTime(2.5f, 2.0f, false), 2.0f));
+	CHECK(Near(WrapAnimationTime(-1.0f, 2.0f, false), 0.0f));
+	CHECK(Near(WrapAnimationTime(1.0f, 0.0f, true), 0.0f));
+
+	// Sampling: halfway the root has moved half way and the child is turned 45 degrees.
+	LocalPose pose = MakeRestPose(*skeleton);
+	SampleAnimation(*clip, 1.0f, pose);
+	CHECK(Near(pose.Translations[0].x, 2.0f) && Near(pose.Translations[0].y, 0.5f) && Near(pose.Translations[0].z, 1.0f));
+	CHECK(Near(glm::degrees(glm::angle(pose.Rotations[1])), 45.0f, 1e-2f));
+	CHECK(Near(pose.Translations[1].y, 1.0f)); // no translation track: the rest value stays
+
+	// Blending: weight 0 is a, weight 1 is b, the middle is half way.
+	LocalPose a = MakeRestPose(*skeleton), b = a, mix;
+	SampleAnimation(*clip, 2.0f, b);
+	BlendPoses(a, b, 0.0f, mix);
+	CHECK(Near(mix.Translations[0].x, 0.0f) && Near(glm::angle(mix.Rotations[1]), 0.0f, 1e-3f));
+	BlendPoses(a, b, 1.0f, mix);
+	CHECK(Near(mix.Translations[0].x, 4.0f) && Near(glm::degrees(glm::angle(mix.Rotations[1])), 90.0f, 1e-2f));
+	BlendPoses(a, b, 0.5f, mix);
+	CHECK(Near(mix.Translations[0].x, 2.0f) && Near(glm::degrees(glm::angle(mix.Rotations[1])), 45.0f, 1e-2f));
+	BlendPoses(a, b, 7.0f, mix); // clamped
+	CHECK(Near(mix.Translations[0].x, 4.0f));
+
+	// Model pose: the child sits one unit above the root, so with the root at (2, 0.5, 1) it is at (2, 1.5, 1) before it turns.
+	LocalPose halfway = MakeRestPose(*skeleton);
+	SampleAnimation(*clip, 1.0f, halfway);
+	halfway.Rotations[1] = glm::quat(1, 0, 0, 0);
+	const std::vector<glm::mat4> model = BuildModelPose(*skeleton, halfway);
+	CHECK(Near(model[1][3][0], 2.0f) && Near(model[1][3][1], 1.5f) && Near(model[1][3][2], 1.0f));
+
+	// Root motion: the horizontal travel at t = 1 is (2, 0, 1) (height is not root motion); taking it out leaves the root at its
+	// start horizontally and the child follows.
+	const glm::vec3 travel = RootMotionOffset(*skeleton, *clip, 0, 1.0f);
+	CHECK(Near(travel.x, 2.0f) && Near(travel.y, 0.0f) && Near(travel.z, 1.0f));
+	RemoveRootMotion(*skeleton, 0, travel, halfway);
+	const std::vector<glm::mat4> stripped = BuildModelPose(*skeleton, halfway);
+	CHECK(Near(stripped[0][3][0], 0.0f) && Near(stripped[0][3][1], 0.5f) && Near(stripped[0][3][2], 0.0f));
+	CHECK(Near(stripped[1][3][0], 0.0f) && Near(stripped[1][3][1], 1.5f) && Near(stripped[1][3][2], 0.0f));
+	CHECK(RootMotionOffset(*skeleton, *clip, 7, 1.0f) == glm::vec3(0.0f)); // no such bone
 }
 
 // LuxBiped is one model in two files. A binary FBX (units, node scale, axes of its own) and a glTF must
@@ -406,6 +470,7 @@ int main(int argc, char** argv)
 	}
 
 	CheckFormatsAgree(model.parent_path());
+	CheckPlayback();
 
 	// A file that cannot be read reports failure and produces nothing.
 	{

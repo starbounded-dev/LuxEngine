@@ -1,0 +1,20 @@
+# A2: clip playback, blending, cross-fade and root motion
+
+Planning document for sub-issue #66 (M2 skeletal animation). What exists is described in `.claude/docs/Architecture-LuxEngine.md`; this records the decisions and the state of the work.
+
+**Goal.** A rigged mesh plays an animation clip in the editor and in an exported game, can cross-fade to another clip, and can carry its root motion on the entity.
+
+**Decisions**
+| Decision | Choice | Why |
+|---|---|---|
+| Where playback state lives | Extra fields on `SkeletonComponent` (Clip, Time, Speed, Loop, Playing, FadeSeconds, RootMotion, RootBone) | One component per rigged mesh, no new component path to wire; the animation graph (A3) will drive these fields |
+| Where poses are evaluated | `Animation/AnimationPose` (pure functions: sample, blend, model pose, root motion), called from `Scene::SyncRenderSceneMirror` | Testable without a GPU; the render side already takes a palette per proxy |
+| Where time advances | `AdvanceAnimators` at the top of the editor, simulation and runtime scene updates | A clip previews in the editor viewport; paused play freezes it |
+| Cross-fade | Smoothstep weight over `FadeSeconds`, both clips keep advancing | No pop when switching; fade state is runtime-only |
+| Root motion | Horizontal (model X, Z) travel of the root bone, removed from the pose and added to the entity transform | Works for any model-space up axis the skeleton root carries |
+| Compressed clips | Deferred: clips stay raw keyframes (the format is versioned). Vendoring ACL is a separate step once clip size is measured | Self-contained principle; no dependency until it pays for itself |
+
+**State**
+- Done and headless-tested (`tests/animation/run_windows.py`): sampling, wrap and clamp, blend, model pose, root-motion offset and removal.
+- Done, built: component fields and their YAML round trip, inspector, per-frame advance, pack collector adds the clip and its skeleton.
+- Not done: exported-game playback check (`AssetPack.lap` load of a clip), Linux, compressed clips, a root-motion golden scene.

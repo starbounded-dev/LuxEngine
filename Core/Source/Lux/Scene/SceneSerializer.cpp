@@ -438,6 +438,22 @@ namespace Lux {
 					out << Yaml::Key << "DebugBone" << Yaml::Value << skeleton.DebugBone;
 				if (skeleton.DebugBendDegrees != 0.0f)
 					out << Yaml::Key << "DebugBendDegrees" << Yaml::Value << skeleton.DebugBendDegrees;
+				if (skeleton.Clip)
+					out << Yaml::Key << "Clip" << Yaml::Value << skeleton.Clip;
+				if (skeleton.Time != 0.0f)
+					out << Yaml::Key << "Time" << Yaml::Value << skeleton.Time;
+				if (skeleton.Speed != 1.0f)
+					out << Yaml::Key << "Speed" << Yaml::Value << skeleton.Speed;
+				if (!skeleton.Loop)
+					out << Yaml::Key << "Loop" << Yaml::Value << false;
+				if (!skeleton.Playing)
+					out << Yaml::Key << "Playing" << Yaml::Value << false;
+				if (skeleton.FadeSeconds != 0.25f)
+					out << Yaml::Key << "FadeSeconds" << Yaml::Value << skeleton.FadeSeconds;
+				if (skeleton.RootMotion)
+					out << Yaml::Key << "RootMotion" << Yaml::Value << true;
+				if (!skeleton.RootBone.empty())
+					out << Yaml::Key << "RootBone" << Yaml::Value << skeleton.RootBone;
 				out << Yaml::EndMap;
 			}
 
@@ -1029,6 +1045,14 @@ namespace Lux {
 					component.Enabled = skeleton["Enabled"].as<bool>(true);
 					component.DebugBone = skeleton["DebugBone"].as<std::string>("");
 					component.DebugBendDegrees = skeleton["DebugBendDegrees"].as<float>(0.0f);
+					component.Clip = skeleton["Clip"].as<uint64_t>(0);
+					component.Time = skeleton["Time"].as<float>(0.0f);
+					component.Speed = skeleton["Speed"].as<float>(1.0f);
+					component.Loop = skeleton["Loop"].as<bool>(true);
+					component.Playing = skeleton["Playing"].as<bool>(true);
+					component.FadeSeconds = skeleton["FadeSeconds"].as<float>(0.25f);
+					component.RootMotion = skeleton["RootMotion"].as<bool>(false);
+					component.RootBone = skeleton["RootBone"].as<std::string>("");
 				}
 
 				if (const auto camera = entity["CameraComponent"])
@@ -1812,6 +1836,14 @@ namespace Lux {
 		skeleton.Enabled = false;
 		skeleton.DebugBone = "Bone.001";
 		skeleton.DebugBendDegrees = 25.0f;
+		skeleton.Clip = 0xC11Full;
+		skeleton.Time = 0.5f;
+		skeleton.Speed = -1.5f;
+		skeleton.Loop = false;
+		skeleton.Playing = false;
+		skeleton.FadeSeconds = 0.6f;
+		skeleton.RootMotion = true;
+		skeleton.RootBone = "Hips";
 		const SkeletonComponent expectedSkeleton = skeleton;
 		auto& zone = childB.AddComponent<AudioZoneComponent>();
 		zone.Shape = AudioZoneShape::Sphere;
@@ -1854,7 +1886,10 @@ namespace Lux {
 			if (const auto* copied = entity.TryGetComponent<SkeletonComponent>())
 			{
 				if (copied->SkeletonAsset != expectedSkeleton.SkeletonAsset || copied->Enabled != expectedSkeleton.Enabled
-					|| copied->DebugBone != expectedSkeleton.DebugBone || copied->DebugBendDegrees != expectedSkeleton.DebugBendDegrees)
+					|| copied->DebugBone != expectedSkeleton.DebugBone || copied->DebugBendDegrees != expectedSkeleton.DebugBendDegrees
+					|| copied->Clip != expectedSkeleton.Clip || copied->Time != expectedSkeleton.Time || copied->Speed != expectedSkeleton.Speed
+					|| copied->Loop != expectedSkeleton.Loop || copied->Playing != expectedSkeleton.Playing || copied->FadeSeconds != expectedSkeleton.FadeSeconds
+					|| copied->RootMotion != expectedSkeleton.RootMotion || copied->RootBone != expectedSkeleton.RootBone)
 					fail(std::format("{} changed skeleton data", operation));
 			}
 			else

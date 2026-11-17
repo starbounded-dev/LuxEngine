@@ -10,6 +10,7 @@
 
 #include "Lux/Animation/SkinPalette.h"
 #include "Lux/Asset/SkeletalImporter.h"
+#include "Lux/Serialization/FileStream.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -43,6 +44,28 @@ int main(int argc, char** argv)
 	{
 		std::printf("IMPORT FAILED\n");
 		return 1;
+	}
+
+	// --extract <folder> <skeleton handle>: also write the skeleton and one file per clip, the way the editor's
+	// "Extract Skeleton and Animations" does, for projects built without opening the editor.
+	if (argc >= 5 && std::string(argv[2]) == "--extract" && skeleton)
+	{
+		const std::filesystem::path folder = argv[3];
+		std::filesystem::create_directories(folder);
+		{
+			FileStreamWriter writer(folder / (path.stem().string() + ".lskel"));
+			skeleton->Serialize(&writer);
+		}
+		for (size_t i = 0; i < clips.size(); i++)
+		{
+			clips[i]->SetSkeletonHandle(std::stoull(argv[4]));
+			std::string name = clips[i]->GetName();
+			for (char& c : name)
+				c = std::isalnum(static_cast<unsigned char>(c)) ? c : '_';
+			FileStreamWriter writer(folder / (path.stem().string() + "_" + name + ".lanim"));
+			clips[i]->Serialize(&writer);
+			std::printf("wrote %s_%s.lanim (%.3f s)\n", path.stem().string().c_str(), name.c_str(), clips[i]->GetDuration());
+		}
 	}
 
 	// The scene again, with the mesh importer's flags: the vertices and bones it sees.
