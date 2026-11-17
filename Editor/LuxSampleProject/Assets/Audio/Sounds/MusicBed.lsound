@@ -21,7 +21,7 @@ Sound:
   Nodes:
     - Type: Clip
       Name: Music_1
-      Clip: 6962752638689701569
+      Clip: Audio/Clips/Music_1.mp3
       StartOffset: 0
       Loop: true
       Weight: 1

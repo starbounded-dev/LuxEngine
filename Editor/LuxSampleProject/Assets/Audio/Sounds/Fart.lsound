@@ -26,7 +26,7 @@ Sound:
       PitchVariation: 0
     - Type: Clip
       Name: fart-01
-      Clip: 15477231389038173681
+      Clip: Audio/Clips/fart-01.wav
       StartOffset: 0
       Loop: false
       Weight: 1
