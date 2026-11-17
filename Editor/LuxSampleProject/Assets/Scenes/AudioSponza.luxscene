@@ -1,0 +1,840 @@
+Scene: Audio Sponza
+SoundBanks: [8412860126786977355]
+PostProcess:
+  Exposure: 1
+  ExposureMode: 0
+  Aperture: 16
+  ShutterSpeed: 0.008
+  ISO: 100
+  ExposureEV100: 12
+  ExposureCompensation: 0
+  AutoMinEV100: -2
+  AutoMaxEV100: 16
+  AutoAdaptationSpeedUp: 3
+  AutoAdaptationSpeedDown: 1
+  ColorFilter: [1, 1, 1]
+  Saturation: 1
+  Contrast: 1
+  Gamma: 2.2
+  Tonemap: 0
+  WhiteTemperature: 0
+  WhiteTint: 0
+  Lift: [0, 0, 0]
+  GradeGamma: [1, 1, 1]
+  Gain: [1, 1, 1]
+Entities:
+  - Entity: 73050000000000001
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.5
+      Lod: 0
+      Rotation: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.6]
+  - Entity: 73050000000000002
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.8, -0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 9.4248
+      Radiance: [1, 0.94, 0.85]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 73050000000000003
+    TagComponent:
+      Tag: Listener Camera - RMB + WASD
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-13, 3, 0]
+      Rotation: [0, -1.5708, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: LuxSample.FlyCamera
+      ScriptID: 3987114672
+      StoredFields:
+        - ID: 15508422
+          Name: RumbleOnSprint
+          Type: Bool
+          Data: true
+        - ID: 224242787
+          Name: AdaptiveTriggers
+          Type: Bool
+          Data: true
+        - ID: 978505095
+          Name: SprintMultiplier
+          Type: Float
+          Data: 3
+        - ID: 2532514871
+          Name: Gamepad
+          Type: Int
+          Data: -1
+        - ID: 2657756844
+          Name: InvertGamepadY
+          Type: Bool
+          Data: true
+        - ID: 2911448432
+          Name: MouseSensitivity
+          Type: Float
+          Data: 0.0025
+        - ID: 3495151719
+          Name: Speed
+          Type: Float
+          Data: 5
+        - ID: 4237734323
+          Name: GamepadLookSpeed
+          Type: Float
+          Data: 2.5
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 45
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+    AudioListenerComponent:
+      Active: true
+      ListenerIndex: 0
+      Weight: 1
+      UseAttenuationTarget: false
+      AttenuationTarget: 0
+  - Entity: 73050000000000004
+    TagComponent:
+      Tag: Controls
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-8, 6, -4]
+      Rotation: [0, 1.5708, 0]
+      Scale: [0.4, 0.4, 0.4]
+    TextComponent:
+      TextString: 'AUDIO DEMO - SPONZA
+
+        K: Replay source   P: Pause source
+
+        L: One-shot   I: Independent instance
+
+        O: Stop source + instance
+
+        RMB + WASD: Move listener
+
+        Walk behind a column to hear occlusion; the hall reverb follows the geometry'
+      FontHandle: 0
+      Color: [0.95, 0.95, 1, 1]
+      LineSpacing: 0.25
+      Kerning: 0
+      MaxWidth: 32
+      ScreenSpace: false
+      DropShadow: false
+      ShadowDistance: 0
+      ShadowColor: [0, 0, 0, 1]
+  - Entity: 73050000000000005
+    TagComponent:
+      Tag: Emitter - Nave centre
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 2.2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    ScriptComponent:
+      ClassName: LuxSample.AudioDemo
+      ScriptID: 2540223341
+      StoredFields:
+        - ID: 540913990
+          Name: Sound
+          Type: Sound
+          Data: 9117899157295655424
+        - ID: 1161945767
+          Name: Volume
+          Type: Float
+          Data: 0.7
+        - ID: 4191703384
+          Name: PlayOnStart
+          Type: Bool
+          Data: true
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.7
+      PitchMultiplier: 1
+      PlayOnAwake: false
+      Priority: 128
+      DistanceCulling: true
+      EventSound: 9117899157295655424
+      ParameterOverrides: []
+  - Entity: 73050000000000006
+    TagComponent:
+      Tag: Emitter - Behind column (occluded)
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-6, 2.2, 6.2]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    ScriptComponent:
+      ClassName: LuxSample.AudioDemo
+      ScriptID: 2540223341
+      StoredFields:
+        - ID: 540913990
+          Name: Sound
+          Type: Sound
+          Data: 9117899157295655424
+        - ID: 1161945767
+          Name: Volume
+          Type: Float
+          Data: 0.7
+        - ID: 4191703384
+          Name: PlayOnStart
+          Type: Bool
+          Data: true
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.7
+      PitchMultiplier: 1
+      PlayOnAwake: false
+      Priority: 128
+      DistanceCulling: true
+      EventSound: 9117899157295655424
+      ParameterOverrides: []
+  - Entity: 73050000000000007
+    TagComponent:
+      Tag: Emitter - Upper gallery
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [9, 7.2, -5]
+      Rotation: [0, 0, 0]
+      Scale: [0.7, 0.7, 0.7]
+    ScriptComponent:
+      ClassName: LuxSample.AudioDemo
+      ScriptID: 2540223341
+      StoredFields:
+        - ID: 540913990
+          Name: Sound
+          Type: Sound
+          Data: 9117899157295655424
+        - ID: 1161945767
+          Name: Volume
+          Type: Float
+          Data: 0.7
+        - ID: 4191703384
+          Name: PlayOnStart
+          Type: Bool
+          Data: true
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.7
+      PitchMultiplier: 1
+      PlayOnAwake: false
+      Priority: 128
+      DistanceCulling: true
+      EventSound: 9117899157295655424
+      ParameterOverrides: []
+  - Entity: 73050000000000008
+    TagComponent:
+      Tag: Emitter - Music (fountain end)
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [11, 3, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.4, 0.4, 0.4]
+    StaticMeshComponent:
+      AssetID: 9685142686327195147
+      MaterialTable:
+        0: 9784983076328690787
+      Visible: true
+    AudioSourceComponent:
+      VolumeMultiplier: 0.5
+      PitchMultiplier: 1
+      PlayOnAwake: true
+      Priority: 128
+      DistanceCulling: true
+      EventSound: 8743721474366396702
+      ParameterOverrides: []
+  - Entity: 73050000000000009
+    TagComponent:
+      Tag: Sponza Audio Zone
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 8, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    AudioZoneComponent:
+      Shape: 0
+      Enabled: true
+      Offset: [0, 0, 0]
+      HalfExtents: [15, 7, 9]
+      Radius: 5
+      Priority: 5
+      BlendDistance: 1.5
+      FadeTime: 0.5
+      Volume: 0.35
+      AmbienceEvent:
+        Sound: 8743721474366396702
+      Snapshot: {}
+  - Entity: 73050000000000010
+    TagComponent:
+      Tag: Sponza
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [0, 1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 5094136855824747147
+      MaterialTable: {}
+      Visible: true
+    MeshColliderComponent:
+      ColliderAsset: 5094136855824747147
+      SubmeshIndex: 0
+      UseSharedShape: false
+      Density: 1
+      Friction: 0.5
+      Restitution: 0
+      AcousticMaterial: Rock
+      AcousticFromMaterial: true
+      AcousticMotion: 0
+      CollisionComplexity: 2
+  - Entity: 73050000000000011
+    TagComponent:
+      Tag: Sponza Light 23
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [11.8, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000012
+    TagComponent:
+      Tag: Sponza Light 22
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [8.4, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000013
+    TagComponent:
+      Tag: Sponza Light 21
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [5, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000014
+    TagComponent:
+      Tag: Sponza Light 20
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [1.6, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000015
+    TagComponent:
+      Tag: Sponza Light 19
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-1.8, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000016
+    TagComponent:
+      Tag: Sponza Light 18
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-5.2, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000017
+    TagComponent:
+      Tag: Sponza Light 17
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-8.6, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000018
+    TagComponent:
+      Tag: Sponza Light 16
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-12, 7.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000019
+    TagComponent:
+      Tag: Sponza Light 15
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [11.8, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000020
+    TagComponent:
+      Tag: Sponza Light 14
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [8.4, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000021
+    TagComponent:
+      Tag: Sponza Light 13
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [5, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000022
+    TagComponent:
+      Tag: Sponza Light 12
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [1.6, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000023
+    TagComponent:
+      Tag: Sponza Light 11
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-1.8, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000024
+    TagComponent:
+      Tag: Sponza Light 10
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-5.2, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000025
+    TagComponent:
+      Tag: Sponza Light 09
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-8.6, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000026
+    TagComponent:
+      Tag: Sponza Light 08
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-12, 2.5, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000027
+    TagComponent:
+      Tag: Sponza Light 07
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [11.8, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000028
+    TagComponent:
+      Tag: Sponza Light 06
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [8.4, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000029
+    TagComponent:
+      Tag: Sponza Light 05
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [5, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000030
+    TagComponent:
+      Tag: Sponza Light 04
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [1.6, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000031
+    TagComponent:
+      Tag: Sponza Light 03
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-1.8, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000032
+    TagComponent:
+      Tag: Sponza Light 02
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-5.2, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000033
+    TagComponent:
+      Tag: Sponza Light 01
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-8.6, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
+  - Entity: 73050000000000034
+    TagComponent:
+      Tag: Sponza Light 00
+    Parent: 0
+    Children: []
+    TransformComponent:
+      Position: [-12, 2.5, -4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.75, 0.45]
+      Intensity: 128.6796
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.5
+      Radius: 8
+      LightSize: 0.3
+      Falloff: 1
