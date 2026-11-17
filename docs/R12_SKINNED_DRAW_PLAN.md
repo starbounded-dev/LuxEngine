@@ -31,9 +31,9 @@ format v2) is committed at `58a38631`.
 | Node transform of a skinned submesh | Ignored; the GPU scene row is the entity's world transform only (`RebuildStaticMeshGPUInstances` skips `submesh.Transform` for rigged submeshes) | Matches the glTF note that skinned meshes ignore their node transform. [glTF tutorial](https://github.khronos.org/glTF-Tutorials/gltfTutorial/gltfTutorial_020_Skins.html) |
 | Skinning matrix and math | `palette[i] = boneModelPose[skeletonBone] * InverseBindPose[i]`; linear blend of up to four palette matrices; normals and tangents through the blended 3x3 | Exact for rotation and uniform scale; non-uniform bone scale skews normals slightly (recorded as a known limit) |
 | Render-thread work | Palette upload and the skinning dispatch run on the render thread inside a RenderGraph pass | Correct under both threading policies; GPU buffers freed through `Renderer::SubmitResourceFree` |
-| Component shape | **User decision D1** (below) | |
-| Pose source before A2 | **User decision D2** | |
-| Golden/runtime launches | **User decision D3** | |
+| Component shape (D1, decided) | A new `SkeletonComponent` beside the existing `StaticMeshComponent` | Existing scenes and mesh drag-and-drop untouched; static meshes pay nothing |
+| Pose source before A2 (D2, decided) | Rest pose plus an editor-only debug bend of one bone | Rest proves skinned equals static; the bend makes deformation, shadows and outline visible |
+| Golden/runtime launches (D3, decided) | One batched launch request at the end of each phase, with the preferences swap done safely | No launches mid-phase; each phase's editor checks run together |
 
 ## Part 0 — Where we are (ledger)
 
@@ -55,7 +55,7 @@ format v2) is committed at `58a38631`.
 
 ## Part 1 — Design
 
-- **Component (D1):** an entity keeps its `StaticMeshComponent` and gains a `SkeletonComponent`
+- **Component (D1, decided):** an entity keeps its `StaticMeshComponent` and gains a `SkeletonComponent`
   (**NEW**, `Scene/Components.h`: skeleton asset handle, runtime pose). The proxy sees both and
   becomes skinned. Five edits: declaration, copy/duplicate/prefab, serialize and deserialize (optional
   component: old scenes load unchanged), `SceneHierarchyPanel` UI, and the pose into the frame
@@ -100,7 +100,8 @@ format v2) is committed at `58a38631`.
 
 ### Phase 1 — Pose data and component, no rendering change
 **Goal:** a `SkeletonComponent` exists, saves and loads, and a pure function turns a skeleton, a mesh's
-bones and a bone pose into a palette.
+bones and a bone pose into a palette. The component carries the debug bend (D2): one bone index and
+an angle, editor-only, applied to the rest pose before the palette is built.
 **Changes:** `Scene/Components.h` `SkeletonComponent` (**NEW**); `Animation/SkinPalette.{h,cpp}`
 (**NEW**: `BuildSkinPalette`); `Scene/Scene.cpp` copy/serialize; `SceneHierarchyPanel.cpp` UI;
 `StaticMeshSyncInputs` palette field (unused yet).
