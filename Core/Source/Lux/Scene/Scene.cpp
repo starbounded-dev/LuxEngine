@@ -908,6 +908,14 @@ namespace Lux {
 				if (!component.Enabled || !component.Clip || !component.Playing)
 					continue;
 				Ref<Animation> clip = AssetManager::GetAsset<Animation>(component.Clip);
+				static thread_local std::unordered_set<AssetHandle> reported;
+				if (reported.insert(component.Clip).second)
+				{
+					if (clip)
+						LUX_CORE_INFO("Animation: playing clip '{}': {} tracks, {:.2f} s", clip->GetName(), clip->GetTracks().size(), clip->GetDuration());
+					else
+						LUX_CORE_WARN("Animation: clip {} could not be loaded", static_cast<uint64_t>(component.Clip));
+				}
 				if (!clip || clip->GetDuration() <= 0.0f)
 					continue;
 

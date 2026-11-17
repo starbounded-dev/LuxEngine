@@ -23,10 +23,11 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-RIG = ROOT / "Editor/LuxSampleProject/Assets/Meshes/Source/Rig"
+ASSETS = ROOT / "Editor/LuxSampleProject/Assets"
 
-MESH, SKELETON, SCENE = 7100000000000000001, 7100000000000000002, 7300000000000000001
+MESH, SKELETON, SCENE = 7400000000000000001, 7400000000000000002, 7300000000000000001
 MATERIAL_A, MATERIAL_B = 2110506557084641280, 8419695537258757221
+CLIP = 7400000000000000004
 
 PROJECT = """Project:
   Name: RigExport
@@ -43,23 +44,25 @@ PROJECT = """Project:
     TargetConfig: {config}
 """
 
-REGISTRY = """Assets:
-  - Handle: {scene}
-    FilePath: Scenes/RigExport.luxscene
-    Type: Scene
-  - Handle: {mesh}
-    FilePath: Meshes/Source/Rig/RiggedSimple.gltf
-    Type: MeshSource
-  - Handle: {skeleton}
-    FilePath: Meshes/Source/Rig/RiggedSimple.lskel
-    Type: Skeleton
-  - Handle: {material_a}
-    FilePath: Meshes/Source/Rig/Materials/RiggedSimple_0_Material_001-effect.lmat
-    Type: Material
-  - Handle: {material_b}
-    FilePath: Meshes/Source/Rig/Materials/RiggedSimple_1_Material_1.lmat
-    Type: Material
-"""
+RIGS = {
+    # folder, mesh file, skeleton file, clip file, [(handle, material file)]
+    "simple": ("Rig", "RiggedSimple.gltf", "RiggedSimple.lskel", None,
+               [(MATERIAL_A, "RiggedSimple_0_Material_001-effect.lmat"), (MATERIAL_B, "RiggedSimple_1_Material_1.lmat")]),
+    "luxbiped": ("LuxBiped", "LuxBiped.fbx", "LuxBiped.lskel", "LuxBiped_Walk.lanim",
+                 [(1482404925294778034, "LuxBiped_1_Material_1.lmat"), (10881254862323545889, "LuxBiped_0_LuxBipedMaterial.lmat")]),
+}
+
+
+def registry_text(rig, scene_handle):
+    folder, mesh, skeleton, clip, materials = RIGS[rig]
+    entries = [(scene_handle, "Scenes/RigExport.luxscene", "Scene"),
+               (MESH, f"Meshes/Source/{folder}/{mesh}", "MeshSource"),
+               (SKELETON, f"Meshes/Source/{folder}/{skeleton}", "Skeleton")]
+    if clip:
+        entries.append((CLIP, f"Meshes/Source/{folder}/{clip}", "Animation"))
+    entries += [(h, f"Meshes/Source/{folder}/Materials/{f}", "Material") for h, f in materials]
+    return "Assets:\n" + "".join(f"  - Handle: {h}\n    FilePath: {p}\n    Type: {t}\n" for h, p, t in entries)
+
 
 SCENE_YAML = """Scene: RigExport
 Entities:
@@ -116,9 +119,7 @@ Entities:
       Visible: true
     SkeletonComponent:
       AssetID: {skeleton}
-      DebugBone: Bone.001
-      DebugBendDegrees: 55
-  - Entity: 7200000000000000005
+{skeleton_extra}  - Entity: 7200000000000000005
     TagComponent:
       Tag: Camera
     Parent: 0
@@ -142,20 +143,21 @@ Entities:
 """
 
 
-def write_project(project, config):
+def write_project(project, config, rig):
     assets = project / "Assets"
     (assets / "Scenes").mkdir(parents=True)
-    shutil.copytree(RIG, assets / "Meshes/Source/Rig")
-    ids = dict(scene=SCENE, mesh=MESH, skeleton=SKELETON, material_a=MATERIAL_A, material_b=MATERIAL_B)
+    shutil.copytree(ASSETS / "Meshes/Source" / RIGS[rig][0], assets / "Meshes/Source" / RIGS[rig][0])
+    extra = f"      Clip: {CLIP}\n" if RIGS[rig][3] else "      DebugBone: Bone.001\n      DebugBendDegrees: 55\n"
     (project / "RigExport.luxproj").write_text(PROJECT.format(scene=SCENE, config=config.capitalize()), encoding="utf-8", newline="\n")
-    (assets / "AssetRegistry.lzr").write_text(REGISTRY.format(**ids), encoding="utf-8", newline="\n")
-    (assets / "Scenes/RigExport.luxscene").write_text(SCENE_YAML.format(mesh=MESH, skeleton=SKELETON), encoding="utf-8", newline="\n")
+    (assets / "AssetRegistry.lzr").write_text(registry_text(rig, SCENE), encoding="utf-8", newline="\n")
+    (assets / "Scenes/RigExport.luxscene").write_text(SCENE_YAML.format(mesh=MESH, skeleton=SKELETON, skeleton_extra=extra), encoding="utf-8", newline="\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="release", choices=["debug", "release"], help="editor configuration")
     parser.add_argument("--runtime-config", choices=["debug", "release", "dist"], help="the exported player's configuration (default: --config); dist has no shader compiler, so it needs Skinning.glsl in the shader pack")
+    parser.add_argument("--rig", default="luxbiped", choices=sorted(RIGS), help="luxbiped: binary FBX with a playing clip; simple: glTF with the debug bend")
     parser.add_argument("--seconds", type=float, default=15.0, help="how long the player runs before it is stopped")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
@@ -163,7 +165,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="lux-rig-export-") as temporary:
         root = Path(temporary)
         project = root / "project"
-        write_project(project, args.runtime_config or args.config)
+        write_project(project, args.runtime_config or args.config, args.rig)
         user = root / "user"
         user.mkdir()
         (user / "UserPreferences.yaml").write_text("UserPrefs:\n  ShowSplashScreen: false\n  RecentProjects: []\n", encoding="utf-8")
@@ -205,6 +207,8 @@ def main():
             problems.append("the player exited by itself before it was stopped")
         if "Skinning '" not in text:
             problems.append("the player never built a skinning pass (no \"Skinning '...'\" line): the skinned mesh or its skeleton did not reach the renderer")
+        if RIGS[args.rig][3] and "playing clip '" not in text:
+            problems.append("the player never played the clip (no \"playing clip '...'\" line): the animation did not load from the asset pack")
         for line in text.splitlines():
             if "[Scripting]" in line:
                 continue # the project has no scripts; the player's scripting host says so
@@ -219,7 +223,8 @@ def main():
             print("\n".join(text.splitlines()[-25:]))
             return 1
         skin_line = next(line for line in text.splitlines() if "Skinning '" in line)
-        print("PASS:", skin_line.strip())
+        clip_line = next((line for line in text.splitlines() if "playing clip '" in line), "")
+        print("PASS:", skin_line.strip(), clip_line.strip())
         return 0
 
 

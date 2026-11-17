@@ -17,4 +17,5 @@ Planning document for sub-issue #66 (M2 skeletal animation). What exists is desc
 **State**
 - Done and headless-tested (`tests/animation/run_windows.py`): sampling, wrap and clamp, blend, model pose, root-motion offset and removal.
 - Done, built: component fields and their YAML round trip, inspector, per-frame advance, pack collector adds the clip and its skeleton.
-- Not done: exported-game playback check (`AssetPack.lap` load of a clip), Linux, compressed clips, a root-motion golden scene.
+- Done: exported-game check (`tests/animation/run_export_rig.py`): the packaged Release and Dist players load the binary FBX LuxBiped, its skeleton and the Walk clip from `AssetPack.lap` and log "playing clip"; the glTF rig still passes.
+- Not done: Linux, compressed clips, a root-motion golden scene.
