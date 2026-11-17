@@ -883,6 +883,14 @@ Rules:
   script field kind (`ScriptEngine` `DataType`, inspector, serialization) and is not built. Tested without a
   native host by `tests/animation/run_managed.py` (ScriptCore compiled with mocked internal calls); the
   attachment path by the `LuxBipedAttach` golden scene.
+- **Animation editor tools** live in the Skeleton inspector (`DrawSkeletonAnimationTools` in
+  `SceneHierarchyPanel.cpp`), not a panel: clip info, Play / Pause and a time slider that write only the
+  runtime `AnimatorState` (`PreviewOverride` stops the editor preview from following `StartTime`; editing an
+  authored setting clears it), and, for a graph, its states with the current one marked, its transitions with
+  their conditions, and live parameter widgets. The bone overlay is `Scene::CaptureSkeletonLines`
+  (selected skinned entities, parent to child from `State.ModelPose` or the rest pose, appended to
+  `FrameRenderPacket::ScriptLines`), called next to `CaptureAudioZones`. Checked by the `Select=Rig`
+  golden capture; the inspector widgets were checked by reading (scope and ID audit), not in a running editor.
 - **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
   one invocation per vertex over four raw word buffers at `set = 1`, `binding = 49..52` (source
   `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing

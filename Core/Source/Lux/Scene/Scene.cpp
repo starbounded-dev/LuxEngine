@@ -903,7 +903,7 @@ namespace Lux {
 					continue;
 
 				// An editor preview that is not playing follows the authored start time, so scrubbing it shows.
-				if (!play && !component.PlayOnStart)
+				if (!play && !component.PlayOnStart && !state.PreviewOverride)
 					state.Time = component.StartTime;
 
 				// One graph transition per update; the fade runs inside the animator.
@@ -3171,6 +3171,7 @@ namespace Lux {
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
 		CaptureAudioZones(packet, isSelected);
+		CaptureSkeletonLines(packet, isSelected);
 		CaptureScriptDebugLines(packet);
 
 		packet.Valid = true;
@@ -3196,6 +3197,33 @@ namespace Lux {
 #else
 		(void)packet;
 #endif
+	}
+
+	void Scene::CaptureSkeletonLines(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)
+	{
+		if (!isSelected)
+			return;
+		constexpr glm::vec4 boneColor{ 0.2f, 0.9f, 0.8f, 1.0f };
+		for (auto handle : m_Registry.view<SkeletonComponent>())
+		{
+			Entity entity{ handle, this };
+			const SkeletonComponent& component = entity.GetComponent<SkeletonComponent>();
+			if (!component.Enabled || !isSelected(entity) || IsInactive(entity))
+				continue;
+			Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
+			if (!skeleton || skeleton->IsEmpty())
+				continue;
+			// The animated pose when a clip has produced one, else the rest pose.
+			const std::vector<glm::mat4>& pose = component.State.ModelPose.size() == skeleton->GetNumBones() ? component.State.ModelPose : skeleton->GetModelSpaceRestPose();
+			const glm::mat4 world = GetWorldSpaceTransformMatrix(entity);
+			for (uint32_t bone = 0; bone < skeleton->GetNumBones() && bone < pose.size(); bone++)
+			{
+				const uint32_t parent = skeleton->GetParentBoneIndex(bone);
+				if (parent == Skeleton::NullIndex || parent >= pose.size())
+					continue;
+				packet.ScriptLines.push_back({ glm::vec3(world * pose[parent][3]), glm::vec3(world * pose[bone][3]), boneColor, true });
+			}
+		}
 	}
 
 	void Scene::CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)

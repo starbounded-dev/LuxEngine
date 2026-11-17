@@ -44,6 +44,7 @@ namespace Lux
 		bool PlayMode = false; // the mode it was last advanced in (editor preview or a running scene)
 		bool Playing = true;
 		float Time = 0.0f;     // seconds into the current clip
+		bool PreviewOverride = false; // editor only: the preview transport (play, pause, scrub) is in charge, not Start Time
 
 		// When the component runs an animation graph: its state machine, and the clip its current state plays.
 		AnimationGraphRuntime Graph;

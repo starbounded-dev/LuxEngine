@@ -61,6 +61,111 @@ namespace Lux {
 
 	namespace {
 
+		// Clip preview and animation graph view under the Skeleton section. Editor tools only: they change the
+		// component's runtime State (never its saved settings), so using them does not dirty the scene.
+		void DrawSkeletonAnimationTools(SkeletonComponent& component)
+		{
+			Ref<Animation> clip = component.Clip ? AssetManager::GetAsset<Animation>(component.Clip) : nullptr;
+			Ref<AnimationGraph> graph = component.Graph ? AssetManager::GetAsset<AnimationGraph>(component.Graph) : nullptr;
+			if (!clip && !graph)
+				return;
+
+			ImGui::PushID("SkeletonAnimationTools");
+			ImGui::Separator();
+			AnimatorState& state = component.State;
+
+			// The clip being played: the graph's current state's, else the component's.
+			Ref<Animation> current = clip;
+			if (graph && state.Graph.Initialized && state.Graph.CurrentState < graph->States.size())
+				current = AssetManager::GetAsset<Animation>(graph->States[state.Graph.CurrentState].Clip);
+			if (current)
+			{
+				ImGui::Text("%s: %.2f s, %zu animated bones, %zu events", current->GetName().c_str(), current->GetDuration(), current->GetTracks().size(), current->GetEvents().size());
+
+				if (ImGui::Button(state.Playing ? "Pause##Preview" : "Play##Preview"))
+				{
+					state.Playing = !state.Playing;
+					state.PreviewOverride = true;
+				}
+				ImGui::SameLine();
+				float time = state.Time;
+				ImGui::SetNextItemWidth(-1.0f);
+				if (ImGui::SliderFloat("##PreviewTime", &time, 0.0f, std::max(current->GetDuration(), 0.001f), "%.2f s"))
+				{
+					state.Time = time;
+					state.Playing = false;
+					state.PreviewOverride = true;
+				}
+			}
+
+			if (graph && ImGui::TreeNode("Animation graph"))
+			{
+				ImGui::TextDisabled("States");
+				for (uint32_t i = 0; i < graph->States.size(); i++)
+				{
+					ImGui::PushID(static_cast<int>(i));
+					const AnimationGraphState& graphState = graph->States[i];
+					const bool isCurrent = state.Graph.Initialized && state.Graph.CurrentState == i;
+					Ref<Animation> stateClip = AssetManager::GetAsset<Animation>(graphState.Clip);
+					ImGui::TextColored(isCurrent ? ImVec4(0.3f, 1.0f, 0.5f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_Text), "%s %s  (%s, x%.2f%s)", isCurrent ? ">" : " ", graphState.Name.c_str(),
+						stateClip ? stateClip->GetName().c_str() : "no clip", graphState.Speed, graphState.Loop ? "" : ", once");
+					ImGui::PopID();
+				}
+
+				ImGui::TextDisabled("Transitions");
+				static constexpr const char* k_Ops[] = { ">", "<", "==", "!=", "is true", "is false", "triggered" };
+				for (uint32_t i = 0; i < graph->Transitions.size(); i++)
+				{
+					ImGui::PushID(1000 + static_cast<int>(i));
+					const AnimationGraphTransition& transition = graph->Transitions[i];
+					std::string conditions;
+					for (const AnimationGraphCondition& condition : transition.Conditions)
+					{
+						if (!conditions.empty())
+							conditions += ", ";
+						conditions += condition.Parameter + " " + k_Ops[static_cast<size_t>(condition.Op)];
+						if (condition.Op <= AnimationConditionOp::NotEqual)
+							conditions += " " + std::format("{:.2f}", condition.Value);
+					}
+					const std::string from = transition.From < graph->States.size() ? graph->States[transition.From].Name : std::string("Any");
+					ImGui::BulletText("%s -> %s  %.2f s%s%s", from.c_str(), transition.To < graph->States.size() ? graph->States[transition.To].Name.c_str() : "?", transition.Duration,
+						conditions.empty() ? "" : "  if ", conditions.c_str());
+					ImGui::PopID();
+				}
+
+				if (!graph->Parameters.empty())
+				{
+					ImGui::TextDisabled(state.Graph.Initialized ? "Parameters" : "Parameters (they start when the animation does)");
+					for (uint32_t i = 0; i < graph->Parameters.size() && state.Graph.Initialized && i < state.Graph.Values.size(); i++)
+					{
+						ImGui::PushID(2000 + static_cast<int>(i));
+						const AnimationGraphParameter& parameter = graph->Parameters[i];
+						float& value = state.Graph.Values[i];
+						if (parameter.Type == AnimationParameterType::Float)
+						{
+							ImGui::DragFloat(parameter.Name.c_str(), &value, 0.01f);
+						}
+						else if (parameter.Type == AnimationParameterType::Bool)
+						{
+							bool flag = value != 0.0f;
+							if (ImGui::Checkbox(parameter.Name.c_str(), &flag))
+								value = flag ? 1.0f : 0.0f;
+						}
+						else
+						{
+							if (ImGui::Button("Set"))
+								value = 1.0f;
+							ImGui::SameLine();
+							ImGui::Text("%s%s", parameter.Name.c_str(), value != 0.0f ? "  (pending)" : "");
+						}
+						ImGui::PopID();
+					}
+				}
+				ImGui::TreePop();
+			}
+			ImGui::PopID();
+		}
+
 		// A per-entity type icon (FontAwesome glyph) plus a category tint, picked from the entity's
 		// most representative component. Tints are tasteful and theme-adjacent: warm for lights,
 		// cool for cameras, purple for audio, green for scripts, neutral for renderables.
@@ -3795,7 +3900,11 @@ namespace Lux {
 					if (ImGuiEx::Property(label, value, help))
 					{
 						firstComponent.*member = value;
-						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity) { component.*member = value; });
+						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity)
+						{
+							component.*member = value;
+							component.State.PreviewOverride = false; // an authored setting changed: the preview follows it again
+						});
 					}
 				};
 				const auto editFloat = [&](const char* label, float SkeletonComponent::* member, float step, float low, float high, const char* help)
@@ -3804,7 +3913,11 @@ namespace Lux {
 					if (ImGuiEx::Property(label, value, step, low, high, help))
 					{
 						firstComponent.*member = value;
-						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity) { component.*member = value; });
+						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity)
+						{
+							component.*member = value;
+							component.State.PreviewOverride = false; // an authored setting changed: the preview follows it again
+						});
 					}
 				};
 				editBool("Play On Start", &SkeletonComponent::PlayOnStart, "Play when the scene starts; off holds the pose at Start Time until something plays it");
@@ -3824,6 +3937,7 @@ namespace Lux {
 				}
 
 				ImGuiEx::EndPropertyGrid();
+				DrawSkeletonAnimationTools(firstComponent);
 			});
 
 		DrawComponentSection<DirectionalLightComponent>(m_Context, entityIDs, "Directional Light", EditorResources::DirectionalLightIcon,

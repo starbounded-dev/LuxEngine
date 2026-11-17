@@ -27,3 +27,9 @@ Import a rigged model (glTF, or binary or text FBX, such as a Mixamo character).
 ## In scripts
 
 `GetComponent<SkeletonComponent>()` gives a script control of the animation: `Playing`, `Time`, `Speed` and `Loop`; `CrossFade(clipHandle, seconds)` to switch clips; `PlayState("Walk")`, `SetFloat("Speed", v)`, `SetBool`, `SetTrigger("Jump")` and `CurrentState` when the mesh uses an [Animation Graph](animation-graph); `GetBoneTransform("Hand.R", out position, out rotation)` for a bone's world transform; and `AttachToBone(entity, "Hand.R")` to make another entity, such as a weapon, follow a bone. The members are listed in the [C# API reference](../api/SkeletonComponent).
+
+## Editor tools
+
+- **Skeleton view** — select an entity with a Skeleton and its bones are drawn in the Scene View as teal lines from each bone to its parent, following the animated pose.
+- **Clip preview** — under the Skeleton settings, **Play** and **Pause** run the clip in the editor and the slider scrubs it. These change only the preview, never the entity or the saved scene. Changing **Start Time**, **Play On Start**, **Speed** or **Loop** hands the preview back to those settings.
+- **Animation graph** — when the entity uses a graph, its states (the current one is marked), transitions with their conditions, and parameters are listed. Move a parameter slider, tick a Bool or press **Set** on a Trigger to test the graph while the preview plays.

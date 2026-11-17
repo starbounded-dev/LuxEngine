@@ -244,6 +244,8 @@ namespace Lux {
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
 		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
+		// Editor overlay: the bones of every selected skinned entity, parent to child, from the evaluated pose.
+		void CaptureSkeletonLines(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		void CaptureColliderDebug(FrameRenderPacket& packet,
 			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
 		// Moves every entity attached to a bone (SkeletonComponent::State.Attachments) to that bone's world transform.
