@@ -81,6 +81,11 @@ Three task skills sit around that loop:
 
 The shared rule list lives in `.claude/skills/send-pr/SKILL.md` and is used by all three.
 
+Two more skills cover feature work and questions:
+
+- **`/new-feature`** — starting a roadmap feature. Reads the board item's sub-issues and makes each one a checkpoint (no "phases"), opens the branch and a draft PR whose body is the sub-issue checklist, and ticks one box per built, verified, pushed feature.
+- **`/knowledge`** — any question about how the engine, editor, or runtime works. Queries the graphify graph first, then confirms in source and `.claude/docs/`.
+
 **Spec Kit** (`specify` CLI, Claude integration, bash scripts) is also set up, as an alternative to
 `/plan-le` for spec-driven features: `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` →
 `/speckit-tasks` → `/speckit-implement`. Its constitution, `.specify/memory/constitution.md`, sums
