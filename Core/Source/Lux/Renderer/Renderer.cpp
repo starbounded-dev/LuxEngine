@@ -611,6 +611,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterBuild.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/ClusterLightCulling.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SoundwaveReverb.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/SoundwaveVisibility.glsl");
 
 		// Renderer2D Shaders
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Renderer2D.glsl");

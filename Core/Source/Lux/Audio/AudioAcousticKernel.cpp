@@ -10,6 +10,8 @@
 #include "Lux/Renderer/StorageBuffer.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include <atomic>
+#include <bit>
+#include <limits>
 #include <new>
 
 namespace Lux
@@ -45,6 +47,14 @@ namespace Lux
 		std::atomic<uint64_t> Failed{ 0 };
 		std::atomic<bool> PollQueued{ false }; // at most one check queued, even while frames do not render
 	};
+	struct AudioAcousticKernel::VisibilityReadback : RefCounted
+	{
+		NRIBuffer Buffer;
+		uint64_t Recorded = 0, Dispatch = 0;
+		std::vector<uint32_t> Results;
+		std::atomic<uint64_t> Ready{ 0 }, Failed{ 0 };
+		std::atomic<bool> PollQueued{ false };
+	};
 
 	AudioAcousticKernel::~AudioAcousticKernel() = default;
 
@@ -62,6 +72,16 @@ namespace Lux
 		kernel->m_Pipeline = PipelineCompute::Create(kernel->m_Shader);
 		kernel->m_Commands = RenderCommandBuffer::Create(0, "Soundwave Reverb");
 		kernel->m_Readback = Ref<Readback>::Create();
+		const auto visibility = shaders.find("SoundwaveVisibility");
+		if (visibility != shaders.end() && visibility->second)
+		{
+			kernel->m_VisibilityShader = visibility->second;
+			kernel->m_VisibilityPipeline = PipelineCompute::Create(kernel->m_VisibilityShader);
+			kernel->m_VisibilityCommands = RenderCommandBuffer::Create(0, "Soundwave Visibility");
+			kernel->m_VisibilityReadback = Ref<VisibilityReadback>::Create();
+		}
+		else
+			LUX_CORE_WARN_TAG("Audio", "SoundwaveVisibility shader is not loaded; sources use CPU propagation");
 		return kernel;
 	}
 
@@ -92,6 +112,67 @@ namespace Lux
 		m_Pass->Bake();
 		m_Bound = geometry;
 		m_BoundRays = rays;
+		return true;
+	}
+
+	bool AudioAcousticKernel::BindVisibility(const Ref<Geometry>& geometry, uint32_t segments, uint32_t portals)
+	{
+		const auto& flat = geometry->Flat;
+		const uint32_t segmentCapacity = std::bit_ceil(segments);
+		const uint32_t portalCapacity = std::bit_ceil(std::max(1u, portals));
+		if (m_VisibilityBound != geometry)
+		{
+			if (m_Bound == geometry && m_Nodes && m_Order && m_Triangles)
+			{
+				m_VisibilityNodes = m_Nodes;
+				m_VisibilityOrder = m_Order;
+				m_VisibilityTriangles = m_Triangles;
+			}
+			else
+			{
+				m_VisibilityNodes = Upload(m_VisibilityCommands, flat.Nodes.data(), flat.Nodes.size() * sizeof(Soundwave::FlatNode), "SoundwaveNodes");
+				m_VisibilityOrder = Upload(m_VisibilityCommands, flat.Order.data(), flat.Order.size() * sizeof(uint32_t), "SoundwaveOrder");
+				m_VisibilityTriangles = Upload(m_VisibilityCommands, flat.Triangles.data(), flat.Triangles.size() * sizeof(Soundwave::FlatTriangle), "SoundwaveTriangles");
+			}
+		}
+		if (!m_VisibilityRequest)
+			m_VisibilityRequest = Upload(m_VisibilityCommands, nullptr, sizeof(Soundwave::FlatVisibilityRequest), "SoundwaveVisibilityRequest");
+		if (segmentCapacity > m_VisibilityCapacity)
+		{
+			m_VisibilitySegments = Upload(m_VisibilityCommands, nullptr, static_cast<size_t>(segmentCapacity) * sizeof(Soundwave::FlatVisibilitySegment), "SoundwaveVisibilitySegments");
+			m_VisibilityResults = Upload(m_VisibilityCommands, nullptr, static_cast<size_t>(segmentCapacity) * sizeof(uint32_t), "SoundwaveVisibilityResults");
+			m_VisibilityCapacity = segmentCapacity;
+		}
+		if (portalCapacity > m_VisibilityPortalCapacity)
+		{
+			m_VisibilityPortals = Upload(m_VisibilityCommands, nullptr, static_cast<size_t>(portalCapacity) * sizeof(Soundwave::FlatPortal), "SoundwaveVisibilityPortals");
+			m_VisibilityPortalCapacity = portalCapacity;
+		}
+		if (!m_VisibilityNodes || !m_VisibilityOrder || !m_VisibilityTriangles || !m_VisibilityRequest ||
+			!m_VisibilitySegments || !m_VisibilityResults || !m_VisibilityPortals)
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Soundwave visibility buffers could not be allocated");
+			return false;
+		}
+		ComputePassSpecification spec;
+		spec.DebugName = "SoundwaveVisibility";
+		spec.Pipeline = m_VisibilityPipeline;
+		auto pass = ComputePass::Create(spec);
+		pass->SetInput("SoundwaveNodes", m_VisibilityNodes);
+		pass->SetInput("SoundwaveOrder", m_VisibilityOrder);
+		pass->SetInput("SoundwaveTriangles", m_VisibilityTriangles);
+		pass->SetInput("SoundwaveVisibilityRequest", m_VisibilityRequest);
+		pass->SetInput("SoundwaveVisibilitySegments", m_VisibilitySegments);
+		pass->SetInput("SoundwaveVisibilityPortals", m_VisibilityPortals);
+		pass->SetInput("SoundwaveVisibilityResults", m_VisibilityResults);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Audio", "Soundwave visibility compute pass failed validation");
+			return false;
+		}
+		pass->Bake();
+		m_VisibilityPass = std::move(pass);
+		m_VisibilityBound = geometry;
 		return true;
 	}
 
@@ -200,6 +281,119 @@ namespace Lux
 			try
 			{
 				readback->Rays.assign(mapped, mapped + count);
+			}
+			catch (const std::bad_alloc&)
+			{
+				readback->Buffer.Unmap();
+				readback->Failed.store(expected, std::memory_order_release);
+				return;
+			}
+			readback->Buffer.Unmap();
+			readback->Ready.store(expected, std::memory_order_release);
+		});
+		return PollResult::Pending;
+	}
+
+	bool AudioAcousticKernel::DispatchVisibility(const Ref<Geometry>& geometry,
+		std::span<const Soundwave::FlatVisibilitySegment> segments, std::span<const Soundwave::FlatPortal> portals)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		constexpr size_t kMaximumSegments = 262144;
+		if (!m_VisibilityShader || !geometry || segments.empty() || segments.size() > kMaximumSegments || portals.size() > 4096)
+			return false;
+		m_VisibilityCommands->Begin();
+		if ((m_VisibilityBound != geometry || segments.size() > m_VisibilityCapacity || portals.size() > m_VisibilityPortalCapacity) &&
+			!BindVisibility(geometry, static_cast<uint32_t>(segments.size()), static_cast<uint32_t>(portals.size())))
+		{
+			m_VisibilityCommands->End();
+			return false;
+		}
+		Soundwave::FlatVisibilityRequest block{};
+		block.Roots[0] = geometry->Flat.Roots[0];
+		block.Roots[1] = geometry->Flat.Roots[1];
+		block.SegmentCount = static_cast<uint32_t>(segments.size());
+		block.PortalCount = static_cast<uint32_t>(portals.size());
+		m_VisibilityRequest->SetData(m_VisibilityCommands, &block, sizeof(block));
+		m_VisibilitySegments->SetData(m_VisibilityCommands, segments.data(), static_cast<uint32_t>(segments.size_bytes()));
+		if (!portals.empty())
+			m_VisibilityPortals->SetData(m_VisibilityCommands, portals.data(), static_cast<uint32_t>(portals.size_bytes()));
+		Renderer::BeginComputePass(m_VisibilityCommands, m_VisibilityPass);
+		Renderer::DispatchCompute(m_VisibilityCommands, m_VisibilityPass, nullptr,
+			{ (block.SegmentCount + kGroupSize - 1) / kGroupSize, 1, 1 });
+		Renderer::EndComputePass(m_VisibilityCommands, m_VisibilityPass);
+		const uint64_t id = ++m_VisibilityDispatch;
+		const uint64_t bytes = static_cast<uint64_t>(block.SegmentCount) * sizeof(uint32_t);
+		Renderer::Submit([commands = m_VisibilityCommands, results = m_VisibilityResults,
+			readback = m_VisibilityReadback, id, bytes]() mutable
+		{
+			if (!readback->Buffer || readback->Buffer.GetSize() != bytes)
+			{
+				RHIBufferDesc desc;
+				desc.Size = bytes;
+				desc.Access = CPUAccess::Read;
+				desc.DebugName = "SoundwaveVisibilityReadback";
+				readback->Buffer = NRIBuffer::Create(desc);
+				if (!readback->Buffer)
+				{
+					readback->Failed.store(id, std::memory_order_release);
+					return;
+				}
+			}
+			commands->RT_RequireBufferState(results->GetBuffer().GetTracked(), ResourceState::CopySource);
+			nri::CommandBuffer* nriCommands = commands->RT_BeginNRITransfer();
+			if (!nriCommands)
+			{
+				readback->Failed.store(id, std::memory_order_release);
+				return;
+			}
+			RHIDevice::API().CmdCopyBuffer(*nriCommands, *readback->Buffer.Get(), 0, *results->GetBuffer().Get(), 0, bytes);
+			commands->RT_EndNRISegment();
+			readback->Recorded = Renderer::RT_GetFrameNumber();
+			readback->Dispatch = id;
+		});
+		m_VisibilityCommands->End();
+		m_VisibilityCommands->Submit();
+		m_VisibilityCount = block.SegmentCount;
+		return true;
+	}
+
+	AudioAcoustics::ReverbBackend::PollResult AudioAcousticKernel::PollVisibility(std::vector<uint32_t>& results)
+	{
+		if (!m_VisibilityReadback || !m_VisibilityDispatch)
+			return PollResult::Failed;
+		if (m_VisibilityReadback->Failed.load(std::memory_order_acquire) == m_VisibilityDispatch)
+			return PollResult::Failed;
+		if (m_VisibilityReadback->Ready.load(std::memory_order_acquire) == m_VisibilityDispatch)
+		{
+			try
+			{
+				results = m_VisibilityReadback->Results;
+			}
+			catch (const std::bad_alloc&)
+			{
+				m_VisibilityReadback->Failed.store(m_VisibilityDispatch, std::memory_order_release);
+				return PollResult::Failed;
+			}
+			return results.size() == m_VisibilityCount ? PollResult::Ready : PollResult::Failed;
+		}
+		if (m_VisibilityReadback->PollQueued.exchange(true))
+			return PollResult::Pending;
+		Renderer::Submit([readback = m_VisibilityReadback, expected = m_VisibilityDispatch]() mutable
+		{
+			readback->PollQueued.store(false);
+			if (readback->Dispatch != expected || readback->Ready.load(std::memory_order_relaxed) == expected ||
+				Renderer::RT_GetFrameNumber() < readback->Recorded + Renderer::GetConfig().FramesInFlight)
+				return;
+			const auto count = readback->Buffer.GetSize() / sizeof(uint32_t);
+			const auto* mapped = static_cast<const uint32_t*>(readback->Buffer.Map(0, readback->Buffer.GetSize()));
+			if (!mapped)
+			{
+				readback->Failed.store(expected, std::memory_order_release);
+				return;
+			}
+			try
+			{
+				readback->Results.assign(mapped, mapped + count);
 			}
 			catch (const std::bad_alloc&)
 			{

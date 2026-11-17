@@ -57,9 +57,10 @@ Claimed outside the renderer passes: **set 1, bindings 30–38** — Soundwave's
 (`SoundwaveNodes`, `SoundwaveOrder`, `SoundwaveTriangles`, `SoundwaveReverbRequest`,
 `SoundwaveReverbRays`, `SoundwaveVisibilityRequest`, `SoundwaveVisibilitySegments`,
 `SoundwaveVisibilityPortals`, `SoundwaveVisibilityResults`; `Include/GLSL/Soundwave.glslh`,
-`SoundwaveReverb.glsl`, `SoundwaveVisibility.glsl`). The visibility stage has standalone Vulkan
-parity coverage; source-solver submission is still in progress. The reverb pass is built
-when acoustic geometry changes, not per frame, and records on its own command buffer
+`SoundwaveReverb.glsl`, `SoundwaveVisibility.glsl`). Both compute passes are cached until their
+geometry or buffer capacity changes and record on separate command buffers. The visibility
+stage supplies source opening legs; the bounded path reduction still runs on a worker. The
+reverb pass is built when acoustic geometry changes, not per frame, and records on its own command buffer
 (`AudioAcousticKernel`, see `Threading.md` § Acoustic geometry).
 
 **This is the highest-consequence rule in the renderer.**

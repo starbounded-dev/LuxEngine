@@ -62,6 +62,8 @@ namespace Lux
 			uint32_t StaticStoredTriangles = 0, MovingStoredTriangles = 0, StaticMeshInstances = 0, MovingMeshInstances = 0;
 			bool Ready = false, GeometryFailed = false;
 			bool ReverbOnGpu = false, ReverbStalled = false, ReverbGpuFailed = false, SolvesPending = false;
+			bool SourceVisibilityOnGpu = false, SourceVisibilityGpuFailed = false;
+			uint64_t SourceVisibilityBatches = 0;
 		};
 		// Where the listener reverb's rays run. Without one (headless tests, no GPU) a JobSystem
 		// job measures on the CPU; with one, FinishReverb reduces the returned rays on main.
@@ -78,6 +80,12 @@ namespace Lux
 				const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) = 0;
 			// Main thread, never waits. Failed means the caller must use its CPU fallback.
 			virtual PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
+			// Optional source visibility stage. Segment order is the fixed reduction order;
+			// a backend without source compute keeps the worker-only CPU path.
+			virtual bool SupportsVisibility() const { return false; }
+			virtual bool DispatchVisibility(const Ref<Geometry>&, std::span<const Soundwave::FlatVisibilitySegment>,
+				std::span<const Soundwave::FlatPortal>) { return false; }
+			virtual PollResult PollVisibility(std::vector<std::uint32_t>&) { return PollResult::Failed; }
 		};
 		// Kept across Clear(); the owner replaces or drops it.
 		void SetReverbBackend(Ref<ReverbBackend> backend) { m_ReverbBackend = std::move(backend); }
@@ -167,16 +175,33 @@ namespace Lux
 		};
 		struct SolveJob : RefCounted
 		{
+			enum class Phase { Cpu, Preparing, GpuPending, Reducing };
 			struct Item
 			{
 				UUID Entity = 0;
 				Soundwave::Position Position;
 				Soundwave::SolveResult Result;
+				Soundwave::PreparedCandidates Prepared;
+				size_t VisibilityOffset = 0, VisibilityCount = 0;
 				Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 			};
 			std::atomic<bool> Done{ false };
+			Phase Current = Phase::Cpu;
+			bool GpuFailed = false, GpuSkipped = false;
+			float WorstGpuGapDb = 0;
 			std::vector<Item> Items;
 			Soundwave::SolveScratch Scratch;
+			std::array<Ref<Snapshot>, 2> Snapshots;
+			Ref<ReverbBackend::Geometry> Flat;
+			Ref<ReverbBackend> Backend;
+			std::vector<uint64_t> Excluded;
+			std::vector<Soundwave::PortalBox> Portals;
+			Soundwave::MaterialTable Materials;
+			Soundwave::Settings Settings;
+			Soundwave::Position Listener;
+			std::vector<Soundwave::FlatVisibilitySegment> Segments;
+			std::vector<Soundwave::FlatPortal> FlatPortals;
+			std::vector<uint32_t> Visibility;
 		};
 		struct FlattenJob : RefCounted
 		{
@@ -186,6 +211,8 @@ namespace Lux
 		};
 		void UpdateReverb(float timestep, Soundwave::Position listener);
 		void PollZone();
+		void SubmitCpuSolves(Ref<SolveJob> job);
+		void SubmitVisibilityReduction(Ref<SolveJob> job);
 		void PublishReverb(Soundwave::EvaluationError error, const Soundwave::ReverbResult& result);
 		void RefreshGeometryView();
 		bool CanPrepare() const;
@@ -201,6 +228,7 @@ namespace Lux
 		Soundwave::Settings m_KernelSettings;
 		Soundwave::EchogramSettings m_EchogramSettings;
 		Soundwave::SolveScratch m_Scratch;
+		std::vector<Soundwave::FlatVisibilitySegment> m_VisibilitySegmentScratch;
 		std::vector<uint64_t> m_ActiveInstances, m_Excluded, m_SourceIDs;
 		std::vector<Soundwave::PortalBox> m_Portals;
 		std::unordered_map<UUID, SourceState> m_Sources;
@@ -226,6 +254,10 @@ namespace Lux
 		uint32_t m_ReverbWaitUpdates = 0;
 		float m_SinceFlatten = 0;
 		bool m_ReverbOnGpu = false, m_ReverbStalled = false, m_ReverbGpuFailed = false;
+		bool m_SourceVisibilityOnGpu = false, m_SourceVisibilityGpuFailed = false;
+		bool m_SourceVisibilityLimitReported = false;
+		uint64_t m_SourceVisibilityBatches = 0;
+		uint32_t m_VisibilityWaitUpdates = 0;
 		Soundwave::ReverbResult m_Reverb;
 		Soundwave::Position m_ReverbListener;
 		Soundwave::EvaluationError m_ReverbError = Soundwave::EvaluationError::None;

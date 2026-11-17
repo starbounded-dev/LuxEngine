@@ -57,6 +57,7 @@ namespace Lux::Soundwave
 			SolveResult& Result;
 			std::uint32_t Limit;
 			bool Invalid = false;
+			std::span<const std::uint32_t> Visibility{};
 
 			bool Spend()
 			{
@@ -73,6 +74,31 @@ namespace Lux::Soundwave
 				if (!Spend())
 					return false;
 				++Result.Diagnostics.VisibilityRays;
+				if (!Visibility.empty())
+				{
+					const auto indexOf = [&](Position point)
+					{
+						if (point.X == Listener.X && point.Y == Listener.Y && point.Z == Listener.Z)
+							return std::uint32_t{0};
+						for (std::uint32_t i = 0; i < Scratch.Openings.size(); ++i)
+							if (const auto& node = Scratch.Openings[i].Point;
+								node.X == point.X && node.Y == point.Y && node.Z == point.Z)
+								return i + 1;
+						if (point.X == Source.X && point.Y == Source.Y && point.Z == Source.Z)
+							return static_cast<std::uint32_t>(Scratch.Openings.size()) + 1;
+						return kInvalidGeometryIndex;
+					};
+					const auto fromIndex = indexOf(from), toIndex = indexOf(to);
+					if (margin != 0 || fromIndex == kInvalidGeometryIndex || toIndex == kInvalidGeometryIndex)
+					{
+						Invalid = true;
+						return false;
+					}
+					const auto width = Scratch.Openings.size() + 2;
+					const auto status = Visibility[static_cast<std::size_t>(fromIndex) * width + toIndex];
+					Invalid |= status > 1;
+					return status == 0;
+				}
 				const auto visibility = Detail::SegmentVisible(World, Portals, from, to, SourceInstance, Scratch.Hits, margin);
 				Invalid |= visibility == Detail::Visibility::Invalid;
 				return visibility == Detail::Visibility::Clear;
@@ -381,9 +407,8 @@ namespace Lux::Soundwave
 			path.GainHF = GainFromLossDb(lossHF) * context.Spread(path.Distance) * context.Air(path.Distance, context.Config.AirAbsorptionHF);
 			context.Accept(path);
 		}
-		void Openings(Context& context)
+		void SearchOpenings(Context& context)
 		{
-			OpeningSamples(context);
 			auto& scratch = context.Scratch;
 			scratch.States.clear();
 			scratch.SearchHeap.clear();
@@ -444,6 +469,11 @@ namespace Lux::Soundwave
 			}
 			context.Result.Diagnostics.WorkLimited |= !scratch.SearchHeap.empty();
 		}
+		void Openings(Context& context)
+		{
+			OpeningSamples(context);
+			SearchOpenings(context);
+		}
 	}
 
 	EvaluationError PrepareCandidates(const GeometryView& geometry, std::span<const PortalBox> portals,
@@ -473,6 +503,57 @@ namespace Lux::Soundwave
 		next.ReflectionTriangles = scratch.Triangles;
 		next.Openings = scratch.Openings;
 		next.Diagnostics = measured.Diagnostics;
+		output = std::move(next);
+		return EvaluationError::None;
+	}
+
+	EvaluationError ReduceOpeningVisibility(const GeometryView& geometry, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener, Position source,
+		std::uint64_t sourceInstance, const PreparedCandidates& prepared, std::span<const std::uint32_t> visibility,
+		SolveScratch& scratch, SolveResult& output)
+	{
+		if (!geometry.IsValid())
+			return EvaluationError::InvalidGeometry;
+		if (!settings.Validate())
+			return EvaluationError::InvalidSettings;
+		if (!Math::Finite(listener) || !Math::Finite(source) ||
+			prepared.Direct.From.X != listener.X || prepared.Direct.From.Y != listener.Y || prepared.Direct.From.Z != listener.Z ||
+			prepared.Direct.To.X != source.X || prepared.Direct.To.Y != source.Y || prepared.Direct.To.Z != source.Z ||
+			prepared.Openings.size() > settings.OpeningNodeBudget)
+			return EvaluationError::InvalidRay;
+		const std::size_t width = prepared.Openings.size() + 2;
+		if (visibility.size() != width * width || std::any_of(visibility.begin(), visibility.end(), [](auto status) { return status > 2; }))
+			return EvaluationError::NumericalFailure;
+		SolveResult next;
+		next.Direct = prepared.Direct;
+		next.OcclusionGainLF = next.Direct.GainLF();
+		next.OcclusionGainHF = next.Direct.GainHF();
+		next.Diagnostics = prepared.Diagnostics;
+		const auto preparationWork = next.Diagnostics.Work;
+		next.Diagnostics.Work = 0;
+		scratch.Triangles = prepared.ReflectionTriangles;
+		scratch.Openings = prepared.Openings;
+		Context context{ geometry,portals,materials,settings,listener,source,sourceInstance,scratch,next,settings.CandidateBudget };
+		if (settings.ReflectionDepth && !scratch.Triangles.empty())
+		{
+			if (settings.OpeningGridSize > 1)
+				context.Limit = std::max(1u, settings.CandidateBudget / 2);
+			Reflections(context);
+		}
+		context.Limit = settings.CandidateBudget;
+		// The CPU reference samples opening nodes after reflections. Preparation can run
+		// earlier on a worker, but only the same samples fit after the reflection work.
+		if (context.Invalid || preparationWork > settings.CandidateBudget - next.Diagnostics.Work)
+			return EvaluationError::NumericalFailure;
+		next.Diagnostics.Work += preparationWork;
+		if (!scratch.Openings.empty() && settings.OpeningGridSize > 1 &&
+			(next.OcclusionGainLF < 1 || next.OcclusionGainHF < 1))
+		{
+			context.Visibility = visibility;
+			SearchOpenings(context);
+			if (context.Invalid)
+				return EvaluationError::NumericalFailure;
+		}
 		output = std::move(next);
 		return EvaluationError::None;
 	}

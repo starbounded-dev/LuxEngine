@@ -80,6 +80,15 @@ All items below were checked against the tree at `03588551` on 2026-11-01.
   16,900 pairs in a 128-opening corner fixture on AMD RADV, and its analytic portal-box cases
   passed. This proves a ray stage and ABI, not the opening search, reflection reduction, async
   engine submission or a frame-time win. Those remain required before shipping GPU source gains.
+- **Later same-day verification:** the engine now submits the visibility shader on its render
+  thread and reads its output only after the recording frame retires. A worker reduces the
+  matrix in fixed order; reflection paths still use the CPU reference. AMD RADV returned 0 dB
+  LF/HF difference for the 128-opening corner with default reflection depth, and Release Editor
+  Play plus exported Runtime both reported completed GPU source batches for the bounded corner
+  and stone-zone scenes with no Vulkan validation output. The 16,900-ray corner shader measured
+  0.131 ms median GPU time across three timestamped dispatches; this is a 12-triangle
+  microbenchmark and excludes preparation, upload, frame scheduling and CPU reduction. The
+  exported game still requires a representative large-scene/frame-budget measurement.
 
 ## R4 — Vercidium removal surface (Phase 7)
 

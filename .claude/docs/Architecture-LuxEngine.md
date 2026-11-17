@@ -1568,9 +1568,15 @@ and publishes it without a main-thread wait. Scene blends completed zone sends b
 system's listener weights, falling back to the listener measurement for zones still measuring.
 Disabled or removed zones leave the cache. The three reverb rows live in the project audio block's `Kernel` map.
 
-**Workers and the GPU (plan Phase 4, as decided 2026-11-02):** per-source `Solve` runs on a
-JobSystem worker (one batch in flight, published by `AudioAcoustics::PollSolves`); the listener
-reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
+**Workers and the GPU (plan Phase 4):** a source batch uses a worker to prepare bounded opening
+nodes and row-major segment endpoints, a render-thread Vulkan compute pass for independent
+visibility rays, frame-retired readback, and a worker reduction of the opening graph in fixed
+order. The CPU reference still handles reflection paths and the final graph search; the GPU
+stage supplies the expensive independent visibility decisions. One batch is in flight and
+`AudioAcoustics::PollSolves` publishes it on main. Without a current flattened geometry, with
+oversized authored node budgets, or after a GPU stage failure, the complete `Solve` runs on a
+JobSystem worker. Debug validates GPU-derived LF/HF gains against that CPU reference within
+0.5 dB. The listener reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
 `AudioAcousticKernel` (`Core/Source/Lux/Audio/`, renderer-side) and injected by
 `SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)
 the CPU job measures instead; the same `FinishReverb` reduces CPU or GPU rays in ray order.
@@ -1580,11 +1586,12 @@ buffer range, and a failed flatten leaves the previous output intact. The engine
 budget; if flattening, dispatch, or readback fails, it reports the cause and measures reverb on a
 CPU worker for the rest of the session. `AudioAcoustics::ReverbBackend::PollResult` distinguishes
 pending, ready, and failed readbacks; the Audio Debugger shows when GPU fallback is active.
-`tests/audio/run_soundwave_gpu.py` checks the engine shader against the CPU on a
-real Vulkan device (≤ 0.5 dB; measured 0.009 dB on an RTX 4070 Ti). The user chose workers rather
-than a GPU propagation search for the earlier release scope: the search is serial and heap-driven,
-so a naive GPU twin would run one thread per source and stall frames. The later full-roadmap request
-restored parallel GPU source propagation and CPU parity as outstanding Phase 4 work.
+`tests/audio/run_soundwave_gpu.py` checks both shaders on a real Vulkan device: reverb within
+0.5 dB, 16,900 corner visibility pairs against the CPU trace, and the resulting source gains.
+Release Play and export verify the GPU source stage in a bounded corner and stone-zone fixture.
+The full Phase 4 GPU path search/reduction and its broader platform and frame-budget gates remain
+outstanding; the earlier one-thread-per-source shader translation was rejected after profiling
+the serial CPU priority-heap search.
 
 **Air absorption, scattering, bounce diagnostics (plan Phase 5):** `AirAbsorptionLF/HF` (dB per
 100 m, defaults 0.1 / 2.5, range 0–20, `Kernel` map) charge reflection and opening paths only on

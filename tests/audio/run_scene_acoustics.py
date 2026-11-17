@@ -21,6 +21,7 @@ LISTENER_ID = 73049999999999902
 SPONZA_ID = 73049999999999910
 ZONE_ID = 73049999999999930
 CASES = {
+    "gpu-corner": {"listener": [1, 0, -0.5], "source": [-1, 0, -0.5], "simple": True, "audible": True},
     "corner": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "audible": True},
     "doorway-open": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "audible": True},
     "doorway-closed": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "closed": True},
@@ -62,7 +63,7 @@ def box(identity, name, low, high, cube):
     return result
 
 
-def make_fixture(directory, case_name, case, base_project, demo, source_assets, handles, target_config="debug"):
+def make_fixture(directory, case_name, case, base_project, demo, source_assets, handles, target_config="debug", gpu_source=False):
     assets = directory/"Assets"
     assets.mkdir(parents=True)
     for original in source_assets.iterdir():
@@ -111,7 +112,10 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     emitter["AudioSourceComponent"].update({"VolumeMultiplier": 0.02, "DistanceCulling": False, "Enabled": True})
     light = copy.deepcopy(next(e for e in demo["Entities"] if "DirectionalLightComponent" in e))
     light["Parent"], light["Children"] = 0, []
-    entities = [listener, emitter, light] if case.get("zone") else [model, listener, emitter, light]
+    entities = [listener, emitter, light] if case.get("zone") or case.get("simple") else [model, listener, emitter, light]
+    if case.get("simple"):
+        entities.insert(0, box(SPONZA_ID, "Thick corner wall", [-0.1, -2, -2], [0.1, 2, 0],
+                               handles["Meshes/Source/Default/Cube.gltf"]))
     if case.get("zone"):
         corridor = case_name == "zone-corridor"
         low, high = ([-1, 0, -10], [1, 3, 10]) if corridor else ([-5, 0, -5], [5, 4, 5])
@@ -170,7 +174,7 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     audio["Occlusion"] = {"Source": "Engine", "UpdateRateHz": 1, "CastBudget": 32, "Strength": 1,
         "Kernel": {"Version": 1, "ReflectionDepth": 0, "OpeningGridSize": 1 if case.get("direct") else 8,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
-                   "OpeningNodeBudget": 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
+                   "OpeningNodeBudget": 128 if gpu_source else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
     if case.get("zone"):
         audio["Occlusion"]["Kernel"].update({"EchogramWindowSeconds": 3.0, "EchogramSmoothingSeconds": 0.04})
     path = directory/"Acoustics.luxproj"
@@ -178,12 +182,17 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     return path
 
 
-def verify(data, case, triangle_counts):
+def verify(data, case, triangle_counts, gpu_source=False):
     require(data["EngineRayComparison"], "Engine-ray comparison did not run")
     require(data.get("ReverbOn") == "GPU" and data.get("ReverbMeasurements", 0) > 0,
             f"Listener reverb did not run on the GPU: {data.get('ReverbOn')} x{data.get('ReverbMeasurements')}")
+    if gpu_source:
+        require(data.get("SourceVisibilityBatches", 0) > 0 and not data.get("SourceVisibilityGpuFailed"),
+                "GPU source visibility did not complete a batch")
     require(0 <= data["ReverbSend"] <= 1 and data["ReverbDecaySeconds"] >= 0, "Listener reverb values out of range")
-    expected = 6 * triangle_counts["Default"] if case.get("zone") else triangle_counts["Sponza"] + (5*triangle_counts["Default"] if case.get("bay") else 0)
+    expected = (triangle_counts["Default"] if case.get("simple") else
+                6 * triangle_counts["Default"] if case.get("zone") else
+                triangle_counts["Sponza"] + (5 * triangle_counts["Default"] if case.get("bay") else 0))
     require(data["StaticTriangles"] == expected, f"Sponza/partition geometry missing: {data['StaticTriangles']} != {expected}")
     require(data["MovingTriangles"] == (12 if case.get("closed") else 0), "Portal shutter capture disagrees with the authored state")
     require(data["StaticMeshInstances"] == (6 if case.get("zone") or case.get("bay") else 1), "A rendered model/partition instance was omitted")
@@ -243,7 +252,7 @@ def prepare_linux_validation(environment, directory):
     return manifest
 
 
-def verify_export(capture, destination, case, triangle_counts, timeout, threading, runtime_config):
+def verify_export(capture, destination, case, triangle_counts, timeout, threading, runtime_config, gpu_source=False):
     metadata = yaml.safe_load((capture/"AudioDemo.export.yaml").read_text(encoding="utf-8"))
     package, executable = Path(metadata["Root"]).resolve(), Path(metadata["Executable"]).resolve()
     require(package.is_relative_to(destination.resolve()) and executable.parent == package,
@@ -256,6 +265,8 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     env = {key: value for key, value in os.environ.items() if not key.startswith("LUX_GOLDEN_")}
     env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",
                 "LUX_THREADING_POLICY": threading.capitalize()})
+    if gpu_source:
+        env["LUX_VERIFY_GPU_SOURCE"] = "1"
     if os.name != "nt":
         # Build-tree paths must not hide a missing packaged shared library.
         env["LD_LIBRARY_PATH"] = str(package/"lib")
@@ -278,7 +289,7 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     require("Vulkan validation error" not in log and "Vulkan validation warning" not in log and
             "Vulkan performance validation" not in log, "Exported runtime reported Vulkan validation messages")
     data = yaml.safe_load(report_path.read_text(encoding="utf-8"))
-    verified = verify(data, case, triangle_counts)
+    verified = verify(data, case, triangle_counts, gpu_source)
     play = yaml.safe_load((capture/"AudioDemo.audio.yaml").read_text(encoding="utf-8"))
     # Pinned scenes settle to the same reference result; compare raw solver output
     # rather than frame-rate-dependent smoothing during startup.
@@ -302,6 +313,7 @@ def main():
     parser.add_argument("--runtime-config", choices=("debug", "release", "dist"), help="exported runtime configuration (defaults to --config)")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--threading", choices=("single", "multi"), default="multi")
+    parser.add_argument("--gpu-source", action="store_true", help="require a completed GPU source-visibility batch")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     sample = ROOT/"Editor/LuxSampleProject"
@@ -326,7 +338,8 @@ def main():
     try:
         for name in args.cases:
             case = CASES[name]
-            fixture = make_fixture(run/name, name, case, project, demo, sample/"Assets", handles, args.runtime_config or args.config)
+            fixture = make_fixture(run/name, name, case, project, demo, sample/"Assets", handles, args.runtime_config or args.config,
+                                   args.gpu_source)
             label = run_id + "-" + name
             destination = run/name/"export"
             command = [sys.executable, str(ROOT/"tests/rendering/golden_run.py"), "--config", args.config, "--project", str(fixture),
@@ -334,19 +347,23 @@ def main():
                        "--frame", "2", "--perf-frames", "1", "--perf-warmup", "0", "--timeout", str(args.timeout)]
             if args.export_runtime:
                 command += ["--export-dir", str(destination)]
-            subprocess.run(command, cwd=ROOT, check=True)
+            environment = dict(os.environ)
+            if args.gpu_source:
+                environment["LUX_VERIFY_GPU_SOURCE"] = "1"
+            subprocess.run(command, cwd=ROOT, env=environment, check=True)
             capture = ROOT/"bin/golden"/label
             artifact = capture/"AudioDemo.audio.yaml"
             # golden_run already checked this run's final artifact timestamp once.
             summary = json.loads((capture/"summary.json").read_text(encoding="utf-8"))
             require(summary["runs"][0]["validationMessages"] == 0, "Native run reported Vulkan validation messages")
-            results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts)
+            results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts, args.gpu_source)
             results[name]["capture"] = str(capture)
             if "zone-stone" in results and "zone-corridor" in results:
                 require(results["zone-stone"]["ZoneSend"] > results["zone-corridor"]["ZoneSend"] + 0.05,
                         "Stone room and corridor zone sends sound alike")
             if args.export_runtime:
-                results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading, args.runtime_config or args.config)
+                results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading,
+                                                          args.runtime_config or args.config, args.gpu_source)
             print(name + ": PASS " + json.dumps(results[name]), flush=True)
             (run/"results.json").write_text(json.dumps(results, indent=2)+"\n", encoding="utf-8")
     finally:

@@ -444,10 +444,15 @@ Failed capture revisions stay latched until the failing layer changes; unrelated
 Scene teardown detaches its Ref to pending state; workers finish using their own refs. There is
 no worker callback into Scene. JobSystem's existing inline policy follows the same path.
 
-Per-source solves run on a JobSystem worker: `AudioAcoustics::Update` selects the due batch on
-main (same budget and cadence rules) and submits one job holding copies plus immutable snapshot
-Refs; `PollSolves` publishes it on main. One batch is in flight; under the inline policy it
-publishes in the same update, otherwise in a later one. Gain interpolation stays on main.
+Per-source solves use one batch in flight: `AudioAcoustics::Update` selects due sources on main
+and captures immutable snapshot Refs and values. With a current flattened geometry and the
+default bounded node budget, a worker prepares opening nodes and segment endpoints; the render
+thread dispatches parallel visibility rays, then copies results into a readback buffer. Main
+polls the frame-retired result without waiting and submits a worker reduction that retains the
+CPU reference's fixed path order. Reflections and final opening graph search remain on the CPU
+worker. A missing GPU, stale flatten, oversized batch or failed readback uses the full CPU solve;
+hard GPU failures are reported and disable that stage for the session. `PollSolves` publishes on
+main and gain interpolation stays there. The inline job policy uses the same state machine.
 Vercidium Audio and its worker join are gone (2026-11-02); no acoustic code waits on another thread.
 
 The listener reverb's rays run on the GPU when `SceneAudioAcoustics` injects an

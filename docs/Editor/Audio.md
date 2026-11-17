@@ -50,7 +50,7 @@ Sections, in draw order:
 | **Backends** | Whether the audio engine (miniaudio) initialised, its version and sample rate; the acoustics backend (Soundwave) and whether it is running |
 | **Playback** | Sound instances playing |
 | **Sound Banks and Clips** | Every loaded Sound Bank (loads, ready or decoding, resident) and every clip in memory (size, streaming, bank and voice references) |
-| **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; GPU or CPU reverb mode and a warning if GPU reverb failed; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
+| **Soundwave Acoustics** | Static/moving triangle and mesh-instance counts, pending geometry, source solves and failures; GPU source-visibility batches and CPU fallback warnings; GPU or CPU reverb mode and a warning if GPU reverb failed; the listener's reverb — 60 dB decay, send, energy outside, mean free path |
 | **Sources** | Per-source table: entity, Sound, distance, playback state, and the acoustics Soundwave resolved for it — occlusion, gain LF/HF, muffle, and *Paths* (`3R 1O x2`: reflections, openings, deepest bounce; `!` when a work or path budget ran out) |
 | **Budgets and Bus Meters** | Real/virtual voices against budget, CPU, clip memory, per-bus input peak/RMS in dBFS |
 | **Audio Validation** | The project's validation results — missing Sounds or clips, wrong playback kinds, Sounds in no Sound Bank |

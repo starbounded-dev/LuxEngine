@@ -8,6 +8,8 @@
 #include <soundwave/Reverb.h>
 #include <soundwave/Solve.h>
 #include <vulkan/vulkan.h>
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdlib>
@@ -39,6 +41,8 @@ namespace
 		uint32_t Family = 0;
 		VkPhysicalDeviceMemoryProperties Memory{};
 		std::string Name;
+		float TimestampPeriod = 0;
+		bool HasTimestamps = false;
 
 		Gpu()
 		{
@@ -63,6 +67,7 @@ namespace
 			VkPhysicalDeviceProperties properties;
 			vkGetPhysicalDeviceProperties(Physical, &properties);
 			Name = properties.deviceName;
+			TimestampPeriod = properties.limits.timestampPeriod;
 			vkGetPhysicalDeviceMemoryProperties(Physical, &Memory);
 			vkGetPhysicalDeviceQueueFamilyProperties(Physical, &count, nullptr);
 			std::vector<VkQueueFamilyProperties> families(count);
@@ -72,6 +77,7 @@ namespace
 				if (families[i].queueFlags & VK_QUEUE_COMPUTE_BIT)
 					Family = i;
 			Check(Family != UINT32_MAX, "no compute queue");
+			HasTimestamps = families[Family].timestampValidBits != 0;
 			const float priority = 1;
 			VkDeviceQueueCreateInfo queue{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
 			queue.queueFamilyIndex = Family;
@@ -129,7 +135,7 @@ namespace
 	};
 
 	// Geometry is always at 30-32; the pass-specific buffers start at customStart.
-	void Dispatch(Gpu& gpu, const std::vector<uint32_t>& spirv, std::vector<HostBuffer*> buffers, uint32_t groups, uint32_t customStart = 33)
+	double Dispatch(Gpu& gpu, const std::vector<uint32_t>& spirv, std::vector<HostBuffer*> buffers, uint32_t groups, uint32_t customStart = 33)
 	{
 		VkShaderModuleCreateInfo moduleInfo{ VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 		moduleInfo.codeSize = spirv.size() * 4;
@@ -186,11 +192,25 @@ namespace
 		commandInfo.commandBufferCount = 1;
 		VkCommandBuffer commands;
 		Vk(vkAllocateCommandBuffers(gpu.Device, &commandInfo, &commands), "command buffer");
+		VkQueryPool queries = VK_NULL_HANDLE;
+		if (gpu.HasTimestamps)
+		{
+			VkQueryPoolCreateInfo queryInfo{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+			queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			queryInfo.queryCount = 2;
+			Vk(vkCreateQueryPool(gpu.Device, &queryInfo, nullptr, &queries), "timestamp queries");
+		}
 		VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 		vkBeginCommandBuffer(commands, &begin);
+		if (queries)
+			vkCmdResetQueryPool(commands, queries, 0, 2);
 		vkCmdBindPipeline(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
 		vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 1, 1, &set, 0, nullptr);
+		if (queries)
+			vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, queries, 0);
 		vkCmdDispatch(commands, groups, 1, 1);
+		if (queries)
+			vkCmdWriteTimestamp(commands, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, 1);
 		VkMemoryBarrier barrier{ VK_STRUCTURE_TYPE_MEMORY_BARRIER, nullptr, VK_ACCESS_SHADER_WRITE_BIT, VK_ACCESS_HOST_READ_BIT };
 		vkCmdPipelineBarrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
 		vkEndCommandBuffer(commands);
@@ -199,6 +219,14 @@ namespace
 		submit.pCommandBuffers = &commands;
 		Vk(vkQueueSubmit(gpu.Queue, 1, &submit, VK_NULL_HANDLE), "vkQueueSubmit");
 		Vk(vkQueueWaitIdle(gpu.Queue), "vkQueueWaitIdle");
+		double gpuMilliseconds = -1;
+		if (queries)
+		{
+			uint64_t ticks[2]{};
+			Vk(vkGetQueryPoolResults(gpu.Device, queries, 0, 2, sizeof(ticks), ticks, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT), "timestamp query results");
+			gpuMilliseconds = static_cast<double>(ticks[1] - ticks[0]) * gpu.TimestampPeriod * 1e-6;
+			vkDestroyQueryPool(gpu.Device, queries, nullptr);
+		}
 		vkDestroyCommandPool(gpu.Device, commandPool, nullptr);
 		vkDestroyDescriptorPool(gpu.Device, pool, nullptr);
 		vkDestroyPipeline(gpu.Device, pipeline, nullptr);
@@ -206,6 +234,7 @@ namespace
 		vkDestroyDescriptorSetLayout(gpu.Device, layout, nullptr);
 		vkDestroyDescriptorSetLayout(gpu.Device, empty, nullptr);
 		vkDestroyShaderModule(gpu.Device, module, nullptr);
+		return gpuMilliseconds;
 	}
 
 	std::vector<uint32_t> ReadSpirv(const char* path)
@@ -330,11 +359,12 @@ int main(int argc, char** argv)
 		Check(grid.Build(walls) == GeometryError::None, "visibility corner geometry invalid");
 		GeometryView view(grid);
 		Settings settings;
-		settings.ReflectionDepth = 0;
+		MaterialTable cornerMaterials = DefaultMaterials();
+		cornerMaterials[0].TransmissionLF = cornerMaterials[0].TransmissionHF = 0.001f;
 		SolveScratch scratch;
 		PreparedCandidates prepared;
 		const Position listener{1,0,-0.5f}, source{-1,0,-0.5f};
-		Check(PrepareCandidates(view, {}, DefaultMaterials(), settings, listener, source, 0, scratch, prepared) == EvaluationError::None &&
+		Check(PrepareCandidates(view, {}, cornerMaterials, settings, listener, source, 0, scratch, prepared) == EvaluationError::None &&
 			!prepared.Openings.empty(), "visibility corner has no opening candidates");
 		std::vector<Position> points{listener};
 		for (const auto& opening : prepared.Openings)
@@ -364,8 +394,11 @@ int main(int argc, char** argv)
 		block.SegmentCount = static_cast<uint32_t>(segments.size());
 		request.Write(&block, sizeof(block));
 		input.Write(segments.data(), segments.size() * sizeof(FlatVisibilitySegment));
-		Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
-			(block.SegmentCount + 63) / 64, 35);
+		std::array<double, 3> visibilityTimes{};
+		for (double& milliseconds : visibilityTimes)
+			milliseconds = Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
+				(block.SegmentCount + 63) / 64, 35);
+		std::sort(visibilityTimes.begin(), visibilityTimes.end());
 		const auto* visible = static_cast<const uint32_t*>(output.Mapped);
 		std::vector<RayHit> hits;
 		uint32_t different = 0, blocked = 0;
@@ -383,8 +416,28 @@ int main(int argc, char** argv)
 				++different;
 			}
 		}
-		std::cout << "corner visibility: " << segments.size() << " pairs, " << blocked << " blocked, " << different << " different\n";
+		std::cout << "corner visibility: " << segments.size() << " pairs, " << blocked << " blocked, " << different
+			<< " different, " << visibilityTimes[1] << " median GPU ms across three dispatches (-1: timestamps unavailable)\n";
 		Check(different == 0, "GPU corner visibility differs from CPU trace");
+		SolveResult cpu, gpuReduced;
+		Check(Solve(view, {}, cornerMaterials, settings, listener, source, 0, scratch, cpu) == EvaluationError::None,
+			"CPU corner propagation solve failed");
+		const std::span<const uint32_t> gpuMatrix(visible, segments.size());
+		const auto reducedError = ReduceOpeningVisibility(view, {}, cornerMaterials, settings, listener, source, 0,
+			prepared, gpuMatrix, scratch, gpuReduced);
+		if (reducedError != EvaluationError::None || !gpuReduced.HasAudibleOpening)
+			std::cerr << "reducer error=" << static_cast<int>(reducedError) << " work=" << gpuReduced.Diagnostics.Work
+				<< " prepared=" << prepared.Diagnostics.Work << " openings=" << prepared.Openings.size()
+				<< " cpu gain=" << cpu.OcclusionGainLF << " gpu gain=" << gpuReduced.OcclusionGainLF << '\n';
+		Check(reducedError == EvaluationError::None && gpuReduced.HasAudibleOpening,
+			"GPU visibility did not produce an audible corner route");
+		const double lowGap = DecibelGap(gpuReduced.OcclusionGainLF, cpu.OcclusionGainLF);
+		const double highGap = DecibelGap(gpuReduced.OcclusionGainHF, cpu.OcclusionGainHF);
+		std::cout << "corner source gain: LF " << lowGap << " dB, HF " << highGap << " dB from CPU\n";
+		Check(lowGap <= 0.5 && highGap <= 0.5 &&
+			gpuReduced.Diagnostics.ReflectionPaths == cpu.Diagnostics.ReflectionPaths &&
+			gpuReduced.Diagnostics.OpeningPaths == cpu.Diagnostics.OpeningPaths,
+			"GPU visibility corner gain or path count outside the CPU reference gate");
 	}
 	// Analytic portal boxes also block visibility when their captured triangles are absent.
 	{

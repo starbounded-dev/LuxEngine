@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <format>
 
 namespace Lux
@@ -41,8 +42,19 @@ namespace Lux
 			error = "Soundwave reverb stalled: its GPU measurement never returned";
 			return SceneAudioVerificationStatus::Failed;
 		}
+		const bool requireGpuSource = []
+		{
+			const char* value = std::getenv("LUX_VERIFY_GPU_SOURCE");
+			return value && value[0] == '1' && value[1] == '\0';
+		}();
+		if (requireGpuSource && stats.SourceVisibilityGpuFailed)
+		{
+			error = "Soundwave GPU source visibility failed and fell back to the CPU";
+			return SceneAudioVerificationStatus::Failed;
+		}
 		// The listener reverb lands a few frames after geometry (GPU readback or CPU job).
-		if (!stats.Ready || !stats.ReverbMeasurements || !kernel.GetReverb())
+		if (!stats.Ready || !stats.ReverbMeasurements || !kernel.GetReverb() ||
+			(requireGpuSource && !stats.SourceVisibilityBatches))
 			return SceneAudioVerificationStatus::Pending;
 		if (!stats.Evaluations)
 		{
@@ -53,6 +65,9 @@ namespace Lux
 		out << Yaml::BeginMap << Yaml::Key << "Backend" << Yaml::Value << "Soundwave";
 		out << Yaml::Key << "ReverbOn" << Yaml::Value << (stats.ReverbOnGpu ? "GPU" : "CPU");
 		out << Yaml::Key << "ReverbMeasurements" << Yaml::Value << stats.ReverbMeasurements;
+		out << Yaml::Key << "SourceVisibilityOn" << Yaml::Value << (stats.SourceVisibilityOnGpu ? "GPU" : "CPU");
+		out << Yaml::Key << "SourceVisibilityBatches" << Yaml::Value << stats.SourceVisibilityBatches;
+		out << Yaml::Key << "SourceVisibilityGpuFailed" << Yaml::Value << stats.SourceVisibilityGpuFailed;
 		// Audio budget evidence from the last 4 Hz sample. A session over budget also logs
 		// "Soundwave acoustics (ms) budget exceeded" once.
 		const AudioPerformanceStats& performance = AudioPerformance::GetStats();

@@ -121,6 +121,14 @@ namespace Lux::Soundwave
 	[[nodiscard]] EvaluationError PrepareCandidates(const GeometryView& geometry, std::span<const PortalBox> portals,
 		const MaterialTable& materials, const Settings& settings, Position listener,
 		Position source, std::uint64_t sourceInstance, SolveScratch& scratch, PreparedCandidates& output);
+	// Complete the bounded opening search from row-major GPU/CPU visibility statuses over
+	// [listener, prepared openings..., source]. Status 0 is clear, 1 blocked, 2 invalid.
+	// The direct measurement and candidate snapshot must belong to these inputs; callers keep
+	// their immutable geometry/portal snapshot alive until this reduction completes.
+	[[nodiscard]] EvaluationError ReduceOpeningVisibility(const GeometryView& geometry, std::span<const PortalBox> portals,
+		const MaterialTable& materials, const Settings& settings, Position listener, Position source,
+		std::uint64_t sourceInstance, const PreparedCandidates& prepared, std::span<const std::uint32_t> visibility,
+		SolveScratch& scratch, SolveResult& output);
 
 	// CPU reference. Reflection paths feed the later echogram; visible edge routes can
 	// improve dry audibility. It never changes the direct-only measurement. Work/path

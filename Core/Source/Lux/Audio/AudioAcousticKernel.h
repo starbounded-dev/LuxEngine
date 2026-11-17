@@ -24,10 +24,16 @@ namespace Lux
 		bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
 			const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) override;
 		PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) override;
+		bool SupportsVisibility() const override { return m_VisibilityShader != nullptr; }
+		bool DispatchVisibility(const Ref<Geometry>& geometry, std::span<const Soundwave::FlatVisibilitySegment> segments,
+			std::span<const Soundwave::FlatPortal> portals) override;
+		PollResult PollVisibility(std::vector<std::uint32_t>& results) override;
 
 	private:
 		struct Readback;
+		struct VisibilityReadback;
 		bool Bind(const Ref<Geometry>& geometry, uint32_t rays);
+		bool BindVisibility(const Ref<Geometry>& geometry, uint32_t segments, uint32_t portals);
 		Ref<Shader> m_Shader;
 		Ref<PipelineCompute> m_Pipeline;
 		Ref<ComputePass> m_Pass;
@@ -37,5 +43,16 @@ namespace Lux
 		Ref<Readback> m_Readback;
 		uint32_t m_BoundRays = 0;
 		uint64_t m_Dispatch = 0;
+		Ref<Shader> m_VisibilityShader;
+		Ref<PipelineCompute> m_VisibilityPipeline;
+		Ref<ComputePass> m_VisibilityPass;
+		Ref<RenderCommandBuffer> m_VisibilityCommands;
+		Ref<StorageBuffer> m_VisibilityNodes, m_VisibilityOrder, m_VisibilityTriangles;
+		Ref<StorageBuffer> m_VisibilityRequest, m_VisibilitySegments, m_VisibilityPortals, m_VisibilityResults;
+		Ref<Geometry> m_VisibilityBound;
+		Ref<VisibilityReadback> m_VisibilityReadback;
+		uint32_t m_VisibilityCapacity = 0, m_VisibilityPortalCapacity = 0;
+		uint32_t m_VisibilityCount = 0;
+		uint64_t m_VisibilityDispatch = 0;
 	};
 }
