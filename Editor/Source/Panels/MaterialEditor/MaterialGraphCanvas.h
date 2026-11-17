@@ -92,8 +92,7 @@ namespace Lux {
 		uint32_t m_PaletteFromNode = 0;      // a link dragged into empty space: connect the new node to it
 		uint32_t m_PaletteFromPin = 0;
 		bool m_PaletteFromOutput = true;
-		char m_PaletteSearch[64] = {};
-		char m_FindSearch[64] = {};
+		std::vector<NodeCanvasCore::SearchItem> m_FindChoices;
 
 		std::vector<MaterialGraphNode> m_ClipboardNodes;
 		std::vector<MaterialGraphLink> m_ClipboardLinks;

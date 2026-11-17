@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "MaterialGraphDocument.h"
+
 #include "Lux/Asset/Asset.h"
 #include "Lux/Editor/EditorPanel.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -40,52 +42,12 @@ namespace Lux
 #endif
 
 	private:
-		// Every property the editor can change, so a whole edit can be captured, compared, undone,
-		// reverted and checked for unsaved changes in one place.
-		struct MaterialState
-		{
-			glm::vec3 AlbedoColor{ 1.0f };
-			float Metalness = 0.0f;
-			float Roughness = 0.5f;
-			float Emission = 0.0f;
-			float Transparency = 1.0f;
-			bool CastShadows = true;
-			bool UseNormalMap = false;
-			AssetHandle AlbedoMap = 0;
-			AssetHandle NormalMap = 0;
-			AssetHandle MetalnessMap = 0;
-			AssetHandle RoughnessMap = 0;
-			MaterialSurfaceParameters Surface;
-			int32_t AcousticTag = -1;
-			AssetHandle Parent = 0;
-			std::set<std::string, std::less<>> Overrides;
-			std::map<std::string, MaterialGraphParameterValue, std::less<>> GraphParameters;
-
-			bool operator==(const MaterialState& other) const = default;
-
-			static MaterialState Capture(Ref<MaterialAsset> material);
-			void Apply(Ref<MaterialAsset> material) const;
-		};
-
-		struct Document
-		{
-			AssetHandle Handle = 0;
-			MaterialState Saved;          // state on disk (captured at open and on save)
-			MaterialState EditBaseline;   // state before the edit currently in progress
-			MaterialState Propagated;     // state last pushed to the material's instances
-			std::string SavedGraph;       // the graph on disk (MaterialGraphCanvas::Snapshot), empty without one
-			std::string SaveError;
-			std::string TabLabel;
-			std::string DisplayPath;
-			std::filesystem::path LabelPath;
-			bool EditInProgress = false;
-		};
+		using Document = MaterialGraphDocument;
+		using MaterialState = MaterialGraphDocument::MaterialState;
 
 		Document* GetActiveDocument();
 		void CloseDocument(size_t index);
-		bool SaveDocument(Document& document);
 		void RevertDocument(Document& document, Ref<MaterialAsset> material);
-		bool IsDirty(const Document& document) const;
 
 		void UI_Tabs();
 		void UI_Toolbar(Document& document, Ref<MaterialAsset> material);
@@ -97,7 +59,7 @@ namespace Lux
 		void TrackEdit(Document& document, Ref<MaterialAsset> material);
 
 	private:
-		std::vector<Document> m_Documents;
+		std::vector<Scope<Document>> m_Documents;
 		int m_ActiveDocument = -1;
 		bool m_SelectActiveTab = false;
 

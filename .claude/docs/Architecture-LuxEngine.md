@@ -423,8 +423,10 @@ Structurally:
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
   imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT). `Panels/NodeCanvas/NodeCanvasCore`
   owns the editor context, restores the previous current context after drawing, and provides
-  canvas styling, fit navigation and minimap drawing. The material canvas supplies its own
-  nodes and links, asset edits, undo, search and preview. All canvas work stays on the main thread.
+  canvas styling, fit navigation, minimap drawing, Find and Add Node popups, and shortcut dispatch.
+  The material canvas supplies its nodes, links, palette entries and clipboard data.
+  `GraphDocument` defines tab identity and save/discard operations. `MaterialGraphDocument` owns
+  the material's saved snapshot and dirty checks. All canvas work stays on the main thread.
 - Mesh vertex colours and the second UV set are `MeshSource::m_VertexAttributes` (empty, or one
   `VertexAttributes` per vertex), filled by `AssimpMeshImporter` when any mesh in the file has colour
   set 0 or UV set 1, written to asset packs under `MeshSourceFile::HasVertexAttributes` (between the

@@ -8,7 +8,6 @@
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Panels/ContentBrowserPanel.h"
 
-#include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/Application.h"
@@ -79,95 +78,8 @@ namespace Lux
 		}
 	}
 
-	namespace
-	{
-		std::string GraphSnapshot(const Ref<MaterialAsset>& material)
-		{
-			Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
-			return graph && !material->GetParent() ? MaterialGraphCanvas::Snapshot(*graph) : std::string();
-		}
-
-		void ApplyGraphSnapshot(AssetHandle handle, const std::string& snapshot)
-		{
-			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(handle))
-			{
-				if (material->GetParent())
-				{
-					if (Ref<MaterialAsset> parent =
-							AssetManager::GetAsset<MaterialAsset>(material->GetParent()))
-						material->InheritFrom(*parent);
-					MaterialGraphRegistry::Unregister(handle);
-					return;
-				}
-				if (snapshot.empty())
-				{
-					material->SetGraph(nullptr);
-					MaterialGraphRegistry::Unregister(handle);
-				}
-				else
-				{
-					Ref<MaterialGraph> graph = MaterialGraph::CreateDefault();
-					MaterialGraphCanvas::Restore(*graph, snapshot);
-					material->SetGraph(graph);
-					MaterialGraphRegistry::Register(handle);
-				}
-				material->MarkChanged();
-				// Instances share the parent's graph object: a replaced one leaves them on a graph nothing compiles.
-				MaterialAsset::PropagateToInstances(handle);
-				MaterialGraphRegistry::MarkDirty();
-			}
-		}
-	}
-
 	MaterialEditorPanel::MaterialEditorPanel() = default;
 	MaterialEditorPanel::~MaterialEditorPanel() = default;
-
-	// -- MaterialState ---------------------------------------------------------------------------
-
-	MaterialEditorPanel::MaterialState MaterialEditorPanel::MaterialState::Capture(Ref<MaterialAsset> material)
-	{
-		MaterialState state;
-		state.AlbedoColor = material->GetAlbedoColor();
-		state.Metalness = material->GetMetalness();
-		state.Roughness = material->GetRoughness();
-		state.Emission = material->GetEmission();
-		state.Transparency = material->GetTransparency();
-		state.CastShadows = material->IsShadowCasting();
-		state.UseNormalMap = material->IsUsingNormalMap();
-		state.AlbedoMap = material->GetAlbedoMapHandle();
-		state.NormalMap = material->GetNormalMapHandle();
-		state.MetalnessMap = material->GetMetalnessMapHandle();
-		state.RoughnessMap = material->GetRoughnessMapHandle();
-		state.Surface = material->GetSurfaceParameters();
-		state.AcousticTag = material->GetAcousticTag();
-		state.Parent = material->GetParent();
-		state.Overrides = material->GetOverrides();
-		state.GraphParameters = material->GetGraphParameters();
-		return state;
-	}
-
-	void MaterialEditorPanel::MaterialState::Apply(Ref<MaterialAsset> material) const
-	{
-		material->SetAlbedoColor(AlbedoColor);
-		material->SetMetalness(Metalness);
-		material->SetRoughness(Roughness);
-		material->SetEmission(Emission);
-		material->SetTransparency(Transparency);
-		material->SetShadowCasting(CastShadows);
-
-		if (AlbedoMap) material->SetAlbedoMap(AlbedoMap); else material->ClearAlbedoMap();
-		if (NormalMap) material->SetNormalMap(NormalMap); else material->ClearNormalMap();
-		if (MetalnessMap) material->SetMetalnessMap(MetalnessMap); else material->ClearMetalnessMap();
-		if (RoughnessMap) material->SetRoughnessMap(RoughnessMap); else material->ClearRoughnessMap();
-
-		// After the maps: assigning or clearing a normal map may change the flag.
-		material->SetUseNormalMap(UseNormalMap);
-		material->SetSurfaceParameters(Surface);
-		material->SetAcousticTag(AcousticTag);
-		material->SetParent(Parent);
-		material->SetOverrides(Overrides);
-		material->SetGraphParameters(GraphParameters);
-	}
 
 	// -- Documents -------------------------------------------------------------------------------
 
@@ -181,7 +93,7 @@ namespace Lux
 
 		for (size_t i = 0; i < m_Documents.size(); ++i)
 		{
-			if (m_Documents[i].Handle == handle)
+			if (m_Documents[i]->Handle == handle)
 			{
 				m_ActiveDocument = (int)i;
 				m_SelectActiveTab = true;
@@ -196,18 +108,8 @@ namespace Lux
 			return;
 		}
 
-		Document document;
-		document.Handle = handle;
-		document.Saved = MaterialState::Capture(material);
-		document.Propagated = document.Saved;
-		document.SavedGraph = GraphSnapshot(material);
-		document.TabLabel =
-			std::format("{}###material_tab_{}", GetMaterialName(handle), static_cast<uint64_t>(handle));
-		document.LabelPath = Project::GetEditorAssetManager()->GetMetadata(handle).FilePath;
-		const auto path = document.LabelPath.generic_u8string();
-		document.DisplayPath.assign(reinterpret_cast<const char*>(path.data()), path.size());
-		m_Documents.push_back(document);
-		m_ActiveDocument = (int)m_Documents.size() - 1;
+		m_Documents.push_back(CreateScope<Document>(material, Project::GetEditorAssetManager()->GetMetadata(handle).FilePath));
+		m_ActiveDocument = static_cast<int>(m_Documents.size()) - 1;
 		m_SelectActiveTab = true;
 	}
 
@@ -229,14 +131,14 @@ namespace Lux
 	{
 		if (m_ActiveDocument < 0 || m_ActiveDocument >= (int)m_Documents.size())
 			return nullptr;
-		return &m_Documents[m_ActiveDocument];
+		return m_Documents[m_ActiveDocument].get();
 	}
 
 	void MaterialEditorPanel::CloseDocument(size_t index)
 	{
 		if (index >= m_Documents.size())
 			return;
-		if (m_GraphCanvas && m_GraphCanvas->GetSourceMaterial() == m_Documents[index].Handle)
+		if (m_GraphCanvas && m_GraphCanvas->GetSourceMaterial() == m_Documents[index]->Handle)
 			m_GraphCanvas->StopPreview();
 
 		if (m_PendingCloseIndex == static_cast<int>(index))
@@ -251,34 +153,12 @@ namespace Lux
 		m_SelectActiveTab = true;
 	}
 
-	bool MaterialEditorPanel::SaveDocument(Document& document)
-	{
-		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle);
-		if (!material)
-		{
-			LUX_CORE_ERROR_TAG("Editor", "Material Editor: cannot save material {}: it is no longer loaded", (uint64_t)document.Handle);
-			document.SaveError = "The material is no longer loaded. Your unsaved document remains open.";
-			return false;
-		}
-
-		if (!AssetImporter::TrySerialize(material.As<Asset>()))
-		{
-			document.SaveError = "Could not write the material. Check that its folder is writable, then "
-								 "retry Save. Your changes remain available.";
-			return false;
-		}
-		document.Saved = MaterialState::Capture(material);
-		document.SavedGraph = GraphSnapshot(material);
-		document.SaveError.clear();
-		return true;
-	}
-
 	void MaterialEditorPanel::RevertDocument(Document& document, Ref<MaterialAsset> material)
 	{
 		const MaterialState beforeState = MaterialState::Capture(material);
-		const std::string before = GraphSnapshot(material);
+		const std::string before = MaterialGraphDocument::GraphSnapshot(material);
 		document.Saved.Apply(material);
-		ApplyGraphSnapshot(document.Handle, document.SavedGraph);
+		MaterialGraphDocument::ApplyGraphSnapshot(document.Handle, document.SavedGraph);
 		if (m_GraphCanvas)
 			m_GraphCanvas->StopPreview();
 		if (m_PushUndo && (!(beforeState == document.Saved) || before != document.SavedGraph))
@@ -291,7 +171,7 @@ namespace Lux
 				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
 				{
 					state.Apply(target);
-					ApplyGraphSnapshot(handle, graph);
+					MaterialGraphDocument::ApplyGraphSnapshot(handle, graph);
 					MaterialAsset::PropagateToInstances(handle);
 				}
 			};
@@ -302,12 +182,6 @@ namespace Lux
 		document.EditBaseline = MaterialState::Capture(material);
 		document.EditInProgress = false;
 		document.SaveError.clear();
-	}
-
-	bool MaterialEditorPanel::IsDirty(const Document& document) const
-	{
-		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle);
-		return material && (!(MaterialState::Capture(material) == document.Saved) || GraphSnapshot(material) != document.SavedGraph);
 	}
 
 	// Widgets change the material directly. The state before the first change is kept until no
@@ -411,7 +285,7 @@ namespace Lux
 		// Assets deleted while open: registry Get() would throw for them.
 		const AssetRegistry& registry = Project::GetEditorAssetManager()->GetAssetRegistry();
 		for (size_t i = m_Documents.size(); i-- > 0;)
-			if (!registry.Contains(m_Documents[i].Handle))
+			if (!registry.Contains(m_Documents[i]->Handle))
 				CloseDocument(i);
 
 		if (m_Documents.empty())
@@ -450,11 +324,11 @@ namespace Lux
 		m_Compact = !split.SideBySide;
 		if (m_KeyboardFocus && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
 			ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
-			SaveDocument(*document);
+			document->Save();
 		UI_Toolbar(*document, material);
 		{
 			ImGuiEx::ScopedColour color(ImGuiCol_Text, Colors::Theme::textCaption);
-			ImGui::TextWrapped("%s%s", IsDirty(*document) ? "Unsaved changes" : "Saved",
+			ImGui::TextWrapped("%s%s", document->IsDirty() ? "Unsaved changes" : "Saved",
 							   material->GetParent() ? "  |  Instance: inherited values with local overrides"
 													 : "");
 		}
@@ -542,19 +416,12 @@ namespace Lux
 		{
 			for (size_t i = 0; i < m_Documents.size(); ++i)
 			{
-				Document& document = m_Documents[i];
+				Document& document = *m_Documents[i];
 				const auto& metadata =
 					Project::GetEditorAssetManager()->GetAssetRegistry().Get(document.Handle);
-				if (document.LabelPath != metadata.FilePath)
-				{
-					document.LabelPath = metadata.FilePath;
-					const auto path = document.LabelPath.generic_u8string();
-					document.DisplayPath.assign(reinterpret_cast<const char*>(path.data()), path.size());
-					document.TabLabel = std::format("{}###material_tab_{}", GetMaterialName(document.Handle),
-													static_cast<uint64_t>(document.Handle));
-				}
+				document.RefreshLabel(metadata.FilePath);
 				bool open = true;
-				ImGuiTabItemFlags flags = IsDirty(document) ? ImGuiTabItemFlags_UnsavedDocument : ImGuiTabItemFlags_None;
+				ImGuiTabItemFlags flags = document.IsDirty() ? ImGuiTabItemFlags_UnsavedDocument : ImGuiTabItemFlags_None;
 				if (m_SelectActiveTab && (int)i == m_ActiveDocument)
 					flags |= ImGuiTabItemFlags_SetSelected;
 
@@ -579,7 +446,7 @@ namespace Lux
 
 		if (closeRequest >= 0)
 		{
-			if (IsDirty(m_Documents[closeRequest]))
+			if (m_Documents[closeRequest]->IsDirty())
 			{
 				m_PendingCloseIndex = closeRequest;
 				m_OpenCloseConfirm = true;
@@ -605,7 +472,7 @@ namespace Lux
 		const bool valid = m_PendingCloseIndex >= 0 && m_PendingCloseIndex < (int)m_Documents.size();
 		if (valid)
 		{
-			const Document& document = m_Documents[m_PendingCloseIndex];
+			const Document& document = *m_Documents[m_PendingCloseIndex];
 			ImGui::TextWrapped("Save changes to %s?", document.DisplayPath.c_str());
 			if (!document.SaveError.empty())
 				ImGuiEx::PanelMessage("Could not save material", document.SaveError.c_str(), true);
@@ -613,7 +480,7 @@ namespace Lux
 
 		if (ImGui::Button("Save") && valid)
 		{
-			if (SaveDocument(m_Documents[m_PendingCloseIndex]))
+			if (m_Documents[m_PendingCloseIndex]->Save())
 			{
 				CloseDocument(static_cast<size_t>(m_PendingCloseIndex));
 				ImGui::CloseCurrentPopup();
@@ -622,13 +489,7 @@ namespace Lux
 		ImGui::SameLine();
 		if (ImGui::Button("Discard") && valid)
 		{
-			Document& document = m_Documents[m_PendingCloseIndex];
-			if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(document.Handle))
-			{
-				document.Saved.Apply(material);
-				ApplyGraphSnapshot(document.Handle, document.SavedGraph);
-				MaterialAsset::PropagateToInstances(document.Handle);
-			}
+			m_Documents[m_PendingCloseIndex]->Discard();
 			CloseDocument((size_t)m_PendingCloseIndex);
 			m_PendingCloseIndex = -1;
 			ImGui::CloseCurrentPopup();
@@ -740,7 +601,7 @@ namespace Lux
 
 	void MaterialEditorPanel::UI_Toolbar(Document& document, Ref<MaterialAsset> material)
 	{
-		const bool dirty = IsDirty(document);
+		const bool dirty = document.IsDirty();
 		const bool ownsGraph = material->GetGraph() && !material->GetParent();
 		using ImGuiEx::PanelAction;
 		const PanelAction actions[] = {
@@ -765,7 +626,7 @@ namespace Lux
 		switch (static_cast<MaterialAction>(action))
 		{
 		case MaterialAction::Save:
-			SaveDocument(document);
+			document.Save();
 			break;
 		case MaterialAction::Revert:
 			RevertDocument(document, material);
@@ -791,11 +652,11 @@ namespace Lux
 		case MaterialAction::RemoveGraph:
 		{
 			const AssetHandle handle = document.Handle;
-			const std::string before = GraphSnapshot(material);
+			const std::string before = MaterialGraphDocument::GraphSnapshot(material);
 			const bool make = static_cast<MaterialAction>(action) == MaterialAction::MakeGraph;
 			const std::string after =
 				make ? MaterialGraphCanvas::Snapshot(*MaterialGraph::CreateDefault()) : std::string();
-			ApplyGraphSnapshot(handle, after);
+			MaterialGraphDocument::ApplyGraphSnapshot(handle, after);
 			if (m_GraphCanvas)
 				m_GraphCanvas->StopPreview();
 			m_ShowGraph = make;
@@ -803,8 +664,8 @@ namespace Lux
 			if (m_PushUndo)
 				m_PushUndo(
 					make ? "Make Graph Material" : "Remove Material Graph",
-					[handle, before]() { ApplyGraphSnapshot(handle, before); },
-					[handle, after]() { ApplyGraphSnapshot(handle, after); });
+					[handle, before]() { MaterialGraphDocument::ApplyGraphSnapshot(handle, before); },
+					[handle, after]() { MaterialGraphDocument::ApplyGraphSnapshot(handle, after); });
 			break;
 		}
 		}

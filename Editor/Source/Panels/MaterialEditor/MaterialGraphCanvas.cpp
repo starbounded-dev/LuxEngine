@@ -86,13 +86,6 @@ namespace Lux {
 			return type == "SampleTexture" || type == "NormalMap" || type == "Triplanar";
 		}
 
-		bool ContainsNoCase(std::string_view text, std::string_view query)
-		{
-			if (query.empty())
-				return true;
-			return Utils::String::ToLowerCopy(std::string(text)).find(Utils::String::ToLowerCopy(std::string(query))) != std::string::npos;
-		}
-
 		bool EditPinValue(const char* label, glm::vec4& value, MaterialGraphType type)
 		{
 			switch (type)
@@ -320,58 +313,25 @@ namespace Lux {
 			m_ShowMinimap = !m_ShowMinimap;
 		if (action == static_cast<int>(GraphAction::StopPreview))
 			StopPreview();
-		if (m_OpenFind)
+		if (m_OpenFind || NodeCanvasCore::IsSearchOpen(NodeCanvasCore::Search::Find))
 		{
-			ImGui::OpenPopup("Find node##material_graph");
+			m_FindChoices.clear();
+			m_FindChoices.reserve(graph.Nodes.size());
+			for (const MaterialGraphNode& node : graph.Nodes)
+			{
+				const auto* info = MaterialGraph::FindNodeInfo(node.Type);
+				const std::string_view name = info ? info->Name : std::string_view(node.Type);
+				const std::string_view label = node.Parameter.empty() ? name : std::string_view(node.Parameter);
+				m_FindChoices.push_back({ node.ID, label, name });
+			}
+			if (const uint32_t chosen = m_Canvas.DrawSearch(NodeCanvasCore::Search::Find, m_OpenFind, m_FindChoices, m_SelectedNode))
+			{
+				m_PendingSelect = chosen;
+				m_NavigateToSelection = true;
+				m_NarrowDetails = false;
+			}
 			m_OpenFind = false;
-		}
-		const float popupWidth =
-			std::min(ImGui::GetFontSize() * 26.0f, ImGui::GetWindowViewport()->WorkSize.x * 0.9f);
-		ImGui::SetNextWindowSize({popupWidth, 0.0f}, ImGuiCond_Appearing);
-		if (ImGui::BeginPopup("Find node##material_graph"))
-		{
-			if (ImGui::IsWindowAppearing())
-				ImGui::SetKeyboardFocusHere();
-			ImGui::SetNextItemWidth(-1.0f);
-			const bool enter =
-				ImGui::InputTextWithHint("##material_graph_find", "Find a node or parameter...", m_FindSearch,
-										 sizeof(m_FindSearch), ImGuiInputTextFlags_EnterReturnsTrue);
-			bool found = false;
-			bool selected = false;
-			if (ImGui::BeginChild("matches", {0.0f, ImGui::GetTextLineHeightWithSpacing() * 8.0f}))
-			{
-				for (const MaterialGraphNode& node : graph.Nodes)
-				{
-					const MaterialGraphNodeInfo* info = MaterialGraph::FindNodeInfo(node.Type);
-					if ((info && ContainsNoCase(info->Name, m_FindSearch)) ||
-						ContainsNoCase(node.Parameter, m_FindSearch))
-					{
-						found = true;
-						ImGuiEx::ScopedID id(static_cast<int>(node.ID));
-						const char* name = !node.Parameter.empty()
-											   ? node.Parameter.c_str()
-											   : (info ? info->Name.data() : node.Type.c_str());
-						if (ImGui::Selectable(name, m_SelectedNode == node.ID) || (enter && !selected))
-						{
-							m_PendingSelect = node.ID;
-							m_NavigateToSelection = true;
-							m_NarrowDetails = false;
-							selected = true;
-						}
-					}
-				}
-				if (!found)
-					ImGui::TextUnformatted("No matching nodes.");
-			}
-			ImGui::EndChild();
-			if (selected)
-			{
-				if (enter)
-					ImGui::SetKeyOwner(ImGuiKey_Enter, ImGui::GetID("graph_find_submit"),
-									   ImGuiInputFlags_LockThisFrame);
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
+			m_FindChoices.clear(); // Views into the graph are only valid until the next edit.
 		}
 
 		// Stats: what the graph costs.
@@ -580,18 +540,20 @@ namespace Lux {
 			ed::EndDelete();
 		}
 
-		if (ed::BeginShortcut())
+		switch (NodeCanvasCore::ReadClipboardAction())
 		{
-			if (ed::AcceptCopy())
+			case NodeCanvasCore::ClipboardAction::Copy:
 				CopySelection(graph);
-			if (ed::AcceptPaste())
+				break;
+			case NodeCanvasCore::ClipboardAction::Paste:
 				Paste(graph, ImGui::GetMousePos()); // canvas space while the editor is not suspended
-			if (ed::AcceptDuplicate())
-			{
+				break;
+			case NodeCanvasCore::ClipboardAction::Duplicate:
 				CopySelection(graph);
 				Paste(graph, ImVec2(-1.0f, -1.0f));
-			}
-			ed::EndShortcut();
+				break;
+			default:
+				break;
 		}
 
 		if (m_PendingSelect && graph.FindNode(m_PendingSelect))
@@ -688,26 +650,28 @@ namespace Lux {
 
 	void MaterialGraphCanvas::DrawPalette(MaterialGraph& graph)
 	{
-		if (m_OpenPalette)
-		{
-			ImGui::OpenPopup("Add Node##material_graph");
-			m_PaletteSearch[0] = '\0';
-			m_OpenPalette = false;
-		}
-
-		const ImVec2 work = ImGui::GetWindowViewport()->WorkSize;
-		const float width = std::min(ImGui::GetFontSize() * 23.0f, work.x * 0.9f);
-		ImGui::SetNextWindowSizeConstraints({std::min(width, ImGui::GetFontSize() * 16.0f), 0.0f},
-											{width, std::min(work.y * 0.8f, ImGui::GetFontSize() * 28.0f)});
-		if (!ImGui::BeginPopup("Add Node##material_graph"))
+		if (!m_OpenPalette && !NodeCanvasCore::IsSearchOpen(NodeCanvasCore::Search::Palette))
 			return;
 
-		if (ImGui::IsWindowAppearing())
-			ImGui::SetKeyboardFocusHere();
-		const bool enter = ImGui::InputTextWithHint("##palette_search", "Search nodes...", m_PaletteSearch, sizeof(m_PaletteSearch), ImGuiInputTextFlags_EnterReturnsTrue);
-		if (enter)
-			ImGui::SetKeyOwner(ImGuiKey_Enter, ImGui::GetID("graph_palette_submit"),
-							   ImGuiInputFlags_LockThisFrame);
+		const auto library = MaterialGraph::GetNodeLibrary();
+		static const auto choices = []
+		{
+			const auto nodes = MaterialGraph::GetNodeLibrary();
+			std::vector<NodeCanvasCore::SearchItem> items;
+			items.reserve(nodes.size() + 1);
+			for (uint32_t i = 0; i < nodes.size(); ++i)
+			{
+				const auto& node = nodes[i];
+				if (node.Type != "Output")
+					items.push_back({ i + 1, node.Name, {}, node.Category, node.Help });
+			}
+			items.push_back({ static_cast<uint32_t>(nodes.size() + 1), "Comment", {}, "Organize" });
+			return items;
+		}();
+		const uint32_t chosen = m_Canvas.DrawSearch(NodeCanvasCore::Search::Palette, m_OpenPalette, choices);
+		m_OpenPalette = false;
+		if (!chosen)
+			return;
 
 		auto place = [&](std::string_view type)
 		{
@@ -753,38 +717,7 @@ namespace Lux {
 			m_PendingSelect = id;
 		};
 
-		bool placed = false;
-		std::string_view category;
-		for (const MaterialGraphNodeInfo& info : MaterialGraph::GetNodeLibrary())
-		{
-			if (info.Type == "Output")
-				continue;
-			if (!ContainsNoCase(info.Name, m_PaletteSearch) && !ContainsNoCase(info.Category, m_PaletteSearch))
-				continue;
-			if (info.Category != category)
-			{
-				category = info.Category;
-				ImGui::SeparatorText(std::string(category).c_str());
-			}
-			if (ImGui::Selectable(std::string(info.Name).c_str()) || (enter && !placed))
-			{
-				place(info.Type);
-				placed = true;
-				ImGui::CloseCurrentPopup();
-			}
-			if (!info.Help.empty() && ImGui::IsItemHovered())
-				ImGui::SetTooltip("%s", std::string(info.Help).c_str());
-		}
-		if (ContainsNoCase("Comment", m_PaletteSearch))
-		{
-			ImGui::SeparatorText("Organize");
-			if (ImGui::Selectable("Comment") || (enter && !placed))
-			{
-				place("Comment");
-				ImGui::CloseCurrentPopup();
-			}
-		}
-		ImGui::EndPopup();
+		place(chosen <= library.size() ? library[chosen - 1].Type : "Comment");
 	}
 
 	void MaterialGraphCanvas::DrawInspector(const Ref<MaterialAsset>& material, MaterialGraph& graph)

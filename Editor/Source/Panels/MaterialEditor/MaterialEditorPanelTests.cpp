@@ -67,7 +67,7 @@ namespace Lux
 			Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(handle);
 			Document* document = panel.GetActiveDocument();
 			material->SetRoughness(0.73f);
-			Require(panel.IsDirty(*document) && panel.SaveDocument(*document) && !panel.IsDirty(*document),
+			Require(document->IsDirty() && document->Save() && !document->IsDirty(),
 					"A material edit did not save and clear its dirty state");
 			const auto saved = document->Saved;
 			auto manager = Project::GetEditorAssetManager();
@@ -76,11 +76,11 @@ namespace Lux
 			unavailable.FilePath = "missing-folder/Surface.lmat";
 			manager->SetMetadata(handle, unavailable);
 			material->SetRoughness(0.19f);
-			Require(!panel.SaveDocument(*document) && panel.IsDirty(*document) &&
+			Require(!document->Save() && document->IsDirty() &&
 						!document->SaveError.empty() && document->Saved == saved,
 					"A failed save cleared the dirty state, saved snapshot or feedback");
 			manager->SetMetadata(handle, metadata);
-			Require(panel.SaveDocument(*document) && document->SaveError.empty(),
+			Require(document->Save() && document->SaveError.empty(),
 					"Retry did not save the retained material");
 			Ref<Asset> loaded;
 			Require(MaterialSerializer{}.TryLoadData(metadata, loaded) &&
@@ -114,7 +114,7 @@ namespace Lux
 			const uint32_t value = graph->AddNode("Float", {100.0f, 40.0f})->ID;
 			Require(graph->Connect(value, 0, output, 1), "Cannot connect a graph value");
 			Require(!graph->CanConnect(output, 0, value, 0), "Invalid graph link was accepted");
-			Require(panel.SaveDocument(*document), "Graph material could not be saved");
+			Require(document->Save(), "Graph material could not be saved");
 			const std::string graphSaved = document->SavedGraph;
 			material->SetGraph(nullptr);
 			panel.RevertDocument(*document, material);
@@ -151,7 +151,7 @@ namespace Lux
 			MaterialEditorPanel instancePanel;
 			instancePanel.OpenMaterial(instanceHandle);
 			Document* instanceDocument = instancePanel.GetActiveDocument();
-			Require(instanceDocument && instancePanel.SaveDocument(*instanceDocument),
+			Require(instanceDocument && instanceDocument->Save(),
 					"Cannot save an instance");
 			instance->SetRoughness(0.82f);
 			instance->UpdateOverrides(*material);
@@ -194,7 +194,7 @@ namespace Lux
 						Require(!panel.m_Compact, "The material did not restore its wide composition");
 				}
 			}
-			Require(!panel.IsDirty(*document), "View-only graph resizing changed the asset");
+			Require(!document->IsDirty(), "View-only graph resizing changed the asset");
 			float fraction = 0.3f;
 			ImVec2 splitterPoint;
 			auto splitterFrame = [&](bool focus = false)

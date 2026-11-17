@@ -5,7 +5,9 @@
 
 #include <imgui/imgui.h>
 
+#include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace ax::NodeEditor { struct EditorContext; }
 
@@ -21,6 +23,18 @@ namespace Lux
 			ImVec2 Max;
 			ImU32 Color;
 		};
+
+		struct SearchItem
+		{
+			uint32_t ID;
+			std::string_view Label;
+			std::string_view Alias = {};
+			std::string_view Category = {};
+			std::string_view Help = {};
+		};
+
+		enum class Search { Find, Palette };
+		enum class ClipboardAction { None, Copy, Paste, Duplicate };
 
 		// The vendor stores a single current context. Restore the caller's binding when drawing ends.
 		class ContextScope
@@ -49,7 +63,14 @@ namespace Lux
 		void FitIfRequested();
 		void DrawMinimap(ImVec2 canvasMin, ImVec2 canvasMax, std::span<const MinimapRect> rects) const;
 
+		// Build document-specific choices only while the popup is requested or visible.
+		static bool IsSearchOpen(Search search);
+		uint32_t DrawSearch(Search search, bool open, std::span<const SearchItem> choices, uint32_t selected = 0);
+		static ClipboardAction ReadClipboardAction();
+
 	private:
+		char m_FindQuery[64] = {};
+		char m_PaletteQuery[64] = {};
 		ax::NodeEditor::EditorContext* m_Context = nullptr;
 		bool m_FitRequested = true;
 	};

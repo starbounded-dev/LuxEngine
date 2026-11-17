@@ -6,15 +6,34 @@
 
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/ImGui/PanelControls.h"
+
+#include <imgui/imgui_internal.h>
 
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <algorithm>
+#include <cctype>
+#include <string>
 
 namespace ed = ax::NodeEditor;
 
 namespace Lux
 {
+	namespace
+	{
+		const char* SearchPopup(NodeCanvasCore::Search search)
+		{
+			return search == NodeCanvasCore::Search::Palette ? "Add Node##node_canvas" : "Find node##node_canvas";
+		}
+
+		bool Matches(std::string_view text, std::string_view query)
+		{
+			return query.empty() || std::search(text.begin(), text.end(), query.begin(), query.end(),
+				[](unsigned char item, unsigned char letter) { return std::tolower(item) == std::tolower(letter); }) != text.end();
+		}
+	}
+
 	NodeCanvasCore::ContextScope::ContextScope(const NodeCanvasCore& canvas)
 		: m_Previous(ed::GetCurrentEditor())
 	{
@@ -39,11 +58,13 @@ namespace Lux
 
 	void NodeCanvasCore::Reset()
 	{
-		if (m_Context)
-			ed::DestroyEditor(m_Context);
 		ed::Config config;
 		config.SettingsFile = nullptr;
-		m_Context = ed::CreateEditor(&config);
+		auto* context = ed::CreateEditor(&config);
+		if (m_Context)
+			ed::DestroyEditor(m_Context);
+		m_Context = context;
+		m_FindQuery[0] = m_PaletteQuery[0] = '\0';
 		RequestFit();
 	}
 
@@ -67,6 +88,90 @@ namespace Lux
 			return;
 		ed::NavigateToContent(0.0f);
 		m_FitRequested = false;
+	}
+
+	bool NodeCanvasCore::IsSearchOpen(Search search)
+	{
+		return ImGui::IsPopupOpen(SearchPopup(search));
+	}
+
+	uint32_t NodeCanvasCore::DrawSearch(Search search, bool open, std::span<const SearchItem> choices, uint32_t selected)
+	{
+		const bool palette = search == Search::Palette;
+		auto& query = palette ? m_PaletteQuery : m_FindQuery;
+		const char* popup = SearchPopup(search);
+		if (open)
+		{
+			ImGui::OpenPopup(popup);
+			if (palette)
+				query[0] = '\0';
+		}
+
+		const float font = ImGui::GetFontSize();
+		const ImVec2 work = ImGui::GetWindowViewport()->WorkSize;
+		const float width = std::min(font * (palette ? 23.0f : 26.0f), work.x * 0.9f);
+		if (palette)
+			ImGui::SetNextWindowSizeConstraints({ std::min(font * 16.0f, width), 0.0f }, { width, std::min(font * 28.0f, work.y * 0.8f) });
+		else
+			ImGui::SetNextWindowSize({ width, 0.0f }, ImGuiCond_Appearing);
+		if (!ImGui::BeginPopup(popup))
+			return 0;
+
+		if (ImGui::IsWindowAppearing())
+			ImGui::SetKeyboardFocusHere();
+		if (!palette)
+			ImGui::SetNextItemWidth(-1.0f);
+		const bool enter = ImGui::InputTextWithHint("##query", palette ? "Search nodes..." : "Find a node or parameter...",
+			query, sizeof(query), ImGuiInputTextFlags_EnterReturnsTrue);
+
+		uint32_t result = 0;
+		const bool visible = palette || ImGui::BeginChild("matches", { 0.0f, ImGui::GetTextLineHeightWithSpacing() * 8.0f });
+		if (visible)
+		{
+			bool found = false;
+			std::string_view category;
+			for (const SearchItem& item : choices)
+			{
+				if (!Matches(item.Label, query) && !Matches(item.Alias, query) && !Matches(item.Category, query))
+					continue;
+				if (item.Category != category)
+				{
+					category = item.Category;
+					ImGui::SeparatorText(std::string(category).c_str());
+				}
+				found = true;
+				const ImGuiEx::ScopedID id(static_cast<int>(item.ID));
+				if (ImGuiEx::PanelListItem("##result", item.Label, selected == item.ID, item.Help) || (enter && !result))
+					result = item.ID;
+			}
+			if (!found && !palette)
+				ImGui::TextUnformatted("No matching nodes.");
+		}
+		if (!palette)
+			ImGui::EndChild();
+		if (result)
+		{
+			if (enter)
+				ImGui::SetKeyOwner(ImGuiKey_Enter, ImGui::GetID("search_submit"), ImGuiInputFlags_LockThisFrame);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+		return result;
+	}
+
+	NodeCanvasCore::ClipboardAction NodeCanvasCore::ReadClipboardAction()
+	{
+		if (!ed::BeginShortcut())
+			return ClipboardAction::None;
+		ClipboardAction action = ClipboardAction::None;
+		if (ed::AcceptCopy())
+			action = ClipboardAction::Copy;
+		else if (ed::AcceptPaste())
+			action = ClipboardAction::Paste;
+		else if (ed::AcceptDuplicate())
+			action = ClipboardAction::Duplicate;
+		ed::EndShortcut();
+		return action;
 	}
 
 	void NodeCanvasCore::DrawMinimap(ImVec2 canvasMin, ImVec2 canvasMax, std::span<const MinimapRect> rects) const
