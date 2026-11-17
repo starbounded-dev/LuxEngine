@@ -6,6 +6,8 @@
 
 #ifndef LUX_DIST
 #include "MaterialGraphCanvas.h"
+
+#include <imgui-node-editor/imgui_node_editor.h>
 #include "MaterialPreview.h"
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -161,6 +163,7 @@ namespace Lux
 			panel.m_ShowPreview = false; // Exercise composition without scheduling a GPU preview.
 			panel.m_ShowGraph = true;
 			bool open = true;
+			NodeCanvasCore otherCanvas;
 			auto frame = [&](float width)
 			{
 				ImGui::NewFrame();
@@ -169,7 +172,11 @@ namespace Lux
 				// rather than overwriting next-window data that the panel then replaces.
 				if (ImGui::FindWindowByName("Material Editor"))
 					ImGui::SetWindowSize("Material Editor", {width, 700.0f}, ImGuiCond_Always);
+				const NodeCanvasCore::ContextScope otherContext(otherCanvas);
+				auto* previousCanvas = ax::NodeEditor::GetCurrentEditor();
 				panel.OnImGuiRender(open);
+				Require(previousCanvas && ax::NodeEditor::GetCurrentEditor() == previousCanvas,
+					"Drawing the material graph changed another canvas context");
 				ImGui::Render();
 			};
 			for (float scale : {1.0f, 1.5f})

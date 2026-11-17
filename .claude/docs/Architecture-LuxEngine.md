@@ -421,7 +421,10 @@ Structurally:
   the run time never compiles and needs no function graphs. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
   instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
-  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
+  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT). `Panels/NodeCanvas/NodeCanvasCore`
+  owns the editor context, restores the previous current context after drawing, and provides
+  canvas styling, fit navigation and minimap drawing. The material canvas supplies its own
+  nodes and links, asset edits, undo, search and preview. All canvas work stays on the main thread.
 - Mesh vertex colours and the second UV set are `MeshSource::m_VertexAttributes` (empty, or one
   `VertexAttributes` per vertex), filled by `AssimpMeshImporter` when any mesh in the file has colour
   set 0 or UV set 1, written to asset packs under `MeshSourceFile::HasVertexAttributes` (between the

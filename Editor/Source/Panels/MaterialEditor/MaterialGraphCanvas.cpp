@@ -36,6 +36,7 @@ namespace Lux {
 		std::atomic<uint64_t> s_RestoreGeneration{ 0 };
 
 		constexpr uint64_t k_OutputPinBit = 0x8000;
+		constexpr ImVec2 k_NodeFootprint{ 160.0f, 80.0f };
 		enum class GraphAction
 		{
 			Add,
@@ -104,19 +105,12 @@ namespace Lux {
 		}
 	}
 
-	MaterialGraphCanvas::MaterialGraphCanvas()
-	{
-		ResetDocument();
-	}
+	MaterialGraphCanvas::MaterialGraphCanvas() = default;
 
 	void MaterialGraphCanvas::ResetDocument()
 	{
 		StopPreview();
-		if (m_Context)
-			ed::DestroyEditor(m_Context);
-		ed::Config config;
-		config.SettingsFile = nullptr; // node positions live in the graph
-		m_Context = ed::CreateEditor(&config);
+		m_Canvas.Reset();
 		m_Material = 0;
 		m_SeenGeneration = 0;
 		m_Placed.clear();
@@ -125,7 +119,6 @@ namespace Lux {
 		m_PaletteFromNode = m_PaletteFromPin = 0;
 		m_OpenPalette = m_OpenFind = m_NavigateToSelection = false;
 		m_PaletteAtCenter = false;
-		m_NavigateToContent = true;
 		m_Baseline.clear();
 		m_LastCode.clear();
 		m_ClipboardNodes.clear();
@@ -135,7 +128,6 @@ namespace Lux {
 	MaterialGraphCanvas::~MaterialGraphCanvas()
 	{
 		StopPreview();
-		ed::DestroyEditor(m_Context);
 	}
 
 	void MaterialGraphCanvas::StopPreview()
@@ -249,7 +241,7 @@ namespace Lux {
 			if (switched)
 			{
 				m_LastCode = graph->Compile().Body;
-				m_NavigateToContent = true;
+				m_Canvas.RequestFit();
 			}
 		}
 
@@ -310,7 +302,7 @@ namespace Lux {
 		}
 		if (action == static_cast<int>(GraphAction::Fit))
 		{
-			m_NavigateToContent = true;
+			m_Canvas.RequestFit();
 			m_NarrowDetails = false;
 		}
 		if (action == static_cast<int>(GraphAction::Find))
@@ -433,21 +425,9 @@ namespace Lux {
 		for (const MaterialGraph::Error& error : MaterialGraphRegistry::GetErrors(material->Handle))
 			errorNodes.insert(error.Node);
 
-		ed::SetCurrentEditor(m_Context);
-		ed::EnableShortcuts(!ImGui::GetIO().WantTextInput &&
-							!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
-		auto& nodeStyle = ed::GetStyle();
-		nodeStyle.Colors[ed::StyleColor_Bg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::backgroundDark);
-		nodeStyle.Colors[ed::StyleColor_NodeBg] = ImGui::ColorConvertU32ToFloat4(Colors::Theme::groupHeader);
-		nodeStyle.Colors[ed::StyleColor_NodeBorder] =
-			ImGui::ColorConvertU32ToFloat4(Colors::Theme::textDarker);
-		nodeStyle.Colors[ed::StyleColor_SelNodeBorder] =
-			ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-		nodeStyle.Colors[ed::StyleColor_SelLinkBorder] =
-			ImGui::ColorConvertU32ToFloat4(Colors::Theme::accent);
-		nodeStyle.NodePadding = ImVec4(ImGui::GetFontSize() * 0.6f, ImGui::GetFontSize() * 0.5f,
-									   ImGui::GetFontSize() * 0.6f, ImGui::GetFontSize() * 0.5f);
-		ed::Begin("MaterialGraph");
+		const NodeCanvasCore::ContextScope context(m_Canvas);
+		m_Canvas.Begin("MaterialGraph", !ImGui::GetIO().WantTextInput &&
+			!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
 
 		// Comments first, so nodes draw over them.
 		for (const MaterialGraphComment& comment : graph.Comments)
@@ -622,11 +602,8 @@ namespace Lux {
 		}
 		m_PendingSelect = 0;
 		m_NavigateToSelection = false;
-		if (m_NavigateToContent && !graph.Nodes.empty())
-		{
-			ed::NavigateToContent(0.0f);
-			m_NavigateToContent = false;
-		}
+		if (!graph.Nodes.empty())
+			m_Canvas.FitIfRequested();
 
 		// Popups and the context menu work in ImGui's screen space, so the editor is suspended.
 		ed::Suspend();
@@ -682,47 +659,31 @@ namespace Lux {
 		// Minimap over the canvas's bottom-right corner.
 		if (m_ShowMinimap)
 			DrawMinimap(graph, canvasMin, canvasMax);
-		ed::SetCurrentEditor(nullptr);
 	}
 
-	void MaterialGraphCanvas::DrawMinimap(MaterialGraph& graph, const ImVec2& canvasMin, const ImVec2& canvasMax)
+	void MaterialGraphCanvas::DrawMinimap(const MaterialGraph& graph, const ImVec2& canvasMin, const ImVec2& canvasMax)
 	{
 		if (graph.Nodes.empty())
 			return;
 
-		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		const float font = ImGui::GetFontSize();
-		const ImVec2 mapMax(canvasMax.x - font * 0.5f, canvasMax.y - font * 0.5f);
-		const ImVec2 mapMin(mapMax.x - font * 12.0f, mapMax.y - font * 8.0f);
-		if (mapMin.x < canvasMin.x || mapMin.y < canvasMin.y)
-			return;
-
-		drawList->AddRectFilled(mapMin, mapMax, Colors::Theme::backgroundPopup,
-								ImGui::GetStyle().FrameRounding);
-		glm::vec2 boundsMin(FLT_MAX), boundsMax(-FLT_MAX);
-		for (const MaterialGraphNode& node : graph.Nodes)
-		{
-			boundsMin = glm::min(boundsMin, node.Position);
-			boundsMax = glm::max(boundsMax, node.Position + glm::vec2(160.0f, 80.0f));
-		}
-		// What the canvas shows widens the box, so the view rectangle always fits.
-		const ImVec2 viewMin = ed::ScreenToCanvas(canvasMin);
-		const ImVec2 viewMax = ed::ScreenToCanvas(canvasMax);
-		boundsMin = glm::min(boundsMin, glm::vec2(viewMin.x, viewMin.y));
-		boundsMax = glm::max(boundsMax, glm::vec2(viewMax.x, viewMax.y));
-
-		const glm::vec2 extent = glm::max(boundsMax - boundsMin, glm::vec2(1.0f));
-		const float scale = std::min((mapMax.x - mapMin.x) / extent.x, (mapMax.y - mapMin.y) / extent.y);
-		auto map = [&](glm::vec2 p) { return ImVec2(mapMin.x + (p.x - boundsMin.x) * scale, mapMin.y + (p.y - boundsMin.y) * scale); };
+		m_MinimapRects.clear();
+		m_MinimapRects.reserve(graph.Comments.size() + graph.Nodes.size());
+		const ImU32 commentColor = ImGuiEx::ColourWithAlpha(Colors::Theme::muted, 0.47f);
 		for (const MaterialGraphComment& comment : graph.Comments)
-			drawList->AddRectFilled(map(comment.Position), map(comment.Position + comment.Size), IM_COL32(90, 90, 90, 120));
+		{
+			m_MinimapRects.push_back({ { comment.Position.x, comment.Position.y },
+				{ comment.Position.x + comment.Size.x, comment.Position.y + comment.Size.y }, commentColor });
+		}
 		for (const MaterialGraphNode& node : graph.Nodes)
 		{
 			const MaterialGraphNodeInfo* info = MaterialGraph::FindNodeInfo(node.Type);
-			const ImVec4 color = info ? CategoryColor(info->Category) : ImVec4(1.0f, 0.3f, 0.25f, 1.0f);
-			drawList->AddRectFilled(map(node.Position), map(node.Position + glm::vec2(160.0f, 80.0f)), ImGui::ColorConvertFloat4ToU32(ImVec4(color.x, color.y, color.z, node.ID == m_SelectedNode ? 1.0f : 0.6f)));
+			ImVec4 color = info ? CategoryColor(info->Category) : ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError);
+			color.w = node.ID == m_SelectedNode ? 1.0f : 0.6f;
+			m_MinimapRects.push_back({ { node.Position.x, node.Position.y },
+				{ node.Position.x + k_NodeFootprint.x, node.Position.y + k_NodeFootprint.y },
+				ImGui::ColorConvertFloat4ToU32(color) });
 		}
-		drawList->AddRect(map(glm::vec2(viewMin.x, viewMin.y)), map(glm::vec2(viewMax.x, viewMax.y)), IM_COL32(255, 255, 255, 160));
+		m_Canvas.DrawMinimap(canvasMin, canvasMax, m_MinimapRects);
 	}
 
 	void MaterialGraphCanvas::DrawPalette(MaterialGraph& graph)
@@ -995,7 +956,6 @@ namespace Lux {
 
 	void MaterialGraphCanvas::CopySelection(const MaterialGraph& graph)
 	{
-		ed::SetCurrentEditor(m_Context);
 		std::vector<ed::NodeId> selected(static_cast<size_t>(std::max(ed::GetSelectedObjectCount(), 0)));
 		const int count = selected.empty() ? 0 : ed::GetSelectedNodes(selected.data(), static_cast<int>(selected.size()));
 
