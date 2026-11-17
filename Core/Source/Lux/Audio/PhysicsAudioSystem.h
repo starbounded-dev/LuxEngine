@@ -29,6 +29,8 @@ namespace Lux
 		void Contact(const PhysicsAudioContact& contact, const AudioSurfaceTable& settings);
 		bool Footstep(UUID owner, const AudioEventRef& event, AcousticMaterial material,
 			const glm::vec3& position, float speed, float weight);
+		// Plays `event` once at `position` for `owner` (an animation event's sound): no surface or speed parameters.
+		bool OneShot(UUID owner, const AudioEventRef& event, const glm::vec3& position);
 		void Update(float timestep, bool paused, const AudioSurfaceTable& settings);
 		void Remove(UUID entity);
 		void Clear();

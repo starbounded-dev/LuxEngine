@@ -31,6 +31,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Static Mesh](components/static-mesh)
 - [Skeleton](components/skeleton)
 - [Animation Graph](components/animation-graph)
+- [Animation Events](components/animation-events)
 - [Camera](components/camera)
 - [Lights](components/lights)
 - [Physics](components/physics)

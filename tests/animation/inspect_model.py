@@ -42,8 +42,9 @@ def main():
     defines = [v for v in defines if v and "%" not in v and not v.startswith(("TRACY", "LUX_TRACK_MEMORY"))]
     sources = [ROOT / "tests/animation/ModelInspect.cpp"]
     sources += [core / "Source/Lux" / (v + ".cpp") for v in (
-        "Animation/Skeleton", "Animation/Animation", "Animation/Animator", "Animation/AnimationGraph", "Animation/AnimationPose", "Animation/SkinPalette", "Asset/SkeletalImporter",
+        "Animation/Skeleton", "Animation/Animation", "Animation/Animator", "Animation/AnimationGraph", "Animation/AnimationGraphYaml", "Animation/AnimationEvents", "Animation/AnimationPose", "Serialization/Yaml", "Animation/SkinPalette", "Asset/SkeletalImporter",
         "Serialization/FileStream", "Serialization/StreamReader", "Serialization/StreamWriter", "Core/UUID", "Core/Ref")]
+    sources.append(core / "vendor/rapidyaml/ryml.cpp")  # the YAML reader the graph and events files use
     assimp = core / "vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.lib"
     executable = output / "ModelInspect.exe"
     command = [compiler, "/nologo", "/std:c++20", "/EHsc", "/Zc:preprocessor", "/Zc:__cplusplus", "/Od", "/MDd", "/MP4", "/Gy", "/Gw",

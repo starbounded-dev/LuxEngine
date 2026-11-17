@@ -37,6 +37,7 @@
 namespace Lux {
 
 	class Entity;
+	struct FiredAnimationEvent;
 	class Framebuffer;
 	class Prefab;
 	class PhysicsScene2D;
@@ -352,6 +353,8 @@ namespace Lux {
 		// C# OnCollisionBegin/End (3D bodies and character controllers) and OnTriggerBegin/End.
 		void DispatchCollisionEvents();
 		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
+		// An animation event a playing clip fired: the entity's script (OnAnimationEvent) and its sound, if any.
+		void DispatchAnimationEvent(Entity entity, const FiredAnimationEvent& event);
 		std::vector<PhysicsContactEvent> m_CharacterContactEvents;
 		ContactPairTracker m_ScriptContacts;
 

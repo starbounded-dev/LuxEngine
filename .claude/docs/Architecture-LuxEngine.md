@@ -857,6 +857,18 @@ Rules:
   tested headless (`SkeletalImportTests.cpp`, `CheckGraph`); the YAML half by
   `RunAnimationGraphSelfTests`, run from the golden capture's self-test; the exported game by
   `run_export_rig.py --graph`. Blend trees, layers and the graph editor are not built.
+- **Clip events** (`Animation::GetEvents`, `.lanim` version 3: the compressed layout, then count, then per event
+  time, name, argument, Sound handle; versions 1 and 2 still load). They are authored in
+  `<model>.events.yaml` beside the model (`Animation/AnimationEvents.h`, `ApplyAnimationEvents`), which
+  `ImportSkeletonAndAnimations` reads and bakes into the clips, so extraction keeps them. `AdvanceAnimator`
+  fills `AnimatorState::FiredEvents` with the events the playhead passed (`CollectAnimationEvents`:
+  (before, after] forward, [after, before) backward, wraps in play order, the first advance includes time 0,
+  a held animator and a clip fading out fire nothing). `AdvanceAnimators` hands them to
+  `Scene::DispatchAnimationEvent` in running scenes only (never the editor preview): the entity's script
+  gets `Entity.OnAnimationEvent(name, argument)` through the `OnAnimationEventInternal` bridge (collision
+  hook rules, strings passed as `Coral::String`), and an event with a Sound plays through
+  `PhysicsAudioSystem::OneShot` at the entity's world position. `Scene::GetAssetList` collects event sounds
+  with the clip. Tested headless in `SkeletalImportTests.cpp` (`CheckEvents`) and by `run_export_rig.py`.
 - **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
   one invocation per vertex over four raw word buffers at `set = 1`, `binding = 40..43` (source
   `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing

@@ -7,6 +7,7 @@
 #include "lpch.h"
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "Lux/Animation/AnimationEvents.h"
 #include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Animator.h"
 #include "Lux/Animation/AnimationPose.h"
@@ -341,6 +342,109 @@ static void CheckGraph()
 	CHECK(!bad.Validate(&error));
 	AnimationGraph empty;
 	CHECK(!empty.Validate(&error));
+}
+
+// A4: events baked from the sidecar, carried by the v3 file, and fired in play order across loops and directions.
+static void CheckEvents(const std::filesystem::path& folder, const std::filesystem::path& out)
+{
+	Ref<Skeleton> skeleton;
+	std::vector<Ref<Animation>> clips;
+	CHECK(ImportSkeletonAndAnimations(folder / "LuxBiped.fbx", skeleton, clips)); // reads LuxBiped.events.yaml beside it
+	Ref<Animation> walk, idle;
+	for (const Ref<Animation>& clip : clips)
+	{
+		if (clip->GetName() == "LuxBiped|Walk") walk = clip;
+		if (clip->GetName() == "LuxBiped|Idle") idle = clip;
+	}
+	CHECK(walk && idle && skeleton);
+	if (!walk || !idle || !skeleton)
+		return;
+	CHECK(idle->GetEvents().empty()); // the sidecar names Walk and WalkForward only
+	CHECK(walk->GetEvents().size() == 2 && walk->GetEvents()[0].Name == "Footstep" && walk->GetEvents()[0].Argument == "left" && Near(walk->GetEvents()[1].Time, 0.75f));
+
+	// The v3 file carries the events; a raw (v1) file does not.
+	Ref<Animation> back;
+	CHECK(Load(back, Save(walk, out / "events.lanim")));
+	if (back)
+	{
+		CHECK(back->GetEvents().size() == 2 && back->GetEvents()[1].Argument == "right" && Near(back->GetEvents()[0].Time, 0.25f));
+	}
+	{
+		FileStreamWriter writer(out / "events_raw.lanim");
+		walk->SerializeRaw(&writer);
+	}
+	Ref<Animation> raw;
+	CHECK(Load(raw, out / "events_raw.lanim") && raw->GetEvents().empty());
+
+	// Truncated or disordered event data is refused.
+	const uint64_t size = std::filesystem::file_size(out / "events.lanim");
+	std::filesystem::copy_file(out / "events.lanim", out / "events_cut.lanim", std::filesystem::copy_options::overwrite_existing);
+	std::filesystem::resize_file(out / "events_cut.lanim", size - 3);
+	Ref<Animation> cut;
+	CHECK(!Load(cut, out / "events_cut.lanim"));
+	Ref<Animation> unordered = Ref<Animation>::Create();
+	unordered->SetDuration(1.0f);
+	std::vector<AnimationEvent> events = { { 0.5f, "A", "", 0 }, { 0.2f, "B", "", 0 } };
+	unordered->SetEvents(events); // sorts, so the file is valid
+	CHECK(unordered->GetEvents()[0].Name == "B");
+	Ref<Animation> sortedBack;
+	CHECK(Load(sortedBack, Save(unordered, out / "sorted.lanim")) && sortedBack->GetEvents()[0].Name == "B");
+
+	// What the playhead passes: forward, backward, wrapping, and the first advance.
+	Ref<Animation> probe = Ref<Animation>::Create();
+	probe->SetDuration(1.0f);
+	probe->SetEvents({ { 0.0f, "Start", "", 0 }, { 0.25f, "Q", "", 0 }, { 0.5f, "H", "", 0 }, { 1.0f, "End", "", 0 } });
+	const auto names = [&](float before, float after, int wrapped, bool includeStart)
+	{
+		std::vector<FiredAnimationEvent> fired;
+		CollectAnimationEvents(*probe, before, after, wrapped, includeStart, fired);
+		std::string joined;
+		for (const FiredAnimationEvent& event : fired)
+			joined += event.Name + ",";
+		return joined;
+	};
+	CHECK(names(0.1f, 0.3f, 0, false) == "Q,");
+	CHECK(names(0.25f, 0.5f, 0, false) == "H,");          // (before, after]: Q was already passed at 0.25
+	CHECK(names(0.0f, 0.1f, 0, true) == "Start,");        // the first advance takes the event at 0
+	CHECK(names(0.0f, 0.1f, 0, false).empty());
+	CHECK(names(0.9f, 0.1f, 1, false) == "End,Start,");   // a loop wrap: the end, then the start
+	CHECK(names(0.3f, 0.1f, 0, false) == "Q,");           // backward [after, before) passes Q going down
+	CHECK(names(0.1f, 0.9f, -1, false) == "Start,End,");  // a backward wrap: down through the start, then from the end
+	CHECK(names(0.5f, 0.5f, 0, false).empty());           // no movement, nothing fires
+
+	// Through the animator: a 1 s walk at 60 Hz over 2.5 loops fires each footstep once per pass, alternating feet.
+	AnimatorSettings settings;
+	AnimatorState state;
+	ResetAnimator(state, 0.0f, true);
+	std::string sequence;
+	for (int i = 0; i < 150; i++)
+	{
+		AdvanceAnimator(state, settings, *skeleton, *walk, 1, nullptr, 1.0f / 60.0f);
+		for (const FiredAnimationEvent& event : state.FiredEvents)
+			sequence += event.Argument[0];
+	}
+	CHECK(sequence == "lrlrl"); // 0.25 l, 0.75 r, 1.25 l, 1.75 r, 2.25 l
+	AnimatorState held;
+	ResetAnimator(held, 0.0f, false);
+	AdvanceAnimator(held, settings, *skeleton, *walk, 1, nullptr, 1.0f);
+	CHECK(held.FiredEvents.empty()); // not playing: nothing fires
+
+	// The sidecar parser: unknown clips and late events are reported, bad files change nothing.
+	std::vector<std::string> warnings;
+	CHECK(ApplyAnimationEvents("AnimationEvents:\n  Version: 1\n  Clips:\n    - Clip: Ghost\n      Events:\n        - {Time: 0.1, Name: X}\n    - Clip: Idle\n      Events:\n        - {Time: 99, Name: Late}\n        - {Time: 0.5, Name: Ok, Sound: 77}\n", clips, &warnings));
+	CHECK(warnings.size() == 2);
+	CHECK(idle->GetEvents().size() == 1 && idle->GetEvents()[0].Name == "Ok" && idle->GetEvents()[0].Sound == 77);
+	CHECK(!ApplyAnimationEvents("AnimationEvents:\n  Version: 7\n", clips));
+	CHECK(!ApplyAnimationEvents("AnimationEvents:\n  Version: 1\n  Clips:\n    - Clip: Idle\n      Events:\n        - {Time: 0.5}\n", clips));
+	CHECK(!ApplyAnimationEvents("AnimationEvents:\n  Version: 1\n  Clips:\n    - Clip: Idle\n      Events:\n        - {Time: -1, Name: X}\n", clips));
+	CHECK(!ApplyAnimationEvents("nonsense: [", clips));
+	CHECK(idle->GetEvents().size() == 1); // the failed files changed nothing
+
+	// The graph's YAML form (reader compiled in for these tests).
+	std::vector<std::string> graphFailures;
+	CHECK(RunAnimationGraphSelfTests(&graphFailures));
+	for (const std::string& failure : graphFailures)
+		std::cerr << failure << std::endl;
 }
 
 static glm::vec3 Horizontal3(const glm::vec3& v) { return { v.x, 0.0f, v.z }; }
@@ -723,6 +827,7 @@ int main(int argc, char** argv)
 	CheckPlayback();
 	CheckAnimator(model.parent_path());
 	CheckGraph();
+	CheckEvents(model.parent_path(), out);
 	CheckCompression(model.parent_path(), out);
 
 	// A file that cannot be read reports failure and produces nothing.

@@ -110,6 +110,15 @@ public void RemoveComponent<T>() where T : Component, new()
 Removes the entity's component of type `T`, if it has one.
 
 ```
+protected virtual void OnAnimationEvent(string name, string argument)
+```
+
+Called when a playing animation clip passes one of its events (a footstep, a hit frame). Events are authored in the model's `.events.yaml` file and travel with the clip.
+
+- `name`: The event's name.
+- `argument`: The event's free-text argument, empty when it has none.
+
+```
 protected virtual void OnCollisionBegin(Entity other)
 ```
 

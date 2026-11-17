@@ -26,6 +26,58 @@ namespace Lux
 		state.Time = startTime;
 	}
 
+	void CollectAnimationEvents(const Animation& clip, float before, float after, int wrapped, bool includeStart, std::vector<FiredAnimationEvent>& out)
+	{
+		const std::vector<AnimationEvent>& events = clip.GetEvents();
+		if (events.empty())
+			return;
+		const float duration = clip.GetDuration();
+		const auto fire = [&](const AnimationEvent& event) { out.push_back({ event.Name, event.Argument, event.Sound }); };
+		const bool forward = wrapped > 0 || (wrapped == 0 && after >= before);
+		if (forward)
+		{
+			// (a, b] in play order; the first advance also takes an event exactly at its start.
+			const auto span = [&](float a, float b, bool inclusiveA)
+			{
+				for (const AnimationEvent& event : events)
+				{
+					if ((event.Time > a || (inclusiveA && event.Time >= a)) && event.Time <= b)
+						fire(event);
+				}
+			};
+			if (wrapped > 0)
+			{
+				span(before, duration, false);
+				span(0.0f, after, true);
+			}
+			else
+			{
+				span(before, after, includeStart);
+			}
+		}
+		else
+		{
+			// [a, b) played from the end backwards.
+			const auto span = [&](float a, float b, bool inclusiveB)
+			{
+				for (auto it = events.rbegin(); it != events.rend(); ++it)
+				{
+					if (it->Time >= a && (it->Time < b || (inclusiveB && it->Time <= b)))
+						fire(*it);
+				}
+			};
+			if (wrapped < 0)
+			{
+				span(0.0f, before, false);
+				span(after, duration, true);
+			}
+			else
+			{
+				span(after, before, includeStart);
+			}
+		}
+	}
+
 	void StartCrossFade(AnimatorState& state, AssetHandle fromClip, float seconds)
 	{
 		state.FadeFromClip = seconds > 0.0f ? fromClip : AssetHandle(0);
@@ -34,6 +86,7 @@ namespace Lux
 		state.FadeDuration = seconds;
 		state.Time = 0.0f;
 		state.OffsetValid = false;
+		state.EventsStarted = false; // the new clip's events at time 0 fire on its first advance
 	}
 
 	uint32_t FindRootMotionBone(const Skeleton& skeleton, const Animation& clip)
@@ -69,6 +122,7 @@ namespace Lux
 		const bool seed = state.ModelPose.empty();
 
 		// Advance time and the fade.
+		state.FiredEvents.clear();
 		float travelAdjust = 0.0f; // +1 after a forward loop wrap, -1 after a backward one
 		if (state.Playing && dt > 0.0f && duration > 0.0f)
 		{
@@ -86,6 +140,8 @@ namespace Lux
 			{
 				state.Time = std::clamp(state.Time, 0.0f, duration);
 			}
+			CollectAnimationEvents(clip, before, state.Time, static_cast<int>(travelAdjust), !state.EventsStarted, state.FiredEvents);
+			state.EventsStarted = true;
 			if (state.FadeDuration > 0.0f)
 			{
 				state.FadeElapsed += dt;

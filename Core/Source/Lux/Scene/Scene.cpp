@@ -858,7 +858,9 @@ namespace Lux {
 		// running scene, where an entity that carries its root motion is moved; the editor preview animates the
 		// pose only, so editing never moves or dirties an entity. `onlyMissingPose` evaluates just the components
 		// that have no pose yet (a frame that renders before any update has run). Main thread only (it writes components).
-		void AdvanceAnimators(entt::registry& registry, float ts, bool play, bool paused, bool onlyMissingPose = false)
+		using AnimationEventSink = std::function<void(entt::entity, const FiredAnimationEvent&)>;
+
+		void AdvanceAnimators(entt::registry& registry, float ts, bool play, bool paused, bool onlyMissingPose = false, const AnimationEventSink& onEvent = {})
 		{
 			auto skeletonView = registry.view<SkeletonComponent>();
 			for (auto entity : skeletonView)
@@ -928,6 +930,11 @@ namespace Lux {
 				Ref<Animation> fadeFrom = state.FadeFromClip ? AssetManager::GetAsset<Animation>(state.FadeFromClip) : nullptr;
 
 				const glm::vec3 travel = AdvanceAnimator(state, settings, *skeleton, *clip, clipHandle, fadeFrom.Raw(), paused ? 0.0f : ts);
+				if (onEvent)
+				{
+					for (const FiredAnimationEvent& event : state.FiredEvents)
+						onEvent(entity, event);
+				}
 				if (play && !paused && component.RootMotion)
 				{
 					if (TransformComponent* transform = registry.try_get<TransformComponent>(entity))
@@ -939,7 +946,7 @@ namespace Lux {
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
-		AdvanceAnimators(m_Registry, ts, true, m_IsPaused);
+		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
@@ -1151,7 +1158,7 @@ namespace Lux {
 
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
-		AdvanceAnimators(m_Registry, ts, true, m_IsPaused);
+		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -2483,6 +2490,34 @@ namespace Lux {
 		instance->second.Invoke(method, (uint64_t)other);
 	}
 
+	void Scene::DispatchAnimationEvent(Entity entity, const FiredAnimationEvent& event)
+	{
+		static thread_local std::unordered_set<std::string> reported; // one line per event name, not one per footstep
+		if (reported.insert(event.Name).second)
+			LUX_CORE_INFO("Animation: event '{}' ('{}')", event.Name, event.Argument);
+
+		if (event.Sound)
+		{
+			AudioEventRef sound;
+			sound.Sound = event.Sound;
+			if (sound.IsValid())
+				m_PhysicsAudio.OneShot(entity.GetUUID(), sound, glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]));
+		}
+
+		// Same rules as the collision hooks: an enabled, active, already created script.
+		const UUID entityID = entity.GetUUID();
+		const auto instance = m_ScriptInstances.find(entityID);
+		if (instance == m_ScriptInstances.end() || !entity.HasComponent<ScriptComponent>() || m_PendingScriptCreates.contains(entityID))
+			return;
+		if (!entity.GetComponent<ScriptComponent>().Enabled || IsInactive(entity))
+			return;
+		Coral::String name = Coral::String::New(event.Name);
+		Coral::String argument = Coral::String::New(event.Argument);
+		instance->second.Invoke("OnAnimationEventInternal", name, argument);
+		Coral::String::Free(name);
+		Coral::String::Free(argument);
+	}
+
 	// Same rules as OnUpdate: enabled, active, and already created (OnUpdate ran OnCreate this frame).
 	void Scene::InvokeScriptFixedUpdate(float fixedTimestep)
 	{
@@ -3738,7 +3773,11 @@ namespace Lux {
 				if (handle)
 				{
 					if (Ref<Animation> clip = AssetManager::GetAsset<Animation>(handle))
+					{
 						addIfValid(clip->GetSkeletonHandle());
+						for (const AnimationEvent& event : clip->GetEvents())
+							addIfValid(event.Sound); // an event's sound ships with the clip that plays it
+					}
 				}
 			};
 			addClip(skeleton.Clip);

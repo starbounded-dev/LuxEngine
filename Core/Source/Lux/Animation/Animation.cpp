@@ -14,6 +14,7 @@ namespace Lux
 		constexpr char k_Magic[4] = { 'L', 'Z', 'A', 'N' };
 		constexpr uint32_t k_VersionRaw = 1;        // every key as written by the importer
 		constexpr uint32_t k_VersionCompressed = 2; // reduced and quantized keys
+		constexpr uint32_t k_VersionEvents = 3;     // the compressed layout, then the clip's events
 
 		// Compression tolerances: a reduced channel stays within these of the original at every original key.
 		constexpr float k_RotationTolerance = 0.0009f;  // radians, about 0.05 degrees
@@ -301,8 +302,15 @@ namespace Lux
 		return total;
 	}
 
+	void Animation::SetEvents(std::vector<AnimationEvent> events)
+	{
+		std::stable_sort(events.begin(), events.end(), [](const AnimationEvent& a, const AnimationEvent& b) { return a.Time < b.Time; });
+		m_Events = std::move(events);
+	}
+
 	void Animation::Clear()
 	{
+		m_Events.clear();
 		m_Name.clear();
 		m_Duration = 0.0f;
 		m_SkeletonHandle = 0;
@@ -312,7 +320,7 @@ namespace Lux
 	void Animation::Serialize(StreamWriter* writer) const
 	{
 		writer->WriteData(k_Magic, sizeof(k_Magic));
-		writer->WriteRaw<uint32_t>(k_VersionCompressed);
+		writer->WriteRaw<uint32_t>(k_VersionEvents);
 		writer->WriteString(m_Name);
 		writer->WriteRaw<float>(m_Duration);
 		writer->WriteRaw<uint64_t>(static_cast<uint64_t>(m_SkeletonHandle));
@@ -323,6 +331,14 @@ namespace Lux
 			WriteVec3Channel(writer, track.Translations, m_Duration, k_TranslationTolerance);
 			WriteQuatChannel(writer, track.Rotations, m_Duration);
 			WriteVec3Channel(writer, track.Scales, m_Duration, k_ScaleTolerance);
+		}
+		writer->WriteRaw<uint32_t>(static_cast<uint32_t>(m_Events.size()));
+		for (const AnimationEvent& event : m_Events)
+		{
+			writer->WriteRaw<float>(event.Time);
+			writer->WriteString(event.Name);
+			writer->WriteString(event.Argument);
+			writer->WriteRaw<uint64_t>(static_cast<uint64_t>(event.Sound));
 		}
 	}
 
@@ -352,7 +368,7 @@ namespace Lux
 		uint64_t skeleton = 0;
 		uint32_t trackCount = 0;
 		if (!reader->ReadData(magic, sizeof(magic)) || memcmp(magic, k_Magic, sizeof(magic)) != 0
-			|| !reader->ReadRaw(version) || (version != k_VersionRaw && version != k_VersionCompressed)
+			|| !reader->ReadRaw(version) || (version != k_VersionRaw && version != k_VersionCompressed && version != k_VersionEvents)
 			|| !reader->ReadString(m_Name) || !reader->ReadRaw(m_Duration) || !(m_Duration >= 0.0f)
 			|| !reader->ReadRaw(skeleton) || !reader->ReadRaw(trackCount) || trackCount > MaxTracks)
 		{
@@ -364,7 +380,7 @@ namespace Lux
 		m_Tracks.resize(trackCount);
 		for (BoneTrack& track : m_Tracks)
 		{
-			const bool compressed = version == k_VersionCompressed;
+			const bool compressed = version != k_VersionRaw;
 			if (!reader->ReadRaw(track.BoneIndex)
 				|| !(compressed ? ReadVec3Channel(reader, track.Translations, m_Duration) : ReadKeys(reader, track.Translations, m_Duration))
 				|| !(compressed ? ReadQuatChannel(reader, track.Rotations, m_Duration) : ReadKeys(reader, track.Rotations, m_Duration))
@@ -372,6 +388,29 @@ namespace Lux
 			{
 				Clear();
 				return false;
+			}
+		}
+		if (version == k_VersionEvents)
+		{
+			uint32_t eventCount = 0;
+			if (!reader->ReadRaw(eventCount) || eventCount > MaxEvents)
+			{
+				Clear();
+				return false;
+			}
+			m_Events.resize(eventCount);
+			float previous = 0.0f;
+			for (AnimationEvent& event : m_Events)
+			{
+				uint64_t sound = 0;
+				if (!reader->ReadRaw(event.Time) || !reader->ReadString(event.Name) || !reader->ReadString(event.Argument) || !reader->ReadRaw(sound)
+					|| !(event.Time >= previous) || event.Time > m_Duration) // also rejects NaN
+				{
+					Clear();
+					return false;
+				}
+				previous = event.Time;
+				event.Sound = sound;
 			}
 		}
 		return true;

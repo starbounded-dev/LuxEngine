@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "SkeletalImporter.h"
 
+#include "Lux/Animation/AnimationEvents.h"
+
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -13,6 +15,8 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -243,6 +247,19 @@ namespace Lux
 			if (dropped > 0)
 				LUX_CORE_WARN("SkeletalImporter: animation '{}' in '{}' animates {} node(s) outside the skeleton; those tracks were dropped", clip->GetName(), path.filename().string(), dropped);
 			outClips.push_back(clip);
+		}
+
+		// Events live in `<model>.events.yaml` beside the model and are baked into the clips here.
+		const std::filesystem::path eventsPath = path.parent_path() / (path.stem().string() + ".events.yaml");
+		if (std::ifstream file(eventsPath, std::ios::binary); file)
+		{
+			const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+			std::vector<std::string> warnings;
+			if (ApplyAnimationEvents(text, outClips, &warnings))
+			{
+				for (const std::string& warning : warnings)
+					LUX_CORE_WARN("SkeletalImporter: '{}': {}", eventsPath.filename().string(), warning);
+			}
 		}
 
 		LUX_CORE_INFO("SkeletalImporter: '{}' - {} bones, {} animation(s)", path.filename().string(), outSkeleton->GetNumBones(), outClips.size());

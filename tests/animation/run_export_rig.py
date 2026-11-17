@@ -218,6 +218,8 @@ def main():
             problems.append("the player exited by itself before it was stopped")
         if "Skinning '" not in text:
             problems.append("the player never built a skinning pass (no \"Skinning '...'\" line): the skinned mesh or its skeleton did not reach the renderer")
+        if RIGS[args.rig][3] and not args.graph and "Animation: event 'Footstep'" not in text:
+            problems.append("the clip's events never fired (no \"Animation: event 'Footstep'\" line): the events did not survive the asset pack")
         if args.graph and "graph state 'Walk'" not in text:
             problems.append("the animation graph never moved to its Walk state (no \"graph state 'Walk'\" line): the graph or its clips did not load from the asset pack")
         if RIGS[args.rig][3] and "playing clip '" not in text:

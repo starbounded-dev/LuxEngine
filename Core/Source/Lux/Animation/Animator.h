@@ -22,6 +22,14 @@ namespace Lux
 		uint32_t RootBone = Skeleton::NullIndex;
 	};
 
+	// An animation event the playhead passed during the last advance.
+	struct FiredAnimationEvent
+	{
+		std::string Name;
+		std::string Argument;
+		AssetHandle Sound = 0;
+	};
+
 	// Everything playback changes while a scene runs. Runtime only: never serialized, rebuilt on every start.
 	struct AnimatorState
 	{
@@ -40,6 +48,11 @@ namespace Lux
 		float FadeElapsed = 0.0f;
 		float FadeDuration = 0.0f;
 
+		// Events of the current clip the playhead passed during the last advance, in playing order. Replaced by
+		// every advance, so the caller takes them straight after it. Events of a clip being faded out do not fire.
+		std::vector<FiredAnimationEvent> FiredEvents;
+		bool EventsStarted = false; // false until the first playing advance, which also fires events at time 0
+
 		// The pose the last advance evaluated: model-space transform of every skeleton bone. What the renderer's
 		// skin palette and "read bone transform" read; empty until the first advance.
 		std::vector<glm::mat4> ModelPose;
@@ -52,6 +65,12 @@ namespace Lux
 		glm::vec3 LastOffset = glm::vec3(0.0f);    // its offset from the start position at the last advance
 		bool OffsetValid = false;
 	};
+
+	// Appends to `out` the events of `clip` in the time the playhead covered going from `before` to `after`
+	// (seconds, both inside the clip): forward is (before, after], backward is [after, before). `wrapped` is +1
+	// when a forward loop wrapped past the end (the range is (before, duration] then [0, after]), -1 for a
+	// backward one, 0 otherwise. A first advance passes `includeStart` so an event at time 0 is not missed.
+	void CollectAnimationEvents(const Animation& clip, float before, float after, int wrapped, bool includeStart, std::vector<FiredAnimationEvent>& out);
 
 	// Starts a clip from `startTime`, playing or held there.
 	void ResetAnimator(AnimatorState& state, float startTime, bool playing);
