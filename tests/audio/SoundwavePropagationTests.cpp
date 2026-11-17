@@ -245,6 +245,29 @@ int main()
 		reflectedCpu.Diagnostics.ReflectionPaths == reflectedReduced.Diagnostics.ReflectionPaths &&
 		reflectedCpu.Diagnostics.OpeningPaths == reflectedReduced.Diagnostics.OpeningPaths,
 		"default-depth visibility reduction changed the source gain");
+	PreparedReflections hybridReflections;
+	Check(PrepareReflections(GeometryView(grid), materials, reflectedSettings, reflectedPrepared, scratch, hybridReflections) ==
+		EvaluationError::None, "hybrid reflection preparation failed");
+	std::vector<std::uint32_t> hybridVisibility;
+	for (const auto& candidate : hybridReflections.Paths)
+	{
+		const auto& path = candidate.Path;
+		std::vector<RayHit> hits;
+		for (std::uint32_t leg = 1; leg < path.PointCount; ++leg)
+		{
+			Check(grid.Trace(path.Points[leg - 1], path.Points[leg], 0, hits, kReflectionEndpointMargin),
+				"hybrid reflection visibility trace failed");
+			hybridVisibility.push_back(hits.empty() ? 0u : 1u);
+		}
+	}
+	SolveResult hybrid;
+	Check(ReduceOpeningVisibility(GeometryView(grid), {}, materials, reflectedSettings, {1,0,-0.5f}, {-1,0,-0.5f},
+		0, reflectedPrepared, {}, scratch, hybrid, &hybridReflections, hybridVisibility) == EvaluationError::None &&
+		hybrid.HasAudibleOpening && hybrid.OcclusionGainLF == reflectedCpu.OcclusionGainLF &&
+		hybrid.OcclusionGainHF == reflectedCpu.OcclusionGainHF && hybrid.Diagnostics.Work == reflectedCpu.Diagnostics.Work &&
+		hybrid.Diagnostics.ReflectionPaths == reflectedCpu.Diagnostics.ReflectionPaths &&
+		hybrid.Diagnostics.OpeningPaths == reflectedCpu.Diagnostics.OpeningPaths,
+		"CPU opening visibility with staged reflections changed path results");
 	// Preparation speculates before reflections. The staged solve must keep the same
 	// path results and exhaust the same work budget as the serial reference.
 	Settings tightSettings = reflectedSettings;

@@ -1581,8 +1581,9 @@ visibility rays along opening and reflection legs, and frame-retired readback. T
 replays reflection candidates in CPU reference order and charges rays up to the first blocked
 leg. It then uses the remaining work budget to search the opening graph. One batch is in flight and
 `AudioAcoustics::PollSolves` publishes it on main. Without a current flattened geometry, with
-oversized authored node budgets, or after a GPU stage failure, the complete `Solve` runs on a
-JobSystem worker. Debug validates GPU-derived LF/HF gains against that CPU reference within
+a GPU stage failure, or if no staged rays fit the batch, the complete `Solve` runs on a
+JobSystem worker. An oversized opening graph can use CPU visibility while its reflection rays
+stay on the GPU. Debug validates GPU-derived LF/HF gains against that CPU reference within
 0.5 dB. The listener reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
 `AudioAcousticKernel` (`Core/Source/Lux/Audio/`, renderer-side) and injected by
 `SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)

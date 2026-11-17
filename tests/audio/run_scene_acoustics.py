@@ -27,6 +27,7 @@ CASES = {
     "gpu-reflection": {"listener": [-1, 1, 0], "source": [1, 1, 0], "simple": True, "reflective": True, "clear": True},
     "gpu-caustic": {"listener": [-0.5, 1, 0], "source": [0.5, 1, 0], "simple": True, "reflective": True,
                     "caustic": True, "clear": True},
+    "gpu-sponza-hybrid": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "hybrid": True, "audible": True},
     "corner": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "audible": True},
     "doorway-open": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "audible": True},
     "doorway-closed": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "closed": True},
@@ -219,11 +220,11 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     if case.get("zone"):
         audio["AcousticMaterials"]["Default"].update({"AbsorptionLF": 0.05, "AbsorptionHF": 0.1})
     audio["Occlusion"] = {"Source": "Engine", "UpdateRateHz": 1, "CastBudget": 32, "Strength": 1,
-         "Kernel": {"Version": 1, "ReflectionDepth": 1 if case.get("reflective") else 0,
+         "Kernel": {"Version": 1, "ReflectionDepth": 1 if case.get("reflective") or case.get("hybrid") else 0,
                     "OpeningGridSize": 1 if case.get("direct") or case.get("reflective") else 8,
                     "CausticFocus": 1.0 if case.get("caustic") else 0.0,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
-                   "OpeningNodeBudget": 128 if gpu_source else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
+                   "OpeningNodeBudget": 128 if gpu_source and not case.get("hybrid") else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
     if case.get("zone"):
         audio["Occlusion"]["Kernel"].update({"EchogramWindowSeconds": 3.0, "EchogramSmoothingSeconds": 0.04})
     path = directory/"Acoustics.luxproj"
@@ -404,8 +405,9 @@ def main():
     try:
         for name in args.cases:
             case = CASES[name]
+            require_gpu = args.gpu_source or case.get("hybrid", False)
             fixture = make_fixture(run/name, name, case, project, demo, sample/"Assets", handles, args.runtime_config or args.config,
-                                   args.gpu_source)
+                                   require_gpu)
             label = run_id + "-" + name
             destination = run/name/"export"
             command = [sys.executable, str(ROOT/"tests/rendering/golden_run.py"), "--config", args.config, "--project", str(fixture),
@@ -414,7 +416,7 @@ def main():
             if args.export_runtime:
                 command += ["--export-dir", str(destination)]
             environment = dict(os.environ)
-            if args.gpu_source:
+            if require_gpu:
                 environment["LUX_VERIFY_GPU_SOURCE"] = "1"
             subprocess.run(command, cwd=ROOT, env=environment, check=True)
             capture = ROOT/"bin/golden"/label
@@ -422,14 +424,14 @@ def main():
             # golden_run already checked this run's final artifact timestamp once.
             summary = json.loads((capture/"summary.json").read_text(encoding="utf-8"))
             require(summary["runs"][0]["validationMessages"] == 0, "Native run reported Vulkan validation messages")
-            results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts, args.gpu_source)
+            results[name] = verify(yaml.safe_load(artifact.read_text(encoding="utf-8")), case, triangle_counts, require_gpu)
             results[name]["capture"] = str(capture)
             if "zone-stone" in results and "zone-corridor" in results:
                 require(results["zone-stone"]["ZoneSend"] > results["zone-corridor"]["ZoneSend"] + 0.05,
                         "Stone room and corridor zone sends sound alike")
             if args.export_runtime:
                 results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading,
-                                                          args.runtime_config or args.config, args.gpu_source)
+                                                          args.runtime_config or args.config, require_gpu)
             print(name + ": PASS " + json.dumps(results[name]), flush=True)
             (run/"results.json").write_text(json.dumps(results, indent=2)+"\n", encoding="utf-8")
     finally:

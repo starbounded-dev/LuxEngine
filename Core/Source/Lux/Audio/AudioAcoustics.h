@@ -185,7 +185,7 @@ namespace Lux
 				Soundwave::SolveResult Result;
 				Soundwave::PreparedCandidates Prepared;
 				Soundwave::PreparedReflections Reflections;
-				size_t VisibilityOffset = 0, VisibilityCount = 0;
+				size_t VisibilityOffset = 0, VisibilityCount = 0, OpeningVisibilityCount = 0;
 				Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 			};
 			std::atomic<bool> Done{ false };

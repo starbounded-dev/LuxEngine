@@ -115,7 +115,9 @@ all routes at default budgets or GPU parity.
 
 Fixtures live under `bin/soundwave-scene-tests/<unique-run>/` by default. Use `--output`
 with a short directory on Windows if the export destination would exceed the path limit. Native
-capture evidence lives under `bin/golden/<run>-<case>/`. The script copies the project/registry, scene, compiled script module
+capture evidence lives under `bin/golden/<run>-<case>/`. The `gpu-sponza-hybrid` case requires
+a completed GPU source batch with the full 2,048-node opening budget. The worker traces opening
+legs at this size while the GPU tests reflection legs. The script copies the project/registry, scene, compiled script module
 and Sponza/default model folders (the importer rewrites generated materials). Audio authoring
 files are copied too, excluding generated Build directories; the committed regression banks
 from `tests/audio/fixtures/banks` are copied into that fixture's Build/Desktop. Both desktop

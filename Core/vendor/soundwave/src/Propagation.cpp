@@ -738,7 +738,9 @@ namespace Lux::Soundwave
 			prepared.Openings.size() > settings.OpeningNodeBudget)
 			return EvaluationError::InvalidRay;
 		const std::size_t width = prepared.Openings.size() + 2;
-		if (visibility.size() != width * width || std::any_of(visibility.begin(), visibility.end(), [](auto status) { return status > 2; }) ||
+		const bool traceOpeningLegsOnCpu = visibility.empty() && reflections;
+		if ((!traceOpeningLegsOnCpu && visibility.size() != width * width) ||
+			std::any_of(visibility.begin(), visibility.end(), [](auto status) { return status > 2; }) ||
 			(reflections && !ValidReflectionVisibility(settings, *reflections, reflectionVisibility)))
 			return EvaluationError::NumericalFailure;
 		SolveResult next;

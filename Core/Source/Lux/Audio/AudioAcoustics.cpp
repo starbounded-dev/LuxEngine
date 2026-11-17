@@ -434,7 +434,8 @@ namespace Lux
 			job->Listener = listener;
 			const bool gpuReady = m_ReverbBackend && m_ReverbBackend->SupportsVisibility() && !m_SourceVisibilityGpuFailed &&
 				m_Flat && m_Flat->Generation == m_GeometryGeneration &&
-				job->Settings.OpeningNodeBudget <= kMaximumVisibilityNodesPerSource && job->Portals.size() <= 4096;
+				(job->Settings.OpeningNodeBudget <= kMaximumVisibilityNodesPerSource || job->Settings.ReflectionDepth > 0) &&
+				job->Portals.size() <= 4096;
 			if (gpuReady)
 			{
 				job->Current = SolveJob::Phase::Preparing;
@@ -466,16 +467,19 @@ namespace Lux
 								continue;
 
 							const size_t width = item.Prepared.Openings.size() + 2;
-							size_t count = width * width;
+							size_t reflectionSegments = 0;
 							for (const auto& reflection : item.Reflections.Paths)
-								count += reflection.Path.PointCount - 1;
-							if (width > kMaximumVisibilityNodesPerSource + 2 || count > kMaximumVisibilitySegments - job->Segments.size())
-							{
-								job->GpuSkipped = true;
-								break;
-							}
+								reflectionSegments += reflection.Path.PointCount - 1;
+							const size_t available = kMaximumVisibilitySegments - job->Segments.size();
+							const bool matrixFits = width <= kMaximumVisibilityNodesPerSource + 2 &&
+								width * width + reflectionSegments <= available;
+							job->GpuSkipped |= !matrixFits;
+							if (!matrixFits && (reflectionSegments == 0 || reflectionSegments > available))
+								continue;
+
 							item.VisibilityOffset = job->Segments.size();
-							item.VisibilityCount = count;
+							item.OpeningVisibilityCount = matrixFits ? width * width : 0;
+							item.VisibilityCount = item.OpeningVisibilityCount + reflectionSegments;
 							const auto source = static_cast<uint64_t>(item.Entity);
 							const auto append = [&](Soundwave::Position from, Soundwave::Position to, float margin)
 							{
@@ -491,15 +495,18 @@ namespace Lux
 								segment.MarginBits = std::bit_cast<uint32_t>(margin);
 								job->Segments.push_back(segment);
 							};
-							points.clear();
-							points.reserve(width);
-							points.push_back(job->Listener);
-							for (const auto& opening : item.Prepared.Openings)
-								points.push_back(opening.Point);
-							points.push_back(item.Position);
-							for (const auto& from : points)
-								for (const auto& to : points)
-									append(from, to, 0.0f);
+							if (matrixFits)
+							{
+								points.clear();
+								points.reserve(width);
+								points.push_back(job->Listener);
+								for (const auto& opening : item.Prepared.Openings)
+									points.push_back(opening.Point);
+								points.push_back(item.Position);
+								for (const auto& from : points)
+									for (const auto& to : points)
+										append(from, to, 0.0f);
+							}
 							for (const auto& reflection : item.Reflections.Paths)
 							{
 								const auto& path = reflection.Path;
@@ -604,13 +611,16 @@ namespace Lux
 			const Soundwave::GeometryView geometry(job->Snapshots[0]->Grid, &job->Snapshots[1]->Grid, job->Excluded);
 			for (auto& item : job->Items)
 			{
-				if (item.Error != Soundwave::EvaluationError::None)
-					continue;
 				try
 				{
+					if (item.VisibilityCount == 0)
+					{
+						item.Error = Soundwave::Solve(geometry, job->Portals, job->Materials, job->Settings, job->Listener,
+							item.Position, item.Entity, job->Scratch, item.Result);
+						continue;
+					}
 					const auto visibility = std::span<const uint32_t>(job->Visibility).subspan(item.VisibilityOffset, item.VisibilityCount);
-					const size_t width = item.Prepared.Openings.size() + 2;
-					const size_t openingResults = width * width;
+					const size_t openingResults = item.OpeningVisibilityCount;
 					item.Error = Soundwave::ReduceOpeningVisibility(geometry, job->Portals, job->Materials, job->Settings,
 						job->Listener, item.Position, item.Entity, item.Prepared, visibility.first(openingResults), job->Scratch,
 						item.Result, &item.Reflections, visibility.subspan(openingResults));
@@ -689,14 +699,14 @@ namespace Lux
 			return;
 		if (job->Current == SolveJob::Phase::Preparing)
 		{
-			if (job->GpuSkipped || job->Segments.empty())
+			if (job->GpuSkipped && !m_SourceVisibilityLimitReported)
+			{
+				LUX_CORE_WARN_TAG("Audio", "Soundwave traces oversized opening graphs or visibility batches on the CPU");
+				m_SourceVisibilityLimitReported = true;
+			}
+			if (!job->GpuFailed && job->Segments.empty())
 			{
 				m_SourceVisibilityOnGpu = false;
-				if (job->GpuSkipped && !m_SourceVisibilityLimitReported)
-				{
-					LUX_CORE_WARN_TAG("Audio", "Soundwave GPU visibility batch exceeds the {}-segment limit; using the CPU reference", kMaximumVisibilitySegments);
-					m_SourceVisibilityLimitReported = true;
-				}
 				SubmitCpuSolves(job);
 				return;
 			}

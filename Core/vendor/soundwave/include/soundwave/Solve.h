@@ -142,6 +142,7 @@ namespace Lux::Soundwave
 		const Settings& settings, const PreparedCandidates& prepared, SolveScratch& scratch, PreparedReflections& output);
 	// Optional reflection statuses are concatenated by candidate in Paths order, one per leg.
 	// With no reflection batch, the same reducer traces reflection legs on the CPU.
+	// A reflection batch with an empty opening matrix traces opening legs on the CPU.
 	// Complete the bounded opening search from row-major GPU/CPU visibility statuses over
 	// [listener, prepared openings..., source]. Status 0 is clear, 1 blocked, 2 invalid.
 	// Reduction honors the reference's remaining work budget after reflections.
