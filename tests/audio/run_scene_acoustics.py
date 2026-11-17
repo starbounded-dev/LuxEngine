@@ -314,6 +314,8 @@ def main():
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--threading", choices=("single", "multi"), default="multi")
     parser.add_argument("--gpu-source", action="store_true", help="require a completed GPU source-visibility batch")
+    parser.add_argument("--output", type=Path, default=ROOT/"bin/soundwave-scene-tests",
+                        help="Parent directory for fixtures, exports and results")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     sample = ROOT/"Editor/LuxSampleProject"
@@ -332,7 +334,7 @@ def main():
         triangle_counts[model] = sum(gltf["accessors"][primitive["indices"]]["count"]//3
                                      for mesh in gltf["meshes"] for primitive in mesh["primitives"])
     run_id = "sponza-acoustics-" + str(time.time_ns())
-    run = ROOT/"bin/soundwave-scene-tests"/run_id
+    run = args.output.resolve()/run_id
     run.mkdir(parents=True)
     results = {}
     try:
