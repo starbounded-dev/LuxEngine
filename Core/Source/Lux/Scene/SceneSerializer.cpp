@@ -10,6 +10,7 @@
 #include "Prefab.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Audio/AudioEventRefSerializer.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
@@ -34,7 +35,10 @@ namespace Lux {
 			if (materialTable)
 			{
 				for (const auto& [index, handle] : materialTable->GetMaterials())
-					out << Yaml::Key << index << Yaml::Value << handle;
+					{
+					out << Yaml::Key << index << Yaml::Value;
+					AssetReference::WriteValue(out, handle);
+				}
 			}
 			out << Yaml::EndMap;
 		}
@@ -49,7 +53,7 @@ namespace Lux {
 			for (auto material : materialTableNode)
 			{
 				const uint32_t index = material.first.as<uint32_t>();
-				const AssetHandle handle = material.second.as<AssetHandle>();
+				const AssetHandle handle = AssetReference::ReadValue(material.second);
 				materialTable->SetMaterial(index, handle);
 				materialCount = std::max(materialCount, index + 1);
 			}
@@ -96,7 +100,8 @@ namespace Lux {
 					case DataType::Vector3:    out << field.template GetValue<glm::vec3>(); break;
 					case DataType::Vector4:    out << field.template GetValue<glm::vec4>(); break;
 					case DataType::Bool:       out << (field.template GetValue<uint32_t>() != 0); break;
-					default:                   out << field.template GetValue<uint64_t>(); break; // Entity + asset-refs (UUID)
+					case DataType::Entity:     out << field.template GetValue<uint64_t>(); break;
+					default:                   AssetReference::WriteValue(out, AssetHandle(field.template GetValue<uint64_t>())); break; // asset-refs
 				}
 			}
 			out << Yaml::EndMap;
@@ -150,7 +155,8 @@ namespace Lux {
 					case DataType::Vector3: SetStoredFieldValue(field, dataNode.as<glm::vec3>(glm::vec3(0.0f))); break;
 					case DataType::Vector4: SetStoredFieldValue(field, dataNode.as<glm::vec4>(glm::vec4(0.0f))); break;
 					case DataType::Bool:    SetStoredFieldValue(field, uint32_t{ dataNode.as<bool>(false) ? 1u : 0u }); break;
-					default:                SetStoredFieldValue(field, dataNode.as<uint64_t>(0)); break; // Entity + asset-refs
+					case DataType::Entity:  SetStoredFieldValue(field, dataNode.as<uint64_t>(0)); break;
+					default:                SetStoredFieldValue(field, static_cast<uint64_t>(AssetReference::ReadValue(dataNode))); break; // asset-refs
 				}
 			}
 
@@ -259,7 +265,7 @@ namespace Lux {
 
 		static AssetHandle GetDeserializedStaticMeshHandle(const Yaml::Node& staticMesh, Entity entity)
 		{
-			AssetHandle handle = staticMesh["AssetID"].as<uint64_t>(0);
+			AssetHandle handle = AssetReference::ReadValue(staticMesh["AssetID"]);
 			if (!handle || !Project::GetAssetManager() || AssetManager::IsAssetHandleValid(handle))
 				return handle;
 
@@ -391,7 +397,8 @@ namespace Lux {
 			{
 				out << Yaml::Key << "MeshComponent";
 				out << Yaml::BeginMap;
-				out << Yaml::Key << "AssetID" << Yaml::Value << entity.GetComponent<MeshComponent>().Mesh;
+				out << Yaml::Key << "AssetID" << Yaml::Value;
+				AssetReference::WriteValue(out, entity.GetComponent<MeshComponent>().Mesh);
 				out << Yaml::EndMap;
 			}
 
@@ -408,7 +415,8 @@ namespace Lux {
 				const auto& submesh = entity.GetComponent<SubmeshComponent>();
 				out << Yaml::Key << "SubmeshComponent";
 				out << Yaml::BeginMap;
-				out << Yaml::Key << "AssetID" << Yaml::Value << submesh.Mesh;
+				out << Yaml::Key << "AssetID" << Yaml::Value;
+				AssetReference::WriteValue(out, submesh.Mesh);
 				out << Yaml::Key << "SubmeshIndex" << Yaml::Value << submesh.SubmeshIndex;
 				SerializeMaterialTable(out, submesh.MaterialTable);
 				out << Yaml::Key << "Visible" << Yaml::Value << submesh.Visible;
@@ -420,7 +428,8 @@ namespace Lux {
 				const auto& staticMesh = entity.GetComponent<StaticMeshComponent>();
 				out << Yaml::Key << "StaticMeshComponent";
 				out << Yaml::BeginMap;
-				out << Yaml::Key << "AssetID" << Yaml::Value << GetSerializableStaticMeshHandle(staticMesh.StaticMesh);
+				out << Yaml::Key << "AssetID" << Yaml::Value;
+				AssetReference::WriteValue(out, GetSerializableStaticMeshHandle(staticMesh.StaticMesh));
 				SerializeMaterialTable(out, staticMesh.MaterialTable);
 				out << Yaml::Key << "Visible" << Yaml::Value << staticMesh.Visible;
 				out << Yaml::EndMap;
@@ -769,7 +778,8 @@ namespace Lux {
 				const auto& collider = entity.GetComponent<MeshColliderComponent>();
 				out << Yaml::Key << "MeshColliderComponent";
 				out << Yaml::BeginMap;
-				out << Yaml::Key << "ColliderAsset" << Yaml::Value << collider.ColliderAsset;
+				out << Yaml::Key << "ColliderAsset" << Yaml::Value;
+				AssetReference::WriteValue(out, collider.ColliderAsset);
 				out << Yaml::Key << "SubmeshIndex" << Yaml::Value << collider.SubmeshIndex;
 				out << Yaml::Key << "UseSharedShape" << Yaml::Value << collider.UseSharedShape;
 				out << Yaml::Key << "Density" << Yaml::Value << collider.Material.Density;
@@ -1014,7 +1024,7 @@ namespace Lux {
 				if (const auto mesh = entity["MeshComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<MeshComponent>();
-					component.Mesh = mesh["AssetID"].as<uint64_t>(0);
+					component.Mesh = AssetReference::ReadValue(mesh["AssetID"]);
 				}
 
 				if (const auto meshTag = entity["MeshTagComponent"])
@@ -1026,7 +1036,7 @@ namespace Lux {
 				if (const auto submesh = entity["SubmeshComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SubmeshComponent>();
-					component.Mesh = submesh["AssetID"].as<uint64_t>(0);
+					component.Mesh = AssetReference::ReadValue(submesh["AssetID"]);
 					component.SubmeshIndex = submesh["SubmeshIndex"].as<uint32_t>(0);
 					component.MaterialTable = DeserializeMaterialTable(submesh["MaterialTable"]);
 					component.Visible = submesh["Visible"].as<bool>(true);
@@ -1302,7 +1312,7 @@ namespace Lux {
 				if (const auto meshCollider = entity["MeshColliderComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<MeshColliderComponent>();
-					component.ColliderAsset = meshCollider["ColliderAsset"].as<uint64_t>(0);
+					component.ColliderAsset = AssetReference::ReadValue(meshCollider["ColliderAsset"]);
 					component.SubmeshIndex = meshCollider["SubmeshIndex"].as<uint32_t>(0);
 					component.UseSharedShape = meshCollider["UseSharedShape"].as<bool>(false);
 					const auto motion = meshCollider["AcousticMotion"] ? meshCollider["AcousticMotion"].as<uint32_t>() : 0;
@@ -1487,7 +1497,7 @@ namespace Lux {
 		{
 			out << Yaml::Key << "SoundBanks" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
 			for (const AssetHandle bank : scene->GetSoundBanks())
-				out << static_cast<uint64_t>(bank);
+				AssetReference::WriteValue(out, bank);
 			out << Yaml::EndSeq;
 		}
 
@@ -1538,7 +1548,7 @@ namespace Lux {
 		if (const auto list = data["SoundBanks"]; list && list.IsSequence())
 		{
 			for (const auto& bank : list)
-				if (const uint64_t handle = bank.as<uint64_t>(0); handle && std::find(banks.begin(), banks.end(), AssetHandle(handle)) == banks.end())
+				if (const AssetHandle handle = AssetReference::ReadValue(bank); handle && std::find(banks.begin(), banks.end(), handle) == banks.end())
 					banks.push_back(handle);
 		}
 		scene->SetSoundBanks(std::move(banks));
@@ -1787,6 +1797,38 @@ namespace Lux {
 			if (failures)
 				failures->push_back(message);
 		};
+
+		// Asset references: a path that names nothing registered survives read -> write, a number stays
+		// a number, and "1234.gltf" is a path. Numbers are written unless a PathModeScope is open.
+		{
+			const Yaml::Node pathDoc = Yaml::Load("v: Meshes/Gone/Missing.gltf\n");
+			const Yaml::Node numberDoc = Yaml::Load("v: 1234\n");
+			const Yaml::Node nameDoc = Yaml::Load("v: 1234.gltf\n");
+			const AssetHandle fromPath = AssetReference::ReadValue(pathDoc["v"]);
+			const AssetHandle fromNumber = AssetReference::ReadValue(numberDoc["v"]);
+			const AssetHandle fromName = AssetReference::ReadValue(nameDoc["v"]);
+			if (!fromPath || fromPath != AssetReference::ReadValue(pathDoc["v"]))
+				fail("AssetReference: an unresolved path did not give a stable handle");
+			if (static_cast<uint64_t>(fromNumber) != 1234u || static_cast<uint64_t>(fromName) == 1234u)
+				fail("AssetReference: a bare number is a handle and anything else is a path");
+
+			Yaml::Writer asPath;
+			asPath << Yaml::BeginMap << Yaml::Key << "v" << Yaml::Value;
+			{
+				AssetReference::PathModeScope pathMode;
+				AssetReference::WriteValue(asPath, fromPath);
+			}
+			asPath << Yaml::EndMap;
+			if (std::string(asPath.c_str()).find("Meshes/Gone/Missing.gltf") == std::string::npos)
+				fail("AssetReference: an unresolved path was not written back as the same path");
+
+			Yaml::Writer asNumber;
+			asNumber << Yaml::BeginMap << Yaml::Key << "v" << Yaml::Value;
+			AssetReference::WriteValue(asNumber, fromPath);
+			asNumber << Yaml::EndMap;
+			if (std::string(asNumber.c_str()).find("Missing.gltf") != std::string::npos)
+				fail("AssetReference: a path was written outside PathModeScope");
+		}
 
 		// Build a small scene with a two-level hierarchy and a couple of components.
 		Ref<Scene> src = Ref<Scene>::Create();
@@ -2158,6 +2200,8 @@ namespace Lux {
 
 	bool SceneSerializer::Serialize(const std::filesystem::path& filepath)
 	{
+		// Only the scene file stores paths; snapshots, undo diffs and packs stay numeric.
+		AssetReference::PathModeScope pathMode;
 		Yaml::Writer out;
 		SerializeToYAML(out);
 		return FileSystem::WriteFileAtomically(filepath, out.c_str());
@@ -2165,7 +2209,9 @@ namespace Lux {
 
 	void SceneSerializer::SerializeRuntime(const std::filesystem::path& filepath)
 	{
-		Serialize(filepath);
+		Yaml::Writer out; // the player has no path map: numbers
+		SerializeToYAML(out);
+		FileSystem::WriteFileAtomically(filepath, out.c_str());
 	}
 
 	bool SceneSerializer::DeserializeFromYAML(const std::string& yamlString)

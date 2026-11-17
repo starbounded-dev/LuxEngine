@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "SoundBank.h"
+#include "Lux/Asset/AssetReference.h"
 
 #include "Lux/Serialization/Yaml.h"
 
@@ -67,7 +68,7 @@ namespace Lux
 		out << Yaml::Key << "Resident" << Yaml::Value << Resident;
 		out << Yaml::Key << "Sounds" << Yaml::Value << Yaml::BeginSeq;
 		for (const AssetHandle sound : Sounds)
-			out << static_cast<uint64_t>(sound);
+			AssetReference::WriteValue(out, sound);
 		out << Yaml::EndSeq;
 		out << Yaml::EndMap << Yaml::EndMap;
 		return out.c_str();
@@ -89,7 +90,7 @@ namespace Lux
 				if (!sounds.IsSequence() || sounds.size() > MaxSounds)
 					throw std::runtime_error("Sounds must be a list of at most 2048 handles");
 				for (const auto& sound : sounds)
-					parsed.Sounds.push_back(sound.as<uint64_t>(0));
+					parsed.Sounds.push_back(AssetReference::ReadValue(sound));
 			}
 			std::string error;
 			if (!parsed.Validate(&error))

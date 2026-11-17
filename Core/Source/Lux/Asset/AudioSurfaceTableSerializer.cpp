@@ -5,6 +5,7 @@
 #include "AudioSurfaceTableSerializer.h"
 
 #include "AssetManager.h"
+#include "AssetReference.h"
 #include "Lux/Audio/AudioSurfaceTable.h"
 #include "Lux/Project/Project.h"
 #include <fstream>
@@ -26,6 +27,7 @@ namespace Lux
 		}
 		// Same limit the loader and the asset pack enforce: writing a larger file would save fine and
 		// then fail to load or export.
+		AssetReference::PathModeScope pathMode; // the file stores paths; the pack copy below stays numeric
 		const auto text = table->ToYAML();
 		if (text.size() > k_MaxTableBytes)
 		{

@@ -421,7 +421,14 @@ Structurally:
   the run time never compiles and needs no function graphs. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
   instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
-  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
+  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT). `Panels/NodeCanvas/NodeCanvasCore`
+  owns the editor context, restores the previous current context after drawing, and provides
+  canvas styling, fit navigation, minimap drawing, Find and Add Node popups, and shortcut dispatch.
+  The material canvas supplies its nodes, links, palette entries and clipboard data.
+  `GraphDocument` defines tab identity and save/discard operations. `MaterialGraphDocument` owns
+  the material's saved snapshot, dirty checks and canvas context. Switching material tabs retains
+  each tab's zoom and selection and ends the outgoing node preview. The canvas exposes a view-only
+  snapshot for workspace persistence. All canvas work stays on the main thread.
 - Mesh vertex colours and the second UV set are `MeshSource::m_VertexAttributes` (empty, or one
   `VertexAttributes` per vertex), filled by `AssimpMeshImporter` when any mesh in the file has colour
   set 0 or UV set 1, written to asset packs under `MeshSourceFile::HasVertexAttributes` (between the
@@ -747,7 +754,19 @@ in `AssetImporter.cpp`. Extension → type mapping is in `AssetExtensions.h`.
 
 Rules:
 
-- Reference assets by `AssetHandle`, never by path after import.
+- Reference assets by `AssetHandle` in memory. **Saved references are Assets-relative paths**
+  (`Core/Source/Lux/Asset/AssetReference.h`, issue #161), so they survive a regenerated
+  `AssetRegistry.lzr`, a fresh worktree and a clean clone. `AssetReference::ReadValue` accepts both a
+  path and the old bare number and resolves a path with the read-only
+  `EditorAssetManager::GetAssetHandleFromFilePath` (O(1) through `AssetRegistry::FindByPathKey`; safe on the asset
+  worker, never imports). `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
+  `SceneSerializer::Serialize(filepath)` and the `.lsound`/`.lbank` file save open; snapshots, undo diffs,
+  `SerializeRuntime` and asset packs stay numeric because the player has no path map. A path that names no
+  registered asset keeps a stable hashed handle and is written back unchanged, so a save never erases a
+  broken reference. Converted so far: scene mesh/material/collider refs, `AudioEventRef`, `SoundBanks`, script
+  asset fields, and the `.lsound`/`.lbank`, surface-table and dialogue-table files when saved. A file
+  created by the Content Browser (`file << ToYAML()`) starts numeric until its first save. Textures in
+  materials, prefabs, `.luxproj` and the pack format are still handle-based (see `docs/ASSET_PATH_REFERENCES_PLAN.md`).
 - Memory-only assets (procedural meshes, runtime textures) are registered with
   `AssetManager::AddMemoryOnlyAsset` and live in a **separate map** (`m_MemoryAssets`, guarded by a
   `std::shared_mutex`), queried via `IsMemoryAsset`. They are *not* marked with a flag —
@@ -1171,7 +1190,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   distinguish following, inspected ranges and paused history. Context changes clear stale samples.
   Debugger's per-pass chart separately owns a frozen name/value snapshot; narrow panels use rows
   instead of squeezing axis labels. No telemetry thread, GPU readback or new instrumentation.
-- **Material/graph composition.** The existing Material Editor window/document owner uses shared
+- **Material/graph composition.** Each material document in Node Canvas uses shared
   action bars and caller-owned adaptive split proportions. Preview and graph Details can hide;
   narrow panels use alternate pages. `SaveState`/`LoadState` retain view choices in layouts, with
   defaults for missing keys and bounded finite fractions. No document or graph is copied to make a
@@ -1216,16 +1235,19 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   Asset Manager, Light Settings, Audio Mixer and Profiler also supply FirstUseEver floating-window
   sizes: wrapped content and filling children cannot establish a useful auto-fit width on their own.
   Saved docking/window geometry and subsequent resizing continue to take precedence.
-- Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
-  `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
-  `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for
-  `AssetType::Material`) and from the Inspector's per-slot Edit buttons
-  (`SceneHierarchyPanel::SetOpenMaterialCallback`). `MaterialPreview` is a private `Scene` + `Viewport`
-  (own `SceneRenderer`, `EnableEditorRenderTargets = false`) showing one default mesh from the
-  project's `Meshes/Source/Default/`; `MaterialThumbnailer` owns a second preview and renders one
-  stale material thumbnail at a time for the Content Browser, reading pixels back **on the render
-  thread** (`Renderer::Submit`) and handing CPU pixels to `ThumbnailCache::SetThumbnailPixels`, so it
-  never does a main-thread GPU readback.
+- **Node Canvas** (`Panels/NodeCanvas/NodeCanvasPanel`) hosts graph documents on the main thread.
+  View offers two dockable instances. The Content Browser uses the panel's asset-type factory registry,
+  and Inspector material-slot Edit uses the same routing: focus an existing tab, or open in the
+  most recently focused available canvas. The original Material Editor panel and dock IDs are retained.
+  Each document owns its source asset, checked save, close decision, view state and undo history.
+  Only the active document draws and checks its full authoring snapshot. A removed or replaced source
+  closes its tab with a notice. The project-scoped workspace data stores open asset paths, active tab
+  and each canvas's view state. Workspace switches retain the in-memory documents and unsaved edits.
+  `MaterialGraphDocument` provides the existing surface controls, graph details and preview.
+  Material tabs in one instance share a lazily created `MaterialPreview` with a private scene and
+  viewport (`EnableEditorRenderTargets = false`). Switching tabs ends the previous node preview.
+  `MaterialThumbnailer` keeps its separate preview and hands render-thread readback pixels to
+  `ThumbnailCache::SetThumbnailPixels`.
 - Mixer editing (`Panels/AudioMixerPanel`): View → Audio Mixer edits `ProjectAudioSettings::Mixer` in
   place; each finished edit is one `PushUndoCommand` step of whole-mixer snapshots. Volume and mute
   reach the running native engine (`AudioEngine::ClearBusVolume`/`SetBusMuted`, restoring authored

@@ -68,7 +68,7 @@
 #include "Panels/ProfilerPanel.h"
 #include "Panels/HelpPanel.h"
 #include "Panels/UndoHistoryPanel.h"
-#include "Panels/MaterialEditor/MaterialEditorPanel.h"
+#include "Panels/NodeCanvas/NodeCanvasPanel.h"
 #include "Panels/SoundEditor/SoundEditorPanel.h"
 #include "Panels/AudioMixerPanel.h"
 #include "Panels/SoundBankEditorPanel.h"
@@ -113,7 +113,8 @@ namespace Lux {
 #define RENDERER_DEBUGGER_PANEL_ID "RendererDebuggerPanel"
 #define GAME_VIEW_PANEL_ID "GameViewPanel"
 #define PHYSICS_CAPTURES_PANEL_ID "PhysicsCapturesPanel"
-#define MATERIAL_EDITOR_PANEL_ID "MaterialEditorPanel"
+#define NODE_CANVAS_PANEL_ID "MaterialEditorPanel"
+#define SECOND_NODE_CANVAS_PANEL_ID "NodeCanvasPanel2"
 #define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
 #define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
 #define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
@@ -568,18 +569,21 @@ namespace Lux {
 		m_HelpPanel = m_PanelManager->AddPanel<HelpPanel>(PanelCategory::View, HELP_PANEL_ID, "Help", false);
 		EditorDocs::SetOpenTopicHandler([this](std::string_view topic) { OpenHelpTopic(topic); });
 
-		Ref<MaterialEditorPanel> materialEditorPanel = m_PanelManager->AddPanel<MaterialEditorPanel>(PanelCategory::View, MATERIAL_EDITOR_PANEL_ID, "Material Editor", false);
-		materialEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
+		const auto firstCanvas = m_PanelManager->AddPanel<NodeCanvasPanel>(PanelCategory::View, NODE_CANVAS_PANEL_ID, "Node Canvas", false);
+		const auto secondCanvas = m_PanelManager->AddPanel<NodeCanvasPanel>(PanelCategory::View, SECOND_NODE_CANVAS_PANEL_ID,
+			"Node Canvas 2", false, NodeCanvasPanel::SecondaryName);
+		auto openGraph = [this, firstCanvas, secondCanvas](AssetHandle handle)
 		{
-			PushUndoCommand(label, std::move(undo), std::move(redo));
-		});
-		auto openMaterialEditor = [this, materialEditorPanel](AssetHandle materialHandle) mutable
-		{
-			materialEditorPanel->OpenMaterial(materialHandle);
-			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(MATERIAL_EDITOR_PANEL_ID)))
-				panelData->IsOpen = true;
+			const uint32_t firstID = Hash::GenerateFNVHash(NODE_CANVAS_PANEL_ID);
+			const uint32_t secondID = Hash::GenerateFNVHash(SECOND_NODE_CANVAS_PANEL_ID);
+			const bool useSecond = secondCanvas->HasDocument(handle) ||
+				(!firstCanvas->HasDocument(handle) && m_PanelManager->GetPanelData(secondID)->IsOpen &&
+				 (!m_PanelManager->GetPanelData(firstID)->IsOpen || secondCanvas->GetLastFocus() > firstCanvas->GetLastFocus()));
+			auto canvas = useSecond ? secondCanvas : firstCanvas;
+			if (canvas->OpenAsset(handle))
+				m_PanelManager->SetOpen(useSecond ? secondID : firstID, true);
 		};
-		m_SceneHierarchyPanel->SetOpenMaterialCallback(openMaterialEditor);
+		m_SceneHierarchyPanel->SetOpenMaterialCallback(openGraph);
 
 		Ref<SoundEditorPanel> soundEditorPanel = m_PanelManager->AddPanel<SoundEditorPanel>(PanelCategory::View, SOUND_EDITOR_PANEL_ID, "Sound Editor", false);
 		soundEditorPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
@@ -788,10 +792,7 @@ namespace Lux {
 				OpenScene(metadata.Handle);
 			});
 
-			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Material, [openMaterialEditor](const AssetMetadata& metadata) mutable
-			{
-				openMaterialEditor(metadata.Handle);
-			});
+			NodeCanvasPanel::RegisterAssetActivation(*contentBrowserPanel, openGraph);
 
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Sound, [openSoundEditor](const AssetMetadata& metadata) mutable
 			{
@@ -979,7 +980,7 @@ namespace Lux {
 			const std::filesystem::path directory =
 				FileSystem::GetEnvironmentVariable("LUX_MATERIAL_PANELS_SELFTEST");
 			std::vector<std::string> failures;
-			const bool passed = MaterialEditorPanel::RunSelfTests(directory, failures);
+			const bool passed = NodeCanvasPanel::RunSelfTests(directory, failures);
 			std::string report = passed ? "PASS\n" : "FAIL\n";
 			for (const auto& failure : failures)
 				report += failure + '\n';

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "Panels/NodeCanvas/NodeCanvasCore.h"
+
 #include "Lux/Renderer/MaterialAsset.h"
 
 #include <imgui/imgui.h>
@@ -13,7 +15,6 @@
 #include <unordered_set>
 #include <vector>
 
-namespace ax::NodeEditor { struct EditorContext; }
 namespace Lux::Yaml
 {
 	class Writer;
@@ -40,17 +41,14 @@ namespace Lux {
 		void Draw(const Ref<MaterialAsset>& material, const UndoPushFn& pushUndo);
 		void SaveState(Yaml::Writer& out) const;
 		void LoadState(const Yaml::Node& state);
+		void SaveView(Yaml::Writer& out) const;
+		void LoadView(const Yaml::Node& state);
 
 		// While a node is previewed: the memory-only material the Material Editor's preview shows instead
 		// (the graph with that node's output as emission); 0 otherwise.
 		AssetHandle GetPreviewMaterial() const { return m_PreviewMaterial; }
-		AssetHandle GetSourceMaterial() const
-		{
-			return m_Material;
-		}
 		void StopPreview();
 		void PreviewNode(uint32_t node);
-		void ResetDocument();
 
 		// The graph as text, for dirty checks and undo snapshots.
 		static std::string Snapshot(const MaterialGraph& graph);
@@ -61,14 +59,15 @@ namespace Lux {
 		void DrawCanvas(const Ref<MaterialAsset>& material, MaterialGraph& graph);
 		void DrawPalette(MaterialGraph& graph);
 		void DrawInspector(const Ref<MaterialAsset>& material, MaterialGraph& graph);
-		void DrawMinimap(MaterialGraph& graph, const ImVec2& canvasMin, const ImVec2& canvasMax);
+		void DrawMinimap(const MaterialGraph& graph, const ImVec2& canvasMin, const ImVec2& canvasMax);
 		void CopySelection(const MaterialGraph& graph);
 		void Paste(MaterialGraph& graph, ImVec2 offset);
 		void TrackChanges(const Ref<MaterialAsset>& material, MaterialGraph& graph, const UndoPushFn& pushUndo);
 		void UpdatePreview(const Ref<MaterialAsset>& material, const MaterialGraph& graph);
 
 	private:
-		ax::NodeEditor::EditorContext* m_Context = nullptr;
+		NodeCanvasCore m_Canvas;
+		std::vector<NodeCanvasCore::MinimapRect> m_MinimapRects;
 		AssetHandle m_Material = 0;
 		uint64_t m_SeenGeneration = 0;
 		bool m_ShowDetails = true;
@@ -78,7 +77,6 @@ namespace Lux {
 		bool m_OpenFind = false;
 		float m_CanvasFraction = 0.7f;
 		std::unordered_set<uint32_t> m_Placed; // nodes whose position the node editor already has
-		bool m_NavigateToContent = true;
 		std::unordered_map<uint32_t, ImVec2> m_CommentNodeSizes; // last frame's node size per comment
 		uint32_t m_ResizeComment = 0; // its Size was typed in the inspector: apply it to the group
 
@@ -91,8 +89,7 @@ namespace Lux {
 		uint32_t m_PaletteFromNode = 0;      // a link dragged into empty space: connect the new node to it
 		uint32_t m_PaletteFromPin = 0;
 		bool m_PaletteFromOutput = true;
-		char m_PaletteSearch[64] = {};
-		char m_FindSearch[64] = {};
+		std::vector<NodeCanvasCore::SearchItem> m_FindChoices;
 
 		std::vector<MaterialGraphNode> m_ClipboardNodes;
 		std::vector<MaterialGraphLink> m_ClipboardLinks;

@@ -252,7 +252,10 @@ namespace Lux
 		const char* ini = ImGui::SaveIniSettingsToMemory(&count);
 		std::unordered_set<std::string> windows;
 		for (const auto& [id, panel] : m_Panels->GetPanels(PanelCategory::View))
+		{
 			windows.insert("[Window][" + std::string(panel.GetWindowName()) + "]");
+			windows.insert("[Window][" + std::string(ImHashSkipUncontributingPrefix(panel.GetWindowName())) + "]");
+		}
 		std::istringstream lines(std::string(ini, count));
 		std::string result, line;
 		bool keep = false;
@@ -495,7 +498,7 @@ namespace Lux
 		const auto left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
 		const auto right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
 		const auto bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
-		const char* dominant = id == "default.shading"	   ? "Material Editor"
+		const char* dominant = id == "default.shading"	   ? "Node Canvas"
 							   : id == "default.audio"	   ? "Sound Editor"
 							   : id == "default.scripting" ? "Beam"
 														   : "Scene View";
@@ -819,7 +822,7 @@ namespace Lux
 			if (name == "Scene View" || name == "Game View" || name == "Scene Hierarchy" ||
 				name == "Properties")
 				return "Scene";
-			if (name == "Content Browser" || name == "Material Editor" || name == "Sound Editor" ||
+			if (name == "Content Browser" || name == "Node Canvas" || name == "Node Canvas 2" || name == "Sound Editor" ||
 				name == "Sound Bank Editor" || name == "Audio Mixer" || name == "Asset Manager")
 				return "Assets & Authoring";
 			if (name == "Beam")

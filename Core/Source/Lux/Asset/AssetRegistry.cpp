@@ -14,7 +14,12 @@ namespace Lux
 
 	void AssetRegistry::Set(AssetHandle handle, const AssetMetadata& metadata)
 	{
-		m_AssetRegistry[handle] = metadata;
+		AssetMetadata& entry = m_AssetRegistry[handle];
+		if (const auto old = m_PathIndex.find(PathKey(entry.FilePath)); old != m_PathIndex.end() && old->second == handle)
+			m_PathIndex.erase(old);
+		entry = metadata;
+		if (!metadata.FilePath.empty())
+			m_PathIndex[PathKey(metadata.FilePath)] = handle;
 		++m_Revision;
 	}
 
@@ -25,6 +30,11 @@ namespace Lux
 
 	size_t AssetRegistry::Remove(AssetHandle handle)
 	{
+		if (const auto it = m_AssetRegistry.find(handle); it != m_AssetRegistry.end())
+		{
+			if (const auto index = m_PathIndex.find(PathKey(it->second.FilePath)); index != m_PathIndex.end() && index->second == handle)
+				m_PathIndex.erase(index);
+		}
 		const size_t removed = m_AssetRegistry.erase(handle);
 		if (removed)
 			++m_Revision;
@@ -36,7 +46,19 @@ namespace Lux
 		if (!m_AssetRegistry.empty())
 		{
 			m_AssetRegistry.clear();
+			m_PathIndex.clear();
 			++m_Revision;
 		}
+	}
+
+	AssetHandle AssetRegistry::FindByPathKey(const std::string& key) const
+	{
+		const auto it = m_PathIndex.find(key);
+		return it != m_PathIndex.end() ? it->second : AssetHandle(0);
+	}
+
+	std::string AssetRegistry::PathKey(const std::filesystem::path& relativePath)
+	{
+		return relativePath.lexically_normal().generic_string();
 	}
 }

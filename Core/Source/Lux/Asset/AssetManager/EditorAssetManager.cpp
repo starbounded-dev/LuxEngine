@@ -516,10 +516,20 @@ namespace Lux
 		return metadata.Handle;
 	}
 
+	AssetHandle EditorAssetManager::GetAssetHandleFromPathKey(const std::string& key) const
+	{
+		std::shared_lock lock(m_AssetRegistryMutex);
+		return m_AssetRegistry.FindByPathKey(key);
+	}
+
 	AssetHandle EditorAssetManager::GetAssetHandleFromFilePath(const std::filesystem::path& filepath) const
 	{
 		std::filesystem::path relativePath = GetRelativePath(filepath).lexically_normal();
 		std::shared_lock lock(m_AssetRegistryMutex);
+		if (const AssetHandle indexed = m_AssetRegistry.FindByPathKey(AssetRegistry::PathKey(relativePath)))
+			return indexed;
+
+		// Miss: scan with path comparison, which can match what the exact-string index does not.
 		for (const auto& [handle, metadata] : m_AssetRegistry)
 		{
 			if (metadata.FilePath.lexically_normal() == relativePath)

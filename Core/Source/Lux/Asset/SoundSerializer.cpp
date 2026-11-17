@@ -5,6 +5,7 @@
 #include "SoundSerializer.h"
 
 #include "AssetManager.h"
+#include "AssetReference.h"
 #include "Lux/Audio/Sound.h"
 #include "Lux/Audio/SoundBank.h"
 #include "Lux/Project/Project.h"
@@ -67,6 +68,8 @@ namespace Lux
 			}
 			// Same limit the loader and the asset pack enforce: a larger file would save and then fail
 			// to load or export.
+			// The file stores asset paths; the packed copy below stays numeric.
+			AssetReference::PathModeScope pathMode;
 			const auto text = value->ToYAML();
 			if (text.size() > T::MaxFileBytes)
 			{

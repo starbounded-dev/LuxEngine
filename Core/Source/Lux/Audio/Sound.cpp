@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "Sound.h"
+#include "Lux/Asset/AssetReference.h"
 
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/StringUtils.h"
@@ -475,7 +476,8 @@ namespace Lux
 				out << Yaml::Key << "Name" << Yaml::Value << node.Name;
 			if (node.Type == SoundNodeType::Clip)
 			{
-				out << Yaml::Key << "Clip" << Yaml::Value << node.Clip;
+				out << Yaml::Key << "Clip" << Yaml::Value;
+				AssetReference::WriteValue(out, node.Clip);
 				out << Yaml::Key << "StartOffset" << Yaml::Value << node.StartOffset;
 				out << Yaml::Key << "Loop" << Yaml::Value << node.Loop;
 				if (node.HasLoopRegion)
@@ -561,7 +563,7 @@ namespace Lux
 			if (version == 1)
 			{
 				// Phase 2's single-clip form: its clip and loop flag become the root clip node.
-				parsed.Nodes.front().Clip = node["Clip"].as<uint64_t>(0);
+				parsed.Nodes.front().Clip = AssetReference::ReadValue(node["Clip"]);
 				parsed.Nodes.front().Loop = node["Loop"].as<bool>(false);
 			}
 			else
@@ -603,7 +605,7 @@ namespace Lux
 					if (!ParseSoundNodeType(entry["Type"].as<std::string>(""), soundNode.Type))
 						throw std::runtime_error("unknown node type");
 					soundNode.Name = entry["Name"].as<std::string>("");
-					soundNode.Clip = entry["Clip"].as<uint64_t>(0);
+					soundNode.Clip = AssetReference::ReadValue(entry["Clip"]);
 					soundNode.StartOffset = entry["StartOffset"].as<float>(0.0f);
 					soundNode.Loop = entry["Loop"].as<bool>(false);
 					if (const auto region = entry["LoopRegion"])

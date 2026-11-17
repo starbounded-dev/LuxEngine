@@ -60,6 +60,8 @@ namespace Lux
 		AssetHandle ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid);
 
 		AssetHandle GetAssetHandleFromFilePath(const std::filesystem::path& filepath) const;
+		// Exact lookup by the key AssetRegistry::PathKey builds (a normalized generic path): O(1), no path parsing.
+		AssetHandle GetAssetHandleFromPathKey(const std::string& key) const;
 		// Handle for an asset-directory-relative path, importing the file first if it exists on disk
 		// but is not registered yet. Returns 0 when the file does not exist. Main thread only.
 		AssetHandle GetOrImportAsset(const std::filesystem::path& assetRelativePath);

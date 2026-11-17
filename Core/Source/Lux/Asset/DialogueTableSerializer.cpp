@@ -5,6 +5,7 @@
 #include "DialogueTableSerializer.h"
 
 #include "AssetManager.h"
+#include "AssetReference.h"
 #include "Lux/Audio/DialogueTable.h"
 #include "Lux/Project/Project.h"
 #include <fstream>
@@ -24,6 +25,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Audio", "Cannot save invalid dialogue table '{}'", metadata.FilePath.string());
 			return;
 		}
+		AssetReference::PathModeScope pathMode; // the file stores paths; the pack copy below stays numeric
 		const auto text = table->ToYAML();
 		if (text.size() > k_MaxTableBytes)
 		{

@@ -6,7 +6,7 @@ A graph adds to the standard material rather than replacing it. Everything in th
 
 ## Making one
 
-Open a material in the [Material Editor](material-editor) and choose **More → Make Graph Material**.
+Open a material in the [Node Canvas](material-editor) and choose **More → Make Graph Material**.
 Use **Properties** and **Graph** in the material action bar to switch views. **More → Remove Graph**
 turns it back into a standard material. Making, removing and reverting a graph can be undone.
 
