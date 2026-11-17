@@ -400,8 +400,11 @@ namespace Lux
 		PollSolves();
 		std::vector<SolveJob::Item> due;
 		const size_t first = sources.empty() ? 0 : m_NextSource % sources.size();
+		// The GPU backend accepts 64 sources per batch; round-robin selection defers the rest.
+		const size_t batchLimit = m_ReverbBackend && m_ReverbBackend->SupportsSources() && !m_SourceVisibilityGpuFailed
+			? std::min<size_t>(m_Settings.CastBudget, 64) : m_Settings.CastBudget;
 		// One batch in flight; until it publishes, sources keep their last results and cadence.
-		for (size_t i = 0; ready && !m_SolvePending && i < sources.size() && due.size() < m_Settings.CastBudget; ++i)
+		for (size_t i = 0; ready && !m_SolvePending && i < sources.size() && due.size() < batchLimit; ++i)
 		{
 			const auto& source = sources[(first + i) % sources.size()];
 			auto& state = m_Sources[source.Entity];
@@ -432,9 +435,11 @@ namespace Lux
 			job->Materials = m_Materials;
 			job->Settings = m_KernelSettings;
 			job->Listener = listener;
-			const bool gpuReady = m_ReverbBackend && m_ReverbBackend->SupportsVisibility() && !m_SourceVisibilityGpuFailed &&
-				m_Flat && m_Flat->Generation == m_GeometryGeneration &&
-				(job->Settings.OpeningNodeBudget <= kMaximumVisibilityNodesPerSource || job->Settings.ReflectionDepth > 0) &&
+			job->GpuSources = m_ReverbBackend && m_ReverbBackend->SupportsSources();
+			const bool gpuReady = m_ReverbBackend && (job->GpuSources || m_ReverbBackend->SupportsVisibility()) &&
+				!m_SourceVisibilityGpuFailed && m_Flat && m_Flat->Generation == m_GeometryGeneration &&
+				(job->GpuSources || job->Settings.OpeningNodeBudget <= kMaximumVisibilityNodesPerSource ||
+					job->Settings.ReflectionDepth > 0) &&
 				job->Portals.size() <= 4096;
 			if (gpuReady)
 			{
@@ -466,6 +471,23 @@ namespace Lux
 							if (item.Error != Soundwave::EvaluationError::None)
 								continue;
 
+							if (job->GpuSources)
+							{
+								ReverbBackend::SourceInput input;
+								item.Error = Soundwave::PrepareGpuSource(job->Settings, item.Prepared, item.Reflections,
+									job->Flat->Flat.Roots, item.Entity, static_cast<uint32_t>(job->FlatPortals.size()),
+									input.Request, input.Reflections);
+								if (item.Error != Soundwave::EvaluationError::None)
+								{
+									job->GpuFailed = true;
+									continue;
+								}
+								for (const auto& node : item.Prepared.Openings)
+									input.Nodes.push_back({node.Point, node.EdgeIndex});
+								item.SourceIndex = job->SourceInputs.size();
+								job->SourceInputs.push_back(std::move(input));
+								continue;
+							}
 							const size_t width = item.Prepared.Openings.size() + 2;
 							size_t reflectionSegments = 0;
 							for (const auto& reflection : item.Reflections.Paths)
@@ -613,17 +635,28 @@ namespace Lux
 			{
 				try
 				{
-					if (item.VisibilityCount == 0)
+					if (item.SourceIndex == SIZE_MAX && item.VisibilityCount == 0)
 					{
 						item.Error = Soundwave::Solve(geometry, job->Portals, job->Materials, job->Settings, job->Listener,
 							item.Position, item.Entity, job->Scratch, item.Result);
 						continue;
 					}
-					const auto visibility = std::span<const uint32_t>(job->Visibility).subspan(item.VisibilityOffset, item.VisibilityCount);
-					const size_t openingResults = item.OpeningVisibilityCount;
-					item.Error = Soundwave::ReduceOpeningVisibility(geometry, job->Portals, job->Materials, job->Settings,
-						job->Listener, item.Position, item.Entity, item.Prepared, visibility.first(openingResults), job->Scratch,
-						item.Result, &item.Reflections, visibility.subspan(openingResults));
+					if (job->GpuSources)
+					{
+						const auto& gpu = job->SourceOutputs[item.SourceIndex];
+						item.Error = Soundwave::FinishGpuSource(job->Settings, item.Prepared, item.Reflections,
+							gpu.Result, gpu.Paths, gpu.Reflections, item.Result);
+					}
+					else
+					{
+						const auto visibility = std::span<const uint32_t>(job->Visibility)
+													.subspan(item.VisibilityOffset, item.VisibilityCount);
+						const size_t openingResults = item.OpeningVisibilityCount;
+						item.Error = Soundwave::ReduceOpeningVisibility(geometry, job->Portals, job->Materials,
+							job->Settings, job->Listener, item.Position, item.Entity, item.Prepared,
+							visibility.first(openingResults), job->Scratch, item.Result, &item.Reflections,
+							visibility.subspan(openingResults));
+					}
 					if (item.Error != Soundwave::EvaluationError::None)
 					{
 						job->GpuFailed = true;
@@ -676,7 +709,8 @@ namespace Lux
 		auto job = m_SolvePending;
 		if (job->Current == SolveJob::Phase::GpuPending)
 		{
-			const auto poll = job->Backend->PollVisibility(job->Visibility);
+			const auto poll = job->GpuSources ? job->Backend->PollSources(job->SourceOutputs)
+											  : job->Backend->PollVisibility(job->Visibility);
 			if (poll == ReverbBackend::PollResult::Pending)
 			{
 				if (++m_VisibilityWaitUpdates == kReverbStallUpdates)
@@ -684,7 +718,9 @@ namespace Lux
 				return;
 			}
 			m_VisibilityWaitUpdates = 0;
-			if (poll == ReverbBackend::PollResult::Failed || job->Visibility.size() != job->Segments.size())
+			if (poll == ReverbBackend::PollResult::Failed ||
+				(job->GpuSources ? job->SourceOutputs.size() != job->SourceInputs.size()
+								 : job->Visibility.size() != job->Segments.size()))
 			{
 				m_SourceVisibilityGpuFailed = true;
 				m_SourceVisibilityOnGpu = false;
@@ -704,14 +740,15 @@ namespace Lux
 				LUX_CORE_WARN_TAG("Audio", "Soundwave traces oversized opening graphs or visibility batches on the CPU");
 				m_SourceVisibilityLimitReported = true;
 			}
-			if (!job->GpuFailed && job->Segments.empty())
+			if (!job->GpuFailed && job->Segments.empty() && job->SourceInputs.empty())
 			{
 				m_SourceVisibilityOnGpu = false;
 				SubmitCpuSolves(job);
 				return;
 			}
 			if (job->GpuFailed || !job->Backend ||
-				!job->Backend->DispatchVisibility(job->Flat, job->Segments, job->FlatPortals))
+				!(job->GpuSources ? job->Backend->DispatchSources(job->Flat, job->SourceInputs, job->FlatPortals)
+								  : job->Backend->DispatchVisibility(job->Flat, job->Segments, job->FlatPortals)))
 			{
 				m_SourceVisibilityGpuFailed = true;
 				m_SourceVisibilityOnGpu = false;
@@ -995,6 +1032,8 @@ namespace Lux
 		result.ReverbStalled = m_ReverbStalled;
 		result.ReverbGpuFailed = m_ReverbGpuFailed;
 		result.SourceVisibilityOnGpu = m_SourceVisibilityOnGpu;
+		result.SourceSolveOnGpu = m_SourceVisibilityOnGpu && m_ReverbBackend && m_ReverbBackend->SupportsSources();
+		result.SourceGpuMilliseconds = m_ReverbBackend ? m_ReverbBackend->SourceGpuMilliseconds() : 0;
 		result.SourceVisibilityGpuFailed = m_SourceVisibilityGpuFailed;
 		result.SourceVisibilityBatches = m_SourceVisibilityBatches;
 		result.SolvesPending = m_SolvePending != nullptr;

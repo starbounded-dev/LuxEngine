@@ -1576,15 +1576,16 @@ occlusion and the existing two-float voice contract are preserved. The setting d
 for existing projects and exports.
 
 **Workers and the GPU (plan Phase 4):** a source batch uses a worker to prepare bounded opening
-nodes and geometric image-source paths, a render-thread Vulkan compute pass for independent
-visibility rays along opening and reflection legs, and frame-retired readback. The worker
-replays reflection candidates in CPU reference order and charges rays up to the first blocked
-leg. It then uses the remaining work budget to search the opening graph. One batch is in flight and
-`AudioAcoustics::PollSolves` publishes it on main. Without a current flattened geometry, with
-a GPU stage failure, or if no staged rays fit the batch, the complete `Solve` runs on a
-JobSystem worker. An oversized opening graph can use CPU visibility while its reflection rays
-stay on the GPU. Debug validates GPU-derived LF/HF gains against that CPU reference within
-0.5 dB. The listener reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
+nodes, geometric image-source paths and direct measurement. Four cached Vulkan compute passes
+test endpoints, pruned adjacency and reflection legs, then perform fixed-order source reduction
+and opening search. The GPU charges the shared work/path budgets and retains routes in CPU
+reference order. Batches contain at most 64 sources; round-robin scheduling defers the rest.
+The compute command buffer joins the graphics frame timeline before frame-retired readback.
+A worker validates and expands returned paths; `AudioAcoustics::PollSolves` publishes on main.
+There is one batch in flight and no main-thread GPU wait. Missing current geometry or a failed
+GPU stage uses the complete worker `Solve`; failures disable that GPU stage for the session.
+The older visibility-only backend remains supported. Debug compares GPU-derived LF/HF gains
+against the CPU reference within 0.5 dB. The listener reverb's rays run on the GPU through the `AudioAcoustics::ReverbBackend` hook, implemented by
 `AudioAcousticKernel` (`Core/Source/Lux/Audio/`, renderer-side) and injected by
 `SceneAudioAcoustics::Start`. Without a renderer or the `SoundwaveReverb` shader (headless tests)
 the CPU job measures instead; the same `FinishReverb` reduces CPU or GPU rays in ray order.

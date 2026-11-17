@@ -90,3 +90,7 @@ mesh concentrate or spread reflected energy. Set it to 0 for planar spreading or
 full estimate. Keep the reflector faces in one mesh instance, with shared edge positions.
 The Audio Debugger shows LF/HF focus gains on each retained reflection. Added energy reaches
 the source through the built-in reverb return and leaves dry occlusion unchanged.
+
+The Acoustics page reports whether source propagation uses the GPU, its most recent GPU
+time, completed batches and fallback warnings. Geometry and candidate preparation remain on
+workers. Sources retain their last valid result while asynchronous work completes.

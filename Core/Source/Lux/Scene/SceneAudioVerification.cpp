@@ -54,7 +54,8 @@ namespace Lux
 		}
 		// The listener reverb lands a few frames after geometry (GPU readback or CPU job).
 		if (!stats.Ready || !stats.ReverbMeasurements || !kernel.GetReverb() ||
-			(requireGpuSource && !stats.SourceVisibilityBatches))
+			(requireGpuSource &&
+				(stats.SourceVisibilityBatches < 4 || !stats.SourceSolveOnGpu)))
 			return SceneAudioVerificationStatus::Pending;
 		if (!stats.Evaluations)
 		{
@@ -66,6 +67,13 @@ namespace Lux
 		out << Yaml::Key << "ReverbOn" << Yaml::Value << (stats.ReverbOnGpu ? "GPU" : "CPU");
 		out << Yaml::Key << "ReverbMeasurements" << Yaml::Value << stats.ReverbMeasurements;
 		out << Yaml::Key << "SourceVisibilityOn" << Yaml::Value << (stats.SourceVisibilityOnGpu ? "GPU" : "CPU");
+		out << Yaml::Key << "SourceSolveOn" << Yaml::Value << (stats.SourceSolveOnGpu ? "GPU" : "CPU");
+#if defined(LUX_DIST)
+        out << Yaml::Key << "SourceGpuTimingEnabled" << Yaml::Value << false;
+#else
+        out << Yaml::Key << "SourceGpuTimingEnabled" << Yaml::Value << true;
+#endif
+		out << Yaml::Key << "SourceGpuMilliseconds" << Yaml::Value << stats.SourceGpuMilliseconds;
 		out << Yaml::Key << "SourceVisibilityBatches" << Yaml::Value << stats.SourceVisibilityBatches;
 		out << Yaml::Key << "SourceVisibilityGpuFailed" << Yaml::Value << stats.SourceVisibilityGpuFailed;
 		// Audio budget evidence from the last 4 Hz sample. A session over budget also logs

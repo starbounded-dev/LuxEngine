@@ -7,14 +7,16 @@ The include root is registered in `Dependencies.lua`.
 
 ## Release path
 
-The current integration runs source propagation on a JobSystem worker and listener reverb rays
-on the GPU when the shader and renderer are available. `Flatten` returns a `FlatError`, accepts
-an explicit byte budget for its three upload arrays, and preserves the last valid output on
-failure. LuxEngine uses a 64 MiB budget and falls back to CPU reverb if flattening, dispatch, or
-readback fails. The same Core path is used by the editor and standalone runtime. The phase notes
-below record the implementation history. The full roadmap remains open: per-zone echogram reverb,
-parallel GPU propagation, and complete spread diagnostics are still being developed.
-`BuildEchogram` now supplies a bounded path-arrival histogram as groundwork; it does not yet drive Play.
+The current integration runs listener reverb rays and bounded source path search/reduction
+on Vulkan compute. CPU workers prepare geometry/candidates/direct measurement and validate
+asynchronous readbacks; GPU failures fall back to the CPU reference. `GpuOpening.h` defines the
+bounded source ABI, and `shaders/` contains the canonical four-pass implementation. The engine's
+shader include copies must match these files. `Flatten` preserves the last valid output on failure
+and accepts an explicit upload byte budget; LuxEngine uses 64 MiB.
+Per-zone ray-probe echograms drive playback sends. `BuildEchogram` also provides path-arrival
+histograms. The same Core path serves the editor and exported runtime. Final compute-queue
+Play/export, cross-platform engine checks and the frame-budget proof remain open; the phase
+notes below record earlier implementation stages.
 
 ## Current contract
 

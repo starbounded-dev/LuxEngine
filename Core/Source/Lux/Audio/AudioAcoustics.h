@@ -7,6 +7,7 @@
 #include "Lux/Core/Ref.h"
 #include "Lux/Core/UUID.h"
 #include <soundwave/Flatten.h>
+#include <soundwave/GpuOpening.h>
 #include <soundwave/Echogram.h>
 #include <soundwave/Reverb.h>
 #include <array>
@@ -62,7 +63,8 @@ namespace Lux
 			uint32_t StaticStoredTriangles = 0, MovingStoredTriangles = 0, StaticMeshInstances = 0, MovingMeshInstances = 0;
 			bool Ready = false, GeometryFailed = false;
 			bool ReverbOnGpu = false, ReverbStalled = false, ReverbGpuFailed = false, SolvesPending = false;
-			bool SourceVisibilityOnGpu = false, SourceVisibilityGpuFailed = false;
+			bool SourceVisibilityOnGpu = false, SourceVisibilityGpuFailed = false, SourceSolveOnGpu = false;
+			float SourceGpuMilliseconds = 0;
 			uint64_t SourceVisibilityBatches = 0;
 		};
 		// Where the listener reverb's rays run. Without one (headless tests, no GPU) a JobSystem
@@ -82,6 +84,26 @@ namespace Lux
 			virtual PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) = 0;
 			// Optional source visibility stage. Segment order is the fixed reduction order;
 			// a backend without source compute keeps the worker-only CPU path.
+			struct SourceInput
+			{
+				Soundwave::GpuOpeningRequest Request;
+				std::vector<Soundwave::GpuOpeningNode> Nodes;
+				std::vector<Soundwave::GpuReflection> Reflections;
+			};
+			struct SourceOutput
+			{
+				Soundwave::GpuOpeningResult Result;
+				std::vector<Soundwave::GpuOpeningPath> Paths;
+				std::vector<uint32_t> Reflections;
+			};
+			virtual float SourceGpuMilliseconds() const { return 0; }
+			virtual bool SupportsSources() const { return false; }
+			virtual bool DispatchSources(
+				const Ref<Geometry>&, std::span<const SourceInput>, std::span<const Soundwave::FlatPortal>)
+			{
+				return false;
+			}
+			virtual PollResult PollSources(std::vector<SourceOutput>&) { return PollResult::Failed; }
 			virtual bool SupportsVisibility() const { return false; }
 			virtual bool DispatchVisibility(const Ref<Geometry>&, std::span<const Soundwave::FlatVisibilitySegment>,
 				std::span<const Soundwave::FlatPortal>) { return false; }
@@ -186,11 +208,12 @@ namespace Lux
 				Soundwave::PreparedCandidates Prepared;
 				Soundwave::PreparedReflections Reflections;
 				size_t VisibilityOffset = 0, VisibilityCount = 0, OpeningVisibilityCount = 0;
+				size_t SourceIndex = SIZE_MAX;
 				Soundwave::EvaluationError Error = Soundwave::EvaluationError::None;
 			};
 			std::atomic<bool> Done{ false };
 			Phase Current = Phase::Cpu;
-			bool GpuFailed = false, GpuSkipped = false;
+			bool GpuFailed = false, GpuSkipped = false, GpuSources = false;
 			float WorstGpuGapDb = 0;
 			std::vector<Item> Items;
 			Soundwave::SolveScratch Scratch;
@@ -205,6 +228,8 @@ namespace Lux
 			std::vector<Soundwave::FlatVisibilitySegment> Segments;
 			std::vector<Soundwave::FlatPortal> FlatPortals;
 			std::vector<uint32_t> Visibility;
+			std::vector<ReverbBackend::SourceInput> SourceInputs;
+			std::vector<ReverbBackend::SourceOutput> SourceOutputs;
 		};
 		struct FlattenJob : RefCounted
 		{

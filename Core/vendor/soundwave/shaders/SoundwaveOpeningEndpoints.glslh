@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+#include "SoundwaveOpeningLayout.glslh"
+#include "SoundwaveOpeningTrace.glslh"
+layout(local_size_x = 128) in;
+vec3 Point(uint i)
+{
+	if (i == 0u)
+		return requestBlock.Listener.xyz;
+	if (i == requestBlock.Config.x + 1u)
+		return requestBlock.Source.xyz;
+	return Nodes[i - 1u].Point;
+}
+void main()
+{
+	uint w = requestBlock.Config.x + 2u, i = gl_GlobalInvocationID.x;
+	if (i >= w)
+		return;
+	Visibility[i] = OpeningTrace(Point(0u), Point(i));
+	if (i != 0u)
+		Visibility[i * w + w - 1u] = OpeningTrace(Point(i), Point(w - 1u));
+}

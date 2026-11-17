@@ -1,5 +1,20 @@
 # Acoustic Kernel Plan — Soundwave: the acoustics Vercidium Audio gives LuxEngine, rebuilt in the engine
 
+**GPU source checkpoint (2026-11-17):** four Vulkan compute passes now evaluate endpoint,
+adjacency and reflection visibility and perform fixed-order source reduction/opening search.
+CPU workers prepare geometry/candidates/direct measurement and validate retained-path readbacks.
+The RTX 4070 Ti headless harness matches CPU gains, counts and route order, including the full
+262,267-triangle Sponza fixture at 2,048 nodes and reflection depths 0–2. Linux software Vulkan
+parity passed. Warm Sponza stage sums measured approximately 6–9 ms; these are isolated GPU
+measurements, not an end-to-end frame-budget result.
+
+Windows Debug/Release builds passed, and corner/reflection/caustic Editor Play and exported
+Runtime passed before the final compute-queue/timing change. Final compute-queue Play/export,
+cross-platform engine checks, the frame-budget proof and the complete Phase 6 audit remain open.
+The source passes now join the graphics frame timeline for asynchronous readback; the Audio
+Debugger and verification artifacts expose full-GPU selection and GPU time. The historical
+checkpoints below describe earlier implementations.
+
 **Full-roadmap audit (2026-11-16):** the original seven-phase roadmap is not complete.
 The standalone library now has path-arrival and ray-probe echograms. LuxEngine caches per-zone
 probe measurements and blends their sends into playback. Linux Release Play and exported Runtime

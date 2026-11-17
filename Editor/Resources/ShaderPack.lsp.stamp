@@ -1,8 +1,8 @@
 Kind: Engine
 EngineVersion: 2026.1
-ShaderInputs: 1167968885
+ShaderInputs: 3671458086
 GlobalMacros: __HZ_AO_METHOD=2;__HZ_GTAO_COMPUTE_BENT_NORMALS=0;__HZ_REFLECTION_OCCLUSION_METHOD=0;
-RendererName: AMD Radeon Graphics (RADV RENOIR)
-VendorID: 4098
-DriverVersion: 109060099
-Programs: 56
+RendererName: NVIDIA GeForce RTX 4070 Ti
+VendorID: 4318
+DriverVersion: 2584608768
+Programs: 61

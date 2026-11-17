@@ -53,15 +53,15 @@ object is `Renderer/RHI/RHIShader`, descriptor sets `Renderer/DescriptorSetManag
 
 ## Invariant 1 — `(set, binding)` is a GLOBAL namespace
 
-Claimed outside the renderer passes: **set 1, bindings 30–38** — Soundwave's acoustic compute
-(`SoundwaveNodes`, `SoundwaveOrder`, `SoundwaveTriangles`, `SoundwaveReverbRequest`,
-`SoundwaveReverbRays`, `SoundwaveVisibilityRequest`, `SoundwaveVisibilitySegments`,
-`SoundwaveVisibilityPortals`, `SoundwaveVisibilityResults`; `Include/GLSL/Soundwave.glslh`,
-`SoundwaveReverb.glsl`, `SoundwaveVisibility.glsl`). Both compute passes are cached until their
-geometry or buffer capacity changes and record on separate command buffers. The visibility
-stage supplies source opening legs; the bounded path reduction still runs on a worker. The
-reverb pass is built when acoustic geometry changes, not per frame, and records on its own command buffer
-(`AudioAcousticKernel`, see `Threading.md` § Acoustic geometry).
+Claimed outside the renderer passes: **set 1, bindings 30–48** — Soundwave's acoustic compute.
+Bindings 30–38 hold geometry, listener reverb and the legacy visibility-only requests/results
+(`Soundwave.glslh`, `SoundwaveReverb.glsl`, `SoundwaveVisibility.glsl`). Bindings 39–48 hold source
+requests, opening nodes, scratch, results, adjacency, proposals, portals, reflection candidates,
+reflection visibility and retained reflection indices (`SoundwaveOpeningLayout.glslh`).
+The four `SoundwaveOpening*` passes are cached and rebound when geometry or capacity changes.
+They record on a compute command buffer and join the graphics frame timeline for readback
+retirement. Listener reverb and legacy visibility keep separate command buffers.
+See `AudioAcousticKernel` and `Threading.md` § Acoustic geometry.
 
 **This is the highest-consequence rule in the renderer.**
 

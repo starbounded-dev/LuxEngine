@@ -27,7 +27,7 @@ CASES = {
     "gpu-reflection": {"listener": [-1, 1, 0], "source": [1, 1, 0], "simple": True, "reflective": True, "clear": True},
     "gpu-caustic": {"listener": [-0.5, 1, 0], "source": [0.5, 1, 0], "simple": True, "reflective": True,
                     "caustic": True, "clear": True},
-    "gpu-sponza-hybrid": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "hybrid": True, "audible": True},
+    "gpu-sponza": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "fullGpu": True, "audible": True},
     "corner": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "audible": True},
     "doorway-open": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "audible": True},
     "doorway-closed": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "closed": True},
@@ -220,11 +220,11 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     if case.get("zone"):
         audio["AcousticMaterials"]["Default"].update({"AbsorptionLF": 0.05, "AbsorptionHF": 0.1})
     audio["Occlusion"] = {"Source": "Engine", "UpdateRateHz": 1, "CastBudget": 32, "Strength": 1,
-         "Kernel": {"Version": 1, "ReflectionDepth": 1 if case.get("reflective") or case.get("hybrid") else 0,
+         "Kernel": {"Version": 1, "ReflectionDepth": 1 if case.get("reflective") or case.get("fullGpu") else 0,
                     "OpeningGridSize": 1 if case.get("direct") or case.get("reflective") else 8,
                     "CausticFocus": 1.0 if case.get("caustic") else 0.0,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
-                   "OpeningNodeBudget": 128 if gpu_source and not case.get("hybrid") else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
+                   "OpeningNodeBudget": 128 if gpu_source and not case.get("fullGpu") else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
     if case.get("zone"):
         audio["Occlusion"]["Kernel"].update({"EchogramWindowSeconds": 3.0, "EchogramSmoothingSeconds": 0.04})
     path = directory/"Acoustics.luxproj"
@@ -237,6 +237,9 @@ def verify(data, case, triangle_counts, gpu_source=False):
     require(data.get("ReverbOn") == "GPU" and data.get("ReverbMeasurements", 0) > 0,
             f"Listener reverb did not run on the GPU: {data.get('ReverbOn')} x{data.get('ReverbMeasurements')}")
     if gpu_source:
+        require(data.get("SourceSolveOn") == "GPU", "Full GPU propagation did not run")
+        if data.get("SourceGpuTimingEnabled", False):
+            require(data.get("SourceGpuMilliseconds", 0) > 0, "GPU timestamp evidence missing")
         require(data.get("SourceVisibilityBatches", 0) > 0 and not data.get("SourceVisibilityGpuFailed"),
                 "GPU source visibility did not complete a batch")
     require(0 <= data["ReverbSend"] <= 1 and data["ReverbDecaySeconds"] >= 0, "Listener reverb values out of range")
@@ -328,6 +331,9 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     env.update({"LUX_RUNTIME_AUDIO_REPORT": str(report_path.resolve()), "LUX_NO_WATCHDOG": "1",
                 "LUX_THREADING_POLICY": threading.capitalize()})
     if gpu_source:
+        require(data.get("SourceSolveOn") == "GPU", "Full GPU propagation did not run")
+        if data.get("SourceGpuTimingEnabled", False):
+            require(data.get("SourceGpuMilliseconds", 0) > 0, "GPU timestamp evidence missing")
         env["LUX_VERIFY_GPU_SOURCE"] = "1"
     if os.name != "nt":
         # Build-tree paths must not hide a missing packaged shared library.
@@ -378,7 +384,7 @@ def main():
     parser.add_argument("--runtime-config", choices=("debug", "release", "dist"), help="exported runtime configuration (defaults to --config)")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--threading", choices=("single", "multi"), default="multi")
-    parser.add_argument("--gpu-source", action="store_true", help="require a completed GPU source-visibility batch")
+    parser.add_argument("--gpu-source", action="store_true", help="require completed GPU propagation and timing")
     parser.add_argument("--output", type=Path, default=ROOT/"bin/soundwave-scene-tests",
                         help="Parent directory for fixtures, exports and results")
     parser.add_argument("--timeout", type=int, default=900)
@@ -405,7 +411,7 @@ def main():
     try:
         for name in args.cases:
             case = CASES[name]
-            require_gpu = args.gpu_source or case.get("hybrid", False)
+            require_gpu = args.gpu_source or case.get("fullGpu", False)
             fixture = make_fixture(run/name, name, case, project, demo, sample/"Assets", handles, args.runtime_config or args.config,
                                    require_gpu)
             label = run_id + "-" + name

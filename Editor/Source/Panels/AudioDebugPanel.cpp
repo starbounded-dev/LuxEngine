@@ -693,7 +693,9 @@ namespace Lux {
 			if (stats.ReverbStalled)
 				DrawStatColored("Reverb", "Stalled (frames not rendering)", kWarnColor);
 			DrawStat("Source Solves", stats.SolvesPending ? "Batch on worker" : "Idle");
-			DrawStat("Source Visibility", stats.SourceVisibilityOnGpu ? "GPU rays" : "CPU worker");
+			DrawStat("Source Propagation",
+				stats.SourceSolveOnGpu ? "GPU solve" : (stats.SourceVisibilityOnGpu ? "GPU rays" : "CPU worker"));
+			DrawStat("Source GPU", stats.SourceGpuMilliseconds, " ms");
 			DrawStat("GPU Source Batches", static_cast<uint64_t>(stats.SourceVisibilityBatches));
 			if (stats.SourceVisibilityGpuFailed)
 				DrawStatColored("GPU Source Visibility", "Unavailable; CPU fallback active (see Log)", kWarnColor);

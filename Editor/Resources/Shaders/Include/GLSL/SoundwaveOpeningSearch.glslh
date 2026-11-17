@@ -1,0 +1,617 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2025-2026 starbounded-dev
+#include "SoundwaveOpeningLayout.glslh"
+const uint INVALID = 0xffffffffu;
+const uint MAX_DEPTH = 16u;
+const uint WORK_LIMITED = 1u;
+const uint PATH_LIMITED = 2u;
+const uint INVALID_PATH = 4u;
+
+layout(local_size_x = 64) in;
+uvec4 Diagnostics;
+vec4 Gains;
+shared OpeningPath PathCache[32];
+shared float BestNear[4096];
+shared vec4 FirstPoint[64];
+shared vec3 LastPoint[64];
+shared uint Actions[2048];
+shared uvec2 Counts[64];
+shared uint ActionCount;
+shared uint RayCount;
+shared uint TerminalCount;
+uint ActiveSlot;
+uint RemainingPaths;
+uint RetainedReflections;
+float FocusEnergy;
+shared uint Chain[16];
+shared uint PhaseDepth;
+shared uint PhaseNode;
+shared float PhaseDistance;
+shared vec3 PhasePoint;
+// Two bits per node keep the workgroup below the Vulkan 32 KiB shared-memory minimum.
+shared uint PackedSourceStatus[128];
+uint SourceStatus(uint node)
+{
+	return (PackedSourceStatus[node / 16u] >> (2u * (node % 16u))) & 3u;
+}
+
+shared uint Current;
+shared uint HeapSize;
+shared uint StatesSize;
+
+uint Width()
+{
+	return requestBlock.Config.x;
+}
+uint DepthLimit()
+{
+	return requestBlock.Config.y;
+}
+uint WorkLimit()
+{
+	return requestBlock.Config.z;
+}
+uint PathLimit()
+{
+	return RemainingPaths;
+}
+uint BestWords()
+{
+	return (DepthLimit() + 1u) * Width();
+}
+uint StateBase(uint index)
+{
+	return BestWords() + index * 5u;
+}
+uint HeapBase()
+{
+	return BestWords() + WorkLimit() * 5u;
+}
+uint NodeIndex(uint index)
+{
+	return Scratch[StateBase(index)];
+}
+uint Depth(uint index)
+{
+	return Scratch[StateBase(index) + 1u];
+}
+uint Parent(uint index)
+{
+	return Scratch[StateBase(index) + 2u];
+}
+float Traveled(uint index)
+{
+	return uintBitsToFloat(Scratch[StateBase(index) + 3u]);
+}
+float Score(uint index)
+{
+	return uintBitsToFloat(Scratch[StateBase(index) + 4u]);
+}
+uint HeapAt(uint index)
+{
+	return Scratch[HeapBase() + index];
+}
+
+float OrderedDistance(vec3 a, vec3 b)
+{
+	precise vec3 delta = a - b;
+	precise float square = (delta.x * delta.x + delta.y * delta.y) + delta.z * delta.z;
+	return sqrt(square);
+}
+
+bool Earlier(uint a, uint b)
+{
+	const float x = Score(a), y = Score(b);
+	return x != y ? x < y : a < b;
+}
+
+bool Spend()
+{
+	if (Diagnostics.x >= WorkLimit())
+	{
+		Diagnostics.w |= WORK_LIMITED;
+		return false;
+	}
+	++Diagnostics.x;
+	++Diagnostics.y;
+	return true;
+}
+
+uint Trace(uint from, uint to)
+{
+	return Visibility[from * (Width() + 2u) + to];
+}
+
+bool Clear(uint status)
+{
+	if (!Spend())
+		return false;
+	if (status > 1u)
+		Diagnostics.w |= INVALID_PATH;
+	return status == 0u;
+}
+
+float EdgeLoss(float excess, float frequency)
+{
+	const float a = 2.0 * sqrt(max(excess, 0.0) * frequency / 343.0) - 0.1;
+	return 6.9 + 20.0 * log2(sqrt(a * a + 1.0) + a) * 0.3010299956639812;
+}
+
+void AcceptOpening(uint node, uint depth, uint parent)
+{
+	OpeningPath path;
+	path.Depth = depth;
+	for (uint i = 0u; i < MAX_DEPTH; ++i)
+		path.Chain[i] = INVALID;
+	path.Chain[path.Depth - 1u] = node;
+	uint current = parent;
+	for (uint i = path.Depth - 1u; i > 0u; --i)
+	{
+		path.Chain[i - 1u] = NodeIndex(current);
+		current = Parent(current);
+	}
+
+	Proposal proposal = Proposals[ActiveSlot];
+	for (uint i = 0u; i < proposal.Meta.z; ++i)
+	{
+		if (!Spend() || Diagnostics.x >= WorkLimit())
+			return;
+	}
+	if ((proposal.Meta.w & 1u) != 0u)
+	{
+		Diagnostics.w |= INVALID_PATH;
+		return;
+	}
+	if ((proposal.Meta.w & 2u) == 0u)
+		return;
+	path.Length = proposal.Value.z;
+	vec2 gain = proposal.Value.xy;
+	path.LF = gain.x;
+	path.HF = gain.y;
+	if (gain.x > Gains.x)
+		Paths[0] = path;
+	Gains.xy = max(Gains.xy, gain);
+
+	if ((Diagnostics.w & PATH_LIMITED) != 0u)
+		return;
+	vec3 first = Nodes[path.Chain[0]].Point;
+	vec3 last = Nodes[path.Chain[path.Depth - 1u]].Point;
+	for (uint i = 1u; i <= Diagnostics.z; ++i)
+	{
+		if (i <= 64u &&
+			(uint(FirstPoint[i - 1u].w) != path.Depth || OrderedDistance(FirstPoint[i - 1u].xyz, first) > 0.001 ||
+				OrderedDistance(LastPoint[i - 1u], last) > 0.001))
+			continue;
+		OpeningPath retained;
+		if (i <= 32u)
+			retained = PathCache[i - 1u];
+		else
+			retained = Paths[i];
+		if (retained.Depth != path.Depth)
+			continue;
+		bool equal = true;
+		for (uint j = 0u; j < path.Depth; ++j)
+			equal = equal && OrderedDistance(Nodes[retained.Chain[j]].Point, Nodes[path.Chain[j]].Point) <= 0.001;
+		if (equal)
+			return;
+	}
+	if (Diagnostics.z == PathLimit())
+	{
+		Diagnostics.w |= PATH_LIMITED;
+		return;
+	}
+	++Diagnostics.z;
+	Paths[Diagnostics.z] = path;
+	if (Diagnostics.z <= 64u)
+	{
+		if (Diagnostics.z <= 32u)
+			PathCache[Diagnostics.z - 1u] = path;
+		FirstPoint[Diagnostics.z - 1u] = vec4(first, float(path.Depth));
+		LastPoint[Diagnostics.z - 1u] = last;
+	}
+}
+
+void Push(uint node, uint depth, uint parent, float traveled, bool terminal)
+{
+	const uint bestIndex = depth * Width() + node;
+	float best = depth <= 2u ? BestNear[(depth - 1u) * Width() + node] : uintBitsToFloat(Scratch[bestIndex]);
+	if (traveled >= best)
+		return;
+	if (depth <= 2u)
+		BestNear[(depth - 1u) * Width() + node] = traveled;
+	else
+		Scratch[bestIndex] = floatBitsToUint(traveled);
+	const uint index = StatesSize++;
+	if (terminal)
+	{
+		AcceptOpening(node, depth, parent);
+		return;
+	}
+	// At the interaction limit a nonterminal state can never produce another ray.
+    if (depth >= DepthLimit()) return;
+    const uint base = StateBase(index);
+	Scratch[base] = node;
+	Scratch[base + 1u] = depth;
+	Scratch[base + 2u] = parent;
+	Scratch[base + 3u] = floatBitsToUint(traveled);
+	Scratch[base + 4u] = floatBitsToUint(traveled + OrderedDistance(Nodes[node].Point, requestBlock.Source.xyz));
+
+	uint slot = HeapSize++;
+	while (slot != 0u)
+	{
+		const uint above = (slot - 1u) / 2u;
+		if (!Earlier(index, HeapAt(above)))
+			break;
+		Scratch[HeapBase() + slot] = HeapAt(above);
+		slot = above;
+	}
+	Scratch[HeapBase() + slot] = index;
+}
+
+uint Pop()
+{
+	const uint first = HeapAt(0u);
+	--HeapSize;
+	if (HeapSize == 0u)
+		return first;
+	const uint last = HeapAt(HeapSize);
+	uint slot = 0u;
+	for (uint child = 1u; child < HeapSize; child = slot * 2u + 1u)
+	{
+		if (child + 1u < HeapSize && Earlier(HeapAt(child + 1u), HeapAt(child)))
+			++child;
+		if (!Earlier(HeapAt(child), last))
+			break;
+		Scratch[HeapBase() + slot] = HeapAt(child);
+		slot = child;
+	}
+	Scratch[HeapBase() + slot] = last;
+	return first;
+}
+
+void Prepare(uint slot, uint node, bool initial)
+{
+	Proposal proposal;
+	proposal.Meta = uvec4(3u, 0u, 0u, 0u);
+	proposal.Value = vec4(0.0);
+	uint depth = initial ? 1u : PhaseDepth + 1u;
+	bool terminal = SourceStatus(node) == 0u;
+	bool eligible = initial || (PhaseDepth < DepthLimit() && (depth < DepthLimit() || terminal));
+	if (!initial)
+		for (uint j = 0u; j < PhaseDepth; ++j)
+			eligible = eligible && Nodes[Chain[j]].Edge != Nodes[node].Edge;
+	if (!eligible)
+	{
+		Proposals[slot] = proposal;
+		return;
+	}
+	uint status = Trace(initial ? 0u : PhaseNode + 1u, node + 1u);
+	proposal.Meta.x = status;
+	if (status != 0u)
+	{
+		Proposals[slot] = proposal;
+		return;
+	}
+	precise float distance = initial ? OrderedDistance(requestBlock.Listener.xyz, Nodes[node].Point)
+									 : PhaseDistance + OrderedDistance(PhasePoint, Nodes[node].Point);
+	proposal.Value.w = distance;
+	float best =
+		depth <= 2u ? BestNear[(depth - 1u) * Width() + node] : uintBitsToFloat(Scratch[depth * Width() + node]);
+	if (distance >= best)
+	{
+		Proposals[slot] = proposal;
+		return;
+	}
+	proposal.Meta.y = 1u;
+	if (!terminal)
+	{
+		Proposals[slot] = proposal;
+		return;
+	}
+	vec2 loss = vec2(0.0);
+	float lengthPath = 0.0;
+	for (uint i = 0u; i < depth; ++i)
+	{
+		uint a = i == 0u ? 0u : Chain[i - 1u] + 1u;
+		uint b = i + 1u == depth ? node + 1u : Chain[i] + 1u;
+		uint c = i + 1u == depth ? Width() + 1u : (i + 2u == depth ? node + 1u : Chain[i + 1u] + 1u);
+		uint shortcut = Trace(a, c);
+		++proposal.Meta.z;
+		if (shortcut != 1u)
+		{
+			if (shortcut > 1u)
+				proposal.Meta.w = 1u;
+			Proposals[slot] = proposal;
+			return;
+		}
+		vec3 pa = a == 0u ? requestBlock.Listener.xyz : Nodes[a - 1u].Point;
+		vec3 pb = Nodes[b - 1u].Point;
+		vec3 pc = c == Width() + 1u ? requestBlock.Source.xyz : Nodes[c - 1u].Point;
+		float excess = OrderedDistance(pa, pb) + OrderedDistance(pb, pc) - OrderedDistance(pa, pc);
+		loss += vec2(EdgeLoss(excess, 250.0), EdgeLoss(excess, 4000.0));
+		lengthPath += OrderedDistance(pa, pb);
+	}
+	lengthPath += OrderedDistance(Nodes[node].Point, requestBlock.Source.xyz);
+	float directLength = OrderedDistance(requestBlock.Listener.xyz, requestBlock.Source.xyz);
+	float spread = min(1.0, max(1.0, directLength) / max(1.0, lengthPath));
+	vec2 gain =
+		spread * pow(vec2(10.0), -0.05 * (loss + max(0.0, lengthPath - directLength) * requestBlock.Air.xy * 0.01));
+	proposal.Meta.w = any(isnan(gain)) || any(isinf(gain)) || isnan(lengthPath) || isinf(lengthPath) ? 1u : 2u;
+	proposal.Value.xyz = vec3(gain, lengthPath);
+	Proposals[slot] = proposal;
+}
+
+// Prefix sums preserve the CPU's candidate/ray charging order, including exhaustion in
+// the middle of a candidate's legs. Only visible, fully charged paths reach serial deduplication.
+shared uint ReflectionWork;
+shared uint AcceptedReflections;
+void ReduceReflections(uint lane)
+{
+    uint count = requestBlock.Reflections.x;
+    uint chunk = (count + 63u) / 64u;
+    uint begin = min(lane * chunk, count), end = min((lane + 1u) * chunk, count);
+    uint cost = 0u;
+    for (uint i = begin; i < end; ++i)
+    {
+        uint prior = i == 0u ? 0u : Reflections[i-1u].Metadata.x;
+        cost += Reflections[i].Metadata.x - prior + ReflectionVisibility[i].y;
+    }
+    Counts[lane] = uvec2(cost, 0u);
+    barrier();
+    if (lane == 0u)
+    {
+        uint prefix = 0u;
+        for (uint i = 0u; i < 64u; ++i)
+        {
+            uint next = Counts[i].x;
+            Counts[i].x = prefix;
+            prefix += next;
+        }
+        ReflectionWork = prefix + requestBlock.Reflections.y - (count == 0u ? 0u : Reflections[count-1u].Metadata.x);
+    }
+    barrier();
+    uint startCost = Counts[lane].x;
+    uint cumulative = startCost, visible = 0u, rays = 0u;
+    bool invalid = false;
+    for (uint i = begin; i < end; ++i)
+    {
+        uint prior = i == 0u ? 0u : Reflections[i-1u].Metadata.x;
+        cumulative += Reflections[i].Metadata.x - prior;
+        uvec2 status = ReflectionVisibility[i];
+        rays += min(status.y, requestBlock.Reflections.z - min(cumulative, requestBlock.Reflections.z));
+        cumulative += status.y;
+        if (cumulative <= requestBlock.Reflections.z)
+        {
+            visible += uint(status.x == 0u);
+            invalid = invalid || status.x > 1u;
+        }
+    }
+    Counts[lane] = uvec2(visible, rays | (invalid ? 0x80000000u : 0u));
+    barrier();
+    if (lane == 0u)
+    {
+        uint prefix = 0u;
+        for (uint i = 0u; i < 64u; ++i)
+        {
+            uint next = Counts[i].x;
+            Counts[i].x = prefix;
+            prefix += next;
+            Diagnostics.y += Counts[i].y & 0x7fffffffu;
+            if ((Counts[i].y & 0x80000000u) != 0u) Diagnostics.w |= INVALID_PATH;
+        }
+        AcceptedReflections = prefix;
+        Diagnostics.x = min(ReflectionWork, requestBlock.Reflections.z);
+        if (ReflectionWork > requestBlock.Reflections.z || (requestBlock.Reflections.w & 2u) != 0u)
+            Diagnostics.w |= WORK_LIMITED;
+    }
+    barrier();
+    uint offset = Counts[lane].x;
+    cumulative = startCost;
+    for (uint i = begin; i < end; ++i)
+    {
+        uint prior = i == 0u ? 0u : Reflections[i-1u].Metadata.x;
+        uvec2 status = ReflectionVisibility[i];
+        cumulative += Reflections[i].Metadata.x - prior + status.y;
+        if (cumulative <= requestBlock.Reflections.z && status.x == 0u)
+            Scratch[BestWords() + offset++] = i;
+    }
+    memoryBarrierBuffer();
+    barrier();
+    if (lane != 0u) return;
+    for (uint accepted = 0u; accepted < AcceptedReflections; ++accepted)
+    {
+        if ((Diagnostics.w & PATH_LIMITED) != 0u) break;
+        uint i = Scratch[BestWords() + accepted];
+		bool duplicate = false;
+		for (uint j = 0u; j < RetainedReflections && !duplicate; ++j)
+		{
+			uint existing = ReflectionIndices[j];
+			if (Reflections[existing].Metadata.y != Reflections[i].Metadata.y)
+				continue;
+			bool equal = true;
+			for (uint k = 1u; k + 1u < Reflections[i].Metadata.y; ++k)
+				equal = equal &&
+					OrderedDistance(Reflections[existing].Points[k].xyz, Reflections[i].Points[k].xyz) <= 0.001;
+			duplicate = equal;
+		}
+		if (duplicate)
+			continue;
+		if (RetainedReflections == requestBlock.Config.w)
+		{
+			Diagnostics.w |= PATH_LIMITED;
+			continue;
+		}
+		ReflectionIndices[RetainedReflections++] = i;
+		FocusEnergy += Reflections[i].Energy.x;
+	}
+}
+
+void main()
+{
+	uint lane = gl_LocalInvocationID.x;
+	uint count = Width();
+	if (count > 2048u || WorkLimit() == 0u || DepthLimit() == 0u || DepthLimit() > MAX_DEPTH)
+		return;
+	for (uint i = lane; i < count * 2u; i += 64u)
+		BestNear[i] = uintBitsToFloat(0x7f800000u);
+	for (uint i = lane; i < BestWords(); i += 64u)
+		Scratch[i] = 0x7f800000u;
+	for (uint word = lane; word < (count + 15u) / 16u; word += 64u)
+	{
+		uint packed = 0u;
+		for (uint bit = 0u; bit < 16u && word * 16u + bit < count; ++bit)
+			packed |= Trace(word * 16u + bit + 1u, Width() + 1u) << (bit * 2u);
+		PackedSourceStatus[word] = packed;
+	}
+	memoryBarrierBuffer();
+	barrier();
+	if (lane == 0u)
+	{
+		StatesSize = 0u;
+		HeapSize = 0u;
+		Paths[0].Depth = 0u;
+		RemainingPaths = requestBlock.Config.w;
+		RetainedReflections = 0u;
+		FocusEnergy = 0.0;
+		Gains = vec4(requestBlock.Listener.w, requestBlock.Source.w, 0.0, 0.0);
+		Diagnostics = uvec4(requestBlock.Initial.x, requestBlock.Initial.y, 0u, requestBlock.Initial.z);
+    }
+    barrier();
+    if ((requestBlock.Reflections.w & 1u) != 0u) ReduceReflections(lane);
+    if (lane == 0u)
+    {
+        if ((requestBlock.Reflections.w & 1u) != 0u)
+        {
+            RemainingPaths -= RetainedReflections;
+            Diagnostics.x += min(requestBlock.Initial.x, WorkLimit() - Diagnostics.x);
+        }
+		// Depth zero's best-distance slice is unused. Reuse it for a stable list of
+        // source-visible nodes; the last expansion only visits this list.
+        TerminalCount = 0u;
+        for (uint node = 0u; node < count; ++node)
+            if (SourceStatus(node) == 0u) Scratch[TerminalCount++] = node;
+        PhaseDepth = 0u;
+		Current = INVALID;
+	}
+	barrier();
+	for (uint round = 0u;
+		round < WorkLimit() + 1u && count != 0u && (requestBlock.Listener.w < 1.0 || requestBlock.Source.w < 1.0);
+		++round)
+	{
+		bool initial = round == 0u;
+		if (!initial)
+		{
+			if (lane == 0u)
+			{
+				atomicExchange(Current, INVALID);
+				if (HeapSize != 0u && Diagnostics.x < WorkLimit() && (Diagnostics.w & INVALID_PATH) == 0u)
+				{
+					atomicExchange(Current, Pop());
+					PhaseDepth = Depth(Current);
+					PhaseNode = NodeIndex(Current);
+					PhaseDistance = Traveled(Current);
+					PhasePoint = Nodes[PhaseNode].Point;
+					uint prior = Current;
+					for (uint j = PhaseDepth; j > 0u; --j)
+					{
+						Chain[j - 1u] = NodeIndex(prior);
+						prior = Parent(prior);
+					}
+				}
+			}
+			barrier();
+			// Atomic publication keeps this loop exit uniform across lanes on all compilers.
+			if (atomicAdd(Current, 0u) == INVALID)
+				break;
+		}
+
+		bool terminalOnly = !initial && PhaseDepth + 1u >= DepthLimit();
+        uint candidates = terminalOnly ? TerminalCount : count;
+        uint chunk = (candidates + 63u) / 64u;
+        uint begin = min(lane * chunk, candidates), end = min((lane + 1u) * chunk, candidates);
+		uvec2 sizes = uvec2(0u);
+		for (uint i = begin; i < end; ++i)
+		{
+			uint node = terminalOnly ? Scratch[i] : i;
+            Prepare(node, node, initial);
+            uvec4 meta = Proposals[node].Meta;
+			bool actionable = meta.x == 2u || (initial && SourceStatus(node) > 1u) || (meta.x == 0u && meta.y != 0u);
+			sizes.x += uint(actionable);
+			sizes.y += initial ? 2u : uint(meta.x != 3u);
+		}
+		Counts[lane] = sizes;
+		memoryBarrierBuffer();
+		barrier();
+		if (lane == 0u)
+		{
+			uvec2 offset = uvec2(0u);
+			for (uint i = 0u; i < 64u; ++i)
+			{
+				uvec2 next = Counts[i];
+				Counts[i] = offset;
+				offset += next;
+			}
+			ActionCount = offset.x;
+			RayCount = offset.y;
+		}
+		barrier();
+		uvec2 offset = Counts[lane];
+		for (uint i = begin; i < end; ++i)
+		{
+			uint node = terminalOnly ? Scratch[i] : i;
+            uvec4 meta = Proposals[node].Meta;
+			bool actionable = meta.x == 2u || (initial && SourceStatus(node) > 1u) || (meta.x == 0u && meta.y != 0u);
+			offset.y += initial ? 2u : uint(meta.x != 3u);
+			if (actionable)
+				Actions[offset.x++] = node | (offset.y << 12u);
+		}
+		barrier();
+		if (lane == 0u)
+		{
+			uint used = 0u;
+			for (uint i = 0u; i < ActionCount && Diagnostics.x < WorkLimit() && (Diagnostics.w & INVALID_PATH) == 0u;
+				++i)
+			{
+				uint entry = Actions[i], node = entry & 4095u, ordinal = entry >> 12u;
+				uint needed = ordinal - used;
+				uint spent = min(needed, WorkLimit() - Diagnostics.x);
+				Diagnostics.x += spent;
+				Diagnostics.y += spent;
+				used = ordinal;
+				if (spent != needed)
+				{
+					Diagnostics.w |= WORK_LIMITED;
+					break;
+				}
+				if (Proposals[node].Meta.x == 2u || (initial && SourceStatus(node) > 1u))
+				{
+					Diagnostics.w |= INVALID_PATH;
+					break;
+				}
+				ActiveSlot = node;
+				Push(node, initial ? 1u : PhaseDepth + 1u, initial ? INVALID : Current, Proposals[node].Value.w,
+					SourceStatus(node) == 0u);
+			}
+			if ((Diagnostics.w & INVALID_PATH) == 0u)
+			{
+				uint remaining = RayCount - used;
+				uint spent = min(remaining, WorkLimit() - Diagnostics.x);
+				Diagnostics.x += spent;
+				Diagnostics.y += spent;
+				if (spent != remaining)
+					Diagnostics.w |= WORK_LIMITED;
+			}
+		}
+		memoryBarrierBuffer();
+		barrier();
+	}
+	if (lane == 0u)
+	{
+		if (HeapSize != 0u || Diagnostics.x >= WorkLimit())
+			Diagnostics.w |= WORK_LIMITED;
+		OutputDiagnostics = Diagnostics;
+		OutputGains = Gains.xy;
+        OutputFocusEnergy = FocusEnergy;
+        OutputReflectionCount = RetainedReflections;
+	}
+}

@@ -24,12 +24,19 @@ namespace Lux
 		bool Dispatch(const Ref<Geometry>& geometry, Soundwave::Position listener,
 			const Soundwave::Settings& settings, const Soundwave::MaterialTable& materials) override;
 		PollResult Poll(std::vector<Soundwave::ReverbRay>& rays) override;
+		float SourceGpuMilliseconds() const override;
+		bool SupportsSources() const override;
+		bool DispatchSources(const Ref<Geometry>& geometry, std::span<const SourceInput> sources,
+			std::span<const Soundwave::FlatPortal> portals) override;
+		PollResult PollSources(std::vector<SourceOutput>& results) override;
 		bool SupportsVisibility() const override { return m_VisibilityShader != nullptr; }
 		bool DispatchVisibility(const Ref<Geometry>& geometry, std::span<const Soundwave::FlatVisibilitySegment> segments,
 			std::span<const Soundwave::FlatPortal> portals) override;
 		PollResult PollVisibility(std::vector<std::uint32_t>& results) override;
 
 	private:
+		struct Sources;
+		Ref<Sources> m_Sources;
 		struct Readback;
 		struct VisibilityReadback;
 		bool Bind(const Ref<Geometry>& geometry, uint32_t rays);
