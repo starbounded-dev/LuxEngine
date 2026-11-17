@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "MaterialGraphCanvas.h"
 #include "Panels/NodeCanvas/GraphDocument.h"
 
 #include "Lux/Renderer/MaterialAsset.h"
@@ -47,6 +48,7 @@ namespace Lux
 		static std::string GraphSnapshot(const Ref<MaterialAsset>& material);
 		static void ApplyGraphSnapshot(AssetHandle handle, const std::string& snapshot);
 
+		MaterialGraphCanvas Canvas;
 		MaterialState Saved;
 		MaterialState EditBaseline;
 		MaterialState Propagated;

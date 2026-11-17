@@ -8,6 +8,7 @@
 #include "Lux/Asset/Asset.h"
 #include "Lux/Editor/EditorPanel.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Serialization/Yaml.h"
 
 #include <glm/glm.hpp>
 
@@ -32,6 +33,7 @@ namespace Lux
 		void OnImGuiRender(bool& isOpen) override;
 		void OnProjectChanged(const Ref<Project>& project) override;
 		void OnEvent(Event& event) override;
+		void OnClose() override;
 		void SaveState(Yaml::Writer& out) const override;
 		void LoadState(const Yaml::Node& state) override;
 
@@ -45,7 +47,9 @@ namespace Lux
 		using Document = MaterialGraphDocument;
 		using MaterialState = MaterialGraphDocument::MaterialState;
 
-		Document* GetActiveDocument();
+		Document* GetActiveDocument() const;
+		void StopPreview(AssetHandle next = 0);
+		void RestoreTabs();
 		void CloseDocument(size_t index);
 		void RevertDocument(Document& document, Ref<MaterialAsset> material);
 
@@ -67,7 +71,10 @@ namespace Lux
 		bool m_OpenCloseConfirm = false;
 
 		Ref<MaterialPreview> m_Preview;
-		Scope<class MaterialGraphCanvas> m_GraphCanvas;
+		Yaml::Node m_GraphDefaults;
+		Yaml::Node m_PendingTabs;
+		bool m_TabsRestored = false;
+		AssetHandle m_PreviewDocument = 0;
 		bool m_ShowGraph = false;
 		bool m_ShowPreview = true;
 		bool m_NarrowPreview = false;

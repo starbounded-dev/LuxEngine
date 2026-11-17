@@ -9,6 +9,7 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Events/KeyEvent.h"
@@ -108,7 +109,10 @@ namespace Lux
 			return;
 		}
 
-		m_Documents.push_back(CreateScope<Document>(material, Project::GetEditorAssetManager()->GetMetadata(handle).FilePath));
+		auto document = CreateScope<Document>(material, Project::GetEditorAssetManager()->GetMetadata(handle).FilePath);
+		document->Canvas.LoadState(m_GraphDefaults);
+		m_Documents.push_back(std::move(document));
+		m_TabsRestored = true;
 		m_ActiveDocument = static_cast<int>(m_Documents.size()) - 1;
 		m_SelectActiveTab = true;
 	}
@@ -123,11 +127,12 @@ namespace Lux
 		m_OpenCloseConfirm = false;
 		m_KeyboardFocus = false;
 		m_Preview = nullptr;
-		if (m_GraphCanvas)
-			m_GraphCanvas->ResetDocument();
+		m_PreviewDocument = 0;
+		m_TabsRestored = false;
+		RestoreTabs();
 	}
 
-	MaterialEditorPanel::Document* MaterialEditorPanel::GetActiveDocument()
+	MaterialEditorPanel::Document* MaterialEditorPanel::GetActiveDocument() const
 	{
 		if (m_ActiveDocument < 0 || m_ActiveDocument >= (int)m_Documents.size())
 			return nullptr;
@@ -138,8 +143,8 @@ namespace Lux
 	{
 		if (index >= m_Documents.size())
 			return;
-		if (m_GraphCanvas && m_GraphCanvas->GetSourceMaterial() == m_Documents[index]->Handle)
-			m_GraphCanvas->StopPreview();
+		if (m_PreviewDocument == m_Documents[index]->Handle)
+			StopPreview();
 
 		if (m_PendingCloseIndex == static_cast<int>(index))
 			m_PendingCloseIndex = -1;
@@ -159,8 +164,7 @@ namespace Lux
 		const std::string before = MaterialGraphDocument::GraphSnapshot(material);
 		document.Saved.Apply(material);
 		MaterialGraphDocument::ApplyGraphSnapshot(document.Handle, document.SavedGraph);
-		if (m_GraphCanvas)
-			m_GraphCanvas->StopPreview();
+		document.Canvas.StopPreview();
 		if (m_PushUndo && (!(beforeState == document.Saved) || before != document.SavedGraph))
 		{
 			const AssetHandle handle = document.Handle;
@@ -239,14 +243,87 @@ namespace Lux
 		event.Handled = true;
 	}
 
+	void MaterialEditorPanel::StopPreview(AssetHandle next)
+	{
+		if (m_PreviewDocument == next)
+			return;
+		for (const auto& document : m_Documents)
+		{
+			if (document->Handle == m_PreviewDocument)
+				document->Canvas.StopPreview();
+		}
+		m_PreviewDocument = next;
+	}
+
+	void MaterialEditorPanel::OnClose()
+	{
+		m_KeyboardFocus = false;
+		StopPreview();
+	}
+
+	void MaterialEditorPanel::RestoreTabs()
+	{
+		if (m_TabsRestored || !Project::GetActive() || !m_PendingTabs)
+			return;
+		const Yaml::Node state = std::exchange(m_PendingTabs, Yaml::Node{});
+		if (state["Project"].Scalar() != Utils::PathToUTF8(Project::GetActive()->GetProjectFilePath()))
+			return;
+		m_TabsRestored = true;
+		const auto tabs = state["OpenTabs"];
+		if (!tabs.IsSequence())
+			return;
+		const AssetHandle active = AssetReference::ReadValue(state["ActiveTab"]);
+		for (const auto& tab : tabs)
+		{
+			const AssetHandle handle = AssetReference::ReadValue(tab["Asset"]);
+			if (!handle || AssetManager::GetAssetType(handle) != AssetType::Material)
+				continue;
+			OpenMaterial(handle);
+			if (Document* document = GetActiveDocument(); document && document->Handle == handle)
+				document->Canvas.LoadView(tab);
+		}
+		if (active)
+		{
+			for (size_t i = 0; i < m_Documents.size(); ++i)
+			{
+				if (m_Documents[i]->Handle == active)
+				{
+					m_ActiveDocument = static_cast<int>(i);
+					m_SelectActiveTab = true;
+					break;
+				}
+			}
+		}
+	}
+
 	void MaterialEditorPanel::SaveState(Yaml::Writer& out) const
 	{
 		out << Yaml::Key << "ShowGraph" << Yaml::Value << m_ShowGraph;
 		out << Yaml::Key << "ShowPreview" << Yaml::Value << m_ShowPreview;
 		out << Yaml::Key << "NarrowPreview" << Yaml::Value << m_NarrowPreview;
 		out << Yaml::Key << "PreviewFraction" << Yaml::Value << m_PreviewFraction;
-		if (m_GraphCanvas)
-			m_GraphCanvas->SaveState(out);
+		const Document* activeDocument = GetActiveDocument();
+		if (activeDocument)
+			activeDocument->Canvas.SaveState(out);
+
+		if (!Project::GetActive())
+			return;
+		out << Yaml::Key << "Project" << Yaml::Value << Utils::PathToUTF8(Project::GetActive()->GetProjectFilePath());
+		AssetReference::PathModeScope pathMode;
+		if (activeDocument)
+		{
+			out << Yaml::Key << "ActiveTab" << Yaml::Value;
+			AssetReference::WriteValue(out, activeDocument->Handle);
+		}
+		out << Yaml::Key << "OpenTabs" << Yaml::Value << Yaml::BeginSeq;
+		for (const auto& document : m_Documents)
+		{
+			out << Yaml::BeginMap << Yaml::Key << "Asset" << Yaml::Value;
+			AssetReference::WriteValue(out, document->Handle);
+			document->Canvas.SaveView(out);
+			out << Yaml::EndMap;
+		}
+		out << Yaml::EndSeq;
 	}
 
 	void MaterialEditorPanel::LoadState(const Yaml::Node& state)
@@ -256,9 +333,14 @@ namespace Lux
 		m_NarrowPreview = state["NarrowPreview"].as<bool>(false);
 		const float fraction = state["PreviewFraction"].as<float>(0.3f);
 		m_PreviewFraction = std::isfinite(fraction) ? std::clamp(fraction, 0.1f, 0.8f) : 0.3f;
-		if (!m_GraphCanvas)
-			m_GraphCanvas = CreateScope<MaterialGraphCanvas>();
-		m_GraphCanvas->LoadState(state);
+		m_GraphDefaults = state;
+		if (Document* document = GetActiveDocument())
+			document->Canvas.LoadState(state);
+		if (!m_TabsRestored && state["OpenTabs"].IsSequence())
+		{
+			m_PendingTabs = state;
+			RestoreTabs();
+		}
 	}
 
 	void MaterialEditorPanel::OnImGuiRender(bool& isOpen)
@@ -315,8 +397,7 @@ namespace Lux
 
 		if (!document->EditInProgress)
 			document->EditBaseline = MaterialState::Capture(material);
-		if (m_GraphCanvas && m_GraphCanvas->GetSourceMaterial() != document->Handle)
-			m_GraphCanvas->StopPreview();
+		StopPreview(document->Handle);
 
 		const float font = ImGui::GetFontSize();
 		const ImGuiEx::PanelSplit split = ImGuiEx::PanelSplitWidths(
@@ -344,9 +425,8 @@ namespace Lux
 			{
 				if (!m_Preview)
 					m_Preview = Ref<MaterialPreview>::Create();
-				const AssetHandle shown = m_ShowGraph && m_GraphCanvas && m_GraphCanvas->GetPreviewMaterial()
-											  ? m_GraphCanvas->GetPreviewMaterial()
-											  : document->Handle;
+				const AssetHandle nodePreview = m_ShowGraph ? document->Canvas.GetPreviewMaterial() : AssetHandle(0);
+				const AssetHandle shown = nodePreview ? nodePreview : document->Handle;
 				if (m_Preview->GetMaterial() != shown)
 					m_Preview->SetMaterial(shown);
 				UI_Preview(ImGui::GetContentRegionAvail().x);
@@ -363,10 +443,8 @@ namespace Lux
 		const bool ownsGraph = material->GetGraph() && !material->GetParent();
 		if (!previewOnly && ownsGraph && m_ShowGraph)
 		{
-			if (!m_GraphCanvas)
-				m_GraphCanvas = CreateScope<MaterialGraphCanvas>();
 			if (ImGui::BeginChild("##material_graph_column", ImVec2(0.0f, 0.0f)))
-				m_GraphCanvas->Draw(material, m_PushUndo);
+				document->Canvas.Draw(material, m_PushUndo);
 			ImGui::EndChild();
 		}
 		else if (!previewOnly)
@@ -657,8 +735,7 @@ namespace Lux
 			const std::string after =
 				make ? MaterialGraphCanvas::Snapshot(*MaterialGraph::CreateDefault()) : std::string();
 			MaterialGraphDocument::ApplyGraphSnapshot(handle, after);
-			if (m_GraphCanvas)
-				m_GraphCanvas->StopPreview();
+			document.Canvas.StopPreview();
 			m_ShowGraph = make;
 			m_NarrowPreview = false;
 			if (m_PushUndo)

@@ -195,6 +195,34 @@ namespace Lux
 				}
 			}
 			Require(!document->IsDirty(), "View-only graph resizing changed the asset");
+			NodeCanvasCore beforeRestart, afterRestart;
+			const auto drawProbe = [&](NodeCanvasCore& canvas, bool select)
+			{
+				constexpr uintptr_t nodeID = 73;
+				ImGui::NewFrame();
+				ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+				ImGui::SetNextWindowSize({ 700.0f, 500.0f });
+				ImGui::Begin("Canvas settings");
+				const NodeCanvasCore::ContextScope canvasContext(canvas);
+				canvas.Begin("##state_probe", false);
+				ax::NodeEditor::SetNodePosition(nodeID, { 50.0f, 50.0f });
+				ax::NodeEditor::BeginNode(nodeID);
+				ImGui::TextUnformatted("State probe");
+				ax::NodeEditor::EndNode();
+				if (select)
+					ax::NodeEditor::SelectNode(nodeID);
+				ax::NodeEditor::End();
+				const bool selected = ax::NodeEditor::IsNodeSelected(nodeID);
+				ImGui::End();
+				ImGui::Render();
+				return selected;
+			};
+			Require(drawProbe(beforeRestart, true), "Could not select the canvas probe node");
+			Require(!beforeRestart.GetView().empty() && beforeRestart.GetView().find("\"nodes\"") == std::string::npos,
+				"Canvas settings failed to capture navigation or included authored node data");
+			afterRestart.RestoreView(beforeRestart.GetView());
+			Require(drawProbe(afterRestart, false), "Canvas selection did not survive a context restart");
+
 			float fraction = 0.3f;
 			ImVec2 splitterPoint;
 			auto splitterFrame = [&](bool focus = false)
@@ -265,6 +293,18 @@ namespace Lux
 			Require(!restored["ShowPreview"].as<bool>() && !restored["GraphDetails"].as<bool>() &&
 						!restored["GraphMinimap"].as<bool>() && panel.m_PreviewFraction == 0.3f,
 					"Presentation choices did not round-trip or nonfinite sizing was accepted");
+			panel.OpenMaterial(instanceHandle);
+			panel.OpenMaterial(handle);
+			Require(panel.GetActiveDocument() == document && panel.m_Documents.size() == 2,
+				"Reopening a material did not focus its existing tab");
+			Yaml::Writer tabs;
+			tabs << Yaml::BeginMap;
+			panel.SaveState(tabs);
+			tabs << Yaml::EndMap;
+			MaterialEditorPanel restarted;
+			restarted.LoadState(Yaml::Load(tabs.str()));
+			Require(restarted.m_Documents.size() == 2 && restarted.GetActiveDocument()->Handle == handle,
+				"Materials or the active tab were lost when restoring the workspace");
 			panel.OnClose();
 			Require(panel.GetActiveDocument() == document, "Hiding materials destroyed an open document");
 			panel.OnProjectChanged(nullptr);
@@ -316,7 +356,8 @@ namespace Lux
 				render(1250.0f);
 				Require(submissionOrder == std::vector<int>({1, 2, 3, 4}),
 						"Nested render work ran after a later command instead of inline");
-				Require(live.m_Preview && live.m_Preview->GetMaterial() == handle && live.m_GraphCanvas,
+				Document* liveDocument = live.GetActiveDocument();
+				Require(live.m_Preview && live.m_Preview->GetMaterial() == handle && liveDocument,
 						"The normal preview/canvas did not render in application frames");
 				Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(handle);
 				auto graph = material->GetGraph();
@@ -342,21 +383,21 @@ namespace Lux
 				render(1250.0f);
 				Require(MaterialGraphRegistry::GetErrors(handle).empty(),
 						"Repairing a graph did not clear its compile errors");
-				live.m_GraphCanvas->PreviewNode(value->ID);
+				liveDocument->Canvas.PreviewNode(value->ID);
 				render(1250.0f);
-				const AssetHandle preview = live.m_GraphCanvas->GetPreviewMaterial();
+				const AssetHandle preview = liveDocument->Canvas.GetPreviewMaterial();
 				Require(preview && live.m_Preview->GetMaterial() == preview,
 						"Node preview did not reach the preview viewport");
 				live.m_ShowPreview = false;
 				render(1250.0f);
-				Require(live.m_GraphCanvas->GetPreviewMaterial() == preview,
+				Require(liveDocument->Canvas.GetPreviewMaterial() == preview,
 						"Hiding the preview replaced its node material");
 				live.m_NarrowPreview = true;
 				render(300.0f);
 				Require(live.m_Compact && live.m_Preview->GetMaterial() == preview,
 						"Narrow Preview did not retain the same node preview");
 				live.CloseDocument(0);
-				Require(!live.m_GraphCanvas->GetPreviewMaterial() &&
+				Require(!liveDocument->Canvas.GetPreviewMaterial() &&
 							!AssetManager::IsAssetHandleValid(preview),
 						"Closing a material leaked its owned node preview");
 				live.OnProjectChanged(nullptr);

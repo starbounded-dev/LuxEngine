@@ -213,6 +213,20 @@ namespace Lux {
 		m_CanvasFraction = std::isfinite(fraction) ? std::clamp(fraction, 0.2f, 0.9f) : 0.7f;
 	}
 
+	void MaterialGraphCanvas::SaveView(Yaml::Writer& out) const
+	{
+		SaveState(out);
+		out << Yaml::Key << "CanvasView" << Yaml::Value << m_Canvas.GetView();
+	}
+
+	void MaterialGraphCanvas::LoadView(const Yaml::Node& state)
+	{
+		LoadState(state);
+		m_Canvas.RestoreView(state["CanvasView"].Scalar());
+		m_Placed.clear();
+		m_CommentNodeSizes.clear();
+	}
+
 	void MaterialGraphCanvas::Draw(const Ref<MaterialAsset>& material, const UndoPushFn& pushUndo)
 	{
 		Ref<MaterialGraph> graph = material ? material->GetGraph() : nullptr;
@@ -234,7 +248,6 @@ namespace Lux {
 			if (switched)
 			{
 				m_LastCode = graph->Compile().Body;
-				m_Canvas.RequestFit();
 			}
 		}
 

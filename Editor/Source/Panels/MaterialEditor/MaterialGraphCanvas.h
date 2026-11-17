@@ -41,6 +41,8 @@ namespace Lux {
 		void Draw(const Ref<MaterialAsset>& material, const UndoPushFn& pushUndo);
 		void SaveState(Yaml::Writer& out) const;
 		void LoadState(const Yaml::Node& state);
+		void SaveView(Yaml::Writer& out) const;
+		void LoadView(const Yaml::Node& state);
 
 		// While a node is previewed: the memory-only material the Material Editor's preview shows instead
 		// (the graph with that node's output as emission); 0 otherwise.

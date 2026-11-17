@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace ax::NodeEditor { struct EditorContext; }
@@ -55,6 +56,8 @@ namespace Lux
 		NodeCanvasCore& operator=(const NodeCanvasCore&) = delete;
 
 		void Reset();
+		void RestoreView(std::string_view state);
+		const std::string& GetView() const { return m_View; }
 		void RequestFit() { m_FitRequested = true; }
 
 		// Requires a bound context. Apply the fit after its nodes are submitted and draw the
@@ -69,6 +72,9 @@ namespace Lux
 		static ClipboardAction ReadClipboardAction();
 
 	private:
+		void CreateContext();
+
+		std::string m_View;
 		char m_FindQuery[64] = {};
 		char m_PaletteQuery[64] = {};
 		ax::NodeEditor::EditorContext* m_Context = nullptr;

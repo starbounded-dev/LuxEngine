@@ -10,10 +10,13 @@
 
 #include <imgui/imgui_internal.h>
 
+#include <imgui-node-editor/crude_json.h>
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstring>
 #include <string>
 
 namespace ed = ax::NodeEditor;
@@ -22,6 +25,43 @@ namespace Lux
 {
 	namespace
 	{
+		constexpr size_t k_MaxViewBytes = 64 * 1024;
+		constexpr double k_MaxViewCoordinate = 1.0e9;
+
+		std::string CanvasViewOnly(std::string_view state)
+		{
+			if (state.empty())
+				return {};
+			const auto settings = crude_json::value::parse(std::string(state));
+			if (!settings.is_object())
+				return {};
+
+			const auto finite = [](const crude_json::value& value, double maximum)
+			{
+				return value.is_number() && std::abs(value.get<double>()) <= maximum;
+			};
+			const auto point = [&](const crude_json::value& value)
+			{
+				return value.is_object() && finite(value["x"], k_MaxViewCoordinate) && finite(value["y"], k_MaxViewCoordinate);
+			};
+			const auto& view = settings["view"];
+			if (!view.is_object() || !point(view["scroll"]) || !finite(view["zoom"], 100.0) || view["zoom"].get<double>() < 0.001)
+				return {};
+
+			// Node positions and sizes are authoring data. Only camera and selection are view state.
+			crude_json::object outputView{ { "scroll", view["scroll"] }, { "zoom", view["zoom"] } };
+			const auto& visible = view["visible_rect"];
+			if (visible.is_object() && point(visible["min"]) && point(visible["max"]))
+				outputView["visible_rect"] = visible;
+			crude_json::object output{ { "view", std::move(outputView) } };
+			const auto& selection = settings["selection"];
+			if (selection.is_array())
+				output["selection"] = selection;
+
+			std::string result = crude_json::value(std::move(output)).dump();
+			return result.size() <= k_MaxViewBytes ? result : std::string();
+		}
+
 		const char* SearchPopup(NodeCanvasCore::Search search)
 		{
 			return search == NodeCanvasCore::Search::Palette ? "Add Node##node_canvas" : "Find node##node_canvas";
@@ -58,14 +98,39 @@ namespace Lux
 
 	void NodeCanvasCore::Reset()
 	{
+		RestoreView({});
+		m_FindQuery[0] = m_PaletteQuery[0] = '\0';
+	}
+
+	void NodeCanvasCore::RestoreView(std::string_view state)
+	{
+		std::string view = state.size() <= k_MaxViewBytes ? CanvasViewOnly(state) : std::string();
+		CreateContext();
+		m_View = std::move(view);
+		m_FitRequested = m_View.empty();
+	}
+
+	void NodeCanvasCore::CreateContext()
+	{
 		ed::Config config;
 		config.SettingsFile = nullptr;
+		config.UserPointer = this;
+		config.LoadSettings = [](char* data, void* user)
+		{
+			const auto& view = static_cast<const NodeCanvasCore*>(user)->m_View;
+			if (data && !view.empty())
+				std::memcpy(data, view.data(), view.size());
+			return view.size();
+		};
+		config.SaveSettings = [](const char* data, size_t size, ed::SaveReasonFlags, void* user)
+		{
+			static_cast<NodeCanvasCore*>(user)->m_View = CanvasViewOnly({ data, size });
+			return true;
+		};
 		auto* context = ed::CreateEditor(&config);
 		if (m_Context)
 			ed::DestroyEditor(m_Context);
 		m_Context = context;
-		m_FindQuery[0] = m_PaletteQuery[0] = '\0';
-		RequestFit();
 	}
 
 	void NodeCanvasCore::Begin(const char* id, bool enableShortcuts)
