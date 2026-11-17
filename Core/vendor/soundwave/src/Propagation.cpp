@@ -19,6 +19,8 @@ namespace Lux::Soundwave
 		constexpr float kReferenceDistance = 1.0f;
 		constexpr float kSpeedOfSound = 343.0f;
 		constexpr float kFrequencyLF = 250.0f, kFrequencyHF = 4000.0f;
+		constexpr float kSmoothNormalCosine = 0.8660254f;
+		constexpr float kMaximumFocusGain = 4.0f;
 		constexpr std::uint32_t kPreparationNodesPerWork = 32;
 		constexpr std::array<std::array<float, 2>, 8> kCircle{{ {1,0}, {0.70710678f,0.70710678f}, {0,1}, {-0.70710678f,0.70710678f},
 			{-1,0}, {-0.70710678f,-0.70710678f}, {0,-1}, {0.70710678f,-0.70710678f} }};
@@ -43,6 +45,40 @@ namespace Lux::Soundwave
 					return false;
 			}
 			return true;
+		}
+
+		Position Centre(const Triangle& triangle)
+		{
+			return Math::Scale(Math::Add(Math::Add(triangle.A, triangle.B), triangle.C), 1.0f / 3.0f);
+		}
+
+		double Curvature(const GeometryView& world, std::uint32_t triangleIndex, Position incident)
+		{
+			const auto triangle = world.GetTriangle(triangleIndex);
+			const auto normal = Queries::Normal(triangle);
+			const float facing = Math::Dot(normal, incident) > 0 ? -1.0f : 1.0f;
+			const auto center = Centre(triangle);
+			double slope = 0, squared = 0;
+			for (const auto edgeIndex : world.GetTriangleEdges(triangleIndex))
+			{
+				if (edgeIndex == kInvalidGeometryIndex)
+					continue;
+				const Edge edge = world.GetEdge(edgeIndex);
+				const auto neighborIndex = edge.Triangle0 == triangleIndex ? edge.Triangle1 : edge.Triangle0;
+				if (neighborIndex == kInvalidGeometryIndex)
+					continue;
+				const auto neighbor = world.GetTriangle(neighborIndex);
+				if (neighbor.Instance != triangle.Instance || neighbor.Portal || triangle.Portal)
+					continue;
+				const auto neighborNormal = Queries::Normal(neighbor);
+				if (Math::Dot(normal, neighborNormal) < kSmoothNormalCosine)
+					continue;
+				const auto between = Math::Subtract(Centre(neighbor), center);
+				const auto tangent = Math::Subtract(between, Math::Scale(normal, Math::Dot(between, normal)));
+				slope -= facing * Math::Dot(Math::Subtract(neighborNormal, normal), tangent);
+				squared += Math::Dot(tangent, tangent);
+			}
+			return squared > 0 ? slope / squared : 0;
 		}
 
 		struct Context
@@ -139,7 +175,10 @@ namespace Lux::Soundwave
 				if (path.Kind == PathKind::Opening)
 					++Result.Diagnostics.OpeningPaths;
 				else
+				{
 					++Result.Diagnostics.ReflectionPaths;
+					Result.AddedFocusEnergy += path.AddedFocusEnergy;
+				}
 			}
 			float Spread(float distance) const
 			{
@@ -209,6 +248,53 @@ namespace Lux::Soundwave
 				(scratch.Triangles.size() == maximum && context.World.GetTriangleCount() > maximum);
 		}
 
+		void ApplyCausticFocus(const Context& context, std::span<const std::uint32_t> reverseSurfaces, PropagationPath& path)
+		{
+			if (context.Config.CausticFocus == 0 || !(path.Distance > kSurfaceMargin))
+				return;
+
+			// Track the radius of a paraxial ray tube launched from a point. A curved
+			// reflection changes its slope by -2*k*radius. Smooth mesh neighbors estimate
+			// local curvature k; corners and boundary edges leave the tube unchanged.
+			double radius = 0, slope = 1;
+			bool curved = false;
+			for (std::uint32_t leg = 1; leg < path.PointCount; ++leg)
+			{
+				const auto direction = Math::Subtract(path.Points[leg], path.Points[leg - 1]);
+				radius += Math::Length(direction) * slope;
+				if (leg > path.Reflections)
+					break;
+				const auto surface = reverseSurfaces[path.Reflections - leg];
+				const auto incident = Math::Unit(direction);
+				const double curvature = Curvature(context.World, surface, incident);
+				if (curvature != 0 && std::isfinite(curvature))
+				{
+					const auto normal = Queries::Normal(context.World.GetTriangle(surface));
+					const double cosine = Math::Dot(normal, incident);
+					slope -= 2.0 * curvature * radius * cosine * cosine * context.Config.CausticFocus;
+					curved = true;
+				}
+			}
+			if (!curved || !std::isfinite(radius))
+				return;
+
+			// A finite resolution in each band keeps the caustic bounded when the
+			// geometric ray tube crosses zero. Low frequencies resolve a broader focus.
+			const auto gain = [&](float frequency)
+			{
+				const double floor = std::max(path.Distance / kMaximumFocusGain, kSpeedOfSound / (2.0f * frequency));
+				const double width = std::max(floor, std::abs(radius));
+				return static_cast<float>(std::max<double>(floor, path.Distance) / width);
+			};
+			const float baseLF = path.GainLF, baseHF = path.GainHF;
+			path.FocusGainLF = gain(kFrequencyLF);
+			path.FocusGainHF = gain(kFrequencyHF);
+			path.GainLF = std::min(baseLF * path.FocusGainLF, 1.0f);
+			path.GainHF = std::min(baseHF * path.FocusGainHF, 1.0f);
+			path.AddedFocusEnergy = 0.5f * std::max(0.0f,
+				path.GainLF * path.GainLF + path.GainHF * path.GainHF - baseLF * baseLF - baseHF * baseHF);
+		}
+
 		template<class Visible, class Accept>
 		void EnumerateReflections(Context& context, const Visible& visible, const Accept& accept)
 		{
@@ -275,6 +361,13 @@ namespace Lux::Soundwave
 						path.ScatteringGain = std::sqrt(specularShare);
 						path.GainLF = std::sqrt(energyLF) * path.SpreadGain * context.Air(path.Distance, context.Config.AirAbsorptionLF);
 						path.GainHF = std::sqrt(energyHF) * path.SpreadGain * context.Air(path.Distance, context.Config.AirAbsorptionHF);
+						if (context.Config.CausticFocus > 0)
+						{
+							std::array<std::uint32_t, kMaximumInteractions> surfaces;
+							for (std::uint32_t i = 0; i < depth; ++i)
+								surfaces[i] = pool[sequence[i]];
+							ApplyCausticFocus(context, std::span(surfaces).first(depth), path);
+						}
 						accept(path);
 					}
 					for (std::uint32_t digit = depth; digit > 0; --digit)
@@ -703,6 +796,7 @@ namespace Lux::Soundwave
 		output.HasAudibleOpening = false;
 		output.Diagnostics = {};
 		output.OcclusionGainLF = output.OcclusionGainHF = 1;
+		output.AddedFocusEnergy = 0;
 		const auto error = EvaluateDirect(grid, portals, materials, settings, listener, source, sourceInstance, scratch.Direct, output.Direct);
 		if (error != EvaluationError::None)
 			return error;
@@ -725,6 +819,7 @@ namespace Lux::Soundwave
 		{
 			output.Indirect.clear();
 			output.HasAudibleOpening = false;
+			output.AddedFocusEnergy = 0;
 			output.OcclusionGainLF = output.Direct.GainLF();
 			output.OcclusionGainHF = output.Direct.GainHF();
 			return EvaluationError::NumericalFailure;

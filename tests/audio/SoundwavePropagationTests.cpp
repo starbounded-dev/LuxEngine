@@ -137,6 +137,42 @@ int main()
 	Check(Solve(grid, {}, materials, settings, {-1,1,0}, {1,-1,0}, 0, scratch, result) == EvaluationError::None &&
 		result.Diagnostics.ReflectionPaths == 0 && result.OcclusionGainLF <= 0.001001f, "mirror path transmitted through its own plane");
 
+	// A shallow concave strip bends reflected rays together. The convex control
+	// reverses the adjacent face normals, and the flat control has no curvature.
+	const auto focus = [&](float rimHeight, float strength)
+	{
+		std::vector<Triangle> strip;
+		const std::array<float, 4> boundaries{ -2, -1, 1, 2 };
+		for (std::size_t i = 1; i < boundaries.size(); ++i)
+		{
+			const float left = boundaries[i - 1], right = boundaries[i];
+			const float yLeft = i == 1 ? rimHeight : 0.0f;
+			const float yRight = i + 1 == boundaries.size() ? rimHeight : 0.0f;
+			strip.push_back({ {left,yLeft,-2},{right,yRight,2},{right,yRight,-2},1 });
+			strip.push_back({ {left,yLeft,-2},{left,yLeft,2},{right,yRight,2},1 });
+		}
+		Grid reflector;
+		Check(reflector.Build(strip) == GeometryError::None, "caustic geometry invalid");
+		Settings focusSettings = settings;
+		focusSettings.CausticFocus = strength;
+		SolveResult focused;
+		Check(Solve(reflector, {}, materials, focusSettings, {-0.5f,1,0}, {0.5f,1,0}, 0, scratch, focused) == EvaluationError::None &&
+			focused.Diagnostics.ReflectionPaths == 1 && focused.OcclusionGainLF == 1 && focused.OcclusionGainHF == 1,
+			"caustic control changed dry gain or lost the analytic reflection");
+		return focused;
+	};
+	const auto planar = focus(0.0f, 1.0f);
+	const auto disabled = focus(0.3f, 0.0f);
+	const auto concave = focus(0.3f, 1.0f);
+	const auto convex = focus(-0.3f, 1.0f);
+	Check(planar.AddedFocusEnergy == 0 && planar.Indirect.front().FocusGainHF == 1 &&
+		disabled.AddedFocusEnergy == 0 && planar.Indirect.front().GainHF == disabled.Indirect.front().GainHF,
+		"planar or disabled focusing changed baseline spreading");
+	Check(concave.AddedFocusEnergy > 0.01f && concave.Indirect.front().FocusGainHF > 1 &&
+		concave.Indirect.front().GainHF > disabled.Indirect.front().GainHF && concave.Indirect.front().GainHF <= 1 &&
+		convex.AddedFocusEnergy == 0 && convex.Indirect.front().FocusGainHF < 1,
+		"concave and convex acoustic curvature did not change reflection energy in opposite directions");
+
 	geometry.clear();
 	Box(geometry, {-2,-2,-2}, {2,2,2}, 1);
 	Check(grid.Build(geometry) == GeometryError::None && grid.GetEdges().size() == 12 &&

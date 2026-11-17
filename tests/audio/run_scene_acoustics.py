@@ -2,6 +2,7 @@
 """Run isolated Sponza Play/oracle cases with the built native editor (requires PyYAML)."""
 
 import argparse
+import base64
 import copy
 import hashlib
 import json
@@ -9,6 +10,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -23,6 +25,8 @@ ZONE_ID = 73049999999999930
 CASES = {
     "gpu-corner": {"listener": [1, 0, -0.5], "source": [-1, 0, -0.5], "simple": True, "audible": True},
     "gpu-reflection": {"listener": [-1, 1, 0], "source": [1, 1, 0], "simple": True, "reflective": True, "clear": True},
+    "gpu-caustic": {"listener": [-0.5, 1, 0], "source": [0.5, 1, 0], "simple": True, "reflective": True,
+                    "caustic": True, "clear": True},
     "corner": {"listener": [-8.8, 1.6, -1.5], "source": [-7.5, 1.6, -2.8], "audible": True},
     "doorway-open": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "audible": True},
     "doorway-closed": {"listener": [-5, 1.6, -3.2], "source": [-4, 1.6, -1], "bay": True, "closed": True},
@@ -64,6 +68,39 @@ def box(identity, name, low, high, cube):
     return result
 
 
+def make_curved_reflector(path):
+    # One glTF primitive and one acoustic instance. The two tilted panels share
+    # positions with the central pane so Soundwave can infer signed curvature.
+    positions, normals, indices = [], [], []
+    panels = ((-2, -1, 0.3, 0), (-1, 1, 0, 0), (1, 2, 0, 0.3))
+    for left, right, y_left, y_right in panels:
+        index = len(positions)
+        positions += [(left, y_left, -2), (right, y_right, 2),
+                      (right, y_right, -2), (left, y_left, 2)]
+        slope = (y_right - y_left) / (right - left)
+        inverse = 1.0 / math.sqrt(1.0 + slope * slope)
+        normals += [(-slope * inverse, inverse, 0)] * 4
+        indices += [index, index + 1, index + 2, index, index + 3, index + 1]
+    position_bytes = b"".join(struct.pack("<fff", *point) for point in positions)
+    normal_bytes = b"".join(struct.pack("<fff", *normal) for normal in normals)
+    index_bytes = struct.pack("<" + "H" * len(indices), *indices)
+    data = position_bytes + normal_bytes + index_bytes
+    encoded = base64.b64encode(data).decode("ascii")
+    path.write_text(json.dumps({
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2}]}],
+        "buffers": [{"byteLength": len(data), "uri": "data:application/octet-stream;base64," + encoded}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(position_bytes), "target": 34962},
+                        {"buffer": 0, "byteOffset": len(position_bytes), "byteLength": len(normal_bytes), "target": 34962},
+                        {"buffer": 0, "byteOffset": len(position_bytes) + len(normal_bytes), "byteLength": len(index_bytes),
+                         "target": 34963}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": len(positions), "type": "VEC3",
+                       "min": [-2, 0, -2], "max": [2, 0.3, 2]},
+                      {"bufferView": 1, "componentType": 5126, "count": len(normals), "type": "VEC3"},
+                      {"bufferView": 2, "componentType": 5123, "count": len(indices), "type": "SCALAR"}]
+    }), encoding="utf-8")
+
+
 def make_fixture(directory, case_name, case, base_project, demo, source_assets, handles, target_config="debug", gpu_source=False):
     assets = directory/"Assets"
     assets.mkdir(parents=True)
@@ -89,6 +126,8 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     # model folders rather than linking them, including their referenced textures.
     for model in ("Sponza", "Default"):
         shutil.copytree(source_assets/"Meshes/Source"/model, assets/"Meshes/Source"/model)
+    if case.get("caustic"):
+        make_curved_reflector(assets/"Meshes/Source/Default/Cube.gltf")
     (assets/"Scripts/Binaries").mkdir(parents=True)
     for original in (source_assets/"Scripts/Binaries").iterdir():
         if original.is_file():
@@ -115,7 +154,10 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     light["Parent"], light["Children"] = 0, []
     entities = [listener, emitter, light] if case.get("zone") or case.get("simple") else [model, listener, emitter, light]
     if case.get("simple"):
-        if case.get("reflective"):
+        if case.get("caustic"):
+            entities.insert(0, box(SPONZA_ID, "Concave reflector", [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5],
+                                   handles["Meshes/Source/Default/Cube.gltf"]))
+        elif case.get("reflective"):
             entities.insert(0, box(SPONZA_ID, "Reflective floor", [-5, -0.1, -5], [5, 0, 5],
                                    handles["Meshes/Source/Default/Cube.gltf"]))
         else:
@@ -179,6 +221,7 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     audio["Occlusion"] = {"Source": "Engine", "UpdateRateHz": 1, "CastBudget": 32, "Strength": 1,
          "Kernel": {"Version": 1, "ReflectionDepth": 1 if case.get("reflective") else 0,
                     "OpeningGridSize": 1 if case.get("direct") or case.get("reflective") else 8,
+                    "CausticFocus": 1.0 if case.get("caustic") else 0.0,
                    "MaxBounces": 1 if case.get("direct") else 2, "CandidateBudget": 65536,
                    "OpeningNodeBudget": 128 if gpu_source else 2048, "PathBudget": 64, "Absorption": 1, "CompareRaycast": True}}
     if case.get("zone"):
@@ -196,7 +239,7 @@ def verify(data, case, triangle_counts, gpu_source=False):
         require(data.get("SourceVisibilityBatches", 0) > 0 and not data.get("SourceVisibilityGpuFailed"),
                 "GPU source visibility did not complete a batch")
     require(0 <= data["ReverbSend"] <= 1 and data["ReverbDecaySeconds"] >= 0, "Listener reverb values out of range")
-    expected = (triangle_counts["Default"] if case.get("simple") else
+    expected = (6 if case.get("caustic") else triangle_counts["Default"] if case.get("simple") else
                 6 * triangle_counts["Default"] if case.get("zone") else
                 triangle_counts["Sponza"] + (5 * triangle_counts["Default"] if case.get("bay") else 0))
     require(data["StaticTriangles"] == expected, f"Sponza/partition geometry missing: {data['StaticTriangles']} != {expected}")
@@ -236,7 +279,12 @@ def verify(data, case, triangle_counts, gpu_source=False):
         else:
             require(source["RawGainLF"] == source["DirectGainLF"] and source["OpeningPaths"] == 0,
                     "Closed/direct-only control acquired an unintended opening route")
-    return {key: source[key] for key in ("DirectGainLF", "RawGainLF", "OcclusionGainLF", "EngineRayGainLF", "OpeningPaths", "ReflectionPaths", "WorkLimited")}
+    if case.get("caustic"):
+        require(source["AddedFocusEnergy"] > 0.01 and source["FocusedReflectionSend"] > 0.01,
+                "Concave reflector did not contribute focused reflection energy")
+        require(source["AppliedReverbSend"] > 0.01, "Caustic focus did not reach the source reverb send")
+    return {key: source[key] for key in ("DirectGainLF", "RawGainLF", "OcclusionGainLF", "EngineRayGainLF", "OpeningPaths",
+                                        "ReflectionPaths", "WorkLimited", "AddedFocusEnergy", "FocusedReflectionSend")}
 
 
 def prepare_linux_validation(environment, directory):
@@ -267,6 +315,11 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
             "Export metadata points outside the isolated destination")
     for path in (executable, package/"Assets/Project.luxruntime", package/"Assets/AssetPack.lap", package/"Assets/ShaderPack.lsp"):
         require(path.is_file() and path.stat().st_size > 0, f"Missing exported artifact: {path}")
+    for path in package.rglob("*"):
+        name = path.name.lower().removeprefix("lib")
+        require(not name.startswith(("fmod", "vaudionative", "asterwave")) or
+                (".so" not in name and not name.endswith(".dll")),
+                f"Export bundled a retired audio SDK library: {path}")
     if os.name != "nt":
         require(not (package/"lib/libvulkan.so.1").exists(), "Export bundled the Vulkan SDK loader instead of using the host driver stack")
     report_path = capture/"AudioDemo.runtime-audio.yaml"
@@ -308,6 +361,9 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     # Same listener, geometry and kernel: the GPU reverb must agree between Play and the package.
     require(abs(data["ReverbDecaySeconds"] - play["ReverbDecaySeconds"]) <= 0.01 * max(play["ReverbDecaySeconds"], 0.01),
             "Play/runtime listener reverb differs")
+    if case.get("caustic"):
+        require(abs(data["Sources"][0]["FocusedReflectionSend"] - play["Sources"][0]["FocusedReflectionSend"]) < 0.001,
+                "Play/runtime focused reflection send differs")
     if case.get("zone"):
         require(abs(data["Zones"][0]["Send"] - play["Zones"][0]["Send"]) < 0.02,
                 "Play/runtime zone reverb differs")

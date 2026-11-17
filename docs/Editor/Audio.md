@@ -253,3 +253,11 @@ in the viewport. The engine-side rules for all three are in `Architecture-LuxEng
 - [Viewport & Camera](Viewport-and-Camera.md) — the overlay the acoustics visualisation draws into
 - `Editor/LuxSampleProject/AUDIO_DEMO.md` — the demo scene and authoring your own Sounds
 - `.claude/docs/Architecture-LuxEngine.md` §2.10 — the runtime audio architecture
+
+### Caustic focus
+
+Set **Caustic Focus** in Project Settings → Audio to let smoothly curved parts of an acoustic
+mesh concentrate or spread reflected energy. Set it to 0 for planar spreading or to 1 for the
+full estimate. Keep the reflector faces in one mesh instance, with shared edge positions.
+The Audio Debugger shows LF/HF focus gains on each retained reflection. Added energy reaches
+the source through the built-in reverb return and leaves dry occlusion unchanged.

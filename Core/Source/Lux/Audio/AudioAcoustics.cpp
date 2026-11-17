@@ -531,6 +531,7 @@ namespace Lux
 			}
 			it->second.GainLF += (it->second.TargetLF - it->second.GainLF) * smoothing;
 			it->second.GainHF += (it->second.TargetHF - it->second.GainHF) * smoothing;
+			it->second.FocusSend += (it->second.TargetFocusSend - it->second.FocusSend) * smoothing;
 			++it;
 		}
 		if (ready)
@@ -733,10 +734,13 @@ namespace Lux
 				std::swap(state.Result, item.Result);
 				state.TargetLF = state.Result.OcclusionGainLF;
 				state.TargetHF = state.Result.OcclusionGainHF;
+				const float addedEnergy = state.Result.AddedFocusEnergy;
+				state.TargetFocusSend = addedEnergy / (1.0f + addedEnergy);
 				if (!state.Evaluated)
 				{
 					state.GainLF = state.TargetLF;
 					state.GainHF = state.TargetHF;
+					state.FocusSend = state.TargetFocusSend;
 				}
 				state.Evaluated = true;
 			}
@@ -947,6 +951,11 @@ namespace Lux
 	{
 		const auto found = m_Sources.find(source);
 		return found != m_Sources.end() ? found->second.GainHF : 1;
+	}
+	float AudioAcoustics::GetFocusedReflectionSend(UUID source) const
+	{
+		const auto found = m_Sources.find(source);
+		return found != m_Sources.end() ? found->second.FocusSend : 0;
 	}
 	const Soundwave::SolveResult* AudioAcoustics::GetResult(UUID source) const
 	{

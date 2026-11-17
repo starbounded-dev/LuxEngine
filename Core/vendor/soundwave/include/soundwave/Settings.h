@@ -32,13 +32,14 @@ namespace Lux::Soundwave
 		// length beyond the direct path and on reverb rays: the backend's distance fade owns the rest.
 		float AirAbsorptionLF = 0.1f;
 		float AirAbsorptionHF = 2.5f;
+		float CausticFocus = 0.0f; // 0 preserves planar spreading; 1 uses measured curvature
 
 		bool Validate() const
 		{
 			const auto air = [](float value) { return std::isfinite(value) && value >= 0.0f && value <= 20.0f; };
 			if (ReverbRays < 16 || ReverbRays > 4096 || ReverbBounces < 1 || ReverbBounces > 64 ||
 				!std::isfinite(ReverbReferenceSeconds) || ReverbReferenceSeconds < 0.1f || ReverbReferenceSeconds > 10.0f ||
-				!air(AirAbsorptionLF) || !air(AirAbsorptionHF))
+				!air(AirAbsorptionLF) || !air(AirAbsorptionHF) || !std::isfinite(CausticFocus) || CausticFocus < 0 || CausticFocus > 1)
 				return false;
 			return MaxBounces >= 1 && MaxBounces <= kMaximumInteractions && ReflectionDepth <= MaxBounces &&
 				OpeningGridSize >= 1 && OpeningGridSize <= 32 && CandidateBudget >= 1 &&

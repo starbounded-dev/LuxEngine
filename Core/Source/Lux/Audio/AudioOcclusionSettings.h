@@ -29,6 +29,7 @@ namespace Lux
 		float EchogramSmoothingSeconds = 0.0f;
 		float AirAbsorptionLF = 0.1f; // dB per 100 m beyond the direct path, and along reverb rays
 		float AirAbsorptionHF = 2.5f;
+		float CausticFocus = 0.0f;
 		bool CompareRaycast = false; // temporary engine-oracle diagnostics, never a playback mode
 		Soundwave::Settings GetKernelSettings() const;
 		Soundwave::EchogramSettings GetEchogramSettings() const;

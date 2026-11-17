@@ -960,7 +960,7 @@ namespace Lux {
 			}
 			if (zoneWeight > 0.0f)
 				reverbSend += std::min(zoneWeight, 1.0f) * (zoneSend / zoneWeight - reverbSend);
-			reverbSend *= m_AudioZones.GetRaytracedReverbGain();
+			const float zoneReverbGain = m_AudioZones.GetRaytracedReverbGain();
 
 
 			m_Registry.view<TransformComponent, AudioSourceComponent>().each([&](entt::entity entityHandle, TransformComponent&, AudioSourceComponent& source)
@@ -975,7 +975,8 @@ namespace Lux {
 				}
 				AudioEventAcoustics acoustics;
 				acoustics.OcclusionGainLF = m_SceneAcoustics.GetKernel().GetGainLF(id);
-				acoustics.ReverbSend = reverbSend;
+				const float focus = m_SceneAcoustics.GetKernel().GetFocusedReflectionSend(id);
+				acoustics.ReverbSend = (reverbSend + (1.0f - reverbSend) * focus) * zoneReverbGain;
 				m_AppliedAudioOcclusion[id] = acoustics.OcclusionGainLF;
 				m_AppliedAudioReverbSend[id] = acoustics.ReverbSend;
 				if (auto instance = GetRuntimeEventInstance(id))

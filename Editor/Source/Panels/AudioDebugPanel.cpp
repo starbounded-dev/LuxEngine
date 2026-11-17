@@ -859,10 +859,10 @@ namespace Lux {
 					"%.3f\nPaths: %s",
 					OcclusionAmount(selected->GainLF) * 100.0f, selected->GainLF, selected->GainHF,
 					RelativeHighFrequencyLoss(selected->GainLF, selected->GainHF), selected->Paths.c_str());
-				if (!selected->IndirectPaths.empty() && ImGui::BeginTable("##soundwave_path_diagnostics", 6,
+				if (!selected->IndirectPaths.empty() && ImGui::BeginTable("##soundwave_path_diagnostics", 7,
 					ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
 				{
-					for (const char* label : {"Path", "Length", "LF gain", "HF gain", "Spread", "Specular share"})
+					for (const char* label : {"Path", "Length", "LF gain", "HF gain", "Spread", "Specular share", "Focus LF / HF"})
 						ImGui::TableSetupColumn(label);
 					ImGui::TableHeadersRow();
 					for (size_t index = 0; index < selected->IndirectPaths.size(); ++index)
@@ -882,6 +882,8 @@ namespace Lux {
 						ImGui::Text("%.4f", path.SpreadGain);
 						ImGui::TableNextColumn();
 						ImGui::Text("%.4f", path.ScatteringGain);
+						ImGui::TableNextColumn();
+						ImGui::Text("%.3f / %.3f", path.FocusGainLF, path.FocusGainHF);
 					}
 					ImGui::EndTable();
 				}

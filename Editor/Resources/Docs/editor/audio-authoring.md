@@ -82,3 +82,11 @@ rerun it after authored edits. Visualisation controls affect the editor view, no
 ## Projects from before FMOD
 
 A project made with the FMOD version of the engine opens and plays its Sounds; its FMOD events never play. **Project Settings › Audio › Legacy FMOD Data** lists what is left (*Scan for FMOD Data*) and removes it in one step (*Remove FMOD Data*). Each Audio Source that names an FMOD event but no Sound needs a Sound assigned.
+
+### Caustic focus
+
+Set **Caustic Focus** in Project Settings → Audio to let smoothly curved parts of an acoustic
+mesh concentrate or spread reflected energy. Set it to 0 for planar spreading or to 1 for the
+full estimate. Keep the reflector faces in one mesh instance, with shared edge positions.
+The Audio Debugger shows LF/HF focus gains on each retained reflection. Added energy reaches
+the source through the built-in reverb return and leaves dry occlusion unchanged.

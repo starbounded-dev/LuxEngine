@@ -166,17 +166,14 @@ The old document's anchors had drifted and several were never true. Fixed agains
 
 ---
 
-## 3. The one pending chore (was: the decision gate)
+## 3. Retired SDK packaging
 
-Decision 1 (B) retires the legal question as a *gate*. What stays, honestly, as one line at the
-very end of the work — decided by nobody in that session, and not this plan's to interpret:
+The Soundwave branch removes the retired Vercidium support reproduction from the tracked
+source tree. LuxEngine is already public. Package verification rejects legacy audio SDK
+libraries, and Soundwave ships as Apache-2.0 source with the native playback backend.
 
-> **Pending:** the disclosure/removal/packaging chore around dropping Vercidium Audio, and whether
-> the repository becomes public while `docs/vercidium-repro/` and the EULA's "may not disclose"
-> clause sit in it. The user's own shape choice (Decision 2) makes Soundwave a named library, so
-> any claim that the clause speaks only to engine-internal features no longer holds for this plan.
-> Nothing in Phases 1-6 depends on this line; nothing ships in an engine release until it is
-> settled (`docs/NEXT_UP_BACKLOG.md:91`, row 4.14).
+This records the scope of the technical packaging work. Interpretation of the former SDK
+agreement and any decision over historical public material remain release-owner decisions.
 
 ---
 
@@ -413,8 +410,7 @@ commit, `/send-pr` ships. Two things must happen first, and neither is code:
   disprove published claims. Soundwave is authored from the engine's own captures and published
   acoustic concepts. The user's own sentiment that "VA's way of doing it was so much better" sets
   *scope* (rewrite, don't extend), not design input.
-- **9.2 The disclosure chore is still load-bearing**, just not a gate: § 3. Ask before the repo
-  becomes public.
+- **9.2 Retired SDK packaging and historical disclosure** are tracked separately in § 3.
 - **9.3 Decision 2's shape is the one the clause speaks about.** The user chose a named library;
   that is their call, recorded, and § 3 keeps it visible. This plan does not claim the shape is
   unambiguously permitted.

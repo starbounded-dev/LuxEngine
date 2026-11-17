@@ -23,9 +23,9 @@ namespace Lux
 		constexpr uint32_t kMaximumCastBudget = 1024;
 		constexpr float kMaximumStrength = 4.0f;
 		constexpr uint32_t kKernelSettingsVersion = 1;
-		constexpr std::array<std::string_view, 16> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
+		constexpr std::array<std::string_view, 17> kKernelKeys{ "Version", "ReflectionDepth", "OpeningGridSize", "MaxBounces",
 			"CandidateBudget", "PathBudget", "OpeningNodeBudget", "Absorption", "CompareRaycast", "ReverbRays", "ReverbBounces",
-			"ReverbReferenceSeconds", "EchogramWindowSeconds", "EchogramSmoothingSeconds", "AirAbsorptionLF", "AirAbsorptionHF" };
+			"ReverbReferenceSeconds", "EchogramWindowSeconds", "EchogramSmoothingSeconds", "AirAbsorptionLF", "AirAbsorptionHF", "CausticFocus" };
 
 		void ValidateKernelKeys(const Yaml::Node& node)
 		{
@@ -58,6 +58,7 @@ namespace Lux
 		settings.ReverbReferenceSeconds = ReverbReferenceSeconds;
 		settings.AirAbsorptionLF = AirAbsorptionLF;
 		settings.AirAbsorptionHF = AirAbsorptionHF;
+		settings.CausticFocus = CausticFocus;
 		return settings;
 	}
 	Soundwave::EchogramSettings AudioOcclusionSettings::GetEchogramSettings() const
@@ -96,6 +97,7 @@ namespace Lux
 		out << Yaml::Key << "EchogramSmoothingSeconds" << Yaml::Value << EchogramSmoothingSeconds;
 		out << Yaml::Key << "AirAbsorptionLF" << Yaml::Value << AirAbsorptionLF;
 		out << Yaml::Key << "AirAbsorptionHF" << Yaml::Value << AirAbsorptionHF;
+		out << Yaml::Key << "CausticFocus" << Yaml::Value << CausticFocus;
 		out << Yaml::EndMap;
 		out << Yaml::EndMap;
 	}
@@ -156,6 +158,8 @@ namespace Lux
 						parsed.AirAbsorptionLF = kernel["AirAbsorptionLF"].as<float>();
 					if (kernel["AirAbsorptionHF"])
 						parsed.AirAbsorptionHF = kernel["AirAbsorptionHF"].as<float>();
+					if (kernel["CausticFocus"])
+						parsed.CausticFocus = kernel["CausticFocus"].as<float>();
 				}
 			}
 			if (!parsed.Validate())

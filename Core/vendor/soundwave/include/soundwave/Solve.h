@@ -72,6 +72,8 @@ namespace Lux::Soundwave
 		// Amplitude factors retained for authoring diagnostics. Spread is relative to the
 		// direct path; scattering is the specular share of the reflecting surfaces.
 		float SpreadGain = 1.0f, ScatteringGain = 1.0f;
+		float FocusGainLF = 1.0f, FocusGainHF = 1.0f;
+		float AddedFocusEnergy = 0.0f; // average LF/HF energy gained relative to planar spreading
 	};
 	struct SolveDiagnostics
 	{
@@ -88,6 +90,7 @@ namespace Lux::Soundwave
 		PropagationPath AudibleOpening;
 		bool HasAudibleOpening = false;
 		float OcclusionGainLF = 1, OcclusionGainHF = 1;
+		float AddedFocusEnergy = 0.0f; // sum over retained reflection paths
 		SolveDiagnostics Diagnostics;
 	};
 	struct SolveScratch

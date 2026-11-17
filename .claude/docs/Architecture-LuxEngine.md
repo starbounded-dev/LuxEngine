@@ -1568,6 +1568,13 @@ and publishes it without a main-thread wait. Scene blends completed zone sends b
 system's listener weights, falling back to the listener measurement for zones still measuring.
 Disabled or removed zones leave the cache. The three reverb rows live in the project audio block's `Kernel` map.
 
+**Caustic focus:** the optional project setting estimates curvature from adjacent smooth
+faces on the same acoustic instance. Image-source paths carry bounded LF/HF focusing gains.
+Only retained paths contribute added energy. The engine smooths the resulting per-source
+reverb send and combines it with the listener/zone send before applying zone gain. The dry
+occlusion and the existing two-float voice contract are preserved. The setting defaults to 0
+for existing projects and exports.
+
 **Workers and the GPU (plan Phase 4):** a source batch uses a worker to prepare bounded opening
 nodes and geometric image-source paths, a render-thread Vulkan compute pass for independent
 visibility rays along opening and reflection legs, and frame-retired readback. The worker

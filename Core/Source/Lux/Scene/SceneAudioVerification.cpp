@@ -156,6 +156,8 @@ namespace Lux
 			out << Yaml::Key << "UUID" << Yaml::Value << id;
 			out << Yaml::Key << "OcclusionGainLF" << Yaml::Value << gain;
 			out << Yaml::Key << "AppliedReverbSend" << Yaml::Value << appliedSend;
+			out << Yaml::Key << "AddedFocusEnergy" << Yaml::Value << result->AddedFocusEnergy;
+			out << Yaml::Key << "FocusedReflectionSend" << Yaml::Value << kernel.GetFocusedReflectionSend(id);
 			out << Yaml::Key << "DirectGainLF" << Yaml::Value << result->Direct.GainLF();
 			out << Yaml::Key << "DirectGainLFBits" << Yaml::Value << std::bit_cast<uint32_t>(result->Direct.GainLF());
 			out << Yaml::Key << "RawGainLF" << Yaml::Value << result->OcclusionGainLF;

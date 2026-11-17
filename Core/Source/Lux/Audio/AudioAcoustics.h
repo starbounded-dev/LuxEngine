@@ -107,6 +107,7 @@ namespace Lux
 		void PollSolves();
 		float GetGainLF(UUID source) const;
 		float GetGainHF(UUID source) const;
+		float GetFocusedReflectionSend(UUID source) const;
 		const Soundwave::SolveResult* GetResult(UUID source) const;
 		const Soundwave::ReverbResult* GetZoneReverb(UUID zone) const;
 		const Soundwave::Echogram* GetZoneEchogram(UUID zone) const;
@@ -144,6 +145,7 @@ namespace Lux
 		{
 			Soundwave::SolveResult Result;
 			float GainLF = 1, GainHF = 1, TargetLF = 1, TargetHF = 1, SinceEvaluation = 0;
+			float FocusSend = 0, TargetFocusSend = 0;
 			uint64_t SeenUpdate = 0, GeometryGeneration = 0, SettingsGeneration = 0;
 			Soundwave::EvaluationError LastError = Soundwave::EvaluationError::None;
 			bool Evaluated = false, Attempted = false;
