@@ -394,6 +394,8 @@ int main(int argc, char** argv)
 		block.SegmentCount = static_cast<uint32_t>(segments.size());
 		request.Write(&block, sizeof(block));
 		input.Write(segments.data(), segments.size() * sizeof(FlatVisibilitySegment));
+		Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
+			(block.SegmentCount + 63) / 64, 35); // warm the shader and geometry caches before timing
 		std::array<double, 3> visibilityTimes{};
 		for (double& milliseconds : visibilityTimes)
 			milliseconds = Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
@@ -439,6 +441,70 @@ int main(int argc, char** argv)
 			gpuReduced.Diagnostics.OpeningPaths == cpu.Diagnostics.OpeningPaths,
 			"GPU visibility corner gain or path count outside the CPU reference gate");
 	}
+	// Exercise the flattened hierarchy at a scene size beyond the small analytic fixtures.
+	// The ray pattern is fixed and includes both clear rays and rays through many solids.
+	{
+		std::vector<Triangle> solids;
+		for (uint32_t x = 0; x < 32; ++x)
+			for (uint32_t z = 0; z < 32; ++z)
+				Box(solids, {x - 0.25f,-0.5f,z - 0.25f}, {x + 0.25f,0.5f,z + 0.25f},
+					1u + x * 32u + z, 0);
+		Grid grid;
+		Check(grid.Build(solids) == GeometryError::None, "large visibility geometry invalid");
+		GeometryView view(grid);
+		FlatGeometry flat;
+		Check(Flatten(view, flat, 64u * 1024u * 1024u) == FlatError::None, "large visibility flatten failed");
+		constexpr uint32_t count = 4096;
+		std::vector<FlatVisibilitySegment> segments(count);
+		std::vector<Position> starts(count), ends(count);
+		for (uint32_t i = 0; i < count; ++i)
+		{
+			const float a = static_cast<float>((i * 1277u) % 4093u) / 4093.0f;
+			const float b = static_cast<float>((i * 3067u) % 4091u) / 4091.0f;
+			const float height = i % 4u == 0u ? 1.5f : 0.125f;
+			starts[i] = {-2.0f,height,-1.0f + 33.0f * a};
+			ends[i] = {33.0f,height,-1.0f + 33.0f * b};
+			segments[i].From[0] = starts[i].X; segments[i].From[1] = starts[i].Y; segments[i].From[2] = starts[i].Z;
+			segments[i].To[0] = ends[i].X; segments[i].To[1] = ends[i].Y; segments[i].To[2] = ends[i].Z;
+		}
+		HostBuffer nodes(gpu, flat.Nodes.size() * sizeof(FlatNode)), order(gpu, flat.Order.size() * 4),
+			triangles(gpu, flat.Triangles.size() * sizeof(FlatTriangle)), request(gpu, sizeof(FlatVisibilityRequest)),
+			input(gpu, segments.size() * sizeof(FlatVisibilitySegment)), portals(gpu, sizeof(FlatPortal)),
+			output(gpu, segments.size() * sizeof(uint32_t));
+		nodes.Write(flat.Nodes.data(), flat.Nodes.size() * sizeof(FlatNode));
+		order.Write(flat.Order.data(), flat.Order.size() * 4);
+		triangles.Write(flat.Triangles.data(), flat.Triangles.size() * sizeof(FlatTriangle));
+		FlatVisibilityRequest block{};
+		block.Roots[0] = flat.Roots[0]; block.Roots[1] = flat.Roots[1]; block.SegmentCount = count;
+		request.Write(&block, sizeof(block));
+		input.Write(segments.data(), segments.size() * sizeof(FlatVisibilitySegment));
+		Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
+			(count + 63) / 64, 35);
+		std::array<double, 3> times{};
+		for (double& milliseconds : times)
+			milliseconds = Dispatch(gpu, visibilityShader, {&nodes, &order, &triangles, &request, &input, &portals, &output},
+				(count + 63) / 64, 35);
+		std::sort(times.begin(), times.end());
+		const auto* statuses = static_cast<const uint32_t*>(output.Mapped);
+		std::vector<RayHit> hits;
+		uint32_t blocked = 0, different = 0;
+		for (uint32_t i = 0; i < count; ++i)
+		{
+			Check(view.Trace(starts[i], ends[i], 0, hits), "large CPU visibility trace failed");
+			const uint32_t expected = hits.empty() ? 0u : 1u;
+			blocked += expected;
+			if (statuses[i] != expected)
+			{
+				if (different < 4)
+					std::cerr << "large visibility difference ray " << i << ": CPU=" << expected << " GPU=" << statuses[i] << '\n';
+				++different;
+			}
+		}
+		std::cout << "large visibility: " << flat.Triangles.size() << " triangles, " << count << " rays, "
+			<< blocked << " blocked, " << different << " different, " << times[1]
+			<< " median GPU ms across three dispatches (-1: timestamps unavailable)\n";
+		Check(blocked > 0 && blocked < count && different == 0, "large GPU visibility differs from CPU trace");
+	}
 	// Analytic portal boxes also block visibility when their captured triangles are absent.
 	{
 		Grid empty;
@@ -477,5 +543,5 @@ int main(int argc, char** argv)
 			Check(results[i] == expected[i], "GPU analytic portal clipping differs from the authored visibility cases");
 	}
 	std::cout << "PASS: Soundwave GPU reverb within " << worst << " dB on " << scenes.size()
-		<< " scenes; corner graph visibility and analytic portal clipping passed\n";
+		<< " scenes; corner and large-scene visibility and analytic portal clipping passed\n";
 }

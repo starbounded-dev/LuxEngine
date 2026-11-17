@@ -82,9 +82,8 @@ void main()
 		b_VisibilityResults.Results[index] = 2u;
 		return;
 	}
-	SoundwaveHit hit;
-	if (Soundwave_NearestHit(b_VisibilityRequest.Config.xy, from, to,
-		segment.Metadata.xy, margin, hit))
+	if (Soundwave_AnyHit(b_VisibilityRequest.Config.xy, from, to,
+		segment.Metadata.xy, margin))
 	{
 		b_VisibilityResults.Results[index] = 1u;
 		return;
