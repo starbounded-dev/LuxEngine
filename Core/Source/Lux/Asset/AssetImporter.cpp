@@ -7,6 +7,7 @@
 #include "DialogueTableSerializer.h"
 #include "SoundSerializer.h"
 
+#include "AnimationAssetSerializer.h"
 #include "AudioAssetSerializer.h"
 #include "MaterialSerializer.h"
 #include "MeshSerializer.h"
@@ -44,6 +45,8 @@ namespace Lux
 			s_Serializers[AssetType::MeshCollider] = std::make_unique<MeshColliderSerializer>();
 			s_Serializers[AssetType::Material] = std::make_unique<MaterialSerializer>();
 			s_Serializers[AssetType::Prefab] = std::make_unique<PrefabSerializer>();
+			s_Serializers[AssetType::Skeleton] = CreateScope<SkeletonSerializer>();
+			s_Serializers[AssetType::Animation] = CreateScope<AnimationSerializer>();
 		}
 
 		void EnsureInitialized()

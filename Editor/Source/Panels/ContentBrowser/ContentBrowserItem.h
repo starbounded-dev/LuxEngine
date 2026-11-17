@@ -32,7 +32,8 @@ namespace Lux {
 		StartRenaming = BIT(13),
 		Activated = BIT(14),
 		CreateVariant = BIT(15),
-		CreateSound = BIT(16)
+		CreateSound = BIT(16),
+		ExtractSkeleton = BIT(17)
 	};
 
 	struct CBItemActionResult

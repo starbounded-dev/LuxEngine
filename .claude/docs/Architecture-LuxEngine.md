@@ -772,6 +772,21 @@ Rules:
   Assimp DLL. `AssimpMeshImporter.cpp` is compiled into `Core` in every config; only an executable
   that names it links it. A new program that loads source meshes (a tool, a test host) must
   register an importer, or every mesh fails with "No source mesh importer is registered".
+- **Skeletons and clips are baked assets, not read from the model at runtime.** `Skeleton` (`.lskel`,
+  `Animation/Skeleton.h`: bones parent-before-child, a bone-space rest pose, derived model-space rest
+  matrices) and `Animation` (`.lanim`, `Animation/Animation.h`: raw per-bone translation, rotation and
+  scale keys in seconds, tracks indexing the skeleton the clip was imported against, the skeleton's
+  handle stored on the clip) are binary blobs ("LZSK" / "LZAN", versioned, every count bounded, key
+  times checked ascending). `SkeletonSerializer` / `AnimationSerializer` (`AnimationAssetSerializer.cpp`)
+  read and write the same bytes for the file and for `AssetPack.lap`, and both types are listed in
+  `AssetPack.cpp` `IsSerializedByAssetPack`, so an exported game plays them without Assimp.
+  `ImportSkeletonAndAnimations` (`SkeletalImporter.cpp`) is the only Assimp-facing step: it needs no
+  GPU, links nothing but Assimp, and is what `ExtractSkeletalAssets` (`SkeletalAssetExtraction.cpp`,
+  editor only, the Content Browser's "Extract Skeleton and Animations" on a MeshSource) calls to write
+  `<model>.lskel` and `<model>_<clip>.lanim` beside the model and register them; re-running it
+  overwrites the files and keeps the handles. Skin weights and inverse bind matrices are not part of
+  this: they belong to the mesh (R12). Compression, playback and retargeting are A2. Verified by
+  `tests/animation/run_windows.py` (import of `RiggedSimple.gltf`, file round trip, malformed files).
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own

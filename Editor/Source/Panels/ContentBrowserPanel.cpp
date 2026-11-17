@@ -15,6 +15,7 @@
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetExtensions.h"
 #include "Lux/Asset/AssimpMeshImporter.h"
+#include "Lux/Asset/SkeletalAssetExtraction.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Input.h"
 #include "Lux/Core/Events/KeyEvent.h"
@@ -954,6 +955,15 @@ namespace Lux {
 					CreateMaterialInstance(item->GetID());
 				else
 					CreatePrefabVariant(item->GetID());
+				break;
+			}
+
+			// Extracting registers new assets, which refreshes the item list too.
+			if (result.IsSet(ContentBrowserAction::ExtractSkeleton) && item->GetType() == ContentBrowserItem::ItemType::Asset)
+			{
+				SkeletalExtractionResult extracted;
+				if (ExtractSkeletalAssets(item->GetID(), extracted))
+					Refresh();
 				break;
 			}
 
