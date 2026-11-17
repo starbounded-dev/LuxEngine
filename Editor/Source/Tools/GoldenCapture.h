@@ -171,6 +171,7 @@ namespace Lux {
 		// MoveStop: frames to wait after the entities stop (0 = never stop), and frames waited so far.
 		uint32_t m_MoveStopFrames = 0;
 		bool m_MoveStopped = false;
+		bool m_Selected = false; // Select=<entity name> done
 		uint32_t m_FramesSinceMoveStop = 0;
 		Scene* m_MovedScene = nullptr;
 		std::vector<std::pair<UUID, glm::vec3>> m_MovedEntities;

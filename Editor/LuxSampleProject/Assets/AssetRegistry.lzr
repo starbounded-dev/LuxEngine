@@ -263,6 +263,9 @@ Assets:
   - Handle: 8419695537258757221
     FilePath: Meshes/Source/Rig/Materials/RiggedSimple_1_Material_1.lmat
     Type: Material
+  - Handle: 8596397899331745231
+    FilePath: Scenes/RigGlassStatic.luxscene
+    Type: Scene
   - Handle: 8665842578006325754
     FilePath: Meshes/Source/Sponza/8773302468495022225.jpg
     Type: Texture
@@ -419,6 +422,9 @@ Assets:
   - Handle: 12947748576387674464
     FilePath: Meshes/Source/Default/Cylinder.gltf
     Type: MeshSource
+  - Handle: 12988391910346089762
+    FilePath: Scenes/RigGlassRest.luxscene
+    Type: Scene
   - Handle: 13118299698764972325
     FilePath: Meshes/Source/Sponza/Materials/Sponza_15_Material_15.lmat
     Type: Material

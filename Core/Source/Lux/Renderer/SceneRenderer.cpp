@@ -9326,6 +9326,7 @@ namespace Lux {
 		}
 		pass->Bake();
 		entry.Pass = pass;
+		LUX_CORE_INFO_TAG("Renderer", "Skinning '{}': {} vertices, {} bones", mesh->GetFilePath(), mesh->GetSkinVertexCount(), mesh->GetBoneInfo().size());
 		return pass;
 	}
 

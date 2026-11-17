@@ -11,6 +11,7 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Editor/SelectionManager.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RenderGraph.h"
@@ -91,7 +92,7 @@ namespace Lux {
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -386,6 +387,17 @@ namespace Lux {
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw);
 		ApplyOptions(renderer);
 
+
+		// Select=<entity name>: selects that entity once, so its outline and selection draws are captured.
+		if (const auto it = m_Options.find("Select"); it != m_Options.end() && !m_Selected)
+		{
+			if (Entity entity = scene.FindEntityByName(it->second))
+			{
+				SelectionManager::DeselectAll();
+				SelectionManager::Select(SelectionContext::Scene, entity.GetUUID());
+				m_Selected = true;
+			}
+		}
 
 		if (m_MoveEntityCount > 0)
 			MoveEntities(scene);

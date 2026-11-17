@@ -178,7 +178,7 @@ vertex-buffer byte offset (a base-vertex offset would also shift the attribute s
 class became `SceneRenderer` members; the unused `StaticMeshSyncInputs` palette field of phase 1 arrived
 here with its reader.
 
-### Phase 4 — Breadth and hardening
+### Phase 4 — Breadth and hardening (done, with the gaps listed in Result)
 **Goal:** the edges.
 **Changes:** transparent pass, selection outline and wireframe for skinned; LOD selection on a skinned
 submesh; bounds factor; mesh-shader prepass disabled for skinned; inspector polish; export check
@@ -187,6 +187,29 @@ verification; `Rendering.md` and `Architecture-LuxEngine.md`.
 **Verification:** exported game renders the rig (Debug/Release/Dist as practical); `/profile` numbers
 for N skinned entities recorded; Linux explicitly deferred.
 **Exit:** export and Dist render a skinned entity; docs updated.
+**Result:**
+- *Regression:* nine existing golden scenes (AudioDemo, Benchmark, Physics, LaptopStart, SkyDiver,
+  MaterialShowcase, LowSun, Mirroring, RenderFeatures) captured on this branch and on a build of
+  `origin/dev` are pixel-identical (0 bad pixels, max difference 0). GPU medians over three alternating
+  runs per build agree within noise (Physics 0.887 vs 0.889 ms), so there is no measurable cost without
+  skinning. The first single runs differed by up to 0.5 ms; that was run order, not code.
+- *Validation:* the Debug build's Vulkan validation layer reports nothing for `RigRest` and `RigPosed`, in
+  both Single and Multi threading.
+- *Other passes:* `RigGlassStatic` / `RigGlassRest` (a transparent, refractive material) match
+  (0.004% of pixels differ), so the transparent forward pass draws skinned meshes; with `Select=Rig` the
+  selection outline follows the bent mesh. The new golden option `Select=<entity name>` makes that
+  capturable.
+- *Export:* `tests/animation/run_export_rig.py` exports a one-scene rig project through the editor's
+  normal pipeline and runs the packaged player, for the Release player and for the Dist player (no shader
+  compiler, so `Skinning.glsl` has to be in the shader pack). Both build a skinning pass for the rig from
+  the asset pack ("Skinning '': 160 vertices, 2 bones": the version 2 mesh skin section and the
+  skeleton asset were read back) and run without errors. The player has no frame capture, so this is a
+  check on its log, not on pixels.
+- *Not done:* Linux (deferred with the Windows-only rule). The skeleton and a mesh's skin data are not
+  checked for a mesh loaded asynchronously while its skeleton has not (it draws unskinned, with the node
+  transform, until both exist). No per-vertex-count limit: a very large skinned mesh costs 60 bytes per
+  vertex of GPU memory plus its shared copy. LOD selection on a skinned submesh uses the mesh's own LODs
+  (not looked at separately: the sample mesh has none).
 
 ## Part 3 — Risks and open questions
 

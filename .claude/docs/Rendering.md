@@ -550,6 +550,7 @@ incomplete. Thumbnail rendering in the Content Browser is paused for the whole c
 (`ContentBrowserPanel::SetThumbnailWorkPaused`). `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
 `Quality=T` (0 Low to 4 Cinematic) puts every quality category at tier T with
 `SceneRenderer::ApplyQualityPreset`, before the other options, so they still override it.
+`Select=<entity name>` selects that entity once, so the capture shows its selection outline.
 `MoveEntities=N` moves the first N static-mesh entities (by UUID) around a 16-frame loop every frame
 and captures only on a frame at the loop's start, so the image must match the unmoved capture while
 the perf frames exercise the changed-mesh path. `MoveStop=K` (with `MoveEntities`) stops them at the
