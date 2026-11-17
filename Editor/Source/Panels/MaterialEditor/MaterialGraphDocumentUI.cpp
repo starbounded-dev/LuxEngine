@@ -2,18 +2,14 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "MaterialEditorPanel.h"
+#include "MaterialGraphDocument.h"
 #include "MaterialPreview.h"
-#include "MaterialGraphCanvas.h"
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
 #include "Panels/ContentBrowserPanel.h"
 
 #include "Lux/Asset/AssetManager.h"
-#include "Lux/Asset/AssetReference.h"
 #include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/Application.h"
-#include "Lux/Core/Events/KeyEvent.h"
-#include "Lux/Core/Input.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
@@ -58,20 +54,6 @@ namespace Lux
 
 		const char* s_MappingNames[] = { "UV", "Triplanar (World)", "Triplanar (Object)" };
 
-		std::string GetMaterialName(AssetHandle handle)
-		{
-			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager())
-			{
-				const AssetMetadata metadata = editorAssetManager->GetMetadata(handle);
-				if (metadata.IsValid())
-				{
-					const auto name = metadata.FilePath.stem().u8string();
-					return {reinterpret_cast<const char*>(name.data()), name.size()};
-				}
-			}
-			return "Material";
-		}
-
 		ImTextureID GetImGuiTextureID(const Ref<Image2D>& image)
 		{
 			auto* imguiRenderer = Application::Get().GetImGuiLayer()->GetImGuiRenderer();
@@ -79,342 +61,25 @@ namespace Lux
 		}
 	}
 
-	MaterialEditorPanel::MaterialEditorPanel() = default;
-	MaterialEditorPanel::~MaterialEditorPanel() = default;
-
-	// -- Documents -------------------------------------------------------------------------------
-
-	void MaterialEditorPanel::OpenMaterial(AssetHandle handle)
+	AssetHandle MaterialGraphDocument::Draw()
 	{
-		if (!handle || AssetManager::GetAssetType(handle) != AssetType::Material)
-		{
-			LUX_CORE_WARN_TAG("Editor", "Material Editor: asset {} is not a material", (uint64_t)handle);
-			return;
-		}
-
-		for (size_t i = 0; i < m_Documents.size(); ++i)
-		{
-			if (m_Documents[i]->Handle == handle)
-			{
-				m_ActiveDocument = (int)i;
-				m_SelectActiveTab = true;
-				return;
-			}
-		}
-
-		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(handle);
-		if (!material || !material->GetMaterial())
-		{
-			LUX_CORE_ERROR_TAG("Editor", "Material Editor: failed to load material {} (missing file or PBR shaders unavailable)", (uint64_t)handle);
-			return;
-		}
-
-		auto document = CreateScope<Document>(material, Project::GetEditorAssetManager()->GetMetadata(handle).FilePath);
-		document->Canvas.LoadState(m_GraphDefaults);
-		m_Documents.push_back(std::move(document));
-		m_TabsRestored = true;
-		m_ActiveDocument = static_cast<int>(m_Documents.size()) - 1;
-		m_SelectActiveTab = true;
-	}
-
-	void MaterialEditorPanel::OnProjectChanged(const Ref<Project>&)
-	{
-		// Handles belong to the previous project, and the preview scene references its meshes.
-		m_Documents.clear();
-		m_ActiveDocument = -1;
-		m_PendingCloseIndex = -1;
-		m_OpenAfterFrame = 0;
-		m_OpenCloseConfirm = false;
-		m_KeyboardFocus = false;
-		m_Preview = nullptr;
-		m_PreviewDocument = 0;
-		m_TabsRestored = false;
-		RestoreTabs();
-	}
-
-	MaterialEditorPanel::Document* MaterialEditorPanel::GetActiveDocument() const
-	{
-		if (m_ActiveDocument < 0 || m_ActiveDocument >= (int)m_Documents.size())
-			return nullptr;
-		return m_Documents[m_ActiveDocument].get();
-	}
-
-	void MaterialEditorPanel::CloseDocument(size_t index)
-	{
-		if (index >= m_Documents.size())
-			return;
-		if (m_PreviewDocument == m_Documents[index]->Handle)
-			StopPreview();
-
-		if (m_PendingCloseIndex == static_cast<int>(index))
-			m_PendingCloseIndex = -1;
-		else if (m_PendingCloseIndex > static_cast<int>(index))
-			--m_PendingCloseIndex;
-		m_Documents.erase(m_Documents.begin() + static_cast<ptrdiff_t>(index));
-		if (m_ActiveDocument > static_cast<int>(index))
-			--m_ActiveDocument;
-		if (m_ActiveDocument >= (int)m_Documents.size())
-			m_ActiveDocument = (int)m_Documents.size() - 1;
-		m_SelectActiveTab = true;
-	}
-
-	void MaterialEditorPanel::RevertDocument(Document& document, Ref<MaterialAsset> material)
-	{
-		const MaterialState beforeState = MaterialState::Capture(material);
-		const std::string before = MaterialGraphDocument::GraphSnapshot(material);
-		document.Saved.Apply(material);
-		MaterialGraphDocument::ApplyGraphSnapshot(document.Handle, document.SavedGraph);
-		document.Canvas.StopPreview();
-		if (m_PushUndo && (!(beforeState == document.Saved) || before != document.SavedGraph))
-		{
-			const AssetHandle handle = document.Handle;
-			const MaterialState afterState = MaterialState::Capture(material);
-			const std::string after = document.SavedGraph;
-			auto apply = [handle](const MaterialState& state, const std::string& graph)
-			{
-				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
-				{
-					state.Apply(target);
-					MaterialGraphDocument::ApplyGraphSnapshot(handle, graph);
-					MaterialAsset::PropagateToInstances(handle);
-				}
-			};
-			m_PushUndo(
-				"Revert Material", [apply, beforeState, before]() { apply(beforeState, before); },
-				[apply, afterState, after]() { apply(afterState, after); });
-		}
-		document.EditBaseline = MaterialState::Capture(material);
-		document.EditInProgress = false;
-		document.SaveError.clear();
-	}
-
-	// Widgets change the material directly. The state before the first change is kept until no
-	// widget is active any more, then the whole edit becomes one undo step — a slider drag is one
-	// step, not one per frame.
-	void MaterialEditorPanel::TrackEdit(Document& document, Ref<MaterialAsset> material)
-	{
-		const MaterialState current = MaterialState::Capture(material);
-
-		if (!document.EditInProgress)
-		{
-			if (current == document.EditBaseline)
-				return;
-			document.EditInProgress = true;
-		}
-
-		if (ImGui::IsAnyItemActive())
-			return;
-
-		document.EditInProgress = false;
-		const MaterialState before = document.EditBaseline;
-		document.EditBaseline = current;
-		if (before == current || !m_PushUndo)
-			return;
-
-		const AssetHandle handle = document.Handle;
-		m_PushUndo(std::format("Edit Material '{}'", GetMaterialName(handle)),
-			[handle, before]()
-			{
-				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
-					before.Apply(target);
-			},
-			[handle, current]()
-			{
-				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
-					current.Apply(target);
-			});
-	}
-
-	// -- UI ----------------------------------------------------------------------------------------
-
-	void MaterialEditorPanel::OnEvent(Event& event)
-	{
-		if (!m_KeyboardFocus || !event.IsInCategory(EventCategoryKeyboard))
-			return;
-		if (event.GetEventType() == EventType::KeyPressed)
-		{
-			const auto& key = static_cast<const KeyPressedEvent&>(event);
-			const bool control =
-				Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
-			if (control && !ImGui::GetIO().WantTextInput &&
-				(key.GetKeyCode() == Key::Z || key.GetKeyCode() == Key::Y))
-				return; // Material edits use the editor's existing undo stack.
-		}
-		event.Handled = true;
-	}
-
-	void MaterialEditorPanel::StopPreview(AssetHandle next)
-	{
-		if (m_PreviewDocument == next)
-			return;
-		for (const auto& document : m_Documents)
-		{
-			if (document->Handle == m_PreviewDocument)
-				document->Canvas.StopPreview();
-		}
-		m_PreviewDocument = next;
-	}
-
-	void MaterialEditorPanel::OnClose()
-	{
-		m_KeyboardFocus = false;
-		StopPreview();
-	}
-
-	void MaterialEditorPanel::RestoreTabs()
-	{
-		if (m_TabsRestored || !Project::GetActive() || !m_PendingTabs)
-			return;
-		const Yaml::Node state = std::exchange(m_PendingTabs, Yaml::Node{});
-		if (state["Project"].Scalar() != Utils::PathToUTF8(Project::GetActive()->GetProjectFilePath()))
-			return;
-		m_TabsRestored = true;
-		const auto tabs = state["OpenTabs"];
-		if (!tabs.IsSequence())
-			return;
-		const AssetHandle active = AssetReference::ReadValue(state["ActiveTab"]);
-		for (const auto& tab : tabs)
-		{
-			const AssetHandle handle = AssetReference::ReadValue(tab["Asset"]);
-			if (!handle || AssetManager::GetAssetType(handle) != AssetType::Material)
-				continue;
-			OpenMaterial(handle);
-			if (Document* document = GetActiveDocument(); document && document->Handle == handle)
-				document->Canvas.LoadView(tab);
-		}
-		if (active)
-		{
-			for (size_t i = 0; i < m_Documents.size(); ++i)
-			{
-				if (m_Documents[i]->Handle == active)
-				{
-					m_ActiveDocument = static_cast<int>(i);
-					m_SelectActiveTab = true;
-					break;
-				}
-			}
-		}
-	}
-
-	void MaterialEditorPanel::SaveState(Yaml::Writer& out) const
-	{
-		out << Yaml::Key << "ShowGraph" << Yaml::Value << m_ShowGraph;
-		out << Yaml::Key << "ShowPreview" << Yaml::Value << m_ShowPreview;
-		out << Yaml::Key << "NarrowPreview" << Yaml::Value << m_NarrowPreview;
-		out << Yaml::Key << "PreviewFraction" << Yaml::Value << m_PreviewFraction;
-		const Document* activeDocument = GetActiveDocument();
-		if (activeDocument)
-			activeDocument->Canvas.SaveState(out);
-
-		if (!Project::GetActive())
-			return;
-		out << Yaml::Key << "Project" << Yaml::Value << Utils::PathToUTF8(Project::GetActive()->GetProjectFilePath());
-		AssetReference::PathModeScope pathMode;
-		if (activeDocument)
-		{
-			out << Yaml::Key << "ActiveTab" << Yaml::Value;
-			AssetReference::WriteValue(out, activeDocument->Handle);
-		}
-		out << Yaml::Key << "OpenTabs" << Yaml::Value << Yaml::BeginSeq;
-		for (const auto& document : m_Documents)
-		{
-			out << Yaml::BeginMap << Yaml::Key << "Asset" << Yaml::Value;
-			AssetReference::WriteValue(out, document->Handle);
-			document->Canvas.SaveView(out);
-			out << Yaml::EndMap;
-		}
-		out << Yaml::EndSeq;
-	}
-
-	void MaterialEditorPanel::LoadState(const Yaml::Node& state)
-	{
-		m_ShowGraph = state["ShowGraph"].as<bool>(false);
-		m_ShowPreview = state["ShowPreview"].as<bool>(true);
-		m_NarrowPreview = state["NarrowPreview"].as<bool>(false);
-		const float fraction = state["PreviewFraction"].as<float>(0.3f);
-		m_PreviewFraction = std::isfinite(fraction) ? std::clamp(fraction, 0.1f, 0.8f) : 0.3f;
-		m_GraphDefaults = state;
-		if (Document* document = GetActiveDocument())
-			document->Canvas.LoadState(state);
-		if (!m_TabsRestored && state["OpenTabs"].IsSequence())
-		{
-			m_PendingTabs = state;
-			RestoreTabs();
-		}
-	}
-
-	void MaterialEditorPanel::OnImGuiRender(bool& isOpen)
-	{
-		m_KeyboardFocus = false;
-		// Without an imgui.ini entry a new window opens at its minimum size.
-		ImGui::SetNextWindowSize(ImVec2(900.0f, 560.0f), ImGuiCond_FirstUseEver);
-		if (!ImGui::Begin("Material Editor", &isOpen))
-		{
-			ImGui::End();
-			return;
-		}
-
-		m_KeyboardFocus = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		if (!Project::GetActive())
-		{
-			ImGuiEx::PanelEmptyState(
-				"material_no_project", "Open a project",
-				"Material documents belong to the active project. Open or create a project to begin.");
-			ImGui::End();
-			return;
-		}
-
-		// Assets deleted while open: registry Get() would throw for them.
-		const AssetRegistry& registry = Project::GetEditorAssetManager()->GetAssetRegistry();
-		for (size_t i = m_Documents.size(); i-- > 0;)
-			if (!registry.Contains(m_Documents[i]->Handle))
-				CloseDocument(i);
-
-		if (m_Documents.empty())
-		{
-			ImGuiEx::PanelEmptyState(
-				"material_empty", "No material open",
-				"Double-click a material in the Content Browser, or choose Edit beside a material slot in "
-				"Properties. Open materials stay with you across workspace changes.");
-			ImGui::End();
-			return;
-		}
-
-		UI_Tabs();
-		UI_CloseConfirm();
-
-		Document* document = GetActiveDocument();
-		Ref<MaterialAsset> material = document ? AssetManager::GetAsset<MaterialAsset>(document->Handle) : nullptr;
-		if (!document || !material || !material->GetMaterial())
-		{
-			ImGuiEx::PanelMessage("Material unavailable",
-								  "The source asset could not be loaded. Check its path and the Log panel; "
-								  "your open document has been retained.",
-								  true);
-			ImGui::End();
-			return;
-		}
-
-		if (!document->EditInProgress)
-			document->EditBaseline = MaterialState::Capture(material);
-		StopPreview(document->Handle);
+		auto material = Source.As<MaterialAsset>();
+		if (!EditInProgress)
+			EditBaseline = MaterialState::Capture(material);
 
 		const float font = ImGui::GetFontSize();
 		const ImGuiEx::PanelSplit split = ImGuiEx::PanelSplitWidths(
 			ImGui::GetContentRegionAvail().x, m_PreviewFraction, font * 12.0f, font * 25.0f);
 		m_Compact = !split.SideBySide;
-		if (m_KeyboardFocus && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
-			ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
-			document->Save();
-		UI_Toolbar(*document, material);
+		UI_Toolbar(material);
 		{
 			ImGuiEx::ScopedColour color(ImGuiCol_Text, Colors::Theme::textCaption);
-			ImGui::TextWrapped("%s%s", document->IsDirty() ? "Unsaved changes" : "Saved",
+			ImGui::TextWrapped("%s%s", DirtyTab ? "Unsaved changes" : "Saved",
 							   material->GetParent() ? "  |  Instance: inherited values with local overrides"
 													 : "");
 		}
-		if (!document->SaveError.empty())
-			ImGuiEx::PanelMessage("Could not save material", document->SaveError.c_str(), true);
+		if (!SaveError.empty())
+			ImGuiEx::PanelMessage("Could not save material", SaveError.c_str(), true);
 		ImGui::Spacing();
 
 		const bool previewOnly = m_Compact && m_NarrowPreview;
@@ -423,12 +88,12 @@ namespace Lux
 		{
 			if (ImGui::BeginChild("##material_preview_column", {previewBeside ? split.First : 0.0f, 0.0f}))
 			{
-				if (!m_Preview)
-					m_Preview = Ref<MaterialPreview>::Create();
-				const AssetHandle nodePreview = m_ShowGraph ? document->Canvas.GetPreviewMaterial() : AssetHandle(0);
-				const AssetHandle shown = nodePreview ? nodePreview : document->Handle;
-				if (m_Preview->GetMaterial() != shown)
-					m_Preview->SetMaterial(shown);
+				if (!m_PreviewSession->Preview)
+					m_PreviewSession->Preview = Ref<MaterialPreview>::Create();
+				const AssetHandle nodePreview = m_ShowGraph ? Canvas.GetPreviewMaterial() : AssetHandle(0);
+				const AssetHandle shown = nodePreview ? nodePreview : Handle;
+				if (m_PreviewSession->Preview->GetMaterial() != shown)
+					m_PreviewSession->Preview->SetMaterial(shown);
 				UI_Preview(ImGui::GetContentRegionAvail().x);
 			}
 			ImGui::EndChild();
@@ -444,7 +109,10 @@ namespace Lux
 		if (!previewOnly && ownsGraph && m_ShowGraph)
 		{
 			if (ImGui::BeginChild("##material_graph_column", ImVec2(0.0f, 0.0f)))
-				document->Canvas.Draw(material, m_PushUndo);
+				Canvas.Draw(material, [this](const std::string&, auto undo, auto redo)
+			{
+				PushUndo(std::move(undo), std::move(redo));
+			});
 			ImGui::EndChild();
 		}
 		else if (!previewOnly)
@@ -453,136 +121,128 @@ namespace Lux
 			{
 				UI_Instance(material);
 				UI_GraphParameters(material);
-				UI_Properties(*document, material);
+				UI_Properties(material);
 			}
 			ImGui::EndChild();
 		}
 
 		// An instance's overrides are the values that differ from its parent; its inherited values
 		// still match the parent here, since a parent change reaches it through propagation.
-		if (material->GetParent() && !(MaterialState::Capture(material) == document->EditBaseline))
+		if (material->GetParent() && !(MaterialState::Capture(material) == EditBaseline))
 		{
 			if (Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(material->GetParent()))
 				material->UpdateOverrides(*parent);
 		}
 
-		TrackEdit(*document, material);
+		TrackEdit(material);
 
 		// Instances follow their parent live, including while a slider is dragged.
-		if (MaterialState current = MaterialState::Capture(material); !(current == document->Propagated))
+		if (MaterialState current = MaterialState::Capture(material); !(current == Propagated))
 		{
-			MaterialAsset::PropagateToInstances(document->Handle);
-			document->Propagated = std::move(current);
+			MaterialAsset::PropagateToInstances(Handle);
+			Propagated = std::move(current);
 		}
 
-		// Opening an instance may grow the owning vector. Finish every use of document first.
-		if (m_OpenAfterFrame)
-		{
-			const AssetHandle handle = m_OpenAfterFrame;
-			m_OpenAfterFrame = 0;
-			OpenMaterial(handle);
-		}
-		ImGui::End();
+		return std::exchange(m_OpenAfterFrame, AssetHandle(0));
 	}
 
-	void MaterialEditorPanel::UI_Tabs()
+	void MaterialGraphDocument::OnDeactivate()
 	{
-		int closeRequest = -1;
-		if (ImGui::BeginTabBar("##material_editor_tabs", ImGuiTabBarFlags_Reorderable |
-															 ImGuiTabBarFlags_FittingPolicyScroll |
-															 ImGuiTabBarFlags_TabListPopupButton))
-		{
-			for (size_t i = 0; i < m_Documents.size(); ++i)
-			{
-				Document& document = *m_Documents[i];
-				const auto& metadata =
-					Project::GetEditorAssetManager()->GetAssetRegistry().Get(document.Handle);
-				document.RefreshLabel(metadata.FilePath);
-				bool open = true;
-				ImGuiTabItemFlags flags = document.IsDirty() ? ImGuiTabItemFlags_UnsavedDocument : ImGuiTabItemFlags_None;
-				if (m_SelectActiveTab && (int)i == m_ActiveDocument)
-					flags |= ImGuiTabItemFlags_SetSelected;
+		Canvas.StopPreview();
+	}
 
-				// ### keeps the tab ID stable while the displayed name changes.
-				ImGui::SetNextItemWidth(
-					std::min(ImGui::CalcTextSize(document.TabLabel.c_str()).x + ImGui::GetFontSize() * 3.0f,
-							 ImGui::GetFontSize() * 18.0f));
-				if (ImGui::BeginTabItem(document.TabLabel.c_str(), &open, flags))
+	void MaterialGraphDocument::SaveView(Yaml::Writer& out, bool navigation) const
+	{
+		out << Yaml::Key << "ShowGraph" << Yaml::Value << m_ShowGraph;
+		out << Yaml::Key << "ShowPreview" << Yaml::Value << m_ShowPreview;
+		out << Yaml::Key << "NarrowPreview" << Yaml::Value << m_NarrowPreview;
+		out << Yaml::Key << "PreviewFraction" << Yaml::Value << m_PreviewFraction;
+		if (navigation)
+			Canvas.SaveView(out);
+		else
+			Canvas.SaveState(out);
+	}
+
+	void MaterialGraphDocument::LoadView(const Yaml::Node& state, bool navigation)
+	{
+		m_ShowGraph = state["ShowGraph"].as<bool>(m_ShowGraph);
+		m_ShowPreview = state["ShowPreview"].as<bool>(m_ShowPreview);
+		m_NarrowPreview = state["NarrowPreview"].as<bool>(m_NarrowPreview);
+		const float fraction = state["PreviewFraction"].as<float>(0.3f);
+		m_PreviewFraction = std::isfinite(fraction) ? std::clamp(fraction, 0.1f, 0.8f) : 0.3f;
+		if (navigation)
+			Canvas.LoadView(state);
+		else
+			Canvas.LoadState(state);
+	}
+
+	void MaterialGraphDocument::RevertDocument(const Ref<MaterialAsset>& material)
+	{
+		const MaterialState beforeState = MaterialState::Capture(material);
+		const std::string before = GraphSnapshot(material);
+		Saved.Apply(material);
+		ApplyGraphSnapshot(Handle, SavedGraph);
+		Canvas.StopPreview();
+		if (!(beforeState == Saved) || before != SavedGraph)
+		{
+			const AssetHandle handle = Handle;
+			const MaterialState afterState = MaterialState::Capture(material);
+			const std::string after = SavedGraph;
+			auto apply = [handle](const MaterialState& state, const std::string& graph)
+			{
+				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
 				{
-					if (!m_SelectActiveTab)
-						m_ActiveDocument = (int)i;
-					ImGui::EndTabItem();
+					state.Apply(target);
+					ApplyGraphSnapshot(handle, graph);
+					MaterialAsset::PropagateToInstances(handle);
 				}
-				ImGui::SetItemTooltip("%s", document.DisplayPath.c_str());
-
-				if (!open)
-					closeRequest = (int)i;
-			}
-			ImGui::EndTabBar();
+			};
+			PushUndo([apply, beforeState, before]() { apply(beforeState, before); },
+				[apply, afterState, after]() { apply(afterState, after); });
 		}
-		m_SelectActiveTab = false;
-
-		if (closeRequest >= 0)
-		{
-			if (m_Documents[closeRequest]->IsDirty())
-			{
-				m_PendingCloseIndex = closeRequest;
-				m_OpenCloseConfirm = true;
-			}
-			else
-			{
-				CloseDocument((size_t)closeRequest);
-			}
-		}
+		EditBaseline = MaterialState::Capture(material);
+		EditInProgress = false;
+		SaveError.clear();
 	}
 
-	void MaterialEditorPanel::UI_CloseConfirm()
+	// Widgets change the material directly. The state before the first change is kept until no
+	// widget is active any more, then the whole edit becomes one undo step — a slider drag is one
+	// step, not one per frame.
+	void MaterialGraphDocument::TrackEdit(const Ref<MaterialAsset>& material)
 	{
-		if (m_OpenCloseConfirm)
+		const MaterialState current = MaterialState::Capture(material);
+
+		if (!EditInProgress)
 		{
-			ImGui::OpenPopup("Unsaved material##material_close");
-			m_OpenCloseConfirm = false;
+			if (current == EditBaseline)
+				return;
+			EditInProgress = true;
 		}
 
-		if (!ImGui::BeginPopupModal("Unsaved material##material_close", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		if (ImGui::IsAnyItemActive())
 			return;
 
-		const bool valid = m_PendingCloseIndex >= 0 && m_PendingCloseIndex < (int)m_Documents.size();
-		if (valid)
-		{
-			const Document& document = *m_Documents[m_PendingCloseIndex];
-			ImGui::TextWrapped("Save changes to %s?", document.DisplayPath.c_str());
-			if (!document.SaveError.empty())
-				ImGuiEx::PanelMessage("Could not save material", document.SaveError.c_str(), true);
-		}
+		EditInProgress = false;
+		const MaterialState before = EditBaseline;
+		EditBaseline = current;
+		if (before == current)
+			return;
 
-		if (ImGui::Button("Save") && valid)
-		{
-			if (m_Documents[m_PendingCloseIndex]->Save())
+		const AssetHandle handle = Handle;
+		PushUndo(
+			[handle, before]()
 			{
-				CloseDocument(static_cast<size_t>(m_PendingCloseIndex));
-				ImGui::CloseCurrentPopup();
-			}
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Discard") && valid)
-		{
-			m_Documents[m_PendingCloseIndex]->Discard();
-			CloseDocument((size_t)m_PendingCloseIndex);
-			m_PendingCloseIndex = -1;
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel") || !valid)
-		{
-			m_PendingCloseIndex = -1;
-			ImGui::CloseCurrentPopup();
-		}
-
-		ImGui::EndPopup();
+				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
+					before.Apply(target);
+			},
+			[handle, current]()
+			{
+				if (Ref<MaterialAsset> target = AssetManager::GetAsset<MaterialAsset>(handle))
+					current.Apply(target);
+			});
 	}
 
-	void MaterialEditorPanel::UI_Instance(Ref<MaterialAsset> material)
+	void MaterialGraphDocument::UI_Instance(Ref<MaterialAsset> material)
 	{
 		if (!ImGuiEx::PropertyGridHeader("Instance", material->GetParent() != 0))
 			return;
@@ -593,7 +253,7 @@ namespace Lux
 			"Values this material does not set itself come from the parent. Clear it to keep the current values.", nullptr, {}, false))
 		{
 			if (!material->SetParent(parentHandle))
-				LUX_CONSOLE_LOG_ERROR("'{}' cannot be the parent: it is this material or one of its instances", GetMaterialName(parentHandle));
+				LUX_CONSOLE_LOG_ERROR("'{}' cannot be the parent: it is this material or one of its instances", Utils::PathToUTF8(Project::GetEditorAssetManager()->GetMetadata(parentHandle).FilePath.stem()));
 			else if (Ref<MaterialAsset> parent = parentHandle ? AssetManager::GetAsset<MaterialAsset>(parentHandle) : nullptr)
 				material->InheritFrom(*parent);
 		}
@@ -637,7 +297,7 @@ namespace Lux
 		ImGui::TreePop();
 	}
 
-	void MaterialEditorPanel::UI_GraphParameters(Ref<MaterialAsset> material)
+	void MaterialGraphDocument::UI_GraphParameters(Ref<MaterialAsset> material)
 	{
 		Ref<MaterialGraph> graph = material->GetGraph();
 		if (!graph)
@@ -677,14 +337,14 @@ namespace Lux
 		ImGui::TreePop();
 	}
 
-	void MaterialEditorPanel::UI_Toolbar(Document& document, Ref<MaterialAsset> material)
+	void MaterialGraphDocument::UI_Toolbar(const Ref<MaterialAsset>& material)
 	{
-		const bool dirty = document.IsDirty();
+		const bool dirty = DirtyTab;
 		const bool ownsGraph = material->GetGraph() && !material->GetParent();
 		using ImGuiEx::PanelAction;
 		const PanelAction actions[] = {
 			{static_cast<int>(MaterialAction::Save), "Save", LUX_ICON_FLOPPY_O, "Ctrl+S",
-			 dirty || !document.SaveError.empty(), false, true},
+			 dirty || !SaveError.empty(), false, true},
 			{static_cast<int>(MaterialAction::Revert), "Revert", LUX_ICON_UNDO, nullptr, dirty},
 			{static_cast<int>(MaterialAction::Properties), "Properties", LUX_ICON_SLIDERS, nullptr, true,
 			 (!ownsGraph || !m_ShowGraph) && !(m_Compact && m_NarrowPreview)},
@@ -704,10 +364,10 @@ namespace Lux
 		switch (static_cast<MaterialAction>(action))
 		{
 		case MaterialAction::Save:
-			document.Save();
+			Save();
 			break;
 		case MaterialAction::Revert:
-			RevertDocument(document, material);
+			RevertDocument(material);
 			break;
 		case MaterialAction::Properties:
 			m_ShowGraph = false;
@@ -724,31 +384,29 @@ namespace Lux
 				m_ShowPreview = !m_ShowPreview;
 			break;
 		case MaterialAction::Instance:
-			m_OpenAfterFrame = ContentBrowserPanel::Get().CreateMaterialInstance(document.Handle);
+			m_OpenAfterFrame = ContentBrowserPanel::Get().CreateMaterialInstance(Handle);
 			break;
 		case MaterialAction::MakeGraph:
 		case MaterialAction::RemoveGraph:
 		{
-			const AssetHandle handle = document.Handle;
-			const std::string before = MaterialGraphDocument::GraphSnapshot(material);
+			const AssetHandle handle = Handle;
+			const std::string before = GraphSnapshot(material);
 			const bool make = static_cast<MaterialAction>(action) == MaterialAction::MakeGraph;
 			const std::string after =
 				make ? MaterialGraphCanvas::Snapshot(*MaterialGraph::CreateDefault()) : std::string();
-			MaterialGraphDocument::ApplyGraphSnapshot(handle, after);
-			document.Canvas.StopPreview();
+			ApplyGraphSnapshot(handle, after);
+			Canvas.StopPreview();
 			m_ShowGraph = make;
 			m_NarrowPreview = false;
-			if (m_PushUndo)
-				m_PushUndo(
-					make ? "Make Graph Material" : "Remove Material Graph",
-					[handle, before]() { MaterialGraphDocument::ApplyGraphSnapshot(handle, before); },
-					[handle, after]() { MaterialGraphDocument::ApplyGraphSnapshot(handle, after); });
+			PushUndo(
+				[handle, before]() { ApplyGraphSnapshot(handle, before); },
+					[handle, after]() { ApplyGraphSnapshot(handle, after); });
 			break;
 		}
 		}
 	}
 
-	void MaterialEditorPanel::UI_Preview(float width)
+	void MaterialGraphDocument::UI_Preview(float width)
 	{
 		const float controls = ImGui::GetFrameHeightWithSpacing() * 3.0f;
 		const float size = std::max(1.0f, std::min(width, ImGui::GetContentRegionAvail().y - controls));
@@ -762,20 +420,20 @@ namespace Lux
 		if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
 		{
 			const ImVec2 delta = ImGui::GetIO().MouseDelta;
-			m_Preview->Orbit(-delta.x * kOrbitDegreesPerPixel, delta.y * kOrbitDegreesPerPixel);
+			m_PreviewSession->Preview->Orbit(-delta.x * kOrbitDegreesPerPixel, delta.y * kOrbitDegreesPerPixel);
 		}
 		if (ImGui::IsItemHovered())
 		{
 			const float wheel = ImGui::GetIO().MouseWheel;
 			if (wheel != 0.0f)
-				m_Preview->Zoom(1.0f - wheel * kZoomPerWheelStep);
+				m_PreviewSession->Preview->Zoom(1.0f - wheel * kZoomPerWheelStep);
 			ImGui::SetTooltip("Drag to orbit, scroll to zoom");
 		}
 
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		drawList->AddRectFilled(imageMin, imageMax, Colors::Theme::backgroundDark, kPreviewRounding);
 		const ImVec2 pixels = ImGui::GetWindowViewport()->FramebufferScale;
-		if (Ref<Image2D> image = m_Preview->Render(static_cast<uint32_t>(size * pixels.x),
+		if (Ref<Image2D> image = m_PreviewSession->Preview->Render(static_cast<uint32_t>(size * pixels.x),
 												   static_cast<uint32_t>(size * pixels.y)))
 			drawList->AddImageRounded(GetImGuiTextureID(image), imageMin, imageMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE, kPreviewRounding);
 		else
@@ -784,7 +442,7 @@ namespace Lux
 
 		ImGui::Spacing();
 
-		MaterialPreview::Shape shape = m_Preview->GetShape();
+		MaterialPreview::Shape shape = m_PreviewSession->Preview->GetShape();
 		ImGui::SetNextItemWidth(-1.0f);
 		if (ImGui::BeginCombo("##material_preview_shape", MaterialPreview::GetShapeName(shape)))
 		{
@@ -792,23 +450,23 @@ namespace Lux
 			{
 				const auto candidate = (MaterialPreview::Shape)i;
 				if (ImGui::Selectable(MaterialPreview::GetShapeName(candidate), candidate == shape))
-					m_Preview->SetShape(candidate);
+					m_PreviewSession->Preview->SetShape(candidate);
 			}
 			ImGui::EndCombo();
 		}
 
-		bool sky = m_Preview->IsSkyEnabled();
+		bool sky = m_PreviewSession->Preview->IsSkyEnabled();
 		if (ImGui::Checkbox("Sky light##material_preview_sky", &sky))
-			m_Preview->SetSkyEnabled(sky);
+			m_PreviewSession->Preview->SetSkyEnabled(sky);
 
 		if (ImGui::SmallButton("Reset view##material_preview_reset"))
-			m_Preview->ResetCamera();
+			m_PreviewSession->Preview->ResetCamera();
 	}
 
-	void MaterialEditorPanel::UI_Properties(Document&, Ref<MaterialAsset> material)
+	void MaterialGraphDocument::UI_Properties(Ref<MaterialAsset> material)
 	{
 		// doPushUndo = false on every widget: these edit an asset, not the scene, so they must not
-		// raise the scene-edited flag. TrackEdit records them on the editor undo stack instead.
+		// raise the scene-edited flag. TrackEdit records them in this document's history.
 		const bool transparent = material->IsTransparent();
 		MaterialSurfaceParameters surface = material->GetSurfaceParameters();
 		bool surfaceChanged = false;

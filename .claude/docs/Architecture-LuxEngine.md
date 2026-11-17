@@ -1062,7 +1062,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   distinguish following, inspected ranges and paused history. Context changes clear stale samples.
   Debugger's per-pass chart separately owns a frozen name/value snapshot; narrow panels use rows
   instead of squeezing axis labels. No telemetry thread, GPU readback or new instrumentation.
-- **Material/graph composition.** The existing Material Editor window/document owner uses shared
+- **Material/graph composition.** Each material document in Node Canvas uses shared
   action bars and caller-owned adaptive split proportions. Preview and graph Details can hide;
   narrow panels use alternate pages. `SaveState`/`LoadState` retain view choices in layouts, with
   defaults for missing keys and bounded finite fractions. No document or graph is copied to make a
@@ -1107,16 +1107,19 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   Asset Manager, Light Settings, Audio Mixer and Profiler also supply FirstUseEver floating-window
   sizes: wrapped content and filling children cannot establish a useful auto-fit width on their own.
   Saved docking/window geometry and subsequent resizing continue to take precedence.
-- Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
-  `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
-  `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for
-  `AssetType::Material`) and from the Inspector's per-slot Edit buttons
-  (`SceneHierarchyPanel::SetOpenMaterialCallback`). `MaterialPreview` is a private `Scene` + `Viewport`
-  (own `SceneRenderer`, `EnableEditorRenderTargets = false`) showing one default mesh from the
-  project's `Meshes/Source/Default/`; `MaterialThumbnailer` owns a second preview and renders one
-  stale material thumbnail at a time for the Content Browser, reading pixels back **on the render
-  thread** (`Renderer::Submit`) and handing CPU pixels to `ThumbnailCache::SetThumbnailPixels`, so it
-  never does a main-thread GPU readback.
+- **Node Canvas** (`Panels/NodeCanvas/NodeCanvasPanel`) hosts graph documents on the main thread.
+  View offers two dockable instances. The Content Browser uses the panel's asset-type factory registry,
+  and Inspector material-slot Edit uses the same routing: focus an existing tab, or open in the
+  most recently focused available canvas. The original Material Editor panel and dock IDs are retained.
+  Each document owns its source asset, checked save, close decision, view state and undo history.
+  Only the active document draws and checks its full authoring snapshot. A removed or replaced source
+  closes its tab with a notice. The project-scoped workspace data stores open asset paths, active tab
+  and each canvas's view state. Workspace switches retain the in-memory documents and unsaved edits.
+  `MaterialGraphDocument` provides the existing surface controls, graph details and preview.
+  Material tabs in one instance share a lazily created `MaterialPreview` with a private scene and
+  viewport (`EnableEditorRenderTargets = false`). Switching tabs ends the previous node preview.
+  `MaterialThumbnailer` keeps its separate preview and hands render-thread readback pixels to
+  `ThumbnailCache::SetThumbnailPixels`.
 - Mixer editing (`Panels/AudioMixerPanel`): View → Audio Mixer edits `ProjectAudioSettings::Mixer` in
   place; each finished edit is one `PushUndoCommand` step of whole-mixer snapshots. Volume and mute
   reach the running native engine (`AudioEngine::ClearBusVolume`/`SetBusMuted`, restoring authored

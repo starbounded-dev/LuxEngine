@@ -4,7 +4,7 @@
 #include "lpch.h"
 #include "MaterialGraphDocument.h"
 
-#include "MaterialGraphCanvas.h"
+#include "MaterialPreview.h"
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -12,9 +12,31 @@
 
 namespace Lux
 {
-	MaterialGraphDocument::MaterialGraphDocument(const Ref<MaterialAsset>& material, const std::filesystem::path& path)
-		: GraphDocument(material->Handle, AssetType::Material), Saved(MaterialState::Capture(material)),
-		  EditBaseline(Saved), Propagated(Saved), SavedGraph(GraphSnapshot(material))
+	MaterialGraphDocument::PreviewSession::~PreviewSession() = default;
+	MaterialGraphDocument::~MaterialGraphDocument() = default;
+
+	GraphDocument::OpenFn MaterialGraphDocument::MakeFactory()
+	{
+		return [session = WeakRef<PreviewSession>{}](AssetHandle handle, const std::filesystem::path& path) mutable -> Scope<GraphDocument>
+		{
+			auto material = AssetManager::GetAsset<MaterialAsset>(handle);
+			if (!material || !material->GetMaterial())
+				return {};
+
+			auto preview = session.Lock();
+			if (!preview)
+			{
+				preview = Ref<PreviewSession>::Create();
+				session = preview;
+			}
+			return CreateScope<MaterialGraphDocument>(material, path, std::move(preview));
+		};
+	}
+
+	MaterialGraphDocument::MaterialGraphDocument(const Ref<MaterialAsset>& material, const std::filesystem::path& path, Ref<PreviewSession> preview)
+		: GraphDocument(material.As<Asset>()), Saved(MaterialState::Capture(material)),
+		  EditBaseline(Saved), Propagated(Saved), SavedGraph(GraphSnapshot(material)),
+		  m_PreviewSession(std::move(preview)), m_ShowGraph(material->GetGraph() && !material->GetParent())
 	{
 		RefreshLabel(path);
 	}
@@ -103,7 +125,7 @@ namespace Lux
 
 	bool MaterialGraphDocument::Save()
 	{
-		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(Handle);
+		const Ref<MaterialAsset> material = Source.As<MaterialAsset>();
 		if (!material)
 		{
 			LUX_CORE_ERROR_TAG("Editor", "Material Editor: cannot save material {}: it is no longer loaded", (uint64_t)Handle);
@@ -120,22 +142,24 @@ namespace Lux
 		Saved = MaterialState::Capture(material);
 		SavedGraph = GraphSnapshot(material);
 		SaveError.clear();
+		DirtyTab = false;
 		return true;
 	}
 
 	bool MaterialGraphDocument::IsDirty() const
 	{
-		Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(Handle);
+		const Ref<MaterialAsset> material = Source.As<MaterialAsset>();
 		return material && (!(MaterialState::Capture(material) == Saved) || GraphSnapshot(material) != SavedGraph);
 	}
 
 	void MaterialGraphDocument::Discard()
 	{
-		if (Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(Handle))
+		if (Ref<MaterialAsset> material = Source.As<MaterialAsset>())
 		{
 			Saved.Apply(material);
 			ApplyGraphSnapshot(Handle, SavedGraph);
 			MaterialAsset::PropagateToInstances(Handle);
+			DirtyTab = false;
 		}
 	}
 }

@@ -10,6 +10,8 @@
 
 namespace Lux
 {
+	class MaterialPreview;
+
 	class MaterialGraphDocument final : public GraphDocument
 	{
 	public:
@@ -40,7 +42,19 @@ namespace Lux
 			void Apply(Ref<MaterialAsset> material) const;
 		};
 
-		MaterialGraphDocument(const Ref<MaterialAsset>& material, const std::filesystem::path& path);
+		struct PreviewSession : public RefCounted
+		{
+			~PreviewSession() override;
+			Ref<MaterialPreview> Preview;
+		};
+
+		static OpenFn MakeFactory();
+		MaterialGraphDocument(const Ref<MaterialAsset>& material, const std::filesystem::path& path, Ref<PreviewSession> preview);
+		~MaterialGraphDocument() override;
+		AssetHandle Draw() override;
+		void OnDeactivate() override;
+		void SaveView(Yaml::Writer& out, bool navigation) const override;
+		void LoadView(const Yaml::Node& state, bool navigation) override;
 		bool IsDirty() const override;
 		bool Save() override;
 		void Discard() override;
@@ -54,5 +68,23 @@ namespace Lux
 		MaterialState Propagated;
 		std::string SavedGraph;
 		bool EditInProgress = false;
+
+	private:
+		friend class NodeCanvasPanel;
+		void RevertDocument(const Ref<MaterialAsset>& material);
+		void TrackEdit(const Ref<MaterialAsset>& material);
+		void UI_Toolbar(const Ref<MaterialAsset>& material);
+		void UI_Preview(float width);
+		void UI_Properties(Ref<MaterialAsset> material);
+		void UI_Instance(Ref<MaterialAsset> material);
+		void UI_GraphParameters(Ref<MaterialAsset> material);
+
+		Ref<PreviewSession> m_PreviewSession;
+		bool m_ShowGraph = false;
+		bool m_ShowPreview = true;
+		bool m_NarrowPreview = false;
+		bool m_Compact = false;
+		float m_PreviewFraction = 0.3f;
+		AssetHandle m_OpenAfterFrame = 0;
 	};
 }

@@ -7,11 +7,11 @@ A **material** describes a surface: its colour, how metallic and rough it is, wh
 - **Imported with a mesh.** A glTF, FBX or OBJ file brings its materials and textures along; they are saved next to the mesh in the Content Browser.
 - **Made by you.** Right-click empty space in the Content Browser and choose **New → Material**. A new material is a plain white, opaque surface.
 
-Double-click a material to open it in the [Material Editor](material-editor).
+Double-click a material to open it in the [Node Canvas](material-editor).
 
 ## Using a material
 
-A [Static Mesh](../components/static-mesh) has one **Materials** slot per material of its model. An empty slot uses the material that came with the model. Drag a material from the Content Browser onto a slot to replace it for that entity only; **Edit** next to a slot opens the material in the Material Editor.
+A [Static Mesh](../components/static-mesh) has one **Materials** slot per material of its model. An empty slot uses the material that came with the model. Drag a material from the Content Browser onto a slot to replace it for that entity only; **Edit** next to a slot opens the material in Node Canvas.
 
 ## Opaque, cutout and transparent
 

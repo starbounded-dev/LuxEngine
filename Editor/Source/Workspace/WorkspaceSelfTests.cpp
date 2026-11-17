@@ -182,7 +182,7 @@ namespace Lux
 			PanelManager panels;
 			for (const char* name :
 				 {"Scene View", "Game View", "Scene Hierarchy", "Properties", "Content Browser", "Log",
-				  "Material Editor", "Audio Mixer", "Sound Bank Editor", "Sound Editor", "Beam", "Profiler",
+				  "Node Canvas", "Audio Mixer", "Sound Bank Editor", "Sound Editor", "Beam", "Profiler",
 				  "Renderer Debugger", "Scene Renderer", "Light Settings"})
 			{
 				const char* id = std::string_view(name) == "Scene View"	 ? "SceneViewPanel"

@@ -5,12 +5,12 @@ A Static Mesh draws a 3D model. Create one with **Create 3D → Meshes** in the 
 ## Settings
 
 - **Mesh** — the model to draw. Meshes come from files you import (see [Content Browser and Assets](../editor/content-browser)).
-- **Materials** — one slot per material of the model. Leave a slot empty to use the material that came with the file, or drop a material from the Content Browser to replace it for this entity only. **Edit** opens the slot's material in the Material Editor.
+- **Materials** — one slot per material of the model. Leave a slot empty to use the material that came with the file, or drop a material from the Content Browser to replace it for this entity only. **Edit** opens the slot's material in Node Canvas.
 - The header checkbox hides the mesh without removing it.
 
 ## Materials
 
-A material sets the surface: base colour, metalness, roughness, emission, normal map and more. Opaque, cutout (alpha-tested, for leaves and fences) and transparent materials are supported, and transparent materials can refract like glass. Edit materials in the [Material Editor](../editor/material-editor); changes show immediately in every scene that uses them. [Materials](../editor/materials) explains every setting.
+A material sets the surface: base colour, metalness, roughness, emission, normal map and more. Opaque, cutout (alpha-tested, for leaves and fences) and transparent materials are supported, and transparent materials can refract like glass. Edit materials in the [Node Canvas](../editor/material-editor); changes show immediately in every scene that uses them. [Materials](../editor/materials) explains every setting.
 
 ## Performance
 

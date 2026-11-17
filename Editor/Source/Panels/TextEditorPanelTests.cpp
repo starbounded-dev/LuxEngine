@@ -5,7 +5,7 @@
 #include "TextEditorPanel.h"
 
 #ifndef LUX_DIST
-#include "MaterialEditor/MaterialEditorPanel.h"
+#include "NodeCanvas/NodeCanvasPanel.h"
 #include "SoundEditor/SoundEditorPanel.h"
 #include "Workspace/EditorWorkspaceManager.h"
 #include "Lux/Asset/AssetManager.h"
@@ -66,7 +66,7 @@ namespace Lux
 			PanelManager panels;
 			auto beam = panels.AddPanel<TextEditorPanel>(PanelCategory::View, "Beam", false);
 			auto materials =
-				panels.AddPanel<MaterialEditorPanel>(PanelCategory::View, "Material Editor", false);
+				panels.AddPanel<NodeCanvasPanel>(PanelCategory::View, "Node Canvas", false);
 			auto sounds = panels.AddPanel<SoundEditorPanel>(PanelCategory::View, "Sound Editor", false);
 			materials->LoadState(Yaml::Load("ShowPreview: false\nShowGraph: true\n"));
 			const auto textPath = directory / "Assets/Workspace.cs";
@@ -82,7 +82,7 @@ namespace Lux
 			const std::string editedText = document->Editor.GetText();
 			const auto materialHandle = AssetManager::ImportAsset("Surface.lmat");
 			const auto soundHandle = AssetManager::ImportAsset("Workspace.lsound");
-			materials->OpenMaterial(materialHandle);
+			materials->OpenAsset(materialHandle);
 			sounds->OpenSound(soundHandle);
 			auto material = AssetManager::GetAsset<MaterialAsset>(materialHandle);
 			auto sound = AssetManager::GetAsset<Sound>(soundHandle);
@@ -125,7 +125,7 @@ namespace Lux
 			auto unchanged = [&]()
 			{
 				Require(panels.GetPanel<TextEditorPanel>("Beam") == beam &&
-							panels.GetPanel<MaterialEditorPanel>("Material Editor") == materials &&
+							panels.GetPanel<NodeCanvasPanel>("Node Canvas") == materials &&
 							panels.GetPanel<SoundEditorPanel>("Sound Editor") == sounds,
 						"A workspace replaced a document panel instance");
 				Require(beam->ActiveDocument() == document && beam->IsDirty() &&
@@ -143,7 +143,7 @@ namespace Lux
 			frame();
 			// Make all three visible before the first switch; hiding Sound must finish its
 			// outstanding edit through the existing owner, without clearing the document.
-			for (const char* name : {"Beam", "Material Editor", "Sound Editor"})
+			for (const char* name : {"Beam", "Node Canvas", "Sound Editor"})
 				panels.SetOpen(Hash::GenerateFNVHash(name), true);
 			frame();
 			frame();
@@ -153,7 +153,7 @@ namespace Lux
 				unchanged();
 				if (slot >= 2 && slot <= 4)
 				{
-					const char* dominant = slot == 2   ? "Material Editor"
+					const char* dominant = slot == 2   ? "Node Canvas"
 										   : slot == 3 ? "Sound Editor"
 													   : "Beam";
 					Require(panels.GetPanelData(Hash::GenerateFNVHash(dominant))->IsOpen,
@@ -185,10 +185,10 @@ namespace Lux
 					"Workspace hiding retained Sound audition playback");
 			unchanged();
 			for (const auto& [slot, title] :
-				 {std::pair{2u, "Material Editor"}, {3u, "Sound Editor"}, {4u, "Beam"}})
+				 {std::pair{2u, "Node Canvas"}, {3u, "Sound Editor"}, {4u, "Beam"}})
 			{
 				select(slot);
-				ImGui::FocusWindow(ImGui::FindWindowByName(title));
+				ImGui::FocusWindow(ImGui::FindWindowByName(panels.GetPanelData(Hash::GenerateFNVHash(title))->GetWindowName()));
 				io.AddKeyEvent(ImGuiMod_Ctrl, true);
 				io.AddKeyEvent(ImGuiKey_S, true);
 				frame();

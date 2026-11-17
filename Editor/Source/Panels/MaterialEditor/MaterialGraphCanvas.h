@@ -47,13 +47,8 @@ namespace Lux {
 		// While a node is previewed: the memory-only material the Material Editor's preview shows instead
 		// (the graph with that node's output as emission); 0 otherwise.
 		AssetHandle GetPreviewMaterial() const { return m_PreviewMaterial; }
-		AssetHandle GetSourceMaterial() const
-		{
-			return m_Material;
-		}
 		void StopPreview();
 		void PreviewNode(uint32_t node);
-		void ResetDocument();
 
 		// The graph as text, for dirty checks and undo snapshots.
 		static std::string Snapshot(const MaterialGraph& graph);

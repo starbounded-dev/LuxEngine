@@ -100,24 +100,6 @@ namespace Lux {
 
 	MaterialGraphCanvas::MaterialGraphCanvas() = default;
 
-	void MaterialGraphCanvas::ResetDocument()
-	{
-		StopPreview();
-		m_Canvas.Reset();
-		m_Material = 0;
-		m_SeenGeneration = 0;
-		m_Placed.clear();
-		m_CommentNodeSizes.clear();
-		m_SelectedNode = m_PendingSelect = m_ResizeComment = 0;
-		m_PaletteFromNode = m_PaletteFromPin = 0;
-		m_OpenPalette = m_OpenFind = m_NavigateToSelection = false;
-		m_PaletteAtCenter = false;
-		m_Baseline.clear();
-		m_LastCode.clear();
-		m_ClipboardNodes.clear();
-		m_ClipboardLinks.clear();
-	}
-
 	MaterialGraphCanvas::~MaterialGraphCanvas()
 	{
 		StopPreview();
