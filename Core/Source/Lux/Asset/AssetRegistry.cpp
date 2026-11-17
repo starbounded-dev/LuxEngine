@@ -36,7 +36,19 @@ namespace Lux
 		if (!m_AssetRegistry.empty())
 		{
 			m_AssetRegistry.clear();
+			m_PathIndex.clear();
 			++m_Revision;
 		}
+	}
+
+	AssetHandle AssetRegistry::FindByPathKey(const std::string& key) const
+	{
+		const auto it = m_PathIndex.find(key);
+		return it != m_PathIndex.end() ? it->second : AssetHandle(0);
+	}
+
+	std::string AssetRegistry::PathKey(const std::filesystem::path& relativePath)
+	{
+		return relativePath.lexically_normal().generic_string();
 	}
 }

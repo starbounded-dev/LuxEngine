@@ -177,4 +177,51 @@ Not fetched this session (no web search run); recorded as leads to verify, not f
 Textures/materials/prefabs/project file/packs, script fields, gitignoring the registry, a
 "Repair asset references" editor action with a tie prompt.
 
-**First phase to implement:** Phase 0 (no code), then Phase 1 through `/dev`, `/cr`, `/send-pr`.
+## Part 7 — Spike results (2026-11-17)
+
+All phases were run headlessly (`AssetRefHarness`, a scratch console exe linking `Core.lib`, run
+against a clean git worktree of the sample project; the editor was never launched).
+
+**Phase 0 answers**
+- **S1 (script fields):** `DataType` has `Entity, Prefab, Mesh, StaticMesh, Material, Texture2D, Scene,
+  Sound, SoundBank` (`Scripting/ScriptEntityStorage.hpp`); asset-typed fields were stored through the
+  `uint64_t` default branch of `SerializeStoredField`. They now go through `AssetReference`
+  (`Entity` stays numeric: it is an entity UUID, not an asset).
+- **S2 (thread):** yes. `SceneAssetSerializer::TryLoadData` is reached from the asset worker
+  (`EditorAssetSystem.cpp` calls `AssetImporter::TryLoadData`), so path resolution is a read-only
+  registry lookup and never imports. `MaterialSerializer` already did the same for textures.
+- **S3 baseline (registry deleted in a fresh worktree):** `AudioSponza` 15 of 15 references
+  unresolved (12 scene + 3 script fields), `AudioDemo` 31 of 31.
+
+**Added beyond the plan (found while grounding):** the pack stores scene and `.lsound`/`.lbank` text
+produced by the same writers, and the player has no path map, so path output is opt-in
+(`PathModeScope`), opened only by `SceneSerializer::Serialize(filepath)` and the sound/bank file
+save. `SerializeRuntime` writes numbers. `AssetRegistry` gained a path index (`FindByPathKey`,
+`EditorAssetManager::GetAssetHandleFromPathKey`) because the old lookup scanned every entry.
+An unresolved path keeps a stable FNV-1a handle and is written back unchanged, so saving never
+erases a reference.
+
+**Results with the final code**
+| Check | Result |
+|---|---|
+| Converted `AudioSponza` + 3 `.lsound` + 2 `.lbank`, registry deleted, refs resolved | 12 scene + 3 script + 5 audio-file references, **0 unresolved** |
+| `SceneSerializer::RunRoundTripSelfTests` (incl. new `AssetReference` cases) | PASS |
+| Scene pack (`SerializeToAssetPack`) and packed `.lsound`/`.lbank` text | no path strings: numeric |
+| Second save equals first | equal as entity sets (34 entities); **byte order differs**: entities are written in a different order on each load/save. The cause was not isolated; this change does not touch ordering |
+| Benchmark (6,911 meshes, 13,876 refs), load+save twice | 3.7 s numeric, 5.7 s path form; lookups are O(1), the extra ~2 s was not profiled |
+| Committed scenes still load | `AudioDemo` and `AudioSponza` numeric forms resolve with the committed registry |
+
+**Not verified:** editor open/Play/save, the Dist player loading a pack exported with this build,
+the editor audio-panel UI tests (`tests/editor/run_audio_panels.py`; they launch the editor), a
+Debug build (Release of Core and the harness built), Linux, and any scene other than the
+`Audio*` pair and `Benchmark`.
+
+**Verdict: go.** References as paths work end to end for meshes, collider, material tables,
+audio refs, banks, sounds and script asset fields, and old numeric files keep loading. Remaining
+for the full plan: texture and material refs inside `.lmat`, prefabs, `.luxproj`, a "Repair asset
+references" action, then gitignoring `AssetRegistry.lzr` once nothing depends on its handles being
+stable. Two things to settle first: the entity-order instability (it makes every converted scene a
+whole-file diff), and whether to convert committed scenes in one deliberate commit.
+
+**Converted in this spike (separate commit):** `AudioSponza.luxscene`, `Audio/Sounds/*.lsound`,
+`Audio/Banks/*.lbank`.

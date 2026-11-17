@@ -5,6 +5,7 @@
 
 #include "AssetMetadata.h"
 
+#include <string>
 #include <unordered_map>
 
 namespace Lux
@@ -31,6 +32,9 @@ namespace Lux
 		bool Contains(AssetHandle handle) const;
 		bool contains(AssetHandle handle) const { return Contains(handle); }
 		size_t Remove(AssetHandle handle);
+		// O(1) lookup by the key PathKey builds; 0 when no entry has that path. Kept in step with Set/Remove/Clear.
+		AssetHandle FindByPathKey(const std::string& key) const;
+		static std::string PathKey(const std::filesystem::path& relativePath);
 		void Clear();
 		const AssetMetadata& at(AssetHandle handle) const { return Get(handle); }
 		iterator find(AssetHandle handle) { return m_AssetRegistry.find(handle); }
@@ -45,6 +49,7 @@ namespace Lux
 
 	private:
 		RegistryMap m_AssetRegistry;
+		std::unordered_map<std::string, AssetHandle> m_PathIndex;
 		uint64_t m_Revision = 0;
 	};
 }

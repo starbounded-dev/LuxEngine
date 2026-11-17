@@ -747,7 +747,18 @@ in `AssetImporter.cpp`. Extension → type mapping is in `AssetExtensions.h`.
 
 Rules:
 
-- Reference assets by `AssetHandle`, never by path after import.
+- Reference assets by `AssetHandle` in memory. **Saved references are Assets-relative paths**
+  (`Core/Source/Lux/Asset/AssetReference.h`, issue #161), so they survive a regenerated
+  `AssetRegistry.lzr`, a fresh worktree and a clean clone. `AssetReference::ReadValue` accepts both a
+  path and the old bare number and resolves a path with the read-only
+  `EditorAssetManager::GetAssetHandleFromFilePath` (O(1) through `AssetRegistry::FindByPathKey`; safe on the asset
+  worker, never imports). `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
+  `SceneSerializer::Serialize(filepath)` and the `.lsound`/`.lbank` file save open; snapshots, undo diffs,
+  `SerializeRuntime` and asset packs stay numeric because the player has no path map. A path that names no
+  registered asset keeps a stable hashed handle and is written back unchanged, so a save never erases a
+  broken reference. Converted so far: scene mesh/material/collider refs, `AudioEventRef`, `SoundBanks`, script
+  asset fields, and the `.lsound`/`.lbank` files. Textures in materials, prefabs, `.luxproj` and the pack
+  format are still handle-based (see `docs/ASSET_PATH_REFERENCES_PLAN.md`).
 - Memory-only assets (procedural meshes, runtime textures) are registered with
   `AssetManager::AddMemoryOnlyAsset` and live in a **separate map** (`m_MemoryAssets`, guarded by a
   `std::shared_mutex`), queried via `IsMemoryAsset`. They are *not* marked with a flag —

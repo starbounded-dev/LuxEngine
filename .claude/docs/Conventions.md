@@ -215,6 +215,13 @@ If an existing helper *almost* does what you need, **extend the helper** in its 
 rather than writing a one-off at the call site. A near-miss utility is a signal to grow it, not to
 route around it.
 
+### Asset references in saved files — `Lux::AssetReference`
+
+`Core/Source/Lux/Asset/AssetReference.h`. A serializer that writes an asset reference calls
+`AssetReference::WriteValue` and reads it with `ReadValue`; never write `AssetHandle` as a bare number
+or read it with `as<uint64_t>`. Files store Assets-relative paths (see Architecture §2.8). Only a file
+save opens a `PathModeScope`; anything the player or an undo diff reads must stay numeric.
+
 ### Files and directories — `Lux::FileSystem`
 
 `Core/Source/Lux/Utilities/FileSystem.h`. Do not reach for `std::filesystem` directly until you have
