@@ -175,6 +175,13 @@ namespace Lux {
 		glm::vec2 UVStart = { 0.0f, 0.0f };
 		glm::vec2 UVEnd = { 1.0f, 1.0f };
 		bool ScreenSpace = false;
+		// Nearest-neighbour sampling instead of linear: pixel art stays sharp when magnified.
+		bool PointFilter = false;
+
+		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
+		// order inside it, then depth. Serialized only when not the default.
+		uint32_t SortingLayer = 0;
+		int32_t OrderInLayer = 0;
 
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
@@ -189,6 +196,11 @@ namespace Lux {
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		float Thickness = 1.0f;
 		float Fade = 0.005f;
+
+		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
+		// order inside it, then depth. Serialized only when not the default.
+		uint32_t SortingLayer = 0;
+		int32_t OrderInLayer = 0;
 
 		CircleRendererComponent() = default;
 		CircleRendererComponent(const CircleRendererComponent&) = default;
@@ -432,6 +444,11 @@ namespace Lux {
 		bool DropShadow = false;
 		float ShadowDistance = 0.0f;
 		glm::vec4 ShadowColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
+		// order inside it, then depth. Serialized only when not the default.
+		uint32_t SortingLayer = 0;
+		int32_t OrderInLayer = 0;
 
 		TextComponent() = default;
 		TextComponent(const TextComponent& other) = default;

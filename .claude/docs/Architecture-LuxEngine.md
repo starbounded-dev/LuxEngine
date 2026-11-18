@@ -738,6 +738,21 @@ every engine feature stays available in both.
 - **Background.** `CameraComponent::SolidBackground` / `BackgroundColor` (serialized only when on). When the
   overlay view is orthographic, `Scene::CaptureDraw2D` makes the view rectangle the first `Draw2D` item, so it
   is drawn in the 2D overlay after tone mapping and keeps its display colour.
+- **Draw order (D4).** The project lists sorting layers (`ProjectConfig::SortingLayers`, `ProjectSortingLayer`
+  ID + name, drawn back to front in list order; ID 0 "Default" always exists; YAML `SortingLayers` only when not
+  the default, runtime project format 32). `SpriteRendererComponent`, `CircleRendererComponent` and
+  `TextComponent` carry `SortingLayer` (an ID) and `OrderInLayer` (written only when not 0).
+  `Scene::CaptureDraw2D` stable-sorts the three kinds together by (layer rank, order, view depth farthest first)
+  after the camera background; `Renderer2D` still batches quads, text and circle outlines separately, so the
+  order holds within each kind (text and outlines draw after quads). An unknown layer ID draws as Default.
+  `Scene::GetDrawOrder` is the same key for the editor's click picking. Project Settings > 2D edits the list
+  (and the project type). The legacy direct 2D paths in `OnUpdateRuntime` / `RenderScene` draw into an
+  undisplayed framebuffer and are not sorted.
+- **Pixel perfect.** `SceneCamera::SetPixelPerfect` (`PixelsPerUnit`, `ReferenceHeight`, serialized only when on):
+  the orthographic height is `viewport pixels / (PPU x scale)` with `scale = max(1, floor(height / reference))`, so
+  a sprite pixel is a whole number of screen pixels; `BuildRenderPacketRuntime` rounds the camera position to
+  `GetPixelSnapUnit()`. It assumes the game renders at native resolution. `SpriteRendererComponent::PointFilter`
+  samples nearest-neighbour (a negative tiling factor reaches `Renderer2D.glsl`, which picks `r_PointSampler`).
 - **Checks.** `tests/2d/run_2d_checks.py` builds `tests/2d/Checks2D.cpp` (derived from `Editor.vcxproj`, no
   window, no GPU) and runs the project type, background, 2D camera and template checks.
 

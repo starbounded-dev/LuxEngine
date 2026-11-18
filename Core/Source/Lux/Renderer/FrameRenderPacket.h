@@ -38,6 +38,7 @@ namespace Lux {
 			// TexturedQuad
 			Ref<Texture2D> Texture;
 			float TilingFactor = 1.0f;
+			bool PointFilter = false; // nearest-neighbour sampling
 
 			// Text
 			Ref<Font> FontAsset;

@@ -3081,6 +3081,11 @@ namespace Lux {
 		Entity closestEntity = {};
 		float closestDistance = std::numeric_limits<float>::max();
 
+		const auto is2DRenderer = [](Entity entity)
+		{
+			return entity.HasComponent<SpriteRendererComponent>() || entity.HasComponent<CircleRendererComponent>() || entity.HasComponent<TextComponent>();
+		};
+
 		auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent>();
 		for (auto entityID : view)
 		{
@@ -3089,7 +3094,16 @@ namespace Lux {
 			if (!RayIntersectsEntity(entity, rayOrigin, rayDirection, distance))
 				continue;
 
-			if (distance < closestDistance)
+			// Overlapping 2D renderers: the one drawn last (the sorting layer and order, then depth) is on top.
+			bool wins = distance < closestDistance;
+			if (closestEntity && is2DRenderer(entity) && is2DRenderer(closestEntity))
+			{
+				const int64_t order = m_ActiveScene->GetDrawOrder(entity);
+				const int64_t closestOrder = m_ActiveScene->GetDrawOrder(closestEntity);
+				if (order != closestOrder)
+					wins = order > closestOrder;
+			}
+			if (wins)
 			{
 				closestDistance = distance;
 				closestEntity = entity;

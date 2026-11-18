@@ -50,6 +50,7 @@ namespace Lux {
 		void RenderScriptingSettings();
 		void RenderPhysicsSettings();
 		void RenderLogSettings();
+		void RenderTwoDSettings();
 
 	private:
 		RuntimeExport::RuntimeBuildJob& m_RuntimeBuildJob;

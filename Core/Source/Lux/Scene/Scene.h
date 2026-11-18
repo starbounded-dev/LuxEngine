@@ -285,6 +285,9 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
+		// higher draws later, on top. Other entities return 0. The editor uses it to pick the visible one.
+		int64_t GetDrawOrder(Entity entity);
 		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		// Editor overlay: the bones of every selected skinned entity, parent to child, from the evaluated pose.
 		void CaptureSkeletonLines(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);

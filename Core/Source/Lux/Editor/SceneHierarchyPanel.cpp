@@ -248,6 +248,37 @@ namespace Lux {
 			}
 		}
 
+		// Sorting layer and order in layer for a 2D renderer (sprite, circle, text). The layer list is the
+		// project's, so a layer is stored by ID and shown by name.
+		template<typename TComponent>
+		void DrawSortingProperties(const Ref<Scene>& scene, TComponent& first, const std::vector<UUID>& selectedEntities)
+		{
+			const Ref<Project> project = Project::GetActive();
+			if (!project)
+				return;
+
+			const auto& layers = project->GetConfig().SortingLayers;
+			std::vector<std::string> names;
+			names.reserve(layers.size());
+			int32_t current = static_cast<int32_t>(project->GetSortingLayerRank(first.SortingLayer));
+			for (const ProjectSortingLayer& layer : layers)
+				names.push_back(layer.Name.empty() ? std::format("Layer {}", layer.ID) : layer.Name);
+
+			if (ImGuiEx::PropertyDropdown("Sorting Layer", names, static_cast<int32_t>(names.size()), &current,
+				"Layers draw back to front in the order of Project Settings > 2D."))
+			{
+				const uint32_t layerID = layers[static_cast<size_t>(current)].ID;
+				first.SortingLayer = layerID;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [layerID](TComponent& component, Entity) { component.SortingLayer = layerID; });
+			}
+
+			if (ImGuiEx::Property("Order In Layer", first.OrderInLayer, -32768, 32767, "Higher draws later, on top of lower orders in the same layer."))
+			{
+				const int32_t order = first.OrderInLayer;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [order](TComponent& component, Entity) { component.OrderInLayer = order; });
+			}
+		}
+
 		template<typename TValue, typename Getter>
 		bool IsSelectionInconsistent(const Ref<Scene>& scene, const std::vector<UUID>& entityIDs, Getter&& getter)
 		{
@@ -2478,8 +2509,40 @@ namespace Lux {
 				}
 				else
 				{
+					bool pixelPerfect = camera.IsPixelPerfect();
+					if (ImGuiEx::Property("Pixel Perfect", pixelPerfect, "Whole-number pixel scale and a camera snapped to the pixel grid. Needs the game rendered at native resolution."))
+					{
+						camera.SetPixelPerfect(pixelPerfect);
+						ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [pixelPerfect](CameraComponent& component, Entity)
+						{
+							component.Camera.SetPixelPerfect(pixelPerfect);
+						});
+					}
+					if (pixelPerfect)
+					{
+						float pixelsPerUnit = camera.GetPixelsPerUnit();
+						if (ImGuiEx::Property("Pixels Per Unit", pixelsPerUnit, 1.0f, 1.0f, 4096.0f))
+						{
+							camera.SetPixelsPerUnit(pixelsPerUnit);
+							ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [pixelsPerUnit](CameraComponent& component, Entity)
+							{
+								component.Camera.SetPixelsPerUnit(pixelsPerUnit);
+							});
+						}
+
+						float referenceHeight = camera.GetReferenceHeight();
+						if (ImGuiEx::Property("Reference Height", referenceHeight, 1.0f, 1.0f, 8192.0f))
+						{
+							camera.SetReferenceHeight(referenceHeight);
+							ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [referenceHeight](CameraComponent& component, Entity)
+							{
+								component.Camera.SetReferenceHeight(referenceHeight);
+							});
+						}
+					}
+
 					float orthoSize = camera.GetOrthographicSize();
-					if (ImGuiEx::Property("Size", orthoSize))
+					if (!pixelPerfect && ImGuiEx::Property("Size", orthoSize))
 					{
 						camera.SetOrthographicSize(orthoSize);
 						ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [orthoSize](CameraComponent& component, Entity)
@@ -2652,6 +2715,16 @@ namespace Lux {
 					});
 				}
 
+				if (ImGuiEx::Property("Point Filter", firstComponent.PointFilter, "Nearest-neighbour sampling: pixel art stays sharp when magnified."))
+				{
+					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [&firstComponent](SpriteRendererComponent& component, Entity)
+					{
+						component.PointFilter = firstComponent.PointFilter;
+					});
+				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
+
 				ImGuiEx::EndPropertyGrid();
 			});
 
@@ -2683,6 +2756,8 @@ namespace Lux {
 						component.Fade = firstComponent.Fade;
 					});
 				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
 
 				ImGuiEx::EndPropertyGrid();
 			});
@@ -3378,6 +3453,8 @@ namespace Lux {
 						component.ScreenSpace = firstComponent.ScreenSpace;
 					});
 				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
 
 				if (ImGuiEx::Property("Drop Shadow", firstComponent.DropShadow))
 				{

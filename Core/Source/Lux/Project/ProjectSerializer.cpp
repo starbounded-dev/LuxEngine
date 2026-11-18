@@ -725,6 +725,19 @@ namespace Lux
 			out << Yaml::Key << "AutomaticallyReloadAssembly" << Yaml::Value << config.AutomaticallyReloadAssembly;
 			out << Yaml::Key << "AutoSave" << Yaml::Value << config.EnableAutoSave;
 			out << Yaml::Key << "AutoSaveInterval" << Yaml::Value << config.AutoSaveIntervalSeconds;
+			if (config.SortingLayers != ProjectConfig{}.SortingLayers)
+			{
+				out << Yaml::Key << "SortingLayers" << Yaml::Value;
+				out << Yaml::BeginSeq;
+				for (const ProjectSortingLayer& layer : config.SortingLayers)
+				{
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "ID" << Yaml::Value << layer.ID;
+					out << Yaml::Key << "Name" << Yaml::Value << layer.Name;
+					out << Yaml::EndMap;
+				}
+				out << Yaml::EndSeq;
+			}
 			out << Yaml::Key << "RuntimeExport" << Yaml::Value;
 			{
 				out << Yaml::BeginMap;
@@ -941,6 +954,14 @@ namespace Lux
 			serializer.WriteRaw<uint64_t>(handle);
 		}
 
+		const auto& sortingLayers = m_Project->GetConfig().SortingLayers;
+		serializer.WriteRaw<uint32_t>(static_cast<uint32_t>(sortingLayers.size()));
+		for (const ProjectSortingLayer& layer : sortingLayers)
+		{
+			serializer.WriteRaw<uint32_t>(layer.ID);
+			serializer.WriteString(layer.Name);
+		}
+
 		if (!serializer.IsStreamGood())
 		{
 			LUX_CORE_ERROR_TAG("Project", "Failed to write runtime project: {0}", filepath.string());
@@ -990,6 +1011,16 @@ namespace Lux
 		config.AutomaticallyReloadAssembly = projectNode["AutomaticallyReloadAssembly"].as<bool>(true);
 		config.EnableAutoSave = projectNode["AutoSave"].as<bool>(false);
 		config.AutoSaveIntervalSeconds = projectNode["AutoSaveInterval"].as<int>(300);
+		config.SortingLayers = ProjectConfig{}.SortingLayers;
+		if (auto layersNode = projectNode["SortingLayers"])
+		{
+			config.SortingLayers.clear();
+			for (auto layerNode : layersNode)
+				config.SortingLayers.push_back({ layerNode["ID"].as<uint32_t>(0), layerNode["Name"].as<std::string>("") });
+			// "Default" (ID 0) always exists: components that name no layer sit on it.
+			if (std::none_of(config.SortingLayers.begin(), config.SortingLayers.end(), [](const ProjectSortingLayer& layer) { return layer.ID == 0; }))
+				config.SortingLayers.insert(config.SortingLayers.begin(), { 0, "Default" });
+		}
 		// "RenderingTechnique" key is obsolete (deferred is the only path now) and
 		// is intentionally ignored when present in legacy project files.
 		config.RuntimeExport = {};
@@ -1298,6 +1329,26 @@ namespace Lux
 				stream.ReadString(path);
 				stream.ReadRaw<uint64_t>(handle);
 				config.Audio.AudioAssetPaths[path] = handle;
+			}
+		}
+
+		config.SortingLayers = ProjectConfig{}.SortingLayers;
+		if (projectInfo.HeaderData.Version >= 32)
+		{
+			uint32_t layerCount = 0;
+			stream.ReadRaw<uint32_t>(layerCount);
+			if (layerCount > 4096)
+			{
+				LUX_CORE_ERROR_TAG("Project", "Runtime project lists {} sorting layers; the file is damaged", layerCount);
+				return false;
+			}
+			config.SortingLayers.clear();
+			for (uint32_t i = 0; i < layerCount && stream.IsStreamGood(); ++i)
+			{
+				ProjectSortingLayer layer;
+				stream.ReadRaw<uint32_t>(layer.ID);
+				stream.ReadString(layer.Name);
+				config.SortingLayers.push_back(std::move(layer));
 			}
 		}
 

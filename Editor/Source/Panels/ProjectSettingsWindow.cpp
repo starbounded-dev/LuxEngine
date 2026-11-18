@@ -30,6 +30,7 @@
 #include "Lux/Utilities/FileDialogs.h"
 
 #include <imgui/imgui.h>
+#include <imgui/misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <charconv>
@@ -44,7 +45,7 @@ namespace Lux {
 	namespace
 	{
 		constexpr const char* s_ProjectPages[] = {"General",   "Runtime Export", "Renderer", "Audio",
-												  "Scripting", "Physics",		 "Log"};
+												  "Scripting", "Physics",		 "Log",      "2D"};
 		constexpr const char* s_RenderResolutionOptions[] = { "128", "256", "512", "1024", "2048", "4096" };
 		constexpr size_t s_RenderResolutionOptionCount = sizeof(s_RenderResolutionOptions) / sizeof(s_RenderResolutionOptions[0]);
 
@@ -426,6 +427,9 @@ namespace Lux {
 					break;
 				case 6:
 					RenderLogSettings();
+					break;
+				case 7:
+					RenderTwoDSettings();
 					break;
 				}
 			}
@@ -1577,6 +1581,101 @@ namespace Lux {
 		if (removeLayerIndex >= 0)
 		{
 			physicsSettings.Layers.erase(physicsSettings.Layers.begin() + removeLayerIndex);
+			m_Dirty = true;
+		}
+
+		ImGui::TreePop();
+	}
+
+	void ProjectSettingsWindow::RenderTwoDSettings()
+	{
+		if (!ImGuiEx::PropertyGridHeader("2D", false))
+			return;
+
+		auto& config = m_Project->GetConfig();
+		ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+		const char* projectTypes[] = { "3D", "2D" };
+		int32_t projectType = config.Type == ProjectType::Project2D ? 1 : 0;
+		if (ImGuiEx::PropertyDropdown("Project Type", projectTypes, 2, &projectType, "A 2D project opens in the XY editor view. Every feature stays available in both."))
+		{
+			config.Type = projectType == 1 ? ProjectType::Project2D : ProjectType::Project3D;
+			m_Dirty = true;
+		}
+		ImGuiEx::EndPropertyGrid();
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Sorting Layers");
+		ImGui::SetItemTooltip("Drawn back to front, top to bottom. Sprites, circles and text pick a layer in their inspector.");
+		ImGui::Separator();
+
+		auto& layers = config.SortingLayers;
+		if (ImGui::Button("Add Sorting Layer"))
+		{
+			uint32_t id = 1;
+			while (std::any_of(layers.begin(), layers.end(), [id](const ProjectSortingLayer& layer) { return layer.ID == id; }))
+				id++;
+			layers.push_back({ id, "Layer " + std::to_string(id) });
+			m_Dirty = true;
+		}
+
+		// Edits are applied after the loop: moving or erasing inside it would invalidate the row being drawn.
+		int moveIndex = -1;
+		int moveBy = 0;
+		int removeIndex = -1;
+		for (int i = 0; i < static_cast<int>(layers.size()); i++)
+		{
+			ProjectSortingLayer& layer = layers[static_cast<size_t>(i)];
+			ImGuiEx::ScopedID rowID(static_cast<int>(layer.ID)); // the ID is stable when the list is reordered
+
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+			if (layer.ID == 0)
+			{
+				std::string fixedName = layer.Name; // "Default" always exists and keeps its name
+				ImGui::BeginDisabled();
+				ImGui::InputText("##sorting_layer_name", &fixedName);
+				ImGui::EndDisabled();
+			}
+			else
+			{
+				std::string name = layer.Name;
+				if (ImGui::InputText("##sorting_layer_name", &name))
+				{
+					layer.Name = name;
+					m_Dirty = true;
+				}
+			}
+
+			ImGui::SameLine();
+			ImGui::BeginDisabled(i == 0);
+			if (ImGui::SmallButton("Up##sorting_layer"))
+			{
+				moveIndex = i;
+				moveBy = -1;
+			}
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::BeginDisabled(i + 1 == static_cast<int>(layers.size()));
+			if (ImGui::SmallButton("Down##sorting_layer"))
+			{
+				moveIndex = i;
+				moveBy = 1;
+			}
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::BeginDisabled(layer.ID == 0);
+			if (ImGui::SmallButton("Remove##sorting_layer"))
+				removeIndex = i;
+			ImGui::EndDisabled();
+		}
+
+		if (moveIndex >= 0)
+		{
+			std::swap(layers[static_cast<size_t>(moveIndex)], layers[static_cast<size_t>(moveIndex + moveBy)]);
+			m_Dirty = true;
+		}
+		if (removeIndex >= 0)
+		{
+			layers.erase(layers.begin() + removeIndex);
 			m_Dirty = true;
 		}
 

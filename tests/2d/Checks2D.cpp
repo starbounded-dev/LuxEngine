@@ -248,6 +248,159 @@ namespace {
 		Check(Near(boxY, -2.5f, 0.05f), std::format("the template's box falls and rests on the ground (y = {:.3f}, expected -2.5)", boxY));
 	}
 
+
+	// ---- D4: sorting layers, draw order, pixel-perfect camera ---------------------------------
+
+	void CheckSortingLayers(const std::filesystem::path& root)
+	{
+		WriteText(root / "Sorted" / "Sorted.luxproj", "Project:\n  Name: Sorted\n  AssetDirectory: Assets\n");
+		std::filesystem::create_directories(root / "Sorted" / "Assets");
+		Ref<Project> project = Project::Load(root / "Sorted" / "Sorted.luxproj");
+		if (!project)
+		{
+			Check(false, "sorting project loads");
+			return;
+		}
+
+		ProjectConfig& config = project->GetConfig();
+		Check(config.SortingLayers.size() == 1 && config.SortingLayers[0].ID == 0 && config.SortingLayers[0].Name == "Default", "a project starts with the Default sorting layer");
+
+		const std::filesystem::path plain = root / "Sorted" / "Plain.luxproj";
+		ProjectSerializer(project).Serialize(plain);
+		Check(ReadText(plain).find("SortingLayers") == std::string::npos, "the default layer list is not written (old files re-save unchanged)");
+
+		config.SortingLayers = { { 0, "Default" }, { 7, "Foreground" }, { 3, "UI" } };
+		const std::filesystem::path layered = root / "Sorted" / "Layered.luxproj";
+		Check(ProjectSerializer(project).Serialize(layered), "a project with sorting layers serializes");
+		Ref<Project> reloaded = Ref<Project>::Create();
+		Check(ProjectSerializer(reloaded).Deserialize(layered), "and loads back");
+		Check(reloaded->GetConfig().SortingLayers == config.SortingLayers, "sorting layers keep their IDs, names and order");
+		Check(reloaded->GetSortingLayerRank(7) == 1 && reloaded->GetSortingLayerRank(3) == 2 && reloaded->GetSortingLayerRank(0) == 0, "rank is the position in the list");
+		Check(reloaded->GetSortingLayerRank(99) == 0, "a deleted layer draws with Default");
+
+		// A file that lost its Default layer gets it back at the front.
+		WriteText(root / "Sorted" / "NoDefault.luxproj", "Project:\n  Name: NoDefault\n  AssetDirectory: Assets\n  SortingLayers:\n    - ID: 4\n      Name: Only\n");
+		Ref<Project> noDefault = Ref<Project>::Create();
+		ProjectSerializer(noDefault).Deserialize(root / "Sorted" / "NoDefault.luxproj");
+		Check(noDefault->GetConfig().SortingLayers.size() == 2 && noDefault->GetConfig().SortingLayers[0].ID == 0, "a missing Default layer is restored first");
+
+		// The exported game needs the layers too.
+		config.StartSceneHandle = 1; // SerializeRuntime refuses a project without a start scene; the handle is not resolved here
+		const std::filesystem::path runtimeFile = root / "Sorted" / "Project.lrp";
+		Check(ProjectSerializer(project).SerializeRuntime(runtimeFile, AudioBankManifest{}), "the runtime project serializes");
+		Ref<Project> runtime = Ref<Project>::Create();
+		Check(ProjectSerializer(runtime).DeserializeRuntime(runtimeFile), "the runtime project loads");
+		Check(runtime->GetConfig().SortingLayers == config.SortingLayers, "the runtime project carries the sorting layers");
+	}
+
+	void CheckDrawOrder()
+	{
+		Ref<Project> project = Ref<Project>::Create();
+		project->GetConfig().SortingLayers = { { 0, "Default" }, { 7, "Foreground" } };
+		Project::SetActive(project);
+
+		Ref<Scene> scene = Ref<Scene>::Create();
+		const auto addSprite = [&scene](const char* name, float z, uint32_t layer, int32_t order, float red)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.GetComponent<TransformComponent>().Translation.z = z;
+			auto& sprite = entity.AddComponent<SpriteRendererComponent>(glm::vec4(red, 0.0f, 0.0f, 1.0f));
+			sprite.SortingLayer = layer;
+			sprite.OrderInLayer = order;
+			return entity;
+		};
+		// Added in the order the registry would draw them; the expected draw order is C, D, A, E, B.
+		addSprite("A", 0.0f, 0, 5, 0.1f);
+		addSprite("B", 0.0f, 7, 0, 0.5f);
+		addSprite("C", 0.0f, 0, -3, 0.3f);
+		addSprite("D", -1.0f, 0, 5, 0.2f); // same layer and order as A, farther from the camera: drawn first
+		addSprite("E", 0.0f, 99, 6, 0.4f);   // deleted layer: Default, order 6
+
+		FrameRenderPacket packet;
+		scene->CaptureDraw2D(packet);
+		std::string names;
+		for (const auto& item : packet.Draw2D)
+		{
+			const int tenths = static_cast<int>(item.Color.r * 10.0f + 0.5f);
+			names += tenths == 1 ? 'A' : tenths == 2 ? 'D' : tenths == 3 ? 'C' : tenths == 4 ? 'E' : 'B';
+		}
+		Check(names == "CDAEB", std::format("sprites draw by sorting layer, then order, then depth (got {}, expected CDAEB)", names));
+
+		Check(scene->GetDrawOrder(scene->FindEntityByName("B")) > scene->GetDrawOrder(scene->FindEntityByName("A")), "GetDrawOrder: the Foreground layer is above Default");
+		Check(scene->GetDrawOrder(scene->FindEntityByName("A")) > scene->GetDrawOrder(scene->FindEntityByName("C")), "GetDrawOrder: a higher order is above a lower one");
+
+		// The three renderers and the new fields survive a save and a copy.
+		Entity circle = scene->CreateEntity("Circle");
+		auto& circleComponent = circle.AddComponent<CircleRendererComponent>();
+		circleComponent.SortingLayer = 7;
+		circleComponent.OrderInLayer = -2;
+		Entity text = scene->CreateEntity("Text");
+		auto& textComponent = text.AddComponent<TextComponent>();
+		textComponent.SortingLayer = 7;
+		textComponent.OrderInLayer = 4;
+		scene->FindEntityByName("A").GetComponent<SpriteRendererComponent>().PointFilter = true;
+		const std::filesystem::path file = std::filesystem::temp_directory_path() / "lux-2d-sorting.luxscene";
+		Check(SceneSerializer(scene).Serialize(file), "a scene with sorting data serializes");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		Ref<Scene> copy = Scene::Copy(loaded);
+		const auto& a = copy->FindEntityByName("A").GetComponent<SpriteRendererComponent>();
+		const auto& c = copy->FindEntityByName("Circle").GetComponent<CircleRendererComponent>();
+		const auto& t = copy->FindEntityByName("Text").GetComponent<TextComponent>();
+		Check(a.SortingLayer == 0 && a.OrderInLayer == 5 && a.PointFilter, "sprite layer, order and point filter round trip through save and copy");
+		Check(c.SortingLayer == 7 && c.OrderInLayer == -2 && t.SortingLayer == 7 && t.OrderInLayer == 4, "circle and text sorting round trip through save and copy");
+		const std::string text2 = ReadText(file);
+		size_t layerKeys = 0;
+		for (size_t at = text2.find("SortingLayer"); at != std::string::npos; at = text2.find("SortingLayer", at + 1))
+			layerKeys++;
+		Check(layerKeys == 3 + 1, std::format("SortingLayer is written only where it is not the default ({} keys, expected 4)", layerKeys));
+		std::filesystem::remove(file);
+		Project::SetActive(nullptr);
+	}
+
+	void CheckPixelPerfectCamera(const std::filesystem::path& root)
+	{
+		SceneCamera camera;
+		camera.SetOrthographic(10.0f);
+		camera.SetViewportSize(1920, 1080);
+		Check(camera.GetPixelSnapUnit() == 0.0f && camera.GetPixelScale() == 1, "a camera is not pixel perfect by default");
+
+		camera.SetPixelsPerUnit(16.0f);
+		camera.SetReferenceHeight(180.0f);
+		camera.SetPixelPerfect(true);
+		Check(camera.GetPixelScale() == 6, std::format("1080 px high with a 180 px reference is a 6x scale (got {})", camera.GetPixelScale()));
+		Check(Near(camera.GetPixelSnapUnit(), 1.0f / 96.0f, 1e-6f), "a screen pixel is 1 / (pixels per unit x scale) world units");
+		const glm::vec4 top = camera.GetUnReversedProjectionMatrix() * glm::vec4(0.0f, 11.25f * 0.5f, -0.5f, 1.0f);
+		Check(Near(top.y / top.w, 1.0f), "the visible height is viewport pixels / (pixels per unit x scale) (11.25 units), not the orthographic size");
+
+		camera.SetViewportSize(1000, 700);
+		Check(camera.GetPixelScale() == 3 && Near(camera.GetPixelSnapUnit(), 1.0f / 48.0f, 1e-6f), "a resize picks the largest whole scale that fits the reference height");
+		camera.SetViewportSize(320, 100);
+		Check(camera.GetPixelScale() == 1, "the scale never drops below 1");
+
+		// Save, load, copy.
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity entity = scene->CreateEntity("Camera");
+		auto& component = entity.AddComponent<CameraComponent>();
+		component.Camera.SetOrthographic(10.0f);
+		component.Camera.SetPixelsPerUnit(32.0f);
+		component.Camera.SetReferenceHeight(270.0f);
+		component.Camera.SetPixelPerfect(true);
+		const std::filesystem::path file = root / "PixelPerfect.luxscene";
+		Check(SceneSerializer(scene).Serialize(file), "a pixel-perfect camera serializes");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		const auto& loadedCamera = loaded->FindEntityByName("Camera").GetComponent<CameraComponent>().Camera;
+		Check(loadedCamera.IsPixelPerfect() && Near(loadedCamera.GetPixelsPerUnit(), 32.0f) && Near(loadedCamera.GetReferenceHeight(), 270.0f), "the pixel-perfect settings round trip");
+		Check(Scene::Copy(loaded)->FindEntityByName("Camera").GetComponent<CameraComponent>().Camera.IsPixelPerfect(), "Scene::Copy keeps the pixel-perfect camera");
+
+		Ref<Scene> plain = Ref<Scene>::Create();
+		plain->CreateEntity("Camera").AddComponent<CameraComponent>();
+		const std::filesystem::path plainFile = root / "PlainCamera.luxscene";
+		SceneSerializer(plain).Serialize(plainFile);
+		Check(ReadText(plainFile).find("PixelPerfect") == std::string::npos, "an ordinary camera writes no pixel-perfect keys");
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -267,6 +420,9 @@ int main(int argc, char** argv)
 	CheckBackgroundDrawItem();
 	CheckEditorCamera2D();
 	CheckStarterScene(outDir);
+	CheckSortingLayers(outDir);
+	CheckDrawOrder();
+	CheckPixelPerfectCamera(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

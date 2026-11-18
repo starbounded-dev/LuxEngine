@@ -3649,6 +3649,20 @@ namespace Lux {
 			}
 		}
 
+		// Sprites, circles and text are sorted together by sorting layer, order in layer, then depth (farthest
+		// first). The renderer batches quads, text and circles separately, so the order holds within each kind.
+		struct SortedItem
+		{
+			uint32_t Rank;
+			int32_t Order;
+			float Depth;
+			Draw2DItem Item;
+		};
+		std::vector<SortedItem> sorted;
+		const Ref<Project> project = Project::GetActive();
+		const auto rankOf = [&project](uint32_t layer) { return project ? project->GetSortingLayerRank(layer) : 0u; };
+		const auto depthOf = [&packet](const glm::mat4& transform) { return (packet.Overlay2DView * transform[3]).z; };
+
 		// Draw sprites
 		{
 			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
@@ -3664,7 +3678,9 @@ namespace Lux {
 				item.Texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 				item.TilingFactor = sprite.TilingFactor;
 				item.Type = item.Texture ? Draw2DItem::Kind::TexturedQuad : Draw2DItem::Kind::Quad;
-				packet.Draw2D.push_back(std::move(item));
+				item.PointFilter = sprite.PointFilter;
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(sprite.SortingLayer), sprite.OrderInLayer, depth, std::move(item) });
 			}
 		}
 
@@ -3681,7 +3697,8 @@ namespace Lux {
 				item.Type = Draw2DItem::Kind::Circle;
 				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 				item.Color = circle.Color;
-				packet.Draw2D.push_back(std::move(item));
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(circle.SortingLayer), circle.OrderInLayer, depth, std::move(item) });
 			}
 		}
 
@@ -3707,9 +3724,43 @@ namespace Lux {
 				item.MaxWidth = text.MaxWidth;
 				item.LineSpacing = text.LineSpacing;
 				item.Kerning = text.Kerning;
-				packet.Draw2D.push_back(std::move(item));
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(text.SortingLayer), text.OrderInLayer, depth, std::move(item) });
 			}
 		}
+
+		std::stable_sort(sorted.begin(), sorted.end(), [](const SortedItem& a, const SortedItem& b)
+		{
+			return std::tie(a.Rank, a.Order, a.Depth) < std::tie(b.Rank, b.Order, b.Depth);
+		});
+		packet.Draw2D.reserve(packet.Draw2D.size() + sorted.size());
+		for (SortedItem& entry : sorted)
+			packet.Draw2D.push_back(std::move(entry.Item));
+	}
+
+	int64_t Scene::GetDrawOrder(Entity entity)
+	{
+		const Ref<Project> project = Project::GetActive();
+		const auto key = [&project](uint32_t layer, int32_t order)
+		{
+			return (static_cast<int64_t>(project ? project->GetSortingLayerRank(layer) : 0u) << 32) + order;
+		};
+		if (entity.HasComponent<SpriteRendererComponent>())
+		{
+			const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
+			return key(sprite.SortingLayer, sprite.OrderInLayer);
+		}
+		if (entity.HasComponent<CircleRendererComponent>())
+		{
+			const auto& circle = entity.GetComponent<CircleRendererComponent>();
+			return key(circle.SortingLayer, circle.OrderInLayer);
+		}
+		if (entity.HasComponent<TextComponent>())
+		{
+			const auto& text = entity.GetComponent<TextComponent>();
+			return key(text.SortingLayer, text.OrderInLayer);
+		}
+		return 0;
 	}
 
 	void Scene::SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const
@@ -3755,7 +3806,8 @@ namespace Lux {
 				switch (item.Type)
 				{
 					case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
-						renderer2D->DrawQuad(item.Transform, item.Texture, item.TilingFactor, item.Color);
+						// A negative tiling factor tells Renderer2D.glsl to sample with the point sampler.
+						renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -item.TilingFactor : item.TilingFactor, item.Color);
 						break;
 					case FrameRenderPacket::Draw2DItem::Kind::Quad:
 						renderer2D->DrawQuad(item.Transform, item.Color);
@@ -3802,7 +3854,14 @@ namespace Lux {
 		// Set up the SceneRendererCamera from the runtime camera
 		SceneRendererCamera& sceneCamera = packet.Camera;
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
-		sceneCamera.ViewMatrix = glm::inverse(GetWorldSpaceTransformMatrix(cameraEntity));
+		glm::mat4 cameraTransform = GetWorldSpaceTransformMatrix(cameraEntity);
+		// A pixel-perfect camera sits on the pixel grid, so a camera that moves does not shimmer the sprites.
+		if (const float snapUnit = cameraComp.Camera.GetPixelSnapUnit(); snapUnit > 0.0f)
+		{
+			cameraTransform[3].x = std::round(cameraTransform[3].x / snapUnit) * snapUnit;
+			cameraTransform[3].y = std::round(cameraTransform[3].y / snapUnit) * snapUnit;
+		}
+		sceneCamera.ViewMatrix = glm::inverse(cameraTransform);
 
 		packet.Overlay2DView = sceneCamera.ViewMatrix;
 		packet.Overlay2DViewProjection = cameraComp.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;

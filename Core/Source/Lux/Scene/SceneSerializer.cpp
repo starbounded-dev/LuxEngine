@@ -493,6 +493,12 @@ namespace Lux {
 				out << Yaml::Key << "OrthographicSize" << Yaml::Value << camera.GetOrthographicSize();
 				out << Yaml::Key << "OrthographicNear" << Yaml::Value << camera.GetOrthographicNearClip();
 				out << Yaml::Key << "OrthographicFar" << Yaml::Value << camera.GetOrthographicFarClip();
+				if (camera.IsPixelPerfect())
+				{
+					out << Yaml::Key << "PixelPerfect" << Yaml::Value << true;
+					out << Yaml::Key << "PixelsPerUnit" << Yaml::Value << camera.GetPixelsPerUnit();
+					out << Yaml::Key << "ReferenceHeight" << Yaml::Value << camera.GetReferenceHeight();
+				}
 				out << Yaml::EndMap;
 				out << Yaml::Key << "Primary" << Yaml::Value << cameraComponent.Primary;
 				out << Yaml::Key << "FixedAspectRatio" << Yaml::Value << cameraComponent.FixedAspectRatio;
@@ -625,6 +631,12 @@ namespace Lux {
 				out << Yaml::Key << "UVStart" << Yaml::Value << sprite.UVStart;
 				out << Yaml::Key << "UVEnd" << Yaml::Value << sprite.UVEnd;
 				out << Yaml::Key << "ScreenSpace" << Yaml::Value << sprite.ScreenSpace;
+				if (sprite.PointFilter)
+					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
+				if (sprite.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << sprite.SortingLayer;
+				if (sprite.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << sprite.OrderInLayer;
 				out << Yaml::EndMap;
 			}
 
@@ -638,6 +650,10 @@ namespace Lux {
 				out << Yaml::Key << "Color" << Yaml::Value << circle.Color;
 				out << Yaml::Key << "Thickness" << Yaml::Value << circle.Thickness;
 				out << Yaml::Key << "Fade" << Yaml::Value << circle.Fade;
+				if (circle.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << circle.SortingLayer;
+				if (circle.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << circle.OrderInLayer;
 				out << Yaml::EndMap;
 			}
 
@@ -659,6 +675,10 @@ namespace Lux {
 				out << Yaml::Key << "DropShadow" << Yaml::Value << text.DropShadow;
 				out << Yaml::Key << "ShadowDistance" << Yaml::Value << text.ShadowDistance;
 				out << Yaml::Key << "ShadowColor" << Yaml::Value << text.ShadowColor;
+				if (text.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << text.SortingLayer;
+				if (text.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << text.OrderInLayer;
 				out << Yaml::EndMap;
 			}
 
@@ -1098,6 +1118,9 @@ namespace Lux {
 					component.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<float>(10.0f));
 					component.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>(-1.0f));
 					component.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>(1.0f));
+					component.Camera.SetPixelsPerUnit(cameraProps["PixelsPerUnit"].as<float>(100.0f));
+					component.Camera.SetReferenceHeight(cameraProps["ReferenceHeight"].as<float>(180.0f));
+					component.Camera.SetPixelPerfect(cameraProps["PixelPerfect"].as<bool>(false));
 					component.Primary = camera["Primary"].as<bool>(true);
 					component.FixedAspectRatio = camera["FixedAspectRatio"].as<bool>(false);
 					component.SolidBackground = camera["SolidBackground"].as<bool>(false);
@@ -1200,6 +1223,9 @@ namespace Lux {
 					component.UVStart = sprite["UVStart"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
 					component.UVEnd = sprite["UVEnd"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
 					component.ScreenSpace = sprite["ScreenSpace"].as<bool>(false);
+					component.PointFilter = sprite["PointFilter"].as<bool>(false);
+					component.SortingLayer = sprite["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = sprite["OrderInLayer"].as<int32_t>(0);
 				}
 
 				if (const auto circle = entity["CircleRendererComponent"])
@@ -1209,6 +1235,8 @@ namespace Lux {
 					component.Color = circle["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.Thickness = circle["Thickness"].as<float>(1.0f);
 					component.Fade = circle["Fade"].as<float>(0.005f);
+					component.SortingLayer = circle["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = circle["OrderInLayer"].as<int32_t>(0);
 				}
 
 				if (const auto text = entity["TextComponent"])
@@ -1225,6 +1253,8 @@ namespace Lux {
 					component.DropShadow = text["DropShadow"].as<bool>(false);
 					component.ShadowDistance = text["ShadowDistance"].as<float>(0.0f);
 					component.ShadowColor = text["ShadowColor"].as<glm::vec4>(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
+					component.SortingLayer = text["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = text["OrderInLayer"].as<int32_t>(0);
 				}
 
 				if (const auto rigidBody = entity["RigidBody2DComponent"])
