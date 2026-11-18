@@ -244,7 +244,7 @@ namespace PlayTest
 			}
 
 			Entity[] sprites = Entity.FindAllWithComponent<SpriteRendererComponent>();
-			Expect(sprites.Length == 2 && sprites[0].Name == "SwitchSprite" && sprites[1].Name == "SpriteTwo", $"FindAllWithComponent found {sprites.Length} sprites in the wrong order or number");
+			Expect(sprites.Length == 3 && sprites[0].Name == "SwitchSprite" && sprites[1].Name == "SpriteTwo" && sprites[2].Name == "Animated2D", $"FindAllWithComponent found {sprites.Length} sprites in the wrong order or number");
 			Expect(Entity.FindWithComponent<CircleRendererComponent>() == null, "no entity has a circle renderer");
 			Expect(Entity.FindWithComponent<SpriteRendererComponent>().Name == "SwitchSprite", "FindWithComponent returns the first");
 			Report.Result("Find", problem == null, problem ?? "");
@@ -503,7 +503,7 @@ namespace PlayTest
 		public Scene Second;
 		public Scene Extra;
 
-		const int OtherChecks = 20;
+		const int OtherChecks = 28;
 		int m_Phase, m_Wait, m_Creates;
 		int m_Counter;                 // survives the load only if this very script instance does
 		double m_ElapsedBefore;

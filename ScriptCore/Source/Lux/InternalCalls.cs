@@ -248,6 +248,8 @@ namespace Lux
 		internal static delegate*<ulong, float, void> BoxCollider2DComponent_SetFriction;
 		internal static delegate*<ulong, float> BoxCollider2DComponent_GetRestitution;
 		internal static delegate*<ulong, float, void> BoxCollider2DComponent_SetRestitution;
+		internal static delegate*<ulong, Bool32> BoxCollider2DComponent_GetIsTrigger;
+		internal static delegate*<ulong, Bool32, void> BoxCollider2DComponent_SetIsTrigger;
 		#endregion
 
 		#region CircleCollider2DComponent
@@ -261,6 +263,8 @@ namespace Lux
 		internal static delegate*<ulong, float, void> CircleCollider2DComponent_SetFriction;
 		internal static delegate*<ulong, float> CircleCollider2DComponent_GetRestitution;
 		internal static delegate*<ulong, float, void> CircleCollider2DComponent_SetRestitution;
+		internal static delegate*<ulong, Bool32> CircleCollider2DComponent_GetIsTrigger;
+		internal static delegate*<ulong, Bool32, void> CircleCollider2DComponent_SetIsTrigger;
 		#endregion
 
 		#region TextComponent
@@ -316,6 +320,9 @@ namespace Lux
 		#endregion
 
 		#region Physics queries
+		internal static delegate*<Vector2*, Vector2*, float, ulong, Bool32, RaycastHit2DData*, Bool32> Physics2D_Raycast;
+		internal static delegate*<Vector2*, Vector2*, float, ulong, Bool32, RaycastHit2DData*, int, int> Physics2D_RaycastAll;
+		internal static delegate*<int, Vector2*, Vector2*, float, ulong, Bool32, ulong*, int, int> Physics2D_Overlap;
 		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_Raycast;
 		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, int, int> Physics_RaycastAll;
 		internal static delegate*<int, Vector3*, Vector4*, Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_ShapeCast;

@@ -605,6 +605,8 @@ namespace Lux {
 		m_AudioZones.Remove(entity.GetUUID());
 		m_PhysicsAudio.Remove(entity.GetUUID());
 		m_Footsteps.erase(entity.GetUUID());
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->DestroyBody(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 	}
@@ -649,6 +651,7 @@ namespace Lux {
 		m_AudioSurfaceTable = nullptr;
 		m_Footsteps.clear();
 		m_PhysicsContactEvents.clear();
+		m_PhysicsContactEvents2D.clear();
 		m_CharacterContactEvents.clear();
 		m_ScriptContacts.Clear();
 		m_DebugLinesFrame.clear();
@@ -891,7 +894,8 @@ namespace Lux {
 			}
 		}
 
-		PhysicsScene2D::SetPlaying(true);
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->SetRecordContacts(true);
 		RefreshInactiveEntities();
 
 		m_RuntimeAudioListeners = {};
@@ -1009,7 +1013,19 @@ namespace Lux {
 					m_PhysicsScene->CreateBody(entity);
 			}
 		}
-		// shortcut: 2D physics bodies are not created for spawned prefabs; add when a 2D game needs it.
+		if (m_PhysicsScene2D)
+		{
+			for (UUID id : spawned)
+			{
+				if (Entity entity = TryGetEntityWithUUID(id))
+					m_PhysicsScene2D->CreateBody(entity);
+			}
+			for (UUID id : spawned)
+			{
+				if (Entity entity = TryGetEntityWithUUID(id))
+					m_PhysicsScene2D->CreateJoint(entity);
+			}
+		}
 
 		// Scripts last, so OnCreate finds the physics it may use. Simulate runs no scripts.
 		if (m_IsRunning)
@@ -1022,8 +1038,6 @@ namespace Lux {
 	void Scene::OnRuntimeStop()
 	{
 		m_IsRunning = false;
-
-		PhysicsScene2D::SetPlaying(false);
 
 		OnAcousticsStop();
 		OnPhysics3DStop();
@@ -1595,7 +1609,7 @@ namespace Lux {
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1669,7 +1683,7 @@ namespace Lux {
 	}
 
 	using PrefabInstantiationComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1753,6 +1767,18 @@ namespace Lux {
 						LUX_CORE_WARN_TAG("Audio", "Cleared external room {} on cloned portal {}", static_cast<uint64_t>(*target), static_cast<uint64_t>(destinationID));
 						*target = 0;
 					}
+				}
+			}
+			if (destination && destination.HasComponent<Joint2DComponent>())
+			{
+				// A joint to another body of the cloned hierarchy follows that body's copy.
+				auto& joint = destination.GetComponent<Joint2DComponent>();
+				if (const auto it = entityMap.find(joint.ConnectedEntity); it != entityMap.end())
+					joint.ConnectedEntity = it->second;
+				else if (clearExternal && joint.ConnectedEntity != 0)
+				{
+					LUX_CORE_WARN_TAG("Physics", "Joint 2D on cloned entity {} was connected outside the prefab hierarchy; it is anchored to the world now", static_cast<uint64_t>(destinationID));
+					joint.ConnectedEntity = 0;
 				}
 			}
 			if (!destination || !destination.HasComponent<AudioListenerComponent>())
@@ -1842,7 +1868,7 @@ namespace Lux {
 		// are deliberately excluded so the link and hierarchy survive a revert/apply). Reconcile,
 		// not copy: destination-only components are removed so it matches source exactly.
 		using PrefabSyncComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -2760,25 +2786,36 @@ namespace Lux {
 
 	void Scene::StepPhysics(Timestep ts, bool runScripts)
 	{
+		// One fixed clock for both worlds, the 3D scene's when there is one and the 2D scene's otherwise (both
+		// read the project's fixed timestep). A script's OnFixedUpdate runs once per step, before either world steps.
+		uint32_t steps = 0;
+		float fixedTimestep = 1.0f / 60.0f;
 		if (m_PhysicsScene)
 		{
-			const float fixedTimestep = m_PhysicsScene->GetFixedTimestep();
-			for (uint32_t steps = m_PhysicsScene->AdvanceFixedClock(ts); steps > 0; steps--)
-			{
-				if (runScripts)
-				{
-					m_DebugLinesFixed.clear();
-					m_DrawingFixedStep = true;
-					InvokeScriptFixedUpdate(fixedTimestep);
-					ScriptGlue::StepScheduler();
-					m_DrawingFixedStep = false;
-				}
-				m_PhysicsScene->SimulateStep(fixedTimestep);
-			}
+			fixedTimestep = m_PhysicsScene->GetFixedTimestep();
+			steps = m_PhysicsScene->AdvanceFixedClock(ts);
+		}
+		else if (m_PhysicsScene2D)
+		{
+			fixedTimestep = m_PhysicsScene2D->GetFixedTimestep();
+			steps = m_PhysicsScene2D->AdvanceFixedClock(ts);
 		}
 
-		if (m_PhysicsScene2D)
-			m_PhysicsScene2D->Simulate(ts);
+		for (; steps > 0; steps--)
+		{
+			if (runScripts)
+			{
+				m_DebugLinesFixed.clear();
+				m_DrawingFixedStep = true;
+				InvokeScriptFixedUpdate(fixedTimestep);
+				ScriptGlue::StepScheduler();
+				m_DrawingFixedStep = false;
+			}
+			if (m_PhysicsScene)
+				m_PhysicsScene->SimulateStep(fixedTimestep);
+			if (m_PhysicsScene2D)
+				m_PhysicsScene2D->SimulateStep(fixedTimestep);
+		}
 	}
 
 	void Scene::DispatchCollisionEvents()
@@ -2810,6 +2847,13 @@ namespace Lux {
 		for (const PhysicsContactEvent& event : m_PhysicsContactEvents)
 			handle(event);
 		for (const PhysicsContactEvent& event : m_CharacterContactEvents)
+			handle(event);
+
+		// Box2D contacts: collected during the step, told to scripts here, with the same enabled/active rules.
+		m_PhysicsContactEvents2D.clear();
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->DrainContactEvents(m_PhysicsContactEvents2D);
+		for (const PhysicsContactEvent& event : m_PhysicsContactEvents2D)
 			handle(event);
 	}
 
@@ -4428,6 +4472,26 @@ namespace Lux {
 	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& component)
 	{
 
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PolygonCollider2DComponent>(Entity entity, PolygonCollider2DComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CapsuleCollider2DComponent>(Entity entity, CapsuleCollider2DComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<EdgeCollider2DComponent>(Entity entity, EdgeCollider2DComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<Joint2DComponent>(Entity entity, Joint2DComponent& component)
+	{
 	}
 
 	template<>

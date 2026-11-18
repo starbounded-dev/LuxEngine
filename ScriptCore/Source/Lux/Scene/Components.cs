@@ -327,6 +327,13 @@ namespace Lux
 			get => InternalCalls.BoxCollider2DComponent_GetRestitution(Entity.ID);
 			set => InternalCalls.BoxCollider2DComponent_SetRestitution(Entity.ID, value);
 		}
+
+		/// <summary>A trigger detects overlaps (<c>OnTriggerBegin</c>/<c>OnTriggerEnd</c>) and blocks nothing.</summary>
+		public bool IsTrigger
+		{
+			get => InternalCalls.BoxCollider2DComponent_GetIsTrigger(Entity.ID);
+			set => InternalCalls.BoxCollider2DComponent_SetIsTrigger(Entity.ID, value);
+		}
 	}
 
 	/// <summary>A circle shape for the entity's 2D rigid body.</summary>
@@ -365,6 +372,13 @@ namespace Lux
 		{
 			get => InternalCalls.CircleCollider2DComponent_GetRestitution(Entity.ID);
 			set => InternalCalls.CircleCollider2DComponent_SetRestitution(Entity.ID, value);
+		}
+
+		/// <summary>A trigger detects overlaps (<c>OnTriggerBegin</c>/<c>OnTriggerEnd</c>) and blocks nothing.</summary>
+		public bool IsTrigger
+		{
+			get => InternalCalls.CircleCollider2DComponent_GetIsTrigger(Entity.ID);
+			set => InternalCalls.CircleCollider2DComponent_SetIsTrigger(Entity.ID, value);
 		}
 	}
 

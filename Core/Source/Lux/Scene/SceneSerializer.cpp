@@ -725,6 +725,12 @@ namespace Lux {
 				out << Yaml::Key << "Size" << Yaml::Value << collider.Size;
 				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
 				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
 				out << Yaml::EndMap;
 			}
 
@@ -737,6 +743,96 @@ namespace Lux {
 				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
 				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
 				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<PolygonCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<PolygonCollider2DComponent>();
+				out << Yaml::Key << "PolygonCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Points" << Yaml::Value << collider.Points;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<CapsuleCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<CapsuleCollider2DComponent>();
+				out << Yaml::Key << "CapsuleCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
+				out << Yaml::Key << "Height" << Yaml::Value << collider.Height;
+				out << Yaml::Key << "Direction" << Yaml::Value << static_cast<int>(collider.CapsuleDirection);
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<EdgeCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<EdgeCollider2DComponent>();
+				out << Yaml::Key << "EdgeCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Points" << Yaml::Value << collider.Points;
+				if (collider.Loop)
+					out << Yaml::Key << "Loop" << Yaml::Value << true;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<Joint2DComponent>())
+			{
+				const auto& joint = entity.GetComponent<Joint2DComponent>();
+				out << Yaml::Key << "Joint2DComponent";
+				out << Yaml::BeginMap;
+				if (!joint.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << joint.Enabled;
+				out << Yaml::Key << "JointType" << Yaml::Value << static_cast<int>(joint.JointType);
+				out << Yaml::Key << "ConnectedEntity" << Yaml::Value << static_cast<uint64_t>(joint.ConnectedEntity);
+				out << Yaml::Key << "Anchor" << Yaml::Value << joint.Anchor;
+				out << Yaml::Key << "ConnectedAnchor" << Yaml::Value << joint.ConnectedAnchor;
+				if (joint.CollideConnected)
+					out << Yaml::Key << "CollideConnected" << Yaml::Value << true;
+				out << Yaml::Key << "AutoLength" << Yaml::Value << joint.AutoLength;
+				out << Yaml::Key << "Length" << Yaml::Value << joint.Length;
+				out << Yaml::Key << "Stiffness" << Yaml::Value << joint.Stiffness;
+				out << Yaml::Key << "Damping" << Yaml::Value << joint.Damping;
+				out << Yaml::Key << "EnableLimit" << Yaml::Value << joint.EnableLimit;
+				out << Yaml::Key << "LowerLimit" << Yaml::Value << joint.LowerLimit;
+				out << Yaml::Key << "UpperLimit" << Yaml::Value << joint.UpperLimit;
+				out << Yaml::Key << "EnableMotor" << Yaml::Value << joint.EnableMotor;
+				out << Yaml::Key << "MotorSpeed" << Yaml::Value << joint.MotorSpeed;
+				out << Yaml::Key << "MaxMotorForce" << Yaml::Value << joint.MaxMotorForce;
+				out << Yaml::Key << "Axis" << Yaml::Value << joint.Axis;
 				out << Yaml::EndMap;
 			}
 
@@ -1306,6 +1402,9 @@ namespace Lux {
 					component.Size = boxCollider["Size"].as<glm::vec2>(glm::vec2{ 0.5f, 0.5f });
 					component.Density = boxCollider["Density"].as<float>(1.0f);
 					component.Friction = boxCollider["Friction"].as<float>(1.0f);
+					component.Restitution = boxCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = boxCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = boxCollider["IsTrigger"].as<bool>(false);
 				}
 
 				if (const auto circleCollider = entity["CircleCollider2DComponent"])
@@ -1315,6 +1414,69 @@ namespace Lux {
 					component.Radius = circleCollider["Radius"].as<float>(1.0f);
 					component.Density = circleCollider["Density"].as<float>(1.0f);
 					component.Friction = circleCollider["Friction"].as<float>(1.0f);
+					component.Restitution = circleCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = circleCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = circleCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto polygonCollider = entity["PolygonCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<PolygonCollider2DComponent>();
+					component.Points = polygonCollider["Points"].as<std::vector<glm::vec2>>(component.Points);
+					component.Offset = polygonCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Density = polygonCollider["Density"].as<float>(1.0f);
+					component.Friction = polygonCollider["Friction"].as<float>(0.5f);
+					component.Restitution = polygonCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = polygonCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = polygonCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto capsuleCollider = entity["CapsuleCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CapsuleCollider2DComponent>();
+					component.Offset = capsuleCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Radius = capsuleCollider["Radius"].as<float>(0.25f);
+					component.Height = capsuleCollider["Height"].as<float>(1.0f);
+					component.CapsuleDirection = static_cast<CapsuleCollider2DComponent::Direction>(capsuleCollider["Direction"].as<int>(0));
+					component.Density = capsuleCollider["Density"].as<float>(1.0f);
+					component.Friction = capsuleCollider["Friction"].as<float>(0.5f);
+					component.Restitution = capsuleCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = capsuleCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = capsuleCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto edgeCollider = entity["EdgeCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<EdgeCollider2DComponent>();
+					component.Points = edgeCollider["Points"].as<std::vector<glm::vec2>>(component.Points);
+					component.Loop = edgeCollider["Loop"].as<bool>(false);
+					component.Offset = edgeCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Friction = edgeCollider["Friction"].as<float>(0.5f);
+					component.Restitution = edgeCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = edgeCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = edgeCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto jointNode = entity["Joint2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<Joint2DComponent>();
+					component.Enabled = jointNode["Enabled"].as<bool>(true);
+					component.JointType = static_cast<Joint2DComponent::Type>(jointNode["JointType"].as<int>(0));
+					component.ConnectedEntity = jointNode["ConnectedEntity"].as<uint64_t>(0);
+					component.Anchor = jointNode["Anchor"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.ConnectedAnchor = jointNode["ConnectedAnchor"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.CollideConnected = jointNode["CollideConnected"].as<bool>(false);
+					component.AutoLength = jointNode["AutoLength"].as<bool>(true);
+					component.Length = jointNode["Length"].as<float>(1.0f);
+					component.Stiffness = jointNode["Stiffness"].as<float>(0.0f);
+					component.Damping = jointNode["Damping"].as<float>(0.0f);
+					component.EnableLimit = jointNode["EnableLimit"].as<bool>(false);
+					component.LowerLimit = jointNode["LowerLimit"].as<float>(0.0f);
+					component.UpperLimit = jointNode["UpperLimit"].as<float>(0.0f);
+					component.EnableMotor = jointNode["EnableMotor"].as<bool>(false);
+					component.MotorSpeed = jointNode["MotorSpeed"].as<float>(0.0f);
+					component.MaxMotorForce = jointNode["MaxMotorForce"].as<float>(100.0f);
+					component.Axis = jointNode["Axis"].as<glm::vec2>(glm::vec2{ 1.0f, 0.0f });
 				}
 
 				if (const auto rigidBody = entity["RigidBodyComponent"])

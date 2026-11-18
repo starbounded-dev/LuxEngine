@@ -15,6 +15,7 @@
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Physics/ContactPairTracker.h"
 #include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Project/ProjectSerializer.h"
@@ -247,7 +248,7 @@ namespace {
 		PhysicsScene2D physics(play.Raw());
 		physics.Start();
 		for (int step = 0; step < 240; step++)
-			physics.Simulate(Timestep(1.0f / 60.0f));
+			physics.SimulateStep(1.0f / 60.0f);
 		float boxY = 99.0f;
 		for (auto entity : play->GetAllEntitiesWith<TagComponent, TransformComponent>())
 		{
@@ -680,6 +681,399 @@ namespace {
 		Check(!SpriteAtlas::Pack({}, 1, 256, atlas, error), "nothing to pack fails");
 	}
 
+	// ---- P6: Box2D completion ----------------------------------------------------------------------
+
+	Entity AddBody(Scene& scene, const char* name, glm::vec2 position, RigidBody2DComponent::Type type)
+	{
+		Entity entity = scene.CreateEntity(name);
+		entity.GetComponent<TransformComponent>().Translation = { position.x, position.y, 0.0f };
+		entity.AddComponent<RigidBody2DComponent>().BodyType = type;
+		return entity;
+	}
+
+	void Step(PhysicsScene2D& physics, int steps)
+	{
+		for (int i = 0; i < steps; i++)
+			physics.SimulateStep(1.0f / 60.0f);
+	}
+
+	float YOf(Entity entity)
+	{
+		return entity.GetComponent<TransformComponent>().Translation.y;
+	}
+
+	void CheckFixedClock()
+	{
+		Ref<Project> project = Ref<Project>::Create();
+		project->GetConfig().Physics.FixedTimestep = 1.0f / 50.0f;
+		project->GetConfig().Physics.Gravity = { 0.0f, -4.0f, 0.0f };
+		Project::SetActive(project);
+
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity body = AddBody(*scene, "Falling", { 0.0f, 100.0f }, RigidBody2DComponent::Type::Dynamic);
+		body.AddComponent<CircleCollider2DComponent>();
+		PhysicsScene2D physics(scene.Raw());
+		Check(physics.AdvanceFixedClock(Timestep(0.1f)) == 0, "no steps before the world exists");
+		physics.Start();
+		Check(Near(physics.GetFixedTimestep(), 0.02f, 1e-6f), "the 2D world steps at the project's fixed timestep");
+		Check(physics.AdvanceFixedClock(Timestep(0.045f)) == 2, "0.045 s is two 20 ms steps");
+		Check(physics.AdvanceFixedClock(Timestep(0.016f)) == 1, "the leftover 5 ms and 16 ms make a third");
+		Check(physics.AdvanceFixedClock(Timestep(0.005f)) == 0, "a short frame is not enough for a step");
+		Check(physics.AdvanceFixedClock(Timestep(1.0f)) == 8, "a long hitch is capped at 8 steps");
+		physics.SimulateStep(1.0f / 50.0f);
+		Check(Near(YOf(body), 100.0f - 0.5f * 4.0f * 0.02f * 0.02f, 0.01f) || YOf(body) < 100.0f, "the project's gravity pulls the body");
+		for (int i = 0; i < 49; i++)
+			physics.SimulateStep(1.0f / 50.0f);
+		// after one second at g = 4 the body has dropped about 2 m (semi-implicit Euler: 2.04)
+		Check(Near(YOf(body), 100.0f - 2.0f, 0.15f), std::format("one second of 4 m/s^2 gravity drops it about 2 m (y = {:.3f})", YOf(body)));
+		Project::SetActive(nullptr);
+	}
+
+	void CheckColliderShapes()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity triangle = AddBody(*scene, "Triangle", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		triangle.AddComponent<PolygonCollider2DComponent>().Points = { { -1.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 2.0f } };
+		Entity capsule = AddBody(*scene, "Capsule", { 4.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		auto& capsuleCollider = capsule.AddComponent<CapsuleCollider2DComponent>();
+		capsuleCollider.Radius = 0.25f;
+		capsuleCollider.Height = 1.0f;
+		Entity lying = AddBody(*scene, "Lying", { 8.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		auto& lyingCollider = lying.AddComponent<CapsuleCollider2DComponent>();
+		lyingCollider.CapsuleDirection = CapsuleCollider2DComponent::Direction::Horizontal;
+		lyingCollider.Radius = 0.5f;
+		lyingCollider.Height = 3.0f;
+		Entity floor = AddBody(*scene, "Floor", { 0.0f, -5.0f }, RigidBody2DComponent::Type::Static);
+		floor.AddComponent<EdgeCollider2DComponent>().Points = { { -20.0f, 0.0f }, { 20.0f, 0.0f } };
+		Entity ring = AddBody(*scene, "Ring", { 12.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		auto& ringCollider = ring.AddComponent<EdgeCollider2DComponent>();
+		ringCollider.Points = { { -1.0f, -1.0f }, { 1.0f, -1.0f }, { 1.0f, 1.0f }, { -1.0f, 1.0f } };
+		ringCollider.Loop = true;
+		Entity zone = AddBody(*scene, "Zone", { 16.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		auto& zoneCollider = zone.AddComponent<BoxCollider2DComponent>();
+		zoneCollider.Size = { 1.0f, 1.0f };
+		zoneCollider.IsTrigger = true;
+		Entity degenerate = AddBody(*scene, "Degenerate", { 20.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		degenerate.AddComponent<PolygonCollider2DComponent>().Points = { { 0.0f, 0.0f }, { 1.0f, 1.0f }, { 2.0f, 2.0f } };
+
+		PhysicsScene2D physics(scene.Raw());
+		physics.Start();
+		PhysicsScene2D::RayHit hit;
+
+		Check(physics.RayCast({ 0.0f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && hit.EntityID == triangle.GetUUID() && Near(hit.Point.y, 2.0f, 0.01f) && Near(hit.Distance, 3.0f, 0.01f),
+			"a ray down the middle hits the polygon's apex");
+		Check(physics.RayCast({ 0.5f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && Near(hit.Point.y, 1.0f, 0.01f) && hit.Normal.x > 0.5f && hit.Normal.y > 0.2f,
+			"a ray at x = 0.5 hits the slanted side, whose normal leans right");
+		Check(!physics.RayCast({ 1.5f, 5.0f }, { 0.0f, -1.0f }, 3.0f, 0, false, hit), "a ray that stops short (maxDistance) hits nothing");
+
+		Check(physics.RayCast({ 4.0f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && hit.EntityID == capsule.GetUUID() && Near(hit.Point.y, 0.5f, 0.01f), "the vertical capsule is 1 m tall: a ray from above hits y = 0.5");
+		Check(physics.RayCast({ 0.0f + 4.0f - 5.0f, 0.0f }, { 1.0f, 0.0f }, 20.0f, 0, false, hit) && hit.EntityID == capsule.GetUUID() && Near(hit.Point.x, 3.75f, 0.01f), "and 0.5 m wide: a ray from the left hits x = 3.75");
+		Check(physics.RayCast({ 8.0f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && hit.EntityID == lying.GetUUID() && Near(hit.Point.y, 0.5f, 0.01f), "the horizontal capsule is 1 m tall");
+		Check(physics.RayCast({ 20.0f, 0.0f }, { -1.0f, 0.0f }, 3.0f, 0, false, hit) == false, "a ray from the right at the horizontal capsule's end is out of range");
+		Check(physics.RayCast({ 5.0f, 0.0f }, { 1.0f, 0.0f }, 10.0f, 0, false, hit) && hit.EntityID == lying.GetUUID() && Near(hit.Point.x, 6.5f, 0.01f), "the horizontal capsule is 3 m long: its rounded end is at x = 6.5");
+
+		Check(physics.RayCast({ 0.0f, -2.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && hit.EntityID == floor.GetUUID() && Near(hit.Point.y, -5.0f, 0.01f), "the edge collider is a floor");
+		Check(physics.RayCast({ 12.0f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && Near(hit.Point.y, 1.0f, 0.01f), "a looped edge collider is closed: the top side is there");
+		std::vector<PhysicsScene2D::RayHit> all;
+		physics.RayCastAll({ 12.0f, 5.0f }, { 0.0f, -1.0f }, 8.0f, 0, false, all);
+		Check(all.size() == 1 && all[0].EntityID == ring.GetUUID(), "RayCastAll reports one hit per entity (the loop is one entity)");
+
+		physics.RayCastAll({ 0.0f, 10.0f }, { 0.0f, -1.0f }, 30.0f, 0, false, all);
+		Check(all.size() == 2 && all[0].EntityID == triangle.GetUUID() && all[1].EntityID == floor.GetUUID() && all[0].Distance < all[1].Distance, "RayCastAll goes nearest first through the polygon and the floor");
+		Check(!physics.RayCast({ 0.0f, 5.0f }, { 0.0f, -1.0f }, 20.0f, floor.GetUUID(), false, hit) || hit.EntityID == triangle.GetUUID(), "an ignored entity is passed through");
+		physics.RayCastAll({ 0.0f, 10.0f }, { 0.0f, -1.0f }, 30.0f, triangle.GetUUID(), false, all);
+		Check(all.size() == 1 && all[0].EntityID == floor.GetUUID(), "RayCastAll skips the ignored entity");
+		Check(!physics.RayCast({ 0.0f, 0.0f }, { 0.0f, 0.0f }, 5.0f, 0, false, hit) && !physics.RayCast({ 0.0f, 5.0f }, { 0.0f, -1.0f }, 0.0f, 0, false, hit), "a zero direction or length hits nothing");
+
+		// Triggers: seen only when asked for.
+		Check(!physics.RayCast({ 16.0f, 5.0f }, { 0.0f, -1.0f }, 8.0f, 0, false, hit), "a ray passes through a trigger");
+		Check(physics.RayCast({ 16.0f, 5.0f }, { 0.0f, -1.0f }, 8.0f, 0, true, hit) && hit.EntityID == zone.GetUUID(), "includeTriggers sees it");
+
+		std::vector<UUID> found;
+		physics.Overlap(PhysicsScene2D::QueryShape::Circle, { 4.0f, 0.6f }, { 0.2f, 0.0f }, 0.0f, 0, false, found);
+		Check(found.size() == 1 && found[0] == capsule.GetUUID(), "a circle touching the capsule's rounded top overlaps it");
+		physics.Overlap(PhysicsScene2D::QueryShape::Circle, { 4.0f, 1.0f }, { 0.2f, 0.0f }, 0.0f, 0, false, found);
+		Check(found.empty(), "a circle above the capsule's top does not");
+		physics.Overlap(PhysicsScene2D::QueryShape::Circle, { 4.3f, 0.45f }, { 0.1f, 0.0f }, 0.0f, 0, false, found);
+		Check(found.empty(), "a circle off the rounded corner (outside the true curve) does not overlap, though inside the box's corner");
+		physics.Overlap(PhysicsScene2D::QueryShape::Box, { 6.0f, 0.0f }, { 1.0f, 0.2f }, 0.0f, 0, false, found);
+		Check(found.size() == 1 && found[0] == lying.GetUUID(), "a box reaching the horizontal capsule's end overlaps it");
+		physics.Overlap(PhysicsScene2D::QueryShape::Box, { 6.0f, 0.0f }, { 1.0f, 0.2f }, glm::radians(90.0f), 0, false, found);
+		Check(found.empty(), "turned 90 degrees the same box stands clear of it");
+		physics.Overlap(PhysicsScene2D::QueryShape::Circle, { 16.0f, 0.0f }, { 0.5f, 0.0f }, 0.0f, 0, false, found);
+		Check(found.empty(), "an overlap query skips triggers");
+		physics.Overlap(PhysicsScene2D::QueryShape::Circle, { 16.0f, 0.0f }, { 0.5f, 0.0f }, 0.0f, 0, true, found);
+		Check(found.size() == 1 && found[0] == zone.GetUUID(), "and finds them when asked");
+		physics.Overlap(PhysicsScene2D::QueryShape::Circle, { 0.0f, 0.0f }, { 30.0f, 0.0f }, 0.0f, triangle.GetUUID(), false, found);
+		Check(std::find(found.begin(), found.end(), triangle.GetUUID()) == found.end() && found.size() >= 4, "a big circle finds the others, leaving out the ignored entity, each once");
+		physics.Overlap(PhysicsScene2D::QueryShape::Box, { 0.0f, -5.0f }, { 1.0f, 1.0f }, 0.0f, 0, false, found);
+		Check(found.size() == 1 && found[0] == floor.GetUUID(), "an edge collider is found by an overlap");
+
+		Check(!physics.RayCast({ 20.5f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit), "a polygon with all its points on one line makes no collider (and does not crash)");
+
+		// Scale applies to the shapes: the triangle doubled in X is twice as wide.
+		Ref<Scene> scaled = Ref<Scene>::Create();
+		Entity wide = AddBody(*scaled, "Wide", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		wide.GetComponent<TransformComponent>().Scale = { 2.0f, 1.0f, 1.0f };
+		wide.AddComponent<PolygonCollider2DComponent>().Points = { { -1.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 2.0f } };
+		PhysicsScene2D scaledPhysics(scaled.Raw());
+		scaledPhysics.Start();
+		Check(scaledPhysics.RayCast({ 1.5f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && Near(hit.Point.y, 0.5f, 0.01f), "the entity's scale stretches a polygon (x = 1.5 is on its side at y = 0.5)");
+	}
+
+	// An edge collider blocks from both sides, however its points are ordered.
+	void CheckEdgeBlocksBothSides()
+	{
+		for (const bool leftToRight : { true, false })
+		{
+			Ref<Scene> scene = Ref<Scene>::Create();
+			Entity floor = AddBody(*scene, "Floor", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+			auto& edge = floor.AddComponent<EdgeCollider2DComponent>();
+			edge.Points = leftToRight ? std::vector<glm::vec2>{ { -10.0f, 0.0f }, { 0.0f, 0.0f }, { 10.0f, 0.0f } } : std::vector<glm::vec2>{ { 10.0f, 0.0f }, { 0.0f, 0.0f }, { -10.0f, 0.0f } };
+			Entity above = AddBody(*scene, "Above", { -2.0f, 3.0f }, RigidBody2DComponent::Type::Dynamic);
+			above.AddComponent<CircleCollider2DComponent>().Radius = 0.25f;
+			Entity below = AddBody(*scene, "Below", { 2.0f, -3.0f }, RigidBody2DComponent::Type::Dynamic);
+			below.AddComponent<CircleCollider2DComponent>().Radius = 0.25f;
+			below.GetComponent<RigidBody2DComponent>().GravityScale = -1.0f; // falls up
+			PhysicsScene2D physics(scene.Raw());
+			physics.Start();
+			Step(physics, 240);
+			Check(Near(YOf(above), 0.25f, 0.05f) && Near(YOf(below), -0.25f, 0.05f),
+				std::format("an edge collider drawn {} blocks from above (y = {:.3f}) and from below (y = {:.3f})", leftToRight ? "left to right" : "right to left", YOf(above), YOf(below)));
+		}
+	}
+
+	void CheckContactsAndTriggers()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity floor = AddBody(*scene, "Floor", { 0.0f, -2.0f }, RigidBody2DComponent::Type::Static);
+		floor.AddComponent<BoxCollider2DComponent>().Size = { 10.0f, 0.5f };
+		Entity capsule = AddBody(*scene, "Capsule", { 0.0f, 1.0f }, RigidBody2DComponent::Type::Dynamic);
+		auto& capsuleCollider = capsule.AddComponent<CapsuleCollider2DComponent>();
+		capsuleCollider.CapsuleDirection = CapsuleCollider2DComponent::Direction::Horizontal; // lying down: its three fixtures all land together
+		capsuleCollider.Radius = 0.25f;
+		capsuleCollider.Height = 2.0f;
+		Entity zone = AddBody(*scene, "Zone", { 0.0f, -0.2f }, RigidBody2DComponent::Type::Static);
+		auto& zoneCollider = zone.AddComponent<BoxCollider2DComponent>();
+		zoneCollider.Size = { 2.0f, 0.1f };
+		zoneCollider.IsTrigger = true;
+
+		PhysicsScene2D physics(scene.Raw());
+		physics.Start();
+		Step(physics, 5);
+		std::vector<PhysicsContactEvent> early;
+		physics.DrainContactEvents(early);
+		Check(early.empty(), "contacts are not recorded until Play asks for them");
+
+		physics.SetRecordContacts(true);
+		Step(physics, 150);
+		std::vector<PhysicsContactEvent> events;
+		physics.DrainContactEvents(events);
+		size_t collisionBegins = 0, triggerBegins = 0, triggerEnds = 0;
+		for (const auto& event : events)
+		{
+			const bool pair = (event.Entity1 == capsule.GetUUID() && event.Entity2 == floor.GetUUID()) || (event.Entity2 == capsule.GetUUID() && event.Entity1 == floor.GetUUID());
+			const bool zonePair = (event.Entity1 == capsule.GetUUID() && event.Entity2 == zone.GetUUID()) || (event.Entity2 == capsule.GetUUID() && event.Entity1 == zone.GetUUID());
+			if (pair && !event.Trigger && event.State == PhysicsContactEvent::Type::Begin)
+				collisionBegins++;
+			if (zonePair && event.Trigger && event.State == PhysicsContactEvent::Type::Begin)
+				triggerBegins++;
+			if (zonePair && event.Trigger && event.State == PhysicsContactEvent::Type::End)
+				triggerEnds++;
+		}
+		Check(collisionBegins >= 2, std::format("a capsule lying on a floor makes one Box2D contact per fixture ({} Begin events)", collisionBegins));
+		Check(triggerBegins >= 1 && triggerEnds == triggerBegins, std::format("falling through a trigger gives Begin and End events marked as triggers ({} / {})", triggerBegins, triggerEnds));
+		Check(YOf(capsule) > -1.4f && YOf(capsule) < -1.2f, std::format("the trigger blocked nothing and the capsule rests on the floor (y = {:.3f})", YOf(capsule)));
+
+		// The scene's pair tracker turns the per-fixture events into one Begin for the pair.
+		ContactPairTracker tracker;
+		int begins = 0;
+		for (const auto& event : events)
+		{
+			if (!event.Trigger)
+				tracker.Apply(event, [&begins](UUID, UUID, bool begin) { begins += begin ? 1 : 0; });
+		}
+		Check(begins == 1, std::format("scripts hear one OnCollisionBegin for the pair, not one per fixture ({})", begins));
+	}
+
+	void CheckJoints()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+
+		// A rigid rod from a point in the world: the body swings and stays 2 m from the pivot.
+		Entity pendulum = AddBody(*scene, "Pendulum", { 2.0f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		pendulum.AddComponent<CircleCollider2DComponent>().Radius = 0.2f;
+		auto& rod = pendulum.AddComponent<Joint2DComponent>();
+		rod.JointType = Joint2DComponent::Type::Distance;
+		rod.ConnectedAnchor = { 0.0f, 5.0f }; // world point
+		// A hinge with a limit: a bar pinned at its left end may only swing 10 degrees either way.
+		Entity bar = AddBody(*scene, "Bar", { 20.0f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		bar.AddComponent<BoxCollider2DComponent>().Size = { 1.0f, 0.1f };
+		auto& hinge = bar.AddComponent<Joint2DComponent>();
+		hinge.JointType = Joint2DComponent::Type::Revolute;
+		hinge.Anchor = { -1.0f, 0.0f };
+		hinge.EnableLimit = true;
+		hinge.LowerLimit = -10.0f;
+		hinge.UpperLimit = 10.0f;
+		// A slider: free along x between 0 and 1 from its start, never off the line.
+		Entity slider = AddBody(*scene, "Slider", { 40.0f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		slider.AddComponent<BoxCollider2DComponent>().Size = { 0.3f, 0.3f };
+		auto& rail = slider.AddComponent<Joint2DComponent>();
+		rail.JointType = Joint2DComponent::Type::Prismatic;
+		rail.EnableLimit = true;
+		rail.LowerLimit = 0.0f;
+		rail.UpperLimit = 1.0f;
+		rail.Axis = { 1.0f, 0.0f };
+		// Two bodies welded together fall as one.
+		Entity base = AddBody(*scene, "Base", { 60.0f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		base.AddComponent<BoxCollider2DComponent>().Size = { 0.3f, 0.3f };
+		Entity arm = AddBody(*scene, "Arm", { 61.5f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		arm.AddComponent<BoxCollider2DComponent>().Size = { 0.3f, 0.3f };
+		auto& weld = arm.AddComponent<Joint2DComponent>();
+		weld.JointType = Joint2DComponent::Type::Weld;
+		weld.ConnectedEntity = base.GetUUID();
+		// A joint that is switched off, and one to an entity with no body: no joint, no crash.
+		Entity loose = AddBody(*scene, "Loose", { 80.0f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		loose.AddComponent<CircleCollider2DComponent>();
+		loose.AddComponent<Joint2DComponent>().Enabled = false;
+		Entity orphan = AddBody(*scene, "Orphan", { 90.0f, 5.0f }, RigidBody2DComponent::Type::Dynamic);
+		orphan.AddComponent<CircleCollider2DComponent>();
+		orphan.AddComponent<Joint2DComponent>().ConnectedEntity = scene->CreateEntity("Bodyless").GetUUID();
+
+		PhysicsScene2D physics(scene.Raw());
+		physics.Start();
+		float maxRodError = 0.0f;
+		float lowestAngle = 0.0f, highestAngle = 0.0f;
+		float sliderMin = 1e9f, sliderMax = -1e9f, sliderDrift = 0.0f;
+		float weldError = 0.0f;
+		for (int i = 0; i < 240; i++)
+		{
+			physics.SimulateStep(1.0f / 60.0f);
+			const glm::vec3 p = pendulum.GetComponent<TransformComponent>().Translation;
+			maxRodError = std::max(maxRodError, std::abs(glm::length(glm::vec2(p.x, p.y) - glm::vec2(0.0f, 5.0f)) - 2.0f));
+			const float angle = glm::degrees(bar.GetComponent<TransformComponent>().GetRotationEuler().z);
+			lowestAngle = std::min(lowestAngle, angle);
+			highestAngle = std::max(highestAngle, angle);
+			const glm::vec3 s = slider.GetComponent<TransformComponent>().Translation;
+			sliderMin = std::min(sliderMin, s.x);
+			sliderMax = std::max(sliderMax, s.x);
+			sliderDrift = std::max(sliderDrift, std::abs(s.y - 5.0f));
+			const glm::vec3 a = base.GetComponent<TransformComponent>().Translation;
+			const glm::vec3 b = arm.GetComponent<TransformComponent>().Translation;
+			weldError = std::max(weldError, std::abs(glm::length(b - a) - 1.5f));
+		}
+		Check(maxRodError < 0.05f && YOf(pendulum) < 5.0f, std::format("a distance joint keeps its length while the body swings (largest error {:.4f} m)", maxRodError));
+		Check(highestAngle <= 10.5f && lowestAngle >= -10.5f && (highestAngle > 0.5f || lowestAngle < -0.5f), std::format("a hinge limit keeps the bar within 10 degrees ({:.1f} .. {:.1f}) and it did swing", lowestAngle, highestAngle));
+		Check(sliderMin >= 39.95f && sliderMax <= 41.05f && sliderDrift < 0.05f, std::format("a prismatic joint holds the slider to its rail: x {:.2f}..{:.2f}, off the rail by {:.3f}", sliderMin, sliderMax, sliderDrift));
+		Check(weldError < 0.05f && YOf(base) < 4.0f && YOf(arm) < 4.0f, std::format("a weld joint carries both bodies down together (distance error {:.4f}, y = {:.2f})", weldError, YOf(base)));
+		Check(YOf(loose) < 0.0f && YOf(orphan) < 0.0f, "a disabled joint and a joint to a bodyless entity do nothing, and the bodies still fall free");
+	}
+
+	void CheckBodiesComeAndGo()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity floor = AddBody(*scene, "Floor", { 0.0f, -5.0f }, RigidBody2DComponent::Type::Static);
+		floor.AddComponent<BoxCollider2DComponent>().Size = { 10.0f, 0.5f };
+		PhysicsScene2D physics(scene.Raw());
+		physics.Start();
+
+		Entity late = AddBody(*scene, "Late", { 3.0f, 3.0f }, RigidBody2DComponent::Type::Dynamic);
+		late.AddComponent<BoxCollider2DComponent>();
+		PhysicsScene2D::RayHit hit;
+		Check(!physics.RayCast({ 3.0f, 8.0f }, { 0.0f, -1.0f }, 3.0f, 0, false, hit), "an entity added during Play has no body yet");
+		physics.CreateBody(late);
+		Check(physics.RayCast({ 3.0f, 8.0f }, { 0.0f, -1.0f }, 6.0f, 0, false, hit) && hit.EntityID == late.GetUUID(), "CreateBody gives a spawned entity its body and colliders");
+		physics.CreateBody(late);
+		Step(physics, 30);
+		Check(YOf(late) < 3.0f, "and the body is simulated");
+		physics.DestroyBody(late.GetUUID());
+		Check(!physics.RayCast({ 3.0f, 8.0f }, { 0.0f, -1.0f }, 3.0f, 0, false, hit), "DestroyBody takes it out of the world");
+		Step(physics, 5); // the destroyed entity's body must not be touched again
+		Check(true, "stepping after DestroyBody is safe");
+	}
+
+	void CheckPhysics2DSerialization(const std::filesystem::path& root)
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity anchor = AddBody(*scene, "Anchor", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		Entity box = AddBody(*scene, "Box", { 1.0f, 0.0f }, RigidBody2DComponent::Type::Dynamic);
+		auto& boxCollider = box.AddComponent<BoxCollider2DComponent>();
+		boxCollider.IsTrigger = true;
+		boxCollider.Restitution = 0.4f;
+		boxCollider.RestitutionThreshold = 1.5f;
+		auto& polygon = box.AddComponent<PolygonCollider2DComponent>();
+		polygon.Points = { { 0.0f, 0.0f }, { 2.0f, 0.0f }, { 1.0f, 1.5f } };
+		polygon.IsTrigger = true;
+		polygon.Friction = 0.9f;
+		auto& capsule = box.AddComponent<CapsuleCollider2DComponent>();
+		capsule.Radius = 0.3f;
+		capsule.Height = 1.4f;
+		capsule.CapsuleDirection = CapsuleCollider2DComponent::Direction::Horizontal;
+		auto& edge = box.AddComponent<EdgeCollider2DComponent>();
+		edge.Points = { { 0.0f, 0.0f }, { 1.0f, 1.0f }, { 2.0f, 0.0f } };
+		edge.Loop = true;
+		auto& joint = box.AddComponent<Joint2DComponent>();
+		joint.JointType = Joint2DComponent::Type::Prismatic;
+		joint.ConnectedEntity = anchor.GetUUID();
+		joint.Anchor = { 0.5f, 0.25f };
+		joint.EnableLimit = true;
+		joint.LowerLimit = -1.0f;
+		joint.UpperLimit = 3.0f;
+		joint.EnableMotor = true;
+		joint.MotorSpeed = 2.0f;
+		joint.MaxMotorForce = 50.0f;
+		joint.Axis = { 0.0f, 1.0f };
+		joint.CollideConnected = true;
+		joint.AutoLength = false;
+		joint.Length = 2.5f;
+		joint.Stiffness = 30.0f;
+		joint.Damping = 3.0f;
+
+		const std::filesystem::path file = root / "Physics2D.luxscene";
+		Check(SceneSerializer(scene).Serialize(file), "a scene with every 2D collider and a joint serializes");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+
+		const auto verify = [&](Ref<Scene> checked, const char* how)
+		{
+			const Entity loadedBox = checked->FindEntityByName("Box");
+			const Entity loadedAnchor = checked->FindEntityByName("Anchor");
+			const auto& b = loadedBox.GetComponent<BoxCollider2DComponent>();
+			const auto& p = loadedBox.GetComponent<PolygonCollider2DComponent>();
+			const auto& c = loadedBox.GetComponent<CapsuleCollider2DComponent>();
+			const auto& e = loadedBox.GetComponent<EdgeCollider2DComponent>();
+			const auto& j = loadedBox.GetComponent<Joint2DComponent>();
+			Check(b.IsTrigger && Near(b.Restitution, 0.4f) && Near(b.RestitutionThreshold, 1.5f), std::string("box collider trigger and restitution survive ") + how);
+			Check(p.Points.size() == 3 && Near(p.Points[2].y, 1.5f) && p.IsTrigger && Near(p.Friction, 0.9f), std::string("polygon collider survives ") + how);
+			Check(Near(c.Radius, 0.3f) && Near(c.Height, 1.4f) && c.CapsuleDirection == CapsuleCollider2DComponent::Direction::Horizontal, std::string("capsule collider survives ") + how);
+			Check(e.Points.size() == 3 && e.Loop && Near(e.Points[1].x, 1.0f), std::string("edge collider survives ") + how);
+			Check(j.JointType == Joint2DComponent::Type::Prismatic && j.ConnectedEntity == loadedAnchor.GetUUID() && Near(j.Anchor.y, 0.25f) && j.EnableLimit && Near(j.LowerLimit, -1.0f)
+				&& Near(j.UpperLimit, 3.0f) && j.EnableMotor && Near(j.MotorSpeed, 2.0f) && Near(j.MaxMotorForce, 50.0f) && Near(j.Axis.y, 1.0f) && j.CollideConnected && !j.AutoLength
+				&& Near(j.Length, 2.5f) && Near(j.Stiffness, 30.0f) && Near(j.Damping, 3.0f), std::string("joint, with its connected entity, survives ") + how);
+		};
+		verify(loaded, "a save");
+		verify(Scene::Copy(loaded), "the copy Play starts from");
+
+		// A fresh component writes nothing it does not need: trigger and restitution are keys only when set.
+		Ref<Scene> plain = Ref<Scene>::Create();
+		AddBody(*plain, "Plain", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Dynamic).AddComponent<BoxCollider2DComponent>();
+		const std::filesystem::path plainFile = root / "PlainPhysics2D.luxscene";
+		SceneSerializer(plain).Serialize(plainFile);
+		const std::string text = ReadText(plainFile);
+		Check(text.find("IsTrigger") == std::string::npos && text.find("Restitution") == std::string::npos, "a default box collider writes no trigger or restitution keys (old scenes re-save unchanged)");
+
+		// Duplicating a hierarchy moves a joint to the copy of the body it joined.
+		Ref<Scene> family = Ref<Scene>::Create();
+		Entity parent = AddBody(*family, "Parent", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		Entity child = AddBody(*family, "Child", { 1.0f, 0.0f }, RigidBody2DComponent::Type::Dynamic);
+		child.AddComponent<Joint2DComponent>().ConnectedEntity = parent.GetUUID();
+		child.SetParent(parent);
+		const Entity copyOfParent = family->DuplicateEntity(parent);
+		const std::vector<UUID> copiedChildren = copyOfParent.Children();
+		Check(copiedChildren.size() == 1 && family->TryGetEntityWithUUID(copiedChildren[0]).GetComponent<Joint2DComponent>().ConnectedEntity == copyOfParent.GetUUID(),
+			"duplicating a hierarchy points the joint at the copy of its body");
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -706,6 +1100,13 @@ int main(int argc, char** argv)
 	CheckSpriteSheetMath();
 	CheckSpriteSheetFiles(outDir);
 	CheckSpriteAtlas(outDir);
+	CheckFixedClock();
+	CheckColliderShapes();
+	CheckEdgeBlocksBothSides();
+	CheckContactsAndTriggers();
+	CheckJoints();
+	CheckBodiesComeAndGo();
+	CheckPhysics2DSerialization(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

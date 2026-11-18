@@ -4,55 +4,42 @@
 #include "lpch.h"
 #include "ContactListener2D.h"
 
-#include "Lux/Scene/Entity.h"
-#include "Lux/Scene/Scene.h"
-#include "Lux/Scripting/ScriptEngine.h"
-
 namespace Lux {
 
-	// Invokes the managed collision bridge on `entity`'s live script instance, passing `other`.
-	static void InvokeCollision(UUID entity, UUID other, const char* method)
-	{
-		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
-		if (!scene)
-			return;
-
-		auto& storage = scene->GetScriptStorage();
-		auto it = storage.EntityStorage.find(entity);
-		if (it == storage.EntityStorage.end() || !it->second.Instance)
-			return;
-
-		it->second.Instance->InvokeMethod(method, (uint64_t)other);
-	}
-
-	// PhysicsScene2D::Start stores each body's entity UUID in its user data.
+	// PhysicsScene2D stores each body's entity UUID in its user data.
 	static UUID GetBodyEntity(b2Fixture* fixture)
 	{
-		return (UUID)(uint64_t)fixture->GetBody()->GetUserData().pointer;
+		return UUID(static_cast<uint64_t>(fixture->GetBody()->GetUserData().pointer));
+	}
+
+	void ContactListener2D::Record(b2Contact* contact, PhysicsContactEvent::Type state)
+	{
+		if (!m_Record)
+			return;
+
+		b2Fixture* fixtureA = contact->GetFixtureA();
+		b2Fixture* fixtureB = contact->GetFixtureB();
+
+		PhysicsContactEvent event;
+		event.State = state;
+		// A contact lives from its Begin to its End, so its address pairs the two; the scene counts the
+		// contacts of an entity pair (several fixtures touch at once) and tells scripts once.
+		const uint64_t key = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(contact));
+		event.Key = { static_cast<uint32_t>(key), static_cast<uint32_t>(key >> 32), 0, 0 };
+		event.Entity1 = GetBodyEntity(fixtureA);
+		event.Entity2 = GetBodyEntity(fixtureB);
+		event.Trigger = fixtureA->IsSensor() || fixtureB->IsSensor();
+		m_Events.push_back(event);
 	}
 
 	void ContactListener2D::BeginContact(b2Contact* contact)
 	{
-		if (!m_IsPlaying)
-			return;
-
-		const UUID a = GetBodyEntity(contact->GetFixtureA());
-		const UUID b = GetBodyEntity(contact->GetFixtureB());
-
-		InvokeCollision(a, b, "OnCollisionBeginInternal");
-		InvokeCollision(b, a, "OnCollisionBeginInternal");
+		Record(contact, PhysicsContactEvent::Type::Begin);
 	}
 
 	void ContactListener2D::EndContact(b2Contact* contact)
 	{
-		if (!m_IsPlaying)
-			return;
-
-		const UUID a = GetBodyEntity(contact->GetFixtureA());
-		const UUID b = GetBodyEntity(contact->GetFixtureB());
-
-		InvokeCollision(a, b, "OnCollisionEndInternal");
-		InvokeCollision(b, a, "OnCollisionEndInternal");
+		Record(contact, PhysicsContactEvent::Type::End);
 	}
 
 }

@@ -318,6 +318,8 @@ namespace Lux {
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
+		// A trigger detects overlaps (OnTriggerBegin/End) and blocks nothing.
+		bool IsTrigger = false;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
@@ -336,12 +338,114 @@ namespace Lux {
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
+		// A trigger detects overlaps (OnTriggerBegin/End) and blocks nothing.
+		bool IsTrigger = false;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
 
 		CircleCollider2DComponent() = default;
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
+	};
+
+	// A convex polygon of 3 to 8 points, in the entity's local space (scaled by its X/Y scale). Points that are not
+	// convex are replaced by their convex hull when the body is made.
+	struct PolygonCollider2DComponent
+	{
+		static constexpr size_t MaxPoints = 8; // b2_maxPolygonVertices
+
+		std::vector<glm::vec2> Points = { { -0.5f, -0.5f }, { 0.5f, -0.5f }, { 0.5f, 0.5f }, { -0.5f, 0.5f } };
+		glm::vec2 Offset = { 0.0f, 0.0f };
+
+		float Density = 1.0f;
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		// Storage for runtime
+		void* RuntimeFixture = nullptr;
+
+		PolygonCollider2DComponent() = default;
+		PolygonCollider2DComponent(const PolygonCollider2DComponent&) = default;
+	};
+
+	// A rounded rectangle: a box with a half circle on each end of its long side. Box2D has no capsule, so it
+	// is built from a box and two circles on the body.
+	struct CapsuleCollider2DComponent
+	{
+		enum class Direction { Vertical = 0, Horizontal };
+
+		glm::vec2 Offset = { 0.0f, 0.0f };
+		float Radius = 0.25f; // of the rounded ends: half the width
+		float Height = 1.0f;  // the whole length, rounded ends included (never less than twice the radius)
+		Direction CapsuleDirection = Direction::Vertical;
+
+		float Density = 1.0f;
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		// Storage for runtime
+		void* RuntimeFixture = nullptr;
+
+		CapsuleCollider2DComponent() = default;
+		CapsuleCollider2DComponent(const CapsuleCollider2DComponent&) = default;
+	};
+
+	// A line of two or more points that blocks (a floor, a wall, terrain), open or closed. It has no area and
+	// no mass: it belongs on a static or kinematic body. Points are in local space, scaled by the entity's X/Y scale.
+	struct EdgeCollider2DComponent
+	{
+		std::vector<glm::vec2> Points = { { -1.0f, 0.0f }, { 1.0f, 0.0f } };
+		bool Loop = false; // joins the last point to the first (needs three or more)
+		glm::vec2 Offset = { 0.0f, 0.0f };
+
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		// Storage for runtime
+		void* RuntimeFixture = nullptr;
+
+		EdgeCollider2DComponent() = default;
+		EdgeCollider2DComponent(const EdgeCollider2DComponent&) = default;
+	};
+
+	// Joins this entity's body to another body, or to a fixed point in the world. Made when the scene starts.
+	struct Joint2DComponent
+	{
+		enum class Type { Distance = 0, Revolute, Prismatic, Weld };
+
+		bool Enabled = true;
+		Type JointType = Type::Distance;
+		UUID ConnectedEntity = 0;           // the other body; 0 anchors this body to the world
+		glm::vec2 Anchor = { 0.0f, 0.0f };  // on this body, in its local space
+		glm::vec2 ConnectedAnchor = { 0.0f, 0.0f }; // Distance only: on the other body (local), or a world point when connected to the world
+		bool CollideConnected = false;      // whether the two bodies still collide with each other
+
+		// Distance: keeps the anchors a length apart; a stiffness makes it a spring.
+		bool AutoLength = true;             // the distance at the start
+		float Length = 1.0f;
+		float Stiffness = 0.0f;             // N/m; 0 is a rigid rod
+		float Damping = 0.0f;
+
+		// Revolute (a hinge about Anchor) and Prismatic (a slider along Axis): limits and a motor.
+		bool EnableLimit = false;
+		float LowerLimit = 0.0f;            // degrees (revolute) or units (prismatic)
+		float UpperLimit = 0.0f;
+		bool EnableMotor = false;
+		float MotorSpeed = 0.0f;            // degrees per second, or units per second
+		float MaxMotorForce = 100.0f;       // N*m (revolute) or N (prismatic)
+		glm::vec2 Axis = { 1.0f, 0.0f };    // Prismatic: the slide direction in this body's local space
+
+		// Storage for runtime
+		void* RuntimeJoint = nullptr;
+
+		Joint2DComponent() = default;
+		Joint2DComponent(const Joint2DComponent&) = default;
 	};
 
 	struct RigidBodyComponent
@@ -818,7 +922,7 @@ namespace Lux {
 
 	using AllComponents =
 		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent, SpriteAnimatorComponent,
-		CircleRendererComponent, CameraComponent, ScriptComponent,
+		PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,

@@ -418,6 +418,7 @@ namespace Lux {
 		UUID m_MusicOwner = 0;
 		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
 		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
+		std::vector<PhysicsContactEvent> m_PhysicsContactEvents2D;
 		// C# OnCollisionBegin/End (3D bodies and character controllers) and OnTriggerBegin/End.
 		void DispatchCollisionEvents();
 		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
@@ -463,6 +464,8 @@ namespace Lux {
 
 		// Defined out-of-line (PhysicsScene need not be complete in this header).
 		Ref<PhysicsScene> GetPhysicsScene() const;
+		// The Box2D world while the scene plays or simulates, otherwise null.
+		PhysicsScene2D* GetPhysicsScene2D() const { return m_PhysicsScene2D.get(); }
 
 		// The acoustic tag an entity's geometry uses: its AudioSurfaceComponent, else its mesh
 		// collider's tag, else Default. The one rule for geometry, surface sounds and debug views.

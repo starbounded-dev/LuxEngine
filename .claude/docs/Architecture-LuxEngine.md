@@ -667,7 +667,7 @@ Layered so the backend can be swapped:
   `SimulateStep(fixedDt)` calls, each one Jolt step with kinematic targets, character controllers and
   the transform sync. In Play, C# `OnFixedUpdate(fixedDt)` runs before each step, after the frame's
   `OnUpdate` (`Scene::InvokeScriptFixedUpdate`, same enabled/active/created rules). Contact events
-  still drain once per frame. Box2D (`PhysicsScene2D`) still steps once per frame with the frame time.
+  still drain once per frame. Box2D (`PhysicsScene2D`) steps inside the same loop (§2.6a).
 - `PhysicsShapes.h` — box, sphere, capsule, convex mesh, triangle mesh (static only), compound.
 - `CharacterController.h` / `JoltCharacterController` — a `JPH::CharacterVirtual` whose shape is the
   entity's primitive colliders (`CreateEntityShape`; a 2 m capsule without one; a character entity's
@@ -719,6 +719,26 @@ scheduler in LuxEngine.
 No abstraction layer — Box2D is small enough to use directly.
 
 ### 2.6a 2D project type (M11)
+
+**Box2D (P6).** `PhysicsScene2D` builds the world from the scene when Play or Simulate starts (`Start`: every
+`RigidBody2DComponent` body with its colliders, then every `Joint2DComponent`) and takes spawned entities through
+`CreateBody` / `CreateJoint` (`StartSpawnedHierarchy`) and destroyed ones through `DestroyBody` (`DestroyEntityForRestore`).
+Gravity and the step length come from the project (`Physics.Gravity` x/y, `Physics.FixedTimestep`).
+`Scene::StepPhysics` runs one fixed clock for both worlds, the 3D scene's `AdvanceFixedClock` or, in a project with no
+3D scene, the 2D scene's (same accumulator rule, at most 8 steps): `OnFixedUpdate` once per step, then
+`SimulateStep` on each world. Colliders (`BoxCollider2DComponent`, `CircleCollider2DComponent`,
+`PolygonCollider2DComponent`, `CapsuleCollider2DComponent`, `EdgeCollider2DComponent`) share `Friction`,
+`Restitution`, `RestitutionThreshold` and `IsTrigger` (a Box2D sensor); Box2D 2.4 has no capsule, so one is a box plus two
+circles, and an edge collider is a chain made twice, once each way round, because a Box2D chain blocks from one side
+only. A polygon with no area makes no collider and logs a warning. `Joint2DComponent` is one joint of a type
+(Distance, Revolute, Prismatic, Weld) to `ConnectedEntity` or, at 0, to a ground body at the world anchor; a missing
+or bodyless partner logs a warning and makes no joint; prefab instantiation and duplication remap the partner
+(`RemapAudioListenerTargets`). Contacts no longer call C# from inside the Box2D step: `ContactListener2D` records
+`PhysicsContactEvent`s (keyed by the contact, so a body with three fixtures is three events), `DispatchCollisionEvents`
+drains them into the same pair trackers the 3D world uses (one Begin per entity pair, triggers separate), with the
+usual enabled/active/created rules. C#: `Physics2D.Raycast / RaycastAll / OverlapPoint / OverlapCircle / OverlapBox`
+(`Physics2D_*` in ScriptGlue, 32-byte `NativeRaycastHit2D`) and `IsTrigger` on box and circle colliders.
+Checks: the `tests/2d` physics section and, in a real Play session, `tests/play` (`Physics2DTests.cs`).
 
 A project is 3D or 2D (`ProjectConfig::Type`, `ProjectType: 2D` in the `.luxproj`, written only for 2D so
 older files re-save unchanged). It only changes what a new project starts with and how the editor opens;

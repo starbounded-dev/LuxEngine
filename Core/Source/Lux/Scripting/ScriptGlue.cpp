@@ -22,6 +22,7 @@
 #include "Lux/Physics2D/ContactListener2D.h"
 
 #include "Lux/Physics/PhysicsScene.h"
+#include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Physics/PhysicsBody.h"
 #include "Lux/Physics/CharacterController.h"
 #include "Lux/Physics/PhysicsTypes.h"
@@ -765,6 +766,14 @@ namespace Lux {
 	static float BoxCollider2DComponent_GetFriction(uint64_t entityID)             { return GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Friction; }
 	static void BoxCollider2DComponent_SetFriction(uint64_t entityID, float v)     { GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Friction = v; }
 	static float BoxCollider2DComponent_GetRestitution(uint64_t entityID)          { return GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Restitution; }
+	static Coral::Bool32 BoxCollider2DComponent_GetIsTrigger(uint64_t entityID)    { return GetEntity(entityID).GetComponent<BoxCollider2DComponent>().IsTrigger; }
+	static void BoxCollider2DComponent_SetIsTrigger(uint64_t entityID, Coral::Bool32 v)
+	{
+		auto& collider = GetEntity(entityID).GetComponent<BoxCollider2DComponent>();
+		collider.IsTrigger = v;
+		if (collider.RuntimeFixture) // while playing, the fixture follows at once
+			static_cast<b2Fixture*>(collider.RuntimeFixture)->SetSensor(v);
+	}
 	static void BoxCollider2DComponent_SetRestitution(uint64_t entityID, float v)  { GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Restitution = v; }
 
 	#pragma endregion
@@ -780,6 +789,14 @@ namespace Lux {
 	static float CircleCollider2DComponent_GetFriction(uint64_t entityID)             { return GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Friction; }
 	static void CircleCollider2DComponent_SetFriction(uint64_t entityID, float v)     { GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Friction = v; }
 	static float CircleCollider2DComponent_GetRestitution(uint64_t entityID)          { return GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Restitution; }
+	static Coral::Bool32 CircleCollider2DComponent_GetIsTrigger(uint64_t entityID)    { return GetEntity(entityID).GetComponent<CircleCollider2DComponent>().IsTrigger; }
+	static void CircleCollider2DComponent_SetIsTrigger(uint64_t entityID, Coral::Bool32 v)
+	{
+		auto& collider = GetEntity(entityID).GetComponent<CircleCollider2DComponent>();
+		collider.IsTrigger = v;
+		if (collider.RuntimeFixture)
+			static_cast<b2Fixture*>(collider.RuntimeFixture)->SetSensor(v);
+	}
 	static void CircleCollider2DComponent_SetRestitution(uint64_t entityID, float v)  { GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Restitution = v; }
 
 	#pragma endregion
@@ -903,6 +920,67 @@ namespace Lux {
 	{
 		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
 			body->SetSleepState(sleep);
+	}
+
+	#pragma endregion
+
+	#pragma region Physics2D queries
+
+	// One 2D hit, as the C# Lux.RaycastHit2D lays it out.
+	struct NativeRaycastHit2D
+	{
+		uint64_t Entity;
+		glm::vec2 Point;
+		glm::vec2 Normal;
+		float Distance;
+	};
+	static_assert(sizeof(NativeRaycastHit2D) == 32, "NativeRaycastHit2D must match the C# Lux.RaycastHit2D layout");
+
+	static void FillHit2D(const PhysicsScene2D::RayHit& hit, NativeRaycastHit2D* out)
+	{
+		out->Entity = static_cast<uint64_t>(hit.EntityID);
+		out->Point = hit.Point;
+		out->Normal = hit.Normal;
+		out->Distance = hit.Distance;
+	}
+
+	// Like the 3D queries: main thread, between steps; without a 2D world (not playing) nothing is hit.
+	static Coral::Bool32 Physics2D_Raycast(glm::vec2* origin, glm::vec2* direction, float maxDistance, uint64_t ignore, Coral::Bool32 includeTriggers, NativeRaycastHit2D* outHit)
+	{
+		PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D();
+		PhysicsScene2D::RayHit hit;
+		if (!physics || !physics->RayCast(*origin, *direction, maxDistance, UUID(ignore), includeTriggers, hit))
+			return false;
+		FillHit2D(hit, outHit);
+		return true;
+	}
+
+	// Returns the number found, which may exceed `capacity`; only `capacity` are written.
+	static int32_t Physics2D_RaycastAll(glm::vec2* origin, glm::vec2* direction, float maxDistance, uint64_t ignore, Coral::Bool32 includeTriggers, NativeRaycastHit2D* buffer, int32_t capacity)
+	{
+		PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D();
+		if (!physics)
+			return 0;
+
+		std::vector<PhysicsScene2D::RayHit> hits;
+		physics->RayCastAll(*origin, *direction, maxDistance, UUID(ignore), includeTriggers, hits);
+		for (int32_t i = 0; i < static_cast<int32_t>(hits.size()) && i < capacity; i++)
+			FillHit2D(hits[static_cast<size_t>(i)], &buffer[i]);
+		return static_cast<int32_t>(hits.size());
+	}
+
+	// shape 0: circle (radius in dimensions.x; radius 0 is a point), 1: box (half extents, turned by angle).
+	static int32_t Physics2D_Overlap(int32_t shape, glm::vec2* center, glm::vec2* dimensions, float angle, uint64_t ignore, Coral::Bool32 includeTriggers, uint64_t* buffer, int32_t capacity)
+	{
+		PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D();
+		if (!physics)
+			return 0;
+
+		std::vector<UUID> entities;
+		physics->Overlap(shape == 1 ? PhysicsScene2D::QueryShape::Box : PhysicsScene2D::QueryShape::Circle, *center, *dimensions, angle, UUID(ignore), includeTriggers, entities);
+		for (int32_t i = 0; i < static_cast<int32_t>(entities.size()) && i < capacity; i++)
+			buffer[i] = static_cast<uint64_t>(entities[static_cast<size_t>(i)]);
+		return static_cast<int32_t>(entities.size());
 	}
 
 	#pragma endregion
@@ -1367,6 +1445,10 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetOrderInLayer);
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetSortingLayer);
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetSortingLayer);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetIsTrigger);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetIsTrigger);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetIsTrigger);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetIsTrigger);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Play);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Stop);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetClip);
@@ -1455,6 +1537,9 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_IsSleeping);
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetSleepState);
 
+		LUX_ADD_INTERNAL_CALL(Physics2D_Raycast);
+		LUX_ADD_INTERNAL_CALL(Physics2D_RaycastAll);
+		LUX_ADD_INTERNAL_CALL(Physics2D_Overlap);
 		LUX_ADD_INTERNAL_CALL(Physics_Raycast);
 		LUX_ADD_INTERNAL_CALL(Physics_RaycastAll);
 		LUX_ADD_INTERNAL_CALL(Physics_ShapeCast);

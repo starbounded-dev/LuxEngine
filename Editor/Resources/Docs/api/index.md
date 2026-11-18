@@ -102,9 +102,11 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [MaterialValue](MaterialValue) — The scalar values of a material that [`StaticMeshComponent.GetMaterialValue`](StaticMeshComponent) reads and writes.
 - [Mathf](Mathf) — Single-precision maths helpers for gameplay: clamping, interpolation, angles and smoothing.
 - [Physics](Physics) — Questions about the physics world: what a ray or a moving shape would hit, and what overlaps a shape.
+- [Physics2D](Physics2D) — Questions about the 2D physics world: what a ray hits and which colliders overlap a shape.
 - [Quaternion](Quaternion) — A rotation in 3D.
 - [Random](Random) — Random numbers for gameplay.
 - [RaycastHit](RaycastHit) — What a [`Physics`](Physics) ray or shape cast hit.
+- [RaycastHit2D](RaycastHit2D) — What a [`Physics2D`](Physics2D) ray hit.
 - [Sound](Sound) — A Sound asset (.lsound), played by the native audio backend.
 - [SoundBank](SoundBank) — A Sound Bank asset (.lbank): Sounds that load and unload together.
 - [SoundCue](SoundCue) — A sound playing near the listener, for drawing visual sound cues.

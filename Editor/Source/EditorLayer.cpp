@@ -3340,6 +3340,97 @@ namespace Lux {
 				}
 			}
 
+			// Polygon, capsule and edge colliders and joints follow Box2D's rules too: the body's translation and Z
+			// rotation, an unscaled offset, geometry scaled by the entity's X/Y scale.
+			constexpr float kOverlayDepth = 0.001f;
+			constexpr int kCapSegments = 10;
+			const auto bodyTransform = [](const TransformComponent& tc)
+			{
+				return glm::translate(glm::mat4(1.0f), tc.Translation)
+					* glm::rotate(glm::mat4(1.0f), tc.GetRotationEuler().z, glm::vec3(0.0f, 0.0f, 1.0f));
+			};
+			const auto drawOutline = [&](const glm::mat4& body, const std::vector<glm::vec2>& points, bool loop)
+			{
+				const size_t segments = loop ? points.size() : (points.empty() ? 0 : points.size() - 1);
+				for (size_t i = 0; i < segments; i++)
+				{
+					const glm::vec2& a = points[i];
+					const glm::vec2& b = points[(i + 1) % points.size()];
+					m_Renderer2D->DrawLine(glm::vec3(body * glm::vec4(a, kOverlayDepth, 1.0f)), glm::vec3(body * glm::vec4(b, kOverlayDepth, 1.0f)), color, onTop);
+				}
+			};
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, PolygonCollider2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, collider] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, PolygonCollider2DComponent>().get<TransformComponent, PolygonCollider2DComponent>(entity);
+				std::vector<glm::vec2> points;
+				for (const glm::vec2& point : collider.Points)
+					points.push_back(point * glm::vec2(std::abs(tc.Scale.x), std::abs(tc.Scale.y)) + collider.Offset);
+				drawOutline(bodyTransform(tc), points, true);
+			}
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, EdgeCollider2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, collider] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, EdgeCollider2DComponent>().get<TransformComponent, EdgeCollider2DComponent>(entity);
+				std::vector<glm::vec2> points;
+				for (const glm::vec2& point : collider.Points)
+					points.push_back(point * glm::vec2(std::abs(tc.Scale.x), std::abs(tc.Scale.y)) + collider.Offset);
+				drawOutline(bodyTransform(tc), points, collider.Loop && points.size() >= 3);
+			}
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, CapsuleCollider2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, collider] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CapsuleCollider2DComponent>().get<TransformComponent, CapsuleCollider2DComponent>(entity);
+				const bool vertical = collider.CapsuleDirection == CapsuleCollider2DComponent::Direction::Vertical;
+				const float radius = (vertical ? std::abs(tc.Scale.x) : std::abs(tc.Scale.y)) * collider.Radius;
+				const float height = std::max((vertical ? std::abs(tc.Scale.y) : std::abs(tc.Scale.x)) * collider.Height, 2.0f * radius);
+				const float straight = height * 0.5f - radius;
+				// Half a circle at each end, counter-clockwise around the capsule.
+				std::vector<glm::vec2> points;
+				for (int end = 0; end < 2; end++)
+				{
+					const float sign = end == 0 ? 1.0f : -1.0f;
+					for (int step = 0; step <= kCapSegments; step++)
+					{
+						// end 0 is the +axis cap (angles 0..pi about its centre), end 1 the -axis cap (pi..2pi).
+						const float angle = glm::pi<float>() * (static_cast<float>(step) / kCapSegments) + (end == 0 ? 0.0f : glm::pi<float>());
+						const glm::vec2 local = glm::vec2(std::cos(angle) * radius, std::sin(angle) * radius + sign * straight);
+						// The cap geometry is built for a vertical capsule (axis = Y); a horizontal one swaps X and Y.
+						points.push_back(collider.Offset + (vertical ? local : glm::vec2(local.y, local.x)));
+					}
+				}
+				drawOutline(bodyTransform(tc), points, true);
+			}
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, Joint2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, joint] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, Joint2DComponent>().get<TransformComponent, Joint2DComponent>(entity);
+				if (!joint.Enabled)
+					continue;
+				// From this body's anchor to the connected anchor (the connected body's origin for a hinge, slider
+				// or weld), or the world point it is pinned to.
+				const glm::vec3 anchor = glm::vec3(bodyTransform(tc) * glm::vec4(joint.Anchor, kOverlayDepth, 1.0f));
+				glm::vec3 other = glm::vec3(joint.ConnectedAnchor, kOverlayDepth);
+				if (const Entity connected = m_ActiveScene->TryGetEntityWithUUID(joint.ConnectedEntity); connected && connected.HasComponent<TransformComponent>())
+				{
+					const glm::mat4 connectedBody = bodyTransform(connected.GetComponent<TransformComponent>());
+					other = glm::vec3(connectedBody * glm::vec4(joint.JointType == Joint2DComponent::Type::Distance ? joint.ConnectedAnchor : glm::vec2(0.0f), kOverlayDepth, 1.0f));
+				}
+				else if (joint.JointType != Joint2DComponent::Type::Distance)
+					other = anchor;
+				m_Renderer2D->DrawLine(anchor, other, color, onTop);
+				m_Renderer2D->DrawLine(anchor - glm::vec3(0.1f, 0.0f, 0.0f), anchor + glm::vec3(0.1f, 0.0f, 0.0f), color, onTop);
+				m_Renderer2D->DrawLine(anchor - glm::vec3(0.0f, 0.1f, 0.0f), anchor + glm::vec3(0.0f, 0.1f, 0.0f), color, onTop);
+			}
+
 		}
 
 		Entity selectedEntity = {};
