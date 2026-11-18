@@ -403,6 +403,13 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: dotnet run --project tools/ScriptApiDocs -c Release -- Editor/Resources/Scripts/ScriptCore.dll Editor/Resources/Docs --check
 
+      # ScriptCore's own sources against stand-ins for the native calls (tests/scripting): the maths types,
+      # Time, finders, physics queries, timers. Needs only the .NET SDK and the Coral.Managed.dll the build made.
+      - name: Check the C# scripting API contract
+        if: matrix.configuration == 'Release'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: python tests/scripting/run_managed.py
+
       - name: 'Package: editor artifact'
         if: matrix.configuration == 'Release'
         working-directory: ${{env.GITHUB_WORKSPACE}}

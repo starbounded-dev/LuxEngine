@@ -5,6 +5,7 @@
 #include "ScriptGlue.h"
 #include "AnimationScriptBindings.h"
 #include "AudioScriptBindings.h"
+#include "ComponentScriptBindings.h"
 #include "ScriptEngine.h"
 
 #include "Lux/Core/Application.h"
@@ -24,6 +25,8 @@
 #include "Lux/Physics/PhysicsBody.h"
 #include "Lux/Physics/CharacterController.h"
 #include "Lux/Physics/PhysicsTypes.h"
+#include "Lux/Physics/SceneQueries.h"
+#include "Lux/Project/Project.h"
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -47,6 +50,12 @@ namespace Lux {
 	static std::unordered_map<Coral::TypeId, std::function<bool(Entity)>> s_HasComponentFuncs;
 	static std::unordered_map<Coral::TypeId, std::function<void(Entity)>> s_AddComponentFuncs;
 	static std::unordered_map<Coral::TypeId, std::function<void(Entity)>> s_RemoveComponentFuncs;
+	// Only for components with an on/off switch (HasEnabledFlag).
+	static std::unordered_map<Coral::TypeId, std::function<bool(Entity)>> s_GetEnabledFuncs;
+	static std::unordered_map<Coral::TypeId, std::function<void(Entity, bool)>> s_SetEnabledFuncs;
+	// Every entity with the component, for Entity.FindAllWithComponent<T>: appends (creation index, UUID).
+	using EntityHit = std::pair<uint32_t, uint64_t>;
+	static std::unordered_map<Coral::TypeId, std::function<void(Scene*, std::vector<EntityHit>&)>> s_FindComponentFuncs;
 
 #define LUX_ADD_INTERNAL_CALL(Name) coreAssembly.AddInternalCall("Lux.InternalCalls", #Name, reinterpret_cast<void*>(&Name))
 
@@ -128,7 +137,41 @@ namespace Lux {
 
 	#pragma endregion
 
+	#pragma region Time
+
+	// One call for every clock value, in the order of the C# `Time.Field` enum. Doubles keep the elapsed
+	// seconds and the frame count exact over long sessions.
+	static double Time_Get(int32_t field)
+	{
+		Scene* scene = GetScene();
+		const Scene::ScriptClock& clock = scene->GetClock();
+		switch (field)
+		{
+			case 0: return clock.InFixedStep ? clock.FixedDelta : clock.Delta;
+			case 1: return clock.UnscaledDelta;
+			case 2: return clock.Elapsed;
+			case 3: return clock.UnscaledElapsed;
+			case 4: return clock.TimeScale;
+			case 5: return scene->GetPhysicsScene() ? scene->GetPhysicsScene()->GetFixedTimestep() : clock.FixedDelta;
+			case 6: return static_cast<double>(clock.FrameCount);
+			default: return 0.0;
+		}
+	}
+
+	static void Time_SetScale(float scale)
+	{
+		GetScene()->GetClock().TimeScale = std::isfinite(scale) ? std::max(scale, 0.0f) : 1.0f;
+	}
+
+	#pragma endregion
+
 	#pragma region Input
+
+	static Coral::Bool32 Application_IsFocused() { return Application::Get().IsFocused(); }
+	static Coral::Bool32 Application_GetPaused() { return GetScene()->IsPaused(); }
+	static void Application_SetPaused(Coral::Bool32 paused) { GetScene()->SetPaused(paused); }
+	static int32_t Application_GetWidth() { return static_cast<int32_t>(GetScene()->GetViewportWidth()); }
+	static int32_t Application_GetHeight() { return static_cast<int32_t>(GetScene()->GetViewportHeight()); }
 
 	static Coral::Bool32 Input_IsKeyDown(KeyCode keycode)        { return Input::IsKeyDown(keycode); }
 	static Coral::Bool32 Input_IsKeyPressed(KeyCode keycode)     { return Input::IsKeyPressed(keycode); }
@@ -178,6 +221,10 @@ namespace Lux {
 	static void Input_ResetGamepadLights() { Input::ResetGamepadLights(); }
 
 	static Coral::Type* s_InputType = nullptr;
+	static Coral::Type* s_SchedulerType = nullptr;
+	static Coral::Type* s_ApplicationType = nullptr;
+	static bool s_ApplicationKnown = false, s_KnownFocused = false, s_KnownPaused = false;
+	static uint32_t s_KnownWidth = 0, s_KnownHeight = 0;
 	static uint32_t s_KnownControllerMask = 0;
 	static bool s_InputEventsPrimed = false;
 
@@ -204,6 +251,63 @@ namespace Lux {
 		Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(prefabHandle);
 		Entity root = prefab ? GetScene()->Instantiate(prefab, translation, rotation) : Entity{};
 		return root ? (uint64_t)root.GetUUID() : 0;
+	}
+
+	// Scene changes are requests: the layer that owns the running scene performs them (Scene::RequestSceneLoad), and
+	// an additive load or unload runs when this frame's update ends.
+	static void Scene_Load(uint64_t sceneHandle)
+	{
+		if (!sceneHandle)
+		{
+			LUX_CONSOLE_LOG_ERROR("Scene.Load: the scene is not set");
+			return;
+		}
+		GetScene()->RequestSceneLoad(sceneHandle);
+	}
+
+	static void Scene_LoadAdditive(uint64_t sceneHandle)
+	{
+		if (!sceneHandle)
+		{
+			LUX_CONSOLE_LOG_ERROR("Scene.LoadAdditive: the scene is not set");
+			return;
+		}
+		GetScene()->RequestAdditiveScene(sceneHandle);
+	}
+
+	static void Scene_UnloadAdditive(uint64_t sceneHandle)
+	{
+		if (sceneHandle)
+			GetScene()->RequestUnloadAdditiveScene(sceneHandle);
+	}
+
+	static uint64_t Scene_GetCurrent()
+	{
+		return static_cast<uint64_t>(GetScene()->Handle);
+	}
+
+	static Coral::Bool32 Entity_GetPersistent(uint64_t entityID)
+	{
+		return GetScene()->IsEntityPersistent(GetEntity(entityID));
+	}
+
+	// Timers and coroutines ask these every frame; unlike the entity calls they stay quiet about an entity that is gone.
+	static Coral::Bool32 Entity_IsAlive(uint64_t entityID)
+	{
+		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+		return scene && scene->GetEntityByUUID(entityID);
+	}
+
+	static Coral::Bool32 Entity_IsRunning(uint64_t entityID)
+	{
+		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+		const Entity entity = scene ? scene->GetEntityByUUID(entityID) : Entity{};
+		return entity && scene->IsEntityActiveInHierarchy(entity);
+	}
+
+	static void Entity_SetPersistent(uint64_t entityID, Coral::Bool32 persistent)
+	{
+		GetScene()->SetEntityPersistent(GetEntity(entityID), persistent);
 	}
 
 	static void Gizmos_DrawLine(glm::vec3* start, glm::vec3* end, glm::vec4* color, float duration, Coral::Bool32 depthTest)
@@ -252,6 +356,120 @@ namespace Lux {
 		auto it = s_RemoveComponentFuncs.find(componentType.m_TypeID);
 		if (it != s_RemoveComponentFuncs.end())
 			it->second(GetEntity(entityID));
+	}
+
+	// An entity's own switch (the inspector's checkbox); a parent switched off still switches it off in effect.
+	static Coral::Bool32 Entity_GetActive(uint64_t entityID)
+	{
+		return GetEntity(entityID).GetComponent<TagComponent>().Active;
+	}
+
+	static void Entity_SetActive(uint64_t entityID, Coral::Bool32 active)
+	{
+		GetScene()->SetEntityActive(GetEntity(entityID), active);
+	}
+
+	static Coral::Bool32 Entity_IsActiveInHierarchy(uint64_t entityID)
+	{
+		return GetScene()->IsEntityActiveInHierarchy(GetEntity(entityID));
+	}
+
+	// Whether the entity's script component runs: a switched-off script gets no OnUpdate or OnFixedUpdate.
+	static Coral::Bool32 Entity_GetScriptEnabled(uint64_t entityID)
+	{
+		Entity entity = GetEntity(entityID);
+		return entity.HasComponent<ScriptComponent>() && entity.GetComponent<ScriptComponent>().Enabled;
+	}
+
+	static void Entity_SetScriptEnabled(uint64_t entityID, Coral::Bool32 enabled)
+	{
+		Entity entity = GetEntity(entityID);
+		if (entity.HasComponent<ScriptComponent>())
+			entity.GetComponent<ScriptComponent>().Enabled = enabled;
+	}
+
+	static Coral::Bool32 Component_GetEnabled(uint64_t entityID, Coral::ReflectionType componentType)
+	{
+		const auto it = s_GetEnabledFuncs.find(componentType.m_TypeID);
+		if (it != s_GetEnabledFuncs.end())
+			return it->second(GetEntity(entityID));
+		// No switch: the component is always on, as long as the entity still has it.
+		const auto has = s_HasComponentFuncs.find(componentType.m_TypeID);
+		return has != s_HasComponentFuncs.end() && has->second(GetEntity(entityID));
+	}
+
+	static void Component_SetEnabled(uint64_t entityID, Coral::ReflectionType componentType, Coral::Bool32 enabled)
+	{
+		const auto it = s_SetEnabledFuncs.find(componentType.m_TypeID);
+		if (it != s_SetEnabledFuncs.end())
+			it->second(GetEntity(entityID), enabled);
+		else
+			LUX_CONSOLE_LOG_WARN("Component.Enabled was set on a component that has no enabled switch; it stays on");
+	}
+
+	static Coral::String Entity_GetUserTag(uint64_t entityID)
+	{
+		return Coral::String::New(GetEntity(entityID).GetComponent<TagComponent>().UserTag);
+	}
+
+	static void Entity_SetUserTag(uint64_t entityID, Coral::String tag)
+	{
+		GetEntity(entityID).GetComponent<TagComponent>().UserTag = tag;
+	}
+
+	// The finders return entity IDs in creation order (the order of the scene file), so a result never depends on
+	// the layout of the registry. Switched-off entities, and children of one, are left out unless asked for.
+	static Coral::Array<uint64_t> ToIDArray(std::vector<EntityHit>& hits, Scene* scene, bool includeInactive)
+	{
+		std::sort(hits.begin(), hits.end());
+		std::vector<uint64_t> ids;
+		ids.reserve(hits.size());
+		for (const EntityHit& hit : hits)
+		{
+			if (includeInactive || scene->IsEntityActiveInHierarchy(scene->GetEntityByUUID(hit.second)))
+				ids.push_back(hit.second);
+		}
+		Coral::Array<uint64_t> result = Coral::Array<uint64_t>::New(static_cast<int32_t>(ids.size()));
+		for (size_t i = 0; i < ids.size(); i++)
+			result[i] = ids[i];
+		return result;
+	}
+
+	template<typename Matches>
+	static Coral::Array<uint64_t> FindEntities(bool includeInactive, Matches&& matches)
+	{
+		Scene* scene = GetScene();
+		std::vector<EntityHit> hits;
+		for (auto handle : scene->GetAllEntitiesWith<IDComponent, TagComponent>())
+		{
+			Entity entity{ handle, scene };
+			if (matches(entity.GetComponent<TagComponent>()))
+				hits.emplace_back(static_cast<uint32_t>(handle), static_cast<uint64_t>(entity.GetUUID()));
+		}
+		return ToIDArray(hits, scene, includeInactive);
+	}
+
+	static Coral::Array<uint64_t> Scene_FindEntitiesByName(Coral::String name, Coral::Bool32 includeInactive)
+	{
+		const std::string wanted = name;
+		return FindEntities(includeInactive, [&](const TagComponent& tag) { return tag.Tag == wanted; });
+	}
+
+	static Coral::Array<uint64_t> Scene_FindEntitiesByTag(Coral::String tag, Coral::Bool32 includeInactive)
+	{
+		const std::string wanted = tag;
+		if (wanted.empty())
+			return Coral::Array<uint64_t>::New(0);
+		return FindEntities(includeInactive, [&](const TagComponent& candidate) { return candidate.UserTag == wanted; });
+	}
+
+	static Coral::Array<uint64_t> Scene_FindEntitiesWithComponent(Coral::ReflectionType componentType, Coral::Bool32 includeInactive)
+	{
+		Scene* scene = GetScene();
+		std::vector<EntityHit> hits;
+		if (const auto it = s_FindComponentFuncs.find(componentType.m_TypeID); it != s_FindComponentFuncs.end())
+			it->second(scene, hits);
+		return ToIDArray(hits, scene, includeInactive);
 	}
 
 	static uint64_t Entity_FindEntityByName(Coral::String name)
@@ -307,6 +525,28 @@ namespace Lux {
 	static void TransformComponent_SetRotation(uint64_t entityID, glm::vec3* in)     { GetEntity(entityID).GetComponent<TransformComponent>().SetRotationEuler(*in); }
 	static void TransformComponent_GetScale(uint64_t entityID, glm::vec3* out)       { *out = GetEntity(entityID).GetComponent<TransformComponent>().Scale; }
 	static void TransformComponent_SetScale(uint64_t entityID, glm::vec3* in)        { GetEntity(entityID).GetComponent<TransformComponent>().Scale = *in; }
+
+	// Quaternions cross the boundary as (x, y, z, w), not glm's constructor order.
+	static void TransformComponent_GetRotationQuat(uint64_t entityID, glm::vec4* out)
+	{
+		const glm::quat q = GetEntity(entityID).GetComponent<TransformComponent>().GetRotation();
+		*out = { q.x, q.y, q.z, q.w };
+	}
+
+	static void TransformComponent_SetRotationQuat(uint64_t entityID, glm::vec4* in)
+	{
+		const glm::quat q = glm::normalize(glm::quat(in->w, in->x, in->y, in->z));
+		GetEntity(entityID).GetComponent<TransformComponent>().SetRotation(q);
+	}
+
+	// Position and rotation in world space, through every parent.
+	static void TransformComponent_GetWorld(uint64_t entityID, glm::vec3* outTranslation, glm::vec4* outRotation)
+	{
+		const TransformComponent world = GetScene()->GetWorldSpaceTransform(GetEntity(entityID));
+		const glm::quat q = world.GetRotation();
+		*outTranslation = world.Translation;
+		*outRotation = { q.x, q.y, q.z, q.w };
+	}
 
 	#pragma endregion
 
@@ -612,6 +852,187 @@ namespace Lux {
 
 	#pragma endregion
 
+	#pragma region Physics queries
+
+	// One hit, as the C# Lux.RaycastHit lays it out.
+	struct NativeRaycastHit
+	{
+		uint64_t Entity;
+		glm::vec3 Point;
+		glm::vec3 Normal;
+		float Distance;
+	};
+	static_assert(sizeof(NativeRaycastHit) == 40, "NativeRaycastHit must match the C# Lux.RaycastHit layout");
+
+	// The shape codes of the C# Physics class: sphere (radius in x), box (half extents), capsule (radius in x,
+	// half height of the straight part in y).
+	enum class QueryShape : int32_t { Sphere = 0, Box = 1, Capsule = 2 };
+
+	static void FillHit(const SceneQueryHit& hit, NativeRaycastHit* out)
+	{
+		out->Entity = static_cast<uint64_t>(hit.HitEntity);
+		out->Point = hit.Position;
+		out->Normal = hit.Normal;
+		out->Distance = hit.Distance;
+	}
+
+	static glm::quat ToQuat(const glm::vec4* xyzw)
+	{
+		const glm::quat q(xyzw->w, xyzw->x, xyzw->y, xyzw->z);
+		return glm::dot(q, q) > 1e-12f ? glm::normalize(q) : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+	}
+
+	// Queries run on the main thread between physics steps; without a physics scene (not playing) nothing is hit.
+	static Coral::Bool32 Physics_Raycast(glm::vec3* origin, glm::vec3* direction, float maxDistance, uint32_t layerMask, uint64_t ignore,
+		Coral::Bool32 includeTriggers, NativeRaycastHit* outHit)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return false;
+
+		RayCastInfo ray;
+		ray.Origin = *origin;
+		ray.Direction = *direction;
+		ray.MaxDistance = maxDistance;
+		ray.LayerMask = layerMask;
+		ray.IncludeTriggers = includeTriggers;
+		if (ignore)
+			ray.ExcludedEntities.insert(UUID(ignore));
+
+		SceneQueryHit hit;
+		if (!physics->CastRay(&ray, hit))
+			return false;
+		FillHit(hit, outHit);
+		return true;
+	}
+
+	// Every body the ray enters, nearest first, one hit per surface the ray goes into: the back faces
+	// CastRayAll also reports (where the ray leaves a solid, or starts inside one) are dropped. Returns the
+	// number found, which may exceed `capacity`; only `capacity` are written.
+	static int32_t Physics_RaycastAll(glm::vec3* origin, glm::vec3* direction, float maxDistance, uint32_t layerMask, uint64_t ignore,
+		Coral::Bool32 includeTriggers, NativeRaycastHit* buffer, int32_t capacity)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return 0;
+
+		RayCastInfo ray;
+		ray.Origin = *origin;
+		ray.Direction = *direction;
+		ray.MaxDistance = maxDistance;
+		ray.LayerMask = layerMask;
+		ray.IncludeTriggers = includeTriggers;
+		if (ignore)
+			ray.ExcludedEntities.insert(UUID(ignore));
+
+		std::vector<SceneQueryHit> hits;
+		physics->CastRayAll(&ray, hits);
+		const glm::vec3 unitDirection = glm::normalize(*direction);
+
+		int32_t count = 0;
+		for (const SceneQueryHit& hit : hits)
+		{
+			if (glm::dot(hit.Normal, unitDirection) >= 0.0f)
+				continue;
+			if (count < capacity)
+				FillHit(hit, &buffer[count]);
+			count++;
+		}
+		return count;
+	}
+
+	static Coral::Bool32 Physics_ShapeCast(int32_t shape, glm::vec3* origin, glm::vec4* rotation, glm::vec3* dimensions, glm::vec3* direction,
+		float maxDistance, uint32_t layerMask, uint64_t ignore, Coral::Bool32 includeTriggers, NativeRaycastHit* outHit)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return false;
+
+		SceneQueryHit hit;
+		bool found = false;
+		const auto run = [&](auto& info)
+		{
+			info.Origin = *origin;
+			info.Rotation = ToQuat(rotation);
+			info.Direction = *direction;
+			info.MaxDistance = maxDistance;
+			info.LayerMask = layerMask;
+			info.IncludeTriggers = includeTriggers;
+			if (ignore)
+				info.ExcludedEntities.insert(UUID(ignore));
+			found = physics->CastShape(&info, hit);
+		};
+		switch (static_cast<QueryShape>(shape))
+		{
+			case QueryShape::Sphere: { SphereCastInfo info; info.Radius = dimensions->x; run(info); break; }
+			case QueryShape::Box: { BoxCastInfo info; info.HalfExtent = *dimensions; run(info); break; }
+			case QueryShape::Capsule: { CapsuleCastInfo info; info.Radius = dimensions->x; info.HalfHeight = dimensions->y; run(info); break; }
+			default: return false;
+		}
+		if (found)
+			FillHit(hit, outHit);
+		return found;
+	}
+
+	// The entities with a body touching the shape, each once, in the order Jolt found them. Returns the number
+	// found, which may exceed `capacity`; only `capacity` are written.
+	static int32_t Physics_OverlapShape(int32_t shape, glm::vec3* origin, glm::vec4* rotation, glm::vec3* dimensions, uint32_t layerMask,
+		uint64_t ignore, Coral::Bool32 includeTriggers, uint64_t* buffer, int32_t capacity)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return 0;
+
+		SceneQueryHit* hits = nullptr;
+		int32_t hitCount = 0;
+		const auto run = [&](auto& info)
+		{
+			info.Origin = *origin;
+			info.Rotation = ToQuat(rotation);
+			info.LayerMask = layerMask;
+			info.IncludeTriggers = includeTriggers;
+			if (ignore)
+				info.ExcludedEntities.insert(UUID(ignore));
+			hitCount = physics->OverlapShape(&info, &hits);
+		};
+		switch (static_cast<QueryShape>(shape))
+		{
+			case QueryShape::Sphere: { SphereOverlapInfo info; info.Radius = dimensions->x; run(info); break; }
+			case QueryShape::Box: { BoxOverlapInfo info; info.HalfExtent = *dimensions; run(info); break; }
+			case QueryShape::Capsule: { CapsuleOverlapInfo info; info.Radius = dimensions->x; info.HalfHeight = dimensions->y; run(info); break; }
+			default: return 0;
+		}
+
+		std::vector<uint64_t> unique;
+		for (int32_t i = 0; i < hitCount; i++)
+		{
+			const uint64_t id = static_cast<uint64_t>(hits[i].HitEntity);
+			if (std::find(unique.begin(), unique.end(), id) == unique.end())
+				unique.push_back(id);
+		}
+		for (size_t i = 0; i < unique.size() && static_cast<int32_t>(i) < capacity; i++)
+			buffer[i] = unique[i];
+		return static_cast<int32_t>(unique.size());
+	}
+
+	// The bit a physics layer owns in a layer mask: its index in the project list. -1 for a name the project lacks.
+	static int32_t Physics_GetLayerIndex(Coral::String name)
+	{
+		const std::string wanted = name;
+		const Ref<Project> project = Project::GetActive();
+		const std::vector<ProjectPhysicsLayer>* layers = project ? &project->GetConfig().Physics.Layers : nullptr;
+		if (!layers || layers->empty())
+			return wanted == "Default" ? 0 : -1;
+		for (size_t i = 0; i < layers->size(); i++)
+		{
+			if ((*layers)[i].Name == wanted)
+				return static_cast<int32_t>(i);
+		}
+		return -1;
+	}
+
+	#pragma endregion
+
 	#pragma region CharacterControllerComponent
 
 	static Ref<CharacterController> GetCharacterController(uint64_t entityID)
@@ -723,6 +1144,20 @@ namespace Lux {
 		s_HasComponentFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>(); };
 		s_AddComponentFuncs[id] = [](Entity entity) { if (!entity.HasComponent<TComponent>()) entity.AddComponent<TComponent>(); };
 		s_RemoveComponentFuncs[id] = [](Entity entity) { entity.RemoveComponentIfExists<TComponent>(); };
+		s_FindComponentFuncs[id] = [](Scene* scene, std::vector<EntityHit>& hits)
+		{
+			for (auto handle : scene->GetAllEntitiesWith<IDComponent, TComponent>())
+				hits.emplace_back(static_cast<uint32_t>(handle), static_cast<uint64_t>(Entity{ handle, scene }.GetUUID()));
+		};
+		if constexpr (HasEnabledFlag<TComponent>)
+		{
+			s_GetEnabledFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>() && GetEnabledFlag(entity.GetComponent<TComponent>()); };
+			s_SetEnabledFuncs[id] = [](Entity entity, bool enabled)
+			{
+				if (entity.HasComponent<TComponent>())
+					GetEnabledFlag(entity.GetComponent<TComponent>()) = enabled;
+			};
+		}
 	}
 
 	static void RegisterComponentTypes(Coral::ManagedAssembly& coreAssembly)
@@ -730,6 +1165,9 @@ namespace Lux {
 		s_HasComponentFuncs.clear();
 		s_AddComponentFuncs.clear();
 		s_RemoveComponentFuncs.clear();
+		s_GetEnabledFuncs.clear();
+		s_SetEnabledFuncs.clear();
+		s_FindComponentFuncs.clear();
 
 		RegisterManagedComponent<TransformComponent>(coreAssembly);
 		RegisterManagedComponent<TagComponent>(coreAssembly);
@@ -746,6 +1184,13 @@ namespace Lux {
 		RegisterManagedComponent<AudioZoneComponent>(coreAssembly);
 		RegisterManagedComponent<AudioPortalComponent>(coreAssembly);
 		RegisterManagedComponent<SkeletonComponent>(coreAssembly);
+		RegisterManagedComponent<StaticMeshComponent>(coreAssembly);
+		RegisterManagedComponent<MusicDirectorComponent>(coreAssembly);
+		RegisterManagedComponent<DirectionalLightComponent>(coreAssembly);
+		RegisterManagedComponent<PointLightComponent>(coreAssembly);
+		RegisterManagedComponent<SpotLightComponent>(coreAssembly);
+		RegisterManagedComponent<AreaLightComponent>(coreAssembly);
+		RegisterManagedComponent<SkyLightComponent>(coreAssembly);
 
 		// 3D physics
 		RegisterManagedComponent<RigidBodyComponent>(coreAssembly);
@@ -760,6 +1205,14 @@ namespace Lux {
 	{
 		LUX_ADD_INTERNAL_CALL(NativeLog);
 		LUX_ADD_INTERNAL_CALL(Application_Quit);
+		LUX_ADD_INTERNAL_CALL(Application_IsFocused);
+		LUX_ADD_INTERNAL_CALL(Application_GetPaused);
+		LUX_ADD_INTERNAL_CALL(Application_SetPaused);
+		LUX_ADD_INTERNAL_CALL(Application_GetWidth);
+		LUX_ADD_INTERNAL_CALL(Application_GetHeight);
+
+		LUX_ADD_INTERNAL_CALL(Time_Get);
+		LUX_ADD_INTERNAL_CALL(Time_SetScale);
 
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyDown);
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyPressed);
@@ -801,6 +1254,14 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(Scene_DestroyEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
 		LUX_ADD_INTERNAL_CALL(Gizmos_DrawLine);
+		LUX_ADD_INTERNAL_CALL(Scene_Load);
+		LUX_ADD_INTERNAL_CALL(Scene_LoadAdditive);
+		LUX_ADD_INTERNAL_CALL(Scene_UnloadAdditive);
+		LUX_ADD_INTERNAL_CALL(Scene_GetCurrent);
+		LUX_ADD_ENTITY_CALL(Entity_GetPersistent);
+		LUX_ADD_INTERNAL_CALL(Entity_IsAlive);
+		LUX_ADD_INTERNAL_CALL(Entity_IsRunning);
+		LUX_ADD_ENTITY_CALL(Entity_SetPersistent);
 
 		LUX_ADD_ENTITY_CALL(GetScriptInstance);
 		LUX_ADD_ENTITY_CALL(Entity_HasComponent);
@@ -812,6 +1273,18 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(Entity_GetParent);
 		LUX_ADD_ENTITY_CALL(Entity_SetParent);
 		LUX_ADD_ENTITY_CALL(Entity_GetChildren);
+		LUX_ADD_ENTITY_CALL(Entity_GetActive);
+		LUX_ADD_ENTITY_CALL(Entity_SetActive);
+		LUX_ADD_ENTITY_CALL(Entity_IsActiveInHierarchy);
+		LUX_ADD_ENTITY_CALL(Entity_GetUserTag);
+		LUX_ADD_ENTITY_CALL(Entity_SetUserTag);
+		LUX_ADD_INTERNAL_CALL(Scene_FindEntitiesByName);
+		LUX_ADD_INTERNAL_CALL(Scene_FindEntitiesByTag);
+		LUX_ADD_INTERNAL_CALL(Scene_FindEntitiesWithComponent);
+		LUX_ADD_ENTITY_CALL(Entity_GetScriptEnabled);
+		LUX_ADD_ENTITY_CALL(Entity_SetScriptEnabled);
+		LUX_ADD_ENTITY_CALL(Component_GetEnabled);
+		LUX_ADD_ENTITY_CALL(Component_SetEnabled);
 
 		LUX_ADD_ENTITY_CALL(TransformComponent_GetTranslation);
 		LUX_ADD_ENTITY_CALL(TransformComponent_SetTranslation);
@@ -819,6 +1292,9 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(TransformComponent_SetRotation);
 		LUX_ADD_ENTITY_CALL(TransformComponent_GetScale);
 		LUX_ADD_ENTITY_CALL(TransformComponent_SetScale);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetRotationQuat);
+		LUX_ADD_ENTITY_CALL(TransformComponent_SetRotationQuat);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetWorld);
 
 		LUX_ADD_ENTITY_CALL(TagComponent_GetTag);
 		LUX_ADD_ENTITY_CALL(TagComponent_SetTag);
@@ -910,6 +1386,12 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_IsSleeping);
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetSleepState);
 
+		LUX_ADD_INTERNAL_CALL(Physics_Raycast);
+		LUX_ADD_INTERNAL_CALL(Physics_RaycastAll);
+		LUX_ADD_INTERNAL_CALL(Physics_ShapeCast);
+		LUX_ADD_INTERNAL_CALL(Physics_OverlapShape);
+		LUX_ADD_INTERNAL_CALL(Physics_GetLayerIndex);
+
 		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_Move);
 		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_Jump);
 		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_IsGrounded);
@@ -939,10 +1421,16 @@ namespace Lux {
 		RegisterInternalCalls(coreAssembly);
 		AudioScriptBindings::Register(coreAssembly);
 		AnimationScriptBindings::Register(coreAssembly);
+		ComponentScriptBindings::Register(coreAssembly);
 		coreAssembly.UploadInternalCalls();
 
 		s_InputType = &coreAssembly.GetLocalType("Lux.Input");
 		s_InputEventsPrimed = false;
+		s_ApplicationType = &coreAssembly.GetLocalType("Lux.Application");
+		s_ApplicationKnown = false;
+		s_SchedulerType = &coreAssembly.GetLocalType("Lux.Scheduler");
+		if (!*s_SchedulerType)
+			LUX_CORE_ERROR_TAG("ScriptEngine", "ScriptCore has no Lux.Scheduler: timers and coroutines will not run");
 	}
 
 	void ScriptGlue::UpdateInput()
@@ -982,6 +1470,71 @@ namespace Lux {
 	{
 		ResetInput();
 		s_InputType = nullptr;
+		s_SchedulerType = nullptr;
+		s_ApplicationType = nullptr;
+		s_ApplicationKnown = false;
+	}
+
+	void ScriptGlue::UpdateApplication(bool paused, uint32_t width, uint32_t height)
+	{
+		if (!s_ApplicationType || !*s_ApplicationType)
+			return;
+
+		const bool focused = Application::Get().IsFocused();
+		if (!s_ApplicationKnown)
+		{
+			s_ApplicationKnown = true;
+			s_KnownFocused = focused;
+			s_KnownPaused = paused;
+			s_KnownWidth = width;
+			s_KnownHeight = height;
+			return;
+		}
+
+		if (focused != s_KnownFocused)
+		{
+			s_KnownFocused = focused;
+			s_ApplicationType->InvokeStaticMethod("DispatchFocus", static_cast<int32_t>(focused));
+		}
+		if (paused != s_KnownPaused)
+		{
+			s_KnownPaused = paused;
+			s_ApplicationType->InvokeStaticMethod("DispatchPause", static_cast<int32_t>(paused));
+		}
+		if ((width != s_KnownWidth || height != s_KnownHeight) && width > 0 && height > 0)
+		{
+			s_KnownWidth = width;
+			s_KnownHeight = height;
+			s_ApplicationType->InvokeStaticMethod("DispatchResize", static_cast<int32_t>(width), static_cast<int32_t>(height));
+		}
+	}
+
+	void ScriptGlue::EndApplication(bool quitting)
+	{
+		s_ApplicationKnown = false;
+		if (!s_ApplicationType || !*s_ApplicationType)
+			return;
+		if (quitting)
+			s_ApplicationType->InvokeStaticMethod("DispatchQuitting");
+		s_ApplicationType->InvokeStaticMethod("ResetEvents");
+	}
+
+	void ScriptGlue::UpdateScheduler(float scaledDelta, float unscaledDelta)
+	{
+		if (s_SchedulerType && *s_SchedulerType)
+			s_SchedulerType->InvokeStaticMethod("Update", scaledDelta, unscaledDelta);
+	}
+
+	void ScriptGlue::StepScheduler()
+	{
+		if (s_SchedulerType && *s_SchedulerType)
+			s_SchedulerType->InvokeStaticMethod("FixedUpdate");
+	}
+
+	void ScriptGlue::ResetScheduler()
+	{
+		if (s_SchedulerType && *s_SchedulerType)
+			s_SchedulerType->InvokeStaticMethod("Reset");
 	}
 
 }

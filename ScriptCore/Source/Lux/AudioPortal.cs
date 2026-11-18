@@ -33,7 +33,7 @@ namespace Lux
 				throw new ArgumentOutOfRangeException(nameof(value), "Invalid portal value or unavailable component.");
 		}
 		/// <summary>Whether the portal is active.</summary>
-		public bool Enabled { get => Get(0) != 0; set => Set(0, value ? 1 : 0); }
+		public new bool Enabled { get => Get(0) != 0; set => Set(0, value ? 1 : 0); }
 		/// <summary>0 closes the shutter (a shut door); 1 removes it.</summary>
 		public float Open { get => Get(1); set => Set(1, value); }
 		/// <summary>Distance in meters over which the room's sound leaking through the opening fades.</summary>

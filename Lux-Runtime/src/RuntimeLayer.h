@@ -24,6 +24,8 @@ namespace Lux
 
 		void OnAttach() override;
 		void OnDetach() override;
+		// The game ends here, with the script host still running: scripts get OnDestroy and Application.Quitting.
+		void OnApplicationQuit() override;
 		void OnUpdate(Timestep ts) override;
 		void OnEvent(Event& event) override;
 		void OnImGuiRender() override;
@@ -31,6 +33,9 @@ namespace Lux
 	private:
 		bool OpenProject();
 		bool LoadScene(AssetHandle sceneHandle);
+		// A script asked for another scene (C# Scene.Load): swaps it in, carrying persistent entities over. Call it only while
+		// the render thread is idle (OnImGuiRender), because the old scene's GPU resources are freed.
+		void ApplyRequestedScene();
 
 		void OnScenePlay();
 		void OnSceneStop();

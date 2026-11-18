@@ -601,12 +601,30 @@ if `OnCreate` never ran. Both flags are serialized **only when off** (`Active: f
 `TagComponent`, `Enabled: false` in the component), so older scenes load as on and re-save
 unchanged.
 
+**C# API (M4 S3).** `Entity.Active` (the entity's own flag), `Entity.ActiveInHierarchy`,
+`Entity.ScriptEnabled` (the `ScriptComponent` switch) and `Component.Enabled` (one property on the base
+class). `Scene::SetEntityActive` sets the flag and rebuilds the inactive set at once, so a script that
+switches another entity off mid-frame also stops that entity's `OnUpdate` later in the same loop. The
+component switch goes through `s_GetEnabledFuncs` / `s_SetEnabledFuncs` in `ScriptGlue.cpp`, filled per
+type by `RegisterManagedComponent` for every component with `HasEnabledFlag<T>` (`Components.h`, the
+same rule the inspector uses for its header checkbox). A component with no switch reads as on, and
+setting it off logs a warning and changes nothing. `AudioZoneComponent` / `AudioPortalComponent` keep
+their own `Enabled` (`new`), which also validates the audio thread rules.
+
+**User tag and finders (M4 S4).** `TagComponent::Tag` is the entity name (a historical name); the
+Unity-style tag scripts group entities by is `TagComponent::UserTag`, free text, serialized as `UserTag`
+only when non-empty, edited in the inspector under the name field (`##UserTag`). It is copied wherever
+`Active` is: `Scene::Copy`, `CopyTo`, `DuplicateEntity`, `ClonePrefabEntity` and `Prefab::Create`; a new
+copy path must carry both. `SceneSerializer::RunRoundTripSelfTests` checks the round trip, a scene
+copy, a duplicate and a prefab made from a tagged entity. C# finders (`Entity.Find`, `FindAll`,
+`FindWithTag`, `FindAllWithTag`, `FindWithComponent<T>`, `FindAllWithComponent<T>`) call
+`Scene_FindEntitiesByName/ByTag/WithComponent`, which return IDs in creation order (registry index, not
+view order) and skip switched-off entities and their children unless `includeInactive`. The by-component
+lookup uses `s_FindComponentFuncs`, filled per type by `RegisterManagedComponent`.
+
 **Not done yet (known gaps):** physics ignores both levels. Rigid bodies and colliders on an
 inactive entity still simulate, and colliders have no `Enabled`, because switching them during Play
-needs Jolt/Box2D body add/remove. `NativeScriptComponent` is not covered. There is **no C# API**
-yet: no `Entity.Active` and no `Enabled` property on the C# components. Add those as
-`ScriptCore` properties plus internal calls (Part 4 "Add a new C# internal call"). They are not in
-this pass by the user's decision (2026-10-24), not by oversight.
+needs Jolt/Box2D body add/remove (board P2). `NativeScriptComponent` is not covered (S5).
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /
@@ -673,7 +691,17 @@ Layered so the backend can be swapped:
   audio and dispatched through a second tracker to C# `OnTriggerBegin/End`. Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
   scripts at all; only Box2D's `ContactListener2D` called the hooks.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
-- `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
+- `SceneQueries.h` — raycasts, shape casts, overlaps. Every query struct carries `ExcludedEntities`, a
+  `LayerMask` (bit N = the project's physics layer at index N, which is the body's Jolt object layer;
+  `k_AllPhysicsLayers` by default) and `IncludeTriggers` (sensors are skipped unless set); box and capsule
+  shapes also take a `Rotation`. `CastShape` reports the contact point as `Position` and the distance the
+  shape centre travelled. All of it goes through `LuxBodyFilter` in `PhysicsScene.cpp`. C# `Physics`
+  (`ScriptCore/Source/Lux/Physics.cs`: `Raycast`, `RaycastAll`, `SphereCast`, `BoxCast`, `CapsuleCast`,
+  `OverlapSphere/Box/Capsule`, `CheckSphere`, `GetLayerMask`) calls `Physics_*` in `ScriptGlue.cpp`: hits are
+  written into a caller buffer (`RaycastHitData` / `NativeRaycastHit`, 40 bytes, checked on both sides), and a
+  result larger than the first 32-slot buffer is asked for again with room for all of it. `RaycastAll` drops
+  the back faces `CastRayAll` reports. Queries need a physics scene (Play) and run on the main thread.
+  `PhysicsScene::CastRayAll` returns every
   crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
   points along the ray is where it leaves a solid. Audio occlusion uses it to measure thickness.
 - `MeshCookingFactory` / `MeshColliderCache` — mesh colliders are cooked and cached, not rebuilt.
@@ -720,6 +748,85 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   clears nothing, so lines hold still. `CaptureScriptDebugLines` copies them into
   `FrameRenderPacket::ScriptLines` (runtime and editor packets; nothing in Dist), drawn in the world
   overlay with the audio-zone lines (`DebugLine::OnTop` = no depth test).
+- **Game clock (C# `Time`).** `Scene::m_Clock` (`Scene::ScriptClock`) is advanced at the top of
+  `OnUpdateRuntime`: `ts` stays real time (audio, dialogue, accessibility, audio physics), and `scaledTs =
+  ts * TimeScale` goes to script `OnUpdate`, `StepPhysics` and `AdvanceAnimators`. Scale 0 freezes scripts,
+  physics and animation; pause zeroes the scaled delta and stops `Elapsed` and `FrameCount`. Inside
+  `InvokeScriptFixedUpdate` `Time.DeltaTime` reads the fixed step (`InFixedStep`). One internal call,
+  `Time_Get(field)`, returns every value as a double (the field order is the C# `Time.Field` enum), and
+  `Time_SetScale` clamps to >= 0. The clock belongs to the `Scene`, so a scene swap has to carry it.
+- **Maths types** (`ScriptCore/Source/Lux`): `Mathf`, `Quaternion` (Euler order matches
+  `glm::quat(euler)`, so `Entity.RotationQuaternion` and `Entity.Rotation` are the same rotation), `Color`
+  (converts to and from `Vector4`, so it fits every colour property), `Random`, and the operators on
+  `Vector2/3/4`. `Length()`, `LengthSquared()` and `Normalized()` are methods, as `Vector2` always had.
+  `Entity.WorldTranslation`, `WorldRotationQuaternion`, `Forward` (-Z), `Right` and `Up` come from
+  `TransformComponent_GetWorld`. Quaternions cross the boundary as `vec4(x, y, z, w)`.
+  `tests/scripting/run_managed.py` checks the pure C# half against stand-in native calls (CI runs it
+  after the ScriptCore build); `tests/play/Scripts/ApiTests.cs` checks the native half in Play.
+- **More components in C# (M4 SC4).** `Scripting/ComponentScriptBindings.cpp` (registered from
+  `ScriptGlue::RegisterGlue`, like the audio and animation bindings) serves `Scene/RenderComponents.cs`:
+  `DirectionalLightComponent`, `PointLightComponent`, `SpotLightComponent`, `AreaLightComponent` (all
+  derive from `LightComponent`: `Color`, `Intensity`, `CastShadows`, `SoftShadows`, colour temperature),
+  `SkyLightComponent`, `StaticMeshComponent` and `MusicDirectorComponent`; `CameraComponent` gained
+  `FieldOfView`, `NearClip`, `FarClip`, `Orthographic`, `OrthographicSize` (a change rebuilds the projection
+  through `SetViewportBounds`). Light and camera scalars cross as (kind, field) pairs whose numbers are the
+  native `LightKind` / `LightField` enums and the C# enums of the same names; a point light's `Range` is its
+  `Radius`. `StaticMeshComponent` swaps the mesh, assigns material slots, and changes a slot's colour,
+  metalness, roughness, emission or transparency for that entity alone: the first change gives the entity a
+  private copy of the slot's material (`MaterialAsset::InheritFrom` without a parent link, registered through
+  `AddMemoryOnlyAsset`, remembered in `s_PrivateMaterials`), so entities sharing the material keep theirs.
+  `ResolveStaticMeshMaterialHandle` treats a table with one entry at slot 0 as the answer for every slot, so
+  `PinMaterialSlots` writes down every slot's material (all resolved first) before one of them changes.
+  Portals already had `AudioPortalComponent`; the audio zone and portal keep their own `Enabled`.
+- **Scene loading from scripts (M4 S2).** C# `Scene.Load()`, `LoadAdditive()`, `Unload()`, `Scene.Current` and
+  `Entity.Persistent` (`Scene_Load` etc. in `ScriptGlue.cpp`). A script only asks:
+  - *Replace.* `Scene::RequestSceneLoad` stores the handle (last request of a frame wins). The layer that owns the
+    running scene takes it, `RuntimeLayer::ApplyRequestedScene` and `EditorLayer::SwitchPlayScene`, both from
+    `OnImGuiRender`. **It must be that phase, not `OnUpdate`:** `Application::Run` kicks the render thread before
+    layer updates, and swapping the scene frees the old one's GPU resources (the Play button runs in the same phase).
+    They call `Scene::LoadForPlay` (the player decodes the scene from the pack; the editor copies the asset, so Play never
+    edits it; it picks the manager with `Application::IsRuntime()` because `Project::GetRuntimeAssetManager()` is an
+    unchecked cast and returns a bogus pointer in the editor), then `old->HandOverTo(*next)`, stop the old scene
+    and start the new one (`AdoptRuntimeScene` in the editor). A failed load logs and keeps the old scene running.
+  - *Persistent entities.* `Scene::m_PersistentEntities` (runtime only, never serialized). `HandOverTo` copies each
+    persistent root with its subtree into the next scene under the same UUIDs (`CopyComponentIfExists(AllComponents)`,
+    tag state, `RuntimeBody` pointers are rewritten when physics starts), as a root keeping its world transform, and
+    **moves the live script**: the `EntityScriptStorage` node and the `m_ScriptInstances` / `m_PendingScriptCreates`
+    entries change owner (the managed object belongs to the script engine, so its address is stable), the next
+    scene's `StartScriptInstance` skips them, and they get neither `OnDestroy` nor a second `OnCreate`. An entity of
+    the same UUID already in the next scene is replaced by the carried one. The game clock (`m_Clock`, including
+    `TimeScale`) and the pause flag carry over; audio, physics bodies, directors and animation state start fresh.
+  - *Additive.* `RequestAdditiveScene` queues `Scene::AddScene` on `m_PostUpdateQueue` (end of the frame's update): the
+    scene is loaded with `LoadForPlay`, its entities are created in creation order (new UUIDs only where this scene
+    already has the ID, hierarchy remapped, script fields holding an `Entity` are not), then
+    `StartSpawnedHierarchy` starts bodies and scripts as for a prefab (`m_SpawningPrefab` holds the physics hooks while
+    components are copied). `m_AdditiveScenes` remembers each load's entities for `Unload`, which destroys exactly those
+    (with `OnDestroy`). 2D physics bodies are not created for added entities (same shortcut as prefab spawns).
+- **Timers and coroutines (M4 SC5).** `ScriptCore/Source/Lux/Scheduling.cs`: `Timer.After/Every`, `Entity.After/Every`,
+  `Entity.StartCoroutine/StopCoroutine/StopAllCoroutines`, `WaitForSeconds`, `WaitForSecondsRealtime`, `WaitUntil`,
+  `WaitWhile`, `WaitForFixedUpdate`, nested routines and `Coroutine` as a `YieldInstruction`. The internal
+  `Lux.Scheduler` owns the lists and its own two clocks; the engine drives it through `ScriptGlue`
+  (`UpdateScheduler` once per frame after the scripts' `OnUpdate`, with the scaled and the real frame time, also while
+  paused with a scaled step of 0; `StepScheduler` once per physics step, after `InvokeScriptFixedUpdate`;
+  `ResetScheduler` when a scene stops). An owned job is dropped when its entity is gone (`Entity_IsAlive`, asked every
+  frame) and waits while the entity is not active in the hierarchy (`Entity_IsRunning`). A scene stop that follows
+  `HandOverTo` (`m_HandedOver`) does not reset, so timers and coroutines of persistent entities, and unowned
+  `Timer.After`, continue in the next scene. A callback or routine that throws is logged and removed, never the
+  scheduler. Managed tests drive `Scheduler.Update` directly (`tests/scripting`); `TimerCheck` in the Play checks
+  covers the engine hook.
+- **Application events (M4 SC6).** C# `Application.IsFocused`, `Paused`, `Width`, `Height` and the events `FocusChanged`,
+  `PauseChanged`, `Resized`, `Quitting`. `Scene::OnUpdateRuntime` calls `ScriptGlue::UpdateApplication` first: it diffs
+  focus (`Application::IsFocused`, the one definition the audio engine shares), the scene's pause flag (so the
+  accessibility menu's pause is reported too) and the scene's viewport size (the window in the player, the Game View in
+  the editor; 0 is ignored), and invokes the internal `Application.Dispatch*` methods; the first call after a reset only
+  records. `Application.Paused = true` is `Scene::SetPaused`: scripts stop, so the way back is a real-time timer or
+  coroutine (the scheduler keeps ticking, see above). `Quitting` fires from `Scene::OnRuntimeStop` through
+  `ScriptGlue::EndApplication(true)` unless `m_HandedOver` (a scene load), and the same call drops every managed
+  handler, so nothing outlives a game in the editor. **The player needs `Layer::OnApplicationQuit`:**
+  `Application::~Application` shuts the script host down before the layers detach, so `OnDetach` can no longer run
+  scripts; `Application::Run` now calls `OnApplicationQuit` on every layer after the loop (render thread idle, host
+  still up) and `RuntimeLayer` stops its scene there. Exported games therefore run `OnDestroy` and `Quitting` at exit,
+  which they did not before. Handlers are static: remove them in `OnDestroy`.
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:

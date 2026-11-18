@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 using System;
+using System.Collections;
 using System.Runtime.InteropServices;
 
 using Coral.Managed.Interop;
@@ -100,6 +101,34 @@ namespace Lux
 			set { InternalCalls.TransformComponent_SetScale(ID, &value); }
 		}
 
+		/// <summary>Rotation relative to the parent as a <see cref="Quaternion"/>; the same rotation as <see cref="Rotation"/>.</summary>
+		public unsafe Quaternion RotationQuaternion
+		{
+			get { Vector4 r; InternalCalls.TransformComponent_GetRotationQuat(ID, &r); return new Quaternion(r.X, r.Y, r.Z, r.W); }
+			set { Vector4 q = new Vector4(value.X, value.Y, value.Z, value.W); InternalCalls.TransformComponent_SetRotationQuat(ID, &q); }
+		}
+
+		/// <summary>Position in the world, through every parent. Read only: set <see cref="Translation"/> to move the entity.</summary>
+		public unsafe Vector3 WorldTranslation
+		{
+			get { Vector3 t; Vector4 q; InternalCalls.TransformComponent_GetWorld(ID, &t, &q); return t; }
+		}
+
+		/// <summary>Rotation in the world, through every parent. Read only.</summary>
+		public unsafe Quaternion WorldRotationQuaternion
+		{
+			get { Vector3 t; Vector4 q; InternalCalls.TransformComponent_GetWorld(ID, &t, &q); return new Quaternion(q.X, q.Y, q.Z, q.W); }
+		}
+
+		/// <summary>The direction the entity faces in the world: -Z rotated by <see cref="WorldRotationQuaternion"/>.</summary>
+		public Vector3 Forward => WorldRotationQuaternion * Vector3.Forward;
+
+		/// <summary>The entity's right in the world: +X rotated by <see cref="WorldRotationQuaternion"/>.</summary>
+		public Vector3 Right => WorldRotationQuaternion * Vector3.Right;
+
+		/// <summary>The entity's up in the world: +Y rotated by <see cref="WorldRotationQuaternion"/>.</summary>
+		public Vector3 Up => WorldRotationQuaternion * Vector3.Up;
+
 		/// <summary>
 		/// The parent entity, or null for a root. Setting it keeps <see cref="Translation"/>, <see cref="Rotation"/>
 		/// and <see cref="Scale"/> as they are, so they become relative to the new parent; null detaches the entity.
@@ -114,6 +143,79 @@ namespace Lux
 			}
 			set => InternalCalls.Entity_SetParent(ID, value != null ? value.ID : 0);
 		}
+
+		/// <summary>
+		/// Whether the entity is switched on, the inspector's checkbox. Switching it off also switches off every child:
+		/// renderers, lights, audio sources and scripts skip it, and its scripts get no <c>OnUpdate</c>. It takes effect at
+		/// once. Read <see cref="ActiveInHierarchy"/> to know whether it is on in effect.
+		/// </summary>
+		public unsafe bool Active
+		{
+			get => InternalCalls.Entity_GetActive(ID);
+			set => InternalCalls.Entity_SetActive(ID, value);
+		}
+
+		/// <summary>Whether the entity and every one of its parents are switched on.</summary>
+		public unsafe bool ActiveInHierarchy => InternalCalls.Entity_IsActiveInHierarchy(ID);
+
+		/// <summary>
+		/// Whether this entity's script runs. A script switched off gets no <c>OnUpdate</c> or <c>OnFixedUpdate</c>; its
+		/// <c>OnCreate</c> waits until it is first switched on. False for an entity with no script.
+		/// </summary>
+		public unsafe bool ScriptEnabled
+		{
+			get => InternalCalls.Entity_GetScriptEnabled(ID);
+			set => InternalCalls.Entity_SetScriptEnabled(ID, value);
+		}
+
+		/// <summary>
+		/// Whether the entity survives <see cref="Scene.Load"/>: it moves to the new scene with its children, its script
+		/// (which keeps running, without a new <c>OnCreate</c>) and the script's fields. Its physics body, audio and
+		/// animation start again in the new scene. A persistent child is carried as a root, where it stands in the world.
+		/// Set it from <c>OnCreate</c>.
+		/// </summary>
+		public unsafe bool Persistent
+		{
+			get => InternalCalls.Entity_GetPersistent(ID);
+			set => InternalCalls.Entity_SetPersistent(ID, value);
+		}
+
+		/// <summary>
+		/// Starts a coroutine owned by this entity: a method that returns <see cref="IEnumerator"/> and pauses at each
+		/// <c>yield return</c> (see <see cref="Coroutine"/>). It runs up to its first <c>yield</c> before this call returns.
+		/// It stops when the entity is destroyed, and is paused while the entity is switched off.
+		/// </summary>
+		/// <param name="routine">The routine, for example <c>StartCoroutine(Flash())</c>.</param>
+		public Coroutine StartCoroutine(IEnumerator routine) => Scheduler.AddCoroutine(ID, routine);
+
+		/// <summary>Stops a coroutine started by <see cref="StartCoroutine"/>. Null, or one that already ended, is ignored.</summary>
+		/// <param name="coroutine">The coroutine to stop.</param>
+		public void StopCoroutine(Coroutine coroutine)
+		{
+			if (coroutine != null)
+				coroutine.Cancelled = true;
+		}
+
+		/// <summary>Stops every coroutine this entity started.</summary>
+		public void StopAllCoroutines() => Scheduler.StopCoroutines(ID);
+
+		/// <summary>
+		/// Runs <paramref name="action"/> once, <paramref name="seconds"/> from now. It is cancelled when this entity is destroyed and
+		/// waits while the entity is switched off.
+		/// </summary>
+		/// <param name="seconds">The delay.</param>
+		/// <param name="action">What to run.</param>
+		/// <param name="unscaled">Count real time instead of game time, so <see cref="Time.TimeScale"/> does not slow it.</param>
+		public Timer After(float seconds, Action action, bool unscaled = false) => Scheduler.AddTimer(ID, seconds, action, false, unscaled);
+
+		/// <summary>Runs <paramref name="action"/> every <paramref name="seconds"/>, until cancelled. See <see cref="After"/>.</summary>
+		/// <param name="seconds">The time between calls, above 0.</param>
+		/// <param name="action">What to run.</param>
+		/// <param name="unscaled">Count real time instead of game time.</param>
+		public Timer Every(float seconds, Action action, bool unscaled = false) => Scheduler.AddTimer(ID, seconds, action, true, unscaled);
+
+		/// <summary>Cancels every timer this entity started with <see cref="After"/> or <see cref="Every"/>.</summary>
+		public void CancelTimers() => Scheduler.CancelTimers(ID);
 
 		/// <summary>The entity's direct children, in hierarchy order.</summary>
 		public unsafe Entity[] Children
@@ -155,6 +257,82 @@ namespace Lux
 			if (!HasComponent<T>())
 				return null;
 			return new T() { Entity = this };
+		}
+
+		/// <summary>
+		/// The entity's tag: free text set in the inspector (or here) that scripts use to find a group of entities with
+		/// <see cref="FindWithTag"/>. Empty when the entity has none. Not the same as <see cref="Name"/>.
+		/// </summary>
+		public unsafe string Tag
+		{
+			get => InternalCalls.Entity_GetUserTag(ID);
+			set => InternalCalls.Entity_SetUserTag(ID, value ?? string.Empty);
+		}
+
+		/// <summary>Whether the entity's <see cref="Tag"/> is exactly <paramref name="tag"/>.</summary>
+		public bool CompareTag(string tag) => !string.IsNullOrEmpty(tag) && Tag == tag;
+
+		private static unsafe Entity[] ToEntities(NativeArray<ulong> ids)
+		{
+			using (ids)
+			{
+				Entity[] entities = new Entity[ids.Length];
+				for (int i = 0; i < ids.Length; i++)
+					entities[i] = new Entity(ids[i]);
+				return entities;
+			}
+		}
+
+		/// <summary>The first entity, in the order they were created, whose <see cref="Name"/> is exactly <paramref name="name"/>.</summary>
+		/// <param name="name">The name to look for.</param>
+		/// <param name="includeInactive">Also look at switched-off entities and children of one. Default: skip them.</param>
+		/// <returns>The entity, or null.</returns>
+		public static Entity Find(string name, bool includeInactive = false)
+		{
+			Entity[] found = FindAll(name, includeInactive);
+			return found.Length > 0 ? found[0] : null;
+		}
+
+		/// <summary>Every entity whose <see cref="Name"/> is exactly <paramref name="name"/>, in the order they were created.</summary>
+		/// <param name="name">The name to look for.</param>
+		/// <param name="includeInactive">Also include switched-off entities and children of one. Default: skip them.</param>
+		public static unsafe Entity[] FindAll(string name, bool includeInactive = false)
+		{
+			return ToEntities(InternalCalls.Scene_FindEntitiesByName(name, includeInactive));
+		}
+
+		/// <summary>The first entity, in the order they were created, whose <see cref="Tag"/> is <paramref name="tag"/>.</summary>
+		/// <param name="tag">The tag to look for.</param>
+		/// <param name="includeInactive">Also look at switched-off entities and children of one. Default: skip them.</param>
+		/// <returns>The entity, or null. An empty tag matches nothing.</returns>
+		public static Entity FindWithTag(string tag, bool includeInactive = false)
+		{
+			Entity[] found = FindAllWithTag(tag, includeInactive);
+			return found.Length > 0 ? found[0] : null;
+		}
+
+		/// <summary>Every entity whose <see cref="Tag"/> is <paramref name="tag"/>, in the order they were created. An empty tag matches nothing.</summary>
+		/// <param name="tag">The tag to look for.</param>
+		/// <param name="includeInactive">Also include switched-off entities and children of one. Default: skip them.</param>
+		public static unsafe Entity[] FindAllWithTag(string tag, bool includeInactive = false)
+		{
+			return ToEntities(InternalCalls.Scene_FindEntitiesByTag(tag ?? string.Empty, includeInactive));
+		}
+
+		/// <summary>The first entity, in the order they were created, that has a component of type <c>T</c>.</summary>
+		/// <param name="includeInactive">Also look at switched-off entities and children of one. Default: skip them.</param>
+		/// <returns>The entity, or null.</returns>
+		public static Entity FindWithComponent<T>(bool includeInactive = false) where T : Component, new()
+		{
+			Entity[] found = FindAllWithComponent<T>(includeInactive);
+			return found.Length > 0 ? found[0] : null;
+		}
+
+		/// <summary>Every entity that has a component of type <c>T</c>, in the order they were created.</summary>
+		/// <param name="includeInactive">Also include switched-off entities and children of one. Default: skip them.</param>
+		public static unsafe Entity[] FindAllWithComponent<T>(bool includeInactive = false) where T : Component, new()
+		{
+			return ToEntities(InternalCalls.Scene_FindEntitiesWithComponent(typeof(T), includeInactive));
 		}
 
 		/// <summary>Finds an entity in the scene by its <see cref="Name"/>.</summary>

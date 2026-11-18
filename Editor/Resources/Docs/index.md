@@ -43,6 +43,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 
 - [C# Scripts](scripting/csharp-scripts) — writing, building and reloading game code.
 - [Input](scripting/input) — keyboard, mouse and gamepads.
+- [Gameplay API](scripting/gameplay-api) — time, maths, finding entities, physics queries, scenes, timers and coroutines.
 - [C# API Reference](api/index) — every class, property and method a script can use.
 
 Every component in the Properties panel has a **?** button next to its settings gear that opens its page here.

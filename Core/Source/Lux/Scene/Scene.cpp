@@ -8,6 +8,7 @@
 
 #include "Lux/Scene/Scene.h"
 #include "Lux/Core/Timer.h"
+#include "Lux/Core/Application.h"
 
 #include "Lux/Asset/AssetManager.h"
 
@@ -44,6 +45,7 @@
 #include "Lux/Physics/PhysicsSystem.h"
 #include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Asset/AssetManager/RuntimeAssetManager.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -259,6 +261,7 @@ namespace Lux {
 			dstTag.Locked = srcTag.Locked;
 			dstTag.LabelColor = srcTag.LabelColor;
 			dstTag.Active = srcTag.Active;
+			dstTag.UserTag = srcTag.UserTag;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -269,6 +272,234 @@ namespace Lux {
 		other->m_ScriptStorage.CopyTo(newScene->m_ScriptStorage);
 
 		return newScene;
+	}
+
+	Ref<Scene> Scene::LoadForPlay(AssetHandle handle)
+	{
+		if (!handle)
+			return nullptr;
+
+		// Project::GetRuntimeAssetManager casts without checking the type, so ask the application which one is running.
+		Ref<Scene> scene;
+		if (Application::IsRuntime())
+			scene = Project::GetRuntimeAssetManager()->LoadScene(handle);
+		else if (Ref<Scene> asset = AssetManager::GetAsset<Scene>(handle))
+			scene = Scene::Copy(asset);
+
+		if (!scene)
+			LUX_CORE_ERROR_TAG("Scene", "Scene {} cannot be loaded", static_cast<uint64_t>(handle));
+		return scene;
+	}
+
+	void Scene::SetEntityPersistent(Entity entity, bool persistent)
+	{
+		if (!entity)
+			return;
+		if (persistent)
+			m_PersistentEntities.insert(entity.GetUUID());
+		else
+			m_PersistentEntities.erase(entity.GetUUID());
+	}
+
+	bool Scene::IsEntityPersistent(Entity entity) const
+	{
+		return entity && m_PersistentEntities.contains(entity.GetUUID());
+	}
+
+	void Scene::HandOverTo(Scene& next)
+	{
+		// The game goes on in `next`: this scene's stop must leave the timers and coroutines running.
+		m_HandedOver = true;
+		next.m_Clock = m_Clock;
+		next.m_Clock.InFixedStep = false;
+		next.m_IsPaused = m_IsPaused;
+
+		// The roots to carry: persistent entities with no persistent ancestor (a carried entity takes its whole subtree).
+		std::vector<UUID> roots;
+		for (UUID id : m_PersistentEntities)
+		{
+			Entity entity = TryGetEntityWithUUID(id);
+			if (!entity)
+				continue;
+			bool ancestorCarried = false;
+			for (Entity parent = entity.GetParent(); parent && !ancestorCarried; parent = parent.GetParent())
+				ancestorCarried = m_PersistentEntities.contains(parent.GetUUID());
+			if (!ancestorCarried)
+				roots.push_back(id);
+		}
+		// A stable order keeps entity creation, and so every later iteration, independent of the hash set.
+		std::sort(roots.begin(), roots.end(), [this](UUID a, UUID b)
+		{
+			return static_cast<uint32_t>(static_cast<entt::entity>(GetEntityByUUID(a))) < static_cast<uint32_t>(static_cast<entt::entity>(GetEntityByUUID(b)));
+		});
+
+		for (UUID rootID : roots)
+		{
+			Entity root = GetEntityByUUID(rootID);
+			// The carried root becomes a root of the next scene: keep it where it stands in the world.
+			const glm::mat4 worldTransform = GetWorldSpaceTransformMatrix(root);
+
+			std::vector<UUID> subtree{ rootID };
+			for (UUID childID : GetAllChildren(root))
+				subtree.push_back(childID);
+
+			for (UUID id : subtree)
+			{
+				// The next scene may already hold an entity of this ID (the same persistent object authored in both
+				// scenes): the carried one, which has live state, replaces it.
+				if (Entity existing = next.TryGetEntityWithUUID(id))
+					next.DestroyEntity(existing);
+
+				Entity from = GetEntityByUUID(id);
+				Entity to = next.CreateEntityWithUUID(id, from.GetName());
+				CopyComponentIfExists(AllComponents{}, to, from);
+				const TagComponent& fromTag = from.GetComponent<TagComponent>();
+				TagComponent& toTag = to.GetComponent<TagComponent>();
+				toTag.Locked = fromTag.Locked;
+				toTag.LabelColor = fromTag.LabelColor;
+				toTag.Active = fromTag.Active;
+				toTag.UserTag = fromTag.UserTag;
+				next.m_PersistentEntities.insert(id);
+
+				// Script state: a live instance moves with its field storage (the managed object belongs to the script
+				// engine, so only the bookkeeping changes hands); fields of one that never started are copied.
+				if (const auto storage = m_ScriptStorage.EntityStorage.find(id); storage != m_ScriptStorage.EntityStorage.end() && storage->second.Instance)
+				{
+					next.m_ScriptStorage.EntityStorage.erase(id);
+					next.m_ScriptStorage.UnresolvedStorage.erase(id);
+					next.m_ScriptStorage.EntityStorage.emplace(id, std::move(storage->second));
+					m_ScriptStorage.EntityStorage.erase(storage);
+					if (const auto instance = m_ScriptInstances.find(id); instance != m_ScriptInstances.end())
+					{
+						next.m_ScriptInstances[id] = instance->second;
+						m_ScriptInstances.erase(instance);
+					}
+					if (m_PendingScriptCreates.erase(id))
+						next.m_PendingScriptCreates.insert(id);
+				}
+				else
+				{
+					m_ScriptStorage.CopyEntityFields(id, next.m_ScriptStorage, id);
+				}
+			}
+
+			Entity carriedRoot = next.GetEntityByUUID(rootID);
+			carriedRoot.GetComponent<RelationshipComponent>().ParentHandle = 0;
+			carriedRoot.GetComponent<TransformComponent>().SetTransform(worldTransform);
+		}
+
+		if (!roots.empty())
+			next.SortEntities();
+	}
+
+	void Scene::RequestAdditiveScene(AssetHandle scene)
+	{
+		m_PostUpdateQueue.emplace_back([this, scene]() { AddScene(scene); });
+	}
+
+	void Scene::RequestUnloadAdditiveScene(AssetHandle scene)
+	{
+		m_PostUpdateQueue.emplace_back([this, scene]() { UnloadAddedScene(scene); });
+	}
+
+	bool Scene::AddScene(AssetHandle handle)
+	{
+		Ref<Scene> source = LoadForPlay(handle);
+		if (!source || source.Raw() == this)
+			return false;
+
+		// Creation order of the source, so the added entities keep the order of their file.
+		auto idView = source->m_Registry.view<IDComponent>();
+		std::vector<entt::entity> sourceEntities(idView.begin(), idView.end());
+		std::sort(sourceEntities.begin(), sourceEntities.end(), [](entt::entity a, entt::entity b) { return static_cast<uint32_t>(a) < static_cast<uint32_t>(b); });
+
+		// An entity keeps its ID unless this scene already has one (the same scene loaded twice): then it gets a new
+		// one, and the hierarchy follows. Script fields that hold an Entity of the added scene are not remapped.
+		std::unordered_map<UUID, UUID> remap;
+		AdditiveScene added{ handle, {} };
+
+		// Physics and scripts start once the whole scene is in, as for a spawned prefab.
+		m_SpawningPrefab = true;
+		for (entt::entity e : sourceEntities)
+		{
+			Entity from{ e, source.Raw() };
+			const UUID original = from.GetUUID();
+			const UUID id = m_EntityMap.contains(original) ? UUID() : original;
+			remap[original] = id;
+
+			Entity to = CreateEntityWithUUID(id, from.GetName());
+			CopyComponentIfExists(AllComponents{}, to, from);
+			const TagComponent& fromTag = from.GetComponent<TagComponent>();
+			TagComponent& toTag = to.GetComponent<TagComponent>();
+			toTag.Locked = fromTag.Locked;
+			toTag.LabelColor = fromTag.LabelColor;
+			toTag.Active = fromTag.Active;
+			toTag.UserTag = fromTag.UserTag;
+			source->m_ScriptStorage.CopyEntityFields(original, m_ScriptStorage, id);
+			added.Entities.push_back(id);
+		}
+		m_SpawningPrefab = false;
+
+		std::vector<UUID> roots;
+		for (UUID id : added.Entities)
+		{
+			auto& relationship = GetEntityByUUID(id).GetComponent<RelationshipComponent>();
+			const auto parent = remap.find(relationship.ParentHandle);
+			relationship.ParentHandle = parent != remap.end() ? parent->second : UUID(0);
+			for (UUID& child : relationship.Children)
+			{
+				const auto mapped = remap.find(child);
+				child = mapped != remap.end() ? mapped->second : UUID(0);
+			}
+			std::erase(relationship.Children, UUID(0));
+			if (!relationship.ParentHandle)
+				roots.push_back(id);
+		}
+
+		for (const AssetHandle bank : source->m_SoundBanks)
+		{
+			if (std::find(m_SoundBanks.begin(), m_SoundBanks.end(), bank) == m_SoundBanks.end())
+			{
+				m_SoundBanks.push_back(bank);
+				if (m_IsRunning)
+					AudioEngine::LoadSoundBank(bank);
+			}
+		}
+
+		SortEntities();
+		RefreshInactiveEntities();
+		for (UUID root : roots)
+			StartSpawnedHierarchy(GetEntityByUUID(root));
+
+		LUX_CORE_INFO_TAG("Scene", "Scene {} added: {} entities", static_cast<uint64_t>(handle), added.Entities.size());
+		m_AdditiveScenes.push_back(std::move(added));
+		return true;
+	}
+
+	void Scene::UnloadAddedScene(AssetHandle handle)
+	{
+		size_t unloaded = 0;
+		for (size_t i = 0; i < m_AdditiveScenes.size();)
+		{
+			if (m_AdditiveScenes[i].Scene != handle)
+			{
+				i++;
+				continue;
+			}
+
+			const std::vector<UUID> entities = std::move(m_AdditiveScenes[i].Entities);
+			m_AdditiveScenes.erase(m_AdditiveScenes.begin() + i);
+			for (UUID id : entities)
+			{
+				m_PersistentEntities.erase(id);
+				// A child goes with its parent; the check also skips entities a script already destroyed.
+				if (Entity entity = TryGetEntityWithUUID(id))
+					DestroyEntity(entity);
+			}
+			unloaded++;
+		}
+		if (unloaded == 0)
+			LUX_CORE_WARN_TAG("Scene", "Scene {} has not been added, so there is nothing to unload", static_cast<uint64_t>(handle));
 	}
 
 	Entity Scene::CreateEntity(const std::string& name)
@@ -825,6 +1056,9 @@ namespace Lux {
 		// Scripting: fire OnDestroy and tear down live managed instances (values stay in storage).
 		{
 			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+			// The game ends here unless a scene change hands it on: tell the scripts while they still exist.
+			if (!m_HandedOver)
+				ScriptGlue::EndApplication(true);
 			for (auto& [entityID, instance] : m_ScriptInstances)
 			{
 				auto it = m_ScriptStorage.EntityStorage.find(entityID);
@@ -841,6 +1075,8 @@ namespace Lux {
 			m_PendingScriptCreates.clear();
 			AudioScriptBindings::Reset();
 			ScriptGlue::ResetInput();
+			if (!m_HandedOver)
+				ScriptGlue::ResetScheduler();
 			scriptEngine.SetCurrentScene(nullptr);
 		}
 	}
@@ -955,7 +1191,20 @@ namespace Lux {
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
-		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
+		// `ts` is real time (audio, dialogue, accessibility); scripts, physics and animation get the scaled step.
+		ScriptGlue::UpdateApplication(m_IsPaused, m_ViewportWidth, m_ViewportHeight);
+		const bool simulating = !m_IsPaused || m_StepFrames > 0;
+		const Timestep scaledTs = static_cast<float>(ts) * m_Clock.TimeScale;
+		m_Clock.UnscaledDelta = static_cast<float>(ts);
+		m_Clock.UnscaledElapsed += static_cast<float>(ts);
+		m_Clock.Delta = simulating ? static_cast<float>(scaledTs) : 0.0f;
+		if (simulating)
+		{
+			m_Clock.Elapsed += static_cast<float>(scaledTs);
+			m_Clock.FrameCount++;
+		}
+
+		AdvanceAnimators(m_Registry, scaledTs, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		ApplyBoneAttachments();
 		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
@@ -1002,7 +1251,7 @@ namespace Lux {
 					if (m_PendingScriptCreates.erase(entityID) && metadata.HasMethod("OnCreate"))
 						it->second.Invoke("OnCreate");
 					if (metadata.HasMethod("OnUpdate"))
-						it->second.Invoke("OnUpdate", (float)ts);
+						it->second.Invoke("OnUpdate", static_cast<float>(scaledTs));
 				}
 
 				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
@@ -1020,11 +1269,14 @@ namespace Lux {
 							nsc.Instance->OnCreate();
 						}
 
-						nsc.Instance->OnUpdate(ts);
+						nsc.Instance->OnUpdate(scaledTs);
 					});
 			}
 
-			StepPhysics(ts, true);
+			// Timers and coroutines run after every OnUpdate, as in Unity.
+			ScriptGlue::UpdateScheduler(static_cast<float>(scaledTs), static_cast<float>(ts));
+
+			StepPhysics(scaledTs, true);
 			UpdatePhysicsAudio(static_cast<float>(ts)); // drains this frame's contact events
 			DispatchCollisionEvents();
 
@@ -1094,6 +1346,8 @@ namespace Lux {
 		}
 		else if (m_IsPaused)
 		{
+			// Paused: game time stands still, real time (WaitForSecondsRealtime, unscaled timers) goes on.
+			ScriptGlue::UpdateScheduler(0.0f, static_cast<float>(ts));
 			SyncAudioListeners(0.0f);
 			UpdateAudioZones(0.0f, false);
 			UpdatePhysicsAudio(0.0f);
@@ -1334,6 +1588,7 @@ namespace Lux {
 			dstTag.Locked = srcTag.Locked;
 			dstTag.LabelColor = srcTag.LabelColor;
 			dstTag.Active = srcTag.Active;
+			dstTag.UserTag = srcTag.UserTag;
 
 			if (parent)
 				ParentEntity(destination, parent);
@@ -1393,6 +1648,7 @@ namespace Lux {
 		Entity destination = uuid == 0 ? CreateEntity(source.GetName()) : CreateEntityWithUUID(uuid, source.GetName());
 		CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
 		destination.GetComponent<TagComponent>().Active = source.GetComponent<TagComponent>().Active;
+		destination.GetComponent<TagComponent>().UserTag = source.GetComponent<TagComponent>().UserTag;
 		source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
 		return destination;
 	}
@@ -2221,6 +2477,12 @@ namespace Lux {
 		return true;
 	}
 
+	void Scene::SetEntityActive(Entity entity, bool active)
+	{
+		entity.GetComponent<TagComponent>().Active = active;
+		RefreshInactiveEntities();
+	}
+
 	void Scene::RefreshInactiveEntities() const
 	{
 		m_InactiveEntities.clear();
@@ -2261,6 +2523,7 @@ namespace Lux {
 			const auto& tag = m_Registry.get<TagComponent>(entity);
 			Entity newEntity = target->CreateEntityWithID(uuid, tag.Tag, false);
 			newEntity.GetComponent<TagComponent>().Active = tag.Active;
+			newEntity.GetComponent<TagComponent>().UserTag = tag.UserTag;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -2474,6 +2737,7 @@ namespace Lux {
 					m_DebugLinesFixed.clear();
 					m_DrawingFixedStep = true;
 					InvokeScriptFixedUpdate(fixedTimestep);
+					ScriptGlue::StepScheduler();
 					m_DrawingFixedStep = false;
 				}
 				m_PhysicsScene->SimulateStep(fixedTimestep);
@@ -2592,6 +2856,8 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNC("Scene::InvokeScriptFixedUpdate");
 		ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+		m_Clock.FixedDelta = fixedTimestep;
+		m_Clock.InFixedStep = true;
 		for (auto e : m_Registry.view<ScriptComponent>())
 		{
 			Entity entity = { e, this };
@@ -2607,6 +2873,7 @@ namespace Lux {
 			if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnFixedUpdate"))
 				it->second.Invoke("OnFixedUpdate", fixedTimestep);
 		}
+		m_Clock.InFixedStep = false;
 	}
 
 	void Scene::RenderScene(EditorCamera& camera)

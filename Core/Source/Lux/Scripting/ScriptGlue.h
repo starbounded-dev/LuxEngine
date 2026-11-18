@@ -23,6 +23,18 @@ namespace Lux {
 		static void UpdateInput();
 		static void ResetInput();
 		static void ShutdownInput();
+
+		// C# timers and coroutines (Lux.Scheduler): Update once per runtime frame after the scripts' OnUpdate with the scaled and
+		// the real frame time, StepScheduler once per physics step, ResetScheduler when the game stops.
+		static void UpdateScheduler(float scaledDelta, float unscaledDelta);
+		static void StepScheduler();
+		static void ResetScheduler();
+
+		// C# Application events. UpdateApplication diffs focus, pause and the view size once per runtime frame (the first call
+		// after an EndApplication only records them). EndApplication raises Application.Quitting when `quitting`, then drops
+		// every managed handler: the game stopped for good, not for a scene change.
+		static void UpdateApplication(bool paused, uint32_t width, uint32_t height);
+		static void EndApplication(bool quitting);
 	};
 
 }

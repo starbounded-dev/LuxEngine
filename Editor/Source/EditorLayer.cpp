@@ -1263,6 +1263,14 @@ namespace Lux {
 		// Before any window: a finished build may resume an export, which stops Play and saves.
 		UpdateRuntimeBuild();
 
+		// A script asked to load another scene (C# Scene.Load). Here and not in OnUpdate: this runs while the render thread
+		// is idle, and swapping the scene frees the old one's GPU resources (the Play button works in the same phase).
+		if (m_SceneState == SceneState::Play && m_ActiveScene)
+		{
+			if (const AssetHandle requested = m_ActiveScene->TakeSceneLoadRequest())
+				SwitchPlayScene(requested);
+		}
+
 		static bool dockspaceOpen = true;
 		static bool opt_fullscreen_persistent = true;
 		bool opt_fullscreen = opt_fullscreen_persistent;
@@ -5828,6 +5836,20 @@ namespace Lux {
 		m_UndoCommitPending = false;
 		EditorStack::Get().ConsumeSceneEdit();
 		EditorStack::Get().ClearEditScope();
+	}
+
+	void EditorLayer::SwitchPlayScene(AssetHandle sceneHandle)
+	{
+		// Loaded first: on failure (logged) the current scene keeps playing.
+		Ref<Scene> next = Scene::LoadForPlay(sceneHandle);
+		if (!next)
+			return;
+
+		// What outlives the old scene moves before it stops, because stopping destroys the scripts it still owns.
+		m_ActiveScene->HandOverTo(*next);
+		AdoptRuntimeScene(next);
+		BeginPlayUndoHistory();
+		LUX_CORE_INFO_TAG("Scene", "Loaded scene {}", static_cast<uint64_t>(sceneHandle));
 	}
 
 	void EditorLayer::AdoptRuntimeScene(const Ref<Scene>& scene)

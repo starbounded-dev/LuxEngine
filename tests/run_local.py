@@ -25,7 +25,7 @@ from run_with_msvc import msvc_env  # noqa: E402
 def suites():
     found = [[path.relative_to(ROOT).as_posix()] for path in sorted((ROOT / "tests/editor").glob("run_*.py"))]
     return [["tests/shaders/check_engine_pack.py"]] + found + [["tests/play/run_play.py"], ["tests/play/run_play.py", "--config", "release"],
-                    ["tests/audio/run_managed.py"]]
+                    ["tests/audio/run_managed.py"], ["tests/scripting/run_managed.py"]]
 
 
 def main():

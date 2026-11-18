@@ -248,24 +248,6 @@ namespace Lux {
 			}
 		}
 
-		// Components with an on/off switch get a checkbox in their section header (Unity's
-		// per-component enabled). Meshes keep their older Visible name, the listener its Active.
-		template<typename TComponent>
-		constexpr bool HasEnabledFlag = requires(TComponent& c) { { c.Enabled } -> std::same_as<bool&>; }
-			|| requires(TComponent& c) { { c.Visible } -> std::same_as<bool&>; }
-			|| std::is_same_v<TComponent, AudioListenerComponent>;
-
-		template<typename TComponent>
-		bool& GetEnabledFlag(TComponent& component)
-		{
-			if constexpr (std::is_same_v<TComponent, AudioListenerComponent>)
-				return component.Active;
-			else if constexpr (requires { component.Visible; })
-				return component.Visible;
-			else
-				return component.Enabled;
-		}
-
 		template<typename TValue, typename Getter>
 		bool IsSelectionInconsistent(const Ref<Scene>& scene, const std::vector<UUID>& entityIDs, Getter&& getter)
 		{
@@ -1662,6 +1644,28 @@ namespace Lux {
 				ImGui::TextUnformatted(firstEntity.GetName().c_str());
 				ImGui::PopTextWrapPos();
 				ImGui::EndTooltip();
+			}
+
+			// The tag scripts find entities by (C# Entity.FindWithTag); free text, empty for none.
+			{
+				std::string userTag = firstEntity.GetComponent<TagComponent>().UserTag;
+				if (isMultiSelect && IsSelectionInconsistent<std::string>(m_Context, entityIDs, [](Entity entity)
+				{
+					return entity.GetComponent<TagComponent>().UserTag;
+				}))
+				{
+					userTag = "---";
+				}
+
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::InputTextWithHint("##UserTag", "Tag (scripts find entities by it)", &userTag))
+				{
+					ApplyToSelection<TagComponent>(m_Context, entityIDs, [&userTag](TagComponent& component, Entity)
+					{
+						component.UserTag = userTag;
+					});
+					EditorStack::Get().MarkEntitiesEdited(entityIDs, "Set Tag");
+				}
 			}
 			if (isMultiSelect)
 			{

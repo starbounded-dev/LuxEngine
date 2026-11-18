@@ -187,11 +187,53 @@ namespace Lux {
 		// True when the entity and every ancestor are Active (TagComponent::Active). Walks the parent
 		// chain, so it is always current; the per-frame system loops use IsInactive() instead.
 		bool IsEntityActiveInHierarchy(Entity entity) const;
+		// Switches an entity (and so every descendant) on or off, as the inspector's checkbox does. The inactive set is
+		// rebuilt at once, so systems that run later in the same frame already honour it. Main thread.
+		void SetEntityActive(Entity entity, bool active);
 		void CopyTo(Ref<Scene>& target);
 		void SortEntities();
 
 		Entity GetPrimaryCameraEntity();
 		Entity GetMainCameraEntity() { return GetPrimaryCameraEntity(); }
+
+		// The game clock C# `Time` reads (Play only). Scripts, physics and animation follow the scaled step;
+		// audio and the accessibility overlay keep real time. Main thread.
+		struct ScriptClock
+		{
+			float TimeScale = 1.0f;
+			float Delta = 0.0f;          // scaled step of the last frame; 0 while paused
+			float UnscaledDelta = 0.0f;
+			double Elapsed = 0.0;        // scaled seconds, advanced only while the scene simulates
+			double UnscaledElapsed = 0.0;
+			uint64_t FrameCount = 0;
+			bool InFixedStep = false;    // inside OnFixedUpdate, `Time.DeltaTime` is the fixed step
+			float FixedDelta = 1.0f / 60.0f;
+		};
+		ScriptClock& GetClock() { return m_Clock; }
+		const ScriptClock& GetClock() const { return m_Clock; }
+
+		// ---- Scene loading from scripts (C# Scene.Load / LoadAdditive / Unload, Entity.Persistent) ----------------------
+		// Replacing the running scene swaps the Scene object itself, so a script only asks: the layer that owns the
+		// running scene (RuntimeLayer; EditorLayer in Play) takes the request at the start of the next frame, loads the
+		// scene with LoadForPlay, calls HandOverTo and restarts. The last request of a frame wins.
+		void RequestSceneLoad(AssetHandle scene) { m_RequestedScene = scene; }
+		AssetHandle TakeSceneLoadRequest() { return std::exchange(m_RequestedScene, AssetHandle(0)); }
+		// A fresh scene, ready to start: the player decodes it from the asset pack, the editor copies the asset so Play
+		// never edits it. Null (logged) when it cannot be loaded.
+		static Ref<Scene> LoadForPlay(AssetHandle handle);
+		// Entities marked persistent survive a scene replacement, with their children, scripts and fields.
+		void SetEntityPersistent(Entity entity, bool persistent);
+		bool IsEntityPersistent(Entity entity) const;
+		// Moves what outlives this scene into `next`, which has not started yet: the persistent entities (see above), the
+		// game clock and the pause state. Call it before this->OnRuntimeStop(), which would destroy their scripts.
+		void HandOverTo(Scene& next);
+		// Merges a scene into this running one at the end of this frame's update (an instance of it can be loaded more than
+		// once), and removes everything the scene added again. Entities start as a spawned prefab does.
+		void RequestAdditiveScene(AssetHandle scene);
+		void RequestUnloadAdditiveScene(AssetHandle scene);
+
+		uint32_t GetViewportWidth() const { return m_ViewportWidth; }
+		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
 
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -322,6 +364,20 @@ namespace Lux {
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;
 		int m_StepFrames = 0;
+		ScriptClock m_Clock;
+
+		bool AddScene(AssetHandle handle);
+		void UnloadAddedScene(AssetHandle handle);
+		AssetHandle m_RequestedScene = 0;
+		bool m_HandedOver = false;   // HandOverTo ran: the game continues in another scene
+		std::unordered_set<UUID> m_PersistentEntities;
+		// The entities each additive load brought in, so Unload can take exactly those out.
+		struct AdditiveScene
+		{
+			AssetHandle Scene = 0;
+			std::vector<UUID> Entities;
+		};
+		std::vector<AdditiveScene> m_AdditiveScenes;
 
 		Scope<PhysicsScene2D> m_PhysicsScene2D;
 		Ref<PhysicsScene> m_PhysicsScene;

@@ -296,6 +296,8 @@ namespace Lux {
 					out << Yaml::Key << "LabelColor" << Yaml::Value << tagComponent.LabelColor;
 				if (!tagComponent.Active)
 					out << Yaml::Key << "Active" << Yaml::Value << tagComponent.Active;
+				if (!tagComponent.UserTag.empty())
+					out << Yaml::Key << "UserTag" << Yaml::Value << tagComponent.UserTag;
 				out << Yaml::EndMap;
 			}
 
@@ -972,6 +974,7 @@ namespace Lux {
 					tagComponent.Locked = tag["Locked"].as<bool>(false);
 					tagComponent.LabelColor = tag["LabelColor"].as<uint32_t>(0);
 					tagComponent.Active = tag["Active"].as<bool>(true);
+					tagComponent.UserTag = tag["UserTag"].as<std::string>("");
 				}
 
 				if (entity["Folder"] && entity["Folder"].as<bool>(false))
@@ -2090,13 +2093,20 @@ namespace Lux {
 		Scene::ReconcilePrefabComponents(listenerInstance, prefabListener);
 		checkListener(listenerInstance, "Restore listener prefab");
 		listenerRig.GetComponent<AudioListenerComponent>().AttenuationTarget = childB.GetUUID();
+		// User tag (C# Entity.FindWithTag): every copy path must carry it, and a round trip must keep it.
+		listenerRig.GetComponent<TagComponent>().UserTag = "listener-rig";
+		childB.GetComponent<TagComponent>().UserTag = "round-trip";
 		Entity externalCopy = src->DuplicateEntity(listenerRig);
+		if (externalCopy.GetComponent<TagComponent>().UserTag != "listener-rig")
+			fail("duplicate lost the user tag");
 		if (externalCopy.GetComponent<AudioListenerComponent>().AttenuationTarget != childB.GetUUID())
 			fail("duplicate lost an external scene listener target");
 		Ref<Prefab> externalPrefab = Ref<Prefab>::Create();
 		externalPrefab->Create(listenerRig, false);
 		if (externalPrefab->GetScene()->TryGetEntityWithUUID(externalPrefab->GetRootEntityID()).GetComponent<AudioListenerComponent>().AttenuationTarget != 0)
 			fail("prefab retained a listener target outside its hierarchy");
+		if (externalPrefab->GetScene()->TryGetEntityWithUUID(externalPrefab->GetRootEntityID()).GetComponent<TagComponent>().UserTag != "listener-rig")
+			fail("a prefab made from an entity lost its user tag");
 		listenerRig.GetComponent<AudioListenerComponent>().AttenuationTarget = attenuationTarget.GetUUID();
 
 		// Switched-off state: an inactive entity and a disabled component must come back off.
@@ -2128,6 +2138,8 @@ namespace Lux {
 				fail(std::format("{} switched an inactive entity or a disabled light back on", operation));
 			if (!scene->IsEntityActiveInHierarchy(scene->TryGetEntityWithUUID(childB.GetUUID())))
 				fail(std::format("{} switched off an active sibling", operation));
+			if (scene->TryGetEntityWithUUID(childB.GetUUID()).GetComponent<TagComponent>().UserTag != "round-trip")
+				fail(std::format("{} lost or changed an entity's user tag", operation));
 		}
 		std::string meta2;
 		Entity restoredAudioEntity = dst->TryGetEntityWithUUID(childB.GetUUID());

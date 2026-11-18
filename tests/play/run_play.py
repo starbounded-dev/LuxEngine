@@ -9,12 +9,18 @@ fails on a missing PASS, any FAIL, a managed exception or a graphics/validation 
 
     python tests/play/run_play.py [--config debug|release] [--policies Single,Multi] [--frames 900]
 
+Also covers the M4 gameplay API (tests/play/Scripts/ApiTests.cs): time, transforms, active/enabled, finders, physics
+queries, components, timers, application events and scene loading, which runs last and ends the main scene.
+
 Needs the .NET 10 SDK and a built editor. Never touches the sample project or your preferences.
 """
 import argparse
+import base64
+import json
 import math
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -26,10 +32,14 @@ sys.path.insert(0, str(ROOT / "tests/editor"))
 from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
-          "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync"]
+          "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
+          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "Timers", "Application", "Quitting", "SceneLoading"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
+MESH_HANDLE = 7300000000000000003
+SECOND_SCENE_HANDLE = 7300000000000000004
+EXTRA_SCENE_HANDLE = 7300000000000000005
 
 
 def fnv1a(text):
@@ -44,8 +54,13 @@ def vec(values):
     return "[" + ", ".join(f"{v:g}" for v in values) + "]"
 
 
-def entity(eid, name, pos, rot=(0, 0, 0), parent=0, children=(), body="", script=None, fields="", prefab=""):
-    lines = [f"  - Entity: {eid}", "    TagComponent:", f"      Tag: {name}", f"    Parent: {parent}"]
+def entity(eid, name, pos, rot=(0, 0, 0), parent=0, children=(), body="", script=None, fields="", prefab="", user_tag="", inactive=False):
+    lines = [f"  - Entity: {eid}", "    TagComponent:", f"      Tag: {name}"]
+    if inactive:
+        lines.append("      Active: false")
+    if user_tag:
+        lines.append(f"      UserTag: {user_tag}")
+    lines.append(f"    Parent: {parent}")
     lines.append("    Children:" + ("" if children else "\n      []"))
     lines += [f"      - Handle: {child}" for child in children]
     lines += [prefab.rstrip("\n")] if prefab else []
@@ -60,9 +75,9 @@ def entity(eid, name, pos, rot=(0, 0, 0), parent=0, children=(), body="", script
     return "\n".join(lines) + "\n"
 
 
-def rigid(kind, trigger=False, gravity=True):
+def rigid(kind, trigger=False, gravity=True, layer=0):
     kinds = {"static": 0, "dynamic": 1, "kinematic": 2}
-    return (f"    RigidBodyComponent:\n      BodyType: {kinds[kind]}\n      Mass: 1\n"
+    return (f"    RigidBodyComponent:\n      BodyType: {kinds[kind]}\n      LayerID: {layer}\n      Mass: 1\n"
             f"      DisableGravity: {'false' if gravity else 'true'}\n      IsTrigger: {'true' if trigger else 'false'}\n")
 
 
@@ -84,6 +99,51 @@ def prefab_link(entity_id, tracked=False, removed=()):
     return text
 
 
+def write_two_material_cube(path):
+    """A unit cube as two glTF primitives with two materials (red top half of the faces, blue the rest), so the
+    static mesh checks have a mesh with two material slots."""
+    faces = [((1, 0, 0), (0, 1, 0)), ((-1, 0, 0), (0, 1, 0)), ((0, 1, 0), (0, 0, 1)),
+             ((0, -1, 0), (0, 0, 1)), ((0, 0, 1), (1, 0, 0)), ((0, 0, -1), (1, 0, 0))]
+    positions, normals, indices = [], [], [[], []]
+    for number, (n, u) in enumerate(faces):
+        v = (n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0])
+        base = len(positions)
+        for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            positions.append(tuple(0.5 * (n[i] + su * u[i] + sv * v[i]) for i in range(3)))
+            normals.append(n)
+        indices[0 if number < 3 else 1] += [base, base + 1, base + 2, base, base + 2, base + 3]
+    blob = b"".join(struct.pack("<3f", *p) for p in positions)
+    normal_offset = len(blob)
+    blob += b"".join(struct.pack("<3f", *n) for n in normals)
+    offsets = []
+    for group in indices:
+        offsets.append(len(blob))
+        blob += b"".join(struct.pack("<H", i) for i in group)
+        while len(blob) % 4:
+            blob += b"\0"
+    gltf = {
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"name": "TwoMaterialCube", "mesh": 0}],
+        "meshes": [{"name": "TwoMaterialCube", "primitives": [
+            {"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2, "material": 0},
+            {"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 3, "material": 1}]}],
+        "materials": [
+            {"name": "Red", "pbrMetallicRoughness": {"baseColorFactor": [1, 0, 0, 1], "metallicFactor": 0.0, "roughnessFactor": 0.5}},
+            {"name": "Blue", "pbrMetallicRoughness": {"baseColorFactor": [0, 0, 1, 1], "metallicFactor": 0.0, "roughnessFactor": 0.5}}],
+        "buffers": [{"byteLength": len(blob), "uri": "data:application/octet-stream;base64," + base64.b64encode(blob).decode()}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": normal_offset},
+            {"buffer": 0, "byteOffset": normal_offset, "byteLength": offsets[0] - normal_offset},
+            {"buffer": 0, "byteOffset": offsets[0], "byteLength": len(indices[0]) * 2},
+            {"buffer": 0, "byteOffset": offsets[1], "byteLength": len(indices[1]) * 2}],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": len(positions), "type": "VEC3", "min": [-0.5] * 3, "max": [0.5] * 3},
+            {"bufferView": 1, "componentType": 5126, "count": len(normals), "type": "VEC3"},
+            {"bufferView": 2, "componentType": 5123, "count": len(indices[0]), "type": "SCALAR"},
+            {"bufferView": 3, "componentType": 5123, "count": len(indices[1]), "type": "SCALAR"}],
+    }
+    path.write_text(json.dumps(gltf, indent=1) + "\n", encoding="utf-8", newline="\n")
+
+
 def write_project(project, keep=None, runtime_config="dist"):
     assets = project / "Assets"
     (assets / "Scenes").mkdir(parents=True)
@@ -92,11 +152,19 @@ def write_project(project, keep=None, runtime_config="dist"):
         "Project:\n  Name: PlayTest\n  AssetDirectory: Assets\n  AssetRegistry: Assets/AssetRegistry.lzr\n"
         f"  ScriptModulePath: Scripts/Binaries/PlayTest.dll\n  DefaultNamespace: {NAMESPACE}\n"
         f"  StartScene: {SCENE_HANDLE}\n  AutomaticallyReloadAssembly: false\n  AutoSave: false\n"
+        # Two physics layers (bit 0 and bit 1 of a query layer mask) that collide with each other and themselves.
+        "  Physics:\n    Layers:\n      - Name: Default\n        CollidesWithSelf: true\n        CollidesWith:\n          - Name: Props\n"
+        "      - Name: Props\n        CollidesWithSelf: true\n        CollidesWith:\n          - Name: Default\n"
         f"  RuntimeExport:\n    GameName: PlayTest\n    WindowWidth: 1280\n    WindowHeight: 720\n    Fullscreen: false\n"
         f"    VSync: true\n    TargetConfig: {runtime_config.capitalize()}\n", encoding="utf-8")
     (assets / "AssetRegistry.lzr").write_text(
         f"Assets:\n  - Handle: {SCENE_HANDLE}\n    FilePath: Scenes/PlayTest.luxscene\n    Type: Scene\n"
-        f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n", encoding="utf-8")
+        f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n"
+        f"  - Handle: {MESH_HANDLE}\n    FilePath: Meshes/TwoMaterials.gltf\n    Type: MeshSource\n"
+        f"  - Handle: {SECOND_SCENE_HANDLE}\n    FilePath: Scenes/Second.luxscene\n    Type: Scene\n"
+        f"  - Handle: {EXTRA_SCENE_HANDLE}\n    FilePath: Scenes/Extra.luxscene\n    Type: Scene\n", encoding="utf-8")
+    (assets / "Meshes").mkdir()
+    write_two_material_cube(assets / "Meshes/TwoMaterials.gltf")
 
     # The prefab: a dynamic crate with three children. OldChild existed when the scene instance was
     # saved, PrefabAdded was added later, Removed is recorded as deleted in the instance.
@@ -135,6 +203,56 @@ def write_project(project, keep=None, runtime_config="dist"):
     e.append(entity(next(ids), "DestroyWatcher", (0, 1, 12), script="DestroyWatcher"))
     e.append(entity(next(ids), "GizmoDrawer", (5, 1, 10), script="GizmoDrawer"))
     e.append(entity(next(ids), "PrefabSyncCheck", (10, 1, 10), script="PrefabSyncCheck"))
+    # M4 C# API checks (tests/play/Scripts/ApiTests.cs).
+    e.append(entity(next(ids), "ClockCheck", (0, 1, -40), script="ClockCheck"))
+    parent, child = next(ids), next(ids)
+    e.append(entity(parent, "TransformParent", (10, 1, -40), rot=(0, math.pi / 2, 0), children=(child,)))
+    e.append(entity(child, "TransformChild", (0, 0, -2), parent=parent, script="TransformCheck"))
+    target, target_child = next(ids), next(ids)
+    e.append(entity(target, "ToggleTarget", (0, 1, -42), children=(target_child,), script="ToggleCounter"))
+    e.append(entity(target_child, "ToggleChild", (0, 0, 0), parent=target, script="ToggleCounter"))
+    e.append(entity(next(ids), "SwitchSprite", (0, 1, -44), body="    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n"))
+    e.append(entity(next(ids), "ActiveCheck", (0, 1, -46), script="ActiveCheck"))
+    # Finders: two entities with one name, a tag on four of them (one switched off, with a child), two sprites.
+    sprite_body = "    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n"
+    e.append(entity(next(ids), "TwinFind", (1, 1, -50)))
+    e.append(entity(next(ids), "TwinFind", (2, 1, -50)))
+    e.append(entity(next(ids), "TagCoinA", (0, 1, -52), user_tag="coin"))
+    e.append(entity(next(ids), "TagCoinB", (0, 1, -53), user_tag="coin"))
+    e.append(entity(next(ids), "TagGem", (0, 1, -54), user_tag="gem"))
+    off, off_child = next(ids), next(ids)
+    e.append(entity(off, "TagOff", (0, 1, -55), user_tag="coin", inactive=True, children=(off_child,)))
+    e.append(entity(off_child, "TagOffChild", (0, 0, 0), parent=off, user_tag="coin"))
+    e.append(entity(next(ids), "SpriteTwo", (0, 1, -56), body=sprite_body))
+    e.append(entity(next(ids), "FindCheck", (0, 1, -58), script="FindCheck"))
+    # Physics queries: a wall, a trigger in front of it and a prop (second layer) behind it, along +X at z=-70.
+    e.append(entity(next(ids), "QueryWall", (60, 1, -70), body=rigid("static") + box((0.5, 1, 3))))
+    e.append(entity(next(ids), "QueryTrigger", (58, 1, -70), body=rigid("static", trigger=True) + box((0.25, 1, 3))))
+    e.append(entity(next(ids), "QueryProp", (64, 1, -70), body=rigid("static", layer=1) + box((0.5, 1, 3))))
+    e.append(entity(next(ids), "QueryCheck", (50, 1, -75), script="QueryCheck"))
+    # Components: one entity holding every light kind, a camera and a music director, and two cubes sharing a two-material mesh.
+    rig_body = ("    CameraComponent:\n      Camera:\n        ProjectionType: 0\n        PerspectiveFOV: 50\n        PerspectiveNear: 0.1\n        PerspectiveFar: 500\n"
+                "      Primary: false\n      FixedAspectRatio: false\n"
+                "    DirectionalLightComponent:\n      Intensity: 1\n      CastShadows: false\n"
+                "    PointLightComponent:\n      Intensity: 2\n      Radius: 6\n      CastShadows: false\n"
+                "    SpotLightComponent:\n      Intensity: 3\n      Range: 8\n      Angle: 40\n"
+                "    AreaLightComponent:\n      Intensity: 4\n      Width: 2\n      Height: 1\n      Range: 5\n"
+                "    SkyLightComponent:\n      Intensity: 1\n      Rotation: 10\n"
+                "    MusicDirectorComponent:\n      PlayOnAwake: false\n      InitialState: Calm\n      Intensity: 0.25\n")
+    e.append(entity(next(ids), "ComponentRig", (0, 1, -80), body=rig_body, script="ComponentCheck"))
+    mesh_body = f"    StaticMeshComponent:\n      AssetID: {MESH_HANDLE}\n"
+    e.append(entity(next(ids), "MeshProbeA", (-4, 1, -80), body=mesh_body))
+    e.append(entity(next(ids), "MeshProbeB", (-6, 1, -80), body=mesh_body))
+    # Timers and coroutines: one script starts them all.
+    e.append(entity(next(ids), "TimerCheck", (0, 1, -86), script="TimerCheck"))
+    # Application events: pauses the game and unpauses it from a real-time timer; also watches Quitting.
+    e.append(entity(next(ids), "ApplicationCheck", (0, 1, -88), script="ApplicationCheck"))
+    # Scene loading: runs last. The Witness counts OnDestroy when the main scene ends; the check keeps going in the second scene.
+    e.append(entity(next(ids), "Witness", (0, 1, -90), script="SceneWitness"))
+    scene_fields = "      StoredFields:\n" + "".join(
+        f"        - ID: {fnv1a(f'{NAMESPACE}.SceneLoadCheck.{name}')}\n          Name: {name}\n          Type: Scene\n          Data: {handle}\n"
+        for name, handle in (("Second", SECOND_SCENE_HANDLE), ("Extra", EXTRA_SCENE_HANDLE)))
+    e.append(entity(next(ids), "SceneLoadCheck", (0, 1, -92), script="SceneLoadCheck", fields=scene_fields))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.
@@ -154,6 +272,14 @@ def write_project(project, keep=None, runtime_config="dist"):
                 parents.add(field(text, "Entity: "))
         e = kept
     (assets / "Scenes/PlayTest.luxscene").write_text("Scene: PlayTest\nEntities:\n" + "".join(e), encoding="utf-8")
+
+    # The scene a script loads in place of this one, and a small one it adds on top (and takes off again).
+    (assets / "Scenes/Second.luxscene").write_text("Scene: Second\nEntities:\n"
+        + entity(7330000000000000001, "SecondMarker", (0, 1, 0), script="SecondSceneProbe")
+        + entity(7330000000000000002, "Finisher", (0, 1, 30), script="Finisher"), encoding="utf-8")
+    (assets / "Scenes/Extra.luxscene").write_text("Scene: Extra\nEntities:\n"
+        + entity(7340000000000000001, "AddedParent", (0, 1, 5), children=(7340000000000000002,), script="AddedProbe")
+        + entity(7340000000000000002, "AddedChild", (0, 1, 0), parent=7340000000000000001), encoding="utf-8")
 
 
 def build_scripts(project, work):

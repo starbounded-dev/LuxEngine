@@ -129,7 +129,7 @@ Inside a script, the entity is `this`:
 - `Translation`, `Rotation` (radians) and `Scale` read and write the [Transform](../components/transform).
 - `Name`, `Parent` and `Children` navigate the hierarchy.
 - `GetComponent<T>()`, `HasComponent<T>()`, `AddComponent<T>()` and `RemoveComponent<T>()` reach components such as `RigidBodyComponent` or `AudioSourceComponent`. `GetComponent` returns `null` when there is none.
-- `FindEntityByName("Player")` finds another entity; `As<MyScript>()` returns its script.
+- `Entity.Find("Player")` and `Entity.FindWithTag("enemy")` find other entities; `As<MyScript>()` returns an entity's script. [Gameplay API](gameplay-api) covers the rest.
 - `Entity.Create("Name")` creates an entity, and `Destroy()` removes one, with its children, at the end of the current frame. Until then it still exists, so code later in the same frame can still read it.
 
-`Log.Info`, `Log.Warn` and `Log.Error` print to the **Log** panel. Read the keyboard, mouse and gamepads with [Input](input). The [C# API Reference](../api/index) lists everything else.
+`Log.Info`, `Log.Warn` and `Log.Error` print to the **Log** panel. Read the keyboard, mouse and gamepads with [Input](input), and use [Time, physics queries, scenes, timers and more](gameplay-api). The [C# API Reference](../api/index) lists everything else.

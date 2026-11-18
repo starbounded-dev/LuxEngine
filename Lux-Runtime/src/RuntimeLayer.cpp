@@ -89,6 +89,11 @@ namespace Lux
 		OnScenePlay();
 	}
 
+	void RuntimeLayer::OnApplicationQuit()
+	{
+		OnSceneStop();
+	}
+
 	void RuntimeLayer::OnDetach()
 	{
 		// Stops the tracker thread.
@@ -186,6 +191,27 @@ namespace Lux
 		return true;
 	}
 
+	void RuntimeLayer::ApplyRequestedScene()
+	{
+		const AssetHandle requested = m_RuntimeScene->TakeSceneLoadRequest();
+		if (!requested || !m_SceneRunning)
+			return;
+
+		// Loaded first: on failure (logged) the current scene keeps running.
+		Ref<Scene> next = Scene::LoadForPlay(requested);
+		if (!next)
+			return;
+
+		// What outlives the old scene moves before it stops, because stopping destroys the scripts it still owns.
+		m_RuntimeScene->HandOverTo(*next);
+		OnSceneStop();
+		m_RuntimeScene = next;
+		if (m_SceneRenderer)
+			m_SceneRenderer->SetScene(m_RuntimeScene);
+		OnScenePlay();
+		LUX_CORE_INFO_TAG("Scene", "Loaded scene {}", static_cast<uint64_t>(requested));
+	}
+
 	void RuntimeLayer::OnScenePlay()
 	{
 		if (!m_RuntimeScene || m_SceneRunning)
@@ -253,6 +279,11 @@ namespace Lux
 
 	void RuntimeLayer::OnImGuiRender()
 	{
+		// A script asked for another scene (C# Scene.Load). Here and not in OnUpdate: this runs while the render thread is
+		// idle, and swapping the scene frees the old one's GPU resources.
+		if (m_RuntimeScene)
+			ApplyRequestedScene();
+
 		// Screen-space UI drawn over the image would sit flat, undistorted and at the same place in
 		// both eyes of the headset. VR UI belongs in the world (docs/VR_PLAN.md follow-ups).
 		if (m_VRSession)

@@ -365,14 +365,7 @@ namespace Lux {
 			// Pump audio even while minimized so streaming, callbacks and releases keep working.
 			{
 				LUX_SCOPE_PERF("AudioEngine::Update");
-				bool focused = glfwGetWindowAttrib(m_Window->GetNativeWindow(), GLFW_FOCUSED) != 0;
-				if (m_Specification.EnableImGui && ImGui::GetCurrentContext())
-				{
-					for (auto* viewport : ImGui::GetPlatformIO().Viewports)
-						if (auto* window = static_cast<GLFWwindow*>(viewport->PlatformHandle))
-							focused = focused || glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
-				}
-				AudioEngine::SetApplicationFocused(focused && !m_Minimized);
+				AudioEngine::SetApplicationFocused(IsFocused());
 				AudioEngine::Update();
 			}
 			m_PerformanceTimers.MainThreadWorkTime = cpuTimer.ElapsedMillis();
@@ -397,6 +390,11 @@ namespace Lux {
 
 			LimitFrameRate();
 		}
+		// Layers get to end their game while everything it uses is still up; the destructor tears the script host down first.
+		m_RenderThread.BlockUntilRenderComplete();
+		for (Layer* layer : m_LayerStack)
+			layer->OnApplicationQuit();
+
 		// Shutdown may take long (the GPU drains, assets release); a crash in it is still reported.
 		CrashWatchdog::SetHangDetection(false);
 		OnShutdown();
@@ -553,6 +551,18 @@ namespace Lux {
 	{
 		m_Minimized = e.IsMinimized();
 		return false;
+	}
+
+	bool Application::IsFocused() const
+	{
+		bool focused = glfwGetWindowAttrib(m_Window->GetNativeWindow(), GLFW_FOCUSED) != 0;
+		if (m_Specification.EnableImGui && ImGui::GetCurrentContext())
+		{
+			for (auto* viewport : ImGui::GetPlatformIO().Viewports)
+				if (auto* window = static_cast<GLFWwindow*>(viewport->PlatformHandle))
+					focused = focused || glfwGetWindowAttrib(window, GLFW_FOCUSED) != 0;
+		}
+		return focused && !m_Minimized;
 	}
 
 	bool Application::OnWindowClose(WindowCloseEvent& e)

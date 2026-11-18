@@ -15,6 +15,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 ## Components
 
+- [AreaLightComponent](AreaLightComponent) — A light with a surface: a rectangle, disk, sphere or tube, set in the inspector.
 - [AudioListenerComponent](AudioListenerComponent) — Where the game hears from.
 - [AudioPortalComponent](AudioPortalComponent) — Acoustic shutter and optional link between two AudioZone components.
 - [AudioSourceComponent](AudioSourceComponent) — Plays a Sound from the entity.
@@ -28,12 +29,19 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [CircleCollider2DComponent](CircleCollider2DComponent) — A circle shape for the entity's 2D rigid body.
 - [CircleRendererComponent](CircleRendererComponent) — Draws a circle or ring (2D).
 - [Component](Component) — The base of the component classes scripts read and change.
+- [DirectionalLightComponent](DirectionalLightComponent) — A light like the sun: parallel rays from the direction the entity faces.
+- [LightComponent](LightComponent) — The base of the lights that shine from an entity: [`DirectionalLightComponent`](DirectionalLightComponent), [`PointLightComponent`](PointLightComponent), [`SpotLightComponent`](SpotLightComponent) and [`AreaLightComponent`](AreaLightComponent).
 - [MeshColliderComponent](MeshColliderComponent) — A collider shaped like a mesh; also acoustic geometry.
+- [MusicDirectorComponent](MusicDirectorComponent) — The scene's music director as authored in the inspector: what plays when the game starts.
+- [PointLightComponent](PointLightComponent) — A light that shines in every direction from a point.
 - [RigidBody2DComponent](RigidBody2DComponent) — A 2D physics body (Box2D).
 - [RigidBodyComponent](RigidBodyComponent) — A 3D physics body (Jolt).
 - [SkeletonComponent](SkeletonComponent) — A skinned mesh's animation: playback of a clip or an animation graph, graph parameters, bone transforms and bone attachments.
+- [SkyLightComponent](SkyLightComponent) — The light and reflections from the sky, the environment the scene sits in.
 - [SphereColliderComponent](SphereColliderComponent) — A sphere shape for the entity's 3D rigid body or character.
+- [SpotLightComponent](SpotLightComponent) — A cone of light.
 - [SpriteRendererComponent](SpriteRendererComponent) — Draws a textured or colored quad (2D).
+- [StaticMeshComponent](StaticMeshComponent) — A mesh drawn at the entity.
 - [TagComponent](TagComponent) — The entity's name.
 - [TextComponent](TextComponent) — Draws text in the world with an MSDF font.
 - [TransformComponent](TransformComponent) — Position, rotation and scale relative to the parent.
@@ -82,16 +90,32 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 ## Other
 
-- [Application](Application) — The running game.
+- [Application](Application) — The running game: quitting it, pausing it, and being told when the window gains or loses focus, the view is resized, or the game ends.
+- [Color](Color) — A linear RGBA color with components from 0 to 1.
+- [Coroutine](Coroutine) — A routine started with [`Entity.StartCoroutine`](Entity): a method that returns `System.Collections.IEnumerator` and pauses at each `yield return`.
 - [CursorMode](CursorMode) — How the mouse cursor behaves over the game window, for [`Input.SetCursorMode`](Input).
 - [EventInstance](EventInstance) — An owned Sound instance.
 - [ForceMode](ForceMode) — How [`RigidBodyComponent.AddForce`](RigidBodyComponent) treats its vector.
 - [GamepadTrigger](GamepadTrigger) — The left or right trigger, for adaptive trigger effects.
 - [GamepadType](GamepadType) — Which family a gamepad belongs to, to pick its button prompts.
+- [MaterialValue](MaterialValue) — The scalar values of a material that [`StaticMeshComponent.GetMaterialValue`](StaticMeshComponent) reads and writes.
+- [Mathf](Mathf) — Single-precision maths helpers for gameplay: clamping, interpolation, angles and smoothing.
+- [Physics](Physics) — Questions about the physics world: what a ray or a moving shape would hit, and what overlaps a shape.
+- [Quaternion](Quaternion) — A rotation in 3D.
+- [Random](Random) — Random numbers for gameplay.
+- [RaycastHit](RaycastHit) — What a [`Physics`](Physics) ray or shape cast hit.
 - [Sound](Sound) — A Sound asset (.lsound), played by the native audio backend.
 - [SoundBank](SoundBank) — A Sound Bank asset (.lbank): Sounds that load and unload together.
 - [SoundCue](SoundCue) — A sound playing near the listener, for drawing visual sound cues.
 - [Subtitle](Subtitle) — A subtitle, caption or description line, for drawing your own subtitle UI.
+- [Time](Time) — The game clock.
+- [Timer](Timer) — A callback set to run later, or every so often, by [`Timer.After`](Timer), [`Timer.Every`](Timer), [`Entity.After`](Entity) or [`Entity.Every`](Entity).
 - [TriggerEffect](TriggerEffect) — A DualSense adaptive-trigger effect, built with [`TriggerEffect.Resistance`](TriggerEffect), [`TriggerEffect.Weapon`](TriggerEffect), [`TriggerEffect.Vibration`](TriggerEffect) or [`TriggerEffect.Off`](TriggerEffect).
 - [TriggerEffectType](TriggerEffectType) — The kind of a [`TriggerEffect`](TriggerEffect).
+- [WaitForFixedUpdate](WaitForFixedUpdate) — Waits for the next physics step, then continues just before the next `OnFixedUpdate` round has finished.
+- [WaitForSeconds](WaitForSeconds) — Waits for a number of seconds of game time.
+- [WaitForSecondsRealtime](WaitForSecondsRealtime) — Waits for a number of seconds of real time, whatever [`Time.TimeScale`](Time) is.
+- [WaitUntil](WaitUntil) — Waits until a condition becomes true.
+- [WaitWhile](WaitWhile) — Waits while a condition is true.
+- [YieldInstruction](YieldInstruction) — Something a coroutine can `yield return` to wait: [`WaitForSeconds`](WaitForSeconds), [`WaitForSecondsRealtime`](WaitForSecondsRealtime), [`WaitUntil`](WaitUntil), [`WaitWhile`](WaitWhile), [`WaitForFixedUpdate`](WaitForFixedUpdate), or another [`Coroutine`](Coroutine).
 

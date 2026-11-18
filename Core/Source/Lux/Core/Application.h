@@ -73,6 +73,10 @@ namespace Lux {
 
 		void Run();
 		void Close();
+		// True once Close() ran, until the loop ends and the layers detach.
+		bool IsClosing() const { return !m_Running; }
+		// Whether the window, or any ImGui platform window of the editor, has the focus and the application is not minimized.
+		bool IsFocused() const;
 
 		virtual void OnInit() {}
 		virtual void OnShutdown();

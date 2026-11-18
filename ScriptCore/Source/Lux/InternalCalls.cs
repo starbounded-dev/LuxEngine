@@ -66,6 +66,16 @@ namespace Lux
 
 		#region Application
 		internal static delegate*<void> Application_Quit;
+		internal static delegate*<Bool32> Application_IsFocused;
+		internal static delegate*<Bool32> Application_GetPaused;
+		internal static delegate*<Bool32, void> Application_SetPaused;
+		internal static delegate*<int> Application_GetWidth;
+		internal static delegate*<int> Application_GetHeight;
+		#endregion
+
+		#region Time
+		internal static delegate*<int, double> Time_Get;
+		internal static delegate*<float, void> Time_SetScale;
 		#endregion
 
 		#region Input
@@ -115,6 +125,14 @@ namespace Lux
 		// method from managed code". Any internal call that can run C# before it returns needs this.
 		internal static delegate* unmanaged<ulong, Vector3*, Vector3*, ulong> Scene_InstantiatePrefab;
 		internal static delegate*<Vector3*, Vector3*, Vector4*, float, Bool32, void> Gizmos_DrawLine;
+		internal static delegate*<ulong, void> Scene_Load;
+		internal static delegate*<ulong, void> Scene_LoadAdditive;
+		internal static delegate*<ulong, void> Scene_UnloadAdditive;
+		internal static delegate*<ulong> Scene_GetCurrent;
+		internal static delegate*<ulong, Bool32> Entity_GetPersistent;
+		internal static delegate*<ulong, Bool32> Entity_IsAlive;
+		internal static delegate*<ulong, Bool32> Entity_IsRunning;
+		internal static delegate*<ulong, Bool32, void> Entity_SetPersistent;
 		#endregion
 
 		#region Entity
@@ -128,6 +146,18 @@ namespace Lux
 		internal static delegate*<ulong, ulong> Entity_GetParent;
 		internal static delegate*<ulong, ulong, void> Entity_SetParent;
 		internal static delegate*<ulong, NativeArray<ulong>> Entity_GetChildren;
+		internal static delegate*<ulong, Bool32> Entity_GetActive;
+		internal static delegate*<ulong, Bool32, void> Entity_SetActive;
+		internal static delegate*<ulong, Bool32> Entity_IsActiveInHierarchy;
+		internal static delegate*<ulong, NativeString> Entity_GetUserTag;
+		internal static delegate*<ulong, NativeString, void> Entity_SetUserTag;
+		internal static delegate*<NativeString, Bool32, NativeArray<ulong>> Scene_FindEntitiesByName;
+		internal static delegate*<NativeString, Bool32, NativeArray<ulong>> Scene_FindEntitiesByTag;
+		internal static delegate*<ReflectionType, Bool32, NativeArray<ulong>> Scene_FindEntitiesWithComponent;
+		internal static delegate*<ulong, Bool32> Entity_GetScriptEnabled;
+		internal static delegate*<ulong, Bool32, void> Entity_SetScriptEnabled;
+		internal static delegate*<ulong, ReflectionType, Bool32> Component_GetEnabled;
+		internal static delegate*<ulong, ReflectionType, Bool32, void> Component_SetEnabled;
 		#endregion
 
 		#region TransformComponent
@@ -137,6 +167,9 @@ namespace Lux
 		internal static delegate*<ulong, Vector3*, void> TransformComponent_SetRotation;
 		internal static delegate*<ulong, Vector3*, void> TransformComponent_GetScale;
 		internal static delegate*<ulong, Vector3*, void> TransformComponent_SetScale;
+		internal static delegate*<ulong, Vector4*, void> TransformComponent_GetRotationQuat;
+		internal static delegate*<ulong, Vector4*, void> TransformComponent_SetRotationQuat;
+		internal static delegate*<ulong, Vector3*, Vector4*, void> TransformComponent_GetWorld;
 		#endregion
 
 		#region TagComponent
@@ -244,6 +277,34 @@ namespace Lux
 		internal static delegate*<ulong, Bool32, void> RigidBodyComponent_SetGravityEnabled;
 		internal static delegate*<ulong, Bool32> RigidBodyComponent_IsSleeping;
 		internal static delegate*<ulong, Bool32, void> RigidBodyComponent_SetSleepState;
+		#endregion
+
+		#region Lights, camera, static mesh, music director
+		internal static delegate*<ulong, int, int, float> Light_GetScalar;
+		internal static delegate*<ulong, int, int, float, Bool32> Light_SetScalar;
+		internal static delegate*<ulong, int, Vector3*, Bool32> Light_GetColor;
+		internal static delegate*<ulong, int, Vector3*, Bool32> Light_SetColor;
+		internal static delegate*<ulong, int, float> Camera_GetScalar;
+		internal static delegate*<ulong, int, float, Bool32> Camera_SetScalar;
+		internal static delegate*<ulong, ulong> StaticMesh_GetMesh;
+		internal static delegate*<ulong, ulong, Bool32> StaticMesh_SetMesh;
+		internal static delegate*<ulong, int> StaticMesh_GetMaterialCount;
+		internal static delegate*<ulong, int, ulong> StaticMesh_GetMaterial;
+		internal static delegate*<ulong, int, ulong, Bool32> StaticMesh_SetMaterial;
+		internal static delegate*<ulong, int, int, Vector4*, Bool32> StaticMesh_GetMaterialValue;
+		internal static delegate*<ulong, int, int, Vector4*, Bool32> StaticMesh_SetMaterialValue;
+		internal static delegate*<ulong, int, float> MusicDirector_GetScalar;
+		internal static delegate*<ulong, int, float, Bool32> MusicDirector_SetScalar;
+		internal static delegate*<ulong, NativeString> MusicDirector_GetInitialState;
+		internal static delegate*<ulong, NativeString, Bool32> MusicDirector_SetInitialState;
+		#endregion
+
+		#region Physics queries
+		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_Raycast;
+		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, int, int> Physics_RaycastAll;
+		internal static delegate*<int, Vector3*, Vector4*, Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_ShapeCast;
+		internal static delegate*<int, Vector3*, Vector4*, Vector3*, uint, ulong, Bool32, ulong*, int, int> Physics_OverlapShape;
+		internal static delegate*<NativeString, int> Physics_GetLayerIndex;
 		#endregion
 
 		#region CharacterControllerComponent
