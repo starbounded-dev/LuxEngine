@@ -9,6 +9,9 @@ fails on a missing PASS, any FAIL, a managed exception or a graphics/validation 
 
     python tests/play/run_play.py [--config debug|release] [--policies Single,Multi] [--frames 900]
 
+Also covers the M4 gameplay API (tests/play/Scripts/ApiTests.cs): time, transforms, active/enabled, finders, physics
+queries, components, timers, application events and scene loading, which runs last and ends the main scene.
+
 Needs the .NET 10 SDK and a built editor. Never touches the sample project or your preferences.
 """
 import argparse
