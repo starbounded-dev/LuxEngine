@@ -15,13 +15,13 @@
 // asset worker (Threading.md: the worker never mutates the registry). Editor only: the player has no
 // EditorAssetManager, so a path read there resolves to a hashed handle; packs stay numeric.
 
-#include "Lux/Asset/AssetManager/EditorAssetManager.h"
+#include "Lux/Asset/Asset.h"
 #include "Lux/Core/Log.h"
-#include "Lux/Project/Project.h"
 #include "Lux/Serialization/Yaml.h"
 
 #include <charconv>
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -29,6 +29,12 @@
 
 namespace Lux::AssetReference
 {
+	namespace Detail
+	{
+		AssetHandle LookupRegisteredHandle(const std::string& path);
+		std::string LookupRegisteredPath(AssetHandle handle);
+	}
+
 	inline bool& PathModeFlag()
 	{
 		thread_local bool s_PathMode = false;
@@ -88,32 +94,12 @@ namespace Lux::AssetReference
 		return true;
 	}
 
-	inline Ref<EditorAssetManager> Manager()
-	{
-		// Ref::As is unchecked, so confirm the type: the player's manager is a RuntimeAssetManager.
-		Ref<AssetManagerBase> base = Project::GetAssetManager();
-		if (!base || !dynamic_cast<EditorAssetManager*>(base.Raw()))
-			return {};
-		return base.As<EditorAssetManager>();
-	}
-
 	inline AssetHandle ResolvePath(const std::string& path)
 	{
-		Ref<EditorAssetManager> manager = Manager();
-		if (manager)
-		{
-			// A path this engine wrote is already a registry key: no parsing.
-			if (const AssetHandle handle = manager->GetAssetHandleFromPathKey(path))
-				return handle;
-		}
+		if (const AssetHandle handle = Detail::LookupRegisteredHandle(path))
+			return handle;
 
 		const std::filesystem::path relative = std::filesystem::path(path).lexically_normal();
-		if (manager)
-		{
-			if (const AssetHandle handle = manager->GetAssetHandleFromFilePath(relative))
-				return handle;
-		}
-
 		const std::string normalized = relative.generic_string();
 		const uint64_t hashed = HashPath(normalized);
 		UnresolvedStore& store = Unresolved();
@@ -129,13 +115,7 @@ namespace Lux::AssetReference
 		if (!handle)
 			return {};
 
-		std::string path;
-		if (Ref<EditorAssetManager> manager = Manager())
-		{
-			const AssetMetadata metadata = manager->GetMetadata(handle);
-			if (metadata.IsValid() && !metadata.FilePath.empty())
-				path = metadata.FilePath.generic_string();
-		}
+		std::string path = Detail::LookupRegisteredPath(handle);
 
 		if (path.empty())
 		{

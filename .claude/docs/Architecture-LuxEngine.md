@@ -761,7 +761,9 @@ Rules:
   `AssetRegistry.lzr`, a fresh worktree and a clean clone. `AssetReference::ReadValue` accepts both a
   path and the old bare number and resolves a path with the read-only
   `EditorAssetManager::GetAssetHandleFromFilePath` (O(1) through `AssetRegistry::FindByPathKey`; safe on the asset
-  worker, never imports). `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
+  worker, never imports). The lookup functions in `AssetReference.cpp` bridge the serializer and the active
+  project. Standalone native audio tests supply those lookups without an editor asset manager.
+  `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
   `SceneSerializer::Serialize(filepath)` and the `.lsound`/`.lbank` file save open; snapshots, undo diffs,
   `SerializeRuntime` and asset packs stay numeric because the player has no path map. A path that names no
   registered asset keeps a stable hashed handle and is written back unchanged, so a save never erases a
