@@ -22,6 +22,7 @@ A script derives from `Entity` and the engine calls its hooks by name, so they n
 | `Forward` | `Vector3` | get | The direction the entity faces in the world: -Z rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `Name` | `string` | get, set | The entity's name, as shown in the Scene Hierarchy. |
 | `Parent` | `Entity` | get, set | The parent entity, or null for a root. Setting it keeps [`Entity.Translation`](Entity), [`Entity.Rotation`](Entity) and [`Entity.Scale`](Entity) as they are, so they become relative to the new parent; null detaches the entity. A change that would make the entity its own ancestor is ignored. |
+| `Persistent` | `bool` | get, set | Whether the entity survives [`Scene.Load`](Scene): it moves to the new scene with its children, its script (which keeps running, without a new `OnCreate`) and the script's fields. Its physics body, audio and animation start again in the new scene. A persistent child is carried as a root, where it stands in the world. Set it from `OnCreate`. |
 | `Right` | `Vector3` | get | The entity's right in the world: +X rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `Rotation` | `Vector3` | get, set | Rotation relative to the parent, as Euler angles in radians. |
 | `RotationQuaternion` | `Quaternion` | get, set | Rotation relative to the parent as a [`Quaternion`](Quaternion); the same rotation as [`Entity.Rotation`](Entity). |

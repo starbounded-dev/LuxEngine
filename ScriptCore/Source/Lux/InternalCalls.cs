@@ -120,6 +120,12 @@ namespace Lux
 		// method from managed code". Any internal call that can run C# before it returns needs this.
 		internal static delegate* unmanaged<ulong, Vector3*, Vector3*, ulong> Scene_InstantiatePrefab;
 		internal static delegate*<Vector3*, Vector3*, Vector4*, float, Bool32, void> Gizmos_DrawLine;
+		internal static delegate*<ulong, void> Scene_Load;
+		internal static delegate*<ulong, void> Scene_LoadAdditive;
+		internal static delegate*<ulong, void> Scene_UnloadAdditive;
+		internal static delegate*<ulong> Scene_GetCurrent;
+		internal static delegate*<ulong, Bool32> Entity_GetPersistent;
+		internal static delegate*<ulong, Bool32, void> Entity_SetPersistent;
 		#endregion
 
 		#region Entity

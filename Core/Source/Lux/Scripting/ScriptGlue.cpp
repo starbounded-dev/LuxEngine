@@ -243,6 +243,49 @@ namespace Lux {
 		return root ? (uint64_t)root.GetUUID() : 0;
 	}
 
+	// Scene changes are requests: the layer that owns the running scene performs them (Scene::RequestSceneLoad), and
+	// an additive load or unload runs when this frame's update ends.
+	static void Scene_Load(uint64_t sceneHandle)
+	{
+		if (!sceneHandle)
+		{
+			LUX_CONSOLE_LOG_ERROR("Scene.Load: the scene is not set");
+			return;
+		}
+		GetScene()->RequestSceneLoad(sceneHandle);
+	}
+
+	static void Scene_LoadAdditive(uint64_t sceneHandle)
+	{
+		if (!sceneHandle)
+		{
+			LUX_CONSOLE_LOG_ERROR("Scene.LoadAdditive: the scene is not set");
+			return;
+		}
+		GetScene()->RequestAdditiveScene(sceneHandle);
+	}
+
+	static void Scene_UnloadAdditive(uint64_t sceneHandle)
+	{
+		if (sceneHandle)
+			GetScene()->RequestUnloadAdditiveScene(sceneHandle);
+	}
+
+	static uint64_t Scene_GetCurrent()
+	{
+		return static_cast<uint64_t>(GetScene()->Handle);
+	}
+
+	static Coral::Bool32 Entity_GetPersistent(uint64_t entityID)
+	{
+		return GetScene()->IsEntityPersistent(GetEntity(entityID));
+	}
+
+	static void Entity_SetPersistent(uint64_t entityID, Coral::Bool32 persistent)
+	{
+		GetScene()->SetEntityPersistent(GetEntity(entityID), persistent);
+	}
+
 	static void Gizmos_DrawLine(glm::vec3* start, glm::vec3* end, glm::vec4* color, float duration, Coral::Bool32 depthTest)
 	{
 		GetScene()->AddDebugLine(*start, *end, *color, duration, depthTest);
@@ -1182,6 +1225,12 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(Scene_DestroyEntity);
 		LUX_ADD_INTERNAL_CALL(Scene_InstantiatePrefab);
 		LUX_ADD_INTERNAL_CALL(Gizmos_DrawLine);
+		LUX_ADD_INTERNAL_CALL(Scene_Load);
+		LUX_ADD_INTERNAL_CALL(Scene_LoadAdditive);
+		LUX_ADD_INTERNAL_CALL(Scene_UnloadAdditive);
+		LUX_ADD_INTERNAL_CALL(Scene_GetCurrent);
+		LUX_ADD_ENTITY_CALL(Entity_GetPersistent);
+		LUX_ADD_ENTITY_CALL(Entity_SetPersistent);
 
 		LUX_ADD_ENTITY_CALL(GetScriptInstance);
 		LUX_ADD_ENTITY_CALL(Entity_HasComponent);

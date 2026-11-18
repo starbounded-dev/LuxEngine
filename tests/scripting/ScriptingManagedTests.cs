@@ -26,6 +26,7 @@ internal static unsafe partial class ScriptingManagedTests
 		RunFind();
 		RunPhysics();
 		RunComponents();
+		RunScenes();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -449,5 +450,38 @@ internal static unsafe partial class ScriptingManagedTests
 		MusicDirectorComponent director = new MusicDirectorComponent { Entity = owner };
 		director.PlayOnAwake = true; director.Intensity = 0.4f; director.InitialState = "Calm";
 		Check(s_MusicValues[0] == 1.0f && s_MusicValues[1] == 0.4f && s_MusicState == "Calm" && director.PlayOnAwake && director.InitialState == "Calm", "MusicDirector fields");
+	}
+
+	// ---- S2: scene loading --------------------------------------------------------------------------------------
+
+	private static ulong s_LoadedScene, s_AdditiveScene, s_UnloadedScene, s_CurrentScene = 11;
+	private static bool s_PersistentFlag;
+	private static void SceneLoad(ulong handle) { s_LoadedScene = handle; }
+	private static void SceneLoadAdditive(ulong handle) { s_AdditiveScene = handle; }
+	private static void SceneUnloadAdditive(ulong handle) { s_UnloadedScene = handle; }
+	private static ulong SceneGetCurrent() => s_CurrentScene;
+	private static Bool32 EntityGetPersistent(ulong id) => s_PersistentFlag;
+	private static void EntitySetPersistent(ulong id, Bool32 value) { s_PersistentFlag = value; }
+
+	private static void RunScenes()
+	{
+		InternalCalls.Scene_Load = &SceneLoad;
+		InternalCalls.Scene_LoadAdditive = &SceneLoadAdditive;
+		InternalCalls.Scene_UnloadAdditive = &SceneUnloadAdditive;
+		InternalCalls.Scene_GetCurrent = &SceneGetCurrent;
+		InternalCalls.Entity_GetPersistent = &EntityGetPersistent;
+		InternalCalls.Entity_SetPersistent = &EntitySetPersistent;
+
+		Scene level = new Scene(42);
+		level.Load();
+		level.LoadAdditive();
+		level.Unload();
+		Check(s_LoadedScene == 42 && s_AdditiveScene == 42 && s_UnloadedScene == 42, "Scene.Load, LoadAdditive and Unload send the scene's handle");
+		Check(Scene.Current.Handle == 11, "Scene.Current reads the running scene");
+		Entity keeper = new Entity(3);
+		keeper.Persistent = true;
+		Check(s_PersistentFlag && keeper.Persistent, "Entity.Persistent writes through and reads back");
+		keeper.Persistent = false;
+		Check(!keeper.Persistent, "Entity.Persistent can be cleared");
 	}
 }

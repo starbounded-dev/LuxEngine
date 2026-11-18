@@ -167,6 +167,18 @@ namespace Lux
 			set => InternalCalls.Entity_SetScriptEnabled(ID, value);
 		}
 
+		/// <summary>
+		/// Whether the entity survives <see cref="Scene.Load"/>: it moves to the new scene with its children, its script
+		/// (which keeps running, without a new <c>OnCreate</c>) and the script's fields. Its physics body, audio and
+		/// animation start again in the new scene. A persistent child is carried as a root, where it stands in the world.
+		/// Set it from <c>OnCreate</c>.
+		/// </summary>
+		public unsafe bool Persistent
+		{
+			get => InternalCalls.Entity_GetPersistent(ID);
+			set => InternalCalls.Entity_SetPersistent(ID, value);
+		}
+
 		/// <summary>The entity's direct children, in hierarchy order.</summary>
 		public unsafe Entity[] Children
 		{

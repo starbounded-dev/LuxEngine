@@ -470,4 +470,167 @@ namespace PlayTest
 			Report.Result("Components", problem == null, problem ?? "");
 		}
 	}
+
+	// S2: counts how many of the scene's scripts were told to end, so the check can see the old scene really ended.
+	public class SceneWitness : Entity
+	{
+		public static int Destroys;
+
+		void OnDestroy() => Destroys++;
+	}
+
+	// S2: created by the second scene, to show its scripts start fresh after Scene.Load.
+	public class SecondSceneProbe : Entity
+	{
+		public static int Creates;
+
+		void OnCreate() => Creates++;
+	}
+
+	// S2: the additive scene's scripts, counted when they start and end.
+	public class AddedProbe : Entity
+	{
+		public static int Creates, Destroys;
+
+		void OnCreate() => Creates++;
+		void OnDestroy() => Destroys++;
+	}
+
+	// S2: replaces the running scene, keeps a persistent entity with its script, and adds and removes an additive scene.
+	// Runs last, once every other check has reported, because Scene.Load ends everything else in the main scene.
+	public class SceneLoadCheck : Entity
+	{
+		public Scene Second;
+		public Scene Extra;
+
+		const int OtherChecks = 18;
+		int m_Phase, m_Wait, m_Creates;
+		int m_Counter;                 // survives the load only if this very script instance does
+		double m_ElapsedBefore;
+		ulong m_KidID;
+		string m_Problem;
+
+		void Fail(string reason) { if (m_Problem == null) m_Problem = reason; }
+
+		void OnCreate() => m_Creates++;
+
+		void OnUpdate(float ts)
+		{
+			m_Counter++;
+			switch (m_Phase)
+			{
+				case 0:   // wait for every other check, then ask for the second scene
+				{
+					if (Report.Count < OtherChecks)
+						return;
+					Persistent = true;
+					Entity kid = Create("PersistentKid");
+					kid.Parent = this;
+					m_KidID = kid.ID;
+					Translation = new Vector3(12.0f, 34.0f, 56.0f);
+					Time.TimeScale = 0.5f;
+					m_ElapsedBefore = Time.ElapsedTime;
+					if (Second == null || Second.Handle == 0 || Scene.Current.Handle == Second.Handle)
+					{
+						Report.Result("SceneLoading", false, "the Second scene field is not set to another scene");
+						m_Phase = 99;
+						return;
+					}
+					Second.Load();
+					Second.Load();   // the last request of a frame wins, and a repeat changes nothing
+					m_Phase = 1;
+					m_Counter = 100;
+					return;
+				}
+				case 1:   // the second scene has taken over
+				{
+					// The swap happens at the start of the next frame; allow a few frames before calling it a failure.
+					if (Scene.Current.Handle != Second.Handle && ++m_Wait < 5)
+						return;
+					if (Scene.Current.Handle != Second.Handle)
+						Fail($"the running scene is still {Scene.Current.Handle}, expected {Second.Handle}");
+					if (m_Creates != 1)
+						Fail($"OnCreate ran {m_Creates} times; a persistent script must not start again");
+					if (m_Counter < 101)
+						Fail($"the script instance did not survive the load (counter {m_Counter}, expected above 100)");
+					if (SceneWitness.Destroys == 0)
+						Fail("scripts of the old scene did not get OnDestroy");
+					if (Entity.Find("QueryWall", true) != null)
+						Fail("an entity of the old scene is still there");
+					Entity marker = Entity.Find("SecondMarker");
+					if (marker == null || SecondSceneProbe.Creates != 1)
+						Fail($"the second scene's marker was not created (probe starts: {SecondSceneProbe.Creates})");
+					if (Vector3.Distance(WorldTranslation, new Vector3(12.0f, 34.0f, 56.0f)) > 1e-3f)
+						Fail($"the persistent entity moved to {WorldTranslation}");
+					Entity kid = Entity.Find("PersistentKid", true);
+					if (kid == null || kid.ID != m_KidID || kid.Parent == null || kid.Parent.ID != ID)
+						Fail("the persistent entity's child did not come along under its parent");
+					if (!Persistent)
+						Fail("the entity should still be persistent in the new scene");
+					if (Time.TimeScale != 0.5f || Time.ElapsedTime < m_ElapsedBefore)
+						Fail($"the game clock did not carry over (scale {Time.TimeScale}, elapsed {Time.ElapsedTime} against {m_ElapsedBefore})");
+					Time.TimeScale = 1.0f;
+					if (Extra == null || Extra.Handle == 0)
+					{
+						Report.Result("SceneLoading", false, m_Problem ?? "the Extra scene field is not set");
+						m_Phase = 99;
+						return;
+					}
+					Extra.LoadAdditive();
+					m_Phase = 2;
+					m_Wait = 0;
+					return;
+				}
+				case 2:   // the additive scene is in
+				{
+					if (AddedProbe.Creates == 0 && m_Wait++ < 5)
+						return;
+					Entity parent = Entity.Find("AddedParent");
+					Entity child = Entity.Find("AddedChild");
+					if (parent == null || child == null || child.Parent == null || child.Parent.ID != parent.ID)
+						Fail("the additive scene's hierarchy is not in the running scene");
+					if (AddedProbe.Creates != 1)
+						Fail($"the additive scene's script started {AddedProbe.Creates} times, expected 1");
+					if (Entity.Find("SecondMarker") == null)
+						Fail("loading a scene additively removed the running scene's entities");
+					Extra.LoadAdditive();   // a second copy of the same scene
+					m_Phase = 3;
+					m_Wait = 0;
+					return;
+				}
+				case 3:   // two copies: the second one got new IDs
+				{
+					if (AddedProbe.Creates < 2 && m_Wait++ < 5)
+						return;
+					Entity[] parents = Entity.FindAll("AddedParent");
+					if (parents.Length != 2 || parents[0].ID == parents[1].ID)
+						Fail($"loading the same scene twice should give two separate copies, found {parents.Length}");
+					foreach (Entity added in parents)
+					{
+						Entity[] kids = added.Children;
+						if (kids.Length != 1 || kids[0].Parent == null || kids[0].Parent.ID != added.ID)
+							Fail("a copy of the additive scene lost its hierarchy");
+					}
+					Extra.Unload();
+					m_Phase = 4;
+					m_Wait = 0;
+					return;
+				}
+				case 4:   // everything the additive scene added is gone
+				{
+					if (AddedProbe.Destroys < 2 && m_Wait++ < 5)
+						return;
+					if (Entity.Find("AddedParent", true) != null || Entity.Find("AddedChild", true) != null)
+						Fail("Unload left entities of the additive scene behind");
+					if (AddedProbe.Destroys != 2)
+						Fail($"the additive scripts were destroyed {AddedProbe.Destroys} times, expected 2");
+					if (Entity.Find("SecondMarker") == null)
+						Fail("Unload removed more than the additive scene");
+					Report.Result("SceneLoading", m_Problem == null, m_Problem ?? "");
+					m_Phase = 99;
+					return;
+				}
+			}
+		}
+	}
 }

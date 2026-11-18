@@ -193,6 +193,7 @@ namespace Lux
 		void BeginPlayUndoHistory();                              // baseline the runtime scene, clear play stacks
 		void CommitPlaySnapshot();                                // diff the runtime scene, push a play step
 		void RestoreRuntimeState(const std::string& meta, const std::map<UUID, std::string>& entities);
+		void SwitchPlayScene(AssetHandle sceneHandle);            // a script loaded another scene during Play (C# Scene.Load)
 		void AdoptRuntimeScene(const Ref<Scene>& scene);          // stop old runtime, swap, restart, retarget
 
 		// Non-scene undo commands push through this (renderer/project settings, and future subsystems).

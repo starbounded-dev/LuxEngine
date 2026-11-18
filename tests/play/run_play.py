@@ -30,11 +30,13 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components"]
+          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "SceneLoading"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
 MESH_HANDLE = 7300000000000000003
+SECOND_SCENE_HANDLE = 7300000000000000004
+EXTRA_SCENE_HANDLE = 7300000000000000005
 
 
 def fnv1a(text):
@@ -155,7 +157,9 @@ def write_project(project, keep=None, runtime_config="dist"):
     (assets / "AssetRegistry.lzr").write_text(
         f"Assets:\n  - Handle: {SCENE_HANDLE}\n    FilePath: Scenes/PlayTest.luxscene\n    Type: Scene\n"
         f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n"
-        f"  - Handle: {MESH_HANDLE}\n    FilePath: Meshes/TwoMaterials.gltf\n    Type: MeshSource\n", encoding="utf-8")
+        f"  - Handle: {MESH_HANDLE}\n    FilePath: Meshes/TwoMaterials.gltf\n    Type: MeshSource\n"
+        f"  - Handle: {SECOND_SCENE_HANDLE}\n    FilePath: Scenes/Second.luxscene\n    Type: Scene\n"
+        f"  - Handle: {EXTRA_SCENE_HANDLE}\n    FilePath: Scenes/Extra.luxscene\n    Type: Scene\n", encoding="utf-8")
     (assets / "Meshes").mkdir()
     write_two_material_cube(assets / "Meshes/TwoMaterials.gltf")
 
@@ -236,6 +240,12 @@ def write_project(project, keep=None, runtime_config="dist"):
     mesh_body = f"    StaticMeshComponent:\n      AssetID: {MESH_HANDLE}\n"
     e.append(entity(next(ids), "MeshProbeA", (-4, 1, -80), body=mesh_body))
     e.append(entity(next(ids), "MeshProbeB", (-6, 1, -80), body=mesh_body))
+    # Scene loading: runs last. The Witness counts OnDestroy when the main scene ends; the check keeps going in the second scene.
+    e.append(entity(next(ids), "Witness", (0, 1, -90), script="SceneWitness"))
+    scene_fields = "      StoredFields:\n" + "".join(
+        f"        - ID: {fnv1a(f'{NAMESPACE}.SceneLoadCheck.{name}')}\n          Name: {name}\n          Type: Scene\n          Data: {handle}\n"
+        for name, handle in (("Second", SECOND_SCENE_HANDLE), ("Extra", EXTRA_SCENE_HANDLE)))
+    e.append(entity(next(ids), "SceneLoadCheck", (0, 1, -92), script="SceneLoadCheck", fields=scene_fields))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.
@@ -255,6 +265,14 @@ def write_project(project, keep=None, runtime_config="dist"):
                 parents.add(field(text, "Entity: "))
         e = kept
     (assets / "Scenes/PlayTest.luxscene").write_text("Scene: PlayTest\nEntities:\n" + "".join(e), encoding="utf-8")
+
+    # The scene a script loads in place of this one, and a small one it adds on top (and takes off again).
+    (assets / "Scenes/Second.luxscene").write_text("Scene: Second\nEntities:\n"
+        + entity(7330000000000000001, "SecondMarker", (0, 1, 0), script="SecondSceneProbe")
+        + entity(7330000000000000002, "Finisher", (0, 1, 30), script="Finisher"), encoding="utf-8")
+    (assets / "Scenes/Extra.luxscene").write_text("Scene: Extra\nEntities:\n"
+        + entity(7340000000000000001, "AddedParent", (0, 1, 5), children=(7340000000000000002,), script="AddedProbe")
+        + entity(7340000000000000002, "AddedChild", (0, 1, 0), parent=7340000000000000001), encoding="utf-8")
 
 
 def build_scripts(project, work):

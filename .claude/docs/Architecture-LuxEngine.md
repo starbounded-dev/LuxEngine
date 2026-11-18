@@ -778,6 +778,30 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   `ResolveStaticMeshMaterialHandle` treats a table with one entry at slot 0 as the answer for every slot, so
   `PinMaterialSlots` writes down every slot's material (all resolved first) before one of them changes.
   Portals already had `AudioPortalComponent`; the audio zone and portal keep their own `Enabled`.
+- **Scene loading from scripts (M4 S2).** C# `Scene.Load()`, `LoadAdditive()`, `Unload()`, `Scene.Current` and
+  `Entity.Persistent` (`Scene_Load` etc. in `ScriptGlue.cpp`). A script only asks:
+  - *Replace.* `Scene::RequestSceneLoad` stores the handle (last request of a frame wins). The layer that owns the
+    running scene takes it, `RuntimeLayer::ApplyRequestedScene` and `EditorLayer::SwitchPlayScene`, both from
+    `OnImGuiRender`. **It must be that phase, not `OnUpdate`:** `Application::Run` kicks the render thread before
+    layer updates, and swapping the scene frees the old one's GPU resources (the Play button runs in the same phase).
+    They call `Scene::LoadForPlay` (the player decodes the scene from the pack; the editor copies the asset, so Play never
+    edits it; it picks the manager with `Application::IsRuntime()` because `Project::GetRuntimeAssetManager()` is an
+    unchecked cast and returns a bogus pointer in the editor), then `old->HandOverTo(*next)`, stop the old scene
+    and start the new one (`AdoptRuntimeScene` in the editor). A failed load logs and keeps the old scene running.
+  - *Persistent entities.* `Scene::m_PersistentEntities` (runtime only, never serialized). `HandOverTo` copies each
+    persistent root with its subtree into the next scene under the same UUIDs (`CopyComponentIfExists(AllComponents)`,
+    tag state, `RuntimeBody` pointers are rewritten when physics starts), as a root keeping its world transform, and
+    **moves the live script**: the `EntityScriptStorage` node and the `m_ScriptInstances` / `m_PendingScriptCreates`
+    entries change owner (the managed object belongs to the script engine, so its address is stable), the next
+    scene's `StartScriptInstance` skips them, and they get neither `OnDestroy` nor a second `OnCreate`. An entity of
+    the same UUID already in the next scene is replaced by the carried one. The game clock (`m_Clock`, including
+    `TimeScale`) and the pause flag carry over; audio, physics bodies, directors and animation state start fresh.
+  - *Additive.* `RequestAdditiveScene` queues `Scene::AddScene` on `m_PostUpdateQueue` (end of the frame's update): the
+    scene is loaded with `LoadForPlay`, its entities are created in creation order (new UUIDs only where this scene
+    already has the ID, hierarchy remapped, script fields holding an `Entity` are not), then
+    `StartSpawnedHierarchy` starts bodies and scripts as for a prefab (`m_SpawningPrefab` holds the physics hooks while
+    components are copied). `m_AdditiveScenes` remembers each load's entities for `Unload`, which destroys exactly those
+    (with `OnDestroy`). 2D physics bodies are not created for added entities (same shortcut as prefab spawns).
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:
