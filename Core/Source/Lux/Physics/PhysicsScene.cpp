@@ -236,8 +236,8 @@ namespace Lux {
 		class LuxBodyFilter final : public JPH::BodyFilter
 		{
 		public:
-			explicit LuxBodyFilter(const ExcludedEntityMap& excludedEntities)
-				: m_ExcludedEntities(excludedEntities)
+			LuxBodyFilter(const ExcludedEntityMap& excludedEntities, uint32_t layerMask = k_AllPhysicsLayers, bool includeTriggers = false)
+				: m_ExcludedEntities(excludedEntities), m_LayerMask(layerMask), m_IncludeTriggers(includeTriggers)
 			{
 			}
 
@@ -245,7 +245,12 @@ namespace Lux {
 
 			bool ShouldCollideLocked(const JPH::Body& body) const override
 			{
-				if (body.IsSensor())
+				if (body.IsSensor() && !m_IncludeTriggers)
+					return false;
+
+				// A body's object layer is the index of its physics layer in the project's list.
+				const uint32_t layer = body.GetObjectLayer();
+				if (layer < 32 && (m_LayerMask & (1u << layer)) == 0)
 					return false;
 
 				return m_ExcludedEntities.find((UUID)body.GetUserData()) == m_ExcludedEntities.end();
@@ -253,6 +258,8 @@ namespace Lux {
 
 		private:
 			const ExcludedEntityMap& m_ExcludedEntities;
+			uint32_t m_LayerMask;
+			bool m_IncludeTriggers;
 		};
 
 		struct ShapePart
@@ -1117,7 +1124,7 @@ namespace Lux {
 
 		JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
 		JPH::RayCastSettings raySettings;
-		m_Impl->System.GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), raySettings, collector, {}, {}, LuxBodyFilter(rayCastInfo->ExcludedEntities));
+		m_Impl->System.GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), raySettings, collector, {}, {}, LuxBodyFilter(rayCastInfo->ExcludedEntities, rayCastInfo->LayerMask, rayCastInfo->IncludeTriggers));
 
 		if (!collector.HadHit())
 			return false;
@@ -1156,7 +1163,7 @@ namespace Lux {
 		JPH::RayCastSettings raySettings;
 		raySettings.SetBackFaceMode(JPH::EBackFaceMode::CollideWithBackFaces);
 		raySettings.mTreatConvexAsSolid = false;
-		m_Impl->System.GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), raySettings, collector, {}, {}, LuxBodyFilter(rayCastInfo->ExcludedEntities));
+		m_Impl->System.GetNarrowPhaseQuery().CastRay(JPH::RRayCast(ray), raySettings, collector, {}, {}, LuxBodyFilter(rayCastInfo->ExcludedEntities, rayCastInfo->LayerMask, rayCastInfo->IncludeTriggers));
 		if (!collector.HadHit())
 			return false;
 
@@ -1219,12 +1226,12 @@ namespace Lux {
 		JPH::ShapeCast shapeCast = JPH::ShapeCast::sFromWorldTransform(
 			shape,
 			JPH::Vec3::sReplicate(1.0f),
-			JPH::Mat44::sTranslation(ToJoltVector(shapeCastInfo->Origin)),
+			JPH::Mat44::sRotationTranslation(ToJoltQuat(shapeCastInfo->Rotation), ToJoltVector(shapeCastInfo->Origin)),
 			ToJoltVector(direction) * shapeCastInfo->MaxDistance);
 
 		JPH::ShapeCastSettings settings;
 		JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-		m_Impl->System.GetNarrowPhaseQuery().CastShape(JPH::RShapeCast(shapeCast), settings, JPH::RVec3::sZero(), collector, {}, {}, LuxBodyFilter(shapeCastInfo->ExcludedEntities));
+		m_Impl->System.GetNarrowPhaseQuery().CastShape(JPH::RShapeCast(shapeCast), settings, JPH::RVec3::sZero(), collector, {}, {}, LuxBodyFilter(shapeCastInfo->ExcludedEntities, shapeCastInfo->LayerMask, shapeCastInfo->IncludeTriggers));
 
 		if (!collector.HadHit())
 			return false;
@@ -1234,10 +1241,12 @@ namespace Lux {
 			return false;
 
 		const JPH::Body& body = bodyLock.GetBody();
+		// Position is where the shape touches the body; Distance is how far the shape travelled to get there.
+		const JPH::Vec3 contactPoint = collector.mHit.mContactPointOn2;
 		outHit.HitEntity = (UUID)body.GetUserData();
-		outHit.Position = shapeCastInfo->Origin + direction * shapeCastInfo->MaxDistance * collector.mHit.mFraction;
-		outHit.Normal = FromJoltVector(body.GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, ToJoltVector(outHit.Position)));
-		outHit.Distance = glm::distance(shapeCastInfo->Origin, outHit.Position);
+		outHit.Position = FromJoltVector(contactPoint);
+		outHit.Normal = FromJoltVector(body.GetWorldSpaceSurfaceNormal(collector.mHit.mSubShapeID2, contactPoint));
+		outHit.Distance = shapeCastInfo->MaxDistance * collector.mHit.mFraction;
 		return true;
 	}
 
@@ -1278,12 +1287,12 @@ namespace Lux {
 		m_Impl->System.GetNarrowPhaseQuery().CollideShape(
 			shape,
 			JPH::Vec3::sReplicate(1.0f),
-			JPH::RMat44::sTranslation(JoltUtils::ToJoltRVec3(shapeOverlapInfo->Origin)),
+			JPH::RMat44::sTranslation(JoltUtils::ToJoltRVec3(shapeOverlapInfo->Origin)) * JPH::RMat44::sRotation(ToJoltQuat(shapeOverlapInfo->Rotation)),
 			settings,
 			JPH::RVec3::sZero(),
 			collector,
 			{}, {},
-			LuxBodyFilter(shapeOverlapInfo->ExcludedEntities));
+			LuxBodyFilter(shapeOverlapInfo->ExcludedEntities, shapeOverlapInfo->LayerMask, shapeOverlapInfo->IncludeTriggers));
 
 		for (const auto& hit : collector.mHits)
 		{

@@ -691,7 +691,17 @@ Layered so the backend can be swapped:
   audio and dispatched through a second tracker to C# `OnTriggerBegin/End`. Same rules as `OnUpdate` for which scripts are called. Before 2026-10-26 no 3D contact reached
   scripts at all; only Box2D's `ContactListener2D` called the hooks.
 - `PhysicsLayer` / `PhysicsLayerManager` — collision filtering.
-- `SceneQueries.h` — raycasts, shape casts, overlaps. `PhysicsScene::CastRayAll` returns every
+- `SceneQueries.h` — raycasts, shape casts, overlaps. Every query struct carries `ExcludedEntities`, a
+  `LayerMask` (bit N = the project's physics layer at index N, which is the body's Jolt object layer;
+  `k_AllPhysicsLayers` by default) and `IncludeTriggers` (sensors are skipped unless set); box and capsule
+  shapes also take a `Rotation`. `CastShape` reports the contact point as `Position` and the distance the
+  shape centre travelled. All of it goes through `LuxBodyFilter` in `PhysicsScene.cpp`. C# `Physics`
+  (`ScriptCore/Source/Lux/Physics.cs`: `Raycast`, `RaycastAll`, `SphereCast`, `BoxCast`, `CapsuleCast`,
+  `OverlapSphere/Box/Capsule`, `CheckSphere`, `GetLayerMask`) calls `Physics_*` in `ScriptGlue.cpp`: hits are
+  written into a caller buffer (`RaycastHitData` / `NativeRaycastHit`, 40 bytes, checked on both sides), and a
+  result larger than the first 32-slot buffer is asked for again with room for all of it. `RaycastAll` drops
+  the back faces `CastRayAll` reports. Queries need a physics scene (Play) and run on the main thread.
+  `PhysicsScene::CastRayAll` returns every
   crossing, including back faces (hollow convex shapes), sorted by distance: a hit whose normal
   points along the ray is where it leaves a solid. Audio occlusion uses it to measure thickness.
 - `MeshCookingFactory` / `MeshColliderCache` — mesh colliders are cooked and cached, not rebuilt.

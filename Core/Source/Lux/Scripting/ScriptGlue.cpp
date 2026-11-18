@@ -24,6 +24,8 @@
 #include "Lux/Physics/PhysicsBody.h"
 #include "Lux/Physics/CharacterController.h"
 #include "Lux/Physics/PhysicsTypes.h"
+#include "Lux/Physics/SceneQueries.h"
+#include "Lux/Project/Project.h"
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -782,6 +784,187 @@ namespace Lux {
 
 	#pragma endregion
 
+	#pragma region Physics queries
+
+	// One hit, as the C# Lux.RaycastHit lays it out.
+	struct NativeRaycastHit
+	{
+		uint64_t Entity;
+		glm::vec3 Point;
+		glm::vec3 Normal;
+		float Distance;
+	};
+	static_assert(sizeof(NativeRaycastHit) == 40, "NativeRaycastHit must match the C# Lux.RaycastHit layout");
+
+	// The shape codes of the C# Physics class: sphere (radius in x), box (half extents), capsule (radius in x,
+	// half height of the straight part in y).
+	enum class QueryShape : int32_t { Sphere = 0, Box = 1, Capsule = 2 };
+
+	static void FillHit(const SceneQueryHit& hit, NativeRaycastHit* out)
+	{
+		out->Entity = static_cast<uint64_t>(hit.HitEntity);
+		out->Point = hit.Position;
+		out->Normal = hit.Normal;
+		out->Distance = hit.Distance;
+	}
+
+	static glm::quat ToQuat(const glm::vec4* xyzw)
+	{
+		const glm::quat q(xyzw->w, xyzw->x, xyzw->y, xyzw->z);
+		return glm::dot(q, q) > 1e-12f ? glm::normalize(q) : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+	}
+
+	// Queries run on the main thread between physics steps; without a physics scene (not playing) nothing is hit.
+	static Coral::Bool32 Physics_Raycast(glm::vec3* origin, glm::vec3* direction, float maxDistance, uint32_t layerMask, uint64_t ignore,
+		Coral::Bool32 includeTriggers, NativeRaycastHit* outHit)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return false;
+
+		RayCastInfo ray;
+		ray.Origin = *origin;
+		ray.Direction = *direction;
+		ray.MaxDistance = maxDistance;
+		ray.LayerMask = layerMask;
+		ray.IncludeTriggers = includeTriggers;
+		if (ignore)
+			ray.ExcludedEntities.insert(UUID(ignore));
+
+		SceneQueryHit hit;
+		if (!physics->CastRay(&ray, hit))
+			return false;
+		FillHit(hit, outHit);
+		return true;
+	}
+
+	// Every body the ray enters, nearest first, one hit per surface the ray goes into: the back faces
+	// CastRayAll also reports (where the ray leaves a solid, or starts inside one) are dropped. Returns the
+	// number found, which may exceed `capacity`; only `capacity` are written.
+	static int32_t Physics_RaycastAll(glm::vec3* origin, glm::vec3* direction, float maxDistance, uint32_t layerMask, uint64_t ignore,
+		Coral::Bool32 includeTriggers, NativeRaycastHit* buffer, int32_t capacity)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return 0;
+
+		RayCastInfo ray;
+		ray.Origin = *origin;
+		ray.Direction = *direction;
+		ray.MaxDistance = maxDistance;
+		ray.LayerMask = layerMask;
+		ray.IncludeTriggers = includeTriggers;
+		if (ignore)
+			ray.ExcludedEntities.insert(UUID(ignore));
+
+		std::vector<SceneQueryHit> hits;
+		physics->CastRayAll(&ray, hits);
+		const glm::vec3 unitDirection = glm::normalize(*direction);
+
+		int32_t count = 0;
+		for (const SceneQueryHit& hit : hits)
+		{
+			if (glm::dot(hit.Normal, unitDirection) >= 0.0f)
+				continue;
+			if (count < capacity)
+				FillHit(hit, &buffer[count]);
+			count++;
+		}
+		return count;
+	}
+
+	static Coral::Bool32 Physics_ShapeCast(int32_t shape, glm::vec3* origin, glm::vec4* rotation, glm::vec3* dimensions, glm::vec3* direction,
+		float maxDistance, uint32_t layerMask, uint64_t ignore, Coral::Bool32 includeTriggers, NativeRaycastHit* outHit)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return false;
+
+		SceneQueryHit hit;
+		bool found = false;
+		const auto run = [&](auto& info)
+		{
+			info.Origin = *origin;
+			info.Rotation = ToQuat(rotation);
+			info.Direction = *direction;
+			info.MaxDistance = maxDistance;
+			info.LayerMask = layerMask;
+			info.IncludeTriggers = includeTriggers;
+			if (ignore)
+				info.ExcludedEntities.insert(UUID(ignore));
+			found = physics->CastShape(&info, hit);
+		};
+		switch (static_cast<QueryShape>(shape))
+		{
+			case QueryShape::Sphere: { SphereCastInfo info; info.Radius = dimensions->x; run(info); break; }
+			case QueryShape::Box: { BoxCastInfo info; info.HalfExtent = *dimensions; run(info); break; }
+			case QueryShape::Capsule: { CapsuleCastInfo info; info.Radius = dimensions->x; info.HalfHeight = dimensions->y; run(info); break; }
+			default: return false;
+		}
+		if (found)
+			FillHit(hit, outHit);
+		return found;
+	}
+
+	// The entities with a body touching the shape, each once, in the order Jolt found them. Returns the number
+	// found, which may exceed `capacity`; only `capacity` are written.
+	static int32_t Physics_OverlapShape(int32_t shape, glm::vec3* origin, glm::vec4* rotation, glm::vec3* dimensions, uint32_t layerMask,
+		uint64_t ignore, Coral::Bool32 includeTriggers, uint64_t* buffer, int32_t capacity)
+	{
+		Ref<PhysicsScene> physics = GetScene()->GetPhysicsScene();
+		if (!physics)
+			return 0;
+
+		SceneQueryHit* hits = nullptr;
+		int32_t hitCount = 0;
+		const auto run = [&](auto& info)
+		{
+			info.Origin = *origin;
+			info.Rotation = ToQuat(rotation);
+			info.LayerMask = layerMask;
+			info.IncludeTriggers = includeTriggers;
+			if (ignore)
+				info.ExcludedEntities.insert(UUID(ignore));
+			hitCount = physics->OverlapShape(&info, &hits);
+		};
+		switch (static_cast<QueryShape>(shape))
+		{
+			case QueryShape::Sphere: { SphereOverlapInfo info; info.Radius = dimensions->x; run(info); break; }
+			case QueryShape::Box: { BoxOverlapInfo info; info.HalfExtent = *dimensions; run(info); break; }
+			case QueryShape::Capsule: { CapsuleOverlapInfo info; info.Radius = dimensions->x; info.HalfHeight = dimensions->y; run(info); break; }
+			default: return 0;
+		}
+
+		std::vector<uint64_t> unique;
+		for (int32_t i = 0; i < hitCount; i++)
+		{
+			const uint64_t id = static_cast<uint64_t>(hits[i].HitEntity);
+			if (std::find(unique.begin(), unique.end(), id) == unique.end())
+				unique.push_back(id);
+		}
+		for (size_t i = 0; i < unique.size() && static_cast<int32_t>(i) < capacity; i++)
+			buffer[i] = unique[i];
+		return static_cast<int32_t>(unique.size());
+	}
+
+	// The bit a physics layer owns in a layer mask: its index in the project list. -1 for a name the project lacks.
+	static int32_t Physics_GetLayerIndex(Coral::String name)
+	{
+		const std::string wanted = name;
+		const Ref<Project> project = Project::GetActive();
+		const std::vector<ProjectPhysicsLayer>* layers = project ? &project->GetConfig().Physics.Layers : nullptr;
+		if (!layers || layers->empty())
+			return wanted == "Default" ? 0 : -1;
+		for (size_t i = 0; i < layers->size(); i++)
+		{
+			if ((*layers)[i].Name == wanted)
+				return static_cast<int32_t>(i);
+		}
+		return -1;
+	}
+
+	#pragma endregion
+
 	#pragma region CharacterControllerComponent
 
 	static Ref<CharacterController> GetCharacterController(uint64_t entityID)
@@ -1114,6 +1297,12 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetGravityEnabled);
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_IsSleeping);
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetSleepState);
+
+		LUX_ADD_INTERNAL_CALL(Physics_Raycast);
+		LUX_ADD_INTERNAL_CALL(Physics_RaycastAll);
+		LUX_ADD_INTERNAL_CALL(Physics_ShapeCast);
+		LUX_ADD_INTERNAL_CALL(Physics_OverlapShape);
+		LUX_ADD_INTERNAL_CALL(Physics_GetLayerIndex);
 
 		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_Move);
 		LUX_ADD_ENTITY_CALL(CharacterControllerComponent_Jump);

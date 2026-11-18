@@ -90,8 +90,10 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [GamepadTrigger](GamepadTrigger) — The left or right trigger, for adaptive trigger effects.
 - [GamepadType](GamepadType) — Which family a gamepad belongs to, to pick its button prompts.
 - [Mathf](Mathf) — Single-precision maths helpers for gameplay: clamping, interpolation, angles and smoothing.
+- [Physics](Physics) — Questions about the physics world: what a ray or a moving shape would hit, and what overlaps a shape.
 - [Quaternion](Quaternion) — A rotation in 3D.
 - [Random](Random) — Random numbers for gameplay.
+- [RaycastHit](RaycastHit) — What a [`Physics`](Physics) ray or shape cast hit.
 - [Sound](Sound) — A Sound asset (.lsound), played by the native audio backend.
 - [SoundBank](SoundBank) — A Sound Bank asset (.lbank): Sounds that load and unload together.
 - [SoundCue](SoundCue) — A sound playing near the listener, for drawing visual sound cues.

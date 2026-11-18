@@ -8,6 +8,7 @@
 #include "Lux/Physics/PhysicsTypes.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <unordered_set>
 
@@ -33,12 +34,19 @@ namespace Lux {
 
 	using ExcludedEntityMap = std::unordered_set<UUID>;
 
+	// Which bodies a query may touch. LayerMask has bit N set for the project's physics layer N (the index in
+	// Physics.Layers); every layer by default. Sensors (triggers) are skipped unless IncludeTriggers, as they
+	// always were for the audio and ground probes.
+	inline constexpr uint32_t k_AllPhysicsLayers = 0xFFFFFFFFu;
+
 	struct RayCastInfo
 	{
 		glm::vec3 Origin = glm::vec3(0.0f);
 		glm::vec3 Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 		float MaxDistance = 1000.0f;
 		ExcludedEntityMap ExcludedEntities;
+		uint32_t LayerMask = k_AllPhysicsLayers;
+		bool IncludeTriggers = false;
 	};
 
 	enum class ShapeCastType { Box, Sphere, Capsule };
@@ -49,9 +57,12 @@ namespace Lux {
 			: Type(type) {}
 
 		glm::vec3 Origin = glm::vec3(0.0f);
+		glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // orients a box or capsule (a capsule stands along Y)
 		glm::vec3 Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 		float MaxDistance = 1000.0f;
 		ExcludedEntityMap ExcludedEntities;
+		uint32_t LayerMask = k_AllPhysicsLayers;
+		bool IncludeTriggers = false;
 
 		ShapeCastType GetCastType() const { return Type; }
 
@@ -84,7 +95,10 @@ namespace Lux {
 			: Type(type) {}
 
 		glm::vec3 Origin = glm::vec3(0.0f);
+		glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // orients a box or capsule (a capsule stands along Y)
 		ExcludedEntityMap ExcludedEntities;
+		uint32_t LayerMask = k_AllPhysicsLayers;
+		bool IncludeTriggers = false;
 
 		ShapeCastType GetCastType() const { return Type; }
 

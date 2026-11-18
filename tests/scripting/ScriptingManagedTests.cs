@@ -24,6 +24,7 @@ internal static unsafe partial class ScriptingManagedTests
 		RunTime();
 		RunActive();
 		RunFind();
+		RunPhysics();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -217,5 +218,119 @@ internal static unsafe partial class ScriptingManagedTests
 		Check(Entity.FindAllWithTag("coin").Length == 3 && Entity.FindWithTag("coin").ID == 11 && Entity.FindWithTag("none") == null, "tag finders");
 		Check(Entity.FindWithTag(null) == null && s_LastFindKey == "", "A null tag finds nothing");
 		Check(Entity.FindAllWithComponent<SpriteRendererComponent>().Length == 1 && Entity.FindWithComponent<SpriteRendererComponent>(true).ID == 21 && s_LastIncludeInactive && s_LastFindKind == "component", "component finders");
+	}
+
+	// ---- P3: physics queries ------------------------------------------------------------------------------------
+
+	private struct SeenQuery
+	{
+		public string Call;
+		public Vector3 Origin, Direction, Dimensions;
+		public Vector4 Rotation;
+		public float MaxDistance;
+		public uint Mask;
+		public ulong Ignore;
+		public bool Triggers;
+		public int Shape, Capacity;
+	}
+	private static SeenQuery s_Seen;
+	private static int s_AllCount;      // how many hits the RaycastAll / overlap stand-ins claim to have
+	private static int s_AllCalls;
+
+	private static RaycastHitData MakeHit(ulong id) => new RaycastHitData { Entity = id, Point = new Vector3(1.0f, 2.0f, 3.0f), Normal = new Vector3(0.0f, 1.0f, 0.0f), Distance = 4.5f };
+
+	private static Bool32 PhysicsRaycast(Vector3* origin, Vector3* direction, float maxDistance, uint mask, ulong ignore, Bool32 triggers, RaycastHitData* hit)
+	{
+		s_Seen = new SeenQuery { Call = "ray", Origin = *origin, Direction = *direction, MaxDistance = maxDistance, Mask = mask, Ignore = ignore, Triggers = triggers };
+		if (maxDistance < 0.0f)
+			return false;
+		*hit = MakeHit(77);
+		return true;
+	}
+
+	private static int PhysicsRaycastAll(Vector3* origin, Vector3* direction, float maxDistance, uint mask, ulong ignore, Bool32 triggers, RaycastHitData* buffer, int capacity)
+	{
+		s_Seen = new SeenQuery { Call = "rayAll", Origin = *origin, Direction = *direction, MaxDistance = maxDistance, Mask = mask, Ignore = ignore, Triggers = triggers, Capacity = capacity };
+		s_AllCalls++;
+		for (int i = 0; i < s_AllCount && i < capacity; i++)
+			buffer[i] = MakeHit((ulong)(100 + i));
+		return s_AllCount;
+	}
+
+	private static Bool32 PhysicsShapeCast(int shape, Vector3* origin, Vector4* rotation, Vector3* dimensions, Vector3* direction, float maxDistance, uint mask, ulong ignore, Bool32 triggers, RaycastHitData* hit)
+	{
+		s_Seen = new SeenQuery { Call = "shapeCast", Shape = shape, Origin = *origin, Rotation = *rotation, Dimensions = *dimensions, Direction = *direction, MaxDistance = maxDistance, Mask = mask, Ignore = ignore, Triggers = triggers };
+		*hit = MakeHit(88);
+		return true;
+	}
+
+	private static int PhysicsOverlap(int shape, Vector3* origin, Vector4* rotation, Vector3* dimensions, uint mask, ulong ignore, Bool32 triggers, ulong* buffer, int capacity)
+	{
+		s_Seen = new SeenQuery { Call = "overlap", Shape = shape, Origin = *origin, Rotation = *rotation, Dimensions = *dimensions, Mask = mask, Ignore = ignore, Triggers = triggers, Capacity = capacity };
+		s_AllCalls++;
+		for (int i = 0; i < s_AllCount && i < capacity; i++)
+			buffer[i] = (ulong)(200 + i);
+		return s_AllCount;
+	}
+
+	private static int PhysicsLayerIndex(NativeString name)
+	{
+		string text = name;
+		return text == "Default" ? 0 : text == "Enemy" ? 3 : -1;
+	}
+
+	private static void RunPhysics()
+	{
+		InternalCalls.Physics_Raycast = &PhysicsRaycast;
+		InternalCalls.Physics_RaycastAll = &PhysicsRaycastAll;
+		InternalCalls.Physics_ShapeCast = &PhysicsShapeCast;
+		InternalCalls.Physics_OverlapShape = &PhysicsOverlap;
+		InternalCalls.Physics_GetLayerIndex = &PhysicsLayerIndex;
+
+		Check(System.Runtime.InteropServices.Marshal.SizeOf<RaycastHitData>() == 40, "RaycastHitData matches the 40-byte native hit");
+
+		Check(Physics.GetLayerMask("Default", "Enemy") == 9u && Physics.GetLayerMask() == 0u, "GetLayerMask sets one bit per layer index");
+		bool rejected = false;
+		try { Physics.GetLayerMask("Ghost"); } catch (ArgumentException) { rejected = true; }
+		Check(rejected, "GetLayerMask rejects an unknown layer");
+
+		Entity self = new Entity(5);
+		bool hitSomething = Physics.Raycast(new Vector3(1.0f, 2.0f, 3.0f), new Vector3(0.0f, -1.0f, 0.0f), out RaycastHit hit, 25.0f, 9u, self, true);
+		Check(hitSomething && hit.Entity.ID == 77 && hit.Point == new Vector3(1.0f, 2.0f, 3.0f) && hit.Normal == Vector3.Up && hit.Distance == 4.5f, "Raycast maps the native hit");
+		Check(s_Seen.Call == "ray" && s_Seen.Origin == new Vector3(1.0f, 2.0f, 3.0f) && s_Seen.Direction == Vector3.Down && s_Seen.MaxDistance == 25.0f && s_Seen.Mask == 9u && s_Seen.Ignore == 5 && s_Seen.Triggers, "Raycast sends every argument");
+		Physics.Raycast(Vector3.Zero, Vector3.Forward);
+		Check(s_Seen.MaxDistance == 1000.0f && s_Seen.Mask == Physics.AllLayers && s_Seen.Ignore == 0 && !s_Seen.Triggers, "Raycast defaults: 1000 m, every layer, nothing ignored, no triggers");
+		Check(!Physics.Raycast(Vector3.Zero, Vector3.Forward, out RaycastHit miss, -1.0f) && miss.Entity == null && miss.Distance == 0.0f, "A miss leaves a default hit");
+
+		s_AllCount = 3; s_AllCalls = 0;
+		RaycastHit[] few = Physics.RaycastAll(Vector3.Zero, Vector3.Forward, 50.0f, 1u);
+		Check(few.Length == 3 && few[0].Entity.ID == 100 && few[2].Entity.ID == 102 && s_AllCalls == 1 && s_Seen.Mask == 1u, "RaycastAll returns the hits in order with one call");
+		s_AllCount = 40; s_AllCalls = 0;
+		RaycastHit[] many = Physics.RaycastAll(Vector3.Zero, Vector3.Forward);
+		Check(many.Length == 40 && many[39].Entity.ID == 139 && s_AllCalls == 2 && s_Seen.Capacity == 40, "RaycastAll asks again with room for a larger answer");
+		s_AllCount = 0;
+		Check(Physics.RaycastAll(Vector3.Zero, Vector3.Forward).Length == 0, "RaycastAll with no hits is empty");
+
+		Quaternion turn = Quaternion.Euler(new Vector3(0.0f, 1.0f, 0.0f));
+		Check(Physics.SphereCast(new Vector3(1.0f), 0.5f, Vector3.Forward, out RaycastHit sphere, 9.0f) && sphere.Entity.ID == 88, "SphereCast maps the hit");
+		Check(s_Seen.Shape == 0 && s_Seen.Dimensions.X == 0.5f && s_Seen.MaxDistance == 9.0f && s_Seen.Origin == new Vector3(1.0f), "SphereCast sends the radius as the first dimension");
+		Physics.BoxCast(Vector3.Zero, new Vector3(1.0f, 2.0f, 3.0f), turn, Vector3.Right, out _);
+		Check(s_Seen.Shape == 1 && s_Seen.Dimensions == new Vector3(1.0f, 2.0f, 3.0f) && s_Seen.Rotation == new Vector4(turn.X, turn.Y, turn.Z, turn.W), "BoxCast sends half extents and the rotation as x, y, z, w");
+		Physics.CapsuleCast(Vector3.Zero, 0.3f, 0.9f, Quaternion.Identity, Vector3.Down, out _, 5.0f, 2u, self, true);
+		Check(s_Seen.Shape == 2 && s_Seen.Dimensions == new Vector3(0.3f, 0.9f, 0.0f) && s_Seen.Mask == 2u && s_Seen.Ignore == 5 && s_Seen.Triggers && s_Seen.Rotation == new Vector4(0.0f, 0.0f, 0.0f, 1.0f), "CapsuleCast sends radius and half height");
+
+		s_AllCount = 2; s_AllCalls = 0;
+		Entity[] near = Physics.OverlapSphere(Vector3.One, 2.0f, 4u, self);
+		Check(near.Length == 2 && near[0].ID == 200 && near[1].ID == 201 && s_Seen.Shape == 0 && s_Seen.Dimensions.X == 2.0f && s_Seen.Mask == 4u && s_Seen.Ignore == 5, "OverlapSphere");
+		Physics.OverlapBox(Vector3.Zero, Vector3.One, turn);
+		Check(s_Seen.Shape == 1 && s_Seen.Rotation.Y == turn.Y, "OverlapBox");
+		Physics.OverlapCapsule(Vector3.Zero, 0.4f, 0.8f, Quaternion.Identity);
+		Check(s_Seen.Shape == 2 && s_Seen.Dimensions == new Vector3(0.4f, 0.8f, 0.0f), "OverlapCapsule");
+		s_AllCount = 70; s_AllCalls = 0;
+		Check(Physics.OverlapSphere(Vector3.Zero, 1.0f).Length == 70 && s_AllCalls == 2, "Overlap asks again for a larger answer");
+		s_AllCount = 1;
+		Check(Physics.CheckSphere(Vector3.Zero, 1.0f), "CheckSphere is true with an overlap");
+		s_AllCount = 0;
+		Check(!Physics.CheckSphere(Vector3.Zero, 1.0f), "CheckSphere is false without one");
 	}
 }

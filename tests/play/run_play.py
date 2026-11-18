@@ -27,7 +27,7 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform", "ActiveEnabled", "Find"]
+          "Clock", "Transform", "ActiveEnabled", "Find", "Queries"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -66,9 +66,9 @@ def entity(eid, name, pos, rot=(0, 0, 0), parent=0, children=(), body="", script
     return "\n".join(lines) + "\n"
 
 
-def rigid(kind, trigger=False, gravity=True):
+def rigid(kind, trigger=False, gravity=True, layer=0):
     kinds = {"static": 0, "dynamic": 1, "kinematic": 2}
-    return (f"    RigidBodyComponent:\n      BodyType: {kinds[kind]}\n      Mass: 1\n"
+    return (f"    RigidBodyComponent:\n      BodyType: {kinds[kind]}\n      LayerID: {layer}\n      Mass: 1\n"
             f"      DisableGravity: {'false' if gravity else 'true'}\n      IsTrigger: {'true' if trigger else 'false'}\n")
 
 
@@ -98,6 +98,9 @@ def write_project(project, keep=None, runtime_config="dist"):
         "Project:\n  Name: PlayTest\n  AssetDirectory: Assets\n  AssetRegistry: Assets/AssetRegistry.lzr\n"
         f"  ScriptModulePath: Scripts/Binaries/PlayTest.dll\n  DefaultNamespace: {NAMESPACE}\n"
         f"  StartScene: {SCENE_HANDLE}\n  AutomaticallyReloadAssembly: false\n  AutoSave: false\n"
+        # Two physics layers (bit 0 and bit 1 of a query layer mask) that collide with each other and themselves.
+        "  Physics:\n    Layers:\n      - Name: Default\n        CollidesWithSelf: true\n        CollidesWith:\n          - Name: Props\n"
+        "      - Name: Props\n        CollidesWithSelf: true\n        CollidesWith:\n          - Name: Default\n"
         f"  RuntimeExport:\n    GameName: PlayTest\n    WindowWidth: 1280\n    WindowHeight: 720\n    Fullscreen: false\n"
         f"    VSync: true\n    TargetConfig: {runtime_config.capitalize()}\n", encoding="utf-8")
     (assets / "AssetRegistry.lzr").write_text(
@@ -163,6 +166,11 @@ def write_project(project, keep=None, runtime_config="dist"):
     e.append(entity(off_child, "TagOffChild", (0, 0, 0), parent=off, user_tag="coin"))
     e.append(entity(next(ids), "SpriteTwo", (0, 1, -56), body=sprite_body))
     e.append(entity(next(ids), "FindCheck", (0, 1, -58), script="FindCheck"))
+    # Physics queries: a wall, a trigger in front of it and a prop (second layer) behind it, along +X at z=-70.
+    e.append(entity(next(ids), "QueryWall", (60, 1, -70), body=rigid("static") + box((0.5, 1, 3))))
+    e.append(entity(next(ids), "QueryTrigger", (58, 1, -70), body=rigid("static", trigger=True) + box((0.25, 1, 3))))
+    e.append(entity(next(ids), "QueryProp", (64, 1, -70), body=rigid("static", layer=1) + box((0.5, 1, 3))))
+    e.append(entity(next(ids), "QueryCheck", (50, 1, -75), script="QueryCheck"))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.

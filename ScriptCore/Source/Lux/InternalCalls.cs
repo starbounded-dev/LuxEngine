@@ -266,6 +266,14 @@ namespace Lux
 		internal static delegate*<ulong, Bool32, void> RigidBodyComponent_SetSleepState;
 		#endregion
 
+		#region Physics queries
+		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_Raycast;
+		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, int, int> Physics_RaycastAll;
+		internal static delegate*<int, Vector3*, Vector4*, Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_ShapeCast;
+		internal static delegate*<int, Vector3*, Vector4*, Vector3*, uint, ulong, Bool32, ulong*, int, int> Physics_OverlapShape;
+		internal static delegate*<NativeString, int> Physics_GetLayerIndex;
+		#endregion
+
 		#region CharacterControllerComponent
 		internal static delegate*<ulong, Vector3*, void> CharacterControllerComponent_Move;
 		internal static delegate*<ulong, float, void> CharacterControllerComponent_Jump;
