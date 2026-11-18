@@ -296,6 +296,7 @@ cmake -S tests/audio/native -B bin/native-audio-tests && cmake --build bin/nativ
                                           # audio: playback, Sounds, banks, mixer, music, dialogue, streaming
 python tests/audio/run.py                 # Linux: streams, packs, Jolt contacts, occlusion, music serialization
 python tests/audio/run_managed.py         # C# audio bindings: payloads, ABI, subscriptions
+python tests/scripting/run_managed.py     # C# gameplay API (maths, time, finders, physics queries, timers, scenes) against stand-in native calls
 python tests/rendering/run_shadow_shader.py
 python tests/runtime/run_resources.py
 ```
@@ -370,7 +371,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 ### Engine systems
 - **ECS scenes** (EnTT) with entity hierarchies, organizational folders, **prefabs with variants** (per-component overrides, revert/apply, propagation), YAML serialization, and editor Play / Simulate / Stop.
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
-- **C# scripting** (.NET 10 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities, transforms, input, assets, audio, music, dialogue and accessibility.
+- **C# scripting** (.NET 10 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities and transforms (active/enabled, tags and finders), `Time` with a time scale, maths types (`Mathf`, `Quaternion`, `Color`, `Random`), physics queries (rays, shape casts and overlaps with layer masks), scene loading (replace, additive, entities that survive a load), timers and coroutines, application events, lights, cameras, mesh materials, input, assets, audio, music, dialogue and accessibility.
 - **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, automatic mesh LODs (meshoptimizer), and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
@@ -388,7 +389,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 - **Skeletal animation is new and Windows-only so far.** Rigged glTF and FBX models import with their skeletons and clips, skin on the GPU, play with cross-fades, root motion, compressed clips, events and an animation graph (state machine), and are scriptable from C#. Node Canvas edits animation states and transitions and previews them on the selected Skeleton. Blend trees, layers, retargeting, and Linux verification are follow-ups.
 - **No particle system.**
 - **No terrain in-tree yet.** A GPU clipmap terrain with Jolt heightfield collision is in development on a branch, not merged.
-- **Scripting API is still partial.** No physics or renderer bindings yet.
+- **Scripting API is still partial.** Physics queries, scenes, time, timers and the common components are there; there is no game UI, input actions, save-game API, joints, navigation or particles to script yet.
 - **No networking, no AI/navigation.**
 - **2D is a renderer, not a toolset.** Sprites, circles, lines, and text render fine, but there are no tilemaps or 2D-specific editor workflows.
 - **Rough edges everywhere.** One sample project, no packaged releases — you build from source.
@@ -404,7 +405,7 @@ Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md]
 **Next up (roughly in order):**
 - Skeletal animation follow-ups (blend trees and layers, retargeting, Linux)
 - Merging the procedural terrain system
-- Broader C# scripting API (physics, renderer)
+- Game UI, input actions and a save-game API for scripts
 - Asset streaming / async upload hardening
 - Particles
 
