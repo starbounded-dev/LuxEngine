@@ -42,6 +42,18 @@ public Vector4(Vector3 xyz, float w)
 A vector from a 3D vector and a W component.
 
 ```
+public bool Equals(Vector4 other)
+```
+
+Whether the components are exactly equal.
+
+```
+public static Vector4 Lerp(Vector4 a, Vector4 b, float t)
+```
+
+The point `t` of the way from `a` to `b`, with `t` limited to 0..1.
+
+```
 public static Vector4 operator +(Vector4 a, Vector4 b)
 ```
 
@@ -52,5 +64,41 @@ public static Vector4 operator *(Vector4 vector, float scalar)
 ```
 
 The vector scaled by `scalar`.
+
+```
+public static Vector4 operator -(Vector4 a, Vector4 b)
+```
+
+Component-wise difference.
+
+```
+public static Vector4 operator -(Vector4 vector)
+```
+
+The vector pointing the opposite way.
+
+```
+public static Vector4 operator *(float scalar, Vector4 vector)
+```
+
+The vector scaled by `scalar`.
+
+```
+public static Vector4 operator /(Vector4 vector, float scalar)
+```
+
+The vector divided by `scalar`.
+
+```
+public static bool operator ==(Vector4 a, Vector4 b)
+```
+
+Whether the components are exactly equal.
+
+```
+public static bool operator !=(Vector4 a, Vector4 b)
+```
+
+Whether any component differs.
 
 [All types](index)

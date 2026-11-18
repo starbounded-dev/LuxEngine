@@ -128,6 +128,34 @@ namespace Lux {
 
 	#pragma endregion
 
+	#pragma region Time
+
+	// One call for every clock value, in the order of the C# `Time.Field` enum. Doubles keep the elapsed
+	// seconds and the frame count exact over long sessions.
+	static double Time_Get(int32_t field)
+	{
+		Scene* scene = GetScene();
+		const Scene::ScriptClock& clock = scene->GetClock();
+		switch (field)
+		{
+			case 0: return clock.InFixedStep ? clock.FixedDelta : clock.Delta;
+			case 1: return clock.UnscaledDelta;
+			case 2: return clock.Elapsed;
+			case 3: return clock.UnscaledElapsed;
+			case 4: return clock.TimeScale;
+			case 5: return scene->GetPhysicsScene() ? scene->GetPhysicsScene()->GetFixedTimestep() : clock.FixedDelta;
+			case 6: return static_cast<double>(clock.FrameCount);
+			default: return 0.0;
+		}
+	}
+
+	static void Time_SetScale(float scale)
+	{
+		GetScene()->GetClock().TimeScale = std::isfinite(scale) ? std::max(scale, 0.0f) : 1.0f;
+	}
+
+	#pragma endregion
+
 	#pragma region Input
 
 	static Coral::Bool32 Input_IsKeyDown(KeyCode keycode)        { return Input::IsKeyDown(keycode); }
@@ -307,6 +335,28 @@ namespace Lux {
 	static void TransformComponent_SetRotation(uint64_t entityID, glm::vec3* in)     { GetEntity(entityID).GetComponent<TransformComponent>().SetRotationEuler(*in); }
 	static void TransformComponent_GetScale(uint64_t entityID, glm::vec3* out)       { *out = GetEntity(entityID).GetComponent<TransformComponent>().Scale; }
 	static void TransformComponent_SetScale(uint64_t entityID, glm::vec3* in)        { GetEntity(entityID).GetComponent<TransformComponent>().Scale = *in; }
+
+	// Quaternions cross the boundary as (x, y, z, w), not glm's constructor order.
+	static void TransformComponent_GetRotationQuat(uint64_t entityID, glm::vec4* out)
+	{
+		const glm::quat q = GetEntity(entityID).GetComponent<TransformComponent>().GetRotation();
+		*out = { q.x, q.y, q.z, q.w };
+	}
+
+	static void TransformComponent_SetRotationQuat(uint64_t entityID, glm::vec4* in)
+	{
+		const glm::quat q = glm::normalize(glm::quat(in->w, in->x, in->y, in->z));
+		GetEntity(entityID).GetComponent<TransformComponent>().SetRotation(q);
+	}
+
+	// Position and rotation in world space, through every parent.
+	static void TransformComponent_GetWorld(uint64_t entityID, glm::vec3* outTranslation, glm::vec4* outRotation)
+	{
+		const TransformComponent world = GetScene()->GetWorldSpaceTransform(GetEntity(entityID));
+		const glm::quat q = world.GetRotation();
+		*outTranslation = world.Translation;
+		*outRotation = { q.x, q.y, q.z, q.w };
+	}
 
 	#pragma endregion
 
@@ -761,6 +811,9 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(NativeLog);
 		LUX_ADD_INTERNAL_CALL(Application_Quit);
 
+		LUX_ADD_INTERNAL_CALL(Time_Get);
+		LUX_ADD_INTERNAL_CALL(Time_SetScale);
+
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyDown);
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyPressed);
 		LUX_ADD_INTERNAL_CALL(Input_IsKeyHeld);
@@ -819,6 +872,9 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(TransformComponent_SetRotation);
 		LUX_ADD_ENTITY_CALL(TransformComponent_GetScale);
 		LUX_ADD_ENTITY_CALL(TransformComponent_SetScale);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetRotationQuat);
+		LUX_ADD_ENTITY_CALL(TransformComponent_SetRotationQuat);
+		LUX_ADD_ENTITY_CALL(TransformComponent_GetWorld);
 
 		LUX_ADD_ENTITY_CALL(TagComponent_GetTag);
 		LUX_ADD_ENTITY_CALL(TagComponent_SetTag);

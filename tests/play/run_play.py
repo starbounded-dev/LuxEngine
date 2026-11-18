@@ -26,7 +26,8 @@ sys.path.insert(0, str(ROOT / "tests/editor"))
 from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
-          "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync"]
+          "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
+          "Clock", "Transform"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -135,6 +136,11 @@ def write_project(project, keep=None, runtime_config="dist"):
     e.append(entity(next(ids), "DestroyWatcher", (0, 1, 12), script="DestroyWatcher"))
     e.append(entity(next(ids), "GizmoDrawer", (5, 1, 10), script="GizmoDrawer"))
     e.append(entity(next(ids), "PrefabSyncCheck", (10, 1, 10), script="PrefabSyncCheck"))
+    # M4 C# API checks (tests/play/Scripts/ApiTests.cs).
+    e.append(entity(next(ids), "ClockCheck", (0, 1, -40), script="ClockCheck"))
+    parent, child = next(ids), next(ids)
+    e.append(entity(parent, "TransformParent", (10, 1, -40), rot=(0, math.pi / 2, 0), children=(child,)))
+    e.append(entity(child, "TransformChild", (0, 0, -2), parent=parent, script="TransformCheck"))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.

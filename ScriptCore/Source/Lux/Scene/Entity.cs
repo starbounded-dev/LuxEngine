@@ -100,6 +100,34 @@ namespace Lux
 			set { InternalCalls.TransformComponent_SetScale(ID, &value); }
 		}
 
+		/// <summary>Rotation relative to the parent as a <see cref="Quaternion"/>; the same rotation as <see cref="Rotation"/>.</summary>
+		public unsafe Quaternion RotationQuaternion
+		{
+			get { Vector4 r; InternalCalls.TransformComponent_GetRotationQuat(ID, &r); return new Quaternion(r.X, r.Y, r.Z, r.W); }
+			set { Vector4 q = new Vector4(value.X, value.Y, value.Z, value.W); InternalCalls.TransformComponent_SetRotationQuat(ID, &q); }
+		}
+
+		/// <summary>Position in the world, through every parent. Read only: set <see cref="Translation"/> to move the entity.</summary>
+		public unsafe Vector3 WorldTranslation
+		{
+			get { Vector3 t; Vector4 q; InternalCalls.TransformComponent_GetWorld(ID, &t, &q); return t; }
+		}
+
+		/// <summary>Rotation in the world, through every parent. Read only.</summary>
+		public unsafe Quaternion WorldRotationQuaternion
+		{
+			get { Vector3 t; Vector4 q; InternalCalls.TransformComponent_GetWorld(ID, &t, &q); return new Quaternion(q.X, q.Y, q.Z, q.W); }
+		}
+
+		/// <summary>The direction the entity faces in the world: -Z rotated by <see cref="WorldRotationQuaternion"/>.</summary>
+		public Vector3 Forward => WorldRotationQuaternion * Vector3.Forward;
+
+		/// <summary>The entity's right in the world: +X rotated by <see cref="WorldRotationQuaternion"/>.</summary>
+		public Vector3 Right => WorldRotationQuaternion * Vector3.Right;
+
+		/// <summary>The entity's up in the world: +Y rotated by <see cref="WorldRotationQuaternion"/>.</summary>
+		public Vector3 Up => WorldRotationQuaternion * Vector3.Up;
+
 		/// <summary>
 		/// The parent entity, or null for a root. Setting it keeps <see cref="Translation"/>, <see cref="Rotation"/>
 		/// and <see cref="Scale"/> as they are, so they become relative to the new parent; null detaches the entity.

@@ -955,7 +955,19 @@ namespace Lux {
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
-		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
+		// `ts` is real time (audio, dialogue, accessibility); scripts, physics and animation get the scaled step.
+		const bool simulating = !m_IsPaused || m_StepFrames > 0;
+		const Timestep scaledTs = static_cast<float>(ts) * m_Clock.TimeScale;
+		m_Clock.UnscaledDelta = static_cast<float>(ts);
+		m_Clock.UnscaledElapsed += static_cast<float>(ts);
+		m_Clock.Delta = simulating ? static_cast<float>(scaledTs) : 0.0f;
+		if (simulating)
+		{
+			m_Clock.Elapsed += static_cast<float>(scaledTs);
+			m_Clock.FrameCount++;
+		}
+
+		AdvanceAnimators(m_Registry, scaledTs, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		ApplyBoneAttachments();
 		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
@@ -1002,7 +1014,7 @@ namespace Lux {
 					if (m_PendingScriptCreates.erase(entityID) && metadata.HasMethod("OnCreate"))
 						it->second.Invoke("OnCreate");
 					if (metadata.HasMethod("OnUpdate"))
-						it->second.Invoke("OnUpdate", (float)ts);
+						it->second.Invoke("OnUpdate", static_cast<float>(scaledTs));
 				}
 
 				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
@@ -1024,7 +1036,7 @@ namespace Lux {
 					});
 			}
 
-			StepPhysics(ts, true);
+			StepPhysics(scaledTs, true);
 			UpdatePhysicsAudio(static_cast<float>(ts)); // drains this frame's contact events
 			DispatchCollisionEvents();
 
@@ -2592,6 +2604,8 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNC("Scene::InvokeScriptFixedUpdate");
 		ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+		m_Clock.FixedDelta = fixedTimestep;
+		m_Clock.InFixedStep = true;
 		for (auto e : m_Registry.view<ScriptComponent>())
 		{
 			Entity entity = { e, this };
@@ -2607,6 +2621,7 @@ namespace Lux {
 			if (scriptEngine.GetScriptMetadata(sc.ScriptID).HasMethod("OnFixedUpdate"))
 				it->second.Invoke("OnFixedUpdate", fixedTimestep);
 		}
+		m_Clock.InFixedStep = false;
 	}
 
 	void Scene::RenderScene(EditorCamera& camera)

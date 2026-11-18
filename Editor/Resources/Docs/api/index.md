@@ -83,15 +83,20 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 ## Other
 
 - [Application](Application) — The running game.
+- [Color](Color) — A linear RGBA color with components from 0 to 1.
 - [CursorMode](CursorMode) — How the mouse cursor behaves over the game window, for [`Input.SetCursorMode`](Input).
 - [EventInstance](EventInstance) — An owned Sound instance.
 - [ForceMode](ForceMode) — How [`RigidBodyComponent.AddForce`](RigidBodyComponent) treats its vector.
 - [GamepadTrigger](GamepadTrigger) — The left or right trigger, for adaptive trigger effects.
 - [GamepadType](GamepadType) — Which family a gamepad belongs to, to pick its button prompts.
+- [Mathf](Mathf) — Single-precision maths helpers for gameplay: clamping, interpolation, angles and smoothing.
+- [Quaternion](Quaternion) — A rotation in 3D.
+- [Random](Random) — Random numbers for gameplay.
 - [Sound](Sound) — A Sound asset (.lsound), played by the native audio backend.
 - [SoundBank](SoundBank) — A Sound Bank asset (.lbank): Sounds that load and unload together.
 - [SoundCue](SoundCue) — A sound playing near the listener, for drawing visual sound cues.
 - [Subtitle](Subtitle) — A subtitle, caption or description line, for drawing your own subtitle UI.
+- [Time](Time) — The game clock.
 - [TriggerEffect](TriggerEffect) — A DualSense adaptive-trigger effect, built with [`TriggerEffect.Resistance`](TriggerEffect), [`TriggerEffect.Weapon`](TriggerEffect), [`TriggerEffect.Vibration`](TriggerEffect) or [`TriggerEffect.Off`](TriggerEffect).
 - [TriggerEffectType](TriggerEffectType) — The kind of a [`TriggerEffect`](TriggerEffect).
 

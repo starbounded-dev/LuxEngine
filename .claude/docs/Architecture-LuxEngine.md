@@ -720,6 +720,21 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   clears nothing, so lines hold still. `CaptureScriptDebugLines` copies them into
   `FrameRenderPacket::ScriptLines` (runtime and editor packets; nothing in Dist), drawn in the world
   overlay with the audio-zone lines (`DebugLine::OnTop` = no depth test).
+- **Game clock (C# `Time`).** `Scene::m_Clock` (`Scene::ScriptClock`) is advanced at the top of
+  `OnUpdateRuntime`: `ts` stays real time (audio, dialogue, accessibility, audio physics), and `scaledTs =
+  ts * TimeScale` goes to script `OnUpdate`, `StepPhysics` and `AdvanceAnimators`. Scale 0 freezes scripts,
+  physics and animation; pause zeroes the scaled delta and stops `Elapsed` and `FrameCount`. Inside
+  `InvokeScriptFixedUpdate` `Time.DeltaTime` reads the fixed step (`InFixedStep`). One internal call,
+  `Time_Get(field)`, returns every value as a double (the field order is the C# `Time.Field` enum), and
+  `Time_SetScale` clamps to >= 0. The clock belongs to the `Scene`, so a scene swap has to carry it.
+- **Maths types** (`ScriptCore/Source/Lux`): `Mathf`, `Quaternion` (Euler order matches
+  `glm::quat(euler)`, so `Entity.RotationQuaternion` and `Entity.Rotation` are the same rotation), `Color`
+  (converts to and from `Vector4`, so it fits every colour property), `Random`, and the operators on
+  `Vector2/3/4`. `Length()`, `LengthSquared()` and `Normalized()` are methods, as `Vector2` always had.
+  `Entity.WorldTranslation`, `WorldRotationQuaternion`, `Forward` (-Z), `Right` and `Up` come from
+  `TransformComponent_GetWorld`. Quaternions cross the boundary as `vec4(x, y, z, w)`.
+  `tests/scripting/run_managed.py` checks the pure C# half against stand-in native calls (CI runs it
+  after the ScriptCore build); `tests/play/Scripts/ApiTests.cs` checks the native half in Play.
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:

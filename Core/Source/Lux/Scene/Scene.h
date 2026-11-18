@@ -193,6 +193,22 @@ namespace Lux {
 		Entity GetPrimaryCameraEntity();
 		Entity GetMainCameraEntity() { return GetPrimaryCameraEntity(); }
 
+		// The game clock C# `Time` reads (Play only). Scripts, physics and animation follow the scaled step;
+		// audio and the accessibility overlay keep real time. Main thread.
+		struct ScriptClock
+		{
+			float TimeScale = 1.0f;
+			float Delta = 0.0f;          // scaled step of the last frame; 0 while paused
+			float UnscaledDelta = 0.0f;
+			double Elapsed = 0.0;        // scaled seconds, advanced only while the scene simulates
+			double UnscaledElapsed = 0.0;
+			uint64_t FrameCount = 0;
+			bool InFixedStep = false;    // inside OnFixedUpdate, `Time.DeltaTime` is the fixed step
+			float FixedDelta = 1.0f / 60.0f;
+		};
+		ScriptClock& GetClock() { return m_Clock; }
+		const ScriptClock& GetClock() const { return m_Clock; }
+
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
 		void SetPaused(bool paused) { m_IsPaused = paused; }
@@ -322,6 +338,7 @@ namespace Lux {
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;
 		int m_StepFrames = 0;
+		ScriptClock m_Clock;
 
 		Scope<PhysicsScene2D> m_PhysicsScene2D;
 		Ref<PhysicsScene> m_PhysicsScene;

@@ -17,11 +17,17 @@ A script derives from `Entity` and the engine calls its hooks by name, so they n
 | Name | Type | Access | Description |
 |---|---|---|---|
 | `Children` | `Entity[]` | get | The entity's direct children, in hierarchy order. |
+| `Forward` | `Vector3` | get | The direction the entity faces in the world: -Z rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `Name` | `string` | get, set | The entity's name, as shown in the Scene Hierarchy. |
 | `Parent` | `Entity` | get, set | The parent entity, or null for a root. Setting it keeps [`Entity.Translation`](Entity), [`Entity.Rotation`](Entity) and [`Entity.Scale`](Entity) as they are, so they become relative to the new parent; null detaches the entity. A change that would make the entity its own ancestor is ignored. |
+| `Right` | `Vector3` | get | The entity's right in the world: +X rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `Rotation` | `Vector3` | get, set | Rotation relative to the parent, as Euler angles in radians. |
+| `RotationQuaternion` | `Quaternion` | get, set | Rotation relative to the parent as a [`Quaternion`](Quaternion); the same rotation as [`Entity.Rotation`](Entity). |
 | `Scale` | `Vector3` | get, set | Scale relative to the parent. |
 | `Translation` | `Vector3` | get, set | Position relative to the parent (to the world, without one), in meters. |
+| `Up` | `Vector3` | get | The entity's up in the world: +Y rotated by [`Entity.WorldRotationQuaternion`](Entity). |
+| `WorldRotationQuaternion` | `Quaternion` | get | Rotation in the world, through every parent. Read only. |
+| `WorldTranslation` | `Vector3` | get | Position in the world, through every parent. Read only: set [`Entity.Translation`](Entity) to move the entity. |
 
 ## Methods
 

@@ -68,6 +68,11 @@ namespace Lux
 		internal static delegate*<void> Application_Quit;
 		#endregion
 
+		#region Time
+		internal static delegate*<int, double> Time_Get;
+		internal static delegate*<float, void> Time_SetScale;
+		#endregion
+
 		#region Input
 		internal static delegate*<KeyCode, Bool32> Input_IsKeyDown;
 		internal static delegate*<KeyCode, Bool32> Input_IsKeyPressed;
@@ -137,6 +142,9 @@ namespace Lux
 		internal static delegate*<ulong, Vector3*, void> TransformComponent_SetRotation;
 		internal static delegate*<ulong, Vector3*, void> TransformComponent_GetScale;
 		internal static delegate*<ulong, Vector3*, void> TransformComponent_SetScale;
+		internal static delegate*<ulong, Vector4*, void> TransformComponent_GetRotationQuat;
+		internal static delegate*<ulong, Vector4*, void> TransformComponent_SetRotationQuat;
+		internal static delegate*<ulong, Vector3*, Vector4*, void> TransformComponent_GetWorld;
 		#endregion
 
 		#region TagComponent

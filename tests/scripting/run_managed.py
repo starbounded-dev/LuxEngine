@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Exercise the production C# scripting API (maths types, Time, finders, physics queries, timers, ...) against
+stand-ins for the native calls.
+
+    python tests/scripting/run_managed.py
+
+Compiles ScriptCore's own sources with ScriptingManagedTests.cs; needs the .NET SDK and Editor/DotNet/Coral.Managed.dll
+(any build of the solution puts it there). No editor, GPU or Coral native host. The native side of each call is
+covered by tests/play/run_play.py.
+"""
+from pathlib import Path
+import subprocess
+import tempfile
+from xml.sax.saxutils import escape
+
+root = Path(__file__).resolve().parents[2]
+with tempfile.TemporaryDirectory(prefix="lux-scripting-managed-") as temporary:
+    directory = Path(temporary)
+    (directory / "NuGet.Config").write_text("<configuration><packageSources><clear /></packageSources></configuration>")
+    project = directory / "ScriptingTests.csproj"
+    project.write_text(f"""<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <UseAppHost>false</UseAppHost><RollForward>Major</RollForward>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><StartupObject>ScriptingManagedTests</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="{escape(str(root / 'ScriptCore/Source/**/*.cs'))}" />
+    <Compile Include="{escape(str(root / 'tests/scripting/*.cs'))}" />
+    <Reference Include="Coral.Managed"><HintPath>{escape(str(root / 'Editor/DotNet/Coral.Managed.dll'))}</HintPath></Reference>
+  </ItemGroup>
+</Project>""")
+    subprocess.run(["dotnet", "run", "--project", str(project), "--verbosity", "quiet"], check=True)
