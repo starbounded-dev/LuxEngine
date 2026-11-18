@@ -99,7 +99,7 @@ def main():
     kernel_sources = sorted((ROOT / "Core/vendor/soundwave/src").glob("*.cpp"))
     sources = [*("vendor/soundwave/src/" + path.stem for path in kernel_sources), "Audio/AudioGeometrySystem", "Audio/AudioAcoustics",
                "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial", "Audio/AudioEventRefSerializer", "Audio/Native/NativeAudioReferences",
-               "Core/UUID", "Core/Ref", "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/AssetPackSerializer",
+               "Core/UUID", "Core/Ref", "Physics/JoltPhysics/JoltContactListener", "Serialization/FileStream", "Serialization/Obfuscation", "Serialization/AssetPackSerializer",
                "Serialization/StreamWriter", "Serialization/StreamReader", "Serialization/Yaml", "vendor/rapidyaml/ryml"]
     objects = {}
     for source in sources:

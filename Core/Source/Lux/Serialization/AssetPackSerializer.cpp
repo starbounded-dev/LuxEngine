@@ -20,7 +20,7 @@ namespace Lux {
 			std::filesystem::create_directories(directory);
 	}
 
-	bool AssetPackSerializer::Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress)
+	bool AssetPackSerializer::Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress, const Obfuscation::Key* key)
 	{
 		ScopedBuffer ownedBinary(appBinary);
 		// Print Info
@@ -31,7 +31,7 @@ namespace Lux {
 			assetCount += uint32_t(sceneInfo.Assets.size());
 		LUX_CORE_TRACE("  {} assets (including duplicates)", assetCount);
 
-		FileStreamWriter serializer(path);
+		FileStreamWriter serializer(path, key);
 		if (!serializer.IsStreamGood() || file.Index.Scenes.empty())
 		{
 			LUX_CORE_ERROR_TAG("Asset Pack", "Cannot write asset pack '{}' (unwritable file or no scenes)", path.string());

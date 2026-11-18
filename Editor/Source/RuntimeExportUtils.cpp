@@ -10,7 +10,9 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
+#include <tuple>
 #include <format>
 #include <fstream>
 
@@ -162,6 +164,29 @@ namespace Lux::RuntimeExport {
 		return {};
 	}
 
+	std::filesystem::path FindRepositoryRoot(const std::filesystem::path& projectDirectory)
+	{
+		std::error_code ec;
+		std::filesystem::path root = FindRepositoryRootFrom(projectDirectory);
+		if (root.empty())
+			root = FindRepositoryRootFrom(std::filesystem::current_path(ec));
+		return root;
+	}
+
+	std::filesystem::path FindEditorDirectory(std::string_view name, const std::filesystem::path& projectDirectory)
+	{
+		std::error_code ec;
+		const std::filesystem::path current = std::filesystem::current_path(ec);
+		const std::filesystem::path root = FindRepositoryRoot(projectDirectory);
+		const std::filesystem::path folder(name);
+		return FindFirstExistingDirectory({
+			current / folder,
+			current / ".." / "Editor" / folder,
+			root / "Editor" / folder,
+			std::filesystem::path("Editor") / folder
+		});
+	}
+
 	std::filesystem::path GetRuntimeOutputDirectory(RuntimeExportTarget target)
 	{
 		return std::string(RuntimeExportTargetToString(target)) + PlatformSuffix;
@@ -171,6 +196,12 @@ namespace Lux::RuntimeExport {
 	{
 		const std::string directoryName = path.filename().string();
 		return path.parent_path().filename() == "bin" && directoryName.find(PlatformSuffix) != std::string::npos;
+	}
+
+	std::filesystem::path GetPrebuiltRuntimeDirectory(RuntimeExportTarget target)
+	{
+		std::error_code ec;
+		return std::filesystem::current_path(ec) / "Runtime" / RuntimeExportTargetToString(target);
 	}
 
 	std::filesystem::path GetRuntimeExecutablePath(RuntimeExportTarget target)
@@ -196,6 +227,9 @@ namespace Lux::RuntimeExport {
 		if (IsBuildConfigurationDirectory(buildConfigDirectory))
 			candidates.emplace_back((buildConfigDirectory / "Lux-Runtime" / RuntimeExeName).lexically_normal());
 
+		// Last: a source build beats the installed player, because it is the one a developer just changed.
+		candidates.emplace_back((GetPrebuiltRuntimeDirectory(target) / RuntimeExeName).lexically_normal());
+
 		for (const std::filesystem::path& candidate : candidates)
 		{
 			if (FileExists(candidate))
@@ -203,6 +237,17 @@ namespace Lux::RuntimeExport {
 		}
 
 		return {};
+	}
+
+	std::optional<RuntimeExportTarget> ResolveExportTarget(RuntimeExportTarget preferred, const std::filesystem::path& projectDirectory)
+	{
+		if (!GetRuntimeExecutablePath(preferred).empty() || !FindRepositoryRoot(projectDirectory).empty())
+			return preferred;
+
+		for (RuntimeExportTarget target : { RuntimeExportTarget::Dist, RuntimeExportTarget::Release, RuntimeExportTarget::Debug })
+			if (!GetRuntimeExecutablePath(target).empty())
+				return target;
+		return std::nullopt;
 	}
 
 	bool IsRuntimeExecutableOutdated(const std::filesystem::path& runtimeExe, const std::filesystem::path& repositoryRoot)
@@ -317,6 +362,119 @@ namespace Lux::RuntimeExport {
 
 		LUX_CONSOLE_LOG_INFO("Lux-Runtime build complete.");
 		return true;
+	}
+
+	std::filesystem::path FindDotNetRoot()
+	{
+		std::error_code ec;
+		std::vector<std::filesystem::path> candidates;
+		for (const char* variable : { "DOTNET_ROOT", "DOTNET_ROOT_X64" })
+			if (const char* value = std::getenv(variable); value && *value)
+				candidates.emplace_back(value);
+#ifdef LUX_PLATFORM_LINUX
+		for (const char* path : { "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/lib64/dotnet", "/opt/dotnet" })
+			candidates.emplace_back(path);
+		if (const char* home = std::getenv("HOME"); home && *home)
+			candidates.emplace_back(std::filesystem::path(home) / ".dotnet");
+#else
+		if (const char* programFiles = std::getenv("ProgramFiles"); programFiles && *programFiles)
+			candidates.emplace_back(std::filesystem::path(programFiles) / "dotnet");
+#endif
+		for (const std::filesystem::path& candidate : candidates)
+			if (std::filesystem::is_directory(candidate / "shared" / "Microsoft.NETCore.App", ec))
+				return candidate;
+		return {};
+	}
+
+	std::filesystem::path FindNewestVersionDirectory(const std::filesystem::path& directory, uint32_t minimumMajor)
+	{
+		// "10.0.12" -> {10, 0, 12}, stable. "10.0.0-rc.1" is the same numbers, not stable, so it ranks below 10.0.0.
+		const auto parse = [](const std::string& name, std::array<uint32_t, 3>& numbers, bool& stable)
+		{
+			numbers = {};
+			size_t part = 0, i = 0;
+			while (part < numbers.size() && i < name.size() && std::isdigit(static_cast<unsigned char>(name[i])))
+			{
+				uint64_t value = 0;
+				for (; i < name.size() && std::isdigit(static_cast<unsigned char>(name[i])); ++i)
+					value = std::min<uint64_t>(value * 10 + static_cast<uint64_t>(name[i] - '0'), 0xFFFFFFFFu);
+				numbers[part++] = static_cast<uint32_t>(value);
+				if (i < name.size() && name[i] == '.')
+					++i;
+				else
+					break;
+			}
+			stable = i == name.size();
+			return part > 0;
+		};
+
+		std::error_code ec;
+		std::filesystem::path best;
+		std::array<uint32_t, 3> bestNumbers = {};
+		bool bestStable = false;
+		std::string bestName;
+		// A stable release always wins over a newer preview: a game ships what its makers run, not a beta.
+		for (std::filesystem::directory_iterator it(directory, ec), end; !ec && it != end; it.increment(ec))
+		{
+			if (!it->is_directory(ec))
+				continue;
+			std::array<uint32_t, 3> numbers;
+			bool stable = false;
+			if (!parse(it->path().filename().string(), numbers, stable) || numbers[0] < minimumMajor)
+				continue;
+			// Equal numbers and both previews: the later name (rc over preview) wins.
+			const std::string name = it->path().filename().string();
+			if (best.empty() || std::tie(stable, numbers, name) > std::tie(bestStable, bestNumbers, bestName))
+			{
+				best = it->path();
+				bestName = name;
+				bestNumbers = numbers;
+				bestStable = stable;
+			}
+		}
+		return best;
+	}
+
+	bool BundleDotNetRuntime(const std::filesystem::path& dotNetRoot, const std::filesystem::path& destination, std::string& outError)
+	{
+		// Coral.Managed targets net10.0 and rolls forward, so any installed major from 10 on runs it.
+		constexpr uint32_t k_MinimumMajor = 10;
+		const std::filesystem::path framework = FindNewestVersionDirectory(dotNetRoot / "shared" / "Microsoft.NETCore.App", k_MinimumMajor);
+		const std::filesystem::path hostfxr = FindNewestVersionDirectory(dotNetRoot / "host" / "fxr", k_MinimumMajor);
+		if (framework.empty() || hostfxr.empty())
+		{
+			outError = std::format("No .NET {} runtime found under '{}'. Install the .NET {} SDK, or export without scripts.",
+				k_MinimumMajor, dotNetRoot.string(), k_MinimumMajor);
+			return false;
+		}
+
+		std::error_code ec;
+		std::filesystem::remove_all(destination, ec);
+		const std::filesystem::path frameworkDestination = destination / "shared" / "Microsoft.NETCore.App" / framework.filename();
+		const std::filesystem::path hostfxrDestination = destination / "host" / "fxr" / hostfxr.filename();
+		if (!CopyDirectoryRecursive(framework, frameworkDestination) || !CopyDirectoryRecursive(hostfxr, hostfxrDestination))
+		{
+			outError = std::format("Copying the .NET runtime from '{}' failed. The Log panel has the reason.", dotNetRoot.string());
+			return false;
+		}
+
+		LUX_CONSOLE_LOG_INFO("  .NET runtime {}: bundled", framework.filename().string());
+		return true;
+	}
+
+	bool LaunchExportedGame(const std::filesystem::path& executable)
+	{
+		if (!FileExists(executable))
+			return false;
+#ifdef LUX_PLATFORM_LINUX
+		// Its own session and no terminal, so closing the editor does not end the game. QuoteShellArgument keeps
+		// a file name from running a command.
+		const std::string command = "setsid " + FileSystem::QuoteShellArgument(std::filesystem::absolute(executable)) + " >/dev/null 2>&1 &";
+		return std::system(command.c_str()) == 0;
+#else
+		// ShellExecute "open" runs the executable; the player sets its own working directory.
+		return FileSystem::OpenExternally(executable);
+#endif
 	}
 
 	std::filesystem::path ResolveScriptProjectFile(Ref<Project> project)

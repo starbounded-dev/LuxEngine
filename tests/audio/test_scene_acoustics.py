@@ -34,10 +34,10 @@ class ExportVerificationTests(unittest.TestCase):
             root = Path(temporary).resolve()
             capture, package = root / "capture", root / "export" / "package"
             capture.mkdir()
-            (package / "Assets").mkdir(parents=True)
+            (package / "Data/Assets").mkdir(parents=True)
             executable = package / "Lux-Runtime"
-            for artifact in (executable, package / "Assets/Project.luxruntime",
-                             package / "Assets/AssetPack.lap", package / "Assets/ShaderPack.lsp"):
+            for artifact in (executable, package / "Data/Assets/Project.luxruntime",
+                             package / "Data/Assets/AssetPack.lap", package / "Data/Assets/ShaderPack.lsp"):
                 artifact.write_bytes(b"fixture")
             (capture / "AudioDemo.export.yaml").write_text(yaml.safe_dump({
                 "Root": str(package), "Executable": str(executable),

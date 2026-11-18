@@ -45,7 +45,7 @@ def main():
     sources = [ROOT / "tests/audio/OcclusionTests.cpp", ROOT / "tests/audio/AudioAcousticsTests.cpp"]
     sources += [core / "Source/Lux" / (value + ".cpp") for value in (
         "Audio/AudioAcoustics", "Core/JobSystem", "Audio/AudioOcclusion", "Audio/AudioOcclusionSettings", "Audio/AcousticMaterial",
-        "Audio/AudioGeometrySystem", "Serialization/FileStream", "Serialization/StreamReader",
+        "Audio/AudioGeometrySystem", "Serialization/FileStream", "Serialization/Obfuscation", "Serialization/StreamReader",
         "Serialization/StreamWriter", "Serialization/Yaml", "Core/UUID", "Core/Ref")]
     sources += [core / "vendor/rapidyaml/ryml.cpp"]
     sources += sorted((core / "vendor/soundwave/src").glob("*.cpp"))

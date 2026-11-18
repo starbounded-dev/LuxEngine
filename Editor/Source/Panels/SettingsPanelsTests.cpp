@@ -11,6 +11,9 @@
 #include "GameViewPanel.h"
 #include "Viewport/Viewport.h"
 #include "RuntimeExportUtils.h"
+#include "RuntimeExportBranding.h"
+#include "Lux/Serialization/FileStream.h"
+#include "Lux/Serialization/Obfuscation.h"
 
 #ifndef LUX_DIST
 #include "EditorLayer.h"
@@ -61,6 +64,175 @@ namespace Lux
 		{
 			if (!result)
 				throw std::runtime_error(reason);
+		}
+		// What an export of a game with scripts and a branded executable relies on, with no editor window:
+		// which .NET runtime gets bundled, and the bytes stamped on the executable.
+		void CheckExportPackaging()
+		{
+			namespace fs = std::filesystem;
+			const fs::path root = fs::temp_directory_path() / "lux-export-selftest";
+			std::error_code ec;
+			fs::remove_all(root, ec);
+			const auto versions = [&](std::initializer_list<const char*> names)
+			{
+				fs::remove_all(root, ec);
+				for (const char* name : names)
+					fs::create_directories(root / name);
+			};
+			versions({ "9.0.99", "10.0.2", "10.0.12", "10.0.12-rc.1", "11.0.0-preview.1", "not-a-version" });
+			Require(RuntimeExport::FindNewestVersionDirectory(root, 10).filename() == "10.0.12",
+					"The bundled .NET runtime is not the newest stable one from major 10");
+			versions({ "9.0.99", "11.0.0-preview.1", "11.0.0-rc.2" });
+			Require(RuntimeExport::FindNewestVersionDirectory(root, 10).filename() == "11.0.0-rc.2",
+					"With only previews installed the newest preview is bundled");
+			versions({ "8.0.25", "9.0.17" });
+			Require(RuntimeExport::FindNewestVersionDirectory(root, 10).empty(), "A runtime older than major 10 was offered for bundling");
+			fs::remove_all(root, ec);
+
+			// A 32 x 16 image: centred on a 32 x 32 canvas, never upscaled past 48 px.
+			const std::vector<uint8_t> pixels(32 * 16 * 4, 255);
+			const auto icons = RuntimeExport::BuildIconImages(pixels.data(), 32, 16);
+			Require(icons.size() == 3 && icons[0].Size == 48 && icons[1].Size == 32 && icons[2].Size == 16,
+					"Icon sizes are not 48, 32, 16 for a 32 px image");
+			for (const auto& icon : icons)
+			{
+				const uint32_t maskRow = ((icon.Size + 31) / 32) * 4;
+				Require(icon.Resource.size() == 40u + icon.Size * icon.Size * 4u + maskRow * icon.Size, "An icon image has the wrong byte length");
+				uint32_t headerSize = 0, height = 0;
+				std::memcpy(&headerSize, icon.Resource.data(), 4);
+				std::memcpy(&height, icon.Resource.data() + 8, 4);
+				Require(headerSize == 40 && height == icon.Size * 2, "An icon image has a bad bitmap header");
+			}
+			Require(RuntimeExport::BuildIconImages(pixels.data(), 0, 16).empty(), "An empty image produced icon images");
+
+			const auto version = RuntimeExport::BuildVersionResource("My Game", "1.2.3", "MyGame.exe");
+			uint16_t length = 0;
+			uint32_t signature = 0, fileVersionMS = 0, fileVersionLS = 0;
+			std::memcpy(&length, version.data(), 2);
+			// wLength, wValueLength, wType, "VS_VERSION_INFO + terminator" (16 UTF-16 units), padding to 4, then VS_FIXEDFILEINFO.
+			const size_t fixedInfo = 6 + 32 + 2;
+			std::memcpy(&signature, version.data() + fixedInfo, 4);
+			std::memcpy(&fileVersionMS, version.data() + fixedInfo + 8, 4);
+			std::memcpy(&fileVersionLS, version.data() + fixedInfo + 12, 4);
+			Require(length == version.size() && signature == 0xFEEF04BD, "The version resource is malformed");
+			Require(fileVersionMS == ((1u << 16) | 2u) && fileVersionLS == (3u << 16), "The version resource carries the wrong numbers");
+			std::string wide;
+			for (const char c : std::string_view("My Game"))
+			{
+				wide += c;
+				wide += static_cast<char>(0);
+			}
+			Require(std::string_view(reinterpret_cast<const char*>(version.data()), version.size()).find(wide) != std::string_view::npos,
+					"The game's name is missing from the version resource");
+		}
+		// The scrambling container: random access, files, the wrong key, and the key block an export patches.
+		void CheckObfuscation()
+		{
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			const Obfuscation::Key key = Obfuscation::Key::Generate();
+			Require(Obfuscation::Key::FromHex(key.ToHex()) == key && !Obfuscation::Key::FromHex("zz"), "A key does not survive its hex form");
+
+			std::vector<uint8_t> plain(10000);
+			for (size_t i = 0; i < plain.size(); ++i)
+				plain[i] = static_cast<uint8_t>(i * 31 + 7);
+			// Any range, from any position, is scrambled the same as inside the whole.
+			std::vector<uint8_t> whole = plain;
+			Obfuscation::Apply(key, 0, whole.data(), whole.size());
+			Require(whole != plain, "Apply left the bytes unchanged");
+			std::vector<uint8_t> piece(plain.begin() + 123, plain.begin() + 4321);
+			Obfuscation::Apply(key, 123, piece.data(), piece.size());
+			Require(std::equal(piece.begin(), piece.end(), whole.begin() + 123), "A range scrambled alone differs from the same range in the whole");
+			Obfuscation::Apply(key, 0, whole.data(), whole.size());
+			Require(whole == plain, "Applying twice did not restore the bytes");
+
+			const fs::path path = fs::temp_directory_path() / "lux-obfuscation-selftest.bin";
+			{
+				FileStreamWriter writer(path, &key);
+				writer.WriteRaw<uint32_t>(0xC0FFEE);
+				writer.WriteZero(8);
+				writer.WriteData(reinterpret_cast<const char*>(plain.data()), plain.size());
+				writer.SetStreamPosition(4);
+				writer.WriteRaw<uint64_t>(0x1122334455667788ull); // seek back and patch, as the pack index does
+				Require(writer.Flush(), "The scrambled file could not be written");
+			}
+			Obfuscation::Header header;
+			Require(Obfuscation::Peek(path, header) && header.KeyFingerprint == key.Fingerprint() && fs::file_size(path) == Obfuscation::HeaderSize + 12 + plain.size(),
+					"The scrambled file has the wrong header or size");
+			{
+				std::ifstream raw(path, std::ios::binary);
+				std::vector<char> bytes(fs::file_size(path));
+				raw.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+				const std::string_view view(bytes.data(), bytes.size());
+				Require(view.find(std::string_view(reinterpret_cast<const char*>(plain.data()) + 100, 64)) == std::string_view::npos,
+						"The scrambled file holds readable bytes");
+			}
+			Obfuscation::SetActiveKey(key);
+			{
+				FileStreamReader reader(path);
+				uint32_t magic = 0;
+				uint64_t patched = 0;
+				std::vector<uint8_t> back(plain.size());
+				Require(reader.IsStreamGood() && reader.GetStreamSize() == 12 + plain.size(), "The scrambled file does not read as its original size");
+				reader.ReadData(reinterpret_cast<char*>(&magic), 4);
+				reader.ReadData(reinterpret_cast<char*>(&patched), 8);
+				reader.SetStreamPosition(12 + 5000);
+				reader.ReadData(reinterpret_cast<char*>(back.data()), 1000);
+				Require(magic == 0xC0FFEE && patched == 0x1122334455667788ull && std::equal(back.begin(), back.begin() + 1000, plain.begin() + 5000),
+						"The scrambled file did not read back what was written");
+			}
+			Obfuscation::SetActiveKey(Obfuscation::Key::Generate());
+			{
+				FileStreamReader wrongKey(path);
+				Require(!wrongKey.IsStreamGood(), "A scrambled file opened with the wrong key");
+			}
+			Obfuscation::ClearActiveKey();
+			{
+				FileStreamReader noKey(path);
+				Require(!noKey.IsStreamGood(), "A scrambled file opened with no key");
+			}
+			{
+				const fs::path plainPath = fs::temp_directory_path() / "lux-obfuscation-selftest-plain.bin";
+				{ FileStreamWriter writer(plainPath); writer.WriteRaw<uint32_t>(42); }
+				{
+					FileStreamReader reader(plainPath);
+					uint32_t value = 0;
+					reader.ReadData(reinterpret_cast<char*>(&value), 4);
+					Require(reader.IsStreamGood() && value == 42, "A plain file no longer reads as before");
+				}
+				fs::remove(plainPath, ec);
+			}
+			fs::remove(path, ec);
+
+			// The key block: found once by its magic and read back as the key it was patched with.
+			std::vector<uint8_t> blockInit = { LUX_OBFUSCATION_KEY_BLOCK_INIT };
+			Require(blockInit.size() == Obfuscation::KeyBlockSize && std::memcmp(blockInit.data(), Obfuscation::KeyBlockMagic, 16) == 0
+						&& std::memcmp(blockInit.data() + 16, Obfuscation::KeyBlockUnpatched, 16) == 0,
+					"The key block initializer disagrees with the magic");
+			Require(!Obfuscation::ReadKeyBlock(blockInit.data()), "An unpatched key block read as patched");
+			const fs::path exe = fs::temp_directory_path() / "lux-obfuscation-selftest.exe";
+			{
+				std::ofstream out(exe, std::ios::binary);
+				const std::string filler(5000, 'x');
+				out << filler;
+				out.write(reinterpret_cast<const char*>(blockInit.data()), static_cast<std::streamsize>(blockInit.size()));
+				out << filler;
+			}
+			std::string error;
+			Require(Obfuscation::PatchExecutable(exe, key, error), error.c_str());
+			{
+				std::ifstream in(exe, std::ios::binary);
+				std::vector<uint8_t> bytes(fs::file_size(exe));
+				in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+				const auto patched = Obfuscation::ReadKeyBlock(bytes.data() + 5000);
+				Require(patched && *patched == key && fs::file_size(exe) == 10000 + Obfuscation::KeyBlockSize, "The patched key block does not read back");
+			}
+			{
+				std::ofstream out(exe, std::ios::binary | std::ios::trunc);
+				out << "no key block here";
+			}
+			Require(!Obfuscation::PatchExecutable(exe, key, error), "Patching an executable with no key block succeeded");
+			fs::remove(exe, ec);
 		}
 		void Frame(EditorPanel& panel, float width, float height = 720.0f, const char* name = "Help")
 		{
@@ -707,6 +879,8 @@ namespace Lux
 		SettingsTestContext context;
 		try
 		{
+			CheckExportPackaging();
+			CheckObfuscation();
 			RuntimeExport::RuntimeBuildJob job;
 			ProjectSettingsWindow panel(job);
 			auto project = Project::GetActive();

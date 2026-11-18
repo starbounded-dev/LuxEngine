@@ -320,13 +320,16 @@ def prepare_linux_validation(environment, directory):
     return manifest
 
 
-def verify_export(capture, destination, case, triangle_counts, timeout, threading, runtime_config, gpu_source=False):
+def verify_export(capture, destination, case, triangle_counts, timeout, threading, runtime_config, gpu_source=False, obfuscated=False):
     metadata = yaml.safe_load((capture/"AudioDemo.export.yaml").read_text(encoding="utf-8"))
     package, executable = Path(metadata["Root"]).resolve(), Path(metadata["Executable"]).resolve()
     require(package.is_relative_to(destination.resolve()) and executable.parent == package,
             "Export metadata points outside the isolated destination")
-    for path in (executable, package/"Assets/Project.luxruntime", package/"Assets/AssetPack.lap", package/"Assets/ShaderPack.lsp"):
+    for path in (executable, package/"Data/Assets/Project.luxruntime", package/"Data/Assets/AssetPack.lap", package/"Data/Assets/ShaderPack.lsp"):
         require(path.is_file() and path.stat().st_size > 0, f"Missing exported artifact: {path}")
+    if obfuscated:
+        for name in ("AssetPack.lap", "ShaderPack.lsp", "Project.luxruntime"):
+            require((package/"Data/Assets"/name).read_bytes()[:4] == b"LXOB", f"{name} is not scrambled in an obfuscated export")
     for path in package.rglob("*"):
         name = path.name.lower().removeprefix("lib")
         require(not name.startswith(("fmod", "vaudionative", "asterwave")) or
@@ -389,6 +392,7 @@ def main():
     parser.add_argument("--runtime-config", choices=("debug", "release", "dist"), help="exported runtime configuration (defaults to --config)")
     parser.add_argument("--cases", nargs="+", choices=CASES, default=list(CASES))
     parser.add_argument("--threading", choices=("single", "multi"), default="multi")
+    parser.add_argument("--obfuscate", action="store_true", help="export with Obfuscate Exported Game on: the packaged game streams its audio from a scrambled pack")
     parser.add_argument("--gpu-source", action="store_true", help="require completed GPU propagation and timing")
     parser.add_argument("--output", type=Path, default=ROOT/"bin/soundwave-scene-tests",
                         help="Parent directory for fixtures, exports and results")
@@ -403,6 +407,8 @@ def main():
     original = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     project = yaml.safe_load(project_path.read_text(encoding="utf-8"))
     demo = yaml.safe_load(demo_path.read_text(encoding="utf-8"))
+    if args.obfuscate:
+        project["Project"]["Obfuscation"] = {"Exports": True}
     handles = PathHandles()
     triangle_counts = {}
     for model, filename in (("Sponza", "Sponza"), ("Default", "Cube")):
@@ -442,7 +448,7 @@ def main():
                         "Stone room and corridor zone sends sound alike")
             if args.export_runtime:
                 results[name]["runtime"] = verify_export(capture, destination, case, triangle_counts, args.timeout, args.threading,
-                                                          args.runtime_config or args.config, require_gpu)
+                                                          args.runtime_config or args.config, require_gpu, args.obfuscate)
             print(name + ": PASS " + json.dumps(results[name]), flush=True)
             (run/"results.json").write_text(json.dumps(results, indent=2)+"\n", encoding="utf-8")
     finally:

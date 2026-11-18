@@ -296,6 +296,10 @@ namespace Lux {
 			m_ProfilerPreviousFrameData = m_Profiler->GetPerFrameData();
 			m_Profiler->Clear();
 
+			// Layer work that needs the render thread idle, in every build (not only those with ImGui).
+			for (Layer* layer : m_LayerStack)
+				layer->OnRenderThreadIdle();
+
 			// Dear ImGui's GLFW backend performs native window operations that must run on
 			// the thread that owns the window. Build and snapshot the UI while the render
 			// thread is idle; only immutable GPU draw work is submitted below.

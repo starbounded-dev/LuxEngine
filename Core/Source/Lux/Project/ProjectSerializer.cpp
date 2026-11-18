@@ -742,15 +742,26 @@ namespace Lux
 			{
 				out << Yaml::BeginMap;
 				out << Yaml::Key << "GameName" << Yaml::Value << config.RuntimeExport.GameName;
+				out << Yaml::Key << "Version" << Yaml::Value << config.RuntimeExport.Version;
 				out << Yaml::Key << "WindowWidth" << Yaml::Value << config.RuntimeExport.WindowWidth;
 				out << Yaml::Key << "WindowHeight" << Yaml::Value << config.RuntimeExport.WindowHeight;
 				out << Yaml::Key << "Fullscreen" << Yaml::Value << config.RuntimeExport.Fullscreen;
 				out << Yaml::Key << "VSync" << Yaml::Value << config.RuntimeExport.VSync;
 				out << Yaml::Key << "IconPath" << Yaml::Value << config.RuntimeExport.IconPath.generic_string();
+				if (!config.RuntimeExport.SplashPath.empty())
+					out << Yaml::Key << "SplashPath" << Yaml::Value << config.RuntimeExport.SplashPath.generic_string();
 				// IconPath names the icon; the handle is only a fallback for a project that has no path yet.
 				if (config.RuntimeExport.IconPath.empty())
 					out << Yaml::Key << "IconHandle" << Yaml::Value << (uint64_t)config.RuntimeExport.IconHandle;
 				out << Yaml::Key << "TargetConfig" << Yaml::Value << RuntimeExportTargetToString(config.RuntimeExport.TargetConfig);
+				out << Yaml::EndMap;
+			}
+			if (config.Obfuscation.Exports || !config.Obfuscation.Key.empty())
+			{
+				out << Yaml::Key << "Obfuscation" << Yaml::Value;
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Exports" << Yaml::Value << config.Obfuscation.Exports;
+				out << Yaml::Key << "Key" << Yaml::Value << config.Obfuscation.Key;
 				out << Yaml::EndMap;
 			}
 			SerializeSceneRendererSettings(out, config.SceneRenderer);
@@ -875,7 +886,9 @@ namespace Lux
 		}
 
 		CreateDirectoriesIfNeeded(filepath);
-		FileStreamWriter serializer(filepath);
+		// The runtime project file is scrambled in an obfuscated export (the player reads it with the key it carries).
+		const std::optional<Obfuscation::Key> exportKey = m_Project->GetConfig().Obfuscation.ExportKey();
+		FileStreamWriter serializer(filepath, exportKey ? &*exportKey : nullptr);
 		if (!serializer.IsStreamGood())
 			return false;
 
@@ -1023,15 +1036,23 @@ namespace Lux
 		}
 		// "RenderingTechnique" key is obsolete (deferred is the only path now) and
 		// is intentionally ignored when present in legacy project files.
+		config.Obfuscation = {};
+		if (auto obfuscationNode = projectNode["Obfuscation"])
+		{
+			config.Obfuscation.Exports = obfuscationNode["Exports"].as<bool>(false);
+			config.Obfuscation.Key = obfuscationNode["Key"].as<std::string>("");
+		}
 		config.RuntimeExport = {};
 		if (auto runtimeExportNode = projectNode["RuntimeExport"])
 		{
 			config.RuntimeExport.GameName = runtimeExportNode["GameName"].as<std::string>(config.Name);
+			config.RuntimeExport.Version = runtimeExportNode["Version"].as<std::string>(config.RuntimeExport.Version);
 			config.RuntimeExport.WindowWidth = runtimeExportNode["WindowWidth"].as<uint32_t>(config.RuntimeExport.WindowWidth);
 			config.RuntimeExport.WindowHeight = runtimeExportNode["WindowHeight"].as<uint32_t>(config.RuntimeExport.WindowHeight);
 			config.RuntimeExport.Fullscreen = runtimeExportNode["Fullscreen"].as<bool>(config.RuntimeExport.Fullscreen);
 			config.RuntimeExport.VSync = runtimeExportNode["VSync"].as<bool>(config.RuntimeExport.VSync);
 			config.RuntimeExport.IconPath = runtimeExportNode["IconPath"].as<std::string>(config.RuntimeExport.IconPath.generic_string());
+			config.RuntimeExport.SplashPath = runtimeExportNode["SplashPath"].as<std::string>("");
 			if (const auto iconNode = runtimeExportNode["IconHandle"]; iconNode)
 				config.RuntimeExport.IconHandle = AssetReference::ReadValue(iconNode);
 

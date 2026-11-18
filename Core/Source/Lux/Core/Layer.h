@@ -23,6 +23,10 @@ namespace Lux {
 		virtual void OnApplicationQuit() {}
 		virtual void OnUpdate(Timestep ts) {}
 		virtual void OnImGuiRender() {}
+		// Once per frame while the render thread is idle, whether or not the application has an ImGui
+		// overlay (a Dist player has none, so OnImGuiRender never runs there). The place for work that frees
+		// GPU resources the render thread may still be using, such as swapping the running scene.
+		virtual void OnRenderThreadIdle() {}
 		virtual void OnEvent(Event& event) {}
 
 		inline const std::string& GetName() const { return m_DebugName; }

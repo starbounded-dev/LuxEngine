@@ -29,12 +29,13 @@ namespace Lux
 		void OnUpdate(Timestep ts) override;
 		void OnEvent(Event& event) override;
 		void OnImGuiRender() override;
+		void OnRenderThreadIdle() override;
 
 	private:
 		bool OpenProject();
 		bool LoadScene(AssetHandle sceneHandle);
 		// A script asked for another scene (C# Scene.Load): swaps it in, carrying persistent entities over. Call it only while
-		// the render thread is idle (OnImGuiRender), because the old scene's GPU resources are freed.
+		// the render thread is idle (OnRenderThreadIdle), because the old scene's GPU resources are freed.
 		void ApplyRequestedScene();
 
 		void OnScenePlay();
@@ -59,6 +60,7 @@ namespace Lux
 		std::filesystem::path m_ProjectPath;
 		std::filesystem::path m_AudioVerificationPath;
 		uint32_t m_AudioVerificationFrames = 0;
+		uint32_t m_FramesSinceStart = 0;
 
 		Ref<Project> m_RuntimeProject;
 		Ref<Scene> m_RuntimeScene;

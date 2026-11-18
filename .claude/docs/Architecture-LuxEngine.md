@@ -273,7 +273,7 @@ skipped with a warning and shaders compile from source; without one, `Renderer::
   project, so no project's graphs reach it. Judged against `MaterialGraphRegistry::GetEmptyIncludeText()`,
   never the live include. `tests/shaders/check_engine_pack.py` recomputes its identity without a GPU
   (CI Release job, `run_local.py`); keep it in step with `ComputeShaderInputIdentity`.
-- **Export** — `<export>/Assets/ShaderPack.lsp`, written by `WriteRuntimeShaderPack` from the live
+- **Export** — `<export>/Data/Assets/ShaderPack.lsp`, written by `WriteRuntimeShaderPack` from the live
   library after `MaterialGraphRegistry::ScanProject` (graphs included). Judged by `EngineVersion`
   (`LUX_VERSION` of the writer; `EngineChanged` refuses another version) instead of sources: a Dist
   export ships no `Resources/Shaders`, and no export ships the editor's `Resources/ShaderPack.lsp`
@@ -819,6 +819,9 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
+- C# `Scene.Load` swaps the scene in `RuntimeLayer::OnRenderThreadIdle` (`Layer::OnRenderThreadIdle`, called
+  by `Application::Run` every frame while the render thread is idle, with or without an ImGui overlay). A Dist
+  player has no ImGui overlay, so `OnImGuiRender` never runs there and the swap used to be silently skipped.
 - C# `Application.Quit()` (`Application_Quit`) ends the exported game through the same queued
   window-close event as closing its window. In the editor (`!Application::IsRuntime()`) it only
   logs a warning: stopping Play is the editor's command.
@@ -1565,7 +1568,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   (`ImGuiEx::Draw::LuxMark` / `DotGrid`, `Colors::Brand`).
 - `Editor/Source/RuntimeExportUtils.{h,cpp}` builds the standalone runtime package. Each export
   first deletes the `<Game>-<Platform>` output folder, but only when it holds
-  `Assets/Project.luxruntime` from a previous export; any other non-empty folder at that path stops
+  `Data/Assets/Project.luxruntime` (or `Assets/Project.luxruntime`, the layout before `Data/`) from a previous export; any other non-empty folder at that path stops
   the export instead of being overwritten. `EditorLayer::ExportRuntimeNow` stops Play, saves, checks
   audio, and creates `m_PendingRuntimeExport` with the settings Export was clicked with. While it
   exists, `UI_RuntimeExportProgress` shows a modal progress overlay that locks the editor, and
@@ -1583,6 +1586,57 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   both that directory and the runtime root, preserving loader filenames and checking copy and
   enumeration failures. The staging helper runs only while building the engine; export itself
   invokes no dependency-inspection tool. Audio deployment remains explicitly validated.
+  **Export from an installed editor (the release zip).** The zip has no source tree, so it cannot build a
+  player: it ships the prebuilt Dist player in `Runtime/Dist/` beside the editor (the executable and the
+  libraries `ShipsLibrary` lets into an export, staged by `scripts/ci/StageRuntime.py`, which mirrors
+  `ShipsLibrary` — change both together; the `package-windows` / `package-linux` jobs in `main.yml` zip it).
+  `GetRuntimeExecutablePath` looks at a source build first, then `<working directory>/Runtime/<Config>/`;
+  `ResolveExportTarget` falls back to the configuration the install ships when the project asks for one it
+  has not (the preflight says so), and `FindEditorDirectory` finds `Resources` / `DotNet` beside the editor
+  (the editor's working directory is its install folder, `EnsureResourcesWorkingDirectory`). Build Runtime is
+  disabled with no repository root. A game whose script module exists also gets the machine's newest .NET 10+
+  runtime copied to `DotNet/Runtime` (`BundleDotNetRuntime`, laid out as a dotnet root); at start,
+  `ScriptEngine::InitializeHost` sees `DotNet/Runtime/host/fxr` and sets `DOTNET_ROOT` for nethost, so players
+  install nothing. On Windows the `Finish` step stamps the executable with the game's name, version and icon
+  (`RuntimeExportBranding.{h,cpp}`: `UpdateResource` on the `GLFW_ICON` group, its `RT_ICON` images as 32-bit
+  bitmaps at 16-256 px, and a `VS_VERSIONINFO`); `ProjectRuntimeExportSettings::Version` feeds it. The player
+  works from its own folder: `Lux-Runtime` defines `LUX_ENTRY_PREPARE` (`EntryPoint.h`), which makes the folder
+  holding `Assets/Project.luxruntime` (`Data/`, else the executable's folder) the working directory before the
+  log starts, so a shortcut or launcher started elsewhere still finds its files and writes `logs/` beside
+  the game. **The export is the executable, the libraries it loads (`nethost.dll`; `lib/` on Linux) and one
+  `Data/` folder** (`RuntimeExport::DataFolder`) holding `Assets/`, `Resources/` (no `Docs`, no `Templates`,
+  no shader sources in Dist), `DotNet/` (Coral.Managed and, for a game with scripts, `DotNet/Runtime`) and
+  `logs/`. `ResolveRuntimeProjectFile` (player and layer) also accepts the export folder itself as
+  `--project`, finding `Data/Assets/Project.luxruntime`.
+  **Obfuscation** (`Serialization/Obfuscation.{h,cpp}`, `docs/OBFUSCATION_PLAN.md` phases 1-3; not encryption):
+  with `ProjectConfig::Obfuscation.Exports` (Project Settings and the export window, **Obfuscate Exported
+  Game**) the first export makes a 32-byte key (`Obfuscation.Key`, 64 hex digits in `.luxproj`), then writes
+  the asset pack, the exported shader pack and the runtime project file as `LXOB` containers: a 32-byte plain
+  header (magic, version, key fingerprint) and the original bytes XORed with a keystream computed from
+  (key, position in the original bytes) in 64-byte blocks, so any range reads alone and `Apply` is pure and
+  thread-safe. `FileStreamWriter(path, &key)` writes one; `FileStreamReader` detects `LXOB`, hides the header
+  (positions stay those of the original bytes, so no format offset changed) and descrambles with
+  `Obfuscation::GetActiveKey()`, failing the stream with a log line on a missing or wrong key. The audio VFS
+  (`NativePackVFS.cpp`) reads packed clips in place at `DataStart + offset` and descrambles at the clip's
+  position in the pack. The key reaches the player through a 64-byte block in `Lux-Runtime.exe`
+  (`g_LuxObfuscationKeyBlock`, `LUX_OBFUSCATION_KEY_BLOCK_INIT`): `Finish` runs `PatchExecutable` after
+  branding, finding the 16-byte magic exactly once (the patcher assembles it from halves so a linked-in
+  copy of that function cannot add a second literal); `CreateApplication` reads it with volatile loads and
+  `SetActiveKey`s before any pack opens. Old exports and plain projects read unchanged. **Not done:** renaming
+  script symbols with Obfuscar (plan phase 4), a script assembly never written to `%TEMP%/LuxScriptShadow`
+  (phase 5, a Coral change), opt-in project-folder scrambling (phase 6), Linux hardening (phase 7). The
+  game's DLL is inside the scrambled pack, but `ScriptEngine::LoadProjectAssemblyRuntime` still stages a plain
+  copy in `%TEMP%` while the game runs.
+  **Startup splash** (`Lux-Runtime/src/RuntimeSplash.{h,cpp}`, Windows): `ProjectRuntimeExportSettings::SplashPath`
+  is copied to `Data/Resources/Runtime/Splash.*` and named in `RuntimeSettings.yaml`; `ApplyRuntimeSettings`
+  shows it in a borderless topmost window on its own thread (the load blocks the main thread) and
+  `RuntimeLayer::OnUpdate` closes it on the fourth drawn frame (or at quit/failure).
+  **Export and Run** starts the exported game when the write finishes (`LaunchExportedGame`);
+  `LUX_GOLDEN_EXPORT_RUN=1` drives it in tests. The export window also edits **Start Scene** (the project's
+  startup scene) and **Version**. The release zip ships the **Dist editor** (E30; `build` builds Editor in
+  every configuration and `package-*` use `editor-Dist`), so the shader compiler path is the Dist one.
+  `tests/runtime/run_standalone_export.py` stages the zip's layout outside the repository, exports the Play
+  test project with it (also `--obfuscate`) and runs the package.
 - Viewport transform gizmos operate on world matrices and convert edits back through the parent
   transform. Translation, rotation, and scale have separate snap increments (also available with Ctrl).
   The six-axis view widget uses `EditorCamera::SetOrbitState`; camera view construction uses the

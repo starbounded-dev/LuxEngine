@@ -368,12 +368,12 @@ def run_editor(editor, project, root, policy, args):
 
 def check_export_contents(package, runtime_config):
     """docs/SHADER_PACK_PLAN.md Phase 2: a game carries its own stamped pack and nothing it cannot use."""
-    stamp = package / "Assets/ShaderPack.lsp.stamp"
+    stamp = package / "Data/Assets/ShaderPack.lsp.stamp"
     if not stamp.is_file() or "Kind: Export" not in stamp.read_text(encoding="utf-8") or "EngineVersion:" not in stamp.read_text(encoding="utf-8"):
         raise RuntimeError(f"{stamp} is missing or not an export stamp with an engine version")
-    unwanted = [package / "Resources/ShaderPack.lsp", *package.glob("assimp*.dll")]
+    unwanted = [package / "Data/Resources/ShaderPack.lsp", *package.glob("assimp*.dll")]
     if runtime_config == "dist":
-        unwanted += [package / "Resources/Shaders", *package.glob("shaderc*.dll"), *package.glob("dxcompiler*.dll")]
+        unwanted += [package / "Data/Resources/Shaders", *package.glob("shaderc*.dll"), *package.glob("dxcompiler*.dll")]
     present = [path.relative_to(package).as_posix() for path in unwanted if path.exists()]
     if present:
         raise RuntimeError(f"the {runtime_config} export ships what its player cannot use: {', '.join(present)}")
@@ -405,12 +405,12 @@ def run_exported(project, root, policy, args):
     # LUX_<session>.log, script Log.* lines in APP_<session>.log. Both, engine first.
     log = root / "player.log"
     text = ""
-    engine_logs = sorted((package / "logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
+    engine_logs = sorted((package / "Data/logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
     if engine_logs and engine_logs[-1].stat().st_mtime >= started - 2:
         session = engine_logs[-1].name[len("LUX_"):]
         for name in ("LUX_" + session, "APP_" + session):
-            if (package / "logs" / name).is_file():
-                text += (package / "logs" / name).read_text(encoding="utf-8", errors="replace")
+            if (package / "Data/logs" / name).is_file():
+                text += (package / "Data/logs" / name).read_text(encoding="utf-8", errors="replace")
     log.write_text(text, encoding="utf-8")
     return result.returncode, log, "PLAYTEST END" in text
 

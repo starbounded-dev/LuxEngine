@@ -5,6 +5,7 @@
 
 #include "Shader.h"
 
+#include "Lux/Serialization/Obfuscation.h"
 #include "Lux/Serialization/Serialization.h"
 #include "Lux/Serialization/ShaderPackFile.h"
 
@@ -107,7 +108,8 @@ namespace Lux {
 		// library was compiled in (Renderer::CaptureShaderPackEnvironment). Main thread: panel file
 		// I/O (Threading.md § Main). It creates no GPU resource - the SPIR-V belongs to the RHIShaders
 		// the library already owns (Rendering.md § Ownership and lifetime).
-		[[nodiscard]] static bool WriteStampedPack(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& packPath, ShaderPackStamp stamp);
+		[[nodiscard]] static bool WriteStampedPack(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& packPath, ShaderPackStamp stamp,
+			const Obfuscation::Key* key = nullptr);
 
 		// How the pack + sidecar on disk relate to a consuming environment. Main thread: it reads
 		// the file system and the shader sources. NoStamp keeps the bare-pack export
@@ -115,7 +117,7 @@ namespace Lux {
 		// warns, because SPIR-V is portable across drivers by spec.
 		[[nodiscard]] static ShaderPackState Evaluate(const std::filesystem::path& packPath, const ShaderPackStamp& environment);
 
-		static Ref<ShaderPack> CreateFromLibrary(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& path);
+		static Ref<ShaderPack> CreateFromLibrary(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& path, const Obfuscation::Key* key = nullptr);
 
 	private:
 		bool m_Loaded = false;

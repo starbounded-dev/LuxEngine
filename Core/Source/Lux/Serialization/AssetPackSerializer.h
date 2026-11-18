@@ -6,6 +6,7 @@
 #include "AssetPackFile.h"
 
 #include "Lux/Core/Buffer.h"
+#include "Obfuscation.h"
 
 #include <filesystem>
 
@@ -14,7 +15,8 @@ namespace Lux {
 	class AssetPackSerializer
 	{
 	public:
-		static bool Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress);
+		// With a key the pack is a scrambled container (Obfuscation.h).
+		static bool Serialize(const std::filesystem::path& path, AssetPackFile& file, Buffer appBinary, std::atomic<float>& progress, const Obfuscation::Key* key = nullptr);
 		static bool DeserializeIndex(const std::filesystem::path& path, AssetPackFile& file);
 	private:
 		static uint64_t CalculateIndexTableSize(const AssetPackFile& file);

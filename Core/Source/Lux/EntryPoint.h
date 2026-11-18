@@ -15,6 +15,9 @@
 // folder (FileSystem::GetPersistentStoragePath()/logs) instead of ./logs. The editor does; shipped
 // games (Lux-Runtime) keep their logs next to the game.
 //
+// Define LUX_ENTRY_PREPARE() as an expression to run it first thing in Main, before the log starts (Lux-Runtime
+// uses it to work from its export folder, so the log lands beside the game).
+//
 // Define LUX_CRASH_WATCHDOG as the app's name (a wide string literal, L"Editor") to have
 // Lux-Watchdog.exe watch the process and write crash reports (see Lux/Debug/CrashWatchdog.h).
 
@@ -36,6 +39,10 @@ namespace Lux {
 				return 0;
 			}
 		}
+
+#ifdef LUX_ENTRY_PREPARE
+		LUX_ENTRY_PREPARE();
+#endif
 
 #if LUX_PLATFORM_WINDOWS
 		// vulkan-1.dll is delay-loaded (Editor/Lux-Runtime premake), so --version runs on machines with

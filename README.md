@@ -318,7 +318,7 @@ Bundles the binary, the vendored Vulkan/Assimp/Aftermath shared libraries, resou
 
 ## Releases
 
-Every push to `dev` publishes a **pre-release** on the [Releases page](https://github.com/starbounded-dev/LuxEngine/releases): one zip per platform (`LuxEngine-<version>-windows-x64.zip`, `LuxEngine-<version>-linux-x64.zip`) holding the Release editor, its resources, the .NET host and the sample project.
+Every push to `dev` publishes a **pre-release** on the [Releases page](https://github.com/starbounded-dev/LuxEngine/releases): one zip per platform (`LuxEngine-<version>-windows-x64.zip`, `LuxEngine-<version>-linux-x64.zip`) holding the Dist editor, its resources, the .NET host and the sample project.
 
 - **Versioning:** `2026.N-<commit>`. `2026.N` is the year's Nth release series (set by `LUX_VERSION_SERIES` in [`Core/Source/Lux/Core/Version.h`](Core/Source/Lux/Core/Version.h)); the suffix is the 7-character commit the build came from. The tag is the version with a `v`: `v2026.1-a3f9c1d`. `Editor --version` prints the version a binary was built as, and the startup log shows it too. Local builds report just the series.
 - **Dev builds are alpha.** The API will change between them, and nothing about them is supported for shipping games.
@@ -377,6 +377,11 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
 - **Tooling & debugging** — Tracy CPU/GPU profiling on every pass, Nvidia Aftermath GPU crash dumps, shader hot-reload with a SPIR-V reflection cache, memory tracking, and tiering/quality settings serialized per project.
 
+### Exporting a game
+- **Export from the zip** — the release zip carries a prebuilt Dist player in `Runtime/Dist`, so the editor exports a game with no source tree and no compiler (the .NET 10 SDK is still needed to build scripts). Export and Run, Start Scene, Game Name, Version and Icon are in the export window.
+- **One folder to ship** — an export is the executable, the libraries it loads and one `Data` folder; a game with scripts carries its own .NET runtime, so players install nothing. The executable carries the game's name, version and icon (Windows), and an optional splash image shows while it starts (Windows).
+- **Obfuscate Exported Game** — scrambles the asset pack, the shader pack and the project file with a per-project key kept inside the player. It stops casual copying and bulk scraping; it is not encryption.
+
 ### Editor
 Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos, **snapshot-based undo/redo** with a History panel, a **command palette**, an in-editor **Profiler**, a rebuilt **Content Browser** (filter chips, grid/list, sort, favourites, thumbnail cache), **Beam** multi-tab text editor, material editor, scene renderer and renderer debugger panels, render stats, light settings, asset manager, **Audio Debugger**, project settings, entity lock/colour labels, pinned bookmarks and numbered camera bookmarks. An offline **Help** panel (F1) carries the user manual, with a **?** button on each component. Full manual in [`docs/Editor/`](docs/Editor/README.md).
 
@@ -392,6 +397,8 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 - **Scripting API is still partial.** Physics queries, scenes, time, timers and the common components are there; there is no game UI, input actions, save-game API, joints, navigation or particles to script yet.
 - **No networking, no AI/navigation.**
 - **2D is a renderer, not a toolset.** Sprites, circles, lines, and text render fine, but there are no tilemaps or 2D-specific editor workflows.
+- **Obfuscation is not protection.** The key travels inside the game, a game's script assembly is still written in plain form to the temp folder while it runs, and script symbols are not renamed yet ([docs/OBFUSCATION_PLAN.md](docs/OBFUSCATION_PLAN.md) phases 4-7).
+- **Exports have no icon or splash on Linux.** Name, version, icon and splash branding is Windows only.
 - **Rough edges everywhere.** One sample project, no packaged releases — you build from source.
 
 ***

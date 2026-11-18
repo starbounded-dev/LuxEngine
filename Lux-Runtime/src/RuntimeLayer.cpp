@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "RuntimeLayer.h"
+#include "RuntimeSplash.h"
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/Audio/AudioAccessibility.h"
@@ -43,6 +44,11 @@ namespace Lux
 			if (std::filesystem::exists(assetDirectoryPath, ec))
 				return assetDirectoryPath;
 
+			// The export folder itself: its files are in Data/ (see RuntimeApplication.cpp).
+			const std::filesystem::path dataDirectoryPath = projectPath / "Data" / "Assets" / s_RuntimeProjectFile;
+			if (std::filesystem::exists(dataDirectoryPath, ec))
+				return dataDirectoryPath;
+
 			return projectPath / s_RuntimeProjectFile;
 		}
 	}
@@ -58,6 +64,7 @@ namespace Lux
 			m_AudioVerificationPath = FileSystem::GetEnvironmentVariable("LUX_RUNTIME_AUDIO_REPORT");
 		if (!OpenProject())
 		{
+			RuntimeSplash::Hide();
 			Application::Get().Close();
 			return;
 		}
@@ -91,6 +98,7 @@ namespace Lux
 
 	void RuntimeLayer::OnApplicationQuit()
 	{
+		RuntimeSplash::Hide();
 		OnSceneStop();
 	}
 
@@ -277,13 +285,17 @@ namespace Lux
 			m_SwapChainRenderPass->GetPipeline()->Invalidate();
 	}
 
-	void RuntimeLayer::OnImGuiRender()
+	void RuntimeLayer::OnRenderThreadIdle()
 	{
 		// A script asked for another scene (C# Scene.Load). Here and not in OnUpdate: this runs while the render thread is
-		// idle, and swapping the scene frees the old one's GPU resources.
+		// idle, and swapping the scene frees the old one's GPU resources. Not in OnImGuiRender either: a Dist player has
+		// no ImGui overlay, so that never runs there.
 		if (m_RuntimeScene)
 			ApplyRequestedScene();
+	}
 
+	void RuntimeLayer::OnImGuiRender()
+	{
 		// Screen-space UI drawn over the image would sit flat, undistorted and at the same place in
 		// both eyes of the headset. VR UI belongs in the world (docs/VR_PLAN.md follow-ups).
 		if (m_VRSession)
@@ -314,6 +326,11 @@ namespace Lux
 
 	void RuntimeLayer::OnUpdate(Timestep ts)
 	{
+		// The game window is up and drawing: the startup splash has done its job. A few frames in, so the first
+		// image is on screen before the splash leaves.
+		if (m_RuntimeScene && m_SceneRenderer && ++m_FramesSinceStart == 4)
+			RuntimeSplash::Hide();
+
 		if (!m_RuntimeScene || !m_SceneRenderer)
 			return;
 
