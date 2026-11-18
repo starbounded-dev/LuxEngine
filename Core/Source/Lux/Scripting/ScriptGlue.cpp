@@ -23,6 +23,7 @@
 
 #include "Lux/Physics/PhysicsScene.h"
 #include "Lux/Physics2D/PhysicsScene2D.h"
+#include "Lux/Scene/Tilemap.h"
 #include "Lux/Physics/PhysicsBody.h"
 #include "Lux/Physics/CharacterController.h"
 #include "Lux/Physics/PhysicsTypes.h"
@@ -595,6 +596,55 @@ namespace Lux {
 			}
 		}
 		LUX_CORE_WARN_TAG("ScriptEngine", "SpriteRenderer.SortingLayer: the project has no sorting layer named '{}'", wanted);
+	}
+
+	#pragma endregion
+
+	#pragma region TilemapComponent
+
+	static int32_t TilemapComponent_GetLayerCount(uint64_t entityID) { return static_cast<int32_t>(GetEntity(entityID).GetComponent<TilemapComponent>().Layers.size()); }
+
+	static int32_t TilemapComponent_GetTile(uint64_t entityID, int32_t x, int32_t y, int32_t layer)
+	{
+		const auto& tilemap = GetEntity(entityID).GetComponent<TilemapComponent>();
+		if (layer < 0 || static_cast<size_t>(layer) >= tilemap.Layers.size())
+			return -1;
+		return Tilemap::GetTile(tilemap.Layers[static_cast<size_t>(layer)], x, y);
+	}
+
+	static void TilemapComponent_SetTile(uint64_t entityID, int32_t x, int32_t y, int32_t tile, int32_t layer)
+	{
+		Entity entity = GetEntity(entityID);
+		auto& tilemap = entity.GetComponent<TilemapComponent>();
+		if (layer < 0 || static_cast<size_t>(layer) >= tilemap.Layers.size())
+		{
+			LUX_CORE_WARN_TAG("ScriptEngine", "Tilemap.SetTile: the tilemap has no layer {} ({} layers)", layer, tilemap.Layers.size());
+			return;
+		}
+		// The solid-tile shapes follow the change while the scene plays.
+		if (Tilemap::SetTile(tilemap.Layers[static_cast<size_t>(layer)], x, y, tile) && tilemap.Layers[static_cast<size_t>(layer)].Collides)
+		{
+			if (PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D())
+				physics->RebuildTilemap(entity);
+		}
+	}
+
+	// The cell under a world point, and the centre of a cell in world space, through the entity's transform and cell size.
+	static void TilemapComponent_WorldToCell(uint64_t entityID, glm::vec2* world, int32_t* x, int32_t* y)
+	{
+		Entity entity = GetEntity(entityID);
+		const auto& tilemap = entity.GetComponent<TilemapComponent>();
+		const glm::vec2 local = glm::vec2(glm::inverse(GetScene()->GetWorldSpaceTransformMatrix(entity)) * glm::vec4(world->x, world->y, 0.0f, 1.0f)) / tilemap.CellSize;
+		*x = static_cast<int32_t>(std::floor(local.x));
+		*y = static_cast<int32_t>(std::floor(local.y));
+	}
+
+	static void TilemapComponent_CellToWorld(uint64_t entityID, int32_t x, int32_t y, glm::vec2* out)
+	{
+		Entity entity = GetEntity(entityID);
+		const auto& tilemap = entity.GetComponent<TilemapComponent>();
+		const glm::vec2 local = (glm::vec2(static_cast<float>(x), static_cast<float>(y)) + glm::vec2(0.5f)) * tilemap.CellSize;
+		*out = glm::vec2(GetScene()->GetWorldSpaceTransformMatrix(entity) * glm::vec4(local, 0.0f, 1.0f));
 	}
 
 	#pragma endregion
@@ -1306,6 +1356,7 @@ namespace Lux {
 		RegisterManagedComponent<TagComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteRendererComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteAnimatorComponent>(coreAssembly);
+		RegisterManagedComponent<TilemapComponent>(coreAssembly);
 		RegisterManagedComponent<CircleRendererComponent>(coreAssembly);
 		RegisterManagedComponent<CameraComponent>(coreAssembly);
 		RegisterManagedComponent<RigidBody2DComponent>(coreAssembly);
@@ -1449,6 +1500,11 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetIsTrigger);
 		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetIsTrigger);
 		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetIsTrigger);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_GetLayerCount);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_GetTile);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_SetTile);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_WorldToCell);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_CellToWorld);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Play);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Stop);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetClip);

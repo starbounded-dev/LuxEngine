@@ -116,6 +116,43 @@ namespace Lux
 		}
 	}
 
+	/// <summary>
+	/// A grid of tiles from a sprite sheet, in layers. A tile is the number of a frame of the tile set; -1 is an empty cell.
+	/// Cell (0, 0) has its lower left corner at the entity's position. Changing tiles from a script also updates the solid-tile
+	/// collision while the game plays.
+	/// </summary>
+	public unsafe class TilemapComponent : Component
+	{
+		/// <summary>How many layers the tilemap has (layers are numbered from 0, bottom first).</summary>
+		public int LayerCount => InternalCalls.TilemapComponent_GetLayerCount(Entity.ID);
+
+		/// <summary>The tile in a cell, or -1 when it is empty or the layer does not exist.</summary>
+		public int GetTile(int x, int y, int layer = 0) => InternalCalls.TilemapComponent_GetTile(Entity.ID, x, y, layer);
+
+		/// <summary>Puts a tile in a cell. A negative tile empties the cell.</summary>
+		public void SetTile(int x, int y, int tile, int layer = 0) => InternalCalls.TilemapComponent_SetTile(Entity.ID, x, y, tile, layer);
+
+		/// <summary>Empties a cell.</summary>
+		public void EraseTile(int x, int y, int layer = 0) => InternalCalls.TilemapComponent_SetTile(Entity.ID, x, y, -1, layer);
+
+		/// <summary>The cell under a point in world space.</summary>
+		public void WorldToCell(Vector2 world, out int x, out int y)
+		{
+			int cellX, cellY;
+			InternalCalls.TilemapComponent_WorldToCell(Entity.ID, &world, &cellX, &cellY);
+			x = cellX;
+			y = cellY;
+		}
+
+		/// <summary>The center of a cell, in world space.</summary>
+		public Vector2 CellToWorld(int x, int y)
+		{
+			Vector2 center;
+			InternalCalls.TilemapComponent_CellToWorld(Entity.ID, x, y, &center);
+			return center;
+		}
+	}
+
 	/// <summary>Plays the sprite sheet's animation clips on this entity's <see cref="SpriteRendererComponent"/>.</summary>
 	public unsafe class SpriteAnimatorComponent : Component
 	{

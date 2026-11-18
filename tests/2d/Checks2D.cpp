@@ -29,6 +29,7 @@
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/SceneTemplates.h"
+#include "Lux/Scene/Tilemap.h"
 
 #include <GLFW/deps/stb_image_write.h>
 #include <stb_image.h>
@@ -1074,6 +1075,298 @@ namespace {
 			"duplicating a hierarchy points the joint at the copy of its body");
 	}
 
+	// ---- D3: tilemaps -------------------------------------------------------------------------------
+
+	void CheckTilemapOps()
+	{
+		TilemapLayer layer("Test");
+		Check(Tilemap::GetTile(layer, 3, 4) == -1, "an empty cell holds no tile");
+		Check(Tilemap::SetTile(layer, 3, 4, 7) && Tilemap::GetTile(layer, 3, 4) == 7, "SetTile puts a tile in a cell");
+		Check(!Tilemap::SetTile(layer, 3, 4, 7), "setting the same tile again changes nothing");
+		Check(Tilemap::SetTile(layer, 3, 4, 2) && Tilemap::GetTile(layer, 3, 4) == 2, "a different tile replaces it");
+		Check(Tilemap::SetTile(layer, -5, -7, 1) && Tilemap::GetTile(layer, -5, -7) == 1 && Tilemap::GetTile(layer, 5, 7) == -1 && Tilemap::GetTile(layer, -5, 7) == -1, "negative coordinates are their own cells");
+		Tilemap::CellRect bounds;
+		Check(Tilemap::GetBounds(layer, bounds) && bounds == Tilemap::CellRect{ -5, -7, 9, 12 }, "the bounds hold every tile");
+		Check(Tilemap::SetTile(layer, 3, 4, -1) && Tilemap::GetTile(layer, 3, 4) == -1 && layer.Cells.size() == 1, "a negative tile erases the cell");
+		Check(!Tilemap::SetTile(layer, 3, 4, -1), "erasing an empty cell changes nothing");
+		TilemapLayer empty;
+		Check(!Tilemap::GetBounds(empty, bounds), "an empty layer has no bounds");
+
+		TilemapLayer area("Area");
+		Check(Tilemap::FillRect(area, { 0, 0, 4, 3 }, 5) == 12 && area.Cells.size() == 12, "FillRect fills a block");
+		Check(Tilemap::FillRect(area, { 1, 1, 2, 1 }, -1) == 2 && area.Cells.size() == 10, "an erasing FillRect empties cells");
+		Check(Tilemap::FillRect(area, { 0, 0, 4, 3 }, 5) == 2, "FillRect counts only the cells that changed");
+
+		// Flood fill: the connected region of equal cells, inside the limit.
+		TilemapLayer room("Room");
+		Tilemap::FillRect(room, { 0, 0, 5, 5 }, 1);
+		Tilemap::FillRect(room, { 2, 0, 1, 5 }, 2); // a wall of tile 2 splits the room
+		const Tilemap::CellRect limit{ -3, -3, 12, 12 };
+		Check(Tilemap::FloodFill(room, 0, 0, 9, limit) == 10 && Tilemap::GetTile(room, 1, 4) == 9 && Tilemap::GetTile(room, 3, 0) == 1 && Tilemap::GetTile(room, 2, 2) == 2, "FloodFill stops at the wall and fills one side");
+		Check(Tilemap::FloodFill(room, 20, 20, 4, limit) == 0, "a start outside the limit fills nothing");
+		Check(Tilemap::FloodFill(room, -2, -2, 3, limit) == 12 * 12 - 25 && Tilemap::GetTile(room, -3, 8) == 3 && Tilemap::GetTile(room, 4, 4) == 1, "FloodFill of empty space fills it up to the limit, around the room");
+		Check(Tilemap::FloodFill(room, 3, 1, 1, limit) == 0, "filling with the tile already there changes nothing");
+		Check(Tilemap::FloodFill(room, 3, 0, -1, limit) == 10 && Tilemap::GetTile(room, 4, 4) == -1, "FloodFill with a negative tile erases the region");
+
+		// Solid cells merge into the fewest blocks.
+		std::vector<SpriteFrame> frames(3);
+		frames[0].Solid = true;
+		frames[2].Solid = true; // frame 1 is scenery
+		TilemapLayer level("Level");
+		Tilemap::FillRect(level, { 0, 0, 5, 2 }, 0);      // one 5 x 2 block
+		Tilemap::FillRect(level, { 1, 2, 2, 1 }, 2);      // a 2 x 1 block on top of it, different width
+		Tilemap::FillRect(level, { 10, 0, 3, 1 }, 0);
+		Tilemap::SetTile(level, 11, 0, 1);                // scenery splits that run in two
+		Tilemap::FillRect(level, { 20, 5, 1, 4 }, 0);     // a column: four rows of one cell merge upward
+		Tilemap::SetTile(level, 30, 30, 99);              // a tile the sheet does not have is not solid
+		std::vector<Tilemap::CellRect> blocks;
+		Tilemap::MergeSolid(level, frames, blocks);
+		int64_t area2 = 0;
+		for (const auto& block : blocks)
+			area2 += static_cast<int64_t>(block.Width) * block.Height;
+		const auto has = [&blocks](Tilemap::CellRect rect) { return std::find(blocks.begin(), blocks.end(), rect) != blocks.end(); };
+		Check(blocks.size() == 5 && has({ 0, 0, 5, 2 }) && has({ 1, 2, 2, 1 }) && has({ 10, 0, 1, 1 }) && has({ 12, 0, 1, 1 }) && has({ 20, 5, 1, 4 }),
+			std::format("solid cells merge into {} blocks (a 5 x 2, a 2 x 1, two 1 x 1 and a 1 x 4)", blocks.size()));
+		Check(area2 == 10 + 2 + 2 + 4, "the blocks cover exactly the solid cells");
+		TilemapLayer floor("Floor");
+		Tilemap::FillRect(floor, { -100, 0, 200, 1 }, 0);
+		Tilemap::MergeSolid(floor, frames, blocks);
+		Check(blocks.size() == 1 && blocks[0] == Tilemap::CellRect{ -100, 0, 200, 1 }, "a floor of 200 tiles is one block");
+		Tilemap::MergeSolid(empty, frames, blocks);
+		Check(blocks.empty(), "an empty layer has no solid blocks");
+
+		// Which cells a view sees.
+		SceneCamera camera;
+		camera.SetOrthographic(10.0f, -100.0f, 100.0f);
+		camera.SetViewportSize(1600, 900);
+		const glm::mat4 viewProjection = camera.GetProjectionMatrix();
+		Tilemap::CellRect visible;
+		Check(Tilemap::ComputeVisibleCells(viewProjection, glm::mat4(1.0f), { 1.0f, 1.0f }, visible), "an orthographic view maps onto the tilemap plane");
+		Check(visible.Contains(-8, -5) && visible.Contains(8, 4) && !visible.Contains(20, 0) && !visible.Contains(0, 20) && visible.Width < 25 && visible.Height < 15,
+			std::format("the view of 17.8 x 10 units covers about that many cells ({} x {} from {},{})", visible.Width, visible.Height, visible.X, visible.Y));
+		Tilemap::CellRect shifted;
+		Tilemap::ComputeVisibleCells(viewProjection, glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, 0.0f, 0.0f)), { 1.0f, 1.0f }, shifted);
+		Check(shifted.X == visible.X - 100 && shifted.Width == visible.Width, "moving the tilemap moves the range the other way");
+		Tilemap::CellRect scaled;
+		Tilemap::ComputeVisibleCells(viewProjection, glm::mat4(1.0f), { 2.0f, 2.0f }, scaled);
+		Check(scaled.Width < visible.Width && scaled.Width >= visible.Width / 2 - 2, "bigger cells need fewer of them");
+		const glm::mat4 perspective = glm::perspective(glm::radians(60.0f), 16.0f / 9.0f, 0.1f, 100.0f) * glm::lookAt(glm::vec3(0.0f, 0.0f, 10.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		Tilemap::CellRect seen;
+		Check(Tilemap::ComputeVisibleCells(perspective, glm::mat4(1.0f), { 1.0f, 1.0f }, seen) && seen.Contains(0, 0) && seen.Contains(8, 4) && !seen.Contains(30, 0), "a perspective view looking at the plane maps too");
+		Check(!Tilemap::ComputeVisibleCells(glm::mat4(0.0f), glm::mat4(1.0f), { 1.0f, 1.0f }, seen) && !Tilemap::ComputeVisibleCells(viewProjection, glm::mat4(0.0f), { 1.0f, 1.0f }, seen)
+			&& !Tilemap::ComputeVisibleCells(viewProjection, glm::mat4(1.0f), { 0.0f, 1.0f }, seen), "a singular view or tilemap transform, or a cell with no size, cannot be culled, so everything is drawn");
+	}
+
+	void WriteTileSet(const std::filesystem::path& file)
+	{
+		// Frame 0 is a solid wall, frame 1 scenery, frame 2 a solid floor; no texture (loading one needs a GPU).
+		SpriteSheet sheet;
+		sheet.PixelsPerUnit = 16.0f;
+		sheet.Frames.push_back({ "wall", { 0, 0, 16, 16 }, { 0.5f, 0.5f }, true });
+		sheet.Frames.push_back({ "grass", { 16, 0, 16, 16 }, { 0.5f, 0.5f }, false });
+		sheet.Frames.push_back({ "floor", { 32, 0, 16, 16 }, { 0.5f, 0.5f }, true });
+		WriteText(file, sheet.ToYAML());
+	}
+
+	void CheckTilemapScene(const std::filesystem::path& root)
+	{
+		WriteText(root / "Tiles" / "Tiles.luxproj", "Project:\n  Name: Tiles\n  AssetDirectory: Assets\n");
+		std::filesystem::create_directories(root / "Tiles" / "Assets");
+		Ref<Project> project = Project::Load(root / "Tiles" / "Tiles.luxproj");
+		if (!project)
+		{
+			Check(false, "tile project loads");
+			return;
+		}
+		project->GetConfig().SortingLayers = { { 0, "Default" }, { 4, "Front" } };
+		WriteTileSet(root / "Tiles" / "Assets" / "Dungeon.lsheet");
+		const AssetHandle tileSet = AssetManager::ImportAsset("Dungeon.lsheet");
+		Check(tileSet != 0 && AssetManager::GetAsset<SpriteSheet>(tileSet) != nullptr, "the tile set (a sprite sheet) imports");
+
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity map = scene->CreateEntity("Map");
+		map.GetComponent<TransformComponent>().Translation = { 10.0f, 0.0f, 0.0f };
+		auto& tilemap = map.AddComponent<TilemapComponent>();
+		tilemap.TileSet = tileSet;
+		tilemap.CellSize = { 0.5f, 0.5f };
+		tilemap.PointFilter = true;
+		tilemap.SortingLayer = 4;
+		tilemap.OrderInLayer = 3;
+		tilemap.Friction = 0.8f;
+		tilemap.Layers[0].Name = "Ground";
+		Tilemap::FillRect(tilemap.Layers[0], { -3, -1, 6, 1 }, 2);
+		Tilemap::SetTile(tilemap.Layers[0], 100000, -250000, 0); // a far corner of the plane
+		tilemap.Layers.push_back(TilemapLayer("Decor"));
+		tilemap.Layers[1].Collides = false;
+		tilemap.Layers[1].Visible = false;
+		Tilemap::SetTile(tilemap.Layers[1], 1, 0, 1);
+		Tilemap::SetTile(tilemap.Layers[1], 2, 0, 1);
+
+		const std::filesystem::path file = root / "Tiles" / "Map.luxscene";
+		AssetReference::PathModeScope pathMode;
+		Check(SceneSerializer(scene).Serialize(file), "a scene with a tilemap serializes");
+		const std::string text = ReadText(file);
+		Check(text.find("Runs") != std::string::npos && text.find("Visible: false") != std::string::npos && text.find("Collides: false") != std::string::npos && text.find("IsTrigger") == std::string::npos,
+			"cells are written as runs, with the layer flags that are not the default");
+		SceneSerializer(scene).Serialize(root / "Tiles" / "Map2.luxscene");
+		Check(text == ReadText(root / "Tiles" / "Map2.luxscene"), "saving twice gives the same file");
+		size_t runLines = 0;
+		for (size_t at = text.find("- ["); at != std::string::npos; at = text.find("- [", at + 1))
+			runLines++;
+		Check(runLines == 3, std::format("the 6-tile floor row, the far tile and the 2 decor tiles are three runs ({})", runLines));
+
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		const auto verify = [&](Ref<Scene> checked, const char* how)
+		{
+			const auto& copy = checked->FindEntityByName("Map").GetComponent<TilemapComponent>();
+			Check(copy.TileSet == tileSet && Near(copy.CellSize.x, 0.5f) && copy.PointFilter && copy.SortingLayer == 4 && copy.OrderInLayer == 3 && Near(copy.Friction, 0.8f) && copy.Layers.size() == 2,
+				std::string("tilemap settings survive ") + how);
+			Check(copy.Layers[0].Name == "Ground" && copy.Layers[0].Cells.size() == 7 && Tilemap::GetTile(copy.Layers[0], -3, -1) == 2 && Tilemap::GetTile(copy.Layers[0], 2, -1) == 2
+				&& Tilemap::GetTile(copy.Layers[0], 3, -1) == -1 && Tilemap::GetTile(copy.Layers[0], 100000, -250000) == 0, std::string("the ground's tiles, negative and far cells included, survive ") + how);
+			Check(copy.Layers[1].Name == "Decor" && !copy.Layers[1].Visible && !copy.Layers[1].Collides && copy.Layers[1].Cells.size() == 2, std::string("the second layer and its flags survive ") + how);
+		};
+		verify(loaded, "a save");
+		verify(Scene::Copy(loaded), "the copy Play starts from");
+		Check(scene->GetAssetList().contains(tileSet), "Scene::GetAssetList lists the tile set, so an export packs it");
+
+		// Drawing: only what the view can see, one item per visible layer, sorted like sprites.
+		auto& ground = scene->FindEntityByName("Map").GetComponent<TilemapComponent>();
+		ground.Layers[1].Visible = true;
+		Ref<Scene> view = Ref<Scene>::Create();
+		Entity cameraEntity = view->CreateEntity("Camera");
+		auto& cameraComponent = cameraEntity.AddComponent<CameraComponent>();
+		cameraComponent.Camera.SetOrthographic(10.0f, -100.0f, 100.0f);
+		cameraComponent.Camera.SetViewportSize(1600, 900);
+		Entity sprite = view->CreateEntity("Sprite");
+		sprite.AddComponent<SpriteRendererComponent>(glm::vec4(1.0f)).SortingLayer = 4;
+		sprite.GetComponent<SpriteRendererComponent>().OrderInLayer = 5;
+		Entity viewMap = view->CreateEntity("Map");
+		viewMap.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
+		viewMap.AddComponent<TilemapComponent>() = ground;
+		viewMap.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 0.0f };
+		FrameRenderPacket packet;
+		packet.Overlay2DViewProjection = cameraComponent.Camera.GetProjectionMatrix();
+		view->CaptureDraw2D(packet);
+		// The camera is not SolidBackground: sprite + the tilemap's layers. The far tile is culled, and so is a layer with nothing in view.
+		size_t tileItems = 0, tilesDrawn = 0;
+		int tileItemIndex = -1, spriteItemIndex = -1;
+		for (size_t i = 0; i < packet.Draw2D.size(); i++)
+		{
+			if (packet.Draw2D[i].Type == FrameRenderPacket::Draw2DItem::Kind::Tiles)
+			{
+				tileItems++;
+				tilesDrawn += packet.Draw2D[i].Tiles.size();
+				tileItemIndex = static_cast<int>(i);
+			}
+			else
+				spriteItemIndex = static_cast<int>(i);
+		}
+		Check(tileItems == 2 && tilesDrawn == 6 + 2, std::format("two layers draw ({} items), 6 ground tiles and 2 decor tiles, the far tile culled ({} tiles)", tileItems, tilesDrawn));
+		Check(spriteItemIndex > tileItemIndex, "the sprite (order 5) draws after the tilemap (order 3) on the same layer");
+		if (tileItems == 2)
+		{
+			const auto& first = packet.Draw2D[0];
+			const glm::vec3 corner = glm::vec3(first.Transform * glm::vec4(0.5f, 0.5f, 0.0f, 1.0f));
+			Check(Near(corner.x, 0.25f) && Near(corner.y, 0.25f), "an item's transform scales a unit quad to one 0.5 unit cell");
+			Check(first.PointFilter, "the point filter reaches the draw item");
+		}
+		viewMap.GetComponent<TilemapComponent>().Layers[1].Visible = false;
+		FrameRenderPacket hidden;
+		hidden.Overlay2DViewProjection = packet.Overlay2DViewProjection;
+		view->CaptureDraw2D(hidden);
+		size_t hiddenTiles = 0;
+		for (const auto& item : hidden.Draw2D)
+			hiddenTiles += item.Type == FrameRenderPacket::Draw2DItem::Kind::Tiles ? item.Tiles.size() : 0;
+		Check(hiddenTiles == 6, "a hidden layer draws nothing");
+
+		// A big map draws only the visible part, by walking the visible cells rather than every tile.
+		Entity big = view->CreateEntity("Big");
+		big.GetComponent<TransformComponent>().Translation = { 0.0f, 0.0f, 5.0f };
+		auto& bigMap = big.AddComponent<TilemapComponent>();
+		bigMap.TileSet = tileSet;
+		bigMap.CellSize = { 1.0f, 1.0f };
+		Tilemap::FillRect(bigMap.Layers[0], { 0, 0, 40, 40 }, 1);
+		FrameRenderPacket bigPacket;
+		bigPacket.Overlay2DViewProjection = packet.Overlay2DViewProjection;
+		view->CaptureDraw2D(bigPacket);
+		size_t bigTiles = 0;
+		for (const auto& item : bigPacket.Draw2D)
+			bigTiles = std::max(bigTiles, item.Type == FrameRenderPacket::Draw2DItem::Kind::Tiles ? item.Tiles.size() : size_t{ 0 });
+		Tilemap::CellRect seenCells;
+		Tilemap::ComputeVisibleCells(packet.Overlay2DViewProjection, glm::mat4(1.0f), { 1.0f, 1.0f }, seenCells);
+		size_t expected = 0;
+		for (int32_t y = 0; y < 40; y++)
+			for (int32_t x = 0; x < 40; x++)
+				expected += seenCells.Contains(x, y) ? 1 : 0;
+		Check(bigTiles == expected && bigTiles > 20 && bigTiles < 200, std::format("a 40 x 40 map draws the {} tiles in view (of 1600)", bigTiles));
+	}
+
+	void CheckTilemapPhysics(const std::filesystem::path& root)
+	{
+		// Reuses the project the previous check made active; the tile set is the sheet it imported.
+		const AssetHandle tileSet = AssetManager::ImportAsset("Dungeon.lsheet");
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity map = AddBody(*scene, "Map", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		auto& tilemap = map.AddComponent<TilemapComponent>();
+		tilemap.TileSet = tileSet;
+		tilemap.CellSize = { 1.0f, 1.0f };
+		Tilemap::FillRect(tilemap.Layers[0], { -4, -1, 9, 1 }, 2);   // a solid floor, top at y = 0
+		Tilemap::FillRect(tilemap.Layers[0], { 6, -1, 3, 1 }, 1);    // scenery: no collision
+		tilemap.Layers.push_back(TilemapLayer("Soft"));
+		tilemap.Layers[1].Collides = false;
+		Tilemap::FillRect(tilemap.Layers[1], { 20, -1, 4, 1 }, 0);   // solid tiles on a layer that does not collide
+		Entity onFloor = AddBody(*scene, "OnFloor", { 0.0f, 3.0f }, RigidBody2DComponent::Type::Dynamic);
+		onFloor.AddComponent<CircleCollider2DComponent>().Radius = 0.25f;
+		Entity overScenery = AddBody(*scene, "OverScenery", { 7.5f, 3.0f }, RigidBody2DComponent::Type::Dynamic);
+		overScenery.AddComponent<CircleCollider2DComponent>().Radius = 0.25f;
+		Entity overSoft = AddBody(*scene, "OverSoft", { 22.0f, 3.0f }, RigidBody2DComponent::Type::Dynamic);
+		overSoft.AddComponent<CircleCollider2DComponent>().Radius = 0.25f;
+
+		PhysicsScene2D physics(scene.Raw());
+		physics.Start();
+		PhysicsScene2D::RayHit hit;
+		Check(physics.RayCast({ 0.5f, 5.0f }, { 0.0f, -1.0f }, 10.0f, 0, false, hit) && hit.EntityID == map.GetUUID() && Near(hit.Point.y, 0.0f, 0.01f), "the solid tiles are one collider at the right height");
+		Check(!physics.RayCast({ 7.5f, 2.0f }, { 0.0f, -1.0f }, 10.0f, 0, false, hit), "scenery tiles have no collider");
+		Check(!physics.RayCast({ 22.0f, 2.0f }, { 0.0f, -1.0f }, 10.0f, 0, false, hit), "a layer that does not collide has no collider");
+		Step(physics, 240);
+		Check(Near(YOf(onFloor), 0.25f, 0.05f), std::format("a ball lands on the solid floor tiles (y = {:.3f})", YOf(onFloor)));
+		Check(YOf(overScenery) < -10.0f && YOf(overSoft) < -10.0f, "balls over scenery tiles and over a non-colliding layer fall through");
+
+		// Tiles change while it plays: the shapes follow.
+		auto& live = map.GetComponent<TilemapComponent>();
+		for (int32_t x = -4; x <= 4; x++)
+			Tilemap::SetTile(live.Layers[0], x, -1, -1);
+		physics.RebuildTilemap(map);
+		Check(!physics.RayCast({ 0.5f, 5.0f }, { 0.0f, -1.0f }, 10.0f, 0, false, hit), "after the floor is erased and the tilemap rebuilt, nothing is there");
+		Tilemap::FillRect(live.Layers[0], { -4, 4, 9, 1 }, 0);
+		physics.RebuildTilemap(map);
+		Check(physics.RayCast({ 0.5f, 8.0f }, { 0.0f, -1.0f }, 10.0f, 0, false, hit) && Near(hit.Point.y, 5.0f, 0.01f), "and tiles put in later are solid");
+
+		// The entity's scale stretches the cells: scale 2 makes the 1-unit cell 2 units.
+		Ref<Scene> scaled = Ref<Scene>::Create();
+		Entity bigCells = AddBody(*scaled, "BigCells", { 0.0f, 0.0f }, RigidBody2DComponent::Type::Static);
+		bigCells.GetComponent<TransformComponent>().Scale = { 2.0f, 2.0f, 1.0f };
+		auto& bigTilemap = bigCells.AddComponent<TilemapComponent>();
+		bigTilemap.TileSet = tileSet;
+		Tilemap::SetTile(bigTilemap.Layers[0], 1, 1, 0); // cell (1,1) spans (2,2)-(4,4)
+		PhysicsScene2D scaledPhysics(scaled.Raw());
+		scaledPhysics.Start();
+		Check(scaledPhysics.RayCast({ 3.0f, 10.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit) && Near(hit.Point.y, 4.0f, 0.01f), "scaling the entity scales the tiles' collision");
+		Check(!scaledPhysics.RayCast({ 5.0f, 10.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit), "and only the one tile is there");
+
+		// Without a Rigidbody 2D a tilemap draws but does not collide.
+		Ref<Scene> bodiless = Ref<Scene>::Create();
+		Entity decor = bodiless->CreateEntity("Decor");
+		auto& decorMap = decor.AddComponent<TilemapComponent>();
+		decorMap.TileSet = tileSet;
+		Tilemap::FillRect(decorMap.Layers[0], { 0, 0, 4, 1 }, 0);
+		PhysicsScene2D bodilessPhysics(bodiless.Raw());
+		bodilessPhysics.Start();
+		Check(!bodilessPhysics.RayCast({ 1.5f, 5.0f }, { 0.0f, -1.0f }, 20.0f, 0, false, hit), "a tilemap with no Rigidbody 2D has no collision");
+		(void)root;
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -1107,6 +1400,9 @@ int main(int argc, char** argv)
 	CheckJoints();
 	CheckBodiesComeAndGo();
 	CheckPhysics2DSerialization(outDir);
+	CheckTilemapOps();
+	CheckTilemapScene(outDir);
+	CheckTilemapPhysics(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

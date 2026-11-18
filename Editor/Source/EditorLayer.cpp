@@ -74,6 +74,7 @@
 #include "Panels/AudioMixerPanel.h"
 #include "Panels/SoundBankEditorPanel.h"
 #include "Panels/SpriteSheetEditorPanel.h"
+#include "Panels/TilePalettePanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -121,6 +122,7 @@ namespace Lux {
 #define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
 #define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
 #define SPRITE_SHEET_EDITOR_PANEL_ID "SpriteSheetEditorPanel"
+#define TILE_PALETTE_PANEL_ID "TilePalettePanel"
 #define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
@@ -620,6 +622,13 @@ namespace Lux {
 			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SPRITE_SHEET_EDITOR_PANEL_ID)))
 				panelData->IsOpen = true;
 		};
+
+		m_TilePalettePanel = m_PanelManager->AddPanel<TilePalettePanel>(PanelCategory::View, TILE_PALETTE_PANEL_ID, "Tile Palette", false);
+		m_SceneHierarchyPanel->SetOpenTilePaletteCallback([this]()
+		{
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(TILE_PALETTE_PANEL_ID)))
+				panelData->IsOpen = true;
+		});
 
 		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
 		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
@@ -1478,7 +1487,8 @@ namespace Lux {
 					ImGui::EndDragDropTarget();
 				}
 
-				if (m_EditorViewport->IsHovered())
+				const bool paintingTiles = UpdateTilePainting();
+				if (m_EditorViewport->IsHovered() && !paintingTiles)
 					m_HoveredEntity = CastMousePick();
 				else
 					m_HoveredEntity = {};
@@ -1492,7 +1502,7 @@ namespace Lux {
 				if (m_SceneHierarchyPanel)
 					selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 				// Folders have no user-editable transform, so they get no gizmo.
-				if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
+				if (selectedEntity && m_GizmoType != -1 && !paintingTiles && !selectedEntity.HasComponent<FolderComponent>())
 				{
 					const bool view2D = m_EditorViewport->GetCamera().Is2DMode();
 					ImGuizmo::SetOrthographic(view2D);
@@ -3034,7 +3044,8 @@ namespace Lux {
 	{
 		if (e.GetMouseButton() == MouseButton::Left)
 		{
-			if (m_EditorViewport && m_EditorViewport->IsHovered() && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+			const bool paintingTiles = m_TilePalettePanel && m_SceneState == SceneState::Edit && m_TilePalettePanel->IsPainting();
+			if (m_EditorViewport && m_EditorViewport->IsHovered() && !paintingTiles && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 			{
 				m_HoveredEntity = CastMousePick();
 				if (m_SceneHierarchyPanel)
@@ -3051,6 +3062,60 @@ namespace Lux {
 		const EditorCamera& editorCamera = m_EditorViewport->GetCamera();
 		outView = editorCamera.GetViewMatrix();
 		outProjection = editorCamera.GetUnReversedProjectionMatrix();
+	}
+
+	// Routes the Scene View's mouse to the Tile Palette while it paints. Returns whether it is painting, in which case
+	// selection and the gizmo step aside. Edit state only: playing scenes keep their tiles.
+	bool EditorLayer::UpdateTilePainting()
+	{
+		if (!m_TilePalettePanel || !m_ActiveScene || !m_EditorViewport)
+			return false;
+
+		Entity selected = m_SceneHierarchyPanel ? m_SceneHierarchyPanel->GetSelectedEntity() : Entity{};
+		m_TilePalettePanel->SetTarget(m_SceneState == SceneState::Edit ? selected : Entity{});
+		if (m_SceneState != SceneState::Edit || !m_TilePalettePanel->IsPainting())
+			return false;
+
+		const Entity target = m_TilePalettePanel->GetTarget();
+		const glm::mat4 world = m_ActiveScene->GetWorldSpaceTransformMatrix(target);
+		const glm::vec2 cellSize = target.GetComponent<TilemapComponent>().CellSize;
+		const EditorCamera& camera = m_EditorViewport->GetCamera();
+
+		const bool navigating = Input::IsKeyPressed(Key::LeftAlt) || Input::IsMouseButtonDown(MouseButton::Right) || Input::IsMouseButtonDown(MouseButton::Middle);
+		const bool down = m_EditorViewport->IsHovered() && !navigating && !ImGuizmo::IsOver() && Input::IsMouseButtonDown(MouseButton::Left);
+
+		// The mouse ray against the tilemap's plane (local z = 0); the NDC comes from the image, as in CastMousePick.
+		bool onPlane = false;
+		glm::ivec2 cell(0);
+		const glm::vec2* bounds = m_EditorViewport->GetImageBounds();
+		const float width = bounds[1].x - bounds[0].x, height = bounds[1].y - bounds[0].y;
+		const float mouseX = Input::GetMouseX() - bounds[0].x, mouseY = Input::GetMouseY() - bounds[0].y;
+		if (m_EditorViewport->IsHovered() && width > 1.0f && height > 1.0f && mouseX >= 0.0f && mouseY >= 0.0f && mouseX <= width && mouseY <= height)
+		{
+			const glm::mat4 inverseViewProjection = glm::inverse(camera.GetViewProjection());
+			const float ndcX = (mouseX / width) * 2.0f - 1.0f, ndcY = 1.0f - (mouseY / height) * 2.0f;
+			glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+			glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+			if (nearPoint.w != 0.0f && farPoint.w != 0.0f)
+			{
+				const glm::mat4 inverseWorld = glm::inverse(world);
+				const glm::vec3 origin = glm::vec3(inverseWorld * (nearPoint / nearPoint.w));
+				const glm::vec3 direction = glm::vec3(inverseWorld * (farPoint / farPoint.w)) - origin;
+				if (std::abs(direction.z) > 1e-8f)
+				{
+					const float t = -origin.z / direction.z;
+					const glm::vec2 local = glm::vec2(origin) + glm::vec2(direction) * t;
+					cell = glm::ivec2(glm::floor(local / cellSize));
+					onPlane = true;
+				}
+			}
+		}
+
+		Tilemap::CellRect visible;
+		if (!Tilemap::ComputeVisibleCells(camera.GetViewProjection(), world, cellSize, visible))
+			visible = { cell.x - 64, cell.y - 64, 129, 129 };
+		m_TilePalettePanel->OnSceneMouse(onPlane, cell, visible, down);
+		return true;
 	}
 
 	Entity EditorLayer::CastMousePick()
@@ -3279,6 +3344,9 @@ namespace Lux {
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		const glm::mat4 overlayView = viewportCamera.GetViewMatrix();
 		m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), overlayView);
+
+		if (m_TilePalettePanel && m_SceneState == SceneState::Edit && m_TilePalettePanel->IsPainting())
+			m_TilePalettePanel->DrawOverlay(*m_Renderer2D, m_ActiveScene->GetWorldSpaceTransformMatrix(m_TilePalettePanel->GetTarget()));
 
 		if (m_ShowPhysicsColliders)
 		{

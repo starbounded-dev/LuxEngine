@@ -789,6 +789,16 @@ every engine feature stays available in both.
   Textured quads were drawn transposed by the `Renderer2D::DrawQuad` overloads that take UVs; they now follow
   `m_QuadVertexPositions`. A new component must also join `AllComponents` (Components.h) and have an
   `OnComponentAdded` specialization in Scene.cpp, besides the playbook's steps.
+- **Tilemaps (D3).** `TilemapComponent` (tile set = sprite sheet handle, `CellSize`, `Layers` of sparse
+  `unordered_map<int64 key(x,y), frame>`, sorting layer/order, collider material) is edited through `Lux::Tilemap`
+  (`Scene/Tilemap.h`: Get/SetTile, FillRect, FloodFill, `MergeSolid`, `ComputeVisibleCells`). `CaptureDraw2D` emits one
+  `Draw2DItem::Kind::Tiles` per visible layer holding only the tiles the view sees (culled against the 2D view
+  projection); the submit loop draws each as a quad. `PhysicsScene2D::CreateTilemapFixtures` makes one box per merged
+  block of Solid frames on the entity's `RigidBody2D` (none, no collision); `RebuildTilemap` redoes them after C#
+  `Tilemap.SetTile` or a palette stroke. Layers serialize as `Runs` flow lists, sorted so a resave is byte-identical. The
+  Tile Palette panel (`Editor/Source/Panels/TilePalettePanel`) gets the Scene View mouse from
+  `EditorLayer::UpdateTilePainting` while `IsPainting()` (selection and the gizmo step aside; Edit state only), one undo
+  step per stroke.
 - **Checks.** `tests/2d/run_2d_checks.py` builds `tests/2d/Checks2D.cpp` (derived from `Editor.vcxproj`, no
   window, no GPU) and runs the project type, background, 2D camera and template checks.
 

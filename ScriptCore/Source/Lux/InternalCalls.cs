@@ -192,6 +192,14 @@ namespace Lux
 		internal static delegate*<ulong, NativeString, void> SpriteRendererComponent_SetSortingLayer;
 		#endregion
 
+		#region TilemapComponent
+		internal static delegate*<ulong, int> TilemapComponent_GetLayerCount;
+		internal static delegate*<ulong, int, int, int, int> TilemapComponent_GetTile;
+		internal static delegate*<ulong, int, int, int, int, void> TilemapComponent_SetTile;
+		internal static delegate*<ulong, Vector2*, int*, int*, void> TilemapComponent_WorldToCell;
+		internal static delegate*<ulong, int, int, Vector2*, void> TilemapComponent_CellToWorld;
+		#endregion
+
 		#region SpriteAnimatorComponent
 		internal static delegate*<ulong, NativeString, Bool32, void> SpriteAnimatorComponent_Play;
 		internal static delegate*<ulong, void> SpriteAnimatorComponent_Stop;

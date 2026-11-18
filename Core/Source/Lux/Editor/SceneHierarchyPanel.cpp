@@ -27,6 +27,7 @@
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/SpriteSheet.h"
+#include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Animation/Skeleton.h"
@@ -1054,6 +1055,14 @@ namespace Lux {
 				entity.AddComponent<SpriteAnimatorComponent>();
 			}
 
+			if (ImGui::MenuItem("Tilemap"))
+			{
+				// Static body: the solid tiles become its collision shapes.
+				Entity entity = createEntity("Tilemap");
+				entity.AddComponent<TilemapComponent>();
+				entity.AddComponent<RigidBody2DComponent>();
+			}
+
 			if (ImGui::MenuItem("Circle"))
 			{
 				Entity entity = createEntity("Circle");
@@ -1866,6 +1875,7 @@ namespace Lux {
 				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
 				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
 				const bool canAddSpriteAnimator = canAddComponent.template operator()<SpriteAnimatorComponent>();
+				const bool canAddTilemap = canAddComponent.template operator()<TilemapComponent>();
 				const bool canAddStaticMesh = canAddComponent.template operator()<StaticMeshComponent>();
 				const bool canAddSkeleton = canAddComponent.template operator()<SkeletonComponent>();
 				const bool canAddRigidBody2D = canAddComponent.template operator()<RigidBody2DComponent>();
@@ -1965,6 +1975,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<SpriteAnimatorComponent>())
 								entity.AddComponent<SpriteAnimatorComponent>();
+						}
+					});
+				}
+
+				if (canAddTilemap)
+				{
+					addComponentRow("Tilemap", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<TilemapComponent>())
+								entity.AddComponent<TilemapComponent>();
 						}
 					});
 				}
@@ -2474,6 +2497,7 @@ namespace Lux {
 						row.operator()<ScriptComponent>("ScriptComponent", "Script");
 						row.operator()<SpriteRendererComponent>("SpriteRendererComponent", "Sprite Renderer");
 						row.operator()<SpriteAnimatorComponent>("SpriteAnimatorComponent", "Sprite Animator");
+						row.operator()<TilemapComponent>("TilemapComponent", "Tilemap");
 						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
 						row.operator()<TextComponent>("TextComponent", "Text");
 						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
@@ -2944,6 +2968,103 @@ namespace Lux {
 				}
 
 				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<TilemapComponent>(m_Context, entityIDs, "Tilemap", EditorResources::SpriteIcon,
+			[this, firstEntity](TilemapComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				AssetHandle sheetHandle = firstComponent.TileSet;
+				if (ImGuiEx::PropertyAssetReference<SpriteSheet>("Tile Set", sheetHandle, "The sprite sheet whose frames are the tiles. A frame flagged Solid blocks movement."))
+				{
+					firstComponent.TileSet = sheetHandle;
+					ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [sheetHandle](TilemapComponent& component, Entity) { component.TileSet = sheetHandle; });
+				}
+
+				if (ImGuiEx::Property("Cell Size", firstComponent.CellSize, 0.01f, 0.01f, 1000.0f, "The size of one cell in world units."))
+				{
+					ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [&firstComponent](TilemapComponent& component, Entity) { component.CellSize = firstComponent.CellSize; });
+				}
+
+				if (ImGuiEx::Property("Point Filter", firstComponent.PointFilter, "Nearest-neighbour sampling: pixel art stays sharp when magnified."))
+				{
+					ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [&firstComponent](TilemapComponent& component, Entity) { component.PointFilter = firstComponent.PointFilter; });
+				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
+				DrawCollider2DMaterial(m_Context, firstComponent, selectedEntities);
+				ImGuiEx::EndPropertyGrid();
+
+				// Match Tile Size: one frame's size in world units, from the tile set.
+				if (const Ref<SpriteSheet> sheet = firstComponent.TileSet ? AssetManager::GetAsset<SpriteSheet>(firstComponent.TileSet) : nullptr; sheet && !sheet->Frames.empty())
+				{
+					ImGuiEx::ScopedID matchID(1);
+					if (ImGui::Button("Match Tile Size"))
+					{
+						const glm::ivec4& rect = sheet->Frames[0].Rect;
+						const glm::vec2 size = glm::vec2(rect.z, rect.w) / std::max(sheet->PixelsPerUnit, 1.0f);
+						firstComponent.CellSize = size;
+						ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [size](TilemapComponent& component, Entity) { component.CellSize = size; });
+						EditorStack::Get().MarkEntitiesEdited(selectedEntities, "Match Tile Size");
+					}
+				}
+
+				// Layers: first selected entity only (the list has no common shape across a selection).
+				ImGui::SeparatorText("Layers");
+				ImGuiEx::ScopedID layersID(2);
+				bool layersChanged = false;
+				int32_t remove = -1, moveUp = -1;
+				for (int32_t i = 0; i < static_cast<int32_t>(firstComponent.Layers.size()); i++)
+				{
+					ImGuiEx::ScopedID layerID(i);
+					TilemapLayer& layer = firstComponent.Layers[static_cast<size_t>(i)];
+					ImGui::SetNextItemWidth(120.0f);
+					ImGui::InputText("##name", &layer.Name);
+					layersChanged |= ImGui::IsItemDeactivatedAfterEdit();
+					ImGui::SameLine();
+					layersChanged |= ImGui::Checkbox("Visible", &layer.Visible);
+					ImGui::SameLine();
+					layersChanged |= ImGui::Checkbox("Collides", &layer.Collides);
+					ImGui::SameLine();
+					ImGui::TextDisabled("%zu tiles", layer.Cells.size());
+					ImGui::SameLine();
+					if (i > 0 && ImGui::SmallButton("Up"))
+						moveUp = i;
+					ImGui::SameLine();
+					if (firstComponent.Layers.size() > 1 && ImGui::SmallButton("Remove"))
+						remove = i;
+				}
+				if (moveUp > 0)
+				{
+					std::swap(firstComponent.Layers[static_cast<size_t>(moveUp)], firstComponent.Layers[static_cast<size_t>(moveUp) - 1]);
+					layersChanged = true;
+				}
+				if (remove >= 0)
+				{
+					firstComponent.Layers.erase(firstComponent.Layers.begin() + remove);
+					layersChanged = true;
+				}
+				if (ImGui::Button("Add Layer"))
+				{
+					TilemapLayer layer;
+					layer.Name = std::format("Layer {}", firstComponent.Layers.size() + 1);
+					firstComponent.Layers.push_back(std::move(layer));
+					layersChanged = true;
+				}
+				if (layersChanged)
+				{
+					EditorStack::Get().MarkEntitiesEdited(selectedEntities, "Edit Tilemap Layers");
+					if (PhysicsScene2D* physics = m_Context->GetPhysicsScene2D())
+						physics->RebuildTilemap(firstEntity);
+				}
+
+				if (m_OpenTilePaletteCallback)
+				{
+					ImGui::SameLine();
+					if (ImGui::Button("Open Tile Palette"))
+						m_OpenTilePaletteCallback();
+				}
 			});
 
 		DrawComponentSection<CircleRendererComponent>(m_Context, entityIDs, "Circle Renderer", EditorResources::SpriteIcon,

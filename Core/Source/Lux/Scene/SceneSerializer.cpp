@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "SceneSerializer.h"
+#include "Lux/Scene/Tilemap.h"
 
 #include "Components.h"
 #include "Entity.h"
@@ -656,6 +657,68 @@ namespace Lux {
 				out << Yaml::Key << "Clip" << Yaml::Value << animator.Clip;
 				out << Yaml::Key << "Playing" << Yaml::Value << animator.Playing;
 				out << Yaml::Key << "Speed" << Yaml::Value << animator.Speed;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<TilemapComponent>())
+			{
+				const auto& tilemap = entity.GetComponent<TilemapComponent>();
+				out << Yaml::Key << "TilemapComponent";
+				out << Yaml::BeginMap;
+				if (!tilemap.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << tilemap.Enabled;
+				out << Yaml::Key << "TileSet" << Yaml::Value;
+				AssetReference::WriteValue(out, tilemap.TileSet);
+				out << Yaml::Key << "CellSize" << Yaml::Value << tilemap.CellSize;
+				if (tilemap.PointFilter)
+					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
+				if (tilemap.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << tilemap.SortingLayer;
+				if (tilemap.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << tilemap.OrderInLayer;
+				out << Yaml::Key << "Friction" << Yaml::Value << tilemap.Friction;
+				if (tilemap.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << tilemap.Restitution;
+				if (tilemap.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << tilemap.RestitutionThreshold;
+				if (tilemap.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::Key << "Layers" << Yaml::Value;
+				out << Yaml::BeginSeq;
+				for (const TilemapLayer& layer : tilemap.Layers)
+				{
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "Name" << Yaml::Value << layer.Name;
+					if (!layer.Visible)
+						out << Yaml::Key << "Visible" << Yaml::Value << false;
+					if (!layer.Collides)
+						out << Yaml::Key << "Collides" << Yaml::Value << false;
+
+					// Cells as runs along X, one flow list per run: [y, x, tile, tile, ...]. Sorted, so a second
+					// save is byte-identical.
+					std::vector<std::pair<int64_t, int32_t>> cells(layer.Cells.begin(), layer.Cells.end());
+					std::sort(cells.begin(), cells.end(), [](const auto& a, const auto& b)
+					{
+						const int32_t ay = Tilemap::KeyY(a.first), by = Tilemap::KeyY(b.first);
+						return ay != by ? ay < by : Tilemap::KeyX(a.first) < Tilemap::KeyX(b.first);
+					});
+					out << Yaml::Key << "Runs" << Yaml::Value << Yaml::BeginSeq;
+					for (size_t i = 0; i < cells.size();)
+					{
+						const int32_t y = Tilemap::KeyY(cells[i].first), x = Tilemap::KeyX(cells[i].first);
+						size_t end = i + 1;
+						while (end < cells.size() && Tilemap::KeyY(cells[end].first) == y && Tilemap::KeyX(cells[end].first) == x + static_cast<int32_t>(end - i))
+							end++;
+						out << Yaml::Flow << Yaml::BeginSeq << y << x;
+						for (size_t cell = i; cell < end; cell++)
+							out << cells[cell].second;
+						out << Yaml::EndSeq;
+						i = end;
+					}
+					out << Yaml::EndSeq;
+					out << Yaml::EndMap;
+				}
+				out << Yaml::EndSeq;
 				out << Yaml::EndMap;
 			}
 
@@ -1352,6 +1415,39 @@ namespace Lux {
 					component.Clip = animator["Clip"].as<std::string>("");
 					component.Playing = animator["Playing"].as<bool>(true);
 					component.Speed = animator["Speed"].as<float>(1.0f);
+				}
+
+				if (const auto tilemapNode = entity["TilemapComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<TilemapComponent>();
+					component.Enabled = tilemapNode["Enabled"].as<bool>(true);
+					component.TileSet = AssetReference::ReadValue(tilemapNode["TileSet"]);
+					component.CellSize = tilemapNode["CellSize"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
+					component.PointFilter = tilemapNode["PointFilter"].as<bool>(false);
+					component.SortingLayer = tilemapNode["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = tilemapNode["OrderInLayer"].as<int32_t>(0);
+					component.Friction = tilemapNode["Friction"].as<float>(0.5f);
+					component.Restitution = tilemapNode["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = tilemapNode["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = tilemapNode["IsTrigger"].as<bool>(false);
+					component.Layers.clear();
+					for (const auto& layerNode : tilemapNode["Layers"])
+					{
+						TilemapLayer& layer = component.Layers.emplace_back(layerNode["Name"].as<std::string>("Layer"));
+						layer.Visible = layerNode["Visible"].as<bool>(true);
+						layer.Collides = layerNode["Collides"].as<bool>(true);
+						for (const auto& run : layerNode["Runs"])
+						{
+							// [y, x, tile, ...]: a malformed run is skipped rather than failing the whole scene.
+							if (!run.IsSequence() || run.size() < 3)
+								continue;
+							std::vector<int32_t> numbers;
+							for (const auto& number : run)
+								numbers.push_back(number.as<int32_t>(-1));
+							for (size_t i = 2; i < numbers.size(); i++)
+								Tilemap::SetTile(layer, numbers[1] + static_cast<int32_t>(i - 2), numbers[0], numbers[i]);
+						}
+					}
 				}
 
 				if (const auto circle = entity["CircleRendererComponent"])

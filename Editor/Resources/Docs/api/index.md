@@ -45,6 +45,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [StaticMeshComponent](StaticMeshComponent) — A mesh drawn at the entity.
 - [TagComponent](TagComponent) — The entity's name.
 - [TextComponent](TextComponent) — Draws text in the world with an MSDF font.
+- [TilemapComponent](TilemapComponent) — A grid of tiles from a sprite sheet, in layers.
 - [TransformComponent](TransformComponent) — Position, rotation and scale relative to the parent.
 
 ## Input

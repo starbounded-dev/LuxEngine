@@ -47,6 +47,7 @@ namespace Lux {
 	LUX_COMPONENT_DOC_TOPIC(AudioListenerComponent, "components/audio", "Audio")
 	LUX_COMPONENT_DOC_TOPIC(SpriteRendererComponent, "components/2d", "2D: Sprites, Circles and Text")
 	LUX_COMPONENT_DOC_TOPIC(SpriteAnimatorComponent, "components/2d", "2D: Sprites, Circles and Text")
+	LUX_COMPONENT_DOC_TOPIC(TilemapComponent, "components/2d", "2D: Sprites, Circles and Text")
 	LUX_COMPONENT_DOC_TOPIC(PolygonCollider2DComponent, "components/2d", "2D: Sprites, Circles and Text")
 	LUX_COMPONENT_DOC_TOPIC(CapsuleCollider2DComponent, "components/2d", "2D: Sprites, Circles and Text")
 	LUX_COMPONENT_DOC_TOPIC(EdgeCollider2DComponent, "components/2d", "2D: Sprites, Circles and Text")

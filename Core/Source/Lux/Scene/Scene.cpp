@@ -31,6 +31,7 @@
 #include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/SpriteSheet.h"
+#include "Lux/Scene/Tilemap.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/FrameRenderPacket.h"
@@ -1609,7 +1610,7 @@ namespace Lux {
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1683,7 +1684,7 @@ namespace Lux {
 	}
 
 	using PrefabInstantiationComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1868,7 +1869,7 @@ namespace Lux {
 		// are deliberately excluded so the link and hierarchy survive a revert/apply). Reconcile,
 		// not copy: destination-only components are removed so it matches source exactly.
 		using PrefabSyncComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -3777,6 +3778,74 @@ namespace Lux {
 			}
 		}
 
+		// Draw tilemaps: one item per visible layer, with only the tiles the view can see.
+		{
+			auto view = m_Registry.view<TransformComponent, TilemapComponent>();
+			for (auto entity : view)
+			{
+				auto& tilemap = view.get<TilemapComponent>(entity);
+				if (!tilemap.Enabled || IsInactive(entity))
+					continue;
+
+				const Ref<SpriteSheet> tileSet = tilemap.TileSet ? AssetManager::GetAsset<SpriteSheet>(tilemap.TileSet) : nullptr;
+				if (!tileSet)
+					continue;
+				const Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(tileSet->Texture);
+				const glm::ivec2 textureSize = texture ? glm::ivec2(texture->GetSize()) : glm::ivec2(0);
+
+				const glm::mat4 world = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+				Tilemap::CellRect view2D;
+				const bool culled = Tilemap::ComputeVisibleCells(packet.Overlay2DViewProjection, world, tilemap.CellSize, view2D);
+				for (const TilemapLayer& layer : tilemap.Layers)
+				{
+					if (!layer.Visible || layer.Cells.empty())
+						continue;
+
+					Draw2DItem item;
+					item.Type = Draw2DItem::Kind::Tiles;
+					item.Transform = world * glm::scale(glm::mat4(1.0f), glm::vec3(tilemap.CellSize, 1.0f));
+					item.Texture = texture;
+					item.PointFilter = tilemap.PointFilter;
+
+					const auto addTile = [&](int32_t x, int32_t y, int32_t tile)
+					{
+						Draw2DItem::Tile entry;
+						entry.Cell = { static_cast<float>(x), static_cast<float>(y) };
+						if (tile < 0 || static_cast<size_t>(tile) >= tileSet->Frames.size())
+							return; // a tile the sheet no longer has draws nothing
+						if (texture) // without one the tile is a plain coloured quad, like a sprite with no texture
+							tileSet->GetFrameUV(static_cast<uint32_t>(tile), textureSize, entry.UV0, entry.UV1);
+						item.Tiles.push_back(entry);
+					};
+					// A small view walks its cells; a small map walks its tiles.
+					if (culled && static_cast<int64_t>(view2D.Width) * view2D.Height < static_cast<int64_t>(layer.Cells.size()))
+					{
+						for (int32_t y = view2D.Y; y < view2D.Y + view2D.Height; y++)
+						{
+							for (int32_t x = view2D.X; x < view2D.X + view2D.Width; x++)
+							{
+								if (const int32_t tile = Tilemap::GetTile(layer, x, y); tile >= 0)
+									addTile(x, y, tile);
+							}
+						}
+					}
+					else
+					{
+						for (const auto& [key, tile] : layer.Cells)
+						{
+							const int32_t x = Tilemap::KeyX(key), y = Tilemap::KeyY(key);
+							if (!culled || view2D.Contains(x, y))
+								addTile(x, y, tile);
+						}
+					}
+					if (item.Tiles.empty())
+						continue;
+					const float depth = depthOf(item.Transform);
+					sorted.push_back({ rankOf(tilemap.SortingLayer), tilemap.OrderInLayer, depth, std::move(item) });
+				}
+			}
+		}
+
 		// Draw circles
 		{
 			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
@@ -3905,8 +3974,18 @@ namespace Lux {
 					case FrameRenderPacket::Draw2DItem::Kind::Quad:
 						renderer2D->DrawQuad(item.Transform, item.Color);
 						break;
-					case FrameRenderPacket::Draw2DItem::Kind::Circle:
+						case FrameRenderPacket::Draw2DItem::Kind::Circle:
 						renderer2D->DrawCircle(item.Transform, item.Color);
+						break;
+					case FrameRenderPacket::Draw2DItem::Kind::Tiles:
+						for (const FrameRenderPacket::Draw2DItem::Tile& tile : item.Tiles)
+						{
+							const glm::mat4 quad = item.Transform * glm::translate(glm::mat4(1.0f), glm::vec3(tile.Cell + glm::vec2(0.5f), 0.0f));
+							if (item.Texture)
+								renderer2D->DrawQuad(quad, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color, tile.UV0, tile.UV1);
+							else
+								renderer2D->DrawQuad(quad, item.Color);
+						}
 						break;
 					case FrameRenderPacket::Draw2DItem::Kind::Text:
 						if (item.FontAsset)
@@ -4288,6 +4367,9 @@ namespace Lux {
 		for (auto entity : prefabView)
 			addIfValid(prefabView.get<PrefabComponent>(entity).PrefabID);
 
+		for (auto entity : m_Registry.view<TilemapComponent>())
+			addSheetDependencies(m_Registry.get<TilemapComponent>(entity).TileSet);
+
 		auto spriteView = m_Registry.view<SpriteRendererComponent>();
 		for (auto entity : spriteView)
 		{
@@ -4441,6 +4523,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<SpriteAnimatorComponent>(Entity entity, SpriteAnimatorComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<TilemapComponent>(Entity entity, TilemapComponent& component)
 	{
 	}
 

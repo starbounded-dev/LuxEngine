@@ -45,6 +45,7 @@ namespace Lux
 	class ProfilerPanel;
 	class HelpPanel;
 	class AudioDebugPanel;
+	class TilePalettePanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
 
@@ -98,6 +99,7 @@ namespace Lux
 		void UI_ViewportSelectionBadge();
 		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
+		bool UpdateTilePainting();
 		// View and (unreversed) projection of the camera the viewport is rendering through.
 		void GetViewportCameraMatrices(glm::mat4& outView, glm::mat4& outProjection);
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
@@ -272,6 +274,7 @@ namespace Lux
 		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
+		Ref<TilePalettePanel> m_TilePalettePanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 		// OnUpdate drives its per-frame render around the scene update.
 		Ref<GameViewPanel> m_GameViewPanel;

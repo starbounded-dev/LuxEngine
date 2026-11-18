@@ -27,7 +27,7 @@ namespace Lux {
 	}
 
 	using PrefabCloneComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,

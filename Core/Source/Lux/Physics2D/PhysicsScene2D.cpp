@@ -6,7 +6,10 @@
 
 #include "ContactListener2D.h"
 
+#include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/SpriteSheet.h"
+#include "Lux/Scene/Tilemap.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
 
@@ -199,6 +202,7 @@ namespace Lux {
 		m_ContactListener.reset();
 		m_GroundBody = nullptr;
 		m_Bodies.clear();
+		m_TilemapFixtures.clear();
 		m_Events.clear();
 	}
 
@@ -296,6 +300,9 @@ namespace Lux {
 			}
 		}
 
+		if (entity.HasComponent<TilemapComponent>())
+			CreateTilemapFixtures(entity, body);
+
 		if (entity.HasComponent<EdgeCollider2DComponent>())
 		{
 			auto& collider = entity.GetComponent<EdgeCollider2DComponent>();
@@ -333,6 +340,47 @@ namespace Lux {
 				}
 			}
 		}
+	}
+
+	void PhysicsScene2D::CreateTilemapFixtures(Entity entity, b2Body* body)
+	{
+		const auto& transform = entity.GetComponent<TransformComponent>();
+		const auto& tilemap = entity.GetComponent<TilemapComponent>();
+		const Ref<SpriteSheet> tileSet = tilemap.TileSet ? AssetManager::GetAsset<SpriteSheet>(tilemap.TileSet) : nullptr;
+		if (!tileSet)
+			return;
+
+		// Cell (x, y) spans (x, y) to (x + 1, y + 1) cells from the entity's origin; the entity's scale stretches the cells.
+		const glm::vec2 cell = tilemap.CellSize * glm::vec2(std::abs(transform.Scale.x), std::abs(transform.Scale.y));
+		std::vector<Tilemap::CellRect> blocks;
+		std::vector<b2Fixture*>& fixtures = m_TilemapFixtures[entity.GetUUID()];
+		for (const TilemapLayer& layer : tilemap.Layers)
+		{
+			if (!layer.Collides)
+				continue;
+			Tilemap::MergeSolid(layer, tileSet->Frames, blocks);
+			for (const Tilemap::CellRect& block : blocks)
+			{
+				b2PolygonShape shape;
+				shape.SetAsBox(0.5f * static_cast<float>(block.Width) * cell.x, 0.5f * static_cast<float>(block.Height) * cell.y,
+					b2Vec2((static_cast<float>(block.X) + 0.5f * static_cast<float>(block.Width)) * cell.x, (static_cast<float>(block.Y) + 0.5f * static_cast<float>(block.Height)) * cell.y), 0.0f);
+				const b2FixtureDef fixtureDef = MakeFixtureDef(tilemap, &shape, 0.0f);
+				fixtures.push_back(body->CreateFixture(&fixtureDef));
+			}
+		}
+	}
+
+	void PhysicsScene2D::RebuildTilemap(Entity entity)
+	{
+		const auto body = m_Bodies.find(entity.GetUUID());
+		if (body == m_Bodies.end() || !entity.HasComponent<TilemapComponent>())
+			return;
+
+		std::vector<b2Fixture*>& fixtures = m_TilemapFixtures[entity.GetUUID()];
+		for (b2Fixture* fixture : fixtures)
+			body->second->DestroyFixture(fixture);
+		fixtures.clear();
+		CreateTilemapFixtures(entity, body->second);
 	}
 
 	void PhysicsScene2D::CreateJoint(Entity entity)
@@ -439,6 +487,7 @@ namespace Lux {
 			return;
 		m_PhysicsWorld->DestroyBody(found->second);
 		m_Bodies.erase(found);
+		m_TilemapFixtures.erase(entity);
 	}
 
 	uint32_t PhysicsScene2D::AdvanceFixedClock(Timestep timestep)

@@ -14,6 +14,7 @@
 #include <vector>
 
 class b2Body;
+class b2Fixture;
 class b2World;
 
 namespace Lux {
@@ -49,6 +50,8 @@ namespace Lux {
 		void CreateBody(Entity entity);
 		void CreateJoint(Entity entity);
 		void DestroyBody(UUID entity);
+		// Makes the tilemap's solid-tile shapes again after its tiles changed (C# SetTile, the Tile Palette in Simulate).
+		void RebuildTilemap(Entity entity);
 
 		// The step length, from the project (Project Settings > Physics > Fixed Timestep).
 		float GetFixedTimestep() const { return m_FixedTimestep; }
@@ -71,11 +74,13 @@ namespace Lux {
 
 	private:
 		void CreateColliders(Entity entity, b2Body* body);
+		void CreateTilemapFixtures(Entity entity, b2Body* body);
 
 		Scene* m_Scene = nullptr;
 		b2World* m_PhysicsWorld = nullptr;
 		b2Body* m_GroundBody = nullptr; // anchors a joint to the world
 		std::unordered_map<UUID, b2Body*> m_Bodies;
+		std::unordered_map<UUID, std::vector<b2Fixture*>> m_TilemapFixtures; // by entity, so a tilemap can be rebuilt
 		std::unique_ptr<ContactListener2D> m_ContactListener;
 		std::vector<PhysicsContactEvent> m_Events;
 		bool m_RecordContacts = false;

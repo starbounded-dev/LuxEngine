@@ -29,6 +29,7 @@
 
 #include <concepts>
 #include <type_traits>
+#include <unordered_map>
 
 namespace Lux {
 
@@ -224,6 +225,42 @@ namespace Lux {
 
 		SpriteAnimatorComponent() = default;
 		SpriteAnimatorComponent(const SpriteAnimatorComponent&) = default;
+	};
+
+	// One layer of a tilemap: tiles by cell, drawn in list order (later on top). A cell holds the index of a frame of
+	// the tilemap's tile set. See Tilemap.h to edit one.
+	struct TilemapLayer
+	{
+		std::string Name = "Layer";
+		bool Visible = true;
+		bool Collides = true; // the solid tiles of this layer block bodies (the entity needs a Rigidbody 2D)
+		std::unordered_map<int64_t, int32_t> Cells; // Tilemap::Key(x, y) -> frame index
+
+		TilemapLayer() = default;
+		explicit TilemapLayer(std::string name) : Name(std::move(name)) {}
+	};
+
+	// A grid of tiles from a sprite sheet (its frames are the tiles; a frame flagged Solid collides), in layers. Cell
+	// (0, 0) has its lower left corner at the entity's origin; one cell is CellSize world units, scaled by the entity.
+	// Paint it with the Tile Palette panel. With a static Rigidbody 2D on the same entity, solid tiles collide.
+	struct TilemapComponent
+	{
+		bool Enabled = true;
+		AssetHandle TileSet = 0;                    // a sprite sheet
+		glm::vec2 CellSize = { 1.0f, 1.0f };
+		std::vector<TilemapLayer> Layers = { TilemapLayer("Ground") };
+		bool PointFilter = false;                   // nearest-neighbour sampling, for pixel-art tiles
+		uint32_t SortingLayer = 0;                  // like a sprite's: the project's sorting layer ID and the order in it
+		int32_t OrderInLayer = 0;
+
+		// How the solid tiles feel; the same fields as a collider.
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		TilemapComponent() = default;
+		TilemapComponent(const TilemapComponent&) = default;
 	};
 
 	struct CameraComponent
@@ -922,7 +959,7 @@ namespace Lux {
 
 	using AllComponents =
 		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent, SpriteAnimatorComponent,
-		PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
