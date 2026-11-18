@@ -47,17 +47,37 @@ namespace Lux
 			return ScriptEngine::GetInstance().GetCurrentScene().Raw();
 		}
 
+		// A script can keep an Entity after it was destroyed, or ask for a component the entity lacks: say so, once per call,
+		// instead of acting on nothing in silence.
 		Entity EntityOf(uint64_t id)
 		{
 			Scene* scene = CurrentScene();
-			return scene ? scene->TryGetEntityWithUUID(id) : Entity{};
+			if (!scene)
+				return {};
+			Entity entity = scene->TryGetEntityWithUUID(id);
+			if (!entity)
+				LUX_CONSOLE_LOG_ERROR("A script used entity {} after it was destroyed (or it never existed)", id);
+			return entity;
 		}
 
 		template<typename TComponent>
 		TComponent* ComponentOf(uint64_t id)
 		{
 			Entity entity = EntityOf(id);
-			return entity ? entity.TryGetComponent<TComponent>() : nullptr;
+			if (!entity)
+				return nullptr;
+			TComponent* component = entity.TryGetComponent<TComponent>();
+			if (!component)
+				LUX_CONSOLE_LOG_ERROR("Entity {} ({}) does not have that component", id, entity.GetName());
+			return component;
+		}
+
+		bool IsFinite(float value)
+		{
+			if (std::isfinite(value))
+				return true;
+			LUX_CONSOLE_LOG_ERROR("A component value must be a finite number, not {}", value);
+			return false;
 		}
 
 		// -- Lights -----------------------------------------------------------------------------------
@@ -177,7 +197,7 @@ namespace Lux
 
 		Coral::Bool32 Light_SetScalar(uint64_t id, int32_t kind, int32_t field, float value)
 		{
-			if (!std::isfinite(value))
+			if (!IsFinite(value))
 				return false;
 
 			if (static_cast<LightKind>(kind) == LightKind::Sky)
@@ -217,7 +237,7 @@ namespace Lux
 
 		Coral::Bool32 Light_SetColor(uint64_t id, int32_t kind, glm::vec3* in)
 		{
-			if (!std::isfinite(in->x) || !std::isfinite(in->y) || !std::isfinite(in->z))
+			if (!IsFinite(in->x) || !IsFinite(in->y) || !IsFinite(in->z))
 				return false;
 			return WithLight(id, static_cast<LightKind>(kind), [&](auto& light) { light.Radiance = glm::max(*in, glm::vec3(0.0f)); return true; });
 		}
@@ -245,7 +265,7 @@ namespace Lux
 		Coral::Bool32 Camera_SetScalar(uint64_t id, int32_t field, float value)
 		{
 			auto* component = ComponentOf<CameraComponent>(id);
-			if (!component || !std::isfinite(value))
+			if (!component || !IsFinite(value))
 				return false;
 			SceneCamera& camera = component->Camera;
 			const bool ortho = camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic;
@@ -453,7 +473,7 @@ namespace Lux
 			auto* component = entity ? entity.TryGetComponent<StaticMeshComponent>() : nullptr;
 			if (!component || slot < 0 || static_cast<uint32_t>(slot) >= MaterialSlotCount(*component))
 				return false;
-			if (!std::isfinite(in->x) || !std::isfinite(in->y) || !std::isfinite(in->z) || !std::isfinite(in->w))
+			if (!IsFinite(in->x) || !IsFinite(in->y) || !IsFinite(in->z) || !IsFinite(in->w))
 				return false;
 			Ref<MaterialAsset> material = PrivateSlotMaterial(entity, *component, static_cast<uint32_t>(slot));
 			if (!material)
@@ -482,7 +502,7 @@ namespace Lux
 		Coral::Bool32 MusicDirector_SetScalar(uint64_t id, int32_t field, float value)
 		{
 			auto* component = ComponentOf<MusicDirectorComponent>(id);
-			if (!component || !std::isfinite(value))
+			if (!component || !IsFinite(value))
 				return false;
 			if (static_cast<MusicField>(field) == MusicField::PlayOnAwake)
 				component->PlayOnAwake = value != 0.0f;
