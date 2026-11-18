@@ -47,6 +47,9 @@ namespace Lux {
 	static std::unordered_map<Coral::TypeId, std::function<bool(Entity)>> s_HasComponentFuncs;
 	static std::unordered_map<Coral::TypeId, std::function<void(Entity)>> s_AddComponentFuncs;
 	static std::unordered_map<Coral::TypeId, std::function<void(Entity)>> s_RemoveComponentFuncs;
+	// Only for components with an on/off switch (HasEnabledFlag).
+	static std::unordered_map<Coral::TypeId, std::function<bool(Entity)>> s_GetEnabledFuncs;
+	static std::unordered_map<Coral::TypeId, std::function<void(Entity, bool)>> s_SetEnabledFuncs;
 
 #define LUX_ADD_INTERNAL_CALL(Name) coreAssembly.AddInternalCall("Lux.InternalCalls", #Name, reinterpret_cast<void*>(&Name))
 
@@ -280,6 +283,55 @@ namespace Lux {
 		auto it = s_RemoveComponentFuncs.find(componentType.m_TypeID);
 		if (it != s_RemoveComponentFuncs.end())
 			it->second(GetEntity(entityID));
+	}
+
+	// An entity's own switch (the inspector's checkbox); a parent switched off still switches it off in effect.
+	static Coral::Bool32 Entity_GetActive(uint64_t entityID)
+	{
+		return GetEntity(entityID).GetComponent<TagComponent>().Active;
+	}
+
+	static void Entity_SetActive(uint64_t entityID, Coral::Bool32 active)
+	{
+		GetScene()->SetEntityActive(GetEntity(entityID), active);
+	}
+
+	static Coral::Bool32 Entity_IsActiveInHierarchy(uint64_t entityID)
+	{
+		return GetScene()->IsEntityActiveInHierarchy(GetEntity(entityID));
+	}
+
+	// Whether the entity's script component runs: a switched-off script gets no OnUpdate or OnFixedUpdate.
+	static Coral::Bool32 Entity_GetScriptEnabled(uint64_t entityID)
+	{
+		Entity entity = GetEntity(entityID);
+		return entity.HasComponent<ScriptComponent>() && entity.GetComponent<ScriptComponent>().Enabled;
+	}
+
+	static void Entity_SetScriptEnabled(uint64_t entityID, Coral::Bool32 enabled)
+	{
+		Entity entity = GetEntity(entityID);
+		if (entity.HasComponent<ScriptComponent>())
+			entity.GetComponent<ScriptComponent>().Enabled = enabled;
+	}
+
+	static Coral::Bool32 Component_GetEnabled(uint64_t entityID, Coral::ReflectionType componentType)
+	{
+		const auto it = s_GetEnabledFuncs.find(componentType.m_TypeID);
+		if (it != s_GetEnabledFuncs.end())
+			return it->second(GetEntity(entityID));
+		// No switch: the component is always on, as long as the entity still has it.
+		const auto has = s_HasComponentFuncs.find(componentType.m_TypeID);
+		return has != s_HasComponentFuncs.end() && has->second(GetEntity(entityID));
+	}
+
+	static void Component_SetEnabled(uint64_t entityID, Coral::ReflectionType componentType, Coral::Bool32 enabled)
+	{
+		const auto it = s_SetEnabledFuncs.find(componentType.m_TypeID);
+		if (it != s_SetEnabledFuncs.end())
+			it->second(GetEntity(entityID), enabled);
+		else
+			LUX_CONSOLE_LOG_WARN("Component.Enabled was set on a component that has no enabled switch; it stays on");
 	}
 
 	static uint64_t Entity_FindEntityByName(Coral::String name)
@@ -773,6 +825,15 @@ namespace Lux {
 		s_HasComponentFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>(); };
 		s_AddComponentFuncs[id] = [](Entity entity) { if (!entity.HasComponent<TComponent>()) entity.AddComponent<TComponent>(); };
 		s_RemoveComponentFuncs[id] = [](Entity entity) { entity.RemoveComponentIfExists<TComponent>(); };
+		if constexpr (HasEnabledFlag<TComponent>)
+		{
+			s_GetEnabledFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>() && GetEnabledFlag(entity.GetComponent<TComponent>()); };
+			s_SetEnabledFuncs[id] = [](Entity entity, bool enabled)
+			{
+				if (entity.HasComponent<TComponent>())
+					GetEnabledFlag(entity.GetComponent<TComponent>()) = enabled;
+			};
+		}
 	}
 
 	static void RegisterComponentTypes(Coral::ManagedAssembly& coreAssembly)
@@ -780,6 +841,8 @@ namespace Lux {
 		s_HasComponentFuncs.clear();
 		s_AddComponentFuncs.clear();
 		s_RemoveComponentFuncs.clear();
+		s_GetEnabledFuncs.clear();
+		s_SetEnabledFuncs.clear();
 
 		RegisterManagedComponent<TransformComponent>(coreAssembly);
 		RegisterManagedComponent<TagComponent>(coreAssembly);
@@ -865,6 +928,13 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(Entity_GetParent);
 		LUX_ADD_ENTITY_CALL(Entity_SetParent);
 		LUX_ADD_ENTITY_CALL(Entity_GetChildren);
+		LUX_ADD_ENTITY_CALL(Entity_GetActive);
+		LUX_ADD_ENTITY_CALL(Entity_SetActive);
+		LUX_ADD_ENTITY_CALL(Entity_IsActiveInHierarchy);
+		LUX_ADD_ENTITY_CALL(Entity_GetScriptEnabled);
+		LUX_ADD_ENTITY_CALL(Entity_SetScriptEnabled);
+		LUX_ADD_ENTITY_CALL(Component_GetEnabled);
+		LUX_ADD_ENTITY_CALL(Component_SetEnabled);
 
 		LUX_ADD_ENTITY_CALL(TransformComponent_GetTranslation);
 		LUX_ADD_ENTITY_CALL(TransformComponent_SetTranslation);

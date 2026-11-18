@@ -187,6 +187,9 @@ namespace Lux {
 		// True when the entity and every ancestor are Active (TagComponent::Active). Walks the parent
 		// chain, so it is always current; the per-frame system loops use IsInactive() instead.
 		bool IsEntityActiveInHierarchy(Entity entity) const;
+		// Switches an entity (and so every descendant) on or off, as the inspector's checkbox does. The inactive set is
+		// rebuilt at once, so systems that run later in the same frame already honour it. Main thread.
+		void SetEntityActive(Entity entity, bool active);
 		void CopyTo(Ref<Scene>& target);
 		void SortEntities();
 

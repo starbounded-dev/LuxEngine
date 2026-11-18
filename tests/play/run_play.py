@@ -27,7 +27,7 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform"]
+          "Clock", "Transform", "ActiveEnabled"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -141,6 +141,11 @@ def write_project(project, keep=None, runtime_config="dist"):
     parent, child = next(ids), next(ids)
     e.append(entity(parent, "TransformParent", (10, 1, -40), rot=(0, math.pi / 2, 0), children=(child,)))
     e.append(entity(child, "TransformChild", (0, 0, -2), parent=parent, script="TransformCheck"))
+    target, target_child = next(ids), next(ids)
+    e.append(entity(target, "ToggleTarget", (0, 1, -42), children=(target_child,), script="ToggleCounter"))
+    e.append(entity(target_child, "ToggleChild", (0, 0, 0), parent=target, script="ToggleCounter"))
+    e.append(entity(next(ids), "SwitchSprite", (0, 1, -44), body="    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n"))
+    e.append(entity(next(ids), "ActiveCheck", (0, 1, -46), script="ActiveCheck"))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.

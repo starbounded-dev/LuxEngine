@@ -601,12 +601,19 @@ if `OnCreate` never ran. Both flags are serialized **only when off** (`Active: f
 `TagComponent`, `Enabled: false` in the component), so older scenes load as on and re-save
 unchanged.
 
+**C# API (M4 S3).** `Entity.Active` (the entity's own flag), `Entity.ActiveInHierarchy`,
+`Entity.ScriptEnabled` (the `ScriptComponent` switch) and `Component.Enabled` (one property on the base
+class). `Scene::SetEntityActive` sets the flag and rebuilds the inactive set at once, so a script that
+switches another entity off mid-frame also stops that entity's `OnUpdate` later in the same loop. The
+component switch goes through `s_GetEnabledFuncs` / `s_SetEnabledFuncs` in `ScriptGlue.cpp`, filled per
+type by `RegisterManagedComponent` for every component with `HasEnabledFlag<T>` (`Components.h`, the
+same rule the inspector uses for its header checkbox). A component with no switch reads as on, and
+setting it off logs a warning and changes nothing. `AudioZoneComponent` / `AudioPortalComponent` keep
+their own `Enabled` (`new`), which also validates the audio thread rules.
+
 **Not done yet (known gaps):** physics ignores both levels. Rigid bodies and colliders on an
 inactive entity still simulate, and colliders have no `Enabled`, because switching them during Play
-needs Jolt/Box2D body add/remove. `NativeScriptComponent` is not covered. There is **no C# API**
-yet: no `Entity.Active` and no `Enabled` property on the C# components. Add those as
-`ScriptCore` properties plus internal calls (Part 4 "Add a new C# internal call"). They are not in
-this pass by the user's decision (2026-10-24), not by oversight.
+needs Jolt/Box2D body add/remove (board P2). `NativeScriptComponent` is not covered (S5).
 
 **Lifecycle:** `OnRuntimeStart` / `OnRuntimeStop` (physics + scripts), `OnSimulationStart` /
 `OnSimulationStop` (physics only), and the per-mode updates `OnUpdateRuntime` /

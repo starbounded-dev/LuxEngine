@@ -133,6 +133,13 @@ namespace Lux
 		internal static delegate*<ulong, ulong> Entity_GetParent;
 		internal static delegate*<ulong, ulong, void> Entity_SetParent;
 		internal static delegate*<ulong, NativeArray<ulong>> Entity_GetChildren;
+		internal static delegate*<ulong, Bool32> Entity_GetActive;
+		internal static delegate*<ulong, Bool32, void> Entity_SetActive;
+		internal static delegate*<ulong, Bool32> Entity_IsActiveInHierarchy;
+		internal static delegate*<ulong, Bool32> Entity_GetScriptEnabled;
+		internal static delegate*<ulong, Bool32, void> Entity_SetScriptEnabled;
+		internal static delegate*<ulong, ReflectionType, Bool32> Component_GetEnabled;
+		internal static delegate*<ulong, ReflectionType, Bool32, void> Component_SetEnabled;
 		#endregion
 
 		#region TransformComponent

@@ -27,6 +27,9 @@
 #include <glm/gtx/norm.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+#include <concepts>
+#include <type_traits>
+
 namespace Lux {
 
 	struct IDComponent
@@ -742,6 +745,25 @@ namespace Lux {
 	};
 
 	// ============================================================================
+
+	// Components with an on/off switch (Unity's per-component enabled): the editor draws a checkbox in
+	// their header and C# reads and writes it as `Component.Enabled`. Meshes keep their older Visible
+	// name, the audio listener its Active.
+	template<typename TComponent>
+	constexpr bool HasEnabledFlag = requires(TComponent& c) { { c.Enabled } -> std::same_as<bool&>; }
+		|| requires(TComponent& c) { { c.Visible } -> std::same_as<bool&>; }
+		|| std::is_same_v<TComponent, AudioListenerComponent>;
+
+	template<typename TComponent>
+	bool& GetEnabledFlag(TComponent& component)
+	{
+		if constexpr (std::is_same_v<TComponent, AudioListenerComponent>)
+			return component.Active;
+		else if constexpr (requires { component.Visible; })
+			return component.Visible;
+		else
+			return component.Enabled;
+	}
 
 	template<typename... Component>
 	struct ComponentGroup

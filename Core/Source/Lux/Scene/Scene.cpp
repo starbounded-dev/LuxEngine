@@ -2233,6 +2233,12 @@ namespace Lux {
 		return true;
 	}
 
+	void Scene::SetEntityActive(Entity entity, bool active)
+	{
+		entity.GetComponent<TagComponent>().Active = active;
+		RefreshInactiveEntities();
+	}
+
 	void Scene::RefreshInactiveEntities() const
 	{
 		m_InactiveEntities.clear();

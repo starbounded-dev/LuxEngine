@@ -16,6 +16,8 @@ A script derives from `Entity` and the engine calls its hooks by name, so they n
 
 | Name | Type | Access | Description |
 |---|---|---|---|
+| `Active` | `bool` | get, set | Whether the entity is switched on, the inspector's checkbox. Switching it off also switches off every child: renderers, lights, audio sources and scripts skip it, and its scripts get no `OnUpdate`. It takes effect at once. Read [`Entity.ActiveInHierarchy`](Entity) to know whether it is on in effect. |
+| `ActiveInHierarchy` | `bool` | get | Whether the entity and every one of its parents are switched on. |
 | `Children` | `Entity[]` | get | The entity's direct children, in hierarchy order. |
 | `Forward` | `Vector3` | get | The direction the entity faces in the world: -Z rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `Name` | `string` | get, set | The entity's name, as shown in the Scene Hierarchy. |
@@ -24,6 +26,7 @@ A script derives from `Entity` and the engine calls its hooks by name, so they n
 | `Rotation` | `Vector3` | get, set | Rotation relative to the parent, as Euler angles in radians. |
 | `RotationQuaternion` | `Quaternion` | get, set | Rotation relative to the parent as a [`Quaternion`](Quaternion); the same rotation as [`Entity.Rotation`](Entity). |
 | `Scale` | `Vector3` | get, set | Scale relative to the parent. |
+| `ScriptEnabled` | `bool` | get, set | Whether this entity's script runs. A script switched off gets no `OnUpdate` or `OnFixedUpdate`; its `OnCreate` waits until it is first switched on. False for an entity with no script. |
 | `Translation` | `Vector3` | get, set | Position relative to the parent (to the world, without one), in meters. |
 | `Up` | `Vector3` | get | The entity's up in the world: +Y rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `WorldRotationQuaternion` | `Quaternion` | get | Rotation in the world, through every parent. Read only. |

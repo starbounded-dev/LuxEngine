@@ -22,6 +22,7 @@ internal static unsafe partial class ScriptingManagedTests
 	{
 		RunMaths();
 		RunTime();
+		RunActive();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -129,5 +130,40 @@ internal static unsafe partial class ScriptingManagedTests
 		Check(s_ScaleSet == 2.0f && Time.TimeScale == 2.0f, "TimeScale sets the native scale");
 		Time.TimeScale = -3.0f;
 		Check(s_ScaleSet == 0.0f, "A negative TimeScale is sent as 0");
+	}
+
+	// ---- S3: Active and Enabled ---------------------------------------------------------------------------------
+
+	private static bool s_EntityActive = true, s_InHierarchy = true, s_ScriptEnabled = true, s_ComponentEnabled = true;
+	private static ulong s_ActiveId;
+	private static Bool32 EntityGetActive(ulong id) { s_ActiveId = id; return s_EntityActive; }
+	private static void EntitySetActive(ulong id, Bool32 active) { s_ActiveId = id; s_EntityActive = active; s_InHierarchy = active; }
+	private static Bool32 EntityInHierarchy(ulong id) => s_InHierarchy;
+	private static Bool32 EntityGetScriptEnabled(ulong id) => s_ScriptEnabled;
+	private static void EntitySetScriptEnabled(ulong id, Bool32 enabled) { s_ScriptEnabled = enabled; }
+	private static Bool32 ComponentGetEnabled(ulong id, ReflectionType type) { s_ActiveId = id; return s_ComponentEnabled; }
+	private static void ComponentSetEnabled(ulong id, ReflectionType type, Bool32 enabled) { s_ActiveId = id; s_ComponentEnabled = enabled; }
+
+	private static void RunActive()
+	{
+		InternalCalls.Entity_GetActive = &EntityGetActive;
+		InternalCalls.Entity_SetActive = &EntitySetActive;
+		InternalCalls.Entity_IsActiveInHierarchy = &EntityInHierarchy;
+		InternalCalls.Entity_GetScriptEnabled = &EntityGetScriptEnabled;
+		InternalCalls.Entity_SetScriptEnabled = &EntitySetScriptEnabled;
+		InternalCalls.Component_GetEnabled = &ComponentGetEnabled;
+		InternalCalls.Component_SetEnabled = &ComponentSetEnabled;
+
+		Entity entity = new Entity(42);
+		Check(entity.Active && entity.ActiveInHierarchy && s_ActiveId == 42, "Active reads the entity's own switch");
+		entity.Active = false;
+		Check(!entity.Active && !entity.ActiveInHierarchy && s_ActiveId == 42, "Active writes through");
+		entity.ScriptEnabled = false;
+		Check(!entity.ScriptEnabled, "ScriptEnabled round trip");
+
+		SpriteRendererComponent sprite = new SpriteRendererComponent { Entity = new Entity(7) };
+		Check(sprite.Enabled && s_ActiveId == 7, "Component.Enabled reads for the component's entity");
+		sprite.Enabled = false;
+		Check(!sprite.Enabled && s_ActiveId == 7, "Component.Enabled writes through");
 	}
 }

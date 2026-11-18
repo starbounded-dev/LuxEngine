@@ -99,4 +99,114 @@ namespace PlayTest
 			Report.Result("Transform", problem == null, problem ?? "");
 		}
 	}
+
+	// S3: counts its own OnUpdate calls, so ActiveCheck can see when Active or ScriptEnabled stopped it.
+	public class ToggleCounter : Entity
+	{
+		public int Count;
+
+		void OnUpdate(float ts) => Count++;
+	}
+
+	// S3: Entity.Active, ActiveInHierarchy, ScriptEnabled and Component.Enabled, driven from a script.
+	public class ActiveCheck : Entity
+	{
+		int m_Frame, m_TargetMark, m_ChildMark;
+		Entity m_Target, m_Child;
+		ToggleCounter m_TargetCounter, m_ChildCounter;
+		string m_Problem;
+
+		void Fail(string reason) { if (m_Problem == null) m_Problem = reason; }
+
+		void OnUpdate(float ts)
+		{
+			m_Frame++;
+			if (m_Frame == 1)
+			{
+				m_Target = FindEntityByName("ToggleTarget");
+				m_Child = FindEntityByName("ToggleChild");
+				m_TargetCounter = m_Target?.As<ToggleCounter>();
+				m_ChildCounter = m_Child?.As<ToggleCounter>();
+				if (m_TargetCounter == null || m_ChildCounter == null)
+					Fail("the ToggleTarget / ToggleChild scripts were not found");
+			}
+			if (m_Problem != null && m_Frame < 60)
+			{
+				if (m_Frame == 59)
+					Report.Result("ActiveEnabled", false, m_Problem);
+				return;
+			}
+
+			switch (m_Frame)
+			{
+				case 5:
+					SpriteChecks();
+					break;
+				case 10:
+					if (m_TargetCounter.Count == 0 || m_ChildCounter.Count == 0)
+						Fail("the counters were not running before anything was switched off");
+					m_Target.Active = false;
+					if (m_Target.Active || m_Target.ActiveInHierarchy)
+						Fail("Active did not read back false");
+					if (!m_Child.Active || m_Child.ActiveInHierarchy)
+						Fail("a child of an inactive entity should keep its own Active but not be active in the hierarchy");
+					break;
+				case 11:
+					m_TargetMark = m_TargetCounter.Count;
+					m_ChildMark = m_ChildCounter.Count;
+					break;
+				case 20:
+					if (m_TargetCounter.Count != m_TargetMark || m_ChildCounter.Count != m_ChildMark)
+						Fail($"scripts on a switched-off entity and its child kept running ({m_TargetCounter.Count - m_TargetMark}, {m_ChildCounter.Count - m_ChildMark} more updates)");
+					m_Target.Active = true;
+					break;
+				case 30:
+					if (m_TargetCounter.Count <= m_TargetMark || m_ChildCounter.Count <= m_ChildMark)
+						Fail("scripts did not resume after Active was set back to true");
+					m_Child.ScriptEnabled = false;
+					if (m_Child.ScriptEnabled || !m_Target.ScriptEnabled)
+						Fail("ScriptEnabled did not read back");
+					m_ChildMark = m_ChildCounter.Count;
+					m_TargetMark = m_TargetCounter.Count;
+					break;
+				case 40:
+					if (m_ChildCounter.Count != m_ChildMark)
+						Fail("a script with ScriptEnabled = false kept updating");
+					if (m_TargetCounter.Count <= m_TargetMark)
+						Fail("switching one script off stopped its neighbour");
+					m_Child.ScriptEnabled = true;
+					m_ChildMark = m_ChildCounter.Count;
+					break;
+				case 50:
+					if (m_ChildCounter.Count <= m_ChildMark)
+						Fail("the script did not resume after ScriptEnabled = true");
+					Report.Result("ActiveEnabled", m_Problem == null, m_Problem ?? "");
+					break;
+			}
+		}
+
+		void SpriteChecks()
+		{
+			Entity sprite = FindEntityByName("SwitchSprite");
+			SpriteRendererComponent component = sprite?.GetComponent<SpriteRendererComponent>();
+			if (component == null)
+			{
+				Fail("SwitchSprite has no SpriteRendererComponent");
+				return;
+			}
+			if (!component.Enabled)
+				Fail("a new sprite renderer should be enabled");
+			component.Enabled = false;
+			if (sprite.GetComponent<SpriteRendererComponent>().Enabled)
+				Fail("Component.Enabled = false was not stored");
+			component.Enabled = true;
+			if (!sprite.GetComponent<SpriteRendererComponent>().Enabled)
+				Fail("Component.Enabled = true was not stored");
+
+			// A collider has no switch: it reads as on and stays on.
+			BoxColliderComponent collider = FindEntityByName("Floor")?.GetComponent<BoxColliderComponent>();
+			if (collider == null || !collider.Enabled)
+				Fail("a component with no switch should read as enabled");
+		}
+	}
 }

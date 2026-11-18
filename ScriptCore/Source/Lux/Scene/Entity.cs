@@ -143,6 +143,30 @@ namespace Lux
 			set => InternalCalls.Entity_SetParent(ID, value != null ? value.ID : 0);
 		}
 
+		/// <summary>
+		/// Whether the entity is switched on, the inspector's checkbox. Switching it off also switches off every child:
+		/// renderers, lights, audio sources and scripts skip it, and its scripts get no <c>OnUpdate</c>. It takes effect at
+		/// once. Read <see cref="ActiveInHierarchy"/> to know whether it is on in effect.
+		/// </summary>
+		public unsafe bool Active
+		{
+			get => InternalCalls.Entity_GetActive(ID);
+			set => InternalCalls.Entity_SetActive(ID, value);
+		}
+
+		/// <summary>Whether the entity and every one of its parents are switched on.</summary>
+		public unsafe bool ActiveInHierarchy => InternalCalls.Entity_IsActiveInHierarchy(ID);
+
+		/// <summary>
+		/// Whether this entity's script runs. A script switched off gets no <c>OnUpdate</c> or <c>OnFixedUpdate</c>; its
+		/// <c>OnCreate</c> waits until it is first switched on. False for an entity with no script.
+		/// </summary>
+		public unsafe bool ScriptEnabled
+		{
+			get => InternalCalls.Entity_GetScriptEnabled(ID);
+			set => InternalCalls.Entity_SetScriptEnabled(ID, value);
+		}
+
 		/// <summary>The entity's direct children, in hierarchy order.</summary>
 		public unsafe Entity[] Children
 		{

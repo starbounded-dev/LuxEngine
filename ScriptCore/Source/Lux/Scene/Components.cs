@@ -14,6 +14,17 @@ namespace Lux
 	{
 		/// <summary>The entity this component belongs to.</summary>
 		public Entity Entity { get; internal set; }
+
+		/// <summary>
+		/// Whether the component is switched on, the checkbox in its inspector header. A component that is off does its
+		/// job no more (a light gives no light, an audio source stays silent) but keeps its settings. A component with
+		/// no such switch, such as a collider, is always on, and switching it off logs a warning and changes nothing.
+		/// </summary>
+		public unsafe bool Enabled
+		{
+			get => InternalCalls.Component_GetEnabled(Entity.ID, GetType());
+			set => InternalCalls.Component_SetEnabled(Entity.ID, GetType(), value);
+		}
 	}
 
 	/// <summary>Position, rotation and scale relative to the parent.</summary>
@@ -720,7 +731,7 @@ namespace Lux
 				throw new ArgumentOutOfRangeException(nameof(value), "Invalid audio zone setting or unavailable component.");
 		}
 		/// <summary>Whether the zone is active.</summary>
-		public bool Enabled { get => Get(0) != 0; set => Set(0, value ? 1 : 0); }
+		public new bool Enabled { get => Get(0) != 0; set => Set(0, value ? 1 : 0); }
 		/// <summary>The zone's shape.</summary>
 		public AudioZoneShape Shape { get => (AudioZoneShape)(int)Get(1); set => Set(1, (int)value); }
 		/// <summary>Higher-priority zones claim the listener first where zones overlap.</summary>
