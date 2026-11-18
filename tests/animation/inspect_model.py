@@ -43,7 +43,7 @@ def main():
     sources = [ROOT / "tests/animation/ModelInspect.cpp"]
     sources += [core / "Source/Lux" / (v + ".cpp") for v in (
         "Animation/Skeleton", "Animation/Animation", "Animation/Animator", "Animation/AnimationGraph", "Animation/AnimationGraphYaml", "Animation/AnimationEvents", "Animation/AnimationPose", "Serialization/Yaml", "Animation/SkinPalette", "Asset/SkeletalImporter",
-        "Serialization/FileStream", "Serialization/StreamReader", "Serialization/StreamWriter", "Core/UUID", "Core/Ref")]
+        "Serialization/FileStream", "Serialization/Obfuscation", "Serialization/StreamReader", "Serialization/StreamWriter", "Core/UUID", "Core/Ref")]
     sources.append(core / "vendor/rapidyaml/ryml.cpp")  # the YAML reader the graph and events files use
     assimp = core / "vendor/assimp/bin/windows/Debug/assimp-vc143-mtd.lib"
     executable = output / "ModelInspect.exe"
