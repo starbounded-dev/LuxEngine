@@ -92,6 +92,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 - [Application](Application) — The running game.
 - [Color](Color) — A linear RGBA color with components from 0 to 1.
+- [Coroutine](Coroutine) — A routine started with [`Entity.StartCoroutine`](Entity): a method that returns `System.Collections.IEnumerator` and pauses at each `yield return`.
 - [CursorMode](CursorMode) — How the mouse cursor behaves over the game window, for [`Input.SetCursorMode`](Input).
 - [EventInstance](EventInstance) — An owned Sound instance.
 - [ForceMode](ForceMode) — How [`RigidBodyComponent.AddForce`](RigidBodyComponent) treats its vector.
@@ -108,6 +109,13 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [SoundCue](SoundCue) — A sound playing near the listener, for drawing visual sound cues.
 - [Subtitle](Subtitle) — A subtitle, caption or description line, for drawing your own subtitle UI.
 - [Time](Time) — The game clock.
+- [Timer](Timer) — A callback set to run later, or every so often, by [`Timer.After`](Timer), [`Timer.Every`](Timer), [`Entity.After`](Entity) or [`Entity.Every`](Entity).
 - [TriggerEffect](TriggerEffect) — A DualSense adaptive-trigger effect, built with [`TriggerEffect.Resistance`](TriggerEffect), [`TriggerEffect.Weapon`](TriggerEffect), [`TriggerEffect.Vibration`](TriggerEffect) or [`TriggerEffect.Off`](TriggerEffect).
 - [TriggerEffectType](TriggerEffectType) — The kind of a [`TriggerEffect`](TriggerEffect).
+- [WaitForFixedUpdate](WaitForFixedUpdate) — Waits for the next physics step, then continues just before the next `OnFixedUpdate` round has finished.
+- [WaitForSeconds](WaitForSeconds) — Waits for a number of seconds of game time.
+- [WaitForSecondsRealtime](WaitForSecondsRealtime) — Waits for a number of seconds of real time, whatever [`Time.TimeScale`](Time) is.
+- [WaitUntil](WaitUntil) — Waits until a condition becomes true.
+- [WaitWhile](WaitWhile) — Waits while a condition is true.
+- [YieldInstruction](YieldInstruction) — Something a coroutine can `yield return` to wait: [`WaitForSeconds`](WaitForSeconds), [`WaitForSecondsRealtime`](WaitForSecondsRealtime), [`WaitUntil`](WaitUntil), [`WaitWhile`](WaitWhile), [`WaitForFixedUpdate`](WaitForFixedUpdate), or another [`Coroutine`](Coroutine).
 

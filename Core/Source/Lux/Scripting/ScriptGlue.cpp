@@ -215,6 +215,7 @@ namespace Lux {
 	static void Input_ResetGamepadLights() { Input::ResetGamepadLights(); }
 
 	static Coral::Type* s_InputType = nullptr;
+	static Coral::Type* s_SchedulerType = nullptr;
 	static uint32_t s_KnownControllerMask = 0;
 	static bool s_InputEventsPrimed = false;
 
@@ -279,6 +280,20 @@ namespace Lux {
 	static Coral::Bool32 Entity_GetPersistent(uint64_t entityID)
 	{
 		return GetScene()->IsEntityPersistent(GetEntity(entityID));
+	}
+
+	// Timers and coroutines ask these every frame; unlike the entity calls they stay quiet about an entity that is gone.
+	static Coral::Bool32 Entity_IsAlive(uint64_t entityID)
+	{
+		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+		return scene && scene->GetEntityByUUID(entityID);
+	}
+
+	static Coral::Bool32 Entity_IsRunning(uint64_t entityID)
+	{
+		Scene* scene = ScriptEngine::GetInstance().GetCurrentScene().Raw();
+		const Entity entity = scene ? scene->GetEntityByUUID(entityID) : Entity{};
+		return entity && scene->IsEntityActiveInHierarchy(entity);
 	}
 
 	static void Entity_SetPersistent(uint64_t entityID, Coral::Bool32 persistent)
@@ -1230,6 +1245,8 @@ namespace Lux {
 		LUX_ADD_INTERNAL_CALL(Scene_UnloadAdditive);
 		LUX_ADD_INTERNAL_CALL(Scene_GetCurrent);
 		LUX_ADD_ENTITY_CALL(Entity_GetPersistent);
+		LUX_ADD_INTERNAL_CALL(Entity_IsAlive);
+		LUX_ADD_INTERNAL_CALL(Entity_IsRunning);
 		LUX_ADD_ENTITY_CALL(Entity_SetPersistent);
 
 		LUX_ADD_ENTITY_CALL(GetScriptInstance);
@@ -1395,6 +1412,9 @@ namespace Lux {
 
 		s_InputType = &coreAssembly.GetLocalType("Lux.Input");
 		s_InputEventsPrimed = false;
+		s_SchedulerType = &coreAssembly.GetLocalType("Lux.Scheduler");
+		if (!*s_SchedulerType)
+			LUX_CORE_ERROR_TAG("ScriptEngine", "ScriptCore has no Lux.Scheduler: timers and coroutines will not run");
 	}
 
 	void ScriptGlue::UpdateInput()
@@ -1434,6 +1454,25 @@ namespace Lux {
 	{
 		ResetInput();
 		s_InputType = nullptr;
+		s_SchedulerType = nullptr;
+	}
+
+	void ScriptGlue::UpdateScheduler(float scaledDelta, float unscaledDelta)
+	{
+		if (s_SchedulerType && *s_SchedulerType)
+			s_SchedulerType->InvokeStaticMethod("Update", scaledDelta, unscaledDelta);
+	}
+
+	void ScriptGlue::StepScheduler()
+	{
+		if (s_SchedulerType && *s_SchedulerType)
+			s_SchedulerType->InvokeStaticMethod("FixedUpdate");
+	}
+
+	void ScriptGlue::ResetScheduler()
+	{
+		if (s_SchedulerType && *s_SchedulerType)
+			s_SchedulerType->InvokeStaticMethod("Reset");
 	}
 
 }

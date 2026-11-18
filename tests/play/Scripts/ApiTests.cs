@@ -503,7 +503,7 @@ namespace PlayTest
 		public Scene Second;
 		public Scene Extra;
 
-		const int OtherChecks = 18;
+		const int OtherChecks = 19;
 		int m_Phase, m_Wait, m_Creates;
 		int m_Counter;                 // survives the load only if this very script instance does
 		double m_ElapsedBefore;
@@ -631,6 +631,63 @@ namespace PlayTest
 					return;
 				}
 			}
+		}
+	}
+
+	// SC5: timers and coroutines driven by the engine's frame, with an owner that is destroyed.
+	public class TimerCheck : Entity
+	{
+		bool m_Started, m_Reported;
+		double m_Start, m_RealStart, m_RealWaited;
+		int m_OneShot, m_Repeats, m_VictimTicks, m_VictimAtDeath;
+		readonly System.Collections.Generic.List<string> m_Log = new System.Collections.Generic.List<string>();
+		Entity m_Victim;
+
+		System.Collections.IEnumerator Routine()
+		{
+			m_Log.Add("start");
+			yield return null;
+			m_Log.Add("frame");
+			yield return new WaitForSeconds(0.3f);
+			m_Log.Add("seconds");
+			yield return new WaitForFixedUpdate();
+			m_Log.Add("fixed");
+			double before = Time.UnscaledTime;
+			yield return new WaitForSecondsRealtime(0.25f);
+			m_RealWaited = Time.UnscaledTime - before;
+			m_Log.Add("realtime");
+			yield return new WaitUntil(() => m_OneShot == 1);
+			m_Log.Add("until");
+		}
+
+		void OnUpdate(float ts)
+		{
+			if (!m_Started)
+			{
+				m_Started = true;
+				m_Start = Time.ElapsedTime;
+				m_RealStart = Time.UnscaledTime;
+				After(0.2f, () => m_OneShot++);
+				Every(0.1f, () => m_Repeats++);
+				StartCoroutine(Routine());
+				m_Victim = Create("TimerVictim");
+				m_Victim.Every(0.05f, () => m_VictimTicks++);
+				After(0.3f, () => { m_VictimAtDeath = m_VictimTicks; m_Victim.Destroy(); });
+				return;
+			}
+			if (m_Reported || Time.ElapsedTime - m_Start < 1.5)
+				return;
+			m_Reported = true;
+
+			string problem = null;
+			void Expect(bool ok, string what) { if (!ok && problem == null) problem = what; }
+			Expect(m_OneShot == 1, $"the one-shot timer ran {m_OneShot} times, expected 1");
+			Expect(m_Repeats >= 11 && m_Repeats <= 15, $"a 0.1 s repeating timer ran {m_Repeats} times in 1.5 s, expected about 14");
+			Expect(string.Join(",", m_Log) == "start,frame,seconds,fixed,realtime,until", $"the coroutine ran: {string.Join(",", m_Log)}");
+			Expect(m_RealWaited >= 0.249, $"WaitForSecondsRealtime(0.25) waited {m_RealWaited:F3} s");
+			Expect(m_VictimAtDeath >= 4 && m_VictimTicks == m_VictimAtDeath, $"a timer of a destroyed entity kept running: {m_VictimTicks} ticks, {m_VictimAtDeath} when it died");
+			Expect(Entity.Find("TimerVictim", true) == null, "the victim entity should be gone");
+			Report.Result("Timers", problem == null, problem ?? "");
 		}
 	}
 }

@@ -366,6 +366,7 @@ namespace Lux {
 		bool AddScene(AssetHandle handle);
 		void UnloadAddedScene(AssetHandle handle);
 		AssetHandle m_RequestedScene = 0;
+		bool m_HandedOver = false;   // HandOverTo ran: the game continues in another scene
 		std::unordered_set<UUID> m_PersistentEntities;
 		// The entities each additive load brought in, so Unload can take exactly those out.
 		struct AdditiveScene

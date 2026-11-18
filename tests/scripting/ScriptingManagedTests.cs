@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using Coral.Managed.Interop;
 using Lux;
 
@@ -27,6 +29,7 @@ internal static unsafe partial class ScriptingManagedTests
 		RunPhysics();
 		RunComponents();
 		RunScenes();
+		RunScheduling();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -483,5 +486,191 @@ internal static unsafe partial class ScriptingManagedTests
 		Check(s_PersistentFlag && keeper.Persistent, "Entity.Persistent writes through and reads back");
 		keeper.Persistent = false;
 		Check(!keeper.Persistent, "Entity.Persistent can be cleared");
+	}
+
+	// ---- SC5: timers and coroutines -----------------------------------------------------------------------------
+
+	private static bool s_Alive = true, s_Running = true;
+	private static int s_LoggedErrors;
+	private static Bool32 EntityAlive(ulong id) => s_Alive;
+	private static Bool32 EntityRunning(ulong id) => s_Running;
+	private static void NativeLogStandIn(NativeString message, int level) { if (level >= 3) s_LoggedErrors++; }
+
+	private static IEnumerator Steps(List<string> log, Func<bool> flag)
+	{
+		log.Add("a");
+		yield return null;
+		log.Add("b");
+		yield return new WaitForSeconds(1.0f);
+		log.Add("c");
+		yield return new WaitForSecondsRealtime(1.0f);
+		log.Add("d");
+		yield return new WaitUntil(flag);
+		log.Add("e");
+		yield return new WaitForFixedUpdate();
+		log.Add("f");
+	}
+
+	private static IEnumerator Inner(List<string> log)
+	{
+		log.Add("inner 1");
+		yield return null;
+		log.Add("inner 2");
+	}
+
+	private static IEnumerator Outer(List<string> log, Entity owner)
+	{
+		log.Add("outer 1");
+		yield return Inner(log);
+		log.Add("outer 2");
+		yield return owner.StartCoroutine(Inner(log));
+		log.Add("outer 3");
+	}
+
+	private static IEnumerator Throws()
+	{
+		yield return null;
+		throw new InvalidOperationException("on purpose");
+	}
+
+	private static void RunScheduling()
+	{
+		InternalCalls.Entity_IsAlive = &EntityAlive;
+		InternalCalls.Entity_IsRunning = &EntityRunning;
+		InternalCalls.NativeLog = &NativeLogStandIn;
+		Scheduler.Reset();
+		s_Alive = true; s_Running = true;
+
+		// One-shot, repeating and cancelled timers.
+		int once = 0, every = 0, real = 0;
+		Timer.After(1.0f, () => once++);
+		Timer after = Timer.Every(0.5f, () => every++);
+		Timer.After(1.0f, () => real++, true);
+		Scheduler.Update(0.5f, 0.0f);
+		Check(once == 0 && every == 1 && real == 0, "after half a second: the repeat ran, the one-shot did not, the unscaled one is still waiting");
+		Scheduler.Update(0.5f, 0.0f);
+		Check(once == 1 && every == 2 && real == 0, "after a second: the one-shot ran once and the repeat twice");
+		Scheduler.Update(0.0f, 1.0f);
+		Check(real == 1 && once == 1 && every == 2, "an unscaled timer follows real time, not the scaled clock");
+		after.Cancel();
+		Check(!after.IsActive, "Cancel makes a timer inactive");
+		Scheduler.Update(5.0f, 5.0f);
+		Check(every == 2 && once == 1, "a cancelled repeating timer stays quiet, and a one-shot never repeats");
+		Timer slow = Timer.Every(1.0f, () => every++);
+		Scheduler.Update(10.0f, 10.0f);
+		Check(every == 3, "a repeating timer that fell far behind runs once per frame, not once per missed interval");
+		slow.Cancel();
+
+		// Entity-owned timers: dead owner cancels, a switched-off owner waits.
+		Entity owner = new Entity(5);
+		int owned = 0;
+		Timer ownedTimer = owner.After(1.0f, () => owned++);
+		s_Running = false;
+		Scheduler.Update(2.0f, 2.0f);
+		Check(owned == 0 && ownedTimer.IsActive, "a timer waits while its entity is switched off");
+		s_Running = true;
+		Scheduler.Update(0.1f, 0.1f);
+		Check(owned == 1, "it runs once the entity is back on");
+		Timer deadTimer = owner.Every(1.0f, () => owned += 100);
+		s_Alive = false;
+		Scheduler.Update(5.0f, 5.0f);
+		Check(owned == 1 && !deadTimer.IsActive, "a timer of a destroyed entity is cancelled");
+		s_Alive = true;
+		owner.After(1.0f, () => owned += 1000);
+		owner.CancelTimers();
+		Scheduler.Update(5.0f, 5.0f);
+		Check(owned == 1, "CancelTimers cancels what the entity started");
+
+		// A callback that throws is logged and does not stop the others.
+		s_LoggedErrors = 0;
+		int survivor = 0;
+		Timer.After(0.1f, () => throw new InvalidOperationException("on purpose"));
+		Timer.After(0.1f, () => survivor++);
+		Scheduler.Update(1.0f, 1.0f);
+		Check(survivor == 1 && s_LoggedErrors == 1, "a throwing timer callback is logged and the rest still run");
+
+		// Argument checks.
+		bool rejected = false;
+		try { Timer.After(-1.0f, () => { }); } catch (ArgumentOutOfRangeException) { rejected = true; }
+		bool repeatRejected = false;
+		try { Timer.Every(0.0f, () => { }); } catch (ArgumentOutOfRangeException) { repeatRejected = true; }
+		bool nullRejected = false;
+		try { Timer.After(1.0f, null!); } catch (ArgumentNullException) { nullRejected = true; }
+		Check(rejected && repeatRejected && nullRejected, "bad delays, a zero interval and a null callback are rejected");
+
+		// A coroutine through every kind of wait.
+		Scheduler.Reset();
+		List<string> log = new List<string>();
+		bool flag = false;
+		Coroutine routine = owner.StartCoroutine(Steps(log, () => flag));
+		Check(string.Join("", log) == "a" && !routine.IsFinished, "a coroutine runs to its first yield when it starts");
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join("", log) == "ab", "yield return null continues next frame");
+		Scheduler.Update(0.6f, 0.6f);
+		Check(string.Join("", log) == "ab", "WaitForSeconds has not elapsed");
+		Scheduler.Update(0.6f, 0.6f);
+		Check(string.Join("", log) == "abc", "WaitForSeconds continues once its time is up");
+		Scheduler.Update(0.0f, 0.5f);
+		Check(string.Join("", log) == "abc", "WaitForSecondsRealtime has not elapsed");
+		Scheduler.Update(0.0f, 0.6f);
+		Check(string.Join("", log) == "abcd", "WaitForSecondsRealtime follows real time with a scaled clock of 0");
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join("", log) == "abcd", "WaitUntil waits while false");
+		flag = true;
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join("", log) == "abcde", "WaitUntil continues once true");
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join("", log) == "abcde", "WaitForFixedUpdate waits for a physics step");
+		Scheduler.FixedUpdate();
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join("", log) == "abcdef" && routine.IsFinished, "WaitForFixedUpdate continues after a step and the coroutine ends");
+
+		// The scaled clock standing still holds WaitForSeconds.
+		log.Clear();
+		Coroutine frozen = owner.StartCoroutine(Steps(log, () => true));
+		Scheduler.Update(0.0f, 0.0f);
+		for (int i = 0; i < 10; i++)
+			Scheduler.Update(0.0f, 1.0f);
+		Check(string.Join("", log) == "ab" && !frozen.IsFinished, "with a scaled clock of 0 a WaitForSeconds never ends");
+		owner.StopCoroutine(frozen);
+		Check(frozen.IsFinished, "StopCoroutine ends a coroutine");
+		Scheduler.Update(10.0f, 10.0f);
+		Check(string.Join("", log) == "ab", "a stopped coroutine does not continue");
+
+		// Nested routines: yielding an IEnumerator or another Coroutine waits for it.
+		Scheduler.Reset();
+		log.Clear();
+		Coroutine nested = owner.StartCoroutine(Outer(log, owner));
+		Check(string.Join(",", log) == "outer 1,inner 1", "yield return an IEnumerator starts it at once");
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join(",", log) == "outer 1,inner 1,inner 2,outer 2,inner 1", "the outer routine continues when the inner one ends");
+		Scheduler.Update(0.0f, 0.0f);
+		Scheduler.Update(0.0f, 0.0f);
+		Check(string.Join(",", log) == "outer 1,inner 1,inner 2,outer 2,inner 1,inner 2,outer 3" && nested.IsFinished, "yield return a Coroutine waits for it to finish");
+
+		// StopAllCoroutines, an owner that dies, and a routine that throws.
+		Scheduler.Reset();
+		log.Clear();
+		owner.StartCoroutine(Steps(log, () => true));
+		owner.StartCoroutine(Steps(log, () => true));
+		owner.StopAllCoroutines();
+		Scheduler.Update(5.0f, 5.0f);
+		Check(string.Join("", log) == "aa", "StopAllCoroutines stops each one at its current yield");
+		log.Clear();
+		owner.StartCoroutine(Steps(log, () => true));
+		s_Alive = false;
+		Scheduler.Update(5.0f, 5.0f);
+		s_Alive = true;
+		Scheduler.Update(5.0f, 5.0f);
+		Check(string.Join("", log) == "a", "a coroutine of a destroyed entity ends");
+		s_LoggedErrors = 0;
+		Coroutine broken = owner.StartCoroutine(Throws());
+		Scheduler.Update(0.0f, 0.0f);
+		Check(s_LoggedErrors == 1 && broken.IsFinished, "a coroutine that throws is logged and stopped");
+		bool nullRoutine = false;
+		try { owner.StartCoroutine(null!); } catch (ArgumentNullException) { nullRoutine = true; }
+		Check(nullRoutine, "a null routine is rejected");
+
+		Scheduler.Reset();
 	}
 }

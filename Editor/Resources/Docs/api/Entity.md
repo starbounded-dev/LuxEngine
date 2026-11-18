@@ -45,12 +45,28 @@ Adds a component of type `T` with its default settings.
 Returns: The new component.
 
 ```
+public Timer After(float seconds, Action action, bool unscaled = false)
+```
+
+Runs `action` once, `seconds` from now. It is cancelled when this entity is destroyed and waits while the entity is switched off.
+
+- `seconds`: The delay.
+- `action`: What to run.
+- `unscaled`: Count real time instead of game time, so [`Time.TimeScale`](Time) does not slow it.
+
+```
 public T As<T>() where T : Entity, new()
 ```
 
 The script running on this entity, as script class `T`.
 
 Returns: The script, or null when the entity has no script or its script is not a `T`.
+
+```
+public void CancelTimers()
+```
+
+Cancels every timer this entity started with [`Entity.After`](Entity) or [`Entity.Every`](Entity).
 
 ```
 public bool CompareTag(string tag)
@@ -77,6 +93,16 @@ public static void Destroy(Entity entity)
 ```
 
 Destroys an entity at the end of the current update, like [`Entity.Destroy`](Entity). Null is ignored.
+
+```
+public Timer Every(float seconds, Action action, bool unscaled = false)
+```
+
+Runs `action` every `seconds`, until cancelled. See [`Entity.After`](Entity).
+
+- `seconds`: The time between calls, above 0.
+- `action`: What to run.
+- `unscaled`: Count real time instead of game time.
 
 ```
 public static Entity Find(string name, bool includeInactive = false)
@@ -183,6 +209,28 @@ public void RemoveComponent<T>() where T : Component, new()
 ```
 
 Removes the entity's component of type `T`, if it has one.
+
+```
+public Coroutine StartCoroutine(IEnumerator routine)
+```
+
+Starts a coroutine owned by this entity: a method that returns `System.Collections.IEnumerator` and pauses at each `yield return` (see [`Coroutine`](Coroutine)). It runs up to its first `yield` before this call returns. It stops when the entity is destroyed, and is paused while the entity is switched off.
+
+- `routine`: The routine, for example `StartCoroutine(Flash())`.
+
+```
+public void StopAllCoroutines()
+```
+
+Stops every coroutine this entity started.
+
+```
+public void StopCoroutine(Coroutine coroutine)
+```
+
+Stops a coroutine started by [`Entity.StartCoroutine`](Entity). Null, or one that already ended, is ignored.
+
+- `coroutine`: The coroutine to stop.
 
 ```
 protected virtual void OnAnimationEvent(string name, string argument)

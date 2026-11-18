@@ -802,6 +802,18 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
     `StartSpawnedHierarchy` starts bodies and scripts as for a prefab (`m_SpawningPrefab` holds the physics hooks while
     components are copied). `m_AdditiveScenes` remembers each load's entities for `Unload`, which destroys exactly those
     (with `OnDestroy`). 2D physics bodies are not created for added entities (same shortcut as prefab spawns).
+- **Timers and coroutines (M4 SC5).** `ScriptCore/Source/Lux/Scheduling.cs`: `Timer.After/Every`, `Entity.After/Every`,
+  `Entity.StartCoroutine/StopCoroutine/StopAllCoroutines`, `WaitForSeconds`, `WaitForSecondsRealtime`, `WaitUntil`,
+  `WaitWhile`, `WaitForFixedUpdate`, nested routines and `Coroutine` as a `YieldInstruction`. The internal
+  `Lux.Scheduler` owns the lists and its own two clocks; the engine drives it through `ScriptGlue`
+  (`UpdateScheduler` once per frame after the scripts' `OnUpdate`, with the scaled and the real frame time, also while
+  paused with a scaled step of 0; `StepScheduler` once per physics step, after `InvokeScriptFixedUpdate`;
+  `ResetScheduler` when a scene stops). An owned job is dropped when its entity is gone (`Entity_IsAlive`, asked every
+  frame) and waits while the entity is not active in the hierarchy (`Entity_IsRunning`). A scene stop that follows
+  `HandOverTo` (`m_HandedOver`) does not reset, so timers and coroutines of persistent entities, and unowned
+  `Timer.After`, continue in the next scene. A callback or routine that throws is logged and removed, never the
+  scheduler. Managed tests drive `Scheduler.Update` directly (`tests/scripting`); `TimerCheck` in the Play checks
+  covers the engine hook.
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:

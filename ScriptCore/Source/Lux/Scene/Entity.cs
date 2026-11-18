@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 using System;
+using System.Collections;
 using System.Runtime.InteropServices;
 
 using Coral.Managed.Interop;
@@ -178,6 +179,43 @@ namespace Lux
 			get => InternalCalls.Entity_GetPersistent(ID);
 			set => InternalCalls.Entity_SetPersistent(ID, value);
 		}
+
+		/// <summary>
+		/// Starts a coroutine owned by this entity: a method that returns <see cref="IEnumerator"/> and pauses at each
+		/// <c>yield return</c> (see <see cref="Coroutine"/>). It runs up to its first <c>yield</c> before this call returns.
+		/// It stops when the entity is destroyed, and is paused while the entity is switched off.
+		/// </summary>
+		/// <param name="routine">The routine, for example <c>StartCoroutine(Flash())</c>.</param>
+		public Coroutine StartCoroutine(IEnumerator routine) => Scheduler.AddCoroutine(ID, routine);
+
+		/// <summary>Stops a coroutine started by <see cref="StartCoroutine"/>. Null, or one that already ended, is ignored.</summary>
+		/// <param name="coroutine">The coroutine to stop.</param>
+		public void StopCoroutine(Coroutine coroutine)
+		{
+			if (coroutine != null)
+				coroutine.Cancelled = true;
+		}
+
+		/// <summary>Stops every coroutine this entity started.</summary>
+		public void StopAllCoroutines() => Scheduler.StopCoroutines(ID);
+
+		/// <summary>
+		/// Runs <paramref name="action"/> once, <paramref name="seconds"/> from now. It is cancelled when this entity is destroyed and
+		/// waits while the entity is switched off.
+		/// </summary>
+		/// <param name="seconds">The delay.</param>
+		/// <param name="action">What to run.</param>
+		/// <param name="unscaled">Count real time instead of game time, so <see cref="Time.TimeScale"/> does not slow it.</param>
+		public Timer After(float seconds, Action action, bool unscaled = false) => Scheduler.AddTimer(ID, seconds, action, false, unscaled);
+
+		/// <summary>Runs <paramref name="action"/> every <paramref name="seconds"/>, until cancelled. See <see cref="After"/>.</summary>
+		/// <param name="seconds">The time between calls, above 0.</param>
+		/// <param name="action">What to run.</param>
+		/// <param name="unscaled">Count real time instead of game time.</param>
+		public Timer Every(float seconds, Action action, bool unscaled = false) => Scheduler.AddTimer(ID, seconds, action, true, unscaled);
+
+		/// <summary>Cancels every timer this entity started with <see cref="After"/> or <see cref="Every"/>.</summary>
+		public void CancelTimers() => Scheduler.CancelTimers(ID);
 
 		/// <summary>The entity's direct children, in hierarchy order.</summary>
 		public unsafe Entity[] Children

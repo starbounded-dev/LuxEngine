@@ -30,7 +30,7 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "SceneLoading"]
+          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "Timers", "SceneLoading"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -240,6 +240,8 @@ def write_project(project, keep=None, runtime_config="dist"):
     mesh_body = f"    StaticMeshComponent:\n      AssetID: {MESH_HANDLE}\n"
     e.append(entity(next(ids), "MeshProbeA", (-4, 1, -80), body=mesh_body))
     e.append(entity(next(ids), "MeshProbeB", (-6, 1, -80), body=mesh_body))
+    # Timers and coroutines: one script starts them all.
+    e.append(entity(next(ids), "TimerCheck", (0, 1, -86), script="TimerCheck"))
     # Scene loading: runs last. The Witness counts OnDestroy when the main scene ends; the check keeps going in the second scene.
     e.append(entity(next(ids), "Witness", (0, 1, -90), script="SceneWitness"))
     scene_fields = "      StoredFields:\n" + "".join(

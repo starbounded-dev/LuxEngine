@@ -308,6 +308,8 @@ namespace Lux {
 
 	void Scene::HandOverTo(Scene& next)
 	{
+		// The game goes on in `next`: this scene's stop must leave the timers and coroutines running.
+		m_HandedOver = true;
 		next.m_Clock = m_Clock;
 		next.m_Clock.InFixedStep = false;
 		next.m_IsPaused = m_IsPaused;
@@ -1070,6 +1072,8 @@ namespace Lux {
 			m_PendingScriptCreates.clear();
 			AudioScriptBindings::Reset();
 			ScriptGlue::ResetInput();
+			if (!m_HandedOver)
+				ScriptGlue::ResetScheduler();
 			scriptEngine.SetCurrentScene(nullptr);
 		}
 	}
@@ -1261,9 +1265,12 @@ namespace Lux {
 							nsc.Instance->OnCreate();
 						}
 
-						nsc.Instance->OnUpdate(ts);
+						nsc.Instance->OnUpdate(scaledTs);
 					});
 			}
+
+			// Timers and coroutines run after every OnUpdate, as in Unity.
+			ScriptGlue::UpdateScheduler(static_cast<float>(scaledTs), static_cast<float>(ts));
 
 			StepPhysics(scaledTs, true);
 			UpdatePhysicsAudio(static_cast<float>(ts)); // drains this frame's contact events
@@ -1335,6 +1342,8 @@ namespace Lux {
 		}
 		else if (m_IsPaused)
 		{
+			// Paused: game time stands still, real time (WaitForSecondsRealtime, unscaled timers) goes on.
+			ScriptGlue::UpdateScheduler(0.0f, static_cast<float>(ts));
 			SyncAudioListeners(0.0f);
 			UpdateAudioZones(0.0f, false);
 			UpdatePhysicsAudio(0.0f);
@@ -2724,6 +2733,7 @@ namespace Lux {
 					m_DebugLinesFixed.clear();
 					m_DrawingFixedStep = true;
 					InvokeScriptFixedUpdate(fixedTimestep);
+					ScriptGlue::StepScheduler();
 					m_DrawingFixedStep = false;
 				}
 				m_PhysicsScene->SimulateStep(fixedTimestep);

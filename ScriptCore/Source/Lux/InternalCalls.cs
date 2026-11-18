@@ -125,6 +125,8 @@ namespace Lux
 		internal static delegate*<ulong, void> Scene_UnloadAdditive;
 		internal static delegate*<ulong> Scene_GetCurrent;
 		internal static delegate*<ulong, Bool32> Entity_GetPersistent;
+		internal static delegate*<ulong, Bool32> Entity_IsAlive;
+		internal static delegate*<ulong, Bool32> Entity_IsRunning;
 		internal static delegate*<ulong, Bool32, void> Entity_SetPersistent;
 		#endregion
 

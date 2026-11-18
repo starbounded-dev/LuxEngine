@@ -23,6 +23,12 @@ namespace Lux {
 		static void UpdateInput();
 		static void ResetInput();
 		static void ShutdownInput();
+
+		// C# timers and coroutines (Lux.Scheduler): Update once per runtime frame after the scripts' OnUpdate with the scaled and
+		// the real frame time, StepScheduler once per physics step, ResetScheduler when the game stops.
+		static void UpdateScheduler(float scaledDelta, float unscaledDelta);
+		static void StepScheduler();
+		static void ResetScheduler();
 	};
 
 }
