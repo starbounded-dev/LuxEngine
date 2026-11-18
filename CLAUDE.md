@@ -90,6 +90,13 @@ up this file and `.claude/docs/` and ranks below them. Feature specs land in `sp
 are point-in-time records, like `docs/*_PLAN.md`. The `speckit-*` skills are generated: refresh
 them with `specify integration upgrade`, don't hand-edit them.
 
+### Roadmap checkpoint completion
+
+When you check off a verified, pushed sub-issue in a pull request, find the matching issue by number
+on the [LuxEngine Project Roadmap](https://github.com/orgs/starbounded-dev/projects/3) and set its
+**Status** to **Done** as part of the same checkpoint. If the issue has no card, add it to the board
+first. Verify the updated status. Close the issue through the repository's normal PR merge workflow.
+
 ---
 
 ## Architecture Doc Maintenance
