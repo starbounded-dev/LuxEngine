@@ -259,6 +259,7 @@ namespace Lux {
 			dstTag.Locked = srcTag.Locked;
 			dstTag.LabelColor = srcTag.LabelColor;
 			dstTag.Active = srcTag.Active;
+			dstTag.UserTag = srcTag.UserTag;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 
@@ -1346,6 +1347,7 @@ namespace Lux {
 			dstTag.Locked = srcTag.Locked;
 			dstTag.LabelColor = srcTag.LabelColor;
 			dstTag.Active = srcTag.Active;
+			dstTag.UserTag = srcTag.UserTag;
 
 			if (parent)
 				ParentEntity(destination, parent);
@@ -1405,6 +1407,7 @@ namespace Lux {
 		Entity destination = uuid == 0 ? CreateEntity(source.GetName()) : CreateEntityWithUUID(uuid, source.GetName());
 		CopyComponentIfExists(PrefabInstantiationComponents{}, destination, source);
 		destination.GetComponent<TagComponent>().Active = source.GetComponent<TagComponent>().Active;
+		destination.GetComponent<TagComponent>().UserTag = source.GetComponent<TagComponent>().UserTag;
 		source.GetScene()->m_ScriptStorage.CopyEntityFields(source.GetUUID(), m_ScriptStorage, destination.GetUUID());
 		return destination;
 	}
@@ -2279,6 +2282,7 @@ namespace Lux {
 			const auto& tag = m_Registry.get<TagComponent>(entity);
 			Entity newEntity = target->CreateEntityWithID(uuid, tag.Tag, false);
 			newEntity.GetComponent<TagComponent>().Active = tag.Active;
+			newEntity.GetComponent<TagComponent>().UserTag = tag.UserTag;
 			enttMap[uuid] = (entt::entity)newEntity;
 		}
 

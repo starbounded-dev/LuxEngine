@@ -27,6 +27,7 @@ A script derives from `Entity` and the engine calls its hooks by name, so they n
 | `RotationQuaternion` | `Quaternion` | get, set | Rotation relative to the parent as a [`Quaternion`](Quaternion); the same rotation as [`Entity.Rotation`](Entity). |
 | `Scale` | `Vector3` | get, set | Scale relative to the parent. |
 | `ScriptEnabled` | `bool` | get, set | Whether this entity's script runs. A script switched off gets no `OnUpdate` or `OnFixedUpdate`; its `OnCreate` waits until it is first switched on. False for an entity with no script. |
+| `Tag` | `string` | get, set | The entity's tag: free text set in the inspector (or here) that scripts use to find a group of entities with [`Entity.FindWithTag`](Entity). Empty when the entity has none. Not the same as [`Entity.Name`](Entity). |
 | `Translation` | `Vector3` | get, set | Position relative to the parent (to the world, without one), in meters. |
 | `Up` | `Vector3` | get | The entity's up in the world: +Y rotated by [`Entity.WorldRotationQuaternion`](Entity). |
 | `WorldRotationQuaternion` | `Quaternion` | get | Rotation in the world, through every parent. Read only. |
@@ -51,6 +52,12 @@ The script running on this entity, as script class `T`.
 Returns: The script, or null when the entity has no script or its script is not a `T`.
 
 ```
+public bool CompareTag(string tag)
+```
+
+Whether the entity's [`Entity.Tag`](Entity) is exactly `tag`.
+
+```
 public static Entity Create(string name = "Entity")
 ```
 
@@ -71,12 +78,70 @@ public static void Destroy(Entity entity)
 Destroys an entity at the end of the current update, like [`Entity.Destroy`](Entity). Null is ignored.
 
 ```
+public static Entity Find(string name, bool includeInactive = false)
+```
+
+The first entity, in the order they were created, whose [`Entity.Name`](Entity) is exactly `name`.
+
+- `name`: The name to look for.
+- `includeInactive`: Also look at switched-off entities and children of one. Default: skip them.
+
+Returns: The entity, or null.
+
+```
+public static Entity[] FindAll(string name, bool includeInactive = false)
+```
+
+Every entity whose [`Entity.Name`](Entity) is exactly `name`, in the order they were created.
+
+- `name`: The name to look for.
+- `includeInactive`: Also include switched-off entities and children of one. Default: skip them.
+
+```
+public static Entity[] FindAllWithComponent<T>(bool includeInactive = false) where T : Component, new()
+```
+
+Every entity that has a component of type `T`, in the order they were created.
+
+- `includeInactive`: Also include switched-off entities and children of one. Default: skip them.
+
+```
+public static Entity[] FindAllWithTag(string tag, bool includeInactive = false)
+```
+
+Every entity whose [`Entity.Tag`](Entity) is `tag`, in the order they were created. An empty tag matches nothing.
+
+- `tag`: The tag to look for.
+- `includeInactive`: Also include switched-off entities and children of one. Default: skip them.
+
+```
 public Entity FindEntityByName(string name)
 ```
 
 Finds an entity in the scene by its [`Entity.Name`](Entity).
 
 Returns: An entity with exactly that name, or null.
+
+```
+public static Entity FindWithComponent<T>(bool includeInactive = false) where T : Component, new()
+```
+
+The first entity, in the order they were created, that has a component of type `T`.
+
+- `includeInactive`: Also look at switched-off entities and children of one. Default: skip them.
+
+Returns: The entity, or null.
+
+```
+public static Entity FindWithTag(string tag, bool includeInactive = false)
+```
+
+The first entity, in the order they were created, whose [`Entity.Tag`](Entity) is `tag`.
+
+- `tag`: The tag to look for.
+- `includeInactive`: Also look at switched-off entities and children of one. Default: skip them.
+
+Returns: The entity, or null. An empty tag matches nothing.
 
 ```
 public T GetComponent<T>() where T : Component, new()

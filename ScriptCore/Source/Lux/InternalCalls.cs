@@ -136,6 +136,11 @@ namespace Lux
 		internal static delegate*<ulong, Bool32> Entity_GetActive;
 		internal static delegate*<ulong, Bool32, void> Entity_SetActive;
 		internal static delegate*<ulong, Bool32> Entity_IsActiveInHierarchy;
+		internal static delegate*<ulong, NativeString> Entity_GetUserTag;
+		internal static delegate*<ulong, NativeString, void> Entity_SetUserTag;
+		internal static delegate*<NativeString, Bool32, NativeArray<ulong>> Scene_FindEntitiesByName;
+		internal static delegate*<NativeString, Bool32, NativeArray<ulong>> Scene_FindEntitiesByTag;
+		internal static delegate*<ReflectionType, Bool32, NativeArray<ulong>> Scene_FindEntitiesWithComponent;
 		internal static delegate*<ulong, Bool32> Entity_GetScriptEnabled;
 		internal static delegate*<ulong, Bool32, void> Entity_SetScriptEnabled;
 		internal static delegate*<ulong, ReflectionType, Bool32> Component_GetEnabled;

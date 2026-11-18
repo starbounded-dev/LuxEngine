@@ -209,4 +209,45 @@ namespace PlayTest
 				Fail("a component with no switch should read as enabled");
 		}
 	}
+
+	// S4: finders by name, tag and component, and the user tag.
+	public class FindCheck : Entity
+	{
+		int m_Frame;
+
+		void OnUpdate(float ts)
+		{
+			if (++m_Frame != 3)
+				return;
+			string problem = null;
+			void Expect(bool ok, string what) { if (!ok && problem == null) problem = what; }
+
+			Entity[] twins = Entity.FindAll("TwinFind");
+			Expect(twins.Length == 2 && Math.Abs(twins[0].Translation.X - 1.0f) < 1e-4f && Math.Abs(twins[1].Translation.X - 2.0f) < 1e-4f,
+				$"FindAll(name) returned {twins.Length} entities, expected the two twins in creation order");
+			Expect(Entity.Find("TwinFind") != null && Math.Abs(Entity.Find("TwinFind").Translation.X - 1.0f) < 1e-4f, "Find(name) should return the first twin");
+			Expect(Entity.Find("NoSuchEntity") == null, "Find of a missing name should be null");
+
+			Expect(Entity.FindAllWithTag("coin").Length == 2, $"FindAllWithTag(coin) found {Entity.FindAllWithTag("coin").Length}, expected 2 (the switched-off one and its child are skipped)");
+			Expect(Entity.FindAllWithTag("coin", true).Length == 4, $"FindAllWithTag(coin, includeInactive) found {Entity.FindAllWithTag("coin", true).Length}, expected 4");
+			Entity gem = Entity.FindWithTag("gem");
+			Expect(gem != null && gem.Name == "TagGem" && gem.Tag == "gem" && gem.CompareTag("gem") && !gem.CompareTag("coin"), "FindWithTag(gem) / Tag / CompareTag");
+			Expect(Entity.FindWithTag("nothing") == null && Entity.FindWithTag("") == null, "an unknown or empty tag should find nothing");
+			Expect(Entity.FindWithTag("coin", true)?.Name == "TagCoinA", "the first coin in creation order is TagCoinA");
+
+			if (gem != null)
+			{
+				gem.Tag = "coin";
+				Expect(Entity.FindAllWithTag("coin").Length == 3, "a tag set from a script should be found at once");
+				gem.Tag = "gem";
+				Expect(Entity.FindAllWithTag("coin").Length == 2 && Entity.FindWithTag("gem") != null, "putting the tag back should restore the lookup");
+			}
+
+			Entity[] sprites = Entity.FindAllWithComponent<SpriteRendererComponent>();
+			Expect(sprites.Length == 2 && sprites[0].Name == "SwitchSprite" && sprites[1].Name == "SpriteTwo", $"FindAllWithComponent found {sprites.Length} sprites in the wrong order or number");
+			Expect(Entity.FindWithComponent<CircleRendererComponent>() == null, "no entity has a circle renderer");
+			Expect(Entity.FindWithComponent<SpriteRendererComponent>().Name == "SwitchSprite", "FindWithComponent returns the first");
+			Report.Result("Find", problem == null, problem ?? "");
+		}
+	}
 }

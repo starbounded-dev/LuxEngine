@@ -209,6 +209,82 @@ namespace Lux
 			return new T() { Entity = this };
 		}
 
+		/// <summary>
+		/// The entity's tag: free text set in the inspector (or here) that scripts use to find a group of entities with
+		/// <see cref="FindWithTag"/>. Empty when the entity has none. Not the same as <see cref="Name"/>.
+		/// </summary>
+		public unsafe string Tag
+		{
+			get => InternalCalls.Entity_GetUserTag(ID);
+			set => InternalCalls.Entity_SetUserTag(ID, value ?? string.Empty);
+		}
+
+		/// <summary>Whether the entity's <see cref="Tag"/> is exactly <paramref name="tag"/>.</summary>
+		public bool CompareTag(string tag) => !string.IsNullOrEmpty(tag) && Tag == tag;
+
+		private static unsafe Entity[] ToEntities(NativeArray<ulong> ids)
+		{
+			using (ids)
+			{
+				Entity[] entities = new Entity[ids.Length];
+				for (int i = 0; i < ids.Length; i++)
+					entities[i] = new Entity(ids[i]);
+				return entities;
+			}
+		}
+
+		/// <summary>The first entity, in the order they were created, whose <see cref="Name"/> is exactly <paramref name="name"/>.</summary>
+		/// <param name="name">The name to look for.</param>
+		/// <param name="includeInactive">Also look at switched-off entities and children of one. Default: skip them.</param>
+		/// <returns>The entity, or null.</returns>
+		public static Entity Find(string name, bool includeInactive = false)
+		{
+			Entity[] found = FindAll(name, includeInactive);
+			return found.Length > 0 ? found[0] : null;
+		}
+
+		/// <summary>Every entity whose <see cref="Name"/> is exactly <paramref name="name"/>, in the order they were created.</summary>
+		/// <param name="name">The name to look for.</param>
+		/// <param name="includeInactive">Also include switched-off entities and children of one. Default: skip them.</param>
+		public static unsafe Entity[] FindAll(string name, bool includeInactive = false)
+		{
+			return ToEntities(InternalCalls.Scene_FindEntitiesByName(name, includeInactive));
+		}
+
+		/// <summary>The first entity, in the order they were created, whose <see cref="Tag"/> is <paramref name="tag"/>.</summary>
+		/// <param name="tag">The tag to look for.</param>
+		/// <param name="includeInactive">Also look at switched-off entities and children of one. Default: skip them.</param>
+		/// <returns>The entity, or null. An empty tag matches nothing.</returns>
+		public static Entity FindWithTag(string tag, bool includeInactive = false)
+		{
+			Entity[] found = FindAllWithTag(tag, includeInactive);
+			return found.Length > 0 ? found[0] : null;
+		}
+
+		/// <summary>Every entity whose <see cref="Tag"/> is <paramref name="tag"/>, in the order they were created. An empty tag matches nothing.</summary>
+		/// <param name="tag">The tag to look for.</param>
+		/// <param name="includeInactive">Also include switched-off entities and children of one. Default: skip them.</param>
+		public static unsafe Entity[] FindAllWithTag(string tag, bool includeInactive = false)
+		{
+			return ToEntities(InternalCalls.Scene_FindEntitiesByTag(tag ?? string.Empty, includeInactive));
+		}
+
+		/// <summary>The first entity, in the order they were created, that has a component of type <c>T</c>.</summary>
+		/// <param name="includeInactive">Also look at switched-off entities and children of one. Default: skip them.</param>
+		/// <returns>The entity, or null.</returns>
+		public static Entity FindWithComponent<T>(bool includeInactive = false) where T : Component, new()
+		{
+			Entity[] found = FindAllWithComponent<T>(includeInactive);
+			return found.Length > 0 ? found[0] : null;
+		}
+
+		/// <summary>Every entity that has a component of type <c>T</c>, in the order they were created.</summary>
+		/// <param name="includeInactive">Also include switched-off entities and children of one. Default: skip them.</param>
+		public static unsafe Entity[] FindAllWithComponent<T>(bool includeInactive = false) where T : Component, new()
+		{
+			return ToEntities(InternalCalls.Scene_FindEntitiesWithComponent(typeof(T), includeInactive));
+		}
+
 		/// <summary>Finds an entity in the scene by its <see cref="Name"/>.</summary>
 		/// <returns>An entity with exactly that name, or null.</returns>
 		public unsafe Entity FindEntityByName(string name)

@@ -57,6 +57,10 @@ namespace Lux {
 		// does not honour it yet. Read it through Scene::IsEntityActiveInHierarchy, not directly.
 		bool Active = true;
 
+		// Free text scripts look entities up by (C# `Entity.FindWithTag`); empty for none. Unity's tag.
+		// `Tag` above is the entity's name, kept under that name for older scenes and code.
+		std::string UserTag;
+
 		TagComponent() = default;
 		TagComponent(const TagComponent&) = default;
 		TagComponent(const std::string& tag)

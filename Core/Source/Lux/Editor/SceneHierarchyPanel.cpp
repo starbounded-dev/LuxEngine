@@ -1645,6 +1645,28 @@ namespace Lux {
 				ImGui::PopTextWrapPos();
 				ImGui::EndTooltip();
 			}
+
+			// The tag scripts find entities by (C# Entity.FindWithTag); free text, empty for none.
+			{
+				std::string userTag = firstEntity.GetComponent<TagComponent>().UserTag;
+				if (isMultiSelect && IsSelectionInconsistent<std::string>(m_Context, entityIDs, [](Entity entity)
+				{
+					return entity.GetComponent<TagComponent>().UserTag;
+				}))
+				{
+					userTag = "---";
+				}
+
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::InputTextWithHint("##UserTag", "Tag (scripts find entities by it)", &userTag))
+				{
+					ApplyToSelection<TagComponent>(m_Context, entityIDs, [&userTag](TagComponent& component, Entity)
+					{
+						component.UserTag = userTag;
+					});
+					EditorStack::Get().MarkEntitiesEdited(entityIDs, "Set Tag");
+				}
+			}
 			if (isMultiSelect)
 			{
 				ImGuiEx::ScopedColour muted(ImGuiCol_Text, Colors::Theme::textDarker);

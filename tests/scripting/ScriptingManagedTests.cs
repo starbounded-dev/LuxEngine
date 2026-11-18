@@ -23,6 +23,7 @@ internal static unsafe partial class ScriptingManagedTests
 		RunMaths();
 		RunTime();
 		RunActive();
+		RunFind();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -165,5 +166,56 @@ internal static unsafe partial class ScriptingManagedTests
 		Check(sprite.Enabled && s_ActiveId == 7, "Component.Enabled reads for the component's entity");
 		sprite.Enabled = false;
 		Check(!sprite.Enabled && s_ActiveId == 7, "Component.Enabled writes through");
+	}
+
+	// ---- S4: tags and finders ---------------------------------------------------------------------------------
+
+	private static string s_UserTag = "";
+	private static string s_LastFindKind = "";
+	private static string s_LastFindKey = "";
+	private static bool s_LastIncludeInactive;
+	private static NativeString UserTagGet(ulong id) => s_UserTag;
+	private static void UserTagSet(ulong id, NativeString tag) { string text = tag; s_UserTag = text; }
+	private static NativeArray<ulong> FindByName(NativeString name, Bool32 includeInactive)
+	{
+		string text = name;
+		s_LastFindKind = "name"; s_LastFindKey = text; s_LastIncludeInactive = includeInactive;
+		return new NativeArray<ulong>(text == "Twin" ? new ulong[] { 5, 9 } : new ulong[0]);
+	}
+	private static NativeArray<ulong> FindByTag(NativeString tag, Bool32 includeInactive)
+	{
+		string text = tag;
+		s_LastFindKind = "tag"; s_LastFindKey = text; s_LastIncludeInactive = includeInactive;
+		return new NativeArray<ulong>(text == "coin" ? new ulong[] { 11, 12, 13 } : new ulong[0]);
+	}
+	private static NativeArray<ulong> FindByComponent(ReflectionType type, Bool32 includeInactive)
+	{
+		s_LastFindKind = "component"; s_LastIncludeInactive = includeInactive;
+		return new NativeArray<ulong>(new ulong[] { 21 });
+	}
+
+	private static void RunFind()
+	{
+		InternalCalls.Entity_GetUserTag = &UserTagGet;
+		InternalCalls.Entity_SetUserTag = &UserTagSet;
+		InternalCalls.Scene_FindEntitiesByName = &FindByName;
+		InternalCalls.Scene_FindEntitiesByTag = &FindByTag;
+		InternalCalls.Scene_FindEntitiesWithComponent = &FindByComponent;
+
+		Entity entity = new Entity(1);
+		entity.Tag = "coin";
+		Check(s_UserTag == "coin" && entity.Tag == "coin" && entity.CompareTag("coin") && !entity.CompareTag("gem") && !entity.CompareTag(""), "Tag and CompareTag");
+		entity.Tag = null;
+		Check(s_UserTag == "" && !entity.CompareTag(""), "A null tag clears it");
+
+		Entity[] twins = Entity.FindAll("Twin");
+		Check(twins.Length == 2 && twins[0].ID == 5 && twins[1].ID == 9 && s_LastFindKind == "name" && !s_LastIncludeInactive, "FindAll keeps the creation order and skips inactive by default");
+		Check(Entity.Find("Twin").ID == 5 && Entity.Find("Missing") == null, "Find returns the first or null");
+		Entity.Find("Twin", includeInactive: true);
+		Check(s_LastIncludeInactive, "includeInactive reaches the native call");
+
+		Check(Entity.FindAllWithTag("coin").Length == 3 && Entity.FindWithTag("coin").ID == 11 && Entity.FindWithTag("none") == null, "tag finders");
+		Check(Entity.FindWithTag(null) == null && s_LastFindKey == "", "A null tag finds nothing");
+		Check(Entity.FindAllWithComponent<SpriteRendererComponent>().Length == 1 && Entity.FindWithComponent<SpriteRendererComponent>(true).ID == 21 && s_LastIncludeInactive && s_LastFindKind == "component", "component finders");
 	}
 }

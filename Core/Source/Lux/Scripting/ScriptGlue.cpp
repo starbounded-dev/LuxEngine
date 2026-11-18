@@ -50,6 +50,9 @@ namespace Lux {
 	// Only for components with an on/off switch (HasEnabledFlag).
 	static std::unordered_map<Coral::TypeId, std::function<bool(Entity)>> s_GetEnabledFuncs;
 	static std::unordered_map<Coral::TypeId, std::function<void(Entity, bool)>> s_SetEnabledFuncs;
+	// Every entity with the component, for Entity.FindAllWithComponent<T>: appends (creation index, UUID).
+	using EntityHit = std::pair<uint32_t, uint64_t>;
+	static std::unordered_map<Coral::TypeId, std::function<void(Scene*, std::vector<EntityHit>&)>> s_FindComponentFuncs;
 
 #define LUX_ADD_INTERNAL_CALL(Name) coreAssembly.AddInternalCall("Lux.InternalCalls", #Name, reinterpret_cast<void*>(&Name))
 
@@ -332,6 +335,71 @@ namespace Lux {
 			it->second(GetEntity(entityID), enabled);
 		else
 			LUX_CONSOLE_LOG_WARN("Component.Enabled was set on a component that has no enabled switch; it stays on");
+	}
+
+	static Coral::String Entity_GetUserTag(uint64_t entityID)
+	{
+		return Coral::String::New(GetEntity(entityID).GetComponent<TagComponent>().UserTag);
+	}
+
+	static void Entity_SetUserTag(uint64_t entityID, Coral::String tag)
+	{
+		GetEntity(entityID).GetComponent<TagComponent>().UserTag = tag;
+	}
+
+	// The finders return entity IDs in creation order (the order of the scene file), so a result never depends on
+	// the layout of the registry. Switched-off entities, and children of one, are left out unless asked for.
+	static Coral::Array<uint64_t> ToIDArray(std::vector<EntityHit>& hits, Scene* scene, bool includeInactive)
+	{
+		std::sort(hits.begin(), hits.end());
+		std::vector<uint64_t> ids;
+		ids.reserve(hits.size());
+		for (const EntityHit& hit : hits)
+		{
+			if (includeInactive || scene->IsEntityActiveInHierarchy(scene->GetEntityByUUID(hit.second)))
+				ids.push_back(hit.second);
+		}
+		Coral::Array<uint64_t> result = Coral::Array<uint64_t>::New(static_cast<int32_t>(ids.size()));
+		for (size_t i = 0; i < ids.size(); i++)
+			result[i] = ids[i];
+		return result;
+	}
+
+	template<typename Matches>
+	static Coral::Array<uint64_t> FindEntities(bool includeInactive, Matches&& matches)
+	{
+		Scene* scene = GetScene();
+		std::vector<EntityHit> hits;
+		for (auto handle : scene->GetAllEntitiesWith<IDComponent, TagComponent>())
+		{
+			Entity entity{ handle, scene };
+			if (matches(entity.GetComponent<TagComponent>()))
+				hits.emplace_back(static_cast<uint32_t>(handle), static_cast<uint64_t>(entity.GetUUID()));
+		}
+		return ToIDArray(hits, scene, includeInactive);
+	}
+
+	static Coral::Array<uint64_t> Scene_FindEntitiesByName(Coral::String name, Coral::Bool32 includeInactive)
+	{
+		const std::string wanted = name;
+		return FindEntities(includeInactive, [&](const TagComponent& tag) { return tag.Tag == wanted; });
+	}
+
+	static Coral::Array<uint64_t> Scene_FindEntitiesByTag(Coral::String tag, Coral::Bool32 includeInactive)
+	{
+		const std::string wanted = tag;
+		if (wanted.empty())
+			return Coral::Array<uint64_t>::New(0);
+		return FindEntities(includeInactive, [&](const TagComponent& candidate) { return candidate.UserTag == wanted; });
+	}
+
+	static Coral::Array<uint64_t> Scene_FindEntitiesWithComponent(Coral::ReflectionType componentType, Coral::Bool32 includeInactive)
+	{
+		Scene* scene = GetScene();
+		std::vector<EntityHit> hits;
+		if (const auto it = s_FindComponentFuncs.find(componentType.m_TypeID); it != s_FindComponentFuncs.end())
+			it->second(scene, hits);
+		return ToIDArray(hits, scene, includeInactive);
 	}
 
 	static uint64_t Entity_FindEntityByName(Coral::String name)
@@ -825,6 +893,11 @@ namespace Lux {
 		s_HasComponentFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>(); };
 		s_AddComponentFuncs[id] = [](Entity entity) { if (!entity.HasComponent<TComponent>()) entity.AddComponent<TComponent>(); };
 		s_RemoveComponentFuncs[id] = [](Entity entity) { entity.RemoveComponentIfExists<TComponent>(); };
+		s_FindComponentFuncs[id] = [](Scene* scene, std::vector<EntityHit>& hits)
+		{
+			for (auto handle : scene->GetAllEntitiesWith<IDComponent, TComponent>())
+				hits.emplace_back(static_cast<uint32_t>(handle), static_cast<uint64_t>(Entity{ handle, scene }.GetUUID()));
+		};
 		if constexpr (HasEnabledFlag<TComponent>)
 		{
 			s_GetEnabledFuncs[id] = [](Entity entity) { return entity.HasComponent<TComponent>() && GetEnabledFlag(entity.GetComponent<TComponent>()); };
@@ -843,6 +916,7 @@ namespace Lux {
 		s_RemoveComponentFuncs.clear();
 		s_GetEnabledFuncs.clear();
 		s_SetEnabledFuncs.clear();
+		s_FindComponentFuncs.clear();
 
 		RegisterManagedComponent<TransformComponent>(coreAssembly);
 		RegisterManagedComponent<TagComponent>(coreAssembly);
@@ -931,6 +1005,11 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(Entity_GetActive);
 		LUX_ADD_ENTITY_CALL(Entity_SetActive);
 		LUX_ADD_ENTITY_CALL(Entity_IsActiveInHierarchy);
+		LUX_ADD_ENTITY_CALL(Entity_GetUserTag);
+		LUX_ADD_ENTITY_CALL(Entity_SetUserTag);
+		LUX_ADD_INTERNAL_CALL(Scene_FindEntitiesByName);
+		LUX_ADD_INTERNAL_CALL(Scene_FindEntitiesByTag);
+		LUX_ADD_INTERNAL_CALL(Scene_FindEntitiesWithComponent);
 		LUX_ADD_ENTITY_CALL(Entity_GetScriptEnabled);
 		LUX_ADD_ENTITY_CALL(Entity_SetScriptEnabled);
 		LUX_ADD_ENTITY_CALL(Component_GetEnabled);

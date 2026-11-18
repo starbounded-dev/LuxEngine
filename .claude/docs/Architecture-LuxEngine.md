@@ -611,6 +611,17 @@ same rule the inspector uses for its header checkbox). A component with no switc
 setting it off logs a warning and changes nothing. `AudioZoneComponent` / `AudioPortalComponent` keep
 their own `Enabled` (`new`), which also validates the audio thread rules.
 
+**User tag and finders (M4 S4).** `TagComponent::Tag` is the entity name (a historical name); the
+Unity-style tag scripts group entities by is `TagComponent::UserTag`, free text, serialized as `UserTag`
+only when non-empty, edited in the inspector under the name field (`##UserTag`). It is copied wherever
+`Active` is: `Scene::Copy`, `CopyTo`, `DuplicateEntity`, `ClonePrefabEntity` and `Prefab::Create`; a new
+copy path must carry both. `SceneSerializer::RunRoundTripSelfTests` checks the round trip, a scene
+copy, a duplicate and a prefab made from a tagged entity. C# finders (`Entity.Find`, `FindAll`,
+`FindWithTag`, `FindAllWithTag`, `FindWithComponent<T>`, `FindAllWithComponent<T>`) call
+`Scene_FindEntitiesByName/ByTag/WithComponent`, which return IDs in creation order (registry index, not
+view order) and skip switched-off entities and their children unless `includeInactive`. The by-component
+lookup uses `s_FindComponentFuncs`, filled per type by `RegisterManagedComponent`.
+
 **Not done yet (known gaps):** physics ignores both levels. Rigid bodies and colliders on an
 inactive entity still simulate, and colliders have no `Enabled`, because switching them during Play
 needs Jolt/Box2D body add/remove (board P2). `NativeScriptComponent` is not covered (S5).

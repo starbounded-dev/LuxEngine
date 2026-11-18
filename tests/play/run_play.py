@@ -27,7 +27,7 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform", "ActiveEnabled"]
+          "Clock", "Transform", "ActiveEnabled", "Find"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -45,8 +45,13 @@ def vec(values):
     return "[" + ", ".join(f"{v:g}" for v in values) + "]"
 
 
-def entity(eid, name, pos, rot=(0, 0, 0), parent=0, children=(), body="", script=None, fields="", prefab=""):
-    lines = [f"  - Entity: {eid}", "    TagComponent:", f"      Tag: {name}", f"    Parent: {parent}"]
+def entity(eid, name, pos, rot=(0, 0, 0), parent=0, children=(), body="", script=None, fields="", prefab="", user_tag="", inactive=False):
+    lines = [f"  - Entity: {eid}", "    TagComponent:", f"      Tag: {name}"]
+    if inactive:
+        lines.append("      Active: false")
+    if user_tag:
+        lines.append(f"      UserTag: {user_tag}")
+    lines.append(f"    Parent: {parent}")
     lines.append("    Children:" + ("" if children else "\n      []"))
     lines += [f"      - Handle: {child}" for child in children]
     lines += [prefab.rstrip("\n")] if prefab else []
@@ -146,6 +151,18 @@ def write_project(project, keep=None, runtime_config="dist"):
     e.append(entity(target_child, "ToggleChild", (0, 0, 0), parent=target, script="ToggleCounter"))
     e.append(entity(next(ids), "SwitchSprite", (0, 1, -44), body="    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n"))
     e.append(entity(next(ids), "ActiveCheck", (0, 1, -46), script="ActiveCheck"))
+    # Finders: two entities with one name, a tag on four of them (one switched off, with a child), two sprites.
+    sprite_body = "    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n"
+    e.append(entity(next(ids), "TwinFind", (1, 1, -50)))
+    e.append(entity(next(ids), "TwinFind", (2, 1, -50)))
+    e.append(entity(next(ids), "TagCoinA", (0, 1, -52), user_tag="coin"))
+    e.append(entity(next(ids), "TagCoinB", (0, 1, -53), user_tag="coin"))
+    e.append(entity(next(ids), "TagGem", (0, 1, -54), user_tag="gem"))
+    off, off_child = next(ids), next(ids)
+    e.append(entity(off, "TagOff", (0, 1, -55), user_tag="coin", inactive=True, children=(off_child,)))
+    e.append(entity(off_child, "TagOffChild", (0, 0, 0), parent=off, user_tag="coin"))
+    e.append(entity(next(ids), "SpriteTwo", (0, 1, -56), body=sprite_body))
+    e.append(entity(next(ids), "FindCheck", (0, 1, -58), script="FindCheck"))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.
