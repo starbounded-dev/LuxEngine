@@ -14,7 +14,11 @@ marked **NEW** or sits under Open questions.
   clouds in front of and behind geometry; they react to the sun (sunset reddening, silver lining,
   milky multi-scatter); they cost **under 1 ms at 1080p on the RTX 4070 Ti**; with the feature off
   they cost nothing (no pass, no memory); existing scenes and projects load unchanged.
-- **Non-goals:** no height fog, no local fog, no volumetric fog (all deleted 2026-08-16); no
+- **Full customization (added 2026-11-17):** every sky and cloud parameter is editable live in a
+  **Cloud Debug Panel** (editor panel, tabs Debug View / March / Art / Gen / Sky), built **in the same
+  phases as the features it controls**, not at the end. See "Cloud Debug Panel" below.
+- **Non-goals:** no in-game/runtime UI (none exists to host it; see the panel section for the
+  follow-up), no height fog, no local fog, no volumetric fog (all deleted 2026-08-16); no
   froxel/voxel Nubis Cubed renderer; no clouds in reflections (SSR) or refraction in v1; no VR
   stereo or orthographic support in v1; no C# API in v1.
 - **Emphatic constraints (user's words):** *no temporal rendering, ghosting is a red line*; the
@@ -33,6 +37,8 @@ marked **NEW** or sits under Open questions.
 | Noise texture format | RGBA8 base 128³ (8 MB), RGBA8 detail 32³ (128 KB), 128² curl | assistant | The deleted bake used RGBA16F (16 MB); Horizon used 8-bit |
 | Frame position | After Deferred Lighting / Area Lights / SSR composite, **before** Transparent Forward | assistant | Transparents then draw over clouds; SSR and refraction do not contain clouds (documented limit) |
 | Per-pixel jitter | Interleaved gradient noise computed in the shader, no texture | assistant | The repo has no blue-noise asset; add one only if B4's comparison shows IGN patterning |
+| Customization UI | One new `CloudDebugPanel` editor panel, grown phase by phase | user | Playbook "Add a new editor panel"; each phase lists the controls it adds; ImGui audit every phase |
+| Earlier verdict superseded | `docs/FEATURE_CATALOG_2027.md` row R8 said "physical atmosphere and clouds: DEFER to 2028" | user (now wants it) | Update that row when Phase B5 lands |
 | Quality category | New `Atmosphere` category | assistant | `ProjectSerializer` reads `QualityCategories` as a name-keyed map defaulting to `"Custom"`, so old projects load; verified in source |
 
 ## Part 0 — Where we are (ledger)
@@ -162,7 +168,9 @@ fix-up step); baseline numbers written down; docs match source.
 - `SceneRenderer.h/.cpp` — pipelines created once in `Init()`; LUT images persistent, created on
   first enable and registered with `addTexture` (see "LUT lifetime"); passes added with accurate
   `Reads`/`Writes`; skipped when disabled.
-- `Editor/Source/Panels/SceneRendererPanel.cpp` — **Atmosphere** section (see the ImGui checks).
+- `Editor/Source/Panels/CloudDebugPanel.{h,cpp}` — **NEW**: the panel, Sky tab only at this point
+  (see "Cloud Debug Panel"; `SceneRendererPanel.cpp` is not touched). Register in `EditorLayer` with
+  a menubar toggle (playbook "Add a new editor panel").
 
 **Playbook:** "Add a new render pass" (all steps) and the scene-struct serialization steps above.
 **Thread/lifetime:** render thread; LUT images created in `Init()` only when first enabled, freed
@@ -270,7 +278,7 @@ Total clouds cost (march + denoise + composite) **< 1 ms at 1080p** (`/profile`,
 
 ### Phase B5 — Settings, UI, tiers, serialization polish
 
-- `CloudSettings` in the **Atmosphere** block (serialize + deserialize), inspector section,
+- `CloudSettings` in the **Atmosphere** block (serialize + deserialize), panel presets and polish,
   `QualityCategory::Atmosphere` with Low/Medium/High/Ultra/Cinematic step counts and light-sample
   counts, `ProjectSceneRendererSettings` field, `s_QualityCategoryKeys` entry.
 - Dist: new shaders in the engine shader pack; run `tests/shaders/check_engine_pack.py`.
@@ -290,6 +298,59 @@ single-threaded check), Dist (no shader compiler in the player: pack must carry 
 export, golden-image set for a cloud scene, perf record in the golden `perf.json`, memory check that
 disabling clouds releases the volumes, and a stress capture across quality tiers. Optional follow-ups
 listed below.
+
+## Cloud Debug Panel (built with the phases)
+
+**What it is.** A dockable editor panel, `Editor/Source/Panels/CloudDebugPanel.{h,cpp}` (**NEW**,
+`EditorPanel`, registered in `EditorLayer` with a menubar toggle; project regeneration), bound to the
+active scene's `SkyAtmosphereSettings` and `CloudSettings`. It follows the layout of the panel you
+showed from the Project_NervLand post (title, "Clouds rendering" checkbox, tabs, sliders, a
+"Reload shaders" button), but the parameters are Lux's own, mapped below. The screenshots show a
+third-party engine's UI; only the idea and the parameter vocabulary are borrowed.
+
+**"In-game" means the editor.** No game-facing UI exists today. `Lux-Runtime` creates ImGui only in
+non-Dist builds, for the accessibility overlay (`RuntimeApplication.cpp:146-151`, F10 toggle in
+`RuntimeLayer::OnImGuiRender`), so a runtime copy of this panel would be possible later in
+Debug/Release runtime builds but is **not** in this plan. A C# API for weather-by-script is likewise a
+follow-up.
+
+**Where edits go.**
+- Artistic values (altitude, coverage, lighting, sky) edit the **scene struct**, so they are saved
+  with the scene and survive Play (copied explicitly; see A1).
+- Cost knobs (max steps, light steps, resolution, denoise strength) edit the renderer-owned
+  `Atmosphere` quality category and flip it to `Custom` through `MarkCategoryCustom`, like the other
+  categories; they land in `LuxSample.luxproj` (diff that file first on any visual regression).
+- Every slider has a reset-to-default, a tooltip with units, and the same clamp the shader assumes.
+- **Reload shaders** calls the existing `Renderer::ReloadShaders` (the same path the Renderer
+  Debugger uses); remember that a stale shader cache looks like a broken shader.
+
+**Tabs and controls, mapped to the plan's phases.** Names in the left column are the vocabulary of
+the screenshots, in Lux terms in the right.
+
+| Tab | Control (screenshot name) → Lux field | Added in |
+|---|---|---|
+| **Sky** | Enabled, sun disc, planet radius, Rayleigh/Mie/ozone strength, ground albedo, aerial-perspective strength and distance scale, "Sun" intensity multiplier | A1, A2 |
+| **Gen** | `Base (m)` → layer bottom altitude; `Thickness` → layer thickness; `Billow amp`, `Gain` → base-shape amplitude and fBm gain; `Top rise`, `Base rise` → height-gradient shaping at the top and bottom of the layer; `Noise freq` → base-noise frequency; `Cov min` / `Cov max` → coverage remap; `Weather` → weather-noise influence; `Wthr cov` → weather coverage | B2 |
+| **March** | `Max steps`, `Step min/max` → step-count and step-length bounds; `SDF step` → how aggressively the cheap march skips empty space (Lux's cheap/full dual march); `Detail` → erosion/detail-noise amount; `Light steps` → cone light samples (0-6); `Far start/blend/step/detail` → distance LOD (cheaper steps and detail for far clouds); `Orbit shade/relief`, `Near shade` → look when the camera is above or inside the layer | B2, B3, B4 |
+| **Art** | `Ambient`, `Amb floor`, `Amb dirs` → sky-ambient strength, minimum floor, and number of ambient sample directions; `Extinction` → σ_t scale; `Sun` → sun-light multiplier; plus Lux's own: forward/back HG g, multi-scatter a/b/c and octaves, powder strength | B3 |
+| **Dbg View** | `Debug view` dropdown: Off, Density, Transmittance, Luminance, Step-count heat map, Mean hit distance, Light-sample cost, Noise slice (base/detail/curl), Depth clamp, Upsample weights; plus pass GPU times (march / denoise / composite / sky LUTs / aerial perspective) from the existing GPU profiling | B2, B4 |
+
+**What does not map in v1.** `Far use map` and `Weather` imply a painted weather map; v1 derives
+coverage from a procedural low-frequency 2D noise driven by `Weather`/`Wthr cov`. A painted weather
+texture asset is a follow-up. `Orbit shade/relief` only matters when the camera leaves the layer
+(spacecraft views); expose them but mark them low-priority in B2.
+
+**Phase hooks (each phase's exit criteria include these).**
+- **A1:** panel exists with the Sky tab and the enable checkbox; Reload shaders works.
+- **B2:** Gen and March tabs live; Dbg View shows density, step count and noise slices.
+- **B3:** Art tab live (lighting, multi-scatter); a debug view for luminance and NaN.
+- **B4:** denoise strength, upsample debug view, per-pass GPU times.
+- **B5:** presets (Clear / Fair-weather cumulus / Overcast / Storm) as saved named parameter sets,
+  reset-all, copy/paste of the whole set; the panel's scene edits are undoable only if the engine's
+  undo system already covers scene-level structs (open question 7).
+- **ImGui audit every phase** (`Conventions.md`): every `Push/Pop/Begin/End/Scoped*` closed on every
+  path including early returns; unique IDs (`##` per control, `###` for the tab labels); each tab and
+  popup driven in the running editor.
 
 ## Part 3 — Verification beyond the phases
 
@@ -323,6 +384,8 @@ scripted camera) proves the absence of ghosting.
 4. Where VRS (`ApplyCoarseFragmentShadingRate`) helps the composite.
 5. Does the sky-view/IBL recapture (A3) interact with `Scene::m_DynamicSkyEnvironment` caching.
 6. Does disabling clouds mid-session need a GPU drain before freeing the volumes (see Part 1).
+7. Does the editor's undo system cover scene-level structs (post-process today)? If not, panel edits
+   are not undoable in v1 and the panel says so; do not invent a parallel undo path.
 
 **What would invalidate the plan:** Phase 0 showing 3D images unusable (adds a backend fix phase),
 or B2 measuring far above budget (re-plan resolution/steps or revisit the budget with the owner).
@@ -360,6 +423,11 @@ or B2 measuring far above budget (re-plan resolution/steps or revisit the budget
   fetch is blocked here). Nothing in them is used by this plan. Unverified search leads on open
   Vulkan cloud work, for later reading: Project Marshmallow (Horizon clouds in Vulkan, cloud shadows
   on terrain), CIS 5650 "Frostnova" (Nubis³ in Vulkan), and a hybrid sparse voxel-noise cloud paper.
+- **Owner-supplied UI reference (screenshots from the NervLand post, 2026-11-17):** a "Cloud Debug
+  Panel" with Dbg View / March / Art / Gen tabs. It reveals parameter vocabulary only (e.g. an
+  SDF-style skip step, ambient sampled over N directions, distance LOD with a far weather map,
+  orbit shading); its frame-time readout and internals are not independently verified and none of
+  its algorithms are adopted.
 - **Brief vs reality:** the brief assumes an existing sky/aerial-perspective system and a blue-noise
   texture; neither exists in this repo, hence Part A and the IGN decision.
 - **Still unknown:** exact multi-scatter constants, LUT sizes, whether a blue-noise asset is needed.
