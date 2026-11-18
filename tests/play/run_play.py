@@ -24,6 +24,7 @@ import struct
 import subprocess
 import sys
 import time
+import zlib
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -33,13 +34,16 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "Timers", "Application", "Quitting", "SceneLoading"]
+          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "Timers", "Application", "Quitting", "SceneLoading",
+          "Physics2DFixed", "Physics2DLanding", "Contacts2D", "Queries2D", "Triggers2D", "Joint2D", "SpriteAnimator", "SpriteAnimatorScript"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
 MESH_HANDLE = 7300000000000000003
 SECOND_SCENE_HANDLE = 7300000000000000004
 EXTRA_SCENE_HANDLE = 7300000000000000005
+SPRITE_TEXTURE_HANDLE = 7300000000000000010
+SPRITE_SHEET_HANDLE = 7300000000000000011
 
 
 def fnv1a(text):
@@ -97,6 +101,16 @@ def prefab_link(entity_id, tracked=False, removed=()):
     if removed:
         text += "      Removed:\n" + "".join(f"        - {r}\n" for r in removed)
     return text
+
+
+def write_png(path, width, height, rows):
+    """An 8-bit RGBA PNG from rows of (r, g, b, a) tuples; the 2D checks need a texture with no image tools."""
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+    raw = b"".join(b"\0" + b"".join(bytes(pixel) for pixel in row) for row in rows)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
 def write_two_material_cube(path):
@@ -162,9 +176,20 @@ def write_project(project, keep=None, runtime_config="dist"):
         f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n"
         f"  - Handle: {MESH_HANDLE}\n    FilePath: Meshes/TwoMaterials.gltf\n    Type: MeshSource\n"
         f"  - Handle: {SECOND_SCENE_HANDLE}\n    FilePath: Scenes/Second.luxscene\n    Type: Scene\n"
-        f"  - Handle: {EXTRA_SCENE_HANDLE}\n    FilePath: Scenes/Extra.luxscene\n    Type: Scene\n", encoding="utf-8")
+        f"  - Handle: {EXTRA_SCENE_HANDLE}\n    FilePath: Scenes/Extra.luxscene\n    Type: Scene\n"
+        f"  - Handle: {SPRITE_TEXTURE_HANDLE}\n    FilePath: Sprites/Blink.png\n    Type: Texture\n"
+        f"  - Handle: {SPRITE_SHEET_HANDLE}\n    FilePath: Sprites/Blink.lsheet\n    Type: SpriteSheet\n", encoding="utf-8")
     (assets / "Meshes").mkdir()
     write_two_material_cube(assets / "Meshes/TwoMaterials.gltf")
+
+    # A 32 x 16 texture of two 16 x 16 frames (red, then green) and a sheet with two clips over it.
+    (assets / "Sprites").mkdir()
+    write_png(assets / "Sprites/Blink.png", 32, 16, [[(255, 0, 0, 255)] * 16 + [(0, 255, 0, 255)] * 16 for _ in range(16)])
+    (assets / "Sprites/Blink.lsheet").write_text(
+        f"SpriteSheet:\n  Version: 1\n  Texture: {SPRITE_TEXTURE_HANDLE}\n  PixelsPerUnit: 16\n  CellSize: [16, 16]\n  Spacing: [0, 0]\n  Margin: [0, 0]\n"
+        "  Frames:\n    - Name: red\n      Rect: [0, 0, 16, 16]\n      Pivot: [0.5, 0.5]\n    - Name: green\n      Rect: [16, 0, 16, 16]\n      Pivot: [0.5, 0.5]\n"
+        "  Clips:\n    - Name: blink\n      FramesPerSecond: 10\n      Wrap: Loop\n      Frames: [0, 1]\n"
+        "    - Name: still\n      FramesPerSecond: 10\n      Wrap: Once\n      Frames: [1]\n", encoding="utf-8")
 
     # The prefab: a dynamic crate with three children. OldChild existed when the scene instance was
     # saved, PrefabAdded was added later, Removed is recorded as deleted in the instance.
@@ -253,6 +278,19 @@ def write_project(project, keep=None, runtime_config="dist"):
         f"        - ID: {fnv1a(f'{NAMESPACE}.SceneLoadCheck.{name}')}\n          Name: {name}\n          Type: Scene\n          Data: {handle}\n"
         for name, handle in (("Second", SECOND_SCENE_HANDLE), ("Extra", EXTRA_SCENE_HANDLE)))
     e.append(entity(next(ids), "SceneLoadCheck", (0, 1, -92), script="SceneLoadCheck", fields=scene_fields))
+    # 2D (tests/play/Scripts/Physics2DTests.cs), far from everything else at z = 100: a floor, a ball that lands on it, a
+    # trigger with something falling through it, a pendulum on a distance joint, and an animated sprite.
+    body2d = lambda kind: f"    RigidBody2DComponent:\n      BodyType: {kind}\n"
+    e.append(entity(next(ids), "Ground2D", (0, -5, 100), body=body2d(0) + "    EdgeCollider2DComponent:\n      Points:\n        - [-20, 0]\n        - [20, 0]\n", script="Ground2D"))
+    e.append(entity(next(ids), "Ball2D", (0, 2, 100), body=body2d(1) + "    CircleCollider2DComponent:\n      Radius: 0.5\n", script="Ball2D"))
+    e.append(entity(next(ids), "Zone2D", (6, -2, 100), body=body2d(0) + "    BoxCollider2DComponent:\n      Size: [0.5, 0.5]\n      IsTrigger: true\n", script="Zone2D"))
+    e.append(entity(next(ids), "Faller2D", (6, 3, 100), body=body2d(1) + "    CircleCollider2DComponent:\n      Radius: 0.3\n"))
+    e.append(entity(next(ids), "Pendulum2D", (10, 5, 100), script="Pendulum2D",
+                    body=body2d(1) + "    CircleCollider2DComponent:\n      Radius: 0.2\n"
+                    "    Joint2DComponent:\n      JointType: 0\n      ConnectedEntity: 0\n      ConnectedAnchor: [8, 5]\n      AutoLength: true\n"))
+    e.append(entity(next(ids), "Animated2D", (0, 0, 110), script="SpriteAnimatorCheck",
+                    body=f"    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n      Sheet: {SPRITE_SHEET_HANDLE}\n      SpriteIndex: 0\n"
+                    "    SpriteAnimatorComponent:\n      Clip: blink\n      Playing: true\n      Speed: 1\n"))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.

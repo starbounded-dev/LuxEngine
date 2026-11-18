@@ -184,6 +184,30 @@ namespace Lux
 		internal static delegate*<ulong, float, void> SpriteRendererComponent_SetTilingFactor;
 		internal static delegate*<ulong, ulong> SpriteRendererComponent_GetTexture;
 		internal static delegate*<ulong, ulong, void> SpriteRendererComponent_SetTexture;
+		internal static delegate*<ulong, int> SpriteRendererComponent_GetSpriteIndex;
+		internal static delegate*<ulong, int, void> SpriteRendererComponent_SetSpriteIndex;
+		internal static delegate*<ulong, int> SpriteRendererComponent_GetOrderInLayer;
+		internal static delegate*<ulong, int, void> SpriteRendererComponent_SetOrderInLayer;
+		internal static delegate*<ulong, NativeString> SpriteRendererComponent_GetSortingLayer;
+		internal static delegate*<ulong, NativeString, void> SpriteRendererComponent_SetSortingLayer;
+		#endregion
+
+		#region TilemapComponent
+		internal static delegate*<ulong, int> TilemapComponent_GetLayerCount;
+		internal static delegate*<ulong, int, int, int, int> TilemapComponent_GetTile;
+		internal static delegate*<ulong, int, int, int, int, void> TilemapComponent_SetTile;
+		internal static delegate*<ulong, Vector2*, int*, int*, void> TilemapComponent_WorldToCell;
+		internal static delegate*<ulong, int, int, Vector2*, void> TilemapComponent_CellToWorld;
+		#endregion
+
+		#region SpriteAnimatorComponent
+		internal static delegate*<ulong, NativeString, Bool32, void> SpriteAnimatorComponent_Play;
+		internal static delegate*<ulong, void> SpriteAnimatorComponent_Stop;
+		internal static delegate*<ulong, NativeString> SpriteAnimatorComponent_GetClip;
+		internal static delegate*<ulong, Bool32> SpriteAnimatorComponent_IsPlaying;
+		internal static delegate*<ulong, Bool32> SpriteAnimatorComponent_IsFinished;
+		internal static delegate*<ulong, float> SpriteAnimatorComponent_GetSpeed;
+		internal static delegate*<ulong, float, void> SpriteAnimatorComponent_SetSpeed;
 		#endregion
 
 		#region CircleRendererComponent
@@ -232,6 +256,8 @@ namespace Lux
 		internal static delegate*<ulong, float, void> BoxCollider2DComponent_SetFriction;
 		internal static delegate*<ulong, float> BoxCollider2DComponent_GetRestitution;
 		internal static delegate*<ulong, float, void> BoxCollider2DComponent_SetRestitution;
+		internal static delegate*<ulong, Bool32> BoxCollider2DComponent_GetIsTrigger;
+		internal static delegate*<ulong, Bool32, void> BoxCollider2DComponent_SetIsTrigger;
 		#endregion
 
 		#region CircleCollider2DComponent
@@ -245,6 +271,8 @@ namespace Lux
 		internal static delegate*<ulong, float, void> CircleCollider2DComponent_SetFriction;
 		internal static delegate*<ulong, float> CircleCollider2DComponent_GetRestitution;
 		internal static delegate*<ulong, float, void> CircleCollider2DComponent_SetRestitution;
+		internal static delegate*<ulong, Bool32> CircleCollider2DComponent_GetIsTrigger;
+		internal static delegate*<ulong, Bool32, void> CircleCollider2DComponent_SetIsTrigger;
 		#endregion
 
 		#region TextComponent
@@ -300,6 +328,9 @@ namespace Lux
 		#endregion
 
 		#region Physics queries
+		internal static delegate*<Vector2*, Vector2*, float, ulong, Bool32, RaycastHit2DData*, Bool32> Physics2D_Raycast;
+		internal static delegate*<Vector2*, Vector2*, float, ulong, Bool32, RaycastHit2DData*, int, int> Physics2D_RaycastAll;
+		internal static delegate*<int, Vector2*, Vector2*, float, ulong, Bool32, ulong*, int, int> Physics2D_Overlap;
 		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_Raycast;
 		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, int, int> Physics_RaycastAll;
 		internal static delegate*<int, Vector3*, Vector4*, Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_ShapeCast;

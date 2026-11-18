@@ -28,6 +28,29 @@ namespace Lux {
 		SetViewportBounds(0, 0, width, height);
 	}
 
+	void SceneCamera::Rebuild()
+	{
+		const auto [left, top, right, bottom] = m_ViewportBounds;
+		SetViewportBounds(left, top, right, bottom);
+	}
+
+	uint32_t SceneCamera::GetPixelScale() const
+	{
+		if (!m_PixelPerfect)
+			return 1;
+
+		const auto [left, top, right, bottom] = m_ViewportBounds;
+		return std::max(1u, static_cast<uint32_t>(static_cast<float>(bottom - top) / std::max(m_ReferenceHeight, 1.0f)));
+	}
+
+	float SceneCamera::GetPixelSnapUnit() const
+	{
+		if (!m_PixelPerfect || m_ProjectionType != ProjectionType::Orthographic)
+			return 0.0f;
+
+		return 1.0f / (std::max(m_PixelsPerUnit, 1e-3f) * static_cast<float>(GetPixelScale()));
+	}
+
 	void SceneCamera::SetViewportBounds(uint32_t left, uint32_t top, uint32_t right, uint32_t bottom)
 	{
 		m_ViewportBounds = { left, top, right, bottom };
@@ -45,8 +68,8 @@ namespace Lux {
 		case ProjectionType::Orthographic:
 		{
 			float aspect = viewportWidth / viewportHeight;
-			float orthoWidth = m_OrthographicSize * aspect;
-			float orthoHeight = m_OrthographicSize;
+			float orthoHeight = m_PixelPerfect ? viewportHeight * GetPixelSnapUnit() : m_OrthographicSize;
+			float orthoWidth = orthoHeight * aspect;
 			SetOrthoProjectionMatrix(orthoWidth, orthoHeight, m_OrthographicNear, m_OrthographicFar);
 			break;
 		}

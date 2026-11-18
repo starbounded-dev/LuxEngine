@@ -45,6 +45,7 @@ namespace Lux
 	class ProfilerPanel;
 	class HelpPanel;
 	class AudioDebugPanel;
+	class TilePalettePanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
 
@@ -98,6 +99,7 @@ namespace Lux
 		void UI_ViewportSelectionBadge();
 		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
+		bool UpdateTilePainting();
 		// View and (unreversed) projection of the camera the viewport is rendering through.
 		void GetViewportCameraMatrices(glm::mat4& outView, glm::mat4& outProjection);
 		bool RayIntersectsEntity(Entity entity, const glm::vec3& rayOrigin, const glm::vec3& rayDirection, float& outDistance) const;
@@ -106,7 +108,9 @@ namespace Lux
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
 		// Writes the project, default geometry and a named C# starter, then opens it.
-		bool CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass);
+		bool CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass, bool twoD = false);
+		// The 2D template's Main scene: a 2D camera, a ground and a falling box. Saved and made the start scene.
+		bool CreateStarterScene2D();
 		void CloseProject();   // back to the splash screen
 		void SaveProject();
 		void ExportRuntime();
@@ -270,6 +274,7 @@ namespace Lux
 		// Kept only so OnOverlayRender can read its visualisation settings; the PanelManager owns
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
+		Ref<TilePalettePanel> m_TilePalettePanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 		// OnUpdate drives its per-frame render around the scene update.
 		Ref<GameViewPanel> m_GameViewPanel;
@@ -417,6 +422,9 @@ namespace Lux
 			std::string BuildName;
 		};
 		std::optional<PendingRuntimeExport> m_PendingRuntimeExport;
+		// 2D view: snap moves to whole pixels at this scale (1 / pixels-per-unit world units).
+		bool m_PixelSnap2D = true;
+		float m_PixelsPerUnit2D = 100.0f;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;

@@ -10,6 +10,7 @@
 #include "ScriptTemplate.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Audio/AudioValidation.h"
 #include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorStack.h"
@@ -72,6 +73,8 @@
 #include "Panels/SoundEditor/SoundEditorPanel.h"
 #include "Panels/AudioMixerPanel.h"
 #include "Panels/SoundBankEditorPanel.h"
+#include "Panels/SpriteSheetEditorPanel.h"
+#include "Panels/TilePalettePanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -118,6 +121,8 @@ namespace Lux {
 #define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
 #define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
 #define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
+#define SPRITE_SHEET_EDITOR_PANEL_ID "SpriteSheetEditorPanel"
+#define TILE_PALETTE_PANEL_ID "TilePalettePanel"
 #define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
@@ -610,6 +615,21 @@ namespace Lux {
 				panelData->IsOpen = true;
 		};
 
+		Ref<SpriteSheetEditorPanel> spriteSheetEditorPanel = m_PanelManager->AddPanel<SpriteSheetEditorPanel>(PanelCategory::View, SPRITE_SHEET_EDITOR_PANEL_ID, "Sprite Sheet Editor", false);
+		auto openSpriteSheetEditor = [this, spriteSheetEditorPanel](AssetHandle sheetHandle) mutable
+		{
+			spriteSheetEditorPanel->OpenSheet(sheetHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SPRITE_SHEET_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+
+		m_TilePalettePanel = m_PanelManager->AddPanel<TilePalettePanel>(PanelCategory::View, TILE_PALETTE_PANEL_ID, "Tile Palette", false);
+		m_SceneHierarchyPanel->SetOpenTilePaletteCallback([this]()
+		{
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(TILE_PALETTE_PANEL_ID)))
+				panelData->IsOpen = true;
+		});
+
 		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
 		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
 		{
@@ -712,7 +732,7 @@ namespace Lux {
 			splashCallbacks.GetRecentProjects = [this]() { return GetRecentProjects(); };
 			splashCallbacks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 			splashCallbacks.BrowseForProject = [this]() { return OpenProject(); };
-			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location, const std::string& scriptClass) { return CreateProject(name, location, scriptClass); };
+			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location, const std::string& scriptClass, bool twoD) { return CreateProject(name, location, scriptClass, twoD); };
 			splashCallbacks.RemoveRecentProject = [this](const std::filesystem::path& path) { RemoveRecentProject(path); };
 			splashCallbacks.GetShowOnStartup = [this]() { return m_UserPreferences && m_UserPreferences->ShowSplashScreen; };
 			splashCallbacks.SetShowOnStartup = [this](bool show)
@@ -802,6 +822,11 @@ namespace Lux {
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::SoundBank, [openSoundBankEditor](const AssetMetadata& metadata) mutable
 			{
 				openSoundBankEditor(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::SpriteSheet, [openSpriteSheetEditor](const AssetMetadata& metadata) mutable
+			{
+				openSpriteSheetEditor(metadata.Handle);
 			});
 
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)
@@ -1166,6 +1191,7 @@ namespace Lux {
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		const bool cameraWasCaptured = viewportCamera.IsMouseCaptured();
 		viewportCamera.SetActive(m_EditorViewport->IsVisible() && (m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured));
+		viewportCamera.SetPanelHeight(m_EditorViewport->GetSize().y);
 
 		if (m_SceneRenderer)
 		{
@@ -1461,7 +1487,8 @@ namespace Lux {
 					ImGui::EndDragDropTarget();
 				}
 
-				if (m_EditorViewport->IsHovered())
+				const bool paintingTiles = UpdateTilePainting();
+				if (m_EditorViewport->IsHovered() && !paintingTiles)
 					m_HoveredEntity = CastMousePick();
 				else
 					m_HoveredEntity = {};
@@ -1475,9 +1502,10 @@ namespace Lux {
 				if (m_SceneHierarchyPanel)
 					selectedEntity = m_SceneHierarchyPanel->GetSelectedEntity();
 				// Folders have no user-editable transform, so they get no gizmo.
-				if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
+				if (selectedEntity && m_GizmoType != -1 && !paintingTiles && !selectedEntity.HasComponent<FolderComponent>())
 				{
-					ImGuizmo::SetOrthographic(false);
+					const bool view2D = m_EditorViewport->GetCamera().Is2DMode();
+					ImGuizmo::SetOrthographic(view2D);
 					ImGuizmo::SetDrawlist();
 					// The image rect, not the panel rect - the gizmo has to line up with the
 					// rendered image, which is inset by the letterbox bars when the render
@@ -1496,12 +1524,25 @@ namespace Lux {
 					bool snap = m_UseGizmoSnap || controlSnap;
 					float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
 						: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
+					// The 2D view moves and scales in the plane and rotates about Z only.
+					int gizmoOperation = m_GizmoType;
+					if (view2D)
+					{
+						gizmoOperation = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? ImGuizmo::ROTATE_Z
+							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? (ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y)
+							: (ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y);
+						if (m_PixelSnap2D && m_GizmoType == ImGuizmo::OPERATION::TRANSLATE)
+						{
+							snap = true;
+							snapValue = 1.0f / m_PixelsPerUnit2D;
+						}
+					}
 					float snapValues[3] = { snapValue, snapValue, snapValue };
 
 					ImGuizmo::Manipulate(
 						glm::value_ptr(cameraView),
 						glm::value_ptr(cameraProjection),
-						(ImGuizmo::OPERATION)m_GizmoType,
+						(ImGuizmo::OPERATION)gizmoOperation,
 						ImGuizmo::LOCAL,
 						glm::value_ptr(transform),
 						nullptr,
@@ -2586,6 +2627,22 @@ namespace Lux {
 			}
 
 			ImGui::Separator();
+			{
+				EditorCamera& viewCamera = m_EditorViewport->GetCamera();
+				bool view2D = viewCamera.Is2DMode();
+				if (ImGui::Checkbox("2D View", &view2D))
+					viewCamera.Set2DMode(view2D);
+				ImGui::SetItemTooltip("Orthographic view of the XY plane. Middle or right drag pans, the wheel zooms.");
+				if (view2D)
+				{
+					ImGui::Checkbox("Pixel Snap", &m_PixelSnap2D);
+					ImGui::SetItemTooltip("Move gizmos snap to whole pixels at the scale below.");
+					if (m_PixelSnap2D)
+						ImGui::DragFloat("Pixels Per Unit", &m_PixelsPerUnit2D, 1.0f, 1.0f, 1024.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				}
+			}
+
+			ImGui::Separator();
 			if (m_PlayModeDebugViewsSuspended)
 				ImGui::TextDisabled("Debug views are suspended during Play.");
 
@@ -2689,7 +2746,8 @@ namespace Lux {
 
 	void EditorLayer::UI_ViewportOrientationGizmo()
 	{
-		if (!m_EditorViewport)
+		// The 2D view has one fixed orientation; the axis widget would only let the user rotate out of it.
+		if (!m_EditorViewport || m_EditorViewport->GetCamera().Is2DMode())
 			return;
 
 		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
@@ -2986,7 +3044,8 @@ namespace Lux {
 	{
 		if (e.GetMouseButton() == MouseButton::Left)
 		{
-			if (m_EditorViewport && m_EditorViewport->IsHovered() && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
+			const bool paintingTiles = m_TilePalettePanel && m_SceneState == SceneState::Edit && m_TilePalettePanel->IsPainting();
+			if (m_EditorViewport && m_EditorViewport->IsHovered() && !paintingTiles && !ImGuizmo::IsOver() && !Input::IsKeyPressed(Key::LeftAlt))
 			{
 				m_HoveredEntity = CastMousePick();
 				if (m_SceneHierarchyPanel)
@@ -3003,6 +3062,60 @@ namespace Lux {
 		const EditorCamera& editorCamera = m_EditorViewport->GetCamera();
 		outView = editorCamera.GetViewMatrix();
 		outProjection = editorCamera.GetUnReversedProjectionMatrix();
+	}
+
+	// Routes the Scene View's mouse to the Tile Palette while it paints. Returns whether it is painting, in which case
+	// selection and the gizmo step aside. Edit state only: playing scenes keep their tiles.
+	bool EditorLayer::UpdateTilePainting()
+	{
+		if (!m_TilePalettePanel || !m_ActiveScene || !m_EditorViewport)
+			return false;
+
+		Entity selected = m_SceneHierarchyPanel ? m_SceneHierarchyPanel->GetSelectedEntity() : Entity{};
+		m_TilePalettePanel->SetTarget(m_SceneState == SceneState::Edit ? selected : Entity{});
+		if (m_SceneState != SceneState::Edit || !m_TilePalettePanel->IsPainting())
+			return false;
+
+		const Entity target = m_TilePalettePanel->GetTarget();
+		const glm::mat4 world = m_ActiveScene->GetWorldSpaceTransformMatrix(target);
+		const glm::vec2 cellSize = target.GetComponent<TilemapComponent>().CellSize;
+		const EditorCamera& camera = m_EditorViewport->GetCamera();
+
+		const bool navigating = Input::IsKeyPressed(Key::LeftAlt) || Input::IsMouseButtonDown(MouseButton::Right) || Input::IsMouseButtonDown(MouseButton::Middle);
+		const bool down = m_EditorViewport->IsHovered() && !navigating && !ImGuizmo::IsOver() && Input::IsMouseButtonDown(MouseButton::Left);
+
+		// The mouse ray against the tilemap's plane (local z = 0); the NDC comes from the image, as in CastMousePick.
+		bool onPlane = false;
+		glm::ivec2 cell(0);
+		const glm::vec2* bounds = m_EditorViewport->GetImageBounds();
+		const float width = bounds[1].x - bounds[0].x, height = bounds[1].y - bounds[0].y;
+		const float mouseX = Input::GetMouseX() - bounds[0].x, mouseY = Input::GetMouseY() - bounds[0].y;
+		if (m_EditorViewport->IsHovered() && width > 1.0f && height > 1.0f && mouseX >= 0.0f && mouseY >= 0.0f && mouseX <= width && mouseY <= height)
+		{
+			const glm::mat4 inverseViewProjection = glm::inverse(camera.GetViewProjection());
+			const float ndcX = (mouseX / width) * 2.0f - 1.0f, ndcY = 1.0f - (mouseY / height) * 2.0f;
+			glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+			glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+			if (nearPoint.w != 0.0f && farPoint.w != 0.0f)
+			{
+				const glm::mat4 inverseWorld = glm::inverse(world);
+				const glm::vec3 origin = glm::vec3(inverseWorld * (nearPoint / nearPoint.w));
+				const glm::vec3 direction = glm::vec3(inverseWorld * (farPoint / farPoint.w)) - origin;
+				if (std::abs(direction.z) > 1e-8f)
+				{
+					const float t = -origin.z / direction.z;
+					const glm::vec2 local = glm::vec2(origin) + glm::vec2(direction) * t;
+					cell = glm::ivec2(glm::floor(local / cellSize));
+					onPlane = true;
+				}
+			}
+		}
+
+		Tilemap::CellRect visible;
+		if (!Tilemap::ComputeVisibleCells(camera.GetViewProjection(), world, cellSize, visible))
+			visible = { cell.x - 64, cell.y - 64, 129, 129 };
+		m_TilePalettePanel->OnSceneMouse(onPlane, cell, visible, down);
+		return true;
 	}
 
 	Entity EditorLayer::CastMousePick()
@@ -3048,6 +3161,11 @@ namespace Lux {
 		Entity closestEntity = {};
 		float closestDistance = std::numeric_limits<float>::max();
 
+		const auto is2DRenderer = [](Entity entity)
+		{
+			return entity.HasComponent<SpriteRendererComponent>() || entity.HasComponent<CircleRendererComponent>() || entity.HasComponent<TextComponent>();
+		};
+
 		auto view = m_ActiveScene->GetAllEntitiesWith<TransformComponent>();
 		for (auto entityID : view)
 		{
@@ -3056,7 +3174,16 @@ namespace Lux {
 			if (!RayIntersectsEntity(entity, rayOrigin, rayDirection, distance))
 				continue;
 
-			if (distance < closestDistance)
+			// Overlapping 2D renderers: the one drawn last (the sorting layer and order, then depth) is on top.
+			bool wins = distance < closestDistance;
+			if (closestEntity && is2DRenderer(entity) && is2DRenderer(closestEntity))
+			{
+				const int64_t order = m_ActiveScene->GetDrawOrder(entity);
+				const int64_t closestOrder = m_ActiveScene->GetDrawOrder(closestEntity);
+				if (order != closestOrder)
+					wins = order > closestOrder;
+			}
+			if (wins)
 			{
 				closestDistance = distance;
 				closestEntity = entity;
@@ -3157,6 +3284,29 @@ namespace Lux {
 			}
 		}
 
+		// 2D renderers: a sprite is the unit quad and a circle the unit-diameter disc on the entity's local
+		// z = 0 plane, so a click on one picks it even though it has no mesh bounds.
+		const bool isSprite = entity.HasComponent<SpriteRendererComponent>();
+		if (isSprite || entity.HasComponent<CircleRendererComponent>())
+		{
+			const glm::mat4 inverseTransform = glm::inverse(worldTransform);
+			const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(rayOrigin, 1.0f));
+			const glm::vec3 localDirection = glm::vec3(inverseTransform * glm::vec4(rayDirection, 0.0f));
+			if (std::abs(localDirection.z) > std::numeric_limits<float>::epsilon())
+			{
+				const glm::vec3 local = localOrigin + localDirection * (-localOrigin.z / localDirection.z);
+				const bool inside = isSprite ? (std::abs(local.x) <= 0.5f && std::abs(local.y) <= 0.5f)
+					: glm::length(glm::vec2(local)) <= 0.5f;
+				const glm::vec3 worldHit = glm::vec3(worldTransform * glm::vec4(local, 1.0f));
+				const float worldDistance = glm::dot(worldHit - rayOrigin, rayDirection);
+				if (inside && worldDistance >= 0.0f && worldDistance < outDistance)
+				{
+					outDistance = worldDistance;
+					hit = true;
+				}
+			}
+		}
+
 		return hit;
 	}
 
@@ -3194,6 +3344,9 @@ namespace Lux {
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		const glm::mat4 overlayView = viewportCamera.GetViewMatrix();
 		m_Renderer2D->BeginScene(viewportCamera.GetViewProjection(), overlayView);
+
+		if (m_TilePalettePanel && m_SceneState == SceneState::Edit && m_TilePalettePanel->IsPainting())
+			m_TilePalettePanel->DrawOverlay(*m_Renderer2D, m_ActiveScene->GetWorldSpaceTransformMatrix(m_TilePalettePanel->GetTarget()));
 
 		if (m_ShowPhysicsColliders)
 		{
@@ -3253,6 +3406,97 @@ namespace Lux {
 
 					m_Renderer2D->DrawCircle(transform, color, onTop);
 				}
+			}
+
+			// Polygon, capsule and edge colliders and joints follow Box2D's rules too: the body's translation and Z
+			// rotation, an unscaled offset, geometry scaled by the entity's X/Y scale.
+			constexpr float kOverlayDepth = 0.001f;
+			constexpr int kCapSegments = 10;
+			const auto bodyTransform = [](const TransformComponent& tc)
+			{
+				return glm::translate(glm::mat4(1.0f), tc.Translation)
+					* glm::rotate(glm::mat4(1.0f), tc.GetRotationEuler().z, glm::vec3(0.0f, 0.0f, 1.0f));
+			};
+			const auto drawOutline = [&](const glm::mat4& body, const std::vector<glm::vec2>& points, bool loop)
+			{
+				const size_t segments = loop ? points.size() : (points.empty() ? 0 : points.size() - 1);
+				for (size_t i = 0; i < segments; i++)
+				{
+					const glm::vec2& a = points[i];
+					const glm::vec2& b = points[(i + 1) % points.size()];
+					m_Renderer2D->DrawLine(glm::vec3(body * glm::vec4(a, kOverlayDepth, 1.0f)), glm::vec3(body * glm::vec4(b, kOverlayDepth, 1.0f)), color, onTop);
+				}
+			};
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, PolygonCollider2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, collider] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, PolygonCollider2DComponent>().get<TransformComponent, PolygonCollider2DComponent>(entity);
+				std::vector<glm::vec2> points;
+				for (const glm::vec2& point : collider.Points)
+					points.push_back(point * glm::vec2(std::abs(tc.Scale.x), std::abs(tc.Scale.y)) + collider.Offset);
+				drawOutline(bodyTransform(tc), points, true);
+			}
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, EdgeCollider2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, collider] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, EdgeCollider2DComponent>().get<TransformComponent, EdgeCollider2DComponent>(entity);
+				std::vector<glm::vec2> points;
+				for (const glm::vec2& point : collider.Points)
+					points.push_back(point * glm::vec2(std::abs(tc.Scale.x), std::abs(tc.Scale.y)) + collider.Offset);
+				drawOutline(bodyTransform(tc), points, collider.Loop && points.size() >= 3);
+			}
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, CapsuleCollider2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, collider] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, CapsuleCollider2DComponent>().get<TransformComponent, CapsuleCollider2DComponent>(entity);
+				const bool vertical = collider.CapsuleDirection == CapsuleCollider2DComponent::Direction::Vertical;
+				const float radius = (vertical ? std::abs(tc.Scale.x) : std::abs(tc.Scale.y)) * collider.Radius;
+				const float height = std::max((vertical ? std::abs(tc.Scale.y) : std::abs(tc.Scale.x)) * collider.Height, 2.0f * radius);
+				const float straight = height * 0.5f - radius;
+				// Half a circle at each end, counter-clockwise around the capsule.
+				std::vector<glm::vec2> points;
+				for (int end = 0; end < 2; end++)
+				{
+					const float sign = end == 0 ? 1.0f : -1.0f;
+					for (int step = 0; step <= kCapSegments; step++)
+					{
+						// end 0 is the +axis cap (angles 0..pi about its centre), end 1 the -axis cap (pi..2pi).
+						const float angle = glm::pi<float>() * (static_cast<float>(step) / kCapSegments) + (end == 0 ? 0.0f : glm::pi<float>());
+						const glm::vec2 local = glm::vec2(std::cos(angle) * radius, std::sin(angle) * radius + sign * straight);
+						// The cap geometry is built for a vertical capsule (axis = Y); a horizontal one swaps X and Y.
+						points.push_back(collider.Offset + (vertical ? local : glm::vec2(local.y, local.x)));
+					}
+				}
+				drawOutline(bodyTransform(tc), points, true);
+			}
+
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, Joint2DComponent>())
+			{
+				if (!shouldDrawCollider(entity))
+					continue;
+				auto [tc, joint] = m_ActiveScene->GetAllEntitiesWith<TransformComponent, Joint2DComponent>().get<TransformComponent, Joint2DComponent>(entity);
+				if (!joint.Enabled)
+					continue;
+				// From this body's anchor to the connected anchor (the connected body's origin for a hinge, slider
+				// or weld), or the world point it is pinned to.
+				const glm::vec3 anchor = glm::vec3(bodyTransform(tc) * glm::vec4(joint.Anchor, kOverlayDepth, 1.0f));
+				glm::vec3 other = glm::vec3(joint.ConnectedAnchor, kOverlayDepth);
+				if (const Entity connected = m_ActiveScene->TryGetEntityWithUUID(joint.ConnectedEntity); connected && connected.HasComponent<TransformComponent>())
+				{
+					const glm::mat4 connectedBody = bodyTransform(connected.GetComponent<TransformComponent>());
+					other = glm::vec3(connectedBody * glm::vec4(joint.JointType == Joint2DComponent::Type::Distance ? joint.ConnectedAnchor : glm::vec2(0.0f), kOverlayDepth, 1.0f));
+				}
+				else if (joint.JointType != Joint2DComponent::Type::Distance)
+					other = anchor;
+				m_Renderer2D->DrawLine(anchor, other, color, onTop);
+				m_Renderer2D->DrawLine(anchor - glm::vec3(0.1f, 0.0f, 0.0f), anchor + glm::vec3(0.1f, 0.0f, 0.0f), color, onTop);
+				m_Renderer2D->DrawLine(anchor - glm::vec3(0.0f, 0.1f, 0.0f), anchor + glm::vec3(0.0f, 0.1f, 0.0f), color, onTop);
 			}
 
 		}
@@ -4172,6 +4416,9 @@ namespace Lux {
 			m_PanelManager->OnProjectChanged(Project::GetActive());
 			if (m_SceneRenderer)
 				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);
+			// A 2D project opens in the XY view; the toggle in the viewport settings overrides it for the session.
+			if (m_EditorViewport)
+				m_EditorViewport->GetCamera().Set2DMode(Project::GetActive()->GetConfig().Type == ProjectType::Project2D);
 		}
 	}
 
@@ -4185,7 +4432,7 @@ namespace Lux {
 		return true;
 	}
 
-	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass)
+	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass, bool twoD)
 	{
 		std::string templateText, scriptSource, scriptError;
 		if (!ScriptTemplate::Load(FileSystem::GetWorkingDirectory() / "Resources" / "Templates" / "NewClassTemplate.cs", templateText, scriptError)
@@ -4202,6 +4449,11 @@ namespace Lux {
 		config.Name = name;
 		config.DefaultNamespace = name;
 		config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (name + ".dll");
+		if (twoD)
+		{
+			config.Type = ProjectType::Project2D;
+			config.CurrentPhysicsAPI = PhysicsAPIType::Box2D;
+		}
 
 		const std::filesystem::path assetDirectory = projectDirectory / config.AssetDirectory;
 		for (const std::filesystem::path& folder : { assetDirectory / "Scenes", assetDirectory / "Scripts" / "Source", assetDirectory / "Materials", assetDirectory / config.MeshSourcePath, assetDirectory / "Textures" })
@@ -4216,7 +4468,8 @@ namespace Lux {
 		}
 
 		std::string templateError;
-		if (!ProjectTemplate::CopyDefaultMeshes(FileSystem::GetWorkingDirectory() / "Resources" / "Meshes" / "Default",
+		// A 2D project starts without the 3D primitives; its starter scene needs no assets at all.
+		if (!twoD && !ProjectTemplate::CopyDefaultMeshes(FileSystem::GetWorkingDirectory() / "Resources" / "Meshes" / "Default",
 			assetDirectory / config.MeshSourcePath / "Default", templateError))
 		{
 			LUX_CORE_ERROR_TAG("Project", "Could not initialize default meshes: {}", templateError);
@@ -4244,7 +4497,35 @@ namespace Lux {
 
 		LUX_CORE_INFO_TAG("Project", "Created project '{}' in {}", name, projectDirectory.string());
 		OpenProject(projectFilePath);
+		if (twoD && Project::GetActive() && !CreateStarterScene2D())
+			LUX_CORE_WARN_TAG("Project", "The 2D starter scene could not be saved; the project opens with an empty scene.");
 		return Project::GetActive() != nullptr;
+	}
+
+	bool EditorLayer::CreateStarterScene2D()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project || !m_ActiveScene)
+			return false;
+
+		Ref<Scene> scene = m_ActiveScene;
+		SceneTemplates::Populate2DStarter(*scene);
+
+		const std::filesystem::path scenePath = std::filesystem::path("Scenes") / "Main.luxscene";
+		SerializeScene(scene, scenePath);
+		if (!FileSystem::Exists(project->GetAssetFileSystemPath(scenePath)))
+			return false;
+
+		Ref<EditorAssetManager> assets = Project::GetEditorAssetManager();
+		const AssetHandle handle = assets ? assets->ImportAsset(scenePath) : AssetHandle(0);
+		if (!handle)
+			return false;
+
+		m_EditorScenePath = scenePath;
+		project->GetConfig().StartScene = scenePath.generic_string();
+		project->GetConfig().StartSceneHandle = handle;
+		SaveProject();
+		return true;
 	}
 
 	void EditorLayer::CloseProject()

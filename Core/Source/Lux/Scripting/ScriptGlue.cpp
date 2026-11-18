@@ -22,6 +22,8 @@
 #include "Lux/Physics2D/ContactListener2D.h"
 
 #include "Lux/Physics/PhysicsScene.h"
+#include "Lux/Physics2D/PhysicsScene2D.h"
+#include "Lux/Scene/Tilemap.h"
 #include "Lux/Physics/PhysicsBody.h"
 #include "Lux/Physics/CharacterController.h"
 #include "Lux/Physics/PhysicsTypes.h"
@@ -565,6 +567,110 @@ namespace Lux {
 	static void SpriteRendererComponent_SetTilingFactor(uint64_t entityID, float v) { GetEntity(entityID).GetComponent<SpriteRendererComponent>().TilingFactor = v; }
 	static uint64_t SpriteRendererComponent_GetTexture(uint64_t entityID)           { return (uint64_t)GetEntity(entityID).GetComponent<SpriteRendererComponent>().Texture; }
 	static void SpriteRendererComponent_SetTexture(uint64_t entityID, uint64_t h)   { GetEntity(entityID).GetComponent<SpriteRendererComponent>().Texture = h; }
+	static int32_t SpriteRendererComponent_GetSpriteIndex(uint64_t entityID)        { return GetEntity(entityID).GetComponent<SpriteRendererComponent>().SpriteIndex; }
+	static void SpriteRendererComponent_SetSpriteIndex(uint64_t entityID, int32_t v){ GetEntity(entityID).GetComponent<SpriteRendererComponent>().SpriteIndex = v; }
+	static int32_t SpriteRendererComponent_GetOrderInLayer(uint64_t entityID)       { return GetEntity(entityID).GetComponent<SpriteRendererComponent>().OrderInLayer; }
+	static void SpriteRendererComponent_SetOrderInLayer(uint64_t entityID, int32_t v){ GetEntity(entityID).GetComponent<SpriteRendererComponent>().OrderInLayer = v; }
+
+	// Sorting layers are named in the project; a script names one, the component stores its ID.
+	static Coral::String SpriteRendererComponent_GetSortingLayer(uint64_t entityID)
+	{
+		const uint32_t layerID = GetEntity(entityID).GetComponent<SpriteRendererComponent>().SortingLayer;
+		for (const ProjectSortingLayer& layer : Project::GetActive()->GetConfig().SortingLayers)
+		{
+			if (layer.ID == layerID)
+				return Coral::String::New(layer.Name);
+		}
+		return Coral::String::New("Default");
+	}
+
+	static void SpriteRendererComponent_SetSortingLayer(uint64_t entityID, Coral::String name)
+	{
+		const std::string wanted = name;
+		for (const ProjectSortingLayer& layer : Project::GetActive()->GetConfig().SortingLayers)
+		{
+			if (layer.Name == wanted)
+			{
+				GetEntity(entityID).GetComponent<SpriteRendererComponent>().SortingLayer = layer.ID;
+				return;
+			}
+		}
+		LUX_CORE_WARN_TAG("ScriptEngine", "SpriteRenderer.SortingLayer: the project has no sorting layer named '{}'", wanted);
+	}
+
+	#pragma endregion
+
+	#pragma region TilemapComponent
+
+	static int32_t TilemapComponent_GetLayerCount(uint64_t entityID) { return static_cast<int32_t>(GetEntity(entityID).GetComponent<TilemapComponent>().Layers.size()); }
+
+	static int32_t TilemapComponent_GetTile(uint64_t entityID, int32_t x, int32_t y, int32_t layer)
+	{
+		const auto& tilemap = GetEntity(entityID).GetComponent<TilemapComponent>();
+		if (layer < 0 || static_cast<size_t>(layer) >= tilemap.Layers.size())
+			return -1;
+		return Tilemap::GetTile(tilemap.Layers[static_cast<size_t>(layer)], x, y);
+	}
+
+	static void TilemapComponent_SetTile(uint64_t entityID, int32_t x, int32_t y, int32_t tile, int32_t layer)
+	{
+		Entity entity = GetEntity(entityID);
+		auto& tilemap = entity.GetComponent<TilemapComponent>();
+		if (layer < 0 || static_cast<size_t>(layer) >= tilemap.Layers.size())
+		{
+			LUX_CORE_WARN_TAG("ScriptEngine", "Tilemap.SetTile: the tilemap has no layer {} ({} layers)", layer, tilemap.Layers.size());
+			return;
+		}
+		// The solid-tile shapes follow the change while the scene plays.
+		if (Tilemap::SetTile(tilemap.Layers[static_cast<size_t>(layer)], x, y, tile) && tilemap.Layers[static_cast<size_t>(layer)].Collides)
+		{
+			if (PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D())
+				physics->RebuildTilemap(entity);
+		}
+	}
+
+	// The cell under a world point, and the centre of a cell in world space, through the entity's transform and cell size.
+	static void TilemapComponent_WorldToCell(uint64_t entityID, glm::vec2* world, int32_t* x, int32_t* y)
+	{
+		Entity entity = GetEntity(entityID);
+		const auto& tilemap = entity.GetComponent<TilemapComponent>();
+		const glm::vec2 local = glm::vec2(glm::inverse(GetScene()->GetWorldSpaceTransformMatrix(entity)) * glm::vec4(world->x, world->y, 0.0f, 1.0f)) / tilemap.CellSize;
+		*x = static_cast<int32_t>(std::floor(local.x));
+		*y = static_cast<int32_t>(std::floor(local.y));
+	}
+
+	static void TilemapComponent_CellToWorld(uint64_t entityID, int32_t x, int32_t y, glm::vec2* out)
+	{
+		Entity entity = GetEntity(entityID);
+		const auto& tilemap = entity.GetComponent<TilemapComponent>();
+		const glm::vec2 local = (glm::vec2(static_cast<float>(x), static_cast<float>(y)) + glm::vec2(0.5f)) * tilemap.CellSize;
+		*out = glm::vec2(GetScene()->GetWorldSpaceTransformMatrix(entity) * glm::vec4(local, 0.0f, 1.0f));
+	}
+
+	#pragma endregion
+
+	#pragma region SpriteAnimatorComponent
+
+	static void SpriteAnimatorComponent_Play(uint64_t entityID, Coral::String clip, Coral::Bool32 restart)
+	{
+		auto& animator = GetEntity(entityID).GetComponent<SpriteAnimatorComponent>();
+		const std::string name = clip;
+		// Playing the clip that is already running leaves it running; anything else starts it from the top.
+		if (restart || animator.Clip != name || !animator.Playing)
+		{
+			animator.Time = 0.0f;
+			animator.Finished = false;
+		}
+		animator.Clip = name;
+		animator.Playing = true;
+	}
+
+	static void SpriteAnimatorComponent_Stop(uint64_t entityID)                    { GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Playing = false; }
+	static Coral::String SpriteAnimatorComponent_GetClip(uint64_t entityID)        { return Coral::String::New(GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Clip); }
+	static Coral::Bool32 SpriteAnimatorComponent_IsPlaying(uint64_t entityID)      { return GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Playing; }
+	static Coral::Bool32 SpriteAnimatorComponent_IsFinished(uint64_t entityID)     { return GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Finished; }
+	static float SpriteAnimatorComponent_GetSpeed(uint64_t entityID)               { return GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Speed; }
+	static void SpriteAnimatorComponent_SetSpeed(uint64_t entityID, float speed)   { GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Speed = speed; }
 
 	#pragma endregion
 
@@ -710,6 +816,14 @@ namespace Lux {
 	static float BoxCollider2DComponent_GetFriction(uint64_t entityID)             { return GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Friction; }
 	static void BoxCollider2DComponent_SetFriction(uint64_t entityID, float v)     { GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Friction = v; }
 	static float BoxCollider2DComponent_GetRestitution(uint64_t entityID)          { return GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Restitution; }
+	static Coral::Bool32 BoxCollider2DComponent_GetIsTrigger(uint64_t entityID)    { return GetEntity(entityID).GetComponent<BoxCollider2DComponent>().IsTrigger; }
+	static void BoxCollider2DComponent_SetIsTrigger(uint64_t entityID, Coral::Bool32 v)
+	{
+		auto& collider = GetEntity(entityID).GetComponent<BoxCollider2DComponent>();
+		collider.IsTrigger = v;
+		if (collider.RuntimeFixture) // while playing, the fixture follows at once
+			static_cast<b2Fixture*>(collider.RuntimeFixture)->SetSensor(v);
+	}
 	static void BoxCollider2DComponent_SetRestitution(uint64_t entityID, float v)  { GetEntity(entityID).GetComponent<BoxCollider2DComponent>().Restitution = v; }
 
 	#pragma endregion
@@ -725,6 +839,14 @@ namespace Lux {
 	static float CircleCollider2DComponent_GetFriction(uint64_t entityID)             { return GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Friction; }
 	static void CircleCollider2DComponent_SetFriction(uint64_t entityID, float v)     { GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Friction = v; }
 	static float CircleCollider2DComponent_GetRestitution(uint64_t entityID)          { return GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Restitution; }
+	static Coral::Bool32 CircleCollider2DComponent_GetIsTrigger(uint64_t entityID)    { return GetEntity(entityID).GetComponent<CircleCollider2DComponent>().IsTrigger; }
+	static void CircleCollider2DComponent_SetIsTrigger(uint64_t entityID, Coral::Bool32 v)
+	{
+		auto& collider = GetEntity(entityID).GetComponent<CircleCollider2DComponent>();
+		collider.IsTrigger = v;
+		if (collider.RuntimeFixture)
+			static_cast<b2Fixture*>(collider.RuntimeFixture)->SetSensor(v);
+	}
 	static void CircleCollider2DComponent_SetRestitution(uint64_t entityID, float v)  { GetEntity(entityID).GetComponent<CircleCollider2DComponent>().Restitution = v; }
 
 	#pragma endregion
@@ -848,6 +970,67 @@ namespace Lux {
 	{
 		if (Ref<PhysicsBody> body = GetPhysicsBody(entityID))
 			body->SetSleepState(sleep);
+	}
+
+	#pragma endregion
+
+	#pragma region Physics2D queries
+
+	// One 2D hit, as the C# Lux.RaycastHit2D lays it out.
+	struct NativeRaycastHit2D
+	{
+		uint64_t Entity;
+		glm::vec2 Point;
+		glm::vec2 Normal;
+		float Distance;
+	};
+	static_assert(sizeof(NativeRaycastHit2D) == 32, "NativeRaycastHit2D must match the C# Lux.RaycastHit2D layout");
+
+	static void FillHit2D(const PhysicsScene2D::RayHit& hit, NativeRaycastHit2D* out)
+	{
+		out->Entity = static_cast<uint64_t>(hit.EntityID);
+		out->Point = hit.Point;
+		out->Normal = hit.Normal;
+		out->Distance = hit.Distance;
+	}
+
+	// Like the 3D queries: main thread, between steps; without a 2D world (not playing) nothing is hit.
+	static Coral::Bool32 Physics2D_Raycast(glm::vec2* origin, glm::vec2* direction, float maxDistance, uint64_t ignore, Coral::Bool32 includeTriggers, NativeRaycastHit2D* outHit)
+	{
+		PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D();
+		PhysicsScene2D::RayHit hit;
+		if (!physics || !physics->RayCast(*origin, *direction, maxDistance, UUID(ignore), includeTriggers, hit))
+			return false;
+		FillHit2D(hit, outHit);
+		return true;
+	}
+
+	// Returns the number found, which may exceed `capacity`; only `capacity` are written.
+	static int32_t Physics2D_RaycastAll(glm::vec2* origin, glm::vec2* direction, float maxDistance, uint64_t ignore, Coral::Bool32 includeTriggers, NativeRaycastHit2D* buffer, int32_t capacity)
+	{
+		PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D();
+		if (!physics)
+			return 0;
+
+		std::vector<PhysicsScene2D::RayHit> hits;
+		physics->RayCastAll(*origin, *direction, maxDistance, UUID(ignore), includeTriggers, hits);
+		for (int32_t i = 0; i < static_cast<int32_t>(hits.size()) && i < capacity; i++)
+			FillHit2D(hits[static_cast<size_t>(i)], &buffer[i]);
+		return static_cast<int32_t>(hits.size());
+	}
+
+	// shape 0: circle (radius in dimensions.x; radius 0 is a point), 1: box (half extents, turned by angle).
+	static int32_t Physics2D_Overlap(int32_t shape, glm::vec2* center, glm::vec2* dimensions, float angle, uint64_t ignore, Coral::Bool32 includeTriggers, uint64_t* buffer, int32_t capacity)
+	{
+		PhysicsScene2D* physics = GetScene()->GetPhysicsScene2D();
+		if (!physics)
+			return 0;
+
+		std::vector<UUID> entities;
+		physics->Overlap(shape == 1 ? PhysicsScene2D::QueryShape::Box : PhysicsScene2D::QueryShape::Circle, *center, *dimensions, angle, UUID(ignore), includeTriggers, entities);
+		for (int32_t i = 0; i < static_cast<int32_t>(entities.size()) && i < capacity; i++)
+			buffer[i] = static_cast<uint64_t>(entities[static_cast<size_t>(i)]);
+		return static_cast<int32_t>(entities.size());
 	}
 
 	#pragma endregion
@@ -1172,6 +1355,8 @@ namespace Lux {
 		RegisterManagedComponent<TransformComponent>(coreAssembly);
 		RegisterManagedComponent<TagComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteRendererComponent>(coreAssembly);
+		RegisterManagedComponent<SpriteAnimatorComponent>(coreAssembly);
+		RegisterManagedComponent<TilemapComponent>(coreAssembly);
 		RegisterManagedComponent<CircleRendererComponent>(coreAssembly);
 		RegisterManagedComponent<CameraComponent>(coreAssembly);
 		RegisterManagedComponent<RigidBody2DComponent>(coreAssembly);
@@ -1305,6 +1490,28 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetTilingFactor);
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetTexture);
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetTexture);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetSpriteIndex);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetSpriteIndex);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetOrderInLayer);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetOrderInLayer);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetSortingLayer);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetSortingLayer);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_GetIsTrigger);
+		LUX_ADD_ENTITY_CALL(BoxCollider2DComponent_SetIsTrigger);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_GetIsTrigger);
+		LUX_ADD_ENTITY_CALL(CircleCollider2DComponent_SetIsTrigger);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_GetLayerCount);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_GetTile);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_SetTile);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_WorldToCell);
+		LUX_ADD_ENTITY_CALL(TilemapComponent_CellToWorld);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Play);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Stop);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetClip);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_IsPlaying);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_IsFinished);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetSpeed);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_SetSpeed);
 
 		LUX_ADD_ENTITY_CALL(CircleRendererComponent_GetColor);
 		LUX_ADD_ENTITY_CALL(CircleRendererComponent_SetColor);
@@ -1386,6 +1593,9 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_IsSleeping);
 		LUX_ADD_ENTITY_CALL(RigidBodyComponent_SetSleepState);
 
+		LUX_ADD_INTERNAL_CALL(Physics2D_Raycast);
+		LUX_ADD_INTERNAL_CALL(Physics2D_RaycastAll);
+		LUX_ADD_INTERNAL_CALL(Physics2D_Overlap);
 		LUX_ADD_INTERNAL_CALL(Physics_Raycast);
 		LUX_ADD_INTERNAL_CALL(Physics_RaycastAll);
 		LUX_ADD_INTERNAL_CALL(Physics_ShapeCast);

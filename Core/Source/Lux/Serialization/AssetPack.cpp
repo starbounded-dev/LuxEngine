@@ -60,6 +60,7 @@ namespace Lux
 				case AssetType::AudioSurfaceTable:
 				case AssetType::Sound:
 				case AssetType::SoundBank:
+				case AssetType::SpriteSheet:
 				case AssetType::Prefab:
 				case AssetType::Skeleton:
 				case AssetType::Animation:

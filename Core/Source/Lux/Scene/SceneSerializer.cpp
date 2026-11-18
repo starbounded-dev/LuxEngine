@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "SceneSerializer.h"
+#include "Lux/Scene/Tilemap.h"
 
 #include "Components.h"
 #include "Entity.h"
@@ -493,9 +494,20 @@ namespace Lux {
 				out << Yaml::Key << "OrthographicSize" << Yaml::Value << camera.GetOrthographicSize();
 				out << Yaml::Key << "OrthographicNear" << Yaml::Value << camera.GetOrthographicNearClip();
 				out << Yaml::Key << "OrthographicFar" << Yaml::Value << camera.GetOrthographicFarClip();
+				if (camera.IsPixelPerfect())
+				{
+					out << Yaml::Key << "PixelPerfect" << Yaml::Value << true;
+					out << Yaml::Key << "PixelsPerUnit" << Yaml::Value << camera.GetPixelsPerUnit();
+					out << Yaml::Key << "ReferenceHeight" << Yaml::Value << camera.GetReferenceHeight();
+				}
 				out << Yaml::EndMap;
 				out << Yaml::Key << "Primary" << Yaml::Value << cameraComponent.Primary;
 				out << Yaml::Key << "FixedAspectRatio" << Yaml::Value << cameraComponent.FixedAspectRatio;
+				if (cameraComponent.SolidBackground)
+				{
+					out << Yaml::Key << "SolidBackground" << Yaml::Value << true;
+					out << Yaml::Key << "BackgroundColor" << Yaml::Value << cameraComponent.BackgroundColor;
+				}
 				out << Yaml::EndMap;
 			}
 
@@ -620,6 +632,93 @@ namespace Lux {
 				out << Yaml::Key << "UVStart" << Yaml::Value << sprite.UVStart;
 				out << Yaml::Key << "UVEnd" << Yaml::Value << sprite.UVEnd;
 				out << Yaml::Key << "ScreenSpace" << Yaml::Value << sprite.ScreenSpace;
+				if (sprite.Sheet)
+				{
+					out << Yaml::Key << "Sheet" << Yaml::Value;
+					AssetReference::WriteValue(out, sprite.Sheet);
+					out << Yaml::Key << "SpriteIndex" << Yaml::Value << sprite.SpriteIndex;
+				}
+				if (sprite.PointFilter)
+					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
+				if (sprite.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << sprite.SortingLayer;
+				if (sprite.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << sprite.OrderInLayer;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<SpriteAnimatorComponent>())
+			{
+				const auto& animator = entity.GetComponent<SpriteAnimatorComponent>();
+				out << Yaml::Key << "SpriteAnimatorComponent";
+				out << Yaml::BeginMap;
+				if (!animator.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << animator.Enabled;
+				out << Yaml::Key << "Clip" << Yaml::Value << animator.Clip;
+				out << Yaml::Key << "Playing" << Yaml::Value << animator.Playing;
+				out << Yaml::Key << "Speed" << Yaml::Value << animator.Speed;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<TilemapComponent>())
+			{
+				const auto& tilemap = entity.GetComponent<TilemapComponent>();
+				out << Yaml::Key << "TilemapComponent";
+				out << Yaml::BeginMap;
+				if (!tilemap.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << tilemap.Enabled;
+				out << Yaml::Key << "TileSet" << Yaml::Value;
+				AssetReference::WriteValue(out, tilemap.TileSet);
+				out << Yaml::Key << "CellSize" << Yaml::Value << tilemap.CellSize;
+				if (tilemap.PointFilter)
+					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
+				if (tilemap.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << tilemap.SortingLayer;
+				if (tilemap.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << tilemap.OrderInLayer;
+				out << Yaml::Key << "Friction" << Yaml::Value << tilemap.Friction;
+				if (tilemap.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << tilemap.Restitution;
+				if (tilemap.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << tilemap.RestitutionThreshold;
+				if (tilemap.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::Key << "Layers" << Yaml::Value;
+				out << Yaml::BeginSeq;
+				for (const TilemapLayer& layer : tilemap.Layers)
+				{
+					out << Yaml::BeginMap;
+					out << Yaml::Key << "Name" << Yaml::Value << layer.Name;
+					if (!layer.Visible)
+						out << Yaml::Key << "Visible" << Yaml::Value << false;
+					if (!layer.Collides)
+						out << Yaml::Key << "Collides" << Yaml::Value << false;
+
+					// Cells as runs along X, one flow list per run: [y, x, tile, tile, ...]. Sorted, so a second
+					// save is byte-identical.
+					std::vector<std::pair<int64_t, int32_t>> cells(layer.Cells.begin(), layer.Cells.end());
+					std::sort(cells.begin(), cells.end(), [](const auto& a, const auto& b)
+					{
+						const int32_t ay = Tilemap::KeyY(a.first), by = Tilemap::KeyY(b.first);
+						return ay != by ? ay < by : Tilemap::KeyX(a.first) < Tilemap::KeyX(b.first);
+					});
+					out << Yaml::Key << "Runs" << Yaml::Value << Yaml::BeginSeq;
+					for (size_t i = 0; i < cells.size();)
+					{
+						const int32_t y = Tilemap::KeyY(cells[i].first), x = Tilemap::KeyX(cells[i].first);
+						size_t end = i + 1;
+						while (end < cells.size() && Tilemap::KeyY(cells[end].first) == y && Tilemap::KeyX(cells[end].first) == x + static_cast<int32_t>(end - i))
+							end++;
+						out << Yaml::Flow << Yaml::BeginSeq << y << x;
+						for (size_t cell = i; cell < end; cell++)
+							out << cells[cell].second;
+						out << Yaml::EndSeq;
+						i = end;
+					}
+					out << Yaml::EndSeq;
+					out << Yaml::EndMap;
+				}
+				out << Yaml::EndSeq;
 				out << Yaml::EndMap;
 			}
 
@@ -633,6 +732,10 @@ namespace Lux {
 				out << Yaml::Key << "Color" << Yaml::Value << circle.Color;
 				out << Yaml::Key << "Thickness" << Yaml::Value << circle.Thickness;
 				out << Yaml::Key << "Fade" << Yaml::Value << circle.Fade;
+				if (circle.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << circle.SortingLayer;
+				if (circle.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << circle.OrderInLayer;
 				out << Yaml::EndMap;
 			}
 
@@ -654,6 +757,10 @@ namespace Lux {
 				out << Yaml::Key << "DropShadow" << Yaml::Value << text.DropShadow;
 				out << Yaml::Key << "ShadowDistance" << Yaml::Value << text.ShadowDistance;
 				out << Yaml::Key << "ShadowColor" << Yaml::Value << text.ShadowColor;
+				if (text.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << text.SortingLayer;
+				if (text.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << text.OrderInLayer;
 				out << Yaml::EndMap;
 			}
 
@@ -681,6 +788,12 @@ namespace Lux {
 				out << Yaml::Key << "Size" << Yaml::Value << collider.Size;
 				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
 				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
 				out << Yaml::EndMap;
 			}
 
@@ -693,6 +806,96 @@ namespace Lux {
 				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
 				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
 				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<PolygonCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<PolygonCollider2DComponent>();
+				out << Yaml::Key << "PolygonCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Points" << Yaml::Value << collider.Points;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<CapsuleCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<CapsuleCollider2DComponent>();
+				out << Yaml::Key << "CapsuleCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Radius" << Yaml::Value << collider.Radius;
+				out << Yaml::Key << "Height" << Yaml::Value << collider.Height;
+				out << Yaml::Key << "Direction" << Yaml::Value << static_cast<int>(collider.CapsuleDirection);
+				out << Yaml::Key << "Density" << Yaml::Value << collider.Density;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<EdgeCollider2DComponent>())
+			{
+				const auto& collider = entity.GetComponent<EdgeCollider2DComponent>();
+				out << Yaml::Key << "EdgeCollider2DComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Points" << Yaml::Value << collider.Points;
+				if (collider.Loop)
+					out << Yaml::Key << "Loop" << Yaml::Value << true;
+				out << Yaml::Key << "Offset" << Yaml::Value << collider.Offset;
+				out << Yaml::Key << "Friction" << Yaml::Value << collider.Friction;
+				if (collider.Restitution != 0.0f)
+					out << Yaml::Key << "Restitution" << Yaml::Value << collider.Restitution;
+				if (collider.RestitutionThreshold != 0.5f)
+					out << Yaml::Key << "RestitutionThreshold" << Yaml::Value << collider.RestitutionThreshold;
+				if (collider.IsTrigger)
+					out << Yaml::Key << "IsTrigger" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<Joint2DComponent>())
+			{
+				const auto& joint = entity.GetComponent<Joint2DComponent>();
+				out << Yaml::Key << "Joint2DComponent";
+				out << Yaml::BeginMap;
+				if (!joint.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << joint.Enabled;
+				out << Yaml::Key << "JointType" << Yaml::Value << static_cast<int>(joint.JointType);
+				out << Yaml::Key << "ConnectedEntity" << Yaml::Value << static_cast<uint64_t>(joint.ConnectedEntity);
+				out << Yaml::Key << "Anchor" << Yaml::Value << joint.Anchor;
+				out << Yaml::Key << "ConnectedAnchor" << Yaml::Value << joint.ConnectedAnchor;
+				if (joint.CollideConnected)
+					out << Yaml::Key << "CollideConnected" << Yaml::Value << true;
+				out << Yaml::Key << "AutoLength" << Yaml::Value << joint.AutoLength;
+				out << Yaml::Key << "Length" << Yaml::Value << joint.Length;
+				out << Yaml::Key << "Stiffness" << Yaml::Value << joint.Stiffness;
+				out << Yaml::Key << "Damping" << Yaml::Value << joint.Damping;
+				out << Yaml::Key << "EnableLimit" << Yaml::Value << joint.EnableLimit;
+				out << Yaml::Key << "LowerLimit" << Yaml::Value << joint.LowerLimit;
+				out << Yaml::Key << "UpperLimit" << Yaml::Value << joint.UpperLimit;
+				out << Yaml::Key << "EnableMotor" << Yaml::Value << joint.EnableMotor;
+				out << Yaml::Key << "MotorSpeed" << Yaml::Value << joint.MotorSpeed;
+				out << Yaml::Key << "MaxMotorForce" << Yaml::Value << joint.MaxMotorForce;
+				out << Yaml::Key << "Axis" << Yaml::Value << joint.Axis;
 				out << Yaml::EndMap;
 			}
 
@@ -1093,8 +1296,13 @@ namespace Lux {
 					component.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<float>(10.0f));
 					component.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>(-1.0f));
 					component.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>(1.0f));
+					component.Camera.SetPixelsPerUnit(cameraProps["PixelsPerUnit"].as<float>(100.0f));
+					component.Camera.SetReferenceHeight(cameraProps["ReferenceHeight"].as<float>(180.0f));
+					component.Camera.SetPixelPerfect(cameraProps["PixelPerfect"].as<bool>(false));
 					component.Primary = camera["Primary"].as<bool>(true);
 					component.FixedAspectRatio = camera["FixedAspectRatio"].as<bool>(false);
+					component.SolidBackground = camera["SolidBackground"].as<bool>(false);
+					component.BackgroundColor = camera["BackgroundColor"].as<glm::vec4>(component.BackgroundColor);
 				}
 
 				if (const auto light = entity["DirectionalLightComponent"])
@@ -1193,6 +1401,53 @@ namespace Lux {
 					component.UVStart = sprite["UVStart"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
 					component.UVEnd = sprite["UVEnd"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
 					component.ScreenSpace = sprite["ScreenSpace"].as<bool>(false);
+					component.Sheet = AssetReference::ReadValue(sprite["Sheet"]);
+					component.SpriteIndex = sprite["SpriteIndex"].as<int32_t>(0);
+					component.PointFilter = sprite["PointFilter"].as<bool>(false);
+					component.SortingLayer = sprite["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = sprite["OrderInLayer"].as<int32_t>(0);
+				}
+
+				if (const auto animator = entity["SpriteAnimatorComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SpriteAnimatorComponent>();
+					component.Enabled = animator["Enabled"].as<bool>(true);
+					component.Clip = animator["Clip"].as<std::string>("");
+					component.Playing = animator["Playing"].as<bool>(true);
+					component.Speed = animator["Speed"].as<float>(1.0f);
+				}
+
+				if (const auto tilemapNode = entity["TilemapComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<TilemapComponent>();
+					component.Enabled = tilemapNode["Enabled"].as<bool>(true);
+					component.TileSet = AssetReference::ReadValue(tilemapNode["TileSet"]);
+					component.CellSize = tilemapNode["CellSize"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
+					component.PointFilter = tilemapNode["PointFilter"].as<bool>(false);
+					component.SortingLayer = tilemapNode["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = tilemapNode["OrderInLayer"].as<int32_t>(0);
+					component.Friction = tilemapNode["Friction"].as<float>(0.5f);
+					component.Restitution = tilemapNode["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = tilemapNode["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = tilemapNode["IsTrigger"].as<bool>(false);
+					component.Layers.clear();
+					for (const auto& layerNode : tilemapNode["Layers"])
+					{
+						TilemapLayer& layer = component.Layers.emplace_back(layerNode["Name"].as<std::string>("Layer"));
+						layer.Visible = layerNode["Visible"].as<bool>(true);
+						layer.Collides = layerNode["Collides"].as<bool>(true);
+						for (const auto& run : layerNode["Runs"])
+						{
+							// [y, x, tile, ...]: a malformed run is skipped rather than failing the whole scene.
+							if (!run.IsSequence() || run.size() < 3)
+								continue;
+							std::vector<int32_t> numbers;
+							for (const auto& number : run)
+								numbers.push_back(number.as<int32_t>(-1));
+							for (size_t i = 2; i < numbers.size(); i++)
+								Tilemap::SetTile(layer, numbers[1] + static_cast<int32_t>(i - 2), numbers[0], numbers[i]);
+						}
+					}
 				}
 
 				if (const auto circle = entity["CircleRendererComponent"])
@@ -1202,6 +1457,8 @@ namespace Lux {
 					component.Color = circle["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.Thickness = circle["Thickness"].as<float>(1.0f);
 					component.Fade = circle["Fade"].as<float>(0.005f);
+					component.SortingLayer = circle["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = circle["OrderInLayer"].as<int32_t>(0);
 				}
 
 				if (const auto text = entity["TextComponent"])
@@ -1218,6 +1475,8 @@ namespace Lux {
 					component.DropShadow = text["DropShadow"].as<bool>(false);
 					component.ShadowDistance = text["ShadowDistance"].as<float>(0.0f);
 					component.ShadowColor = text["ShadowColor"].as<glm::vec4>(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
+					component.SortingLayer = text["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = text["OrderInLayer"].as<int32_t>(0);
 				}
 
 				if (const auto rigidBody = entity["RigidBody2DComponent"])
@@ -1239,6 +1498,9 @@ namespace Lux {
 					component.Size = boxCollider["Size"].as<glm::vec2>(glm::vec2{ 0.5f, 0.5f });
 					component.Density = boxCollider["Density"].as<float>(1.0f);
 					component.Friction = boxCollider["Friction"].as<float>(1.0f);
+					component.Restitution = boxCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = boxCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = boxCollider["IsTrigger"].as<bool>(false);
 				}
 
 				if (const auto circleCollider = entity["CircleCollider2DComponent"])
@@ -1248,6 +1510,69 @@ namespace Lux {
 					component.Radius = circleCollider["Radius"].as<float>(1.0f);
 					component.Density = circleCollider["Density"].as<float>(1.0f);
 					component.Friction = circleCollider["Friction"].as<float>(1.0f);
+					component.Restitution = circleCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = circleCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = circleCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto polygonCollider = entity["PolygonCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<PolygonCollider2DComponent>();
+					component.Points = polygonCollider["Points"].as<std::vector<glm::vec2>>(component.Points);
+					component.Offset = polygonCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Density = polygonCollider["Density"].as<float>(1.0f);
+					component.Friction = polygonCollider["Friction"].as<float>(0.5f);
+					component.Restitution = polygonCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = polygonCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = polygonCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto capsuleCollider = entity["CapsuleCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<CapsuleCollider2DComponent>();
+					component.Offset = capsuleCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Radius = capsuleCollider["Radius"].as<float>(0.25f);
+					component.Height = capsuleCollider["Height"].as<float>(1.0f);
+					component.CapsuleDirection = static_cast<CapsuleCollider2DComponent::Direction>(capsuleCollider["Direction"].as<int>(0));
+					component.Density = capsuleCollider["Density"].as<float>(1.0f);
+					component.Friction = capsuleCollider["Friction"].as<float>(0.5f);
+					component.Restitution = capsuleCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = capsuleCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = capsuleCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto edgeCollider = entity["EdgeCollider2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<EdgeCollider2DComponent>();
+					component.Points = edgeCollider["Points"].as<std::vector<glm::vec2>>(component.Points);
+					component.Loop = edgeCollider["Loop"].as<bool>(false);
+					component.Offset = edgeCollider["Offset"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.Friction = edgeCollider["Friction"].as<float>(0.5f);
+					component.Restitution = edgeCollider["Restitution"].as<float>(0.0f);
+					component.RestitutionThreshold = edgeCollider["RestitutionThreshold"].as<float>(0.5f);
+					component.IsTrigger = edgeCollider["IsTrigger"].as<bool>(false);
+				}
+
+				if (const auto jointNode = entity["Joint2DComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<Joint2DComponent>();
+					component.Enabled = jointNode["Enabled"].as<bool>(true);
+					component.JointType = static_cast<Joint2DComponent::Type>(jointNode["JointType"].as<int>(0));
+					component.ConnectedEntity = jointNode["ConnectedEntity"].as<uint64_t>(0);
+					component.Anchor = jointNode["Anchor"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.ConnectedAnchor = jointNode["ConnectedAnchor"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
+					component.CollideConnected = jointNode["CollideConnected"].as<bool>(false);
+					component.AutoLength = jointNode["AutoLength"].as<bool>(true);
+					component.Length = jointNode["Length"].as<float>(1.0f);
+					component.Stiffness = jointNode["Stiffness"].as<float>(0.0f);
+					component.Damping = jointNode["Damping"].as<float>(0.0f);
+					component.EnableLimit = jointNode["EnableLimit"].as<bool>(false);
+					component.LowerLimit = jointNode["LowerLimit"].as<float>(0.0f);
+					component.UpperLimit = jointNode["UpperLimit"].as<float>(0.0f);
+					component.EnableMotor = jointNode["EnableMotor"].as<bool>(false);
+					component.MotorSpeed = jointNode["MotorSpeed"].as<float>(0.0f);
+					component.MaxMotorForce = jointNode["MaxMotorForce"].as<float>(100.0f);
+					component.Axis = jointNode["Axis"].as<glm::vec2>(glm::vec2{ 1.0f, 0.0f });
 				}
 
 				if (const auto rigidBody = entity["RigidBodyComponent"])

@@ -43,6 +43,8 @@ namespace Lux {
 		// Invoked by the material slots' Edit buttons; the editor opens the Material Editor.
 		void SetOpenMaterialCallback(std::function<void(AssetHandle)> callback) { m_OpenMaterialCallback = std::move(callback); }
 		void SetOpenSoundCallback(std::function<void(AssetHandle)> callback) { m_OpenSoundCallback = std::move(callback); }
+		// Invoked by the Tilemap's Open Tile Palette button.
+		void SetOpenTilePaletteCallback(std::function<void()> callback) { m_OpenTilePaletteCallback = std::move(callback); }
 	private:
 		void PruneInvalidSelection();
 		void QueueEntityDeletion(const std::vector<UUID>& entityIDs);
@@ -74,6 +76,7 @@ namespace Lux {
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
 		std::function<void(AssetHandle)> m_OpenSoundCallback;
+		std::function<void()> m_OpenTilePaletteCallback;
 		// A material whose graph parameter was edited here: saved once no widget is active.
 		AssetHandle m_PendingMaterialSave = 0;
 

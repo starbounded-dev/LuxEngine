@@ -29,6 +29,7 @@
 
 #include <concepts>
 #include <type_traits>
+#include <unordered_map>
 
 namespace Lux {
 
@@ -175,6 +176,17 @@ namespace Lux {
 		glm::vec2 UVStart = { 0.0f, 0.0f };
 		glm::vec2 UVEnd = { 1.0f, 1.0f };
 		bool ScreenSpace = false;
+		// Nearest-neighbour sampling instead of linear: pixel art stays sharp when magnified.
+		bool PointFilter = false;
+		// A frame of a sprite sheet instead of Texture: the sheet's texture, the frame's rectangle,
+		// sized from the frame (texels / the sheet's pixels per unit) and anchored at its pivot.
+		AssetHandle Sheet = 0;
+		int32_t SpriteIndex = 0;
+
+		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
+		// order inside it, then depth. Serialized only when not the default.
+		uint32_t SortingLayer = 0;
+		int32_t OrderInLayer = 0;
 
 		SpriteRendererComponent() = default;
 		SpriteRendererComponent(const SpriteRendererComponent&) = default;
@@ -190,8 +202,65 @@ namespace Lux {
 		float Thickness = 1.0f;
 		float Fade = 0.005f;
 
+		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
+		// order inside it, then depth. Serialized only when not the default.
+		uint32_t SortingLayer = 0;
+		int32_t OrderInLayer = 0;
+
 		CircleRendererComponent() = default;
 		CircleRendererComponent(const CircleRendererComponent&) = default;
+	};
+
+	// Plays one of the sprite sheet's clips on the SpriteRendererComponent next to it, in Play and Simulate.
+	struct SpriteAnimatorComponent
+	{
+		bool Enabled = true;
+		std::string Clip;       // a clip name in the sprite renderer's sheet; empty plays nothing
+		bool Playing = true;    // false until a script plays a clip, or after a Once clip ends
+		float Speed = 1.0f;
+
+		// Runtime state, reset by the scene copy that Play starts from.
+		float Time = 0.0f;      // seconds into the clip
+		bool Finished = false;  // a Once clip reached its end
+
+		SpriteAnimatorComponent() = default;
+		SpriteAnimatorComponent(const SpriteAnimatorComponent&) = default;
+	};
+
+	// One layer of a tilemap: tiles by cell, drawn in list order (later on top). A cell holds the index of a frame of
+	// the tilemap's tile set. See Tilemap.h to edit one.
+	struct TilemapLayer
+	{
+		std::string Name = "Layer";
+		bool Visible = true;
+		bool Collides = true; // the solid tiles of this layer block bodies (the entity needs a Rigidbody 2D)
+		std::unordered_map<int64_t, int32_t> Cells; // Tilemap::Key(x, y) -> frame index
+
+		TilemapLayer() = default;
+		explicit TilemapLayer(std::string name) : Name(std::move(name)) {}
+	};
+
+	// A grid of tiles from a sprite sheet (its frames are the tiles; a frame flagged Solid collides), in layers. Cell
+	// (0, 0) has its lower left corner at the entity's origin; one cell is CellSize world units, scaled by the entity.
+	// Paint it with the Tile Palette panel. With a static Rigidbody 2D on the same entity, solid tiles collide.
+	struct TilemapComponent
+	{
+		bool Enabled = true;
+		AssetHandle TileSet = 0;                    // a sprite sheet
+		glm::vec2 CellSize = { 1.0f, 1.0f };
+		std::vector<TilemapLayer> Layers = { TilemapLayer("Ground") };
+		bool PointFilter = false;                   // nearest-neighbour sampling, for pixel-art tiles
+		uint32_t SortingLayer = 0;                  // like a sprite's: the project's sorting layer ID and the order in it
+		int32_t OrderInLayer = 0;
+
+		// How the solid tiles feel; the same fields as a collider.
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		TilemapComponent() = default;
+		TilemapComponent(const TilemapComponent&) = default;
 	};
 
 	struct CameraComponent
@@ -202,6 +271,11 @@ namespace Lux {
 		SceneCamera Camera;
 		bool Primary = true; // TODO: think about moving to Scene
 		bool FixedAspectRatio = false;
+
+		// 2D games: fill the view with BackgroundColor instead of the sky. It is drawn in the 2D overlay,
+		// after tone mapping, so the colour shows exactly as authored.
+		bool SolidBackground = false;
+		glm::vec4 BackgroundColor{ 0.12f, 0.13f, 0.16f, 1.0f };
 
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
@@ -281,6 +355,8 @@ namespace Lux {
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
+		// A trigger detects overlaps (OnTriggerBegin/End) and blocks nothing.
+		bool IsTrigger = false;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
@@ -299,12 +375,114 @@ namespace Lux {
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
+		// A trigger detects overlaps (OnTriggerBegin/End) and blocks nothing.
+		bool IsTrigger = false;
 
 		// Storage for runtime
 		void* RuntimeFixture = nullptr;
 
 		CircleCollider2DComponent() = default;
 		CircleCollider2DComponent(const CircleCollider2DComponent&) = default;
+	};
+
+	// A convex polygon of 3 to 8 points, in the entity's local space (scaled by its X/Y scale). Points that are not
+	// convex are replaced by their convex hull when the body is made.
+	struct PolygonCollider2DComponent
+	{
+		static constexpr size_t MaxPoints = 8; // b2_maxPolygonVertices
+
+		std::vector<glm::vec2> Points = { { -0.5f, -0.5f }, { 0.5f, -0.5f }, { 0.5f, 0.5f }, { -0.5f, 0.5f } };
+		glm::vec2 Offset = { 0.0f, 0.0f };
+
+		float Density = 1.0f;
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		// Storage for runtime
+		void* RuntimeFixture = nullptr;
+
+		PolygonCollider2DComponent() = default;
+		PolygonCollider2DComponent(const PolygonCollider2DComponent&) = default;
+	};
+
+	// A rounded rectangle: a box with a half circle on each end of its long side. Box2D has no capsule, so it
+	// is built from a box and two circles on the body.
+	struct CapsuleCollider2DComponent
+	{
+		enum class Direction { Vertical = 0, Horizontal };
+
+		glm::vec2 Offset = { 0.0f, 0.0f };
+		float Radius = 0.25f; // of the rounded ends: half the width
+		float Height = 1.0f;  // the whole length, rounded ends included (never less than twice the radius)
+		Direction CapsuleDirection = Direction::Vertical;
+
+		float Density = 1.0f;
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		// Storage for runtime
+		void* RuntimeFixture = nullptr;
+
+		CapsuleCollider2DComponent() = default;
+		CapsuleCollider2DComponent(const CapsuleCollider2DComponent&) = default;
+	};
+
+	// A line of two or more points that blocks (a floor, a wall, terrain), open or closed. It has no area and
+	// no mass: it belongs on a static or kinematic body. Points are in local space, scaled by the entity's X/Y scale.
+	struct EdgeCollider2DComponent
+	{
+		std::vector<glm::vec2> Points = { { -1.0f, 0.0f }, { 1.0f, 0.0f } };
+		bool Loop = false; // joins the last point to the first (needs three or more)
+		glm::vec2 Offset = { 0.0f, 0.0f };
+
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
+
+		// Storage for runtime
+		void* RuntimeFixture = nullptr;
+
+		EdgeCollider2DComponent() = default;
+		EdgeCollider2DComponent(const EdgeCollider2DComponent&) = default;
+	};
+
+	// Joins this entity's body to another body, or to a fixed point in the world. Made when the scene starts.
+	struct Joint2DComponent
+	{
+		enum class Type { Distance = 0, Revolute, Prismatic, Weld };
+
+		bool Enabled = true;
+		Type JointType = Type::Distance;
+		UUID ConnectedEntity = 0;           // the other body; 0 anchors this body to the world
+		glm::vec2 Anchor = { 0.0f, 0.0f };  // on this body, in its local space
+		glm::vec2 ConnectedAnchor = { 0.0f, 0.0f }; // Distance only: on the other body (local), or a world point when connected to the world
+		bool CollideConnected = false;      // whether the two bodies still collide with each other
+
+		// Distance: keeps the anchors a length apart; a stiffness makes it a spring.
+		bool AutoLength = true;             // the distance at the start
+		float Length = 1.0f;
+		float Stiffness = 0.0f;             // N/m; 0 is a rigid rod
+		float Damping = 0.0f;
+
+		// Revolute (a hinge about Anchor) and Prismatic (a slider along Axis): limits and a motor.
+		bool EnableLimit = false;
+		float LowerLimit = 0.0f;            // degrees (revolute) or units (prismatic)
+		float UpperLimit = 0.0f;
+		bool EnableMotor = false;
+		float MotorSpeed = 0.0f;            // degrees per second, or units per second
+		float MaxMotorForce = 100.0f;       // N*m (revolute) or N (prismatic)
+		glm::vec2 Axis = { 1.0f, 0.0f };    // Prismatic: the slide direction in this body's local space
+
+		// Storage for runtime
+		void* RuntimeJoint = nullptr;
+
+		Joint2DComponent() = default;
+		Joint2DComponent(const Joint2DComponent&) = default;
 	};
 
 	struct RigidBodyComponent
@@ -427,6 +605,11 @@ namespace Lux {
 		bool DropShadow = false;
 		float ShadowDistance = 0.0f;
 		glm::vec4 ShadowColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
+		// order inside it, then depth. Serialized only when not the default.
+		uint32_t SortingLayer = 0;
+		int32_t OrderInLayer = 0;
 
 		TextComponent() = default;
 		TextComponent(const TextComponent& other) = default;
@@ -775,8 +958,8 @@ namespace Lux {
 	};
 
 	using AllComponents =
-		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent,
-		CircleRendererComponent, CameraComponent, ScriptComponent,
+		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent, SpriteAnimatorComponent,
+		PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,

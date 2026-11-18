@@ -667,7 +667,7 @@ Layered so the backend can be swapped:
   `SimulateStep(fixedDt)` calls, each one Jolt step with kinematic targets, character controllers and
   the transform sync. In Play, C# `OnFixedUpdate(fixedDt)` runs before each step, after the frame's
   `OnUpdate` (`Scene::InvokeScriptFixedUpdate`, same enabled/active/created rules). Contact events
-  still drain once per frame. Box2D (`PhysicsScene2D`) still steps once per frame with the frame time.
+  still drain once per frame. Box2D (`PhysicsScene2D`) steps inside the same loop (§2.6a).
 - `PhysicsShapes.h` — box, sphere, capsule, convex mesh, triangle mesh (static only), compound.
 - `CharacterController.h` / `JoltCharacterController` — a `JPH::CharacterVirtual` whose shape is the
   entity's primitive colliders (`CreateEntityShape`; a 2 m capsule without one; a character entity's
@@ -717,6 +717,90 @@ scheduler in LuxEngine.
 
 `Core/Source/Lux/Physics2D/`, driven directly by `Scene` (`OnPhysics2DStart` / `OnPhysics2DStop`).
 No abstraction layer — Box2D is small enough to use directly.
+
+### 2.6a 2D project type (M11)
+
+**Box2D (P6).** `PhysicsScene2D` builds the world from the scene when Play or Simulate starts (`Start`: every
+`RigidBody2DComponent` body with its colliders, then every `Joint2DComponent`) and takes spawned entities through
+`CreateBody` / `CreateJoint` (`StartSpawnedHierarchy`) and destroyed ones through `DestroyBody` (`DestroyEntityForRestore`).
+Gravity and the step length come from the project (`Physics.Gravity` x/y, `Physics.FixedTimestep`).
+`Scene::StepPhysics` runs one fixed clock for both worlds, the 3D scene's `AdvanceFixedClock` or, in a project with no
+3D scene, the 2D scene's (same accumulator rule, at most 8 steps): `OnFixedUpdate` once per step, then
+`SimulateStep` on each world. Colliders (`BoxCollider2DComponent`, `CircleCollider2DComponent`,
+`PolygonCollider2DComponent`, `CapsuleCollider2DComponent`, `EdgeCollider2DComponent`) share `Friction`,
+`Restitution`, `RestitutionThreshold` and `IsTrigger` (a Box2D sensor); Box2D 2.4 has no capsule, so one is a box plus two
+circles, and an edge collider is a chain made twice, once each way round, because a Box2D chain blocks from one side
+only. A polygon with no area makes no collider and logs a warning. `Joint2DComponent` is one joint of a type
+(Distance, Revolute, Prismatic, Weld) to `ConnectedEntity` or, at 0, to a ground body at the world anchor; a missing
+or bodyless partner logs a warning and makes no joint; prefab instantiation and duplication remap the partner
+(`RemapAudioListenerTargets`). Contacts no longer call C# from inside the Box2D step: `ContactListener2D` records
+`PhysicsContactEvent`s (keyed by the contact, so a body with three fixtures is three events), `DispatchCollisionEvents`
+drains them into the same pair trackers the 3D world uses (one Begin per entity pair, triggers separate), with the
+usual enabled/active/created rules. C#: `Physics2D.Raycast / RaycastAll / OverlapPoint / OverlapCircle / OverlapBox`
+(`Physics2D_*` in ScriptGlue, 32-byte `NativeRaycastHit2D`) and `IsTrigger` on box and circle colliders.
+Checks: the `tests/2d` physics section and, in a real Play session, `tests/play` (`Physics2DTests.cs`).
+
+A project is 3D or 2D (`ProjectConfig::Type`, `ProjectType: 2D` in the `.luxproj`, written only for 2D so
+older files re-save unchanged). It only changes what a new project starts with and how the editor opens;
+every engine feature stays available in both.
+
+- **Template.** The New Project form's *Template* choice reaches `EditorLayer::CreateProject(..., twoD)`.
+  A 2D project copies no default meshes; `CreateStarterScene2D` fills the empty scene with
+  `SceneTemplates::Populate2DStarter` (`Scene/SceneTemplates.cpp`: orthographic camera with a solid
+  background, a static ground and a dynamic box), saves `Scenes/Main.luxscene` and makes it the start scene.
+- **Editor view.** `EditorCamera::Set2DMode`: orthographic, looking down -Z at the XY plane, identity
+  orientation. "Distance" is the visible height in world units. Middle or right drag (or Alt + left drag)
+  pans, the wheel zooms about the centre; `RebuildProjection` keeps the orthographic projection on resize.
+  `OpenProject` turns it on for a 2D project; *2D View* in the viewport settings toggles it per session. The
+  orientation widget is hidden, the gizmo offers X/Y move, Z rotate and XY scale, and *Pixel Snap* snaps
+  moves to `1 / pixels-per-unit` (session-only settings). `Grid.glsl` draws the z = 0 plane when the camera is
+  orthographic and looks along Z. Clicking a sprite or circle picks it (`RayIntersectsEntity`).
+- **Background.** `CameraComponent::SolidBackground` / `BackgroundColor` (serialized only when on). When the
+  overlay view is orthographic, `Scene::CaptureDraw2D` makes the view rectangle the first `Draw2D` item, so it
+  is drawn in the 2D overlay after tone mapping and keeps its display colour.
+- **Draw order (D4).** The project lists sorting layers (`ProjectConfig::SortingLayers`, `ProjectSortingLayer`
+  ID + name, drawn back to front in list order; ID 0 "Default" always exists; YAML `SortingLayers` only when not
+  the default, runtime project format 32). `SpriteRendererComponent`, `CircleRendererComponent` and
+  `TextComponent` carry `SortingLayer` (an ID) and `OrderInLayer` (written only when not 0).
+  `Scene::CaptureDraw2D` stable-sorts the three kinds together by (layer rank, order, view depth farthest first)
+  after the camera background; `Renderer2D` still batches quads, text and circle outlines separately, so the
+  order holds within each kind (text and outlines draw after quads). An unknown layer ID draws as Default.
+  `Scene::GetDrawOrder` is the same key for the editor's click picking. Project Settings > 2D edits the list
+  (and the project type). The legacy direct 2D paths in `OnUpdateRuntime` / `RenderScene` draw into an
+  undisplayed framebuffer and are not sorted.
+- **Pixel perfect.** `SceneCamera::SetPixelPerfect` (`PixelsPerUnit`, `ReferenceHeight`, serialized only when on):
+  the orthographic height is `viewport pixels / (PPU x scale)` with `scale = max(1, floor(height / reference))`, so
+  a sprite pixel is a whole number of screen pixels; `BuildRenderPacketRuntime` rounds the camera position to
+  `GetPixelSnapUnit()`. It assumes the game renders at native resolution. `SpriteRendererComponent::PointFilter`
+  samples nearest-neighbour (a negative tiling factor reaches `Renderer2D.glsl`, which picks `r_PointSampler`).
+- **Sprite sheets and animation (D2).** `SpriteSheet` (`Renderer/SpriteSheet.h`, asset type `SpriteSheet`, `.lsheet`,
+  `SpriteSheetSerializer`, packed as bounded YAML like Sounds) is a texture, a grid (`SliceGrid`), named frames
+  (`Rect` in texels from the top, `Pivot`, `Solid`) and named clips (frame list, fps, Once/Loop/PingPong; `SampleClip`).
+  `SpriteRendererComponent::Sheet` + `SpriteIndex` draw a frame: `CaptureDraw2D` takes the sheet's texture and the
+  frame's UVs (`Draw2DItem::UV0/UV1`; `GetFrameUV` is bottom-left / top-right, v = 0 at the bottom of the image) and
+  sizes the quad from the frame (texels / `PixelsPerUnit`) about its pivot. `SpriteAnimatorComponent` (`Clip` name,
+  `Playing`, `Speed`, runtime `Time` / `Finished`) is advanced by `Scene::UpdateSpriteAnimators` in Play and Simulate;
+  C# `SpriteAnimatorComponent.Play/Stop` and `SpriteRendererComponent.SpriteIndex/SortingLayer/OrderInLayer`.
+  `Scene::GetAssetList` lists a sprite's sheet and the sheet's texture, so exports pack both. `SpriteAtlas::Pack`
+  (`Renderer/SpriteAtlas.h`, shelf packing, no new dependency) turns many textures into one image plus frames; the
+  Content Browser's *Create > Sprite Atlas From Selected Textures* writes the PNG and the sheet, so packing is an
+  authoring step and the export ships the result like any texture. The Sprite Sheet Editor panel
+  (`Editor/Source/Panels/SpriteSheetEditorPanel`) edits sheets; edits save at once and are not on the undo stack.
+  Textured quads were drawn transposed by the `Renderer2D::DrawQuad` overloads that take UVs; they now follow
+  `m_QuadVertexPositions`. A new component must also join `AllComponents` (Components.h) and have an
+  `OnComponentAdded` specialization in Scene.cpp, besides the playbook's steps.
+- **Tilemaps (D3).** `TilemapComponent` (tile set = sprite sheet handle, `CellSize`, `Layers` of sparse
+  `unordered_map<int64 key(x,y), frame>`, sorting layer/order, collider material) is edited through `Lux::Tilemap`
+  (`Scene/Tilemap.h`: Get/SetTile, FillRect, FloodFill, `MergeSolid`, `ComputeVisibleCells`). `CaptureDraw2D` emits one
+  `Draw2DItem::Kind::Tiles` per visible layer holding only the tiles the view sees (culled against the 2D view
+  projection); the submit loop draws each as a quad. `PhysicsScene2D::CreateTilemapFixtures` makes one box per merged
+  block of Solid frames on the entity's `RigidBody2D` (none, no collision); `RebuildTilemap` redoes them after C#
+  `Tilemap.SetTile` or a palette stroke. Layers serialize as `Runs` flow lists, sorted so a resave is byte-identical. The
+  Tile Palette panel (`Editor/Source/Panels/TilePalettePanel`) gets the Scene View mouse from
+  `EditorLayer::UpdateTilePainting` while `IsPainting()` (selection and the gizmo step aside; Edit state only), one undo
+  step per stroke.
+- **Checks.** `tests/2d/run_2d_checks.py` builds `tests/2d/Checks2D.cpp` (derived from `Editor.vcxproj`, no
+  window, no GPU) and runs the project type, background, 2D camera and template checks.
 
 ### 2.7 Scripting (C# / Coral)
 

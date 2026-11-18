@@ -37,6 +37,58 @@ namespace Lux {
 		m_ViewMatrix = glm::inverse(m_ViewMatrix);
 	}
 
+	namespace
+	{
+		// The 2D camera sits this far in front of the XY plane; the clip range spans both sides of it.
+		constexpr float k_Distance2D = 500.0f;
+		constexpr float k_NearClip2D = 0.1f;
+		constexpr float k_FarClip2D = 1000.0f;
+		constexpr float k_MinOrthoHeight = 0.05f;
+		constexpr float k_MaxOrthoHeight = 100000.0f;
+	}
+
+	void EditorCamera::RebuildProjection()
+	{
+		const float width = (float)(m_ViewportRight - m_ViewportLeft);
+		const float height = (float)(m_ViewportBottom - m_ViewportTop);
+		if (width <= 0.0f || height <= 0.0f)
+			return;
+
+		if (m_Mode2D)
+			SetOrthoProjectionMatrix(m_OrthoHeight * width / height, m_OrthoHeight, k_NearClip2D, k_FarClip2D);
+		else
+			SetPerspectiveProjectionMatrix(m_VerticalFOV, width, height, m_NearClip, m_FarClip);
+	}
+
+	void EditorCamera::Set2DMode(bool enabled)
+	{
+		if (m_Mode2D == enabled)
+			return;
+
+		m_Mode2D = enabled;
+		m_CameraMode = CameraMode::ARCBALL;
+		m_PitchDelta = m_YawDelta = 0.0f;
+		m_PositionDelta = glm::vec3(0.0f);
+		if (enabled)
+		{
+			m_Saved3DDistance = m_Distance;
+			m_Saved3DPitch = m_Pitch;
+			m_Saved3DYaw = m_Yaw;
+			m_Pitch = m_Yaw = 0.0f; // identity orientation: forward -Z, up +Y
+			m_FocalPoint.z = 0.0f;
+			m_Distance = k_Distance2D;
+		}
+		else
+		{
+			m_Distance = m_Saved3DDistance;
+			m_Pitch = m_Saved3DPitch;
+			m_Yaw = m_Saved3DYaw;
+		}
+		m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+		RebuildProjection();
+		UpdateCameraView();
+	}
+
 	static void DisableMouse()
 	{
 #ifdef LUX_PLATFORM_LINUX
@@ -63,7 +115,9 @@ namespace Lux {
 			&& (Input::IsMouseButtonDown(MouseButton::Middle)
 				|| Input::IsMouseButtonDown(MouseButton::Left)
 				|| rightMouseDown);
-		const bool cameraMouseCapture = m_IsActive && (flycamMouseCapture || arcballMouseCapture);
+		const bool pan2D = m_Mode2D && (Input::IsMouseButtonDown(MouseButton::Middle) || rightMouseDown
+			|| (altDown && Input::IsMouseButtonDown(MouseButton::Left)));
+		const bool cameraMouseCapture = m_IsActive && (m_Mode2D ? pan2D : (flycamMouseCapture || arcballMouseCapture));
 
 		if (cameraMouseCapture && !m_CameraMouseCaptured)
 		{
@@ -89,6 +143,27 @@ namespace Lux {
 			else if (!ImGuiEx::IsInputEnabled())
 				ImGuiEx::SetInputEnabled(true);
 
+			return;
+		}
+
+		if (m_Mode2D)
+		{
+			if (cameraMouseCapture)
+			{
+				DisableMouse();
+				const float panelHeight = m_PanelHeight > 1.0f ? m_PanelHeight : float(m_ViewportBottom - m_ViewportTop);
+				const float worldPerPixel = m_OrthoHeight / glm::max(panelHeight, 1.0f);
+				const glm::vec2 pixels = mouse - m_InitialMousePosition;
+				m_FocalPoint.x -= pixels.x * worldPerPixel;
+				m_FocalPoint.y += pixels.y * worldPerPixel;
+				WrapMousePosition(mouse);
+			}
+			else
+				EnableMouse();
+
+			m_InitialMousePosition = mouse;
+			m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+			UpdateCameraView();
 			return;
 		}
 
@@ -231,6 +306,14 @@ namespace Lux {
 
 	void EditorCamera::Focus(const glm::vec3& focusPoint)
 	{
+		if (m_Mode2D)
+		{
+			m_FocalPoint = { focusPoint.x, focusPoint.y, 0.0f };
+			m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+			UpdateCameraView();
+			return;
+		}
+
 		m_FocalPoint = focusPoint;
 		m_CameraMode = CameraMode::FLYCAM;
 		if (m_Distance > m_MinFocusDistance)
@@ -244,6 +327,16 @@ namespace Lux {
 
 	void EditorCamera::SetOrbitState(const glm::vec3& focalPoint, float distance, float pitch, float yaw)
 	{
+		if (m_Mode2D)
+		{
+			m_FocalPoint = { focalPoint.x, focalPoint.y, 0.0f };
+			m_OrthoHeight = glm::clamp(distance, k_MinOrthoHeight, k_MaxOrthoHeight);
+			m_Position = m_FocalPoint - GetForwardDirection() * m_Distance;
+			RebuildProjection();
+			UpdateCameraView();
+			return;
+		}
+
 		m_FocalPoint = focalPoint;
 		m_Distance = glm::max(distance, 0.01f);
 		m_Pitch = pitch;
@@ -289,6 +382,13 @@ namespace Lux {
 
 	bool EditorCamera::OnMouseScroll(MouseScrolledEvent& e)
 	{
+		if (m_Mode2D)
+		{
+			m_OrthoHeight = glm::clamp(m_OrthoHeight * std::pow(0.85f, e.GetYOffset()), k_MinOrthoHeight, k_MaxOrthoHeight);
+			RebuildProjection();
+			return true;
+		}
+
 		if (Input::IsMouseButtonDown(MouseButton::Right))
 		{
 			m_NormalSpeed += e.GetYOffset() * 0.3f * m_NormalSpeed;

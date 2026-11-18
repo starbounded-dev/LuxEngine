@@ -285,6 +285,11 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		// Advances every playing SpriteAnimatorComponent and shows the clip's frame on its sprite.
+		void UpdateSpriteAnimators(Timestep ts);
+		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
+		// higher draws later, on top. Other entities return 0. The editor uses it to pick the visible one.
+		int64_t GetDrawOrder(Entity entity);
 		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		// Editor overlay: the bones of every selected skinned entity, parent to child, from the evaluated pose.
 		void CaptureSkeletonLines(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
@@ -413,6 +418,7 @@ namespace Lux {
 		UUID m_MusicOwner = 0;
 		Ref<AudioSurfaceTable> m_AudioSurfaceTable;
 		std::vector<PhysicsContactEvent> m_PhysicsContactEvents;
+		std::vector<PhysicsContactEvent> m_PhysicsContactEvents2D;
 		// C# OnCollisionBegin/End (3D bodies and character controllers) and OnTriggerBegin/End.
 		void DispatchCollisionEvents();
 		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
@@ -458,6 +464,8 @@ namespace Lux {
 
 		// Defined out-of-line (PhysicsScene need not be complete in this header).
 		Ref<PhysicsScene> GetPhysicsScene() const;
+		// The Box2D world while the scene plays or simulates, otherwise null.
+		PhysicsScene2D* GetPhysicsScene2D() const { return m_PhysicsScene2D.get(); }
 
 		// The acoustic tag an entity's geometry uses: its AudioSurfaceComponent, else its mesh
 		// collider's tag, else Default. The one rule for geometry, surface sounds and debug views.

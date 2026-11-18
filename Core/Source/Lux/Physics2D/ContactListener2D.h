@@ -15,6 +15,10 @@
 #include "box2d/b2_polygon_shape.h"
 #include "box2d/b2_circle_shape.h"
 
+#include "Lux/Physics/PhysicsContactEvent.h"
+
+#include <vector>
+
 namespace Lux {
 
 	namespace Utils {
@@ -47,43 +51,23 @@ namespace Lux {
 
 	}
 
+	// Turns Box2D contact begin/end into PhysicsContactEvents (a pair of entities, trigger or not) for the scene to
+	// dispatch to scripts after the step. Nothing is called back into C# from inside the world step.
 	class ContactListener2D : public b2ContactListener
 	{
 	public:
-		virtual void BeginContact(b2Contact* contact) override;
+		// Events go to `events` while `record` is true.
+		ContactListener2D(std::vector<PhysicsContactEvent>& events, const bool& record)
+			: m_Events(events), m_Record(record) {}
 
-		/// Called when two fixtures cease to touch.
-		virtual void EndContact(b2Contact* contact) override;
+		void BeginContact(b2Contact* contact) override;
+		void EndContact(b2Contact* contact) override;
 
-		/// This is called after a contact is updated. This allows you to inspect a
-		/// contact before it goes to the solver. If you are careful, you can modify the
-		/// contact manifold (e.g. disable contact).
-		/// A copy of the old manifold is provided so that you can detect changes.
-		/// Note: this is called only for awake bodies.
-		/// Note: this is called even when the number of contact points is zero.
-		/// Note: this is not called for sensors.
-		/// Note: if you set the number of contact points to zero, you will not
-		/// get an EndContact callback. However, you may get a BeginContact callback
-		/// the next step.
-		virtual void PreSolve(b2Contact* contact, const b2Manifold* oldManifold) override
-		{
-			B2_NOT_USED(contact);
-			B2_NOT_USED(oldManifold);
-		}
+	private:
+		void Record(b2Contact* contact, PhysicsContactEvent::Type state);
 
-		/// This lets you inspect a contact after the solver is finished. This is useful
-		/// for inspecting impulses.
-		/// Note: the contact manifold does not include time of impact impulses, which can be
-		/// arbitrarily large if the sub-step is small. Hence the impulse is provided explicitly
-		/// in a separate data structure.
-		/// Note: this is only called for contacts that are touching, solid, and awake.
-		virtual void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse) override
-		{
-			B2_NOT_USED(contact);
-			B2_NOT_USED(impulse);
-		}
-
-		inline static bool m_IsPlaying = false;
+		std::vector<PhysicsContactEvent>& m_Events;
+		const bool& m_Record;
 	};
 
 }

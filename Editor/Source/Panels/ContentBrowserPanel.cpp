@@ -28,7 +28,10 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/SpriteAtlas.h"
+#include "Lux/Renderer/SpriteSheet.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -254,6 +257,10 @@ namespace Lux {
 								CreateSoundAsset();
 							if (ImGui::MenuItem("Sound Bank"))
 								CreateSoundBankAsset();
+							if (ImGui::MenuItem("Sprite Sheet"))
+								CreateSpriteSheetAsset();
+							if (ImGui::MenuItem("Sprite Atlas From Selected Textures"))
+								CreateSpriteAtlasFromSelection();
 
 							ImGui::EndMenu();
 						}
@@ -797,6 +804,10 @@ namespace Lux {
 				CreateSoundAsset();
 			if (ImGui::MenuItem("Sound Bank"))
 				CreateSoundBankAsset();
+			if (ImGui::MenuItem("Sprite Sheet"))
+				CreateSpriteSheetAsset();
+			if (ImGui::MenuItem("Sprite Atlas From Selected Textures"))
+				CreateSpriteAtlasFromSelection();
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import…"))
 			{
@@ -1841,6 +1852,109 @@ namespace Lux {
 		return handle;
 	}
 
+	AssetHandle ContentBrowserPanel::CreateSpriteSheetAsset()
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+
+		SpriteSheet sheet;
+		for (size_t index = 0; index < m_SelectedItems.SelectionCount(); ++index)
+		{
+			if (AssetManager::GetAssetType(m_SelectedItems[index]) != AssetType::Texture)
+				continue;
+			sheet.Texture = m_SelectedItems[index];
+			if (const Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(sheet.Texture))
+			{
+				sheet.CellSize = glm::ivec2(texture->GetSize());
+				sheet.SliceGrid(sheet.CellSize);
+			}
+			break;
+		}
+
+		AssetReference::PathModeScope pathMode;
+		const auto path = FileSystem::GetUniqueFileName(Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath / "New Sprite Sheet.lsheet");
+		std::ofstream file(path);
+		file << sheet.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Could not create sprite sheet '{}'", path.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(path, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+			StartRenamingItem(handle);
+		}
+		return handle;
+	}
+
+	AssetHandle ContentBrowserPanel::CreateSpriteAtlasFromSelection()
+	{
+		if (!m_CurrentDirectory)
+			return 0;
+
+		const auto editorAssets = Project::GetEditorAssetManager();
+		std::vector<SpriteAtlas::Source> sources;
+		for (size_t index = 0; index < m_SelectedItems.SelectionCount(); ++index)
+		{
+			if (!editorAssets || AssetManager::GetAssetType(m_SelectedItems[index]) != AssetType::Texture)
+				continue;
+			const AssetMetadata metadata = editorAssets->GetMetadata(m_SelectedItems[index]);
+			sources.push_back({ metadata.FilePath.stem().string(), editorAssets->GetFileSystemPath(metadata) });
+		}
+		if (sources.empty())
+		{
+			LUX_CORE_WARN_TAG("AssetManager", "Select the textures to pack into an atlas first.");
+			return 0;
+		}
+
+		constexpr int32_t kAtlasPadding = 1;
+		constexpr int32_t kMaxAtlasSize = 4096;
+		SpriteAtlas::Result atlas;
+		std::string error;
+		if (!SpriteAtlas::Pack(sources, kAtlasPadding, kMaxAtlasSize, atlas, error))
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Could not pack the sprite atlas: {}", error);
+			return 0;
+		}
+
+		const std::filesystem::path directory = Project::GetActiveAssetDirectory() / m_CurrentDirectory->FilePath;
+		const auto imagePath = FileSystem::GetUniqueFileName(directory / "New Sprite Atlas.png");
+		if (!SpriteAtlas::WritePNG(imagePath, atlas))
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Could not write the sprite atlas image '{}'", imagePath.string());
+			return 0;
+		}
+		const AssetHandle textureHandle = AssetManager::ImportAsset(std::filesystem::relative(imagePath, Project::GetActiveAssetDirectory()));
+
+		SpriteSheet sheet;
+		sheet.Texture = textureHandle;
+		sheet.Frames = std::move(atlas.Frames);
+		AssetReference::PathModeScope pathMode;
+		const auto sheetPath = FileSystem::GetUniqueFileName(directory / (imagePath.stem().string() + ".lsheet"));
+		std::ofstream file(sheetPath);
+		file << sheet.ToYAML();
+		file.close();
+		if (!file)
+		{
+			LUX_CORE_ERROR_TAG("AssetManager", "Could not create sprite sheet '{}'", sheetPath.string());
+			return 0;
+		}
+		const AssetHandle handle = AssetManager::ImportAsset(std::filesystem::relative(sheetPath, Project::GetActiveAssetDirectory()));
+		Refresh();
+		if (handle)
+		{
+			ClearSelections();
+			SelectItem(handle);
+		}
+		LUX_CORE_INFO_TAG("AssetManager", "Packed {} sprites into a {} x {} atlas", sheet.Frames.size(), atlas.Size.x, atlas.Size.y);
+		return handle;
+	}
+
 	AssetHandle ContentBrowserPanel::CreateMaterialInstance(AssetHandle parentHandle)
 	{
 		Ref<MaterialAsset> parent = AssetManager::GetAsset<MaterialAsset>(parentHandle);
@@ -1946,6 +2060,7 @@ namespace Lux {
 		case AssetType::Mesh: return EditorResources::MeshFileIcon;
 		case AssetType::StaticMesh: return EditorResources::StaticMeshFileIcon;
 		case AssetType::Texture: return EditorResources::FileIcon;
+		case AssetType::SpriteSheet: return EditorResources::SpriteIcon;
 		case AssetType::Audio: return EditorResources::AudioIcon;
 		case AssetType::DialogueTable:
 		case AssetType::AudioSurfaceTable: return EditorResources::AudioIcon;

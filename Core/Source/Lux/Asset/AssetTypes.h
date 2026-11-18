@@ -46,7 +46,9 @@ namespace Lux {
 		// so existing numeric values are unchanged.
 		Sound,
 		// A list of Sounds that load and unload together (.lbank).
-		SoundBank
+		SoundBank,
+		// A texture cut into sprites with animation clips and tile flags (.lsheet).
+		SpriteSheet
 	};
 
 	namespace Utils {
@@ -80,6 +82,7 @@ namespace Lux {
 			if (assetType == "AudioBank")           return AssetType::AudioBank;
 			if (assetType == "Sound")               return AssetType::Sound;
 			if (assetType == "SoundBank")           return AssetType::SoundBank;
+			if (assetType == "SpriteSheet")         return AssetType::SpriteSheet;
 
 			return AssetType::None;
 		}
@@ -114,6 +117,7 @@ namespace Lux {
 			case AssetType::AudioBank:           return "AudioBank";
 			case AssetType::Sound:               return "Sound";
 			case AssetType::SoundBank:           return "SoundBank";
+			case AssetType::SpriteSheet:         return "SpriteSheet";
 			}
 
 			LUX_CORE_ASSERT(false, "Unknown Asset Type");

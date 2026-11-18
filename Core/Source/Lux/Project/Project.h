@@ -35,6 +35,14 @@ namespace Lux
 		Jolt = 1
 	};
 
+	// What a new project starts as. 2D opens the editor in the XY view with a 2D template; everything
+	// else is shared, so a 2D project can still use any 3D feature.
+	enum class ProjectType : uint8_t
+	{
+		Project3D = 0,
+		Project2D = 1
+	};
+
 	enum class PhysicsCaptureMethod : uint8_t
 	{
 		LiveDebug = 0,
@@ -70,6 +78,17 @@ namespace Lux
 		AudioOcclusionSettings Occlusion;
 		// The project's buses, effects, reverb return, snapshots and VCAs (View > Audio Mixer).
 		AudioMixerSettings Mixer;
+	};
+
+	// Draw order for 2D renderers: layers are drawn back to front in list order. ID 0 is "Default"
+	// and always exists; the ID, not the position, is what a component stores, so reordering or
+	// renaming a layer keeps every sprite on it.
+	struct ProjectSortingLayer
+	{
+		uint32_t ID = 0;
+		std::string Name;
+
+		bool operator==(const ProjectSortingLayer&) const = default;
 	};
 
 	struct ProjectPhysicsLayer
@@ -201,6 +220,8 @@ namespace Lux
 	struct ProjectConfig
 	{
 		std::string Name = "Untitled";
+		ProjectType Type = ProjectType::Project3D;
+		std::vector<ProjectSortingLayer> SortingLayers = { { 0, "Default" } };
 
 		std::string StartScene;
 		AssetHandle StartSceneHandle = 0;
@@ -382,6 +403,21 @@ namespace Lux
 
 		ProjectConfig& GetConfig() { return m_Config; }
 		const ProjectConfig& GetConfig() const { return m_Config; }
+
+		// Position of a sorting layer in the draw order (0 = drawn first). An unknown ID, such as a
+		// deleted layer, draws with "Default".
+		uint32_t GetSortingLayerRank(uint32_t layerID) const
+		{
+			uint32_t defaultRank = 0;
+			for (uint32_t rank = 0; rank < m_Config.SortingLayers.size(); rank++)
+			{
+				if (m_Config.SortingLayers[rank].ID == layerID)
+					return rank;
+				if (m_Config.SortingLayers[rank].ID == 0)
+					defaultRank = rank;
+			}
+			return defaultRank;
+		}
 
 		static Ref<Project> GetActive() { return s_ActiveProject; }
 		static Ref<AssetManagerBase> GetAssetManager() { return s_AssetManager; }

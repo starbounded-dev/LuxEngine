@@ -36,15 +36,35 @@ namespace Lux {
 		void SetOrthographicFarClip(const float farClip) { m_OrthographicFar = farClip; }
 		float GetOrthographicFarClip() const { return m_OrthographicFar; }
 
+		// Pixel-perfect orthographic view: one world unit is PixelsPerUnit pixels times a whole-number
+		// scale (the largest that still shows ReferenceHeight pixels), so every sprite pixel covers a whole
+		// number of screen pixels. The orthographic size is ignored while it is on.
+		void SetPixelPerfect(bool enabled) { m_PixelPerfect = enabled; Rebuild(); }
+		bool IsPixelPerfect() const { return m_PixelPerfect; }
+		void SetPixelsPerUnit(float pixelsPerUnit) { m_PixelsPerUnit = pixelsPerUnit; Rebuild(); }
+		float GetPixelsPerUnit() const { return m_PixelsPerUnit; }
+		void SetReferenceHeight(float pixels) { m_ReferenceHeight = pixels; Rebuild(); }
+		float GetReferenceHeight() const { return m_ReferenceHeight; }
+		// Whole-number screen pixels per sprite pixel at the current viewport (1 when not pixel perfect).
+		uint32_t GetPixelScale() const;
+		// World-space size of one screen pixel for a pixel-perfect orthographic camera, else 0. The
+		// camera's position is rounded to it so a moving camera does not shimmer the sprites.
+		float GetPixelSnapUnit() const;
+
 		void SetProjectionType(ProjectionType type) { m_ProjectionType = type; }
 		ProjectionType GetProjectionType() const { return m_ProjectionType; }
 	private:
+		void Rebuild();
+
 		ProjectionType m_ProjectionType = ProjectionType::Perspective;
 
 		float m_DegPerspectiveFOV = 45.0f;
 		float m_PerspectiveNear = 0.1f, m_PerspectiveFar = 1000.0f;
 
 		float m_OrthographicSize = 10.0f;
+		bool m_PixelPerfect = false;
+		float m_PixelsPerUnit = 100.0f;
+		float m_ReferenceHeight = 180.0f;
 		float m_OrthographicNear = -1.0f, m_OrthographicFar = 1.0f;
 
 		std::tuple<uint32_t, uint32_t, uint32_t, uint32_t> m_ViewportBounds = { 0, 0, 0, 0 };

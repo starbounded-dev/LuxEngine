@@ -1,6 +1,7 @@
 // Editor floor grid
 //
-// An anti-aliased grid on the y = 0 plane, drawn as a square around the camera that ends in a
+// An anti-aliased grid on the y = 0 plane (the z = 0 plane for an orthographic camera looking along
+// Z: the editor's 2D view), drawn as a square around the camera that ends in a
 // circular fade. Lines keep a constant on-screen width and fade to their average coverage once they
 // get finer than a pixel (the "pristine grid" formulation, Ben Golus 2023), so the grid never shimmers
 // or turns to moire. The cell size steps by powers of ten with the camera's distance, crossfading
@@ -32,10 +33,11 @@ void main()
 {
 	// The unit quad becomes a square on the floor centred under the camera.
 	vec3 cameraPosition = u_Camera.InverseViewMatrix[3].xyz;
-	vec2 worldXZ = cameraPosition.xz + a_Position.xy * u_Settings.FadeDistance;
+	bool xyView = u_Camera.IsOrthographic != 0 && abs(u_Camera.InverseViewMatrix[2].z) > 0.9;
+	vec2 plane = (xyView ? cameraPosition.xy : cameraPosition.xz) + a_Position.xy * u_Settings.FadeDistance;
 
-	v_WorldXZ = worldXZ;
-	gl_Position = u_Camera.ViewProjectionMatrix * vec4(worldXZ.x, 0.0, worldXZ.y, 1.0);
+	v_WorldXZ = plane;
+	gl_Position = u_Camera.ViewProjectionMatrix * (xyView ? vec4(plane, 0.0, 1.0) : vec4(plane.x, 0.0, plane.y, 1.0));
 }
 
 #version 450 core
@@ -103,7 +105,8 @@ void main()
 	                             length(vec2(dFdx(position.y), dFdy(position.y))));
 
 	vec3 cameraPosition = u_Camera.InverseViewMatrix[3].xyz;
-	float radialDistance = length(position - cameraPosition.xz);
+	bool xyView = u_Camera.IsOrthographic != 0 && abs(u_Camera.InverseViewMatrix[2].z) > 0.9;
+	float radialDistance = length(position - (xyView ? cameraPosition.xy : cameraPosition.xz));
 	if (radialDistance >= u_Settings.FadeDistance)
 		discard;
 
@@ -117,18 +120,19 @@ void main()
 	                 GridScale(position, positionPerPixel, cellSize * 10.0),
 	                 smoothstep(0.0, 1.0, scaleLevel - level));
 
-	// World X axis runs along z = 0, world Z axis along x = 0.
+	// World X axis runs along z = 0, world Z axis along x = 0 (in the 2D view the second axis is Y, green).
 	float xAxis = AxisLine(position.y, positionPerPixel.y, u_Settings.AxisLineWidthPx) * u_Settings.XAxisColor.a;
 	float zAxis = AxisLine(position.x, positionPerPixel.x, u_Settings.AxisLineWidthPx) * u_Settings.ZAxisColor.a;
+	vec3 secondAxisColor = xyView ? vec3(0.45, 0.85, 0.35) : u_Settings.ZAxisColor.rgb;
 	color.rgb = mix(color.rgb, u_Settings.XAxisColor.rgb, xAxis);
 	color.a = xAxis + color.a * (1.0 - xAxis);
-	color.rgb = mix(color.rgb, u_Settings.ZAxisColor.rgb, zAxis);
+	color.rgb = mix(color.rgb, secondAxisColor, zAxis);
 	color.a = zAxis + color.a * (1.0 - zAxis);
 
 	// Fade with distance, and as the view grazes the floor (the plane collapses to a strip).
 	float distanceFade = 1.0 - smoothstep(u_Settings.FadeDistance * 0.5, u_Settings.FadeDistance, radialDistance);
 	vec3 toFragment = vec3(position.x, 0.0, position.y) - cameraPosition;
-	float grazingFade = (u_Camera.IsOrthographic != 0)
+	float grazingFade = xyView ? 1.0 : (u_Camera.IsOrthographic != 0)
 		? smoothstep(0.02, 0.25, abs(u_Camera.InverseViewMatrix[2].y))
 		: smoothstep(0.02, 0.25, abs(cameraPosition.y) / max(length(toFragment), 1e-5));
 	color.a *= distanceFade * grazingFade;

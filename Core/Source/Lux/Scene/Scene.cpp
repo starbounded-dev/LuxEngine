@@ -30,6 +30,8 @@
 #include "Lux/Scripting/AudioScriptBindings.h"
 #include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/SpriteSheet.h"
+#include "Lux/Scene/Tilemap.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/FrameRenderPacket.h"
@@ -604,6 +606,8 @@ namespace Lux {
 		m_AudioZones.Remove(entity.GetUUID());
 		m_PhysicsAudio.Remove(entity.GetUUID());
 		m_Footsteps.erase(entity.GetUUID());
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->DestroyBody(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 	}
@@ -648,6 +652,7 @@ namespace Lux {
 		m_AudioSurfaceTable = nullptr;
 		m_Footsteps.clear();
 		m_PhysicsContactEvents.clear();
+		m_PhysicsContactEvents2D.clear();
 		m_CharacterContactEvents.clear();
 		m_ScriptContacts.Clear();
 		m_DebugLinesFrame.clear();
@@ -890,7 +895,8 @@ namespace Lux {
 			}
 		}
 
-		PhysicsScene2D::SetPlaying(true);
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->SetRecordContacts(true);
 		RefreshInactiveEntities();
 
 		m_RuntimeAudioListeners = {};
@@ -1008,7 +1014,19 @@ namespace Lux {
 					m_PhysicsScene->CreateBody(entity);
 			}
 		}
-		// shortcut: 2D physics bodies are not created for spawned prefabs; add when a 2D game needs it.
+		if (m_PhysicsScene2D)
+		{
+			for (UUID id : spawned)
+			{
+				if (Entity entity = TryGetEntityWithUUID(id))
+					m_PhysicsScene2D->CreateBody(entity);
+			}
+			for (UUID id : spawned)
+			{
+				if (Entity entity = TryGetEntityWithUUID(id))
+					m_PhysicsScene2D->CreateJoint(entity);
+			}
+		}
 
 		// Scripts last, so OnCreate finds the physics it may use. Simulate runs no scripts.
 		if (m_IsRunning)
@@ -1021,8 +1039,6 @@ namespace Lux {
 	void Scene::OnRuntimeStop()
 	{
 		m_IsRunning = false;
-
-		PhysicsScene2D::SetPlaying(false);
 
 		OnAcousticsStop();
 		OnPhysics3DStop();
@@ -1207,6 +1223,8 @@ namespace Lux {
 		AdvanceAnimators(m_Registry, scaledTs, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		ApplyBoneAttachments();
 		RefreshInactiveEntities();
+		if (simulating)
+			UpdateSpriteAnimators(scaledTs);
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
 		AudioAccessibilityView accessibilityView;
@@ -1438,10 +1456,40 @@ namespace Lux {
 		m_PostUpdateQueue.clear();
 	}
 
+	void Scene::UpdateSpriteAnimators(Timestep ts)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		auto view = m_Registry.view<SpriteAnimatorComponent, SpriteRendererComponent>();
+		for (auto entity : view)
+		{
+			auto& animator = view.get<SpriteAnimatorComponent>(entity);
+			if (!animator.Enabled || !animator.Playing || animator.Clip.empty() || IsInactive(entity))
+				continue;
+
+			auto& sprite = view.get<SpriteRendererComponent>(entity);
+			const Ref<SpriteSheet> sheet = sprite.Sheet ? AssetManager::GetAsset<SpriteSheet>(sprite.Sheet) : nullptr;
+			const int32_t clipIndex = sheet ? sheet->FindClip(animator.Clip) : -1;
+			if (clipIndex < 0)
+				continue;
+
+			animator.Time += static_cast<float>(ts) * animator.Speed;
+			bool finished = false;
+			sprite.SpriteIndex = static_cast<int32_t>(SpriteSheet::SampleClip(sheet->Clips[static_cast<size_t>(clipIndex)], animator.Time, finished));
+			if (finished)
+			{
+				animator.Playing = false;
+				animator.Finished = true;
+			}
+		}
+	}
+
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
 		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		ApplyBoneAttachments();
+		RefreshInactiveEntities();
+		if (!m_IsPaused || m_StepFrames > 0)
+			UpdateSpriteAnimators(ts);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -1562,7 +1610,7 @@ namespace Lux {
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1636,7 +1684,7 @@ namespace Lux {
 	}
 
 	using PrefabInstantiationComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1720,6 +1768,18 @@ namespace Lux {
 						LUX_CORE_WARN_TAG("Audio", "Cleared external room {} on cloned portal {}", static_cast<uint64_t>(*target), static_cast<uint64_t>(destinationID));
 						*target = 0;
 					}
+				}
+			}
+			if (destination && destination.HasComponent<Joint2DComponent>())
+			{
+				// A joint to another body of the cloned hierarchy follows that body's copy.
+				auto& joint = destination.GetComponent<Joint2DComponent>();
+				if (const auto it = entityMap.find(joint.ConnectedEntity); it != entityMap.end())
+					joint.ConnectedEntity = it->second;
+				else if (clearExternal && joint.ConnectedEntity != 0)
+				{
+					LUX_CORE_WARN_TAG("Physics", "Joint 2D on cloned entity {} was connected outside the prefab hierarchy; it is anchored to the world now", static_cast<uint64_t>(destinationID));
+					joint.ConnectedEntity = 0;
 				}
 			}
 			if (!destination || !destination.HasComponent<AudioListenerComponent>())
@@ -1809,7 +1869,7 @@ namespace Lux {
 		// are deliberately excluded so the link and hierarchy survive a revert/apply). Reconcile,
 		// not copy: destination-only components are removed so it matches source exactly.
 		using PrefabSyncComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -2727,25 +2787,36 @@ namespace Lux {
 
 	void Scene::StepPhysics(Timestep ts, bool runScripts)
 	{
+		// One fixed clock for both worlds, the 3D scene's when there is one and the 2D scene's otherwise (both
+		// read the project's fixed timestep). A script's OnFixedUpdate runs once per step, before either world steps.
+		uint32_t steps = 0;
+		float fixedTimestep = 1.0f / 60.0f;
 		if (m_PhysicsScene)
 		{
-			const float fixedTimestep = m_PhysicsScene->GetFixedTimestep();
-			for (uint32_t steps = m_PhysicsScene->AdvanceFixedClock(ts); steps > 0; steps--)
-			{
-				if (runScripts)
-				{
-					m_DebugLinesFixed.clear();
-					m_DrawingFixedStep = true;
-					InvokeScriptFixedUpdate(fixedTimestep);
-					ScriptGlue::StepScheduler();
-					m_DrawingFixedStep = false;
-				}
-				m_PhysicsScene->SimulateStep(fixedTimestep);
-			}
+			fixedTimestep = m_PhysicsScene->GetFixedTimestep();
+			steps = m_PhysicsScene->AdvanceFixedClock(ts);
+		}
+		else if (m_PhysicsScene2D)
+		{
+			fixedTimestep = m_PhysicsScene2D->GetFixedTimestep();
+			steps = m_PhysicsScene2D->AdvanceFixedClock(ts);
 		}
 
-		if (m_PhysicsScene2D)
-			m_PhysicsScene2D->Simulate(ts);
+		for (; steps > 0; steps--)
+		{
+			if (runScripts)
+			{
+				m_DebugLinesFixed.clear();
+				m_DrawingFixedStep = true;
+				InvokeScriptFixedUpdate(fixedTimestep);
+				ScriptGlue::StepScheduler();
+				m_DrawingFixedStep = false;
+			}
+			if (m_PhysicsScene)
+				m_PhysicsScene->SimulateStep(fixedTimestep);
+			if (m_PhysicsScene2D)
+				m_PhysicsScene2D->SimulateStep(fixedTimestep);
+		}
 	}
 
 	void Scene::DispatchCollisionEvents()
@@ -2777,6 +2848,13 @@ namespace Lux {
 		for (const PhysicsContactEvent& event : m_PhysicsContactEvents)
 			handle(event);
 		for (const PhysicsContactEvent& event : m_CharacterContactEvents)
+			handle(event);
+
+		// Box2D contacts: collected during the step, told to scripts here, with the same enabled/active rules.
+		m_PhysicsContactEvents2D.clear();
+		if (m_PhysicsScene2D)
+			m_PhysicsScene2D->DrainContactEvents(m_PhysicsContactEvents2D);
+		for (const PhysicsContactEvent& event : m_PhysicsContactEvents2D)
 			handle(event);
 	}
 
@@ -3622,6 +3700,47 @@ namespace Lux {
 	{
 		using Draw2DItem = FrameRenderPacket::Draw2DItem;
 
+		// A 2D camera's solid background is the first item, so everything else draws over it. It is the
+		// view rectangle unprojected at mid depth, which only makes sense for an orthographic view.
+		{
+			const glm::mat4& viewProjection = packet.Overlay2DViewProjection;
+			const bool orthographic = std::abs(viewProjection[0][3]) + std::abs(viewProjection[1][3]) + std::abs(viewProjection[2][3]) < 1e-6f;
+			const Entity cameraEntity = orthographic ? GetPrimaryCameraEntity() : Entity{};
+			if (cameraEntity && cameraEntity.GetComponent<CameraComponent>().SolidBackground)
+			{
+				const glm::mat4 inverse = glm::inverse(viewProjection);
+				const auto unproject = [&inverse](float x, float y)
+				{
+					const glm::vec4 point = inverse * glm::vec4(x, y, 0.5f, 1.0f);
+					return glm::vec3(point) / point.w;
+				};
+				const glm::vec3 center = unproject(0.0f, 0.0f);
+				const glm::vec3 right = unproject(1.0f, 0.0f) - center;
+				const glm::vec3 up = unproject(0.0f, 1.0f) - center;
+
+				Draw2DItem item;
+				item.Type = Draw2DItem::Kind::Quad;
+				item.Transform = glm::mat4(glm::vec4(right * 2.0f, 0.0f), glm::vec4(up * 2.0f, 0.0f),
+					glm::vec4(glm::normalize(glm::cross(right, up)), 0.0f), glm::vec4(center, 1.0f));
+				item.Color = cameraEntity.GetComponent<CameraComponent>().BackgroundColor;
+				packet.Draw2D.push_back(std::move(item));
+			}
+		}
+
+		// Sprites, circles and text are sorted together by sorting layer, order in layer, then depth (farthest
+		// first). The renderer batches quads, text and circles separately, so the order holds within each kind.
+		struct SortedItem
+		{
+			uint32_t Rank;
+			int32_t Order;
+			float Depth;
+			Draw2DItem Item;
+		};
+		std::vector<SortedItem> sorted;
+		const Ref<Project> project = Project::GetActive();
+		const auto rankOf = [&project](uint32_t layer) { return project ? project->GetSortingLayerRank(layer) : 0u; };
+		const auto depthOf = [&packet](const glm::mat4& transform) { return (packet.Overlay2DView * transform[3]).z; };
+
 		// Draw sprites
 		{
 			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
@@ -3634,10 +3753,96 @@ namespace Lux {
 				Draw2DItem item;
 				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
 				item.Color = sprite.Color;
-				item.Texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 				item.TilingFactor = sprite.TilingFactor;
+				item.UV0 = sprite.UVStart;
+				item.UV1 = sprite.UVEnd;
+				if (const Ref<SpriteSheet> sheet = sprite.Sheet ? AssetManager::GetAsset<SpriteSheet>(sprite.Sheet) : nullptr; sheet && !sheet->Frames.empty())
+				{
+					// A sheet frame: the sheet's texture, the frame's rectangle, sized and anchored by the frame.
+					const uint32_t frame = static_cast<uint32_t>(std::clamp<int32_t>(sprite.SpriteIndex, 0, static_cast<int32_t>(sheet->Frames.size()) - 1));
+					item.Texture = AssetManager::GetAsset<Texture2D>(sheet->Texture);
+					item.TilingFactor = 1.0f;
+					if (item.Texture)
+						sheet->GetFrameUV(frame, glm::ivec2(item.Texture->GetSize()), item.UV0, item.UV1);
+					const glm::vec2 size = sheet->GetFrameWorldSize(frame);
+					const glm::vec2 pivot = sheet->Frames[frame].Pivot;
+					item.Transform = item.Transform * glm::translate(glm::mat4(1.0f), glm::vec3((0.5f - pivot.x) * size.x, (0.5f - pivot.y) * size.y, 0.0f))
+						* glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
+				}
+				else
+					item.Texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 				item.Type = item.Texture ? Draw2DItem::Kind::TexturedQuad : Draw2DItem::Kind::Quad;
-				packet.Draw2D.push_back(std::move(item));
+				item.PointFilter = sprite.PointFilter;
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(sprite.SortingLayer), sprite.OrderInLayer, depth, std::move(item) });
+			}
+		}
+
+		// Draw tilemaps: one item per visible layer, with only the tiles the view can see.
+		{
+			auto view = m_Registry.view<TransformComponent, TilemapComponent>();
+			for (auto entity : view)
+			{
+				auto& tilemap = view.get<TilemapComponent>(entity);
+				if (!tilemap.Enabled || IsInactive(entity))
+					continue;
+
+				const Ref<SpriteSheet> tileSet = tilemap.TileSet ? AssetManager::GetAsset<SpriteSheet>(tilemap.TileSet) : nullptr;
+				if (!tileSet)
+					continue;
+				const Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(tileSet->Texture);
+				const glm::ivec2 textureSize = texture ? glm::ivec2(texture->GetSize()) : glm::ivec2(0);
+
+				const glm::mat4 world = GetWorldSpaceTransformMatrix(Entity{ entity, this });
+				Tilemap::CellRect view2D;
+				const bool culled = Tilemap::ComputeVisibleCells(packet.Overlay2DViewProjection, world, tilemap.CellSize, view2D);
+				for (const TilemapLayer& layer : tilemap.Layers)
+				{
+					if (!layer.Visible || layer.Cells.empty())
+						continue;
+
+					Draw2DItem item;
+					item.Type = Draw2DItem::Kind::Tiles;
+					item.Transform = world * glm::scale(glm::mat4(1.0f), glm::vec3(tilemap.CellSize, 1.0f));
+					item.Texture = texture;
+					item.PointFilter = tilemap.PointFilter;
+
+					const auto addTile = [&](int32_t x, int32_t y, int32_t tile)
+					{
+						Draw2DItem::Tile entry;
+						entry.Cell = { static_cast<float>(x), static_cast<float>(y) };
+						if (tile < 0 || static_cast<size_t>(tile) >= tileSet->Frames.size())
+							return; // a tile the sheet no longer has draws nothing
+						if (texture) // without one the tile is a plain coloured quad, like a sprite with no texture
+							tileSet->GetFrameUV(static_cast<uint32_t>(tile), textureSize, entry.UV0, entry.UV1);
+						item.Tiles.push_back(entry);
+					};
+					// A small view walks its cells; a small map walks its tiles.
+					if (culled && static_cast<int64_t>(view2D.Width) * view2D.Height < static_cast<int64_t>(layer.Cells.size()))
+					{
+						for (int32_t y = view2D.Y; y < view2D.Y + view2D.Height; y++)
+						{
+							for (int32_t x = view2D.X; x < view2D.X + view2D.Width; x++)
+							{
+								if (const int32_t tile = Tilemap::GetTile(layer, x, y); tile >= 0)
+									addTile(x, y, tile);
+							}
+						}
+					}
+					else
+					{
+						for (const auto& [key, tile] : layer.Cells)
+						{
+							const int32_t x = Tilemap::KeyX(key), y = Tilemap::KeyY(key);
+							if (!culled || view2D.Contains(x, y))
+								addTile(x, y, tile);
+						}
+					}
+					if (item.Tiles.empty())
+						continue;
+					const float depth = depthOf(item.Transform);
+					sorted.push_back({ rankOf(tilemap.SortingLayer), tilemap.OrderInLayer, depth, std::move(item) });
+				}
 			}
 		}
 
@@ -3654,7 +3859,8 @@ namespace Lux {
 				item.Type = Draw2DItem::Kind::Circle;
 				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, const_cast<Scene*>(this) });
 				item.Color = circle.Color;
-				packet.Draw2D.push_back(std::move(item));
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(circle.SortingLayer), circle.OrderInLayer, depth, std::move(item) });
 			}
 		}
 
@@ -3680,9 +3886,43 @@ namespace Lux {
 				item.MaxWidth = text.MaxWidth;
 				item.LineSpacing = text.LineSpacing;
 				item.Kerning = text.Kerning;
-				packet.Draw2D.push_back(std::move(item));
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(text.SortingLayer), text.OrderInLayer, depth, std::move(item) });
 			}
 		}
+
+		std::stable_sort(sorted.begin(), sorted.end(), [](const SortedItem& a, const SortedItem& b)
+		{
+			return std::tie(a.Rank, a.Order, a.Depth) < std::tie(b.Rank, b.Order, b.Depth);
+		});
+		packet.Draw2D.reserve(packet.Draw2D.size() + sorted.size());
+		for (SortedItem& entry : sorted)
+			packet.Draw2D.push_back(std::move(entry.Item));
+	}
+
+	int64_t Scene::GetDrawOrder(Entity entity)
+	{
+		const Ref<Project> project = Project::GetActive();
+		const auto key = [&project](uint32_t layer, int32_t order)
+		{
+			return (static_cast<int64_t>(project ? project->GetSortingLayerRank(layer) : 0u) << 32) + order;
+		};
+		if (entity.HasComponent<SpriteRendererComponent>())
+		{
+			const auto& sprite = entity.GetComponent<SpriteRendererComponent>();
+			return key(sprite.SortingLayer, sprite.OrderInLayer);
+		}
+		if (entity.HasComponent<CircleRendererComponent>())
+		{
+			const auto& circle = entity.GetComponent<CircleRendererComponent>();
+			return key(circle.SortingLayer, circle.OrderInLayer);
+		}
+		if (entity.HasComponent<TextComponent>())
+		{
+			const auto& text = entity.GetComponent<TextComponent>();
+			return key(text.SortingLayer, text.OrderInLayer);
+		}
+		return 0;
 	}
 
 	void Scene::SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const
@@ -3728,13 +3968,24 @@ namespace Lux {
 				switch (item.Type)
 				{
 					case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
-						renderer2D->DrawQuad(item.Transform, item.Texture, item.TilingFactor, item.Color);
+						// A negative tiling factor tells Renderer2D.glsl to sample with the point sampler.
+						renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -item.TilingFactor : item.TilingFactor, item.Color, item.UV0, item.UV1);
 						break;
 					case FrameRenderPacket::Draw2DItem::Kind::Quad:
 						renderer2D->DrawQuad(item.Transform, item.Color);
 						break;
-					case FrameRenderPacket::Draw2DItem::Kind::Circle:
+						case FrameRenderPacket::Draw2DItem::Kind::Circle:
 						renderer2D->DrawCircle(item.Transform, item.Color);
+						break;
+					case FrameRenderPacket::Draw2DItem::Kind::Tiles:
+						for (const FrameRenderPacket::Draw2DItem::Tile& tile : item.Tiles)
+						{
+							const glm::mat4 quad = item.Transform * glm::translate(glm::mat4(1.0f), glm::vec3(tile.Cell + glm::vec2(0.5f), 0.0f));
+							if (item.Texture)
+								renderer2D->DrawQuad(quad, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color, tile.UV0, tile.UV1);
+							else
+								renderer2D->DrawQuad(quad, item.Color);
+						}
 						break;
 					case FrameRenderPacket::Draw2DItem::Kind::Text:
 						if (item.FontAsset)
@@ -3775,7 +4026,14 @@ namespace Lux {
 		// Set up the SceneRendererCamera from the runtime camera
 		SceneRendererCamera& sceneCamera = packet.Camera;
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
-		sceneCamera.ViewMatrix = glm::inverse(GetWorldSpaceTransformMatrix(cameraEntity));
+		glm::mat4 cameraTransform = GetWorldSpaceTransformMatrix(cameraEntity);
+		// A pixel-perfect camera sits on the pixel grid, so a camera that moves does not shimmer the sprites.
+		if (const float snapUnit = cameraComp.Camera.GetPixelSnapUnit(); snapUnit > 0.0f)
+		{
+			cameraTransform[3].x = std::round(cameraTransform[3].x / snapUnit) * snapUnit;
+			cameraTransform[3].y = std::round(cameraTransform[3].y / snapUnit) * snapUnit;
+		}
+		sceneCamera.ViewMatrix = glm::inverse(cameraTransform);
 
 		packet.Overlay2DView = sceneCamera.ViewMatrix;
 		packet.Overlay2DViewProjection = cameraComp.Camera.GetProjectionMatrix() * sceneCamera.ViewMatrix;
@@ -4046,6 +4304,18 @@ namespace Lux {
 			}
 		};
 
+		// A sprite sheet ships with its texture.
+		auto addSheetDependencies = [&addIfValid](AssetHandle sheetHandle)
+		{
+			addIfValid(sheetHandle);
+
+			if (!sheetHandle || AssetManager::GetAssetType(sheetHandle) != AssetType::SpriteSheet)
+				return;
+
+			if (Ref<SpriteSheet> sheet = AssetManager::GetAsset<SpriteSheet>(sheetHandle))
+				addIfValid(sheet->Texture);
+		};
+
 		auto addMeshSourceDependencies = [&addIfValid, &addMaterialDependencies](AssetHandle meshSourceHandle)
 		{
 			addIfValid(meshSourceHandle);
@@ -4097,9 +4367,16 @@ namespace Lux {
 		for (auto entity : prefabView)
 			addIfValid(prefabView.get<PrefabComponent>(entity).PrefabID);
 
+		for (auto entity : m_Registry.view<TilemapComponent>())
+			addSheetDependencies(m_Registry.get<TilemapComponent>(entity).TileSet);
+
 		auto spriteView = m_Registry.view<SpriteRendererComponent>();
 		for (auto entity : spriteView)
-			addIfValid(spriteView.get<SpriteRendererComponent>(entity).Texture);
+		{
+			const SpriteRendererComponent& sprite = spriteView.get<SpriteRendererComponent>(entity);
+			addIfValid(sprite.Texture);
+			addSheetDependencies(sprite.Sheet);
+		}
 
 		auto textView = m_Registry.view<TextComponent>();
 		for (auto entity : textView)
@@ -4245,6 +4522,16 @@ namespace Lux {
 	}
 
 	template<>
+	void Scene::OnComponentAdded<SpriteAnimatorComponent>(Entity entity, SpriteAnimatorComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<TilemapComponent>(Entity entity, TilemapComponent& component)
+	{
+	}
+
+	template<>
 	void Scene::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& component)
 	{
 
@@ -4272,6 +4559,26 @@ namespace Lux {
 	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& component)
 	{
 
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PolygonCollider2DComponent>(Entity entity, PolygonCollider2DComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<CapsuleCollider2DComponent>(Entity entity, CapsuleCollider2DComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<EdgeCollider2DComponent>(Entity entity, EdgeCollider2DComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<Joint2DComponent>(Entity entity, Joint2DComponent& component)
+	{
 	}
 
 	template<>

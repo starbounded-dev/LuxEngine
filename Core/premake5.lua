@@ -104,6 +104,12 @@ project "Core"
 	filter "files:Source/Lux/Audio/Native/MiniaudioImplementation.c"
 	flags { "NoPCH" }
 
+	-- These units instantiate every component's copy, serialize, edit and script paths, and have outgrown
+	-- MSVC's default object-file section limit (error C1128).
+	filter { "system:windows", "files:Source/Lux/Scene/Scene.cpp or files:Source/Lux/Scene/SceneSerializer.cpp or files:Source/Lux/Editor/SceneHierarchyPanel.cpp or files:Source/Lux/Scripting/ScriptGlue.cpp" }
+	buildoptions { "/bigobj" }
+	filter {}
+
 	filter "system:windows"
 		systemversion "latest"
 		defines { "LUX_PLATFORM_WINDOWS", }

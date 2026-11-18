@@ -805,7 +805,8 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		constexpr size_t quadVertexCount = 4;
-		glm::vec2 textureCoords[] = { uv0, { uv1.x, uv0.y }, uv1, { uv0.x, uv1.y } };
+		// Follows m_QuadVertexPositions: bottom left, top left, top right, bottom right.
+		glm::vec2 textureCoords[] = { uv0, { uv0.x, uv1.y }, uv1, { uv1.x, uv0.y } };
 
 		const float textureIndex = AcquireTextureSlot(m_QuadTextureSlots, m_QuadIndexCount, 1, texture);
 
@@ -888,7 +889,8 @@ namespace Lux {
 		LUX_PROFILE_FUNCTION_AUTO;
 		const float textureIndex = AcquireTextureSlot(m_QuadTextureSlots, m_QuadIndexCount, 1, texture);
 
-		glm::vec2 textureCoords[] = { uv0, { uv1.x, uv0.y }, uv1, { uv0.x, uv1.y } };
+		// Follows m_QuadVertexPositions: bottom left, top left, top right, bottom right.
+		glm::vec2 textureCoords[] = { uv0, { uv0.x, uv1.y }, uv1, { uv1.x, uv0.y } };
 
 		glm::mat4 transform = glm::translate(glm::mat4(1.0f), position)
 			* glm::scale(glm::mat4(1.0f), { size.x, size.y, 1.0f });

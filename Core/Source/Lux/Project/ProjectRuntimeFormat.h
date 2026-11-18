@@ -14,6 +14,7 @@ namespace Lux
 		struct FileHeader
 		{
 			char Header[4] = { 'L', 'P', 'R', 'J' };
+			// 32: the sorting layers (ID and name, in draw order) close the file
 			// 31: the paths of Sounds and Sound Banks (script lookups by path) close the file
 			// 30: the native audio mixer (bounded YAML) closes the file
 			// 29: the AO shadow tolerance is removed from the scene-renderer block
@@ -31,7 +32,7 @@ namespace Lux
 			// 17: explicit AudioBankManifest follows the unchanged fixed ProjectInfo block
 			// 16: GTAO slice/step sample counts
 			// 15: removed all temporal settings (TAA, SMAA T2x, GTAO/SSR accumulation)
-			uint32_t Version = 31;
+			uint32_t Version = 32;
 		};
 
 		struct Audio

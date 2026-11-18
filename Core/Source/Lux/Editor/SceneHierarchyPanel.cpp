@@ -26,6 +26,8 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/SpriteSheet.h"
+#include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Animation/Skeleton.h"
@@ -245,6 +247,102 @@ namespace Lux {
 					continue;
 
 				fn(entity.GetComponent<TComponent>(), entity);
+			}
+		}
+
+		// Sorting layer and order in layer for a 2D renderer (sprite, circle, text). The layer list is the
+		// project's, so a layer is stored by ID and shown by name.
+		template<typename TComponent>
+		void DrawSortingProperties(const Ref<Scene>& scene, TComponent& first, const std::vector<UUID>& selectedEntities)
+		{
+			const Ref<Project> project = Project::GetActive();
+			if (!project)
+				return;
+
+			const auto& layers = project->GetConfig().SortingLayers;
+			std::vector<std::string> names;
+			names.reserve(layers.size());
+			int32_t current = static_cast<int32_t>(project->GetSortingLayerRank(first.SortingLayer));
+			for (const ProjectSortingLayer& layer : layers)
+				names.push_back(layer.Name.empty() ? std::format("Layer {}", layer.ID) : layer.Name);
+
+			if (ImGuiEx::PropertyDropdown("Sorting Layer", names, static_cast<int32_t>(names.size()), &current,
+				"Layers draw back to front in the order of Project Settings > 2D."))
+			{
+				const uint32_t layerID = layers[static_cast<size_t>(current)].ID;
+				first.SortingLayer = layerID;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [layerID](TComponent& component, Entity) { component.SortingLayer = layerID; });
+			}
+
+			if (ImGuiEx::Property("Order In Layer", first.OrderInLayer, -32768, 32767, "Higher draws later, on top of lower orders in the same layer."))
+			{
+				const int32_t order = first.OrderInLayer;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [order](TComponent& component, Entity) { component.OrderInLayer = order; });
+			}
+		}
+
+		// The rows every 2D collider shares: how it feels and whether it blocks. Density only where the component has one
+		// (an edge collider has no mass).
+		template<typename TComponent>
+		void DrawCollider2DMaterial(const Ref<Scene>& scene, TComponent& first, const std::vector<UUID>& selectedEntities)
+		{
+			if constexpr (requires { first.Density; })
+			{
+				if (ImGuiEx::Property("Density", first.Density, 0.01f, 0.0f, 100.0f))
+				{
+					const float value = first.Density;
+					ApplyToSelection<TComponent>(scene, selectedEntities, [value](TComponent& component, Entity) { component.Density = value; });
+				}
+			}
+			if (ImGuiEx::Property("Friction", first.Friction, 0.01f, 0.0f, 1.0f))
+			{
+				const float value = first.Friction;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [value](TComponent& component, Entity) { component.Friction = value; });
+			}
+			if (ImGuiEx::Property("Restitution", first.Restitution, 0.01f, 0.0f, 1.0f))
+			{
+				const float value = first.Restitution;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [value](TComponent& component, Entity) { component.Restitution = value; });
+			}
+			if (ImGuiEx::Property("Restitution Threshold", first.RestitutionThreshold, 0.01f, 0.0f))
+			{
+				const float value = first.RestitutionThreshold;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [value](TComponent& component, Entity) { component.RestitutionThreshold = value; });
+			}
+			if (ImGuiEx::Property("Is Trigger", first.IsTrigger, "A trigger detects overlaps (OnTriggerBegin/End) and blocks nothing."))
+			{
+				const bool value = first.IsTrigger;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [value](TComponent& component, Entity) { component.IsTrigger = value; });
+			}
+		}
+
+		// A list of 2D points (a polygon's or an edge collider's), edited as one row each with Add and Remove.
+		template<typename TComponent>
+		void DrawPoints2D(const Ref<Scene>& scene, TComponent& first, const std::vector<UUID>& selectedEntities, size_t minimum, size_t maximum)
+		{
+			bool changed = false;
+			for (size_t i = 0; i < first.Points.size(); i++)
+				changed |= ImGuiEx::Property(std::format("Point {}", i).c_str(), first.Points[i], 0.01f);
+			ImGuiEx::ScopedID buttons(0);
+			if (first.Points.size() < maximum && ImGui::Button("Add Point"))
+			{
+				const glm::vec2 last = first.Points.empty() ? glm::vec2(0.0f) : first.Points.back();
+				first.Points.push_back(last + glm::vec2(0.5f, 0.0f));
+				changed = true;
+			}
+			if (first.Points.size() > minimum)
+			{
+				ImGui::SameLine();
+				if (ImGui::Button("Remove Last Point"))
+				{
+					first.Points.pop_back();
+					changed = true;
+				}
+			}
+			if (changed)
+			{
+				const std::vector<glm::vec2> points = first.Points;
+				ApplyToSelection<TComponent>(scene, selectedEntities, [&points](TComponent& component, Entity) { component.Points = points; });
 			}
 		}
 
@@ -948,6 +1046,21 @@ namespace Lux {
 			{
 				Entity entity = createEntity("Sprite");
 				entity.AddComponent<SpriteRendererComponent>();
+			}
+
+			if (ImGui::MenuItem("Animated Sprite"))
+			{
+				Entity entity = createEntity("Animated Sprite");
+				entity.AddComponent<SpriteRendererComponent>();
+				entity.AddComponent<SpriteAnimatorComponent>();
+			}
+
+			if (ImGui::MenuItem("Tilemap"))
+			{
+				// Static body: the solid tiles become its collision shapes.
+				Entity entity = createEntity("Tilemap");
+				entity.AddComponent<TilemapComponent>();
+				entity.AddComponent<RigidBody2DComponent>();
 			}
 
 			if (ImGui::MenuItem("Circle"))
@@ -1761,11 +1874,17 @@ namespace Lux {
 				const bool canAddText = canAddComponent.template operator()<TextComponent>();
 				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
 				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
+				const bool canAddSpriteAnimator = canAddComponent.template operator()<SpriteAnimatorComponent>();
+				const bool canAddTilemap = canAddComponent.template operator()<TilemapComponent>();
 				const bool canAddStaticMesh = canAddComponent.template operator()<StaticMeshComponent>();
 				const bool canAddSkeleton = canAddComponent.template operator()<SkeletonComponent>();
 				const bool canAddRigidBody2D = canAddComponent.template operator()<RigidBody2DComponent>();
 				const bool canAddBoxCollider2D = canAddComponent.template operator()<BoxCollider2DComponent>();
 				const bool canAddCircleCollider2D = canAddComponent.template operator()<CircleCollider2DComponent>();
+				const bool canAddPolygonCollider2D = canAddComponent.template operator()<PolygonCollider2DComponent>();
+				const bool canAddCapsuleCollider2D = canAddComponent.template operator()<CapsuleCollider2DComponent>();
+				const bool canAddEdgeCollider2D = canAddComponent.template operator()<EdgeCollider2DComponent>();
+				const bool canAddJoint2D = canAddComponent.template operator()<Joint2DComponent>();
 				const bool canAddRigidBody = canAddComponent.template operator()<RigidBodyComponent>();
 				const bool canAddCharacterController = canAddComponent.template operator()<CharacterControllerComponent>();
 				const bool canAddCompoundCollider = canAddComponent.template operator()<CompoundColliderComponent>();
@@ -1814,7 +1933,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh)
+				if (canAddText || canAddSpriteRenderer || canAddSpriteAnimator || canAddCircleRenderer || canAddStaticMesh)
 					addCategoryHeader("Rendering");
 
 				if (canAddText)
@@ -1843,6 +1962,32 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<SpriteRendererComponent>())
 								entity.AddComponent<SpriteRendererComponent>();
+						}
+					});
+				}
+
+				if (canAddSpriteAnimator)
+				{
+					addComponentRow("Sprite Animator", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<SpriteAnimatorComponent>())
+								entity.AddComponent<SpriteAnimatorComponent>();
+						}
+					});
+				}
+
+				if (canAddTilemap)
+				{
+					addComponentRow("Tilemap", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<TilemapComponent>())
+								entity.AddComponent<TilemapComponent>();
 						}
 					});
 				}
@@ -1886,7 +2031,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddRigidBody2D || canAddBoxCollider2D || canAddCircleCollider2D)
+				if (canAddRigidBody2D || canAddBoxCollider2D || canAddCircleCollider2D || canAddPolygonCollider2D || canAddCapsuleCollider2D || canAddEdgeCollider2D || canAddJoint2D)
 					addCategoryHeader("Physics 2D");
 
 				if (canAddRigidBody2D)
@@ -1924,6 +2069,58 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<CircleCollider2DComponent>())
 								entity.AddComponent<CircleCollider2DComponent>();
+						}
+					});
+				}
+
+				if (canAddPolygonCollider2D)
+				{
+					addComponentRow("Polygon Collider 2D", EditorResources::BoxCollider2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<PolygonCollider2DComponent>())
+								entity.AddComponent<PolygonCollider2DComponent>();
+						}
+					});
+				}
+
+				if (canAddCapsuleCollider2D)
+				{
+					addComponentRow("Capsule Collider 2D", EditorResources::CircleCollider2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<CapsuleCollider2DComponent>())
+								entity.AddComponent<CapsuleCollider2DComponent>();
+						}
+					});
+				}
+
+				if (canAddEdgeCollider2D)
+				{
+					addComponentRow("Edge Collider 2D", EditorResources::BoxCollider2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<EdgeCollider2DComponent>())
+								entity.AddComponent<EdgeCollider2DComponent>();
+						}
+					});
+				}
+
+				if (canAddJoint2D)
+				{
+					addComponentRow("Joint 2D", EditorResources::RigidBody2DIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<Joint2DComponent>())
+								entity.AddComponent<Joint2DComponent>();
 						}
 					});
 				}
@@ -2299,6 +2496,8 @@ namespace Lux {
 						row.operator()<CameraComponent>("CameraComponent", "Camera");
 						row.operator()<ScriptComponent>("ScriptComponent", "Script");
 						row.operator()<SpriteRendererComponent>("SpriteRendererComponent", "Sprite Renderer");
+						row.operator()<SpriteAnimatorComponent>("SpriteAnimatorComponent", "Sprite Animator");
+						row.operator()<TilemapComponent>("TilemapComponent", "Tilemap");
 						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
 						row.operator()<TextComponent>("TextComponent", "Text");
 						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
@@ -2316,6 +2515,10 @@ namespace Lux {
 						row.operator()<RigidBody2DComponent>("RigidBody2DComponent", "Rigid Body 2D");
 						row.operator()<BoxCollider2DComponent>("BoxCollider2DComponent", "Box Collider 2D");
 						row.operator()<CircleCollider2DComponent>("CircleCollider2DComponent", "Circle Collider 2D");
+						row.operator()<PolygonCollider2DComponent>("PolygonCollider2DComponent", "Polygon Collider 2D");
+						row.operator()<CapsuleCollider2DComponent>("CapsuleCollider2DComponent", "Capsule Collider 2D");
+						row.operator()<EdgeCollider2DComponent>("EdgeCollider2DComponent", "Edge Collider 2D");
+						row.operator()<Joint2DComponent>("Joint2DComponent", "Joint 2D");
 						row.operator()<AudioSourceComponent>("AudioSourceComponent", "Audio Source");
 						row.operator()<AudioListenerComponent>("AudioListenerComponent", "Audio Listener");
 						row.operator()<AudioSurfaceComponent>("AudioSurfaceComponent", "Audio Surface");
@@ -2478,8 +2681,40 @@ namespace Lux {
 				}
 				else
 				{
+					bool pixelPerfect = camera.IsPixelPerfect();
+					if (ImGuiEx::Property("Pixel Perfect", pixelPerfect, "Whole-number pixel scale and a camera snapped to the pixel grid. Needs the game rendered at native resolution."))
+					{
+						camera.SetPixelPerfect(pixelPerfect);
+						ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [pixelPerfect](CameraComponent& component, Entity)
+						{
+							component.Camera.SetPixelPerfect(pixelPerfect);
+						});
+					}
+					if (pixelPerfect)
+					{
+						float pixelsPerUnit = camera.GetPixelsPerUnit();
+						if (ImGuiEx::Property("Pixels Per Unit", pixelsPerUnit, 1.0f, 1.0f, 4096.0f))
+						{
+							camera.SetPixelsPerUnit(pixelsPerUnit);
+							ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [pixelsPerUnit](CameraComponent& component, Entity)
+							{
+								component.Camera.SetPixelsPerUnit(pixelsPerUnit);
+							});
+						}
+
+						float referenceHeight = camera.GetReferenceHeight();
+						if (ImGuiEx::Property("Reference Height", referenceHeight, 1.0f, 1.0f, 8192.0f))
+						{
+							camera.SetReferenceHeight(referenceHeight);
+							ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [referenceHeight](CameraComponent& component, Entity)
+							{
+								component.Camera.SetReferenceHeight(referenceHeight);
+							});
+						}
+					}
+
 					float orthoSize = camera.GetOrthographicSize();
-					if (ImGuiEx::Property("Size", orthoSize))
+					if (!pixelPerfect && ImGuiEx::Property("Size", orthoSize))
 					{
 						camera.SetOrthographicSize(orthoSize);
 						ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [orthoSize](CameraComponent& component, Entity)
@@ -2515,6 +2750,21 @@ namespace Lux {
 							component.FixedAspectRatio = firstComponent.FixedAspectRatio;
 						});
 					}
+				}
+
+				if (ImGuiEx::Property("Solid Background", firstComponent.SolidBackground))
+				{
+					ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [&firstComponent](CameraComponent& component, Entity)
+					{
+						component.SolidBackground = firstComponent.SolidBackground;
+					});
+				}
+				if (firstComponent.SolidBackground && ImGuiEx::PropertyColor("Background", firstComponent.BackgroundColor))
+				{
+					ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [&firstComponent](CameraComponent& component, Entity)
+					{
+						component.BackgroundColor = firstComponent.BackgroundColor;
+					});
 				}
 
 				ImGuiEx::EndPropertyGrid();
@@ -2629,6 +2879,30 @@ namespace Lux {
 				}
 				ImGui::PopItemFlag();
 
+				AssetHandle sheetHandle = firstComponent.Sheet;
+				if (ImGuiEx::PropertyAssetReference<SpriteSheet>("Sheet", sheetHandle, "A sprite sheet replaces Texture: the sprite shows one of its frames, sized and anchored by the frame."))
+				{
+					firstComponent.Sheet = sheetHandle;
+					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [sheetHandle](SpriteRendererComponent& component, Entity)
+					{
+						component.Sheet = sheetHandle;
+						component.SpriteIndex = 0;
+					});
+				}
+				if (const Ref<SpriteSheet> sheet = firstComponent.Sheet ? AssetManager::GetAsset<SpriteSheet>(firstComponent.Sheet) : nullptr; sheet && !sheet->Frames.empty())
+				{
+					int32_t frame = std::clamp<int32_t>(firstComponent.SpriteIndex, 0, static_cast<int32_t>(sheet->Frames.size()) - 1);
+					if (ImGuiEx::PropertyDropdown("Frame", static_cast<int32_t>(sheet->Frames.size()), &frame,
+						[&sheet](uint32_t index) { return sheet->Frames[index].Name.c_str(); }))
+					{
+						firstComponent.SpriteIndex = frame;
+						ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [frame](SpriteRendererComponent& component, Entity)
+						{
+							component.SpriteIndex = frame;
+						});
+					}
+				}
+
 				if (ImGuiEx::Property("Tiling Factor", firstComponent.TilingFactor, 0.1f, 0.0f, 100.0f))
 				{
 					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [&firstComponent](SpriteRendererComponent& component, Entity)
@@ -2637,7 +2911,160 @@ namespace Lux {
 					});
 				}
 
+				if (ImGuiEx::Property("Point Filter", firstComponent.PointFilter, "Nearest-neighbour sampling: pixel art stays sharp when magnified."))
+				{
+					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [&firstComponent](SpriteRendererComponent& component, Entity)
+					{
+						component.PointFilter = firstComponent.PointFilter;
+					});
+				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
+
 				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<SpriteAnimatorComponent>(m_Context, entityIDs, "Sprite Animator", EditorResources::SpriteIcon,
+			[this, firstEntity](SpriteAnimatorComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				// The clips come from the sheet on the sprite renderer beside this component.
+				const SpriteRendererComponent* sprite = firstEntity.TryGetComponent<SpriteRendererComponent>();
+				const Ref<SpriteSheet> sheet = sprite && sprite->Sheet ? AssetManager::GetAsset<SpriteSheet>(sprite->Sheet) : nullptr;
+				if (!sheet)
+					ImGui::TextDisabled("Give the Sprite Renderer a sprite sheet to choose a clip.");
+				else
+				{
+					int32_t clip = sheet->FindClip(firstComponent.Clip) + 1; // 0 is "None"
+					if (ImGuiEx::PropertyDropdown("Clip", static_cast<int32_t>(sheet->Clips.size()) + 1, &clip,
+						[&sheet](uint32_t index) { return index == 0 ? "None" : sheet->Clips[index - 1].Name.c_str(); }))
+					{
+						const std::string name = clip == 0 ? std::string() : sheet->Clips[static_cast<size_t>(clip - 1)].Name;
+						ApplyToSelection<SpriteAnimatorComponent>(m_Context, selectedEntities, [name](SpriteAnimatorComponent& component, Entity)
+						{
+							component.Clip = name;
+							component.Time = 0.0f;
+							component.Finished = false;
+						});
+						firstComponent.Clip = name;
+					}
+				}
+
+				if (ImGuiEx::Property("Playing", firstComponent.Playing, "Whether the clip plays when the scene starts."))
+				{
+					ApplyToSelection<SpriteAnimatorComponent>(m_Context, selectedEntities, [&firstComponent](SpriteAnimatorComponent& component, Entity)
+					{
+						component.Playing = firstComponent.Playing;
+					});
+				}
+
+				if (ImGuiEx::Property("Speed", firstComponent.Speed, 0.05f, 0.0f, 20.0f))
+				{
+					ApplyToSelection<SpriteAnimatorComponent>(m_Context, selectedEntities, [&firstComponent](SpriteAnimatorComponent& component, Entity)
+					{
+						component.Speed = firstComponent.Speed;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<TilemapComponent>(m_Context, entityIDs, "Tilemap", EditorResources::SpriteIcon,
+			[this, firstEntity](TilemapComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				AssetHandle sheetHandle = firstComponent.TileSet;
+				if (ImGuiEx::PropertyAssetReference<SpriteSheet>("Tile Set", sheetHandle, "The sprite sheet whose frames are the tiles. A frame flagged Solid blocks movement."))
+				{
+					firstComponent.TileSet = sheetHandle;
+					ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [sheetHandle](TilemapComponent& component, Entity) { component.TileSet = sheetHandle; });
+				}
+
+				if (ImGuiEx::Property("Cell Size", firstComponent.CellSize, 0.01f, 0.01f, 1000.0f, "The size of one cell in world units."))
+				{
+					ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [&firstComponent](TilemapComponent& component, Entity) { component.CellSize = firstComponent.CellSize; });
+				}
+
+				if (ImGuiEx::Property("Point Filter", firstComponent.PointFilter, "Nearest-neighbour sampling: pixel art stays sharp when magnified."))
+				{
+					ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [&firstComponent](TilemapComponent& component, Entity) { component.PointFilter = firstComponent.PointFilter; });
+				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
+				DrawCollider2DMaterial(m_Context, firstComponent, selectedEntities);
+				ImGuiEx::EndPropertyGrid();
+
+				// Match Tile Size: one frame's size in world units, from the tile set.
+				if (const Ref<SpriteSheet> sheet = firstComponent.TileSet ? AssetManager::GetAsset<SpriteSheet>(firstComponent.TileSet) : nullptr; sheet && !sheet->Frames.empty())
+				{
+					ImGuiEx::ScopedID matchID(1);
+					if (ImGui::Button("Match Tile Size"))
+					{
+						const glm::ivec4& rect = sheet->Frames[0].Rect;
+						const glm::vec2 size = glm::vec2(rect.z, rect.w) / std::max(sheet->PixelsPerUnit, 1.0f);
+						firstComponent.CellSize = size;
+						ApplyToSelection<TilemapComponent>(m_Context, selectedEntities, [size](TilemapComponent& component, Entity) { component.CellSize = size; });
+						EditorStack::Get().MarkEntitiesEdited(selectedEntities, "Match Tile Size");
+					}
+				}
+
+				// Layers: first selected entity only (the list has no common shape across a selection).
+				ImGui::SeparatorText("Layers");
+				ImGuiEx::ScopedID layersID(2);
+				bool layersChanged = false;
+				int32_t remove = -1, moveUp = -1;
+				for (int32_t i = 0; i < static_cast<int32_t>(firstComponent.Layers.size()); i++)
+				{
+					ImGuiEx::ScopedID layerID(i);
+					TilemapLayer& layer = firstComponent.Layers[static_cast<size_t>(i)];
+					ImGui::SetNextItemWidth(120.0f);
+					ImGui::InputText("##name", &layer.Name);
+					layersChanged |= ImGui::IsItemDeactivatedAfterEdit();
+					ImGui::SameLine();
+					layersChanged |= ImGui::Checkbox("Visible", &layer.Visible);
+					ImGui::SameLine();
+					layersChanged |= ImGui::Checkbox("Collides", &layer.Collides);
+					ImGui::SameLine();
+					ImGui::TextDisabled("%zu tiles", layer.Cells.size());
+					ImGui::SameLine();
+					if (i > 0 && ImGui::SmallButton("Up"))
+						moveUp = i;
+					ImGui::SameLine();
+					if (firstComponent.Layers.size() > 1 && ImGui::SmallButton("Remove"))
+						remove = i;
+				}
+				if (moveUp > 0)
+				{
+					std::swap(firstComponent.Layers[static_cast<size_t>(moveUp)], firstComponent.Layers[static_cast<size_t>(moveUp) - 1]);
+					layersChanged = true;
+				}
+				if (remove >= 0)
+				{
+					firstComponent.Layers.erase(firstComponent.Layers.begin() + remove);
+					layersChanged = true;
+				}
+				if (ImGui::Button("Add Layer"))
+				{
+					TilemapLayer layer;
+					layer.Name = std::format("Layer {}", firstComponent.Layers.size() + 1);
+					firstComponent.Layers.push_back(std::move(layer));
+					layersChanged = true;
+				}
+				if (layersChanged)
+				{
+					EditorStack::Get().MarkEntitiesEdited(selectedEntities, "Edit Tilemap Layers");
+					if (PhysicsScene2D* physics = m_Context->GetPhysicsScene2D())
+						physics->RebuildTilemap(firstEntity);
+				}
+
+				if (m_OpenTilePaletteCallback)
+				{
+					ImGui::SameLine();
+					if (ImGui::Button("Open Tile Palette"))
+						m_OpenTilePaletteCallback();
+				}
 			});
 
 		DrawComponentSection<CircleRendererComponent>(m_Context, entityIDs, "Circle Renderer", EditorResources::SpriteIcon,
@@ -2668,6 +3095,8 @@ namespace Lux {
 						component.Fade = firstComponent.Fade;
 					});
 				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
 
 				ImGuiEx::EndPropertyGrid();
 			});
@@ -2750,6 +3179,241 @@ namespace Lux {
 					{
 						component.RestitutionThreshold = firstComponent.RestitutionThreshold;
 					});
+				}
+
+				if (ImGuiEx::Property("Is Trigger", firstComponent.IsTrigger, "A trigger detects overlaps (OnTriggerBegin/End) and blocks nothing."))
+				{
+					ApplyToSelection<BoxCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](BoxCollider2DComponent& component, Entity)
+					{
+						component.IsTrigger = firstComponent.IsTrigger;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<PolygonCollider2DComponent>(m_Context, entityIDs, "Polygon Collider 2D", EditorResources::BoxCollider2DIcon,
+			[this](PolygonCollider2DComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				if (ImGuiEx::Property("Offset", firstComponent.Offset))
+				{
+					ApplyToSelection<PolygonCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](PolygonCollider2DComponent& component, Entity)
+					{
+						component.Offset = firstComponent.Offset;
+					});
+				}
+				DrawPoints2D(m_Context, firstComponent, selectedEntities, 3, PolygonCollider2DComponent::MaxPoints);
+				DrawCollider2DMaterial(m_Context, firstComponent, selectedEntities);
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<CapsuleCollider2DComponent>(m_Context, entityIDs, "Capsule Collider 2D", EditorResources::CircleCollider2DIcon,
+			[this](CapsuleCollider2DComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				if (ImGuiEx::Property("Offset", firstComponent.Offset))
+				{
+					ApplyToSelection<CapsuleCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleCollider2DComponent& component, Entity)
+					{
+						component.Offset = firstComponent.Offset;
+					});
+				}
+				if (ImGuiEx::Property("Radius", firstComponent.Radius, 0.01f, 0.0f))
+				{
+					ApplyToSelection<CapsuleCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleCollider2DComponent& component, Entity)
+					{
+						component.Radius = firstComponent.Radius;
+					});
+				}
+				if (ImGuiEx::Property("Height", firstComponent.Height, 0.01f, 0.0f, 0.0f, "The whole length, rounded ends included."))
+				{
+					ApplyToSelection<CapsuleCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](CapsuleCollider2DComponent& component, Entity)
+					{
+						component.Height = firstComponent.Height;
+					});
+				}
+				const char* directions[] = { "Vertical", "Horizontal" };
+				int32_t direction = static_cast<int32_t>(firstComponent.CapsuleDirection);
+				if (ImGuiEx::PropertyDropdown("Direction", directions, 2, &direction))
+				{
+					const auto value = static_cast<CapsuleCollider2DComponent::Direction>(direction);
+					firstComponent.CapsuleDirection = value;
+					ApplyToSelection<CapsuleCollider2DComponent>(m_Context, selectedEntities, [value](CapsuleCollider2DComponent& component, Entity)
+					{
+						component.CapsuleDirection = value;
+					});
+				}
+				DrawCollider2DMaterial(m_Context, firstComponent, selectedEntities);
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<EdgeCollider2DComponent>(m_Context, entityIDs, "Edge Collider 2D", EditorResources::BoxCollider2DIcon,
+			[this](EdgeCollider2DComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				if (ImGuiEx::Property("Offset", firstComponent.Offset))
+				{
+					ApplyToSelection<EdgeCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](EdgeCollider2DComponent& component, Entity)
+					{
+						component.Offset = firstComponent.Offset;
+					});
+				}
+				if (ImGuiEx::Property("Loop", firstComponent.Loop, "Joins the last point to the first. Needs three or more points."))
+				{
+					ApplyToSelection<EdgeCollider2DComponent>(m_Context, selectedEntities, [&firstComponent](EdgeCollider2DComponent& component, Entity)
+					{
+						component.Loop = firstComponent.Loop;
+					});
+				}
+				DrawPoints2D(m_Context, firstComponent, selectedEntities, 2, 1024);
+				DrawCollider2DMaterial(m_Context, firstComponent, selectedEntities);
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<Joint2DComponent>(m_Context, entityIDs, "Joint 2D", EditorResources::RigidBody2DIcon,
+			[this](Joint2DComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				const char* types[] = { "Distance", "Revolute (Hinge)", "Prismatic (Slider)", "Weld" };
+				int32_t type = static_cast<int32_t>(firstComponent.JointType);
+				if (ImGuiEx::PropertyDropdown("Type", types, 4, &type))
+				{
+					const auto value = static_cast<Joint2DComponent::Type>(type);
+					firstComponent.JointType = value;
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [value](Joint2DComponent& component, Entity)
+					{
+						component.JointType = value;
+					});
+				}
+
+				if (ImGuiEx::PropertyEntityReference("Connected Body", firstComponent.ConnectedEntity, m_Context, "The entity with a Rigidbody 2D this one is joined to. Empty anchors this body to the world."))
+				{
+					const UUID connected = firstComponent.ConnectedEntity;
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [connected](Joint2DComponent& component, Entity)
+					{
+						component.ConnectedEntity = connected;
+					});
+				}
+
+				const bool isDistance = firstComponent.JointType == Joint2DComponent::Type::Distance;
+				const bool isHinge = firstComponent.JointType == Joint2DComponent::Type::Revolute;
+				const bool isSlider = firstComponent.JointType == Joint2DComponent::Type::Prismatic;
+				const bool isWeld = firstComponent.JointType == Joint2DComponent::Type::Weld;
+
+				if (ImGuiEx::Property("Anchor", firstComponent.Anchor, 0.01f, 0.0f, 0.0f, "On this body, in its local space."))
+				{
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+					{
+						component.Anchor = firstComponent.Anchor;
+					});
+				}
+				if (isDistance && ImGuiEx::Property("Connected Anchor", firstComponent.ConnectedAnchor, 0.01f, 0.0f, 0.0f, "On the connected body (local), or a world point when there is none."))
+				{
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+					{
+						component.ConnectedAnchor = firstComponent.ConnectedAnchor;
+					});
+				}
+				if (ImGuiEx::Property("Collide Connected", firstComponent.CollideConnected))
+				{
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+					{
+						component.CollideConnected = firstComponent.CollideConnected;
+					});
+				}
+
+				if (isDistance)
+				{
+					if (ImGuiEx::Property("Auto Length", firstComponent.AutoLength, "Use the distance between the anchors at the start."))
+					{
+						ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+						{
+							component.AutoLength = firstComponent.AutoLength;
+						});
+					}
+					if (!firstComponent.AutoLength && ImGuiEx::Property("Length", firstComponent.Length, 0.01f, 0.0f))
+					{
+						ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+						{
+							component.Length = firstComponent.Length;
+						});
+					}
+				}
+				if ((isDistance || isWeld) && ImGuiEx::Property("Stiffness", firstComponent.Stiffness, 0.5f, 0.0f, 0.0f, "N/m. 0 is rigid; more makes a spring."))
+				{
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+					{
+						component.Stiffness = firstComponent.Stiffness;
+					});
+				}
+				if ((isDistance || isWeld) && ImGuiEx::Property("Damping", firstComponent.Damping, 0.05f, 0.0f))
+				{
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+					{
+						component.Damping = firstComponent.Damping;
+					});
+				}
+
+				if (isSlider && ImGuiEx::Property("Axis", firstComponent.Axis, 0.01f, 0.0f, 0.0f, "The slide direction, in this body's local space."))
+				{
+					ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+					{
+						component.Axis = firstComponent.Axis;
+					});
+				}
+				if (isHinge || isSlider)
+				{
+					const char* unit = isHinge ? " (degrees)" : " (units)";
+					if (ImGuiEx::Property("Enable Limit", firstComponent.EnableLimit))
+					{
+						ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+						{
+							component.EnableLimit = firstComponent.EnableLimit;
+						});
+					}
+					if (firstComponent.EnableLimit)
+					{
+						if (ImGuiEx::Property(std::format("Lower Limit{}", unit).c_str(), firstComponent.LowerLimit, 0.1f))
+						{
+							ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+							{
+								component.LowerLimit = firstComponent.LowerLimit;
+							});
+						}
+						if (ImGuiEx::Property(std::format("Upper Limit{}", unit).c_str(), firstComponent.UpperLimit, 0.1f))
+						{
+							ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+							{
+								component.UpperLimit = firstComponent.UpperLimit;
+							});
+						}
+					}
+					if (ImGuiEx::Property("Enable Motor", firstComponent.EnableMotor))
+					{
+						ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+						{
+							component.EnableMotor = firstComponent.EnableMotor;
+						});
+					}
+					if (firstComponent.EnableMotor)
+					{
+						if (ImGuiEx::Property(std::format("Motor Speed{}", isHinge ? " (degrees/s)" : " (units/s)").c_str(), firstComponent.MotorSpeed, 0.1f))
+						{
+							ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+							{
+								component.MotorSpeed = firstComponent.MotorSpeed;
+							});
+						}
+						if (ImGuiEx::Property("Max Motor Force", firstComponent.MaxMotorForce, 0.5f, 0.0f, 0.0f, isHinge ? "Maximum torque, N*m." : "Maximum force, N."))
+						{
+							ApplyToSelection<Joint2DComponent>(m_Context, selectedEntities, [&firstComponent](Joint2DComponent& component, Entity)
+							{
+								component.MaxMotorForce = firstComponent.MaxMotorForce;
+							});
+						}
+					}
 				}
 
 				ImGuiEx::EndPropertyGrid();
@@ -3363,6 +4027,8 @@ namespace Lux {
 						component.ScreenSpace = firstComponent.ScreenSpace;
 					});
 				}
+
+				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
 
 				if (ImGuiEx::Property("Drop Shadow", firstComponent.DropShadow))
 				{

@@ -90,6 +90,96 @@ namespace Lux
 			}
 			set => InternalCalls.SpriteRendererComponent_SetTexture(Entity.ID, value != null ? value.Handle : 0);
 		}
+
+		/// <summary>
+		/// The frame of the sprite sheet this sprite shows (the Frame in the Sprite Renderer's inspector).
+		/// A <see cref="SpriteAnimatorComponent"/> changes it while a clip plays.
+		/// </summary>
+		public int SpriteIndex
+		{
+			get => InternalCalls.SpriteRendererComponent_GetSpriteIndex(Entity.ID);
+			set => InternalCalls.SpriteRendererComponent_SetSpriteIndex(Entity.ID, value);
+		}
+
+		/// <summary>The sorting layer's name, as listed in Project Settings > 2D. Setting a name the project does not have logs a warning.</summary>
+		public string SortingLayer
+		{
+			get => InternalCalls.SpriteRendererComponent_GetSortingLayer(Entity.ID);
+			set => InternalCalls.SpriteRendererComponent_SetSortingLayer(Entity.ID, value ?? string.Empty);
+		}
+
+		/// <summary>The draw order inside the sorting layer: higher draws later, on top.</summary>
+		public int OrderInLayer
+		{
+			get => InternalCalls.SpriteRendererComponent_GetOrderInLayer(Entity.ID);
+			set => InternalCalls.SpriteRendererComponent_SetOrderInLayer(Entity.ID, value);
+		}
+	}
+
+	/// <summary>
+	/// A grid of tiles from a sprite sheet, in layers. A tile is the number of a frame of the tile set; -1 is an empty cell.
+	/// Cell (0, 0) has its lower left corner at the entity's position. Changing tiles from a script also updates the solid-tile
+	/// collision while the game plays.
+	/// </summary>
+	public unsafe class TilemapComponent : Component
+	{
+		/// <summary>How many layers the tilemap has (layers are numbered from 0, bottom first).</summary>
+		public int LayerCount => InternalCalls.TilemapComponent_GetLayerCount(Entity.ID);
+
+		/// <summary>The tile in a cell, or -1 when it is empty or the layer does not exist.</summary>
+		public int GetTile(int x, int y, int layer = 0) => InternalCalls.TilemapComponent_GetTile(Entity.ID, x, y, layer);
+
+		/// <summary>Puts a tile in a cell. A negative tile empties the cell.</summary>
+		public void SetTile(int x, int y, int tile, int layer = 0) => InternalCalls.TilemapComponent_SetTile(Entity.ID, x, y, tile, layer);
+
+		/// <summary>Empties a cell.</summary>
+		public void EraseTile(int x, int y, int layer = 0) => InternalCalls.TilemapComponent_SetTile(Entity.ID, x, y, -1, layer);
+
+		/// <summary>The cell under a point in world space.</summary>
+		public void WorldToCell(Vector2 world, out int x, out int y)
+		{
+			int cellX, cellY;
+			InternalCalls.TilemapComponent_WorldToCell(Entity.ID, &world, &cellX, &cellY);
+			x = cellX;
+			y = cellY;
+		}
+
+		/// <summary>The center of a cell, in world space.</summary>
+		public Vector2 CellToWorld(int x, int y)
+		{
+			Vector2 center;
+			InternalCalls.TilemapComponent_CellToWorld(Entity.ID, x, y, &center);
+			return center;
+		}
+	}
+
+	/// <summary>Plays the sprite sheet's animation clips on this entity's <see cref="SpriteRendererComponent"/>.</summary>
+	public unsafe class SpriteAnimatorComponent : Component
+	{
+		/// <summary>
+		/// Plays the named clip of the sprite renderer's sheet. A clip that is already playing keeps running
+		/// unless <paramref name="restart"/> is true; any other clip, or a stopped one, starts from its first frame.
+		/// </summary>
+		public void Play(string clip, bool restart = false) => InternalCalls.SpriteAnimatorComponent_Play(Entity.ID, clip ?? string.Empty, restart);
+
+		/// <summary>Stops on the current frame. <see cref="Play"/> starts again.</summary>
+		public void Stop() => InternalCalls.SpriteAnimatorComponent_Stop(Entity.ID);
+
+		/// <summary>The current clip's name, empty for none.</summary>
+		public string Clip => InternalCalls.SpriteAnimatorComponent_GetClip(Entity.ID);
+
+		/// <summary>Whether a clip is playing.</summary>
+		public bool IsPlaying => InternalCalls.SpriteAnimatorComponent_IsPlaying(Entity.ID);
+
+		/// <summary>True once a clip that plays once has reached its last frame.</summary>
+		public bool IsFinished => InternalCalls.SpriteAnimatorComponent_IsFinished(Entity.ID);
+
+		/// <summary>Playback speed: 1 is the clip's own frames per second.</summary>
+		public float Speed
+		{
+			get => InternalCalls.SpriteAnimatorComponent_GetSpeed(Entity.ID);
+			set => InternalCalls.SpriteAnimatorComponent_SetSpeed(Entity.ID, value);
+		}
 	}
 
 	/// <summary>Draws a circle or ring (2D).</summary>
@@ -274,6 +364,13 @@ namespace Lux
 			get => InternalCalls.BoxCollider2DComponent_GetRestitution(Entity.ID);
 			set => InternalCalls.BoxCollider2DComponent_SetRestitution(Entity.ID, value);
 		}
+
+		/// <summary>A trigger detects overlaps (<c>OnTriggerBegin</c>/<c>OnTriggerEnd</c>) and blocks nothing.</summary>
+		public bool IsTrigger
+		{
+			get => InternalCalls.BoxCollider2DComponent_GetIsTrigger(Entity.ID);
+			set => InternalCalls.BoxCollider2DComponent_SetIsTrigger(Entity.ID, value);
+		}
 	}
 
 	/// <summary>A circle shape for the entity's 2D rigid body.</summary>
@@ -312,6 +409,13 @@ namespace Lux
 		{
 			get => InternalCalls.CircleCollider2DComponent_GetRestitution(Entity.ID);
 			set => InternalCalls.CircleCollider2DComponent_SetRestitution(Entity.ID, value);
+		}
+
+		/// <summary>A trigger detects overlaps (<c>OnTriggerBegin</c>/<c>OnTriggerEnd</c>) and blocks nothing.</summary>
+		public bool IsTrigger
+		{
+			get => InternalCalls.CircleCollider2DComponent_GetIsTrigger(Entity.ID);
+			set => InternalCalls.CircleCollider2DComponent_SetIsTrigger(Entity.ID, value);
 		}
 	}
 

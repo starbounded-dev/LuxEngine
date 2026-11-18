@@ -59,7 +59,12 @@ layout (set = 0, binding = 0) uniform texture2D u_Textures[32];
 
 void main()
 {
-	color = SampleDefault(u_Textures[int(TexIndex)], Input.TexCoord * Input.TilingFactor) * Input.Color;
+	// A negative tiling factor asks for nearest-neighbour sampling (a sprite's Point Filter).
+	vec2 uv = Input.TexCoord * abs(Input.TilingFactor);
+	vec4 texel = Input.TilingFactor < 0.0
+		? texture(sampler2D(u_Textures[int(TexIndex)], r_PointSampler), uv)
+		: SampleDefault(u_Textures[int(TexIndex)], uv);
+	color = texel * Input.Color;
 	// Discard to avoid depth write
 	if (color.a == 0.0)
 		discard;
