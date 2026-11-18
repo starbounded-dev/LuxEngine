@@ -49,9 +49,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [60, 1, 60]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001004
+        0: Materials/RenderFeatures/RF_Wall.lmat
       Visible: true
   - Entity: 7200000000000000004
     TagComponent:
@@ -64,9 +64,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 7100000000000000001
+      AssetID: Meshes/Source/Rig/RiggedSimple.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 7200000000000000005
     TagComponent:

@@ -131,7 +131,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 5094136855824747147
+      AssetID: Meshes/Source/Sponza/Sponza.gltf
       MaterialTable: {}
       Visible: true
   - Entity: 12726918091783066847
@@ -144,7 +144,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     SkyLightComponent:
-      EnvironmentMap: 958788097531993663
+      EnvironmentMap: Environment/dikhololo_night_4k.hdr
       Intensity: 0.24
       Lod: 0
       Rotation: 0

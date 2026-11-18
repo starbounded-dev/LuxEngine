@@ -92,9 +92,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [30, 1, 30]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001000
+        0: Materials/RenderFeatures/RF_Ground.lmat
       Visible: true
   - Entity: 17100000000000000005
     TagComponent:
@@ -107,9 +107,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000001
+        0: Materials/Showcase/MS_Standard.lmat
       Visible: true
   - Entity: 17100000000000000006
     TagComponent:
@@ -122,9 +122,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000002
+        0: Materials/Showcase/MS_Clearcoat.lmat
       Visible: true
   - Entity: 17100000000000000007
     TagComponent:
@@ -137,9 +137,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000003
+        0: Materials/Showcase/MS_Sheen.lmat
       Visible: true
   - Entity: 17100000000000000008
     TagComponent:
@@ -152,9 +152,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000004
+        0: Materials/Showcase/MS_Subsurface.lmat
       Visible: true
   - Entity: 17100000000000000009
     TagComponent:
@@ -167,9 +167,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000005
+        0: Materials/Showcase/MS_Anisotropy.lmat
       Visible: true
   - Entity: 17100000000000000010
     TagComponent:
@@ -182,9 +182,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000006
+        0: Materials/Showcase/MS_Triplanar.lmat
       Visible: true
   - Entity: 17100000000000000011
     TagComponent:
@@ -197,9 +197,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000007
+        0: Materials/Showcase/MS_Detail.lmat
       Visible: true
   - Entity: 17100000000000000012
     TagComponent:
@@ -212,9 +212,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000008
+        0: Materials/Showcase/MS_Graph.lmat
       Visible: true
   - Entity: 17100000000000000013
     TagComponent:
@@ -227,9 +227,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000009
+        0: Materials/Showcase/MS_GraphInstance.lmat
       Visible: true
   - Entity: 17100000000000000014
     TagComponent:
@@ -242,9 +242,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000010
+        0: Materials/Showcase/MS_FunctionUser.lmat
       Visible: true
   - Entity: 17100000000000000015
     TagComponent:
@@ -257,7 +257,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 17000000000000000012
+        0: Materials/Showcase/MS_CutoutGraph.lmat
       Visible: true

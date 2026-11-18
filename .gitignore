@@ -77,6 +77,8 @@ Editor/DotNet/
 Editor/Resources/Cache
 Lux.slnx
 Editor/LuxSampleProject/Assets/Cache/Thumbnails
+# A rebuilt cache: every saved reference is an Assets-relative path (docs/ASSET_PATH_REFERENCES_PLAN.md).
+Editor/LuxSampleProject/Assets/AssetRegistry.lzr
 *.lap
 *.aps
 *.slnx

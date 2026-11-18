@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "SceneAssetSerializer.h"
 
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/SceneSerializer.h"
 
@@ -28,6 +29,7 @@ namespace Lux
 		if (!serializer.Deserialize(Project::GetEditorAssetManager()->GetFileSystemPath(metadata)))
 			return false;
 
+		AssetReference::LogNewUnresolved();
 		scene->Handle = metadata.Handle;
 		if (scene->GetName().empty() || scene->GetName() == "Untitled")
 			scene->SetName(metadata.FilePath.stem().string());

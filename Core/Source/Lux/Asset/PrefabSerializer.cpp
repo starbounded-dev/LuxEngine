@@ -6,6 +6,7 @@
 #include "PrefabSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
@@ -34,10 +35,14 @@ namespace Lux
 		// A variant adds one top-level BasePrefab key after the scene document. The document is a
 		// top-level block map, so appending the key as the last line keeps the scene content exactly
 		// as SceneSerializer wrote it.
+		AssetReference::PathModeScope pathMode; // a prefab file stores paths, like a scene file
 		std::string sceneYaml = SceneSerializer(scene).SerializeToString();
 		if (!sceneYaml.empty() && sceneYaml.back() != '\n')
 			sceneYaml += '\n';
-		sceneYaml += "BasePrefab: " + std::to_string(static_cast<uint64_t>(basePrefab)) + "\n";
+		std::string basePrefabText = AssetReference::PathFor(basePrefab);
+		if (basePrefabText.empty())
+			basePrefabText = std::to_string(static_cast<uint64_t>(basePrefab));
+		sceneYaml += "BasePrefab: " + basePrefabText + "\n";
 
 		if (!FileSystem::WriteFileAtomically(path, sceneYaml))
 			LUX_CORE_ERROR_TAG("Asset", "Could not save prefab '{}'; the file on disk is unchanged", path.string());
@@ -86,7 +91,7 @@ namespace Lux
 		{
 			Yaml::Node node = Yaml::LoadFile(path);
 			if (node["BasePrefab"])
-				basePrefab = node["BasePrefab"].as<uint64_t>(0);
+				basePrefab = AssetReference::ReadValue(node["BasePrefab"]);
 		}
 		catch (const std::exception&)
 		{

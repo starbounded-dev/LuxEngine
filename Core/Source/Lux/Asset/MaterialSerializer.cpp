@@ -6,6 +6,7 @@
 #include "MaterialSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Material.h"
@@ -141,14 +142,8 @@ namespace Lux
 
 		static bool TryParseAssetHandle(std::string_view value, AssetHandle& handle)
 		{
-			if (value.empty())
-				return false;
-
 			uint64_t parsedHandle = 0;
-			const char* begin = value.data();
-			const char* end = value.data() + value.size();
-			const auto [ptr, error] = std::from_chars(begin, end, parsedHandle);
-			if (error != std::errc() || ptr != end)
+			if (!AssetReference::TryParseHandle(value, parsedHandle))
 				return false;
 
 			handle = parsedHandle;
@@ -398,7 +393,8 @@ namespace Lux
 						out << Yaml::Key << "Kind" << Yaml::Value << static_cast<uint32_t>(parameter.Kind);
 						out << Yaml::Key << "Slot" << Yaml::Value << parameter.Slot;
 						out << Yaml::Key << "Default" << Yaml::Value << parameter.Default;
-						out << Yaml::Key << "DefaultTexture" << Yaml::Value << static_cast<uint64_t>(parameter.DefaultTexture);
+						out << Yaml::Key << "DefaultTexture" << Yaml::Value;
+						AssetReference::WriteValue(out, parameter.DefaultTexture);
 						out << Yaml::Key << "SRGB" << Yaml::Value << parameter.SRGB;
 						out << Yaml::Key << "Exposed" << Yaml::Value << parameter.Exposed;
 						out << Yaml::EndMap;
@@ -424,7 +420,8 @@ namespace Lux
 			// all written anyway, so the file loads as it was saved without the parent.
 			if (const AssetHandle parent = materialAsset->GetParent())
 			{
-				out << Yaml::Key << "Parent" << Yaml::Value << static_cast<uint64_t>(parent);
+				out << Yaml::Key << "Parent" << Yaml::Value;
+				AssetReference::WriteValue(out, parent);
 				out << Yaml::Key << "Overrides" << Yaml::Value << Yaml::BeginSeq;
 				for (const std::string& key : materialAsset->GetOverrides())
 					out << key;
@@ -594,7 +591,7 @@ namespace Lux
 							parameter.Kind = static_cast<MaterialGraphParameterKind>(item["Kind"].as<uint32_t>(0));
 							parameter.Slot = item["Slot"].as<uint32_t>(0);
 							parameter.Default = item["Default"].as<glm::vec4>(glm::vec4(0.0f));
-							parameter.DefaultTexture = item["DefaultTexture"].as<uint64_t>(0);
+							parameter.DefaultTexture = AssetReference::ReadValue(item["DefaultTexture"]);
 							parameter.SRGB = item["SRGB"].as<bool>(true);
 							parameter.Exposed = item["Exposed"].as<bool>(true);
 							graph->PackedParameters.push_back(parameter);
@@ -613,7 +610,7 @@ namespace Lux
 			}
 			targetMaterialAsset->SetGraphParameters(std::move(graphParameters));
 
-			if (const AssetHandle parent = materialNode["Parent"].as<uint64_t>(0))
+			if (const AssetHandle parent = AssetReference::ReadValue(materialNode["Parent"]))
 			{
 				std::set<std::string, std::less<>> overrides;
 				for (const Yaml::Node key : materialNode["Overrides"])
@@ -668,6 +665,8 @@ namespace Lux
 			return false;
 		}
 
+		// The file stores asset paths (Parent, graph references); the pack copy stays numeric.
+		AssetReference::PathModeScope pathMode;
 		const std::string serializedMaterial = SerializeMaterialToYAML(materialAsset, TextureReferenceSerialization::AssetPaths);
 		if (serializedMaterial.empty())
 		{

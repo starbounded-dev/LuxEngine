@@ -244,10 +244,12 @@ namespace Lux {
 		std::unordered_map<UUID, entt::entity> enttMap;
 
 		// Create entities in new scene
-		// A view iterates newest-first, so create in reverse to keep the source's iteration order.
+		// Create in the source's creation order (entity index): the view's order depends on whether SortEntities
+		// ran, and a copy that reorders makes every save of an opened scene reverse the file.
 		auto idView = srcSceneRegistry.view<IDComponent>();
-		const std::vector<entt::entity> srcEntities(idView.begin(), idView.end());
-		for (auto e : srcEntities | std::views::reverse)
+		std::vector<entt::entity> srcEntities(idView.begin(), idView.end());
+		std::sort(srcEntities.begin(), srcEntities.end(), [](entt::entity a, entt::entity b) { return (uint32_t)a < (uint32_t)b; });
+		for (auto e : srcEntities)
 		{
 			UUID uuid = srcSceneRegistry.get<IDComponent>(e).ID;
 			const auto& srcTag = srcSceneRegistry.get<TagComponent>(e);
@@ -285,12 +287,15 @@ namespace Lux {
 	Entity Scene::CreateEntityWithID(UUID uuid, const std::string& name, bool shouldSort)
 	{
 		(void)shouldSort;
+		// `name` may point into this registry's own TagComponent pool (DuplicateEntity passes the source's name),
+		// and adding components can reallocate that pool, so copy it first.
+		const std::string tagName = name.empty() ? "Entity" : name;
 		Entity entity = { m_Registry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
 		entity.AddComponent<RelationshipComponent>();
 		auto& tag = entity.AddComponent<TagComponent>();
-		tag.Tag = name.empty() ? "Entity" : name;
+		tag.Tag = tagName;
 
 		m_EntityMap[uuid] = entity;
 		return entity;
@@ -1333,7 +1338,9 @@ namespace Lux {
 			if (parent)
 				ParentEntity(destination, parent);
 
-			for (UUID childID : source.Children())
+			// A copy: duplicating a child creates entities in this registry, which can reallocate the pool the
+			// live Children() vector sits in and left this loop reading freed memory (the second child was lost).
+			for (const UUID childID : std::vector<UUID>(source.Children()))
 			{
 				Entity child = TryGetEntityWithUUID(childID);
 				if (child)

@@ -321,7 +321,8 @@ namespace Lux {
 				const auto& prefab = entity.GetComponent<PrefabComponent>();
 				out << Yaml::Key << "PrefabComponent";
 				out << Yaml::BeginMap;
-				out << Yaml::Key << "Prefab" << Yaml::Value << prefab.PrefabID;
+				out << Yaml::Key << "Prefab" << Yaml::Value;
+				AssetReference::WriteValue(out, prefab.PrefabID);
 				out << Yaml::Key << "Entity" << Yaml::Value << prefab.EntityID;
 				if (prefab.Tracked)
 					out << Yaml::Key << "Tracked" << Yaml::Value << true;
@@ -440,7 +441,8 @@ namespace Lux {
 				const auto& skeleton = entity.GetComponent<SkeletonComponent>();
 				out << Yaml::Key << "SkeletonComponent";
 				out << Yaml::BeginMap;
-				out << Yaml::Key << "AssetID" << Yaml::Value << skeleton.SkeletonAsset;
+				out << Yaml::Key << "AssetID" << Yaml::Value;
+				AssetReference::WriteValue(out, skeleton.SkeletonAsset);
 				if (!skeleton.Enabled)
 					out << Yaml::Key << "Enabled" << Yaml::Value << false;
 				if (!skeleton.DebugBone.empty())
@@ -448,9 +450,15 @@ namespace Lux {
 				if (skeleton.DebugBendDegrees != 0.0f)
 					out << Yaml::Key << "DebugBendDegrees" << Yaml::Value << skeleton.DebugBendDegrees;
 				if (skeleton.Clip)
-					out << Yaml::Key << "Clip" << Yaml::Value << skeleton.Clip;
+				{
+					out << Yaml::Key << "Clip" << Yaml::Value;
+					AssetReference::WriteValue(out, skeleton.Clip);
+				}
 				if (skeleton.Graph)
-					out << Yaml::Key << "Graph" << Yaml::Value << skeleton.Graph;
+				{
+					out << Yaml::Key << "Graph" << Yaml::Value;
+					AssetReference::WriteValue(out, skeleton.Graph);
+				}
 				if (skeleton.StartTime != 0.0f)
 					out << Yaml::Key << "StartTime" << Yaml::Value << skeleton.StartTime;
 				if (skeleton.Speed != 1.0f)
@@ -585,7 +593,8 @@ namespace Lux {
 				out << Yaml::BeginMap;
 				if (!skyLight.Enabled)
 					out << Yaml::Key << "Enabled" << Yaml::Value << skyLight.Enabled;
-				out << Yaml::Key << "EnvironmentMap" << Yaml::Value << (AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
+				out << Yaml::Key << "EnvironmentMap" << Yaml::Value;
+				AssetReference::WriteValue(out, AssetManager::GetMemoryAsset(skyLight.SceneEnvironment) ? (AssetHandle)0 : skyLight.SceneEnvironment);
 				out << Yaml::Key << "Intensity" << Yaml::Value << skyLight.Intensity;
 				out << Yaml::Key << "Lod" << Yaml::Value << skyLight.Lod;
 				out << Yaml::Key << "Rotation" << Yaml::Value << skyLight.Rotation;
@@ -603,7 +612,8 @@ namespace Lux {
 				if (!sprite.Enabled)
 					out << Yaml::Key << "Enabled" << Yaml::Value << sprite.Enabled;
 				out << Yaml::Key << "Color" << Yaml::Value << sprite.Color;
-				out << Yaml::Key << "Texture" << Yaml::Value << sprite.Texture;
+				out << Yaml::Key << "Texture" << Yaml::Value;
+				AssetReference::WriteValue(out, sprite.Texture);
 				out << Yaml::Key << "TilingFactor" << Yaml::Value << sprite.TilingFactor;
 				out << Yaml::Key << "UVStart" << Yaml::Value << sprite.UVStart;
 				out << Yaml::Key << "UVEnd" << Yaml::Value << sprite.UVEnd;
@@ -632,7 +642,8 @@ namespace Lux {
 				if (!text.Enabled)
 					out << Yaml::Key << "Enabled" << Yaml::Value << text.Enabled;
 				out << Yaml::Key << "TextString" << Yaml::Value << text.TextString;
-				out << Yaml::Key << "FontHandle" << Yaml::Value << text.FontHandle;
+				out << Yaml::Key << "FontHandle" << Yaml::Value;
+				AssetReference::WriteValue(out, text.FontHandle);
 				out << Yaml::Key << "Color" << Yaml::Value << text.Color;
 				out << Yaml::Key << "LineSpacing" << Yaml::Value << text.LineSpacing;
 				out << Yaml::Key << "Kerning" << Yaml::Value << text.Kerning;
@@ -983,7 +994,7 @@ namespace Lux {
 				if (const auto prefab = entity["PrefabComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<PrefabComponent>();
-					component.PrefabID = prefab["Prefab"].as<uint64_t>(0);
+					component.PrefabID = AssetReference::ReadValue(prefab["Prefab"]);
 					component.EntityID = prefab["Entity"].as<uint64_t>(0);
 					component.Tracked = prefab["Tracked"].as<bool>(false);
 					for (const auto& [key, ids] : { std::pair{ "Removed", &component.RemovedEntities }, std::pair{ "Reparented", &component.ReparentedEntities } })
@@ -1053,12 +1064,12 @@ namespace Lux {
 				if (const auto skeleton = entity["SkeletonComponent"])
 				{
 					auto& component = deserializedEntity.AddComponent<SkeletonComponent>();
-					component.SkeletonAsset = skeleton["AssetID"].as<uint64_t>(0);
+					component.SkeletonAsset = AssetReference::ReadValue(skeleton["AssetID"]);
 					component.Enabled = skeleton["Enabled"].as<bool>(true);
 					component.DebugBone = skeleton["DebugBone"].as<std::string>("");
 					component.DebugBendDegrees = skeleton["DebugBendDegrees"].as<float>(0.0f);
-					component.Clip = skeleton["Clip"].as<uint64_t>(0);
-					component.Graph = skeleton["Graph"].as<uint64_t>(0);
+					component.Clip = AssetReference::ReadValue(skeleton["Clip"]);
+					component.Graph = AssetReference::ReadValue(skeleton["Graph"]);
 					component.StartTime = skeleton["StartTime"].as<float>(0.0f);
 					component.Speed = skeleton["Speed"].as<float>(1.0f);
 					component.Loop = skeleton["Loop"].as<bool>(true);
@@ -1161,7 +1172,7 @@ namespace Lux {
 				{
 					auto& component = deserializedEntity.AddComponent<SkyLightComponent>();
 					component.Enabled = skyLight["Enabled"].as<bool>(true);
-					component.SceneEnvironment = skyLight["EnvironmentMap"].as<uint64_t>(0);
+					component.SceneEnvironment = AssetReference::ReadValue(skyLight["EnvironmentMap"]);
 					component.Intensity = skyLight["Intensity"].as<float>(1.0f);
 					component.Lod = skyLight["Lod"].as<float>(0.0f);
 					component.Rotation = skyLight["Rotation"].as<float>(0.0f);
@@ -1174,7 +1185,7 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<SpriteRendererComponent>();
 					component.Enabled = sprite["Enabled"].as<bool>(true);
 					component.Color = sprite["Color"].as<glm::vec4>(glm::vec4(1.0f));
-					component.Texture = sprite["Texture"].as<uint64_t>(0);
+					component.Texture = AssetReference::ReadValue(sprite["Texture"]);
 					component.TilingFactor = sprite["TilingFactor"].as<float>(1.0f);
 					component.UVStart = sprite["UVStart"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
 					component.UVEnd = sprite["UVEnd"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
@@ -1195,7 +1206,7 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<TextComponent>();
 					component.Enabled = text["Enabled"].as<bool>(true);
 					component.TextString = text["TextString"].as<std::string>("");
-					component.FontHandle = text["FontHandle"].as<uint64_t>(0);
+					component.FontHandle = AssetReference::ReadValue(text["FontHandle"]);
 					component.Color = text["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.LineSpacing = text["LineSpacing"].as<float>(0.0f);
 					component.Kerning = text["Kerning"].as<float>(0.0f);
@@ -1592,14 +1603,15 @@ namespace Lux {
 
 		out << Yaml::Key << "Entities" << Yaml::Value << Yaml::BeginSeq;
 
-		// In the order the hierarchy lists them (registry order; Deserialize recreates it from file order). The
-		// IDComponent view's order is whatever SortEntities left, so writing it flipped the roots on every save.
+		// Deserialize creates entities in file order, and registry.each visits the newest first, so the file
+		// order is the reverse of each(). Writing it unreversed flipped the whole file on every save.
 		std::vector<entt::entity> entities;
 		m_Scene->m_Registry.each([&](entt::entity entityID)
 		{
 			if (m_Scene->m_Registry.has<IDComponent>(entityID))
 				entities.push_back(entityID);
 		});
+		std::reverse(entities.begin(), entities.end());
 		for (auto entityID : entities)
 			SerializeEntity(out, { entityID, m_Scene.get() });
 

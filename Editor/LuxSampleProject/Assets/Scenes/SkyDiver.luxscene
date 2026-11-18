@@ -33,7 +33,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [25, 1, 25]
     StaticMeshComponent:
-      AssetID: 10955405005470926046
+      AssetID: Meshes/Source/Default/Plane.gltf
       MaterialTable:
         {}
       Visible: true

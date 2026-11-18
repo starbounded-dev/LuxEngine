@@ -8,31 +8,51 @@
 // clean clone (docs/ASSET_PATH_REFERENCES_PLAN.md, issue 161). Handles stay the runtime identity.
 //
 // Reading accepts both forms: a bare number is a handle (every older file), anything else is a path.
-// Writing emits a path only inside a PathModeScope (a scene saved to its file); snapshots, undo
-// diffs and asset packs stay numeric because the player has no path map.
+// Writing emits a path only inside a PathModeScope (a file save); snapshots, undo diffs and asset
+// packs stay numeric because the player has no path map.
 //
-// Thread: lookups take only the registry's shared lock and never import, so they are safe on the
-// asset worker (Threading.md: the worker never mutates the registry). Editor only: the player has no
-// EditorAssetManager, so a path read there resolves to a hashed handle; packs stay numeric.
+// This header depends on nothing but handles and YAML, so code that is built without the asset
+// system (the native audio tests) can include it. The registry is reached through Hooks, which
+// EditorAssetManager installs. With no hooks a path reads as a hashed handle that is remembered and
+// written back unchanged, and a handle is written as a number.
+//
+// Thread: the hooks take only the registry's shared lock and never import, so they are safe on the
+// asset worker (Threading.md: the worker never mutates the registry).
 
 #include "Lux/Asset/Asset.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Serialization/Yaml.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
-#include <filesystem>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace Lux::AssetReference
 {
-	namespace Detail
+	// What the asset system provides. Each looks up the active project's EditorAssetManager when it
+	// is called, so a project switch needs nothing from this header.
+	struct Hooks
 	{
-		AssetHandle LookupRegisteredHandle(const std::string& path);
-		std::string LookupRegisteredPath(AssetHandle handle);
+		// Exact lookup by a registry path key (a normalized generic path): O(1), no parsing.
+		AssetHandle (*FindByKey)(const std::string& key) = nullptr;
+		// Lookup that normalizes the path first.
+		AssetHandle (*FindByPath)(const std::string& path) = nullptr;
+		// The registry's path for a handle; false when the handle is not a registered file asset.
+		bool (*PathOfHandle)(AssetHandle handle, std::string& outPath) = nullptr;
+		// Every registered path whose filename equals `filename`.
+		void (*FindByFilename)(const std::string& filename, std::vector<std::string>& outPaths) = nullptr;
+	};
+
+	inline Hooks& GetHooks()
+	{
+		static Hooks s_Hooks;
+		return s_Hooks;
 	}
 
 	inline bool& PathModeFlag()
@@ -53,13 +73,15 @@ namespace Lux::AssetReference
 		bool m_Previous;
 	};
 
-	// A path that names no registered asset (file moved, not imported yet, or a runtime with no path
-	// map) still gets a stable handle, hashed from the path, and is remembered here so saving writes
-	// the same path back instead of erasing the reference.
+	// A path that names no registered asset (file moved, not imported yet, or no asset system) still
+	// gets a stable handle, hashed from the path, and is remembered here so saving writes the same
+	// path back instead of erasing the reference.
 	struct UnresolvedStore
 	{
 		std::mutex Mutex;
 		std::unordered_map<uint64_t, std::string> Paths;
+		std::unordered_map<uint64_t, uint32_t> Counts;
+		std::unordered_set<uint64_t> Reported; // already summarized in the log
 	};
 
 	inline UnresolvedStore& Unresolved()
@@ -96,16 +118,25 @@ namespace Lux::AssetReference
 
 	inline AssetHandle ResolvePath(const std::string& path)
 	{
-		if (const AssetHandle handle = Detail::LookupRegisteredHandle(path))
-			return handle;
+		const Hooks& hooks = GetHooks();
+		if (hooks.FindByKey)
+		{
+			// A path this engine wrote is already a registry key: no parsing.
+			if (const AssetHandle handle = hooks.FindByKey(path))
+				return handle;
+		}
+		if (hooks.FindByPath)
+		{
+			if (const AssetHandle handle = hooks.FindByPath(path))
+				return handle;
+		}
 
-		const std::filesystem::path relative = std::filesystem::path(path).lexically_normal();
-		const std::string normalized = relative.generic_string();
-		const uint64_t hashed = HashPath(normalized);
+		const uint64_t hashed = HashPath(path);
 		UnresolvedStore& store = Unresolved();
 		std::scoped_lock lock(store.Mutex);
-		if (store.Paths.emplace(hashed, normalized).second)
-			LUX_CORE_WARN("Asset reference '{}' does not resolve to a registered asset; the path is kept.", normalized);
+		if (store.Paths.emplace(hashed, path).second)
+			LUX_CORE_WARN("Asset reference '{}' does not resolve to a registered asset; the path is kept.", path);
+		++store.Counts[hashed];
 		return AssetHandle(hashed);
 	}
 
@@ -115,10 +146,11 @@ namespace Lux::AssetReference
 		if (!handle)
 			return {};
 
-		std::string path = Detail::LookupRegisteredPath(handle);
-
-		if (path.empty())
+		std::string path;
+		const Hooks& hooks = GetHooks();
+		if (!hooks.PathOfHandle || !hooks.PathOfHandle(handle, path))
 		{
+			path.clear();
 			UnresolvedStore& store = Unresolved();
 			std::scoped_lock lock(store.Mutex);
 			if (const auto it = store.Paths.find(static_cast<uint64_t>(handle)); it != store.Paths.end())
@@ -157,5 +189,67 @@ namespace Lux::AssetReference
 		if (TryParseHandle(text, number))
 			return AssetHandle(number);
 		return ResolvePath(text);
+	}
+
+	// One reference that did not resolve, with the registered files that share its filename.
+	struct UnresolvedEntry
+	{
+		std::string Path;
+		uint32_t Count = 0;
+		std::vector<std::string> Candidates; // one: the likely move; several: a tie to decide
+	};
+
+	// Every reference that did not resolve so far, with the registered files that share its filename.
+	// Read-only: the stored path is what a save writes back, so nothing here is ever cleared.
+	inline std::vector<UnresolvedEntry> Report()
+	{
+		std::vector<UnresolvedEntry> entries;
+		{
+			UnresolvedStore& store = Unresolved();
+			std::scoped_lock lock(store.Mutex);
+			for (const auto& [hash, path] : store.Paths)
+			{
+				const auto count = store.Counts.find(hash);
+				entries.push_back({ path, count != store.Counts.end() ? count->second : 0, {} });
+			}
+		}
+
+		const Hooks& hooks = GetHooks();
+		for (UnresolvedEntry& entry : entries)
+		{
+			const size_t slash = entry.Path.find_last_of('/');
+			const std::string filename = slash == std::string::npos ? entry.Path : entry.Path.substr(slash + 1);
+			if (hooks.FindByFilename)
+				hooks.FindByFilename(filename, entry.Candidates);
+		}
+		return entries;
+	}
+
+	// Logs each unresolved reference once, with its candidates: one is the likely move, several are a
+	// tie for the user to decide (never picked automatically).
+	inline void LogNewUnresolved()
+	{
+		std::vector<uint64_t> fresh;
+		{
+			UnresolvedStore& store = Unresolved();
+			std::scoped_lock lock(store.Mutex);
+			for (const auto& [hash, path] : store.Paths)
+				if (store.Reported.insert(hash).second)
+					fresh.push_back(hash);
+		}
+		if (fresh.empty())
+			return;
+
+		for (const UnresolvedEntry& entry : Report())
+		{
+			if (std::find(fresh.begin(), fresh.end(), HashPath(entry.Path)) == fresh.end())
+				continue;
+			if (entry.Candidates.empty())
+				LUX_CORE_WARN("Unresolved asset reference '{}' ({} uses): no registered file has that name.", entry.Path, entry.Count);
+			else if (entry.Candidates.size() == 1)
+				LUX_CORE_WARN("Unresolved asset reference '{}' ({} uses): '{}' has the same name and is the likely move.", entry.Path, entry.Count, entry.Candidates.front());
+			else
+				LUX_CORE_WARN("Unresolved asset reference '{}' ({} uses): {} files share the name, choose one.", entry.Path, entry.Count, entry.Candidates.size());
+		}
 	}
 }

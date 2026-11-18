@@ -102,6 +102,12 @@ def make_curved_reflector(path):
     }), encoding="utf-8")
 
 
+class PathHandles(dict):
+    """Scenes refer to assets by Assets-relative path (the registry is a rebuilt cache), so a mesh's 'handle' is its path."""
+    def __missing__(self, path):
+        return path
+
+
 def make_fixture(directory, case_name, case, base_project, demo, source_assets, handles, target_config="debug", gpu_source=False):
     assets = directory/"Assets"
     assets.mkdir(parents=True)
@@ -117,11 +123,13 @@ def make_fixture(directory, case_name, case, base_project, demo, source_assets, 
     shutil.copytree(source_assets/"Audio", assets/"Audio")
     # Only the copied scene belongs to this fixture. Export validates every registered
     # scene/prefab, so remove unrelated sample entries rather than weakening validation.
+    # The sample ships no registry (the editor rebuilds it), but a local copy may exist.
     registry_path = assets/"AssetRegistry.lzr"
-    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
-    registry["Assets"] = [row for row in registry["Assets"] if row["Type"] not in ("Scene", "Prefab")
-                          or row["FilePath"].replace("\\", "/") == "Scenes/AudioDemo.luxscene"]
-    registry_path.write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
+    if registry_path.exists():
+        registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+        registry["Assets"] = [row for row in registry["Assets"] if row["Type"] not in ("Scene", "Prefab")
+                              or row["FilePath"].replace("\\", "/") == "Scenes/AudioDemo.luxscene"]
+        registry_path.write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
     (assets/"Scenes").mkdir()
     # Assimp rewrites generated .lmat files alongside an imported model. Copy these
     # model folders rather than linking them, including their referenced textures.
@@ -387,15 +395,15 @@ def main():
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     sample = ROOT/"Editor/LuxSampleProject"
-    project_path, demo_path, registry_path = sample/"LuxSample.luxproj", sample/"Assets/Scenes/AudioDemo.luxscene", sample/"Assets/AssetRegistry.lzr"
-    inputs = [project_path, demo_path, registry_path]
+    project_path, demo_path = sample/"LuxSample.luxproj", sample/"Assets/Scenes/AudioDemo.luxscene"
+    registry_path = sample/"Assets/AssetRegistry.lzr"
+    inputs = [project_path, demo_path] + ([registry_path] if registry_path.exists() else [])
     for model in ("Sponza", "Default"):
         inputs.extend(path for path in (sample/"Assets/Meshes/Source"/model).rglob("*") if path.is_file())
     original = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     project = yaml.safe_load(project_path.read_text(encoding="utf-8"))
     demo = yaml.safe_load(demo_path.read_text(encoding="utf-8"))
-    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
-    handles = {row["FilePath"].replace("\\", "/"): row["Handle"] for row in registry["Assets"]}
+    handles = PathHandles()
     triangle_counts = {}
     for model, filename in (("Sponza", "Sponza"), ("Default", "Cube")):
         gltf = json.loads((sample/f"Assets/Meshes/Source/{model}/{filename}.gltf").read_text(encoding="utf-8"))

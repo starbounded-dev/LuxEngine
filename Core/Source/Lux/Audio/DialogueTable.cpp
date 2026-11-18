@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "DialogueTable.h"
+#include "Lux/Asset/AssetReference.h"
 #include "AudioEventRefSerializer.h"
 #include "Lux/Serialization/StreamReader.h"
 #include "Lux/Serialization/StreamWriter.h"
@@ -80,7 +81,8 @@ namespace Lux
 				if (!translation.AudioKey.empty()) // legacy, FMOD's audio-table key
 					out << Yaml::Key << "AudioKey" << Yaml::Value << translation.AudioKey;
 				if (translation.Clip != 0)
-					out << Yaml::Key << "Clip" << Yaml::Value << static_cast<uint64_t>(translation.Clip);
+					out << Yaml::Key << "Clip" << Yaml::Value;
+					AssetReference::WriteValue(out, translation.Clip);
 				out << Yaml::EndMap;
 			}
 			out << Yaml::EndMap << Yaml::EndMap;
@@ -129,7 +131,7 @@ namespace Lux
 						value.Text = localized.second["Text"].as<std::string>("");
 						value.SpeakerName = localized.second["SpeakerName"].as<std::string>("");
 						value.AudioKey = localized.second["AudioKey"].as<std::string>("");
-						value.Clip = localized.second["Clip"].as<uint64_t>(0);
+						value.Clip = AssetReference::ReadValue(localized.second["Clip"]);
 					}
 				}
 			}

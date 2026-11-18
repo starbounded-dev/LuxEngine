@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AnimationGraph.h"
+#include "Lux/Asset/AssetReference.h"
 
 #include "Lux/Serialization/Yaml.h"
 
@@ -88,7 +89,8 @@ namespace Lux
 		{
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "Name" << Yaml::Value << state.Name;
-			out << Yaml::Key << "Clip" << Yaml::Value << state.Clip;
+			out << Yaml::Key << "Clip" << Yaml::Value;
+			AssetReference::WriteValue(out, state.Clip);
 			if (state.Speed != 1.0f)
 				out << Yaml::Key << "Speed" << Yaml::Value << state.Speed;
 			if (!state.Loop)
@@ -148,7 +150,7 @@ namespace Lux
 			{
 				AnimationGraphState state;
 				state.Name = states[i]["Name"].as<std::string>("");
-				state.Clip = states[i]["Clip"].as<uint64_t>(0);
+				state.Clip = AssetReference::ReadValue(states[i]["Clip"]);
 				state.Speed = states[i]["Speed"].as<float>(1.0f);
 				state.Loop = states[i]["Loop"].as<bool>(true);
 				parsed.States.push_back(std::move(state));

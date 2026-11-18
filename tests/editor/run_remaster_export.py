@@ -41,7 +41,7 @@ def main():
     audio_config_path = next(audio_project.glob("*.luxproj"))
     sample = ROOT / "Editor/LuxSampleProject"
     inputs = [sample / "LuxSample.luxproj", sample / "Assets/Scenes/AudioDemo.luxscene",
-              sample / "Assets/AssetRegistry.lzr", material_project / "Assets/Surface.lmat",
+              material_project / "Assets/Surface.lmat",
               audio_project / "Assets/Audio/é##Editor.lsound", audio_project / "Assets/Tone.wav",
               audio_config_path]
     for model in ("Sponza", "Default"):
@@ -56,8 +56,7 @@ def main():
         "UserPrefs:\n  ShowSplashScreen: false\n  RecentProjects: []\n", encoding="utf-8")
     project = yaml.safe_load(inputs[0].read_text(encoding="utf-8"))
     demo = yaml.safe_load(inputs[1].read_text(encoding="utf-8"))
-    registry = yaml.safe_load(inputs[2].read_text(encoding="utf-8"))
-    handles = {row["FilePath"].replace("\\", "/"): row["Handle"] for row in registry["Assets"]}
+    handles = scenes.PathHandles()
     triangle_counts = {}
     for model, filename in (("Sponza", "Sponza"), ("Default", "Cube")):
         gltf = json.loads((sample / f"Assets/Meshes/Source/{model}/{filename}.gltf").read_text())
@@ -71,7 +70,8 @@ def main():
     owned.mkdir()
     material_id, sound_id, clip_id, bank_id = range(93049999999999901, 93049999999999905)
     registry_path = assets / "AssetRegistry.lzr"
-    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    # The sample ships no registry; the fixture's holds only the owned assets and the editor adds the rest.
+    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) if registry_path.exists() else {"Assets": []}
     scenes.require(not {material_id, sound_id, clip_id, bank_id}.intersection(
         row["Handle"] for row in registry["Assets"]), "Fixture handles collide with sample inputs")
     shutil.copy2(material_project / "Assets/Surface.lmat", owned / "Surface.lmat")

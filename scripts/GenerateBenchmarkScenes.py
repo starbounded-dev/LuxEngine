@@ -3,7 +3,7 @@
 Writes into the sample project:
   Assets/Scenes/Benchmark.luxscene   the scene
   Assets/Materials/Benchmark/*.lmat  generated PBR materials (the draw-state variety bindless targets)
-  Assets/AssetRegistry.lzr           upserts the generated materials under fixed handles
+  (the asset registry is a rebuilt cache and is not in git: scenes refer to assets by Assets-relative path)
 
 Everything is deterministic: the same arguments always write byte-identical files, so a scene
 measured before a change is the scene measured after it. Re-running replaces the previous output.
@@ -48,7 +48,6 @@ SCENE_PATH = PROJECT_ASSETS / "Scenes" / "Benchmark.luxscene"
 MATERIAL_DIR_RELATIVE = "Materials/Benchmark"
 FEATURES_SCENE_PATH = PROJECT_ASSETS / "Scenes" / "RenderFeatures.luxscene"
 FEATURES_MATERIAL_DIR_RELATIVE = "Materials/RenderFeatures"
-REGISTRY_PATH = PROJECT_ASSETS / "AssetRegistry.lzr"
 
 # Mesh sources already in the sample project's registry.
 CUBE = 5047013130077771705
@@ -56,6 +55,16 @@ SPHERE = 9685142686327195147
 CYLINDER = 12947748576387674464
 CAPSULE = 3662333232878718086
 SPONZA = 5094136855824747147
+
+# The scene saves Assets-relative paths. These are the fixed handles used inside this script, by path;
+# generated materials are added as they are written.
+ASSET_PATHS = {
+	CUBE: "Meshes/Source/Default/Cube.gltf",
+	SPHERE: "Meshes/Source/Default/Sphere.gltf",
+	CYLINDER: "Meshes/Source/Default/Cylinder.gltf",
+	CAPSULE: "Meshes/Source/Default/Capsule.gltf",
+	SPONZA: "Meshes/Source/Sponza/Sponza.gltf",
+}
 
 # Sample-project textures (1K PBR sets), by folder name.
 TEXTURE_SETS = (
@@ -68,6 +77,8 @@ TEXTURE_SETS = (
 )
 CHECKERBOARD_TEXTURE = 4617627115470858524
 LOGO_TEXTURE = 3523050505664199236
+ASSET_PATHS[CHECKERBOARD_TEXTURE] = "Textures/Checkerboard.png"
+ASSET_PATHS[LOGO_TEXTURE] = "Textures/luxLogo.png"
 
 # Sounds under Assets/Audio/Sounds/: Fart, spatial Music and the 2D MusicBed.
 SOUND_FART = "9117899157295655424"
@@ -76,6 +87,13 @@ SOUND_MUSIC_BED = "8743721474366396703"
 # Assets/Audio/Banks/AudioDemo.lbank: both Sounds, loaded with the scene.
 SOUND_BANK_DEMO = "8412860126786977355"
 SOUND_BANK_BENCHMARK = "8412860126786977356"
+ASSET_PATHS.update({
+	int(SOUND_FART): "Audio/Sounds/Fart.lsound",
+	int(SOUND_MUSIC): "Audio/Sounds/Music.lsound",
+	int(SOUND_MUSIC_BED): "Audio/Sounds/MusicBed.lsound",
+	int(SOUND_BANK_DEMO): "Audio/Banks/AudioDemo.lbank",
+	int(SOUND_BANK_BENCHMARK): "Audio/Banks/Benchmark.lbank",
+})
 
 # Stable id ranges: generated materials and scene entities never collide with editor-made UUIDs
 # in practice, and regenerating keeps every reference valid.
@@ -253,28 +271,9 @@ def write_materials(materials: list[Material], directory_relative: str = MATERIA
 		if stale.name not in wanted:
 			stale.unlink()
 	for material in materials:
+		ASSET_PATHS[material.handle] = f"{directory_relative}/{material.name}.lmat"
 		content = "Material:\n" + "\n".join(material.lines)
 		(directory / f"{material.name}.lmat").write_text(content, encoding="utf-8", newline="\n")
-
-
-def update_registry(materials: list[Material], directory_relative: str = MATERIAL_DIR_RELATIVE) -> None:
-	"""Replace every entry under `directory_relative` with the generated set; leave all other entries as-is."""
-	text = REGISTRY_PATH.read_text(encoding="utf-8")
-	header, _, body = text.partition("Assets:\n")
-	blocks = re.split(r"(?m)^(?=  - Handle: )", body)
-	kept = [b for b in blocks if b and f"FilePath: {directory_relative}/" not in b]
-	wanted = [
-		f"  - Handle: {material.handle}\n"
-		f"    FilePath: {directory_relative}/{material.name}.lmat\n"
-		f"    Type: Material\n" for material in materials]
-	# Already registered exactly (the editor keeps the file sorted by handle): leave it untouched.
-	current = [b for b in blocks if b and f"FilePath: {directory_relative}/" in b]
-	if sorted(current) == sorted(wanted):
-		return
-	if kept and not kept[-1].endswith("\n"):
-		kept[-1] += "\n"
-	kept += wanted
-	REGISTRY_PATH.write_text(header + "Assets:\n" + "".join(kept), encoding="utf-8", newline="\n")
 
 
 # --------------------------------------------------------------------------------------------------
@@ -352,7 +351,41 @@ class Scene:
 				out.append(f"    {name}:")
 				out += [f"      {line}" for line in lines]
 		path.parent.mkdir(parents=True, exist_ok=True)
-		path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
+		path.write_text("\n".join(path_refs(out)) + "\n", encoding="utf-8", newline="\n")
+
+
+PATH_KEYS = {"AssetID", "ColliderAsset", "Texture", "Clip", "Graph", "EnvironmentMap", "MeshSource", "Sound"}
+ASSET_FIELD_TYPES = {"Prefab", "Mesh", "StaticMesh", "Material", "Texture2D", "Scene", "Sound", "SoundBank"}
+
+
+def path_refs(lines: list[str]) -> list[str]:
+	"""Rewrite numeric asset handles to Assets-relative paths, as SceneSerializer does for a file save."""
+	out = []
+	in_table = None
+	last_type = None
+	for line in lines:
+		stripped = line.strip()
+		indent = len(line) - len(line.lstrip())
+		if in_table is not None and stripped and indent <= in_table:
+			in_table = None
+		if stripped == "MaterialTable:":
+			in_table = indent
+		match = re.match(r"^\s*Type: (\w+)$", line)
+		if match:
+			last_type = match.group(1)
+		match = re.match(r"^(\s*(?:- )?)([A-Za-z0-9_]+): (\d+)$", line)
+		if match:
+			prefix, key, value = match.groups()
+			convert = (in_table is not None and indent > in_table and key.isdigit()) \
+				or (key == "Data" and last_type in ASSET_FIELD_TYPES) \
+				or key in PATH_KEYS or key.endswith("Sound")
+			if convert and ASSET_PATHS.get(int(value)):
+				line = f"{prefix}{key}: {ASSET_PATHS[int(value)]}"
+		elif line.startswith("SoundBanks: ["):
+			items = [x.strip() for x in line[len("SoundBanks: ["):-1].split(",") if x.strip()]
+			line = "SoundBanks: [" + ", ".join(ASSET_PATHS.get(int(x), x) if x.isdigit() else x for x in items) + "]"
+		out.append(line)
+	return out
 
 
 # --------------------------------------------------------------------------------------------------
@@ -923,7 +956,6 @@ def main() -> None:
 	if args.scene == "features":
 		materials, handles = build_feature_materials()
 		write_materials(materials, FEATURES_MATERIAL_DIR_RELATIVE, "RF_")
-		update_registry(materials, FEATURES_MATERIAL_DIR_RELATIVE)
 		scene = build_features_scene(handles)
 		output = args.output or FEATURES_SCENE_PATH
 		scene.write(output)
@@ -939,7 +971,6 @@ def main() -> None:
 	materials, specials = build_materials(args.materials)
 	field_materials = [m.handle for m in materials[: args.materials]]
 	write_materials(materials)
-	update_registry(materials)
 
 	scene = Scene("Benchmark")
 	scene.sound_banks = [SOUND_BANK_DEMO, SOUND_BANK_BENCHMARK]

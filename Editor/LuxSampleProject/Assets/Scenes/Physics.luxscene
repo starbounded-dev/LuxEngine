@@ -32,7 +32,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
         {}
       Visible: true
@@ -68,7 +68,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
         {}
       Visible: true
@@ -104,7 +104,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 3662333232878718086
+      AssetID: Meshes/Source/Default/Capsule.gltf
       MaterialTable:
         {}
       Visible: true
@@ -157,7 +157,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [10, 1, 10]
     StaticMeshComponent:
-      AssetID: 10955405005470926046
+      AssetID: Meshes/Source/Default/Plane.gltf
       MaterialTable:
         {}
       Visible: true

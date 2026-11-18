@@ -7,6 +7,7 @@
 
 #include "ProjectRuntimeFormat.h"
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 
 #include "Lux/Core/Log.h"
 #include "Lux/Serialization/FileStream.h"
@@ -703,6 +704,7 @@ namespace Lux
 		if (!config.Audio.Accessibility.Validate())
 			return false;
 
+		AssetReference::PathModeScope pathMode; // the project file stores asset paths; the runtime copy stays numeric
 		Yaml::Writer out;
 		out << Yaml::BeginMap;
 		out << Yaml::Key << "Project" << Yaml::Value;
@@ -730,7 +732,9 @@ namespace Lux
 				out << Yaml::Key << "Fullscreen" << Yaml::Value << config.RuntimeExport.Fullscreen;
 				out << Yaml::Key << "VSync" << Yaml::Value << config.RuntimeExport.VSync;
 				out << Yaml::Key << "IconPath" << Yaml::Value << config.RuntimeExport.IconPath.generic_string();
-				out << Yaml::Key << "IconHandle" << Yaml::Value << (uint64_t)config.RuntimeExport.IconHandle;
+				// IconPath names the icon; the handle is only a fallback for a project that has no path yet.
+				if (config.RuntimeExport.IconPath.empty())
+					out << Yaml::Key << "IconHandle" << Yaml::Value << (uint64_t)config.RuntimeExport.IconHandle;
 				out << Yaml::Key << "TargetConfig" << Yaml::Value << RuntimeExportTargetToString(config.RuntimeExport.TargetConfig);
 				out << Yaml::EndMap;
 			}
@@ -753,8 +757,10 @@ namespace Lux
 					return false;
 				out << Yaml::Key << "AcousticMaterials" << Yaml::Value;
 				config.Audio.AcousticMaterials.SerializeYAML(out);
-				out << Yaml::Key << "SurfaceTable" << Yaml::Value << static_cast<uint64_t>(config.Audio.SurfaceTable);
-				out << Yaml::Key << "DialogueTable" << Yaml::Value << static_cast<uint64_t>(config.Audio.Dialogue.Table);
+				out << Yaml::Key << "SurfaceTable" << Yaml::Value;
+				AssetReference::WriteValue(out, config.Audio.SurfaceTable);
+				out << Yaml::Key << "DialogueTable" << Yaml::Value;
+				AssetReference::WriteValue(out, config.Audio.Dialogue.Table);
 				out << Yaml::Key << "DialogueLanguage" << Yaml::Value << config.Audio.Dialogue.Language;
 				out << Yaml::Key << "Accessibility" << Yaml::Value;
 				config.Audio.Accessibility.SerializeYAML(out);
@@ -992,7 +998,8 @@ namespace Lux
 			config.RuntimeExport.Fullscreen = runtimeExportNode["Fullscreen"].as<bool>(config.RuntimeExport.Fullscreen);
 			config.RuntimeExport.VSync = runtimeExportNode["VSync"].as<bool>(config.RuntimeExport.VSync);
 			config.RuntimeExport.IconPath = runtimeExportNode["IconPath"].as<std::string>(config.RuntimeExport.IconPath.generic_string());
-			config.RuntimeExport.IconHandle = runtimeExportNode["IconHandle"].as<uint64_t>((uint64_t)config.RuntimeExport.IconHandle);
+			if (const auto iconNode = runtimeExportNode["IconHandle"]; iconNode)
+				config.RuntimeExport.IconHandle = AssetReference::ReadValue(iconNode);
 
 			if (auto targetConfigNode = runtimeExportNode["TargetConfig"])
 			{
@@ -1041,14 +1048,14 @@ namespace Lux
 					break;
 				}
 			}
-			config.Audio.SurfaceTable = audioNode["SurfaceTable"].as<uint64_t>(0);
+			config.Audio.SurfaceTable = AssetReference::ReadValue(audioNode["SurfaceTable"]);
 			if (!config.Audio.Windows.DeserializeYAML(audioNode["Windows"]) || !config.Audio.Linux.DeserializeYAML(audioNode["Linux"]))
 				return false;
 			if (!config.Audio.Performance.DeserializeYAML(audioNode["Performance"]))
 				return false;
 			if (!config.Audio.Accessibility.DeserializeYAML(audioNode["Accessibility"]))
 				return false;
-			config.Audio.Dialogue.Table = audioNode["DialogueTable"].as<uint64_t>(0);
+			config.Audio.Dialogue.Table = AssetReference::ReadValue(audioNode["DialogueTable"]);
 			config.Audio.Dialogue.Language = audioNode["DialogueLanguage"].as<std::string>("en");
 			if (!DialogueTable::ValidLanguage(config.Audio.Dialogue.Language))
 			{
