@@ -435,6 +435,39 @@ namespace Lux {
 				out << Yaml::EndMap;
 			}
 
+			if (entity.HasComponent<SkeletonComponent>())
+			{
+				const auto& skeleton = entity.GetComponent<SkeletonComponent>();
+				out << Yaml::Key << "SkeletonComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "AssetID" << Yaml::Value << skeleton.SkeletonAsset;
+				if (!skeleton.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << false;
+				if (!skeleton.DebugBone.empty())
+					out << Yaml::Key << "DebugBone" << Yaml::Value << skeleton.DebugBone;
+				if (skeleton.DebugBendDegrees != 0.0f)
+					out << Yaml::Key << "DebugBendDegrees" << Yaml::Value << skeleton.DebugBendDegrees;
+				if (skeleton.Clip)
+					out << Yaml::Key << "Clip" << Yaml::Value << skeleton.Clip;
+				if (skeleton.Graph)
+					out << Yaml::Key << "Graph" << Yaml::Value << skeleton.Graph;
+				if (skeleton.StartTime != 0.0f)
+					out << Yaml::Key << "StartTime" << Yaml::Value << skeleton.StartTime;
+				if (skeleton.Speed != 1.0f)
+					out << Yaml::Key << "Speed" << Yaml::Value << skeleton.Speed;
+				if (!skeleton.Loop)
+					out << Yaml::Key << "Loop" << Yaml::Value << false;
+				if (!skeleton.PlayOnStart)
+					out << Yaml::Key << "PlayOnStart" << Yaml::Value << false;
+				if (skeleton.FadeSeconds != 0.25f)
+					out << Yaml::Key << "FadeSeconds" << Yaml::Value << skeleton.FadeSeconds;
+				if (skeleton.RootMotion)
+					out << Yaml::Key << "RootMotion" << Yaml::Value << true;
+				if (!skeleton.RootBone.empty())
+					out << Yaml::Key << "RootBone" << Yaml::Value << skeleton.RootBone;
+				out << Yaml::EndMap;
+			}
+
 			if (entity.HasComponent<CameraComponent>())
 			{
 				const auto& cameraComponent = entity.GetComponent<CameraComponent>();
@@ -1015,6 +1048,24 @@ namespace Lux {
 					component.StaticMesh = GetDeserializedStaticMeshHandle(staticMesh, deserializedEntity);
 					component.MaterialTable = DeserializeMaterialTable(staticMesh["MaterialTable"]);
 					component.Visible = staticMesh["Visible"].as<bool>(true);
+				}
+
+				if (const auto skeleton = entity["SkeletonComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SkeletonComponent>();
+					component.SkeletonAsset = skeleton["AssetID"].as<uint64_t>(0);
+					component.Enabled = skeleton["Enabled"].as<bool>(true);
+					component.DebugBone = skeleton["DebugBone"].as<std::string>("");
+					component.DebugBendDegrees = skeleton["DebugBendDegrees"].as<float>(0.0f);
+					component.Clip = skeleton["Clip"].as<uint64_t>(0);
+					component.Graph = skeleton["Graph"].as<uint64_t>(0);
+					component.StartTime = skeleton["StartTime"].as<float>(0.0f);
+					component.Speed = skeleton["Speed"].as<float>(1.0f);
+					component.Loop = skeleton["Loop"].as<bool>(true);
+					component.PlayOnStart = skeleton["PlayOnStart"].as<bool>(true);
+					component.FadeSeconds = skeleton["FadeSeconds"].as<float>(0.25f);
+					component.RootMotion = skeleton["RootMotion"].as<bool>(false);
+					component.RootBone = skeleton["RootBone"].as<std::string>("");
 				}
 
 				if (const auto camera = entity["CameraComponent"])
@@ -1825,6 +1876,21 @@ namespace Lux {
 		music.Intensity = 0.75f;
 		music.PlayOnAwake = false;
 		const MusicDirectorComponent expectedMusic = music;
+		auto& skeleton = childB.AddComponent<SkeletonComponent>();
+		skeleton.SkeletonAsset = 0x5EEDBEEFull;
+		skeleton.Enabled = false;
+		skeleton.DebugBone = "Bone.001";
+		skeleton.DebugBendDegrees = 25.0f;
+		skeleton.Clip = 0xC11Full;
+		skeleton.Graph = 0x6A4Full;
+		skeleton.StartTime = 0.5f;
+		skeleton.Speed = -1.5f;
+		skeleton.Loop = false;
+		skeleton.PlayOnStart = false;
+		skeleton.FadeSeconds = 0.6f;
+		skeleton.RootMotion = true;
+		skeleton.RootBone = "Hips";
+		const SkeletonComponent expectedSkeleton = skeleton;
 		auto& zone = childB.AddComponent<AudioZoneComponent>();
 		zone.Shape = AudioZoneShape::Sphere;
 		zone.Offset = { 1.0f, 2.0f, 3.0f };
@@ -1863,6 +1929,17 @@ namespace Lux {
 			}
 			else
 				fail(std::format("{} lost the audio portal", operation));
+			if (const auto* copied = entity.TryGetComponent<SkeletonComponent>())
+			{
+				if (copied->SkeletonAsset != expectedSkeleton.SkeletonAsset || copied->Enabled != expectedSkeleton.Enabled
+					|| copied->DebugBone != expectedSkeleton.DebugBone || copied->DebugBendDegrees != expectedSkeleton.DebugBendDegrees
+					|| copied->Clip != expectedSkeleton.Clip || copied->Graph != expectedSkeleton.Graph || copied->StartTime != expectedSkeleton.StartTime || copied->Speed != expectedSkeleton.Speed
+					|| copied->Loop != expectedSkeleton.Loop || copied->PlayOnStart != expectedSkeleton.PlayOnStart || copied->FadeSeconds != expectedSkeleton.FadeSeconds
+					|| copied->RootMotion != expectedSkeleton.RootMotion || copied->RootBone != expectedSkeleton.RootBone)
+					fail(std::format("{} changed skeleton data", operation));
+			}
+			else
+				fail(std::format("{} lost the skeleton component", operation));
 			if (const auto* copied = entity.TryGetComponent<AudioSurfaceComponent>())
 			{
 				if (copied->FootstepOverride.Guid != expectedSurface.FootstepOverride.Guid

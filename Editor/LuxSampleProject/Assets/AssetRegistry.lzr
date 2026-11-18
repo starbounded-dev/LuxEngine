@@ -29,6 +29,9 @@ Assets:
   - Handle: 1322044948598140383
     FilePath: Scripts/Source/CameraPath.cs
     Type: ScriptFile
+  - Handle: 1482404925294778034
+    FilePath: Meshes/Source/LuxBiped/Materials/LuxBiped_1_Material_1.lmat
+    Type: Material
   - Handle: 1485593981058217637
     FilePath: Environment/pink_sunrise_4k.hdr
     Type: EnvMap
@@ -43,6 +46,9 @@ Assets:
     Type: Texture
   - Handle: 1971164648285768822
     FilePath: Materials/GreenSphere.lmat
+    Type: Material
+  - Handle: 2110506557084641280
+    FilePath: Meshes/Source/Rig/Materials/RiggedSimple_0_Material_001-effect.lmat
     Type: Material
   - Handle: 2125072313853907767
     FilePath: Meshes/Source/Sponza/7645212358685992005.jpg
@@ -59,6 +65,9 @@ Assets:
   - Handle: 2430854865358074803
     FilePath: Meshes/Source/Sponza/16275776544635328252.png
     Type: Texture
+  - Handle: 2483390739183727393
+    FilePath: Scenes/RigRest.luxscene
+    Type: Scene
   - Handle: 2499487525738572267
     FilePath: Meshes/Source/Default/Materials/Cylinder_0_Material_0.lmat
     Type: Material
@@ -215,9 +224,54 @@ Assets:
   - Handle: 6871589670293342467
     FilePath: Meshes/Source/Sponza/6772804448157695701.jpg
     Type: Texture
+  - Handle: 6918323143499647307
+    FilePath: Scenes/RigPosed.luxscene
+    Type: Scene
   - Handle: 6962752638689701569
     FilePath: Audio/Clips/Music_1.mp3
     Type: Audio
+  - Handle: 7100000000000000001
+    FilePath: Meshes/Source/Rig/RiggedSimple.gltf
+    Type: MeshSource
+  - Handle: 7100000000000000002
+    FilePath: Meshes/Source/Rig/RiggedSimple.lskel
+    Type: Skeleton
+  - Handle: 7400000000000000001
+    FilePath: Meshes/Source/LuxBiped/LuxBiped.fbx
+    Type: MeshSource
+  - Handle: 7400000000000000002
+    FilePath: Meshes/Source/LuxBiped/LuxBiped.lskel
+    Type: Skeleton
+  - Handle: 7400000000000000003
+    FilePath: Meshes/Source/LuxBiped/LuxBiped_Idle.lanim
+    Type: Animation
+  - Handle: 7400000000000000004
+    FilePath: Meshes/Source/LuxBiped/LuxBiped_Walk.lanim
+    Type: Animation
+  - Handle: 7400000000000000005
+    FilePath: Scenes/LuxBipedRest.luxscene
+    Type: Scene
+  - Handle: 7400000000000000006
+    FilePath: Scenes/LuxBipedWalk.luxscene
+    Type: Scene
+  - Handle: 7400000000000000007
+    FilePath: Scenes/LuxBipedStatic.luxscene
+    Type: Scene
+  - Handle: 7400000000000000010
+    FilePath: Meshes/Source/LuxBiped/LuxBiped_WalkForward.lanim
+    Type: Animation
+  - Handle: 7400000000000000011
+    FilePath: Scenes/LuxBipedRootMotion.luxscene
+    Type: Scene
+  - Handle: 7400000000000000012
+    FilePath: Meshes/Source/LuxBiped/LuxBiped.lanimgraph
+    Type: AnimationGraph
+  - Handle: 7400000000000000013
+    FilePath: Scenes/LuxBipedGraph.luxscene
+    Type: Scene
+  - Handle: 7400000000000000014
+    FilePath: Scenes/LuxBipedAttach.luxscene
+    Type: Scene
   - Handle: 7606127991934684319
     FilePath: Meshes/Source/Sponza/2969916736137545357.jpg
     Type: Texture
@@ -245,6 +299,12 @@ Assets:
   - Handle: 8412860126786977356
     FilePath: Audio/Banks/Benchmark.lbank
     Type: SoundBank
+  - Handle: 8419695537258757221
+    FilePath: Meshes/Source/Rig/Materials/RiggedSimple_1_Material_1.lmat
+    Type: Material
+  - Handle: 8596397899331745231
+    FilePath: Scenes/RigGlassStatic.luxscene
+    Type: Scene
   - Handle: 8665842578006325754
     FilePath: Meshes/Source/Sponza/8773302468495022225.jpg
     Type: Texture
@@ -323,9 +383,15 @@ Assets:
   - Handle: 10740953653777413167
     FilePath: Meshes/Source/Sponza/Materials/Sponza_12_Material_12.lmat
     Type: Material
+  - Handle: 10747198735764448055
+    FilePath: Scenes/AudioSponza.luxscene
+    Type: Scene
   - Handle: 10757355412620758746
     FilePath: Meshes/Source/Sponza/2185409758123873465.jpg
     Type: Texture
+  - Handle: 10881254862323545889
+    FilePath: Meshes/Source/LuxBiped/Materials/LuxBiped_0_LuxBipedMaterial.lmat
+    Type: Material
   - Handle: 10909522249527059136
     FilePath: Meshes/Source/Sponza/17876391417123941155.jpg
     Type: Texture
@@ -401,6 +467,9 @@ Assets:
   - Handle: 12947748576387674464
     FilePath: Meshes/Source/Default/Cylinder.gltf
     Type: MeshSource
+  - Handle: 12988391910346089762
+    FilePath: Scenes/RigGlassRest.luxscene
+    Type: Scene
   - Handle: 13118299698764972325
     FilePath: Meshes/Source/Sponza/Materials/Sponza_15_Material_15.lmat
     Type: Material
@@ -1040,6 +1109,9 @@ Assets:
   - Handle: 18028304975470354491
     FilePath: Meshes/Source/Sponza/4871783166746854860.jpg
     Type: Texture
+  - Handle: 18083124035257086924
+    FilePath: Scenes/RigStatic.luxscene
+    Type: Scene
   - Handle: 18093543000178704889
     FilePath: Meshes/Source/Sponza/3628158980083700836.jpg
     Type: Texture

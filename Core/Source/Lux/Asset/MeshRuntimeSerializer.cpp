@@ -82,7 +82,7 @@ namespace Lux
 		// the mesh and its materials are created only after all of it checks out. A bad entry is
 		// reported and skipped instead of allocating garbage counts or reading past its end.
 		constexpr uint64_t k_MaxPackedMeshBytes = 2ull << 30;
-		constexpr uint32_t k_MeshSourceFileVersion = 1;
+		constexpr uint32_t k_MeshSourceFileVersion = 2;
 
 		class BoundedReader
 		{
@@ -189,6 +189,13 @@ namespace Lux
 				&& reader.ReadString(submesh.MeshName) && reader.ReadBool(submesh.IsRigged);
 		}
 
+		constexpr uint64_t k_MinBoneInfoBytes = sizeof(uint64_t) + sizeof(glm::mat4);
+
+		bool ReadBoneInfo(BoundedReader& reader, BoneInfo& bone)
+		{
+			return reader.ReadString(bone.Name) && reader.Read(bone.InverseBindPose);
+		}
+
 		bool ReadMaterial(BoundedReader& reader, MeshMaterial& material)
 		{
 			return reader.ReadString(material.MaterialName) && reader.ReadString(material.ShaderName) && reader.Read(material.AlbedoColor)
@@ -207,6 +214,8 @@ namespace Lux
 			std::vector<VertexAttributes> Attributes;
 			std::vector<Index> Indices;
 			std::vector<uint8_t> BakedLODs;
+			std::vector<BoneInfluence> BoneInfluences;
+			std::vector<BoneInfo> Bones;
 		};
 
 		// Parses one MeshSourceFile entry of `size` bytes. Returns what is wrong, or empty.
@@ -268,9 +277,20 @@ namespace Lux
 			if (error.empty() && (metadata.Flags & static_cast<uint32_t>(MeshSourceFile::MeshFlags::HasBakedLODs)))
 			{
 				const uint64_t lodOffset = metadata.IndexBufferOffset + metadata.IndexBufferSize;
-				if (lodOffset >= size)
+				const uint64_t lodEnd = (metadata.Flags & static_cast<uint32_t>(MeshSourceFile::MeshFlags::HasSkin)) ? metadata.SkinOffset : size;
+				if (lodEnd > size || lodOffset >= lodEnd)
 					return "its baked LOD section is empty";
-				mesh.BakedLODs.assign(data + lodOffset, data + size);
+				mesh.BakedLODs.assign(data + lodOffset, data + lodEnd);
+			}
+			if (error.empty() && (metadata.Flags & static_cast<uint32_t>(MeshSourceFile::MeshFlags::HasSkin)))
+			{
+				error = section(metadata.SkinOffset, metadata.SkinSize, "skin", [&](BoundedReader& sectionReader)
+				{
+					return sectionReader.ReadTrivialArray(mesh.BoneInfluences)
+						&& sectionReader.ReadArray(mesh.Bones, k_MinBoneInfoBytes, ReadBoneInfo);
+				});
+				if (error.empty() && mesh.BoneInfluences.size() != mesh.Vertices.size())
+					return "it has a different number of skin weights than vertices";
 			}
 			return error;
 		}
@@ -279,6 +299,17 @@ namespace Lux
 		// wrong, or empty.
 		std::string ValidatePackedMeshSource(const PackedMeshSource& mesh)
 		{
+			for (size_t vertex = 0; vertex < mesh.BoneInfluences.size(); vertex++)
+			{
+				for (int slot = 0; slot < 4; slot++)
+				{
+					const float weight = mesh.BoneInfluences[vertex].Weights[slot];
+					if (!(weight >= 0.0f && weight <= 1.0f))
+						return std::format("vertex {} has a skin weight outside [0, 1]", vertex);
+					if (weight > 0.0f && mesh.BoneInfluences[vertex].BoneInfoIndices[slot] >= mesh.Bones.size())
+						return std::format("vertex {} is skinned to a bone the mesh does not list", vertex);
+				}
+			}
 			for (size_t submeshIndex = 0; submeshIndex < mesh.Submeshes.size(); submeshIndex++)
 			{
 				const Submesh& submesh = mesh.Submeshes[submeshIndex];
@@ -404,6 +435,21 @@ namespace Lux
 			stream.WriteData(reinterpret_cast<const char*>(bakedLODs.data()), bakedLODs.size());
 		}
 
+		// Skin weights and bones last, so the baked LODs keep ending where the skin begins.
+		if (meshSource->HasSkin())
+		{
+			file.Data.Flags |= (uint32_t)MeshSourceFile::MeshFlags::HasSkin;
+			file.Data.SkinOffset = stream.GetStreamPosition() - streamOffset;
+			stream.WriteArray(meshSource->m_BoneInfluences);
+			stream.WriteRaw<uint32_t>(static_cast<uint32_t>(meshSource->m_BoneInfo.size()));
+			for (const BoneInfo& bone : meshSource->m_BoneInfo)
+			{
+				stream.WriteString(bone.Name);
+				stream.WriteRaw(bone.InverseBindPose);
+			}
+			file.Data.SkinSize = (stream.GetStreamPosition() - streamOffset) - file.Data.SkinOffset;
+		}
+
 		const uint64_t endOfStream = stream.GetStreamPosition();
 		stream.SetStreamPosition(metadataAbsolutePosition);
 		stream.WriteRaw<MeshSourceFile::Metadata>(file.Data);
@@ -495,6 +541,8 @@ namespace Lux
 		meshSource->m_Vertices = std::move(packed.Vertices);
 		meshSource->m_VertexAttributes = std::move(packed.Attributes);
 		meshSource->m_Indices = std::move(packed.Indices);
+		meshSource->m_BoneInfluences = std::move(packed.BoneInfluences);
+		meshSource->m_BoneInfo = std::move(packed.Bones);
 		meshSource->SetBakedLODs(std::move(packed.BakedLODs));
 
 		meshSource->BuildRenderGeometry();

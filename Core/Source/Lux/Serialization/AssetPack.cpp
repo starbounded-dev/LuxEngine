@@ -61,6 +61,9 @@ namespace Lux
 				case AssetType::Sound:
 				case AssetType::SoundBank:
 				case AssetType::Prefab:
+				case AssetType::Skeleton:
+				case AssetType::Animation:
+				case AssetType::AnimationGraph:
 					return true;
 				default:
 					return false;

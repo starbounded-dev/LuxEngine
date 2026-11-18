@@ -9,6 +9,8 @@
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/Sound.h"
 
+#include "Lux/Animation/Animation.h"
+#include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetImporter.h"
@@ -26,6 +28,7 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Animation/Skeleton.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Renderer/UI/Font.h"
 #include "Lux/Scene/Scene.h"
@@ -57,6 +60,114 @@ namespace Lux {
 	SelectionContext SceneHierarchyPanel::s_ActiveSelectionContext = SelectionContext::Scene;
 
 	namespace {
+
+		// Clip preview and animation graph view under the Skeleton section. Editor tools only: they change the
+		// component's runtime State (never its saved settings), so using them does not dirty the scene.
+		void DrawSkeletonAnimationTools(SkeletonComponent& component)
+		{
+			Ref<Animation> clip = component.Clip ? AssetManager::GetAsset<Animation>(component.Clip) : nullptr;
+			Ref<AnimationGraph> graph = component.Graph ? AssetManager::GetAsset<AnimationGraph>(component.Graph) : nullptr;
+			if (!clip && !graph)
+				return;
+
+			ImGui::PushID("SkeletonAnimationTools");
+			ImGui::Separator();
+			AnimatorState& state = component.State;
+			const ImGuiEx::ScopedDisable previewDisabled(!component.Enabled || !state.Initialized || state.PlayMode);
+
+			// The clip being played: the graph's current state's, else the component's.
+			Ref<Animation> current = clip;
+			if (graph && state.Graph.Initialized && state.Graph.CurrentState < graph->States.size())
+				current = AssetManager::GetAsset<Animation>(graph->States[state.Graph.CurrentState].Clip);
+			if (current)
+			{
+				ImGui::Text("%s: %.2f s, %zu animated bones, %zu events", current->GetName().c_str(), current->GetDuration(), current->GetTracks().size(), current->GetEvents().size());
+
+				if (ImGui::Button(state.Playing ? "Pause###Preview" : "Play###Preview"))
+				{
+					state.Playing = !state.Playing;
+					state.PreviewOverride = true;
+				}
+				ImGui::SameLine();
+				float time = state.Time;
+				ImGui::SetNextItemWidth(-1.0f);
+				const ImGuiEx::ScopedDisable noDuration(current->GetDuration() <= 0.0f);
+				if (ImGui::SliderFloat("##PreviewTime", &time, 0.0f, current->GetDuration(), "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+				{
+					state.Time = time;
+					state.FadeFromClip = 0;
+					state.Playing = false;
+					state.PreviewOverride = true;
+				}
+			}
+
+			if (graph && ImGui::TreeNode("Animation graph"))
+			{
+				ImGui::TextDisabled("States");
+				for (uint32_t i = 0; i < graph->States.size(); i++)
+				{
+					ImGui::PushID(static_cast<int>(i));
+					const AnimationGraphState& graphState = graph->States[i];
+					const bool isCurrent = state.Graph.Initialized && state.Graph.CurrentState == i;
+					Ref<Animation> stateClip = AssetManager::GetAsset<Animation>(graphState.Clip);
+					ImGui::TextColored(isCurrent ? ImVec4(0.3f, 1.0f, 0.5f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_Text), "%s %s  (%s, x%.2f%s)", isCurrent ? ">" : " ", graphState.Name.c_str(),
+						stateClip ? stateClip->GetName().c_str() : "no clip", graphState.Speed, graphState.Loop ? "" : ", once");
+					ImGui::PopID();
+				}
+
+				ImGui::TextDisabled("Transitions");
+				static constexpr const char* k_Ops[] = { ">", "<", "==", "!=", "is true", "is false", "triggered" };
+				for (uint32_t i = 0; i < graph->Transitions.size(); i++)
+				{
+					ImGui::PushID(1000 + static_cast<int>(i));
+					const AnimationGraphTransition& transition = graph->Transitions[i];
+					std::string conditions;
+					for (const AnimationGraphCondition& condition : transition.Conditions)
+					{
+						if (!conditions.empty())
+							conditions += ", ";
+						conditions += condition.Parameter + " " + k_Ops[static_cast<size_t>(condition.Op)];
+						if (condition.Op <= AnimationConditionOp::NotEqual)
+							conditions += " " + std::format("{:.2f}", condition.Value);
+					}
+					const std::string from = transition.From < graph->States.size() ? graph->States[transition.From].Name : std::string("Any");
+					ImGui::BulletText("%s -> %s  %.2f s%s%s", from.c_str(), transition.To < graph->States.size() ? graph->States[transition.To].Name.c_str() : "?", transition.Duration,
+						conditions.empty() ? "" : "  if ", conditions.c_str());
+					ImGui::PopID();
+				}
+
+				if (!graph->Parameters.empty())
+				{
+					ImGui::TextDisabled(state.Graph.Initialized ? "Parameters" : "Parameters (they start when the animation does)");
+					for (uint32_t i = 0; i < graph->Parameters.size() && state.Graph.Initialized && i < state.Graph.Values.size(); i++)
+					{
+						ImGui::PushID(2000 + static_cast<int>(i));
+						const AnimationGraphParameter& parameter = graph->Parameters[i];
+						float& value = state.Graph.Values[i];
+						if (parameter.Type == AnimationParameterType::Float)
+						{
+							ImGui::DragFloat(parameter.Name.c_str(), &value, 0.01f);
+						}
+						else if (parameter.Type == AnimationParameterType::Bool)
+						{
+							bool flag = value != 0.0f;
+							if (ImGui::Checkbox(parameter.Name.c_str(), &flag))
+								value = flag ? 1.0f : 0.0f;
+						}
+						else
+						{
+							if (ImGui::Button("Set"))
+								value = 1.0f;
+							ImGui::SameLine();
+							ImGui::Text("%s%s", parameter.Name.c_str(), value != 0.0f ? "  (pending)" : "");
+						}
+						ImGui::PopID();
+					}
+				}
+				ImGui::TreePop();
+			}
+			ImGui::PopID();
+		}
 
 		// A per-entity type icon (FontAwesome glyph) plus a category tint, picked from the entity's
 		// most representative component. Tints are tasteful and theme-adjacent: warm for lights,
@@ -1647,6 +1758,7 @@ namespace Lux {
 				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
 				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
 				const bool canAddStaticMesh = canAddComponent.template operator()<StaticMeshComponent>();
+				const bool canAddSkeleton = canAddComponent.template operator()<SkeletonComponent>();
 				const bool canAddRigidBody2D = canAddComponent.template operator()<RigidBody2DComponent>();
 				const bool canAddBoxCollider2D = canAddComponent.template operator()<BoxCollider2DComponent>();
 				const bool canAddCircleCollider2D = canAddComponent.template operator()<CircleCollider2DComponent>();
@@ -1753,6 +1865,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<StaticMeshComponent>())
 								entity.AddComponent<StaticMeshComponent>();
+						}
+					});
+				}
+
+				if (canAddSkeleton)
+				{
+					addComponentRow("Skeleton", EditorResources::SkeletonIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<SkeletonComponent>())
+								entity.AddComponent<SkeletonComponent>();
 						}
 					});
 				}
@@ -2163,6 +2288,7 @@ namespace Lux {
 						// override could have no row here (and Revert All wouldn't reconcile it).
 						row.operator()<TransformComponent>("TransformComponent", "Transform");
 						row.operator()<StaticMeshComponent>("StaticMeshComponent", "Static Mesh");
+						row.operator()<SkeletonComponent>("SkeletonComponent", "Skeleton");
 						row.operator()<MeshComponent>("MeshComponent", "Mesh");
 						row.operator()<SubmeshComponent>("SubmeshComponent", "Submesh");
 						row.operator()<MeshTagComponent>("MeshTagComponent", "Mesh Tag");
@@ -3713,6 +3839,109 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 
 				DrawStaticMeshMaterialSlots(firstComponent, selectedEntities);
+			});
+
+		DrawComponentSection<SkeletonComponent>(m_Context, entityIDs, "Skeleton", EditorResources::SkeletonIcon,
+			[this](SkeletonComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				AssetHandle skeletonHandle = firstComponent.SkeletonAsset;
+				if (ImGuiEx::PropertyAssetReference<Skeleton>("Skeleton", skeletonHandle, "The skeleton asset (.lskel) whose bones skin this mesh"))
+				{
+					firstComponent.SkeletonAsset = skeletonHandle;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [skeletonHandle](SkeletonComponent& component, Entity)
+					{
+						component.SkeletonAsset = skeletonHandle;
+					});
+				}
+
+				std::string debugBone = firstComponent.DebugBone;
+				if (ImGuiEx::Property("Debug Bone", debugBone, "Bone to bend for testing, by name (editor preview until animation exists)"))
+				{
+					firstComponent.DebugBone = debugBone;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [debugBone](SkeletonComponent& component, Entity)
+					{
+						component.DebugBone = debugBone;
+					});
+				}
+
+				float debugBend = firstComponent.DebugBendDegrees;
+				if (ImGuiEx::Property("Debug Bend", debugBend, 1.0f, -180.0f, 180.0f, "Degrees about the debug bone's local X axis"))
+				{
+					firstComponent.DebugBendDegrees = debugBend;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [debugBend](SkeletonComponent& component, Entity)
+					{
+						component.DebugBendDegrees = debugBend;
+					});
+				}
+
+				AssetHandle clipHandle = firstComponent.Clip;
+				if (ImGuiEx::PropertyAssetReference<Animation>("Clip", clipHandle, "The animation clip (.lanim) to play. Changing it while playing cross-fades."))
+				{
+					const bool fade = firstComponent.Clip != 0 && firstComponent.PlayOnStart;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [clipHandle, fade](SkeletonComponent& component, Entity)
+					{
+						component.CrossFadeTo(clipHandle, fade ? component.FadeSeconds : 0.0f);
+						component.State.PreviewOverride = false;
+					});
+				}
+
+				AssetHandle graphHandle = firstComponent.Graph;
+				if (ImGuiEx::PropertyAssetReference<AnimationGraph>("Graph", graphHandle, "An animation graph (.lanimgraph) that chooses the clip from parameters. Replaces Clip."))
+				{
+					firstComponent.Graph = graphHandle;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [graphHandle](SkeletonComponent& component, Entity)
+					{
+						component.Graph = graphHandle;
+						component.State = AnimatorState(); // restart from the graph's default state
+					});
+				}
+
+				const auto editBool = [&](const char* label, bool SkeletonComponent::* member, const char* help)
+				{
+					bool value = firstComponent.*member;
+					if (ImGuiEx::Property(label, value, help))
+					{
+						firstComponent.*member = value;
+						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity)
+						{
+							component.*member = value;
+							component.State.PreviewOverride = false; // an authored setting changed: the preview follows it again
+						});
+					}
+				};
+				const auto editFloat = [&](const char* label, float SkeletonComponent::* member, float step, float low, float high, const char* help)
+				{
+					float value = firstComponent.*member;
+					if (ImGuiEx::Property(label, value, step, low, high, help))
+					{
+						firstComponent.*member = value;
+						ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [value, member](SkeletonComponent& component, Entity)
+						{
+							component.*member = value;
+							component.State.PreviewOverride = false; // an authored setting changed: the preview follows it again
+						});
+					}
+				};
+				editBool("Play On Start", &SkeletonComponent::PlayOnStart, "Play when the scene starts; off holds the pose at Start Time until something plays it");
+				editBool("Loop", &SkeletonComponent::Loop, "Wrap at the end of the clip instead of holding the last pose");
+				editFloat("Speed", &SkeletonComponent::Speed, 0.05f, -4.0f, 4.0f, "Playback rate, negative plays backwards");
+				editFloat("Start Time", &SkeletonComponent::StartTime, 0.01f, 0.0f, 3600.0f, "Seconds into the clip where playback starts; scrubs the pose in the editor while Play On Start is off");
+				editFloat("Fade Seconds", &SkeletonComponent::FadeSeconds, 0.01f, 0.0f, 10.0f, "Cross-fade length when the clip is changed");
+				editBool("Root Motion", &SkeletonComponent::RootMotion, "While the scene runs, move the entity by the root bone's horizontal travel instead of animating it in place");
+				std::string rootBone = firstComponent.RootBone;
+				if (ImGuiEx::Property("Root Bone", rootBone, "Bone whose travel is the root motion; empty uses the first bone with a position track"))
+				{
+					firstComponent.RootBone = rootBone;
+					ApplyToSelection<SkeletonComponent>(m_Context, selectedEntities, [rootBone](SkeletonComponent& component, Entity)
+					{
+						component.RootBone = rootBone;
+					});
+				}
+
+				ImGuiEx::EndPropertyGrid();
+				DrawSkeletonAnimationTools(firstComponent);
 			});
 
 		DrawComponentSection<DirectionalLightComponent>(m_Context, entityIDs, "Directional Light", EditorResources::DirectionalLightIcon,

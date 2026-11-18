@@ -1,0 +1,89 @@
+Scene: LuxBipedStatic
+Entities:
+  - Entity: 7200000000000000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.8, 0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 20
+      Radiance: [1, 0.95, 0.85]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 7200000000000000002
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.8
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.4]
+  - Entity: 7200000000000000003
+    TagComponent:
+      Tag: Ground
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, -14]
+      Rotation: [0, 0, 0]
+      Scale: [60, 1, 60]
+    StaticMeshComponent:
+      AssetID: 5047013130077771705
+      MaterialTable:
+        0: 16000000000000001004
+      Visible: true
+  - Entity: 7200000000000000004
+    TagComponent:
+      Tag: Rig
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.7, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: 7400000000000000001
+      Visible: true
+  - Entity: 7200000000000000005
+    TagComponent:
+      Tag: Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4, 6]
+      Rotation: [-0.04, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 600
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

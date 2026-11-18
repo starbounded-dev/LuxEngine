@@ -34,6 +34,10 @@
 #include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/PhysicalLight.h"
 #include "Lux/Renderer/Mesh.h"
+#include "Lux/Animation/AnimationGraph.h"
+#include "Lux/Animation/Animator.h"
+#include "Lux/Animation/AnimationPose.h"
+#include "Lux/Animation/SkinPalette.h"
 #include "Lux/Renderer/MeshFactory.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Physics/PhysicsScene.h"
@@ -848,8 +852,106 @@ namespace Lux {
 		OnPhysics2DStop();
 	}
 
+	namespace
+	{
+		// Advances every SkeletonComponent that plays a clip by `ts` and evaluates its pose once, into the
+		// component's State (the render sync and "read bone transform" read it from there). `play` is true in a
+		// running scene, where an entity that carries its root motion is moved; the editor preview animates the
+		// pose only, so editing never moves or dirties an entity. `onlyMissingPose` evaluates just the components
+		// that have no pose yet (a frame that renders before any update has run). Main thread only (it writes components).
+		using AnimationEventSink = std::function<void(entt::entity, const FiredAnimationEvent&)>;
+
+		void AdvanceAnimators(entt::registry& registry, float ts, bool play, bool paused, bool onlyMissingPose = false, const AnimationEventSink& onEvent = {})
+		{
+			auto skeletonView = registry.view<SkeletonComponent>();
+			for (auto entity : skeletonView)
+			{
+				SkeletonComponent& component = skeletonView.get<SkeletonComponent>(entity);
+				if (!component.Enabled || (!component.Clip && !component.Graph) || (onlyMissingPose && !component.State.ModelPose.empty()))
+					continue;
+				Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
+				if (!skeleton || skeleton->IsEmpty())
+					continue;
+
+				AnimatorState& state = component.State;
+				if (!state.Initialized || state.PlayMode != play)
+				{
+					ResetAnimator(state, component.StartTime, component.PlayOnStart);
+					state.PlayMode = play;
+				}
+
+				// An animation graph chooses the clip: its current state's, with that state's speed and loop.
+				Ref<AnimationGraph> graph = component.Graph ? AssetManager::GetAsset<AnimationGraph>(component.Graph) : nullptr;
+				if (component.Graph && (!graph || graph->States.empty()))
+					continue;
+				if (graph)
+					SyncAnimatorGraph(state, graph, component.StartTime);
+				AssetHandle clipHandle = graph ? state.GraphClip : component.Clip;
+				Ref<Animation> clip = AssetManager::GetAsset<Animation>(clipHandle);
+				static thread_local std::unordered_set<AssetHandle> reported;
+				if (reported.insert(clipHandle).second)
+				{
+					if (clip)
+						LUX_CORE_INFO("Animation: playing clip '{}': {} tracks, {:.2f} s", clip->GetName(), clip->GetTracks().size(), clip->GetDuration());
+					else
+						LUX_CORE_WARN("Animation: clip {} could not be loaded", static_cast<uint64_t>(clipHandle));
+				}
+				if (!clip)
+					continue;
+
+				// Releasing the transport returns both playback and the held time to authored settings.
+				if (!play && !state.PreviewOverride)
+				{
+					state.Playing = component.PlayOnStart;
+					if (!state.Playing)
+						state.Time = component.StartTime;
+				}
+
+				// One graph transition per update; the fade runs inside the animator.
+				if (graph && !paused && ts > 0.0f && state.Playing)
+				{
+					const float normalized = clip->GetDuration() > 0.0f ? state.Time / clip->GetDuration() : 0.0f;
+					const AnimationGraphStep step = UpdateGraph(*graph, state.Graph, normalized);
+					if (step.Transitioned)
+					{
+						StartCrossFade(state, state.GraphClip, step.FadeSeconds);
+						state.GraphClip = graph->States[step.State].Clip;
+						LUX_CORE_INFO("Animation: graph state '{}'", graph->States[step.State].Name);
+						clipHandle = state.GraphClip;
+						clip = AssetManager::GetAsset<Animation>(clipHandle);
+						if (!clip)
+							continue;
+					}
+				}
+
+				AnimatorSettings settings;
+				settings.Speed = component.Speed * (graph ? graph->States[state.Graph.CurrentState].Speed : 1.0f);
+				settings.Loop = graph ? graph->States[state.Graph.CurrentState].Loop : component.Loop;
+				if (!play && state.PreviewOverride && !state.Playing)
+					settings.Loop = false; // The scrubber can hold the exact last key of a looping clip.
+				if (component.RootMotion)
+					settings.RootBone = component.RootBone.empty() ? FindRootMotionBone(*skeleton, *clip) : skeleton->GetBoneIndex(component.RootBone);
+				Ref<Animation> fadeFrom = state.FadeFromClip ? AssetManager::GetAsset<Animation>(state.FadeFromClip) : nullptr;
+
+				const glm::vec3 travel = AdvanceAnimator(state, settings, *skeleton, *clip, clipHandle, fadeFrom.Raw(), paused ? 0.0f : ts);
+				if (onEvent)
+				{
+					for (const FiredAnimationEvent& event : state.FiredEvents)
+						onEvent(entity, event);
+				}
+				if (play && !paused && component.RootMotion)
+				{
+					if (TransformComponent* transform = registry.try_get<TransformComponent>(entity))
+						transform->Translation += transform->GetRotation() * (travel * transform->Scale);
+				}
+			}
+		}
+	}
+
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
+		ApplyBoneAttachments();
 		RefreshInactiveEntities();
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
@@ -1079,6 +1181,8 @@ namespace Lux {
 
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
+		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
+		ApplyBoneAttachments();
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -1096,6 +1200,7 @@ namespace Lux {
 
 	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
+		AdvanceAnimators(m_Registry, ts, false, false);
 		// Render 2D
 		RenderScene(camera);
 
@@ -1201,7 +1306,7 @@ namespace Lux {
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
+			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 			FolderComponent>;
@@ -1272,7 +1377,7 @@ namespace Lux {
 		ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-		MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
@@ -1444,7 +1549,7 @@ namespace Lux {
 			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
-			MeshComponent, MeshTagComponent, StaticMeshComponent, SubmeshComponent,
+			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
 
@@ -2416,6 +2521,65 @@ namespace Lux {
 		instance->second.Invoke(method, (uint64_t)other);
 	}
 
+	void Scene::ApplyBoneAttachments()
+	{
+		for (auto e : m_Registry.view<SkeletonComponent>())
+		{
+			SkeletonComponent& component = m_Registry.get<SkeletonComponent>(e);
+			if (component.State.Attachments.empty() || component.State.ModelPose.empty())
+				continue;
+			const glm::mat4 owner = GetWorldSpaceTransformMatrix(Entity{ e, this });
+			std::erase_if(component.State.Attachments, [&](const AnimatorAttachment& attachment)
+			{
+				Entity child = TryGetEntityWithUUID(attachment.Entity);
+				if (!child || !child.HasComponent<TransformComponent>())
+					return true; // the entity is gone: forget it
+				if (attachment.Bone >= component.State.ModelPose.size())
+					return true;
+				glm::mat4 world = owner * component.State.ModelPose[attachment.Bone];
+				if (const Entity parent = child.GetParent())
+					world = glm::inverse(GetWorldSpaceTransformMatrix(parent)) * world;
+				glm::vec3 translation, scale;
+				glm::quat rotation;
+				if (Math::DecomposeTransform(world, translation, rotation, scale))
+				{
+					TransformComponent& transform = child.GetComponent<TransformComponent>();
+					transform.Translation = translation; // the child keeps its own scale
+					transform.SetRotationEuler(glm::eulerAngles(rotation));
+				}
+				return false;
+			});
+		}
+	}
+
+	void Scene::DispatchAnimationEvent(Entity entity, const FiredAnimationEvent& event)
+	{
+		static thread_local std::unordered_set<std::string> reported; // one line per event name, not one per footstep
+		if (reported.insert(event.Name).second)
+			LUX_CORE_INFO("Animation: event '{}' ('{}')", event.Name, event.Argument);
+
+		if (event.Sound)
+		{
+			AudioEventRef sound;
+			sound.Sound = event.Sound;
+			if (sound.IsValid())
+				m_PhysicsAudio.OneShot(entity.GetUUID(), sound, glm::vec3(GetWorldSpaceTransformMatrix(entity)[3]));
+		}
+
+		// Same rules as the collision hooks: an enabled, active, already created script.
+		const UUID entityID = entity.GetUUID();
+		const auto instance = m_ScriptInstances.find(entityID);
+		if (instance == m_ScriptInstances.end() || !entity.HasComponent<ScriptComponent>() || m_PendingScriptCreates.contains(entityID))
+			return;
+		if (!entity.GetComponent<ScriptComponent>().Enabled || IsInactive(entity))
+			return;
+		Coral::String name = Coral::String::New(event.Name);
+		Coral::String argument = Coral::String::New(event.Argument);
+		instance->second.Invoke("OnAnimationEventInternal", name, argument);
+		Coral::String::Free(name);
+		Coral::String::Free(argument);
+	}
+
 	// Same rules as OnUpdate: enabled, active, and already created (OnUpdate ran OnCreate this frame).
 	void Scene::InvokeScriptFixedUpdate(float fixedTimestep)
 	{
@@ -2711,6 +2875,36 @@ namespace Lux {
 
 	Ref<::Lux::RenderScene> Scene::SyncRenderSceneMirror(Ref<::Lux::RenderScene>& renderScene, const std::function<bool(Entity)>& isSelected) const
 	{
+		// The skin palette of a mesh entity with a SkeletonComponent, or false when it cannot be skinned (the
+		// mesh has no skin data, or the mesh or skeleton has not loaded yet: it draws unskinned meanwhile).
+		// A bone the skeleton lacks gets the identity (BuildSkinPalette).
+		auto buildSkinPalette = [](const SkeletonComponent& component, AssetHandle staticMeshHandle, std::vector<glm::mat4>& palette)
+		{
+			Ref<StaticMesh> staticMesh = StaticMesh::GetOrCreateRuntime(staticMeshHandle);
+			Ref<MeshSource> meshSource = staticMesh ? AssetManager::GetAsset<MeshSource>(staticMesh->GetMeshSource()) : nullptr;
+			Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
+			if (!meshSource || !meshSource->HasSkin() || !skeleton || skeleton->IsEmpty())
+				return false;
+
+			if (component.Clip)
+			{
+				palette = BuildSkinPalette(*skeleton, component.State.ModelPose.empty() ? BuildModelPose(*skeleton) : component.State.ModelPose, meshSource->GetBoneInfo());
+				return true;
+			}
+			const uint32_t bendBone = component.DebugBone.empty() ? Skeleton::NullIndex : skeleton->GetBoneIndex(component.DebugBone);
+			palette = BuildSkinPalette(*skeleton, BuildModelPose(*skeleton, bendBone, component.DebugBendDegrees), meshSource->GetBoneInfo());
+			return true;
+		};
+		// FNV-1a over the matrices' bytes: only compared with last frame's.
+		auto hashSkinPalette = [](const std::vector<glm::mat4>& palette)
+		{
+			uint64_t hash = 1469598103934665603ull;
+			const auto* bytes = reinterpret_cast<const uint8_t*>(palette.data());
+			for (size_t i = 0; i < palette.size() * sizeof(glm::mat4); i++)
+				hash = (hash ^ bytes[i]) * 1099511628211ull;
+			return hash | 1ull; // never 0, which means unskinned
+		};
+
 		struct StaticMeshSyncItem
 		{
 			UUID EntityID = 0;
@@ -2729,7 +2923,11 @@ namespace Lux {
 		// is retained across frames.
 		static thread_local std::vector<StaticMeshSyncItem> syncItems;
 		syncItems.clear();
+		// One palette per skinned entity; reserved to the most there can be so the sync items' pointers stay valid.
+		static thread_local std::vector<std::vector<glm::mat4>> skinPalettes;
+		skinPalettes.clear();
 		auto view = m_Registry.view<const TransformComponent, const StaticMeshComponent>();
+		skinPalettes.reserve(m_Registry.view<const StaticMeshComponent>().size());
 		for (auto e : view)
 		{
 			const auto& meshComp = view.get<const StaticMeshComponent>(e);
@@ -2743,6 +2941,19 @@ namespace Lux {
 			syncItem.Inputs.ComponentMaterialTable = &meshComp.MaterialTable;
 			syncItem.Inputs.Visible = meshComp.Visible && !IsInactive(e);
 			syncItem.Inputs.Selected = isSelected ? isSelected(entity) : false;
+			if (const auto* skeleton = m_Registry.try_get<SkeletonComponent>(e); skeleton && skeleton->Enabled && skeleton->SkeletonAsset)
+			{
+				std::vector<glm::mat4>& palette = skinPalettes.emplace_back();
+				if (buildSkinPalette(*skeleton, meshComp.StaticMesh, palette))
+				{
+					syncItem.Inputs.SkinPalette = &palette;
+					syncItem.Inputs.SkinPaletteHash = hashSkinPalette(palette);
+				}
+				else
+				{
+					skinPalettes.pop_back();
+				}
+			}
 
 			// Defer world-transform computation to the parallel pass below (it's the expensive,
 			// write-disjoint part). Just record the entity and whether it needs a hierarchy walk.
@@ -2780,6 +2991,7 @@ namespace Lux {
 			renderScene->SyncStaticMesh(syncItem.EntityID, syncItem.Inputs);
 
 		syncItems.clear();
+		skinPalettes.clear();
 
 		renderScene->EndSync();
 		return renderScene;
@@ -2962,6 +3174,7 @@ namespace Lux {
 		CaptureDraw2D(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
 		CaptureAudioZones(packet, isSelected);
+		CaptureSkeletonLines(packet, isSelected);
 		CaptureScriptDebugLines(packet);
 
 		packet.Valid = true;
@@ -2987,6 +3200,33 @@ namespace Lux {
 #else
 		(void)packet;
 #endif
+	}
+
+	void Scene::CaptureSkeletonLines(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)
+	{
+		if (!isSelected)
+			return;
+		constexpr glm::vec4 boneColor{ 0.2f, 0.9f, 0.8f, 1.0f };
+		for (auto handle : m_Registry.view<SkeletonComponent>())
+		{
+			Entity entity{ handle, this };
+			const SkeletonComponent& component = entity.GetComponent<SkeletonComponent>();
+			if (!component.Enabled || !isSelected(entity) || IsInactive(entity))
+				continue;
+			Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(component.SkeletonAsset);
+			if (!skeleton || skeleton->IsEmpty())
+				continue;
+			// The animated pose when a clip has produced one, else the rest pose.
+			const std::vector<glm::mat4>& pose = component.State.ModelPose.size() == skeleton->GetNumBones() ? component.State.ModelPose : skeleton->GetModelSpaceRestPose();
+			const glm::mat4 world = GetWorldSpaceTransformMatrix(entity);
+			for (uint32_t bone = 0; bone < skeleton->GetNumBones() && bone < pose.size(); bone++)
+			{
+				const uint32_t parent = skeleton->GetParentBoneIndex(bone);
+				if (parent == Skeleton::NullIndex || parent >= pose.size())
+					continue;
+				packet.ScriptLines.push_back({ glm::vec3(world * pose[parent][3]), glm::vec3(world * pose[bone][3]), boneColor, true });
+			}
+		}
 	}
 
 	void Scene::CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected)
@@ -3478,16 +3718,19 @@ namespace Lux {
 
 	void Scene::OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected)
 	{
+		AdvanceAnimators(m_Registry, 0.0f, false, true, true);
 		Render3D(camera, renderer, isSelected);
 	}
 
 	void Scene::OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected)
 	{
+		AdvanceAnimators(m_Registry, 0.0f, true, true, true);
 		Render3D(camera, renderer, isSelected);
 	}
 
 	void Scene::OnRenderRuntime(Ref<SceneRenderer> renderer)
 	{
+		AdvanceAnimators(m_Registry, 0.0f, true, true, true);
 		Render3DRuntime(renderer);
 	}
 
@@ -3606,6 +3849,37 @@ namespace Lux {
 			const auto& staticMesh = staticMeshView.get<StaticMeshComponent>(entity);
 			addMeshDependencies(staticMesh.StaticMesh);
 			addMaterialTableDependencies(staticMesh.MaterialTable);
+		}
+
+		auto skeletonView = m_Registry.view<SkeletonComponent>();
+		for (auto entity : skeletonView)
+		{
+			const auto& skeleton = skeletonView.get<SkeletonComponent>(entity);
+			addIfValid(skeleton.SkeletonAsset);
+			// A packed clip never ships without the skeleton it was authored against; a graph ships every clip it plays.
+			const auto addClip = [&](AssetHandle handle)
+			{
+				addIfValid(handle);
+				if (handle)
+				{
+					if (Ref<Animation> clip = AssetManager::GetAsset<Animation>(handle))
+					{
+						addIfValid(clip->GetSkeletonHandle());
+						for (const AnimationEvent& event : clip->GetEvents())
+							addIfValid(event.Sound); // an event's sound ships with the clip that plays it
+					}
+				}
+			};
+			addClip(skeleton.Clip);
+			addIfValid(skeleton.Graph);
+			if (skeleton.Graph)
+			{
+				if (Ref<AnimationGraph> graph = AssetManager::GetAsset<AnimationGraph>(skeleton.Graph))
+				{
+					for (const AnimationGraphState& state : graph->States)
+						addClip(state.Clip);
+				}
+			}
 		}
 
 		auto meshColliderView = m_Registry.view<MeshColliderComponent>();
@@ -3836,6 +4110,11 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
+	{
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SkeletonComponent>(Entity entity, SkeletonComponent& component)
 	{
 	}
 

@@ -8,6 +8,8 @@
 
 #include "AudioTestLog.h"
 
+#include "Lux/Asset/AssetReference.h"
+
 #include "Lux/Audio/AudioAccessibility.h"
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/AudioEventInstance.h"
@@ -46,6 +48,8 @@
 
 namespace
 {
+	constexpr uint64_t kRegisteredSound = 42;
+	constexpr std::string_view kRegisteredSoundPath = "Sounds/Door.lsound";
 	constexpr uint32_t kRate = 48000;
 	constexpr uint64_t kBlock = 480;      // render in 10 ms periods, as a device would
 	constexpr uint64_t kSettle = 4800;    // past miniaudio's 8 ms pan smoothing and one gain ramp
@@ -55,6 +59,7 @@ namespace
 	Lux::AudioPerformanceSettings s_Performance;
 	Lux::AudioMixerSettings s_Mixer;
 
+	std::map<uint64_t, std::string> s_RegisteredAssetPaths;
 	std::map<uint64_t, Lux::Ref<Lux::Sound>> s_Sounds;
 	std::map<uint64_t, std::filesystem::path> s_Clips;
 	// Clips inside a pack file, as a runtime asset pack delivers them: the file, and where the clip's bytes sit.
@@ -62,6 +67,23 @@ namespace
 	std::map<uint64_t, PackedClip> s_PackedClips;
 	std::map<uint64_t, Lux::Ref<Lux::SoundBank>> s_Banks;
 	uint64_t s_NextHandle = 1000;
+}
+
+// The stand-alone tests supply the registry lookups and exercise the real serializer.
+namespace Lux::AssetReference::Detail
+{
+	AssetHandle LookupRegisteredHandle(const std::string& path)
+	{
+		const auto entry = std::ranges::find_if(s_RegisteredAssetPaths,
+			[&path](const auto& asset) { return asset.second == path; });
+		return entry == s_RegisteredAssetPaths.end() ? AssetHandle(0) : AssetHandle(entry->first);
+	}
+
+	std::string LookupRegisteredPath(AssetHandle handle)
+	{
+		const auto entry = s_RegisteredAssetPaths.find(static_cast<uint64_t>(handle));
+		return entry == s_RegisteredAssetPaths.end() ? std::string() : entry->second;
+	}
 }
 
 // The host: no device, and Sounds from the table above.
@@ -376,6 +398,27 @@ namespace
 		CHECK(!missing.HasReference() && missing.Path.empty());
 		const auto old = Yaml::Load("Event: { Guid: '{1}', Path: event:/A, BankName: B }");
 		CHECK(AudioEventRefSerializer::Read(old["Event"]).Sound == 0 && AudioEventRefSerializer::Read(old["Event"]).Guid == "{1}");
+
+		s_RegisteredAssetPaths.emplace(kRegisteredSound, kRegisteredSoundPath);
+		const auto path = Yaml::Load("Event: { Sound: Sounds/Door.lsound }");
+		const auto fromPath = AudioEventRefSerializer::Read(path["Event"]);
+		CHECK(fromPath.Sound == kRegisteredSound);
+		const auto missingPath = Yaml::Load("Event: { Sound: Sounds/../Missing.lsound }");
+		const auto unresolved = AudioEventRefSerializer::Read(missingPath["Event"]);
+		CHECK(unresolved.Sound != 0 && unresolved.Sound != fromPath.Sound);
+
+		Yaml::Writer pathOut;
+		{
+			const AssetReference::PathModeScope pathMode;
+			pathOut << Yaml::BeginMap;
+			AudioEventRefSerializer::Write(pathOut, "Event", fromPath);
+			AudioEventRefSerializer::Write(pathOut, "Missing", unresolved);
+			pathOut << Yaml::EndMap;
+		}
+		const auto pathRoundTrip = Yaml::Load(pathOut.c_str());
+		CHECK(pathRoundTrip["Event"]["Sound"].as<std::string>() == kRegisteredSoundPath);
+		CHECK(pathRoundTrip["Missing"]["Sound"].as<std::string>() == "Missing.lsound");
+		s_RegisteredAssetPaths.erase(kRegisteredSound);
 
 		// Version 2: every field of the tree survives a roundtrip, and writing it again is identical.
 		Sound sound;
@@ -1607,7 +1650,12 @@ namespace
 		const auto registry = Yaml::Load(readText(assets / "AssetRegistry.lzr"));
 		std::map<uint64_t, std::pair<std::string, std::string>> registered; // handle -> path, type
 		for (const auto& entry : registry["Assets"])
-			registered[entry["Handle"].as<uint64_t>()] = { entry["FilePath"].as<std::string>(), entry["Type"].as<std::string>() };
+		{
+			const auto handle = entry["Handle"].as<uint64_t>();
+			const auto path = entry["FilePath"].as<std::string>();
+			registered[handle] = { path, entry["Type"].as<std::string>() };
+			s_RegisteredAssetPaths.emplace(handle, path);
+		}
 		Start();
 		for (const char* name : { "Audio/Sounds/Fart.lsound", "Audio/Sounds/Music.lsound", "Audio/Sounds/MusicBed.lsound" })
 		{
@@ -1640,7 +1688,7 @@ namespace
 				for (const auto& entity : scene["Entities"])
 				{
 					if (const auto director = entity["MusicDirectorComponent"])
-						assigned = director["Event"]["Sound"].as<uint64_t>() == static_cast<uint64_t>(sound->Handle);
+						assigned = AudioEventRefSerializer::Read(director["Event"]).Sound == sound->Handle;
 				}
 				CHECK(assigned);
 				MusicDirector director;
@@ -1651,6 +1699,7 @@ namespace
 			}
 		}
 		AudioEngine::Shutdown();
+		s_RegisteredAssetPaths.clear();
 		std::puts("PASS: sample project Sounds: Fart, Music and Benchmark's 2D music bed load and play through their intended paths");
 	}
 

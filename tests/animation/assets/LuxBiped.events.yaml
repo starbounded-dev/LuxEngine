@@ -1,0 +1,19 @@
+AnimationEvents:
+  Version: 1
+  Clips:
+    - Clip: Walk
+      Events:
+        - Time: 0.25
+          Name: Footstep
+          Argument: left
+        - Time: 0.75
+          Name: Footstep
+          Argument: right
+    - Clip: WalkForward
+      Events:
+        - Time: 0.25
+          Name: Footstep
+          Argument: left
+        - Time: 0.75
+          Name: Footstep
+          Argument: right

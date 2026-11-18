@@ -242,6 +242,11 @@ namespace Lux {
 			// The draw's set 0, a material's (RT_GetMaterialDescriptorSet); empty keeps the pass's own.
 			BoundDescriptorSet MaterialSet;
 			const VertexBuffer* Vertices = nullptr;
+			// Instead of `Vertices`: a storage buffer made with StorageBufferSpecification::VertexBuffer (the skinning
+			// pass's output), bound from this byte offset so the draw's index and attribute streams keep their
+			// own vertex numbering.
+			const StorageBuffer* SkinnedVertices = nullptr;
+			uint64_t SkinnedVertexByteOffset = 0;
 			// The mesh's attribute stream (MeshSource::GetAttributeBuffer); needed by pipelines with one.
 			const VertexBuffer* Attributes = nullptr;
 			const IndexBuffer* Indices = nullptr;

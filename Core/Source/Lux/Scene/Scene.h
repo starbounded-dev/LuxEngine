@@ -37,6 +37,7 @@
 namespace Lux {
 
 	class Entity;
+	struct FiredAnimationEvent;
 	class Framebuffer;
 	class Prefab;
 	class PhysicsScene2D;
@@ -243,8 +244,13 @@ namespace Lux {
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
 		void CaptureAudioZones(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
+		// Editor overlay: the bones of every selected skinned entity, parent to child, from the evaluated pose.
+		void CaptureSkeletonLines(FrameRenderPacket& packet, const std::function<bool(Entity)>& isSelected);
 		void CaptureColliderDebug(FrameRenderPacket& packet,
 			Ref<SceneRenderer> renderer, const std::function<bool(Entity)>& isSelected);
+		// Moves every entity attached to a bone (SkeletonComponent::State.Attachments) to that bone's world transform.
+		// The running-scene updates call it; the golden capture calls it to check the follow-the-bone path.
+		void ApplyBoneAttachments();
 		void OnRenderEditor(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderSimulation(Ref<SceneRenderer> renderer, const EditorCamera& camera, const std::function<bool(Entity)>& isSelected = nullptr);
 		void OnRenderRuntime(Ref<SceneRenderer> renderer);
@@ -354,6 +360,8 @@ namespace Lux {
 		// C# OnCollisionBegin/End (3D bodies and character controllers) and OnTriggerBegin/End.
 		void DispatchCollisionEvents();
 		void InvokeCollisionHook(UUID entity, UUID other, const char* method);
+		// An animation event a playing clip fired: the entity's script (OnAnimationEvent) and its sound, if any.
+		void DispatchAnimationEvent(Entity entity, const FiredAnimationEvent& event);
 		std::vector<PhysicsContactEvent> m_CharacterContactEvents;
 		ContactPairTracker m_ScriptContacts;
 

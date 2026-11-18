@@ -1,5 +1,9 @@
 # LuxEngine Editor Remaster Plan
 
+Material graphs now open as tabs in the shared Node Canvas. Each material tab keeps its own preview
+and properties, and the workspace restores its open tabs and navigation. See the [Node Canvas plan](NODE_CANVAS_PLAN.md)
+for the follow-up and verification.
+
 **Phase 4 delivery checkpoint (2026-11-04):** Profiler and Renderer Debugger now share a bounded
 240-sample timing chart with explicit CPU sources, milliseconds, missing-GPU gaps, pause/resume,
 follow, inspection, fit, legend toggles and budget lines. Per-pass GPU plots own frozen labels/values

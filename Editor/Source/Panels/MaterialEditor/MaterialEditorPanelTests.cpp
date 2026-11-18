@@ -2,14 +2,20 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
-#include "MaterialEditorPanel.h"
+#include "Panels/NodeCanvas/NodeCanvasPanel.h"
+#include "Panels/NodeCanvas/AnimationGraphDocument.h"
+#include "MaterialGraphDocument.h"
 
 #ifndef LUX_DIST
 #include "MaterialGraphCanvas.h"
+
+#include <imgui-node-editor/imgui_node_editor.h>
 #include "MaterialPreview.h"
+#include "Lux/Animation/Animation.h"
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/MaterialSerializer.h"
+#include "Lux/Editor/SelectionManager.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/MaterialGraph/MaterialGraphRegistry.h"
@@ -18,6 +24,8 @@
 #include "Lux/Utilities/FileSystem.h"
 
 #include <imgui/imgui_internal.h>
+#include <chrono>
+#include <fstream>
 #include <stdexcept>
 #ifdef _MSC_VER
 #include <crtdbg.h>
@@ -34,7 +42,7 @@ namespace Lux
 		}
 	} // namespace
 
-	bool MaterialEditorPanel::RunSelfTests(const std::filesystem::path& directory,
+	bool NodeCanvasPanel::RunSelfTests(const std::filesystem::path& directory,
 										   std::vector<std::string>& failures)
 	{
 #ifdef _MSC_VER
@@ -58,14 +66,14 @@ namespace Lux
 			unsigned char* pixels = nullptr;
 			int atlasWidth = 0, atlasHeight = 0;
 			io.Fonts->GetTexDataAsRGBA32(&pixels, &atlasWidth, &atlasHeight);
-			MaterialEditorPanel panel;
+			NodeCanvasPanel panel;
 			const AssetHandle handle = AssetManager::ImportAsset("Surface.lmat");
-			panel.OpenMaterial(handle);
+			panel.OpenAsset(handle);
 			Require(panel.m_Documents.size() == 1, "Cannot open the test material");
 			Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(handle);
-			Document* document = panel.GetActiveDocument();
+			auto* document = static_cast<MaterialGraphDocument*>(panel.GetActiveDocument());
 			material->SetRoughness(0.73f);
-			Require(panel.IsDirty(*document) && panel.SaveDocument(*document) && !panel.IsDirty(*document),
+			Require(document->IsDirty() && document->Save() && !document->IsDirty(),
 					"A material edit did not save and clear its dirty state");
 			const auto saved = document->Saved;
 			auto manager = Project::GetEditorAssetManager();
@@ -74,36 +82,29 @@ namespace Lux
 			unavailable.FilePath = "missing-folder/Surface.lmat";
 			manager->SetMetadata(handle, unavailable);
 			material->SetRoughness(0.19f);
-			Require(!panel.SaveDocument(*document) && panel.IsDirty(*document) &&
+			Require(!document->Save() && document->IsDirty() &&
 						!document->SaveError.empty() && document->Saved == saved,
 					"A failed save cleared the dirty state, saved snapshot or feedback");
 			manager->SetMetadata(handle, metadata);
-			Require(panel.SaveDocument(*document) && document->SaveError.empty(),
+			Require(document->Save() && document->SaveError.empty(),
 					"Retry did not save the retained material");
 			Ref<Asset> loaded;
 			Require(MaterialSerializer{}.TryLoadData(metadata, loaded) &&
 						loaded.As<MaterialAsset>()->GetRoughness() == 0.19f,
 					"Reload did not retain the authored value");
 
-			std::vector<std::function<void()>> undo, redo;
-			panel.SetUndoCallback(
-				[&](const std::string&, std::function<void()> before, std::function<void()> after)
-				{
-					undo.push_back(std::move(before));
-					redo.push_back(std::move(after));
-				});
 			ImGui::NewFrame();
 			ImGui::Begin("Material undo test");
-			document->EditBaseline = MaterialState::Capture(material);
+			document->EditBaseline = MaterialGraphDocument::MaterialState::Capture(material);
 			material->SetMetalness(0.66f);
-			panel.TrackEdit(*document, material);
+			document->TrackEdit(material);
 			ImGui::End();
 			ImGui::Render();
-			Require(undo.size() == 1, "Material edit did not make one undo command");
-			undo.back()();
+			Require(document->CanUndo(), "Material edit did not make an undo command");
+			document->Undo();
 			Require(material->GetMetalness() == saved.Metalness,
 					"Material undo did not restore the prior value");
-			redo.back()();
+			document->Redo();
 			Require(material->GetMetalness() == 0.66f, "Material redo lost its authored value");
 
 			material->SetGraph(MaterialGraph::CreateDefault());
@@ -112,16 +113,16 @@ namespace Lux
 			const uint32_t value = graph->AddNode("Float", {100.0f, 40.0f})->ID;
 			Require(graph->Connect(value, 0, output, 1), "Cannot connect a graph value");
 			Require(!graph->CanConnect(output, 0, value, 0), "Invalid graph link was accepted");
-			Require(panel.SaveDocument(*document), "Graph material could not be saved");
+			Require(document->Save(), "Graph material could not be saved");
 			const std::string graphSaved = document->SavedGraph;
 			material->SetGraph(nullptr);
-			panel.RevertDocument(*document, material);
+			document->RevertDocument(material);
 			Require(material->GetGraph() &&
 						MaterialGraphCanvas::Snapshot(*material->GetGraph()) == graphSaved,
 					"Revert did not restore a removed graph");
-			undo.back()();
+			document->Undo();
 			Require(!material->GetGraph(), "Graph revert could not be undone");
-			redo.back()();
+			document->Redo();
 			{
 				AssetSerializationInfo info;
 				{
@@ -146,30 +147,35 @@ namespace Lux
 			Ref<MaterialAsset> instance = AssetManager::GetAsset<MaterialAsset>(instanceHandle);
 			Require(instance && instance->SetParent(handle), "Cannot parent the instance fixture");
 			instance->InheritFrom(*material);
-			MaterialEditorPanel instancePanel;
-			instancePanel.OpenMaterial(instanceHandle);
-			Document* instanceDocument = instancePanel.GetActiveDocument();
-			Require(instanceDocument && instancePanel.SaveDocument(*instanceDocument),
+			NodeCanvasPanel instancePanel;
+			instancePanel.OpenAsset(instanceHandle);
+			auto* instanceDocument = static_cast<MaterialGraphDocument*>(instancePanel.GetActiveDocument());
+			Require(instanceDocument && instanceDocument->Save(),
 					"Cannot save an instance");
 			instance->SetRoughness(0.82f);
 			instance->UpdateOverrides(*material);
-			instancePanel.RevertDocument(*instanceDocument, instance);
+			instanceDocument->RevertDocument(instance);
 			Require(instance->GetGraph() == material->GetGraph() &&
 						instance->GetRoughness() == material->GetRoughness(),
 					"Revert detached an instance from its inherited graph or values");
 
-			panel.m_ShowPreview = false; // Exercise composition without scheduling a GPU preview.
-			panel.m_ShowGraph = true;
+			document->m_ShowPreview = false; // Exercise composition without scheduling a GPU preview.
+			document->m_ShowGraph = true;
 			bool open = true;
+			NodeCanvasCore otherCanvas;
 			auto frame = [&](float width)
 			{
 				ImGui::NewFrame();
 				ImGui::SetNextWindowPos({0.0f, 0.0f});
 				// The panel supplies its own FirstUseEver default. Resize the existing window,
 				// rather than overwriting next-window data that the panel then replaces.
-				if (ImGui::FindWindowByName("Material Editor"))
-					ImGui::SetWindowSize("Material Editor", {width, 700.0f}, ImGuiCond_Always);
+				if (ImGui::FindWindowByName(NodeCanvasPanel::PrimaryName))
+					ImGui::SetWindowSize(NodeCanvasPanel::PrimaryName, {width, 700.0f}, ImGuiCond_Always);
+				const NodeCanvasCore::ContextScope otherContext(otherCanvas);
+				auto* previousCanvas = ax::NodeEditor::GetCurrentEditor();
 				panel.OnImGuiRender(open);
+				Require(previousCanvas && ax::NodeEditor::GetCurrentEditor() == previousCanvas,
+					"Drawing the material graph changed another canvas context");
 				ImGui::Render();
 			};
 			for (float scale : {1.0f, 1.5f})
@@ -182,12 +188,106 @@ namespace Lux
 					frame(width * scale);
 					frame(width * scale);
 					if (width == 280.0f)
-						Require(panel.m_Compact, "The material did not reflow at a narrow width");
+						Require(document->m_Compact, "The material did not reflow at a narrow width");
 					if (width == 1400.0f)
-						Require(!panel.m_Compact, "The material did not restore its wide composition");
+						Require(!document->m_Compact, "The material did not restore its wide composition");
 				}
 			}
-			Require(!panel.IsDirty(*document), "View-only graph resizing changed the asset");
+			Require(!document->IsDirty(), "View-only graph resizing changed the asset");
+			if (FileSystem::HasEnvironmentVariable("LUX_NODE_CANVAS_PROFILE"))
+			{
+				Require(FileSystem::WriteFileAtomically(directory / "Assets/CanvasProfile.lmat",
+					"Material:\n  Roughness: 0.5\n"), "Cannot write the canvas profile fixture");
+				const AssetHandle largeHandle = AssetManager::ImportAsset("CanvasProfile.lmat");
+				auto largeMaterial = AssetManager::GetAsset<MaterialAsset>(largeHandle);
+				Require(static_cast<bool>(largeMaterial), "Cannot load the canvas profile fixture");
+				auto largeGraph = MaterialGraph::CreateDefault();
+				for (uint32_t i = 0; i < 180; ++i)
+				{
+					Require(largeGraph->AddNode("Float", { 180.0f * (i % 12 + 1), 100.0f * (i / 12) }),
+						"Could not add the large graph's profile nodes");
+				}
+				largeMaterial->SetGraph(largeGraph);
+
+				NodeCanvasPanel probe("Node Canvas Profile");
+				probe.LoadState(Yaml::Load("ShowPreview: false\nShowGraph: true\n"));
+				Require(probe.OpenAsset(handle), "Cannot open the profile control graph");
+				const auto profileFrame = [&]
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+					ImGui::SetNextWindowSize({ 1250.0f, 700.0f });
+					ImGui::SetNextWindowFocus();
+					probe.OnImGuiRender(open);
+					ImGui::Render();
+				};
+				const auto profile = [&](const char* label)
+				{
+					std::array<double, 3> runs;
+					for (auto& run : runs)
+					{
+						for (int warmup = 0; warmup < 30; ++warmup)
+							profileFrame();
+						std::array<double, 90> samples;
+						for (auto& sample : samples)
+						{
+							const auto start = std::chrono::steady_clock::now();
+							profileFrame();
+							sample = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+						}
+						std::ranges::sort(samples);
+						run = samples[samples.size() / 2];
+					}
+					std::ranges::sort(runs);
+					LUX_CORE_INFO_TAG("Editor", "NODE_CANVAS_PROFILE {} median {:.3f} ms", label, runs[1]);
+				};
+
+				profile("small graph");
+				Require(probe.OpenAsset(largeHandle) && probe.OpenAsset(handle), "Cannot open the inactive profile graph");
+				auto& largeDocument = static_cast<MaterialGraphDocument&>(*probe.m_Documents.back());
+				profile("small graph with 181-node tab inactive");
+				const auto view = [&]
+				{
+					Yaml::Writer state;
+					state << Yaml::BeginMap;
+					largeDocument.SaveView(state, true);
+					state << Yaml::EndMap;
+					return Yaml::Load(state.str())["CanvasView"].as<std::string>("");
+				};
+				Require(view().empty(), "The inactive large graph drew and captured a view");
+				Require(probe.OpenAsset(largeHandle), "Cannot select the large profile graph");
+				profile("181-node graph");
+				Require(!view().empty(), "The large graph did not draw when selected");
+			}
+
+			NodeCanvasCore beforeRestart, afterRestart;
+			const auto drawProbe = [&](NodeCanvasCore& canvas, bool select)
+			{
+				constexpr uintptr_t nodeID = 73;
+				ImGui::NewFrame();
+				ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+				ImGui::SetNextWindowSize({ 700.0f, 500.0f });
+				ImGui::Begin("Canvas settings");
+				const NodeCanvasCore::ContextScope canvasContext(canvas);
+				canvas.Begin("##state_probe", false);
+				ax::NodeEditor::SetNodePosition(nodeID, { 50.0f, 50.0f });
+				ax::NodeEditor::BeginNode(nodeID);
+				ImGui::TextUnformatted("State probe");
+				ax::NodeEditor::EndNode();
+				if (select)
+					ax::NodeEditor::SelectNode(nodeID);
+				ax::NodeEditor::End();
+				const bool selected = ax::NodeEditor::IsNodeSelected(nodeID);
+				ImGui::End();
+				ImGui::Render();
+				return selected;
+			};
+			Require(drawProbe(beforeRestart, true), "Could not select the canvas probe node");
+			Require(!beforeRestart.GetView().empty() && beforeRestart.GetView().find("\"nodes\"") == std::string::npos,
+				"Canvas settings failed to capture navigation or included authored node data");
+			afterRestart.RestoreView(beforeRestart.GetView());
+			Require(drawProbe(afterRestart, false), "Canvas selection did not survive a context restart");
+
 			float fraction = 0.3f;
 			ImVec2 splitterPoint;
 			auto splitterFrame = [&](bool focus = false)
@@ -256,10 +356,163 @@ namespace Lux
 			state << Yaml::EndMap;
 			const auto restored = Yaml::Load(state.str());
 			Require(!restored["ShowPreview"].as<bool>() && !restored["GraphDetails"].as<bool>() &&
-						!restored["GraphMinimap"].as<bool>() && panel.m_PreviewFraction == 0.3f,
+						!restored["GraphMinimap"].as<bool>() && document->m_PreviewFraction == 0.3f,
 					"Presentation choices did not round-trip or nonfinite sizing was accepted");
+			panel.OpenAsset(instanceHandle);
+			auto* secondTab = static_cast<MaterialGraphDocument*>(panel.GetActiveDocument());
+			secondTab->PushUndo([instance]() mutable { instance->SetRoughness(0.34f); },
+				[instance]() mutable { instance->SetRoughness(0.67f); });
+			const float firstRoughness = material->GetRoughness();
+			secondTab->Undo();
+			Require(instance->GetRoughness() == 0.34f && material->GetRoughness() == firstRoughness,
+				"Undo in the second canvas tab affected the first material");
+			secondTab->Redo();
+			Require(instance->GetRoughness() == 0.67f, "Redo did not target the selected document");
+			panel.RequestCloseDocument(1);
+			Require(panel.m_PendingCloseIndex == 1 && panel.HasDocument(instanceHandle),
+				"A dirty graph tab closed without offering to save");
+			panel.m_PendingCloseIndex = -1;
+			panel.m_OpenCloseConfirm = false;
+			panel.OpenAsset(handle);
+			Require(panel.GetActiveDocument() == document && panel.m_Documents.size() == 2,
+				"Reopening a material did not focus its existing tab");
+			Yaml::Writer tabs;
+			tabs << Yaml::BeginMap;
+			panel.SaveState(tabs);
+			tabs << Yaml::EndMap;
+			NodeCanvasPanel restarted;
+			restarted.LoadState(Yaml::Load(tabs.str()));
+			Require(restarted.m_Documents.size() == 2 && restarted.GetActiveDocument()->Handle == handle,
+				"Materials or the active tab were lost when restoring the workspace");
 			panel.OnClose();
 			Require(panel.GetActiveDocument() == document, "Hiding materials destroyed an open document");
+			const auto animationPath = directory / "Assets/LuxBiped.lanimgraph";
+			const auto readGraphFile = [&]
+			{
+				std::ifstream file(animationPath, std::ios::binary);
+				Require(static_cast<bool>(file), "Cannot read the animation graph fixture");
+				return std::string(std::istreambuf_iterator<char>(file), {});
+			};
+			const std::string original = readGraphFile();
+			const AssetHandle animationHandle = AssetManager::ImportAsset("LuxBiped.lanimgraph");
+			NodeCanvasPanel animationCanvas(SecondaryName);
+			Require(animationCanvas.OpenAsset(animationHandle), "Cannot open the animation graph in a second canvas");
+			auto* animation = static_cast<AnimationGraphDocument*>(animationCanvas.GetActiveDocument());
+			Require(animation->Save() && readGraphFile() == original, "An unchanged animation graph was rewritten");
+
+			animation->AddState();
+			animation->RefreshDraft(true);
+			Require(animation->IsDirty() && animation->CanUndo(), "Adding a state did not create a draft and undo step");
+			animation->Undo();
+			Require(!animation->IsDirty(), "Animation undo did not restore the saved draft");
+			animation->Redo();
+			const auto source = AssetManager::GetAsset<AnimationGraph>(animationHandle);
+			const uint64_t revision = source->GetRevision();
+			const uint32_t to = animation->m_Draft->Transitions[0].To;
+			animation->m_Draft->Transitions[0].To = AnimationGraph::StateNone;
+			animation->MarkEdited();
+			Require(!animation->Save() && animation->m_InvalidTransition == 0 && readGraphFile() == original,
+				"Invalid transition overwrote the saved graph");
+			animation->m_Draft->Transitions[0].To = to;
+			animation->MarkEdited();
+			Require(animation->Save() && !animation->IsDirty() && source->GetRevision() == revision + 1 &&
+				source->States.size() == 3, "Saving the animation graph did not refresh the source");
+			AnimationGraph loadedGraph;
+			Require(loadedGraph.FromYAML(readGraphFile()) && loadedGraph.Transitions.size() == 2 && loadedGraph.States.size() == 3,
+				"Saved graph could not be loaded with its authored states and transitions");
+
+			for (float width : { 920.0f, 270.0f })
+			{
+				for (int pass = 0; pass < 2; ++pass)
+				{
+					ImGui::NewFrame();
+					ImGui::SetNextWindowPos({ 0.0f, 0.0f });
+					if (ImGui::FindWindowByName(SecondaryName))
+						ImGui::SetWindowSize(SecondaryName, { width, 700.0f }, ImGuiCond_Always);
+					panel.OnImGuiRender(open);
+					ImGui::SetNextWindowPos({ 960.0f, 0.0f });
+					animationCanvas.OnImGuiRender(open);
+					ImGui::Render();
+				}
+			}
+			Require(animationCanvas.HasDocument(animationHandle) && panel.HasDocument(handle),
+				"The two canvas instances did not retain their separate documents");
+
+			const auto drawTransitionCanvas = [&]
+			{
+				ImGui::NewFrame();
+				ImGui::SetNextWindowSize({ 500.0f, 320.0f });
+				ImGui::Begin("Animation transition canvas");
+				animation->DrawCanvas(AnimationGraph::StateNone);
+				ImGui::End();
+				ImGui::Render();
+			};
+			animation->m_SelectedTransition = 0;
+			animation->m_SyncLinkSelection = true;
+			drawTransitionCanvas();
+			const auto earlierTarget = animation->m_Draft->Transitions[0].To;
+			ImGui::NewFrame();
+			ImGui::SetNextWindowSize({ 500.0f, 320.0f });
+			ImGui::Begin("Animation transition controls");
+			const ImGuiID later = ImGui::GetID("Later");
+			GImGui->NavActivateId = later;
+			GImGui->NavActivateDownId = later;
+			GImGui->NavActivatePressedId = later;
+			animation->DrawTransition();
+			ImGui::End();
+			ImGui::Render();
+			drawTransitionCanvas();
+			{
+				const NodeCanvasCore::ContextScope current(animation->m_Canvas);
+				ax::NodeEditor::LinkId selected;
+				Require(ax::NodeEditor::GetSelectedLinks(&selected, 1) == 1 && selected.Get() == 2 &&
+					animation->m_SelectedTransition == 1 && animation->m_Draft->Transitions[1].To == earlierTarget,
+					"Reordering a transition lost the selection of the moved link");
+			}
+			animation->Discard();
+
+			auto scene = Ref<Scene>::Create();
+			auto entity = scene->CreateEntity("Animation preview");
+			auto& skeleton = entity.AddComponent<SkeletonComponent>();
+			skeleton.Graph = animationHandle;
+			ResetAnimator(skeleton.State, 0.0f, true);
+			SelectionManager::Select(SelectionContext::Scene, entity.GetUUID());
+			SyncAnimatorGraph(skeleton.State, source, 0.0f);
+			Require(animation->FindPreview(*scene) == &skeleton, "Selected skeleton did not resolve for preview");
+			--skeleton.State.GraphRevision;
+			Require(animation->FindPreview(*scene) == nullptr, "Preview exposed controls from a stale graph revision");
+			SyncAnimatorGraph(skeleton.State, source, 0.0f);
+			SelectionManager::Deselect(SelectionContext::Scene, entity.GetUUID());
+			auto clip = Ref<Animation>::Create();
+			clip->SetDuration(1.0f);
+			const AssetHandle clipHandle = AssetManager::AddMemoryOnlyAsset(clip);
+			skeleton.State.GraphClip = clipHandle;
+			const auto preview = [&](const char* action, int parameter = -1)
+			{
+				ImGui::NewFrame();
+				ImGui::SetNextWindowSize({ 500.0f, 320.0f });
+				ImGui::Begin("Animation preview controls");
+				ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+				if (parameter >= 0)
+					ImGui::PushID(parameter);
+				const ImGuiID id = ImGui::GetID(action);
+				if (parameter >= 0)
+					ImGui::PopID();
+				GImGui->NavActivateId = id;
+				GImGui->NavActivateDownId = id;
+				GImGui->NavActivatePressedId = id;
+				animation->DrawPreview(skeleton);
+				ImGui::End();
+				ImGui::Render();
+			};
+			preview("###transport");
+			Require(!skeleton.State.Playing && skeleton.State.PreviewOverride, "Preview Pause did not hold the animation");
+			preview("###transport");
+			Require(skeleton.State.Playing, "Preview Play did not resume the animation");
+			preview("Trigger", 1);
+			Require(skeleton.State.Graph.Values[1] == 1.0f && source->Parameters[1].Default == 0.0f &&
+				!animation->IsDirty(), "Preview trigger did not stay in the runtime parameter state");
+			AssetManager::RemoveAsset(clipHandle);
 			panel.OnProjectChanged(nullptr);
 			Require(panel.m_Documents.empty(),
 					"Project change retained material documents from the old project");
@@ -275,7 +528,7 @@ namespace Lux
 			try
 			{
 				// The normal frame handshake exercises GPU preview lifetime without desktop input.
-				MaterialEditorPanel live;
+				NodeCanvasPanel live;
 				std::vector<int> submissionOrder;
 				Renderer::Submit(
 					[&submissionOrder]()
@@ -286,8 +539,10 @@ namespace Lux
 					});
 				Renderer::Submit([&submissionOrder]() { submissionOrder.push_back(4); });
 				const AssetHandle handle = AssetManager::ImportAsset("Surface.lmat");
-				live.OpenMaterial(handle);
-				live.m_ShowGraph = true;
+				live.OpenAsset(handle);
+				auto* liveDocument = static_cast<MaterialGraphDocument*>(live.GetActiveDocument());
+				Require(liveDocument, "Could not open the live graph document");
+				liveDocument->m_ShowGraph = true;
 				bool open = true;
 				auto render = [&](float width)
 				{
@@ -299,8 +554,8 @@ namespace Lux
 							{
 								ImGui::SetNextWindowPos(ImGui::GetMainViewport()->WorkPos);
 								ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
-								if (ImGui::FindWindowByName("Material Editor"))
-									ImGui::SetWindowSize("Material Editor", {width, 700.0f},
+								if (ImGui::FindWindowByName(NodeCanvasPanel::PrimaryName))
+									ImGui::SetWindowSize(NodeCanvasPanel::PrimaryName, {width, 700.0f},
 														 ImGuiCond_Always);
 								live.OnImGuiRender(open);
 							});
@@ -309,7 +564,7 @@ namespace Lux
 				render(1250.0f);
 				Require(submissionOrder == std::vector<int>({1, 2, 3, 4}),
 						"Nested render work ran after a later command instead of inline");
-				Require(live.m_Preview && live.m_Preview->GetMaterial() == handle && live.m_GraphCanvas,
+				Require(liveDocument->m_PreviewSession->Preview && liveDocument->m_PreviewSession->Preview->GetMaterial() == handle  ,
 						"The normal preview/canvas did not render in application frames");
 				Ref<MaterialAsset> material = AssetManager::GetAsset<MaterialAsset>(handle);
 				auto graph = material->GetGraph();
@@ -335,25 +590,24 @@ namespace Lux
 				render(1250.0f);
 				Require(MaterialGraphRegistry::GetErrors(handle).empty(),
 						"Repairing a graph did not clear its compile errors");
-				live.m_GraphCanvas->PreviewNode(value->ID);
+				liveDocument->Canvas.PreviewNode(value->ID);
 				render(1250.0f);
-				const AssetHandle preview = live.m_GraphCanvas->GetPreviewMaterial();
-				Require(preview && live.m_Preview->GetMaterial() == preview,
+				const AssetHandle preview = liveDocument->Canvas.GetPreviewMaterial();
+				Require(preview && liveDocument->m_PreviewSession->Preview->GetMaterial() == preview,
 						"Node preview did not reach the preview viewport");
-				live.m_ShowPreview = false;
+				liveDocument->m_ShowPreview = false;
 				render(1250.0f);
-				Require(live.m_GraphCanvas->GetPreviewMaterial() == preview,
+				Require(liveDocument->Canvas.GetPreviewMaterial() == preview,
 						"Hiding the preview replaced its node material");
-				live.m_NarrowPreview = true;
+				liveDocument->m_NarrowPreview = true;
 				render(300.0f);
-				Require(live.m_Compact && live.m_Preview->GetMaterial() == preview,
+				Require(liveDocument->m_Compact && liveDocument->m_PreviewSession->Preview->GetMaterial() == preview,
 						"Narrow Preview did not retain the same node preview");
+				WeakRef<MaterialGraphDocument::PreviewSession> previewSession(liveDocument->m_PreviewSession);
 				live.CloseDocument(0);
-				Require(!live.m_GraphCanvas->GetPreviewMaterial() &&
-							!AssetManager::IsAssetHandleValid(preview),
-						"Closing a material leaked its owned node preview");
+				Require(!AssetManager::IsAssetHandleValid(preview), "Closing the material leaked its node preview");
 				live.OnProjectChanged(nullptr);
-				Require(!live.m_Preview, "Project change retained the previous preview scene");
+				Require(!previewSession.IsValid(), "Project change retained the previous preview scene");
 			}
 			catch (const std::exception& error)
 			{

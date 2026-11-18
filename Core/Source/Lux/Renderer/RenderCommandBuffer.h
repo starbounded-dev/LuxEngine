@@ -178,6 +178,7 @@ namespace Lux {
 			// Bound at the pass's DrawSetIndex; an empty one leaves the pass's own set there.
 			BoundDescriptorSet DrawSet;
 			const NRIBuffer* VertexBuffer = nullptr;
+			uint64_t VertexBufferOffset = 0; // bytes into VertexBuffer where the draw's vertices start
 			const NRIBuffer* AttributeBuffer = nullptr; // bound when the pass's pipeline has an attribute stream
 			const NRIBuffer* IndexBuffer = nullptr;
 			bool IndexBuffer16 = false;
@@ -256,7 +257,7 @@ namespace Lux {
 		void RT_SuspendNRIRendering(const char* reason);
 		// Bind into the open rendering scope; repeated arguments are skipped.
 		void RT_SetNRIDescriptorSet(uint32_t setIndex, nri::DescriptorSet* descriptorSet);
-		void RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride, uint32_t slot = 0);
+		void RT_SetNRIVertexBuffer(nri::Buffer* buffer, uint32_t stride, uint32_t slot = 0, uint64_t offset = 0);
 		void RT_SetNRIIndexBuffer(nri::Buffer* buffer, bool use16BitIndices);
 		void RT_SetNRIRootConstants(const void* data, uint32_t size);
 	private:

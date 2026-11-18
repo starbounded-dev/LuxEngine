@@ -13,6 +13,16 @@ namespace Lux
 	{
 #pragma warning disable CS0649 // assigned from native code
 		internal static delegate*<ulong, int, float> Audio_PortalGetScalar;
+		internal static delegate*<ulong, int, float> Animation_GetScalar;
+		internal static delegate*<ulong, int, float, Bool32> Animation_SetScalar;
+		internal static delegate*<ulong, ulong, float, Bool32> Animation_CrossFade;
+		internal static delegate*<ulong, NativeString, float, Bool32> Animation_PlayState;
+		internal static delegate*<ulong, NativeString> Animation_GetState;
+		internal static delegate*<ulong, NativeString, int, float, Bool32> Animation_SetParameter;
+		internal static delegate*<ulong, NativeString, float> Animation_GetParameter;
+		internal static delegate*<ulong, NativeString, Vector3*, Vector3*, Bool32> Animation_GetBone;
+		internal static delegate*<ulong, ulong, NativeString, Bool32> Animation_Attach;
+		internal static delegate*<ulong, ulong, Bool32> Animation_Detach;
 		internal static delegate*<ulong, int, float, Bool32> Audio_PortalSetScalar;
 		internal static delegate*<ulong, Vector3*, void> Audio_PortalGetExtents;
 		internal static delegate*<ulong, Vector3*, Bool32> Audio_PortalSetExtents;

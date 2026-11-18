@@ -53,6 +53,16 @@ namespace Lux
 		/// <param name="other">The entity on the other side of the contact.</param>
 		protected virtual void OnCollisionEnd(Entity other) { }
 
+		/// <summary>
+		/// Called when a playing animation clip passes one of its events (a footstep, a hit frame). Events are
+		/// authored in the model's <c>.events.yaml</c> file and travel with the clip.
+		/// </summary>
+		/// <param name="name">The event's name.</param>
+		/// <param name="argument">The event's free-text argument, empty when it has none.</param>
+		protected virtual void OnAnimationEvent(string name, string argument) { }
+
+		internal void OnAnimationEventInternal(string name, string argument) => OnAnimationEvent(name, argument);
+
 		internal void OnCollisionBeginInternal(ulong otherID) => OnCollisionBegin(new Entity(otherID));
 		internal void OnCollisionEndInternal(ulong otherID) => OnCollisionEnd(new Entity(otherID));
 

@@ -80,6 +80,20 @@ namespace Lux {
 			rows[2] = { transform[0][2], transform[1][2], transform[2][2], transform[3][2] };
 		}
 
+		// The model-space bounds of a skinned mesh: every palette matrix applied to the mesh's box, unioned.
+		// A skinned vertex is a convex blend of its bones' copies of it, so it stays inside this box.
+		AABB ComputeSkinnedLocalBounds(const AABB& meshBounds, const std::vector<glm::mat4>& palette)
+		{
+			AABB result(glm::vec3(FLT_MAX), glm::vec3(-FLT_MAX));
+			for (const glm::mat4& matrix : palette)
+			{
+				const AABB moved = meshBounds.Transformed(matrix);
+				result.Min = glm::min(result.Min, moved.Min);
+				result.Max = glm::max(result.Max, moved.Max);
+			}
+			return palette.empty() ? meshBounds : result;
+		}
+
 		glm::uvec4 BuildGPUSceneObjectData(UUID entityID)
 		{
 			const uint64_t value = (uint64_t)entityID;
@@ -229,6 +243,7 @@ namespace Lux {
 				&& record->ComponentMaterialTable == componentMaterialTable
 				&& record->Visible == inputs.Visible
 				&& record->Selected == inputs.Selected
+				&& record->SkinPaletteHash == inputs.SkinPaletteHash
 				&& MatrixEquals(record->WorldTransform, inputs.WorldTransform))
 			{
 				m_SyncOrder.push_back(*record);
@@ -302,12 +317,28 @@ namespace Lux {
 			proxy.MaterialHash = materialHash;
 		}
 
-		glm::mat4 previousWorldTransform = created ? inputs.WorldTransform : proxy.WorldTransform;
-		if (created || meshChanged || !MatrixEquals(proxy.WorldTransform, inputs.WorldTransform))
+		// Skinning follows the entity's palette, and only for a mesh that carries skin data. A new pose is
+		// handled like a move: bounds and the GPU rows are rebuilt.
+		const bool skinnedNow = inputs.SkinPalette && !inputs.SkinPalette->empty() && proxy.MeshSource->HasSkin();
+		const uint64_t skinHash = skinnedNow ? inputs.SkinPaletteHash : 0;
+		const bool skinChanged = skinnedNow != proxy.IsSkinned() || skinHash != proxy.SkinPaletteHash;
+		if (skinChanged)
 		{
-			const BoundingSphere localBounds = proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
+			if (skinnedNow)
+				proxy.SkinPalette = *inputs.SkinPalette;
+			else
+				proxy.SkinPalette.clear();
+			proxy.SkinPaletteHash = skinHash;
+		}
+
+		glm::mat4 previousWorldTransform = created ? inputs.WorldTransform : proxy.WorldTransform;
+		if (created || meshChanged || skinChanged || !MatrixEquals(proxy.WorldTransform, inputs.WorldTransform))
+		{
+			const BoundingSphere localBounds = proxy.IsSkinned()
+				? ComputeSkinnedLocalBounds(proxy.MeshSource->GetBoundingBox(), proxy.SkinPalette).ToBoundingSphere()
+				: proxy.MeshSource->GetBoundingBox().ToBoundingSphere();
 			const BoundingSphere worldBounds = BoundingSphere::Transform(localBounds, inputs.WorldTransform);
-			if (!created && (!MatrixEquals(proxy.WorldTransform, inputs.WorldTransform) || !BoundsEquals(proxy.WorldBounds, worldBounds)))
+			if (!created && (skinChanged || !MatrixEquals(proxy.WorldTransform, inputs.WorldTransform) || !BoundsEquals(proxy.WorldBounds, worldBounds)))
 				dirtyFlags |= RenderProxyDirtyFlags::Transform;
 
 			proxy.WorldTransform = inputs.WorldTransform;
@@ -369,6 +400,7 @@ namespace Lux {
 		record.WorldTransform = inputs.WorldTransform;
 		record.Visible = inputs.Visible;
 		record.Selected = inputs.Selected;
+		record.SkinPaletteHash = skinHash;
 		record.Dirty = dirtyFlags != RenderProxyDirtyFlags::None;
 
 		AccumulateDirtyStats(m_LastSyncStats, dirtyFlags);
@@ -473,14 +505,19 @@ namespace Lux {
 					continue;
 
 				const Submesh& submesh = submeshData[submeshIndex];
-				const glm::mat4 submeshTransform = proxy.WorldTransform * submesh.Transform;
-				const glm::mat4 previousSubmeshTransform = previousWorldTransform * submesh.Transform;
+				// A skinned submesh's vertices come out of the skinning pass already placed (the palette
+				// carries the node transforms above the bones), so its row is the entity's alone.
+				const bool skinnedSubmesh = proxy.IsSkinned() && submesh.IsRigged;
+				const glm::mat4 submeshTransform = skinnedSubmesh ? proxy.WorldTransform : proxy.WorldTransform * submesh.Transform;
+				const glm::mat4 previousSubmeshTransform = skinnedSubmesh ? previousWorldTransform : previousWorldTransform * submesh.Transform;
 				const RenderMaterialID materialID = AcquireRenderMaterialID(proxy, submeshIndex);
 
 				GPUSceneInstanceData instanceData;
 				WriteTransformRows(instanceData.TransformRows, submeshTransform);
 				WriteTransformRows(instanceData.PreviousTransformRows, previousSubmeshTransform);
-				instanceData.BoundsSphere = CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
+				instanceData.BoundsSphere = skinnedSubmesh
+					? glm::vec4(proxy.WorldBounds.Center, proxy.WorldBounds.Radius)
+					: CalculateWorldBoundsSphere(submesh.BoundingBox, submeshTransform);
 				instanceData.Metadata = glm::uvec4(proxy.PrimitiveID, submeshIndex, materialID, (uint32_t)flags);
 				instanceData.ObjectData = BuildGPUSceneObjectData(proxy.EntityID);
 

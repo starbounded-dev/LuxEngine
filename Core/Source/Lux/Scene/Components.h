@@ -10,6 +10,7 @@
 
 #include "SceneCamera.h"
 
+#include "Lux/Animation/Animator.h"
 #include "Lux/Asset/Asset.h"
 #include "Lux/Audio/AudioListener.h"
 #include "Lux/Audio/AcousticMaterial.h"
@@ -571,6 +572,38 @@ namespace Lux {
 			: StaticMesh(staticMesh) {}
 	};
 
+	// Makes a static-mesh entity skinned: the mesh's bones are driven by this skeleton's pose (the
+	// renderer's skinned draw path, R12). The pose itself is computed at runtime, not stored.
+	struct SkeletonComponent
+	{
+		bool Enabled = true;           // false: the mesh draws unskinned
+		AssetHandle SkeletonAsset = 0; // the .lskel whose bones the mesh's bone names are resolved against
+		// Editor preview until animation playback exists: bend one bone (by name) about its local X axis.
+		std::string DebugBone;
+		float DebugBendDegrees = 0.0f;
+
+		// Playback of one clip (Animation asset). With no Clip the mesh holds the rest pose (plus the debug bend).
+		// These are authored and saved; what playback changes lives in State and is never saved.
+		AssetHandle Clip = 0;
+		AssetHandle Graph = 0;     // an AnimationGraph that picks the clip (and Speed and Loop per state); Clip is then ignored
+		float StartTime = 0.0f;    // seconds into the clip where playback starts (or holds, when not playing on start)
+		float Speed = 1.0f;        // playback rate; negative plays backwards
+		bool Loop = true;
+		bool PlayOnStart = true;   // false: hold the pose at StartTime until something plays it
+		float FadeSeconds = 0.25f; // cross-fade length when Clip is changed while playing
+		bool RootMotion = false;   // in a running scene, move the entity by the root bone's horizontal travel instead of the mesh
+		std::string RootBone;      // bone whose travel is the root motion (default: the first bone with a position track)
+
+		AnimatorState State;       // runtime only
+
+		// Starts `clip` from its beginning and fades from what was playing over `seconds` (0: switch at once).
+		void CrossFadeTo(AssetHandle clip, float seconds)
+		{
+			StartCrossFade(State, Clip, seconds);
+			Clip = clip;
+		}
+	};
+
 	struct SubmeshComponent
 	{
 		AssetHandle Mesh = 0;
@@ -722,7 +755,7 @@ namespace Lux {
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
 		TextComponent,
-		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SubmeshComponent,
+		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
 		FolderComponent>;

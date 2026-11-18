@@ -306,7 +306,11 @@ namespace Lux {
 			}
 		}
 
-		if (ImGui::BeginPopupContextItem("CBItemContextMenu"))
+		// The last item is a zero-size Dummy by now, so BeginPopupContextItem would never see a hover.
+		// Open from the item's own hover instead.
+		if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+			ImGui::OpenPopup("CBItemContextMenu");
+		if (ImGui::BeginPopup("CBItemContextMenu"))
 		{
 			if (!isSelected)
 			{
@@ -377,6 +381,10 @@ namespace Lux {
 			if (ImGui::MenuItem(label.c_str()))
 				actionResult.Set(ContentBrowserAction::CreateSound, true);
 		}
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::MeshSource
+			&& ImGui::MenuItem("Extract Skeleton and Animations"))
+			actionResult.Set(ContentBrowserAction::ExtractSkeleton, true);
+
 		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::Material
 			&& ImGui::MenuItem("Create Instance"))
 			actionResult.Set(ContentBrowserAction::CreateVariant, true);

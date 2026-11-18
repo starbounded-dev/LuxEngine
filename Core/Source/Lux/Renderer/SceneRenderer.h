@@ -1074,6 +1074,13 @@ namespace Lux {
 			uint64_t           ShaderSortKey = 0;
 			uint64_t           MaterialSortKey = 0;
 			uint64_t           MeshSortKey = 0;
+			// A skinned draw takes its vertices from the skinning pass's output instead of the mesh's buffer:
+			// the output's first vertex for this draw's entity (every skinned entity's copy sits back to back),
+			// and a hash of its pose, so the dynamic shadow maps render again when it changes. NoSkinnedVertices
+			// for an ordinary draw.
+			static constexpr uint32_t NoSkinnedVertices = ~0u;
+			uint32_t           SkinnedVertexBase = NoSkinnedVertices;
+			uint64_t           SkinPoseHash = 0;
 		};
 
 		using DrawCommandList = std::unordered_map<MeshKey, StaticDrawCommand, MeshKeyHasher>;
@@ -1411,6 +1418,11 @@ namespace Lux {
 		void HZBCompute();
 		void PreIntegration();
 		void MeshCullingPass();
+		void SkinningPass();
+		// The first vertex of `proxy`'s skinned copy in this frame's shared output, registering the proxy for
+		// skinning the first time it is asked for in a frame.
+		uint32_t GetSkinnedVertexBase(const StaticMeshRenderProxy& proxy, const Ref<MeshSource>& meshSource);
+		Ref<ComputePass> GetSkinMeshPass(const Ref<MeshSource>& meshSource);
 		void EarlyMeshCullingPass();
 		void ShadowMeshCullingPass();
 		void ClusterBuildPass();
@@ -1860,6 +1872,32 @@ namespace Lux {
 
 		// ── Tiled light culling ──────────────────────────────────────────────
 		Ref<ComputePass> m_MeshCullingPass;
+
+		// ── Skinning (R12) ───────────────────────────────────────────────────
+		// Skinning.glsl: one dispatch per skinned proxy over its mesh's vertices, every proxy's palette and
+		// output placed back to back in two per-frame buffers. A ComputePass per skinned mesh holds that
+		// mesh's source and influence buffers; proxies sharing a mesh share it.
+		struct SkinnedMeshFrame
+		{
+			Ref<MeshSource> Mesh;
+			uint32_t VertexCount = 0;
+			uint32_t PaletteBase = 0; // first matrix of the proxy's palette in the shared palette buffer
+			uint32_t OutputBase = 0;  // first vertex of the proxy's output in the shared skinned-vertex buffer
+		};
+		struct SkinMeshPass
+		{
+			Ref<ComputePass> Pass;
+			uint32_t LastUsedFrame = 0;
+		};
+		Ref<PipelineCompute> m_SkinningPipeline;
+		Ref<StorageBufferSet> m_SBSSkinPalette;     // mat4[]: every skinned proxy's palette
+		Ref<StorageBufferSet> m_SBSSkinnedVertices; // PackedVertex[]: every skinned proxy's copy (also a vertex buffer)
+		std::vector<SkinnedMeshFrame> m_SkinnedMeshes; // this frame's skinned proxies, in submit order
+		std::vector<glm::mat4> m_SkinPaletteData;      // this frame's palettes, back to back
+		std::unordered_map<RenderPrimitiveID, uint32_t> m_SkinnedOutputBase; // proxy -> its OutputBase this frame
+		uint32_t m_SkinnedVertexTotal = 0;
+		std::unordered_map<const MeshSource*, SkinMeshPass> m_SkinMeshPasses;
+		uint32_t m_SkinFrame = 0;
 		// The same shader in early mode: frustum and LOD only, before the depth prepass, writing into
 		// ObjectIndexes (its VisibleObjectIndexes binding is the ObjectIndexes buffer).
 		Ref<ComputePass> m_MeshEarlyCullingPass;

@@ -421,7 +421,16 @@ Structurally:
   the run time never compiles and needs no function graphs. Export runs `ScanProject` in its Prepare step, writes `GraphIndex` and each
   instance's graph into the asset pack, and packs the recompiled shaders; at run time nothing is
   generated. The canvas is `Editor/.../MaterialEditor/MaterialGraphCanvas` on the vendored
-  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT).
+  imgui-node-editor (`Core/vendor/imgui-node-editor`, MIT). `Panels/NodeCanvas/NodeCanvasCore`
+  owns the editor context, restores the previous current context after drawing, and provides
+  canvas styling, fit navigation, minimap and comment-group drawing, Find and Add Node popups, and
+  focused shortcut dispatch. The Find and Add Node popups share the editor's fuzzy matcher when
+  their direct search finds no matches.
+  The material canvas supplies its nodes, links, palette entries and clipboard data.
+  `GraphDocument` defines tab identity and save/discard operations. `MaterialGraphDocument` owns
+  the material's saved snapshot, dirty checks and canvas context. Switching material tabs retains
+  each tab's zoom and selection and ends the outgoing node preview. The canvas exposes a view-only
+  snapshot for workspace persistence. All canvas work stays on the main thread.
 - Mesh vertex colours and the second UV set are `MeshSource::m_VertexAttributes` (empty, or one
   `VertexAttributes` per vertex), filled by `AssimpMeshImporter` when any mesh in the file has colour
   set 0 or UV set 1, written to asset packs under `MeshSourceFile::HasVertexAttributes` (between the
@@ -752,7 +761,9 @@ Rules:
   `AssetRegistry.lzr`, a fresh worktree and a clean clone. `AssetReference::ReadValue` accepts both a
   path and the old bare number and resolves a path with the read-only
   `EditorAssetManager::GetAssetHandleFromFilePath` (O(1) through `AssetRegistry::FindByPathKey`; safe on the asset
-  worker, never imports). `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
+  worker, never imports). The lookup functions in `AssetReference.cpp` bridge the serializer and the active
+  project. Standalone native audio tests supply those lookups without an editor asset manager.
+  `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
   `SceneSerializer::Serialize(filepath)` and the `.lsound`/`.lbank` file save open; snapshots, undo diffs,
   `SerializeRuntime` and asset packs stay numeric because the player has no path map. A path that names no
   registered asset keeps a stable hashed handle and is written back unchanged, so a save never erases a
@@ -784,6 +795,134 @@ Rules:
   Assimp DLL. `AssimpMeshImporter.cpp` is compiled into `Core` in every config; only an executable
   that names it links it. A new program that loads source meshes (a tool, a test host) must
   register an importer, or every mesh fails with "No source mesh importer is registered".
+- **Skeletons and clips are baked assets, not read from the model at runtime.** `Skeleton` (`.lskel`,
+  `Animation/Skeleton.h`: bones parent-before-child, a bone-space rest pose, derived model-space rest
+  matrices) and `Animation` (`.lanim`, `Animation/Animation.h`: per-bone translation, rotation and
+  scale keys in seconds, tracks indexing the skeleton the clip was imported against, the skeleton's
+  handle stored on the clip) are binary blobs ("LZSK" / "LZAN", versioned, every count bounded, key
+  times checked ascending). A clip is raw keyframes in memory; `Animation::Serialize` writes version 2,
+  which drops keys their neighbours reproduce (Douglas-Peucker; 0.05 degrees for rotations, 0.1 mm plus
+  at most 1 mm of extent for vectors, so a long root-motion track is not coarsened) and quantizes the
+  rest (16-bit times up to 30 s then floats, 16-bit vectors over the kept bounds, smallest-three
+  rotations); `SerializeRaw` writes version 1 and `Deserialize` reads both, validating times and counts
+  in each. LuxBiped Idle goes from 57 KB to 2.8 KB. `SkeletonSerializer` / `AnimationSerializer` (`AnimationAssetSerializer.cpp`)
+  read and write the same bytes for the file and for `AssetPack.lap`, and both types are listed in
+  `AssetPack.cpp` `IsSerializedByAssetPack`, so an exported game plays them without Assimp.
+  `ImportSkeletonAndAnimations` (`SkeletalImporter.cpp`) is the only Assimp-facing step: it needs no
+  GPU, links nothing but Assimp, and is what `ExtractSkeletalAssets` (`SkeletalAssetExtraction.cpp`,
+  editor only, the Content Browser's "Extract Skeleton and Animations" on a MeshSource) calls to write
+  `<model>.lskel` and `<model>_<clip>.lanim` beside the model and register them; re-running it
+  overwrites the files and keeps the handles. Skin weights and inverse bind matrices are not part of
+  this: they belong to the mesh (R12, below). Retargeting is not built. Verified by
+  `tests/animation/run_windows.py` (import of `RiggedSimple.gltf` and the LuxBiped FBX/glTF pair, file
+  round trips, compression error, malformed files, the animator).
+  The skeleton keeps **every ancestor of a bone up to the scene root** (not just the bone nodes), so
+  its model space is the scene's: a glTF inverse bind matrix is authored against the chain above the
+  bones, and the skinning matrix is `bone model-space pose * InverseBindPose`. At rest that is the
+  transform of the node the inverse binds were authored below (Z_UP in the sample, the Z-up to Y-up
+  rotation), not the identity; the order matters. The node transform of a skinned submesh must not
+  be applied on top. FBX is the exception: Assimp's FBX offset matrices leave the node scale and axes
+  out, so for a file whose `SourceAsset_Format` metadata names FBX, `ExtractSkinWeights` multiplies each
+  bone's inverse bind by a per-mesh correction (rest palette times it = the mesh node's world transform),
+  which puts the skinned rest pose where the static mesh sits (checked pixel-identical in the LuxBipedRest
+  and LuxBipedStatic golden scenes, and against the glTF twin in `SkeletalImportTests`).
+- **Skin data lives on the `MeshSource`.** `AssimpMeshImporter` calls `ExtractSkinWeights`
+  (`SkeletalImporter.cpp`) on the same scene it builds vertices from (`k_MeshImportFlags`, shared so
+  the vertex ids match): `MeshSource::GetBoneInfluences()` is one `BoneInfluence` (four bone indices
+  and weights summing to 1) per vertex, `GetBoneInfo()` lists each bone once by name with its
+  `InverseBindPose`, and rigged submeshes set `Submesh::IsRigged`. A pack carries them in the mesh
+  entry's skin section (`MeshFlags::HasSkin`, `Metadata::SkinOffset/SkinSize`, written after the
+  baked LODs, bounded and validated on read); that changed the mesh entry format, so
+  `k_MeshSourceFileVersion` is 2 and packs from an older editor are refused. Nothing uploads or
+  draws skin data yet: the GPU buffer, the bone palette and the skinned passes are the rest of R12.
+- **`SkeletonComponent` marks a static-mesh entity as skinned** (`Scene/Components.h`): `SkeletonAsset`
+  (the `.lskel`, collected into asset packs by `Scene::GetAssetList`), `Enabled` (serialized only
+  when false), an editor-only debug bend (`DebugBone` by name, `DebugBendDegrees` about its local X)
+  used when no clip is set, and the **authored playback settings**: `Clip`, `StartTime`, `Speed`,
+  `Loop`, `PlayOnStart`, `FadeSeconds`, `RootMotion`, `RootBone` (all serialized only when not default).
+  What playback changes lives in `SkeletonComponent::State` (`Animation/Animator.h`, `AnimatorState`):
+  the current time, the fade, the **cached model pose** and the root-motion bookkeeping. It is runtime
+  only: never serialized, rebuilt when a scene starts (`PlayMode` differs from the mode it last advanced
+  in), so editing and playing never write each other's state. It is wired like any component: `AllComponents`, the
+  duplicate / prefab-instantiate / prefab-sync lists, `Prefab.cpp`, `SceneSerializer` both ways, the
+  inspector section and its override row, and `OnComponentAdded`. `BuildModelPose` and
+  `BuildSkinPalette` (`Animation/SkinPalette.h`) turn a skeleton and a bone pose into the per-mesh-bone
+  matrices `modelPose[bone with that name] * InverseBindPose`; a mesh bone the skeleton lacks gets the
+  identity. `Scene::SyncRenderSceneMirror` builds the palette each frame for an entity with an enabled
+  component whose mesh and skeleton have loaded and hands it to the render proxy; the renderer's side is
+  in `Rendering.md` (skinned meshes are skinned once by a compute pass, then drawn like static ones).
+- **Playback is evaluated once per frame, in the scene update.** `AdvanceAnimators` (`Scene.cpp`) runs at
+  the top of `OnUpdateEditor` (preview: the pose animates, the entity is never moved and an unplaying clip
+  follows `StartTime`, so editing does not dirty a scene), `OnUpdateSimulation` and `OnUpdateRuntime`
+  (play: honours pause, moves an entity whose `RootMotion` is on). `OnRender*` calls it with `dt = 0` for
+  components without a pose, so a frame that renders before any update still shows the clip. The maths is
+  in two engine-independent units: `Animation/AnimationPose` (`LocalPose`, `SampleAnimation`,
+  `BlendPoses`, `BuildModelPose(skeleton, pose)`, root-motion offset and removal) and `Animation/Animator`
+  (`AdvanceAnimator`: time, loop wrap, cross-fade with a smoothstep weight, the evaluated
+  `AnimatorState::ModelPose`, and the root bone's horizontal travel since the last advance, with the
+  loop's travel added on a wrap). The render sync and later "read bone transform" read `State.ModelPose`;
+  nothing re-evaluates it. Both units are compiled into `tests/animation/run_windows.py` and tested on
+  the real binary-FBX rig (travel per loop across wraps, held pose, backwards, cross-fade ends).
+  `Scene::GetAssetList` collects the clip and the skeleton the clip names, so an export never ships a
+  clip without it; `tests/animation/run_export_rig.py` plays the packaged FBX rig and clip.
+- **`AnimationGraph` (`.lanimgraph`) is a state machine that picks the clip** (`Animation/AnimationGraph.h`):
+  parameters (Float, Bool, Trigger), states (a clip, speed, loop each), ordered transitions (conditions,
+  optional exit time, cross-fade seconds, `Any` source). It is YAML text (`AnimationGraphYaml.cpp`), also
+  the pack form (a length-prefixed string, 4 MiB cap); `AnimationGraphSerializer`
+  (`AnimationAssetSerializer.cpp`) is registered in `AssetImporter.cpp` and the type is in
+  `IsSerializedByAssetPack`. `Validate` resolves condition parameter indices and refuses a graph that does
+  not hold together at load, save and pack time. `SkeletonComponent::Graph` replaces `Clip`; its runtime
+  is `AnimatorState::Graph` (`AnimationGraphRuntime`: current state, parameter values) and
+  `AdvanceAnimators` calls `UpdateGraph` once per update, which takes at most one transition (first match
+  in file order; a taken transition clears the triggers it tested) and starts a cross-fade through the
+  animator. `SetGraphFloat/Bool/Trigger` are the gameplay-facing setters (A5 binds them).
+  `Scene::GetAssetList` collects the graph, every state clip and each clip's skeleton. The logic is
+  tested headless (`SkeletalImportTests.cpp`, `CheckGraph`); the YAML half by
+  `RunAnimationGraphSelfTests`, run from the golden capture's self-test; the exported game by
+  `run_export_rig.py --graph`. Node Canvas hosts the graph editor. Blend trees and layers are follow-ups.
+- **Clip events** (`Animation::GetEvents`, `.lanim` version 3: the compressed layout, then count, then per event
+  time, name, argument, Sound handle; versions 1 and 2 still load). They are authored in
+  `<model>.events.yaml` beside the model (`Animation/AnimationEvents.h`, `ApplyAnimationEvents`), which
+  `ImportSkeletonAndAnimations` reads and bakes into the clips, so extraction keeps them. `AdvanceAnimator`
+  fills `AnimatorState::FiredEvents` with the events the playhead passed (`CollectAnimationEvents`:
+  (before, after] forward, [after, before) backward, wraps in play order, the first advance includes time 0,
+  a held animator and a clip fading out fire nothing). `AdvanceAnimators` hands them to
+  `Scene::DispatchAnimationEvent` in running scenes only (never the editor preview): the entity's script
+  gets `Entity.OnAnimationEvent(name, argument)` through the `OnAnimationEventInternal` bridge (collision
+  hook rules, strings passed as `Coral::String`), and an event with a Sound plays through
+  `PhysicsAudioSystem::OneShot` at the entity's world position. `Scene::GetAssetList` collects event sounds
+  with the clip. Tested headless in `SkeletalImportTests.cpp` (`CheckEvents`) and by `run_export_rig.py`.
+- **The C# `SkeletonComponent`** (`ScriptCore/Source/Lux/Skeleton.cs`, bindings in
+  `Scripting/AnimationScriptBindings.cpp`, registered from `ScriptGlue.cpp`): `Playing`, `Time`, `Speed`,
+  `Loop`, `CrossFade(clip handle, seconds)` (refused while a graph is assigned), `PlayState` and
+  `CurrentState` for graphs, `SetFloat/SetBool/SetTrigger/GetFloat` (false for an unknown name or a
+  parameter of another type), `GetBoneTransform` (world position and Euler rotation from
+  `State.ModelPose`) and `AttachToBone` / `Detach`. Every binding checks the main thread and the
+  component, and logs rather than throws on a missing one. Attachments live in
+  `AnimatorState::Attachments`; `Scene::ApplyBoneAttachments` (public, called right after the animators
+  advance in running scenes and by the golden capture's `Attach=<entity>:<bone>` option) sets the child's
+  local transform from `ownerWorld * ModelPose[bone]` through its parent, keeping the child's scale, and
+  forgets an entity that is gone. Clip handles are `ulong`: a typed `AnimationClip` script field needs a new
+  script field kind (`ScriptEngine` `DataType`, inspector, serialization) and is not built. Tested without a
+  native host by `tests/animation/run_managed.py` (ScriptCore compiled with mocked internal calls); the
+  attachment path by the `LuxBipedAttach` golden scene.
+- **Animation editor tools** live in the Skeleton inspector (`DrawSkeletonAnimationTools` in
+  `SceneHierarchyPanel.cpp`), not a panel: clip info, Play / Pause and a time slider that write only the
+  runtime `AnimatorState` (`PreviewOverride` stops the editor preview from following `StartTime`; editing an
+  authored setting clears it), and, for a graph, its states with the current one marked, its transitions with
+  their conditions, and live parameter widgets. The bone overlay is `Scene::CaptureSkeletonLines`
+  (selected skinned entities, parent to child from `State.ModelPose` or the rest pose, appended to
+  `FrameRenderPacket::ScriptLines`), called next to `CaptureAudioZones`. Checked by the `Select=Rig`
+  golden capture; the inspector widgets were checked by reading (scope and ID audit), not in a running editor.
+- **`Skinning.glsl` skins a mesh's vertices in a compute pass** (scheduled by `SceneRenderer::SkinningPass`):
+  one invocation per vertex over four raw word buffers at `set = 1`, `binding = 49..52` (source
+  `PackedVertex`, `BoneInfluence`, the palette matrices, the skinned copy; claim these before reusing
+  the slots, the `(set, binding)` namespace is global), push constants `VertexCount`, `PaletteBase`.
+  It blends up to four palette matrices, moves the position, rotates the tangent frame by the blended
+  3x3 and re-encodes the QTangent (`QTangent_FromFrame`, the GLSL twin of `PackedVertex::PackedVertex`);
+  a vertex no bone touches is copied unchanged. Its output lands at `OutputBase + vertex` of one shared
+  buffer. It is loaded in `Renderer::Init` and is part of the engine shader pack. `tests/animation/run_skinning_gpu.py` checks it against an independent CPU
+  reference on a real Vulkan device (positions to 1e-6, frames to cosine 0.9998 on 6000 vertices).
 - **A submesh is one placement.** `Submesh` carries one node transform, so when several nodes place
   the same mesh (glTF/FBX instancing) `AssimpMeshImporter::TraverseNodes` appends a copy of the
   submesh descriptor for every further reference: same vertex/index range and material, its own
@@ -1055,7 +1194,7 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   distinguish following, inspected ranges and paused history. Context changes clear stale samples.
   Debugger's per-pass chart separately owns a frozen name/value snapshot; narrow panels use rows
   instead of squeezing axis labels. No telemetry thread, GPU readback or new instrumentation.
-- **Material/graph composition.** The existing Material Editor window/document owner uses shared
+- **Material/graph composition.** Each material document in Node Canvas uses shared
   action bars and caller-owned adaptive split proportions. Preview and graph Details can hide;
   narrow panels use alternate pages. `SaveState`/`LoadState` retain view choices in layouts, with
   defaults for missing keys and bounded finite fractions. No document or graph is copied to make a
@@ -1100,16 +1239,25 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   Asset Manager, Light Settings, Audio Mixer and Profiler also supply FirstUseEver floating-window
   sizes: wrapped content and filling children cannot establish a useful auto-fit width on their own.
   Saved docking/window geometry and subsequent resizing continue to take precedence.
-- Material editing (`Panels/MaterialEditor/`): `MaterialEditorPanel` (View → Material Editor) edits
-  `MaterialAsset`s in tabs with explicit Save/Revert; each finished edit is one closure command via
-  `PushUndoCommand`. It opens from a Content Browser double-click (item-activate callback for
-  `AssetType::Material`) and from the Inspector's per-slot Edit buttons
-  (`SceneHierarchyPanel::SetOpenMaterialCallback`). `MaterialPreview` is a private `Scene` + `Viewport`
-  (own `SceneRenderer`, `EnableEditorRenderTargets = false`) showing one default mesh from the
-  project's `Meshes/Source/Default/`; `MaterialThumbnailer` owns a second preview and renders one
-  stale material thumbnail at a time for the Content Browser, reading pixels back **on the render
-  thread** (`Renderer::Submit`) and handing CPU pixels to `ThumbnailCache::SetThumbnailPixels`, so it
-  never does a main-thread GPU readback.
+- **Node Canvas** (`Panels/NodeCanvas/NodeCanvasPanel`) hosts graph documents on the main thread.
+  View offers two dockable instances. The Content Browser uses the panel's asset-type factory registry,
+  and Inspector material-slot Edit uses the same routing: focus an existing tab, or open in the
+  most recently focused available canvas. The original Material Editor panel and dock IDs are retained.
+  Each document owns its source asset, checked save, close decision, view state and undo history.
+  Only the active document draws and checks its full authoring snapshot. A removed or replaced source
+  closes its tab with a notice. The project-scoped workspace data stores open asset paths, active tab
+  and each canvas's view state. Workspace switches retain the in-memory documents and unsaved edits.
+  `AnimationGraphDocument` draws states and transition links, edits a draft with document-local undo,
+  and writes validated graphs through the checked animation serializer. A successful save refreshes
+  the loaded source graph. The scene reinitializes bound graph playback when its asset or revision
+  changes so old state and parameter indices are never read from a changed graph.
+  The animation tab can control the selected matching Skeleton's preview and live graph parameters
+  in Edit mode. It reads the saved graph for preview while a draft contains edits.
+  `MaterialGraphDocument` provides the existing surface controls, graph details and preview.
+  Material tabs in one instance share a lazily created `MaterialPreview` with a private scene and
+  viewport (`EnableEditorRenderTargets = false`). Switching tabs ends the previous node preview.
+  `MaterialThumbnailer` keeps its separate preview and hands render-thread readback pixels to
+  `ThumbnailCache::SetThumbnailPixels`.
 - Mixer editing (`Panels/AudioMixerPanel`): View → Audio Mixer edits `ProjectAudioSettings::Mixer` in
   place; each finished edit is one `PushUndoCommand` step of whole-mixer snapshots. Volume and mute
   reach the running native engine (`AudioEngine::ClearBusVolume`/`SetBusMuted`, restoring authored

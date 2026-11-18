@@ -385,7 +385,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 
 - **No macOS, no mobile, no consoles.** Windows and Linux x64 only.
 - **Vulkan only.** No DirectX, Metal, or OpenGL backends. The renderer is on NVIDIA NRI's Vulkan backend; Direct3D branches are reserved but unbuilt.
-- **No skeletal animation yet.** Skeleton/bone import scaffolding and animated-mesh shader variants exist, but the animation importer and playback system are not wired up. Static meshes only, in practice.
+- **Skeletal animation is new and Windows-only so far.** Rigged glTF and FBX models import with their skeletons and clips, skin on the GPU, play with cross-fades, root motion, compressed clips, events and an animation graph (state machine), and are scriptable from C#. Node Canvas edits animation states and transitions and previews them on the selected Skeleton. Blend trees, layers, retargeting, and Linux verification are follow-ups.
 - **No particle system.**
 - **No terrain in-tree yet.** A GPU clipmap terrain with Jolt heightfield collision is in development on a branch, not merged.
 - **Scripting API is still partial.** No physics or renderer bindings yet.
@@ -402,7 +402,7 @@ Recent work has been the **audio system** (acoustics, zones, music, dialogue, ac
 Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md](docs/ENGINE_OPTIMIZATION_PLAN.md)) — Tracy-instrumented baselines, render-graph compile caching, eliminating per-frame allocations on the submission path, descriptor-set churn fixes, and LTO'd Dist builds.
 
 **Next up (roughly in order):**
-- Skeletal animation (import → playback → animated passes, which already exist shader-side)
+- Skeletal animation follow-ups (blend trees and layers, retargeting, Linux)
 - Merging the procedural terrain system
 - Broader C# scripting API (physics, renderer)
 - Asset streaming / async upload hardening

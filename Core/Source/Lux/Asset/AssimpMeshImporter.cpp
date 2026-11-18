@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AssimpMeshImporter.h"
+#include "SkeletalImporter.h"
 
 #include "Lux/Asset/AssetImporter.h"
 #include "Lux/Asset/AssetManager.h"
@@ -561,19 +562,7 @@ namespace Lux
 		Assimp::Importer importer;
 		importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
 
-		constexpr uint32_t meshImportFlags =
-			aiProcess_CalcTangentSpace |
-			aiProcess_Triangulate |
-			aiProcess_SortByPType |
-			aiProcess_GenNormals |
-			aiProcess_GenUVCoords |
-			aiProcess_OptimizeMeshes |
-			aiProcess_JoinIdenticalVertices |
-			aiProcess_LimitBoneWeights |
-			aiProcess_ValidateDataStructure |
-			aiProcess_GlobalScale;
-
-		const aiScene* scene = importer.ReadFile(m_Path.string(), meshImportFlags);
+		const aiScene* scene = importer.ReadFile(m_Path.string(), k_MeshImportFlags);
 		if (!scene || !scene->HasMeshes())
 		{
 			LUX_CORE_ERROR("AssimpMeshImporter: Failed to import mesh from '{}'", m_Path.string());
@@ -666,6 +655,15 @@ namespace Lux
 				meshSource->m_Indices.push_back(idx);
 			}
 		}
+
+		// ── Skin weights ──────────────────────────────────────────────────────
+		// Scene mesh i became submesh i; placements added by TraverseNodes come after them.
+		std::vector<uint32_t> meshBaseVertex(scene->mNumMeshes);
+		for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+			meshBaseVertex[m] = meshSource->m_Submeshes[m].BaseVertex;
+		ExtractSkinWeights(*scene, meshBaseVertex, vertexCount, meshSource->m_BoneInfluences, meshSource->m_BoneInfo);
+		for (uint32_t m = 0; m < scene->mNumMeshes; m++)
+			meshSource->m_Submeshes[m].IsRigged = scene->mMeshes[m]->HasBones();
 
 		// ── Node hierarchy ────────────────────────────────────────────────────
 		// Insert sentinel root so every real node has a valid parentIndex

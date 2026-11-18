@@ -82,6 +82,17 @@ namespace Lux
 		return true;
 	}
 
+	bool PhysicsAudioSystem::OneShot(UUID owner, const AudioEventRef& event, const glm::vec3& position)
+	{
+		auto instance = Create(event, true);
+		if (!instance)
+			return false;
+		Place(instance, position);
+		instance->Start();
+		m_Transient.push_back({ owner, 0, event, instance });
+		return true;
+	}
+
 	void PhysicsAudioSystem::Retire(Voice& voice)
 	{
 		if (voice.Instance && voice.Instance->IsValid())

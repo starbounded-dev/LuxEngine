@@ -9,6 +9,7 @@
 
 #include "Lux/Renderer/IndexBuffer.h"
 #include "Lux/Renderer/MaterialAsset.h"
+#include "Lux/Renderer/StorageBuffer.h"
 #include "Lux/Renderer/UniformBuffer.h"
 #include "Lux/Renderer/VertexBuffer.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
@@ -57,22 +58,14 @@ namespace Lux {
 		static VertexAttributes Default(const glm::vec2& uv0);
 	};
 	static_assert(sizeof(VertexAttributes) == 8, "VertexAttributes must match the attribute stream layout");
-	/*
+	// One bone a mesh is skinned to: its name, which a Skeleton resolves to a bone index, and the
+	// transform from mesh space into that bone's rest space (Assimp's offset matrix, a glTF inverse
+	// bind matrix). Skinning is boneModelTransform * InverseBindPose.
 	struct BoneInfo
 	{
-		glm::mat4 InverseBindPose;
-		uint32_t BoneIndex = Skeleton::NullIndex;
-
-		static void Serialize(StreamWriter* serializer, const BoneInfo& instance)
-		{
-			serializer->WriteRaw(instance);
-		}
-
-		static void Deserialize(StreamReader* deserializer, BoneInfo& instance)
-		{
-			deserializer->ReadRaw(instance);
-		}
-	};*/
+		std::string Name;
+		glm::mat4 InverseBindPose = glm::mat4(1.0f);
+	};
 
 	struct BoneInfluence
 	{
@@ -304,6 +297,17 @@ namespace Lux {
 		void CompactCPUGeometry();
 		void BuildRenderGeometry();
 
+		// Skin data: one BoneInfluence per vertex (parallel to the vertices, indexing GetBoneInfo()), and the
+		// bones themselves. Both are empty for an unrigged mesh. Not uploaded to the GPU yet.
+		bool HasSkin() const { return !m_BoneInfo.empty(); }
+		const std::vector<BoneInfluence>& GetBoneInfluences() const { return m_BoneInfluences; }
+		const std::vector<BoneInfo>& GetBoneInfo() const { return m_BoneInfo; }
+		// GPU copies for the skinning pass, built with the render geometry of a skinned mesh (null for
+		// others): the PackedVertex array and the BoneInfluence array, one entry per vertex.
+		Ref<StorageBuffer> GetSkinSourceBuffer() const { return m_SkinSourceBuffer; }
+		Ref<StorageBuffer> GetSkinInfluenceBuffer() const { return m_SkinInfluenceBuffer; }
+		uint32_t GetSkinVertexCount() const { return m_SkinVertexCount; }
+
 		//bool HasSkeleton() const { return (bool)m_Skeleton; }
 		//bool IsSubmeshRigged(uint32_t submeshIndex) const { return m_Submeshes[submeshIndex].IsRigged; }
 		//const Skeleton* GetSkeleton() const { return m_Skeleton.get(); }
@@ -312,7 +316,6 @@ namespace Lux {
 	//	std::vector<std::string> GetAnimationNames() const;
 		// note: can return nullptr (e.g. if named animation does not exist, or something goes wrong retrieving the animation)
 		//const Animation* GetAnimation(const std::string& animationName, const Skeleton& skeleton, bool extractRootMotion, uint32_t rootBoneIndex, const glm::bvec3& rootTranslationMask, const glm::bvec3& rootRotationMask, bool discardRootMotion) const;
-	//	const std::vector<BoneInfluence>& GetBoneInfluences() const { return m_BoneInfluences; }
 
 		std::vector<AssetHandle>& GetMaterials() { return m_Materials; }
 		const std::vector<AssetHandle>& GetMaterials() const { return m_Materials; }
@@ -338,6 +341,9 @@ namespace Lux {
 		Ref<VertexBuffer> m_VertexBuffer;
 		Ref<VertexBuffer> m_AttributeBuffer;
 		Ref<VertexBuffer> m_BoneInfluenceBuffer;
+		Ref<StorageBuffer> m_SkinSourceBuffer;
+		Ref<StorageBuffer> m_SkinInfluenceBuffer;
+		uint32_t m_SkinVertexCount = 0;
 		Ref<IndexBuffer> m_IndexBuffer;
 
 		std::vector<Vertex> m_Vertices;
@@ -362,8 +368,8 @@ namespace Lux {
 		std::vector<glm::vec3> m_CollisionPositions;
 		static bool s_RetainFullCPUGeometry;
 
-		//std::vector<BoneInfluence> m_BoneInfluences;
-		//std::vector<BoneInfo> m_BoneInfo;
+		std::vector<BoneInfluence> m_BoneInfluences; // empty, or one per vertex
+		std::vector<BoneInfo> m_BoneInfo;
 		//mutable Scope<Skeleton> m_Skeleton;
 		//std::vector<std::string> m_AnimationNames;
 		//mutable std::unordered_map<size_t, Scope<Animation>> m_Animations;

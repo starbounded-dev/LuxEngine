@@ -17,7 +17,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Game View](editor/game-view) — the game as the player sees it.
 - [Content Browser and Assets](editor/content-browser) — importing meshes and textures, creating materials and scenes.
 - [Materials](editor/materials) — surfaces, textures and transparency.
-- [Material Editor](editor/material-editor) — editing materials with a live preview.
+- [Node Canvas](editor/material-editor) — editing materials with a live preview.
 - [Material Graphs](editor/material-graphs) — procedural materials from nodes.
 - [Inspecting CPU and GPU Timings](editor/diagnostics) — live charts, paused history and GPU passes.
 - [Prefabs](editor/prefabs) — reusable entity hierarchies, overrides, Apply and Revert.
@@ -29,6 +29,9 @@ Welcome. This manual ships with the editor, so it works offline and always match
 
 - [Transform](components/transform)
 - [Static Mesh](components/static-mesh)
+- [Skeleton](components/skeleton)
+- [Animation Graph](components/animation-graph)
+- [Animation Events](components/animation-events)
 - [Camera](components/camera)
 - [Lights](components/lights)
 - [Physics](components/physics)

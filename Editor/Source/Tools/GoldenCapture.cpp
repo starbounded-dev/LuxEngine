@@ -11,7 +11,12 @@
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Editor/SelectionManager.h"
+#include "Lux/Animation/AnimationGraph.h"
+#include "Lux/Animation/Skeleton.h"
+#include "Lux/Asset/AssetManager.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Renderer/Image.h"
 #include "Lux/Renderer/RenderGraph.h"
 #include "Lux/Renderer/Renderer.h"
@@ -91,7 +96,7 @@ namespace Lux {
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -386,6 +391,40 @@ namespace Lux {
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw);
 		ApplyOptions(renderer);
 
+
+		// Select=<entity name>: selects that entity once, so its outline and selection draws are captured.
+		if (const auto it = m_Options.find("Select"); it != m_Options.end() && !m_Selected)
+		{
+			if (Entity entity = scene.FindEntityByName(it->second))
+			{
+				SelectionManager::DeselectAll();
+				SelectionManager::Select(SelectionContext::Scene, entity.GetUUID());
+				m_Selected = true;
+			}
+		}
+
+		// Attach=<entity name>:<bone name>: attaches that entity to a bone of the first skinned mesh, as a script's
+		// AttachToBone would, and applies it every frame (no Play needed), so the follow-the-bone path is captured.
+		if (const auto it = m_Options.find("Attach"); it != m_Options.end() && m_AttachedScene != &scene)
+		{
+			const size_t colon = it->second.find(':');
+			Entity child = colon == std::string::npos ? Entity{} : scene.FindEntityByName(it->second.substr(0, colon));
+			for (const entt::entity handle : scene.GetAllEntitiesWith<SkeletonComponent>())
+			{
+				auto& skeletonComponent = Entity{ handle, &scene }.GetComponent<SkeletonComponent>();
+				Ref<Skeleton> skeleton = AssetManager::GetAsset<Skeleton>(skeletonComponent.SkeletonAsset);
+				const uint32_t bone = skeleton && colon != std::string::npos ? skeleton->GetBoneIndex(it->second.substr(colon + 1)) : Skeleton::NullIndex;
+				if (child && bone != Skeleton::NullIndex && !skeletonComponent.State.ModelPose.empty()) // after the first pose: starting the animator clears its state
+				{
+					skeletonComponent.State.Attachments.push_back({ static_cast<uint64_t>(child.GetUUID()), bone });
+					m_AttachedScene = &scene;
+				}
+				break;
+			}
+		}
+
+		if (m_AttachedScene == &scene)
+			scene.ApplyBoneAttachments();
 
 		if (m_MoveEntityCount > 0)
 			MoveEntities(scene);
@@ -747,6 +786,19 @@ namespace Lux {
 			LUX_CORE_INFO_TAG("Editor", "[GoldenCapture] RenderGraph self-tests passed");
 		else
 			LUX_CORE_ERROR_TAG("Editor", "[GoldenCapture] RenderGraph self-tests failed ({} failures)", failures.size());
+
+		// The scene round trip (every component written, read back and copied) rides along: no editor clicks needed.
+		std::vector<std::string> sceneFailures;
+		bool scenePassed = SceneSerializer::RunRoundTripSelfTests(&sceneFailures);
+		scenePassed = RunAnimationGraphSelfTests(&sceneFailures) && scenePassed;
+		std::ofstream sceneFile(m_OutputDirectory / "scene-serializer-selftest.txt", std::ios::trunc);
+		sceneFile << (scenePassed ? "PASS" : "FAIL") << "\n";
+		for (const std::string& failure : sceneFailures)
+			sceneFile << failure << "\n";
+		if (scenePassed)
+			LUX_CORE_INFO_TAG("Editor", "[GoldenCapture] scene serializer self-tests passed");
+		else
+			LUX_CORE_ERROR_TAG("Editor", "[GoldenCapture] scene serializer self-tests failed ({} failures)", sceneFailures.size());
 	}
 
 	void GoldenCapture::Finish(bool success, const std::string& reason)

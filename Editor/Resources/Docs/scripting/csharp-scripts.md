@@ -72,6 +72,7 @@ The engine calls these methods by name if your class has them:
 | `void OnFixedUpdate(float fixedTs)` | Before each physics step, after the frame's `OnUpdate`. Physics steps at the project's Fixed Timestep (Project Settings > Physics, 1/60 s by default), so this runs zero, one or several times a frame, always with the same `fixedTs`. Apply forces and velocities here so they do not depend on the frame rate. |
 | `void OnDestroy()` | When play stops, or at the end of the frame in which the entity is destroyed. |
 | `protected override void OnCollisionBegin(Entity other)` | This entity's physics body starts touching another. |
+| `protected override void OnAnimationEvent(string name, string argument)` | A playing animation clip passes one of its events (a footstep, a hit frame). See [Animation Events](../components/animation-events). |
 | `protected override void OnCollisionEnd(Entity other)` | They stop touching. |
 | `protected override void OnTriggerBegin(Entity other)` | This entity and another start to overlap, where one of them is a trigger (**Is Trigger** on its 3D rigid body). Character controllers count. |
 | `protected override void OnTriggerEnd(Entity other)` | They stop overlapping. |

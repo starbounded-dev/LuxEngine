@@ -1906,6 +1906,18 @@ namespace Lux {
 		}
 
 		// ── Mesh culling / GPU-driven indirect pass ─────────────────────────
+		// Skinning: the pipeline, and the two buffers every skinned proxy shares (grown on demand, FlushDrawList).
+		{
+			m_SkinningPipeline = PipelineCompute::Create(Renderer::GetShaderLibrary()->Get("Skinning"));
+			StorageBufferSpecification skinSpecification;
+			skinSpecification.GPUOnly = true;
+			skinSpecification.DebugName = "SkinPalette";
+			m_SBSSkinPalette = StorageBufferSet::Create(skinSpecification, sizeof(glm::mat4) * 64);
+			skinSpecification.DebugName = "SkinnedVertices";
+			skinSpecification.VertexBuffer = true;
+			m_SBSSkinnedVertices = StorageBufferSet::Create(skinSpecification, sizeof(PackedVertex) * 1024);
+		}
+
 		{
 			ComputePassSpecification computeSpec;
 			computeSpec.DebugName = "MeshCulling";
@@ -4269,6 +4281,16 @@ namespace Lux {
 
 		std::vector<RenderGraph::ResourceHandle> directionalShadowOutputs = { addTexture("Directional Shadow Atlas", m_ShadowMapImage) };
 		std::vector<RenderGraph::ResourceHandle> spotShadowOutputs = { addTexture("Spot Shadow Atlas", m_SpotShadowMapImage) };
+		// Skinning writes every skinned proxy's vertices first: the passes that draw them follow in declaration
+		// order, and their draws require the output as a vertex buffer (the command buffer's tracker places the
+		// barrier). Not in the graph at all in a frame with nothing skinned.
+		if (!m_SkinnedMeshes.empty())
+		{
+			const RenderGraph::ResourceHandle skinnedVertices = addBuffer("Skinned Vertices", m_SBSSkinnedVertices);
+			addPass("Skinning", {}, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::SkinningPass),
+				{ { skinnedVertices, AccessKind::StorageWrite } });
+		}
+
 		if (m_UseGPUCullGroups)
 		{
 			// The shadow cull writes the shadow passes' instances and indirect args.
@@ -6221,7 +6243,9 @@ namespace Lux {
 		// the CPU path, settling included.
 		auto coveredByCullGroups = [sceneFrame](const StaticMeshRenderProxy& proxy)
 			{
-				if (proxy.Selected || proxy.SubmeshInstances.empty())
+				// A skinned proxy's rigged submeshes are never in the groups: they draw from the skinning pass's
+				// output through the CPU path, so they are submitted every frame.
+				if (proxy.Selected || proxy.IsSkinned() || proxy.SubmeshInstances.empty())
 					return false;
 				if (sceneFrame - proxy.LastMovedFrame < StaticShadowCasterStableFrames)
 					return false;
@@ -6580,6 +6604,20 @@ namespace Lux {
 
 	void SceneRenderer::ClearFrameMeshPasses()
 	{
+		m_SkinnedMeshes.clear();
+		m_SkinPaletteData.clear();
+		m_SkinnedOutputBase.clear();
+		m_SkinnedVertexTotal = 0;
+		m_SkinFrame++;
+		// A mesh's skinning pass goes when nothing has used it for a while (it keeps the mesh's buffers alive).
+		for (auto it = m_SkinMeshPasses.begin(); it != m_SkinMeshPasses.end();)
+		{
+			if (m_SkinFrame - it->second.LastUsedFrame > 240)
+				it = m_SkinMeshPasses.erase(it);
+			else
+				++it;
+		}
+
 		m_TransientGPUSceneInstances.clear();
 		m_TransientGPUMaterials.clear();
 		m_TransientGPUMaterialIndexByKey.clear();
@@ -6714,6 +6752,8 @@ namespace Lux {
 				hash = HashCombine(hash, key.AlphaMasked ? m_ProxySubmitCacheMaterialRevision : 0u);
 				hash = HashCombine(hash, bucketIndex);
 				hash = HashCombine(hash, tmd.ObjectIndices.size());
+				// A skinned caster moves with its pose, not only its transform.
+				hash = HashCombine(hash, dc.SkinPoseHash);
 
 				for (uint32_t sceneInstanceIndex : tmd.ObjectIndices)
 				{
@@ -7019,6 +7059,10 @@ namespace Lux {
 		// A mirroring entity transform turns its triangles around; its draws take the clockwise-front
 		// pipelines. A mirrored submesh placement needs nothing here: the importer reversed its indices.
 		const bool mirrored = glm::determinant(glm::mat3(transform)) < 0.0f;
+		// A skinned proxy's rigged submeshes draw the skinning pass's output: one CPU-bucketed draw each, keyed by
+		// the entity (so none shares a bucket), always a moving shadow caster, outside the GPU cull groups.
+		const bool skinnedProxy = renderProxy && renderProxy->IsSkinned() && meshSource->HasSkin()
+			&& meshSource->GetSkinSourceBuffer() && meshSource->GetSkinInfluenceBuffer();
 
 		auto submitSubmesh = [&](uint32_t submeshIndex, const GPUSceneInstanceRef* gpuSceneInstanceRef, const SubmeshSubmitData& data)
 		{
@@ -7026,6 +7070,7 @@ namespace Lux {
 				return;
 
 			const auto& submesh = submeshData[submeshIndex];
+			const bool skinnedSubmesh = skinnedProxy && submesh.IsRigged;
 			const GPUSceneInstanceData* gpuSceneInstance = gpuSceneInstanceRef ? &gpuSceneInstanceRef->Data : nullptr;
 
 			// Only the paths without a GPUScene row need the submesh's world transform.
@@ -7033,7 +7078,7 @@ namespace Lux {
 
 			const bool isTransparent = data.Transparent;
 			const bool castsShadows = data.CastsShadows;
-			const AssetHandle meshKeyHandle = data.MeshKeyHandle;
+			const AssetHandle meshKeyHandle = skinnedSubmesh ? AssetHandle((uint64_t)renderProxy->EntityID) : data.MeshKeyHandle;
 
 			const glm::vec4 boundsSphereData = gpuSceneInstance
 				? gpuSceneInstance->BoundsSphere
@@ -7044,7 +7089,7 @@ namespace Lux {
 			// A static caster's shadows are culled on the GPU too, from its shadow cull group; one still
 			// moving keeps the CPU shadow path. A caster is static once it has not moved for
 			// StaticShadowCasterStableFrames syncs.
-			const bool gpuCullGroup = m_UseGPUCullGroups && gpuSceneInstanceRef && gpuSceneInstanceRef->InstanceID != InvalidGPUSceneInstanceID;
+			const bool gpuCullGroup = m_UseGPUCullGroups && !skinnedSubmesh && gpuSceneInstanceRef && gpuSceneInstanceRef->InstanceID != InvalidGPUSceneInstanceID;
 			const uint32_t sceneFrame = m_SubmittedRenderScene ? m_SubmittedRenderScene->GetFrameIndex() : 0u;
 			const bool staticCaster = gpuCullGroup && renderProxy && sceneFrame - renderProxy->LastMovedFrame >= StaticShadowCasterStableFrames;
 			if (gpuCullGroup && !m_CullGroupsFrozen)
@@ -7086,6 +7131,9 @@ namespace Lux {
 			}
 
 			const uint32_t lodIndex = SelectStaticMeshLOD(*meshSource, submeshIndex, boundsSphere);
+			// Registered for skinning only once something will draw it (the first submesh asks for the proxy).
+			const uint32_t skinnedVertexBase = skinnedSubmesh ? GetSkinnedVertexBase(*renderProxy, meshSource) : StaticDrawCommand::NoSkinnedVertices;
+			const uint64_t skinPoseHash = skinnedSubmesh ? renderProxy->SkinPaletteHash : 0;
 			// The transparent pass's key: a two-sided material's draws record back faces, then front faces.
 			MeshKey materialKey{ meshKeyHandle, data.KeyMaterialHandle, submeshIndex, lodIndex, false, false };
 			materialKey.TwoSided = data.TwoSided;
@@ -7112,6 +7160,8 @@ namespace Lux {
 
 					command = &SubmitMeshPassDraw(passType, key, staticMesh, meshSource, drawMaterialTable, submeshIndex, lodIndex,
 						drawMaterialHandle, drawMaterial, pipelineSortKey, shaderSortKey, materialSortKey, data.MeshSortKey);
+					command->SkinnedVertexBase = skinnedVertexBase; // set every frame: the output's place moves
+					command->SkinPoseHash = skinPoseHash;
 				};
 
 			uint32_t sceneInstanceIndex = InvalidGPUSceneInstanceID;
@@ -7199,7 +7249,7 @@ namespace Lux {
 			if (shadowVisible)
 			{
 				// ── Shadow pass list ──────────────────────────────────────────────
-				const bool dynamicShadowCaster = gpuSceneInstance && !IsTransientGPUSceneInstanceIndex(sceneInstanceIndex)
+				const bool dynamicShadowCaster = !skinnedSubmesh && gpuSceneInstance && !IsTransientGPUSceneInstanceIndex(sceneInstanceIndex)
 					? UpdateShadowCasterMotion(sceneInstanceIndex, gpuSceneInstance)
 					: true;
 				// A Cutout caster draws through the alpha-tested shadow pipelines.
@@ -8304,6 +8354,24 @@ namespace Lux {
 			});
 		}
 
+		// Skinning: this frame's palettes, and room for every skinned copy (the skinning pass fills it).
+		if (!m_SkinnedMeshes.empty())
+		{
+			Ref<SceneRenderer> skinInstance = this;
+			Renderer::Submit([skinInstance, palette = m_SkinPaletteData, vertexTotal = m_SkinnedVertexTotal]() mutable
+			{
+				Ref<RenderCommandBuffer> cmd = skinInstance->m_UploadCommandBuffer;
+				const uint32_t paletteBytes = (uint32_t)(palette.size() * sizeof(glm::mat4));
+				if (skinInstance->m_SBSSkinPalette->RT_Get()->GetSize() < paletteBytes)
+					skinInstance->m_SBSSkinPalette->Resize(paletteBytes * 2u);
+				skinInstance->m_SBSSkinPalette->RT_Get()->RT_SetData(cmd, palette.data(), paletteBytes);
+
+				const uint32_t vertexBytes = vertexTotal * (uint32_t)sizeof(PackedVertex);
+				if (skinInstance->m_SBSSkinnedVertices->RT_Get()->GetSize() < vertexBytes)
+					skinInstance->m_SBSSkinnedVertices->Resize(vertexBytes * 2u);
+			});
+		}
+
 		m_UploadCommandBuffer->End();
 		m_UploadCommandBuffer->Submit();
 
@@ -8724,7 +8792,8 @@ namespace Lux {
 
 	void SceneRenderer::PreDepthPass()
 	{
-		if (m_Options.EnableMeshShaders && m_PreDepthMeshletPass && m_PreDepthMeshletPipeline && m_PreDepthMeshletPipeline->IsMeshletPipeline())
+		// The meshlet prepass reads each mesh's own vertices, so a frame with skinned meshes uses the classic one.
+		if (m_Options.EnableMeshShaders && m_SkinnedMeshes.empty() && m_PreDepthMeshletPass && m_PreDepthMeshletPipeline && m_PreDepthMeshletPipeline->IsMeshletPipeline())
 		{
 			PreDepthMeshletPass();
 			return;
@@ -9203,6 +9272,85 @@ namespace Lux {
 		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSVisibleObjectIndexes, ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		m_MeshCullingPass->GetPipeline()->BufferMemoryBarrier(m_CommandBuffer, m_SBSIndirectDrawCommands, PipelineStage::ComputeShader, ResourceAccessFlags::ShaderWrite, PipelineStage::DrawIndirect, ResourceAccessFlags::IndirectCommandRead);
 		Renderer::EndComputePass(m_CommandBuffer, m_MeshCullingPass);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	// Skinning.glsl's push constants: edit both together.
+	struct SkinningPushConstants
+	{
+		uint32_t VertexCount = 0;
+		uint32_t PaletteBase = 0;
+		uint32_t OutputBase = 0;
+		uint32_t _pad0 = 0;
+	};
+	static_assert(sizeof(SkinningPushConstants) == 16, "Skinning.glsl push constants");
+
+	uint32_t SceneRenderer::GetSkinnedVertexBase(const StaticMeshRenderProxy& proxy, const Ref<MeshSource>& meshSource)
+	{
+		if (const auto it = m_SkinnedOutputBase.find(proxy.PrimitiveID); it != m_SkinnedOutputBase.end())
+			return it->second;
+
+		SkinnedMeshFrame frame;
+		frame.Mesh = meshSource;
+		frame.VertexCount = meshSource->GetSkinVertexCount();
+		frame.PaletteBase = (uint32_t)m_SkinPaletteData.size();
+		frame.OutputBase = m_SkinnedVertexTotal;
+		m_SkinPaletteData.insert(m_SkinPaletteData.end(), proxy.SkinPalette.begin(), proxy.SkinPalette.end());
+		m_SkinnedVertexTotal += frame.VertexCount;
+		m_SkinnedMeshes.push_back(frame);
+		m_SkinnedOutputBase.emplace(proxy.PrimitiveID, frame.OutputBase);
+		return frame.OutputBase;
+	}
+
+	Ref<ComputePass> SceneRenderer::GetSkinMeshPass(const Ref<MeshSource>& meshSource)
+	{
+		SkinMeshPass& entry = m_SkinMeshPasses[meshSource.Raw()];
+		entry.LastUsedFrame = m_SkinFrame;
+		if (entry.Pass)
+			return entry.Pass;
+
+		ComputePassSpecification spec;
+		spec.DebugName = "Skinning";
+		spec.Pipeline = m_SkinningPipeline;
+		Ref<ComputePass> pass = ComputePass::Create(spec);
+		Ref<MeshSource> mesh = meshSource;
+		pass->SetInput("SkinSourceVertices", mesh->GetSkinSourceBuffer());
+		pass->SetInput("SkinInfluences", mesh->GetSkinInfluenceBuffer());
+		pass->SetInput("SkinPalette", m_SBSSkinPalette);
+		pass->SetInput("SkinnedVertices", m_SBSSkinnedVertices);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Skinning pass for '{}' is not valid; its entities draw unskinned", mesh->GetFilePath());
+			m_SkinMeshPasses.erase(meshSource.Raw());
+			return nullptr;
+		}
+		pass->Bake();
+		entry.Pass = pass;
+		LUX_CORE_INFO_TAG("Renderer", "Skinning '{}': {} vertices, {} bones", mesh->GetFilePath(), mesh->GetSkinVertexCount(), mesh->GetBoneInfo().size());
+		return pass;
+	}
+
+	void SceneRenderer::SkinningPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "SkinningPass");
+		if (m_SkinnedMeshes.empty() || !m_SkinningPipeline)
+			return;
+
+		BeginProfiledGPU("SkinningPass");
+		for (const SkinnedMeshFrame& skinned : m_SkinnedMeshes)
+		{
+			const Ref<ComputePass> pass = GetSkinMeshPass(skinned.Mesh);
+			if (!pass || skinned.VertexCount == 0)
+				continue;
+
+			SkinningPushConstants constants;
+			constants.VertexCount = skinned.VertexCount;
+			constants.PaletteBase = skinned.PaletteBase;
+			constants.OutputBase = skinned.OutputBase;
+			Renderer::BeginComputePass(m_CommandBuffer, pass);
+			Renderer::DispatchCompute(m_CommandBuffer, pass, nullptr, { (skinned.VertexCount + 63) / 64, 1, 1 }, Buffer(&constants, sizeof(constants)));
+			Renderer::EndComputePass(m_CommandBuffer, pass);
+		}
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -10389,6 +10537,17 @@ namespace Lux {
 
 		const auto& submesh = meshSource->GetSubmeshes()[dc.SubmeshIndex];
 
+		// A skinned draw reads the skinning pass's output instead of the mesh's vertex buffer: its copy of the mesh
+		// starts SkinnedVertexBase vertices into the shared buffer, bound from that byte offset so the index and
+		// attribute streams keep the mesh's own vertex numbering.
+		Ref<StorageBuffer> skinnedVertices;
+		if (dc.SkinnedVertexBase != StaticDrawCommand::NoSkinnedVertices)
+		{
+			skinnedVertices = m_SBSSkinnedVertices ? m_SBSSkinnedVertices->RT_Get() : nullptr;
+			if (!skinnedVertices || !skinnedVertices->GetRHIBuffer())
+				return;
+		}
+
 		// ── Material descriptor set 0 ─────────────────────────────────────────
 		// Without one the draw keeps the pass's own set 0.
 		Ref<Material> material;
@@ -10441,6 +10600,8 @@ namespace Lux {
 		Renderer::IndexedDraw draw;
 		draw.MaterialSet = materialSet;
 		draw.Vertices = vertexBuffer.Raw();
+		draw.SkinnedVertices = skinnedVertices.Raw();
+		draw.SkinnedVertexByteOffset = (uint64_t)dc.SkinnedVertexBase * sizeof(PackedVertex);
 		draw.Attributes = attributeBuffer.Raw();
 		draw.Indices = indexBuffer.Raw();
 		draw.Constants = pushConstants.data();

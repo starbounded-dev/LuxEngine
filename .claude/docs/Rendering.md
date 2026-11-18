@@ -554,6 +554,7 @@ incomplete. Thumbnail rendering in the Content Browser is paused for the whole c
 (`ContentBrowserPanel::SetThumbnailWorkPaused`). `LUX_GOLDEN_OPTIONS` (e.g. `SSR=0,Bloom=0`) overrides individual renderer options.
 `Quality=T` (0 Low to 4 Cinematic) puts every quality category at tier T with
 `SceneRenderer::ApplyQualityPreset`, before the other options, so they still override it.
+`Select=<entity name>` selects that entity once, so the capture shows its selection outline.
 `MoveEntities=N` moves the first N static-mesh entities (by UUID) around a 16-frame loop every frame
 and captures only on a frame at the loop's start, so the image must match the unmoved capture while
 the perf frames exercise the changed-mesh path. `MoveStop=K` (with `MoveEntities`) stops them at the
@@ -929,8 +930,39 @@ crash or corruption on some driver even if it renders correctly on yours.
   `m_PreDepthMeshletTwoSidedPipeline` (its task stage never cone-culls). Mesh shaders stay off by
   default: at parity they are still behind the classic prepass on Benchmark (0.151 vs 0.118 ms), and
   backface cones, fuller task groups, a position-only output and meshoptimizer-built meshlets did not
-  close it (render features plan, phase 8). There are no skinned variants: the engine has no skeletal
-  animation, and the unused `*_Anim` and `LuxPBR_*` shaders were deleted with the packed vertex.
+  close it (render features plan, phase 8). There are no skinned pipeline variants: skinning is a
+  separate compute pass (next bullet), and the unused `*_Anim` and `LuxPBR_*` shaders were deleted with
+  the packed vertex.
+- **Skinned meshes are skinned once, then drawn like static ones.** An entity with a `SkeletonComponent`
+  on a mesh that carries skin data (`MeshSource::HasSkin`) becomes a skinned proxy (`StaticMeshRenderProxy::
+  IsSkinned`, its palette in `SkinPalette`, hashed in `SkinPaletteHash`). When its rigged submeshes are
+  submitted (`SubmitStaticMeshInternal`), `GetSkinnedVertexBase` registers the proxy once per frame, and a
+  "Skinning" graph pass (declared first, so before every pass that draws) runs `Skinning.glsl`, one
+  dispatch per proxy, over the mesh's `GetSkinSourceBuffer` / `GetSkinInfluenceBuffer` (storage copies
+  built with the render geometry, 60 bytes per vertex) and the frame's palettes (`m_SBSSkinPalette`),
+  writing every proxy's skinned copy back to back in `m_SBSSkinnedVertices` (a storage buffer that is also
+  a vertex buffer: `StorageBufferSpecification::VertexBuffer`). The depth, shadow, G-buffer, transparent
+  and selection draws then bind that buffer, at the proxy's byte offset
+  (`StaticDrawCommand::SkinnedVertexBase`, `IndexedDraw::SkinnedVertices`, `NRIDrawBindings::
+  VertexBufferOffset`), so the unchanged pipelines, index buffers, LODs and attribute stream all keep the
+  mesh's own vertex numbering. The rules a skinned proxy lives by:
+  - Its rigged submeshes are **never in the GPU cull groups**. Each is one CPU-bucketed draw keyed by the
+    entity (`MeshKey::MeshHandle` is the entity's UUID, so none shares a bucket), culled by the main
+    view's CPU test and the GPU cull pass like any other CPU-bucketed draw. Unrigged submeshes of the same
+    entity stay in the groups.
+  - **`coveredByCullGroups` must return false for it.** With the groups kept between frames the renderer
+    skips every proxy it believes the groups already draw; a skinned proxy is not in them, so without
+    that the entity drew for a few frames and then vanished.
+  - It is **always a moving shadow caster** (`dynamicShadowCaster`), and the pose hash is mixed into the
+    shadow caster hash (`StaticDrawCommand::SkinPoseHash`), so the dynamic shadow maps re-render when the
+    pose changes and not otherwise. A skinned caster never reaches the static shadow cache.
+  - Its GPU scene row is the entity's world transform alone (`RebuildStaticMeshGPUInstances`), and its
+    bounds are every palette matrix applied to the mesh bounds, unioned.
+  - A frame with a skinned proxy uses the classic depth prepass: the meshlet prepass reads each mesh's
+    own vertices.
+  - It draws unskinned (with the node transform) until its mesh, skeleton and palette exist; a bone the
+    skeleton lacks gets the identity.
+  `(set, binding)` 49-52 of set 1 belong to `Skinning.glsl`.
 - **A mirroring entity transform is a raster variant too.** `MeshKey::Mirrored` is set when the
   entity's world transform has a negative determinant (`SubmitStaticMeshInternal`). Its draws take
   pipelines with `PipelineSpecification::Mirrored` (clockwise front faces), so culling and

@@ -17,15 +17,17 @@ namespace Lux {
 	{
 		bool GPUOnly = true;
 		bool DrawIndirect = false;
+		// Also bindable as a draw's vertex buffer (a compute pass writes it, draws read it).
+		bool VertexBuffer = false;
 		std::string DebugName = "StorageBuffer";
 	};
 
 	class StorageBuffer : public RefCounted
 	{
 	public:
-		static Ref<StorageBuffer> Create(uint32_t size, const StorageBufferSpecification& specification)
+		static Ref<StorageBuffer> Create(uint32_t size, const StorageBufferSpecification& specification, const void* initialData = nullptr)
 		{
-			return Ref<StorageBuffer>::Create(size, specification);
+			return Ref<StorageBuffer>::Create(size, specification, initialData);
 		}
 
 		void Invalidate();
@@ -41,7 +43,9 @@ namespace Lux {
 		void RT_SetData(Ref<RenderCommandBuffer> cmd, const void* data, uint32_t size, uint32_t offset = 0);
 		void Resize(uint32_t size);
 	public:
-		StorageBuffer(uint32_t size, const StorageBufferSpecification& specification);
+		// `initialData` (size bytes, GPU-only buffers) is uploaded with the shared resource upload batch,
+		// like a vertex buffer's, so a buffer a mesh owns can be made on any thread.
+		StorageBuffer(uint32_t size, const StorageBufferSpecification& specification, const void* initialData = nullptr);
 		~StorageBuffer() = default;
 	private:
 		StorageBufferSpecification m_Specification;

@@ -530,6 +530,7 @@ namespace Lux
 
 		std::vector<Vertex>().swap(m_Vertices);
 		std::vector<VertexAttributes>().swap(m_VertexAttributes);
+		std::vector<BoneInfluence>().swap(m_BoneInfluences); // the skinning pass has its GPU copy
 	}
 
 	MeshSource::MeshSource(const std::vector<Vertex>& vertices, const std::vector<Index>& indices, const glm::mat4& transform)
@@ -760,6 +761,21 @@ namespace Lux
 		for (const Vertex& vertex : renderVertices)
 			packedVertices.emplace_back(vertex);
 		m_VertexBuffer = VertexBuffer::Create(Buffer(packedVertices.data(), (uint32_t)(packedVertices.size() * sizeof(PackedVertex))));
+
+		// A skinned mesh also keeps read-only storage copies of its vertices and bone influences for the
+		// skinning pass (60 bytes per vertex; the vertex buffer above stays as the unskinned mesh).
+		m_SkinSourceBuffer = nullptr;
+		m_SkinInfluenceBuffer = nullptr;
+		m_SkinVertexCount = 0;
+		if (HasSkin() && m_BoneInfluences.size() == packedVertices.size() && !packedVertices.empty())
+		{
+			StorageBufferSpecification skinSpecification;
+			skinSpecification.DebugName = "SkinSourceVertices";
+			m_SkinSourceBuffer = StorageBuffer::Create((uint32_t)(packedVertices.size() * sizeof(PackedVertex)), skinSpecification, packedVertices.data());
+			skinSpecification.DebugName = "SkinInfluences";
+			m_SkinInfluenceBuffer = StorageBuffer::Create((uint32_t)(m_BoneInfluences.size() * sizeof(BoneInfluence)), skinSpecification, m_BoneInfluences.data());
+			m_SkinVertexCount = (uint32_t)packedVertices.size();
+		}
 
 		// Every mesh has the attribute stream the surface pipelines read: its own, or white and UV0.
 		std::vector<VertexAttributes> attributes = m_VertexAttributes;

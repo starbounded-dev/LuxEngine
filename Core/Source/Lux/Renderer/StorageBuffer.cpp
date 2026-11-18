@@ -9,10 +9,11 @@
 
 namespace Lux {
 
-	StorageBuffer::StorageBuffer(uint32_t size, const StorageBufferSpecification& specification)
+	StorageBuffer::StorageBuffer(uint32_t size, const StorageBufferSpecification& specification, const void* initialData)
 		: m_Specification(specification)
 	{
 		m_BufferDesc.Size = size;
+		m_BufferDesc.IsVertexBuffer = m_Specification.VertexBuffer;
 		m_BufferDesc.CanHaveRawViews = true;
 		m_BufferDesc.CanHaveUAVs = true;
 		m_BufferDesc.IsDrawIndirectArgs = m_Specification.DrawIndirect;
@@ -21,6 +22,14 @@ namespace Lux {
 		m_BufferDesc.DebugName = m_Specification.DebugName;
 
 		Invalidate();
+
+		if (initialData && m_Specification.GPUOnly)
+		{
+			Renderer::RecordResourceUpload([&](UploadContext& upload)
+			{
+				upload.WriteBuffer(m_Buffer, initialData, size);
+			});
+		}
 	}
 
 	void StorageBuffer::Invalidate()
