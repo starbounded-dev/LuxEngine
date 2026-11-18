@@ -91,8 +91,33 @@ namespace Lux {
 		return s_Instance;
 	}
 
+	// An exported game that has scripts ships its own .NET runtime in DotNet/Runtime, laid out like a dotnet
+	// root (host/fxr, shared/Microsoft.NETCore.App). Point the host resolver at it before Coral asks for
+	// hostfxr, so the player needs no .NET install. The editor and a game without scripts have no such
+	// folder and keep using the installed runtime.
+	static void UseBundledDotNetRuntime(const std::filesystem::path& coralDirectory)
+	{
+		std::error_code ec;
+		const std::filesystem::path root = coralDirectory / "Runtime";
+		if (!std::filesystem::is_directory(root / "host" / "fxr", ec))
+			return;
+
+		const std::string value = root.string();
+		// Both names: the architecture-specific one is read first, so a stale user setting would win otherwise.
+		for (const char* name : { "DOTNET_ROOT", "DOTNET_ROOT_X64" })
+		{
+#ifdef LUX_PLATFORM_WINDOWS
+			_putenv_s(name, value.c_str());
+#else
+			setenv(name, value.c_str(), 1);
+#endif
+		}
+		LUX_CORE_INFO_TAG("Core", "Using the .NET runtime bundled with the game: {}", value);
+	}
+
 	void ScriptEngine::InitializeHost()
 	{
+		UseBundledDotNetRuntime(std::filesystem::absolute(FileSystem::GetWorkingDirectory() / "DotNet"));
 		m_Host = std::make_unique<Coral::HostInstance>();
 
 		Coral::HostSettings settings =

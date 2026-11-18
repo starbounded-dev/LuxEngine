@@ -208,6 +208,8 @@ namespace Lux
 	struct ProjectRuntimeExportSettings
 	{
 		std::string GameName;
+		// Shown in the exported executable's file properties (Windows). Up to four dot-separated numbers.
+		std::string Version = "1.0.0";
 		uint32_t WindowWidth = 1920;
 		uint32_t WindowHeight = 1080;
 		bool Fullscreen = false;

@@ -143,6 +143,12 @@ namespace Lux {
 		return s_PersistentStoragePath;
 	}
 
+	std::filesystem::path FileSystem::GetExecutablePath()
+	{
+		std::error_code ec;
+		return std::filesystem::read_symlink("/proc/self/exe", ec);
+	}
+
 	bool FileSystem::HasEnvironmentVariable(const std::string& key)
 	{
 		return !GetEnvironmentVariable(key).empty();

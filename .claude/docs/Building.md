@@ -455,9 +455,19 @@ Jobs are named by phase, in this order: **Prepare** (`version`), **Test** (`test
 the native audio CMake suite in Debug and Release, with no engine build, so a test failure never
 skips or hides a build), **Build** (`build`, `build-linux`: compile, artifact verification, and on
 Linux the Debug/Debug-AS audio integration checks in `tests/audio/run.py`, which need the
-generated Core Makefile), **Package** (the `Package:` steps of the Release builds) and **Ship**
-(`release`, dev pushes only, gated on every Test and Build job). `Diagnose` is the manual Linux
-Vulkan probe.
+generated Core Makefile), **Package** (the `Package:` steps of the Release and Dist builds, then
+`package-windows` / `package-linux`, which zip the Release editor package together with the prebuilt Dist
+player staged by `scripts/ci/StageRuntime.py` under `Runtime/Dist/`: that player is what an installed editor
+exports with, because the zip has no source tree to build one from) and **Ship**
+(`release`, dev pushes only, gated on every Test, Build and Package job). `Diagnose` is the manual Linux
+Vulkan probe. Linux travels as tar files between those jobs, because artifacts drop file modes and the zip
+must keep the executable bit and the `lib/` symlinks.
+
+`python tests/runtime/run_standalone_export.py` reproduces the zip's layout in a temp folder outside the
+repository (Release editor, `Resources`, `DotNet`, `Runtime/Dist`), exports the Play test project with it,
+and checks the package (no editor-only libraries, bundled .NET 10 runtime loaded by the running player,
+executable name, version and icon, every Play check in the player started from another working directory).
+It needs a built Release editor and Dist `Lux-Runtime`, a GPU and a desktop session; Windows only for now.
 
 
 The Linux VM (901) boots a live dashboard in both the regular Proxmox console and serial console.

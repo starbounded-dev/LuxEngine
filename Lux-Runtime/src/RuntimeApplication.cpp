@@ -3,6 +3,26 @@
 
 #include "RuntimeLayer.h"
 
+#include "Lux/Utilities/FileSystem.h"
+
+// Every "Resources/..", "DotNet/.." and "Assets/.." load, and the logs folder, are relative to the working
+// directory, so an exported game started from a shortcut, a launcher or a terminal elsewhere would find
+// nothing. Main calls this before the log starts: work from the executable's folder when it holds the
+// export's Assets. A runtime run from the build tree has no Assets beside it and keeps its working
+// directory (the project is passed on the command line). A relative project path therefore means a path
+// in the export folder.
+namespace Lux
+{
+	static void UseExportFolderAsWorkingDirectory()
+	{
+		std::error_code ec;
+		const std::filesystem::path folder = FileSystem::GetExecutablePath().parent_path();
+		if (!folder.empty() && std::filesystem::exists(folder / "Assets" / "Project.luxruntime", ec))
+			std::filesystem::current_path(folder, ec);
+	}
+}
+#define LUX_ENTRY_PREPARE() ::Lux::UseExportFolderAsWorkingDirectory()
+
 #include "Lux/EntryPoint.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Renderer/Renderer.h"

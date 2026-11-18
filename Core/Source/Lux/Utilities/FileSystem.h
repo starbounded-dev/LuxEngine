@@ -93,6 +93,8 @@ namespace Lux {
 		static std::filesystem::path SaveFileDialog(const std::initializer_list<FileDialogFilterItem> inFilters = {});
 
 		static std::filesystem::path GetPersistentStoragePath();
+		// The running executable's file; empty if the OS does not say.
+		static std::filesystem::path GetExecutablePath();
 
 	public:
 		static bool HasEnvironmentVariable(const std::string& key);

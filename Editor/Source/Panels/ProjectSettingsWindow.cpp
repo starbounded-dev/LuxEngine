@@ -194,7 +194,8 @@ namespace Lux {
 		}
 
 		using RuntimeExport::FileExists;
-		using RuntimeExport::FindRepositoryRootFrom;
+		using RuntimeExport::FindEditorDirectory;
+		using RuntimeExport::ResolveExportTarget;
 		using RuntimeExport::GetRuntimeExecutablePath;
 		using RuntimeExport::ResolveScriptProjectFile;
 		using RuntimeExport::IsScriptModuleOutdated;
@@ -476,6 +477,7 @@ namespace Lux {
 			m_RuntimeIcon = 0;
 			m_NameBuffer[0] = '\0';
 			m_RuntimeGameNameBuffer[0] = '\0';
+			m_RuntimeVersionBuffer[0] = '\0';
 			m_ScriptModulePathBuffer[0] = '\0';
 			m_DefaultNamespaceBuffer[0] = '\0';
 			return;
@@ -515,6 +517,7 @@ namespace Lux {
 
 		std::strncpy(m_NameBuffer, name.c_str(), sizeof(m_NameBuffer) - 1);
 		std::strncpy(m_RuntimeGameNameBuffer, runtimeGameName.c_str(), sizeof(m_RuntimeGameNameBuffer) - 1);
+		std::strncpy(m_RuntimeVersionBuffer, m_Project->GetConfig().RuntimeExport.Version.c_str(), sizeof(m_RuntimeVersionBuffer) - 1);
 		std::strncpy(m_ScriptModulePathBuffer, scriptModulePath.c_str(), sizeof(m_ScriptModulePathBuffer) - 1);
 		std::strncpy(m_DefaultNamespaceBuffer, defaultNamespace.c_str(), sizeof(m_DefaultNamespaceBuffer) - 1);
 	}
@@ -678,6 +681,12 @@ namespace Lux {
 			m_Dirty = true;
 		}
 
+		if (ImGuiEx::Property("Version", m_RuntimeVersionBuffer, sizeof(m_RuntimeVersionBuffer)))
+		{
+			runtime.Version = m_RuntimeVersionBuffer;
+			m_Dirty = true;
+		}
+
 		int32_t width = (int32_t)runtime.WindowWidth;
 		if (ImGuiEx::Property("Window Width", width, 320, 16384))
 		{
@@ -738,10 +747,11 @@ namespace Lux {
 		};
 
 		std::error_code ec;
-		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath(runtime.TargetConfig);
+		const std::filesystem::path runtimeExe = GetRuntimeExecutablePath(
+			ResolveExportTarget(runtime.TargetConfig, m_Project->GetProjectDirectory()).value_or(runtime.TargetConfig));
 		const std::filesystem::path assetPack = Project::GetActiveAssetDirectory() / "AssetPack.lap";
-		const std::filesystem::path resources = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "Resources";
-		const std::filesystem::path dotnet = FindRepositoryRootFrom(m_Project->GetProjectDirectory()) / "Editor" / "DotNet";
+		const std::filesystem::path resources = FindEditorDirectory("Resources", m_Project->GetProjectDirectory());
+		const std::filesystem::path dotnet = FindEditorDirectory("DotNet", m_Project->GetProjectDirectory());
 		const std::filesystem::path scriptModule = Project::GetActiveScriptModuleFilePath();
 		const std::filesystem::path scriptProject = ResolveScriptProjectFile(m_Project);
 		const bool scriptModuleExists = config.ScriptModulePath.empty() || FileExists(scriptModule);
@@ -750,7 +760,7 @@ namespace Lux {
 		drawStatus("Startup Scene", config.StartSceneHandle != 0, "set", "missing");
 		drawStatus("Lux-Runtime.exe", !runtimeExe.empty(), runtimeExe.empty() ? "" : runtimeExe.string().c_str(), "missing");
 		drawStatus("AssetPack.lap", std::filesystem::exists(assetPack, ec), "created", "will be created during export");
-		drawStatus("Resources", std::filesystem::exists(resources, ec), "found", "missing");
+		drawStatus("Resources", !resources.empty(), "found", "missing");
 		if (config.ScriptModulePath.empty())
 			ImGui::TextColored(ImVec4(0.35f, 0.85f, 0.45f, 1.0f), "Script Module: optional");
 		else if (!scriptModuleExists)
@@ -758,7 +768,7 @@ namespace Lux {
 		else
 			ImGui::TextColored(scriptModuleStale ? ImVec4(0.95f, 0.75f, 0.35f, 1.0f) : ImVec4(0.35f, 0.85f, 0.45f, 1.0f),
 				"Script Module: %s", scriptModuleStale ? "stale" : "found");
-		drawStatus("DotNet", std::filesystem::exists(dotnet, ec), "found", "missing");
+		drawStatus("DotNet", !dotnet.empty(), "found", "missing");
 
 		// The build runs on EditorLayer's worker; the export window shares it, so both disable together.
 		const bool building = m_RuntimeBuildJob.IsRunning();

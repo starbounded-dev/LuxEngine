@@ -431,6 +431,7 @@ namespace Lux
 		float m_ScaleSnapValue = 0.1f;
 		AssetHandle m_RuntimeExportIcon = 0;
 		char m_RuntimeExportGameNameBuffer[256] = {};
+		char m_RuntimeExportVersionBuffer[32] = {};
 
 		enum class SceneState
 		{

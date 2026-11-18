@@ -819,6 +819,9 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   (runtime, from an asset pack), `ReloadAppAssembly` (hot reload), `BuildAssemblyCache`.
 - `ScriptGlue.cpp` registers every internal call. **All new internal calls go there** — never in
   `ScriptEngine.{h,cpp}`.
+- C# `Scene.Load` swaps the scene in `RuntimeLayer::OnRenderThreadIdle` (`Layer::OnRenderThreadIdle`, called
+  by `Application::Run` every frame while the render thread is idle, with or without an ImGui overlay). A Dist
+  player has no ImGui overlay, so `OnImGuiRender` never runs there and the swap used to be silently skipped.
 - C# `Application.Quit()` (`Application_Quit`) ends the exported game through the same queued
   window-close event as closing its window. In the editor (`!Application::IsRuntime()`) it only
   logs a warning: stopping Play is the editor's command.
@@ -1583,6 +1586,24 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   both that directory and the runtime root, preserving loader filenames and checking copy and
   enumeration failures. The staging helper runs only while building the engine; export itself
   invokes no dependency-inspection tool. Audio deployment remains explicitly validated.
+  **Export from an installed editor (the release zip).** The zip has no source tree, so it cannot build a
+  player: it ships the prebuilt Dist player in `Runtime/Dist/` beside the editor (the executable and the
+  libraries `ShipsLibrary` lets into an export, staged by `scripts/ci/StageRuntime.py`, which mirrors
+  `ShipsLibrary` — change both together; the `package-windows` / `package-linux` jobs in `main.yml` zip it).
+  `GetRuntimeExecutablePath` looks at a source build first, then `<working directory>/Runtime/<Config>/`;
+  `ResolveExportTarget` falls back to the configuration the install ships when the project asks for one it
+  has not (the preflight says so), and `FindEditorDirectory` finds `Resources` / `DotNet` beside the editor
+  (the editor's working directory is its install folder, `EnsureResourcesWorkingDirectory`). Build Runtime is
+  disabled with no repository root. A game whose script module exists also gets the machine's newest .NET 10+
+  runtime copied to `DotNet/Runtime` (`BundleDotNetRuntime`, laid out as a dotnet root); at start,
+  `ScriptEngine::InitializeHost` sees `DotNet/Runtime/host/fxr` and sets `DOTNET_ROOT` for nethost, so players
+  install nothing. On Windows the `Finish` step stamps the executable with the game's name, version and icon
+  (`RuntimeExportBranding.{h,cpp}`: `UpdateResource` on the `GLFW_ICON` group, its `RT_ICON` images as 32-bit
+  bitmaps at 16-256 px, and a `VS_VERSIONINFO`); `ProjectRuntimeExportSettings::Version` feeds it. The player
+  works from its own folder: `Lux-Runtime` defines `LUX_ENTRY_PREPARE` (`EntryPoint.h`), which makes the folder
+  holding `Assets/Project.luxruntime` the working directory before the log starts, so a shortcut or launcher
+  started elsewhere still finds its files and writes `logs/` beside the game. `tests/runtime/run_standalone_export.py`
+  stages that layout outside the repository, exports the Play test project with it and runs the package.
 - Viewport transform gizmos operate on world matrices and convert edits back through the parent
   transform. Translation, rotation, and scale have separate snap increments (also available with Ctrl).
   The six-axis view widget uses `EditorCamera::SetOrbitState`; camera view construction uses the

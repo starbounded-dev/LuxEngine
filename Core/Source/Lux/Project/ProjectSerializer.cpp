@@ -742,6 +742,7 @@ namespace Lux
 			{
 				out << Yaml::BeginMap;
 				out << Yaml::Key << "GameName" << Yaml::Value << config.RuntimeExport.GameName;
+				out << Yaml::Key << "Version" << Yaml::Value << config.RuntimeExport.Version;
 				out << Yaml::Key << "WindowWidth" << Yaml::Value << config.RuntimeExport.WindowWidth;
 				out << Yaml::Key << "WindowHeight" << Yaml::Value << config.RuntimeExport.WindowHeight;
 				out << Yaml::Key << "Fullscreen" << Yaml::Value << config.RuntimeExport.Fullscreen;
@@ -1027,6 +1028,7 @@ namespace Lux
 		if (auto runtimeExportNode = projectNode["RuntimeExport"])
 		{
 			config.RuntimeExport.GameName = runtimeExportNode["GameName"].as<std::string>(config.Name);
+			config.RuntimeExport.Version = runtimeExportNode["Version"].as<std::string>(config.RuntimeExport.Version);
 			config.RuntimeExport.WindowWidth = runtimeExportNode["WindowWidth"].as<uint32_t>(config.RuntimeExport.WindowWidth);
 			config.RuntimeExport.WindowHeight = runtimeExportNode["WindowHeight"].as<uint32_t>(config.RuntimeExport.WindowHeight);
 			config.RuntimeExport.Fullscreen = runtimeExportNode["Fullscreen"].as<bool>(config.RuntimeExport.Fullscreen);

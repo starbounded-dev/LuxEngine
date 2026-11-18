@@ -56,10 +56,34 @@ namespace Lux::RuntimeExport {
 	std::filesystem::path FindFirstExistingDirectory(std::initializer_list<std::filesystem::path> candidates);
 
 	std::filesystem::path FindRepositoryRootFrom(std::filesystem::path start);
+	// The repository root the editor can build from: the project's, else the working directory's. Empty in
+	// an installed editor (the release zip), which has no source tree.
+	std::filesystem::path FindRepositoryRoot(const std::filesystem::path& projectDirectory);
+	// An engine folder the export copies from ("Resources", "DotNet"): beside the working directory (an
+	// installed editor starts there), then the repository's Editor/ folder. Empty when not found.
+	std::filesystem::path FindEditorDirectory(std::string_view name, const std::filesystem::path& projectDirectory);
 	std::filesystem::path GetRuntimeOutputDirectory(RuntimeExportTarget target);
 	bool IsBuildConfigurationDirectory(const std::filesystem::path& path);
+	// The player an installed editor ships: <working directory>/Runtime/<Config>/. The release zip carries Dist.
+	std::filesystem::path GetPrebuiltRuntimeDirectory(RuntimeExportTarget target);
 	std::filesystem::path GetRuntimeExecutablePath(RuntimeExportTarget target);
+	// The configuration to export with. `preferred` when its player exists or can be built here; otherwise
+	// the first player an installed editor ships (Dist, Release, Debug). Empty when there is none.
+	std::optional<RuntimeExportTarget> ResolveExportTarget(RuntimeExportTarget preferred, const std::filesystem::path& projectDirectory);
 	bool IsRuntimeExecutableOutdated(const std::filesystem::path& runtimeExe, const std::filesystem::path& repositoryRoot);
+
+	// A game with scripts ships its own .NET runtime under DotNet/Runtime, so players install nothing. Its
+	// layout is the dotnet root's (host/fxr/<version>, shared/Microsoft.NETCore.App/<version>); the player
+	// points hostfxr at it (ScriptEngine::InitializeHost).
+	inline constexpr const char* BundledDotNetFolder = "Runtime";
+	// The dotnet root the editor itself runs scripts with: DOTNET_ROOT, else the platform default. Empty when none.
+	std::filesystem::path FindDotNetRoot();
+	// Copies the newest installed .NET runtime (host and shared framework, major 10 or later) into
+	// destination. False, with the reason in outError, when none is installed or a copy fails.
+	bool BundleDotNetRuntime(const std::filesystem::path& dotNetRoot, const std::filesystem::path& destination, std::string& outError);
+	// The newest versioned subfolder of directory whose major is at least minimumMajor, a stable release before
+	// any preview; empty if none.
+	std::filesystem::path FindNewestVersionDirectory(const std::filesystem::path& directory, uint32_t minimumMajor);
 
 	std::filesystem::path ResolveScriptProjectFile(Ref<Project> project);
 	bool IsScriptModuleOutdated(const std::filesystem::path& scriptModule, const std::filesystem::path& scriptProject);

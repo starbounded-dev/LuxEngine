@@ -473,9 +473,10 @@ jobs:
           path: artifacts/Editor-${{ matrix.configuration }}/
           if-no-files-found: error
 
-      # The pre-release download: the same package (editor, Resources, DotNet, sample project) in one
-      # top-level folder.
-      - name: 'Package: zip release'
+      # The pre-release download is zipped by the package-windows job, which adds the Dist player this
+      # editor exports with (Runtime/Dist) to the editor package uploaded above. Verified here, where
+      # the build tree's libraries are on hand to name a missing DLL.
+      - name: 'Package: check the editor runs'
         if: matrix.configuration == 'Release'
         shell: pwsh
         env:
@@ -499,21 +500,21 @@ jobs:
             throw "Editor.exe --version did not report $env:LUX_BUILD_VERSION (exit $code)"
           }
 
-          $editor = Join-Path "artifacts" "Editor-${{ matrix.configuration }}"
-          $name = "LuxEngine-$env:LUX_BUILD_VERSION-windows-x64"
-          Rename-Item $editor $name
-          New-Item -ItemType Directory -Force release | Out-Null
-          7z a -tzip -mx=7 "release/$name.zip" "./artifacts/$name"
-          if ($LASTEXITCODE -ne 0) { throw "7z failed ($LASTEXITCODE)" }
+      # What an installed editor exports with: the Dist player and the libraries a game ships, no debug
+      # symbols and nothing editor-only (scripts/ci/StageRuntime.py). The package-windows job puts it
+      # under Runtime/Dist in the zip.
+      - name: 'Package: stage the Dist player'
+        if: matrix.configuration == 'Dist'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: python scripts/ci/StageRuntime.py --platform windows --config Dist --dest artifacts/Runtime-Dist
 
-      - name: 'Package: upload release'
-        if: matrix.configuration == 'Release'
+      - name: 'Package: upload the Dist player'
+        if: matrix.configuration == 'Dist'
         uses: actions/upload-artifact@v4
         with:
-          name: release-windows
-          path: release/*.zip
+          name: runtime-windows-Dist
+          path: artifacts/Runtime-Dist/
           if-no-files-found: error
-          compression-level: 0
 
       - name: Report persistent build cache
         if: always() && runner.environment == 'self-hosted'
@@ -878,9 +879,10 @@ jobs:
           path: artifacts/Editor-linux-${{ matrix.configuration }}/
           if-no-files-found: error
 
-      # See the Windows job. Zipped here, not in the release job: artifacts do not keep file
-      # modes, and the zip must keep the executable bit and the lib/ symlinks.
-      - name: 'Package: zip release'
+      # See the Windows job. The package-linux job zips the editor with the Dist player this editor
+      # exports with (Runtime/Dist). Artifacts do not keep file modes, and the zip must keep the
+      # executable bit and the lib/ symlinks, so both halves travel as tar files.
+      - name: 'Package: check the editor runs, then tar it'
         if: matrix.configuration == 'Release'
         shell: bash
         env:
@@ -898,16 +900,34 @@ jobs:
 
           name="LuxEngine-${LUX_BUILD_VERSION}-linux-x64"
           mv "$editor" "artifacts/$name"
-          mkdir -p release
-          (cd artifacts && zip -r -y -q "../release/$name.zip" "$name")
+          tar -C artifacts -cf editor-linux.tar "$name"
 
-      - name: 'Package: upload release'
+      - name: 'Package: upload the editor package'
         if: matrix.configuration == 'Release'
         uses: actions/upload-artifact@v4
         with:
-          name: release-linux
-          path: release/*.zip
+          name: editor-linux-tar
+          path: editor-linux.tar
           if-no-files-found: error
+          compression-level: 0
+
+      # What an installed editor exports with: the Dist player and its libraries (scripts/ci/StageRuntime.py).
+      - name: 'Package: stage the Dist player'
+        if: matrix.configuration == 'Dist'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/StageRuntime.py --platform linux --config Dist --dest artifacts/Runtime-Dist
+          tar -C artifacts/Runtime-Dist -cf runtime-linux-Dist.tar .
+
+      - name: 'Package: upload the Dist player'
+        if: matrix.configuration == 'Dist'
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-linux-Dist-tar
+          path: runtime-linux-Dist.tar
+          if-no-files-found: error
+          compression-level: 0
           compression-level: 0
 
       - name: Report compiler cache
@@ -950,12 +970,87 @@ jobs:
           path: logs/*.log
           if-no-files-found: ignore
 
+  # The download: the editor package plus the prebuilt Dist player in Runtime/Dist, in one top-level
+  # folder. An installed editor has no source tree to build a player from, so export copies this one
+  # (RuntimeExport::GetRuntimeExecutablePath, ResolveExportTarget). Plain file copies and zip, so a
+  # hosted runner does it for every build.
+  package-windows:
+    name: 'Package: Windows zip'
+    needs: [version, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (!inputs.linux_audio_check || inputs.linux_audio_check == 'off') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the editor package and the Dist player
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '{editor-Release,runtime-windows-Dist}'
+          path: parts
+
+      - name: Zip the release
+        shell: bash
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="LuxEngine-${LUX_BUILD_VERSION}-windows-x64"
+          mkdir -p "package/$name/Runtime" release
+          cp -a parts/editor-Release/. "package/$name/"
+          cp -a parts/runtime-windows-Dist "package/$name/Runtime/Dist"
+          test -f "package/$name/Editor.exe"
+          test -f "package/$name/Runtime/Dist/Lux-Runtime.exe"
+          (cd package && zip -r -q -9 "../release/$name.zip" "$name")
+
+      - name: 'Package: upload release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
+  package-linux:
+    name: 'Package: Linux zip'
+    needs: [version, build-linux]
+    if: ${{ !cancelled() && needs.build-linux.result == 'success' && (!inputs.linux_audio_check || inputs.linux_audio_check == 'off') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the editor package and the Dist player
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '{editor-linux-tar,runtime-linux-Dist-tar}'
+          merge-multiple: true
+          path: parts
+
+      # Zipped from the extracted tar, which kept the executable bit and the lib/ symlinks.
+      - name: Zip the release
+        shell: bash
+        env:
+          LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="LuxEngine-${LUX_BUILD_VERSION}-linux-x64"
+          mkdir -p package release
+          tar -C package -xf parts/editor-linux.tar
+          mkdir -p "package/$name/Runtime/Dist"
+          tar -C "package/$name/Runtime/Dist" -xf parts/runtime-linux-Dist.tar
+          test -x "package/$name/Editor"
+          test -x "package/$name/Runtime/Dist/Lux-Runtime"
+          (cd package && zip -r -y -q "../release/$name.zip" "$name")
+
+      - name: 'Package: upload release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+
   # Every push to dev publishes one pre-release, v2026.N-<commit>, with both platforms' packages,
   # then deletes all but the 10 newest dev pre-releases of the series (and their tags). Never runs
   # for pull requests or other branches.
   release:
     name: 'Ship: dev pre-release'
-    needs: [version, test, test-linux, build, build-linux]
+    needs: [version, test, test-linux, build, build-linux, package-windows, package-linux]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:

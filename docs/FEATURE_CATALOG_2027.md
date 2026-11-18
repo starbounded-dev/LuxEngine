@@ -55,7 +55,7 @@ that builds but was never run.**
 | M3 | **Game UI** (§2.9) | No menus or HUDs without custom code | XL |
 | M4 | **C# API completion** (§2.7): physics queries, scene loading, time, maths types, entity active | Scripts cannot raycast or change scene today | L |
 | M5 | **Beam basics** (§3): never lose work, C# build errors inline, click an error to open the line | The product principle says no external IDE; then the built-in one must be enough | L |
-| M6 | **Export that stands alone** (§4): works from the release zip with no source tree, lean layout, no .NET install for players, game name and icon | The whole point of a release | L |
+| M6 | **Done (2026-11-18, Windows; Linux zip untested): export from the zip with the shipped Dist player, bundled .NET runtime, game name/version/icon on the executable, player works from any folder; `tests/runtime/run_standalone_export.py`. The single data folder (RT4) is still open.** **Export that stands alone** (§4): works from the release zip with no source tree, lean layout, no .NET install for players, game name and icon | The whole point of a release | L |
 | M7 | **Done (2026-11-13).** **.NET 10** (§2.7 SC9) | .NET 9 leaves support about now; a 2027 release cannot require it | M |
 | M8 | **Project format version + upgrade path** (§6 X3) | Projects made in 2027.1 must open in 2027.2 | M |
 | M9 | **Test on AMD and Intel GPUs** (§2.1 R26) | Every measurement in the notes is one RTX 4070 Ti | M |

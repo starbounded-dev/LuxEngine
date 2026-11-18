@@ -69,6 +69,7 @@ namespace Lux {
 
 		char m_NameBuffer[256]{};
 		char m_RuntimeGameNameBuffer[256]{};
+		char m_RuntimeVersionBuffer[32]{};
 		char m_DefaultNamespaceBuffer[256]{};
 		char m_ScriptModulePathBuffer[512]{};
 	};

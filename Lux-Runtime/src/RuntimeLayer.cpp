@@ -277,13 +277,17 @@ namespace Lux
 			m_SwapChainRenderPass->GetPipeline()->Invalidate();
 	}
 
-	void RuntimeLayer::OnImGuiRender()
+	void RuntimeLayer::OnRenderThreadIdle()
 	{
 		// A script asked for another scene (C# Scene.Load). Here and not in OnUpdate: this runs while the render thread is
-		// idle, and swapping the scene frees the old one's GPU resources.
+		// idle, and swapping the scene frees the old one's GPU resources. Not in OnImGuiRender either: a Dist player has
+		// no ImGui overlay, so that never runs there.
 		if (m_RuntimeScene)
 			ApplyRequestedScene();
+	}
 
+	void RuntimeLayer::OnImGuiRender()
+	{
 		// Screen-space UI drawn over the image would sit flat, undistorted and at the same place in
 		// both eyes of the headset. VR UI belongs in the world (docs/VR_PLAN.md follow-ups).
 		if (m_VRSession)

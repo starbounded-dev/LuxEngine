@@ -137,6 +137,24 @@ namespace Lux {
 		return s_PersistentStoragePath;
 	}
 
+	std::filesystem::path FileSystem::GetExecutablePath()
+	{
+		// Long paths are enabled by the manifest, so do not stop at MAX_PATH.
+		std::wstring buffer(1024, L'\0');
+		for (;;)
+		{
+			const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+			if (length == 0)
+				return {};
+			if (length < buffer.size())
+			{
+				buffer.resize(length);
+				return std::filesystem::path(buffer);
+			}
+			buffer.resize(buffer.size() * 2);
+		}
+	}
+
 	bool FileSystem::HasEnvironmentVariable(const std::string& key)
 	{
 		// The process environment, as on Linux. Variables a launcher sets for this process (LUX_GOLDEN_*,

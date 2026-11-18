@@ -11,6 +11,7 @@
 #include "GameViewPanel.h"
 #include "Viewport/Viewport.h"
 #include "RuntimeExportUtils.h"
+#include "RuntimeExportBranding.h"
 
 #ifndef LUX_DIST
 #include "EditorLayer.h"
@@ -61,6 +62,66 @@ namespace Lux
 		{
 			if (!result)
 				throw std::runtime_error(reason);
+		}
+		// What an export of a game with scripts and a branded executable relies on, with no editor window:
+		// which .NET runtime gets bundled, and the bytes stamped on the executable.
+		void CheckExportPackaging()
+		{
+			namespace fs = std::filesystem;
+			const fs::path root = fs::temp_directory_path() / "lux-export-selftest";
+			std::error_code ec;
+			fs::remove_all(root, ec);
+			const auto versions = [&](std::initializer_list<const char*> names)
+			{
+				fs::remove_all(root, ec);
+				for (const char* name : names)
+					fs::create_directories(root / name);
+			};
+			versions({ "9.0.99", "10.0.2", "10.0.12", "10.0.12-rc.1", "11.0.0-preview.1", "not-a-version" });
+			Require(RuntimeExport::FindNewestVersionDirectory(root, 10).filename() == "10.0.12",
+					"The bundled .NET runtime is not the newest stable one from major 10");
+			versions({ "9.0.99", "11.0.0-preview.1", "11.0.0-rc.2" });
+			Require(RuntimeExport::FindNewestVersionDirectory(root, 10).filename() == "11.0.0-rc.2",
+					"With only previews installed the newest preview is bundled");
+			versions({ "8.0.25", "9.0.17" });
+			Require(RuntimeExport::FindNewestVersionDirectory(root, 10).empty(), "A runtime older than major 10 was offered for bundling");
+			fs::remove_all(root, ec);
+
+			// A 32 x 16 image: centred on a 32 x 32 canvas, never upscaled past 48 px.
+			const std::vector<uint8_t> pixels(32 * 16 * 4, 255);
+			const auto icons = RuntimeExport::BuildIconImages(pixels.data(), 32, 16);
+			Require(icons.size() == 3 && icons[0].Size == 48 && icons[1].Size == 32 && icons[2].Size == 16,
+					"Icon sizes are not 48, 32, 16 for a 32 px image");
+			for (const auto& icon : icons)
+			{
+				const uint32_t maskRow = ((icon.Size + 31) / 32) * 4;
+				Require(icon.Resource.size() == 40u + icon.Size * icon.Size * 4u + maskRow * icon.Size, "An icon image has the wrong byte length");
+				uint32_t headerSize = 0, height = 0;
+				std::memcpy(&headerSize, icon.Resource.data(), 4);
+				std::memcpy(&height, icon.Resource.data() + 8, 4);
+				Require(headerSize == 40 && height == icon.Size * 2, "An icon image has a bad bitmap header");
+			}
+			Require(RuntimeExport::BuildIconImages(pixels.data(), 0, 16).empty(), "An empty image produced icon images");
+
+			const auto version = RuntimeExport::BuildVersionResource("My Game", "1.2.3", "MyGame.exe");
+			uint16_t length = 0;
+			uint32_t signature = 0, fileVersionMS = 0, fileVersionLS = 0;
+			std::memcpy(&length, version.data(), 2);
+			// wLength, wValueLength, wType, "VS_VERSION_INFO + terminator" (16 UTF-16 units), padding to 4, then VS_FIXEDFILEINFO.
+			const size_t fixedInfo = 6 + 32 + 2;
+			std::memcpy(&signature, version.data() + fixedInfo, 4);
+			std::memcpy(&fileVersionMS, version.data() + fixedInfo + 8, 4);
+			std::memcpy(&fileVersionLS, version.data() + fixedInfo + 12, 4);
+			Require(length == version.size() && signature == 0xFEEF04BD, "The version resource is malformed");
+			Require(fileVersionMS == ((1u << 16) | 2u) && fileVersionLS == (3u << 16), "The version resource carries the wrong numbers");
+			std::string wide;
+			for (const char c : std::string_view("My Game"))
+			{
+				wide += c;
+				wide += static_cast<char>(0);
+			}
+			Require(std::string_view(reinterpret_cast<const char*>(version.data()), version.size()).find(wide) != std::string_view::npos,
+					"The game's name is missing from the version resource");
 		}
 		void Frame(EditorPanel& panel, float width, float height = 720.0f, const char* name = "Help")
 		{
@@ -707,6 +768,7 @@ namespace Lux
 		SettingsTestContext context;
 		try
 		{
+			CheckExportPackaging();
 			RuntimeExport::RuntimeBuildJob job;
 			ProjectSettingsWindow panel(job);
 			auto project = Project::GetActive();
