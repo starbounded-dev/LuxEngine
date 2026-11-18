@@ -139,7 +139,7 @@ Remark: full erosion simulation is expensive and does not scale to very large te
 |---|---|
 | Cordonnier et al. 2017, [Authoring landscapes by combining ecosystem and terrain erosion simulation](https://cs.purdue.edu/homes/bbenes/papers/Cordonnier17ToG.pdf) | Plants and terrain shape each other. Offline authoring, not runtime |
 | SBGames 2018, [GPU-based procedural vegetation distribution](https://www.sbgames.org/sbgames2018/files/papers/ComputacaoFull/188348.pdf) | Quadtree + hash buffers, GPU parallelism and instancing on large terrains. Closest match to the goal |
-| Jahrmann and Wimmer 2017, [Responsive real-time grass rendering](https://www.cg.tuwien.ac.at/research/publications/2017/JAHRMANN-2017-RRTG/JAHRMANN-2017-RRTG-draft.pdf) | Poisson-disk sampling, GPU culling, indirect rendering |
+| Jahrmann and Wimmer 2017, [Responsive real-time grass rendering](https://www.cg.tuwien.ac.at/research/publications/2017/JAHRMANN-2017-RRTG/JAHRMANN-2017-RRTG-draft.pdf) | Real-geometry blades with culling. **Corrected in section 11:** the Poisson-disk and indirect-draw details came from a search summary and are not confirmed by the abstract |
 | [Large-scale tiled plant populations](https://ojs.hbz-nrw.de/dipp_ojs/jvrb/article/view/1434) (JVRB 2013) | Wang-tile Poisson discs. Offline, so suits a baked placement map |
 | Haar and Aaltonen, SIGGRAPH 2015, [GPU-Driven Rendering Pipelines](https://advances.realtimerendering.com/s2015/aaltonenhaar_siggraph2015_combined_final_footer_220dpi.pdf) | Cluster-level GPU culling, occlusion depth, indirect draws. The pipeline to copy for trees and rocks |
 | Sucker Punch, [Procedural Grass in Ghost of Tsushima](https://gdcvault.com/play/1027214/contactUs) | Talk exists, but no usable summary found. Needs slides or video |
@@ -222,3 +222,51 @@ The suggested 5-agent split in the paste was only a suggestion. It was not acted
   overlapping full grids per LOD level failed, and rings with exact nesting and edge stitching worked;
   skirts looked bad.
 - Papers were read from search summaries and abstracts only.
+
+---
+
+## 11. Second pass: vegetation scatter in more depth
+
+Added after you asked for a deeper vegetation search. The large PDFs (Horizon slides, Jahrmann,
+SBGames 2018) could not be opened because the fetch tool has a 10 MB limit. Everything below is from
+abstracts, snippets and blog posts, so it is unverified at the detail level.
+
+### 11.1 Your IEEE link and the two pasted lists
+| Item | Finding |
+|---|---|
+| [IEEE 11266392](https://ieeexplore.ieee.org/document/11266392) | *Modeling of Millimeter-Wave Scattering from Tree Foliage Using Monte Carlo Path Tracing* (Scott Stewart, 2025 IEEE symposium). Only a truncated abstract was readable. It applies path tracing to radio waves through foliage. **Not relevant** to game placement or rendering |
+| Deussen et al. 1998, [Realistic Modeling and Rendering of Plant Ecosystems](https://algorithmicbotany.org/papers/ecosys.sig98.html) | Real. Stages: terrain, plant distribution, individual plants, rendering. Uses self-thinning and **approximate instancing** (similar plants share instances). The paste's "Poisson-disk-like" description is unconfirmed |
+| Lane and Prusinkiewicz 2002, [Generating Spatial Distributions for Multilevel Models of Plant Communities](https://www.algorithmicbotany.org/papers/eco.gi2002.html) | Real. Two placement models: simulate individuals (local to global), or work backward from a density map (global to local). Also covers clustering and succession |
+| 2015 web visualization paper (paste) | Not verified |
+| Wang et al. 2005, [Real-time rendering of plant leaves](https://graphics.cs.yale.edu/publications/real-time-rendering-plant-leaves) | Real, but the paste credits it wrongly: Baranoski and Rokne are cited prior work, not authors. The paste also links one PDF for two different papers. A parametric BRDF/BTDF leaf shading model, not a placement technique |
+| Hanrahan and Krueger 1993 (paste) | Not checked |
+
+### 11.2 New sources
+| Source | What it gives |
+|---|---|
+| van Muijden, GDC 2017, [GPU-based placement in Horizon Zero Dawn](https://www.guerrilla-games.com/media/News/Files/GDC2017_VanMuijden_GPUBasedProceduralPlacementInHorizonZeroDawn.pdf) | Artists define placement rules in a graph editor. Snippets quote 500+ asset types, 100,000+ objects, about 250 µs average GPU time, about 4 MB of paintable world data per km². **Slides not opened, figures unconfirmed** |
+| Makowski et al. 2019, [Synthetic silviculture](https://research.google/pubs/synthetic-silviculture-multi-scale-modeling-of-plant-ecosystems/) (ACM TOG 38(4)) | Ecosystems of up to 90K plants simulated, demo with about 500K plant models, from reusable branch modules. Offline authoring |
+| Kopf et al. 2006, [Recursive Wang tiles for real-time blue noise](https://johanneskopf.de/publications/blue_noise) | Deterministic: any local patch can be regenerated on demand, constant memory. Tiles are complex to build |
+| Wei 2008, [Parallel Poisson disk sampling](https://history.siggraph.org/?p=112825) | Generates blue-noise samples on the fly in parallel |
+| Unreal 5.7 [Nanite voxel foliage](https://80.lv/articles/get-a-glimpse-of-nanite-foliage-with-voxel-representation-in-ue5-7) | Distant trees switch to a voxel version. One user test: 62 to 119 FPS with 77,376 trees. Blog report on an experimental feature, not an official benchmark |
+| Tencent BroadLeaf | Separate real-time tree rendering work, mentioned in the same coverage. Not read |
+| GPU Gems 3, [ch. 6 (Zioma)](https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-6-gpu-generated-procedural-wind-animations-trees) and [ch. 16 (Sousa, Crysis)](https://oreilly.com/library/view/gpu-gems-3/9780321545428/ch16.html) | Vertex-shader wind that keeps instancing working |
+| Blogs and repos (grass, Vulkan foliage, ProceduralVegetation) | Common pipeline: compute pass culls and picks LOD, one indirect draw renders the survivors. One blog claims about a million blades with Hi-Z occlusion (unverified) |
+
+No recent peer-reviewed paper was found for the practical GPU pipeline. A "2022 Procedural Generation and
+Rendering of Forests" paper and an AMD GPUOpen 2024 work-graphs item appeared in a web guide and could
+**not** be confirmed.
+
+### 11.3 Correction to section 6.1
+The Jahrmann and Wimmer abstract confirms real-geometry blades, culling, and a physical model for
+gravity, wind and collision on arbitrary 3D models. It lists hardware tessellation as a keyword. It does
+**not** confirm Poisson-disk sampling or indirect rendering, which I had stated from a search summary.
+
+### 11.4 What this suggests for Lux (if built)
+1. Keep placement separate from rendering. Placement is a deterministic function of seed, position and
+   mask maps. The Horizon figures suggest the stored data can be small.
+2. Use deterministic blue noise (Wang tiles or parallel Poisson) so placement is order-independent. This
+   matches "pure function of seed and position" in section 4.4.
+3. For rendering, use cluster culling and indirect draws, impostors or voxels for far trees, and
+   vertex-shader wind. Approximate instancing from Deussen 1998 can cut the number of unique meshes.
+4. Leaf translucency (Wang 2005) is a shading add-on, separate from placement.
