@@ -7,6 +7,7 @@
 #include "MeshRuntimeSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Physics/MeshColliderAsset.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Mesh.h"
@@ -34,6 +35,14 @@ namespace Lux
 			return strStream.str();
 		}
 
+		// A file save writes asset paths; the pack copies stay numeric.
+		template<typename F>
+		static std::string AsFile(F&& build)
+		{
+			AssetReference::PathModeScope pathMode;
+			return build();
+		}
+
 		template<typename TMesh>
 		static std::string SerializeMeshSelectionToYAML(const Ref<TMesh>& mesh)
 		{
@@ -41,7 +50,8 @@ namespace Lux
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "Mesh" << Yaml::Value;
 			out << Yaml::BeginMap;
-			out << Yaml::Key << "MeshSource" << Yaml::Value << mesh->GetMeshSource();
+			out << Yaml::Key << "MeshSource" << Yaml::Value;
+			AssetReference::WriteValue(out, mesh->GetMeshSource());
 			out << Yaml::Key << "SubmeshIndices" << Yaml::Value;
 
 			if (auto meshSource = AssetManager::GetAsset<MeshSource>(mesh->GetMeshSource());
@@ -66,7 +76,7 @@ namespace Lux
 
 			AssetHandle meshSourceHandle = 0;
 			if (auto rootNode = data["Mesh"]; rootNode)
-				meshSourceHandle = rootNode["MeshSource"].as<uint64_t>(0);
+				meshSourceHandle = AssetReference::ReadValue(rootNode["MeshSource"]);
 
 			AssetManager::RegisterDependency(meshSourceHandle, handle);
 		}
@@ -77,7 +87,8 @@ namespace Lux
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "MeshCollider" << Yaml::Value;
 			out << Yaml::BeginMap;
-			out << Yaml::Key << "Mesh" << Yaml::Value << collider->Mesh;
+			out << Yaml::Key << "Mesh" << Yaml::Value;
+			AssetReference::WriteValue(out, collider->Mesh);
 			out << Yaml::Key << "CollisionComplexity" << Yaml::Value << static_cast<uint32_t>(collider->CollisionComplexity);
 			out << Yaml::EndMap;
 			out << Yaml::EndMap;
@@ -90,7 +101,7 @@ namespace Lux
 			if (!rootNode)
 				return false;
 
-			AssetHandle mesh = rootNode["Mesh"].as<uint64_t>(0);
+			AssetHandle mesh = AssetReference::ReadValue(rootNode["Mesh"]);
 			targetCollider = Ref<MeshColliderAsset>::Create(mesh);
 			targetCollider->CollisionComplexity = (ECollisionComplexity)rootNode["CollisionComplexity"].as<uint8_t>((uint8_t)ECollisionComplexity::Default);
 			return true;
@@ -101,7 +112,7 @@ namespace Lux
 			AssetManager::DeregisterDependencies(handle);
 			AssetHandle mesh = 0;
 			if (auto rootNode = data["MeshCollider"])
-				mesh = rootNode["Mesh"].as<uint64_t>(0);
+				mesh = AssetReference::ReadValue(rootNode["Mesh"]);
 			AssetManager::RegisterDependency(mesh, handle);
 		}
 
@@ -114,7 +125,7 @@ namespace Lux
 			if (!rootNode["MeshAsset"] && !rootNode["MeshSource"])
 				return false;
 
-			AssetHandle meshSource = rootNode["MeshAsset"] ? rootNode["MeshAsset"].as<uint64_t>() : rootNode["MeshSource"].as<uint64_t>();
+			AssetHandle meshSource = AssetReference::ReadValue(rootNode["MeshAsset"] ? rootNode["MeshAsset"] : rootNode["MeshSource"]);
 			if (!AssetManager::GetAsset<MeshSource>(meshSource))
 				return false;
 
@@ -136,7 +147,7 @@ namespace Lux
 			if (!rootNode["MeshAsset"] && !rootNode["MeshSource"])
 				return false;
 
-			AssetHandle meshSource = rootNode["MeshAsset"] ? rootNode["MeshAsset"].as<uint64_t>() : rootNode["MeshSource"].as<uint64_t>();
+			AssetHandle meshSource = AssetReference::ReadValue(rootNode["MeshAsset"] ? rootNode["MeshAsset"] : rootNode["MeshSource"]);
 			std::vector<uint32_t> submeshIndices;
 			if (rootNode["SubmeshIndices"])
 				submeshIndices = rootNode["SubmeshIndices"].as<std::vector<uint32_t>>();
@@ -197,7 +208,7 @@ namespace Lux
 			return;
 		}
 
-		fout << SerializeMeshSelectionToYAML(mesh);
+		fout << AsFile([&] { return SerializeMeshSelectionToYAML(mesh); });
 	}
 
 	bool MeshSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -266,7 +277,7 @@ namespace Lux
 			return;
 		}
 
-		fout << SerializeMeshSelectionToYAML(staticMesh);
+		fout << AsFile([&] { return SerializeMeshSelectionToYAML(staticMesh); });
 	}
 
 	bool StaticMeshSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -335,7 +346,7 @@ namespace Lux
 			return;
 		}
 
-		fout << SerializeMeshColliderToYAML(collider);
+		fout << AsFile([&] { return SerializeMeshColliderToYAML(collider); });
 	}
 
 	bool MeshColliderSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

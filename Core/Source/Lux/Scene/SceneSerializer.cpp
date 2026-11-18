@@ -632,7 +632,8 @@ namespace Lux {
 				if (!text.Enabled)
 					out << Yaml::Key << "Enabled" << Yaml::Value << text.Enabled;
 				out << Yaml::Key << "TextString" << Yaml::Value << text.TextString;
-				out << Yaml::Key << "FontHandle" << Yaml::Value << text.FontHandle;
+				out << Yaml::Key << "FontHandle" << Yaml::Value;
+				AssetReference::WriteValue(out, text.FontHandle);
 				out << Yaml::Key << "Color" << Yaml::Value << text.Color;
 				out << Yaml::Key << "LineSpacing" << Yaml::Value << text.LineSpacing;
 				out << Yaml::Key << "Kerning" << Yaml::Value << text.Kerning;
@@ -1195,7 +1196,7 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<TextComponent>();
 					component.Enabled = text["Enabled"].as<bool>(true);
 					component.TextString = text["TextString"].as<std::string>("");
-					component.FontHandle = text["FontHandle"].as<uint64_t>(0);
+					component.FontHandle = AssetReference::ReadValue(text["FontHandle"]);
 					component.Color = text["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.LineSpacing = text["LineSpacing"].as<float>(0.0f);
 					component.Kerning = text["Kerning"].as<float>(0.0f);

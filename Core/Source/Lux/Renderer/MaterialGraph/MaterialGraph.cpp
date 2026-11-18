@@ -5,6 +5,7 @@
 #include "MaterialGraph.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Serialization/Yaml.h"
 
@@ -781,9 +782,15 @@ namespace Lux {
 			if (node.Value != glm::vec4(0.0f))
 				out << Yaml::Key << "Value" << Yaml::Value << node.Value;
 			if (node.Texture)
-				out << Yaml::Key << "Texture" << Yaml::Value << static_cast<uint64_t>(node.Texture);
+				{
+				out << Yaml::Key << "Texture" << Yaml::Value;
+				AssetReference::WriteValue(out, node.Texture);
+			}
 			if (node.Graph)
-				out << Yaml::Key << "Graph" << Yaml::Value << static_cast<uint64_t>(node.Graph);
+				{
+				out << Yaml::Key << "Graph" << Yaml::Value;
+				AssetReference::WriteValue(out, node.Graph);
+			}
 			if (node.Mode)
 				out << Yaml::Key << "Mode" << Yaml::Value << node.Mode;
 			if (!node.Parameter.empty())
@@ -835,7 +842,7 @@ namespace Lux {
 			for (const Yaml::Node value : item["Inputs"])
 				graphNode.InputValues.push_back(value.as<glm::vec4>(glm::vec4(0.0f)));
 			graphNode.Value = item["Value"].as<glm::vec4>(glm::vec4(0.0f));
-			graphNode.Texture = item["Texture"].as<uint64_t>(0);
+			graphNode.Texture = AssetReference::ReadValue(item["Texture"]);
 			graphNode.Mode = item["Mode"].as<int32_t>(0);
 			graphNode.Parameter = item["Parameter"].as<std::string>("");
 			for (const Yaml::Node stop : item["Ramp"])
@@ -843,7 +850,7 @@ namespace Lux {
 
 			// A file from an older library: pad the pin values to what the node has now.
 			// (A Material Function's pins depend on its function, which may not be loaded yet: no padding.)
-			graphNode.Graph = item["Graph"].as<uint64_t>(0);
+			graphNode.Graph = AssetReference::ReadValue(item["Graph"]);
 			if (const MaterialGraphNodeInfo* info = FindNodeInfo(graphNode.Type); info && graphNode.Type != "SubGraph")
 			{
 				for (size_t pin = graphNode.InputValues.size(); pin < info->Inputs.size(); pin++)

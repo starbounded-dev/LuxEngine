@@ -730,7 +730,9 @@ namespace Lux
 				out << Yaml::Key << "Fullscreen" << Yaml::Value << config.RuntimeExport.Fullscreen;
 				out << Yaml::Key << "VSync" << Yaml::Value << config.RuntimeExport.VSync;
 				out << Yaml::Key << "IconPath" << Yaml::Value << config.RuntimeExport.IconPath.generic_string();
-				out << Yaml::Key << "IconHandle" << Yaml::Value << (uint64_t)config.RuntimeExport.IconHandle;
+				// IconPath names the icon; the handle is only a fallback for a project that has no path yet.
+				if (config.RuntimeExport.IconPath.empty())
+					out << Yaml::Key << "IconHandle" << Yaml::Value << (uint64_t)config.RuntimeExport.IconHandle;
 				out << Yaml::Key << "TargetConfig" << Yaml::Value << RuntimeExportTargetToString(config.RuntimeExport.TargetConfig);
 				out << Yaml::EndMap;
 			}

@@ -6,6 +6,7 @@
 #include "MaterialSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Material.h"
@@ -141,14 +142,8 @@ namespace Lux
 
 		static bool TryParseAssetHandle(std::string_view value, AssetHandle& handle)
 		{
-			if (value.empty())
-				return false;
-
 			uint64_t parsedHandle = 0;
-			const char* begin = value.data();
-			const char* end = value.data() + value.size();
-			const auto [ptr, error] = std::from_chars(begin, end, parsedHandle);
-			if (error != std::errc() || ptr != end)
+			if (!AssetReference::TryParseHandle(value, parsedHandle))
 				return false;
 
 			handle = parsedHandle;
@@ -424,7 +419,8 @@ namespace Lux
 			// all written anyway, so the file loads as it was saved without the parent.
 			if (const AssetHandle parent = materialAsset->GetParent())
 			{
-				out << Yaml::Key << "Parent" << Yaml::Value << static_cast<uint64_t>(parent);
+				out << Yaml::Key << "Parent" << Yaml::Value;
+				AssetReference::WriteValue(out, parent);
 				out << Yaml::Key << "Overrides" << Yaml::Value << Yaml::BeginSeq;
 				for (const std::string& key : materialAsset->GetOverrides())
 					out << key;
@@ -613,7 +609,7 @@ namespace Lux
 			}
 			targetMaterialAsset->SetGraphParameters(std::move(graphParameters));
 
-			if (const AssetHandle parent = materialNode["Parent"].as<uint64_t>(0))
+			if (const AssetHandle parent = AssetReference::ReadValue(materialNode["Parent"]))
 			{
 				std::set<std::string, std::less<>> overrides;
 				for (const Yaml::Node key : materialNode["Overrides"])
@@ -668,6 +664,8 @@ namespace Lux
 			return false;
 		}
 
+		// The file stores asset paths (Parent, graph references); the pack copy stays numeric.
+		AssetReference::PathModeScope pathMode;
 		const std::string serializedMaterial = SerializeMaterialToYAML(materialAsset, TextureReferenceSerialization::AssetPaths);
 		if (serializedMaterial.empty())
 		{

@@ -5,6 +5,7 @@
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 
 #include "Lux/Asset/AssetImporter.h"
+#include "Lux/Asset/AssetReference.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
@@ -22,6 +23,46 @@ namespace Lux
 	namespace
 	{
 		AssetMetadata s_NullMetadata;
+
+		// The active project's manager, or null in the player (Ref::As is unchecked, so confirm the type).
+		Ref<EditorAssetManager> ActiveEditorManager()
+		{
+			Ref<AssetManagerBase> base = Project::GetAssetManager();
+			if (!base || !dynamic_cast<EditorAssetManager*>(base.Raw()))
+				return {};
+			return base.As<EditorAssetManager>();
+		}
+
+		// What AssetReference reaches the registry through (AssetReference.h). Read-only lookups.
+		AssetHandle ReferenceFindByKey(const std::string& key)
+		{
+			Ref<EditorAssetManager> manager = ActiveEditorManager();
+			return manager ? manager->GetAssetHandleFromPathKey(key) : AssetHandle(0);
+		}
+
+		AssetHandle ReferenceFindByPath(const std::string& path)
+		{
+			Ref<EditorAssetManager> manager = ActiveEditorManager();
+			return manager ? manager->GetAssetHandleFromFilePath(std::filesystem::path(path).lexically_normal()) : AssetHandle(0);
+		}
+
+		bool ReferencePathOfHandle(AssetHandle handle, std::string& outPath)
+		{
+			Ref<EditorAssetManager> manager = ActiveEditorManager();
+			if (!manager)
+				return false;
+			const AssetMetadata metadata = manager->GetMetadata(handle);
+			if (!metadata.IsValid() || metadata.FilePath.empty())
+				return false;
+			outPath = metadata.FilePath.generic_string();
+			return true;
+		}
+
+		void ReferenceFindByFilename(const std::string& filename, std::vector<std::string>& outPaths)
+		{
+			if (Ref<EditorAssetManager> manager = ActiveEditorManager())
+				manager->FindPathsByFilename(filename, outPaths);
+		}
 
 		template<typename TAsset>
 		void RegisterMaterialTableDependencies(EditorAssetManager& manager, const Ref<TAsset>& asset)
@@ -58,6 +99,13 @@ namespace Lux
 	{
 		m_AssetThread = Ref<EditorAssetSystem>::Create();
 		AssetImporter::Init();
+
+		// Saved asset references resolve through the registry (AssetReference.h).
+		AssetReference::Hooks& hooks = AssetReference::GetHooks();
+		hooks.FindByKey = &ReferenceFindByKey;
+		hooks.FindByPath = &ReferenceFindByPath;
+		hooks.PathOfHandle = &ReferencePathOfHandle;
+		hooks.FindByFilename = &ReferenceFindByFilename;
 
 		if (Project::GetActive() && !Project::GetActiveProjectDirectory().empty())
 		{
@@ -514,6 +562,17 @@ namespace Lux
 		SetMetadata(metadata.Handle, metadata);
 		WriteRegistryToFile();
 		return metadata.Handle;
+	}
+
+	void EditorAssetManager::FindPathsByFilename(const std::string& filename, std::vector<std::string>& outPaths) const
+	{
+		std::shared_lock lock(m_AssetRegistryMutex);
+		for (const auto& [handle, metadata] : m_AssetRegistry)
+		{
+			if (metadata.FilePath.filename().generic_string() == filename)
+				outPaths.push_back(metadata.FilePath.generic_string());
+		}
+		std::sort(outPaths.begin(), outPaths.end());
 	}
 
 	AssetHandle EditorAssetManager::GetAssetHandleFromPathKey(const std::string& key) const
