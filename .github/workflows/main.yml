@@ -481,9 +481,14 @@ jobs:
         env:
           LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
         run: |
-          $reported = & "bin\${{ matrix.configuration }}-windows-x86_64\Editor\Editor.exe" --version
-          $code = $LASTEXITCODE
-          Write-Host "Editor --version: $reported"
+          # The Dist editor is a GUI-subsystem program: --version prints nowhere and a plain call is not
+          # waited for. Wait for it and take its exit code (a missing DLL fails it with 0xC0000135), and
+          # find the baked version string in the executable instead of reading the output.
+          $exe = "bin\${{ matrix.configuration }}-windows-x86_64\Editor\Editor.exe"
+          $process = Start-Process -FilePath $exe -ArgumentList '--version' -Wait -PassThru
+          $code = $process.ExitCode
+          $reported = if ([Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes((Resolve-Path $exe))).Contains($env:LUX_BUILD_VERSION)) { $env:LUX_BUILD_VERSION } else { '' }
+          Write-Host "Editor exit code: $code; version string $(if ($reported) { 'found' } else { 'NOT found' }) in the executable"
           if ($code -ne 0 -or "$reported" -notlike "*$env:LUX_BUILD_VERSION*") {
             # 0xC0000135 = a DLL is missing; name it. Delay-loaded vulkan-1 and xinput1_4 may be absent.
             $dir = "bin\${{ matrix.configuration }}-windows-x86_64\Editor"
