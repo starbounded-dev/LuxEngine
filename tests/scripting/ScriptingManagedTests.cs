@@ -25,6 +25,7 @@ internal static unsafe partial class ScriptingManagedTests
 		RunActive();
 		RunFind();
 		RunPhysics();
+		RunComponents();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -332,5 +333,121 @@ internal static unsafe partial class ScriptingManagedTests
 		Check(Physics.CheckSphere(Vector3.Zero, 1.0f), "CheckSphere is true with an overlap");
 		s_AllCount = 0;
 		Check(!Physics.CheckSphere(Vector3.Zero, 1.0f), "CheckSphere is false without one");
+	}
+
+	// ---- SC4: lights, camera, static mesh, music director ------------------------------------------------------------
+
+	private static readonly float[,] s_LightValues = new float[5, 14];
+	private static readonly Vector3[] s_LightColors = new Vector3[5];
+	private static int s_LastKind = -1, s_LastField = -1;
+	private static float LightGet(ulong id, int kind, int field) { s_LastKind = kind; s_LastField = field; return s_LightValues[kind, field]; }
+	private static Bool32 LightSet(ulong id, int kind, int field, float value) { s_LastKind = kind; s_LastField = field; s_LightValues[kind, field] = value; return true; }
+	private static Bool32 LightGetColor(ulong id, int kind, Vector3* color) { *color = s_LightColors[kind]; s_LastKind = kind; return true; }
+	private static Bool32 LightSetColor(ulong id, int kind, Vector3* color) { s_LightColors[kind] = *color; s_LastKind = kind; return true; }
+
+	private static readonly float[] s_CameraValues = new float[5];
+	private static float CameraGet(ulong id, int field) => s_CameraValues[field];
+	private static Bool32 CameraSet(ulong id, int field, float value)
+	{
+		if (field == 0 && (value <= 0.0f || value >= 180.0f))
+			return false;
+		s_CameraValues[field] = value;
+		return true;
+	}
+
+	private static ulong s_MeshHandle = 12;
+	private static readonly Vector4[] s_MaterialValues = new Vector4[5];
+	private static int s_MaterialWhich = -1, s_MaterialSlot = -1;
+	private static ulong StaticMeshGet(ulong id) => s_MeshHandle;
+	private static Bool32 StaticMeshSet(ulong id, ulong handle) { s_MeshHandle = handle; return handle != 99; }
+	private static int StaticMeshCount(ulong id) => 3;
+	private static ulong StaticMeshMaterial(ulong id, int slot) => slot < 3 ? (ulong)(500 + slot) : 0;
+	private static Bool32 StaticMeshSetMaterial(ulong id, int slot, ulong handle) { s_MaterialSlot = slot; return slot < 3 && handle != 99; }
+	private static Bool32 StaticMeshGetValue(ulong id, int slot, int which, Vector4* value) { s_MaterialSlot = slot; s_MaterialWhich = which; *value = s_MaterialValues[which]; return slot < 3; }
+	private static Bool32 StaticMeshSetValue(ulong id, int slot, int which, Vector4* value) { s_MaterialSlot = slot; s_MaterialWhich = which; s_MaterialValues[which] = *value; return slot < 3; }
+
+	private static readonly float[] s_MusicValues = new float[2];
+	private static string s_MusicState = "";
+	private static float MusicGet(ulong id, int field) => s_MusicValues[field];
+	private static Bool32 MusicSet(ulong id, int field, float value) { s_MusicValues[field] = value; return true; }
+	private static NativeString MusicGetState(ulong id) => s_MusicState;
+	private static Bool32 MusicSetState(ulong id, NativeString state) { string text = state; s_MusicState = text; return true; }
+
+	private static void RunComponents()
+	{
+		InternalCalls.Light_GetScalar = &LightGet;
+		InternalCalls.Light_SetScalar = &LightSet;
+		InternalCalls.Light_GetColor = &LightGetColor;
+		InternalCalls.Light_SetColor = &LightSetColor;
+		InternalCalls.Camera_GetScalar = &CameraGet;
+		InternalCalls.Camera_SetScalar = &CameraSet;
+		InternalCalls.StaticMesh_GetMesh = &StaticMeshGet;
+		InternalCalls.StaticMesh_SetMesh = &StaticMeshSet;
+		InternalCalls.StaticMesh_GetMaterialCount = &StaticMeshCount;
+		InternalCalls.StaticMesh_GetMaterial = &StaticMeshMaterial;
+		InternalCalls.StaticMesh_SetMaterial = &StaticMeshSetMaterial;
+		InternalCalls.StaticMesh_GetMaterialValue = &StaticMeshGetValue;
+		InternalCalls.StaticMesh_SetMaterialValue = &StaticMeshSetValue;
+		InternalCalls.MusicDirector_GetScalar = &MusicGet;
+		InternalCalls.MusicDirector_SetScalar = &MusicSet;
+		InternalCalls.MusicDirector_GetInitialState = &MusicGetState;
+		InternalCalls.MusicDirector_SetInitialState = &MusicSetState;
+
+		Entity owner = new Entity(1);
+
+		// Every light kind writes its own (kind, field) pair; the numbers are the native enums.
+		PointLightComponent point = new PointLightComponent { Entity = owner };
+		point.Intensity = 3.0f; point.Range = 12.0f; point.CastShadows = true; point.ColorTemperature = 4000.0f; point.UseColorTemperature = true; point.SoftShadows = true;
+		Check(s_LightValues[1, 0] == 3.0f && s_LightValues[1, 1] == 12.0f && s_LightValues[1, 10] == 1.0f && s_LightValues[1, 3] == 4000.0f && s_LightValues[1, 12] == 1.0f && s_LightValues[1, 11] == 1.0f, "PointLight fields");
+		Check(point.Intensity == 3.0f && point.Range == 12.0f && point.CastShadows && point.UseColorTemperature && point.SoftShadows, "PointLight reads back");
+		point.Color = new Color(0.2f, 0.4f, 0.6f);
+		Check(point.Color == new Color(0.2f, 0.4f, 0.6f, 1.0f) && s_LightColors[1] == new Vector3(0.2f, 0.4f, 0.6f), "PointLight color");
+
+		SpotLightComponent spot = new SpotLightComponent { Entity = owner };
+		spot.Angle = 30.0f; spot.Range = 7.0f;
+		Check(s_LightValues[2, 2] == 30.0f && s_LightValues[2, 1] == 7.0f && spot.Angle == 30.0f, "SpotLight angle and range");
+
+		AreaLightComponent area = new AreaLightComponent { Entity = owner };
+		area.Width = 2.0f; area.Height = 3.0f; area.Radius = 0.5f; area.Length = 4.0f; area.TwoSided = true; area.Range = 9.0f;
+		Check(s_LightValues[3, 5] == 2.0f && s_LightValues[3, 6] == 3.0f && s_LightValues[3, 7] == 0.5f && s_LightValues[3, 8] == 4.0f && s_LightValues[3, 13] == 1.0f && s_LightValues[3, 1] == 9.0f && area.TwoSided, "AreaLight fields");
+
+		DirectionalLightComponent sun = new DirectionalLightComponent { Entity = owner };
+		sun.ShadowAmount = 0.5f;
+		Check(s_LightValues[0, 4] == 0.5f && sun.ShadowAmount == 0.5f, "DirectionalLight shadow amount");
+
+		SkyLightComponent sky = new SkyLightComponent { Entity = owner };
+		sky.Intensity = 2.0f; sky.Rotation = 90.0f;
+		Check(s_LightValues[4, 0] == 2.0f && s_LightValues[4, 9] == 90.0f && sky.Rotation == 90.0f, "SkyLight fields");
+
+		CameraComponent camera = new CameraComponent { Entity = owner };
+		camera.FieldOfView = 60.0f; camera.NearClip = 0.2f; camera.FarClip = 500.0f; camera.Orthographic = true; camera.OrthographicSize = 8.0f;
+		Check(s_CameraValues[0] == 60.0f && s_CameraValues[1] == 0.2f && s_CameraValues[2] == 500.0f && s_CameraValues[3] == 1.0f && s_CameraValues[4] == 8.0f && camera.Orthographic && camera.FieldOfView == 60.0f, "Camera fields");
+		bool rejected = false;
+		try { camera.FieldOfView = 200.0f; } catch (ArgumentOutOfRangeException) { rejected = true; }
+		Check(rejected && camera.FieldOfView == 60.0f, "Camera rejects a field of view of 200 degrees");
+
+		StaticMeshComponent mesh = new StaticMeshComponent { Entity = owner };
+		Check(mesh.StaticMesh != null && mesh.StaticMesh.Handle == 12 && mesh.MaterialCount == 3, "StaticMesh reads the mesh and the slot count");
+		mesh.StaticMesh = null;
+		Check(mesh.StaticMesh == null, "StaticMesh = null clears the mesh");
+		Check(mesh.GetMaterial(1)?.Handle == 501 && mesh.GetMaterial(7) == null, "GetMaterial returns the slot's material or null");
+		mesh.SetMaterial(2, new Material(77));
+		Check(s_MaterialSlot == 2, "SetMaterial passes the slot");
+		rejected = false;
+		try { mesh.SetMaterial(5, new Material(77)); } catch (ArgumentException) { rejected = true; }
+		Check(rejected, "SetMaterial rejects a missing slot");
+		mesh.SetMaterialColor(1, new Color(0.1f, 0.2f, 0.3f));
+		Check(s_MaterialWhich == 0 && s_MaterialValues[0] == new Vector4(0.1f, 0.2f, 0.3f, 1.0f) && mesh.GetMaterialColor(1) == new Color(0.1f, 0.2f, 0.3f), "Material color");
+		mesh.SetMaterialValue(0, MaterialValue.Roughness, 0.7f);
+		Check(s_MaterialWhich == 2 && s_MaterialValues[2].X == 0.7f && mesh.GetMaterialValue(0, MaterialValue.Roughness) == 0.7f, "Material roughness uses value 2");
+		mesh.SetMaterialValue(0, MaterialValue.Metalness, 0.9f); mesh.SetMaterialValue(0, MaterialValue.Emission, 4.0f); mesh.SetMaterialValue(0, MaterialValue.Transparency, 0.5f);
+		Check(s_MaterialValues[1].X == 0.9f && s_MaterialValues[3].X == 4.0f && s_MaterialValues[4].X == 0.5f, "Metalness, emission and transparency are values 1, 3 and 4");
+		rejected = false;
+		try { mesh.SetMaterialValue(9, MaterialValue.Roughness, 0.1f); } catch (ArgumentException) { rejected = true; }
+		Check(rejected, "A missing slot throws");
+
+		MusicDirectorComponent director = new MusicDirectorComponent { Entity = owner };
+		director.PlayOnAwake = true; director.Intensity = 0.4f; director.InitialState = "Calm";
+		Check(s_MusicValues[0] == 1.0f && s_MusicValues[1] == 0.4f && s_MusicState == "Calm" && director.PlayOnAwake && director.InitialState == "Calm", "MusicDirector fields");
 	}
 }

@@ -763,6 +763,21 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   `TransformComponent_GetWorld`. Quaternions cross the boundary as `vec4(x, y, z, w)`.
   `tests/scripting/run_managed.py` checks the pure C# half against stand-in native calls (CI runs it
   after the ScriptCore build); `tests/play/Scripts/ApiTests.cs` checks the native half in Play.
+- **More components in C# (M4 SC4).** `Scripting/ComponentScriptBindings.cpp` (registered from
+  `ScriptGlue::RegisterGlue`, like the audio and animation bindings) serves `Scene/RenderComponents.cs`:
+  `DirectionalLightComponent`, `PointLightComponent`, `SpotLightComponent`, `AreaLightComponent` (all
+  derive from `LightComponent`: `Color`, `Intensity`, `CastShadows`, `SoftShadows`, colour temperature),
+  `SkyLightComponent`, `StaticMeshComponent` and `MusicDirectorComponent`; `CameraComponent` gained
+  `FieldOfView`, `NearClip`, `FarClip`, `Orthographic`, `OrthographicSize` (a change rebuilds the projection
+  through `SetViewportBounds`). Light and camera scalars cross as (kind, field) pairs whose numbers are the
+  native `LightKind` / `LightField` enums and the C# enums of the same names; a point light's `Range` is its
+  `Radius`. `StaticMeshComponent` swaps the mesh, assigns material slots, and changes a slot's colour,
+  metalness, roughness, emission or transparency for that entity alone: the first change gives the entity a
+  private copy of the slot's material (`MaterialAsset::InheritFrom` without a parent link, registered through
+  `AddMemoryOnlyAsset`, remembered in `s_PrivateMaterials`), so entities sharing the material keep theirs.
+  `ResolveStaticMeshMaterialHandle` treats a table with one entry at slot 0 as the answer for every slot, so
+  `PinMaterialSlots` writes down every slot's material (all resolved first) before one of them changes.
+  Portals already had `AudioPortalComponent`; the audio zone and portal keep their own `Enabled`.
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:

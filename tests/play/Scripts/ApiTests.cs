@@ -338,4 +338,136 @@ namespace PlayTest
 			Report.Result("Queries", problem == null, problem ?? "");
 		}
 	}
+
+	// SC4: the light, camera, music director and static mesh components. The rig entity carries every light kind; the
+	// two probes share one mesh with two material slots.
+	public class ComponentCheck : Entity
+	{
+		int m_Frame;
+
+		static bool Near(float a, float b, float tolerance = 1e-4f) => Math.Abs(a - b) <= tolerance;
+
+		void OnUpdate(float ts)
+		{
+			if (++m_Frame != 3)
+				return;
+			string problem = null;
+			void Expect(bool ok, string what) { if (!ok && problem == null) problem = what; }
+
+			// Lights.
+			var point = GetComponent<PointLightComponent>();
+			var spot = GetComponent<SpotLightComponent>();
+			var area = GetComponent<AreaLightComponent>();
+			var sun = GetComponent<DirectionalLightComponent>();
+			var sky = GetComponent<SkyLightComponent>();
+			Expect(point != null && spot != null && area != null && sun != null && sky != null, "a light component is missing from the rig");
+			if (point != null && spot != null && area != null && sun != null && sky != null)
+			{
+				Expect(Near(point.Intensity, 2.0f) && Near(point.Range, 6.0f) && !point.CastShadows, $"point light read {point.Intensity}, {point.Range}, {point.CastShadows}; expected 2, 6, false");
+				point.Intensity = 5.0f; point.Range = 9.0f; point.CastShadows = true; point.Color = new Color(0.25f, 0.5f, 0.75f);
+				point = GetComponent<PointLightComponent>();
+				Expect(Near(point.Intensity, 5.0f) && Near(point.Range, 9.0f) && point.CastShadows, "point light changes were not stored");
+				Expect(point.Color == new Color(0.25f, 0.5f, 0.75f, 1.0f), $"point light color read back as {point.Color}");
+				point.Intensity = -3.0f;
+				Expect(point.Intensity == 0.0f, "a negative intensity should become 0");
+				point.Enabled = false;
+				Expect(!GetComponent<PointLightComponent>().Enabled, "Component.Enabled should switch a light off");
+				point.Enabled = true;
+
+				Expect(Near(spot.Angle, 40.0f) && Near(spot.Range, 8.0f), $"spot light read {spot.Angle}, {spot.Range}; expected 40, 8");
+				spot.Angle = 25.0f;
+				Expect(Near(GetComponent<SpotLightComponent>().Angle, 25.0f), "spot angle was not stored");
+				Expect(Near(area.Width, 2.0f) && Near(area.Height, 1.0f) && Near(area.Range, 5.0f), "area light did not read its authored size");
+				area.Width = 3.0f; area.TwoSided = true;
+				Expect(Near(GetComponent<AreaLightComponent>().Width, 3.0f) && GetComponent<AreaLightComponent>().TwoSided, "area light changes were not stored");
+				Expect(Near(sun.ShadowAmount, 1.0f), "the sun should start with full shadows");
+				sun.ShadowAmount = 0.5f;
+				Expect(Near(GetComponent<DirectionalLightComponent>().ShadowAmount, 0.5f), "sun shadow amount was not stored");
+				Expect(Near(sky.Intensity, 1.0f) && Near(sky.Rotation, 10.0f), "sky light did not read its authored values");
+				sky.Rotation = 45.0f;
+				Expect(Near(GetComponent<SkyLightComponent>().Rotation, 45.0f), "sky rotation was not stored");
+			}
+
+			// Camera.
+			var camera = GetComponent<CameraComponent>();
+			if (camera == null)
+				Expect(false, "the rig has no camera");
+			else
+			{
+				Expect(Near(camera.FieldOfView, 50.0f) && Near(camera.NearClip, 0.1f) && Near(camera.FarClip, 500.0f) && !camera.Orthographic, $"camera read {camera.FieldOfView}, {camera.NearClip}, {camera.FarClip}");
+				camera.FieldOfView = 70.0f; camera.FarClip = 800.0f;
+				Expect(Near(GetComponent<CameraComponent>().FieldOfView, 70.0f) && Near(GetComponent<CameraComponent>().FarClip, 800.0f), "camera changes were not stored");
+				bool threw = false;
+				try { camera.FieldOfView = 0.0f; } catch (ArgumentOutOfRangeException) { threw = true; }
+				Expect(threw && Near(camera.FieldOfView, 70.0f), "a field of view of 0 should be rejected");
+				camera.Orthographic = true; camera.OrthographicSize = 6.0f;
+				Expect(GetComponent<CameraComponent>().Orthographic && Near(GetComponent<CameraComponent>().OrthographicSize, 6.0f), "orthographic settings were not stored");
+				camera.Orthographic = false;
+			}
+
+			// Music director.
+			var music = GetComponent<MusicDirectorComponent>();
+			if (music == null)
+				Expect(false, "the rig has no music director");
+			else
+			{
+				Expect(!music.PlayOnAwake && Near(music.Intensity, 0.25f) && music.InitialState == "Calm", $"music director read {music.PlayOnAwake}, {music.Intensity}, \"{music.InitialState}\"");
+				music.InitialState = "Tense"; music.Intensity = 0.75f; music.PlayOnAwake = true;
+				var again = GetComponent<MusicDirectorComponent>();
+				Expect(again.InitialState == "Tense" && Near(again.Intensity, 0.75f) && again.PlayOnAwake, "music director changes were not stored");
+			}
+
+			// Static mesh and materials.
+			Entity probeA = Entity.Find("MeshProbeA"), probeB = Entity.Find("MeshProbeB");
+			var meshA = probeA?.GetComponent<StaticMeshComponent>();
+			var meshB = probeB?.GetComponent<StaticMeshComponent>();
+			if (meshA == null || meshB == null)
+				Expect(false, "the mesh probes are missing");
+			else
+			{
+				// The importer decides how many slots the mesh has (it may add a default material); find the red and blue ones by color.
+				int slots = meshA.MaterialCount, redSlot = -1, blueSlot = -1;
+				for (int i = 0; i < slots; i++)
+				{
+					Color c = meshA.GetMaterialColor(i);
+					if (c.R > 0.9f && c.G < 0.1f && c.B < 0.1f) redSlot = i;
+					if (c.B > 0.9f && c.R < 0.1f && c.G < 0.1f) blueSlot = i;
+				}
+				Expect(meshA.StaticMesh != null && slots >= 2 && redSlot >= 0 && blueSlot >= 0 && redSlot != blueSlot,
+					$"the probe mesh has {slots} material slots with red at {redSlot} and blue at {blueSlot}; expected both");
+				Expect(meshA.GetMaterial(slots) == null, "a slot the mesh does not have has no material");
+				if (redSlot >= 0 && blueSlot >= 0)
+				{
+					Material redA = meshA.GetMaterial(redSlot), blueA = meshA.GetMaterial(blueSlot), redB = meshB.GetMaterial(redSlot);
+					Expect(redA != null && blueA != null && redA.Handle != blueA.Handle && redB != null && redA.Handle == redB.Handle, "both probes should start on the mesh's own materials");
+					meshA.SetMaterialColor(redSlot, new Color(0.0f, 1.0f, 0.0f));
+					meshA.SetMaterialValue(redSlot, MaterialValue.Roughness, 0.25f);
+					Expect(meshA.GetMaterialColor(redSlot).G > 0.95f && Near(meshA.GetMaterialValue(redSlot, MaterialValue.Roughness), 0.25f), "the slot did not take its new color and roughness");
+					Expect(meshA.GetMaterial(redSlot).Handle != redA.Handle, "the first change should give the entity its own copy of the material");
+					Expect(meshA.GetMaterial(blueSlot).Handle == blueA.Handle, "changing one slot must leave the others on their own materials");
+					for (int i = 0; i < slots && i != redSlot; i++)
+						Expect(meshA.GetMaterial(i).Handle == meshB.GetMaterial(i).Handle, $"slot {i} of the probes should still be the same material");
+					Expect(Near(meshB.GetMaterialColor(redSlot).R, 1.0f, 0.02f) && meshB.GetMaterial(redSlot).Handle == redB.Handle, "the other entity sharing the material must keep it");
+					meshA.SetMaterial(redSlot, redA);
+					Expect(meshA.GetMaterial(redSlot).Handle == redA.Handle, "SetMaterial(slot, material) should assign the asset");
+					bool threw = false;
+					try { meshA.SetMaterial(slots + 3, redA); } catch (ArgumentException) { threw = true; }
+					Expect(threw, "assigning a material to a missing slot should throw");
+					meshA.SetMaterial(redSlot, null);
+					Expect(meshA.GetMaterial(redSlot).Handle == redA.Handle, "SetMaterial(slot, null) should go back to the mesh's own material");
+				}
+
+				StaticMesh original = meshA.StaticMesh;
+				meshA.StaticMesh = null;
+				Expect(meshA.StaticMesh == null && meshA.MaterialCount == 0, "StaticMesh = null should clear the mesh");
+				meshA.StaticMesh = original;
+				Expect(meshA.StaticMesh != null && meshA.StaticMesh.Handle == original.Handle && meshA.MaterialCount == slots, "restoring the mesh should bring its slots back");
+				meshA.Enabled = false;
+				Expect(!probeA.GetComponent<StaticMeshComponent>().Enabled, "Enabled = false should hide the mesh (Visible)");
+				meshA.Enabled = true;
+			}
+
+			Report.Result("Components", problem == null, problem ?? "");
+		}
+	}
 }

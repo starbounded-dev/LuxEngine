@@ -266,6 +266,26 @@ namespace Lux
 		internal static delegate*<ulong, Bool32, void> RigidBodyComponent_SetSleepState;
 		#endregion
 
+		#region Lights, camera, static mesh, music director
+		internal static delegate*<ulong, int, int, float> Light_GetScalar;
+		internal static delegate*<ulong, int, int, float, Bool32> Light_SetScalar;
+		internal static delegate*<ulong, int, Vector3*, Bool32> Light_GetColor;
+		internal static delegate*<ulong, int, Vector3*, Bool32> Light_SetColor;
+		internal static delegate*<ulong, int, float> Camera_GetScalar;
+		internal static delegate*<ulong, int, float, Bool32> Camera_SetScalar;
+		internal static delegate*<ulong, ulong> StaticMesh_GetMesh;
+		internal static delegate*<ulong, ulong, Bool32> StaticMesh_SetMesh;
+		internal static delegate*<ulong, int> StaticMesh_GetMaterialCount;
+		internal static delegate*<ulong, int, ulong> StaticMesh_GetMaterial;
+		internal static delegate*<ulong, int, ulong, Bool32> StaticMesh_SetMaterial;
+		internal static delegate*<ulong, int, int, Vector4*, Bool32> StaticMesh_GetMaterialValue;
+		internal static delegate*<ulong, int, int, Vector4*, Bool32> StaticMesh_SetMaterialValue;
+		internal static delegate*<ulong, int, float> MusicDirector_GetScalar;
+		internal static delegate*<ulong, int, float, Bool32> MusicDirector_SetScalar;
+		internal static delegate*<ulong, NativeString> MusicDirector_GetInitialState;
+		internal static delegate*<ulong, NativeString, Bool32> MusicDirector_SetInitialState;
+		#endregion
+
 		#region Physics queries
 		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, Bool32> Physics_Raycast;
 		internal static delegate*<Vector3*, Vector3*, float, uint, ulong, Bool32, RaycastHitData*, int, int> Physics_RaycastAll;

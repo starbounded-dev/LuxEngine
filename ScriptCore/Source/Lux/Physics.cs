@@ -138,7 +138,7 @@ namespace Lux
 		}
 
 		private static bool ShapeCast(Shape shape, Vector3 origin, Quaternion orientation, Vector3 dimensions, Vector3 direction, out RaycastHit hit,
-			float maxDistance, uint layerMask, Entity ignore, bool includeTriggers)
+			float maxDistance, uint layerMask, Entity? ignore, bool includeTriggers)
 		{
 			Vector4 rotation = new Vector4(orientation.X, orientation.Y, orientation.Z, orientation.W);
 			RaycastHitData data;
@@ -202,7 +202,7 @@ namespace Lux
 			return ShapeCast(Shape.Capsule, center, orientation, new Vector3(radius, halfHeight, 0.0f), direction, out hit, maxDistance, layerMask, ignore, includeTriggers);
 		}
 
-		private static Entity[] Overlap(Shape shape, Vector3 center, Quaternion orientation, Vector3 dimensions, uint layerMask, Entity ignore, bool includeTriggers)
+		private static Entity[] Overlap(Shape shape, Vector3 center, Quaternion orientation, Vector3 dimensions, uint layerMask, Entity? ignore, bool includeTriggers)
 		{
 			Vector4 rotation = new Vector4(orientation.X, orientation.Y, orientation.Z, orientation.W);
 			ulong[] ids = new ulong[FirstCapacity];

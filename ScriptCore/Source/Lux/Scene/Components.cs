@@ -120,6 +120,35 @@ namespace Lux
 	/// <summary>A camera the game can render from.</summary>
 	public unsafe class CameraComponent : Component
 	{
+		private enum Field { FieldOfView = 0, NearClip, FarClip, Orthographic, OrthographicSize }
+
+		private float Get(Field field) => InternalCalls.Camera_GetScalar(Entity.ID, (int)field);
+
+		private void Set(Field field, float value, string name)
+		{
+			if (!InternalCalls.Camera_SetScalar(Entity.ID, (int)field, value))
+				throw new ArgumentOutOfRangeException(name, value, "The camera does not accept this value.");
+		}
+
+		/// <summary>The vertical field of view of a perspective camera, in degrees, above 0 and below 180.</summary>
+		/// <exception cref="ArgumentOutOfRangeException">The value is outside that range.</exception>
+		public float FieldOfView { get => Get(Field.FieldOfView); set => Set(Field.FieldOfView, value, nameof(FieldOfView)); }
+
+		/// <summary>The distance to the nearest thing the camera draws, in meters. A perspective camera needs more than 0.</summary>
+		/// <exception cref="ArgumentOutOfRangeException">A perspective camera was given 0 or less.</exception>
+		public float NearClip { get => Get(Field.NearClip); set => Set(Field.NearClip, value, nameof(NearClip)); }
+
+		/// <summary>The distance to the farthest thing the camera draws, in meters. A perspective camera needs more than its near clip.</summary>
+		/// <exception cref="ArgumentOutOfRangeException">A perspective camera was given a value not beyond its near clip.</exception>
+		public float FarClip { get => Get(Field.FarClip); set => Set(Field.FarClip, value, nameof(FarClip)); }
+
+		/// <summary>Whether the camera is orthographic (flat, as 2D games use) instead of perspective.</summary>
+		public bool Orthographic { get => Get(Field.Orthographic) != 0.0f; set => Set(Field.Orthographic, value ? 1.0f : 0.0f, nameof(Orthographic)); }
+
+		/// <summary>The height of the view of an orthographic camera, in meters, above 0.</summary>
+		/// <exception cref="ArgumentOutOfRangeException">The value is 0 or less.</exception>
+		public float OrthographicSize { get => Get(Field.OrthographicSize); set => Set(Field.OrthographicSize, value, nameof(OrthographicSize)); }
+
 		/// <summary>Whether this is the camera the game renders from.</summary>
 		public bool Primary
 		{

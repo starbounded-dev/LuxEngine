@@ -12,9 +12,12 @@ fails on a missing PASS, any FAIL, a managed exception or a graphics/validation 
 Needs the .NET 10 SDK and a built editor. Never touches the sample project or your preferences.
 """
 import argparse
+import base64
+import json
 import math
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -27,10 +30,11 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
-          "Clock", "Transform", "ActiveEnabled", "Find", "Queries"]
+          "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
+MESH_HANDLE = 7300000000000000003
 
 
 def fnv1a(text):
@@ -90,6 +94,51 @@ def prefab_link(entity_id, tracked=False, removed=()):
     return text
 
 
+def write_two_material_cube(path):
+    """A unit cube as two glTF primitives with two materials (red top half of the faces, blue the rest), so the
+    static mesh checks have a mesh with two material slots."""
+    faces = [((1, 0, 0), (0, 1, 0)), ((-1, 0, 0), (0, 1, 0)), ((0, 1, 0), (0, 0, 1)),
+             ((0, -1, 0), (0, 0, 1)), ((0, 0, 1), (1, 0, 0)), ((0, 0, -1), (1, 0, 0))]
+    positions, normals, indices = [], [], [[], []]
+    for number, (n, u) in enumerate(faces):
+        v = (n[1] * u[2] - n[2] * u[1], n[2] * u[0] - n[0] * u[2], n[0] * u[1] - n[1] * u[0])
+        base = len(positions)
+        for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            positions.append(tuple(0.5 * (n[i] + su * u[i] + sv * v[i]) for i in range(3)))
+            normals.append(n)
+        indices[0 if number < 3 else 1] += [base, base + 1, base + 2, base, base + 2, base + 3]
+    blob = b"".join(struct.pack("<3f", *p) for p in positions)
+    normal_offset = len(blob)
+    blob += b"".join(struct.pack("<3f", *n) for n in normals)
+    offsets = []
+    for group in indices:
+        offsets.append(len(blob))
+        blob += b"".join(struct.pack("<H", i) for i in group)
+        while len(blob) % 4:
+            blob += b"\0"
+    gltf = {
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"name": "TwoMaterialCube", "mesh": 0}],
+        "meshes": [{"name": "TwoMaterialCube", "primitives": [
+            {"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 2, "material": 0},
+            {"attributes": {"POSITION": 0, "NORMAL": 1}, "indices": 3, "material": 1}]}],
+        "materials": [
+            {"name": "Red", "pbrMetallicRoughness": {"baseColorFactor": [1, 0, 0, 1], "metallicFactor": 0.0, "roughnessFactor": 0.5}},
+            {"name": "Blue", "pbrMetallicRoughness": {"baseColorFactor": [0, 0, 1, 1], "metallicFactor": 0.0, "roughnessFactor": 0.5}}],
+        "buffers": [{"byteLength": len(blob), "uri": "data:application/octet-stream;base64," + base64.b64encode(blob).decode()}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": normal_offset},
+            {"buffer": 0, "byteOffset": normal_offset, "byteLength": offsets[0] - normal_offset},
+            {"buffer": 0, "byteOffset": offsets[0], "byteLength": len(indices[0]) * 2},
+            {"buffer": 0, "byteOffset": offsets[1], "byteLength": len(indices[1]) * 2}],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": len(positions), "type": "VEC3", "min": [-0.5] * 3, "max": [0.5] * 3},
+            {"bufferView": 1, "componentType": 5126, "count": len(normals), "type": "VEC3"},
+            {"bufferView": 2, "componentType": 5123, "count": len(indices[0]), "type": "SCALAR"},
+            {"bufferView": 3, "componentType": 5123, "count": len(indices[1]), "type": "SCALAR"}],
+    }
+    path.write_text(json.dumps(gltf, indent=1) + "\n", encoding="utf-8", newline="\n")
+
+
 def write_project(project, keep=None, runtime_config="dist"):
     assets = project / "Assets"
     (assets / "Scenes").mkdir(parents=True)
@@ -105,7 +154,10 @@ def write_project(project, keep=None, runtime_config="dist"):
         f"    VSync: true\n    TargetConfig: {runtime_config.capitalize()}\n", encoding="utf-8")
     (assets / "AssetRegistry.lzr").write_text(
         f"Assets:\n  - Handle: {SCENE_HANDLE}\n    FilePath: Scenes/PlayTest.luxscene\n    Type: Scene\n"
-        f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n", encoding="utf-8")
+        f"  - Handle: {PREFAB_HANDLE}\n    FilePath: Prefabs/Crate.lprefab\n    Type: Prefab\n"
+        f"  - Handle: {MESH_HANDLE}\n    FilePath: Meshes/TwoMaterials.gltf\n    Type: MeshSource\n", encoding="utf-8")
+    (assets / "Meshes").mkdir()
+    write_two_material_cube(assets / "Meshes/TwoMaterials.gltf")
 
     # The prefab: a dynamic crate with three children. OldChild existed when the scene instance was
     # saved, PrefabAdded was added later, Removed is recorded as deleted in the instance.
@@ -171,6 +223,19 @@ def write_project(project, keep=None, runtime_config="dist"):
     e.append(entity(next(ids), "QueryTrigger", (58, 1, -70), body=rigid("static", trigger=True) + box((0.25, 1, 3))))
     e.append(entity(next(ids), "QueryProp", (64, 1, -70), body=rigid("static", layer=1) + box((0.5, 1, 3))))
     e.append(entity(next(ids), "QueryCheck", (50, 1, -75), script="QueryCheck"))
+    # Components: one entity holding every light kind, a camera and a music director, and two cubes sharing a two-material mesh.
+    rig_body = ("    CameraComponent:\n      Camera:\n        ProjectionType: 0\n        PerspectiveFOV: 50\n        PerspectiveNear: 0.1\n        PerspectiveFar: 500\n"
+                "      Primary: false\n      FixedAspectRatio: false\n"
+                "    DirectionalLightComponent:\n      Intensity: 1\n      CastShadows: false\n"
+                "    PointLightComponent:\n      Intensity: 2\n      Radius: 6\n      CastShadows: false\n"
+                "    SpotLightComponent:\n      Intensity: 3\n      Range: 8\n      Angle: 40\n"
+                "    AreaLightComponent:\n      Intensity: 4\n      Width: 2\n      Height: 1\n      Range: 5\n"
+                "    SkyLightComponent:\n      Intensity: 1\n      Rotation: 10\n"
+                "    MusicDirectorComponent:\n      PlayOnAwake: false\n      InitialState: Calm\n      Intensity: 0.25\n")
+    e.append(entity(next(ids), "ComponentRig", (0, 1, -80), body=rig_body, script="ComponentCheck"))
+    mesh_body = f"    StaticMeshComponent:\n      AssetID: {MESH_HANDLE}\n"
+    e.append(entity(next(ids), "MeshProbeA", (-4, 1, -80), body=mesh_body))
+    e.append(entity(next(ids), "MeshProbeB", (-6, 1, -80), body=mesh_body))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.
