@@ -1,4 +1,4 @@
-# LuxEngine — Feature Catalog for 2027.1 (or 2028.1)
+# LuxEngine — Feature Catalog and Release Roadmap
 
 Written 2026-11-09 on `feature/native-audio-system`. A planning document, like the other files in
 `docs/`: it says what should and should not be in the engine, editor, runtime and a future launcher.
@@ -21,11 +21,11 @@ What is built is described in `.claude/docs/Architecture-LuxEngine.md`; the open
 | FINISH | Code exists but was never run in the editor or in Play. Run it, fix what breaks. |
 | MODIFY | Exists, needs a change before a release. |
 | ADD | Does not exist. |
-| DEFER | Not for 2027.1. Goes to 2028.1 or later. |
+| DEFER | Scheduled for a later release or left unscheduled in the release column. |
 | CUT | Remove it, or hide it from users. |
 | NEVER | Should not be in LuxEngine. Standing rule or product principle. |
 
-**Release**: `27` = needed for 2027.1 · `27?` = wanted for 2027.1, first to drop · `28` = 2028.1 · `—` = no release.
+**Release**: `27` = needed for 2027.1 · `27?` = wanted for 2027.1, first to drop · `27.2` = planned for 2027.2 · `28` = 2028.1 · `—` = no release.
 **Size**: S (hours), M (a day), L (several days), XL (a plan of its own) — same scale as the backlog.
 
 Standing rules applied throughout: no temporal rendering; ray tracing, terrain and GI restart from
@@ -69,12 +69,19 @@ that builds but was never run.**
 Input actions (I2), save-game API (G2), player settings (RT5), autosave (E15), reflection probes
 (R9), simple fog (R7), decals (R11), string localisation (G3), physics joints (P4).
 
+### Planned for 2027.2
+
+[Skeletal animation production readiness](https://github.com/starbounded-dev/LuxEngine/issues/164)
+adds animation authoring and verification on top of M2. The animation table in §2.2 links the
+eight issues. The verification work covers a compiled C# project, native Linux and GPU vendors,
+and representative gameplay load. The 2027.1 hardware and Linux release requirements still apply.
+
 ### The slip rule
 
 The must list now holds five XL items (animation, game UI, 2D, particles, plus the hardening and
 export work). If animation, game UI and the 2D workflow are not all done **and used by the two
 sample games** by about September 2027, call the release 2028.1 and pull in the `28` items:
-navigation, terrain, probe GI, the launcher, the sequencer.
+navigation, terrain, probe GI and the launcher.
 
 ---
 
@@ -121,9 +128,15 @@ navigation, terrain, probe GI, the launcher, the sequencer.
 | A3 | Animation graph: state machine with parameters and transitions | none | ADD | 27 | L |
 | A4 | Animation events to C# and to audio (footsteps on the frame) | none | ADD | 27 | M |
 | A5 | C# API: play, cross-fade, set parameter, read bone transform, attach entity to bone | none | ADD | 27 | M |
-| A6 | Blend spaces, additive layers, masks | none | DEFER | 28 | L |
-| A7 | IK, ragdoll, retargeting, morph targets | none | DEFER | 28 | XL |
-| A8 | Sequencer / timeline for cutscenes and cameras | none | DEFER | 28 | XL |
+| A6 | [Blend spaces and layered animation](https://github.com/starbounded-dev/LuxEngine/issues/165) | Cross-fades and state transitions | ADD continuous blends, additive layers, and bone masks | 27.2 | L |
+| A7 | Ragdoll and morph targets | none | DEFER | 28 | XL |
+| A8 | [Cutscene and camera sequencer](https://github.com/starbounded-dev/LuxEngine/issues/167) | none | ADD a scene timeline with clip and camera tracks | 27.2 | XL |
+| A9 | [Inverse kinematics for character rigs](https://github.com/starbounded-dev/LuxEngine/issues/166) | none | ADD limb targets and blend controls | 27.2 | L |
+| A10 | [Skeleton and animation retargeting](https://github.com/starbounded-dev/LuxEngine/issues/168) | none | ADD reusable bone mappings and retarget preview | 27.2 | L |
+| A11 | [Skeletal clip timeline and keyframe authoring](https://github.com/starbounded-dev/LuxEngine/issues/169) | Clip preview scrubber | ADD editable bone tracks, keys, undo, and clip saves | 27.2 | XL |
+| A12 | [Verify animation scripting in a real C# game](https://github.com/starbounded-dev/LuxEngine/issues/170) | Mocked managed API checks and exported playback | FINISH coverage for scripted transitions, event delivery, and bone access in Play and export | 27.2 | M |
+| A13 | [Verify animation on native Linux and across GPU vendors](https://github.com/starbounded-dev/LuxEngine/issues/172) | Windows and WSL2 animation smoke and export checks | FINISH native Linux X11 and Wayland checks and skinning verification across GPU vendors | 27.2 | L |
+| A14 | [Profile animation at representative gameplay load](https://github.com/starbounded-dev/LuxEngine/issues/171) | Single-rig and graph fixtures | ADD a repeatable multi-character benchmark and a longer scene-change test | 27.2 | L |
 
 ### 2.3 Physics
 
