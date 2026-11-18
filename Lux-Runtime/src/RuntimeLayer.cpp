@@ -89,6 +89,11 @@ namespace Lux
 		OnScenePlay();
 	}
 
+	void RuntimeLayer::OnApplicationQuit()
+	{
+		OnSceneStop();
+	}
+
 	void RuntimeLayer::OnDetach()
 	{
 		// Stops the tracker thread.

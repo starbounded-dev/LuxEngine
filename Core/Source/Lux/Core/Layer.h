@@ -18,6 +18,9 @@ namespace Lux {
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
+		// The main loop has ended and the application is about to shut down. Called once, with the script host, the audio
+		// engine and the renderer still alive, which OnDetach no longer has (the application tears the script host down first).
+		virtual void OnApplicationQuit() {}
 		virtual void OnUpdate(Timestep ts) {}
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(Event& event) {}

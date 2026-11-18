@@ -503,7 +503,7 @@ namespace PlayTest
 		public Scene Second;
 		public Scene Extra;
 
-		const int OtherChecks = 19;
+		const int OtherChecks = 20;
 		int m_Phase, m_Wait, m_Creates;
 		int m_Counter;                 // survives the load only if this very script instance does
 		double m_ElapsedBefore;
@@ -555,6 +555,8 @@ namespace PlayTest
 						Fail($"the script instance did not survive the load (counter {m_Counter}, expected above 100)");
 					if (SceneWitness.Destroys == 0)
 						Fail("scripts of the old scene did not get OnDestroy");
+					if (ApplicationCheck.QuittingCalls != 0)
+						Fail("Application.Quitting must not fire when a script loads another scene");
 					if (Entity.Find("QueryWall", true) != null)
 						Fail("an entity of the old scene is still there");
 					Entity marker = Entity.Find("SecondMarker");
@@ -688,6 +690,55 @@ namespace PlayTest
 			Expect(m_VictimAtDeath >= 4 && m_VictimTicks == m_VictimAtDeath, $"a timer of a destroyed entity kept running: {m_VictimTicks} ticks, {m_VictimAtDeath} when it died");
 			Expect(Entity.Find("TimerVictim", true) == null, "the victim entity should be gone");
 			Report.Result("Timers", problem == null, problem ?? "");
+		}
+	}
+
+	// SC6: Application.Paused, PauseChanged, Resized, FocusChanged and Quitting. The handlers are static, so they live on after the
+	// scene that registered them is replaced; Quitting must fire once, when the game stops, and not when a scene is loaded.
+	public class ApplicationCheck : Entity
+	{
+		public static int QuittingCalls;
+		static readonly System.Collections.Generic.List<bool> s_PauseEvents = new System.Collections.Generic.List<bool>();
+		static int s_Resizes, s_FocusEvents;
+		bool m_Started, m_Reported;
+		double m_RealStart;
+
+		static void OnQuitting()
+		{
+			QuittingCalls++;
+			Report.Result("Quitting", QuittingCalls == 1, $"Application.Quitting was raised {QuittingCalls} times");
+		}
+
+		void OnCreate()
+		{
+			Application.Quitting += OnQuitting;
+			Application.PauseChanged += paused => s_PauseEvents.Add(paused);
+			Application.Resized += (width, height) => s_Resizes++;
+			Application.FocusChanged += focused => s_FocusEvents++;
+		}
+
+		void OnUpdate(float ts)
+		{
+			if (!m_Started)
+			{
+				m_Started = true;
+				m_RealStart = Time.UnscaledTime;
+				// A paused game gets no OnUpdate: real-time timers are how it unpauses itself.
+				Timer.After(0.2f, () => Application.Paused = false, true);
+				Application.Paused = true;
+				return;
+			}
+			if (m_Reported || Time.UnscaledTime - m_RealStart < 0.6)
+				return;
+			m_Reported = true;
+
+			string problem = null;
+			void Expect(bool ok, string what) { if (!ok && problem == null) problem = what; }
+			Expect(!Application.Paused, "the game should be unpaused again");
+			Expect(s_PauseEvents.Count == 2 && s_PauseEvents[0] && !s_PauseEvents[1], $"PauseChanged gave {string.Join(",", s_PauseEvents)}, expected True,False");
+			Expect(Application.Width > 0 && Application.Height > 0, $"the view is {Application.Width}x{Application.Height}");
+			Expect(QuittingCalls == 0, "Quitting must not fire while the game runs");
+			Report.Result("Application", problem == null, problem ?? "");
 		}
 	}
 }

@@ -66,6 +66,11 @@ namespace Lux
 
 		#region Application
 		internal static delegate*<void> Application_Quit;
+		internal static delegate*<Bool32> Application_IsFocused;
+		internal static delegate*<Bool32> Application_GetPaused;
+		internal static delegate*<Bool32, void> Application_SetPaused;
+		internal static delegate*<int> Application_GetWidth;
+		internal static delegate*<int> Application_GetHeight;
 		#endregion
 
 		#region Time

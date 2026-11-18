@@ -167,6 +167,12 @@ namespace Lux {
 
 	#pragma region Input
 
+	static Coral::Bool32 Application_IsFocused() { return Application::Get().IsFocused(); }
+	static Coral::Bool32 Application_GetPaused() { return GetScene()->IsPaused(); }
+	static void Application_SetPaused(Coral::Bool32 paused) { GetScene()->SetPaused(paused); }
+	static int32_t Application_GetWidth() { return static_cast<int32_t>(GetScene()->GetViewportWidth()); }
+	static int32_t Application_GetHeight() { return static_cast<int32_t>(GetScene()->GetViewportHeight()); }
+
 	static Coral::Bool32 Input_IsKeyDown(KeyCode keycode)        { return Input::IsKeyDown(keycode); }
 	static Coral::Bool32 Input_IsKeyPressed(KeyCode keycode)     { return Input::IsKeyPressed(keycode); }
 	static Coral::Bool32 Input_IsKeyHeld(KeyCode keycode)        { return Input::IsKeyHeld(keycode); }
@@ -216,6 +222,9 @@ namespace Lux {
 
 	static Coral::Type* s_InputType = nullptr;
 	static Coral::Type* s_SchedulerType = nullptr;
+	static Coral::Type* s_ApplicationType = nullptr;
+	static bool s_ApplicationKnown = false, s_KnownFocused = false, s_KnownPaused = false;
+	static uint32_t s_KnownWidth = 0, s_KnownHeight = 0;
 	static uint32_t s_KnownControllerMask = 0;
 	static bool s_InputEventsPrimed = false;
 
@@ -1196,6 +1205,11 @@ namespace Lux {
 	{
 		LUX_ADD_INTERNAL_CALL(NativeLog);
 		LUX_ADD_INTERNAL_CALL(Application_Quit);
+		LUX_ADD_INTERNAL_CALL(Application_IsFocused);
+		LUX_ADD_INTERNAL_CALL(Application_GetPaused);
+		LUX_ADD_INTERNAL_CALL(Application_SetPaused);
+		LUX_ADD_INTERNAL_CALL(Application_GetWidth);
+		LUX_ADD_INTERNAL_CALL(Application_GetHeight);
 
 		LUX_ADD_INTERNAL_CALL(Time_Get);
 		LUX_ADD_INTERNAL_CALL(Time_SetScale);
@@ -1412,6 +1426,8 @@ namespace Lux {
 
 		s_InputType = &coreAssembly.GetLocalType("Lux.Input");
 		s_InputEventsPrimed = false;
+		s_ApplicationType = &coreAssembly.GetLocalType("Lux.Application");
+		s_ApplicationKnown = false;
 		s_SchedulerType = &coreAssembly.GetLocalType("Lux.Scheduler");
 		if (!*s_SchedulerType)
 			LUX_CORE_ERROR_TAG("ScriptEngine", "ScriptCore has no Lux.Scheduler: timers and coroutines will not run");
@@ -1455,6 +1471,52 @@ namespace Lux {
 		ResetInput();
 		s_InputType = nullptr;
 		s_SchedulerType = nullptr;
+		s_ApplicationType = nullptr;
+		s_ApplicationKnown = false;
+	}
+
+	void ScriptGlue::UpdateApplication(bool paused, uint32_t width, uint32_t height)
+	{
+		if (!s_ApplicationType || !*s_ApplicationType)
+			return;
+
+		const bool focused = Application::Get().IsFocused();
+		if (!s_ApplicationKnown)
+		{
+			s_ApplicationKnown = true;
+			s_KnownFocused = focused;
+			s_KnownPaused = paused;
+			s_KnownWidth = width;
+			s_KnownHeight = height;
+			return;
+		}
+
+		if (focused != s_KnownFocused)
+		{
+			s_KnownFocused = focused;
+			s_ApplicationType->InvokeStaticMethod("DispatchFocus", static_cast<int32_t>(focused));
+		}
+		if (paused != s_KnownPaused)
+		{
+			s_KnownPaused = paused;
+			s_ApplicationType->InvokeStaticMethod("DispatchPause", static_cast<int32_t>(paused));
+		}
+		if ((width != s_KnownWidth || height != s_KnownHeight) && width > 0 && height > 0)
+		{
+			s_KnownWidth = width;
+			s_KnownHeight = height;
+			s_ApplicationType->InvokeStaticMethod("DispatchResize", static_cast<int32_t>(width), static_cast<int32_t>(height));
+		}
+	}
+
+	void ScriptGlue::EndApplication(bool quitting)
+	{
+		s_ApplicationKnown = false;
+		if (!s_ApplicationType || !*s_ApplicationType)
+			return;
+		if (quitting)
+			s_ApplicationType->InvokeStaticMethod("DispatchQuitting");
+		s_ApplicationType->InvokeStaticMethod("ResetEvents");
 	}
 
 	void ScriptGlue::UpdateScheduler(float scaledDelta, float unscaledDelta)

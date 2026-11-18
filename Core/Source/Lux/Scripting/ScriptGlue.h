@@ -29,6 +29,12 @@ namespace Lux {
 		static void UpdateScheduler(float scaledDelta, float unscaledDelta);
 		static void StepScheduler();
 		static void ResetScheduler();
+
+		// C# Application events. UpdateApplication diffs focus, pause and the view size once per runtime frame (the first call
+		// after an EndApplication only records them). EndApplication raises Application.Quitting when `quitting`, then drops
+		// every managed handler: the game stopped for good, not for a scene change.
+		static void UpdateApplication(bool paused, uint32_t width, uint32_t height);
+		static void EndApplication(bool quitting);
 	};
 
 }

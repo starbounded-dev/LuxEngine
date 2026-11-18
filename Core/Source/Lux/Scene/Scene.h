@@ -232,6 +232,9 @@ namespace Lux {
 		void RequestAdditiveScene(AssetHandle scene);
 		void RequestUnloadAdditiveScene(AssetHandle scene);
 
+		uint32_t GetViewportWidth() const { return m_ViewportWidth; }
+		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
+
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
 		void SetPaused(bool paused) { m_IsPaused = paused; }

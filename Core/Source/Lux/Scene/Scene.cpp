@@ -1056,6 +1056,9 @@ namespace Lux {
 		// Scripting: fire OnDestroy and tear down live managed instances (values stay in storage).
 		{
 			ScriptEngine& scriptEngine = ScriptEngine::GetMutable();
+			// The game ends here unless a scene change hands it on: tell the scripts while they still exist.
+			if (!m_HandedOver)
+				ScriptGlue::EndApplication(true);
 			for (auto& [entityID, instance] : m_ScriptInstances)
 			{
 				auto it = m_ScriptStorage.EntityStorage.find(entityID);
@@ -1189,6 +1192,7 @@ namespace Lux {
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		// `ts` is real time (audio, dialogue, accessibility); scripts, physics and animation get the scaled step.
+		ScriptGlue::UpdateApplication(m_IsPaused, m_ViewportWidth, m_ViewportHeight);
 		const bool simulating = !m_IsPaused || m_StepFrames > 0;
 		const Timestep scaledTs = static_cast<float>(ts) * m_Clock.TimeScale;
 		m_Clock.UnscaledDelta = static_cast<float>(ts);

@@ -814,6 +814,19 @@ Coral finds `hostfxr` through nethost (`get_hostfxr_path`), so it is not tied to
   `Timer.After`, continue in the next scene. A callback or routine that throws is logged and removed, never the
   scheduler. Managed tests drive `Scheduler.Update` directly (`tests/scripting`); `TimerCheck` in the Play checks
   covers the engine hook.
+- **Application events (M4 SC6).** C# `Application.IsFocused`, `Paused`, `Width`, `Height` and the events `FocusChanged`,
+  `PauseChanged`, `Resized`, `Quitting`. `Scene::OnUpdateRuntime` calls `ScriptGlue::UpdateApplication` first: it diffs
+  focus (`Application::IsFocused`, the one definition the audio engine shares), the scene's pause flag (so the
+  accessibility menu's pause is reported too) and the scene's viewport size (the window in the player, the Game View in
+  the editor; 0 is ignored), and invokes the internal `Application.Dispatch*` methods; the first call after a reset only
+  records. `Application.Paused = true` is `Scene::SetPaused`: scripts stop, so the way back is a real-time timer or
+  coroutine (the scheduler keeps ticking, see above). `Quitting` fires from `Scene::OnRuntimeStop` through
+  `ScriptGlue::EndApplication(true)` unless `m_HandedOver` (a scene load), and the same call drops every managed
+  handler, so nothing outlives a game in the editor. **The player needs `Layer::OnApplicationQuit`:**
+  `Application::~Application` shuts the script host down before the layers detach, so `OnDetach` can no longer run
+  scripts; `Application::Run` now calls `OnApplicationQuit` on every layer after the loop (render thread idle, host
+  still up) and `RuntimeLayer` stops its scene there. Exported games therefore run `OnDestroy` and `Quitting` at exit,
+  which they did not before. Handlers are static: remove them in `OnDestroy`.
 - `ScriptEntityStorage.hpp` holds per-entity field values (`ScriptStorage`, serialized with the
   scene); live objects are `CSharpObject` instances on the `Scene`. An entity whose script the
   loaded app assembly lacks (none built yet, class removed, failed reload) has no `FieldStorage`:

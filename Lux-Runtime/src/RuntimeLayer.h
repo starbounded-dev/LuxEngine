@@ -24,6 +24,8 @@ namespace Lux
 
 		void OnAttach() override;
 		void OnDetach() override;
+		// The game ends here, with the script host still running: scripts get OnDestroy and Application.Quitting.
+		void OnApplicationQuit() override;
 		void OnUpdate(Timestep ts) override;
 		void OnEvent(Event& event) override;
 		void OnImGuiRender() override;

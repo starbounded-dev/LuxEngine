@@ -90,7 +90,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 
 ## Other
 
-- [Application](Application) — The running game.
+- [Application](Application) — The running game: quitting it, pausing it, and being told when the window gains or loses focus, the view is resized, or the game ends.
 - [Color](Color) — A linear RGBA color with components from 0 to 1.
 - [Coroutine](Coroutine) — A routine started with [`Entity.StartCoroutine`](Entity): a method that returns `System.Collections.IEnumerator` and pauses at each `yield return`.
 - [CursorMode](CursorMode) — How the mouse cursor behaves over the game window, for [`Input.SetCursorMode`](Input).

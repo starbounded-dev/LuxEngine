@@ -30,6 +30,7 @@ internal static unsafe partial class ScriptingManagedTests
 		RunComponents();
 		RunScenes();
 		RunScheduling();
+		RunApplication();
 		Console.WriteLine($"Managed scripting contract: {s_Checks} checks passed");
 		return 0;
 	}
@@ -672,5 +673,62 @@ internal static unsafe partial class ScriptingManagedTests
 		Check(nullRoutine, "a null routine is rejected");
 
 		Scheduler.Reset();
+	}
+
+	// ---- SC6: application events -------------------------------------------------------------------------------
+
+	private static bool s_AppFocused = true, s_AppPaused;
+	private static int s_AppWidth = 1280, s_AppHeight = 720;
+	private static Bool32 AppIsFocused() => s_AppFocused;
+	private static Bool32 AppGetPaused() => s_AppPaused;
+	private static void AppSetPaused(Bool32 paused) { s_AppPaused = paused; }
+	private static int AppWidth() => s_AppWidth;
+	private static int AppHeight() => s_AppHeight;
+
+	private static void RunApplication()
+	{
+		InternalCalls.Application_IsFocused = &AppIsFocused;
+		InternalCalls.Application_GetPaused = &AppGetPaused;
+		InternalCalls.Application_SetPaused = &AppSetPaused;
+		InternalCalls.Application_GetWidth = &AppWidth;
+		InternalCalls.Application_GetHeight = &AppHeight;
+
+		Check(Application.IsFocused && !Application.Paused && Application.Width == 1280 && Application.Height == 720, "Application reads focus, pause and size");
+		Application.Paused = true;
+		Check(s_AppPaused && Application.Paused, "Application.Paused writes through");
+
+		List<string> events = new List<string>();
+		Action<bool> onFocus = focused => events.Add("focus " + focused);
+		Action<bool> onPause = paused => events.Add("pause " + paused);
+		Action<int, int> onResize = (w, h) => events.Add($"resize {w}x{h}");
+		Action onQuit = () => events.Add("quit");
+		Application.FocusChanged += onFocus;
+		Application.PauseChanged += onPause;
+		Application.Resized += onResize;
+		Application.Quitting += onQuit;
+		Application.DispatchFocus(0);
+		Application.DispatchPause(1);
+		Application.DispatchResize(800, 600);
+		Application.DispatchQuitting();
+		Check(string.Join(",", events) == "focus False,pause True,resize 800x600,quit", "each dispatch reaches its event with its arguments");
+
+		Application.FocusChanged -= onFocus;
+		events.Clear();
+		Application.DispatchFocus(1);
+		Check(events.Count == 0, "a removed handler is not called");
+
+		// A handler that throws is logged and does not stop the others.
+		s_LoggedErrors = 0;
+		events.Clear();
+		Application.Quitting += () => throw new InvalidOperationException("on purpose");
+		Application.DispatchQuitting();
+		Check(s_LoggedErrors == 1 && string.Join(",", events) == "quit", "a throwing handler is logged and the others still run");
+
+		Application.ResetEvents();
+		events.Clear();
+		Application.DispatchPause(0);
+		Application.DispatchResize(1, 1);
+		Application.DispatchQuitting();
+		Check(events.Count == 0, "ResetEvents drops every handler");
 	}
 }
