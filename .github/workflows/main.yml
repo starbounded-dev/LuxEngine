@@ -352,7 +352,7 @@ jobs:
       # "Coral.Managed" is solution-level only, and Core's post-build copies Coral.Managed from
       # Coral/Build/Release, which is why that project always builds in Release. The C++ entry
       # projects pull in Core and every vendor library through their ProjectReferences. Dist builds
-      # no Editor, as in the solution.
+      # the Editor too: the Dist editor is the one in the release zip (E30).
       - name: Build
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
@@ -362,8 +362,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build ScriptCore/ScriptCore.csproj -c $config -nologo "-flp:logfile=logs\Build-$config-ScriptCore.log;verbosity=normal"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $projects = @('Lux-Runtime/Lux-Runtime.vcxproj', 'Watchdog/Lux-Watchdog.vcxproj')
-          if ($config -ne 'Dist') { $projects = @('Editor/Editor.vcxproj') + $projects }
+          $projects = @('Editor/Editor.vcxproj', 'Lux-Runtime/Lux-Runtime.vcxproj', 'Watchdog/Lux-Watchdog.vcxproj')
           foreach ($project in $projects) {
             $name = [IO.Path]::GetFileNameWithoutExtension($project)
             MSBuild $project /m "/p:Configuration=$config" /p:Platform=x64 "/p:SolutionDir=$PWD\" /fl "/flp:logfile=logs\Build-$config-$name.log;verbosity=normal"
@@ -411,7 +410,7 @@ jobs:
         run: python tests/scripting/run_managed.py
 
       - name: 'Package: editor artifact'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
           $configuration = "${{ matrix.configuration }}"
@@ -466,7 +465,7 @@ jobs:
           }
 
       - name: 'Package: upload editor artifact'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         uses: actions/upload-artifact@v4
         with:
           name: editor-${{ matrix.configuration }}
@@ -474,10 +473,10 @@ jobs:
           if-no-files-found: error
 
       # The pre-release download is zipped by the package-windows job, which adds the Dist player this
-      # editor exports with (Runtime/Dist) to the editor package uploaded above. Verified here, where
+      # editor exports with (Runtime/Dist) to the Dist editor package uploaded above. Verified here, where
       # the build tree's libraries are on hand to name a missing DLL.
       - name: 'Package: check the editor runs'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         shell: pwsh
         env:
           LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
@@ -798,7 +797,7 @@ jobs:
       # linked with RPATH $ORIGIN/lib - so the vendored shared libraries have to be bundled
       # into lib/ for the artifact to be runnable at all.
       - name: 'Package: editor artifact'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         shell: bash
         run: |
           set -euo pipefail
@@ -872,7 +871,7 @@ jobs:
           fi
 
       - name: 'Package: upload editor artifact'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         uses: actions/upload-artifact@v4
         with:
           name: editor-linux-${{ matrix.configuration }}
@@ -883,7 +882,7 @@ jobs:
       # exports with (Runtime/Dist). Artifacts do not keep file modes, and the zip must keep the
       # executable bit and the lib/ symlinks, so both halves travel as tar files.
       - name: 'Package: check the editor runs, then tar it'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         shell: bash
         env:
           LUX_BUILD_VERSION: ${{ needs.version.outputs.version }}
@@ -903,7 +902,7 @@ jobs:
           tar -C artifacts -cf editor-linux.tar "$name"
 
       - name: 'Package: upload the editor package'
-        if: matrix.configuration == 'Release'
+        if: matrix.configuration == 'Dist'
         uses: actions/upload-artifact@v4
         with:
           name: editor-linux-tar
@@ -983,7 +982,7 @@ jobs:
       - name: Download the editor package and the Dist player
         uses: actions/download-artifact@v4
         with:
-          pattern: '{editor-Release,runtime-windows-Dist}'
+          pattern: '{editor-Dist,runtime-windows-Dist}'
           path: parts
 
       - name: Zip the release
@@ -994,7 +993,7 @@ jobs:
           set -euo pipefail
           name="LuxEngine-${LUX_BUILD_VERSION}-windows-x64"
           mkdir -p "package/$name/Runtime" release
-          cp -a parts/editor-Release/. "package/$name/"
+          cp -a parts/editor-Dist/. "package/$name/"
           cp -a parts/runtime-windows-Dist "package/$name/Runtime/Dist"
           test -f "package/$name/Editor.exe"
           test -f "package/$name/Runtime/Dist/Lux-Runtime.exe"

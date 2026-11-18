@@ -298,7 +298,16 @@ namespace Lux
 			appBinary = FileSystem::ReadBytes(Project::GetActiveScriptModuleFilePath());
 
 		const std::filesystem::path packPath = Project::GetActiveAssetDirectory() / "AssetPack.lap";
-		if (!AssetPackSerializer::Serialize(packPath, assetPackFile, appBinary, progress))
+		const Ref<Project> activeProject = Project::GetActive();
+		const std::optional<Obfuscation::Key> packKey = activeProject ? activeProject->GetConfig().Obfuscation.ExportKey() : std::nullopt;
+		if (activeProject && activeProject->GetConfig().Obfuscation.Exports && !packKey)
+		{
+			LUX_CORE_ERROR_TAG("Asset Pack", "The project asks for an obfuscated export but has no valid key");
+			return nullptr;
+		}
+		if (packKey)
+			Obfuscation::SetActiveKey(*packKey); // the pack is read back below
+		if (!AssetPackSerializer::Serialize(packPath, assetPackFile, appBinary, progress, packKey ? &*packKey : nullptr))
 			return nullptr;
 		progress = 1.0f;
 

@@ -2,8 +2,10 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "RuntimeLayer.h"
+#include "RuntimeSplash.h"
 
 #include "Lux/Utilities/FileSystem.h"
+#include "Lux/Serialization/Obfuscation.h"
 
 // Every "Resources/..", "DotNet/.." and "Assets/.." load, and the logs folder, are relative to the working
 // directory, so an exported game started from a shortcut, a launcher or a terminal elsewhere would find
@@ -11,6 +13,10 @@
 // export's Assets. A runtime run from the build tree has no Assets beside it and keeps its working
 // directory (the project is passed on the command line). A relative project path therefore means a path
 // in the export folder.
+// The 64-byte block an obfuscated export patches with the game's key (Obfuscation.h). Volatile and with external
+// linkage so no optimizer drops it or folds it to its build-time contents.
+extern "C" volatile uint8_t g_LuxObfuscationKeyBlock[Lux::Obfuscation::KeyBlockSize] = { LUX_OBFUSCATION_KEY_BLOCK_INIT };
+
 namespace Lux
 {
 	static void UseExportFolderAsWorkingDirectory()
@@ -115,6 +121,16 @@ namespace Lux
 					iconPath = (settingsFile.parent_path() / iconPath).lexically_normal();
 				specification.IconPath = iconPath;
 			}
+
+			// An optional image shown in its own window while the (long, blocking) startup runs; the layer hides it
+			// once the game is drawing.
+			std::filesystem::path splashPath = runtimeNode["SplashPath"].as<std::string>("");
+			if (!splashPath.empty())
+			{
+				if (splashPath.is_relative())
+					splashPath = (settingsFile.parent_path() / splashPath).lexically_normal();
+				RuntimeSplash::Show(splashPath);
+			}
 		}
 
 		void ApplyRuntimeShaderPack(ApplicationSpecification& specification, const std::filesystem::path& projectPath)
@@ -152,6 +168,10 @@ namespace Lux
 
 	Application* CreateApplication(int argc, char** argv)
 	{
+		// Before any file is read: an obfuscated export's packs open with this key.
+		if (const std::optional<Obfuscation::Key> key = Obfuscation::ReadKeyBlock(g_LuxObfuscationKeyBlock))
+			Obfuscation::SetActiveKey(*key);
+
 		CommandLineParser cli(argc, argv);
 
 		const std::string_view workingDirectory = cli.GetOpt("C");

@@ -147,7 +147,7 @@ namespace Lux
 		return rhiShader;
 	}
 
-	Ref<ShaderPack> ShaderPack::CreateFromLibrary(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& path)
+	Ref<ShaderPack> ShaderPack::CreateFromLibrary(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& path, const Obfuscation::Key* key)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<ShaderPack> shaderPack = Ref<ShaderPack>::Create();
@@ -182,7 +182,7 @@ namespace Lux
 			(sizeof(std::map<uint32_t, ShaderPackFile::ShaderProgramInfo>::key_type) + sizeof(ShaderPackFile::ShaderProgramInfo::ReflectionDataOffset))
 			+ shaderModuleIndexArraySize;
 
-		FileStreamWriter serializer(path);
+		FileStreamWriter serializer(path, key);
 
 		// Write header
 		serializer.WriteRaw<ShaderPackFile::FileHeader>(shaderPackFile.Header);
@@ -326,7 +326,7 @@ namespace Lux
 	// (a refusal). The reverse order could leave a stamp vouching for bytes that never arrived.
 	// m_Programs is taken from the pack actually written, never from the caller's copy, so the count
 	// in the sidecar cannot claim more programs than the file contains.
-	bool ShaderPack::WriteStampedPack(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& packPath, ShaderPackStamp stamp)
+	bool ShaderPack::WriteStampedPack(Ref<ShaderLibrary> shaderLibrary, const std::filesystem::path& packPath, ShaderPackStamp stamp, const Obfuscation::Key* key)
 	{
 		const std::filesystem::path tempPath{packPath.string() + ".tmp"};
 		if (FileSystem::Exists(tempPath) and !FileSystem::DeleteFile(tempPath))
@@ -336,7 +336,7 @@ namespace Lux
 			LUX_CORE_ERROR_TAG("Renderer", "Could not remove a leftover shader-pack temp {}", tempPath.string());
 			return false;
 		}
-		const Ref<ShaderPack> pack = ShaderPack::CreateFromLibrary(shaderLibrary, tempPath);
+		const Ref<ShaderPack> pack = ShaderPack::CreateFromLibrary(shaderLibrary, tempPath, key);
 		if (!pack)
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "Could not serialize the shader library into {}", tempPath.string());

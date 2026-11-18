@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "RuntimeLayer.h"
+#include "RuntimeSplash.h"
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "Lux/ImGui/ImGuiLayer.h"
 #include "Lux/Audio/AudioAccessibility.h"
@@ -63,6 +64,7 @@ namespace Lux
 			m_AudioVerificationPath = FileSystem::GetEnvironmentVariable("LUX_RUNTIME_AUDIO_REPORT");
 		if (!OpenProject())
 		{
+			RuntimeSplash::Hide();
 			Application::Get().Close();
 			return;
 		}
@@ -96,6 +98,7 @@ namespace Lux
 
 	void RuntimeLayer::OnApplicationQuit()
 	{
+		RuntimeSplash::Hide();
 		OnSceneStop();
 	}
 
@@ -323,6 +326,11 @@ namespace Lux
 
 	void RuntimeLayer::OnUpdate(Timestep ts)
 	{
+		// The game window is up and drawing: the startup splash has done its job. A few frames in, so the first
+		// image is on screen before the splash leaves.
+		if (m_RuntimeScene && m_SceneRenderer && ++m_FramesSinceStart == 4)
+			RuntimeSplash::Hide();
+
 		if (!m_RuntimeScene || !m_SceneRenderer)
 			return;
 

@@ -271,6 +271,7 @@ namespace Lux {
 		using RuntimeExport::GetRuntimeOutputDirectory;
 		using RuntimeExport::GetRuntimeExecutablePath;
 		using RuntimeExport::ResolveExportTarget;
+		using RuntimeExport::LaunchExportedGame;
 		using RuntimeExport::IsRuntimeExecutableOutdated;
 		using RuntimeExport::ResolveScriptProjectFile;
 		using RuntimeExport::IsScriptModuleOutdated;
@@ -361,7 +362,7 @@ namespace Lux {
 			return result;
 		}
 
-		bool WriteRuntimeSettingsFile(const std::filesystem::path& filepath, const ProjectRuntimeExportSettings& settings, const std::filesystem::path& runtimeIconPath)
+		bool WriteRuntimeSettingsFile(const std::filesystem::path& filepath, const ProjectRuntimeExportSettings& settings, const std::filesystem::path& runtimeIconPath, const std::filesystem::path& runtimeSplashPath)
 		{
 			std::error_code ec;
 			std::filesystem::create_directories(filepath.parent_path(), ec);
@@ -385,6 +386,8 @@ namespace Lux {
 			out << "  Fullscreen: " << (settings.Fullscreen ? "true" : "false") << "\n";
 			out << "  VSync: " << (settings.VSync ? "true" : "false") << "\n";
 			out << "  IconPath: \"" << EscapeYamlQuotedString(runtimeIconPath.generic_string()) << "\"\n";
+			if (!runtimeSplashPath.empty())
+				out << "  SplashPath: \"" << EscapeYamlQuotedString(runtimeSplashPath.generic_string()) << "\"\n";
 			return true;
 		}
 
@@ -406,7 +409,8 @@ namespace Lux {
 			}
 
 			// Stamped so the exported runtime can tell a stale pack (Renderer::Init evaluates the sidecar).
-			if (!ShaderPack::WriteStampedPack(shaderLibrary, shaderPackPath, Renderer::CaptureShaderPackEnvironment(ShaderPackKind::Export))
+			const std::optional<Obfuscation::Key> packKey = Project::GetActive() ? Project::GetActive()->GetConfig().Obfuscation.ExportKey() : std::nullopt;
+			if (!ShaderPack::WriteStampedPack(shaderLibrary, shaderPackPath, Renderer::CaptureShaderPackEnvironment(ShaderPackKind::Export), packKey ? &*packKey : nullptr)
 				|| !FileExists(shaderPackPath))
 			{
 				LUX_CONSOLE_LOG_ERROR("Runtime export failed while writing shader pack '{}'.", shaderPackPath.string());
@@ -1047,7 +1051,8 @@ namespace Lux {
 		};
 		goldenHooks.StartRuntimeExport = [this](const std::filesystem::path& folder, std::string& error)
 		{
-			ExportRuntimeNow(folder);
+			// LUX_GOLDEN_EXPORT_RUN drives "Export and Run" for tests.
+			ExportRuntimeNow(folder, FileSystem::HasEnvironmentVariable("LUX_GOLDEN_EXPORT_RUN"));
 			error = m_RuntimeExportError;
 			return m_PendingRuntimeExport.has_value();
 		};
@@ -4647,6 +4652,8 @@ namespace Lux {
 
 			ImGuiEx::Property("Fullscreen", runtime.Fullscreen);
 			ImGuiEx::Property("VSync", runtime.VSync);
+			ImGuiEx::Property("Obfuscate Exported Game", config.Obfuscation.Exports,
+							  "Scrambles the asset pack, the shader pack and the project file in an export, so they cannot be opened in a viewer or text editor. Stops casual copying; it is not encryption, because the key travels with the game.");
 
 			AssetHandle icon = runtime.IconHandle;
 			ImGuiEx::PropertyAssetReferenceSettings iconSettings;
@@ -4655,6 +4662,39 @@ namespace Lux {
 			{
 				m_RuntimeExportIcon = icon;
 				syncRuntimeIconPath(icon);
+			}
+
+			// An optional image the game shows while it starts (Windows).
+			AssetHandle splash = 0;
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager(); editorAssetManager && !runtime.SplashPath.empty())
+				splash = editorAssetManager->GetAssetHandleFromFilePath(runtime.SplashPath);
+			ImGuiEx::PropertyAssetReferenceSettings splashSettings;
+			splashSettings.ShowFullFilePath = true;
+			if (ImGuiEx::PropertyAssetReference<Texture2D>("Splash", splash, "Optional PNG/JPG shown in its own window while the game starts (Windows).", nullptr, splashSettings))
+			{
+				runtime.SplashPath.clear();
+				if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager(); editorAssetManager && splash)
+				{
+					const AssetMetadata metadata = editorAssetManager->GetMetadata(splash);
+					if (metadata.IsValid())
+						runtime.SplashPath = metadata.FilePath.generic_string();
+				}
+			}
+
+			// The scene the game opens first: the same setting as Project Settings > General > Startup Scene.
+			AssetHandle startScene = config.StartSceneHandle;
+			ImGuiEx::PropertyAssetReferenceSettings startSceneSettings;
+			startSceneSettings.ShowFullFilePath = true;
+			if (ImGuiEx::PropertyAssetReference<Scene>("Start Scene", startScene, "The scene the exported game opens first.", nullptr, startSceneSettings))
+			{
+				config.StartSceneHandle = startScene;
+				config.StartScene.clear();
+				if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager(); editorAssetManager && startScene)
+				{
+					const AssetMetadata metadata = editorAssetManager->GetMetadata(startScene);
+					if (metadata.IsValid())
+						config.StartScene = metadata.FilePath.generic_string();
+				}
 			}
 			ImGuiEx::EndPropertyGrid();
 
@@ -4746,6 +4786,11 @@ namespace Lux {
 			ImGuiEx::ScopedDisable disableWhileBuilding(building);
 			if (ImGui::Button("Export..."))
 				ExportRuntimeNow();
+			ImGui::SameLine();
+			if (ImGui::Button("Export and Run"))
+				ExportRuntimeNow({}, true);
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				ImGui::SetTooltip("Exports the game, then starts it.");
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel"))
@@ -4906,7 +4951,7 @@ namespace Lux {
 		m_ShowRuntimeExportWindow = true;
 	}
 
-	void EditorLayer::ExportRuntimeNow(const std::filesystem::path& targetFolder)
+	void EditorLayer::ExportRuntimeNow(const std::filesystem::path& targetFolder, bool runWhenDone)
 	{
 		m_RuntimeExportError.clear();
 		m_LastRuntimeExportRoot.clear();
@@ -4932,6 +4977,10 @@ namespace Lux {
 
 		if (m_SceneState != SceneState::Edit)
 			OnSceneStop();
+
+		// The first obfuscated export makes the project's key, and the project keeps it so later exports agree.
+		if (auto& obfuscation = project->GetConfig().Obfuscation; obfuscation.Exports && !obfuscation.ParsedKey())
+			obfuscation.Key = Obfuscation::Key::Generate().ToHex();
 
 		SaveScene();
 		SaveProject();
@@ -4991,7 +5040,8 @@ namespace Lux {
 		// UpdateRuntimeBuild writes the export once any build has finished.
 		m_PendingRuntimeExport = PendingRuntimeExport{ project, selectedFolder, runtimeSettings };
 		m_PendingRuntimeExport->Writing = !buildRuntime && !buildScripts;
-		m_PendingRuntimeExport->OpenFolderWhenDone = targetFolder.empty();
+		m_PendingRuntimeExport->OpenFolderWhenDone = targetFolder.empty() && !runWhenDone;
+		m_PendingRuntimeExport->RunWhenDone = runWhenDone;
 	}
 
 	bool EditorLayer::ValidateRuntimeExportAudio(const Ref<Project>& project)
@@ -5212,8 +5262,9 @@ namespace Lux {
 				return false;
 			}
 			if (targetConfig == RuntimeExportTarget::Dist)
-				return CopyDirectoryRecursive(resourcesSource, exportRoot / RuntimeExport::DataFolder / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders" });
-			return CopyDirectoryRecursive(resourcesSource, exportRoot / RuntimeExport::DataFolder / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp" });
+				return CopyDirectoryRecursive(resourcesSource, exportRoot / RuntimeExport::DataFolder / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders", "Docs", "Templates" });
+			// Docs (the editor's manual) and Templates (its new-project templates) are never read by a game.
+			return CopyDirectoryRecursive(resourcesSource, exportRoot / RuntimeExport::DataFolder / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Docs", "Templates" });
 
 		case RuntimeExportStep::ShaderPack:
 			// Judged by the engine version that wrote it (ShaderPack::Evaluate), so nothing else ships with it.
@@ -5256,7 +5307,18 @@ namespace Lux {
 				}
 			}
 
-			if (!WriteRuntimeSettingsFile(exportAssets / "RuntimeSettings.yaml", runtimeSettings, runtimeIconPath))
+			std::filesystem::path runtimeSplashPath;
+			if (!runtimeSettings.SplashPath.empty())
+			{
+				const std::filesystem::path splashSource = Project::GetActiveAssetDirectory() / runtimeSettings.SplashPath;
+				const std::filesystem::path splashFilename = "Splash" + splashSource.extension().string();
+				if (FileExists(splashSource) && CopyFileIfExists(splashSource, exportRoot / RuntimeExport::DataFolder / "Resources" / "Runtime" / splashFilename))
+					runtimeSplashPath = std::filesystem::path("..") / "Resources" / "Runtime" / splashFilename;
+				else
+					LUX_CONSOLE_LOG_WARN("Configured splash image is missing: {}", splashSource.string());
+			}
+
+			if (!WriteRuntimeSettingsFile(exportAssets / "RuntimeSettings.yaml", runtimeSettings, runtimeIconPath, runtimeSplashPath))
 				return false;
 
 			// The game's name, version and icon on the executable itself (Windows). A failure leaves a working
@@ -5267,6 +5329,18 @@ namespace Lux {
 					LUX_CONSOLE_LOG_WARN("Could not set the executable's name and icon: the game still runs, but shows as the default player.");
 				if (!brandingWarning.empty())
 					LUX_CONSOLE_LOG_WARN("{}", brandingWarning);
+			}
+
+			// The key goes in after branding, which rewrites the executable's resource section.
+			if (const std::optional<Obfuscation::Key> key = project->GetConfig().Obfuscation.ExportKey())
+			{
+				std::string patchError;
+				if (!Obfuscation::PatchExecutable(exportedExe, *key, patchError))
+				{
+					LUX_CONSOLE_LOG_ERROR("Runtime export could not place the obfuscation key: {}", patchError);
+					return false;
+				}
+				LUX_CONSOLE_LOG_INFO("  Obfuscation: asset pack, shader pack and runtime project scrambled");
 			}
 
 #ifdef LUX_PLATFORM_LINUX
@@ -5310,6 +5384,8 @@ namespace Lux {
 			LUX_CONSOLE_LOG_INFO("Runtime export complete: {}", exportRoot.string());
 			if (pending.OpenFolderWhenDone)
 				FileSystem::OpenDirectoryInExplorer(exportRoot);
+			if (pending.RunWhenDone)
+				LaunchExportedGame(exportedExe);
 			return true;
 		}
 

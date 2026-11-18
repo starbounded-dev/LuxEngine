@@ -12,6 +12,8 @@
 #include "Viewport/Viewport.h"
 #include "RuntimeExportUtils.h"
 #include "RuntimeExportBranding.h"
+#include "Lux/Serialization/FileStream.h"
+#include "Lux/Serialization/Obfuscation.h"
 
 #ifndef LUX_DIST
 #include "EditorLayer.h"
@@ -122,6 +124,115 @@ namespace Lux
 			}
 			Require(std::string_view(reinterpret_cast<const char*>(version.data()), version.size()).find(wide) != std::string_view::npos,
 					"The game's name is missing from the version resource");
+		}
+		// The scrambling container: random access, files, the wrong key, and the key block an export patches.
+		void CheckObfuscation()
+		{
+			namespace fs = std::filesystem;
+			std::error_code ec;
+			const Obfuscation::Key key = Obfuscation::Key::Generate();
+			Require(Obfuscation::Key::FromHex(key.ToHex()) == key && !Obfuscation::Key::FromHex("zz"), "A key does not survive its hex form");
+
+			std::vector<uint8_t> plain(10000);
+			for (size_t i = 0; i < plain.size(); ++i)
+				plain[i] = static_cast<uint8_t>(i * 31 + 7);
+			// Any range, from any position, is scrambled the same as inside the whole.
+			std::vector<uint8_t> whole = plain;
+			Obfuscation::Apply(key, 0, whole.data(), whole.size());
+			Require(whole != plain, "Apply left the bytes unchanged");
+			std::vector<uint8_t> piece(plain.begin() + 123, plain.begin() + 4321);
+			Obfuscation::Apply(key, 123, piece.data(), piece.size());
+			Require(std::equal(piece.begin(), piece.end(), whole.begin() + 123), "A range scrambled alone differs from the same range in the whole");
+			Obfuscation::Apply(key, 0, whole.data(), whole.size());
+			Require(whole == plain, "Applying twice did not restore the bytes");
+
+			const fs::path path = fs::temp_directory_path() / "lux-obfuscation-selftest.bin";
+			{
+				FileStreamWriter writer(path, &key);
+				writer.WriteRaw<uint32_t>(0xC0FFEE);
+				writer.WriteZero(8);
+				writer.WriteData(reinterpret_cast<const char*>(plain.data()), plain.size());
+				writer.SetStreamPosition(4);
+				writer.WriteRaw<uint64_t>(0x1122334455667788ull); // seek back and patch, as the pack index does
+				Require(writer.Flush(), "The scrambled file could not be written");
+			}
+			Obfuscation::Header header;
+			Require(Obfuscation::Peek(path, header) && header.KeyFingerprint == key.Fingerprint() && fs::file_size(path) == Obfuscation::HeaderSize + 12 + plain.size(),
+					"The scrambled file has the wrong header or size");
+			{
+				std::ifstream raw(path, std::ios::binary);
+				std::vector<char> bytes(fs::file_size(path));
+				raw.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+				const std::string_view view(bytes.data(), bytes.size());
+				Require(view.find(std::string_view(reinterpret_cast<const char*>(plain.data()) + 100, 64)) == std::string_view::npos,
+						"The scrambled file holds readable bytes");
+			}
+			Obfuscation::SetActiveKey(key);
+			{
+				FileStreamReader reader(path);
+				uint32_t magic = 0;
+				uint64_t patched = 0;
+				std::vector<uint8_t> back(plain.size());
+				Require(reader.IsStreamGood() && reader.GetStreamSize() == 12 + plain.size(), "The scrambled file does not read as its original size");
+				reader.ReadData(reinterpret_cast<char*>(&magic), 4);
+				reader.ReadData(reinterpret_cast<char*>(&patched), 8);
+				reader.SetStreamPosition(12 + 5000);
+				reader.ReadData(reinterpret_cast<char*>(back.data()), 1000);
+				Require(magic == 0xC0FFEE && patched == 0x1122334455667788ull && std::equal(back.begin(), back.begin() + 1000, plain.begin() + 5000),
+						"The scrambled file did not read back what was written");
+			}
+			Obfuscation::SetActiveKey(Obfuscation::Key::Generate());
+			{
+				FileStreamReader wrongKey(path);
+				Require(!wrongKey.IsStreamGood(), "A scrambled file opened with the wrong key");
+			}
+			Obfuscation::ClearActiveKey();
+			{
+				FileStreamReader noKey(path);
+				Require(!noKey.IsStreamGood(), "A scrambled file opened with no key");
+			}
+			{
+				const fs::path plainPath = fs::temp_directory_path() / "lux-obfuscation-selftest-plain.bin";
+				{ FileStreamWriter writer(plainPath); writer.WriteRaw<uint32_t>(42); }
+				{
+					FileStreamReader reader(plainPath);
+					uint32_t value = 0;
+					reader.ReadData(reinterpret_cast<char*>(&value), 4);
+					Require(reader.IsStreamGood() && value == 42, "A plain file no longer reads as before");
+				}
+				fs::remove(plainPath, ec);
+			}
+			fs::remove(path, ec);
+
+			// The key block: found once by its magic and read back as the key it was patched with.
+			std::vector<uint8_t> blockInit = { LUX_OBFUSCATION_KEY_BLOCK_INIT };
+			Require(blockInit.size() == Obfuscation::KeyBlockSize && std::memcmp(blockInit.data(), Obfuscation::KeyBlockMagic, 16) == 0
+						&& std::memcmp(blockInit.data() + 16, Obfuscation::KeyBlockUnpatched, 16) == 0,
+					"The key block initializer disagrees with the magic");
+			Require(!Obfuscation::ReadKeyBlock(blockInit.data()), "An unpatched key block read as patched");
+			const fs::path exe = fs::temp_directory_path() / "lux-obfuscation-selftest.exe";
+			{
+				std::ofstream out(exe, std::ios::binary);
+				const std::string filler(5000, 'x');
+				out << filler;
+				out.write(reinterpret_cast<const char*>(blockInit.data()), static_cast<std::streamsize>(blockInit.size()));
+				out << filler;
+			}
+			std::string error;
+			Require(Obfuscation::PatchExecutable(exe, key, error), error.c_str());
+			{
+				std::ifstream in(exe, std::ios::binary);
+				std::vector<uint8_t> bytes(fs::file_size(exe));
+				in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+				const auto patched = Obfuscation::ReadKeyBlock(bytes.data() + 5000);
+				Require(patched && *patched == key && fs::file_size(exe) == 10000 + Obfuscation::KeyBlockSize, "The patched key block does not read back");
+			}
+			{
+				std::ofstream out(exe, std::ios::binary | std::ios::trunc);
+				out << "no key block here";
+			}
+			Require(!Obfuscation::PatchExecutable(exe, key, error), "Patching an executable with no key block succeeded");
+			fs::remove(exe, ec);
 		}
 		void Frame(EditorPanel& panel, float width, float height = 720.0f, const char* name = "Help")
 		{
@@ -769,6 +880,7 @@ namespace Lux
 		try
 		{
 			CheckExportPackaging();
+			CheckObfuscation();
 			RuntimeExport::RuntimeBuildJob job;
 			ProjectSettingsWindow panel(job);
 			auto project = Project::GetActive();

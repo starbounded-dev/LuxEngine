@@ -22,6 +22,9 @@ The same settings appear in **Project Settings → Runtime Export** and in the e
 | **Fullscreen** | Opens the game fullscreen instead of in a window. |
 | **VSync** | Waits for the display's refresh, which avoids tearing and caps the frame rate. |
 | **Icon** | An optional PNG or JPEG. It is the game window's icon and, on Windows, the executable's icon in Explorer and the task bar. A square image at least 256 × 256 looks best. |
+| **Splash** | An optional PNG or JPEG shown in its own window while the game starts (Windows). It closes as soon as the game draws. |
+| **Start Scene** | The scene the game opens first (the same setting as Project Settings → Startup Scene). |
+| **Obfuscate Exported Game** | Scrambles the asset pack, the shader pack and the project file inside the export, so they cannot be opened in an image viewer, a text editor or a bulk scraper. It stops casual copying and scraping. It is not encryption: the key is stored inside the game, so a determined person can undo it. A game's C# code is inside the scrambled pack, but a copy of it is written to the temporary folder while the game runs. |
 | **Target Config** | **Debug** keeps every check and is slow; **Release** is optimized and still carries debugging aids; **Dist** is the build to ship, without debugging files (`.pdb`). The zip ships only the **Dist** player, so an export from it always uses **Dist**. |
 
 The **Export Preflight** list shows what the export needs and whether it is there: the startup scene, the player executable for the chosen Target Config, the asset pack (created during export), the engine resources, the compiled scripts (**stale** means the scripts changed since they were built) and the .NET runtime.
@@ -30,9 +33,9 @@ Every Sound, Sound Bank and audio clip goes into the asset pack. The export chec
 
 ## Export
 
-Choose **File → Export Runtime…**, check the game name and output folder, and start the export. The editor builds whatever is missing, then writes the package while it shows the progress. You can cancel while it is still building.
+Choose **File → Export Runtime…**, check the settings, and click **Export...** to pick the output folder. **Export and Run** exports the same way and then starts the game. The editor builds whatever is missing, then writes the package while it shows the progress. You can cancel while it is still building.
 
-The game is written to a folder named `<Game>-<Platform>`. The editor only replaces a folder it exported before; it never overwrites another folder with that name. Copy the folder anywhere and run the executable inside it. It finds its files whichever folder it is started from, so a shortcut or a launcher works.
+The game is written to a folder named `<Game>-<Platform>`: the executable (named after the game), the libraries it loads, and one `Data` folder holding the game's assets, engine resources, scripts and logs. The editor only replaces a folder it exported before; it never overwrites another folder with that name. Copy the folder anywhere and run the executable inside it. It finds its files whichever folder it is started from, so a shortcut or a launcher works.
 
 ## What players need
 

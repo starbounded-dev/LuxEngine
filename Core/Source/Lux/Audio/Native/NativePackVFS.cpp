@@ -4,9 +4,11 @@
 #include "lpch.h"
 #include "NativeInternal.h"
 #include "Miniaudio.h"
+#include "Lux/Serialization/Obfuscation.h"
 
 #include <cstdio>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 // The resource manager's file system: "luxpack/<handle><ext>" names a clip inside the asset pack, read
@@ -21,6 +23,9 @@ namespace Lux
 			std::filesystem::path Pack;
 			uint64_t Offset = 0, Size = 0;
 			double Seconds = 0.0;
+			// Where the pack's own bytes start in the file: Obfuscation::HeaderSize for a scrambled pack, else 0.
+			// Offset is in the pack's own bytes, as the index recorded it.
+			uint64_t DataStart = 0;
 		};
 
 		struct OpenFile
@@ -28,6 +33,8 @@ namespace Lux
 			FILE* Pack = nullptr;        // a clip inside a pack
 			ma_vfs_file Loose = nullptr; // or a loose file, opened by the default VFS
 			uint64_t Offset = 0, Size = 0, Position = 0;
+			uint64_t DataStart = 0;
+			std::optional<Obfuscation::Key> Key; // set when the pack is scrambled
 		};
 
 		struct PackVFS
@@ -46,9 +53,9 @@ namespace Lux
 		bool Seek(OpenFile& file)
 		{
 #ifdef LUX_PLATFORM_WINDOWS
-			return _fseeki64(file.Pack, static_cast<int64_t>(file.Offset + file.Position), SEEK_SET) == 0;
+			return _fseeki64(file.Pack, static_cast<int64_t>(file.DataStart + file.Offset + file.Position), SEEK_SET) == 0;
 #else
-			return fseeko(file.Pack, static_cast<off_t>(file.Offset + file.Position), SEEK_SET) == 0;
+			return fseeko(file.Pack, static_cast<off_t>(file.DataStart + file.Offset + file.Position), SEEK_SET) == 0;
 #endif
 		}
 
@@ -71,7 +78,18 @@ namespace Lux
 #endif
 			if (!pack)
 				return MA_DOES_NOT_EXIST;
-			auto* file = new OpenFile{ pack, nullptr, entry.Offset, entry.Size, 0 };
+			auto* file = new OpenFile{ pack, nullptr, entry.Offset, entry.Size, 0, entry.DataStart, std::nullopt };
+			if (entry.DataStart)
+			{
+				// A scrambled pack streams through the key in use, which must be the one it was written with.
+				file->Key = Obfuscation::GetActiveKey();
+				if (!file->Key)
+				{
+					fclose(pack);
+					delete file;
+					return MA_ACCESS_DENIED;
+				}
+			}
 			if (!Seek(*file))
 			{
 				fclose(pack);
@@ -126,6 +144,8 @@ namespace Lux
 			// Never past the clip's end: what follows in the pack is another asset.
 			const size_t wanted = static_cast<size_t>(std::min<uint64_t>(bytes, file->Size - file->Position));
 			const size_t read = wanted ? fread(destination, 1, wanted, file->Pack) : 0;
+			if (read && file->Key)
+				Obfuscation::Apply(*file->Key, file->Offset + file->Position, destination, read);
 			file->Position += read;
 			if (outRead)
 				*outRead = read;
@@ -190,7 +210,7 @@ namespace Lux
 			std::scoped_lock lock(s_EntriesMutex);
 			if (s_Entries.contains(key))
 				return true;
-			s_Entries[key] = { pack, offset, size };
+			s_Entries[key] = { pack, offset, size, 0.0, Obfuscation::DataStart(pack) };
 		}
 		// Measured once, through the VFS: a packed clip has no file for AudioFileUtils to read. Bad bytes
 		// fail here, so the clip is refused before anything plays it.

@@ -88,6 +88,9 @@ namespace Lux::RuntimeExport {
 	// any preview; empty if none.
 	std::filesystem::path FindNewestVersionDirectory(const std::filesystem::path& directory, uint32_t minimumMajor);
 
+	// Starts an exported game as its own process, detached from the editor. False when it could not be started.
+	bool LaunchExportedGame(const std::filesystem::path& executable);
+
 	std::filesystem::path ResolveScriptProjectFile(Ref<Project> project);
 	bool IsScriptModuleOutdated(const std::filesystem::path& scriptModule, const std::filesystem::path& scriptProject);
 

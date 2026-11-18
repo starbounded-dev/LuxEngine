@@ -60,6 +60,7 @@ namespace Lux
 		std::filesystem::path m_ProjectPath;
 		std::filesystem::path m_AudioVerificationPath;
 		uint32_t m_AudioVerificationFrames = 0;
+		uint32_t m_FramesSinceStart = 0;
 
 		Ref<Project> m_RuntimeProject;
 		Ref<Scene> m_RuntimeScene;

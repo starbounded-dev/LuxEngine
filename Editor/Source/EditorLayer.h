@@ -117,7 +117,7 @@ namespace Lux
 		// Export... in the export window. It starts m_PendingRuntimeExport: a Lux-Runtime or script
 		// build on m_RuntimeBuildJob when one is stale, then the writing steps, one per frame from
 		// UpdateRuntimeBuild, while UI_RuntimeExportProgress locks the editor.
-		void ExportRuntimeNow(const std::filesystem::path& targetFolder = {});
+		void ExportRuntimeNow(const std::filesystem::path& targetFolder = {}, bool runWhenDone = false);
 		bool ValidateRuntimeExportAudio(const Ref<Project>& project);
 		enum class RuntimeExportStep : uint8_t
 		{
@@ -410,6 +410,8 @@ namespace Lux
 			// False while its build runs. Then one RuntimeExportStep per frame, so the overlay redraws.
 			bool Writing = false;
 			bool OpenFolderWhenDone = true;
+			// "Export and Run": start the exported game when the export finishes.
+			bool RunWhenDone = false;
 			uint32_t NextStep = 0;
 			// Resolved by RuntimeExportStep::Prepare for the steps after it.
 			std::filesystem::path RuntimeExe;

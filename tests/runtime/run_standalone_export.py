@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export from the release zip, with no source tree (docs/FEATURE_CATALOG_2027.md M6).
 
-Builds the layout of the release zip in a temp folder outside the repository (the Release editor, its
+Builds the layout of the release zip in a temp folder outside the repository (the Dist editor, its
 Resources and DotNet folders, and the prebuilt Dist player under Runtime/Dist, staged by
 scripts/ci/StageRuntime.py), so the editor finds no premake5.lua above it and cannot build anything.
 Then it exports the Play test project (tests/play) with that editor and runs the packaged game.
@@ -13,12 +13,12 @@ Checks:
     debug files or shader sources;
   * a game with scripts ships its own .NET runtime under DotNet/Runtime, and the running player uses
     it: coreclr.dll and System.Private.CoreLib.dll are loaded from there;
-  * the executable carries the game's name, version and icon (Windows);
+  * the executable carries the game's name, version and icon, and the game shows its splash while it loads (Windows);
   * the player started from another working directory finds its files and passes every Play check.
 
-    python tests/runtime/run_standalone_export.py [--editor-config release] [--keep]
+    python tests/runtime/run_standalone_export.py [--editor-config dist] [--keep]
 
-Needs a built Release editor and Dist Lux-Runtime, the .NET 10 SDK and a GPU with a desktop session.
+Needs a built Dist editor and Dist Lux-Runtime, the .NET 10 SDK and a GPU with a desktop session.
 Windows only for now. Never touches the sample project or your preferences.
 """
 import argparse
@@ -62,11 +62,48 @@ def stage_install(install, editor_config, runtime_config):
         require(not (parent / "premake5.lua").exists(), f"{parent} looks like a source tree; stage elsewhere")
 
 
+def obfuscate_project(project):
+    """Turns on Obfuscate Exported Game; the first export makes and keeps the key."""
+    path = project / "PlayTest.luxproj"
+    text = path.read_text(encoding="utf-8")
+    anchor = "  RuntimeExport:" + chr(10)
+    require(anchor in text, "could not find the project's export settings")
+    path.write_text(text.replace(anchor, "  Obfuscation:" + chr(10) + "    Exports: true" + chr(10) + anchor, 1), encoding="utf-8")
+
+
+def check_obfuscation(package, executable, project, obfuscated):
+    """An obfuscated export holds no readable pack, shader pack or project file; a plain one is unchanged."""
+    files = {"AssetPack.lap": b"LZAP", "ShaderPack.lsp": b"LXSP", "Project.luxruntime": None}
+    for name, plain_magic in files.items():
+        data = (package / "Data/Assets" / name).read_bytes()
+        if obfuscated:
+            require(data[:4] == b"LXOB", f"{name} is not scrambled")
+            for needle in (b"This program cannot be run", b"PlayTest", b"RIFF", b"Scene:", b"ScriptComponent", b"glsl"):
+                require(needle not in data, f"the scrambled {name} holds readable '{needle.decode()}'")
+        else:
+            require(data[:4] != b"LXOB", f"{name} is scrambled in a plain export")
+            if plain_magic:
+                require(data[:4] == plain_magic, f"{name} no longer starts with {plain_magic!r}")
+    exe = executable.read_bytes()
+    block = exe.find(b"LUXOBFKEYBLOCK01")
+    require(block >= 0 and exe.find(b"LUXOBFKEYBLOCK01", block + 1) < 0, "the player has no single key block")
+    patched = exe[block + 16:block + 32] == b"patched---KEY-ok"
+    require(patched == obfuscated, "the key block is " + ("unpatched" if obfuscated else "patched") + " in a " + ("obfuscated" if obfuscated else "plain") + " export")
+    if obfuscated:
+        project_text = (project / "PlayTest.luxproj").read_text(encoding="utf-8")
+        key = project_text.split("Key:", 1)[1].split()[0] if "Key:" in project_text else ""
+        require(len(key) == 64, "the project did not keep the key it generated")
+        require(bytes.fromhex(key) == exe[block + 32:block + 64], "the key in the executable is not the project's key")
+        for path in (package / "Data").rglob("*"):
+            if path.is_file() and path.suffix in (".lap", ".lsp", ".luxruntime"):
+                require(path.read_bytes()[:4] == b"LXOB", f"{path.name} shipped plain")
+
+
 def brand_project(project):
     """The settings a game maker would set: a name, a version and an icon (the non-square test sprite)."""
     path = project / "PlayTest.luxproj"
     text = path.read_text(encoding="utf-8")
-    text = text.replace("    GameName: PlayTest\n", f"    GameName: {GAME_NAME}\n    Version: {GAME_VERSION}\n    IconPath: Sprites/Blink.png\n")
+    text = text.replace("    GameName: PlayTest\n", f"    GameName: {GAME_NAME}\n    Version: {GAME_VERSION}\n    IconPath: Sprites/Blink.png\n    SplashPath: Sprites/Blink.png\n")
     require(GAME_VERSION in text, "could not brand the test project")
     path.write_text(text, encoding="utf-8")
 
@@ -87,18 +124,54 @@ def run_export(install, project, root, timeout):
         "LUX_GOLDEN_FRAME": "2", "LUX_GOLDEN_PERF_FRAMES": "1", "LUX_GOLDEN_PERF_WARMUP": "0",
         "LUX_GOLDEN_OPTIONS": "", "LUX_GOLDEN_SELFTEST": "0", "LUX_GOLDEN_PLAY": "0",
         "LUX_GOLDEN_EXPORT_DIR": str(export_dir),
+        "LUX_GOLDEN_EXPORT_RUN": "1",  # Export and Run: the editor starts the game when the export finishes
     })
     log = root / "editor.log"
     with log.open("w", encoding="utf-8") as stream:
         result = subprocess.run([str(install / "Editor.exe")], cwd=install, env=env, stdout=stream,
                                 stderr=subprocess.STDOUT, timeout=timeout)
     text = log.read_text(encoding="utf-8", errors="replace")
+    # A Dist editor has no console sink: its engine log is in the user folder.
+    for session_log in sorted((user / "logs").glob("*.log")):
+        text += session_log.read_text(encoding="utf-8", errors="replace")
     status = golden / "PlayTest.status"
     require(status.is_file() and status.read_text(encoding="utf-8").startswith("OK"),
             f"the staged editor did not finish the export (exit {result.returncode}); see {log}")
     metadata = (golden / "PlayTest.export.yaml").read_text(encoding="utf-8")
     fields = dict(line.split(": ", 1) for line in metadata.splitlines() if ": " in line)
     return (Path(fields["Root"].strip().strip("'\"")), Path(fields["Executable"].strip().strip("'\"")), text)
+
+
+def check_dist_contents(package, executable):
+    """RT9: a Dist export holds no editor code, Tracy, Aftermath or debug console."""
+    banned_libraries = ("gfsdk", "llvm_", "tracy", "assimp", "shaderc", "dxcompiler", "imgui")
+    for path in package.rglob("*"):
+        require(not path.name.lower().startswith(banned_libraries) or path.suffix.lower() != ".dll", f"an editor-only library shipped: {path.relative_to(package)}")
+    for name in ("Docs", "Templates"):
+        require(not (package / "Data/Resources" / name).exists(), f"the editor's {name} folder shipped in Resources")
+    data = executable.read_bytes()
+    for needle in (b"tracy", b"gfsdk", b"assimp-vc", b"shaderc", b"editorlayer", b"scenehierarchypanel", b"contentbrowserpanel", b"allocconsole"):
+        require(needle not in data.lower(), f"the player executable contains '{needle.decode()}'")
+    # No console window: the PE subsystem is Windows GUI (2), not Console (3).
+    pe = int.from_bytes(data[0x3C:0x40], "little")
+    require(data[pe:pe + 4] == b"PE\x00\x00", "not a PE executable")
+    subsystem = int.from_bytes(data[pe + 24 + 68:pe + 24 + 70], "little")
+    require(subsystem == 2, f"the player's subsystem is {subsystem}, not Windows GUI (a console window would show)")
+
+
+def check_export_and_run(package, executable):
+    """Export and Run started the game: it is running and wrote its log beside itself. Stops it."""
+    deadline = time.time() + 60
+    started = False
+    while time.time() < deadline and not started:
+        listing = subprocess.run(["tasklist", "/fi", f"imagename eq {executable.name}", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
+        started = executable.name.lower() in listing.lower()
+        if not started:
+            time.sleep(0.5)
+    require(started, "Export and Run did not start the exported game")
+    subprocess.run(["taskkill", "/f", "/im", executable.name], capture_output=True)
+    time.sleep(1)
+    shutil.rmtree(package / "Data/logs", ignore_errors=True)  # the Play checks below judge their own run's log
 
 
 def check_package(package, executable, editor_log):
@@ -195,6 +268,20 @@ def run_player(package, executable, root, bundled_runtime):
     stdout = (root / "player.stdout.log").open("w", encoding="utf-8")
     process = subprocess.Popen([str(executable)], cwd=elsewhere, env=env, stdout=stdout, stderr=subprocess.STDOUT)
     modules = []
+    # The splash window (Project Settings > Splash): up while the game loads, gone once it draws.
+    user32 = ctypes.WinDLL("user32")
+    user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+    user32.FindWindowW.restype = ctypes.c_void_p
+    splash_seen = False
+    deadline = time.time() + 60
+    while time.time() < deadline and process.poll() is None and not splash_seen:
+        splash_seen = bool(user32.FindWindowW("LuxGameSplash", None))
+        time.sleep(0.02)
+    require(splash_seen, "the game never showed its splash window")
+    deadline = time.time() + 60
+    while time.time() < deadline and process.poll() is None and user32.FindWindowW("LuxGameSplash", None):
+        time.sleep(0.05)
+    require(process.poll() is not None or not user32.FindWindowW("LuxGameSplash", None), "the splash window never closed")
     try:
         deadline = time.time() + 120
         while time.time() < deadline and process.poll() is None:
@@ -236,9 +323,10 @@ def run_player(package, executable, root, bundled_runtime):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--editor-config", default="release", choices=["debug", "release"])
+    parser.add_argument("--editor-config", default="dist", choices=["debug", "release", "dist"])
     parser.add_argument("--runtime-config", default="dist", choices=["debug", "release", "dist"])
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--obfuscate", action="store_true", help="turn on Obfuscate Exported Game and check nothing readable ships")
     parser.add_argument("--keep", action="store_true", help="keep the staged install and export for inspection")
     args = parser.parse_args()
     if os.name != "nt":
@@ -253,12 +341,17 @@ def main():
         run_play.write_project(project, None, "release")  # asks for Release; the install ships Dist
         run_play.build_scripts(project, root)
         brand_project(project)
+        if args.obfuscate:
+            obfuscate_project(project)
         package, executable, editor_log = run_export(install, project, root, args.timeout)
         print("Exported", package, flush=True)
+        check_export_and_run(package, executable)
+        check_dist_contents(package, executable)
         runtime_folder = check_package(package, executable, editor_log)
+        check_obfuscation(package, executable, project, args.obfuscate)
         check_brand(executable)
         passed = run_player(package, executable, root, runtime_folder)
-        print(f"PASS: exported with no source tree, bundled {runtime_folder.name}, branded the executable, {passed} Play checks passed", flush=True)
+        print(f"PASS: exported with no source tree, bundled {runtime_folder.name}, branded the executable, {'scrambled' if args.obfuscate else 'plain'} packs, {passed} Play checks passed", flush=True)
     except Exception:
         print("Evidence kept in", root, flush=True)
         raise

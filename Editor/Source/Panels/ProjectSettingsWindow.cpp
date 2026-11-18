@@ -705,6 +705,9 @@ namespace Lux {
 			m_Dirty = true;
 		if (ImGuiEx::Property("VSync", runtime.VSync))
 			m_Dirty = true;
+		if (ImGuiEx::Property("Obfuscate Exported Game", m_Project->GetConfig().Obfuscation.Exports,
+							  "Scrambles the asset pack, the shader pack and the project file in an export, so they cannot be opened in a viewer or text editor. Stops casual copying; it is not encryption, because the key travels with the game."))
+			m_Dirty = true;
 
 		AssetHandle icon = runtime.IconHandle;
 		ImGuiEx::PropertyAssetReferenceSettings iconSettings;
@@ -713,6 +716,23 @@ namespace Lux {
 		{
 			m_RuntimeIcon = icon;
 			syncRuntimeIconPath(icon);
+			m_Dirty = true;
+		}
+
+		AssetHandle splash = 0;
+		if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager(); editorAssetManager && !runtime.SplashPath.empty())
+			splash = editorAssetManager->GetAssetHandleFromFilePath(runtime.SplashPath);
+		ImGuiEx::PropertyAssetReferenceSettings splashSettings;
+		splashSettings.ShowFullFilePath = true;
+		if (ImGuiEx::PropertyAssetReference<Texture2D>("Splash", splash, "Optional PNG/JPG shown in its own window while the game starts (Windows).", nullptr, splashSettings))
+		{
+			runtime.SplashPath.clear();
+			if (Ref<EditorAssetManager> editorAssetManager = Project::GetEditorAssetManager(); editorAssetManager && splash)
+			{
+				const AssetMetadata metadata = editorAssetManager->GetMetadata(splash);
+				if (metadata.IsValid())
+					runtime.SplashPath = metadata.FilePath.generic_string();
+			}
 			m_Dirty = true;
 		}
 		ImGuiEx::EndPropertyGrid();

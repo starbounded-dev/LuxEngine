@@ -462,6 +462,21 @@ namespace Lux::RuntimeExport {
 		return true;
 	}
 
+	bool LaunchExportedGame(const std::filesystem::path& executable)
+	{
+		if (!FileExists(executable))
+			return false;
+#ifdef LUX_PLATFORM_LINUX
+		// Its own session and no terminal, so closing the editor does not end the game. QuoteShellArgument keeps
+		// a file name from running a command.
+		const std::string command = "setsid " + FileSystem::QuoteShellArgument(std::filesystem::absolute(executable)) + " >/dev/null 2>&1 &";
+		return std::system(command.c_str()) == 0;
+#else
+		// ShellExecute "open" runs the executable; the player sets its own working directory.
+		return FileSystem::OpenExternally(executable);
+#endif
+	}
+
 	std::filesystem::path ResolveScriptProjectFile(Ref<Project> project)
 	{
 		if (!project)

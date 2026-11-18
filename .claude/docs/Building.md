@@ -395,7 +395,7 @@ all Linux configurations using the generated Makefile.
 `scripts/Linux-RunRuntime.sh` starts the build-folder player; it does not export a game. Export
 from the editor first and launch the executable/launcher in the export folder, or pass that folder
 as `--project=/absolute/path/to/export` to the build-folder player. An unexported build folder has no
-`Assets/Project.luxruntime` or `AssetPack.lap` to load.
+`Data/Assets/Project.luxruntime` or `AssetPack.lap` to load.
 
 ### Linux: `NFD-Extended` fails to configure
 
@@ -456,7 +456,7 @@ the native audio CMake suite in Debug and Release, with no engine build, so a te
 skips or hides a build), **Build** (`build`, `build-linux`: compile, artifact verification, and on
 Linux the Debug/Debug-AS audio integration checks in `tests/audio/run.py`, which need the
 generated Core Makefile), **Package** (the `Package:` steps of the Release and Dist builds, then
-`package-windows` / `package-linux`, which zip the Release editor package together with the prebuilt Dist
+`package-windows` / `package-linux`, which zip the Dist editor package together with the prebuilt Dist
 player staged by `scripts/ci/StageRuntime.py` under `Runtime/Dist/`: that player is what an installed editor
 exports with, because the zip has no source tree to build one from) and **Ship**
 (`release`, dev pushes only, gated on every Test, Build and Package job). `Diagnose` is the manual Linux
@@ -464,10 +464,13 @@ Vulkan probe. Linux travels as tar files between those jobs, because artifacts d
 must keep the executable bit and the `lib/` symlinks.
 
 `python tests/runtime/run_standalone_export.py` reproduces the zip's layout in a temp folder outside the
-repository (Release editor, `Resources`, `DotNet`, `Runtime/Dist`), exports the Play test project with it,
+repository (Dist editor, `Resources`, `DotNet`, `Runtime/Dist`), exports the Play test project with it,
 and checks the package (no editor-only libraries, bundled .NET 10 runtime loaded by the running player,
 executable name, version and icon, every Play check in the player started from another working directory).
-It needs a built Release editor and Dist `Lux-Runtime`, a GPU and a desktop session; Windows only for now.
+It needs a built Dist editor and Dist `Lux-Runtime`, a GPU and a desktop session; Windows only for now.
+`--obfuscate` turns on **Obfuscate Exported Game** and checks that no readable pack ships and that the
+packaged game plays from the scrambled files; `tests/audio/run_scene_acoustics.py --export-runtime --obfuscate`
+does the same for streamed audio.
 
 
 The Linux VM (901) boots a live dashboard in both the regular Proxmox console and serial console.
