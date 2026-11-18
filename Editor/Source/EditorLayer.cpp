@@ -5216,6 +5216,12 @@ namespace Lux {
 				const std::filesystem::path libDir = exportRoot / "lib";
 				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })
 				{
+					// A player with no vendored libraries (the Dist player) has no lib/ at all.
+					if (!std::filesystem::is_directory(sourceDirectory, ec))
+					{
+						ec.clear();
+						continue;
+					}
 					for (std::filesystem::directory_iterator it(sourceDirectory, ec), end; !ec && it != end; it.increment(ec))
 					{
 						const bool regularFile = it->is_regular_file(ec);

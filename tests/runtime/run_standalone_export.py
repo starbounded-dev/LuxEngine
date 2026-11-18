@@ -19,7 +19,7 @@ Checks:
     python tests/runtime/run_standalone_export.py [--editor-config dist] [--keep]
 
 Needs a built Dist editor and Dist Lux-Runtime, the .NET 10 SDK and a GPU with a desktop session.
-Windows only for now. Never touches the sample project or your preferences.
+Windows and Linux; the executable name, version, icon and splash checks are Windows only. Never touches the sample project or your preferences.
 """
 import argparse
 import ctypes
@@ -38,6 +38,10 @@ sys.path.insert(0, str(ROOT / "tests/editor"))
 import run_play  # noqa: E402
 from native_checks import require_clean_graphics_log  # noqa: E402
 
+IS_WINDOWS = os.name == "nt"
+PLATFORM = "windows" if IS_WINDOWS else "linux"
+EDITOR_FILE = "Editor.exe" if IS_WINDOWS else "Editor"
+GAME_FILE = "Standalone_Check.exe" if IS_WINDOWS else "Standalone_Check"
 GAME_NAME = "Standalone Check"
 GAME_VERSION = "3.1.4"
 PLAYER_SECONDS = 600
@@ -48,14 +52,32 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def bundle_linux_libraries(install):
+    """What the Linux package step in main.yml does: the vendored shared libraries the editor resolves, in lib/
+    (its RPATH is $ORIGIN/lib), so the install runs with no LD_LIBRARY_PATH."""
+    vendor = [ROOT / "Core/vendor/assimp/bin/linux", ROOT / "Core/vendor/NvidiaAftermath/lib/x64/linux", ROOT / "Core/vendor/VulkanSDK/x86_64/lib"]
+    vendor = [path.resolve() for path in vendor if path.is_dir()]
+    env = dict(os.environ, LD_LIBRARY_PATH=":".join(str(path) for path in vendor))
+    listing = subprocess.run(["ldd", str(install / EDITOR_FILE)], capture_output=True, text=True, env=env, check=True).stdout
+    (install / "lib").mkdir(exist_ok=True)
+    for line in listing.splitlines():
+        parts = line.split()
+        if "=>" in parts and parts[parts.index("=>") + 1].startswith("/"):
+            library = Path(parts[parts.index("=>") + 1]).resolve()
+            if any(library.is_relative_to(path) for path in vendor) and library.name != "libvulkan.so.1":
+                shutil.copy2(library, install / "lib" / Path(parts[0]).name)
+
+
 def stage_install(install, editor_config, runtime_config):
     """The release zip's layout: the editor build output, Resources, DotNet and Runtime/<Config>."""
-    editor_out = ROOT / "bin" / f"{editor_config.capitalize()}-windows-x86_64" / "Editor"
-    require((editor_out / "Editor.exe").is_file(), f"No editor at {editor_out}; build it first")
-    shutil.copytree(editor_out, install, ignore=shutil.ignore_patterns("*.pdb"))
+    editor_out = ROOT / "bin" / f"{editor_config.capitalize()}-{PLATFORM}-x86_64" / "Editor"
+    require((editor_out / EDITOR_FILE).is_file(), f"No editor at {editor_out}; build it first")
+    shutil.copytree(editor_out, install, ignore=shutil.ignore_patterns("*.pdb"), symlinks=True)
+    if not IS_WINDOWS:
+        bundle_linux_libraries(install)
     for folder in ("Resources", "DotNet"):
         shutil.copytree(ROOT / "Editor" / folder, install / folder, ignore=shutil.ignore_patterns("Intermediates", "*.pdb"))
-    subprocess.run([sys.executable, str(ROOT / "scripts/ci/StageRuntime.py"), "--config", runtime_config.capitalize(),
+    subprocess.run([sys.executable, str(ROOT / "scripts/ci/StageRuntime.py"), "--config", runtime_config.capitalize(), "--platform", PLATFORM,
                     "--dest", str(install / "Runtime" / runtime_config.capitalize())], check=True, stdout=subprocess.DEVNULL)
     # Nothing above the install may look like a source checkout, or export would try to build.
     for parent in [install, *install.parents]:
@@ -128,7 +150,7 @@ def run_export(install, project, root, timeout):
     })
     log = root / "editor.log"
     with log.open("w", encoding="utf-8") as stream:
-        result = subprocess.run([str(install / "Editor.exe")], cwd=install, env=env, stdout=stream,
+        result = subprocess.run([str(install / EDITOR_FILE)], cwd=install, env=env, stdout=stream,
                                 stderr=subprocess.STDOUT, timeout=timeout)
     text = log.read_text(encoding="utf-8", errors="replace")
     # A Dist editor has no console sink: its engine log is in the user folder.
@@ -146,12 +168,16 @@ def check_dist_contents(package, executable):
     """RT9: a Dist export holds no editor code, Tracy, Aftermath or debug console."""
     banned_libraries = ("gfsdk", "llvm_", "tracy", "assimp", "shaderc", "dxcompiler", "imgui")
     for path in package.rglob("*"):
-        require(not path.name.lower().startswith(banned_libraries) or path.suffix.lower() != ".dll", f"an editor-only library shipped: {path.relative_to(package)}")
+        name = path.name.lower().removeprefix("lib")
+        library = path.suffix.lower() == ".dll" or ".so" in path.name.lower()
+        require(not name.startswith(banned_libraries) or not library, f"an editor-only library shipped: {path.relative_to(package)}")
     for name in ("Docs", "Templates"):
         require(not (package / "Data/Resources" / name).exists(), f"the editor's {name} folder shipped in Resources")
     data = executable.read_bytes()
     for needle in (b"tracy", b"gfsdk", b"assimp-vc", b"shaderc", b"editorlayer", b"scenehierarchypanel", b"contentbrowserpanel", b"allocconsole"):
         require(needle not in data.lower(), f"the player executable contains '{needle.decode()}'")
+    if not IS_WINDOWS:
+        return
     # No console window: the PE subsystem is Windows GUI (2), not Console (3).
     pe = int.from_bytes(data[0x3C:0x40], "little")
     require(data[pe:pe + 4] == b"PE\x00\x00", "not a PE executable")
@@ -164,12 +190,18 @@ def check_export_and_run(package, executable):
     deadline = time.time() + 60
     started = False
     while time.time() < deadline and not started:
-        listing = subprocess.run(["tasklist", "/fi", f"imagename eq {executable.name}", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
-        started = executable.name.lower() in listing.lower()
+        if IS_WINDOWS:
+            listing = subprocess.run(["tasklist", "/fi", f"imagename eq {executable.name}", "/fo", "csv", "/nh"], capture_output=True, text=True).stdout
+            started = executable.name.lower() in listing.lower()
+        else:
+            started = subprocess.run(["pgrep", "-f", str(executable)], capture_output=True).returncode == 0
         if not started:
             time.sleep(0.5)
     require(started, "Export and Run did not start the exported game")
-    subprocess.run(["taskkill", "/f", "/im", executable.name], capture_output=True)
+    if IS_WINDOWS:
+        subprocess.run(["taskkill", "/f", "/im", executable.name], capture_output=True)
+    else:
+        subprocess.run(["pkill", "-9", "-f", str(executable)], capture_output=True)
     time.sleep(1)
     shutil.rmtree(package / "Data/logs", ignore_errors=True)  # the Play checks below judge their own run's log
 
@@ -177,7 +209,7 @@ def check_export_and_run(package, executable):
 def check_package(package, executable, editor_log):
     require("exporting with the Dist player this install ships" in editor_log,
             "the export did not fall back to the shipped Dist player (is the project asking for Release?)")
-    require(executable.name == "Standalone_Check.exe", f"the executable is {executable.name}, not the game's name")
+    require(executable.name == GAME_FILE, f"the executable is {executable.name}, not the game's name")
     run_play.check_export_contents(package, "dist")
     for name in ("Data/Assets/Project.luxruntime", "Data/Assets/AssetPack.lap", "Data/Assets/ShaderPack.lsp", "Data/DotNet/Coral.Managed.dll"):
         require((package / name).is_file(), f"missing from the package: {name}")
@@ -185,15 +217,23 @@ def check_package(package, executable, editor_log):
         require(path.suffix.lower() != ".pdb", f"a debug file shipped: {path.relative_to(package)}")
     # The lean layout: the executable, the libraries it loads, and one Data folder.
     entries = sorted(path.name for path in package.iterdir())
-    require(entries == ["Data", "Standalone_Check.exe", "nethost.dll"], f"the package top level is {entries}, expected the executable, nethost.dll and Data")
-    hostfxr = list((package / "Data/DotNet/Runtime/host/fxr").glob("*/hostfxr.dll"))
+    # Linux also has the launcher and desktop entry, and lib/ when the player loads vendored libraries.
+    expected = ["Data", GAME_FILE, "nethost.dll"] if IS_WINDOWS else ["Data", GAME_FILE, "Standalone_Check.desktop", "run-Standalone_Check.sh"] + (["lib"] if (package / "lib").exists() else [])
+    require(entries == sorted(expected), f"the package top level is {entries}, expected {sorted(expected)}")
+    hostfxr = list((package / "Data/DotNet/Runtime/host/fxr").glob("*/*hostfxr*"))
     corelib = list((package / "Data/DotNet/Runtime/shared/Microsoft.NETCore.App").glob("*/System.Private.CoreLib.dll"))
     require(hostfxr and corelib, "the game has scripts but ships no .NET runtime under DotNet/Runtime")
     return corelib[0].parent
 
 
 def loaded_modules(pid):
-    """Paths of the DLLs a process has loaded, through PowerShell (no extra Python packages)."""
+    """Paths of the libraries a process has loaded: PowerShell on Windows, /proc/<pid>/maps on Linux."""
+    if not IS_WINDOWS:
+        try:
+            lines = Path(f"/proc/{pid}/maps").read_text().splitlines()
+        except OSError:
+            return []
+        return [Path(line.split(None, 5)[5]) for line in lines if len(line.split(None, 5)) == 6 and line.split(None, 5)[5].startswith("/")]
     script = f"(Get-Process -Id {pid}).Modules | ForEach-Object {{ $_.FileName }}"
     output = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True)
     return [Path(line.strip()) for line in output.stdout.splitlines() if line.strip()]
@@ -268,7 +308,34 @@ def run_player(package, executable, root, bundled_runtime):
     stdout = (root / "player.stdout.log").open("w", encoding="utf-8")
     process = subprocess.Popen([str(executable)], cwd=elsewhere, env=env, stdout=stdout, stderr=subprocess.STDOUT)
     modules = []
-    # The splash window (Project Settings > Splash): up while the game loads, gone once it draws.
+    if IS_WINDOWS:
+        check_splash(process)
+    core_names = ("coreclr.dll", "system.private.corelib.dll") if IS_WINDOWS else ("libcoreclr.so", "system.private.corelib.dll")
+    try:
+        deadline = time.time() + 120
+        while time.time() < deadline and process.poll() is None:
+            modules = loaded_modules(process.pid)
+            if all(any(path.name.lower() == name for path in modules) for name in core_names):
+                break
+            time.sleep(0.5)
+        process.wait(timeout=PLAYER_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        raise RuntimeError("the player never finished its Play checks")
+    finally:
+        stdout.close()
+    require(process.returncode == 0, f"the player exited with {process.returncode}")
+
+    runtime_modules = {path.name.lower(): path for path in modules if path.name.lower() in core_names}
+    for name in core_names:
+        require(name in runtime_modules, f"the player never loaded {name} (did scripts start?)")
+        require(Path(os.path.normcase(runtime_modules[name])).is_relative_to(os.path.normcase(package / "Data/DotNet/Runtime")),
+                f"the player loaded {name} from {runtime_modules[name]}, not from its own DotNet/Runtime")
+    return finish_player(package, root, started)
+
+
+def check_splash(process):
+    """The splash window (Project Settings > Splash): up while the game loads, gone once it draws."""
     user32 = ctypes.WinDLL("user32")
     user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
     user32.FindWindowW.restype = ctypes.c_void_p
@@ -282,27 +349,10 @@ def run_player(package, executable, root, bundled_runtime):
     while time.time() < deadline and process.poll() is None and user32.FindWindowW("LuxGameSplash", None):
         time.sleep(0.05)
     require(process.poll() is not None or not user32.FindWindowW("LuxGameSplash", None), "the splash window never closed")
-    try:
-        deadline = time.time() + 120
-        while time.time() < deadline and process.poll() is None:
-            modules = loaded_modules(process.pid)
-            if any(path.name.lower() == "coreclr.dll" for path in modules) and any(path.name.lower() == "system.private.corelib.dll" for path in modules):
-                break
-            time.sleep(0.5)
-        process.wait(timeout=PLAYER_SECONDS)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        raise RuntimeError("the player never finished its Play checks")
-    finally:
-        stdout.close()
-    require(process.returncode == 0, f"the player exited with {process.returncode}")
 
-    runtime_modules = {path.name.lower(): path for path in modules if path.name.lower() in ("coreclr.dll", "system.private.corelib.dll", "hostfxr.dll")}
-    for name in ("coreclr.dll", "system.private.corelib.dll"):
-        require(name in runtime_modules, f"the player never loaded {name} (did scripts start?)")
-        require(Path(os.path.normcase(runtime_modules[name])).is_relative_to(os.path.normcase(package / "Data/DotNet/Runtime")),
-                f"the player loaded {name} from {runtime_modules[name]}, not from its own DotNet/Runtime")
 
+def finish_player(package, root, started):
+    """The player's own log beside the game: bundled .NET reported, every Play check passed, no graphics failures."""
     logs = sorted((package / "Data/logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
     require(logs and logs[-1].stat().st_mtime >= started - 2, "the player wrote no log beside the game")
     session = logs[-1].name[len("LUX_"):]
@@ -329,8 +379,6 @@ def main():
     parser.add_argument("--obfuscate", action="store_true", help="turn on Obfuscate Exported Game and check nothing readable ships")
     parser.add_argument("--keep", action="store_true", help="keep the staged install and export for inspection")
     args = parser.parse_args()
-    if os.name != "nt":
-        raise SystemExit("Windows only for now: Linux export-from-zip is verified by hand (docs/FEATURE_CATALOG_2027.md M12)")
 
     root = Path(tempfile.mkdtemp(prefix="lux-standalone-"))
     print("Working in", root, flush=True)
@@ -349,9 +397,10 @@ def main():
         check_dist_contents(package, executable)
         runtime_folder = check_package(package, executable, editor_log)
         check_obfuscation(package, executable, project, args.obfuscate)
-        check_brand(executable)
+        if IS_WINDOWS:
+            check_brand(executable)
         passed = run_player(package, executable, root, runtime_folder)
-        print(f"PASS: exported with no source tree, bundled {runtime_folder.name}, branded the executable, {'scrambled' if args.obfuscate else 'plain'} packs, {passed} Play checks passed", flush=True)
+        print(f"PASS: exported with no source tree, bundled {runtime_folder.name}, {'branded the executable, ' if IS_WINDOWS else ''}{'scrambled' if args.obfuscate else 'plain'} packs, {passed} Play checks passed", flush=True)
     except Exception:
         print("Evidence kept in", root, flush=True)
         raise
