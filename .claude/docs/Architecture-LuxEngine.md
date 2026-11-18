@@ -627,8 +627,10 @@ orchestrators.
 - `Scene::Copy` / `CopyTo` back play-mode duplication, scene open (the editor edits a copy of the
   scene asset, which `OpenScene` first refreshes with `AssetManager::EnsureCurrent`: a save writes only
   the file) and prefab edit mode; a component that isn't copied there silently vanishes on Play. Both keep
-  the source's entity order, and `SceneSerializer` writes entities in the hierarchy's (registry) order,
-  so open → save → reopen and Play → Stop keep the order the hierarchy shows.
+  the source's creation order (entity index; `Copy` sorts by it, not by view order), and `SceneSerializer` writes
+  entities as the reverse of `registry.each()` (which visits the newest first), the order `Deserialize` created
+  them in. A save is therefore byte-identical on a second save, and open → save → reopen and Play → Stop
+  keep the order of the file.
   They copy the `ScriptStorage` too, so script field values reach Play and survive open → save.
   Paths that copy a `ScriptComponent` to another UUID or scene (`DuplicateEntity`, prefab
   instantiation, `Prefab::Create`, `ReconcilePrefabComponents`) copy its values with
@@ -764,7 +766,8 @@ Rules:
   worker, never imports). The lookup functions in `AssetReference.cpp` bridge the serializer and the active
   project. Standalone native audio tests supply those lookups without an editor asset manager.
   `WriteValue` emits a path only inside an `AssetReference::PathModeScope`, which
-  `SceneSerializer::Serialize(filepath)` and the `.lsound`/`.lbank` file save open; snapshots, undo diffs,
+  `SceneSerializer::Serialize(filepath)`, the `.lsound`/`.lbank`/`.lanimgraph`/material/mesh/prefab file saves and
+  `ProjectSerializer::Serialize` open; snapshots, undo diffs,
   `SerializeRuntime` and asset packs stay numeric because the player has no path map. A path that names no
   registered asset keeps a stable hashed handle and is written back unchanged, so a save never erases a
   broken reference. Converted so far: scene mesh/material/collider refs, `AudioEventRef`, `SoundBanks`, script
@@ -954,7 +957,10 @@ Rules:
   `SyncWithAssetThread`, a runtime-pack reload. A cache that holds asset objects by handle compares it
   instead of looking every asset up each frame (`RenderScene` re-resolves its meshes when it moves).
   A new path that replaces a loaded asset must call `MarkDataChanged()`.
-- Opening the editor must not modify tracked project files. `AssetRegistry.lzr` stores only
+- Opening the editor must not modify tracked project files. `AssetRegistry.lzr` is a **rebuilt cache**: the
+  sample project's copy is not in git (a clean clone imports every file in about 6 s in Debug, measured on the
+  sample), every saved reference is a path, and anything that needs a handle for a sample asset takes it from the
+  loaded project, never from a committed registry. It stores only
   `Handle`, `FilePath`, and `Type`. `Status` and `FileLastWriteTime` stay in memory because they
   describe the current session. `ProcessDirectory` re-reads every timestamp at startup. The
   registry is written only when its content changes. A serializer that runs during load (mesh

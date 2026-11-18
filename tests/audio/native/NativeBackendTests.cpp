@@ -1596,7 +1596,7 @@ namespace
 		std::puts("PASS: voice budget: lowest priority virtual, silent while virtual, resumes in step, a one-shot that ran out has ended");
 	}
 
-	// The test host has no asset manager, so saved asset paths resolve through the sample's registry.
+	// The test host has no asset manager, so saved asset paths resolve through the lookup below.
 	const std::map<uint64_t, std::pair<std::string, std::string>>* s_SampleRegistry = nullptr;
 
 	AssetHandle FindSampleAssetByPath(const std::string& path)
@@ -1618,10 +1618,24 @@ namespace
 			std::ifstream in(path, std::ios::binary);
 			return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 		};
-		const auto registry = Yaml::Load(readText(assets / "AssetRegistry.lzr"));
+		// The registry is a rebuilt cache and is not in git, so give every audio file a handle hashed from its
+		// Assets-relative path: the saved path references resolve through it exactly as through the editor's.
 		std::map<uint64_t, std::pair<std::string, std::string>> registered; // handle -> path, type
-		for (const auto& entry : registry["Assets"])
-			registered[entry["Handle"].as<uint64_t>()] = { entry["FilePath"].as<std::string>(), entry["Type"].as<std::string>() };
+		for (const auto& item : std::filesystem::recursive_directory_iterator(assets / "Audio"))
+		{
+			if (!item.is_regular_file())
+				continue;
+			const std::string extension = item.path().extension().string();
+			const char* type = extension == ".lsound" ? "Sound" : extension == ".lbank" ? "SoundBank"
+				: (extension == ".wav" || extension == ".mp3" || extension == ".ogg" || extension == ".flac") ? "Audio" : nullptr;
+			if (!type)
+				continue;
+			const std::string path = std::filesystem::relative(item.path(), assets).generic_string();
+			uint64_t hash = 1469598103934665603ull; // FNV-1a
+			for (const char c : path)
+				hash = (hash ^ static_cast<unsigned char>(c)) * 1099511628211ull;
+			registered[hash] = { path, type };
+		}
 		s_SampleRegistry = &registered;
 		AssetReference::GetHooks().FindByKey = &FindSampleAssetByPath;
 		Start();
@@ -1656,7 +1670,7 @@ namespace
 				for (const auto& entity : scene["Entities"])
 				{
 					if (const auto director = entity["MusicDirectorComponent"])
-						assigned = director["Event"]["Sound"].as<uint64_t>() == static_cast<uint64_t>(sound->Handle);
+						assigned = AssetReference::ReadValue(director["Event"]["Sound"]) == sound->Handle;
 				}
 				CHECK(assigned);
 				MusicDirector director;

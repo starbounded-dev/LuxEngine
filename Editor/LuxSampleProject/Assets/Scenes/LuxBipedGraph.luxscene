@@ -49,9 +49,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [60, 1, 60]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001004
+        0: Materials/RenderFeatures/RF_Wall.lmat
       Visible: true
   - Entity: 7200000000000000004
     TagComponent:
@@ -64,11 +64,11 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 7400000000000000001
+      AssetID: Meshes/Source/LuxBiped/LuxBiped.fbx
       Visible: true
     SkeletonComponent:
-      AssetID: 7400000000000000002
-      Graph: 7400000000000000012
+      AssetID: Meshes/Source/LuxBiped/LuxBiped.lskel
+      Graph: Meshes/Source/LuxBiped/LuxBiped.lanimgraph
       PlayOnStart: false
   - Entity: 7200000000000000005
     TagComponent:

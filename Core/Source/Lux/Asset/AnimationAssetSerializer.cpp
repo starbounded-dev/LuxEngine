@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AnimationAssetSerializer.h"
+#include "Lux/Asset/AssetReference.h"
 
 #include "AssetManager.h"
 #include "Lux/Animation/Animation.h"
@@ -95,6 +96,7 @@ namespace Lux
 			LUX_CORE_ERROR("Cannot save invalid animation graph '{}': {}", metadata.FilePath.string(), error);
 			return false;
 		}
+		AssetReference::PathModeScope pathMode; // the file stores paths; the pack copy stays numeric
 		const std::string text = graph->ToYAML();
 		if (text.size() > k_MaxGraphBytes)
 		{

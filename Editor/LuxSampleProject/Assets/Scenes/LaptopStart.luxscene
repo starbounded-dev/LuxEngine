@@ -47,9 +47,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 12433077166404241751
+        0: Meshes/Source/Default/Materials/Sphere_0_Material_0.lmat
       Visible: true
   - Entity: 17469695543369572479
     TagComponent:
@@ -104,7 +104,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.1, 0.1, 0.1]
     StaticMeshComponent:
-      AssetID: 12947748576387674464
+      AssetID: Meshes/Source/Default/Cylinder.gltf
       MaterialTable:
-        0: 2842015936735032481
+        0: Meshes/Source/Default/Materials/Capsule_0_Material_0.lmat
       Visible: true

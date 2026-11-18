@@ -12,6 +12,6 @@ Material:
       - ID: 2
         Type: SubGraph
         Position: [0, 0]
-        Graph: 17000000000000000011
+        Graph: Materials/Showcase/MS_FunctionCells.lmat
     Links:
       - [3, 2, 0, 1, 0]

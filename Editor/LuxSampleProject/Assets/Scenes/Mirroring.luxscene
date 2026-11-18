@@ -49,9 +49,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [40, 1, 40]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001000
+        0: Materials/RenderFeatures/RF_Ground.lmat
       Visible: true
   - Entity: 16200000000001000004
     TagComponent:
@@ -64,9 +64,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [24, 7, 0.2]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001004
+        0: Materials/RenderFeatures/RF_Wall.lmat
       Visible: true
   - Entity: 16200000000001000005
     TagComponent:
@@ -79,9 +79,9 @@ Entities:
       Rotation: [0, 0.6, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 11936938827911309243
+      AssetID: Meshes/Source/Ramp.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000006
     TagComponent:
@@ -94,9 +94,9 @@ Entities:
       Rotation: [0, 0.6, 0]
       Scale: [-1, 1, 1]
     StaticMeshComponent:
-      AssetID: 11936938827911309243
+      AssetID: Meshes/Source/Ramp.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000007
     TagComponent:
@@ -109,9 +109,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [0.4, 0.4, 0.4]
     StaticMeshComponent:
-      AssetID: 12417471776041518065
+      AssetID: Meshes/Source/HazelText.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000008
     TagComponent:
@@ -124,9 +124,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [-0.4, 0.4, 0.4]
     StaticMeshComponent:
-      AssetID: 12417471776041518065
+      AssetID: Meshes/Source/HazelText.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000009
     TagComponent:
@@ -139,9 +139,9 @@ Entities:
       Rotation: [0.9, 0, 0.3]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 16610283657387777280
+      AssetID: Meshes/Source/Default/Torus.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000010
     TagComponent:
@@ -154,9 +154,9 @@ Entities:
       Rotation: [0.9, 0, 0.3]
       Scale: [-1, 1, 1]
     StaticMeshComponent:
-      AssetID: 16610283657387777280
+      AssetID: Meshes/Source/Default/Torus.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000011
     TagComponent:
@@ -169,9 +169,9 @@ Entities:
       Rotation: [1.2, 0.4, 0]
       Scale: [1.5, 1, 1.5]
     StaticMeshComponent:
-      AssetID: 10955405005470926046
+      AssetID: Meshes/Source/Default/Plane.gltf
       MaterialTable:
-        0: 16000000000000001018
+        0: Materials/RenderFeatures/RF_TwoSided.lmat
       Visible: true
   - Entity: 16200000000001000012
     TagComponent:
@@ -184,9 +184,9 @@ Entities:
       Rotation: [1.2, 0.4, 0]
       Scale: [-1.5, 1, 1.5]
     StaticMeshComponent:
-      AssetID: 10955405005470926046
+      AssetID: Meshes/Source/Default/Plane.gltf
       MaterialTable:
-        0: 16000000000000001018
+        0: Materials/RenderFeatures/RF_TwoSided.lmat
       Visible: true
   - Entity: 16200000000001000013
     TagComponent:
@@ -199,9 +199,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1.6, 1.6, 1.6]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 16000000000000001005
+        0: Materials/RenderFeatures/RF_Glass_Clear.lmat
       Visible: true
   - Entity: 16200000000001000014
     TagComponent:
@@ -214,9 +214,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [-1.6, 1.6, 1.6]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 16000000000000001005
+        0: Materials/RenderFeatures/RF_Glass_Clear.lmat
       Visible: true
   - Entity: 16200000000001000015
     TagComponent:
@@ -239,9 +239,9 @@ Entities:
       Rotation: [0, 0.6, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 11936938827911309243
+      AssetID: Meshes/Source/Ramp.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001000017
     TagComponent:
@@ -254,9 +254,9 @@ Entities:
       Rotation: [0, 0.6, 0]
       Scale: [1, 1, 1]
     StaticMeshComponent:
-      AssetID: 11936938827911309243
+      AssetID: Meshes/Source/Ramp.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000001009999
     TagComponent:

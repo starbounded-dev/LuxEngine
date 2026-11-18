@@ -3,7 +3,7 @@ Material:
   AlbedoColor: [1, 1, 1]
   Metalness: 0
   Roughness: 0.5
-  Parent: 17000000000000000008
+  Parent: Materials/Showcase/MS_Graph.lmat
   Overrides:
     - Param.Tint
   GraphParameters:

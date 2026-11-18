@@ -8,9 +8,9 @@ AnimationGraph:
   DefaultState: Idle
   States:
     - Name: Idle
-      Clip: 7400000000000000003
+      Clip: Meshes/Source/LuxBiped/LuxBiped_Idle.lanim
     - Name: Walk
-      Clip: 7400000000000000004
+      Clip: Meshes/Source/LuxBiped/LuxBiped_Walk.lanim
   Transitions:
     - From: Idle
       To: Walk

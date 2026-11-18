@@ -60,12 +60,12 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [4, 3, 0.3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
         {}
       Visible: true
     MeshColliderComponent:
-      ColliderAsset: 5047013130077771705
+      ColliderAsset: Meshes/Source/Default/Cube.gltf
       SubmeshIndex: 0
       UseSharedShape: false
       Density: 1

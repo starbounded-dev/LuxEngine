@@ -377,4 +377,35 @@ references" modal (ImGui scopes, unique IDs, every state driven in the editor pe
   the entity order is deliberately unstable.
 
 **First phase to implement:** Phase A (it keeps every later diff small). Implement with `/dev`,
-review with `/cr`, ship with `/send-pr`. Not started.
+review with `/cr`, ship with `/send-pr`. Implemented 2026-11-17: see Part 9.
+
+---
+
+# Part 9 — Results of the Part 8 slice (2026-11-17, PR #174)
+
+All phases A-F are done. Everything below was run headlessly with `AssetRefHarness` (a scratch console exe
+linking `Core.lib`) against clean git worktrees of the sample project; the editor was never launched.
+
+| Phase | What changed | Result |
+|---|---|---|
+| A: stable saves | `SceneSerializer::SerializeToYAML` writes the reverse of `registry.each()` (it visits the newest first, so the old order reversed the file on every save). `Scene::Copy` creates entities in entity-index order instead of view order (the view is oldest-first once `SortEntities` ran, which made every save of an *opened* scene reverse the file) | `resave` and `resavecopy` (the editor's open path) on all 24 sample scenes: second save byte-identical, 48 of 48; the entity order of a saved scene equals the file's |
+| B: serializers | `.lmat` `Parent`, `DefaultTexture`, graph refs; `.lmesh`/`.lsmesh`/`.lmc`; prefab variant `BasePrefab`; `.lanimgraph` state `Clip` and animation event `Sound`; dialogue-table `Clip`; project `SurfaceTable`/`DialogueTable`; scene `Prefab`, `SkeletonComponent` asset/clip/graph, sprite `Texture` and sky `EnvironmentMap` all read both forms and write paths inside a file save | Packs stay numeric (`packcheck` on AudioDemo, Benchmark and RigPosed: no path in the pack) |
+| C: project file and leftovers | `IconHandle` is dropped when `IconPath` names the icon (already the writer's rule) and read tolerates a path; `FontHandle` already a path | `LuxSample.luxproj` holds no numeric reference |
+| D: convert committed content | One reference-only edit of 24 scenes (14,456 lines), 2 `.lmat`, `LuxBiped.lanimgraph`, `LuxSample.luxproj`, by text rewrite from the committed registry, not a re-save: a re-save also rewrites unrelated lines (`Children`, post-process fields) | `inventory`: 248 files, 0 numeric references. Each converted scene re-saves byte-identical to the re-save of its numeric original (24 of 24) |
+| E: registry as a cache | `AssetRegistry.lzr` untracked and ignored | With the registry deleted, `check` on all 24 scenes: 0 unresolved. A rebuild is about 6 s in a Debug harness (a few runs took 9-20 s, one 89 s while the machine was busy with a build) |
+| F: repair report | Done in the previous commit (`AssetReference::Report`) | Reports unresolved paths with filename candidates (log only) |
+
+**Dependents of the committed registry, changed in the same PR:** `tests/audio/native` (hashes each audio
+file's path to a handle, reads the Benchmark director through `ReadValue`), `scripts/GenerateBenchmarkScenes.py`
+(emits paths; no registry upsert; its scenes match the committed ones reference for reference),
+`tests/audio/run_scene_acoustics.py` and `tests/editor/run_remaster_export.py` (a mesh's "handle" is its path;
+the registry copy is optional). The last two were edited and syntax-checked only: they launch the engine and were not run.
+
+**Two latent bugs found by the self-tests and fixed here:** `Scene::CreateEntityWithID` read its `name` argument
+after adding components, and `DuplicateEntity` passes a name that points into the same registry's tag pool
+(use after reallocation); `DuplicateEntity` also iterated the live `Children()` vector while creating entities
+(the second child of a duplicated parent was lost). `SceneSerializer::RunRoundTripSelfTests` passes.
+
+**Not verified:** editor open/Play/save UI, the Dist player on a pack exported with this build, the two engine-launching
+Python runners above, Linux. A user's local `AssetRegistry.lzr` is now untracked: pulling this deletes the tracked copy,
+and `Project::Load` rebuilds it.

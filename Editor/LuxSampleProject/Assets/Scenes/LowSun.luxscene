@@ -49,9 +49,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [400, 1, 400]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001004
+        0: Materials/RenderFeatures/RF_Wall.lmat
       Visible: true
   - Entity: 16200000000003000004
     TagComponent:
@@ -64,9 +64,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 60, 3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000005
     TagComponent:
@@ -79,9 +79,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 60, 3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000006
     TagComponent:
@@ -94,9 +94,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 60, 3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000007
     TagComponent:
@@ -109,9 +109,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 60, 3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000008
     TagComponent:
@@ -124,9 +124,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 60, 3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000009
     TagComponent:
@@ -139,9 +139,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [3, 60, 3]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000010
     TagComponent:
@@ -154,9 +154,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1.5, 8, 1.5]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000011
     TagComponent:
@@ -169,9 +169,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1.5, 8, 1.5]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000012
     TagComponent:
@@ -184,9 +184,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1.5, 8, 1.5]
     StaticMeshComponent:
-      AssetID: 5047013130077771705
+      AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003000013
     TagComponent:
@@ -199,9 +199,9 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [2, 2, 2]
     StaticMeshComponent:
-      AssetID: 9685142686327195147
+      AssetID: Meshes/Source/Default/Sphere.gltf
       MaterialTable:
-        0: 16000000000000001010
+        0: Materials/RenderFeatures/RF_Satin.lmat
       Visible: true
   - Entity: 16200000000003009999
     TagComponent:

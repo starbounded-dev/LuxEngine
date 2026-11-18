@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "AnimationEvents.h"
+#include "Lux/Asset/AssetReference.h"
 
 #include "Lux/Serialization/Yaml.h"
 
@@ -48,7 +49,7 @@ namespace Lux
 					event.Time = events[e]["Time"].as<float>(0.0f);
 					event.Name = events[e]["Name"].as<std::string>("");
 					event.Argument = events[e]["Argument"].as<std::string>("");
-					event.Sound = events[e]["Sound"].as<uint64_t>(0);
+					event.Sound = AssetReference::ReadValue(events[e]["Sound"]);
 					if (event.Name.empty() || !std::isfinite(event.Time) || event.Time < 0.0f)
 						throw std::runtime_error("an event needs a Name and a Time of 0 or more");
 					entry.Events.push_back(std::move(event));
