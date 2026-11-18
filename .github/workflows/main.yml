@@ -927,7 +927,6 @@ jobs:
           path: runtime-linux-Dist.tar
           if-no-files-found: error
           compression-level: 0
-          compression-level: 0
 
       - name: Report compiler cache
         if: always()
