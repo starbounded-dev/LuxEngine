@@ -26,6 +26,7 @@
 #include "Lux/ImGui/ImGuiEx.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Renderer/SpriteSheet.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Mesh.h"
 #include "Lux/Animation/Skeleton.h"
@@ -981,6 +982,13 @@ namespace Lux {
 				entity.AddComponent<SpriteRendererComponent>();
 			}
 
+			if (ImGui::MenuItem("Animated Sprite"))
+			{
+				Entity entity = createEntity("Animated Sprite");
+				entity.AddComponent<SpriteRendererComponent>();
+				entity.AddComponent<SpriteAnimatorComponent>();
+			}
+
 			if (ImGui::MenuItem("Circle"))
 			{
 				Entity entity = createEntity("Circle");
@@ -1792,6 +1800,7 @@ namespace Lux {
 				const bool canAddText = canAddComponent.template operator()<TextComponent>();
 				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
 				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
+				const bool canAddSpriteAnimator = canAddComponent.template operator()<SpriteAnimatorComponent>();
 				const bool canAddStaticMesh = canAddComponent.template operator()<StaticMeshComponent>();
 				const bool canAddSkeleton = canAddComponent.template operator()<SkeletonComponent>();
 				const bool canAddRigidBody2D = canAddComponent.template operator()<RigidBody2DComponent>();
@@ -1845,7 +1854,7 @@ namespace Lux {
 					});
 				}
 
-				if (canAddText || canAddSpriteRenderer || canAddCircleRenderer || canAddStaticMesh)
+				if (canAddText || canAddSpriteRenderer || canAddSpriteAnimator || canAddCircleRenderer || canAddStaticMesh)
 					addCategoryHeader("Rendering");
 
 				if (canAddText)
@@ -1874,6 +1883,19 @@ namespace Lux {
 							Entity entity = m_Context->GetEntityByUUID(entityID);
 							if (entity && !entity.HasComponent<SpriteRendererComponent>())
 								entity.AddComponent<SpriteRendererComponent>();
+						}
+					});
+				}
+
+				if (canAddSpriteAnimator)
+				{
+					addComponentRow("Sprite Animator", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<SpriteAnimatorComponent>())
+								entity.AddComponent<SpriteAnimatorComponent>();
 						}
 					});
 				}
@@ -2330,6 +2352,7 @@ namespace Lux {
 						row.operator()<CameraComponent>("CameraComponent", "Camera");
 						row.operator()<ScriptComponent>("ScriptComponent", "Script");
 						row.operator()<SpriteRendererComponent>("SpriteRendererComponent", "Sprite Renderer");
+						row.operator()<SpriteAnimatorComponent>("SpriteAnimatorComponent", "Sprite Animator");
 						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
 						row.operator()<TextComponent>("TextComponent", "Text");
 						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
@@ -2707,6 +2730,30 @@ namespace Lux {
 				}
 				ImGui::PopItemFlag();
 
+				AssetHandle sheetHandle = firstComponent.Sheet;
+				if (ImGuiEx::PropertyAssetReference<SpriteSheet>("Sheet", sheetHandle, "A sprite sheet replaces Texture: the sprite shows one of its frames, sized and anchored by the frame."))
+				{
+					firstComponent.Sheet = sheetHandle;
+					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [sheetHandle](SpriteRendererComponent& component, Entity)
+					{
+						component.Sheet = sheetHandle;
+						component.SpriteIndex = 0;
+					});
+				}
+				if (const Ref<SpriteSheet> sheet = firstComponent.Sheet ? AssetManager::GetAsset<SpriteSheet>(firstComponent.Sheet) : nullptr; sheet && !sheet->Frames.empty())
+				{
+					int32_t frame = std::clamp<int32_t>(firstComponent.SpriteIndex, 0, static_cast<int32_t>(sheet->Frames.size()) - 1);
+					if (ImGuiEx::PropertyDropdown("Frame", static_cast<int32_t>(sheet->Frames.size()), &frame,
+						[&sheet](uint32_t index) { return sheet->Frames[index].Name.c_str(); }))
+					{
+						firstComponent.SpriteIndex = frame;
+						ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [frame](SpriteRendererComponent& component, Entity)
+						{
+							component.SpriteIndex = frame;
+						});
+					}
+				}
+
 				if (ImGuiEx::Property("Tiling Factor", firstComponent.TilingFactor, 0.1f, 0.0f, 100.0f))
 				{
 					ApplyToSelection<SpriteRendererComponent>(m_Context, selectedEntities, [&firstComponent](SpriteRendererComponent& component, Entity)
@@ -2724,6 +2771,52 @@ namespace Lux {
 				}
 
 				DrawSortingProperties(m_Context, firstComponent, selectedEntities);
+
+				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<SpriteAnimatorComponent>(m_Context, entityIDs, "Sprite Animator", EditorResources::SpriteIcon,
+			[this, firstEntity](SpriteAnimatorComponent& firstComponent, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+
+				// The clips come from the sheet on the sprite renderer beside this component.
+				const SpriteRendererComponent* sprite = firstEntity.TryGetComponent<SpriteRendererComponent>();
+				const Ref<SpriteSheet> sheet = sprite && sprite->Sheet ? AssetManager::GetAsset<SpriteSheet>(sprite->Sheet) : nullptr;
+				if (!sheet)
+					ImGui::TextDisabled("Give the Sprite Renderer a sprite sheet to choose a clip.");
+				else
+				{
+					int32_t clip = sheet->FindClip(firstComponent.Clip) + 1; // 0 is "None"
+					if (ImGuiEx::PropertyDropdown("Clip", static_cast<int32_t>(sheet->Clips.size()) + 1, &clip,
+						[&sheet](uint32_t index) { return index == 0 ? "None" : sheet->Clips[index - 1].Name.c_str(); }))
+					{
+						const std::string name = clip == 0 ? std::string() : sheet->Clips[static_cast<size_t>(clip - 1)].Name;
+						ApplyToSelection<SpriteAnimatorComponent>(m_Context, selectedEntities, [name](SpriteAnimatorComponent& component, Entity)
+						{
+							component.Clip = name;
+							component.Time = 0.0f;
+							component.Finished = false;
+						});
+						firstComponent.Clip = name;
+					}
+				}
+
+				if (ImGuiEx::Property("Playing", firstComponent.Playing, "Whether the clip plays when the scene starts."))
+				{
+					ApplyToSelection<SpriteAnimatorComponent>(m_Context, selectedEntities, [&firstComponent](SpriteAnimatorComponent& component, Entity)
+					{
+						component.Playing = firstComponent.Playing;
+					});
+				}
+
+				if (ImGuiEx::Property("Speed", firstComponent.Speed, 0.05f, 0.0f, 20.0f))
+				{
+					ApplyToSelection<SpriteAnimatorComponent>(m_Context, selectedEntities, [&firstComponent](SpriteAnimatorComponent& component, Entity)
+					{
+						component.Speed = firstComponent.Speed;
+					});
+				}
 
 				ImGuiEx::EndPropertyGrid();
 			});

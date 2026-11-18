@@ -177,6 +177,10 @@ namespace Lux {
 		bool ScreenSpace = false;
 		// Nearest-neighbour sampling instead of linear: pixel art stays sharp when magnified.
 		bool PointFilter = false;
+		// A frame of a sprite sheet instead of Texture: the sheet's texture, the frame's rectangle,
+		// sized from the frame (texels / the sheet's pixels per unit) and anchored at its pivot.
+		AssetHandle Sheet = 0;
+		int32_t SpriteIndex = 0;
 
 		// Draw order: the project's sorting layer (a ProjectSortingLayer ID; 0 is "Default"), then the
 		// order inside it, then depth. Serialized only when not the default.
@@ -204,6 +208,22 @@ namespace Lux {
 
 		CircleRendererComponent() = default;
 		CircleRendererComponent(const CircleRendererComponent&) = default;
+	};
+
+	// Plays one of the sprite sheet's clips on the SpriteRendererComponent next to it, in Play and Simulate.
+	struct SpriteAnimatorComponent
+	{
+		bool Enabled = true;
+		std::string Clip;       // a clip name in the sprite renderer's sheet; empty plays nothing
+		bool Playing = true;    // false until a script plays a clip, or after a Once clip ends
+		float Speed = 1.0f;
+
+		// Runtime state, reset by the scene copy that Play starts from.
+		float Time = 0.0f;      // seconds into the clip
+		bool Finished = false;  // a Once clip reached its end
+
+		SpriteAnimatorComponent() = default;
+		SpriteAnimatorComponent(const SpriteAnimatorComponent&) = default;
 	};
 
 	struct CameraComponent
@@ -797,7 +817,7 @@ namespace Lux {
 	};
 
 	using AllComponents =
-		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent,
+		ComponentGroup<TransformComponent, RelationshipComponent, SpriteRendererComponent, SpriteAnimatorComponent,
 		CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,

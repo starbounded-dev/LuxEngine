@@ -73,6 +73,7 @@
 #include "Panels/SoundEditor/SoundEditorPanel.h"
 #include "Panels/AudioMixerPanel.h"
 #include "Panels/SoundBankEditorPanel.h"
+#include "Panels/SpriteSheetEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -119,6 +120,7 @@ namespace Lux {
 #define SOUND_EDITOR_PANEL_ID "SoundEditorPanel"
 #define AUDIO_MIXER_PANEL_ID "AudioMixerPanel"
 #define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
+#define SPRITE_SHEET_EDITOR_PANEL_ID "SpriteSheetEditorPanel"
 #define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
@@ -611,6 +613,14 @@ namespace Lux {
 				panelData->IsOpen = true;
 		};
 
+		Ref<SpriteSheetEditorPanel> spriteSheetEditorPanel = m_PanelManager->AddPanel<SpriteSheetEditorPanel>(PanelCategory::View, SPRITE_SHEET_EDITOR_PANEL_ID, "Sprite Sheet Editor", false);
+		auto openSpriteSheetEditor = [this, spriteSheetEditorPanel](AssetHandle sheetHandle) mutable
+		{
+			spriteSheetEditorPanel->OpenSheet(sheetHandle);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(SPRITE_SHEET_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		};
+
 		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
 		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
 		{
@@ -803,6 +813,11 @@ namespace Lux {
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::SoundBank, [openSoundBankEditor](const AssetMetadata& metadata) mutable
 			{
 				openSoundBankEditor(metadata.Handle);
+			});
+
+			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::SpriteSheet, [openSpriteSheetEditor](const AssetMetadata& metadata) mutable
+			{
+				openSpriteSheetEditor(metadata.Handle);
 			});
 
 			contentBrowserPanel->RegisterItemActivateCallbackForType(AssetType::Prefab, [this](const AssetMetadata& metadata)

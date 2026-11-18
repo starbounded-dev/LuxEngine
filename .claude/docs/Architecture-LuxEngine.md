@@ -753,6 +753,22 @@ every engine feature stays available in both.
   a sprite pixel is a whole number of screen pixels; `BuildRenderPacketRuntime` rounds the camera position to
   `GetPixelSnapUnit()`. It assumes the game renders at native resolution. `SpriteRendererComponent::PointFilter`
   samples nearest-neighbour (a negative tiling factor reaches `Renderer2D.glsl`, which picks `r_PointSampler`).
+- **Sprite sheets and animation (D2).** `SpriteSheet` (`Renderer/SpriteSheet.h`, asset type `SpriteSheet`, `.lsheet`,
+  `SpriteSheetSerializer`, packed as bounded YAML like Sounds) is a texture, a grid (`SliceGrid`), named frames
+  (`Rect` in texels from the top, `Pivot`, `Solid`) and named clips (frame list, fps, Once/Loop/PingPong; `SampleClip`).
+  `SpriteRendererComponent::Sheet` + `SpriteIndex` draw a frame: `CaptureDraw2D` takes the sheet's texture and the
+  frame's UVs (`Draw2DItem::UV0/UV1`; `GetFrameUV` is bottom-left / top-right, v = 0 at the bottom of the image) and
+  sizes the quad from the frame (texels / `PixelsPerUnit`) about its pivot. `SpriteAnimatorComponent` (`Clip` name,
+  `Playing`, `Speed`, runtime `Time` / `Finished`) is advanced by `Scene::UpdateSpriteAnimators` in Play and Simulate;
+  C# `SpriteAnimatorComponent.Play/Stop` and `SpriteRendererComponent.SpriteIndex/SortingLayer/OrderInLayer`.
+  `Scene::GetAssetList` lists a sprite's sheet and the sheet's texture, so exports pack both. `SpriteAtlas::Pack`
+  (`Renderer/SpriteAtlas.h`, shelf packing, no new dependency) turns many textures into one image plus frames; the
+  Content Browser's *Create > Sprite Atlas From Selected Textures* writes the PNG and the sheet, so packing is an
+  authoring step and the export ships the result like any texture. The Sprite Sheet Editor panel
+  (`Editor/Source/Panels/SpriteSheetEditorPanel`) edits sheets; edits save at once and are not on the undo stack.
+  Textured quads were drawn transposed by the `Renderer2D::DrawQuad` overloads that take UVs; they now follow
+  `m_QuadVertexPositions`. A new component must also join `AllComponents` (Components.h) and have an
+  `OnComponentAdded` specialization in Scene.cpp, besides the playbook's steps.
 - **Checks.** `tests/2d/run_2d_checks.py` builds `tests/2d/Checks2D.cpp` (derived from `Editor.vcxproj`, no
   window, no GPU) and runs the project type, background, 2D camera and template checks.
 

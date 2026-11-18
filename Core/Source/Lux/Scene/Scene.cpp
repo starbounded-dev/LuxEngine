@@ -30,6 +30,7 @@
 #include "Lux/Scripting/AudioScriptBindings.h"
 #include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/SpriteSheet.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/SceneRenderer.h"
 #include "Lux/Renderer/FrameRenderPacket.h"
@@ -1207,6 +1208,8 @@ namespace Lux {
 		AdvanceAnimators(m_Registry, scaledTs, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		ApplyBoneAttachments();
 		RefreshInactiveEntities();
+		if (simulating)
+			UpdateSpriteAnimators(scaledTs);
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
 		AudioAccessibilityView accessibilityView;
@@ -1438,10 +1441,40 @@ namespace Lux {
 		m_PostUpdateQueue.clear();
 	}
 
+	void Scene::UpdateSpriteAnimators(Timestep ts)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		auto view = m_Registry.view<SpriteAnimatorComponent, SpriteRendererComponent>();
+		for (auto entity : view)
+		{
+			auto& animator = view.get<SpriteAnimatorComponent>(entity);
+			if (!animator.Enabled || !animator.Playing || animator.Clip.empty() || IsInactive(entity))
+				continue;
+
+			auto& sprite = view.get<SpriteRendererComponent>(entity);
+			const Ref<SpriteSheet> sheet = sprite.Sheet ? AssetManager::GetAsset<SpriteSheet>(sprite.Sheet) : nullptr;
+			const int32_t clipIndex = sheet ? sheet->FindClip(animator.Clip) : -1;
+			if (clipIndex < 0)
+				continue;
+
+			animator.Time += static_cast<float>(ts) * animator.Speed;
+			bool finished = false;
+			sprite.SpriteIndex = static_cast<int32_t>(SpriteSheet::SampleClip(sheet->Clips[static_cast<size_t>(clipIndex)], animator.Time, finished));
+			if (finished)
+			{
+				animator.Playing = false;
+				animator.Finished = true;
+			}
+		}
+	}
+
 	void Scene::OnUpdateSimulation(Timestep ts, EditorCamera& camera)
 	{
 		AdvanceAnimators(m_Registry, ts, true, m_IsPaused, false, [this](entt::entity e, const FiredAnimationEvent& event) { DispatchAnimationEvent(Entity{ e, this }, event); });
 		ApplyBoneAttachments();
+		RefreshInactiveEntities();
+		if (!m_IsPaused || m_StepFrames > 0)
+			UpdateSpriteAnimators(ts);
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -1562,7 +1595,7 @@ namespace Lux {
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		using DuplicateComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1636,7 +1669,7 @@ namespace Lux {
 	}
 
 	using PrefabInstantiationComponents =
-		ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -1809,7 +1842,7 @@ namespace Lux {
 		// are deliberately excluded so the link and hierarchy survive a revert/apply). Reconcile,
 		// not copy: destination-only components are removed so it matches source exactly.
 		using PrefabSyncComponents =
-			ComponentGroup<TransformComponent, SpriteRendererComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
+			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
 			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
@@ -3675,8 +3708,24 @@ namespace Lux {
 				Draw2DItem item;
 				item.Transform = GetWorldSpaceTransformMatrix(Entity{ entity, this });
 				item.Color = sprite.Color;
-				item.Texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 				item.TilingFactor = sprite.TilingFactor;
+				item.UV0 = sprite.UVStart;
+				item.UV1 = sprite.UVEnd;
+				if (const Ref<SpriteSheet> sheet = sprite.Sheet ? AssetManager::GetAsset<SpriteSheet>(sprite.Sheet) : nullptr; sheet && !sheet->Frames.empty())
+				{
+					// A sheet frame: the sheet's texture, the frame's rectangle, sized and anchored by the frame.
+					const uint32_t frame = static_cast<uint32_t>(std::clamp<int32_t>(sprite.SpriteIndex, 0, static_cast<int32_t>(sheet->Frames.size()) - 1));
+					item.Texture = AssetManager::GetAsset<Texture2D>(sheet->Texture);
+					item.TilingFactor = 1.0f;
+					if (item.Texture)
+						sheet->GetFrameUV(frame, glm::ivec2(item.Texture->GetSize()), item.UV0, item.UV1);
+					const glm::vec2 size = sheet->GetFrameWorldSize(frame);
+					const glm::vec2 pivot = sheet->Frames[frame].Pivot;
+					item.Transform = item.Transform * glm::translate(glm::mat4(1.0f), glm::vec3((0.5f - pivot.x) * size.x, (0.5f - pivot.y) * size.y, 0.0f))
+						* glm::scale(glm::mat4(1.0f), glm::vec3(size, 1.0f));
+				}
+				else
+					item.Texture = AssetManager::GetAsset<Texture2D>(sprite.Texture);
 				item.Type = item.Texture ? Draw2DItem::Kind::TexturedQuad : Draw2DItem::Kind::Quad;
 				item.PointFilter = sprite.PointFilter;
 				const float depth = depthOf(item.Transform);
@@ -3807,7 +3856,7 @@ namespace Lux {
 				{
 					case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
 						// A negative tiling factor tells Renderer2D.glsl to sample with the point sampler.
-						renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -item.TilingFactor : item.TilingFactor, item.Color);
+						renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -item.TilingFactor : item.TilingFactor, item.Color, item.UV0, item.UV1);
 						break;
 					case FrameRenderPacket::Draw2DItem::Kind::Quad:
 						renderer2D->DrawQuad(item.Transform, item.Color);
@@ -4132,6 +4181,18 @@ namespace Lux {
 			}
 		};
 
+		// A sprite sheet ships with its texture.
+		auto addSheetDependencies = [&addIfValid](AssetHandle sheetHandle)
+		{
+			addIfValid(sheetHandle);
+
+			if (!sheetHandle || AssetManager::GetAssetType(sheetHandle) != AssetType::SpriteSheet)
+				return;
+
+			if (Ref<SpriteSheet> sheet = AssetManager::GetAsset<SpriteSheet>(sheetHandle))
+				addIfValid(sheet->Texture);
+		};
+
 		auto addMeshSourceDependencies = [&addIfValid, &addMaterialDependencies](AssetHandle meshSourceHandle)
 		{
 			addIfValid(meshSourceHandle);
@@ -4185,7 +4246,11 @@ namespace Lux {
 
 		auto spriteView = m_Registry.view<SpriteRendererComponent>();
 		for (auto entity : spriteView)
-			addIfValid(spriteView.get<SpriteRendererComponent>(entity).Texture);
+		{
+			const SpriteRendererComponent& sprite = spriteView.get<SpriteRendererComponent>(entity);
+			addIfValid(sprite.Texture);
+			addSheetDependencies(sprite.Sheet);
+		}
 
 		auto textView = m_Registry.view<TextComponent>();
 		for (auto entity : textView)
@@ -4328,6 +4393,11 @@ namespace Lux {
 	void Scene::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& component)
 	{
 
+	}
+
+	template<>
+	void Scene::OnComponentAdded<SpriteAnimatorComponent>(Entity entity, SpriteAnimatorComponent& component)
+	{
 	}
 
 	template<>

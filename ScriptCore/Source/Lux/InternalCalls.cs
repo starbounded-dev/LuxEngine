@@ -184,6 +184,22 @@ namespace Lux
 		internal static delegate*<ulong, float, void> SpriteRendererComponent_SetTilingFactor;
 		internal static delegate*<ulong, ulong> SpriteRendererComponent_GetTexture;
 		internal static delegate*<ulong, ulong, void> SpriteRendererComponent_SetTexture;
+		internal static delegate*<ulong, int> SpriteRendererComponent_GetSpriteIndex;
+		internal static delegate*<ulong, int, void> SpriteRendererComponent_SetSpriteIndex;
+		internal static delegate*<ulong, int> SpriteRendererComponent_GetOrderInLayer;
+		internal static delegate*<ulong, int, void> SpriteRendererComponent_SetOrderInLayer;
+		internal static delegate*<ulong, NativeString> SpriteRendererComponent_GetSortingLayer;
+		internal static delegate*<ulong, NativeString, void> SpriteRendererComponent_SetSortingLayer;
+		#endregion
+
+		#region SpriteAnimatorComponent
+		internal static delegate*<ulong, NativeString, Bool32, void> SpriteAnimatorComponent_Play;
+		internal static delegate*<ulong, void> SpriteAnimatorComponent_Stop;
+		internal static delegate*<ulong, NativeString> SpriteAnimatorComponent_GetClip;
+		internal static delegate*<ulong, Bool32> SpriteAnimatorComponent_IsPlaying;
+		internal static delegate*<ulong, Bool32> SpriteAnimatorComponent_IsFinished;
+		internal static delegate*<ulong, float> SpriteAnimatorComponent_GetSpeed;
+		internal static delegate*<ulong, float, void> SpriteAnimatorComponent_SetSpeed;
 		#endregion
 
 		#region CircleRendererComponent

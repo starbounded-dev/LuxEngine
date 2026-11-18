@@ -285,6 +285,8 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		// Advances every playing SpriteAnimatorComponent and shows the clip's frame on its sprite.
+		void UpdateSpriteAnimators(Timestep ts);
 		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
 		// higher draws later, on top. Other entities return 0. The editor uses it to pick the visible one.
 		int64_t GetDrawOrder(Entity entity);

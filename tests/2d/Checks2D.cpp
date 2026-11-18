@@ -8,6 +8,10 @@
 //
 // Built and run by tests/2d/run_2d_checks.py, which derives the project from Editor.vcxproj.
 
+#include "Lux/Asset/AssetImporter.h"
+#include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/AssetReference.h"
+#include "Lux/Asset/SpriteSheetSerializer.h"
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Editor/EditorCamera.h"
@@ -16,12 +20,19 @@
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/Renderer/SpriteAtlas.h"
+#include "Lux/Renderer/SpriteSheet.h"
+#include "Lux/Serialization/FileStream.h"
 #include "Lux/Scene/Components.h"
 #include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/SceneTemplates.h"
 
+#include <GLFW/deps/stb_image_write.h>
+#include <stb_image.h>
+
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -401,6 +412,274 @@ namespace {
 		Check(ReadText(plainFile).find("PixelPerfect") == std::string::npos, "an ordinary camera writes no pixel-perfect keys");
 	}
 
+
+	// ---- D2: sprite sheets, clips, atlas ---------------------------------------------------------
+
+	void WriteSolidPNG(const std::filesystem::path& path, int width, int height, uint8_t red, uint8_t green, uint8_t blue)
+	{
+		std::vector<uint8_t> pixels(static_cast<size_t>(width) * height * 4);
+		for (size_t i = 0; i < pixels.size(); i += 4)
+		{
+			pixels[i] = red;
+			pixels[i + 1] = green;
+			pixels[i + 2] = blue;
+			pixels[i + 3] = 255;
+		}
+		std::filesystem::create_directories(path.parent_path());
+		stbi_write_png(path.string().c_str(), width, height, 4, pixels.data(), width * 4);
+	}
+
+	void CheckSpriteSheetMath()
+	{
+		SpriteSheet sheet;
+		sheet.CellSize = { 16, 16 };
+		sheet.SliceGrid({ 64, 32 });
+		Check(sheet.Frames.size() == 8 && sheet.Frames[5].Rect == glm::ivec4(16, 16, 16, 16), "a 64 x 32 image cut in 16 px cells has 8 frames, frame 5 at (16,16)");
+		glm::vec2 uv0, uv1;
+		Check(sheet.GetFrameUV(5, { 64, 32 }, uv0, uv1) && Near(uv0.x, 0.25f) && Near(uv0.y, 0.0f) && Near(uv1.x, 0.5f) && Near(uv1.y, 0.5f),
+			"frame UVs: x from the left, y counted from the top, v = 0 at the bottom of the image");
+		Check(sheet.GetFrameUV(0, { 64, 32 }, uv0, uv1) && Near(uv0.y, 0.5f) && Near(uv1.y, 1.0f), "the top row of frames is the top of v");
+		Check(!sheet.GetFrameUV(8, { 64, 32 }, uv0, uv1), "a frame past the end has no UVs");
+
+		sheet.Frames[1].Name = "idle";
+		sheet.Frames[1].Pivot = { 0.5f, 0.0f };
+		sheet.Frames[1].Solid = true;
+		sheet.CellSize = { 8, 8 };
+		sheet.Spacing = { 2, 2 };
+		sheet.Margin = { 1, 1 };
+		sheet.SliceGrid({ 40, 20 });
+		Check(sheet.Frames.size() == 8 && sheet.Frames[1].Rect == glm::ivec4(11, 1, 8, 8) && sheet.Frames[4].Rect == glm::ivec4(1, 11, 8, 8), "spacing and margin place the cells");
+		Check(sheet.Frames[1].Name == "idle" && sheet.Frames[1].Pivot.y == 0.0f && sheet.Frames[1].Solid, "re-cutting keeps a frame's name, pivot and Solid flag");
+
+		SpriteSheet empty;
+		empty.SliceGrid({ 4, 4 });
+		Check(empty.Frames.empty(), "an image smaller than a cell has no frames");
+
+		SpriteClip clip;
+		clip.Frames = { 4, 5, 6 };
+		clip.FramesPerSecond = 10.0f;
+		bool finished = false;
+		clip.Wrap = SpriteWrapMode::Loop;
+		std::string loop;
+		for (const float time : { 0.05f, 0.15f, 0.25f, 0.35f, 0.45f })
+			loop += std::to_string(SpriteSheet::SampleClip(clip, time, finished));
+		Check(loop == "45645" && !finished, std::format("Loop wraps (got {})", loop));
+		clip.Wrap = SpriteWrapMode::PingPong;
+		std::string pingPong;
+		for (int step = 0; step < 6; step++)
+			pingPong += std::to_string(SpriteSheet::SampleClip(clip, step * 0.1f + 0.05f, finished));
+		Check(pingPong == "456545", std::format("PingPong goes there and back without repeating the ends (got {})", pingPong));
+		clip.Wrap = SpriteWrapMode::Once;
+		Check(SpriteSheet::SampleClip(clip, 0.25f, finished) == 6 && !finished, "Once is not finished on its last frame");
+		Check(SpriteSheet::SampleClip(clip, 0.35f, finished) == 6 && finished, "Once stays on the last frame and reports finished");
+		Check(Near(SpriteSheet::GetClipDuration(clip), 0.3f), "a clip's duration is frames / fps");
+		clip.Wrap = SpriteWrapMode::PingPong;
+		Check(Near(SpriteSheet::GetClipDuration(clip), 0.4f), "a ping-pong clip's duration counts the way back");
+	}
+
+	void CheckSpriteSheetFiles(const std::filesystem::path& root)
+	{
+		WriteText(root / "Sheets" / "Sheets.luxproj", "Project:\n  Name: Sheets\n  AssetDirectory: Assets\n");
+		std::filesystem::create_directories(root / "Sheets" / "Assets");
+		Ref<Project> project = Project::Load(root / "Sheets" / "Sheets.luxproj");
+		if (!project)
+		{
+			Check(false, "sheet project loads");
+			return;
+		}
+		WriteSolidPNG(root / "Sheets" / "Assets" / "Player.png", 32, 32, 200, 40, 40);
+		const AssetHandle texture = AssetManager::ImportAsset("Player.png");
+		Check(texture != 0 && AssetManager::GetAssetType(texture) == AssetType::Texture, "a PNG imports as a texture");
+
+		SpriteSheet sheet;
+		sheet.Texture = texture;
+		sheet.PixelsPerUnit = 16.0f;
+		sheet.CellSize = { 16, 32 };
+		sheet.SliceGrid({ 32, 32 });
+		sheet.Frames.clear();
+		sheet.Frames.push_back({ "idle", { 0, 0, 16, 32 }, { 0.5f, 0.0f }, false });
+		sheet.Frames.push_back({ "step1", { 16, 0, 16, 32 }, { 0.5f, 0.0f }, false });
+		sheet.Frames.push_back({ "wall", { 0, 0, 8, 8 }, { 0.0f, 1.0f }, true });
+		sheet.Clips.push_back({ "walk", { 0, 1 }, 10.0f, SpriteWrapMode::Loop });
+		sheet.Clips.push_back({ "jump", { 1, 1, 0 }, 20.0f, SpriteWrapMode::Once });
+		std::string error;
+		Check(sheet.Validate(&error), "the test sheet is valid: " + error);
+
+		SpriteSheet parsed;
+		Check(parsed.FromYAML(sheet.ToYAML()), "a sheet reads back from its YAML");
+		Check(parsed.Frames.size() == 3 && parsed.Frames[0].Name == "idle" && parsed.Frames[0].Pivot.y == 0.0f && parsed.Frames[2].Solid && !parsed.Frames[1].Solid
+			&& parsed.Clips.size() == 2 && parsed.Clips[1].Name == "jump" && parsed.Clips[1].Wrap == SpriteWrapMode::Once && parsed.Clips[1].Frames == std::vector<uint32_t>({ 1, 1, 0 })
+			&& Near(parsed.PixelsPerUnit, 16.0f) && parsed.CellSize == glm::ivec2(16, 32), "frames, pivots, Solid, clips and grid survive the YAML");
+
+		SpriteSheet broken = sheet;
+		broken.Clips[0].Frames.push_back(9);
+		Check(!broken.Validate(), "a clip naming a missing frame is invalid");
+		SpriteSheet before = parsed;
+		Check(!parsed.FromYAML(broken.ToYAML()) && parsed.Clips.size() == before.Clips.size() && parsed.Clips[0].Frames == before.Clips[0].Frames, "an invalid sheet is refused and the loaded one is left alone");
+		broken = sheet;
+		broken.Clips[1].Name = "walk";
+		Check(!broken.Validate(), "two clips with one name are invalid");
+
+		// Through the asset system: save, import, load, pack and unpack.
+		AssetReference::PathModeScope pathMode;
+		WriteText(root / "Sheets" / "Assets" / "Player.lsheet", sheet.ToYAML());
+		const AssetHandle handle = AssetManager::ImportAsset("Player.lsheet");
+		Check(handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SpriteSheet, ".lsheet imports as a SpriteSheet");
+		Ref<SpriteSheet> loaded = AssetManager::GetAsset<SpriteSheet>(handle);
+		Check(loaded && loaded->Frames.size() == 3 && loaded->Texture == texture, "the asset manager loads the sheet and resolves its texture path");
+		if (!loaded)
+			return;
+
+		loaded->PixelsPerUnit = 32.0f;
+		Check(AssetImporter::TrySerialize(loaded.As<Asset>()), "the asset importer saves an edited sheet");
+		Check(ReadText(root / "Sheets" / "Assets" / "Player.lsheet").find("Player.png") != std::string::npos, "the saved file names its texture by path");
+
+		const std::filesystem::path packFile = root / "Sheets" / "sheet.pack";
+		AssetSerializationInfo info;
+		{
+			FileStreamWriter writer(packFile);
+			Check(SpriteSheetSerializer().SerializeToAssetPack(handle, writer, info), "a sheet writes into an asset pack");
+		}
+		FileStreamReader reader(packFile);
+		AssetPackFile::AssetInfo packed{ info.Offset, info.Size, static_cast<uint16_t>(AssetType::SpriteSheet), 0 };
+		const Ref<Asset> unpacked = SpriteSheetSerializer().DeserializeFromAssetPack(reader, packed);
+		const Ref<SpriteSheet> unpackedSheet = unpacked.As<SpriteSheet>();
+		Check(unpackedSheet && unpackedSheet->Clips.size() == 2 && Near(unpackedSheet->PixelsPerUnit, 32.0f) && unpackedSheet->Texture == texture,
+			"a sheet unpacks with its clips, its edit and its numeric texture handle");
+
+		// A scene's asset list carries the sheet and its texture, so the export packs both.
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity entity = scene->CreateEntity("Hero");
+		auto& sprite = entity.AddComponent<SpriteRendererComponent>();
+		sprite.Sheet = handle;
+		const auto assets = scene->GetAssetList();
+		Check(assets.contains(handle) && assets.contains(texture), "Scene::GetAssetList lists a sprite's sheet and the sheet's texture");
+
+		// The rest runs on a sheet with no texture: loading a texture needs a GPU device.
+		sheet.Texture = 0;
+		sheet.PixelsPerUnit = 32.0f;
+		WriteText(root / "Sheets" / "Assets" / "Plain.lsheet", sheet.ToYAML());
+		sprite.Sheet = AssetManager::ImportAsset("Plain.lsheet");
+		Check(sprite.Sheet != 0, "a sheet without a texture imports");
+
+		// The sprite takes its size and anchor from the frame: 16 x 32 texels at 32 px/unit, pivot bottom centre.
+		sprite.SpriteIndex = 0;
+		FrameRenderPacket packet;
+		scene->CaptureDraw2D(packet);
+		Check(packet.Draw2D.size() == 1, "the sheet sprite is one 2D item");
+		if (!packet.Draw2D.empty())
+		{
+			const glm::mat4& transform = packet.Draw2D[0].Transform;
+			const glm::vec3 bottomLeft = glm::vec3(transform * glm::vec4(-0.5f, -0.5f, 0.0f, 1.0f));
+			const glm::vec3 topRight = glm::vec3(transform * glm::vec4(0.5f, 0.5f, 0.0f, 1.0f));
+			Check(Near(bottomLeft.x, -0.25f) && Near(bottomLeft.y, 0.0f) && Near(topRight.x, 0.25f) && Near(topRight.y, 1.0f),
+				std::format("the frame is 0.5 x 1 units with its pivot (bottom centre) on the entity ({:.2f},{:.2f})-({:.2f},{:.2f})", bottomLeft.x, bottomLeft.y, topRight.x, topRight.y));
+		}
+
+		// The animator plays "walk" (frames 0, 1 at 10 fps) on that sprite.
+		auto& animator = entity.AddComponent<SpriteAnimatorComponent>();
+		animator.Clip = "walk";
+		std::string shown;
+		for (int step = 0; step < 4; step++)
+		{
+			scene->UpdateSpriteAnimators(Timestep(0.1f));
+			shown += std::to_string(sprite.SpriteIndex);
+		}
+		Check(shown == "1010", std::format("the animator steps the sprite through the clip (got {})", shown));
+		animator.Clip = "jump";
+		animator.Time = 0.0f;
+		for (int step = 0; step < 4; step++)
+			scene->UpdateSpriteAnimators(Timestep(0.1f));
+		Check(sprite.SpriteIndex == 0 && !animator.Playing && animator.Finished, "a Once clip ends on its last frame and stops the animator");
+		const int32_t stopped = sprite.SpriteIndex;
+		scene->UpdateSpriteAnimators(Timestep(1.0f));
+		Check(sprite.SpriteIndex == stopped, "a stopped animator leaves the sprite alone");
+		animator.Clip = "no such clip";
+		animator.Playing = true;
+		scene->UpdateSpriteAnimators(Timestep(0.1f));
+		Check(sprite.SpriteIndex == stopped, "an unknown clip name is ignored");
+
+		// Copy, save and load.
+		animator.Clip = "walk";
+		const std::filesystem::path file = root / "Sheets" / "Hero.luxscene";
+		Check(SceneSerializer(scene).Serialize(file), "a scene with a sheet sprite and an animator serializes");
+		Ref<Scene> loadedScene = Ref<Scene>::Create();
+		Check(SceneSerializer(loadedScene).Deserialize(file), "and loads back");
+		Ref<Scene> copy = Scene::Copy(loadedScene);
+		const Entity hero = copy->FindEntityByName("Hero");
+		Check(hero && hero.GetComponent<SpriteRendererComponent>().Sheet == sprite.Sheet && hero.GetComponent<SpriteAnimatorComponent>().Clip == "walk" && hero.GetComponent<SpriteAnimatorComponent>().Playing,
+			"the sheet reference and the animator survive save, load and copy");
+		Ref<Scene> duplicateScene = Scene::Copy(scene);
+		const Entity duplicated = duplicateScene->DuplicateEntity(duplicateScene->FindEntityByName("Hero"));
+		Check(duplicated && duplicated.HasComponent<SpriteAnimatorComponent>(), "duplicating an entity copies its animator");
+	}
+
+	void CheckSpriteAtlas(const std::filesystem::path& root)
+	{
+		// The packer: no overlaps, inside the atlas, padded, deterministic.
+		const std::vector<glm::ivec2> sizes = { { 30, 20 }, { 10, 40 }, { 16, 16 }, { 16, 16 }, { 64, 8 }, { 5, 5 }, { 24, 30 } };
+		glm::ivec2 atlasSize;
+		std::vector<glm::ivec2> positions;
+		Check(SpriteAtlas::PackRects(sizes, 2, 256, atlasSize, positions), "rectangles pack");
+		bool overlap = false, outside = false, tight = false;
+		for (size_t i = 0; i < sizes.size(); i++)
+		{
+			outside |= positions[i].x < 2 || positions[i].y < 2 || positions[i].x + sizes[i].x + 2 > atlasSize.x || positions[i].y + sizes[i].y + 2 > atlasSize.y;
+			for (size_t j = i + 1; j < sizes.size(); j++)
+			{
+				const bool apart = positions[i].x + sizes[i].x + 2 <= positions[j].x || positions[j].x + sizes[j].x + 2 <= positions[i].x
+					|| positions[i].y + sizes[i].y + 2 <= positions[j].y || positions[j].y + sizes[j].y + 2 <= positions[i].y;
+				overlap |= !apart;
+			}
+		}
+		tight = atlasSize.x <= 256 && atlasSize.y <= 256 && (atlasSize.x & (atlasSize.x - 1)) == 0 && (atlasSize.y & (atlasSize.y - 1)) == 0;
+		Check(!overlap && !outside, "packed rectangles do not overlap and keep their padding from each other and the edge");
+		Check(tight, std::format("the atlas is a power-of-two size within the limit ({} x {})", atlasSize.x, atlasSize.y));
+		glm::ivec2 again;
+		std::vector<glm::ivec2> positionsAgain;
+		SpriteAtlas::PackRects(sizes, 2, 256, again, positionsAgain);
+		Check(again == atlasSize && positionsAgain == positions, "packing is deterministic");
+		Check(!SpriteAtlas::PackRects({ { 300, 10 } }, 1, 256, atlasSize, positions), "a rectangle wider than the limit is refused");
+		Check(!SpriteAtlas::PackRects(std::vector<glm::ivec2>(40, glm::ivec2(100, 100)), 1, 256, atlasSize, positions), "too many rectangles for the limit are refused");
+		Check(!SpriteAtlas::PackRects({ { 0, 4 } }, 1, 256, atlasSize, positions), "an empty rectangle is refused");
+
+		// Real images: pixels land in their rectangles, in image row order.
+		const std::filesystem::path images = root / "AtlasImages";
+		WriteSolidPNG(images / "red.png", 10, 6, 255, 0, 0);
+		WriteSolidPNG(images / "green.png", 4, 4, 0, 255, 0);
+		WriteSolidPNG(images / "blue.png", 8, 12, 0, 0, 255);
+		const std::vector<SpriteAtlas::Source> sources = { { "red", images / "red.png" }, { "green", images / "green.png" }, { "blue", images / "blue.png" } };
+		SpriteAtlas::Result atlas;
+		std::string error;
+		Check(SpriteAtlas::Pack(sources, 1, 256, atlas, error), "three images pack: " + error);
+		Check(atlas.Frames.size() == 3 && atlas.Frames[0].Name == "red" && atlas.Frames[2].Rect.z == 8 && atlas.Frames[2].Rect.w == 12, "frames follow the source order and keep their size and name");
+		const auto pixel = [&atlas](int x, int y) { return &atlas.Pixels[(static_cast<size_t>(y) * atlas.Size.x + x) * 4]; };
+		bool colours = true;
+		const uint8_t expected[3][3] = { { 255, 0, 0 }, { 0, 255, 0 }, { 0, 0, 255 } };
+		for (int i = 0; i < 3; i++)
+		{
+			const glm::ivec4 rect = atlas.Frames[static_cast<size_t>(i)].Rect;
+			for (const glm::ivec2 corner : { glm::ivec2(rect.x, rect.y), glm::ivec2(rect.x + rect.z - 1, rect.y + rect.w - 1) })
+			{
+				const uint8_t* texel = pixel(corner.x, corner.y);
+				colours &= texel[0] == expected[i][0] && texel[1] == expected[i][1] && texel[2] == expected[i][2] && texel[3] == 255;
+			}
+		}
+		Check(colours, "each source's corner texels are in its rectangle");
+		Check(pixel(0, 0)[3] == 0, "the padding is transparent");
+
+		const std::filesystem::path atlasFile = images / "atlas.png";
+		Check(SpriteAtlas::WritePNG(atlasFile, atlas), "the atlas writes as a PNG");
+		int width = 0, height = 0, channels = 0;
+		stbi_set_flip_vertically_on_load(0);
+		stbi_uc* decoded = stbi_load(atlasFile.string().c_str(), &width, &height, &channels, 4);
+		Check(decoded && width == atlas.Size.x && height == atlas.Size.y && std::equal(atlas.Pixels.begin(), atlas.Pixels.end(), decoded), "the written PNG decodes to the packed pixels");
+		stbi_image_free(decoded);
+
+		Check(!SpriteAtlas::Pack({ { "missing", images / "nope.png" } }, 1, 256, atlas, error) && error.find("nope.png") != std::string::npos, "a missing image fails and names the file");
+		Check(!SpriteAtlas::Pack({}, 1, 256, atlas, error), "nothing to pack fails");
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -411,6 +690,7 @@ int main(int argc, char** argv)
 		return 2;
 	}
 
+	std::setvbuf(stdout, nullptr, _IONBF, 0); // a crash must not swallow the last checks
 	const std::filesystem::path outDir = std::filesystem::absolute(argv[1]);
 	std::filesystem::create_directories(outDir);
 	InitializeCore(outDir / "logs");
@@ -423,6 +703,9 @@ int main(int argc, char** argv)
 	CheckSortingLayers(outDir);
 	CheckDrawOrder();
 	CheckPixelPerfectCamera(outDir);
+	CheckSpriteSheetMath();
+	CheckSpriteSheetFiles(outDir);
+	CheckSpriteAtlas(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

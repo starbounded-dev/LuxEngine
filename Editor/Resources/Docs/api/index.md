@@ -40,6 +40,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [SkyLightComponent](SkyLightComponent) — The light and reflections from the sky, the environment the scene sits in.
 - [SphereColliderComponent](SphereColliderComponent) — A sphere shape for the entity's 3D rigid body or character.
 - [SpotLightComponent](SpotLightComponent) — A cone of light.
+- [SpriteAnimatorComponent](SpriteAnimatorComponent) — Plays the sprite sheet's animation clips on this entity's [`SpriteRendererComponent`](SpriteRendererComponent).
 - [SpriteRendererComponent](SpriteRendererComponent) — Draws a textured or colored quad (2D).
 - [StaticMeshComponent](StaticMeshComponent) — A mesh drawn at the entity.
 - [TagComponent](TagComponent) — The entity's name.

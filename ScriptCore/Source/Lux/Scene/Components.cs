@@ -90,6 +90,59 @@ namespace Lux
 			}
 			set => InternalCalls.SpriteRendererComponent_SetTexture(Entity.ID, value != null ? value.Handle : 0);
 		}
+
+		/// <summary>
+		/// The frame of the sprite sheet this sprite shows (the Frame in the Sprite Renderer's inspector).
+		/// A <see cref="SpriteAnimatorComponent"/> changes it while a clip plays.
+		/// </summary>
+		public int SpriteIndex
+		{
+			get => InternalCalls.SpriteRendererComponent_GetSpriteIndex(Entity.ID);
+			set => InternalCalls.SpriteRendererComponent_SetSpriteIndex(Entity.ID, value);
+		}
+
+		/// <summary>The sorting layer's name, as listed in Project Settings > 2D. Setting a name the project does not have logs a warning.</summary>
+		public string SortingLayer
+		{
+			get => InternalCalls.SpriteRendererComponent_GetSortingLayer(Entity.ID);
+			set => InternalCalls.SpriteRendererComponent_SetSortingLayer(Entity.ID, value ?? string.Empty);
+		}
+
+		/// <summary>The draw order inside the sorting layer: higher draws later, on top.</summary>
+		public int OrderInLayer
+		{
+			get => InternalCalls.SpriteRendererComponent_GetOrderInLayer(Entity.ID);
+			set => InternalCalls.SpriteRendererComponent_SetOrderInLayer(Entity.ID, value);
+		}
+	}
+
+	/// <summary>Plays the sprite sheet's animation clips on this entity's <see cref="SpriteRendererComponent"/>.</summary>
+	public unsafe class SpriteAnimatorComponent : Component
+	{
+		/// <summary>
+		/// Plays the named clip of the sprite renderer's sheet. A clip that is already playing keeps running
+		/// unless <paramref name="restart"/> is true; any other clip, or a stopped one, starts from its first frame.
+		/// </summary>
+		public void Play(string clip, bool restart = false) => InternalCalls.SpriteAnimatorComponent_Play(Entity.ID, clip ?? string.Empty, restart);
+
+		/// <summary>Stops on the current frame. <see cref="Play"/> starts again.</summary>
+		public void Stop() => InternalCalls.SpriteAnimatorComponent_Stop(Entity.ID);
+
+		/// <summary>The current clip's name, empty for none.</summary>
+		public string Clip => InternalCalls.SpriteAnimatorComponent_GetClip(Entity.ID);
+
+		/// <summary>Whether a clip is playing.</summary>
+		public bool IsPlaying => InternalCalls.SpriteAnimatorComponent_IsPlaying(Entity.ID);
+
+		/// <summary>True once a clip that plays once has reached its last frame.</summary>
+		public bool IsFinished => InternalCalls.SpriteAnimatorComponent_IsFinished(Entity.ID);
+
+		/// <summary>Playback speed: 1 is the clip's own frames per second.</summary>
+		public float Speed
+		{
+			get => InternalCalls.SpriteAnimatorComponent_GetSpeed(Entity.ID);
+			set => InternalCalls.SpriteAnimatorComponent_SetSpeed(Entity.ID, value);
+		}
 	}
 
 	/// <summary>Draws a circle or ring (2D).</summary>

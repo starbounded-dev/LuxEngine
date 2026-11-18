@@ -565,6 +565,61 @@ namespace Lux {
 	static void SpriteRendererComponent_SetTilingFactor(uint64_t entityID, float v) { GetEntity(entityID).GetComponent<SpriteRendererComponent>().TilingFactor = v; }
 	static uint64_t SpriteRendererComponent_GetTexture(uint64_t entityID)           { return (uint64_t)GetEntity(entityID).GetComponent<SpriteRendererComponent>().Texture; }
 	static void SpriteRendererComponent_SetTexture(uint64_t entityID, uint64_t h)   { GetEntity(entityID).GetComponent<SpriteRendererComponent>().Texture = h; }
+	static int32_t SpriteRendererComponent_GetSpriteIndex(uint64_t entityID)        { return GetEntity(entityID).GetComponent<SpriteRendererComponent>().SpriteIndex; }
+	static void SpriteRendererComponent_SetSpriteIndex(uint64_t entityID, int32_t v){ GetEntity(entityID).GetComponent<SpriteRendererComponent>().SpriteIndex = v; }
+	static int32_t SpriteRendererComponent_GetOrderInLayer(uint64_t entityID)       { return GetEntity(entityID).GetComponent<SpriteRendererComponent>().OrderInLayer; }
+	static void SpriteRendererComponent_SetOrderInLayer(uint64_t entityID, int32_t v){ GetEntity(entityID).GetComponent<SpriteRendererComponent>().OrderInLayer = v; }
+
+	// Sorting layers are named in the project; a script names one, the component stores its ID.
+	static Coral::String SpriteRendererComponent_GetSortingLayer(uint64_t entityID)
+	{
+		const uint32_t layerID = GetEntity(entityID).GetComponent<SpriteRendererComponent>().SortingLayer;
+		for (const ProjectSortingLayer& layer : Project::GetActive()->GetConfig().SortingLayers)
+		{
+			if (layer.ID == layerID)
+				return Coral::String::New(layer.Name);
+		}
+		return Coral::String::New("Default");
+	}
+
+	static void SpriteRendererComponent_SetSortingLayer(uint64_t entityID, Coral::String name)
+	{
+		const std::string wanted = name;
+		for (const ProjectSortingLayer& layer : Project::GetActive()->GetConfig().SortingLayers)
+		{
+			if (layer.Name == wanted)
+			{
+				GetEntity(entityID).GetComponent<SpriteRendererComponent>().SortingLayer = layer.ID;
+				return;
+			}
+		}
+		LUX_CORE_WARN_TAG("ScriptEngine", "SpriteRenderer.SortingLayer: the project has no sorting layer named '{}'", wanted);
+	}
+
+	#pragma endregion
+
+	#pragma region SpriteAnimatorComponent
+
+	static void SpriteAnimatorComponent_Play(uint64_t entityID, Coral::String clip, Coral::Bool32 restart)
+	{
+		auto& animator = GetEntity(entityID).GetComponent<SpriteAnimatorComponent>();
+		const std::string name = clip;
+		// Playing the clip that is already running leaves it running; anything else starts it from the top.
+		if (restart || animator.Clip != name || !animator.Playing)
+		{
+			animator.Time = 0.0f;
+			animator.Finished = false;
+		}
+		animator.Clip = name;
+		animator.Playing = true;
+	}
+
+	static void SpriteAnimatorComponent_Stop(uint64_t entityID)                    { GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Playing = false; }
+	static Coral::String SpriteAnimatorComponent_GetClip(uint64_t entityID)        { return Coral::String::New(GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Clip); }
+	static Coral::Bool32 SpriteAnimatorComponent_IsPlaying(uint64_t entityID)      { return GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Playing; }
+	static Coral::Bool32 SpriteAnimatorComponent_IsFinished(uint64_t entityID)     { return GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Finished; }
+	static float SpriteAnimatorComponent_GetSpeed(uint64_t entityID)               { return GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Speed; }
+	static void SpriteAnimatorComponent_SetSpeed(uint64_t entityID, float speed)   { GetEntity(entityID).GetComponent<SpriteAnimatorComponent>().Speed = speed; }
 
 	#pragma endregion
 
@@ -1172,6 +1227,7 @@ namespace Lux {
 		RegisterManagedComponent<TransformComponent>(coreAssembly);
 		RegisterManagedComponent<TagComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteRendererComponent>(coreAssembly);
+		RegisterManagedComponent<SpriteAnimatorComponent>(coreAssembly);
 		RegisterManagedComponent<CircleRendererComponent>(coreAssembly);
 		RegisterManagedComponent<CameraComponent>(coreAssembly);
 		RegisterManagedComponent<RigidBody2DComponent>(coreAssembly);
@@ -1305,6 +1361,19 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetTilingFactor);
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetTexture);
 		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetTexture);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetSpriteIndex);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetSpriteIndex);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetOrderInLayer);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetOrderInLayer);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_GetSortingLayer);
+		LUX_ADD_ENTITY_CALL(SpriteRendererComponent_SetSortingLayer);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Play);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Stop);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetClip);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_IsPlaying);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_IsFinished);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetSpeed);
+		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_SetSpeed);
 
 		LUX_ADD_ENTITY_CALL(CircleRendererComponent_GetColor);
 		LUX_ADD_ENTITY_CALL(CircleRendererComponent_SetColor);

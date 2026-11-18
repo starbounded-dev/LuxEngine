@@ -277,6 +277,10 @@ namespace Lux {
 		// One clip makes a Sound playing it; several make a Random container of them.
 		AssetHandle CreateSoundAsset(const std::vector<AssetHandle>& clips = {});
 		AssetHandle CreateSoundBankAsset();
+		// A sprite sheet over the first selected texture, cut as one frame the size of the image.
+		AssetHandle CreateSpriteSheetAsset();
+		// Packs the selected textures into one atlas image and a sheet with a named frame for each.
+		AssetHandle CreateSpriteAtlasFromSelection();
 
 		ContentBrowserItemList Search(const std::string& query, const Ref<DirectoryInfo>& directoryInfo) const;
 		Ref<Texture2D> GetAssetIcon(const AssetMetadata& metadata) const;

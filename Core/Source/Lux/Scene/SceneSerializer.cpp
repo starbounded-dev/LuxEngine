@@ -631,12 +631,31 @@ namespace Lux {
 				out << Yaml::Key << "UVStart" << Yaml::Value << sprite.UVStart;
 				out << Yaml::Key << "UVEnd" << Yaml::Value << sprite.UVEnd;
 				out << Yaml::Key << "ScreenSpace" << Yaml::Value << sprite.ScreenSpace;
+				if (sprite.Sheet)
+				{
+					out << Yaml::Key << "Sheet" << Yaml::Value;
+					AssetReference::WriteValue(out, sprite.Sheet);
+					out << Yaml::Key << "SpriteIndex" << Yaml::Value << sprite.SpriteIndex;
+				}
 				if (sprite.PointFilter)
 					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
 				if (sprite.SortingLayer != 0)
 					out << Yaml::Key << "SortingLayer" << Yaml::Value << sprite.SortingLayer;
 				if (sprite.OrderInLayer != 0)
 					out << Yaml::Key << "OrderInLayer" << Yaml::Value << sprite.OrderInLayer;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<SpriteAnimatorComponent>())
+			{
+				const auto& animator = entity.GetComponent<SpriteAnimatorComponent>();
+				out << Yaml::Key << "SpriteAnimatorComponent";
+				out << Yaml::BeginMap;
+				if (!animator.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << animator.Enabled;
+				out << Yaml::Key << "Clip" << Yaml::Value << animator.Clip;
+				out << Yaml::Key << "Playing" << Yaml::Value << animator.Playing;
+				out << Yaml::Key << "Speed" << Yaml::Value << animator.Speed;
 				out << Yaml::EndMap;
 			}
 
@@ -1223,9 +1242,20 @@ namespace Lux {
 					component.UVStart = sprite["UVStart"].as<glm::vec2>(glm::vec2{ 0.0f, 0.0f });
 					component.UVEnd = sprite["UVEnd"].as<glm::vec2>(glm::vec2{ 1.0f, 1.0f });
 					component.ScreenSpace = sprite["ScreenSpace"].as<bool>(false);
+					component.Sheet = AssetReference::ReadValue(sprite["Sheet"]);
+					component.SpriteIndex = sprite["SpriteIndex"].as<int32_t>(0);
 					component.PointFilter = sprite["PointFilter"].as<bool>(false);
 					component.SortingLayer = sprite["SortingLayer"].as<uint32_t>(0);
 					component.OrderInLayer = sprite["OrderInLayer"].as<int32_t>(0);
+				}
+
+				if (const auto animator = entity["SpriteAnimatorComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<SpriteAnimatorComponent>();
+					component.Enabled = animator["Enabled"].as<bool>(true);
+					component.Clip = animator["Clip"].as<std::string>("");
+					component.Playing = animator["Playing"].as<bool>(true);
+					component.Speed = animator["Speed"].as<float>(1.0f);
 				}
 
 				if (const auto circle = entity["CircleRendererComponent"])

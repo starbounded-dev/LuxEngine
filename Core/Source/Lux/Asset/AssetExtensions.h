@@ -32,6 +32,7 @@ namespace Lux::AssetExtensions
 			{ ".lsoundc", AssetType::SoundConfig },
 			{ ".lsound", AssetType::Sound },
 			{ ".lbank", AssetType::SoundBank },
+			{ ".lsheet", AssetType::SpriteSheet },
 			{ ".fbx", AssetType::MeshSource },
 			{ ".gltf", AssetType::MeshSource },
 			{ ".glb", AssetType::MeshSource },
@@ -88,6 +89,7 @@ namespace Lux::AssetExtensions
 			case AssetType::SoundConfig:     return ".lsoundc";
 			case AssetType::Sound:           return ".lsound";
 			case AssetType::SoundBank:       return ".lbank";
+			case AssetType::SpriteSheet:     return ".lsheet";
 			case AssetType::Skeleton:        return ".lskel";
 			case AssetType::Animation:       return ".lanim";
 			case AssetType::AnimationGraph:  return ".lanimgraph";

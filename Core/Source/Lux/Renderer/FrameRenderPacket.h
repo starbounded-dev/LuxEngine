@@ -39,6 +39,8 @@ namespace Lux {
 			Ref<Texture2D> Texture;
 			float TilingFactor = 1.0f;
 			bool PointFilter = false; // nearest-neighbour sampling
+			glm::vec2 UV0{ 0.0f }; // bottom left of the texture rectangle drawn
+			glm::vec2 UV1{ 1.0f }; // top right
 
 			// Text
 			Ref<Font> FontAsset;
