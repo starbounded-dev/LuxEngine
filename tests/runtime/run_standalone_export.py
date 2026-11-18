@@ -9,7 +9,8 @@ Then it exports the Play test project (tests/play) with that editor and runs the
 Checks:
   * the export succeeds with no source tree, using the shipped Dist player although the project asks
     for Release;
-  * the package has no editor-only libraries, debug files or shader sources;
+  * the package is the executable, its libraries and one Data folder, with no editor-only libraries,
+    debug files or shader sources;
   * a game with scripts ships its own .NET runtime under DotNet/Runtime, and the running player uses
     it: coreclr.dll and System.Private.CoreLib.dll are loaded from there;
   * the executable carries the game's name, version and icon (Windows);
@@ -105,12 +106,15 @@ def check_package(package, executable, editor_log):
             "the export did not fall back to the shipped Dist player (is the project asking for Release?)")
     require(executable.name == "Standalone_Check.exe", f"the executable is {executable.name}, not the game's name")
     run_play.check_export_contents(package, "dist")
-    for name in ("Assets/Project.luxruntime", "Assets/AssetPack.lap", "Assets/ShaderPack.lsp", "DotNet/Coral.Managed.dll"):
+    for name in ("Data/Assets/Project.luxruntime", "Data/Assets/AssetPack.lap", "Data/Assets/ShaderPack.lsp", "Data/DotNet/Coral.Managed.dll"):
         require((package / name).is_file(), f"missing from the package: {name}")
     for path in package.rglob("*"):
         require(path.suffix.lower() != ".pdb", f"a debug file shipped: {path.relative_to(package)}")
-    hostfxr = list((package / "DotNet/Runtime/host/fxr").glob("*/hostfxr.dll"))
-    corelib = list((package / "DotNet/Runtime/shared/Microsoft.NETCore.App").glob("*/System.Private.CoreLib.dll"))
+    # The lean layout: the executable, the libraries it loads, and one Data folder.
+    entries = sorted(path.name for path in package.iterdir())
+    require(entries == ["Data", "Standalone_Check.exe", "nethost.dll"], f"the package top level is {entries}, expected the executable, nethost.dll and Data")
+    hostfxr = list((package / "Data/DotNet/Runtime/host/fxr").glob("*/hostfxr.dll"))
+    corelib = list((package / "Data/DotNet/Runtime/shared/Microsoft.NETCore.App").glob("*/System.Private.CoreLib.dll"))
     require(hostfxr and corelib, "the game has scripts but ships no .NET runtime under DotNet/Runtime")
     return corelib[0].parent
 
@@ -209,16 +213,16 @@ def run_player(package, executable, root, bundled_runtime):
     runtime_modules = {path.name.lower(): path for path in modules if path.name.lower() in ("coreclr.dll", "system.private.corelib.dll", "hostfxr.dll")}
     for name in ("coreclr.dll", "system.private.corelib.dll"):
         require(name in runtime_modules, f"the player never loaded {name} (did scripts start?)")
-        require(Path(os.path.normcase(runtime_modules[name])).is_relative_to(os.path.normcase(package / "DotNet/Runtime")),
+        require(Path(os.path.normcase(runtime_modules[name])).is_relative_to(os.path.normcase(package / "Data/DotNet/Runtime")),
                 f"the player loaded {name} from {runtime_modules[name]}, not from its own DotNet/Runtime")
 
-    logs = sorted((package / "logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
+    logs = sorted((package / "Data/logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
     require(logs and logs[-1].stat().st_mtime >= started - 2, "the player wrote no log beside the game")
     session = logs[-1].name[len("LUX_"):]
     text = ""
     for name in ("LUX_" + session, "APP_" + session):
-        if (package / "logs" / name).is_file():
-            text += (package / "logs" / name).read_text(encoding="utf-8", errors="replace")
+        if (package / "Data/logs" / name).is_file():
+            text += (package / "Data/logs" / name).read_text(encoding="utf-8", errors="replace")
     log = root / "player.log"
     log.write_text(text, encoding="utf-8")
     require("Using the .NET runtime bundled with the game" in text, "the player did not report using its bundled .NET runtime")

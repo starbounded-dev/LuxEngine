@@ -209,7 +209,7 @@ def main():
                 player.kill()
 
         text = stdout_log.read_text(encoding="utf-8", errors="replace")
-        engine_logs = sorted((package / "logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
+        engine_logs = sorted((package / "Data/logs").glob("LUX_*.log"), key=lambda p: p.stat().st_mtime)
         if engine_logs and engine_logs[-1].stat().st_mtime >= started - 2:
             text += engine_logs[-1].read_text(encoding="utf-8", errors="replace")
 

@@ -16,6 +16,9 @@
 
 namespace Lux::RuntimeExport {
 
+	// An export is the executable (and its libraries) plus this one folder holding Assets, Resources, DotNet and
+	// logs; the player makes it its working directory (Lux-Runtime LUX_ENTRY_PREPARE).
+	inline constexpr const char* DataFolder = "Data";
 	inline constexpr const char* RuntimeProjectFile = "Project.luxruntime";
 	inline constexpr const char* RuntimeAssetPackFile = "AssetPack.lap";
 	inline constexpr const char* RuntimeShaderPackFile = "ShaderPack.lsp";

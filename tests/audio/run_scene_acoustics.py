@@ -325,7 +325,7 @@ def verify_export(capture, destination, case, triangle_counts, timeout, threadin
     package, executable = Path(metadata["Root"]).resolve(), Path(metadata["Executable"]).resolve()
     require(package.is_relative_to(destination.resolve()) and executable.parent == package,
             "Export metadata points outside the isolated destination")
-    for path in (executable, package/"Assets/Project.luxruntime", package/"Assets/AssetPack.lap", package/"Assets/ShaderPack.lsp"):
+    for path in (executable, package/"Data/Assets/Project.luxruntime", package/"Data/Assets/AssetPack.lap", package/"Data/Assets/ShaderPack.lsp"):
         require(path.is_file() and path.stat().st_size > 0, f"Missing exported artifact: {path}")
     for path in package.rglob("*"):
         name = path.name.lower().removeprefix("lib")

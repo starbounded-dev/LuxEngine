@@ -43,6 +43,11 @@ namespace Lux
 			if (std::filesystem::exists(assetDirectoryPath, ec))
 				return assetDirectoryPath;
 
+			// The export folder itself: its files are in Data/ (see RuntimeApplication.cpp).
+			const std::filesystem::path dataDirectoryPath = projectPath / "Data" / "Assets" / s_RuntimeProjectFile;
+			if (std::filesystem::exists(dataDirectoryPath, ec))
+				return dataDirectoryPath;
+
 			return projectPath / s_RuntimeProjectFile;
 		}
 	}

@@ -5085,7 +5085,7 @@ namespace Lux {
 
 			buildName = SanitizeBuildName(runtimeSettings.GameName.empty() ? project->GetConfig().Name : runtimeSettings.GameName);
 			exportRoot = pending.Folder / (buildName + RuntimeExport::PlatformExportLabel);
-			exportAssets = exportRoot / "Assets";
+			exportAssets = exportRoot / RuntimeExport::DataFolder / "Assets";
 #ifdef LUX_PLATFORM_LINUX
 			exportedExe = exportRoot / buildName;
 #else
@@ -5097,7 +5097,9 @@ namespace Lux {
 			// previous export produced is wiped; anything else is left alone and the export stops.
 			if (std::filesystem::exists(exportRoot, ec) && !std::filesystem::is_empty(exportRoot, ec))
 			{
-				if (!std::filesystem::exists(exportAssets / RuntimeExport::RuntimeProjectFile, ec))
+				// Also the layout before Data/, so re-exporting over an older export still works.
+				if (!std::filesystem::exists(exportAssets / RuntimeExport::RuntimeProjectFile, ec)
+					&& !std::filesystem::exists(exportRoot / "Assets" / RuntimeExport::RuntimeProjectFile, ec))
 				{
 					LUX_CONSOLE_LOG_ERROR("Export folder '{}' already exists and is not a previous Lux export. Choose an empty folder, or remove it first.", exportRoot.string());
 					return false;
@@ -5210,15 +5212,15 @@ namespace Lux {
 				return false;
 			}
 			if (targetConfig == RuntimeExportTarget::Dist)
-				return CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders" });
-			return CopyDirectoryRecursive(resourcesSource, exportRoot / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp" });
+				return CopyDirectoryRecursive(resourcesSource, exportRoot / RuntimeExport::DataFolder / "Resources", true, { "ShaderPack.lsp", "ShaderPack.lsp.stamp", "Shaders" });
+			return CopyDirectoryRecursive(resourcesSource, exportRoot / RuntimeExport::DataFolder / "Resources", false, { "ShaderPack.lsp", "ShaderPack.lsp.stamp" });
 
 		case RuntimeExportStep::ShaderPack:
 			// Judged by the engine version that wrote it (ShaderPack::Evaluate), so nothing else ships with it.
-			return WriteRuntimeShaderPack(exportRoot / "Assets" / s_RuntimeShaderPackFile);
+			return WriteRuntimeShaderPack(exportAssets / s_RuntimeShaderPackFile);
 
 		case RuntimeExportStep::Scripts:
-			if (!dotnetSource.empty() && !CopyDirectoryRecursive(dotnetSource, exportRoot / "DotNet", targetConfig == RuntimeExportTarget::Dist))
+			if (!dotnetSource.empty() && !CopyDirectoryRecursive(dotnetSource, exportRoot / RuntimeExport::DataFolder / "DotNet", targetConfig == RuntimeExportTarget::Dist))
 				return false;
 
 			if (std::filesystem::exists(scriptModule, ec))
@@ -5228,7 +5230,7 @@ namespace Lux {
 				// The game's scripts need .NET 10; ship it so players install nothing.
 				const std::filesystem::path dotNetRoot = RuntimeExport::FindDotNetRoot();
 				std::string dotNetError = "No .NET installation was found.";
-				if (dotNetRoot.empty() || !RuntimeExport::BundleDotNetRuntime(dotNetRoot, exportRoot / "DotNet" / RuntimeExport::BundledDotNetFolder, dotNetError))
+				if (dotNetRoot.empty() || !RuntimeExport::BundleDotNetRuntime(dotNetRoot, exportRoot / RuntimeExport::DataFolder / "DotNet" / RuntimeExport::BundledDotNetFolder, dotNetError))
 				{
 					LUX_CONSOLE_LOG_ERROR("Runtime export could not bundle the .NET runtime the game's scripts need: {}", dotNetError);
 					return false;
@@ -5244,7 +5246,7 @@ namespace Lux {
 				if (FileExists(iconSource))
 				{
 					const std::filesystem::path iconFilename = "Icon" + iconSource.extension().string();
-					const std::filesystem::path exportedIconPath = exportRoot / "Resources" / "Runtime" / iconFilename;
+					const std::filesystem::path exportedIconPath = exportRoot / RuntimeExport::DataFolder / "Resources" / "Runtime" / iconFilename;
 					if (CopyFileIfExists(iconSource, exportedIconPath))
 						runtimeIconPath = std::filesystem::path("..") / "Resources" / "Runtime" / iconFilename;
 				}
@@ -5298,7 +5300,7 @@ namespace Lux {
 					desktop << "Name=" << runtimeSettings.GameName << "\n";
 					desktop << "Exec=run-" << buildName << ".sh\n";
 					if (!runtimeIconPath.empty())
-						desktop << "Icon=" << (exportRoot / runtimeIconPath).string() << "\n";
+						desktop << "Icon=" << (exportAssets / runtimeIconPath).lexically_normal().string() << "\n";
 					desktop << "Terminal=false\n";
 					desktop << "Categories=Game;\n";
 				}

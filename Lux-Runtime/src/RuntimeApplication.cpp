@@ -17,8 +17,15 @@ namespace Lux
 	{
 		std::error_code ec;
 		const std::filesystem::path folder = FileSystem::GetExecutablePath().parent_path();
-		if (!folder.empty() && std::filesystem::exists(folder / "Assets" / "Project.luxruntime", ec))
-			std::filesystem::current_path(folder, ec);
+		// Data/ holds an export's files; an export from before that folder existed keeps them beside the executable.
+		for (const std::filesystem::path& candidate : { folder / "Data", folder })
+		{
+			if (!candidate.empty() && std::filesystem::exists(candidate / "Assets" / "Project.luxruntime", ec))
+			{
+				std::filesystem::current_path(candidate, ec);
+				return;
+			}
+		}
 	}
 }
 #define LUX_ENTRY_PREPARE() ::Lux::UseExportFolderAsWorkingDirectory()
@@ -51,6 +58,11 @@ namespace Lux
 			const std::filesystem::path assetDirectoryPath = projectPath / "Assets" / s_RuntimeProjectFile;
 			if (std::filesystem::exists(assetDirectoryPath))
 				return assetDirectoryPath;
+
+			// The export folder itself (what the tests and launchers pass): its files are in Data/.
+			const std::filesystem::path dataDirectoryPath = projectPath / "Data" / "Assets" / s_RuntimeProjectFile;
+			if (std::filesystem::exists(dataDirectoryPath))
+				return dataDirectoryPath;
 
 			return projectPath / s_RuntimeProjectFile;
 		}
