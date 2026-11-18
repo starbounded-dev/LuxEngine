@@ -750,6 +750,26 @@ namespace Lux {
 		}
 		ImGui::Dummy(S(0.0f, 18.0f));
 
+		label("Template");
+		{
+			const float half = (contentWidth - S(8.0f)) * 0.5f;
+			if (ActionButton("##new_project_3d", nullptr, "3D game", nullptr, ImVec2(half, S(k_FieldHeight)), m_NewProjectIs2D ? ButtonKind::Secondary : ButtonKind::Primary, true))
+				m_NewProjectIs2D = false;
+			ImGui::SameLine(0.0f, S(8.0f));
+			if (ActionButton("##new_project_2d", nullptr, "2D game", nullptr, ImVec2(half, S(k_FieldHeight)), m_NewProjectIs2D ? ButtonKind::Primary : ButtonKind::Secondary, true))
+				m_NewProjectIs2D = true;
+		}
+		ImGui::Dummy(S(0.0f, 8.0f));
+		{
+			const char* help = m_NewProjectIs2D
+				? "Starts with an orthographic camera, Box2D physics and the 2D editor view (XY plane)."
+				: "Starts with the default meshes and the 3D editor view.";
+			const ImVec2 pos = ImGui::GetCursorScreenPos();
+			DrawText(drawList, "Small", k_SmallSize, pos, Theme::textCaption, help, contentWidth);
+			ImGui::Dummy(ImVec2(contentWidth, MeasureText("Small", k_SmallSize, help, contentWidth).y));
+		}
+		ImGui::Dummy(S(0.0f, 18.0f));
+
 		label("Starter C# class");
 		Field("##new_project_script_class", m_NewScriptClass, sizeof(m_NewScriptClass), contentWidth, "GameController", "Default", k_BodySize);
 		ImGui::Dummy(S(0.0f, 8.0f));
@@ -879,7 +899,7 @@ namespace Lux {
 
 		if ((create || (submitted && error.empty())) && m_Callbacks.CreateProject)
 		{
-			m_CreateFailed = !m_Callbacks.CreateProject(m_NewProjectName, std::filesystem::path(m_NewProjectLocation), m_NewScriptClass);
+			m_CreateFailed = !m_Callbacks.CreateProject(m_NewProjectName, std::filesystem::path(m_NewProjectLocation), m_NewScriptClass, m_NewProjectIs2D);
 			if (!m_CreateFailed)
 			{
 				m_NewProjectName[0] = 0;

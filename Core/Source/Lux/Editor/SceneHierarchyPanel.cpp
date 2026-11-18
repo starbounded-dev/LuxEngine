@@ -2517,6 +2517,21 @@ namespace Lux {
 					}
 				}
 
+				if (ImGuiEx::Property("Solid Background", firstComponent.SolidBackground))
+				{
+					ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [&firstComponent](CameraComponent& component, Entity)
+					{
+						component.SolidBackground = firstComponent.SolidBackground;
+					});
+				}
+				if (firstComponent.SolidBackground && ImGuiEx::PropertyColor("Background", firstComponent.BackgroundColor))
+				{
+					ApplyToSelection<CameraComponent>(m_Context, selectedEntities, [&firstComponent](CameraComponent& component, Entity)
+					{
+						component.BackgroundColor = firstComponent.BackgroundColor;
+					});
+				}
+
 				ImGuiEx::EndPropertyGrid();
 			});
 

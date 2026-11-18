@@ -106,7 +106,9 @@ namespace Lux
 		bool OpenProject();
 		void OpenProject(const std::filesystem::path& path);
 		// Writes the project, default geometry and a named C# starter, then opens it.
-		bool CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass);
+		bool CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass, bool twoD = false);
+		// The 2D template's Main scene: a 2D camera, a ground and a falling box. Saved and made the start scene.
+		bool CreateStarterScene2D();
 		void CloseProject();   // back to the splash screen
 		void SaveProject();
 		void ExportRuntime();
@@ -417,6 +419,9 @@ namespace Lux
 			std::string BuildName;
 		};
 		std::optional<PendingRuntimeExport> m_PendingRuntimeExport;
+		// 2D view: snap moves to whole pixels at this scale (1 / pixels-per-unit world units).
+		bool m_PixelSnap2D = true;
+		float m_PixelsPerUnit2D = 100.0f;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;
 		float m_RotationSnapValue = 45.0f;

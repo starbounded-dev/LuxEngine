@@ -120,3 +120,7 @@ graphify-out/
 
 # Local-only test models (Mixamo files may not be redistributed); tests skip when absent
 tests/animation/assets/local/
+
+# Headless 2D checks (tests/2d)
+Editor/Checks2D.vcxproj*
+bin/2d-checks/

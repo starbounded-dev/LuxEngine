@@ -496,6 +496,11 @@ namespace Lux {
 				out << Yaml::EndMap;
 				out << Yaml::Key << "Primary" << Yaml::Value << cameraComponent.Primary;
 				out << Yaml::Key << "FixedAspectRatio" << Yaml::Value << cameraComponent.FixedAspectRatio;
+				if (cameraComponent.SolidBackground)
+				{
+					out << Yaml::Key << "SolidBackground" << Yaml::Value << true;
+					out << Yaml::Key << "BackgroundColor" << Yaml::Value << cameraComponent.BackgroundColor;
+				}
 				out << Yaml::EndMap;
 			}
 
@@ -1095,6 +1100,8 @@ namespace Lux {
 					component.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>(1.0f));
 					component.Primary = camera["Primary"].as<bool>(true);
 					component.FixedAspectRatio = camera["FixedAspectRatio"].as<bool>(false);
+					component.SolidBackground = camera["SolidBackground"].as<bool>(false);
+					component.BackgroundColor = camera["BackgroundColor"].as<glm::vec4>(component.BackgroundColor);
 				}
 
 				if (const auto light = entity["DirectionalLightComponent"])

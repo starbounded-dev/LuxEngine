@@ -36,8 +36,15 @@ namespace Lux {
 
 		CameraMode GetCurrentMode() const { return m_CameraMode; }
 
-		inline float GetDistance() const { return m_Distance; }
-		inline void SetDistance(float distance) { m_Distance = distance; }
+		// 2D view: orthographic, looking down -Z at the XY plane. Middle or right drag (or Alt + left drag)
+		// pans, the wheel zooms. "Distance" is the visible height in world units in this mode.
+		void Set2DMode(bool enabled);
+		bool Is2DMode() const { return m_Mode2D; }
+		// Height of the scene panel in mouse units, so a 2D pan follows the cursor exactly.
+		void SetPanelHeight(float height) { m_PanelHeight = height; }
+
+		inline float GetDistance() const { return m_Mode2D ? m_OrthoHeight : m_Distance; }
+		inline void SetDistance(float distance) { if (m_Mode2D) { m_OrthoHeight = distance; RebuildProjection(); } else m_Distance = distance; }
 
 		const glm::vec3& GetFocalPoint() const { return m_FocalPoint; }
 
@@ -46,20 +53,13 @@ namespace Lux {
 			if (m_ViewportLeft == left && m_ViewportTop == top && m_ViewportRight == right && m_ViewportBottom == bottom)
 				return;
 
-			if ((right - left) != (m_ViewportRight - m_ViewportLeft) || (bottom - top) != (m_ViewportBottom - m_ViewportTop))
-			{
-				float width = (float)(right - left);
-				float height = (float)(bottom - top);
-				if (width > 0.0f && height > 0.0f)
-				{
-					SetPerspectiveProjectionMatrix(m_VerticalFOV, width, height, m_NearClip, m_FarClip);
-				}
-			}
-
+			const bool resized = (right - left) != (m_ViewportRight - m_ViewportLeft) || (bottom - top) != (m_ViewportBottom - m_ViewportTop);
 			m_ViewportLeft = left;
 			m_ViewportTop = top;
 			m_ViewportRight = right;
 			m_ViewportBottom = bottom;
+			if (resized)
+				RebuildProjection();
 		}
 
 		const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
@@ -83,6 +83,8 @@ namespace Lux {
 		[[nodiscard]] float GetCameraSpeed() const;
 	private:
 		void UpdateCameraView();
+		// Perspective or the 2D orthographic projection for the current viewport size.
+		void RebuildProjection();
 
 		bool OnMouseScroll(MouseScrolledEvent& e);
 
@@ -120,6 +122,11 @@ namespace Lux {
 		CameraMode m_CameraMode{ CameraMode::ARCBALL };
 
 		float m_MinFocusDistance{ 100.0f };
+
+		bool m_Mode2D = false;
+		float m_OrthoHeight = 10.0f;
+		float m_PanelHeight = 0.0f;
+		float m_Saved3DDistance = 10.0f, m_Saved3DPitch = 0.0f, m_Saved3DYaw = 0.0f;
 
 		uint32_t m_ViewportLeft = 0;
 		uint32_t m_ViewportTop = 0;

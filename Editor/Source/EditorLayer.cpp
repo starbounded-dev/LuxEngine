@@ -10,6 +10,7 @@
 #include "ScriptTemplate.h"
 
 #include "Lux/Scene/SceneSerializer.h"
+#include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Audio/AudioValidation.h"
 #include "Lux/Editor/EditorDocs.h"
 #include "Lux/Editor/EditorStack.h"
@@ -712,7 +713,7 @@ namespace Lux {
 			splashCallbacks.GetRecentProjects = [this]() { return GetRecentProjects(); };
 			splashCallbacks.OpenProject = [this](const std::filesystem::path& path) { OpenProject(path); };
 			splashCallbacks.BrowseForProject = [this]() { return OpenProject(); };
-			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location, const std::string& scriptClass) { return CreateProject(name, location, scriptClass); };
+			splashCallbacks.CreateProject = [this](const std::string& name, const std::filesystem::path& location, const std::string& scriptClass, bool twoD) { return CreateProject(name, location, scriptClass, twoD); };
 			splashCallbacks.RemoveRecentProject = [this](const std::filesystem::path& path) { RemoveRecentProject(path); };
 			splashCallbacks.GetShowOnStartup = [this]() { return m_UserPreferences && m_UserPreferences->ShowSplashScreen; };
 			splashCallbacks.SetShowOnStartup = [this](bool show)
@@ -1166,6 +1167,7 @@ namespace Lux {
 		EditorCamera& viewportCamera = m_EditorViewport->GetCamera();
 		const bool cameraWasCaptured = viewportCamera.IsMouseCaptured();
 		viewportCamera.SetActive(m_EditorViewport->IsVisible() && (m_EditorViewport->IsFocused() || m_EditorViewport->IsHovered() || cameraWasCaptured));
+		viewportCamera.SetPanelHeight(m_EditorViewport->GetSize().y);
 
 		if (m_SceneRenderer)
 		{
@@ -1477,7 +1479,8 @@ namespace Lux {
 				// Folders have no user-editable transform, so they get no gizmo.
 				if (selectedEntity && m_GizmoType != -1 && !selectedEntity.HasComponent<FolderComponent>())
 				{
-					ImGuizmo::SetOrthographic(false);
+					const bool view2D = m_EditorViewport->GetCamera().Is2DMode();
+					ImGuizmo::SetOrthographic(view2D);
 					ImGuizmo::SetDrawlist();
 					// The image rect, not the panel rect - the gizmo has to line up with the
 					// rendered image, which is inset by the letterbox bars when the render
@@ -1496,12 +1499,25 @@ namespace Lux {
 					bool snap = m_UseGizmoSnap || controlSnap;
 					float snapValue = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? m_RotationSnapValue
 						: m_GizmoType == ImGuizmo::OPERATION::SCALE ? m_ScaleSnapValue : m_TranslationSnapValue;
+					// The 2D view moves and scales in the plane and rotates about Z only.
+					int gizmoOperation = m_GizmoType;
+					if (view2D)
+					{
+						gizmoOperation = m_GizmoType == ImGuizmo::OPERATION::ROTATE ? ImGuizmo::ROTATE_Z
+							: m_GizmoType == ImGuizmo::OPERATION::SCALE ? (ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y)
+							: (ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y);
+						if (m_PixelSnap2D && m_GizmoType == ImGuizmo::OPERATION::TRANSLATE)
+						{
+							snap = true;
+							snapValue = 1.0f / m_PixelsPerUnit2D;
+						}
+					}
 					float snapValues[3] = { snapValue, snapValue, snapValue };
 
 					ImGuizmo::Manipulate(
 						glm::value_ptr(cameraView),
 						glm::value_ptr(cameraProjection),
-						(ImGuizmo::OPERATION)m_GizmoType,
+						(ImGuizmo::OPERATION)gizmoOperation,
 						ImGuizmo::LOCAL,
 						glm::value_ptr(transform),
 						nullptr,
@@ -2586,6 +2602,22 @@ namespace Lux {
 			}
 
 			ImGui::Separator();
+			{
+				EditorCamera& viewCamera = m_EditorViewport->GetCamera();
+				bool view2D = viewCamera.Is2DMode();
+				if (ImGui::Checkbox("2D View", &view2D))
+					viewCamera.Set2DMode(view2D);
+				ImGui::SetItemTooltip("Orthographic view of the XY plane. Middle or right drag pans, the wheel zooms.");
+				if (view2D)
+				{
+					ImGui::Checkbox("Pixel Snap", &m_PixelSnap2D);
+					ImGui::SetItemTooltip("Move gizmos snap to whole pixels at the scale below.");
+					if (m_PixelSnap2D)
+						ImGui::DragFloat("Pixels Per Unit", &m_PixelsPerUnit2D, 1.0f, 1.0f, 1024.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				}
+			}
+
+			ImGui::Separator();
 			if (m_PlayModeDebugViewsSuspended)
 				ImGui::TextDisabled("Debug views are suspended during Play.");
 
@@ -2689,7 +2721,8 @@ namespace Lux {
 
 	void EditorLayer::UI_ViewportOrientationGizmo()
 	{
-		if (!m_EditorViewport)
+		// The 2D view has one fixed orientation; the axis widget would only let the user rotate out of it.
+		if (!m_EditorViewport || m_EditorViewport->GetCamera().Is2DMode())
 			return;
 
 		const glm::vec2& viewportSize = m_EditorViewport->GetSize();
@@ -3152,6 +3185,29 @@ namespace Lux {
 				if (t >= 0.0f && t < outDistance)
 				{
 					outDistance = t;
+					hit = true;
+				}
+			}
+		}
+
+		// 2D renderers: a sprite is the unit quad and a circle the unit-diameter disc on the entity's local
+		// z = 0 plane, so a click on one picks it even though it has no mesh bounds.
+		const bool isSprite = entity.HasComponent<SpriteRendererComponent>();
+		if (isSprite || entity.HasComponent<CircleRendererComponent>())
+		{
+			const glm::mat4 inverseTransform = glm::inverse(worldTransform);
+			const glm::vec3 localOrigin = glm::vec3(inverseTransform * glm::vec4(rayOrigin, 1.0f));
+			const glm::vec3 localDirection = glm::vec3(inverseTransform * glm::vec4(rayDirection, 0.0f));
+			if (std::abs(localDirection.z) > std::numeric_limits<float>::epsilon())
+			{
+				const glm::vec3 local = localOrigin + localDirection * (-localOrigin.z / localDirection.z);
+				const bool inside = isSprite ? (std::abs(local.x) <= 0.5f && std::abs(local.y) <= 0.5f)
+					: glm::length(glm::vec2(local)) <= 0.5f;
+				const glm::vec3 worldHit = glm::vec3(worldTransform * glm::vec4(local, 1.0f));
+				const float worldDistance = glm::dot(worldHit - rayOrigin, rayDirection);
+				if (inside && worldDistance >= 0.0f && worldDistance < outDistance)
+				{
+					outDistance = worldDistance;
 					hit = true;
 				}
 			}
@@ -4172,6 +4228,9 @@ namespace Lux {
 			m_PanelManager->OnProjectChanged(Project::GetActive());
 			if (m_SceneRenderer)
 				m_SceneRenderer->ApplyProjectSettings(Project::GetActive()->GetConfig().SceneRenderer);
+			// A 2D project opens in the XY view; the toggle in the viewport settings overrides it for the session.
+			if (m_EditorViewport)
+				m_EditorViewport->GetCamera().Set2DMode(Project::GetActive()->GetConfig().Type == ProjectType::Project2D);
 		}
 	}
 
@@ -4185,7 +4244,7 @@ namespace Lux {
 		return true;
 	}
 
-	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass)
+	bool EditorLayer::CreateProject(const std::string& name, const std::filesystem::path& location, const std::string& scriptClass, bool twoD)
 	{
 		std::string templateText, scriptSource, scriptError;
 		if (!ScriptTemplate::Load(FileSystem::GetWorkingDirectory() / "Resources" / "Templates" / "NewClassTemplate.cs", templateText, scriptError)
@@ -4202,6 +4261,11 @@ namespace Lux {
 		config.Name = name;
 		config.DefaultNamespace = name;
 		config.ScriptModulePath = std::filesystem::path("Scripts/Binaries") / (name + ".dll");
+		if (twoD)
+		{
+			config.Type = ProjectType::Project2D;
+			config.CurrentPhysicsAPI = PhysicsAPIType::Box2D;
+		}
 
 		const std::filesystem::path assetDirectory = projectDirectory / config.AssetDirectory;
 		for (const std::filesystem::path& folder : { assetDirectory / "Scenes", assetDirectory / "Scripts" / "Source", assetDirectory / "Materials", assetDirectory / config.MeshSourcePath, assetDirectory / "Textures" })
@@ -4216,7 +4280,8 @@ namespace Lux {
 		}
 
 		std::string templateError;
-		if (!ProjectTemplate::CopyDefaultMeshes(FileSystem::GetWorkingDirectory() / "Resources" / "Meshes" / "Default",
+		// A 2D project starts without the 3D primitives; its starter scene needs no assets at all.
+		if (!twoD && !ProjectTemplate::CopyDefaultMeshes(FileSystem::GetWorkingDirectory() / "Resources" / "Meshes" / "Default",
 			assetDirectory / config.MeshSourcePath / "Default", templateError))
 		{
 			LUX_CORE_ERROR_TAG("Project", "Could not initialize default meshes: {}", templateError);
@@ -4244,7 +4309,35 @@ namespace Lux {
 
 		LUX_CORE_INFO_TAG("Project", "Created project '{}' in {}", name, projectDirectory.string());
 		OpenProject(projectFilePath);
+		if (twoD && Project::GetActive() && !CreateStarterScene2D())
+			LUX_CORE_WARN_TAG("Project", "The 2D starter scene could not be saved; the project opens with an empty scene.");
 		return Project::GetActive() != nullptr;
+	}
+
+	bool EditorLayer::CreateStarterScene2D()
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project || !m_ActiveScene)
+			return false;
+
+		Ref<Scene> scene = m_ActiveScene;
+		SceneTemplates::Populate2DStarter(*scene);
+
+		const std::filesystem::path scenePath = std::filesystem::path("Scenes") / "Main.luxscene";
+		SerializeScene(scene, scenePath);
+		if (!FileSystem::Exists(project->GetAssetFileSystemPath(scenePath)))
+			return false;
+
+		Ref<EditorAssetManager> assets = Project::GetEditorAssetManager();
+		const AssetHandle handle = assets ? assets->ImportAsset(scenePath) : AssetHandle(0);
+		if (!handle)
+			return false;
+
+		m_EditorScenePath = scenePath;
+		project->GetConfig().StartScene = scenePath.generic_string();
+		project->GetConfig().StartSceneHandle = handle;
+		SaveProject();
+		return true;
 	}
 
 	void EditorLayer::CloseProject()

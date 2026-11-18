@@ -35,6 +35,14 @@ namespace Lux
 		Jolt = 1
 	};
 
+	// What a new project starts as. 2D opens the editor in the XY view with a 2D template; everything
+	// else is shared, so a 2D project can still use any 3D feature.
+	enum class ProjectType : uint8_t
+	{
+		Project3D = 0,
+		Project2D = 1
+	};
+
 	enum class PhysicsCaptureMethod : uint8_t
 	{
 		LiveDebug = 0,
@@ -201,6 +209,7 @@ namespace Lux
 	struct ProjectConfig
 	{
 		std::string Name = "Untitled";
+		ProjectType Type = ProjectType::Project3D;
 
 		std::string StartScene;
 		AssetHandle StartSceneHandle = 0;

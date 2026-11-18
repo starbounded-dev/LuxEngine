@@ -718,6 +718,29 @@ scheduler in LuxEngine.
 `Core/Source/Lux/Physics2D/`, driven directly by `Scene` (`OnPhysics2DStart` / `OnPhysics2DStop`).
 No abstraction layer — Box2D is small enough to use directly.
 
+### 2.6a 2D project type (M11)
+
+A project is 3D or 2D (`ProjectConfig::Type`, `ProjectType: 2D` in the `.luxproj`, written only for 2D so
+older files re-save unchanged). It only changes what a new project starts with and how the editor opens;
+every engine feature stays available in both.
+
+- **Template.** The New Project form's *Template* choice reaches `EditorLayer::CreateProject(..., twoD)`.
+  A 2D project copies no default meshes; `CreateStarterScene2D` fills the empty scene with
+  `SceneTemplates::Populate2DStarter` (`Scene/SceneTemplates.cpp`: orthographic camera with a solid
+  background, a static ground and a dynamic box), saves `Scenes/Main.luxscene` and makes it the start scene.
+- **Editor view.** `EditorCamera::Set2DMode`: orthographic, looking down -Z at the XY plane, identity
+  orientation. "Distance" is the visible height in world units. Middle or right drag (or Alt + left drag)
+  pans, the wheel zooms about the centre; `RebuildProjection` keeps the orthographic projection on resize.
+  `OpenProject` turns it on for a 2D project; *2D View* in the viewport settings toggles it per session. The
+  orientation widget is hidden, the gizmo offers X/Y move, Z rotate and XY scale, and *Pixel Snap* snaps
+  moves to `1 / pixels-per-unit` (session-only settings). `Grid.glsl` draws the z = 0 plane when the camera is
+  orthographic and looks along Z. Clicking a sprite or circle picks it (`RayIntersectsEntity`).
+- **Background.** `CameraComponent::SolidBackground` / `BackgroundColor` (serialized only when on). When the
+  overlay view is orthographic, `Scene::CaptureDraw2D` makes the view rectangle the first `Draw2D` item, so it
+  is drawn in the 2D overlay after tone mapping and keeps its display colour.
+- **Checks.** `tests/2d/run_2d_checks.py` builds `tests/2d/Checks2D.cpp` (derived from `Editor.vcxproj`, no
+  window, no GPU) and runs the project type, background, 2D camera and template checks.
+
 ### 2.7 Scripting (C# / Coral)
 
 `ScriptEngine` (`Scripting/ScriptEngine.h`) hosts .NET 10 through Coral (`Core/vendor/Coral/`).

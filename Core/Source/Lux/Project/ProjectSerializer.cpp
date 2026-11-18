@@ -711,6 +711,8 @@ namespace Lux
 		{
 			out << Yaml::BeginMap;
 			out << Yaml::Key << "Name" << Yaml::Value << config.Name;
+			if (config.Type == ProjectType::Project2D)
+				out << Yaml::Key << "ProjectType" << Yaml::Value << "2D";
 			out << Yaml::Key << "AssetDirectory" << Yaml::Value << config.AssetDirectory.generic_string();
 			out << Yaml::Key << "AssetRegistry" << Yaml::Value << config.AssetRegistryPath.generic_string();
 			out << Yaml::Key << "AudioCommandsRegistryPath" << Yaml::Value << config.AudioCommandsRegistryPath.generic_string();
@@ -967,6 +969,7 @@ namespace Lux
 			return false;
 
 		config.Name = projectNode["Name"].as<std::string>("Untitled");
+		config.Type = projectNode["ProjectType"].as<std::string>("3D") == "2D" ? ProjectType::Project2D : ProjectType::Project3D;
 		config.AssetDirectory = projectNode["AssetDirectory"].as<std::string>("Assets");
 		config.ProjectDirectory = filepath.parent_path();
 		config.ProjectFileName = filepath.filename().string();

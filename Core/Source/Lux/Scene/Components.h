@@ -203,6 +203,11 @@ namespace Lux {
 		bool Primary = true; // TODO: think about moving to Scene
 		bool FixedAspectRatio = false;
 
+		// 2D games: fill the view with BackgroundColor instead of the sky. It is drawn in the 2D overlay,
+		// after tone mapping, so the colour shows exactly as authored.
+		bool SolidBackground = false;
+		glm::vec4 BackgroundColor{ 0.12f, 0.13f, 0.16f, 1.0f };
+
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
 

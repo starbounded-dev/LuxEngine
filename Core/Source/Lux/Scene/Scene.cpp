@@ -3622,6 +3622,33 @@ namespace Lux {
 	{
 		using Draw2DItem = FrameRenderPacket::Draw2DItem;
 
+		// A 2D camera's solid background is the first item, so everything else draws over it. It is the
+		// view rectangle unprojected at mid depth, which only makes sense for an orthographic view.
+		{
+			const glm::mat4& viewProjection = packet.Overlay2DViewProjection;
+			const bool orthographic = std::abs(viewProjection[0][3]) + std::abs(viewProjection[1][3]) + std::abs(viewProjection[2][3]) < 1e-6f;
+			const Entity cameraEntity = orthographic ? GetPrimaryCameraEntity() : Entity{};
+			if (cameraEntity && cameraEntity.GetComponent<CameraComponent>().SolidBackground)
+			{
+				const glm::mat4 inverse = glm::inverse(viewProjection);
+				const auto unproject = [&inverse](float x, float y)
+				{
+					const glm::vec4 point = inverse * glm::vec4(x, y, 0.5f, 1.0f);
+					return glm::vec3(point) / point.w;
+				};
+				const glm::vec3 center = unproject(0.0f, 0.0f);
+				const glm::vec3 right = unproject(1.0f, 0.0f) - center;
+				const glm::vec3 up = unproject(0.0f, 1.0f) - center;
+
+				Draw2DItem item;
+				item.Type = Draw2DItem::Kind::Quad;
+				item.Transform = glm::mat4(glm::vec4(right * 2.0f, 0.0f), glm::vec4(up * 2.0f, 0.0f),
+					glm::vec4(glm::normalize(glm::cross(right, up)), 0.0f), glm::vec4(center, 1.0f));
+				item.Color = cameraEntity.GetComponent<CameraComponent>().BackgroundColor;
+				packet.Draw2D.push_back(std::move(item));
+			}
+		}
+
 		// Draw sprites
 		{
 			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
