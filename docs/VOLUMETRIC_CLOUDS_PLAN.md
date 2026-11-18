@@ -73,19 +73,29 @@ frees them only on renderer shutdown or an explicit disable (via `SubmitResource
 **Render passes (new, all feature-gated to zero cost when off):**
 
 ```
-... Deferred Lighting -> Area Lights
+... PreDepth -> HZB -> ... -> cluster light culling
     -> Sky Atmosphere LUTs (transmittance, multi-scatter, sky-view: compute)   [Part A]
-    -> Sky Atmosphere (draws sky pixels, replaces Skybox output when enabled)  [Part A]
+    -> Sky Atmosphere draw (in place of Skybox's colour when enabled)          [Part A]
+    -> Selected Geometry -> GBuffer -> GTAO -> Deferred Lighting -> Area Lights
     -> Aerial Perspective (froxel volume compute + geometry apply)             [Part A]
     -> SSR -> SSR Composite
     -> Clouds (quarter-res compute) -> Cloud Denoise (quarter-res) -> Cloud Composite  [Part B]
     -> Transparent Forward -> ...
 ```
 
-The atmosphere sky must be drawn where `Skybox` draws today, before geometry (`SceneRenderer.cpp:4380`),
-because the G-buffer emission and lighting treat sky pixels as already holding colour. Luts and the
-sky-view are recomputed **per frame from the current sun**: that is parameterised recomputation, not
-history, so it is allowed.
+The LUT compute and the sky draw sit where `Skybox` is today, **before** the G-buffer
+(`SceneRenderer.cpp:4380`), because G-buffer emission and lighting treat sky pixels as already
+holding colour. Aerial Perspective, which needs depth and lit geometry, is the only Part A pass that
+runs after lighting.
+
+**LUT lifetime (one rule).** The LUTs and the aerial-perspective volume are **persistent
+renderer-owned images**, created lazily on first enable and registered in the graph with `addTexture`
+(the way `m_SSRImage` is), **not** transient. Every later reader (A2's apply, B3's sun transmittance,
+B4's aerial perspective) declares its read, so the graph orders and keeps them alive. Transmittance
+and multi-scatter are rebuilt only when the atmosphere parameters change; the sky-view is rebuilt
+every frame from the current sun, which is parameterised recomputation, not history, so it is
+allowed. Because they persist across frames, only the pass that writes them may write them (a stale
+read is a graph `ReadBeforeWrite`, not a silent bug).
 
 **Units.** Scene lighting is physical (sun radiance × multiplier is illuminance, `PhysicalLight.h`).
 Cloud and sky luminance must use the same convention and the same `EnvironmentMapIntensity`, so that
@@ -138,14 +148,20 @@ fix-up step); baseline numbers written down; docs match source.
 - `Renderer/AtmosphereSettings.h` — **NEW**: `SkyAtmosphereSettings` (planet radius, Rayleigh, Mie,
   ozone, ground albedo, sun disc), `Enabled=false`.
 - `Scene.h/.cpp`, `SceneSerializer.cpp`, `FrameRenderPacket.h`, `Scene::BuildRenderPacket*` — carry
-  the struct (serialize **and** deserialize; packet capture; `Scene::Copy`/`CopyTo`/duplicate paths
-  for any data held on `Scene`).
+  the struct (serialize **and** deserialize; packet capture). **Play-mode trap, verified by grep:**
+  `Scene::Copy` (`Scene.cpp:232`) and `Scene::CopyTo` (`:2242`) copy the name, viewport, sound banks
+  and entities but **do not copy `m_PostProcessSettings`**, and the only other writers are the
+  serializer and the editor panel. So a scene-level struct must be copied **explicitly** in both
+  functions or it silently resets to defaults on Play. Whether Play today goes through `Copy`/`CopyTo`
+  (which would mean scene post-process settings are already lost on Play) is **unconfirmed at
+  runtime**; check it in Phase A1 and, if so, report it as an existing bug rather than fixing it here.
 - `Editor/Resources/Shaders/SkyAtmosphereLUT.glsl`, `SkyAtmosphere.glsl`,
   `Include/GLSL/Atmosphere.glslh` — **NEW**: transmittance, multi-scatter and sky-view bakes,
   and the sky draw. LUT sizes follow the paper (typically 256×64, 32×32, 192×108: verify against
   the paper, not memory).
-- `SceneRenderer.h/.cpp` — pipelines created once in `Init()`; transient LUT targets via
-  `AddTransientTexture`; passes added with accurate `Reads`/`Writes`; skipped when disabled.
+- `SceneRenderer.h/.cpp` — pipelines created once in `Init()`; LUT images persistent, created on
+  first enable and registered with `addTexture` (see "LUT lifetime"); passes added with accurate
+  `Reads`/`Writes`; skipped when disabled.
 - `Editor/Source/Panels/SceneRendererPanel.cpp` — **Atmosphere** section (see the ImGui checks).
 
 **Playbook:** "Add a new render pass" (all steps) and the scene-struct serialization steps above.
@@ -169,6 +185,12 @@ via `SubmitResourceFree`.
 - `AerialPerspective.glsl` — **NEW**: camera-froxel inscatter + transmittance volume
   (`Texture3D`, from Phase 0's proof), applied by a fullscreen pass that reads depth.
 - Graph: after Area Lights, before SSR composite. Orthographic cameras skip it.
+- **Known v1 limits, stated up front:** the apply pass fogs **opaque** geometry only, so glass drawn
+  by `Transparent Forward` (`HazelPBR_Transparent.glsl`) is unfogged against fogged distance. Fix by
+  sampling the same volume in that shader if the mismatch is visible in review; not in v1 otherwise.
+  The froxel volume has a finite far slice: distances beyond it **clamp to the last slice** for
+  geometry, and B4 handles cloud hit distances past it by falling back to the sky-view transmittance
+  toward the horizon (clouds at 30-60 km routinely exceed a froxel range).
 
 **Verify:** a long corridor/terrain shot fades toward sky colour with distance and matches the sky
 at the horizon; off = unchanged golden. **Exit:** budget < 0.3 ms. **Rollback:** feature flag.
@@ -235,7 +257,8 @@ no negative or NaN luminance (clamp-check in a debug view); numbers within the B
 - `VolumetricCloudComposite.glsl` — graphics pass: depth-aware upsample to full-res
   (nearest/most-similar-depth taps; **never** weight by the sampled alpha and renormalise, which is
   exactly the SSR bleed), then `scene * T + L`; apply aerial perspective to cloud luminance by the
-  mean hit distance (Part A2 volume).
+  mean hit distance (Part A2 volume); **past the volume's far slice** fall back to the sky-view
+  transmittance toward the horizon rather than clamping, so distant clouds do not stop fading.
 - Graph: before Transparent Forward; skipped for orthographic cameras; same `ApplyCoarseFragmentShadingRate`
   pattern as the SSR composite if appropriate.
 
@@ -288,6 +311,9 @@ scripted camera) proves the absence of ghosting.
 | Stale doc claims mislead future work | certain until Phase 0 | docs fix in Phase 0 |
 
 ## Part 5 — Open questions
+
+0. **Budget wording:** the < 1 ms target is for **clouds only** (march + denoise + composite).
+   Atmosphere (LUTs, sky, aerial perspective) has its own budget, < 0.3 ms each stage.
 
 1. Does `Image2D` accept `Texture3D` end to end (Phase 0).
 2. Which LUT sizes and multi-scatter octave constants are right for Lux: read Hillaire 2020 and
