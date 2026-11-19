@@ -3718,8 +3718,15 @@ namespace Lux {
 		input.Typed = std::move(m_UITyped);
 		m_UITyped.clear();
 		input.DeltaTime = static_cast<float>(ts);
-		input.Edit = UI::ReadEditKeys(input.DeltaTime, m_UIKeyHeld);
-		input.Navigate = UI::ReadNavigation(input.DeltaTime, m_UINavHeld);
+		if (m_UIKeyboard)
+		{
+			input.Edit = UI::ReadEditKeys(input.DeltaTime, m_UIKeyHeld);
+			input.Navigate = UI::ReadNavigation(input.DeltaTime, m_UINavHeld);
+		}
+		else
+		{
+			input.Typed.clear();
+		}
 		std::vector<UI::Event> fromInput = UI::UpdateInteraction(*this, m_UIState, { (float)m_ViewportWidth, (float)m_ViewportHeight }, input);
 		m_UIEvents.insert(m_UIEvents.end(), fromInput.begin(), fromInput.end());
 		m_UIPointer.Scroll = 0.0f;

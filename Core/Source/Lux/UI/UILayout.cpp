@@ -152,4 +152,63 @@ namespace Lux::UI
 		}
 		return size + glm::vec2(group.Padding.x + group.Padding.z, group.Padding.y + group.Padding.w);
 	}
+
+	DragHandle PickHandle(const Rect& screenRect, const glm::vec2& point, float grab)
+	{
+		const glm::vec2 size = screenRect.Size();
+		// A handle never reaches past a third of the rectangle, so the body stays reachable on a small one.
+		const glm::vec2 reach = glm::min(glm::vec2(grab), size / 3.0f);
+		const bool left = std::abs(point.x - screenRect.Min.x) <= reach.x, right = std::abs(point.x - screenRect.Max.x) <= reach.x;
+		const bool bottom = std::abs(point.y - screenRect.Min.y) <= reach.y, top = std::abs(point.y - screenRect.Max.y) <= reach.y;
+		const bool withinX = point.x >= screenRect.Min.x - reach.x && point.x <= screenRect.Max.x + reach.x;
+		const bool withinY = point.y >= screenRect.Min.y - reach.y && point.y <= screenRect.Max.y + reach.y;
+		if (!withinX || !withinY)
+			return DragHandle::None;
+
+		if (left && bottom) return DragHandle::BottomLeft;
+		if (right && bottom) return DragHandle::BottomRight;
+		if (left && top) return DragHandle::TopLeft;
+		if (right && top) return DragHandle::TopRight;
+		if (left) return DragHandle::Left;
+		if (right) return DragHandle::Right;
+		if (bottom) return DragHandle::Bottom;
+		if (top) return DragHandle::Top;
+		return screenRect.Contains(point) ? DragHandle::Body : DragHandle::None;
+	}
+
+	RectTransform DragRect(const RectTransform& start, DragHandle handle, const glm::vec2& delta)
+	{
+		RectTransform result = start;
+		const bool moves = handle == DragHandle::Body;
+		const bool left = moves || handle == DragHandle::Left || handle == DragHandle::BottomLeft || handle == DragHandle::TopLeft;
+		const bool right = moves || handle == DragHandle::Right || handle == DragHandle::BottomRight || handle == DragHandle::TopRight;
+		const bool bottom = moves || handle == DragHandle::Bottom || handle == DragHandle::BottomLeft || handle == DragHandle::BottomRight;
+		const bool top = moves || handle == DragHandle::Top || handle == DragHandle::TopLeft || handle == DragHandle::TopRight;
+		if (handle == DragHandle::None)
+			return result;
+
+		if (left) result.OffsetMin.x += delta.x;
+		if (right) result.OffsetMax.x += delta.x;
+		if (bottom) result.OffsetMin.y += delta.y;
+		if (top) result.OffsetMax.y += delta.y;
+
+		// A fixed-size axis keeps at least one unit; a stretched one has margins, which may be anything.
+		if (!moves)
+		{
+			for (int axis = 0; axis < 2; ++axis)
+			{
+				if (start.AnchorMin[axis] != start.AnchorMax[axis])
+					continue;
+				if (result.OffsetMax[axis] - result.OffsetMin[axis] < 1.0f)
+				{
+					const bool draggedMin = axis == 0 ? left : bottom;
+					if (draggedMin)
+						result.OffsetMin[axis] = result.OffsetMax[axis] - 1.0f;
+					else
+						result.OffsetMax[axis] = result.OffsetMin[axis] + 1.0f;
+				}
+			}
+		}
+		return result;
+	}
 }

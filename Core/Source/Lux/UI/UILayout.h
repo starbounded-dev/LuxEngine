@@ -81,4 +81,17 @@ namespace Lux::UI
 
 	// The size a group needs for its children, for scroll content.
 	glm::vec2 PreferredGroupSize(const LayoutGroup& group, const std::vector<LayoutChild>& children);
+
+	// Editing an element's rectangle by dragging it in the Game View. The handles are the four corners, the four edges
+	// and the body, as on the rectangle drawn on screen (origin bottom left, y up).
+	enum class DragHandle : uint8_t { None = 0, Body, Left, Right, Bottom, Top, BottomLeft, BottomRight, TopLeft, TopRight };
+
+	// What is under a point: a corner or an edge within `grab` pixels of it, else the body, else none. Corners win over
+	// edges, so a small rectangle can still be moved by its middle and resized by its corners.
+	DragHandle PickHandle(const Rect& screenRect, const glm::vec2& point, float grab);
+
+	// The transform after dragging `handle` by `delta` UI units from `start`. Only the offsets change, never the anchors, so
+	// the element keeps following its parent: moving shifts both offsets, an edge shifts one. An axis whose anchors are one
+	// point (a fixed size) never gets a size below 1 unit.
+	RectTransform DragRect(const RectTransform& start, DragHandle handle, const glm::vec2& delta);
 }

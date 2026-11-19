@@ -20,6 +20,10 @@ The canvas works in *UI units*. A **Scale Mode** says how many pixels one unit i
 - **Fit Inside** keeps the whole reference area on screen. **Fill Screen** covers the whole screen with it.
 - **Constant Pixel Size** is **Scale Factor** pixels per unit whatever the screen is.
 
+## Editing in the editor
+
+The [Game View](../editor/game-view#editing-the-ui) is the UI editor: click an element to select it, drag it to move it, drag its handles to resize it, nudge it with the arrow keys. Moves change the offsets and never the anchors.
+
 ## Anchors and offsets
 
 An element's rectangle is set against its parent's. **Anchor Min** and **Anchor Max** are points on the parent, from (0, 0) at the bottom left to (1, 1) at the top right. **Offset Min** and **Offset Max** are distances in UI units from those points to the element's bottom-left and top-right corners.
@@ -88,4 +92,4 @@ Subtitles, closed captions and visual sound cues (see [Audio Authoring](../edito
 
 A quad never covers text drawn before it, so a caption box or a panel over a label hides the label's background but not its text; keep captions clear of the HUD text at the bottom of the screen.
 
-Everything is screen space. Editing in the Game View is the next part. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.
+Everything is screen space. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.

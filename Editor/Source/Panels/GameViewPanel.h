@@ -4,7 +4,9 @@
 #pragma once
 
 #include "Lux/Editor/EditorPanel.h"
+#include "Lux/Core/UUID.h"
 #include "Lux/Project/Project.h"
+#include "Lux/UI/UIEditor.h"
 
 #include <glm/glm.hpp>
 
@@ -47,6 +49,10 @@ namespace Lux {
 		void InitRenderer();
 		void DrawGameImage();
 		void DrawNoCameraMessage() const;
+		// Over the game image: while the game runs, the mouse and keyboard go to the UI; while it does not, a UI element is
+		// selected by clicking it and moved or resized by dragging its rectangle (Edit UI).
+		void FeedUIInput(const glm::vec2& imageMin, const glm::vec2& imageMax);
+		void DrawUIEditing(const glm::vec2& imageMin, const glm::vec2& imageMax);
 
 	private:
 		Ref<Scene> m_Scene;
@@ -59,6 +65,10 @@ namespace Lux {
 		bool m_Open = false;
 		bool m_FocusRequested = false;
 		bool m_ShowAccessibilityMenu = false;
+
+		bool m_EditUI = true;
+		bool m_UIPressedInside = false; // a press that began on the image keeps the pointer down until it is released
+		UI::EditSession m_UIEdit;
 	};
 
 }

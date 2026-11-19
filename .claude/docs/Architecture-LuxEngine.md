@@ -2648,6 +2648,15 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
   `MaxLines`, newest at the bottom. This replaced the ImGui `AudioAccessibilityOverlay`, which an exported (Dist) game never had:
   the runtime and the Game View no longer call an ImGui overlay (the F10 options menu stays ImGui and editor/Release only).
   VR clears `packet.UI` (flat screen-space UI would sit the same in both eyes).
+- Editing (U5 / E9): `GameViewPanel` is the UI editor, `UI/UIEditor.{h,cpp}` its logic. While the scene runs, `FeedUIInput`
+  maps the mouse over the image to view pixels (scale + y flip), calls `Scene::SetUIPointer`, forwards the wheel and ImGui's
+  typed characters, and switches `SetUIKeyboardEnabled` with the panel's focus. While it does not, `DrawUIEditing` fills a
+  `UI::EditInput` (pointer, buttons, first selected entity) and runs `UI::EditSession::Update` over `ResolveLayout`: the
+  session finds the topmost element under the pointer, says which entity a click selects (the panel applies it through
+  `SelectionManager`), and drags with `UI::PickHandle` / `UI::DragRect` (pure, in `UILayout`): only the offsets change, in
+  whole canvas units, and a finished drag comes back as `Ended` for one `EditorStack::MarkEntitiesEdited` step. An element
+  whose parent has a layout group is selectable but outlined orange and never dragged. A scene with a canvas and no camera
+  still gets a Game View image. All of it but the ImGui drawing is checked headless (`CheckUIEditing`).
 - The UI pass uses `SceneRenderer::GetScreenSpaceRenderer2D()`: one `Renderer2D` shares its vertex buffers between a frame's
   `BeginScene`/`EndScene` passes, so a second pass on the world renderer overwrote the first pass's quads and text.
 - A scene with a canvas but no primary camera still renders: `BuildRenderPacketRuntime` falls back to a default camera,

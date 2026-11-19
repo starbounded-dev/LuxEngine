@@ -31,6 +31,7 @@
 #include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Scene/Tilemap.h"
 #include "Lux/UI/UIAccessibility.h"
+#include "Lux/UI/UIEditor.h"
 #include "Lux/UI/UILayout.h"
 #include "Lux/UI/UISystem.h"
 
@@ -1429,6 +1430,31 @@ namespace {
 		column.Align = LayoutAlign::End;
 		Check(LayoutChildren(column, { { 0.0f, 0.0f }, { 100.0f, 300.0f } }, three)[0].Min.x == 40.0f, "End aligns a column's children to the right");
 
+		// Dragging in the Game View.
+		const Rect box{ { 100.0f, 100.0f }, { 300.0f, 200.0f } };
+		Check(PickHandle(box, { 200.0f, 150.0f }, 8.0f) == DragHandle::Body, "the middle of a rectangle is its body");
+		Check(PickHandle(box, { 102.0f, 103.0f }, 8.0f) == DragHandle::BottomLeft && PickHandle(box, { 298.0f, 198.0f }, 8.0f) == DragHandle::TopRight, "a corner is picked within the grab distance");
+		Check(PickHandle(box, { 200.0f, 101.0f }, 8.0f) == DragHandle::Bottom && PickHandle(box, { 299.0f, 150.0f }, 8.0f) == DragHandle::Right, "so is an edge");
+		Check(PickHandle(box, { 93.0f, 150.0f }, 8.0f) == DragHandle::Left && PickHandle(box, { 50.0f, 150.0f }, 8.0f) == DragHandle::None, "a handle reaches a little outside, and no further");
+		Check(PickHandle({ { 0.0f, 0.0f }, { 12.0f, 12.0f } }, { 6.0f, 6.0f }, 8.0f) == DragHandle::Body, "a tiny rectangle can still be grabbed by its middle");
+		RectTransform fixedSize;
+		fixedSize.OffsetMin = { -50.0f, -25.0f };
+		fixedSize.OffsetMax = { 50.0f, 25.0f };
+		RectTransform moved = DragRect(fixedSize, DragHandle::Body, { 10.0f, -5.0f });
+		Check(moved.OffsetMin == glm::vec2(-40.0f, -30.0f) && moved.OffsetMax == glm::vec2(60.0f, 20.0f) && moved.AnchorMin == fixedSize.AnchorMin, "moving shifts both offsets and leaves the anchors");
+		RectTransform sized = DragRect(fixedSize, DragHandle::TopRight, { 20.0f, 10.0f });
+		Check(sized.OffsetMax == glm::vec2(70.0f, 35.0f) && sized.OffsetMin == fixedSize.OffsetMin, "a corner moves the two offsets it touches");
+		sized = DragRect(fixedSize, DragHandle::Left, { -30.0f, 99.0f });
+		Check(sized.OffsetMin == glm::vec2(-80.0f, -25.0f) && sized.OffsetMax == fixedSize.OffsetMax, "an edge moves one offset along its own axis only");
+		sized = DragRect(fixedSize, DragHandle::Right, { -500.0f, 0.0f });
+		Check(sized.OffsetMax.x - sized.OffsetMin.x == 1.0f && sized.OffsetMin.x == -50.0f, "a fixed size cannot be dragged below one unit");
+		sized = DragRect(fixedSize, DragHandle::Left, { 500.0f, 0.0f });
+		Check(sized.OffsetMax.x - sized.OffsetMin.x == 1.0f && sized.OffsetMax.x == 50.0f, "from the other side too");
+		RectTransform margins = stretched;
+		margins = DragRect(margins, DragHandle::Right, { -500.0f, 0.0f });
+		Check(margins.OffsetMax.x == stretched.OffsetMax.x - 500.0f, "a stretched axis is all margins, which may be anything");
+		Check(DragRect(fixedSize, DragHandle::None, { 5.0f, 5.0f }).OffsetMin == fixedSize.OffsetMin, "no handle, no change");
+
 		// Grids.
 		LayoutGroup grid;
 		grid.Kind = LayoutKind::Grid;
@@ -1857,6 +1883,102 @@ namespace {
 		Check(UI::CollectCaptions({}, preferences, oneLine, ahead).empty(), "no subtitles, no captions");
 	}
 
+	// ---- M3 Game UI: editing by pointer ----------------------------------------------------------------
+
+	void CheckUIEditing()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>().ScaleMode = UI::ScaleMode::ConstantPixelSize;
+		canvas.GetComponent<UICanvasComponent>().ScaleFactor = 2.0f; // two pixels per unit, so a drag must be divided by it
+		const glm::vec2 screen{ 1000.0f, 600.0f };
+
+		const auto makeElement = [&](const char* name, Entity parent, glm::vec2 min, glm::vec2 max)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.SetParent(parent);
+			auto& element = entity.AddComponent<UIElementComponent>();
+			element.Rect.AnchorMin = element.Rect.AnchorMax = { 0.0f, 0.0f };
+			element.Rect.OffsetMin = min;
+			element.Rect.OffsetMax = max;
+			return entity;
+		};
+		Entity back = makeElement("Back", canvas, { 50.0f, 50.0f }, { 250.0f, 200.0f });       // 100..500 x 100..400 px
+		Entity front = makeElement("Front", canvas, { 100.0f, 100.0f }, { 150.0f, 150.0f });   // 200..300 x 200..300 px, over Back
+		Entity row = makeElement("Row", canvas, { 300.0f, 50.0f }, { 400.0f, 150.0f });
+		row.GetComponent<UIElementComponent>().Layout.Kind = UI::LayoutKind::Vertical;
+		Entity placed = makeElement("Placed", row, { 0.0f, 0.0f }, { 40.0f, 40.0f });
+
+		UI::EditSession session;
+		const auto frame = [&](glm::vec2 point, bool down, bool pressed, UUID selected = 0)
+		{
+			UI::EditInput input;
+			input.Point = point;
+			input.Inside = true;
+			input.Down = down;
+			input.Pressed = pressed;
+			input.Selected = selected;
+			input.Grab = 8.0f;
+			return session.Update(UI::ResolveLayout(*scene, screen), input);
+		};
+		const auto rectOf = [](Entity entity) { return entity.GetComponent<UIElementComponent>().Rect; };
+
+		UI::EditOutput result = frame({ 250.0f, 250.0f }, false, false);
+		Check(result.Under && result.Under->Element == front && !result.Select, "the topmost element under the pointer is found, and nothing is selected by hovering");
+		result = frame({ 150.0f, 350.0f }, false, false);
+		Check(result.Under && result.Under->Element == back, "where the element in front ends, the one behind is under the pointer");
+
+		// A click selects and starts a move; the drag is in whole units of the canvas (2 pixels each).
+		result = frame({ 250.0f, 250.0f }, true, true);
+		Check(result.Select == front.GetUUID() && session.IsDragging() && session.GetHandle() == UI::DragHandle::Body, "pressing on an unselected element selects it and starts moving it");
+		result = frame({ 270.0f, 241.0f }, true, false, front.GetUUID());
+		Check(rectOf(front).OffsetMin == glm::vec2(110.0f, 95.0f) || rectOf(front).OffsetMin == glm::vec2(110.0f, 96.0f), "moving by 20 x -9 pixels moves it 10 x -4.5 units, rounded to whole units");
+		result = frame({ 270.0f, 240.0f }, true, false, front.GetUUID());
+		Check(rectOf(front).OffsetMin == glm::vec2(110.0f, 95.0f) && rectOf(front).OffsetMax == glm::vec2(160.0f, 145.0f) && rectOf(front).AnchorMin == glm::vec2(0.0f), "the offsets move together and the anchors stay");
+		result = frame({ 270.0f, 240.0f }, false, false, front.GetUUID());
+		Check(result.Ended && result.EndedEntity == front.GetUUID() && result.EndedHandle == UI::DragHandle::Body && !session.IsDragging(), "releasing the button ends the drag with one undo step");
+		result = frame({ 270.0f, 240.0f }, false, false, front.GetUUID());
+		Check(!result.Ended, "and only one");
+
+		// A click without a drag changes nothing and records nothing.
+		const UI::RectTransform before = rectOf(front);
+		frame({ 250.0f, 240.0f }, true, true, front.GetUUID());
+		result = frame({ 250.0f, 240.0f }, false, false, front.GetUUID());
+		Check(!result.Ended && rectOf(front).OffsetMin == before.OffsetMin, "a click without a drag leaves the element alone and records nothing");
+
+		// A handle of the selected element resizes it. Front is now 220..320 x 190..290 px; its top right corner is (320, 290).
+		result = frame({ 319.0f, 289.0f }, true, true, front.GetUUID());
+		Check(session.GetHandle() == UI::DragHandle::TopRight && !result.Select, "pressing on a corner of the selected element picks the corner, not the element behind");
+		frame({ 359.0f, 309.0f }, true, false, front.GetUUID());
+		result = frame({ 359.0f, 309.0f }, false, false, front.GetUUID());
+		Check(rectOf(front).OffsetMax == glm::vec2(160.0f + 20.0f, 145.0f + 10.0f) && rectOf(front).OffsetMin == before.OffsetMin && result.EndedHandle == UI::DragHandle::TopRight, "dragging a corner resizes by the distance in units");
+
+		// The drag goes on when the pointer leaves the view.
+		UI::EditInput outside;
+		outside.Point = { 2000.0f, 250.0f };
+		outside.Inside = false;
+		outside.Down = true;
+		frame({ 250.0f, 240.0f }, true, true, front.GetUUID());
+		outside.Selected = front.GetUUID();
+		session.Update(UI::ResolveLayout(*scene, screen), outside);
+		Check(rectOf(front).OffsetMin.x > 800.0f, "a drag follows the pointer outside the view");
+		frame({ 2000.0f, 250.0f }, false, false, front.GetUUID());
+
+		// An element placed by its parent's layout is selected but never dragged.
+		result = frame({ 640.0f, 260.0f }, true, true);
+		Check(result.Select == placed.GetUUID() && !session.IsDragging() && result.LayoutControlled, "an element placed by a layout is selected but cannot be dragged");
+		Check(!UI::EditSession::Nudge(placed, { 5.0f, 0.0f }) && UI::EditSession::Nudge(back, { 5.0f, -5.0f }) && rectOf(back).OffsetMin == glm::vec2(55.0f, 45.0f), "nudging works on a free element and is refused on a placed one");
+		frame({ 640.0f, 260.0f }, false, false);
+
+		// Finish ends a drag when the mode is switched off.
+		frame({ 150.0f, 150.0f }, true, true);
+		frame({ 170.0f, 170.0f }, true, false);
+		result = session.Finish();
+		Check(result.Ended && !session.IsDragging() && !session.Finish().Ended, "switching editing off ends a drag in progress with its undo step");
+		result = frame({ 900.0f, 590.0f }, true, true);
+		Check(!result.Select && !session.IsDragging(), "pressing on empty space selects nothing");
+	}
+
 	void CheckUIScene(const std::filesystem::path& root)
 	{
 		Ref<Scene> scene = Ref<Scene>::Create();
@@ -1998,6 +2120,7 @@ int main(int argc, char** argv)
 	CheckUIWidgets(outDir);
 	CheckUINavigation();
 	CheckUICaptions();
+	CheckUIEditing();
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

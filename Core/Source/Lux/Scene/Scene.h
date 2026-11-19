@@ -242,6 +242,9 @@ namespace Lux {
 		void SetUIPointer(const UI::Pointer& pointer) { const float scroll = m_UIPointer.Scroll; m_UIPointer = pointer; m_UIPointer.Scroll += scroll; }
 		void AddUITypedCharacter(char32_t character) { m_UITyped.push_back(character); }
 		void AddUIScroll(float notches) { m_UIPointer.Scroll += notches; }
+		// Off: the UI ignores the keyboard (navigation, editing, typed characters). The editor turns it off while the Game View is
+		// not the focused panel, so typing in the inspector does not move a menu. A player never needs it.
+		void SetUIKeyboardEnabled(bool enabled) { m_UIKeyboard = enabled; }
 		const std::vector<UI::Event>& GetUIEvents() const { return m_UIEvents; }
 		// An event a script made (UIWidgetComponent.Click): delivered with the next update's events.
 		void QueueUIEvent(const UI::Event& event) { m_UIQueued.push_back(event); }
@@ -381,6 +384,7 @@ namespace Lux {
 		UI::InteractionState m_UIState;
 		std::vector<UI::Event> m_UIEvents; // this frame's, replaced each update
 		std::vector<UI::Event> m_UIQueued;
+		bool m_UIKeyboard = true;
 		float m_UIKeyHeld[8] = {};
 		float m_UINavHeld[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 
