@@ -35,3 +35,17 @@ A texture with **Tiles X** by **Tiles Y** frames (frame 0 is the top left) plays
 - **Play On Awake**: off, nothing is released until a script plays the system.
 
 3D particles are drawn after transparent meshes and do not sort against them: a particle behind a glass pane draws in front of it.
+
+## From a script
+
+```csharp
+var sparks = FindEntityByName("Sparks").GetComponent<ParticleSystemComponent>();
+sparks.Emit(30);          // a burst right now
+sparks.Play();            // start releasing at the rate
+sparks.Stop();            // stop releasing; the particles in the air finish their life
+sparks.Pause();           // freeze everything; Play() resumes
+sparks.Clear();           // remove every particle
+sparks.EmissionRate = 80; // particles per second
+```
+
+`IsPlaying` is true while the system releases particles or has some in the air, and is not paused. `ParticleCount` is how many are alive. With **Play On Awake** off, nothing is released until `Play()`, but `Emit` works at once. A one-shot system that has ended starts again with `Play()`. See the API reference for [ParticleSystemComponent](../api/ParticleSystemComponent).

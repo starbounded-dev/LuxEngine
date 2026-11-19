@@ -2713,7 +2713,11 @@ curves and gradients as key lists; a missing key loads the default).
 (`Scene::UpdateParticles(ts, true)`), because `OnRenderEditor` takes no step; Play and Simulate step them in
 `OnUpdateRuntime` / `OnUpdateSimulation`. Inspector: `SceneHierarchyPanel.cpp` (sections per
 module, whole-component copy for a multi-selection), Create > Create Effects. Checks: `CheckParticleSimulation`,
-`CheckParticleCurves`, `CheckParticleScene` in `tests/2d/Checks2D.cpp`.
+`CheckParticleCurves`, `CheckParticleScene` in `tests/2d/Checks2D.cpp`. `State::Playing` is "not paused" and `State::Emitting`
+is "releases by rate and bursts" (`Particles::Play` restarts a stopped or ended system, `Particles::Stop` only stops
+releasing, `Emit` works either way). C#: `ParticleSystemComponent` (`ScriptCore/Source/Lux/Scene/Components.cs`, `ParticleSystemComponent_*`
+in `ScriptGlue.cpp`) reaches the live state through `Scene::GetOrCreateParticleState`, so a script may play a system
+before the scene's first step; `tests/play/Scripts/ParticleTests.cs` checks it in Play.
 
 ### 2.12 Project
 

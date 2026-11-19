@@ -152,7 +152,8 @@ namespace Lux::Particles
 		float StepRemainder = 0.0f;  // time not yet covered by a fixed step
 		float EmitAccumulator = 0.0f;
 		std::array<uint16_t, Settings::MaxBursts> BurstCyclesDone{};
-		bool Playing = true;
+		bool Playing = true;         // false: paused, nothing moves or ages
+		bool Emitting = true;        // false: nothing is released by rate or bursts (the particles in the air live out their life)
 		bool Started = false;        // the first step has run (prewarm happens once)
 		uint32_t Dropped = 0;        // releases refused by the particle limit since the last Clear
 
@@ -169,6 +170,13 @@ namespace Lux::Particles
 
 	// Advances by dt seconds in fixed steps (a long frame is cut to 0.25 s). `emitter` is the emitter's world matrix.
 	void Step(State& state, const Settings& settings, const glm::mat4& emitter, float dt);
+
+	// Starts releasing again, from the start of the emitter's duration when it had stopped or a one-shot had ended, and
+	// resumes a paused system.
+	void Play(State& state, const Settings& settings);
+
+	// Stops releasing; the particles in the air live out their life.
+	void Stop(State& state);
 
 	// Releases count particles now, whatever the rate says (a script's Emit).
 	void Emit(State& state, const Settings& settings, const glm::mat4& emitter, uint32_t count);

@@ -1488,13 +1488,8 @@ namespace Lux {
 				continue;
 			}
 
-			auto found = m_ParticleStates.find(id);
-			if (found == m_ParticleStates.end())
-			{
-				found = m_ParticleStates.emplace(id, Particles::MakeState(component.Seed)).first;
-				found->second.Playing = component.PlayOnAwake || editorPreview;
-			}
-			Particles::Step(found->second, component.Settings, GetWorldSpaceTransformMatrix(entity), static_cast<float>(ts));
+			Particles::State* state = GetOrCreateParticleState(entity, component.PlayOnAwake || editorPreview);
+			Particles::Step(*state, component.Settings, GetWorldSpaceTransformMatrix(entity), static_cast<float>(ts));
 		}
 
 		// A system that lost its component or its entity leaves nothing behind.
@@ -1506,6 +1501,19 @@ namespace Lux {
 				return !owner || !owner.HasComponent<ParticleSystemComponent>();
 			});
 		}
+	}
+
+	Particles::State* Scene::GetOrCreateParticleState(Entity entity, bool emitting)
+	{
+		if (!entity || !entity.HasComponent<ParticleSystemComponent>())
+			return nullptr;
+		auto found = m_ParticleStates.find(entity.GetUUID());
+		if (found == m_ParticleStates.end())
+		{
+			found = m_ParticleStates.emplace(entity.GetUUID(), Particles::MakeState(entity.GetComponent<ParticleSystemComponent>().Seed)).first;
+			found->second.Emitting = emitting;
+		}
+		return &found->second;
 	}
 
 	Particles::State* Scene::GetParticleState(Entity entity)

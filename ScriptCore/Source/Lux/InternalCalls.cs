@@ -210,6 +210,20 @@ namespace Lux
 		internal static delegate*<ulong, int, int, Vector2*, void> TilemapComponent_CellToWorld;
 		#endregion
 
+		#region ParticleSystemComponent
+		internal static delegate*<ulong, void> ParticleSystemComponent_Play;
+		internal static delegate*<ulong, void> ParticleSystemComponent_Stop;
+		internal static delegate*<ulong, void> ParticleSystemComponent_Pause;
+		internal static delegate*<ulong, void> ParticleSystemComponent_Clear;
+		internal static delegate*<ulong, int, void> ParticleSystemComponent_Emit;
+		internal static delegate*<ulong, Bool32> ParticleSystemComponent_IsPlaying;
+		internal static delegate*<ulong, int> ParticleSystemComponent_GetParticleCount;
+		internal static delegate*<ulong, Bool32> ParticleSystemComponent_GetLooping;
+		internal static delegate*<ulong, Bool32, void> ParticleSystemComponent_SetLooping;
+		internal static delegate*<ulong, float> ParticleSystemComponent_GetEmissionRate;
+		internal static delegate*<ulong, float, void> ParticleSystemComponent_SetEmissionRate;
+		#endregion
+
 		#region SpriteAnimatorComponent
 		internal static delegate*<ulong, NativeString, Bool32, void> SpriteAnimatorComponent_Play;
 		internal static delegate*<ulong, void> SpriteAnimatorComponent_Stop;

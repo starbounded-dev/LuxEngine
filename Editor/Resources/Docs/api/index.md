@@ -33,6 +33,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [LightComponent](LightComponent) — The base of the lights that shine from an entity: [`DirectionalLightComponent`](DirectionalLightComponent), [`PointLightComponent`](PointLightComponent), [`SpotLightComponent`](SpotLightComponent) and [`AreaLightComponent`](AreaLightComponent).
 - [MeshColliderComponent](MeshColliderComponent) — A collider shaped like a mesh; also acoustic geometry.
 - [MusicDirectorComponent](MusicDirectorComponent) — The scene's music director as authored in the inspector: what plays when the game starts.
+- [ParticleSystemComponent](ParticleSystemComponent) — Releases many small quads (smoke, sparks, dust) from this entity: play it, stop it, burst it.
 - [PointLightComponent](PointLightComponent) — A light that shines in every direction from a point.
 - [RigidBody2DComponent](RigidBody2DComponent) — A 2D physics body (Box2D).
 - [RigidBodyComponent](RigidBodyComponent) — A 3D physics body (Jolt).

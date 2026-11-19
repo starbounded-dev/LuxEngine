@@ -650,6 +650,51 @@ namespace Lux {
 
 	#pragma endregion
 
+	#pragma region ParticleSystemComponent
+
+	// The system's live particles, made on the first call; a script may play a system before the scene's first step.
+	static Particles::State& ParticlesOf(uint64_t entityID)
+	{
+		const Entity entity = GetEntity(entityID);
+		return *GetScene()->GetOrCreateParticleState(entity, entity.GetComponent<ParticleSystemComponent>().PlayOnAwake);
+	}
+
+	static void ParticleSystemComponent_Play(uint64_t entityID)
+	{
+		Particles::Play(ParticlesOf(entityID), GetEntity(entityID).GetComponent<ParticleSystemComponent>().Settings);
+	}
+
+	static void ParticleSystemComponent_Stop(uint64_t entityID)  { Particles::Stop(ParticlesOf(entityID)); }
+	static void ParticleSystemComponent_Pause(uint64_t entityID) { ParticlesOf(entityID).Playing = false; }
+	static void ParticleSystemComponent_Clear(uint64_t entityID)
+	{
+		Particles::State& state = ParticlesOf(entityID);
+		const bool emitting = state.Emitting;
+		Particles::Clear(state);
+		state.Emitting = emitting;
+	}
+
+	static void ParticleSystemComponent_Emit(uint64_t entityID, int32_t count)
+	{
+		const Entity entity = GetEntity(entityID);
+		Particles::Emit(ParticlesOf(entityID), entity.GetComponent<ParticleSystemComponent>().Settings, GetScene()->GetWorldSpaceTransformMatrix(entity), static_cast<uint32_t>(std::max(count, 0)));
+	}
+
+	static Coral::Bool32 ParticleSystemComponent_IsPlaying(uint64_t entityID)
+	{
+		const Particles::State& state = ParticlesOf(entityID);
+		const Particles::Settings& settings = GetEntity(entityID).GetComponent<ParticleSystemComponent>().Settings;
+		return state.Playing && ((state.Emitting && (settings.Looping || state.Time < settings.Duration)) || state.Count() > 0);
+	}
+
+	static int32_t ParticleSystemComponent_GetParticleCount(uint64_t entityID)       { return static_cast<int32_t>(ParticlesOf(entityID).Count()); }
+	static Coral::Bool32 ParticleSystemComponent_GetLooping(uint64_t entityID)       { return GetEntity(entityID).GetComponent<ParticleSystemComponent>().Settings.Looping; }
+	static void ParticleSystemComponent_SetLooping(uint64_t entityID, Coral::Bool32 looping) { GetEntity(entityID).GetComponent<ParticleSystemComponent>().Settings.Looping = looping; }
+	static float ParticleSystemComponent_GetEmissionRate(uint64_t entityID)          { return GetEntity(entityID).GetComponent<ParticleSystemComponent>().Settings.Rate; }
+	static void ParticleSystemComponent_SetEmissionRate(uint64_t entityID, float rate) { GetEntity(entityID).GetComponent<ParticleSystemComponent>().Settings.Rate = std::max(rate, 0.0f); }
+
+	#pragma endregion
+
 	#pragma region SpriteAnimatorComponent
 
 	static void SpriteAnimatorComponent_Play(uint64_t entityID, Coral::String clip, Coral::Bool32 restart)
@@ -1357,6 +1402,7 @@ namespace Lux {
 		RegisterManagedComponent<TagComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteRendererComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteAnimatorComponent>(coreAssembly);
+		RegisterManagedComponent<ParticleSystemComponent>(coreAssembly);
 		RegisterManagedComponent<TilemapComponent>(coreAssembly);
 		RegisterManagedComponent<UICanvasComponent>(coreAssembly);
 		RegisterManagedComponent<UIElementComponent>(coreAssembly);
@@ -1511,6 +1557,17 @@ namespace Lux {
 		LUX_ADD_ENTITY_CALL(TilemapComponent_SetTile);
 		LUX_ADD_ENTITY_CALL(TilemapComponent_WorldToCell);
 		LUX_ADD_ENTITY_CALL(TilemapComponent_CellToWorld);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_Play);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_Stop);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_Pause);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_Clear);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_Emit);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_IsPlaying);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_GetParticleCount);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_GetLooping);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_SetLooping);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_GetEmissionRate);
+		LUX_ADD_ENTITY_CALL(ParticleSystemComponent_SetEmissionRate);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Play);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_Stop);
 		LUX_ADD_ENTITY_CALL(SpriteAnimatorComponent_GetClip);

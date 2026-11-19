@@ -311,6 +311,8 @@ namespace Lux {
 		void UpdateParticles(Timestep ts, bool editorPreview);
 		// The live particles of an entity's system; null until the first step.
 		Particles::State* GetParticleState(Entity entity);
+		// The same, made when it is not there yet (a script plays a system before the first step). Null without the component.
+		Particles::State* GetOrCreateParticleState(Entity entity, bool emitting);
 		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
 		// higher draws later, on top. Other entities return 0. The editor uses it to pick the visible one.
 		int64_t GetDrawOrder(Entity entity);

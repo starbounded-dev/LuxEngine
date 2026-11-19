@@ -178,7 +178,7 @@ namespace Lux::Particles
 			// Release.
 			const float before = state.Time;
 			state.Time += dt;
-			const bool emitting = s.Looping || before < s.Duration;
+			const bool emitting = state.Emitting && (s.Looping || before < s.Duration);
 			if (emitting)
 			{
 				state.EmitAccumulator += std::max(0.0f, s.Rate) * dt;
@@ -392,6 +392,23 @@ namespace Lux::Particles
 			state.StepRemainder -= FixedStep;
 			StepOnce(state, settings, emitter);
 		}
+	}
+
+	void Play(State& state, const Settings& settings)
+	{
+		if (!state.Emitting || (!settings.Looping && state.Time >= settings.Duration))
+		{
+			state.Time = 0.0f;
+			state.EmitAccumulator = 0.0f;
+			state.BurstCyclesDone.fill(0);
+		}
+		state.Emitting = true;
+		state.Playing = true;
+	}
+
+	void Stop(State& state)
+	{
+		state.Emitting = false;
 	}
 
 	void Emit(State& state, const Settings& settings, const glm::mat4& emitter, uint32_t count)

@@ -2334,6 +2334,47 @@ namespace {
 				flat = flat && state.Velocity[i].z == 0.0f && state.Position[i].z == 0.0f;
 			Check(flat, "particles: a 2D system keeps every particle in the XY plane");
 		}
+
+		// Stop lets the particles in the air live out their life, Play starts again, Pause freezes, Emit works while stopped.
+		{
+			Settings settings = base;
+			settings.Rate = 60.0f;
+			settings.Lifetime = { 1.0f, 1.0f };
+			State state = MakeState(1);
+			RunParticles(state, settings, origin, 0.5f);
+			const uint32_t before = state.Count();
+			Stop(state);
+			RunParticles(state, settings, origin, 0.5f);
+			const uint32_t middle = state.Count();
+			RunParticles(state, settings, origin, 1.0f);
+			Check(before > 20 && middle > 0 && middle <= before && state.Count() == 0, std::format("particles: Stop releases nothing new and the rest live out their life ({}, {}, {})", before, middle, state.Count()));
+			Play(state, settings);
+			RunParticles(state, settings, origin, 0.5f);
+			Check(state.Count() > 20, std::format("particles: Play releases again after a Stop (got {})", state.Count()));
+
+			const std::vector<glm::vec3> frozen = state.Position;
+			state.Playing = false;
+			RunParticles(state, settings, origin, 0.5f);
+			Check(state.Position == frozen, "particles: a paused system does not move");
+			Play(state, settings);
+
+			State quiet = MakeState(1);
+			quiet.Emitting = false;
+			RunParticles(quiet, settings, origin, 1.0f);
+			Emit(quiet, settings, origin, 5);
+			Check(quiet.Count() == 5, std::format("particles: a stopped system still takes an Emit (got {})", quiet.Count()));
+
+			Settings oneShot = base;
+			oneShot.Looping = false;
+			oneShot.Duration = 0.2f;
+			oneShot.Rate = 60.0f;
+			State finished = MakeState(1);
+			RunParticles(finished, oneShot, origin, 1.0f);
+			const uint32_t once = finished.Count();
+			Play(finished, oneShot);
+			RunParticles(finished, oneShot, origin, 0.5f);
+			Check(finished.Count() > once, std::format("particles: Play restarts a one-shot system that ended ({} then {})", once, finished.Count()));
+		}
 	}
 
 	void CheckParticleCurves()

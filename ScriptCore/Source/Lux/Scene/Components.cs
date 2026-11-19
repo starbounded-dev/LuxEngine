@@ -182,6 +182,45 @@ namespace Lux
 		}
 	}
 
+	/// <summary>Releases many small quads (smoke, sparks, dust) from this entity: play it, stop it, burst it.</summary>
+	public unsafe class ParticleSystemComponent : Component
+	{
+		/// <summary>Starts releasing particles, from the beginning of the system's duration when it had stopped or a one-shot system had ended, and resumes a paused one.</summary>
+		public void Play() => InternalCalls.ParticleSystemComponent_Play(Entity.ID);
+
+		/// <summary>Stops releasing particles. Those already in the air live out their life; <see cref="Clear"/> removes them.</summary>
+		public void Stop() => InternalCalls.ParticleSystemComponent_Stop(Entity.ID);
+
+		/// <summary>Freezes every particle where it is. <see cref="Play"/> resumes.</summary>
+		public void Pause() => InternalCalls.ParticleSystemComponent_Pause(Entity.ID);
+
+		/// <summary>Removes every particle at once. It does not stop the system releasing more.</summary>
+		public void Clear() => InternalCalls.ParticleSystemComponent_Clear(Entity.ID);
+
+		/// <summary>Releases <paramref name="count"/> particles right now, whatever the rate says (a burst from a script). Past the system's Max Particles the rest are dropped.</summary>
+		public void Emit(int count) => InternalCalls.ParticleSystemComponent_Emit(Entity.ID, count);
+
+		/// <summary>True while the system is releasing particles or has some in the air, and is not paused.</summary>
+		public bool IsPlaying => InternalCalls.ParticleSystemComponent_IsPlaying(Entity.ID);
+
+		/// <summary>How many particles are alive.</summary>
+		public int ParticleCount => InternalCalls.ParticleSystemComponent_GetParticleCount(Entity.ID);
+
+		/// <summary>Whether the system starts over when its duration ends.</summary>
+		public bool Looping
+		{
+			get => InternalCalls.ParticleSystemComponent_GetLooping(Entity.ID);
+			set => InternalCalls.ParticleSystemComponent_SetLooping(Entity.ID, value);
+		}
+
+		/// <summary>Particles released per second.</summary>
+		public float EmissionRate
+		{
+			get => InternalCalls.ParticleSystemComponent_GetEmissionRate(Entity.ID);
+			set => InternalCalls.ParticleSystemComponent_SetEmissionRate(Entity.ID, value);
+		}
+	}
+
 	/// <summary>Draws a circle or ring (2D).</summary>
 	public unsafe class CircleRendererComponent : Component
 	{
