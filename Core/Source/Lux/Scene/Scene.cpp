@@ -30,6 +30,7 @@
 #include "Lux/Scripting/AudioScriptBindings.h"
 #include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/UI/UIAccessibility.h"
 #include "Lux/UI/UIScriptBindings.h"
 #include "Lux/UI/UISystem.h"
 #include "Lux/Renderer/SpriteSheet.h"
@@ -4029,29 +4030,33 @@ namespace Lux {
 				renderer2D->DrawLine(line.Start, line.End, line.Color, line.OnTop);
 			renderer2D->EndScene();
 
-			// Game UI: its own pixel-space projection, drawn over everything above, no depth test.
+			// Game UI: its own pixel-space projection, drawn over everything above, no depth test, on the screen-space
+			// Renderer2D (one Renderer2D shares its vertex buffers between a frame's passes, so the world items above
+			// would be overwritten). Renderer2D draws a pass's quads before its text: a quad never covers the text of an
+			// element drawn before it.
 			if (!uiItems.empty())
 			{
-				renderer2D->BeginScene(glm::ortho(0.0f, uiScreenSize.x, 0.0f, uiScreenSize.y), glm::mat4(1.0f), false);
-				renderer2D->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
+				Ref<Renderer2D> uiRenderer = renderer->GetScreenSpaceRenderer2D();
+				uiRenderer->BeginScene(glm::ortho(0.0f, uiScreenSize.x, 0.0f, uiScreenSize.y), glm::mat4(1.0f), false);
+				uiRenderer->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
 				for (const FrameRenderPacket::Draw2DItem& item : uiItems)
 				{
 					switch (item.Type)
 					{
 						case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
-							renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color, item.UV0, item.UV1);
+							uiRenderer->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color, item.UV0, item.UV1);
 							break;
 						case FrameRenderPacket::Draw2DItem::Kind::Quad:
-							renderer2D->DrawQuad(item.Transform, item.Color);
+							uiRenderer->DrawQuad(item.Transform, item.Color);
 							break;
 						case FrameRenderPacket::Draw2DItem::Kind::Text:
-							renderer2D->DrawString(item.Text, item.FontAsset, item.Transform, item.MaxWidth, item.Color, item.LineSpacing, item.Kerning);
+							uiRenderer->DrawString(item.Text, item.FontAsset, item.Transform, item.MaxWidth, item.Color, item.LineSpacing, item.Kerning);
 							break;
 						default:
 							break;
 					}
 				}
-				renderer2D->EndScene();
+				uiRenderer->EndScene();
 			}
 		});
 
@@ -4115,6 +4120,7 @@ namespace Lux {
 		{
 			const glm::vec2 screen{ (float)m_ViewportWidth, (float)m_ViewportHeight };
 			UI::CaptureDrawItems(UI::ResolveLayout(*this, screen), screen, packet);
+			UI::CaptureAccessibility(screen, packet);
 		}
 		CaptureColliderDebug(packet, renderer, nullptr);
 		CaptureScriptDebugLines(packet);

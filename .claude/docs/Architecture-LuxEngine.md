@@ -2642,6 +2642,14 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
   cleared by `UIScriptBindings::Reset` whenever a scene ends (a reload reuses the same ids). The five components are
   registered in `RegisterComponentTypes`. Play checks: `tests/play/Scripts/UiTests.cs` (the Finisher and SceneLoading
   counts in `PlayTests.cs` / `ApiTests.cs` include its three results).
+- Captions (U4): `UI/UIAccessibility.{h,cpp}`. `CaptureAccessibility` (called from `BuildRenderPacketRuntime` after the canvases)
+  turns `AudioAccessibility::GetSubtitles()` / `GetSoundCues()` into packet items: a box above the bottom edge with one wrapped
+  text block per entry, plus a marker and label per sound cue. `CollectCaptions` (pure) picks the entries that fit in
+  `MaxLines`, newest at the bottom. This replaced the ImGui `AudioAccessibilityOverlay`, which an exported (Dist) game never had:
+  the runtime and the Game View no longer call an ImGui overlay (the F10 options menu stays ImGui and editor/Release only).
+  VR clears `packet.UI` (flat screen-space UI would sit the same in both eyes).
+- The UI pass uses `SceneRenderer::GetScreenSpaceRenderer2D()`: one `Renderer2D` shares its vertex buffers between a frame's
+  `BeginScene`/`EndScene` passes, so a second pass on the world renderer overwrote the first pass's quads and text.
 - A scene with a canvas but no primary camera still renders: `BuildRenderPacketRuntime` falls back to a default camera,
   so a menu scene shows its UI over an empty frame.
 - `LUX_RUNTIME_CAPTURE=<file>` (with `LUX_RUNTIME_CAPTURE_FRAME`, default 120) makes the player write its final frame as an

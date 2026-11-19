@@ -154,11 +154,9 @@ namespace Lux {
 			ImGuiEx::Image(image, ImVec2{ imageSize.x, imageSize.y });
 		}
 
-		// Captions and the accessibility menu belong over the game, and only while it runs.
+		// The accessibility menu belongs over the game, and only while it runs. The captions are drawn by the game UI.
 		if (m_Scene->IsRunning())
 		{
-			const glm::vec2* imageBounds = m_Viewport->GetImageBounds();
-			ImGuiEx::AudioAccessibilityOverlay(imageBounds[0], imageBounds[1]);
 			if ((m_Viewport->IsFocused() || m_ShowAccessibilityMenu) && ImGui::IsKeyPressed(ImGuiKey_F10, false))
 				m_ShowAccessibilityMenu = !m_ShowAccessibilityMenu;
 			ImGuiEx::AudioAccessibilityMenu(m_ShowAccessibilityMenu);

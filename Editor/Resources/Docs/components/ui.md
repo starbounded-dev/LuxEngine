@@ -80,6 +80,12 @@ UI.Cancelled += CloseMenu;                       // Escape or the east button
 
 Events are **Clicked**, **Toggled**, **ValueChanged**, **TextChanged**, **Submitted** and **Cancelled**; **UI.Cancelled** is raised for every Cancel. Setting a value from a script raises no event. `Click()` clicks a button or flips a toggle as the player would, which is also how to test a menu. Handlers are dropped when the scene ends, so subscribe again in the new scene. [UIWidgetComponent](../api/UIWidgetComponent) lists everything.
 
+## Captions
+
+Subtitles, closed captions and visual sound cues (see [Audio Authoring](../editor/audio-authoring)) are drawn by the game UI, over every canvas, in the editor's Game View and in an exported game: a box above the bottom edge of the screen with the speaker's name, a direction arrow for a speaker who is off screen, and the lines wrapped to the screen width. The player's text size, background opacity, maximum lines and the other [accessibility preferences](../editor/audio-authoring) apply to them. They are not drawn in VR.
+
 ## Limits
+
+A quad never covers text drawn before it, so a caption box or a panel over a label hides the label's background but not its text; keep captions clear of the HUD text at the bottom of the screen.
 
 Everything is screen space. Editing in the Game View is the next part. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.

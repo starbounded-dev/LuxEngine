@@ -1292,8 +1292,10 @@ namespace Lux {
 		return (float)(metrics.ascenderY / (metrics.ascenderY - metrics.descenderY));
 	}
 
-	glm::vec2 Renderer2D::MeasureString(const std::string& string, const Ref<Font>& font, float maxWidth, float lineHeightOffset, float kerningOffset)
+	glm::vec2 Renderer2D::MeasureString(const std::string& string, const Ref<Font>& font, float maxWidth, float lineHeightOffset, float kerningOffset, int* outLines)
 	{
+		if (outLines)
+			*outLines = 0;
 		if (string.empty() || !font || !font->GetMSDFData())
 			return glm::vec2(0.0f);
 
@@ -1347,6 +1349,8 @@ namespace Lux {
 			x += fsScale * advance + kerningOffset;
 		}
 		widest = std::max(widest, x);
+		if (outLines)
+			*outLines = lines;
 		return { (float)widest, (float)(fsScale * (metrics.ascenderY - metrics.descenderY) + (lines - 1) * pitch) };
 	}
 

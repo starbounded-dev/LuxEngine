@@ -30,6 +30,7 @@
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Scene/Tilemap.h"
+#include "Lux/UI/UIAccessibility.h"
 #include "Lux/UI/UILayout.h"
 #include "Lux/UI/UISystem.h"
 
@@ -1808,6 +1809,54 @@ namespace {
 		Check(copy->FindEntityByName("Toggle").GetComponent<UIWidgetComponent>().StartFocused, "and in the copy Play starts from");
 	}
 
+	// ---- M3 Game UI: which captions show ------------------------------------------------------------
+
+	void CheckUICaptions()
+	{
+		const auto subtitle = [](const char* speaker, const char* text, bool offScreen = false, glm::vec3 position = { 0.0f, 0.0f, 0.0f })
+		{
+			AccessibleSubtitle entry;
+			entry.Event.SpeakerName = speaker;
+			entry.Event.Text = text;
+			entry.Event.IsOffScreen = offScreen;
+			entry.Event.SpeakerPosition = position;
+			entry.SpeakerColor = { 0.5f, 0.6f, 0.7f, 1.0f };
+			return entry;
+		};
+		const auto oneLine = [](const std::string&) { return 1; };
+		const auto twoLines = [](const std::string& text) { return text.size() > 20 ? 2 : 1; };
+		const auto ahead = [](const glm::vec3& position) { return position; }; // the world position is the direction here
+
+		AudioAccessibilityPreferences preferences;
+		preferences.MaxLines = 3;
+		std::vector<AccessibleSubtitle> subtitles = { subtitle("Ann", "one"), subtitle("Bob", "two"), subtitle("Cy", "three"), subtitle("Di", "four") };
+		auto shown = UI::CollectCaptions(subtitles, preferences, oneLine, ahead);
+		Check(shown.size() == 3 && shown[0].Text == "Bob: two" && shown[2].Text == "Di: four", "the newest entries that fit in Maximum lines show, oldest first");
+		Check(Near(shown[0].Color.b, 0.7f), "an entry keeps its speaker's color");
+
+		preferences.SpeakerNames = false;
+		Check(UI::CollectCaptions(subtitles, preferences, oneLine, ahead)[0].Text == "two", "speaker names can be turned off");
+		preferences.SpeakerNames = true;
+
+		subtitles.push_back(subtitle("Ed", "a long line that wraps over two lines"));
+		shown = UI::CollectCaptions(subtitles, preferences, twoLines, ahead);
+		Check(shown.size() == 2 && shown[1].Lines == 2 && shown[0].Text == "Di: four", "a two-line entry takes two of the three lines");
+		preferences.MaxLines = 1;
+		shown = UI::CollectCaptions(subtitles, preferences, twoLines, ahead);
+		Check(shown.size() == 1 && shown[0].Text.starts_with("Ed:"), "the newest entry shows even when it is longer than Maximum lines");
+
+		preferences.MaxLines = 3;
+		std::vector<AccessibleSubtitle> distant = { subtitle("", "left", true, { -1.0f, 0.0f, 0.0f }), subtitle("", "right", true, { 1.0f, 0.0f, 0.0f }),
+			subtitle("", "behind", true, { 0.0f, 0.0f, -1.0f }), subtitle("", "ahead", true, { 0.0f, 0.0f, 1.0f }), subtitle("", "seen", false, { 1.0f, 0.0f, 0.0f }) };
+		preferences.MaxLines = 5;
+		shown = UI::CollectCaptions(distant, preferences, oneLine, ahead);
+		Check(shown[0].Text == "< left" && shown[1].Text == "> right" && shown[2].Text == "[behind] behind" && shown[3].Text == "[ahead] ahead" && shown[4].Text == "seen",
+			"an off-screen speaker gets an arrow or a behind/ahead tag, an on-screen one none");
+		preferences.DirectionIndicators = false;
+		Check(UI::CollectCaptions(distant, preferences, oneLine, ahead)[0].Text == "left", "direction indicators can be turned off");
+		Check(UI::CollectCaptions({}, preferences, oneLine, ahead).empty(), "no subtitles, no captions");
+	}
+
 	void CheckUIScene(const std::filesystem::path& root)
 	{
 		Ref<Scene> scene = Ref<Scene>::Create();
@@ -1948,6 +1997,7 @@ int main(int argc, char** argv)
 	CheckUIScene(outDir);
 	CheckUIWidgets(outDir);
 	CheckUINavigation();
+	CheckUICaptions();
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

@@ -314,9 +314,6 @@ namespace Lux
 		const bool wasOpen = m_ShowAudioAccessibility;
 		if (ImGui::IsKeyPressed(ImGuiKey_F10, false))
 			m_ShowAudioAccessibility = !m_ShowAudioAccessibility;
-		const auto* viewport = ImGui::GetMainViewport();
-		ImGuiEx::AudioAccessibilityOverlay({ viewport->Pos.x, viewport->Pos.y },
-			{ viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y });
 		ImGuiEx::AudioAccessibilityMenu(m_ShowAudioAccessibility);
 		if (m_ShowAudioAccessibility && !wasOpen)
 		{
