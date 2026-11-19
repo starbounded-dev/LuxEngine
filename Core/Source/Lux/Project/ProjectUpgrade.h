@@ -55,7 +55,7 @@ namespace Lux
 		static Result Upgrade(const std::filesystem::path& projectFile, const ProjectUpgradeReport& report, const std::vector<FormatVersion::Step>& steps);
 		static Result Upgrade(const std::filesystem::path& projectFile, const ProjectUpgradeReport& report);
 
-		// What an unattended run does with an older project: LUX_PROJECT_UPGRADE=yes|no, and yes inside the test harnesses
+		// What an unattended run does with an older project: LUX_PROJECT_UPGRADE=yes|no|ask, and yes inside the test harnesses
 		// (LUX_NO_WATCHDOG, LUX_USER_DATA_DIR). Ask for a person at the editor.
 		enum class Decision : uint8_t { Ask, Yes, No };
 		static Decision UnattendedDecision();

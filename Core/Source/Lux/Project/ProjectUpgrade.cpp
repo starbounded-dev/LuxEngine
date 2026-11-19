@@ -201,7 +201,7 @@ namespace Lux
 			result.Upgraded++;
 		}
 
-		LUX_CORE_INFO_TAG("Project", "Upgraded {} file(s) of '{}'; the originals are in '{}'", result.Upgraded, projectFile.filename().string(), backup.string());
+		LUX_CORE_WARN_TAG("Project", "Upgraded {} file(s) of '{}'; the originals are in '{}'", result.Upgraded, projectFile.filename().string(), backup.string());
 		result.Ok = true;
 		return result;
 	}
@@ -211,7 +211,7 @@ namespace Lux
 		if (FileSystem::HasEnvironmentVariable("LUX_PROJECT_UPGRADE"))
 		{
 			const std::string value = FileSystem::GetEnvironmentVariable("LUX_PROJECT_UPGRADE");
-			return value == "no" || value == "0" ? Decision::No : Decision::Yes;
+			return value == "no" || value == "0" ? Decision::No : value == "ask" ? Decision::Ask : Decision::Yes;
 		}
 		if (FileSystem::HasEnvironmentVariable("LUX_NO_WATCHDOG") || FileSystem::HasEnvironmentVariable("LUX_USER_DATA_DIR"))
 			return Decision::Yes;
