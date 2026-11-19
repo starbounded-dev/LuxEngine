@@ -62,7 +62,7 @@ that builds but was never run.**
 | M10 | **Two sample games made only with the release zip**, one 3D and one 2D (§6 X6) | They are the acceptance test for the bar above | L |
 | M11 | **2D as a full project type** (§2.10): 2D template, sprite animation, tilemaps, sorting, complete 2D physics | Decided 2026-11-09: 2D projects and 3D projects are both supported | XL |
 | M12 | **Linux all the way** (§2.12 C2): render thread on, watchdog, every release gate run on Linux too | Decided 2026-11-09 | L |
-| M13 | **Basic particles** (§2.11 G1) | Decided 2026-11-09 | XL |
+| M13 | **Done 2026-11-19 on Windows (PR #201): a CPU particle system (component, curves and gradient over life, texture sheets, bursts, shapes, alpha/additive/premultiplied), a 3D soft-particle HDR pass with one instanced draw per system, 2D drawing in the sorting layers, a C# API, a Particle Editor panel with an editor preview, `ParticlesDemo` scene, headless checks, Play checks and `tests/editor/run_particles.py`.** **Basic particles** (§2.11 G1) | Decided 2026-11-09 | XL |
 
 ### Wanted for 2027.1, dropped first if time runs out
 

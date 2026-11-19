@@ -1,5 +1,7 @@
 # LuxEngine Particles Plan (M13, issue #49)
 
+**Status (2026-11-19, PR #201):** done. Where the build differs from this plan: curve and gradient types, the shapes are cone, sphere and box (no circle), the Particles pass samples PreDepth without a depth attachment as planned (no validation messages with the Khronos layer forced on), the batch texture table is 16 slots in the material's set 0, Premultiplied needed a new `FramebufferBlendMode`, and `EditorLayer`'s Edit state steps previews itself because `OnRenderEditor` takes no time step. Measured on an RTX 4070 Ti at 1280x720 with 10 000 large alpha particles in one column: +0.32 ms GPU, +0.43 ms frame.
+
 A planning document, written 2026-11-19. What is actually built is described by `.claude/docs/Architecture-LuxEngine.md` (a section is added in Phase 1). Checkpoints are the board's sub-issues: **G1 #107** (engine) and **E10 #121** (editor). G1 is XL, so Part 3 cuts it into phases that each stand alone; the board should get matching sub-issues under #107 before work starts.
 
 ## Goal card
