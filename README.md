@@ -373,6 +373,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **3D physics** (Jolt) — rigid bodies, box/sphere/capsule/mesh/compound colliders, a character controller, physics layers, and a mesh-cooking cache. **2D physics** (Box2D) — rigid bodies, box and circle colliders.
 - **C# scripting** (.NET 10 via [Coral](https://github.com/StudioCherno/Coral)) — script components with hot reload, attribute-driven inspectors (`[Range]`/`[Header]`/`[Tooltip]`), and bindings for entities and transforms (active/enabled, tags and finders), `Time` with a time scale, maths types (`Mathf`, `Quaternion`, `Color`, `Random`), physics queries (rays, shape casts and overlaps with layer masks), scene loading (replace, additive, entities that survive a load), timers and coroutines, application events, lights, cameras, mesh materials, input, assets, audio, music, dialogue and accessibility.
 - **Asset pipeline** — UUID-handle asset manager with editor and runtime variants, an asset registry, Assimp mesh import, texture import, material assets, automatic mesh LODs (meshoptimizer), and binary **asset packs + shader packs** (audio included) for shipping runtime builds.
+- **Game UI** — canvases with anchors, stack/grid layout and resolution scaling; images (9-slice), text, buttons, toggles, sliders, progress bars, text inputs and scroll lists; keyboard and gamepad navigation; captions and subtitles; C# components and events (`Clicked`, `ValueChanged`, ...); and a UI editor in the Game View (select, move, resize). Screen space only.
 - **Standalone runtime** — `Lux-Runtime` plays a packaged project without the editor.
 - **Multithreading** — optional dedicated render thread (validated on and off), a job system, and an experimental simulation thread.
 - **Tooling & debugging** — Tracy CPU/GPU profiling on every pass, Nvidia Aftermath GPU crash dumps, shader hot-reload with a SPIR-V reflection cache, memory tracking, and tiering/quality settings serialized per project.
@@ -394,8 +395,9 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 - **Skeletal animation is new and Windows-only so far.** Rigged glTF and FBX models import with their skeletons and clips, skin on the GPU, play with cross-fades, root motion, compressed clips, events and an animation graph (state machine), and are scriptable from C#. Node Canvas edits animation states and transitions and previews them on the selected Skeleton. Blend trees, layers, retargeting, and Linux verification are follow-ups.
 - **No particle system.**
 - **No terrain in-tree yet.** A GPU clipmap terrain with Jolt heightfield collision is in development on a branch, not merged.
-- **Scripting API is still partial.** Physics queries, scenes, time, timers and the common components are there; there is no game UI, input actions, save-game API, joints, navigation or particles to script yet.
+- **Scripting API is still partial.** Physics queries, scenes, time, timers and the common components are there; there are no input actions, save-game API, joints, navigation or particles to script yet.
 - **No networking, no AI/navigation.**
+- **Game UI is screen space only.** No world-space UI, rich text or tweens yet, and a quad drawn over UI text hides the quad under it but not the text.
 - **2D is a renderer, not a toolset.** Sprites, circles, lines, and text render fine, but there are no tilemaps or 2D-specific editor workflows.
 - **Obfuscation is not protection.** The key travels inside the game, a game's script assembly is still written in plain form to the temp folder while it runs, and script symbols are not renamed yet ([docs/OBFUSCATION_PLAN.md](docs/OBFUSCATION_PLAN.md) phases 4-7).
 - **Exports have no icon or splash on Linux.** Name, version, icon and splash branding is Windows only.
@@ -412,7 +414,7 @@ Ongoing: a measured performance campaign (see [docs/ENGINE_OPTIMIZATION_PLAN.md]
 **Next up (roughly in order):**
 - Skeletal animation follow-ups (blend trees and layers, retargeting, Linux)
 - Merging the procedural terrain system
-- Game UI, input actions and a save-game API for scripts
+- Input actions and a save-game API for scripts; world-space game UI, rich text and tweens
 - Asset streaming / async upload hardening
 - Particles
 
