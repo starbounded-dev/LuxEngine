@@ -201,6 +201,10 @@ namespace Lux {
 				case FramebufferBlendMode::Zero_SrcColor:
 					color.colorBlend = { nri::BlendFactor::ZERO, nri::BlendFactor::SRC_COLOR, nri::BlendOp::ADD };
 					break;
+				case FramebufferBlendMode::PremultipliedAlpha:
+					color.colorBlend = { nri::BlendFactor::ONE, nri::BlendFactor::ONE_MINUS_SRC_ALPHA, nri::BlendOp::ADD };
+					color.alphaBlend = { nri::BlendFactor::ONE, nri::BlendFactor::ONE_MINUS_SRC_ALPHA, nri::BlendOp::ADD };
+					break;
 				case FramebufferBlendMode::Additive:
 					// Colour adds; alpha keeps the destination's (an additive pass layers light, it
 					// does not change coverage).

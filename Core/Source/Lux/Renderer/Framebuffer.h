@@ -29,7 +29,8 @@ namespace Lux {
 		OneZero,
 		SrcAlphaOneMinusSrcAlpha,
 		Additive,
-		Zero_SrcColor
+		Zero_SrcColor,
+		PremultipliedAlpha // the color already carries its alpha: src + dst * (1 - src alpha)
 	};
 
 	enum class AttachmentLoadOp

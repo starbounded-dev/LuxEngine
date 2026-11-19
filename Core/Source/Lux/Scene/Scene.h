@@ -301,6 +301,8 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		// The 3D particle systems' particles (the packet's camera must be set), nearest system last.
+		void CaptureParticles(FrameRenderPacket& packet);
 		void UpdateUI(Timestep ts);
 		// Advances every playing SpriteAnimatorComponent and shows the clip's frame on its sprite.
 		void UpdateSpriteAnimators(Timestep ts);

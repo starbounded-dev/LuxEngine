@@ -103,6 +103,8 @@ namespace Lux {
 		// pixel-space projection of UIScreenSize.
 		std::vector<Draw2DItem> UI;
 		glm::vec2 UIScreenSize{ 0.0f };
+		// 3D particle systems, far to near: SceneRenderer draws them after the transparent meshes.
+		std::vector<SceneRendererParticleBatch> ParticleBatches;
 		std::vector<DebugLine> AudioZoneLines;
 		std::vector<DebugLine> ScriptLines; // C# Gizmos (Scene::AddDebugLine)
 		std::vector<ColliderDebugItem> ColliderDebug;
@@ -115,6 +117,7 @@ namespace Lux {
 			MeshSyncMs = 0.0f;
 			Draw2D.clear();
 			UI.clear();
+			ParticleBatches.clear();
 			AudioZoneLines.clear();
 			ScriptLines.clear();
 			ColliderDebug.clear();

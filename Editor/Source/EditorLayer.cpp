@@ -1250,6 +1250,8 @@ namespace Lux {
 		case SceneState::Edit:
 		{
 			viewportCamera.OnUpdate(ts);
+			// Systems that ask for it play in the editor (the Particle System's Preview In Editor).
+			m_ActiveScene->UpdateParticles(ts, true);
 
 			// When SceneRenderer is ready, let it own the full visible frame and
 			// composite the 2D pass on top of the 3D result. Falling back to the

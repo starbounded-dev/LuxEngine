@@ -3588,6 +3588,7 @@ namespace Lux {
 		packet.Meshes = SyncRenderScene(isSelected);
 		packet.MeshSyncMs = meshSyncTimer.ElapsedMillis();
 		CaptureDraw2D(packet);
+		CaptureParticles(packet);
 		CaptureColliderDebug(packet, renderer, isSelected);
 		CaptureAudioZones(packet, isSelected);
 		CaptureSkeletonLines(packet, isSelected);
@@ -4019,6 +4020,44 @@ namespace Lux {
 			packet.Draw2D.push_back(std::move(entry.Item));
 	}
 
+	void Scene::CaptureParticles(FrameRenderPacket& packet)
+	{
+		auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+		if (view.empty())
+			return;
+
+		const glm::vec3 viewPosition = glm::vec3(glm::inverse(packet.Camera.ViewMatrix)[3]);
+		struct SortedBatch
+		{
+			float Distance;
+			SceneRendererParticleBatch Batch;
+		};
+		std::vector<SortedBatch> batches;
+		for (auto entity : view)
+		{
+			const auto& particles = view.get<ParticleSystemComponent>(entity);
+			if (!particles.Enabled || IsInactive(entity) || particles.Settings.Mode != Particles::RenderMode::Billboard3D)
+				continue;
+			const Entity owner{ entity, this };
+			const auto found = m_ParticleStates.find(owner.GetUUID());
+			if (found == m_ParticleStates.end() || found->second.Count() == 0)
+				continue;
+
+			SceneRendererParticleBatch batch;
+			batch.Texture = AssetManager::GetAsset<Texture2D>(particles.Texture);
+			batch.BlendMode = particles.Settings.BlendMode;
+			batch.SoftDistance = particles.Settings.SoftDistance;
+			const glm::mat4 world = GetWorldSpaceTransformMatrix(owner);
+			Particles::Fill(found->second, particles.Settings, world, viewPosition, batch.Instances);
+			batches.push_back({ glm::length(glm::vec3(world[3]) - viewPosition), std::move(batch) });
+		}
+
+		// Systems far to near, so a nearer system's alpha blends over a farther one.
+		std::stable_sort(batches.begin(), batches.end(), [](const SortedBatch& a, const SortedBatch& b) { return a.Distance > b.Distance; });
+		for (SortedBatch& sorted : batches)
+			packet.ParticleBatches.push_back(std::move(sorted.Batch));
+	}
+
 	int64_t Scene::GetDrawOrder(Entity entity)
 	{
 		const Ref<Project> project = Project::GetActive();
@@ -4069,6 +4108,9 @@ namespace Lux {
 			for (const FrameRenderPacket::ColliderDebugItem& collider : packet.ColliderDebug)
 				renderer->SubmitPhysicsStaticDebugMesh(collider.Mesh, collider.Source, collider.Transform, collider.SimpleCollider, collider.DebugCategory);
 		}
+
+		for (const SceneRendererParticleBatch& batch : packet.ParticleBatches)
+			renderer->SubmitParticles(batch);
 
 		// The 2D overlay runs as a deferred render-graph pass (possibly off the submitting thread), so the
 		// callback owns its own copy of the captured draw items - it never touches the live registry.
@@ -4224,6 +4266,7 @@ namespace Lux {
 		packet.Meshes = SyncRenderSceneMirror(m_RuntimeRenderScene, nullptr);
 		packet.MeshSyncMs = meshSyncTimer.ElapsedMillis();
 		CaptureDraw2D(packet);
+		CaptureParticles(packet);
 		{
 			const glm::vec2 screen{ (float)m_ViewportWidth, (float)m_ViewportHeight };
 			UI::CaptureDrawItems(UI::ResolveLayout(*this, screen), screen, packet);

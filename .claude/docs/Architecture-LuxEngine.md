@@ -380,7 +380,7 @@ Structurally:
 
 - `SceneRenderer` owns a `RenderGraph` and rebuilds its description each frame, caching the compile
   behind a structure hash. The pipeline is deferred PBR: G-buffer, clustered (froxel) light culling,
-  HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, then
+  HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, particles, then
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
@@ -2704,7 +2704,14 @@ particles). All of it is main thread; the renderer sees only the packet.
 `CaptureDraw2D`, sorted with sprites by sorting layer, order and depth, and `SubmitRenderPacket` draws each instance as a
 `Renderer2D::DrawQuad` (alpha blend only; the texture sheet is the instance's UV rectangle). A 2D system's particles stay in
 the XY plane. Settings are saved by `WriteParticleSettings` / `ReadParticleSettings` in `SceneSerializer.cpp` (every field,
-curves and gradients as key lists; a missing key loads the default). Inspector: `SceneHierarchyPanel.cpp` (sections per
+curves and gradients as key lists; a missing key loads the default).
+
+3D systems (`RenderMode::Billboard3D`) enter the packet as `FrameRenderPacket::ParticleBatches` (`Scene::CaptureParticles`: one
+`SceneRendererParticleBatch` per system, far to near, with the texture, blend, soft distance and the `Fill`ed instances) and
+`SubmitRenderPacket` hands each to `SceneRenderer::SubmitParticles`; `SceneRenderer::ParticlesPass` draws them (see
+`Rendering.md § Particles pass`). The editor steps systems with a preview from `EditorLayer`'s Edit state
+(`Scene::UpdateParticles(ts, true)`), because `OnRenderEditor` takes no step; Play and Simulate step them in
+`OnUpdateRuntime` / `OnUpdateSimulation`. Inspector: `SceneHierarchyPanel.cpp` (sections per
 module, whole-component copy for a multi-selection), Create > Create Effects. Checks: `CheckParticleSimulation`,
 `CheckParticleCurves`, `CheckParticleScene` in `tests/2d/Checks2D.cpp`.
 

@@ -251,7 +251,7 @@ cluster light culling (each workgroup transforms the lights once per 64-light ch
 the counters are read back a few frames late into `Statistics::ClusterPoint/SpotIndicesRequested` and
 `...LightsDropped`, warned once when the lists overflow and shown in the Renderer Debugger) → skybox → sky atmosphere → selected geometry → GBuffer → GTAO (+ denoise,
 temporal) → AO composite → deferred lighting → pre-convolution → SSR (+ temporal, composite) →
-volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → wireframe →
+volumetric clouds (+ temporal, composite) → atmospheric fog → transparent forward → particles → wireframe →
 jump flood → TAA → auto exposure → bloom → composite → SMAA → DOF.
 
 **Bloom is an FFT convolution with a lens-glare kernel.** One compute pass, "Bloom"
@@ -1209,6 +1209,34 @@ Renderer submission must go through the frame packet, not the live ECS:
 
 **New renderer-visible state belongs in the packet.** Reading the ECS during submission works today
 and is exactly what blocks the simulation-thread split later (see `.claude/docs/Threading.md`).
+
+---
+
+## Particles pass
+
+`SceneRenderer::ParticlesPass` (`Particles.glsl`, plan `docs/PARTICLES_PLAN.md`) draws 3D particle systems in scene color after
+"Transparent Forward". It is in the graph only on a frame that submitted particles (`SubmitParticles`, from
+`FrameRenderPacket::ParticleBatches`), reads PreDepth (sampled) and scene color, writes scene color, and so costs nothing
+otherwise; the graph's structure hash follows the node. Things that are easy to get wrong:
+
+- **No depth attachment.** The shader reads the scene depth as a texture (`u_DepthTexture`, (set 1, binding 17), the same
+  resource `DeferredLighting` reads) and fades by `(sceneDepth - particleDepth) / SoftDistance`, which is the depth test and the
+  soft edge in one. A depth attachment sampled as a texture in the same pass would need a read-only layout; this does not.
+- **One pass per blend mode** (`m_ParticlePasses`: alpha, additive, premultiplied): a pipeline's blend state comes from its
+  framebuffer, and all three framebuffers share the scene color image, so they follow the resize, recreate and repair lists
+  next to `m_AreaLightPass`. Additive multiplies the color by its alpha in the shader (the blend is ONE, ONE), premultiplied
+  scales the color by the soft factor too (`FramebufferBlendMode::PremultipliedAlpha`).
+- **One instanced draw per system.** A shared unit quad (stream 0) and a per-frame-in-flight instance buffer
+  (`Particles::Instance`, 48 bytes) bound through the pipeline's instanced `AttributeLayout` (stream 1);
+  `Renderer::RenderInstancedGeometry` draws `InstanceCount` from `FirstInstance` (`IndexedDraw::FirstInstance`) with 16 bytes of
+  root constants (texture slot, soft distance, blend flags). The frame's budget is `c_MaxParticlesPerFrame` (50 000); the
+  rest are dropped with one warning.
+- **Textures are one table per frame**, `u_ParticleTextures[16]` in the material's set 0, set once before the pass: a
+  descriptor set changed between draws would change the earlier draws of the same frame. A system past the 16th texture draws
+  as a soft dot, like one with no texture.
+- Particles are drawn after the transparent meshes and do not sort against them (a system behind a glass pane draws in front of it).
+- Cost, RTX 4070 Ti, 1280x720, 10 000 large alpha particles in one column (`tests/rendering` golden scene `ParticlesDemo`
+  with the smoke scaled up): +0.32 ms GPU, +0.43 ms frame. No validation messages with the Khronos layer forced on.
 
 ---
 

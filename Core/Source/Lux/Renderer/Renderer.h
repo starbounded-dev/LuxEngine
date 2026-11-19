@@ -230,6 +230,9 @@ namespace Lux {
 		static void RenderQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, const glm::mat4& transform);
 		static void SubmitFullscreenQuad(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material);
 		static void SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides);
+		// `indexCount` indices of a shared quad drawn `instanceCount` times from `firstInstance`. The per-instance data is
+		// `instanceBuffer`, which the pipeline reads as its (instanced) AttributeLayout; `constants` are the root constants.
+		static void RenderInstancedGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, Ref<VertexBuffer> instanceBuffer, uint32_t indexCount, uint32_t firstInstance, uint32_t instanceCount, const glm::vec4& constants);
 		static void RenderGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, const glm::mat4& transform, uint32_t indexCount = 0);
 		// Render thread: `material`'s set 0, prepared for this frame, when its layout matches
 		// `pipelineShader`'s set 0. Empty otherwise (or without a material); a draw then keeps the
@@ -254,6 +257,7 @@ namespace Lux {
 			uint32_t ConstantsSize = 0;
 			uint32_t IndexCount = 0;
 			uint32_t InstanceCount = 1;
+			uint32_t FirstInstance = 0;
 			uint32_t FirstIndex = 0;
 			int32_t VertexOffset = 0;
 			// When set, the arguments are the DrawIndexedIndirectCommand at IndirectOffset instead.
