@@ -22,8 +22,10 @@
 
 #include <imgui/imgui_internal.h>
 
+#include <chrono>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
 #ifdef _MSC_VER
 #include <crtdbg.h>
 #endif
@@ -45,6 +47,224 @@ namespace Lux
 			return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 		}
 	} // namespace
+
+	bool TextEditorPanel::RunBeamSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures)
+	{
+		ImGuiContext* previous = ImGui::GetCurrentContext();
+		ImGuiContext* context = ImGui::CreateContext(previous->IO.Fonts);
+		ImGui::SetCurrentContext(context);
+		std::filesystem::path sessionDirectory;
+		try
+		{
+			Require(Project::GetActive() && Project::GetActive()->GetProjectDirectory() == directory, "Beam tests require the runner's disposable active project");
+			auto& io = ImGui::GetIO();
+			io.IniFilename = nullptr;
+			io.ConfigFlags = ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+			io.BackendFlags = previous->IO.BackendFlags & ImGuiBackendFlags_RendererHasTextures;
+			io.DisplaySize = {1280.0f, 800.0f};
+			const auto frame = [&](TextEditorPanel& panel)
+			{
+				ImGui::NewFrame();
+				bool open = true;
+				panel.OnImGuiRender(open);
+				ImGui::Render();
+			};
+			const auto write = [](const std::filesystem::path& path, const std::string& text)
+			{
+				std::filesystem::create_directories(path.parent_path());
+				std::ofstream(path, std::ios::binary | std::ios::trunc) << text;
+			};
+			const auto contains = [](const std::string& text, const char* part) { return text.find(part) != std::string::npos; };
+
+			const std::filesystem::path assets = directory / "Assets";
+			const std::filesystem::path file = assets / "Notes.cs";
+			write(file, "class A\n{\n}\n");
+
+			{
+				// -- the dirty flag is the truth ---------------------------------------------
+				TextEditorPanel beam;
+				frame(beam); // restores the (empty) session
+				sessionDirectory = beam.SessionDirectory();
+				beam.OpenFile(file);
+				Document* doc = beam.ActiveDocument();
+				Require(doc && !beam.IsDirty(), "A freshly opened file must not be dirty");
+				doc->Editor.ReplaceSectionText(0, 0, 0, 0, "// edit\n");
+				frame(beam);
+				Require(beam.IsDirty(), "An edited buffer must be dirty");
+				doc->Editor.Undo();
+				frame(beam);
+				Require(!beam.IsDirty(), "Undoing back to the saved text must clear the dirty flag");
+				doc->Editor.ReplaceSectionText(0, 0, 0, 0, "// edit\n");
+				frame(beam);
+				Require(beam.IsDirty(), "Editing again must set the dirty flag");
+
+				// -- save is atomic and clears everything -------------------------------------
+				beam.UpdateBackups(true);
+				Require(!doc->BackupName.empty() && std::filesystem::exists(sessionDirectory / doc->BackupName), "A dirty buffer must be backed up outside the project");
+				const std::string backupName = doc->BackupName;
+				beam.Save();
+				Require(!beam.IsDirty() && Read(file) == "// edit\nclass A\n{\n}\n", "Save must write the buffer and clear the dirty flag");
+				Require(doc->BackupName.empty() && !std::filesystem::exists(sessionDirectory / backupName), "Saving must remove the buffer's backup");
+				{
+					std::error_code error;
+					for (const auto& entry : std::filesystem::directory_iterator(assets, error))
+						Require(entry.path().extension() != ".tmp", "Save left a temporary file behind");
+				}
+
+				// -- the file changes under Beam ----------------------------------------------
+				write(file, "// from outside\nclass A\n{\n}\n");
+				doc->DiskTime -= 1; // timestamps can be coarse: make sure the change is seen
+				beam.CheckExternalChanges();
+				Require(doc->Editor.GetText() == "// from outside\nclass A\n{\n}\n" && !beam.IsDirty(), "An unedited buffer must follow its file");
+				doc->Editor.ReplaceSectionText(0, 0, 0, 0, "// mine\n");
+				frame(beam);
+				Require(beam.IsDirty(), "Editing after a reload must make the buffer dirty again");
+				write(file, "// outside again\nclass A\n{\n}\n");
+				doc->DiskTime -= 1;
+				beam.CheckExternalChanges();
+				Require(doc->DiskChanged && contains(doc->Editor.GetText(), "// mine"), "An edited buffer must keep its text and ask, not reload");
+				frame(beam); // the bar draws
+				beam.ReloadDocument(*doc);
+				Require(!doc->DiskChanged && !beam.IsDirty() && contains(doc->Editor.GetText(), "outside again"), "Loading the disk version must replace the buffer");
+				std::filesystem::remove(file);
+				beam.CheckExternalChanges();
+				Require(doc->DiskDeleted, "A deleted file must be reported");
+				frame(beam);
+				write(file, "class A\n{\n}\n");
+				beam.CheckExternalChanges();
+				Require(!doc->DiskDeleted, "A file that is back must clear the deleted state");
+				beam.CloseDocument(0);
+			}
+
+			{
+				// -- a session survives: the tabs, the unsaved text, an untitled tab ----------
+				write(file, "class A\n{\n}\n");
+				const std::filesystem::path second = assets / "Other.cs";
+				write(second, "class B {}\n");
+				{
+					TextEditorPanel beam;
+					frame(beam);
+					beam.OpenFile(file);
+					beam.OpenFile(second);
+					Document* doc = beam.ActiveDocument();
+					doc->Editor.ReplaceSectionText(0, 0, 0, 0, "// unsaved in Other\n");
+					Document& untitled = beam.NewDocument();
+					untitled.Editor.ReplaceSectionText(0, 0, 0, 0, "scratch notes"); // an edit, as typing is: SetText does not count as one
+					frame(beam);
+					beam.SelectDocument(1);
+					frame(beam);
+					// the panel goes away with unsaved text, as in a crash after the last backup or a quit
+				}
+				{
+					TextEditorPanel beam;
+					frame(beam);
+					if (beam.m_Documents.size() != 3)
+					{
+						std::string session;
+						if (std::ifstream stream(sessionDirectory / "session.txt", std::ios::binary); stream)
+							session.assign(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
+						throw std::runtime_error(std::format("The session must bring back the open tabs, the unsaved ones included: got {}; session file: [{}]", beam.m_Documents.size(), session));
+					}
+					Require(beam.m_Documents[0]->Path == std::filesystem::absolute(file).lexically_normal() && !beam.m_Documents[0]->Dirty, "A saved tab must come back clean");
+					Require(beam.m_Documents[1]->Dirty && contains(beam.m_Documents[1]->Editor.GetText(), "// unsaved in Other"), "An unsaved edit must come back, unsaved");
+					Require(beam.m_Documents[2]->Path.empty() && beam.m_Documents[2]->Editor.GetText() == "scratch notes", "An untitled tab with text must come back");
+					Require(beam.m_ActiveDocument == 1, "The active tab must come back");
+					beam.Save(); // the active one: writes Other.cs
+					frame(beam);
+					Require(contains(Read(second), "// unsaved in Other"), "Saving a restored buffer must write it");
+				}
+				{
+					TextEditorPanel beam;
+					frame(beam);
+					Require(beam.m_Documents.size() == 3 && !beam.m_Documents[1]->Dirty, "After the save the tab comes back clean");
+					// closing a dirty tab discards its backup
+					beam.m_Documents[2]->Editor.ReplaceSectionText(0, 0, 0, 0, "different ");
+					frame(beam);
+					beam.UpdateBackups(true);
+					const std::string backup = beam.m_Documents[2]->BackupName;
+					Require(!backup.empty() && std::filesystem::exists(sessionDirectory / backup), "The untitled tab must have a backup");
+					beam.CloseDocument(2);
+					Require(!std::filesystem::exists(sessionDirectory / backup), "Discarding a tab must remove its backup");
+				}
+			}
+
+			{
+				// -- open at a line -----------------------------------------------------------
+				TextEditorPanel beam;
+				frame(beam);
+				beam.OpenFileAt(file, 3, 1);
+				frame(beam);
+				frame(beam);
+				int line = 0, column = 0;
+				beam.ActiveDocument()->Editor.GetCurrentCursor(line, column);
+				Require(line == 2 && column == 0, "OpenFileAt must put the cursor on the 1-based line");
+				beam.OpenFileAt(file, 999, 0);
+				frame(beam);
+				frame(beam);
+				beam.ActiveDocument()->Editor.GetCurrentCursor(line, column);
+				Require(line == beam.ActiveDocument()->Editor.GetLineCount() - 1, "A line past the end must land on the last line");
+			}
+
+			{
+				// -- build C#, errors in place, reload on success ----------------------------------
+				const std::filesystem::path project = Project::GetActiveScriptProjectPath();
+				write(project, "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n"
+					"    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>\n    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n    <OutputPath>Binaries\\</OutputPath>\n"
+					"    <IntermediateOutputPath>..\\..\\Cache\\ScriptBuild\\</IntermediateOutputPath>\n  </PropertyGroup>\n  <ItemGroup>\n    <Compile Include=\"Source\\**\\*.cs\" />\n  </ItemGroup>\n</Project>\n");
+				const std::filesystem::path script = project.parent_path() / "Source" / "Player.cs";
+				write(script, "public class Player\n{\n    public int Health() { return 10; }\n}\n");
+
+				TextEditorPanel beam;
+				frame(beam);
+				int succeeded = 0;
+				beam.SetBuildSucceededCallback([&succeeded]() { ++succeeded; });
+				beam.OpenFile(script);
+				Document* doc = beam.ActiveDocument();
+				// unsaved edit that breaks the build: Build must save it first, as the compiler reads the disk
+				doc->Editor.ReplaceSectionText(2, 0, 2, 0, "    int broken = missing;\n");
+				frame(beam);
+				Require(beam.IsDirty(), "The broken script must be an unsaved edit");
+				const auto waitForBuild = [&]()
+				{
+					for (int i = 0; i < 2400; ++i)
+					{
+						frame(beam);
+						if (!beam.IsBuilding() && !beam.m_BuildStatus.empty() && beam.m_BuildStatus != "Building...")
+							return;
+						std::this_thread::sleep_for(std::chrono::milliseconds(50));
+					}
+					throw std::runtime_error("The build did not finish in two minutes");
+				};
+				beam.StartBuild();
+				Require(beam.IsBuilding(), "Build must start");
+				waitForBuild();
+				Require(contains(Read(script), "missing"), "Build must save the open script before compiling");
+				Require(!beam.GetProblems().empty() && beam.GetProblems()[0].Severity == DiagnosticSeverity::Error && beam.GetProblems()[0].Location.Line == 3
+					&& beam.GetProblems()[0].Code == "CS0103", "A compile error must be reported with its line and code");
+				Require(doc->Editor.HasMarkers(), "The error must be marked in the open file");
+				Require(succeeded == 0 && beam.m_BuildFailed, "A failed build must not reload the assembly");
+				frame(beam);
+
+				doc->Editor.Undo(); // back to the good text, which differs from the broken one that Build saved
+				beam.StartBuild();
+				waitForBuild();
+				Require(beam.GetProblems().empty() && !beam.m_BuildFailed && succeeded == 1, "A good build must succeed, clear the problems and reload the assembly once");
+				Require(!doc->Editor.HasMarkers(), "A good build must clear the markers");
+			}
+		}
+		catch (const std::exception& error)
+		{
+			failures.push_back(error.what());
+		}
+		if (!sessionDirectory.empty())
+		{
+			std::error_code error;
+			std::filesystem::remove_all(sessionDirectory, error);
+		}
+		ImGui::DestroyContext(context);
+		ImGui::SetCurrentContext(previous);
+		return failures.empty();
+	}
 
 	bool TextEditorPanel::RunWorkspaceSelfTests(const std::filesystem::path& directory,
 												std::vector<std::string>& failures)

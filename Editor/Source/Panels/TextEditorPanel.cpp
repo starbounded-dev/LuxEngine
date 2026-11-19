@@ -11,12 +11,14 @@
 #include "Lux/ImGui/ImGuiFonts.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/ImGui/PanelControls.h"
+#include "Lux/Project/Project.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
 
 #include <fstream>
 #include <sstream>
+#include <chrono>
 #include <cstdio>
 
 namespace Lux
@@ -30,8 +32,18 @@ namespace Lux
 		enum class BeamAction
 		{
 			New, Save, Find, Editor, Diff, SaveAs, GoToLine, Close, Open, Documents, ZoomIn, ZoomOut,
-			ZoomReset, LineNumbers, Minimap
+			ZoomReset, LineNumbers, Minimap, Build, Problems
 		};
+
+		constexpr double k_BackupInterval = 3.0;      // seconds between a dirty buffer's backups
+		constexpr double k_SessionInterval = 2.0;
+		constexpr double k_DiskCheckInterval = 1.0;
+
+		// Wall time, usable with no ImGui context (the panel's destructor saves the session at shutdown).
+		double Now()
+		{
+			return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+		}
 	}
 
 	// -- Beam: the Lux code editor -------------------------------------------------------------
@@ -45,6 +57,16 @@ namespace Lux
 		m_DiffEditor.SetReadOnlyEnabled(true);
 		m_DiffEditor.SetSideBySideMode(true);
 		m_DiffEditor.SetLanguage(TextEditor::Language::Cpp());
+	}
+
+	TextEditorPanel::~TextEditorPanel()
+	{
+		// A quit with unsaved tabs comes back as it was: a last copy of every unsaved buffer, and the open tabs.
+		m_Build.Cancel();
+		for (auto& document : m_Documents)
+			RefreshDirty(*document);
+		UpdateBackups(true);
+		SaveSession();
 	}
 
 	bool TextEditorPanel::ReadFileString(const std::filesystem::path& path, std::string& text)
@@ -145,6 +167,7 @@ namespace Lux
 		m_ActiveDocument = index;
 		m_SelectActiveTab = true;
 		m_DiffMode = false;
+		m_SessionDirty = true;
 		m_Documents[index]->Editor.SetFocus();
 	}
 
@@ -187,9 +210,14 @@ namespace Lux
 		// The editor's summary callback is delayed until a later Render, even with zero
 		// delay. Inspect the committed change version before Save/Close instead, so a quick
 		// edit cannot be lost or a queued callback mark freshly saved text dirty again.
+		// Dirty means "different from the file", so undoing back to the saved text clears it. The text is only compared
+		// when it changed, never once per frame.
 		const size_t version = doc.Editor.GetChangeVersion();
-		doc.Dirty |= version != doc.ObservedChangeVersion;
-		doc.ObservedChangeVersion = version;
+		if (version != doc.ObservedChangeVersion)
+		{
+			doc.ObservedChangeVersion = version;
+			doc.Dirty = HashText(doc.Editor.GetText()) != doc.SavedHash;
+		}
 	}
 
 	TextEditorPanel::Document& TextEditorPanel::NewDocument()
@@ -198,8 +226,11 @@ namespace Lux
 		Document& doc = *m_Documents.back();
 		doc.UntitledNumber = m_NextUntitledNumber++;
 		ConfigureEditor(doc);
+		doc.SavedHash = HashText(doc.Editor.GetText());
+		doc.ObservedChangeVersion = doc.Editor.GetChangeVersion();
 		doc.Editor.SetFocus();
 		m_SelectActiveTab = true;
+		m_SessionDirty = true;
 		m_ActiveDocument = (int)m_Documents.size() - 1;
 		m_DiffMode = false;
 		UpdateDocumentLabels();
@@ -256,10 +287,408 @@ namespace Lux
 		doc.Path = error ? path : absolute;
 		doc.Editor.SetLanguage(GetLanguageFromPath(path));
 		doc.Editor.SetText(text);
-		doc.ObservedChangeVersion = doc.Editor.GetChangeVersion();
-		doc.Dirty = false;
+		MarkSaved(doc);
+		ApplyDiagnosticMarkers(doc);
 		m_OpenError.clear();
 		UpdateDocumentLabels();
+	}
+
+	void TextEditorPanel::OpenFileAt(const std::filesystem::path& path, int line, int column)
+	{
+		OpenFile(path);
+		const int index = FindDocument(path);
+		if (index < 0)
+			return;
+		SelectDocument(index);
+		Document& doc = *m_Documents[index];
+		const int target = std::clamp(line - 1, 0, std::max(0, doc.Editor.GetLineCount() - 1));
+		doc.Editor.SetCursor(target, std::max(column - 1, 0));
+		doc.Editor.ScrollToLine(target, TextEditor::Scroll::alignMiddle);
+		m_RequestFocus = true;
+	}
+
+	size_t TextEditorPanel::HashText(const std::string& text)
+	{
+		return std::hash<std::string>{}(text);
+	}
+
+	// The buffer and the file are the same text now: a load, a save or a reload.
+	void TextEditorPanel::MarkSaved(Document& doc)
+	{
+		doc.SavedHash = HashText(doc.Editor.GetText());
+		doc.ObservedChangeVersion = doc.Editor.GetChangeVersion();
+		doc.Dirty = false;
+		doc.DiskChanged = false;
+		doc.DiskDeleted = false;
+		doc.DiskTime = doc.Path.empty() ? 0 : FileSystem::GetLastWriteTime(doc.Path);
+		if (!doc.BackupName.empty())
+		{
+			if (const auto directory = SessionDirectory(); !directory.empty())
+				BeamSession::DeleteBackup(directory, doc.BackupName);
+			doc.BackupName.clear();
+		}
+		doc.BackedUpVersion = ~size_t(0);
+		m_SessionDirty = true;
+	}
+
+	void TextEditorPanel::ReloadDocument(Document& doc)
+	{
+		std::string text;
+		if (doc.Path.empty() || !ReadFileString(doc.Path, text))
+			return;
+		int line = 0, column = 0;
+		doc.Editor.GetCurrentCursor(line, column);
+		doc.Editor.SetText(text);
+		doc.Editor.SetCursor(std::min(line, std::max(0, doc.Editor.GetLineCount() - 1)), column);
+		MarkSaved(doc);
+		ApplyDiagnosticMarkers(doc);
+	}
+
+	// Files change under Beam: a build tool, a git checkout, another editor. An unedited buffer follows the file; an edited one asks.
+	void TextEditorPanel::CheckExternalChanges()
+	{
+		for (auto& entry : m_Documents)
+		{
+			Document& doc = *entry;
+			if (doc.Path.empty())
+				continue;
+			std::error_code error;
+			if (!std::filesystem::exists(doc.Path, error))
+			{
+				doc.DiskDeleted = true;
+				continue;
+			}
+			doc.DiskDeleted = false;
+			const uint64_t time = FileSystem::GetLastWriteTime(doc.Path);
+			if (time == doc.DiskTime)
+				continue;
+			RefreshDirty(doc);
+			if (!doc.Dirty)
+			{
+				ReloadDocument(doc);
+				LUX_CORE_INFO_TAG("Editor", "Beam: {} changed on disk and was reloaded.", doc.DisplayName);
+			}
+			else
+			{
+				doc.DiskChanged = true;
+			}
+		}
+	}
+
+	// A dirty buffer's copy, written a few seconds after its last change, outside the project, so a crash loses seconds, not work.
+	void TextEditorPanel::UpdateBackups(bool force)
+	{
+		const std::filesystem::path directory = SessionDirectory();
+		if (directory.empty())
+			return;
+		const double now = Now();
+		for (auto& entry : m_Documents)
+		{
+			Document& doc = *entry;
+			if (!doc.Dirty)
+				continue;
+			const size_t version = doc.Editor.GetChangeVersion();
+			if (version == doc.BackedUpVersion || (!force && now - doc.LastBackupTime < k_BackupInterval))
+				continue;
+			if (doc.BackupName.empty())
+				doc.BackupName = BeamSession::NewBackupName();
+			if (BeamSession::WriteBackup(directory, doc.BackupName, doc.Editor.GetText()))
+			{
+				doc.BackedUpVersion = version;
+				doc.LastBackupTime = now;
+				m_SessionDirty = true;
+			}
+			else
+			{
+				LUX_CORE_ERROR_TAG("Editor", "Beam: could not write a backup of {} to {}.", doc.DisplayName, directory.string());
+			}
+		}
+	}
+
+	std::filesystem::path TextEditorPanel::SessionDirectory() const
+	{
+		return Project::GetActive() ? BeamSession::DirectoryFor(Project::GetActive()->GetProjectDirectory()) : std::filesystem::path();
+	}
+
+	void TextEditorPanel::SaveSession()
+	{
+		const std::filesystem::path directory = SessionDirectory();
+		// Until the last session is restored, saving would overwrite it with an empty one.
+		if (directory.empty() || !m_SessionRestored)
+			return;
+
+		BeamSessionData data;
+		for (int i = 0; i < static_cast<int>(m_Documents.size()); ++i)
+		{
+			const Document& doc = *m_Documents[i];
+			if (doc.Path.empty() && !doc.Dirty)
+				continue; // an empty untitled tab is not worth restoring
+			BeamSessionDocument saved;
+			saved.Path = doc.Path;
+			saved.BackupFile = doc.Dirty ? doc.BackupName : std::string();
+			saved.Untitled = doc.UntitledNumber;
+			doc.Editor.GetCurrentCursor(saved.Line, saved.Column);
+			if (i == m_ActiveDocument)
+				data.Active = static_cast<int>(data.Documents.size());
+			data.Documents.push_back(std::move(saved));
+		}
+		if (!BeamSession::Save(directory, data))
+			LUX_CORE_ERROR_TAG("Editor", "Beam: could not save the session to {}.", directory.string());
+		BeamSession::PruneBackups(directory, data);
+		m_SessionDirty = false;
+		m_LastSessionSave = Now();
+	}
+
+	// The tabs of the last session, each unsaved buffer as it was at its last backup.
+	void TextEditorPanel::RestoreSession()
+	{
+		if (!Project::GetActive())
+			return;
+		m_SessionRestored = true;
+		if (!m_Documents.empty())
+			return; // something opened Beam before its first frame
+
+		const std::filesystem::path directory = SessionDirectory();
+		BeamSessionData data;
+		if (directory.empty() || !BeamSession::Load(directory, data))
+			return;
+
+		int active = -1;
+		for (int i = 0; i < static_cast<int>(data.Documents.size()); ++i)
+		{
+			const BeamSessionDocument& saved = data.Documents[i];
+			std::string backup;
+			const bool hasBackup = !saved.BackupFile.empty() && BeamSession::ReadBackup(directory, saved.BackupFile, backup);
+			if (!saved.Path.empty() && !hasBackup)
+			{
+				std::error_code error;
+				if (!std::filesystem::exists(saved.Path, error))
+					continue; // deleted since: nothing to bring back
+				OpenFile(saved.Path);
+			}
+			else if (hasBackup)
+			{
+				Document& doc = NewDocument();
+				doc.Path = saved.Path;
+				if (saved.Untitled > 0)
+					doc.UntitledNumber = saved.Untitled;
+				m_NextUntitledNumber = std::max(m_NextUntitledNumber, doc.UntitledNumber + 1);
+				// The file's text decides what "dirty" means: the restored buffer is dirty exactly when it differs from it.
+				std::string disk;
+				if (!doc.Path.empty() && ReadFileString(doc.Path, disk))
+				{
+					doc.Editor.SetText(disk);
+					doc.SavedHash = HashText(doc.Editor.GetText());
+					doc.DiskTime = FileSystem::GetLastWriteTime(doc.Path);
+				}
+				if (!doc.Path.empty())
+					doc.Editor.SetLanguage(GetLanguageFromPath(doc.Path));
+				doc.Editor.SetText(backup);
+				doc.ObservedChangeVersion = doc.Editor.GetChangeVersion() - 1; // force the comparison on the next frame
+				doc.BackupName = saved.BackupFile;
+				UpdateDocumentLabels();
+			}
+			else
+			{
+				continue;
+			}
+			Document& doc = *m_Documents.back();
+			doc.Editor.SetCursor(std::min(saved.Line, std::max(0, doc.Editor.GetLineCount() - 1)), saved.Column);
+			if (i == data.Active)
+				active = static_cast<int>(m_Documents.size()) - 1;
+		}
+		if (active >= 0)
+		{
+			m_ActiveDocument = active;
+			m_SelectActiveTab = true;
+		}
+		m_RequestFocus = false; // restoring tabs must not take the keyboard from whatever the user was doing
+		for (auto& doc : m_Documents)
+			RefreshDirty(*doc);
+		if (!m_Documents.empty())
+			LUX_CORE_INFO_TAG("Editor", "Beam: restored {} open file{}.", m_Documents.size(), m_Documents.size() == 1 ? "" : "s");
+	}
+
+	// -- Building C# ---------------------------------------------------------------------------
+
+	void TextEditorPanel::StartBuild()
+	{
+		if (m_Build.IsRunning())
+			return;
+
+		const std::filesystem::path project = Project::GetActive() ? Project::GetActiveScriptProjectPath() : std::filesystem::path();
+		std::error_code error;
+		if (project.empty() || !std::filesystem::exists(project, error))
+		{
+			m_Problems.clear();
+			m_BuildStatus = "This project has no C# script project to build.";
+			m_BuildFailed = true;
+			return;
+		}
+
+		// The compiler reads the files on disk, so unsaved scripts are saved first.
+		for (auto& entry : m_Documents)
+		{
+			Document& doc = *entry;
+			RefreshDirty(doc);
+			if (doc.Dirty && !doc.Path.empty() && doc.Path.extension() == ".cs" && !SaveDocument(doc))
+			{
+				m_BuildStatus = "Build not started: " + doc.DisplayName + " could not be saved.";
+				m_BuildFailed = true;
+				return;
+			}
+		}
+
+		m_Problems.clear();
+		for (auto& entry : m_Documents)
+			entry->Editor.ClearMarkers();
+		m_BuildFailed = false;
+		m_BuildStatus = "Building...";
+		m_Build.Start(project, "Debug");
+	}
+
+	void TextEditorPanel::HandleBuildResult(ScriptBuildResult& result)
+	{
+		m_Problems = std::move(result.Diagnostics);
+		std::stable_sort(m_Problems.begin(), m_Problems.end(), [](const BuildDiagnostic& a, const BuildDiagnostic& b)
+		{
+			return a.Severity != b.Severity ? a.Severity > b.Severity : false; // errors first, then the compiler's own order
+		});
+
+		size_t errors = 0, warnings = 0;
+		for (const BuildDiagnostic& diagnostic : m_Problems)
+		{
+			errors += diagnostic.Severity == DiagnosticSeverity::Error;
+			warnings += diagnostic.Severity == DiagnosticSeverity::Warning;
+		}
+
+		if (!result.Error.empty())
+			m_BuildStatus = result.Error;
+		else if (result.Cancelled)
+			m_BuildStatus = "Build cancelled.";
+		else if (result.Success)
+			m_BuildStatus = warnings ? std::format("Build succeeded, {} warning{}.", warnings, warnings == 1 ? "" : "s") : "Build succeeded.";
+		else if (errors)
+			m_BuildStatus = std::format("Build failed: {} error{}{}.", errors, errors == 1 ? "" : "s", warnings ? std::format(", {} warning{}", warnings, warnings == 1 ? "" : "s") : std::string());
+		else
+			m_BuildStatus = "Build failed. The console has the compiler's output.";
+		m_BuildFailed = !result.Success;
+
+		// A failure with nothing to point at (a missing SDK, a restore error): put what the compiler said where it can be read.
+		if (!result.Success && !result.Cancelled && errors == 0)
+		{
+			const size_t first = result.Output.size() > 20 ? result.Output.size() - 20 : 0;
+			for (size_t i = first; i < result.Output.size(); ++i)
+				LUX_CORE_ERROR_TAG("ScriptBuilder", "{}", result.Output[i]);
+		}
+
+		for (auto& entry : m_Documents)
+			ApplyDiagnosticMarkers(*entry);
+		if (result.Success && m_OnBuildSucceeded)
+			m_OnBuildSucceeded();
+	}
+
+	// A mark on the line number and a tint on the line, with the message as its tooltip.
+	void TextEditorPanel::ApplyDiagnosticMarkers(Document& doc)
+	{
+		doc.Editor.ClearMarkers();
+		if (doc.Path.empty())
+			return;
+		for (const BuildDiagnostic& diagnostic : m_Problems)
+		{
+			std::error_code error;
+			if (!std::filesystem::equivalent(doc.Path, diagnostic.Location.File, error) || error)
+				continue;
+			const bool isError = diagnostic.Severity == DiagnosticSeverity::Error;
+			const std::string tip = (diagnostic.Code.empty() ? std::string() : diagnostic.Code + ": ") + diagnostic.Message;
+			doc.Editor.AddMarker(diagnostic.Location.Line - 1, isError ? IM_COL32(220, 60, 60, 255) : IM_COL32(220, 170, 40, 255),
+				isError ? IM_COL32(220, 60, 60, 48) : IM_COL32(220, 170, 40, 36), tip, tip);
+		}
+	}
+
+	float TextEditorPanel::ProblemsHeight() const
+	{
+		if (!m_ShowProblems || (m_Problems.empty() && m_BuildStatus.empty()))
+			return 0.0f;
+		return std::min(ImGui::GetFontSize() * 11.0f, ImGui::GetContentRegionAvail().y * 0.4f);
+	}
+
+	void TextEditorPanel::UI_Problems(float height)
+	{
+		if (height <= 0.0f)
+			return;
+		if (ImGui::BeginChild("beam_problems", {0.0f, height}, ImGuiChildFlags_Borders))
+		{
+			const bool building = m_Build.IsRunning();
+			ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(building ? Colors::Theme::textCaption : (m_BuildFailed ? Colors::Theme::titlebarRed : Colors::Theme::titlebarGreen)),
+				"%s %s", building ? LUX_ICON_COGS : (m_BuildFailed ? LUX_ICON_TIMES_CIRCLE : LUX_ICON_CHECK), m_BuildStatus.c_str());
+			ImGui::SameLine();
+			if (building)
+			{
+				if (ImGui::SmallButton("Cancel##beam_build_cancel"))
+					m_Build.Cancel();
+			}
+			else if (ImGui::SmallButton("Build again##beam_build_again"))
+			{
+				StartBuild();
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Hide##beam_problems_hide"))
+				m_ShowProblems = false;
+
+			int jump = -1;
+			for (int i = 0; i < static_cast<int>(m_Problems.size()); ++i)
+			{
+				const BuildDiagnostic& diagnostic = m_Problems[i];
+				const auto file = diagnostic.Location.File.filename().u8string();
+				const std::string text = std::format("{} {}({},{})  {}{}{}", diagnostic.Severity == DiagnosticSeverity::Error ? LUX_ICON_TIMES_CIRCLE : LUX_ICON_EXCLAMATION_TRIANGLE,
+					std::string(reinterpret_cast<const char*>(file.data()), file.size()), diagnostic.Location.Line, diagnostic.Location.Column,
+					diagnostic.Code, diagnostic.Code.empty() ? "" : "  ", diagnostic.Message);
+				ImGuiEx::ScopedID id(i);
+				if (ImGui::Selectable(text.c_str()))
+					jump = i;
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("%s\n%s", diagnostic.Location.File.string().c_str(), diagnostic.Message.c_str());
+			}
+			if (m_Problems.empty() && !building && !m_BuildFailed)
+				ImGui::TextUnformatted("No problems.");
+			if (jump >= 0)
+			{
+				const SourceLocation location = m_Problems[jump].Location;
+				OpenFileAt(location.File, location.Line, location.Column);
+			}
+		}
+		ImGui::EndChild();
+	}
+
+	// "Changed on disk" and "deleted" bars above the editor.
+	void TextEditorPanel::UI_FileBars(Document& doc)
+	{
+		if (doc.DiskDeleted)
+		{
+			ImGuiEx::PanelMessage("This file is gone from the disk", "Your text is kept here. Save to write the file again, or close the tab.", true);
+			if (ImGui::SmallButton("Save##beam_deleted_save"))
+				SaveDocument(doc);
+		}
+		else if (doc.DiskChanged)
+		{
+			ImGuiEx::PanelMessage("This file changed on the disk", "You have unsaved changes here too. Keep yours, load the disk's version, or compare them first.", true);
+			if (ImGui::SmallButton("Load the disk version##beam_disk_reload"))
+				ReloadDocument(doc);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Keep my version##beam_disk_keep"))
+			{
+				doc.DiskTime = FileSystem::GetLastWriteTime(doc.Path);
+				doc.DiskChanged = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Compare##beam_disk_compare"))
+			{
+				std::string disk;
+				if (ReadFileString(doc.Path, disk))
+					SetDiffText(disk, doc.Editor.GetText());
+			}
+		}
 	}
 
 	bool TextEditorPanel::SaveDocument(Document& doc)
@@ -298,7 +727,7 @@ namespace Lux
 		const bool renamed = doc.Path != destination;
 		doc.Path = destination;
 		doc.Editor.SetLanguage(GetLanguageFromPath(destination));
-		doc.Dirty = false;
+		MarkSaved(doc);
 		doc.SaveError.clear();
 		if (renamed)
 			UpdateDocumentLabels();
@@ -322,6 +751,12 @@ namespace Lux
 		if (index < 0 || index >= (int)m_Documents.size())
 			return;
 
+		if (!m_Documents[index]->BackupName.empty())
+		{
+			if (const auto directory = SessionDirectory(); !directory.empty())
+				BeamSession::DeleteBackup(directory, m_Documents[index]->BackupName);
+		}
+		m_SessionDirty = true;
 		if (m_PendingCloseIndex == index)
 			m_PendingCloseIndex = -1;
 		else if (m_PendingCloseIndex > index)
@@ -509,7 +944,9 @@ namespace Lux
 			ImGui::SetKeyOwner(key, ImGui::GetID("beam_shortcuts"), ImGuiInputFlags_LockThisFrame);
 			return true;
 		};
-		if (pressed(ImGuiKey_N))
+		if (io.KeyShift && pressed(ImGuiKey_B))
+			StartBuild();
+		else if (pressed(ImGuiKey_N))
 			NewDocument();
 		else if (pressed(ImGuiKey_O))
 			RunAction(static_cast<int>(BeamAction::Open));
@@ -602,6 +1039,12 @@ namespace Lux
 			for (auto& document : m_Documents)
 				document->Editor.SetShowLineNumbersEnabled(m_ShowLineNumbers);
 			break;
+		case BeamAction::Build:
+			StartBuild();
+			break;
+		case BeamAction::Problems:
+			m_ShowProblems = !m_ShowProblems;
+			break;
 		case BeamAction::Minimap:
 			m_ShowMinimap = !m_ShowMinimap;
 			for (auto& document : m_Documents)
@@ -618,6 +1061,7 @@ namespace Lux
 			{static_cast<int>(BeamAction::New), "New", LUX_ICON_FILE_O, "Ctrl+N", true, false, true},
 			{static_cast<int>(BeamAction::Save), "Save", LUX_ICON_FLOPPY_O, "Ctrl+S", editing, false, true},
 			{static_cast<int>(BeamAction::Find), "Find", LUX_ICON_SEARCH, "Ctrl+F", editing},
+			{static_cast<int>(BeamAction::Build), "Build C#", LUX_ICON_WRENCH, "Ctrl+Shift+B", !m_Build.IsRunning(), false, true},
 			{static_cast<int>(BeamAction::Editor), "Editor", LUX_ICON_CODE, nullptr, true, !m_DiffMode},
 			{static_cast<int>(BeamAction::Diff), "Diff", LUX_ICON_COLUMNS, nullptr, true, m_DiffMode},
 			{static_cast<int>(BeamAction::SaveAs), "Save As...", nullptr, "Ctrl+Shift+S", editing, false, false, true},
@@ -629,7 +1073,8 @@ namespace Lux
 			{static_cast<int>(BeamAction::ZoomOut), "Zoom Out", nullptr, "Ctrl+-", m_TextZoom > k_MinTextZoom, false, false, true},
 			{static_cast<int>(BeamAction::ZoomReset), "Reset Zoom", nullptr, "Ctrl+0", true, false, false, true},
 			{static_cast<int>(BeamAction::LineNumbers), "Line Numbers", nullptr, nullptr, true, m_ShowLineNumbers, false, true},
-			{static_cast<int>(BeamAction::Minimap), "Minimap", nullptr, nullptr, true, m_ShowMinimap, false, true}
+			{static_cast<int>(BeamAction::Minimap), "Minimap", nullptr, nullptr, true, m_ShowMinimap, false, true},
+			{static_cast<int>(BeamAction::Problems), "Problems", nullptr, nullptr, true, m_ShowProblems, false, true}
 		};
 		RunAction(ImGuiEx::PanelActionBar("beam_actions", actions));
 	}
@@ -854,8 +1299,27 @@ namespace Lux
 			return;
 		}
 
+		if (!m_SessionRestored)
+			RestoreSession();
 		for (auto& document : m_Documents)
 			RefreshDirty(*document);
+		{
+			const double now = Now();
+			if ((m_KeyboardFocus && !m_WasFocused) || now - m_LastDiskCheck >= k_DiskCheckInterval)
+			{
+				CheckExternalChanges();
+				m_LastDiskCheck = now;
+			}
+			m_WasFocused = m_KeyboardFocus;
+			ScriptBuildResult buildResult;
+			if (m_Build.Poll(buildResult))
+				HandleBuildResult(buildResult);
+			if (m_Build.IsRunning())
+				m_BuildStatus = "Building... " + m_Build.GetLatestLine();
+			UpdateBackups();
+			if (m_SessionDirty && now - m_LastSessionSave >= k_SessionInterval)
+				SaveSession();
+		}
 		HandleShortcuts();
 		UI_Toolbar();
 		UI_CloseConfirm();
@@ -899,6 +1363,7 @@ namespace Lux
 			RunAction(ImGuiEx::PanelEmptyState("beam_empty", "No file open",
 				"Create a text file here, or open an existing file from the Content Browser. "
 				"Your open files stay with you when you change workspaces.", create));
+			UI_Problems(ProblemsHeight());
 			ImGui::End();
 			return;
 		}
@@ -914,20 +1379,24 @@ namespace Lux
 
 		if (!doc->SaveError.empty())
 			ImGuiEx::PanelMessage("Could not save this file", doc->SaveError.c_str(), true);
+		UI_FileBars(*doc);
 		UI_GoToLinePopup(*doc);
 
 		// Editor fills the space above a one-line status bar pinned to the bottom.
 		const float statusBarHeight = ImGui::GetTextLineHeightWithSpacing();
+		const float problemsHeight = ProblemsHeight();
 		const std::string editorId = std::format("##beam_editor_{}", static_cast<const void*>(doc));
 		// TextEditor places every glyph on a grid one "#" wide, so a proportional font renders with
 		// gaps around narrow characters. Push the mono face for the editor body.
 		{
 			ImFont* mono = ImGuiEx::Fonts::Get("Mono");
 			ImGuiEx::ScopedFont font(mono, mono->LegacySize * static_cast<float>(m_TextZoom) / 100.0f);
-			const float height = std::max(ImGui::GetTextLineHeight(), ImGui::GetContentRegionAvail().y - statusBarHeight - ImGui::GetStyle().ItemSpacing.y);
+			const float reserved = problemsHeight > 0.0f ? problemsHeight + ImGui::GetStyle().ItemSpacing.y : 0.0f;
+			const float height = std::max(ImGui::GetTextLineHeight(), ImGui::GetContentRegionAvail().y - statusBarHeight - ImGui::GetStyle().ItemSpacing.y - reserved);
 			doc->Editor.Render(editorId.c_str(), {-1.0f, height}, true);
 		}
 		RefreshDirty(*doc);
+		UI_Problems(problemsHeight);
 
 		UI_StatusBar(*doc);
 
