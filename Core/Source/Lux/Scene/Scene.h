@@ -243,6 +243,8 @@ namespace Lux {
 		void AddUITypedCharacter(char32_t character) { m_UITyped.push_back(character); }
 		void AddUIScroll(float notches) { m_UIPointer.Scroll += notches; }
 		const std::vector<UI::Event>& GetUIEvents() const { return m_UIEvents; }
+		// An event a script made (UIWidgetComponent.Click): delivered with the next update's events.
+		void QueueUIEvent(const UI::Event& event) { m_UIQueued.push_back(event); }
 		UI::InteractionState& GetUIState() { return m_UIState; }
 
 		bool IsRunning() const { return m_IsRunning; }
@@ -378,6 +380,7 @@ namespace Lux {
 		std::u32string m_UITyped;
 		UI::InteractionState m_UIState;
 		std::vector<UI::Event> m_UIEvents; // this frame's, replaced each update
+		std::vector<UI::Event> m_UIQueued;
 		float m_UIKeyHeld[8] = {};
 		float m_UINavHeld[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 

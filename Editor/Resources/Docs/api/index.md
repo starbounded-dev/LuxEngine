@@ -47,6 +47,11 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [TextComponent](TextComponent) — Draws text in the world with an MSDF font.
 - [TilemapComponent](TilemapComponent) — A grid of tiles from a sprite sheet, in layers.
 - [TransformComponent](TransformComponent) — Position, rotation and scale relative to the parent.
+- [UICanvasComponent](UICanvasComponent) — The root of a user interface: the elements under it are drawn over the game, scaled to the screen.
+- [UIElementComponent](UIElementComponent) — A rectangle in a user interface, placed inside its parent by anchors and offsets.
+- [UIImageComponent](UIImageComponent) — Fills an element with a color or a texture.
+- [UITextComponent](UITextComponent) — Text inside an element.
+- [UIWidgetComponent](UIWidgetComponent) — Behaviour of an element: a button, toggle, slider, progress bar, text input or scroll list.
 
 ## Input
 
@@ -116,6 +121,7 @@ Everything a script can use from the `Lux` namespace, generated from the scripti
 - [Timer](Timer) — A callback set to run later, or every so often, by [`Timer.After`](Timer), [`Timer.Every`](Timer), [`Entity.After`](Entity) or [`Entity.Every`](Entity).
 - [TriggerEffect](TriggerEffect) — A DualSense adaptive-trigger effect, built with [`TriggerEffect.Resistance`](TriggerEffect), [`TriggerEffect.Weapon`](TriggerEffect), [`TriggerEffect.Vibration`](TriggerEffect) or [`TriggerEffect.Off`](TriggerEffect).
 - [TriggerEffectType](TriggerEffectType) — The kind of a [`TriggerEffect`](TriggerEffect).
+- [UI](UI) — Game UI events that are not about one widget.
 - [WaitForFixedUpdate](WaitForFixedUpdate) — Waits for the next physics step, then continues just before the next `OnFixedUpdate` round has finished.
 - [WaitForSeconds](WaitForSeconds) — Waits for a number of seconds of game time.
 - [WaitForSecondsRealtime](WaitForSecondsRealtime) — Waits for a number of seconds of real time, whatever [`Time.TimeScale`](Time) is.

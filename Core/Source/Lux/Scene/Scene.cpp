@@ -30,6 +30,7 @@
 #include "Lux/Scripting/AudioScriptBindings.h"
 #include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/UI/UIScriptBindings.h"
 #include "Lux/UI/UISystem.h"
 #include "Lux/Renderer/SpriteSheet.h"
 #include "Lux/Scene/Tilemap.h"
@@ -1092,6 +1093,7 @@ namespace Lux {
 			m_PendingScriptCreates.clear();
 			AudioScriptBindings::Reset();
 			ScriptGlue::ResetInput();
+			UIScriptBindings::Reset(); // handlers belong to this scene's entities, which a reload of the same scene would reuse
 			if (!m_HandedOver)
 				ScriptGlue::ResetScheduler();
 			scriptEngine.SetCurrentScene(nullptr);
@@ -3700,11 +3702,13 @@ namespace Lux {
 
 	void Scene::UpdateUI(Timestep ts)
 	{
-		m_UIEvents.clear();
+		m_UIEvents = std::move(m_UIQueued);
+		m_UIQueued.clear();
 		if (m_Registry.view<UICanvasComponent>().empty())
 		{
 			m_UITyped.clear();
 			m_UIPointer.Scroll = 0.0f;
+			UIScriptBindings::Dispatch(*this);
 			return;
 		}
 
@@ -3715,8 +3719,10 @@ namespace Lux {
 		input.DeltaTime = static_cast<float>(ts);
 		input.Edit = UI::ReadEditKeys(input.DeltaTime, m_UIKeyHeld);
 		input.Navigate = UI::ReadNavigation(input.DeltaTime, m_UINavHeld);
-		m_UIEvents = UI::UpdateInteraction(*this, m_UIState, { (float)m_ViewportWidth, (float)m_ViewportHeight }, input);
+		std::vector<UI::Event> fromInput = UI::UpdateInteraction(*this, m_UIState, { (float)m_ViewportWidth, (float)m_ViewportHeight }, input);
+		m_UIEvents.insert(m_UIEvents.end(), fromInput.begin(), fromInput.end());
 		m_UIPointer.Scroll = 0.0f;
+		UIScriptBindings::Dispatch(*this);
 	}
 
 	void Scene::CaptureDraw2D(FrameRenderPacket& packet)

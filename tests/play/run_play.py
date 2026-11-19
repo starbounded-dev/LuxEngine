@@ -35,7 +35,7 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
           "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "Timers", "Application", "Quitting", "SceneLoading",
-          "Physics2DFixed", "Physics2DLanding", "Contacts2D", "Queries2D", "Triggers2D", "Joint2D", "SpriteAnimator", "SpriteAnimatorScript"]
+          "Physics2DFixed", "Physics2DLanding", "Contacts2D", "Queries2D", "Triggers2D", "Joint2D", "SpriteAnimator", "SpriteAnimatorScript", "UIComponents", "UIEvents", "UIDisabled"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -352,6 +352,7 @@ def write_project(project, keep=None, runtime_config="dist"):
         e.append(entity(row, f"UIRow{index}", (0, 0, 0), parent=scroller,
                         body="    UIElementComponent:\n      AnchorMin: [0, 0]\n      AnchorMax: [0, 0]\n      OffsetMin: [0, 0]\n      OffsetMax: [280, 70]\n"
                              + image("[0.3, 0.3, 0.4, 1]") + widget(0) + text(f"Row {index}", 36)))
+    e.append(entity(next(ids), "UIChecker", (0, 0, 0), script="UiCheck"))
     if keep:
         # Bisecting: only the named top-level entities (children follow their parent), and the floor.
         def field(text, key):

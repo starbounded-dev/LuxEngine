@@ -503,7 +503,7 @@ namespace PlayTest
 		public Scene Second;
 		public Scene Extra;
 
-		const int OtherChecks = 28;
+		const int OtherChecks = 31;
 		int m_Phase, m_Wait, m_Creates;
 		int m_Counter;                 // survives the load only if this very script instance does
 		double m_ElapsedBefore;

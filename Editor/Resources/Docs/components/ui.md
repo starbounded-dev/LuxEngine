@@ -60,6 +60,26 @@ A menu works without a mouse. The first navigation key focuses a widget (the one
 
 On a slider, Left and Right change the value by a twentieth of its range (1 with **Whole Numbers**) and Up and Down move on. In a text input Left, Right, Enter and Escape edit, and Up, Down and Tab leave it. A row of a scroll list scrolls into view when it takes the focus. Disabled widgets are skipped, and so are progress bars.
 
+## From a script
+
+Find the entities by name and read or change their components. Widgets raise events; subscribe to them in `OnCreate`:
+
+```
+var play = FindEntityByName("Play Button").GetComponent<UIWidgetComponent>();
+play.Clicked += () => Scene.Load(level);
+play.Focus();                                    // the first button of a menu, for the gamepad
+
+FindEntityByName("Score").GetComponent<UITextComponent>().Text = $"Score: {score}";
+FindEntityByName("Health").GetComponent<UIWidgetComponent>().Value = health;   // a progress bar
+
+var volume = FindEntityByName("Volume").GetComponent<UIWidgetComponent>();
+volume.ValueChanged += value => Audio.SetMasterVolume(value);
+
+UI.Cancelled += CloseMenu;                       // Escape or the east button
+```
+
+Events are **Clicked**, **Toggled**, **ValueChanged**, **TextChanged**, **Submitted** and **Cancelled**; **UI.Cancelled** is raised for every Cancel. Setting a value from a script raises no event. `Click()` clicks a button or flips a toggle as the player would, which is also how to test a menu. Handlers are dropped when the scene ends, so subscribe again in the new scene. [UIWidgetComponent](../api/UIWidgetComponent) lists everything.
+
 ## Limits
 
-Everything is screen space. The C# API and editing in the Game View are the next parts. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.
+Everything is screen space. Editing in the Game View is the next part. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.

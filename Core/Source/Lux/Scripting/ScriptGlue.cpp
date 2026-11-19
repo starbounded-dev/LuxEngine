@@ -6,6 +6,7 @@
 #include "AnimationScriptBindings.h"
 #include "AudioScriptBindings.h"
 #include "ComponentScriptBindings.h"
+#include "Lux/UI/UIScriptBindings.h"
 #include "ScriptEngine.h"
 
 #include "Lux/Core/Application.h"
@@ -1357,6 +1358,11 @@ namespace Lux {
 		RegisterManagedComponent<SpriteRendererComponent>(coreAssembly);
 		RegisterManagedComponent<SpriteAnimatorComponent>(coreAssembly);
 		RegisterManagedComponent<TilemapComponent>(coreAssembly);
+		RegisterManagedComponent<UICanvasComponent>(coreAssembly);
+		RegisterManagedComponent<UIElementComponent>(coreAssembly);
+		RegisterManagedComponent<UIImageComponent>(coreAssembly);
+		RegisterManagedComponent<UITextComponent>(coreAssembly);
+		RegisterManagedComponent<UIWidgetComponent>(coreAssembly);
 		RegisterManagedComponent<CircleRendererComponent>(coreAssembly);
 		RegisterManagedComponent<CameraComponent>(coreAssembly);
 		RegisterManagedComponent<RigidBody2DComponent>(coreAssembly);
@@ -1632,7 +1638,9 @@ namespace Lux {
 		AudioScriptBindings::Register(coreAssembly);
 		AnimationScriptBindings::Register(coreAssembly);
 		ComponentScriptBindings::Register(coreAssembly);
+		UIScriptBindings::Register(coreAssembly);
 		coreAssembly.UploadInternalCalls();
+		UIScriptBindings::Bind(coreAssembly);
 
 		s_InputType = &coreAssembly.GetLocalType("Lux.Input");
 		s_InputEventsPrimed = false;
@@ -1679,6 +1687,7 @@ namespace Lux {
 	void ScriptGlue::ShutdownInput()
 	{
 		ResetInput();
+		UIScriptBindings::Shutdown();
 		s_InputType = nullptr;
 		s_SchedulerType = nullptr;
 		s_ApplicationType = nullptr;

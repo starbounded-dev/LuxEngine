@@ -2635,6 +2635,13 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
   whether keyboard/gamepad navigation (not the mouse) put it there; widgets get `Focused` and `FocusRing`. Directional
   moves pick the nearest widget ahead (distance along + 2x sideways); Next/Previous cycle the hierarchy order;
   focusing a row in a scroll list moves its `ScrollOffset` to reveal it. `Cancel` is an `Event`.
+- C# (U6): `UI/UIScriptBindings.{h,cpp}` registers `UI_Get/Set{Float,Bool,Vector,Text}`, `UI_Focus` and `UI_Click` (fields are
+  enums shared with `ScriptCore/Source/Lux/UI.cs`) and finds the managed `Lux.UIEvents` type. `Scene::UpdateUI` merges events
+  scripts queued with `QueueUIEvent` (`Click()`) with the frame's input events and calls `UIScriptBindings::Dispatch`, which
+  invokes the static `UIEvents.Dispatch` once per event; handlers live in a managed dictionary keyed by entity id and are
+  cleared by `UIScriptBindings::Reset` whenever a scene ends (a reload reuses the same ids). The five components are
+  registered in `RegisterComponentTypes`. Play checks: `tests/play/Scripts/UiTests.cs` (the Finisher and SceneLoading
+  counts in `PlayTests.cs` / `ApiTests.cs` include its three results).
 - A scene with a canvas but no primary camera still renders: `BuildRenderPacketRuntime` falls back to a default camera,
   so a menu scene shows its UI over an empty frame.
 - `LUX_RUNTIME_CAPTURE=<file>` (with `LUX_RUNTIME_CAPTURE_FRAME`, default 120) makes the player write its final frame as an
