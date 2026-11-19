@@ -1,0 +1,235 @@
+Scene: ParticlesDemo
+Entities:
+  - Entity: 16200000000004000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.9, 0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 6
+      Radiance: [1, 0.92, 0.8]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 16200000000004000002
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.4
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.4]
+  - Entity: 16200000000004000003
+    TagComponent:
+      Tag: Ground
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Wall.lmat
+      Visible: true
+  - Entity: 16200000000004000004
+    TagComponent:
+      Tag: Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2, -4]
+      Rotation: [0, 0, 0]
+      Scale: [8, 4, 0.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000004000005
+    TagComponent:
+      Tag: Smoke
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.5, 0, -2.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      Texture: 0
+      Seed: 5
+      PreviewInEditor: true
+      Looping: true
+      Duration: 5
+      Prewarm: true
+      Rate: 30
+      MaxParticles: 600
+      Lifetime: [3, 4.5]
+      Speed: [0.5, 0.9]
+      Size: [0.8, 1.2]
+      Rotation: [0, 360]
+      AngularVelocity: [-20, 20]
+      Shape: 0
+      ConeAngle: 12
+      Radius: 0.2
+      BoxSize: [1, 1, 1]
+      Gravity: [0, 0.35, 0]
+      Drag: 0.2
+      WorldSpace: true
+      StartColor: [0.55, 0.55, 0.6, 0.6]
+      ColorOverLife:
+        - [0, 1, 1, 1, 0]
+        - [0.15, 1, 1, 1, 1]
+        - [1, 1, 1, 1, 0]
+      SizeOverLife:
+        - [0, 0.6]
+        - [1, 2.4]
+      SpeedOverLife:
+        - [0, 1]
+      TilesX: 1
+      TilesY: 1
+      FrameMode: 0
+      FrameCycles: 1
+      Blend: 0
+      SoftDistance: 0.8
+      RenderMode: 0
+  - Entity: 16200000000004000006
+    TagComponent:
+      Tag: Sparks
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.5, 0.1, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      Texture: 0
+      Seed: 9
+      PreviewInEditor: true
+      Looping: true
+      Duration: 3
+      Prewarm: true
+      Rate: 70
+      MaxParticles: 800
+      Lifetime: [0.7, 1.3]
+      Speed: [3, 5.5]
+      Size: [0.05, 0.09]
+      Rotation: [0, 0]
+      AngularVelocity: [0, 0]
+      Shape: 0
+      ConeAngle: 35
+      Radius: 0.05
+      BoxSize: [1, 1, 1]
+      Gravity: [0, -9.81, 0]
+      Drag: 0
+      WorldSpace: true
+      StartColor: [8, 3.5, 0.8, 1]
+      ColorOverLife:
+        - [0, 1, 1, 1, 1]
+        - [0.7, 1, 0.6, 0.3, 1]
+        - [1, 0.6, 0.1, 0, 0]
+      SizeOverLife:
+        - [0, 1]
+        - [1, 0.3]
+      SpeedOverLife:
+        - [0, 1]
+      TilesX: 1
+      TilesY: 1
+      FrameMode: 0
+      FrameCycles: 1
+      Blend: 1
+      SoftDistance: 0.05
+      RenderMode: 0
+  - Entity: 16200000000004000007
+    TagComponent:
+      Tag: Fire Glow
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.5, 0.5, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      Texture: 0
+      Seed: 3
+      PreviewInEditor: true
+      Looping: true
+      Duration: 2
+      Prewarm: true
+      Rate: 6
+      MaxParticles: 40
+      Lifetime: [0.8, 1.2]
+      Speed: [0, 0.2]
+      Size: [1.6, 2]
+      Rotation: [0, 0]
+      AngularVelocity: [0, 0]
+      Shape: 1
+      ConeAngle: 25
+      Radius: 0.15
+      BoxSize: [1, 1, 1]
+      Gravity: [0, 0.3, 0]
+      Drag: 0
+      WorldSpace: true
+      StartColor: [3, 1.1, 0.25, 0.5]
+      ColorOverLife:
+        - [0, 1, 1, 1, 0]
+        - [0.3, 1, 1, 1, 1]
+        - [1, 1, 1, 1, 0]
+      SizeOverLife:
+        - [0, 0.7]
+        - [1, 1.2]
+      SpeedOverLife:
+        - [0, 1]
+      TilesX: 1
+      TilesY: 1
+      FrameMode: 0
+      FrameCycles: 1
+      Blend: 1
+      SoftDistance: 0.6
+      RenderMode: 0
+  - Entity: 16200000000004009999
+    TagComponent:
+      Tag: ParticlesDemo Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1.5, 3.5]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 60
+        PerspectiveNear: 0.1
+        PerspectiveFar: 200
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

@@ -573,6 +573,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting_Area.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBufferDebug.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Grid.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Particles.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Wireframe.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Skybox.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DirShadowMap.glsl");
@@ -1609,6 +1610,25 @@ namespace Lux {
 			});
 	}
 
+	void Renderer::RenderInstancedGeometry(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Ref<VertexBuffer> vertexBuffer, Ref<IndexBuffer> indexBuffer, Ref<VertexBuffer> instanceBuffer, uint32_t indexCount, uint32_t firstInstance, uint32_t instanceCount, const glm::vec4& constants)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		Renderer::Submit([renderCommandBuffer, pipeline, material, vertexBuffer, indexBuffer, instanceBuffer, indexCount, firstInstance, instanceCount, constants]() mutable
+			{
+				IndexedDraw draw;
+				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
+				draw.Vertices = vertexBuffer.Raw();
+				draw.Attributes = instanceBuffer.Raw();
+				draw.Indices = indexBuffer.Raw();
+				draw.Constants = &constants;
+				draw.ConstantsSize = sizeof(glm::vec4);
+				draw.IndexCount = indexCount;
+				draw.InstanceCount = instanceCount;
+				draw.FirstInstance = firstInstance;
+				RT_DrawIndexed(*renderCommandBuffer, draw);
+			});
+	}
+
 	BoundDescriptorSet Renderer::RT_GetMaterialDescriptorSet(const Ref<Shader>& pipelineShader, Material* material)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -1730,6 +1750,7 @@ namespace Lux {
 		nri::DrawIndexedDesc drawDesc = {};
 		drawDesc.indexNum = draw.IndexCount;
 		drawDesc.instanceNum = draw.InstanceCount;
+		drawDesc.baseInstance = draw.FirstInstance;
 		drawDesc.baseIndex = draw.FirstIndex;
 		drawDesc.baseVertex = draw.VertexOffset;
 		api.CmdDrawIndexed(*commandBuffer, drawDesc);

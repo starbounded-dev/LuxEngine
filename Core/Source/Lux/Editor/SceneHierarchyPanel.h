@@ -45,6 +45,8 @@ namespace Lux {
 		void SetOpenSoundCallback(std::function<void(AssetHandle)> callback) { m_OpenSoundCallback = std::move(callback); }
 		// Invoked by the Tilemap's Open Tile Palette button.
 		void SetOpenTilePaletteCallback(std::function<void()> callback) { m_OpenTilePaletteCallback = std::move(callback); }
+		// Invoked by the Particle System's Open Particle Editor button.
+		void SetOpenParticleEditorCallback(std::function<void()> callback) { m_OpenParticleEditorCallback = std::move(callback); }
 	private:
 		void PruneInvalidSelection();
 		void QueueEntityDeletion(const std::vector<UUID>& entityIDs);
@@ -77,6 +79,7 @@ namespace Lux {
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
 		std::function<void(AssetHandle)> m_OpenSoundCallback;
 		std::function<void()> m_OpenTilePaletteCallback;
+		std::function<void()> m_OpenParticleEditorCallback;
 		// A material whose graph parameter was edited here: saved once no widget is active.
 		AssetHandle m_PendingMaterialSave = 0;
 

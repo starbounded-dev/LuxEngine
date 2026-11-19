@@ -20,6 +20,7 @@
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Timestep.h"
 #include "Lux/Core/UUID.h"
+#include "Lux/Particles/ParticleSystem.h"
 #include "Lux/Editor/EditorCamera.h"
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/PostProcessSettings.h"
@@ -300,9 +301,20 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		// The 3D particle systems' particles (the packet's camera must be set), nearest system last.
+		void CaptureParticles(FrameRenderPacket& packet);
 		void UpdateUI(Timestep ts);
 		// Advances every playing SpriteAnimatorComponent and shows the clip's frame on its sprite.
 		void UpdateSpriteAnimators(Timestep ts);
+		// Steps every particle system. In the editor (editorPreview) only the ones that ask for a preview step, and a system
+		// that stops asking loses its particles.
+		void UpdateParticles(Timestep ts, bool editorPreview);
+		// The live particles of an entity's system; null until the first step.
+		Particles::State* GetParticleState(Entity entity);
+		// The same, made when it is not there yet (a script plays a system before the first step). Null without the component.
+		Particles::State* GetOrCreateParticleState(Entity entity, bool emitting);
+		// The entity whose system plays in the editor besides the ones with Preview In Editor on (the Particle Editor's selection); 0 for none.
+		void SetParticlePreviewEntity(UUID entityID) { m_ParticlePreviewEntity = entityID; }
 		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
 		// higher draws later, on top. Other entities return 0. The editor uses it to pick the visible one.
 		int64_t GetDrawOrder(Entity entity);
@@ -482,6 +494,10 @@ namespace Lux {
 		std::unordered_set<UUID> m_PendingScriptCreates;
 
 		mutable std::unordered_set<entt::entity> m_InactiveEntities;
+
+		// Live particles per ParticleSystemComponent entity: runtime state, never serialized or copied.
+		std::unordered_map<UUID, Particles::State> m_ParticleStates;
+		UUID m_ParticlePreviewEntity = 0;
 
 	public:
 		ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }

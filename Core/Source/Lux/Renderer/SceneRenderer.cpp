@@ -2220,6 +2220,64 @@ namespace Lux {
 			m_AreaLightPass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
 			LUX_CORE_VERIFY(m_AreaLightPass->Validate());
 			m_AreaLightPass->Bake();
+			// Particles: camera-facing instanced quads in scene color, HDR, one pass per blend mode (a pipeline's blend state
+			// comes from its framebuffer). No depth attachment: Particles.glsl reads PreDepth for the depth test and the soft edge.
+			{
+				const float corners[] = { -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f };
+				const uint32_t indices[] = { 0, 1, 2, 2, 3, 0 };
+				m_ParticleQuadVertices = VertexBuffer::Create(Buffer(corners, sizeof(corners)));
+				m_ParticleQuadIndices = IndexBuffer::Create(Buffer(indices, sizeof(indices)));
+				const uint32_t framesInFlight = Renderer::GetConfig().FramesInFlight;
+				for (uint32_t i = 0; i < framesInFlight; i++)
+					m_ParticleInstanceBuffers.push_back(VertexBuffer::Create(static_cast<uint64_t>(c_MaxParticlesPerFrame) * sizeof(Particles::Instance)));
+
+				VertexBufferLayout instanceLayout = {
+					{ ShaderDataType::Float3, "a_Position" },
+					{ ShaderDataType::Float,  "a_Rotation" },
+					{ ShaderDataType::Float2, "a_Size" },
+					{ ShaderDataType::Half2,  "a_ColorRG" },
+					{ ShaderDataType::Half2,  "a_ColorBA" },
+					{ ShaderDataType::Float4, "a_UVRect" }
+				};
+				instanceLayout.SetInstanced(true);
+
+				const Ref<Shader> particleShader = Renderer::GetShaderLibrary()->Get("Particles");
+				const FramebufferBlendMode blends[3] = { FramebufferBlendMode::SrcAlphaOneMinusSrcAlpha, FramebufferBlendMode::Additive, FramebufferBlendMode::PremultipliedAlpha };
+				const char* names[3] = { "Particles-Alpha", "Particles-Additive", "Particles-Premultiplied" };
+				for (int i = 0; i < 3; i++)
+				{
+					FramebufferTextureSpecification particleColor = ImageFormat::RGBA16F;
+					particleColor.BlendMode = blends[i];
+					FramebufferSpecification particleSpec;
+					particleSpec.Width = m_ViewportWidth;
+					particleSpec.Height = m_ViewportHeight;
+					particleSpec.Attachments = { particleColor };
+					particleSpec.ExistingImages[0] = m_SceneColorFramebuffer->GetImage(0);
+					particleSpec.ClearColorOnLoad = false;
+					particleSpec.Blend = true;
+					particleSpec.DebugName = names[i];
+
+					PipelineSpecification particlePipelineSpec;
+					particlePipelineSpec.DebugName = names[i];
+					particlePipelineSpec.Shader = particleShader;
+					particlePipelineSpec.TargetFramebuffer = Framebuffer::Create(particleSpec);
+					particlePipelineSpec.BackfaceCulling = false;
+					particlePipelineSpec.DepthTest = false;
+					particlePipelineSpec.DepthWrite = false;
+					particlePipelineSpec.Layout = { { ShaderDataType::Float2, "a_Corner" } };
+					particlePipelineSpec.AttributeLayout = instanceLayout;
+
+					RenderPassSpecification particlePassSpec;
+					particlePassSpec.DebugName = "ParticlesPass";
+					particlePassSpec.Pipeline = Pipeline::Create(particlePipelineSpec);
+					m_ParticlePasses[i] = RenderPass::Create(particlePassSpec);
+					BindSceneRenderPassInputs(m_ParticlePasses[i], PassInputCamera | PassInputSamplers | PassInputDepth);
+					LUX_CORE_VERIFY(m_ParticlePasses[i]->Validate());
+					m_ParticlePasses[i]->Bake();
+				}
+				m_ParticleMaterial = Material::Create(particleShader, "Particles");
+			}
+
 			m_AreaLightMaterial = Material::Create(areaPipelineSpec.Shader, "AreaLights");
 
 			// Editor-only debug view target — not created in the standalone runtime.
@@ -3153,6 +3211,8 @@ namespace Lux {
 		resizePass(m_SSRCompositePass, viewportSize);
 		resizePass(m_DeferredLightingPass, viewportSize);
 		resizePass(m_AreaLightPass, viewportSize);
+		for (const Ref<RenderPass>& particlePass : m_ParticlePasses)
+			resizePass(particlePass, viewportSize);
 		resizePass(m_GBufferDebugPass, viewportSize);
 		resizePass(m_JumpFloodInitPass, viewportSize);
 		resizePass(m_JumpFloodPasses[0], viewportSize);
@@ -3950,6 +4010,8 @@ namespace Lux {
 		addRenderPass(m_GeometryPassTransparent);
 		addRenderPass(m_DeferredLightingPass);
 		addRenderPass(m_AreaLightPass);
+		for (const Ref<RenderPass>& particlePass : m_ParticlePasses)
+			addRenderPass(particlePass);
 		addRenderPass(m_GBufferDebugPass);
 		addRenderPass(m_SelectedGeometryPass);
 		addRenderPass(m_GeometryWireframePass);
@@ -4531,6 +4593,17 @@ namespace Lux {
 			sceneColorCurrent = transparentOutputs;
 		}
 
+		// Particles draw over the transparent meshes, in scene color, and read PreDepth for the depth test and the soft edge.
+		if (m_ParticlePasses[0] && (executable ? !m_ParticleDraws.empty() : true))
+		{
+			std::vector<RenderGraph::ResourceHandle> particleReads;
+			appendResources(particleReads, preDepthOutputs);
+			appendResources(particleReads, sceneColorCurrent);
+			std::vector<RenderGraph::ResourceHandle> particleOutputs = addRenderPassResources("Particles", m_ParticlePasses[0]);
+			addPass("Particles", particleReads, particleOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ParticlesPass));
+			sceneColorCurrent = particleOutputs;
+		}
+
 		const bool wireframeActive = executable
 			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
 				|| ((m_Options.ShowPhysicsColliders || m_Options.ShowDebugCategories) && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()))
@@ -5089,6 +5162,8 @@ namespace Lux {
 		recreatePassFramebuffer(m_GeometryPassTransparent);
 		recreatePassFramebuffer(m_DeferredLightingPass);
 		recreatePassFramebuffer(m_AreaLightPass);
+		for (const Ref<RenderPass>& particlePass : m_ParticlePasses)
+			recreatePassFramebuffer(particlePass);
 		recreatePassFramebuffer(m_GBufferDebugPass);
 		recreatePassFramebuffer(m_SkyboxPass);
 		recreatePassFramebuffer(m_SelectedGeometryPass);
@@ -5196,6 +5271,10 @@ namespace Lux {
 		m_ShadowCascadeFrustumCount = 0;
 		m_SpotShadowFrustumCount = 0;
 		m_SubmittedRenderScene = nullptr;
+		m_ParticleDraws.clear();
+		m_ParticleInstances.clear();
+		m_ParticleTextures.clear();
+		m_ParticlesDropped = 0;
 
 		if (m_ResourcesCreatedGPU)
 			m_ResourcesCreated = true;
@@ -5225,6 +5304,9 @@ namespace Lux {
 			m_GeometryPassTransparent->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_DeferredLightingPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_AreaLightPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
+			for (const Ref<RenderPass>& particlePass : m_ParticlePasses)
+				if (particlePass)
+					particlePass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
 			// Editor-only passes may not exist (EnableEditorRenderTargets=false).
 			if (m_GBufferDebugPass)
 				m_GBufferDebugPass->GetTargetFramebuffer()->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -5281,6 +5363,8 @@ namespace Lux {
 			repairPassIfStale(m_GeometryPassTransparent, "TransparentForward");
 			repairPassIfStale(m_DeferredLightingPass, "DeferredLighting");
 			repairPassIfStale(m_AreaLightPass, "AreaLights");
+			for (const Ref<RenderPass>& particlePass : m_ParticlePasses)
+				repairPassIfStale(particlePass, "Particles");
 			repairPassIfStale(m_AOCompositePass, "AO-Composite");
 			repairPassIfStale(m_SSRCompositePass, "SSR-Composite");
 			repairPassIfStale(m_SkyboxPass, "Skybox");
@@ -9566,6 +9650,84 @@ namespace Lux {
 		Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
 		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
 		Renderer::EndRenderPass(m_CommandBuffer);
+		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::SubmitParticles(const SceneRendererParticleBatch& batch)
+	{
+		if (batch.Instances.empty() || !m_ParticleMaterial)
+			return;
+
+		const size_t room = c_MaxParticlesPerFrame - std::min<size_t>(m_ParticleInstances.size(), c_MaxParticlesPerFrame);
+		const size_t count = std::min(room, batch.Instances.size());
+		if (count < batch.Instances.size())
+		{
+			if (m_ParticlesDropped == 0)
+				LUX_CORE_WARN_TAG("Renderer", "Particles: the frame's budget of {} particles is full; the rest are not drawn", c_MaxParticlesPerFrame);
+			m_ParticlesDropped += static_cast<uint32_t>(batch.Instances.size() - count);
+		}
+		if (count == 0)
+			return;
+
+		ParticleDraw draw;
+		draw.BlendMode = batch.BlendMode;
+		draw.SoftDistance = batch.SoftDistance;
+		draw.FirstInstance = static_cast<uint32_t>(m_ParticleInstances.size());
+		draw.InstanceCount = static_cast<uint32_t>(count);
+		if (batch.Texture)
+		{
+			const auto found = std::find_if(m_ParticleTextures.begin(), m_ParticleTextures.end(), [&](const Ref<Texture2D>& texture) { return texture.Raw() == batch.Texture.Raw(); });
+			if (found != m_ParticleTextures.end())
+				draw.TextureSlot = static_cast<int32_t>(found - m_ParticleTextures.begin());
+			else if (m_ParticleTextures.size() < c_MaxParticleTextures)
+			{
+				draw.TextureSlot = static_cast<int32_t>(m_ParticleTextures.size());
+				m_ParticleTextures.push_back(batch.Texture);
+			}
+			// A frame with more textures than slots draws the rest as dots.
+		}
+		m_ParticleInstances.insert(m_ParticleInstances.end(), batch.Instances.begin(), batch.Instances.begin() + count);
+		m_ParticleDraws.push_back(draw);
+	}
+
+	void SceneRenderer::ParticlesPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "ParticlesPass");
+		if (m_ParticleDraws.empty() || !m_ParticleMaterial || m_ParticleInstanceBuffers.empty())
+			return;
+
+		const uint32_t frameIndex = Renderer::GetCurrentFrameIndex() % static_cast<uint32_t>(m_ParticleInstanceBuffers.size());
+		Ref<VertexBuffer> instanceBuffer = m_ParticleInstanceBuffers[frameIndex];
+		instanceBuffer->SetData(m_ParticleInstances.data(), m_ParticleInstances.size() * sizeof(Particles::Instance));
+
+		// The textures of every system this frame, set once: a descriptor set changed between draws would change the
+		// earlier draws of the same frame too.
+		std::array<Ref<Texture2D>, c_MaxParticleTextures> textures;
+		for (uint32_t slot = 0; slot < c_MaxParticleTextures; slot++)
+			textures[slot] = slot < m_ParticleTextures.size() ? m_ParticleTextures[slot] : Renderer::GetWhiteTexture();
+		Renderer::Submit([material = m_ParticleMaterial, textures]() mutable
+			{
+				for (uint32_t slot = 0; slot < textures.size(); slot++)
+					material->Set("u_ParticleTextures", textures[slot], slot);
+			});
+
+		BeginProfiledGPU("ParticlesPass");
+		int openBlend = -1;
+		for (const ParticleDraw& draw : m_ParticleDraws)
+		{
+			const int blend = static_cast<int>(draw.BlendMode);
+			if (blend != openBlend)
+			{
+				if (openBlend >= 0)
+					Renderer::EndRenderPass(m_CommandBuffer);
+				Renderer::BeginRenderPass(m_CommandBuffer, m_ParticlePasses[blend]);
+				openBlend = blend;
+			}
+			const glm::vec4 constants(static_cast<float>(draw.TextureSlot), draw.SoftDistance, draw.BlendMode == Particles::Blend::Additive ? 1.0f : 0.0f, draw.BlendMode == Particles::Blend::Premultiplied ? 1.0f : 0.0f);
+			Renderer::RenderInstancedGeometry(m_CommandBuffer, m_ParticlePasses[blend]->GetPipeline(), m_ParticleMaterial, m_ParticleQuadVertices, m_ParticleQuadIndices, instanceBuffer, 6, draw.FirstInstance, draw.InstanceCount, constants);
+		}
+		if (openBlend >= 0)
+			Renderer::EndRenderPass(m_CommandBuffer);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 

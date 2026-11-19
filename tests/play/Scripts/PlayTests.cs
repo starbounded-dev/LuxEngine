@@ -381,7 +381,7 @@ namespace PlayTest
 	// that never reports still ends the run). The editor ignores Application.Quit; its hook stops Play.
 	public class Finisher : Entity
 	{
-		public int ExpectedChecks = 32;
+		public int ExpectedChecks = 36;
 		int m_Steps;
 		bool m_Quit;
 

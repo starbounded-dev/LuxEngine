@@ -380,7 +380,7 @@ Structurally:
 
 - `SceneRenderer` owns a `RenderGraph` and rebuilds its description each frame, caching the compile
   behind a structure hash. The pipeline is deferred PBR: G-buffer, clustered (froxel) light culling,
-  HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, then
+  HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, particles, then
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
@@ -2681,6 +2681,52 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
   LXIM image after that many frames and quit; `tests/rendering/golden_compare.py --to-png` converts it.
 - Components follow the usual five edits (declaration, `Scene::Copy`/`CopyTo`/duplicate lists and `Prefab.cpp`,
   `SceneSerializer`, `SceneHierarchyPanel` inspector and Create UI menu, `GetAssetList` for textures and fonts).
+
+### 2.11b Particles (M13)
+
+`Core/Source/Lux/Particles/ParticleSystem.{h,cpp}`, plan in `docs/PARTICLES_PLAN.md`. The simulation is pure code over plain
+data (no registry, no GPU, any thread): `Particles::Settings` (emission rate, bursts, duration, looping, prewarm, start
+ranges, shape cone/sphere/box, gravity, drag, world or local space, `Curve` and `Gradient` over life of up to eight linear
+keys, texture sheet, blend, soft distance, render mode), `Particles::State` (structure-of-arrays with swap-remove, a seeded
+xorshift generator, time, emit accumulator, burst progress, dropped count) and `Step` (fixed 1/60 s steps, a frame is cut
+at 0.25 s), `Emit`, `Prewarm`, `Fill` (the 48-byte `Instance`s the renderer draws: position, rotation, size, half-float
+color, UV rectangle; 3D alpha systems sort far to near, 2D systems draw older first, additive is unsorted). The same
+settings, seed and elapsed time always give the same particles.
+
+`ParticleSystemComponent` (`Components.h`) holds the `Settings`, a texture, a seed, `PlayOnAwake`, `PreviewInEditor` and the
+2D sorting layer and order. The live `State` lives in `Scene::m_ParticleStates` keyed by entity UUID: never saved, never
+copied (Play starts from the edit scene's copy and so from nothing), erased with the entity and cleared by `OnRuntimeStop`.
+`Scene::UpdateParticles(ts, editorPreview)` steps every enabled, active system from `OnUpdateRuntime`, `OnUpdateSimulation`
+(both honour pause and step) and `OnUpdateEditor` (only systems with `PreviewInEditor`; one that stops asking loses its
+particles). All of it is main thread; the renderer sees only the packet.
+
+2D systems (`RenderMode::Sprite2D`) enter the frame packet as one `Draw2DItem::Kind::Particles` item per system from
+`CaptureDraw2D`, sorted with sprites by sorting layer, order and depth, and `SubmitRenderPacket` draws each instance as a
+`Renderer2D::DrawQuad` (alpha blend only; the texture sheet is the instance's UV rectangle). A 2D system's particles stay in
+the XY plane. Settings are saved by `WriteParticleSettings` / `ReadParticleSettings` in `SceneSerializer.cpp` (every field,
+curves and gradients as key lists; a missing key loads the default).
+
+3D systems (`RenderMode::Billboard3D`) enter the packet as `FrameRenderPacket::ParticleBatches` (`Scene::CaptureParticles`: one
+`SceneRendererParticleBatch` per system, far to near, with the texture, blend, soft distance and the `Fill`ed instances) and
+`SubmitRenderPacket` hands each to `SceneRenderer::SubmitParticles`; `SceneRenderer::ParticlesPass` draws them (see
+`Rendering.md § Particles pass`). The editor steps systems with a preview from `EditorLayer`'s Edit state
+(`Scene::UpdateParticles(ts, true)`), because `OnRenderEditor` takes no step; Play and Simulate step them in
+`OnUpdateRuntime` / `OnUpdateSimulation`. Inspector: `SceneHierarchyPanel.cpp` (sections per
+module, whole-component copy for a multi-selection), Create > Create Effects. Checks: `CheckParticleSimulation`,
+`CheckParticleCurves`, `CheckParticleScene` in `tests/2d/Checks2D.cpp`. `State::Playing` is "not paused" and `State::Emitting`
+is "releases by rate and bursts" (`Particles::Play` restarts a stopped or ended system, `Particles::Stop` only stops
+releasing, `Emit` works either way). C#: `ParticleSystemComponent` (`ScriptCore/Source/Lux/Scene/Components.cs`, `ParticleSystemComponent_*`
+in `ScriptGlue.cpp`) reaches the live state through `Scene::GetOrCreateParticleState`, so a script may play a system
+before the scene's first step; `tests/play/Scripts/ParticleTests.cs` checks it in Play.
+
+Editor (E10): `Core/Source/Lux/Editor/ParticleWidgets.{h,cpp}` draws a `Particles::Curve` and a `Particles::Gradient` (drag a key, double-click
+to add, right-click to remove, the end keys keep their time; every change calls `ImGui::MarkItemEdited` so the editor's snapshot undo sees it
+like a property) and `PropertyCurve` / `PropertyGradient` put them in a property grid row. `Editor/Source/Panels/ParticleEditorPanel` shows the
+selected entity's system (`SetTarget` each frame from `EditorLayer`'s Edit state), with Play/Pause/Restart/Step/Clear and the live count; it
+names the system to preview through `GetPreviewEntity`, which `EditorLayer` hands to `Scene::SetParticlePreviewEntity` before
+`UpdateParticles(ts, true)`, so a previewed system plays without `PreviewInEditor`. `ParticleEditorPanel::RunSelfTests`
+(`LUX_PARTICLE_SELFTEST`, `tests/editor/run_particles.py`) drives the widgets with real mouse events in a private ImGui context and renders the
+panel in each state.
 
 ### 2.12 Project
 

@@ -35,7 +35,7 @@ from native_checks import require_clean_graphics_log  # noqa: E402
 CHECKS = ["FixedStep", "FixedBeforeStep", "FallAndLand", "Character", "SlopeClimb", "SlopeBlock",
           "Contacts", "Triggers", "Spawn", "Destroy", "Gizmos", "PrefabSync",
           "Clock", "Transform", "ActiveEnabled", "Find", "Queries", "Components", "Timers", "Application", "Quitting", "SceneLoading",
-          "Physics2DFixed", "Physics2DLanding", "Contacts2D", "Queries2D", "Triggers2D", "Joint2D", "SpriteAnimator", "SpriteAnimatorScript", "UIComponents", "UIEvents", "UIDisabled"]
+          "Physics2DFixed", "Physics2DLanding", "Contacts2D", "Queries2D", "Triggers2D", "Joint2D", "SpriteAnimator", "SpriteAnimatorScript", "UIComponents", "UIEvents", "UIDisabled", "ParticleEmit", "ParticlePlay", "ParticleStop", "ParticleClear"]
 NAMESPACE = "PlayTest"
 SCENE_HANDLE = 7300000000000000001
 PREFAB_HANDLE = 7300000000000000002
@@ -305,6 +305,10 @@ def write_project(project, keep=None, runtime_config="dist"):
     e.append(entity(next(ids), "Animated2D", (0, 0, 110), script="SpriteAnimatorCheck",
                     body=f"    SpriteRendererComponent:\n      Color: [1, 1, 1, 1]\n      Sheet: {SPRITE_SHEET_HANDLE}\n      SpriteIndex: 0\n"
                     "    SpriteAnimatorComponent:\n      Clip: blink\n      Playing: true\n      Speed: 1\n"))
+    # Particles (tests/play/Scripts/ParticleTests.cs): a 2D system that does not play on awake.
+    e.append(entity(next(ids), "ParticleCheck", (0, 1, 120), script="ParticleCheck",
+                    body="    ParticleSystemComponent:\n      PlayOnAwake: false\n      Looping: true\n      Rate: 20\n      MaxParticles: 500\n"
+                    "      Lifetime: [30, 30]\n      Speed: [0, 0]\n      Gravity: [0, 0, 0]\n      RenderMode: 1\n"))
     # Ends the exported game once every check reported; ignored in the editor.
     e.append(entity(next(ids), "Finisher", (0, 1, 30), script="Finisher"))
     # The instance, as saved before the prefab gained PrefabAdded.

@@ -277,6 +277,153 @@ namespace Lux {
 			return handle;
 		}
 
+		static void WriteParticleSettings(Yaml::Writer& out, const Particles::Settings& s)
+		{
+			using namespace Particles;
+			const auto range = [&out](const char* key, const Range& r)
+			{
+				out << Yaml::Key << key << Yaml::Value << Yaml::Flow << Yaml::BeginSeq << r.Min << r.Max << Yaml::EndSeq;
+			};
+			out << Yaml::Key << "Looping" << Yaml::Value << s.Looping;
+			out << Yaml::Key << "Duration" << Yaml::Value << s.Duration;
+			out << Yaml::Key << "Prewarm" << Yaml::Value << s.Prewarm;
+			out << Yaml::Key << "Rate" << Yaml::Value << s.Rate;
+			out << Yaml::Key << "MaxParticles" << Yaml::Value << s.MaxParticles;
+			if (s.BurstCount > 0)
+			{
+				out << Yaml::Key << "Bursts" << Yaml::Value << Yaml::BeginSeq;
+				for (uint32_t i = 0; i < std::min(s.BurstCount, Settings::MaxBursts); i++)
+					out << Yaml::Flow << Yaml::BeginSeq << s.Bursts[i].Time << (int)s.Bursts[i].Count << (int)s.Bursts[i].Cycles << s.Bursts[i].Interval << Yaml::EndSeq;
+				out << Yaml::EndSeq;
+			}
+			range("Lifetime", s.Lifetime);
+			range("Speed", s.Speed);
+			range("Size", s.Size);
+			range("Rotation", s.Rotation);
+			range("AngularVelocity", s.AngularVelocity);
+			out << Yaml::Key << "Shape" << Yaml::Value << (int)s.EmitShape;
+			out << Yaml::Key << "ConeAngle" << Yaml::Value << s.ConeAngle;
+			out << Yaml::Key << "Radius" << Yaml::Value << s.Radius;
+			out << Yaml::Key << "BoxSize" << Yaml::Value << s.BoxSize;
+			out << Yaml::Key << "Gravity" << Yaml::Value << s.Gravity;
+			out << Yaml::Key << "Drag" << Yaml::Value << s.Drag;
+			out << Yaml::Key << "WorldSpace" << Yaml::Value << s.WorldSpace;
+			out << Yaml::Key << "StartColor" << Yaml::Value << s.StartColor;
+			out << Yaml::Key << "ColorOverLife" << Yaml::Value << Yaml::BeginSeq;
+			for (uint32_t i = 0; i < s.ColorOverLife.Count; i++)
+			{
+				const Gradient::Key& k = s.ColorOverLife.Keys[i];
+				out << Yaml::Flow << Yaml::BeginSeq << k.T << k.Color.r << k.Color.g << k.Color.b << k.Color.a << Yaml::EndSeq;
+			}
+			out << Yaml::EndSeq;
+			const auto curve = [&out](const char* key, const Curve& c)
+			{
+				out << Yaml::Key << key << Yaml::Value << Yaml::BeginSeq;
+				for (uint32_t i = 0; i < c.Count; i++)
+					out << Yaml::Flow << Yaml::BeginSeq << c.Keys[i].T << c.Keys[i].Value << Yaml::EndSeq;
+				out << Yaml::EndSeq;
+			};
+			curve("SizeOverLife", s.SizeOverLife);
+			curve("SpeedOverLife", s.SpeedOverLife);
+			out << Yaml::Key << "TilesX" << Yaml::Value << s.TilesX;
+			out << Yaml::Key << "TilesY" << Yaml::Value << s.TilesY;
+			out << Yaml::Key << "FrameMode" << Yaml::Value << (int)s.Frames;
+			out << Yaml::Key << "FrameCycles" << Yaml::Value << s.FrameCycles;
+			out << Yaml::Key << "Blend" << Yaml::Value << (int)s.BlendMode;
+			out << Yaml::Key << "SoftDistance" << Yaml::Value << s.SoftDistance;
+			out << Yaml::Key << "RenderMode" << Yaml::Value << (int)s.Mode;
+		}
+
+		static void ReadParticleSettings(const Yaml::Node& node, Particles::Settings& s)
+		{
+			using namespace Particles;
+			const auto range = [&node](const char* key, Range& r)
+			{
+				if (const auto n = node[key]; n && n.IsSequence() && n.size() >= 2)
+				{
+					std::vector<float> v;
+					for (const auto& item : n)
+						v.push_back(item.as<float>(0.0f));
+					r = { v[0], v[1] };
+				}
+			};
+			s.Looping = node["Looping"].as<bool>(true);
+			s.Duration = node["Duration"].as<float>(5.0f);
+			s.Prewarm = node["Prewarm"].as<bool>(false);
+			s.Rate = node["Rate"].as<float>(20.0f);
+			s.MaxParticles = node["MaxParticles"].as<uint32_t>(1000);
+			s.BurstCount = 0;
+			if (const auto bursts = node["Bursts"]; bursts && bursts.IsSequence())
+			{
+				for (const auto& entry : bursts)
+				{
+					if (s.BurstCount >= Settings::MaxBursts || !entry.IsSequence() || entry.size() < 4)
+						break;
+					std::vector<float> v;
+					for (const auto& item : entry)
+						v.push_back(item.as<float>(0.0f));
+					s.Bursts[s.BurstCount++] = { v[0], (uint16_t)v[1], (uint16_t)v[2], v[3] };
+				}
+			}
+			range("Lifetime", s.Lifetime);
+			range("Speed", s.Speed);
+			range("Size", s.Size);
+			range("Rotation", s.Rotation);
+			range("AngularVelocity", s.AngularVelocity);
+			s.EmitShape = (Shape)node["Shape"].as<int>((int)Shape::Cone);
+			s.ConeAngle = node["ConeAngle"].as<float>(25.0f);
+			s.Radius = node["Radius"].as<float>(0.0f);
+			s.BoxSize = node["BoxSize"].as<glm::vec3>(glm::vec3(1.0f));
+			s.Gravity = node["Gravity"].as<glm::vec3>(glm::vec3(0.0f, -9.81f, 0.0f));
+			s.Drag = node["Drag"].as<float>(0.0f);
+			s.WorldSpace = node["WorldSpace"].as<bool>(true);
+			s.StartColor = node["StartColor"].as<glm::vec4>(glm::vec4(1.0f));
+			if (const auto n = node["ColorOverLife"]; n && n.IsSequence())
+			{
+				Gradient g;
+				g.Count = 0;
+				for (const auto& entry : n)
+				{
+					if (g.Count >= Gradient::MaxKeys || !entry.IsSequence() || entry.size() < 5)
+						break;
+					std::vector<float> v;
+					for (const auto& item : entry)
+						v.push_back(item.as<float>(0.0f));
+					g.Keys[g.Count++] = { v[0], glm::vec4(v[1], v[2], v[3], v[4]) };
+				}
+				if (g.Count > 0)
+					s.ColorOverLife = g;
+			}
+			const auto curve = [&node](const char* key, Curve& c)
+			{
+				if (const auto n = node[key]; n && n.IsSequence())
+				{
+					Curve parsed;
+					parsed.Count = 0;
+					for (const auto& entry : n)
+					{
+						if (parsed.Count >= Curve::MaxKeys || !entry.IsSequence() || entry.size() < 2)
+							break;
+						std::vector<float> v;
+						for (const auto& item : entry)
+							v.push_back(item.as<float>(0.0f));
+						parsed.Keys[parsed.Count++] = { v[0], v[1] };
+					}
+					if (parsed.Count > 0)
+						c = parsed;
+				}
+			};
+			curve("SizeOverLife", s.SizeOverLife);
+			curve("SpeedOverLife", s.SpeedOverLife);
+			s.TilesX = std::max(1u, node["TilesX"].as<uint32_t>(1));
+			s.TilesY = std::max(1u, node["TilesY"].as<uint32_t>(1));
+			s.Frames = (FrameMode)node["FrameMode"].as<int>((int)FrameMode::OverLife);
+			s.FrameCycles = node["FrameCycles"].as<float>(1.0f);
+			s.BlendMode = (Blend)node["Blend"].as<int>((int)Blend::Alpha);
+			s.SoftDistance = node["SoftDistance"].as<float>(0.5f);
+			s.Mode = (RenderMode)node["RenderMode"].as<int>((int)RenderMode::Billboard3D);
+		}
+
 		static void SerializeEntity(Yaml::Writer& out, Entity entity)
 		{
 			LUX_CORE_ASSERT(entity.HasComponent<IDComponent>());
@@ -657,6 +804,28 @@ namespace Lux {
 				out << Yaml::Key << "Clip" << Yaml::Value << animator.Clip;
 				out << Yaml::Key << "Playing" << Yaml::Value << animator.Playing;
 				out << Yaml::Key << "Speed" << Yaml::Value << animator.Speed;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<ParticleSystemComponent>())
+			{
+				const auto& particles = entity.GetComponent<ParticleSystemComponent>();
+				out << Yaml::Key << "ParticleSystemComponent";
+				out << Yaml::BeginMap;
+				if (!particles.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << false;
+				out << Yaml::Key << "Texture" << Yaml::Value;
+				AssetReference::WriteValue(out, particles.Texture);
+				out << Yaml::Key << "Seed" << Yaml::Value << particles.Seed;
+				if (!particles.PlayOnAwake)
+					out << Yaml::Key << "PlayOnAwake" << Yaml::Value << false;
+				if (particles.PreviewInEditor)
+					out << Yaml::Key << "PreviewInEditor" << Yaml::Value << true;
+				if (particles.SortingLayer != 0)
+					out << Yaml::Key << "SortingLayer" << Yaml::Value << particles.SortingLayer;
+				if (particles.OrderInLayer != 0)
+					out << Yaml::Key << "OrderInLayer" << Yaml::Value << particles.OrderInLayer;
+				WriteParticleSettings(out, particles.Settings);
 				out << Yaml::EndMap;
 			}
 
@@ -1520,6 +1689,19 @@ namespace Lux {
 					component.Clip = animator["Clip"].as<std::string>("");
 					component.Playing = animator["Playing"].as<bool>(true);
 					component.Speed = animator["Speed"].as<float>(1.0f);
+				}
+
+				if (const auto particlesNode = entity["ParticleSystemComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<ParticleSystemComponent>();
+					component.Enabled = particlesNode["Enabled"].as<bool>(true);
+					component.Texture = AssetReference::ReadValue(particlesNode["Texture"]);
+					component.Seed = particlesNode["Seed"].as<uint32_t>(1);
+					component.PlayOnAwake = particlesNode["PlayOnAwake"].as<bool>(true);
+					component.PreviewInEditor = particlesNode["PreviewInEditor"].as<bool>(false);
+					component.SortingLayer = particlesNode["SortingLayer"].as<uint32_t>(0);
+					component.OrderInLayer = particlesNode["OrderInLayer"].as<int32_t>(0);
+					ReadParticleSettings(particlesNode, component.Settings);
 				}
 
 				if (const auto tilemapNode = entity["TilemapComponent"])

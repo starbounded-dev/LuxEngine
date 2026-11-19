@@ -45,6 +45,7 @@ namespace Lux
 	class ProfilerPanel;
 	class HelpPanel;
 	class AudioDebugPanel;
+	class ParticleEditorPanel;
 	class TilePalettePanel;
 	class GameViewPanel;
 	struct AudioVisualisationSettings;
@@ -275,6 +276,7 @@ namespace Lux
 		// the panel and drives everything else about it.
 		Ref<AudioDebugPanel> m_AudioDebugPanel;
 		Ref<TilePalettePanel> m_TilePalettePanel;
+		Ref<ParticleEditorPanel> m_ParticleEditorPanel;
 		Ref<EditorConsolePanel> m_ConsolePanel;
 		// OnUpdate drives its per-frame render around the scene update.
 		Ref<GameViewPanel> m_GameViewPanel;

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Lux/Core/Ref.h"
+#include "Lux/Particles/ParticleSystem.h"
 
 #include "Lux/Renderer/SceneRenderer.h"     // SceneRendererCamera, LightEnvironment
 #include "Lux/Renderer/PostProcessSettings.h"  // PostProcessSettings
@@ -29,7 +30,7 @@ namespace Lux {
 	{
 		struct Draw2DItem
 		{
-			enum class Kind : uint8_t { Quad, TexturedQuad, Circle, Text, Tiles };
+			enum class Kind : uint8_t { Quad, TexturedQuad, Circle, Text, Tiles, Particles };
 
 			// One tile of a Tiles item: its cell (in cells, from the tilemap's origin) and the texture rectangle it shows.
 			struct Tile
@@ -53,6 +54,9 @@ namespace Lux {
 			// Tiles: one layer's visible tiles. Transform is the tilemap's world transform scaled by its cell size, so
 			// a unit quad moved to (Cell + 0.5) is one tile; Texture is the tile set's.
 			std::vector<Tile> Tiles;
+
+			// Particles: one 2D system's particles, older first, in world space; Texture is the system's (none draws colored quads).
+			std::vector<Lux::Particles::Instance> ParticleInstances;
 
 			// Text
 			Ref<Font> FontAsset;
@@ -99,6 +103,8 @@ namespace Lux {
 		// pixel-space projection of UIScreenSize.
 		std::vector<Draw2DItem> UI;
 		glm::vec2 UIScreenSize{ 0.0f };
+		// 3D particle systems, far to near: SceneRenderer draws them after the transparent meshes.
+		std::vector<SceneRendererParticleBatch> ParticleBatches;
 		std::vector<DebugLine> AudioZoneLines;
 		std::vector<DebugLine> ScriptLines; // C# Gizmos (Scene::AddDebugLine)
 		std::vector<ColliderDebugItem> ColliderDebug;
@@ -111,6 +117,7 @@ namespace Lux {
 			MeshSyncMs = 0.0f;
 			Draw2D.clear();
 			UI.clear();
+			ParticleBatches.clear();
 			AudioZoneLines.clear();
 			ScriptLines.clear();
 			ColliderDebug.clear();

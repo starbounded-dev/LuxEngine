@@ -445,6 +445,16 @@ namespace Lux {
 		uint32_t BentNormals = 0;
 	};
 
+	// One particle system's particles for the frame (Scene::CaptureParticles): drawn by the Particles pass as one instanced
+	// draw. A null texture draws a soft round dot.
+	struct SceneRendererParticleBatch
+	{
+		Ref<Texture2D> Texture;
+		Particles::Blend BlendMode = Particles::Blend::Alpha;
+		float SoftDistance = 0.5f;
+		std::vector<Particles::Instance> Instances;
+	};
+
 	struct SceneRendererCamera
 	{
 		Camera    Camera;
@@ -807,6 +817,9 @@ namespace Lux {
 
 		// Submit a static (non-animated) mesh for rendering this frame.
 		void SubmitRenderScene(const Ref<RenderScene>& renderScene);
+		// Particles for this frame, drawn after the transparent meshes (they do not sort against them). Main thread, between
+		// BeginScene and EndScene. Past the frame's budget the rest are dropped.
+		void SubmitParticles(const SceneRendererParticleBatch& batch);
 
 		void SubmitStaticMesh(Ref<StaticMesh>    staticMesh,
 			Ref<MeshSource>    meshSource,
@@ -1432,6 +1445,7 @@ namespace Lux {
 		void GBufferPass();
 		void DeferredLightingPass();
 		void AreaLightPass();
+		void ParticlesPass();
 		void TransparentForwardPass();
 		void GeometryWireframePass();
 		void GBufferDebugPass();
@@ -2024,6 +2038,28 @@ namespace Lux {
 		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
 		Ref<RenderPass>  m_AreaLightPass;               // fullscreen LTC area lights, added over deferred lighting
 		Ref<Material>    m_AreaLightMaterial;
+
+		// Particles (docs/PARTICLES_PLAN.md): one color-only pass per blend mode on scene color (the shader reads PreDepth for the
+		// depth test and the soft edge), one shared quad, and one instance buffer per frame in flight.
+		static constexpr uint32_t c_MaxParticlesPerFrame = 50000;
+		static constexpr uint32_t c_MaxParticleTextures = 16;
+		struct ParticleDraw
+		{
+			int32_t TextureSlot = -1;
+			Particles::Blend BlendMode = Particles::Blend::Alpha;
+			float SoftDistance = 0.5f;
+			uint32_t FirstInstance = 0;
+			uint32_t InstanceCount = 0;
+		};
+		std::array<Ref<RenderPass>, 3> m_ParticlePasses; // Alpha, Additive, Premultiplied
+		Ref<Material> m_ParticleMaterial;
+		Ref<VertexBuffer> m_ParticleQuadVertices;
+		Ref<IndexBuffer> m_ParticleQuadIndices;
+		std::vector<Ref<VertexBuffer>> m_ParticleInstanceBuffers;
+		std::vector<ParticleDraw> m_ParticleDraws;
+		std::vector<Particles::Instance> m_ParticleInstances;
+		std::vector<Ref<Texture2D>> m_ParticleTextures; // this frame's table, up to c_MaxParticleTextures
+		uint32_t m_ParticlesDropped = 0;
 		Ref<Material>    m_DeferredLightingMaterial;
 		Ref<RenderPass>  m_GBufferDebugPass;
 		Ref<Material>    m_GBufferDebugMaterial;
