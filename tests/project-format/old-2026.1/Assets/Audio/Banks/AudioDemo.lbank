@@ -1,0 +1,6 @@
+SoundBank:
+  Version: 1
+  Resident: false
+  Sounds:
+    - Audio/Sounds/Fart.lsound
+    - Audio/Sounds/Music.lsound

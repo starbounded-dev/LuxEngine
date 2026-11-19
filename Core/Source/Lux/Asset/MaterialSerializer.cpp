@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "MaterialSerializer.h"
+#include "Lux/Project/FormatVersion.h"
 
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Asset/AssetReference.h"
@@ -239,6 +240,7 @@ namespace Lux
 
 			Yaml::Writer out;
 			out << Yaml::BeginMap;
+			out << Yaml::Key << FormatVersion::Key << Yaml::Value << FormatVersion::Current(FormatVersion::Kind::Material);
 			out << Yaml::Key << "Material" << Yaml::Value;
 			out << Yaml::BeginMap;
 
@@ -474,6 +476,8 @@ namespace Lux
 			Yaml::Node root = Yaml::Load(yamlString);
 			Yaml::Node materialNode = root["Material"];
 			if (!materialNode)
+				return false;
+			if (!FormatVersion::CheckReadable(FormatVersion::Kind::Material, root["FormatVersion"].as<uint32_t>(0), {}))
 				return false;
 
 			const bool transparent = materialNode["Transparent"].as<bool>(false);

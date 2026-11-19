@@ -1,3 +1,4 @@
+FormatVersion: 1
 Scene: ParticlesDemo
 Entities:
   - Entity: 16200000000004000001

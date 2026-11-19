@@ -1,3 +1,4 @@
+FormatVersion: 1
 Scene: Audio Sponza
 SoundBanks: [Audio/Banks/AudioDemo.lbank]
 PostProcess:

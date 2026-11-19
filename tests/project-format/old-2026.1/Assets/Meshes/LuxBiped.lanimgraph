@@ -1,0 +1,28 @@
+AnimationGraph:
+  Version: 1
+  Parameters:
+    - Name: Speed
+      Type: Float
+    - Name: Wave
+      Type: Trigger
+  DefaultState: Idle
+  States:
+    - Name: Idle
+      Clip: Meshes/Source/LuxBiped/LuxBiped_Idle.lanim
+    - Name: Walk
+      Clip: Meshes/Source/LuxBiped/LuxBiped_Walk.lanim
+  Transitions:
+    - From: Idle
+      To: Walk
+      Duration: 0.25
+      Conditions:
+        - Parameter: Speed
+          Op: Greater
+          Value: 0.1
+    - From: Walk
+      To: Idle
+      Duration: 0.25
+      Conditions:
+        - Parameter: Speed
+          Op: Less
+          Value: 0.1

@@ -4,6 +4,8 @@
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "ProjectSerializer.h"
+#include "Lux/Core/Version.h"
+#include "Lux/Project/FormatVersion.h"
 
 #include "ProjectRuntimeFormat.h"
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
@@ -707,6 +709,8 @@ namespace Lux
 		AssetReference::PathModeScope pathMode; // the project file stores asset paths; the runtime copy stays numeric
 		Yaml::Writer out;
 		out << Yaml::BeginMap;
+		out << Yaml::Key << FormatVersion::Key << Yaml::Value << FormatVersion::Current(FormatVersion::Kind::Project);
+		out << Yaml::Key << "EngineVersion" << Yaml::Value << LUX_VERSION;
 		out << Yaml::Key << "Project" << Yaml::Value;
 		{
 			out << Yaml::BeginMap;
@@ -1000,6 +1004,10 @@ namespace Lux
 
 		auto projectNode = data["Project"];
 		if (!projectNode)
+			return false;
+
+		// A project saved by a newer Lux is not half-read (the editor asks before it gets here, a player or a script does not).
+		if (!FormatVersion::CheckReadable(FormatVersion::Kind::Project, data["FormatVersion"].as<uint32_t>(0), filepath, data["EngineVersion"].as<std::string>("")))
 			return false;
 
 		config.Name = projectNode["Name"].as<std::string>("Untitled");
