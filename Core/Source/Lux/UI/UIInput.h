@@ -30,10 +30,22 @@ namespace Lux::UI
 		bool Enter = false, Escape = false;
 	};
 
+	// Navigation, true on the frame it acts (the caller adds repeat): keyboard arrows and Tab, a gamepad's d-pad and left
+	// stick, bumpers and face buttons. Confirm is Enter, Space or the south button; Cancel is Escape or the east button.
+	struct Nav
+	{
+		bool Up = false, Down = false, Left = false, Right = false;
+		bool Next = false, Previous = false;
+		bool Confirm = false, Cancel = false;
+
+		bool Any() const { return Up || Down || Left || Right || Next || Previous || Confirm || Cancel; }
+	};
+
 	struct FrameInput
 	{
 		Pointer Mouse;
 		Keys Edit;
+		Nav Navigate;
 		std::u32string Typed; // characters typed this frame
 		float DeltaTime = 0.0f;
 	};
@@ -45,6 +57,7 @@ namespace Lux::UI
 		ValueChanged, // a slider moved; Value holds the new value
 		TextChanged,  // a text input's text changed
 		Submit,       // Enter in a text input
+		Cancel,       // Escape or the east button outside a text input; Element is the focused widget or 0
 	};
 
 	struct Event
@@ -59,7 +72,8 @@ namespace Lux::UI
 	struct InteractionState
 	{
 		UUID Pressed = 0; // the widget the primary button went down on
-		UUID Focus = 0;   // the widget that gets keys
+		UUID Focus = 0;   // the widget that gets keys and Confirm
+		bool FocusVisible = false; // keyboard or gamepad navigation is in use, so the focused widget shows its ring
 		bool WasDown = false;
 		float CaretTime = 0.0f; // seconds since the caret last moved, for blinking
 	};

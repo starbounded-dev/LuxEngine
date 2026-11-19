@@ -3714,6 +3714,7 @@ namespace Lux {
 		m_UITyped.clear();
 		input.DeltaTime = static_cast<float>(ts);
 		input.Edit = UI::ReadEditKeys(input.DeltaTime, m_UIKeyHeld);
+		input.Navigate = UI::ReadNavigation(input.DeltaTime, m_UINavHeld);
 		m_UIEvents = UI::UpdateInteraction(*this, m_UIState, { (float)m_ViewportWidth, (float)m_ViewportHeight }, input);
 		m_UIPointer.Scroll = 0.0f;
 	}

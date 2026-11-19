@@ -4218,6 +4218,7 @@ namespace Lux {
 				static const char* kinds[] = { "Button", "Toggle", "Slider", "Progress Bar", "Text Input", "Scroll List" };
 				changed |= ImGuiEx::PropertyDropdown("Kind", kinds, 6, first.Kind);
 				changed |= ImGuiEx::Property("Interactable", first.Interactable);
+				changed |= ImGuiEx::Property("Start Focused", first.StartFocused);
 				if (first.Kind != UIWidgetKind::ScrollList)
 				{
 					changed |= ImGuiEx::PropertyColor("Hover Tint", first.HoverTint);

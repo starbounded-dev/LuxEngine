@@ -1658,6 +1658,156 @@ namespace {
 		verify(Scene::Copy(loaded), "the copy Play starts from");
 	}
 
+	// ---- M3 Game UI: keyboard and gamepad navigation ------------------------------------------------
+
+	void CheckUINavigation()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>().ScaleMode = UI::ScaleMode::ConstantPixelSize;
+		const glm::vec2 screen{ 1000.0f, 500.0f };
+
+		const auto makeWidget = [&](const char* name, Entity parent, glm::vec2 min, glm::vec2 max, UIWidgetKind kind)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.SetParent(parent);
+			auto& element = entity.AddComponent<UIElementComponent>();
+			element.Rect.AnchorMin = element.Rect.AnchorMax = { 0.0f, 0.0f };
+			element.Rect.OffsetMin = min;
+			element.Rect.OffsetMax = max;
+			entity.AddComponent<UIImageComponent>();
+			entity.AddComponent<UIWidgetComponent>().Kind = kind;
+			return entity;
+		};
+		// A and F on the top row, B and C below, a slider and a text input at the bottom, a scroll list on the right.
+		Entity a = makeWidget("A", canvas, { 100.0f, 300.0f }, { 200.0f, 340.0f }, UIWidgetKind::Button);
+		Entity b = makeWidget("B", canvas, { 100.0f, 200.0f }, { 200.0f, 240.0f }, UIWidgetKind::Button);
+		Entity c = makeWidget("C", canvas, { 300.0f, 200.0f }, { 400.0f, 240.0f }, UIWidgetKind::Button);
+		Entity slider = makeWidget("Slider", canvas, { 100.0f, 100.0f }, { 300.0f, 120.0f }, UIWidgetKind::Slider);
+		Entity field = makeWidget("Field", canvas, { 400.0f, 100.0f }, { 600.0f, 140.0f }, UIWidgetKind::TextInput);
+		field.AddComponent<UITextComponent>();
+		Entity toggle = makeWidget("Toggle", canvas, { 500.0f, 300.0f }, { 540.0f, 340.0f }, UIWidgetKind::Toggle);
+		Entity bar = makeWidget("Bar", canvas, { 100.0f, 400.0f }, { 300.0f, 410.0f }, UIWidgetKind::ProgressBar);
+		Entity list = makeWidget("List", canvas, { 700.0f, 100.0f }, { 900.0f, 200.0f }, UIWidgetKind::ScrollList);
+		list.GetComponent<UIElementComponent>().Layout.Kind = UI::LayoutKind::Vertical;
+		list.GetComponent<UIElementComponent>().Layout.Spacing = 10.0f;
+		std::vector<Entity> rows;
+		for (int i = 0; i < 5; i++)
+			rows.push_back(makeWidget(("Row" + std::to_string(i)).c_str(), list, { 0.0f, 0.0f }, { 160.0f, 40.0f }, UIWidgetKind::Button));
+
+		UI::InteractionState state;
+		const auto step = [&](UI::Nav nav, glm::vec2 at = { -1.0f, -1.0f }, bool down = false)
+		{
+			UI::FrameInput input;
+			input.Mouse.Position = at;
+			input.Mouse.Present = at.x >= 0.0f;
+			input.Mouse.Down = down;
+			input.Navigate = nav;
+			input.DeltaTime = 0.1f;
+			return UI::UpdateInteraction(*scene, state, screen, input);
+		};
+		const auto navTo = [](bool UI::Nav::* key) { UI::Nav nav; nav.*key = true; return nav; };
+		const auto widgetOf = [](Entity entity) -> UIWidgetComponent& { return entity.GetComponent<UIWidgetComponent>(); };
+
+		step({});
+		Check(state.Focus == 0 && !state.FocusVisible, "with no key pressed nothing is focused");
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus == a.GetUUID() && widgetOf(a).Focused && widgetOf(a).FocusRing && state.FocusVisible, "the first key focuses the first widget and shows the ring");
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus == b.GetUUID() && !widgetOf(a).Focused, "Down moves to the widget below");
+		step(navTo(&UI::Nav::Right));
+		Check(state.Focus == c.GetUUID(), "Right moves to the widget on the right");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus == toggle.GetUUID(), "Up picks the nearest widget above, here the toggle");
+		step(navTo(&UI::Nav::Next));
+		Check(state.Focus == rows[0].GetUUID(), "Next goes to the next widget in the tree, skipping the list and the progress bar");
+		step(navTo(&UI::Nav::Previous));
+		Check(state.Focus == toggle.GetUUID(), "Previous goes back");
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		Check(state.Focus == rows[4].GetUUID() && Near(widgetOf(list).ScrollOffset, 140.0f), "focusing a row below the list scrolls it into view");
+		step(navTo(&UI::Nav::Next));
+		Check(state.Focus == a.GetUUID(), "Next wraps from the last widget to the first");
+		step(navTo(&UI::Nav::Previous));
+		Check(state.Focus == rows[4].GetUUID() && Near(widgetOf(list).ScrollOffset, 140.0f), "Previous wraps back");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus == rows[3].GetUUID() && Near(widgetOf(list).ScrollOffset, 140.0f), "Up inside the list moves one row");
+		for (int i = 0; i < 3; i++)
+			step(navTo(&UI::Nav::Up));
+		Check(state.Focus == rows[0].GetUUID() && Near(widgetOf(list).ScrollOffset, 0.0f), "and back to the top scrolls it up again");
+
+		// Confirm and Cancel.
+		state.Focus = b.GetUUID();
+		std::vector<UI::Event> events = step(navTo(&UI::Nav::Confirm));
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Click && events[0].Element == b.GetUUID(), "Confirm clicks the focused button");
+		state.Focus = toggle.GetUUID();
+		events = step(navTo(&UI::Nav::Confirm));
+		Check(widgetOf(toggle).Checked && events.size() == 1 && events[0].Kind == UI::EventKind::Toggled && events[0].Checked, "Confirm flips the focused toggle");
+		events = step(navTo(&UI::Nav::Cancel));
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Cancel && events[0].Element == toggle.GetUUID(), "Cancel reports the focused widget");
+
+		// A slider takes Left and Right itself.
+		state.Focus = slider.GetUUID();
+		events = step(navTo(&UI::Nav::Right));
+		Check(state.Focus == slider.GetUUID() && Near(widgetOf(slider).Value, 0.05f) && events.size() == 1 && events[0].Kind == UI::EventKind::ValueChanged, "Right on a slider raises it by a twentieth of its range");
+		step(navTo(&UI::Nav::Left));
+		step(navTo(&UI::Nav::Left));
+		Check(Near(widgetOf(slider).Value, 0.0f), "Left lowers it and it stops at the minimum");
+		widgetOf(slider).WholeNumbers = true;
+		widgetOf(slider).MaxValue = 10.0f;
+		step(navTo(&UI::Nav::Right));
+		step(navTo(&UI::Nav::Right));
+		Check(widgetOf(slider).Value == 2.0f, "a whole-number slider moves by 1");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus != slider.GetUUID(), "Up and Down still leave a slider");
+
+		// A text input keeps Left, Right and Confirm for editing.
+		state.Focus = field.GetUUID();
+		events = step(navTo(&UI::Nav::Left));
+		events = step(navTo(&UI::Nav::Confirm));
+		Check(state.Focus == field.GetUUID() && events.empty(), "Left and Confirm do nothing to the focus while a text input is focused");
+		events = step(navTo(&UI::Nav::Cancel));
+		Check(state.Focus == field.GetUUID() && events.empty(), "and Cancel is left to the input (Escape ends editing there)");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus != field.GetUUID(), "Up leaves it");
+
+		// Disabled widgets are skipped; Start Focused picks the first target; the mouse hides the ring.
+		widgetOf(b).Interactable = false;
+		state.Focus = a.GetUUID();
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus != b.GetUUID(), "a disabled widget is never focused by navigation");
+		widgetOf(b).Interactable = true;
+		UI::InteractionState fresh;
+		state = fresh;
+		widgetOf(toggle).StartFocused = true;
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus == toggle.GetUUID(), "the first key focuses the Start Focused widget");
+		step({}, { 150.0f, 220.0f }, true);
+		step({}, { 150.0f, 220.0f }, false);
+		Check(state.Focus == b.GetUUID() && !state.FocusVisible && !widgetOf(b).FocusRing && widgetOf(b).Focused, "a mouse click moves the focus without a ring");
+		step(navTo(&UI::Nav::Right));
+		Check(state.FocusVisible && widgetOf(c).Focused && widgetOf(c).FocusRing, "and the next key brings the ring back");
+
+		// The ring is four quads around the widget.
+		const auto drawn = [&]()
+		{
+			FrameRenderPacket packet;
+			UI::CaptureDrawItems(UI::ResolveLayout(*scene, screen), screen, packet);
+			return packet.UI.size();
+		};
+		const size_t withRing = drawn();
+		widgetOf(c).FocusRing = false;
+		Check(withRing == drawn() + 4, "a focus ring adds four quads");
+
+		// Saved: Start Focused only.
+		Check(widgetOf(toggle).StartFocused, "Start Focused is kept in the component");
+		Ref<Scene> copy = Scene::Copy(scene);
+		Check(copy->FindEntityByName("Toggle").GetComponent<UIWidgetComponent>().StartFocused, "and in the copy Play starts from");
+	}
+
 	void CheckUIScene(const std::filesystem::path& root)
 	{
 		Ref<Scene> scene = Ref<Scene>::Create();
@@ -1797,6 +1947,7 @@ int main(int argc, char** argv)
 	CheckUILayout();
 	CheckUIScene(outDir);
 	CheckUIWidgets(outDir);
+	CheckUINavigation();
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

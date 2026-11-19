@@ -97,6 +97,7 @@ namespace Lux::UI
 			{
 				ResolvedElement resolved;
 				resolved.Element = children[i].Element;
+				resolved.Scale = canvas.Scale;
 				resolved.ScreenRect = { rects[i].Min * canvas.Scale, rects[i].Max * canvas.Scale };
 				if (clipForChildren)
 				{
@@ -397,6 +398,18 @@ namespace Lux::UI
 					}
 				}
 
+				// The focus ring of a widget reached by keyboard or gamepad: a frame just outside its rectangle.
+				if (widget && widget->FocusRing && size.x > 0.0f && size.y > 0.0f)
+				{
+					const float t = std::max(2.0f, 2.0f * canvas.Scale);
+					const glm::vec2 low = rect.Min - glm::vec2(t), high = rect.Max + glm::vec2(t);
+					const glm::vec2 none(0.0f), full(1.0f);
+					emitQuad(resolved, { low, { high.x, rect.Min.y } }, accent, nullptr, none, full, false);
+					emitQuad(resolved, { { low.x, rect.Max.y }, high }, accent, nullptr, none, full, false);
+					emitQuad(resolved, { { low.x, rect.Min.y }, { rect.Min.x, rect.Max.y } }, accent, nullptr, none, full, false);
+					emitQuad(resolved, { { rect.Max.x, rect.Min.y }, { high.x, rect.Max.y } }, accent, nullptr, none, full, false);
+				}
+
 				if (resolved.Element.HasComponent<UITextComponent>())
 				{
 					const UITextComponent& text = resolved.Element.GetComponent<UITextComponent>();
@@ -480,6 +493,7 @@ namespace Lux::UI
 			state.Pressed = usable ? hovered->Resolved->Element.GetUUID() : UUID(0);
 			const UUID previousFocus = state.Focus;
 			state.Focus = state.Pressed;
+			state.FocusVisible = false; // the mouse is in use: no focus ring
 			if (state.Focus != previousFocus)
 				state.CaretTime = 0.0f;
 			if (usable && hovered->Widget->Kind == UIWidgetKind::TextInput && state.Focus != previousFocus)
@@ -533,6 +547,159 @@ namespace Lux::UI
 		}
 		state.WasDown = mouse.Down;
 
+		// Navigation: arrows, Tab, a d-pad or a stick move the focus between widgets; Confirm acts on the focused one.
+		const Nav& nav = input.Navigate;
+		ElementIndex* current = state.Focus ? findById(state.Focus) : nullptr;
+		if (current && !current->Widget->Interactable)
+			current = nullptr;
+
+		const auto navigable = [](const ElementIndex& entry)
+		{
+			const UIWidgetKind kind = entry.Widget->Kind;
+			// A row outside its scroll list can be focused too: the list scrolls it into view.
+			return entry.Widget->Interactable && kind != UIWidgetKind::ScrollList && kind != UIWidgetKind::ProgressBar;
+		};
+
+		// Moves the focus; a widget inside a scroll list scrolls into view.
+		const auto focusOn = [&](ElementIndex& entry)
+		{
+			state.Focus = entry.Resolved->Element.GetUUID();
+			state.CaretTime = 0.0f;
+			if (entry.Widget->Kind == UIWidgetKind::TextInput)
+				entry.Widget->CaretIndex = -1;
+			current = &entry;
+			if (!entry.Resolved->Clipped)
+				return;
+			for (Entity parent = entry.Resolved->Element.GetParent(); parent; parent = parent.GetParent())
+			{
+				const UIWidgetComponent* parentWidget = FindWidget(parent);
+				if (!parentWidget || parentWidget->Kind != UIWidgetKind::ScrollList)
+					continue;
+				if (ElementIndex* scroller = findById(parent.GetUUID()))
+				{
+					const Rect& rect = entry.Resolved->ScreenRect;
+					const Rect& view = scroller->Resolved->ScreenRect;
+					const float scale = std::max(entry.Resolved->Scale, 1e-4f);
+					if (rect.Max.y > view.Max.y)
+						scroller->Widget->ScrollOffset -= (rect.Max.y - view.Max.y) / scale;
+					else if (rect.Min.y < view.Min.y)
+						scroller->Widget->ScrollOffset += (view.Min.y - rect.Min.y) / scale;
+				}
+				break;
+			}
+		};
+
+		const bool textFocus = current && current->Widget->Kind == UIWidgetKind::TextInput;
+		if (nav.Cancel && !textFocus)
+			events.push_back({ EventKind::Cancel, current ? current->Resolved->Element.GetUUID() : UUID(0), 0.0f, false });
+
+		const bool navigates = nav.Up || nav.Down || nav.Left || nav.Right || nav.Next || nav.Previous || nav.Confirm;
+		if (navigates)
+		{
+			state.FocusVisible = true;
+			std::vector<ElementIndex*> candidates;
+			for (ElementIndex& entry : widgets)
+			{
+				if (navigable(entry))
+					candidates.push_back(&entry);
+			}
+
+			if (!current)
+			{
+				// Nothing is focused yet: the first key lands on the start widget, or the first one in the tree.
+				ElementIndex* target = candidates.empty() ? nullptr : candidates.front();
+				for (ElementIndex* candidate : candidates)
+				{
+					if (candidate->Widget->StartFocused)
+					{
+						target = candidate;
+						break;
+					}
+				}
+				if (target)
+					focusOn(*target);
+			}
+			else
+			{
+				const UIWidgetKind kind = current->Widget->Kind;
+				const bool slider = kind == UIWidgetKind::Slider;
+				ElementIndex* target = nullptr;
+
+				if (nav.Next || nav.Previous)
+				{
+					const auto at = std::find(candidates.begin(), candidates.end(), current);
+					if (!candidates.empty())
+					{
+						const int count = static_cast<int>(candidates.size());
+						const int index = at == candidates.end() ? (nav.Next ? -1 : 0) : static_cast<int>(at - candidates.begin());
+						target = candidates[((index + (nav.Next ? 1 : -1)) % count + count) % count];
+					}
+				}
+				else
+				{
+					glm::vec2 direction{ 0.0f };
+					if (nav.Up)
+						direction = { 0.0f, 1.0f };
+					else if (nav.Down)
+						direction = { 0.0f, -1.0f };
+					else if (nav.Left && !slider && !textFocus)
+						direction = { -1.0f, 0.0f };
+					else if (nav.Right && !slider && !textFocus)
+						direction = { 1.0f, 0.0f };
+
+					if (direction != glm::vec2(0.0f))
+					{
+						// The nearest widget ahead: distance along the direction plus twice the sideways offset.
+						const glm::vec2 from = current->Resolved->ScreenRect.Center();
+						float best = 1.0e30f;
+						for (ElementIndex* candidate : candidates)
+						{
+							if (candidate == current)
+								continue;
+							const glm::vec2 offset = candidate->Resolved->ScreenRect.Center() - from;
+							const float along = glm::dot(offset, direction);
+							if (along <= 1e-3f)
+								continue;
+							const float score = along + 2.0f * std::abs(glm::dot(offset, glm::vec2(-direction.y, direction.x)));
+							if (score < best)
+							{
+								best = score;
+								target = candidate;
+							}
+						}
+					}
+				}
+				if (target && target != current)
+					focusOn(*target);
+
+				UIWidgetComponent& widget = *current->Widget;
+				if (slider && (nav.Left || nav.Right))
+				{
+					const float lowest = std::min(widget.MinValue, widget.MaxValue), highest = std::max(widget.MinValue, widget.MaxValue);
+					const float step = widget.WholeNumbers ? 1.0f : (highest - lowest) / 20.0f;
+					const float value = std::clamp(widget.Value + (nav.Right ? step : -step), lowest, highest);
+					if (value != widget.Value)
+					{
+						widget.Value = value;
+						events.push_back({ EventKind::ValueChanged, current->Resolved->Element.GetUUID(), value, false });
+					}
+				}
+				if (nav.Confirm && !textFocus)
+				{
+					const UUID id = current->Resolved->Element.GetUUID();
+					if (kind == UIWidgetKind::Button)
+					{
+						events.push_back({ EventKind::Click, id, 0.0f, false });
+					}
+					else if (kind == UIWidgetKind::Toggle)
+					{
+						widget.Checked = !widget.Checked;
+						events.push_back({ EventKind::Toggled, id, 0.0f, widget.Checked });
+					}
+				}
+			}
+		}
+
 		// The wheel scrolls the topmost scroll list under the pointer; every list's offset stays inside its range.
 		if (mouse.Present && mouse.Scroll != 0.0f)
 		{
@@ -554,10 +721,13 @@ namespace Lux::UI
 
 		// Text editing: the focused text input takes the typed characters and the editing keys.
 		ElementIndex* focused = state.Focus ? findById(state.Focus) : nullptr;
-		if (focused && (!focused->Widget->Interactable || !focused->Resolved->Element.HasComponent<UITextComponent>()))
+		if (focused && !focused->Widget->Interactable)
 			focused = nullptr;
 		for (ElementIndex& entry : widgets)
+		{
 			entry.Widget->Focused = &entry == focused;
+			entry.Widget->FocusRing = entry.Widget->Focused && state.FocusVisible;
+		}
 		if (!focused)
 		{
 			state.Focus = 0;
@@ -565,7 +735,7 @@ namespace Lux::UI
 		}
 
 		UIWidgetComponent& widget = *focused->Widget;
-		if (widget.Kind != UIWidgetKind::TextInput)
+		if (widget.Kind != UIWidgetKind::TextInput || !focused->Resolved->Element.HasComponent<UITextComponent>())
 			return events;
 
 		const UUID id = focused->Resolved->Element.GetUUID();
@@ -629,7 +799,7 @@ namespace Lux::UI
 		state.CaretTime = moved ? 0.0f : state.CaretTime + input.DeltaTime;
 		widget.CaretTime = state.CaretTime;
 		if (!state.Focus)
-			widget.Focused = false;
+			widget.Focused = widget.FocusRing = false;
 		return events;
 	}
 
@@ -665,5 +835,46 @@ namespace Lux::UI
 		keys.Enter = acts(6, KeyCode::Enter, false) || Input::IsKeyPressed(KeyCode::KPEnter);
 		keys.Escape = acts(7, KeyCode::Escape, false);
 		return keys;
+	}
+
+	Nav ReadNavigation(float deltaTime, float (&heldTime)[8])
+	{
+		constexpr float k_RepeatDelay = 0.4f, k_RepeatPeriod = 0.15f, k_StickThreshold = 0.6f;
+
+		// A direction acts on the frame it goes down and again, repeating, while it stays down.
+		const auto repeats = [&](int slot, bool down)
+		{
+			if (!down)
+			{
+				heldTime[slot] = -1.0f;
+				return false;
+			}
+			if (heldTime[slot] < 0.0f)
+			{
+				heldTime[slot] = 0.0f;
+				return true;
+			}
+			const float before = heldTime[slot];
+			heldTime[slot] += deltaTime;
+			return heldTime[slot] > k_RepeatDelay && std::floor((heldTime[slot] - k_RepeatDelay) / k_RepeatPeriod) > std::floor(std::max(before - k_RepeatDelay, 0.0f) / k_RepeatPeriod);
+		};
+
+		const bool shift = Input::IsKeyDown(KeyCode::LeftShift) || Input::IsKeyDown(KeyCode::RightShift);
+		const bool pad = Input::IsGamepadConnected();
+		const float stickX = pad ? Input::GetGamepadAxis(GamepadAxis::LeftX) : 0.0f;
+		const float stickY = pad ? Input::GetGamepadAxis(GamepadAxis::LeftY) : 0.0f; // +1 is down
+
+		Nav nav;
+		nav.Up = repeats(0, Input::IsKeyDown(KeyCode::Up) || (pad && (Input::IsGamepadButtonDown(GamepadButton::DPadUp) || stickY < -k_StickThreshold)));
+		nav.Down = repeats(1, Input::IsKeyDown(KeyCode::Down) || (pad && (Input::IsGamepadButtonDown(GamepadButton::DPadDown) || stickY > k_StickThreshold)));
+		nav.Left = repeats(2, Input::IsKeyDown(KeyCode::Left) || (pad && (Input::IsGamepadButtonDown(GamepadButton::DPadLeft) || stickX < -k_StickThreshold)));
+		nav.Right = repeats(3, Input::IsKeyDown(KeyCode::Right) || (pad && (Input::IsGamepadButtonDown(GamepadButton::DPadRight) || stickX > k_StickThreshold)));
+		const bool tab = Input::IsKeyPressed(KeyCode::Tab);
+		nav.Next = (tab && !shift) || (pad && Input::IsGamepadButtonPressed(GamepadButton::RightBumper));
+		nav.Previous = (tab && shift) || (pad && Input::IsGamepadButtonPressed(GamepadButton::LeftBumper));
+		nav.Confirm = Input::IsKeyPressed(KeyCode::Enter) || Input::IsKeyPressed(KeyCode::KPEnter) || Input::IsKeyPressed(KeyCode::Space)
+			|| (pad && Input::IsGamepadButtonPressed(GamepadButton::South));
+		nav.Cancel = Input::IsKeyPressed(KeyCode::Escape) || (pad && Input::IsGamepadButtonPressed(GamepadButton::East));
+		return nav;
 	}
 }

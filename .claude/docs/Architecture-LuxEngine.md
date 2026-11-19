@@ -2630,6 +2630,11 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
   `AddUITypedCharacter` / `AddUIScroll`. `Scene::UpdateUI` (main thread, in `OnUpdateRuntime`, real time so a paused game
   still has working menus) runs `UI::UpdateInteraction`, which hit-tests the topmost widget, handles press/click/drag/
   text editing/wheel, and leaves this frame's `Event`s in `Scene::GetUIEvents()` for the C# API.
+- Navigation (U3): `UI::Nav` in `FrameInput` (arrows, Tab, d-pad, left stick, bumpers, face buttons; `ReadNavigation` adds
+  repeat, held-time slots start at -1). `InteractionState::Focus` is the focused widget and `FocusVisible` says
+  whether keyboard/gamepad navigation (not the mouse) put it there; widgets get `Focused` and `FocusRing`. Directional
+  moves pick the nearest widget ahead (distance along + 2x sideways); Next/Previous cycle the hierarchy order;
+  focusing a row in a scroll list moves its `ScrollOffset` to reveal it. `Cancel` is an `Event`.
 - A scene with a canvas but no primary camera still renders: `BuildRenderPacketRuntime` falls back to a default camera,
   so a menu scene shows its UI over an empty frame.
 - `LUX_RUNTIME_CAPTURE=<file>` (with `LUX_RUNTIME_CAPTURE_FRAME`, default 120) makes the player write its final frame as an

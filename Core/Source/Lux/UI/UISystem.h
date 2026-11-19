@@ -27,6 +27,7 @@ namespace Lux::UI
 		bool Clipped = false;  // inside a scroll list: only the part within Clip shows
 		Rect Clip;
 		float ScrollRange = 0.0f; // a scroll list: how far its content can move, in UI units
+		float Scale = 1.0f;       // the canvas's pixels per UI unit
 	};
 
 	struct ResolvedCanvas
@@ -49,4 +50,8 @@ namespace Lux::UI
 
 	// Fills the editing keys from the keyboard with key repeat (held keys act again after a short delay).
 	Keys ReadEditKeys(float deltaTime, float (&heldTime)[8]);
+
+	// Fills the navigation input from the keyboard and the first gamepad: arrows, Tab, d-pad, left stick, bumpers and
+	// face buttons, with repeat on the four directions. heldTime is the caller's, starting at -1 for every slot.
+	Nav ReadNavigation(float deltaTime, float (&heldTime)[8]);
 }

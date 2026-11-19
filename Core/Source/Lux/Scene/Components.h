@@ -640,6 +640,7 @@ namespace Lux {
 	{
 		UIWidgetKind Kind = UIWidgetKind::Button;
 		bool Interactable = true;
+		bool StartFocused = false; // the first navigation key focuses this widget instead of the first one in the tree
 		glm::vec4 HoverTint{ 1.15f, 1.15f, 1.15f, 1.0f };    // multiplies the image color
 		glm::vec4 PressedTint{ 0.75f, 0.75f, 0.75f, 1.0f };
 		glm::vec4 DisabledTint{ 0.5f, 0.5f, 0.5f, 0.6f };
@@ -660,6 +661,7 @@ namespace Lux {
 		bool Hovered = false;
 		bool Pressed = false;
 		bool Focused = false;
+		bool FocusRing = false; // Focused by keyboard or gamepad navigation: drawn with a ring
 		int32_t CaretIndex = -1; // TextInput: byte offset, -1 until first focus puts it at the end
 		float CaretTime = 0.0f;  // seconds since the caret last moved (it blinks)
 

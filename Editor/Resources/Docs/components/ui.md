@@ -47,6 +47,19 @@ Add a **UI Widget** to an element, or use **Create UI**, which builds a ready on
 | **Text Input** | A click focuses it. Typing, Backspace, Delete, Left, Right, Home and End edit the element's **UI Text** (up to **Max Length** bytes); Enter submits and Escape or a click elsewhere ends editing. **Placeholder** shows in half strength while it is empty. Give the element a **UI Text** with **Wrap** off. |
 | **Scroll List** | Lays out its children with its **Layout** (usually Vertical) in a content area taller than itself and scrolls it with the mouse wheel. Children are cut at the list's edge; a line of text is drawn only while all of it is inside. |
 
+## Keyboard and controller
+
+A menu works without a mouse. The first navigation key focuses a widget (the one with **Start Focused**, or else the first one in the hierarchy) and shows a ring around it; the mouse hides the ring again.
+
+| Input | Does |
+|---|---|
+| Arrow keys, d-pad, left stick | Move the focus to the nearest widget in that direction. Holding repeats. |
+| Tab and Shift+Tab, right and left bumper | Next and previous widget in hierarchy order, wrapping around. |
+| Enter or Space, south button (A / Cross) | Click the focused button, flip the focused toggle. |
+| Escape, east button (B / Circle) | **Cancel**, which a script can use to close a menu. |
+
+On a slider, Left and Right change the value by a twentieth of its range (1 with **Whole Numbers**) and Up and Down move on. In a text input Left, Right, Enter and Escape edit, and Up, Down and Tab leave it. A row of a scroll list scrolls into view when it takes the focus. Disabled widgets are skipped, and so are progress bars.
+
 ## Limits
 
-Everything is screen space. Keyboard and controller navigation, the C# API and editing in the Game View are the next parts. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.
+Everything is screen space. The C# API and editing in the Game View are the next parts. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.

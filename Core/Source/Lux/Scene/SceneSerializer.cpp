@@ -831,6 +831,8 @@ namespace Lux {
 				out << Yaml::Key << "Kind" << Yaml::Value << (int)widget.Kind;
 				if (!widget.Interactable)
 					out << Yaml::Key << "Interactable" << Yaml::Value << false;
+				if (widget.StartFocused)
+					out << Yaml::Key << "StartFocused" << Yaml::Value << true;
 				out << Yaml::Key << "HoverTint" << Yaml::Value << widget.HoverTint;
 				out << Yaml::Key << "PressedTint" << Yaml::Value << widget.PressedTint;
 				out << Yaml::Key << "DisabledTint" << Yaml::Value << widget.DisabledTint;
@@ -1626,6 +1628,7 @@ namespace Lux {
 					auto& component = deserializedEntity.AddComponent<UIWidgetComponent>();
 					component.Kind = (UIWidgetKind)widgetNode["Kind"].as<int>((int)UIWidgetKind::Button);
 					component.Interactable = widgetNode["Interactable"].as<bool>(true);
+					component.StartFocused = widgetNode["StartFocused"].as<bool>(false);
 					component.HoverTint = widgetNode["HoverTint"].as<glm::vec4>(component.HoverTint);
 					component.PressedTint = widgetNode["PressedTint"].as<glm::vec4>(component.PressedTint);
 					component.DisabledTint = widgetNode["DisabledTint"].as<glm::vec4>(component.DisabledTint);

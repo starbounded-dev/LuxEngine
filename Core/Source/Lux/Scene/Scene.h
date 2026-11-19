@@ -379,6 +379,7 @@ namespace Lux {
 		UI::InteractionState m_UIState;
 		std::vector<UI::Event> m_UIEvents; // this frame's, replaced each update
 		float m_UIKeyHeld[8] = {};
+		float m_UINavHeld[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 
 		PostProcessSettings m_PostProcessSettings;
 		std::vector<AssetHandle> m_SoundBanks;
