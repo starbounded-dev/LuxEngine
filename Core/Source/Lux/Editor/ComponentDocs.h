@@ -58,6 +58,7 @@ namespace Lux {
 	LUX_COMPONENT_DOC_TOPIC(UIElementComponent, "components/ui", "Game UI")
 	LUX_COMPONENT_DOC_TOPIC(UIImageComponent, "components/ui", "Game UI")
 	LUX_COMPONENT_DOC_TOPIC(UITextComponent, "components/ui", "Game UI")
+	LUX_COMPONENT_DOC_TOPIC(UIWidgetComponent, "components/ui", "Game UI")
 	LUX_COMPONENT_DOC_TOPIC(PrefabComponent, "editor/prefabs", "Prefabs")
 
 #undef LUX_COMPONENT_DOC_TOPIC

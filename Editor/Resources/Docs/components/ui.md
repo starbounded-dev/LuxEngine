@@ -6,8 +6,9 @@ Menus, HUDs and dialogs are made of entities. Create them from **Create UI** in 
 |---|---|
 | **UI Canvas** | The root of a user interface. It turns its **Reference Resolution** into screen pixels (see [Scaling](#scaling)). A scene can hold several canvases; a higher **Sort Order** draws over a lower one. |
 | **UI Element** | A rectangle inside its parent (the canvas or another element). It has anchors, offsets and an optional layout. |
-| **UI Image** | Fills the element's rectangle with a **Color**, or with a **Texture** tinted by it. |
+| **UI Image** | Fills the element's rectangle with a **Color**, or with a **Texture** tinted by it. **Slice Border** (left, bottom, right, top, in texels of the texture) turns it into a 9-slice: the corners keep their size (drawn at **Slice Scale** UI units per texel), the edges and the middle stretch. |
 | **UI Text** | Text in the element's rectangle: **Font**, **Color**, **Size** (a line's height in UI units), alignment and **Wrap**. |
+| **UI Widget** | Makes the element a [button, toggle, slider, progress bar, text input or scroll list](#widgets). |
 
 The elements of a canvas are its child entities, in hierarchy order: a child draws over its parent, and a later sibling draws over an earlier one. Untick **Visible** to hide an element and everything under it.
 
@@ -33,6 +34,19 @@ A **Layout** on an element places its children and ignores their anchors, using 
 - **Horizontal** runs children left to right, **Vertical** top to bottom, both with **Spacing** and **Padding**. **Align** sets where a child sits across the run. **Expand Children** shares the spare length equally.
 - **Grid** fills rows from the top left with cells of **Cell Size**, **Columns** wide.
 
+## Widgets
+
+Add a **UI Widget** to an element, or use **Create UI**, which builds a ready one. The widget takes its look from the element's **UI Image** (the background, track or box) and **UI Text**, and tints the image by state with **Hover Tint**, **Pressed Tint** and **Disabled Tint**. Untick **Interactable** to turn a widget off. A widget at the top of the draw order under the pointer takes the mouse; ones behind it do not.
+
+| Kind | Behaviour |
+|---|---|
+| **Button** | A click is a press and a release on the button. |
+| **Toggle** | A click flips **Checked**; the check mark is drawn in **Accent Color**. |
+| **Slider** | Dragging sets **Value** between **Min** and **Max** (whole steps with **Whole Numbers**). The fill and the handle are drawn in **Accent Color**. |
+| **Progress Bar** | Draws **Value** between **Min** and **Max** as a fill in **Accent Color**. Scripts set it; the pointer does not. |
+| **Text Input** | A click focuses it. Typing, Backspace, Delete, Left, Right, Home and End edit the element's **UI Text** (up to **Max Length** bytes); Enter submits and Escape or a click elsewhere ends editing. **Placeholder** shows in half strength while it is empty. Give the element a **UI Text** with **Wrap** off. |
+| **Scroll List** | Lays out its children with its **Layout** (usually Vertical) in a content area taller than itself and scrolls it with the mouse wheel. Children are cut at the list's edge; a line of text is drawn only while all of it is inside. |
+
 ## Limits
 
-This is the first part of the system. Buttons, sliders and other widgets, keyboard and controller navigation, the C# API and editing in the Game View follow. World-space UI is planned for a later release.
+Everything is screen space. Keyboard and controller navigation, the C# API and editing in the Game View are the next parts. A widget cannot be hidden from the pointer by a plain panel above it, only by another widget. World-space UI, rich text and tweens are planned for a later release.

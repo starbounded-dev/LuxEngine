@@ -16,8 +16,9 @@ Point-in-time plan. Checkpoints are the board's sub-issues, in dependency order.
 - **Drawing** goes through the existing frame packet: `Scene::CaptureUI` fills `FrameRenderPacket::UI` (quads,
   textured quads, text, in draw order) and the overlay pass draws them with a pixel-space orthographic projection after
   the world 2D items. Same code in editor Play, the Game View and the exported player.
-- **Input:** focus and activation live in `UISystem` (Core), fed by `Input` (keyboard, gamepad, mouse); it runs in
-  `OnUpdateRuntime`.
+- **Input:** `UI::UpdateInteraction` (Core) takes a plain `FrameInput` (pointer in screen pixels, editing keys, typed
+  characters) so it is checked headless and the Game View can feed it its own image rectangle; the scene runs it in
+  `OnUpdateRuntime` and keeps this frame's events for the C# API.
 
 ## Checkpoints, in order
 

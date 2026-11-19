@@ -43,6 +43,7 @@ MESH_HANDLE = 7300000000000000003
 SECOND_SCENE_HANDLE = 7300000000000000004
 EXTRA_SCENE_HANDLE = 7300000000000000005
 SPRITE_TEXTURE_HANDLE = 7300000000000000010
+FRAME_TEXTURE_HANDLE = 7300000000000000020
 SPRITE_SHEET_HANDLE = 7300000000000000011
 
 
@@ -178,12 +179,25 @@ def write_project(project, keep=None, runtime_config="dist"):
         f"  - Handle: {SECOND_SCENE_HANDLE}\n    FilePath: Scenes/Second.luxscene\n    Type: Scene\n"
         f"  - Handle: {EXTRA_SCENE_HANDLE}\n    FilePath: Scenes/Extra.luxscene\n    Type: Scene\n"
         f"  - Handle: {SPRITE_TEXTURE_HANDLE}\n    FilePath: Sprites/Blink.png\n    Type: Texture\n"
-        f"  - Handle: {SPRITE_SHEET_HANDLE}\n    FilePath: Sprites/Blink.lsheet\n    Type: SpriteSheet\n", encoding="utf-8")
+        f"  - Handle: {SPRITE_SHEET_HANDLE}\n    FilePath: Sprites/Blink.lsheet\n    Type: SpriteSheet\n"
+        f"  - Handle: {FRAME_TEXTURE_HANDLE}\n    FilePath: Sprites/Frame.png\n    Type: Texture\n", encoding="utf-8")
     (assets / "Meshes").mkdir()
     write_two_material_cube(assets / "Meshes/TwoMaterials.gltf")
 
     # A 32 x 16 texture of two 16 x 16 frames (red, then green) and a sheet with two clips over it.
     (assets / "Sprites").mkdir()
+    def frame_pixel(x, y, size=24, border=6):
+        left, right, top, bottom = x < border, x >= size - border, y < border, y >= size - border
+        if left and top:
+            return (255, 0, 0, 255)      # top left: red
+        if right and top:
+            return (0, 255, 0, 255)      # top right: green
+        if left and bottom:
+            return (0, 0, 255, 255)      # bottom left: blue
+        if right and bottom:
+            return (255, 255, 0, 255)    # bottom right: yellow
+        return (200, 200, 200, 255) if left or right or top or bottom else (40, 40, 60, 255)
+    write_png(assets / "Sprites/Frame.png", 24, 24, [[frame_pixel(x, y) for x in range(24)] for y in range(24)])
     write_png(assets / "Sprites/Blink.png", 32, 16, [[(255, 0, 0, 255)] * 16 + [(0, 255, 0, 255)] * 16 for _ in range(16)])
     (assets / "Sprites/Blink.lsheet").write_text(
         f"SpriteSheet:\n  Version: 1\n  Texture: {SPRITE_TEXTURE_HANDLE}\n  PixelsPerUnit: 16\n  CellSize: [16, 16]\n  Spacing: [0, 0]\n  Margin: [0, 0]\n"
@@ -299,15 +313,45 @@ def write_project(project, keep=None, runtime_config="dist"):
                     script="CrateScript", prefab=prefab_link(crate, tracked=True, removed=(removed,))))
     e.append(entity(instance_old, "OldChild", (0, 1, 0), parent=instance, prefab=prefab_link(old)))
     e.append(entity(instance_own, "InstanceAdded", (0, 1, 0), parent=instance))
-    # Game UI (M3): a canvas with a panel and a line of text, so every Play run draws a user interface.
-    canvas, panel, label = next(ids), next(ids), next(ids)
-    e.append(entity(canvas, "UICanvas", (0, 0, 0), children=(panel,), body="    UICanvasComponent:\n      ScaleMode: 1\n      ReferenceResolution: [1920, 1080]\n"))
-    e.append(entity(panel, "UIPanel", (0, 0, 0), parent=canvas, children=(label,),
-                    body="    UIElementComponent:\n      AnchorMin: [0.5, 0.5]\n      AnchorMax: [0.5, 0.5]\n      OffsetMin: [-300, -150]\n      OffsetMax: [300, 150]\n"
-                         "    UIImageComponent:\n      Color: [0.1, 0.3, 0.6, 0.9]\n      Texture: 0\n"))
+    # Game UI (M3): a canvas with a panel, a 9-slice frame and one of each widget, so every Play run draws a user interface.
+    def image(color, texture=0, border=None):
+        return (f"    UIImageComponent:\n      Color: {color}\n      Texture: {texture}\n"
+                + (f"      SliceBorder: {border}\n      SliceScale: 4\n" if border else ""))
+
+    def text(content, size=40, align=1, vertical=1):
+        return f"    UITextComponent:\n      Text: \"{content}\"\n      Font: 0\n      Color: [1, 1, 1, 1]\n      Size: {size}\n      AlignH: {align}\n      AlignV: {vertical}\n      Wrap: false\n"
+
+    def widget(kind, extra=""):
+        return f"    UIWidgetComponent:\n      Kind: {kind}\n" + extra
+
+    canvas_id = next(ids)
+    ui_ids = [next(ids) for _ in range(12)]
+    (panel, label, frame, button, toggle, slider, progress, field, scroller, row0, row1, row2) = ui_ids
+    rows = (row0, row1, row2)
+
+    def element(eid, name, parent, children, rect, parts, layout=""):
+        body = ("    UIElementComponent:\n      AnchorMin: [0.5, 0.5]\n      AnchorMax: [0.5, 0.5]\n"
+                f"      OffsetMin: [{rect[0]}, {rect[1]}]\n      OffsetMax: [{rect[2]}, {rect[3]}]\n" + layout + parts)
+        return entity(eid, name, (0, 0, 0), parent=parent, children=children, body=body)
+
+    e.append(entity(canvas_id, "UICanvas", (0, 0, 0), children=(panel, frame, button, toggle, slider, progress, field, scroller),
+                    body="    UICanvasComponent:\n      ScaleMode: 1\n      ReferenceResolution: [1920, 1080]\n"))
+    e.append(element(panel, "UIPanel", canvas_id, (label,), (-300, -150, 300, 150), image("[0.1, 0.3, 0.6, 0.9]")))
     e.append(entity(label, "UILabel", (0, 0, 0), parent=panel,
                     body="    UIElementComponent:\n      AnchorMin: [0, 0]\n      AnchorMax: [1, 1]\n      OffsetMin: [20, 20]\n      OffsetMax: [-20, -20]\n"
                          "    UITextComponent:\n      Text: \"Game UI\\nsecond line\"\n      Font: 0\n      Color: [1, 1, 1, 1]\n      Size: 64\n      AlignH: 1\n      AlignV: 1\n"))
+    e.append(element(frame, "UIFrame", canvas_id, (), (350, -150, 650, 150), image("[1, 1, 1, 1]", FRAME_TEXTURE_HANDLE, "[6, 6, 6, 6]")))
+    e.append(element(button, "UIButton", canvas_id, (), (-900, 100, -600, 180), image("[0.2, 0.35, 0.6, 1]") + widget(0) + text("Play")))
+    e.append(element(toggle, "UIToggle", canvas_id, (), (-900, 0, -860, 40), image("[0.15, 0.15, 0.2, 1]") + widget(1, "      Checked: true\n")))
+    e.append(element(slider, "UISlider", canvas_id, (), (-900, -100, -600, -76), image("[0.15, 0.15, 0.2, 1]") + widget(2, "      Value: 0.6\n")))
+    e.append(element(progress, "UIProgress", canvas_id, (), (-900, -200, -600, -184), image("[0.15, 0.15, 0.2, 1]") + widget(3, "      Value: 0.4\n")))
+    e.append(element(field, "UIField", canvas_id, (), (-900, -300, -600, -250), image("[0.12, 0.12, 0.16, 1]") + widget(4, "      Placeholder: Name\n") + text("Hello", 36, 0)))
+    e.append(element(scroller, "UIScroller", canvas_id, rows, (350, -450, 650, -200), image("[0.08, 0.08, 0.1, 0.9]") + widget(5, "      ScrollOffset: 20\n"),
+                     layout="      LayoutKind: 2\n      LayoutPadding: [8, 8, 8, 8]\n      LayoutSpacing: 8\n"))
+    for index, row in enumerate(rows):
+        e.append(entity(row, f"UIRow{index}", (0, 0, 0), parent=scroller,
+                        body="    UIElementComponent:\n      AnchorMin: [0, 0]\n      AnchorMax: [0, 0]\n      OffsetMin: [0, 0]\n      OffsetMax: [280, 70]\n"
+                             + image("[0.3, 0.3, 0.4, 1]") + widget(0) + text(f"Row {index}", 36)))
     if keep:
         # Bisecting: only the named top-level entities (children follow their parent), and the floor.
         def field(text, key):

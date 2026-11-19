@@ -1442,6 +1442,222 @@ namespace {
 		Check(LayoutChildren(row, content, {}).empty(), "a group without children lays out nothing");
 	}
 
+	// ---- M3 Game UI: widgets under simulated pointer and keyboard input ----------------------------
+
+	void CheckUIWidgets(const std::filesystem::path& root)
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>().ScaleMode = UI::ScaleMode::ConstantPixelSize;
+		const glm::vec2 screen{ 1000.0f, 500.0f };
+
+		const auto makeWidget = [&](const char* name, Entity parent, glm::vec2 min, glm::vec2 max, UIWidgetKind kind)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.SetParent(parent);
+			auto& element = entity.AddComponent<UIElementComponent>();
+			element.Rect.AnchorMin = element.Rect.AnchorMax = { 0.0f, 0.0f };
+			element.Rect.OffsetMin = min;
+			element.Rect.OffsetMax = max;
+			entity.AddComponent<UIImageComponent>();
+			entity.AddComponent<UIWidgetComponent>().Kind = kind;
+			return entity;
+		};
+		Entity button = makeWidget("Button", canvas, { 100.0f, 100.0f }, { 200.0f, 150.0f }, UIWidgetKind::Button);
+		Entity toggle = makeWidget("Toggle", canvas, { 300.0f, 100.0f }, { 340.0f, 140.0f }, UIWidgetKind::Toggle);
+		Entity slider = makeWidget("Slider", canvas, { 400.0f, 100.0f }, { 600.0f, 120.0f }, UIWidgetKind::Slider);
+		Entity whole = makeWidget("Whole", canvas, { 400.0f, 150.0f }, { 600.0f, 170.0f }, UIWidgetKind::Slider);
+		whole.GetComponent<UIWidgetComponent>().MaxValue = 10.0f;
+		whole.GetComponent<UIWidgetComponent>().WholeNumbers = true;
+		Entity disabled = makeWidget("Disabled", canvas, { 700.0f, 100.0f }, { 800.0f, 150.0f }, UIWidgetKind::Button);
+		disabled.GetComponent<UIWidgetComponent>().Interactable = false;
+
+		Entity list = makeWidget("List", canvas, { 100.0f, 200.0f }, { 300.0f, 300.0f }, UIWidgetKind::ScrollList);
+		list.GetComponent<UIElementComponent>().Layout.Kind = UI::LayoutKind::Vertical;
+		list.GetComponent<UIElementComponent>().Layout.Spacing = 10.0f;
+		std::vector<Entity> rows;
+		for (int i = 0; i < 5; i++)
+			rows.push_back(makeWidget(("Row" + std::to_string(i)).c_str(), list, { 0.0f, 0.0f }, { 160.0f, 40.0f }, UIWidgetKind::Button));
+
+		Entity field = makeWidget("Field", canvas, { 500.0f, 300.0f }, { 700.0f, 340.0f }, UIWidgetKind::TextInput);
+		field.AddComponent<UITextComponent>();
+		field.GetComponent<UIWidgetComponent>().MaxLength = 12;
+
+		UI::InteractionState state;
+		const auto step = [&](glm::vec2 at, bool down, bool present = true, float scroll = 0.0f, const std::u32string& typed = {}, UI::Keys keys = {})
+		{
+			UI::FrameInput input;
+			input.Mouse.Position = at;
+			input.Mouse.Down = down;
+			input.Mouse.Present = present;
+			input.Mouse.Scroll = scroll;
+			input.Typed = typed;
+			input.Edit = keys;
+			input.DeltaTime = 0.1f;
+			return UI::UpdateInteraction(*scene, state, screen, input);
+		};
+		const auto widgetOf = [](Entity entity) -> UIWidgetComponent& { return entity.GetComponent<UIWidgetComponent>(); };
+
+		// Hover and click.
+		std::vector<UI::Event> events = step({ 150.0f, 125.0f }, false);
+		Check(widgetOf(button).Hovered && !widgetOf(toggle).Hovered && events.empty(), "the widget under the pointer is hovered");
+		events = step({ 150.0f, 125.0f }, true);
+		Check(widgetOf(button).Pressed && events.empty(), "pressing a button marks it pressed and does not click yet");
+		events = step({ 150.0f, 125.0f }, false);
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Click && events[0].Element == button.GetUUID() && !widgetOf(button).Pressed, "releasing on the button clicks it");
+		step({ 150.0f, 125.0f }, true);
+		step({ 250.0f, 125.0f }, true);
+		events = step({ 250.0f, 125.0f }, false);
+		Check(events.empty(), "dragging off a button before releasing does not click it");
+		step({ 750.0f, 125.0f }, true);
+		events = step({ 750.0f, 125.0f }, false);
+		Check(events.empty() && widgetOf(disabled).Hovered, "a disabled button is hovered but never clicks");
+		events = step({ 150.0f, 125.0f }, false, false);
+		Check(!widgetOf(button).Hovered, "a pointer outside the view hovers nothing");
+
+		// Toggle.
+		step({ 320.0f, 120.0f }, true);
+		events = step({ 320.0f, 120.0f }, false);
+		Check(widgetOf(toggle).Checked && events.size() == 1 && events[0].Kind == UI::EventKind::Toggled && events[0].Checked, "a click turns a toggle on");
+		step({ 320.0f, 120.0f }, true);
+		events = step({ 320.0f, 120.0f }, false);
+		Check(!widgetOf(toggle).Checked && events.size() == 1 && !events[0].Checked, "and a second click turns it off");
+
+		// Sliders: 200 wide, 20 high, so the handle is 10 wide and the track runs from x 405 to 595.
+		events = step({ 500.0f, 110.0f }, true);
+		Check(Near(widgetOf(slider).Value, 0.5f, 1e-3f) && events.size() == 1 && events[0].Kind == UI::EventKind::ValueChanged, "pressing the middle of a slider sets half its range");
+		events = step({ 5000.0f, 110.0f }, true);
+		Check(Near(widgetOf(slider).Value, 1.0f), "dragging past the end, even off the slider, clamps to the maximum");
+		step({ 5000.0f, 110.0f }, false);
+		step({ 100.0f, 110.0f }, false);
+		Check(Near(widgetOf(slider).Value, 1.0f), "moving the pointer without the button does not move a slider");
+		step({ 405.0f, 160.0f }, true);
+		Check(Near(widgetOf(whole).Value, 0.0f), "a slider's left end is its minimum");
+		step({ 500.0f, 160.0f }, true);
+		Check(widgetOf(whole).Value == 5.0f, "a whole-number slider steps by 1");
+		step({ 500.0f, 160.0f }, false);
+
+		// A scroll list: 5 rows of 40 with 10 between make 240 of content in a 100 high list.
+		std::vector<UI::ResolvedCanvas> resolved = UI::ResolveLayout(*scene, screen);
+		const UI::ResolvedElement* listElement = nullptr;
+		const UI::ResolvedElement* rowElement[5] = {};
+		for (const UI::ResolvedElement& element : resolved[0].Elements)
+		{
+			if (element.Element == list)
+				listElement = &element;
+			for (int i = 0; i < 5; i++)
+			{
+				if (element.Element == rows[i])
+					rowElement[i] = &element;
+			}
+		}
+		Check(listElement && Near(listElement->ScrollRange, 140.0f), "a list's scroll range is its content minus its height");
+		Check(rowElement[0] && rowElement[0]->Clipped && rowElement[0]->Clip == UI::Rect{ { 100.0f, 200.0f }, { 300.0f, 300.0f } } && rowElement[0]->ScreenRect == UI::Rect{ { 100.0f, 260.0f }, { 260.0f, 300.0f } }
+			&& rowElement[4]->ScreenRect == UI::Rect{ { 100.0f, 60.0f }, { 260.0f, 100.0f } }, "rows are laid out from the list's top, clipped to the list");
+		step({ 150.0f, 250.0f }, false, true, -1.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 60.0f), "a wheel notch down moves the content up by 60");
+		step({ 150.0f, 250.0f }, false, true, -9.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 140.0f), "scrolling stops at the end of the content");
+		step({ 150.0f, 250.0f }, false, true, 9.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 0.0f), "and at the start");
+		step({ 700.0f, 400.0f }, false, true, -3.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 0.0f), "the wheel only scrolls the list under the pointer");
+		widgetOf(list).ScrollOffset = 30.0f;
+		step({ 150.0f, 195.0f }, false);
+		Check(!widgetOf(rows[2]).Hovered, "the part of a row outside the list cannot be hovered");
+		step({ 150.0f, 215.0f }, false);
+		Check(widgetOf(rows[2]).Hovered && !widgetOf(list).Hovered, "the part inside can, and the row wins over the list behind it");
+		step({ 150.0f, 215.0f }, true);
+		events = step({ 150.0f, 215.0f }, false);
+		Check(events.size() == 1 && events[0].Element == rows[2].GetUUID(), "a row in a scrolled list can be clicked");
+		FrameRenderPacket packet;
+		UI::CaptureDrawItems(UI::ResolveLayout(*scene, screen), screen, packet);
+		bool outsideListDrawn = false;
+		int rowQuads = 0;
+		for (const auto& item : packet.UI)
+		{
+			const float low = item.Transform[3].y - item.Transform[1].y * 0.5f, high = item.Transform[3].y + item.Transform[1].y * 0.5f;
+			if (std::abs(item.Transform[0].x - 160.0f) > 1e-3f) // a row is 160 wide, whole or cut at its top or bottom
+				continue;
+			rowQuads++;
+			if (low < 200.0f - 1e-3f || high > 300.0f + 1e-3f)
+				outsideListDrawn = true;
+		}
+		Check(rowQuads >= 2 && !outsideListDrawn, "the visible rows are drawn and no quad of them lies outside the list");
+
+		// Text input.
+		step({ 600.0f, 320.0f }, true);
+		step({ 600.0f, 320.0f }, false);
+		Check(widgetOf(field).Focused && state.Focus == field.GetUUID(), "clicking a text input focuses it");
+		UI::Keys none;
+		events = step({ 600.0f, 320.0f }, false, true, 0.0f, U"h\u00E9llo");
+		const std::string typed = field.GetComponent<UITextComponent>().Text;
+		Check(typed == "h\xC3\xA9llo" && events.size() == 1 && events[0].Kind == UI::EventKind::TextChanged, "typed characters are added, UTF-8 encoded");
+		UI::Keys backspace;
+		backspace.Backspace = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, backspace);
+		UI::Keys left;
+		left.Left = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, left);
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, left);
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, left);
+		Check(field.GetComponent<UITextComponent>().Text == "h\xC3\xA9ll" && widgetOf(field).CaretIndex == 1, "Backspace removes the character before the caret and Left moves back over a whole character");
+		step({ 600.0f, 320.0f }, false, true, 0.0f, U"X");
+		Check(field.GetComponent<UITextComponent>().Text == "hX\xC3\xA9ll", "typing inserts at the caret");
+		UI::Keys del;
+		del.Delete = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, del);
+		Check(field.GetComponent<UITextComponent>().Text == "hXll", "Delete removes the character after the caret, a two-byte one whole");
+		step({ 600.0f, 320.0f }, false, true, 0.0f, U"123456789012345");
+		Check(field.GetComponent<UITextComponent>().Text.size() == 12, "Max Length caps the text");
+		UI::Keys enter;
+		enter.Enter = true;
+		events = step({ 600.0f, 320.0f }, false, true, 0.0f, {}, enter);
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Submit, "Enter submits");
+		UI::Keys escape;
+		escape.Escape = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, escape);
+		Check(!widgetOf(field).Focused && state.Focus == 0, "Escape ends editing");
+		step({ 600.0f, 320.0f }, false, true, 0.0f, U"Z");
+		Check(field.GetComponent<UITextComponent>().Text.find('Z') == std::string::npos, "an unfocused input ignores typing");
+		step({ 600.0f, 320.0f }, true);
+		step({ 600.0f, 320.0f }, false);
+		step({ 10.0f, 10.0f }, true);
+		step({ 10.0f, 10.0f }, false);
+		Check(!widgetOf(field).Focused, "clicking elsewhere ends editing");
+
+		// Saved fields.
+		widgetOf(slider).Value = 0.25f;
+		widgetOf(list).ScrollOffset = 40.0f;
+		widgetOf(field).Placeholder = "Name";
+		widgetOf(toggle).Checked = true;
+		widgetOf(disabled).AccentColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+		button.GetComponent<UIImageComponent>().SliceBorder = { 4.0f, 5.0f, 6.0f, 7.0f };
+		button.GetComponent<UIImageComponent>().SliceScale = 2.0f;
+		const std::filesystem::path file = root / "UI" / "Widgets.luxscene";
+		std::filesystem::create_directories(file.parent_path());
+		AssetReference::PathModeScope pathMode;
+		Check(SceneSerializer(scene).Serialize(file), "a scene with widgets serializes");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		const auto verify = [&](Ref<Scene> checked, const char* how)
+		{
+			const auto& s = checked->FindEntityByName("Slider").GetComponent<UIWidgetComponent>();
+			const auto& w = checked->FindEntityByName("Whole").GetComponent<UIWidgetComponent>();
+			const auto& l = checked->FindEntityByName("List").GetComponent<UIWidgetComponent>();
+			const auto& f = checked->FindEntityByName("Field").GetComponent<UIWidgetComponent>();
+			const auto& d = checked->FindEntityByName("Disabled").GetComponent<UIWidgetComponent>();
+			Check(s.Kind == UIWidgetKind::Slider && Near(s.Value, 0.25f) && w.WholeNumbers && Near(w.MaxValue, 10.0f), std::string("slider value, range and steps survive ") + how);
+			Check(l.Kind == UIWidgetKind::ScrollList && Near(l.ScrollOffset, 40.0f) && f.Placeholder == "Name" && f.MaxLength == 12, std::string("scroll offset, placeholder and max length survive ") + how);
+			Check(checked->FindEntityByName("Toggle").GetComponent<UIWidgetComponent>().Checked && !d.Interactable && Near(d.AccentColor.r, 1.0f) && Near(d.AccentColor.g, 0.0f), std::string("toggle state, interactable and colors survive ") + how);
+			const auto& image = checked->FindEntityByName("Button").GetComponent<UIImageComponent>();
+			Check(image.SliceBorder == glm::vec4(4.0f, 5.0f, 6.0f, 7.0f) && Near(image.SliceScale, 2.0f), std::string("9-slice borders survive ") + how);
+			Check(!s.Hovered && !s.Pressed && !s.Focused, std::string("runtime state is not saved with ") + how);
+		};
+		verify(loaded, "a save");
+		verify(Scene::Copy(loaded), "the copy Play starts from");
+	}
+
 	void CheckUIScene(const std::filesystem::path& root)
 	{
 		Ref<Scene> scene = Ref<Scene>::Create();
@@ -1580,6 +1796,7 @@ int main(int argc, char** argv)
 	CheckTilemapPhysics(outDir);
 	CheckUILayout();
 	CheckUIScene(outDir);
+	CheckUIWidgets(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

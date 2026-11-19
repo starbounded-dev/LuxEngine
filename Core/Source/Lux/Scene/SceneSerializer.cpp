@@ -815,6 +815,38 @@ namespace Lux {
 				AssetReference::WriteValue(out, image.Texture);
 				if (image.PointFilter)
 					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
+				if (image.SliceBorder != glm::vec4(0.0f))
+				{
+					out << Yaml::Key << "SliceBorder" << Yaml::Value << image.SliceBorder;
+					out << Yaml::Key << "SliceScale" << Yaml::Value << image.SliceScale;
+				}
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<UIWidgetComponent>())
+			{
+				const auto& widget = entity.GetComponent<UIWidgetComponent>();
+				out << Yaml::Key << "UIWidgetComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Kind" << Yaml::Value << (int)widget.Kind;
+				if (!widget.Interactable)
+					out << Yaml::Key << "Interactable" << Yaml::Value << false;
+				out << Yaml::Key << "HoverTint" << Yaml::Value << widget.HoverTint;
+				out << Yaml::Key << "PressedTint" << Yaml::Value << widget.PressedTint;
+				out << Yaml::Key << "DisabledTint" << Yaml::Value << widget.DisabledTint;
+				out << Yaml::Key << "AccentColor" << Yaml::Value << widget.AccentColor;
+				out << Yaml::Key << "Value" << Yaml::Value << widget.Value;
+				out << Yaml::Key << "MinValue" << Yaml::Value << widget.MinValue;
+				out << Yaml::Key << "MaxValue" << Yaml::Value << widget.MaxValue;
+				if (widget.WholeNumbers)
+					out << Yaml::Key << "WholeNumbers" << Yaml::Value << true;
+				if (widget.Checked)
+					out << Yaml::Key << "Checked" << Yaml::Value << true;
+				if (!widget.Placeholder.empty())
+					out << Yaml::Key << "Placeholder" << Yaml::Value << widget.Placeholder;
+				out << Yaml::Key << "MaxLength" << Yaml::Value << widget.MaxLength;
+				if (widget.ScrollOffset != 0.0f)
+					out << Yaml::Key << "ScrollOffset" << Yaml::Value << widget.ScrollOffset;
 				out << Yaml::EndMap;
 			}
 
@@ -1585,6 +1617,27 @@ namespace Lux {
 					component.Color = imageNode["Color"].as<glm::vec4>(glm::vec4(1.0f));
 					component.Texture = AssetReference::ReadValue(imageNode["Texture"]);
 					component.PointFilter = imageNode["PointFilter"].as<bool>(false);
+					component.SliceBorder = imageNode["SliceBorder"].as<glm::vec4>(glm::vec4{ 0.0f });
+					component.SliceScale = imageNode["SliceScale"].as<float>(1.0f);
+				}
+
+				if (const auto widgetNode = entity["UIWidgetComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<UIWidgetComponent>();
+					component.Kind = (UIWidgetKind)widgetNode["Kind"].as<int>((int)UIWidgetKind::Button);
+					component.Interactable = widgetNode["Interactable"].as<bool>(true);
+					component.HoverTint = widgetNode["HoverTint"].as<glm::vec4>(component.HoverTint);
+					component.PressedTint = widgetNode["PressedTint"].as<glm::vec4>(component.PressedTint);
+					component.DisabledTint = widgetNode["DisabledTint"].as<glm::vec4>(component.DisabledTint);
+					component.AccentColor = widgetNode["AccentColor"].as<glm::vec4>(component.AccentColor);
+					component.Value = widgetNode["Value"].as<float>(0.0f);
+					component.MinValue = widgetNode["MinValue"].as<float>(0.0f);
+					component.MaxValue = widgetNode["MaxValue"].as<float>(1.0f);
+					component.WholeNumbers = widgetNode["WholeNumbers"].as<bool>(false);
+					component.Checked = widgetNode["Checked"].as<bool>(false);
+					component.Placeholder = widgetNode["Placeholder"].as<std::string>("");
+					component.MaxLength = widgetNode["MaxLength"].as<int32_t>(64);
+					component.ScrollOffset = widgetNode["ScrollOffset"].as<float>(0.0f);
 				}
 
 				if (const auto uiTextNode = entity["UITextComponent"])

@@ -373,6 +373,15 @@ namespace Lux
 		m_RuntimeScene->OnViewportResize(width, height);
 		m_Renderer2DProjection = glm::ortho(0.0f, (float)width, 0.0f, (float)height);
 
+		{
+			// Game UI: the mouse in the window's pixels, origin at the bottom left like the canvas.
+			const auto [mouseX, mouseY] = Input::GetMousePosition();
+			UI::Pointer pointer;
+			pointer.Position = { mouseX, (float)height - mouseY };
+			pointer.Present = mouseX >= 0.0f && mouseY >= 0.0f && mouseX < (float)width && mouseY < (float)height;
+			pointer.Down = Input::IsMouseButtonDown(MouseButton::Left);
+			m_RuntimeScene->SetUIPointer(pointer);
+		}
 		m_RuntimeScene->OnUpdateRuntime(ts);
 		if (m_VRSession)
 		{
@@ -617,6 +626,19 @@ namespace Lux
 	void RuntimeLayer::OnEvent(Event& event)
 	{
 		EventDispatcher dispatcher(event);
+		// Game UI text inputs and scroll lists; the event still reaches everything else.
+		dispatcher.Dispatch<KeyTypedEvent>([this](KeyTypedEvent& typed)
+		{
+			if (m_RuntimeScene)
+				m_RuntimeScene->AddUITypedCharacter(static_cast<char32_t>(typed.GetKeyCode()));
+			return false;
+		});
+		dispatcher.Dispatch<MouseScrolledEvent>([this](MouseScrolledEvent& scrolled)
+		{
+			if (m_RuntimeScene)
+				m_RuntimeScene->AddUIScroll(scrolled.GetYOffset());
+			return false;
+		});
 		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& keyEvent)
 		{
 			if (keyEvent.GetRepeatCount() == 0 && Input::IsKeyDown(KeyCode::LeftControl) && keyEvent.GetKeyCode() == KeyCode::F3)

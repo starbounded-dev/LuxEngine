@@ -2619,6 +2619,21 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
   `WorldOverlay2D` callback, which draws it after the world items with `ortho(0, w, 0, h)` and no depth test, on the
   composite framebuffer (so it is not tone-mapped). Only the runtime packet carries it: the Scene View never shows UI.
 - Known limit: `Renderer2D` flushes quads before text, so overlapping UI draws all quads under all text.
+- Widgets (U2): `UIWidgetComponent` (button, toggle, slider, progress bar, text input, scroll list) sits on an element and
+  borrows its look from `UIImageComponent` / `UITextComponent`; `CaptureDrawItems` tints the image by state and draws the
+  widget's own parts (fill, handle, check mark, caret). `UIImageComponent::SliceBorder` makes a 9-slice (nine quads, UV
+  v grows upward like the quad). A scroll list lays its children out in a taller content rectangle moved by
+  `ScrollOffset`; `ResolvedElement::Clip` cuts quads (and their UVs) at the list edge and drops text that does not fit.
+- Input (U2): `UI/UIInput.h` holds the plain-data `FrameInput` (`Pointer`, `Keys`, typed characters), `Event` and
+  `InteractionState`. The host calls `Scene::SetUIPointer` each frame (the player uses the window mouse, y flipped; the
+  Game View will use its image rectangle) and forwards `KeyTypedEvent` / `MouseScrolledEvent` to
+  `AddUITypedCharacter` / `AddUIScroll`. `Scene::UpdateUI` (main thread, in `OnUpdateRuntime`, real time so a paused game
+  still has working menus) runs `UI::UpdateInteraction`, which hit-tests the topmost widget, handles press/click/drag/
+  text editing/wheel, and leaves this frame's `Event`s in `Scene::GetUIEvents()` for the C# API.
+- A scene with a canvas but no primary camera still renders: `BuildRenderPacketRuntime` falls back to a default camera,
+  so a menu scene shows its UI over an empty frame.
+- `LUX_RUNTIME_CAPTURE=<file>` (with `LUX_RUNTIME_CAPTURE_FRAME`, default 120) makes the player write its final frame as an
+  LXIM image after that many frames and quit; `tests/rendering/golden_compare.py --to-png` converts it.
 - Components follow the usual five edits (declaration, `Scene::Copy`/`CopyTo`/duplicate lists and `Prefab.cpp`,
   `SceneSerializer`, `SceneHierarchyPanel` inspector and Create UI menu, `GetAssetList` for textures and fonts).
 

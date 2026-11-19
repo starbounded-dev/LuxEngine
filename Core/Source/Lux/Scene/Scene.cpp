@@ -1228,6 +1228,7 @@ namespace Lux {
 			UpdateSpriteAnimators(scaledTs);
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
+		UpdateUI(ts);
 		AudioAccessibilityView accessibilityView;
 		if (const auto* listener = GetPrimaryAudioListener())
 		{
@@ -1613,7 +1614,7 @@ namespace Lux {
 		using DuplicateComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
@@ -1687,7 +1688,7 @@ namespace Lux {
 	using PrefabInstantiationComponents =
 		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
+		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
@@ -1872,7 +1873,7 @@ namespace Lux {
 		using PrefabSyncComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
@@ -3697,6 +3698,26 @@ namespace Lux {
 		}
 	}
 
+	void Scene::UpdateUI(Timestep ts)
+	{
+		m_UIEvents.clear();
+		if (m_Registry.view<UICanvasComponent>().empty())
+		{
+			m_UITyped.clear();
+			m_UIPointer.Scroll = 0.0f;
+			return;
+		}
+
+		UI::FrameInput input;
+		input.Mouse = m_UIPointer;
+		input.Typed = std::move(m_UITyped);
+		m_UITyped.clear();
+		input.DeltaTime = static_cast<float>(ts);
+		input.Edit = UI::ReadEditKeys(input.DeltaTime, m_UIKeyHeld);
+		m_UIEvents = UI::UpdateInteraction(*this, m_UIState, { (float)m_ViewportWidth, (float)m_ViewportHeight }, input);
+		m_UIPointer.Scroll = 0.0f;
+	}
+
 	void Scene::CaptureDraw2D(FrameRenderPacket& packet)
 	{
 		using Draw2DItem = FrameRenderPacket::Draw2DItem;
@@ -4011,7 +4032,7 @@ namespace Lux {
 					switch (item.Type)
 					{
 						case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
-							renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color);
+							renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color, item.UV0, item.UV1);
 							break;
 						case FrameRenderPacket::Draw2DItem::Kind::Quad:
 							renderer2D->DrawQuad(item.Transform, item.Color);
@@ -4705,6 +4726,12 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<UITextComponent>(Entity entity, UITextComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<UIWidgetComponent>(Entity entity, UIWidgetComponent& component)
 	{
 
 	}
