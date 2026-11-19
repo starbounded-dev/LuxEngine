@@ -299,6 +299,15 @@ def write_project(project, keep=None, runtime_config="dist"):
                     script="CrateScript", prefab=prefab_link(crate, tracked=True, removed=(removed,))))
     e.append(entity(instance_old, "OldChild", (0, 1, 0), parent=instance, prefab=prefab_link(old)))
     e.append(entity(instance_own, "InstanceAdded", (0, 1, 0), parent=instance))
+    # Game UI (M3): a canvas with a panel and a line of text, so every Play run draws a user interface.
+    canvas, panel, label = next(ids), next(ids), next(ids)
+    e.append(entity(canvas, "UICanvas", (0, 0, 0), children=(panel,), body="    UICanvasComponent:\n      ScaleMode: 1\n      ReferenceResolution: [1920, 1080]\n"))
+    e.append(entity(panel, "UIPanel", (0, 0, 0), parent=canvas, children=(label,),
+                    body="    UIElementComponent:\n      AnchorMin: [0.5, 0.5]\n      AnchorMax: [0.5, 0.5]\n      OffsetMin: [-300, -150]\n      OffsetMax: [300, 150]\n"
+                         "    UIImageComponent:\n      Color: [0.1, 0.3, 0.6, 0.9]\n      Texture: 0\n"))
+    e.append(entity(label, "UILabel", (0, 0, 0), parent=panel,
+                    body="    UIElementComponent:\n      AnchorMin: [0, 0]\n      AnchorMax: [1, 1]\n      OffsetMin: [20, 20]\n      OffsetMax: [-20, -20]\n"
+                         "    UITextComponent:\n      Text: \"Game UI\\nsecond line\"\n      Font: 0\n      Color: [1, 1, 1, 1]\n      Size: 64\n      AlignH: 1\n      AlignV: 1\n"))
     if keep:
         # Bisecting: only the named top-level entities (children follow their parent), and the floor.
         def field(text, key):

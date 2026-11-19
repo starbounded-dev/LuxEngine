@@ -30,6 +30,7 @@
 #include "Lux/Scripting/AudioScriptBindings.h"
 #include "Lux/Scripting/ScriptGlue.h"
 #include "Lux/Renderer/Renderer2D.h"
+#include "Lux/UI/UISystem.h"
 #include "Lux/Renderer/SpriteSheet.h"
 #include "Lux/Scene/Tilemap.h"
 #include "Lux/Renderer/RenderScene.h"
@@ -1612,7 +1613,7 @@ namespace Lux {
 		using DuplicateComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
@@ -1686,7 +1687,7 @@ namespace Lux {
 	using PrefabInstantiationComponents =
 		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
+		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
@@ -1871,7 +1872,7 @@ namespace Lux {
 		using PrefabSyncComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
@@ -3951,9 +3952,11 @@ namespace Lux {
 		std::vector<FrameRenderPacket::Draw2DItem> draw2D = packet.Draw2D;
 		auto audioZoneLines = packet.AudioZoneLines;
 		audioZoneLines.insert(audioZoneLines.end(), packet.ScriptLines.begin(), packet.ScriptLines.end());
+		std::vector<FrameRenderPacket::Draw2DItem> uiItems = packet.UI;
+		const glm::vec2 uiScreenSize = packet.UIScreenSize;
 		const glm::mat4 overlayView = packet.Overlay2DView;
 		const glm::mat4 overlayViewProjection = packet.Overlay2DViewProjection;
-		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), audioZoneLines = std::move(audioZoneLines), overlayView, overlayViewProjection]() mutable
+		renderer->SetWorldOverlayRenderCallback([renderer, draw2D = std::move(draw2D), audioZoneLines = std::move(audioZoneLines), uiItems = std::move(uiItems), uiScreenSize, overlayView, overlayViewProjection]() mutable
 		{
 			Ref<Renderer2D> renderer2D = renderer->GetRenderer2D();
 			if (!renderer2D)
@@ -3997,6 +4000,31 @@ namespace Lux {
 			for (const auto& line : audioZoneLines)
 				renderer2D->DrawLine(line.Start, line.End, line.Color, line.OnTop);
 			renderer2D->EndScene();
+
+			// Game UI: its own pixel-space projection, drawn over everything above, no depth test.
+			if (!uiItems.empty())
+			{
+				renderer2D->BeginScene(glm::ortho(0.0f, uiScreenSize.x, 0.0f, uiScreenSize.y), glm::mat4(1.0f), false);
+				renderer2D->SetTargetFramebuffer(renderer->GetDepthCompositeFramebuffer());
+				for (const FrameRenderPacket::Draw2DItem& item : uiItems)
+				{
+					switch (item.Type)
+					{
+						case FrameRenderPacket::Draw2DItem::Kind::TexturedQuad:
+							renderer2D->DrawQuad(item.Transform, item.Texture, item.PointFilter ? -1.0f : 1.0f, item.Color);
+							break;
+						case FrameRenderPacket::Draw2DItem::Kind::Quad:
+							renderer2D->DrawQuad(item.Transform, item.Color);
+							break;
+						case FrameRenderPacket::Draw2DItem::Kind::Text:
+							renderer2D->DrawString(item.Text, item.FontAsset, item.Transform, item.MaxWidth, item.Color, item.LineSpacing, item.Kerning);
+							break;
+						default:
+							break;
+					}
+				}
+				renderer2D->EndScene();
+			}
 		});
 
 		// End the frame and execute the render passes
@@ -4018,15 +4046,23 @@ namespace Lux {
 	{
 		// Find the primary camera entity
 		Entity cameraEntity = GetPrimaryCameraEntity();
-		if (!cameraEntity)
-			return false;
 
-		const auto& cameraComp = cameraEntity.GetComponent<CameraComponent>();
+		// A scene with no primary camera but a canvas (a main menu) shows its user interface over an empty frame,
+		// seen by a default camera at the origin.
+		CameraComponent fallbackCamera;
+		if (!cameraEntity)
+		{
+			if (m_Registry.view<UICanvasComponent>().empty() || m_ViewportWidth == 0 || m_ViewportHeight == 0)
+				return false;
+			fallbackCamera.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+		}
+
+		const CameraComponent& cameraComp = cameraEntity ? cameraEntity.GetComponent<CameraComponent>() : fallbackCamera;
 
 		// Set up the SceneRendererCamera from the runtime camera
 		SceneRendererCamera& sceneCamera = packet.Camera;
 		sceneCamera.Camera.SetProjectionMatrix(cameraComp.Camera.GetProjectionMatrix(), cameraComp.Camera.GetUnReversedProjectionMatrix());
-		glm::mat4 cameraTransform = GetWorldSpaceTransformMatrix(cameraEntity);
+		glm::mat4 cameraTransform = cameraEntity ? GetWorldSpaceTransformMatrix(cameraEntity) : glm::mat4(1.0f);
 		// A pixel-perfect camera sits on the pixel grid, so a camera that moves does not shimmer the sprites.
 		if (const float snapUnit = cameraComp.Camera.GetPixelSnapUnit(); snapUnit > 0.0f)
 		{
@@ -4048,6 +4084,10 @@ namespace Lux {
 		packet.Meshes = SyncRenderSceneMirror(m_RuntimeRenderScene, nullptr);
 		packet.MeshSyncMs = meshSyncTimer.ElapsedMillis();
 		CaptureDraw2D(packet);
+		{
+			const glm::vec2 screen{ (float)m_ViewportWidth, (float)m_ViewportHeight };
+			UI::CaptureDrawItems(UI::ResolveLayout(*this, screen), screen, packet);
+		}
 		CaptureColliderDebug(packet, renderer, nullptr);
 		CaptureScriptDebugLines(packet);
 
@@ -4382,6 +4422,11 @@ namespace Lux {
 		for (auto entity : textView)
 			addIfValid(textView.get<TextComponent>(entity).FontHandle);
 
+		for (auto entity : m_Registry.view<UIImageComponent>())
+			addIfValid(m_Registry.get<UIImageComponent>(entity).Texture);
+		for (auto entity : m_Registry.view<UITextComponent>())
+			addIfValid(m_Registry.get<UITextComponent>(entity).FontHandle);
+
 		auto meshView = m_Registry.view<MeshComponent>();
 		for (auto entity : meshView)
 			addMeshDependencies(meshView.get<MeshComponent>(entity).Mesh);
@@ -4636,6 +4681,30 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<TextComponent>(Entity entity, TextComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<UICanvasComponent>(Entity entity, UICanvasComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<UIElementComponent>(Entity entity, UIElementComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<UIImageComponent>(Entity entity, UIImageComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<UITextComponent>(Entity entity, UITextComponent& component)
 	{
 
 	}

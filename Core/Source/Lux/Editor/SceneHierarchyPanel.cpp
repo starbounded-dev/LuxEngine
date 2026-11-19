@@ -1080,6 +1080,53 @@ namespace Lux {
 			ImGui::EndMenu();
 		}
 
+		if (ImGui::BeginMenu("Create UI"))
+		{
+			// A UI element goes under the selected canvas or element; with none selected it gets a new canvas.
+			auto uiParent = [&]() -> Entity
+			{
+				if (parent && (parent.HasComponent<UICanvasComponent>() || parent.HasComponent<UIElementComponent>()))
+					return parent;
+				Entity canvas = m_Context->CreateEntity("Canvas");
+				canvas.AddComponent<UICanvasComponent>();
+				if (parent)
+					canvas.SetParent(parent);
+				return canvas;
+			};
+			auto createElement = [&](const char* name)
+			{
+				Entity owner = uiParent();
+				Entity entity = m_Context->CreateEntity(name);
+				entity.SetParent(owner);
+				entity.AddComponent<UIElementComponent>();
+				SetSelectedEntity(entity);
+				EditorStack::Get().MarkSceneEdited("Create Entity");
+				return entity;
+			};
+
+			if (ImGui::MenuItem("Canvas"))
+			{
+				Entity entity = createEntity("Canvas");
+				entity.AddComponent<UICanvasComponent>();
+			}
+
+			if (ImGui::MenuItem("Panel"))
+			{
+				Entity entity = createElement("Panel");
+				entity.AddComponent<UIImageComponent>().Color = { 0.1f, 0.1f, 0.1f, 0.8f };
+				entity.GetComponent<UIElementComponent>().Rect = { { 0.5f, 0.5f }, { 0.5f, 0.5f }, { -200.0f, -150.0f }, { 200.0f, 150.0f } };
+			}
+
+			if (ImGui::MenuItem("Text"))
+			{
+				Entity entity = createElement("Text");
+				entity.AddComponent<UITextComponent>().Text = "Text";
+				entity.GetComponent<UIElementComponent>().Rect = { { 0.5f, 0.5f }, { 0.5f, 0.5f }, { -150.0f, -25.0f }, { 150.0f, 25.0f } };
+			}
+
+			ImGui::EndMenu();
+		}
+
 		if (ImGui::BeginMenu("Create 3D"))
 		{
 			if (ImGui::BeginMenu("Meshes"))
@@ -1871,6 +1918,10 @@ namespace Lux {
 
 				const bool canAddCamera = canAddComponent.template operator()<CameraComponent>();
 				const bool canAddScript = canAddComponent.template operator()<ScriptComponent>();
+				const bool canAddUICanvas = canAddComponent.template operator()<UICanvasComponent>();
+				const bool canAddUIElement = canAddComponent.template operator()<UIElementComponent>();
+				const bool canAddUIImage = canAddComponent.template operator()<UIImageComponent>();
+				const bool canAddUIText = canAddComponent.template operator()<UITextComponent>();
 				const bool canAddText = canAddComponent.template operator()<TextComponent>();
 				const bool canAddSpriteRenderer = canAddComponent.template operator()<SpriteRendererComponent>();
 				const bool canAddCircleRenderer = canAddComponent.template operator()<CircleRendererComponent>();
@@ -1935,6 +1986,58 @@ namespace Lux {
 
 				if (canAddText || canAddSpriteRenderer || canAddSpriteAnimator || canAddCircleRenderer || canAddStaticMesh)
 					addCategoryHeader("Rendering");
+
+				if (canAddUICanvas)
+				{
+					addComponentRow("UI Canvas", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<UICanvasComponent>())
+								entity.AddComponent<UICanvasComponent>();
+						}
+					});
+				}
+
+				if (canAddUIElement)
+				{
+					addComponentRow("UI Element", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<UIElementComponent>())
+								entity.AddComponent<UIElementComponent>();
+						}
+					});
+				}
+
+				if (canAddUIImage)
+				{
+					addComponentRow("UI Image", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<UIImageComponent>())
+								entity.AddComponent<UIImageComponent>();
+						}
+					});
+				}
+
+				if (canAddUIText)
+				{
+					addComponentRow("UI Text", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<UITextComponent>())
+								entity.AddComponent<UITextComponent>();
+						}
+					});
+				}
 
 				if (canAddText)
 				{
@@ -2499,6 +2602,10 @@ namespace Lux {
 						row.operator()<SpriteAnimatorComponent>("SpriteAnimatorComponent", "Sprite Animator");
 						row.operator()<TilemapComponent>("TilemapComponent", "Tilemap");
 						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
+						row.operator()<UICanvasComponent>("UICanvasComponent", "UI Canvas");
+						row.operator()<UIElementComponent>("UIElementComponent", "UI Element");
+						row.operator()<UIImageComponent>("UIImageComponent", "UI Image");
+						row.operator()<UITextComponent>("UITextComponent", "UI Text");
 						row.operator()<TextComponent>("TextComponent", "Text");
 						row.operator()<DirectionalLightComponent>("DirectionalLightComponent", "Directional Light");
 						row.operator()<PointLightComponent>("PointLightComponent", "Point Light");
@@ -3957,6 +4064,102 @@ namespace Lux {
 				}
 
 				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<UICanvasComponent>(m_Context, entityIDs, "UI Canvas", EditorResources::SpriteIcon,
+			[this](UICanvasComponent& first, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				bool changed = false;
+				static const char* scaleModes[] = { "Constant Pixel Size", "Scale With Screen", "Fit Inside", "Fill Screen" };
+				changed |= ImGuiEx::PropertyDropdown("Scale Mode", scaleModes, 4, first.ScaleMode);
+				if (first.ScaleMode == UI::ScaleMode::ConstantPixelSize)
+					changed |= ImGuiEx::Property("Scale Factor", first.ScaleFactor, 0.05f, 0.1f, 8.0f);
+				else
+					changed |= ImGuiEx::Property("Reference Resolution", first.ReferenceResolution, 1.0f, 16.0f, 16384.0f);
+				if (first.ScaleMode == UI::ScaleMode::ScaleWithScreen)
+					changed |= ImGuiEx::PropertySlider("Match Width / Height", first.Match, 0.0f, 1.0f);
+				changed |= ImGuiEx::Property("Sort Order", first.SortOrder, -1000, 1000);
+				ImGuiEx::EndPropertyGrid();
+				// Whole-component copy: a multi-selection edit sets every field on all of them.
+				if (changed)
+					ApplyToSelection<UICanvasComponent>(m_Context, selectedEntities, [&first](UICanvasComponent& component, Entity) { component = first; });
+			});
+
+		DrawComponentSection<UIElementComponent>(m_Context, entityIDs, "UI Element", EditorResources::SpriteIcon,
+			[this](UIElementComponent& first, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				bool changed = false;
+				changed |= ImGuiEx::Property("Visible", first.Visible);
+				changed |= ImGuiEx::Property("Anchor Min", first.Rect.AnchorMin, 0.01f, 0.0f, 1.0f);
+				changed |= ImGuiEx::Property("Anchor Max", first.Rect.AnchorMax, 0.01f, 0.0f, 1.0f);
+				changed |= ImGuiEx::Property("Offset Min", first.Rect.OffsetMin, 1.0f);
+				changed |= ImGuiEx::Property("Offset Max", first.Rect.OffsetMax, 1.0f);
+				static const char* layoutKinds[] = { "None", "Horizontal", "Vertical", "Grid" };
+				changed |= ImGuiEx::PropertyDropdown("Layout", layoutKinds, 4, first.Layout.Kind);
+				if (first.Layout.Kind != UI::LayoutKind::None)
+				{
+					changed |= ImGuiEx::Property("Padding (L B R T)", first.Layout.Padding, 1.0f, 0.0f, 1000.0f);
+					changed |= ImGuiEx::Property("Spacing", first.Layout.Spacing, 0.5f, 0.0f, 1000.0f);
+					static const char* aligns[] = { "Start", "Center", "End" };
+					changed |= ImGuiEx::PropertyDropdown("Align", aligns, 3, first.Layout.Align);
+					if (first.Layout.Kind == UI::LayoutKind::Grid)
+					{
+						changed |= ImGuiEx::Property("Cell Size", first.Layout.CellSize, 1.0f, 1.0f, 4096.0f);
+						changed |= ImGuiEx::Property("Columns", first.Layout.Columns, 1, 64);
+					}
+					else
+					{
+						changed |= ImGuiEx::Property("Expand Children", first.Layout.ExpandChildren);
+					}
+				}
+				ImGuiEx::EndPropertyGrid();
+				if (changed)
+					ApplyToSelection<UIElementComponent>(m_Context, selectedEntities, [&first](UIElementComponent& component, Entity) { component = first; });
+			});
+
+		DrawComponentSection<UIImageComponent>(m_Context, entityIDs, "UI Image", EditorResources::SpriteIcon,
+			[this](UIImageComponent& first, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				bool changed = false;
+				changed |= ImGuiEx::PropertyColor("Color", first.Color);
+				AssetHandle texture = first.Texture;
+				if (ImGuiEx::PropertyAssetReference<Texture2D>("Texture", texture, "UI image only accepts texture assets"))
+				{
+					first.Texture = texture;
+					changed = true;
+				}
+				changed |= ImGuiEx::Property("Point Filter", first.PointFilter);
+				ImGuiEx::EndPropertyGrid();
+				if (changed)
+					ApplyToSelection<UIImageComponent>(m_Context, selectedEntities, [&first](UIImageComponent& component, Entity) { component = first; });
+			});
+
+		DrawComponentSection<UITextComponent>(m_Context, entityIDs, "UI Text", EditorResources::TextIcon,
+			[this](UITextComponent& first, const std::vector<UUID>& selectedEntities, bool)
+			{
+				ImGuiEx::BeginPropertyGrid();
+				bool changed = false;
+				changed |= ImGuiEx::PropertyMultiline("Text", first.Text);
+				AssetHandle font = first.FontHandle;
+				if (ImGuiEx::PropertyAssetReference<Font>("Font", font, "UI text only accepts font assets"))
+				{
+					first.FontHandle = font;
+					changed = true;
+				}
+				changed |= ImGuiEx::PropertyColor("Color", first.Color);
+				changed |= ImGuiEx::Property("Size", first.Size, 0.5f, 1.0f, 1000.0f);
+				changed |= ImGuiEx::Property("Line Spacing", first.LineSpacing, 0.025f);
+				static const char* alignH[] = { "Left", "Center", "Right" };
+				static const char* alignV[] = { "Top", "Middle", "Bottom" };
+				changed |= ImGuiEx::PropertyDropdown("Horizontal", alignH, 3, first.AlignH);
+				changed |= ImGuiEx::PropertyDropdown("Vertical", alignV, 3, first.AlignV);
+				changed |= ImGuiEx::Property("Wrap", first.Wrap);
+				ImGuiEx::EndPropertyGrid();
+				if (changed)
+					ApplyToSelection<UITextComponent>(m_Context, selectedEntities, [&first](UITextComponent& component, Entity) { component = first; });
 			});
 
 		DrawComponentSection<TextComponent>(m_Context, entityIDs, "Text", EditorResources::TextIcon,

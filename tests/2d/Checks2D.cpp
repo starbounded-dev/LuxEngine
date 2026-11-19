@@ -30,6 +30,8 @@
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Scene/Tilemap.h"
+#include "Lux/UI/UILayout.h"
+#include "Lux/UI/UISystem.h"
 
 #include <GLFW/deps/stb_image_write.h>
 #include <stb_image.h>
@@ -1367,6 +1369,179 @@ namespace {
 		(void)root;
 	}
 
+	// ---- M3 Game UI: layout math, scene components, drawing --------------------------------------
+
+	void CheckUILayout()
+	{
+		using namespace Lux::UI;
+
+		// Resolution scaling.
+		const glm::vec2 reference{ 1920.0f, 1080.0f };
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.5f, { 1920.0f, 1080.0f }), 1.0f), "a screen at the reference resolution scales by 1");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.5f, { 3840.0f, 2160.0f }), 2.0f), "a screen twice the reference scales by 2");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.0f, { 960.0f, 2160.0f }), 0.5f), "Match 0 follows the width");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 1.0f, { 960.0f, 2160.0f }), 2.0f), "Match 1 follows the height");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.5f, { 960.0f, 2160.0f }), 1.0f), "Match 0.5 of a halved width and a doubled height cancels out (log blend)");
+		Check(Near(CanvasScale(ScaleMode::FitInside, reference, 1.0f, 0.5f, { 3840.0f, 1080.0f }), 1.0f), "FitInside takes the smaller scale");
+		Check(Near(CanvasScale(ScaleMode::FillScreen, reference, 1.0f, 0.5f, { 3840.0f, 1080.0f }), 2.0f), "FillScreen takes the larger scale");
+		Check(Near(CanvasScale(ScaleMode::ConstantPixelSize, reference, 1.5f, 0.5f, { 100.0f, 100.0f }), 1.5f), "ConstantPixelSize ignores the screen");
+		const Rect canvas = CanvasRect({ 3840.0f, 2160.0f }, 2.0f);
+		Check(canvas.Max == glm::vec2(1920.0f, 1080.0f), "the canvas rectangle is the screen over the scale");
+
+		// Anchors.
+		const Rect parent{ { 100.0f, 50.0f }, { 500.0f, 250.0f } }; // 400 x 200
+		RectTransform centered; // anchors at the middle, +-50
+		Check(ResolveRect(centered, parent) == Rect{ { 250.0f, 100.0f }, { 350.0f, 200.0f } }, "centered anchors keep a fixed size at the middle");
+		RectTransform stretched;
+		stretched.AnchorMin = { 0.0f, 0.0f };
+		stretched.AnchorMax = { 1.0f, 1.0f };
+		stretched.OffsetMin = { 10.0f, 20.0f };
+		stretched.OffsetMax = { -30.0f, -40.0f };
+		Check(ResolveRect(stretched, parent) == Rect{ { 110.0f, 70.0f }, { 470.0f, 210.0f } }, "stretched anchors make the offsets margins");
+		RectTransform corner;
+		corner.AnchorMin = corner.AnchorMax = { 1.0f, 0.0f };
+		corner.OffsetMin = { -110.0f, 10.0f };
+		corner.OffsetMax = { -10.0f, 60.0f };
+		Check(ResolveRect(corner, parent) == Rect{ { 390.0f, 60.0f }, { 490.0f, 110.0f } }, "a bottom-right anchor keeps its distance from the corner");
+
+		// Stacks.
+		const Rect content{ { 0.0f, 0.0f }, { 300.0f, 100.0f } };
+		std::vector<LayoutChild> three(3);
+		for (LayoutChild& child : three)
+			child.PreferredSize = { 60.0f, 40.0f };
+		LayoutGroup row;
+		row.Kind = LayoutKind::Horizontal;
+		row.Spacing = 10.0f;
+		row.Padding = { 5.0f, 5.0f, 5.0f, 5.0f };
+		std::vector<Rect> rects = LayoutChildren(row, content, three);
+		Check(rects[0] == Rect{ { 5.0f, 55.0f }, { 65.0f, 95.0f } } && rects[1].Min.x == 75.0f && rects[2].Max.x == 205.0f, "a row runs left to right with spacing and padding, aligned to the top");
+		row.Align = LayoutAlign::Center;
+		Check(LayoutChildren(row, content, three)[0].Min.y == 30.0f, "Center aligns a row's children vertically");
+		row.ExpandChildren = true;
+		rects = LayoutChildren(row, content, three);
+		Check(Near(rects[0].Size().x, 60.0f + (290.0f - 180.0f - 20.0f) / 3.0f) && Near(rects[2].Max.x, 295.0f), "ExpandChildren shares the spare length equally and fills the content");
+		LayoutGroup column;
+		column.Kind = LayoutKind::Vertical;
+		column.Spacing = 5.0f;
+		rects = LayoutChildren(column, { { 0.0f, 0.0f }, { 100.0f, 300.0f } }, three);
+		Check(rects[0] == Rect{ { 0.0f, 260.0f }, { 60.0f, 300.0f } } && rects[1].Max.y == 255.0f && rects[2].Min.y == 170.0f, "a column runs top to bottom");
+		column.Align = LayoutAlign::End;
+		Check(LayoutChildren(column, { { 0.0f, 0.0f }, { 100.0f, 300.0f } }, three)[0].Min.x == 40.0f, "End aligns a column's children to the right");
+
+		// Grids.
+		LayoutGroup grid;
+		grid.Kind = LayoutKind::Grid;
+		grid.Columns = 2;
+		grid.CellSize = { 50.0f, 30.0f };
+		grid.Spacing = 10.0f;
+		rects = LayoutChildren(grid, { { 0.0f, 0.0f }, { 200.0f, 200.0f } }, three);
+		Check(rects[0] == Rect{ { 0.0f, 170.0f }, { 50.0f, 200.0f } } && rects[1].Min.x == 60.0f && rects[2] == Rect{ { 0.0f, 130.0f }, { 50.0f, 160.0f } }, "a grid fills rows from the top left");
+		Check(PreferredGroupSize(grid, three) == glm::vec2(110.0f, 70.0f), "a grid's preferred size covers its cells and spacing");
+		Check(PreferredGroupSize(row, three) == glm::vec2(180.0f + 20.0f + 10.0f, 40.0f + 10.0f), "a row's preferred size adds its children, spacing and padding");
+		Check(LayoutChildren(LayoutGroup{}, content, three)[0] == Rect{}, "no layout leaves the child's own rectangle to the caller");
+		Check(LayoutChildren(row, content, {}).empty(), "a group without children lays out nothing");
+	}
+
+	void CheckUIScene(const std::filesystem::path& root)
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		auto& canvasComponent = canvas.AddComponent<UICanvasComponent>();
+		canvasComponent.ReferenceResolution = { 1000.0f, 500.0f };
+		canvasComponent.SortOrder = 2;
+
+		Entity panel = scene->CreateEntity("Panel");
+		panel.SetParent(canvas);
+		auto& panelElement = panel.AddComponent<UIElementComponent>();
+		panelElement.Rect.AnchorMin = { 0.0f, 0.0f };
+		panelElement.Rect.AnchorMax = { 1.0f, 1.0f };
+		panelElement.Rect.OffsetMin = { 100.0f, 50.0f };
+		panelElement.Rect.OffsetMax = { -100.0f, -50.0f };
+		panelElement.Layout.Kind = UI::LayoutKind::Vertical;
+		panelElement.Layout.Spacing = 10.0f;
+		panel.AddComponent<UIImageComponent>().Color = { 0.2f, 0.4f, 0.6f, 0.8f };
+
+		Entity first = scene->CreateEntity("First");
+		first.SetParent(panel);
+		first.AddComponent<UIElementComponent>().Rect.OffsetMax = { 50.0f, 25.0f }; // a 100 x 75 ask
+		first.AddComponent<UIImageComponent>();
+		Entity hidden = scene->CreateEntity("Hidden");
+		hidden.SetParent(panel);
+		hidden.AddComponent<UIElementComponent>().Visible = false;
+		hidden.AddComponent<UIImageComponent>();
+		Entity second = scene->CreateEntity("Second");
+		second.SetParent(panel);
+		second.AddComponent<UIElementComponent>();
+		second.AddComponent<UIImageComponent>();
+
+		// Layout: a 2000 x 1000 screen scales the 1000 x 500 reference by 2. A hidden element takes no room.
+		const glm::vec2 screen{ 2000.0f, 1000.0f };
+		std::vector<UI::ResolvedCanvas> canvases = UI::ResolveLayout(*scene, screen);
+		Check(canvases.size() == 1 && Near(canvases[0].Scale, 2.0f) && canvases[0].Elements.size() == 3, "one canvas resolves with its panel and two visible children");
+		if (canvases.size() == 1 && canvases[0].Elements.size() == 3)
+		{
+			const auto& elements = canvases[0].Elements;
+			Check(elements[0].Element == panel && Near(elements[0].ScreenRect.Min.x, 200.0f) && Near(elements[0].ScreenRect.Max.y, 900.0f), "the stretched panel is inset by its margins, in pixels");
+			Check(elements[1].Element == first && elements[2].Element == second, "children follow hierarchy order and a hidden element is skipped");
+			// Panel content in UI units is 800 x 400 from (100, 50); the first child asks 100 x 75 and sits at the top.
+			Check(Near(elements[1].ScreenRect.Size().x, 200.0f) && Near(elements[1].ScreenRect.Size().y, 150.0f) && Near(elements[1].ScreenRect.Max.y, 900.0f), "the column places the first child at the panel top, scaled to pixels");
+			Check(Near(elements[2].ScreenRect.Max.y, 900.0f - (75.0f + 10.0f) * 2.0f), "the second child sits below the first with the spacing");
+		}
+
+		// Drawing.
+		FrameRenderPacket packet;
+		UI::CaptureDrawItems(canvases, screen, packet);
+		Check(packet.UI.size() == 3 && packet.UIScreenSize == screen, "three images produce three draw items for the screen");
+		if (packet.UI.size() == 3)
+		{
+			Check(packet.UI[0].Type == FrameRenderPacket::Draw2DItem::Kind::Quad && Near(packet.UI[0].Color.b, 0.6f), "the panel is a flat quad of its color");
+			Check(Near(packet.UI[0].Transform[3].x, 1000.0f) && Near(packet.UI[0].Transform[0].x, 1600.0f), "a quad's transform is its center and size in pixels");
+		}
+
+		canvasComponent.Enabled = false;
+		Check(UI::ResolveLayout(*scene, screen).empty(), "a disabled canvas draws nothing");
+		canvasComponent.Enabled = true;
+		Check(UI::ResolveLayout(*scene, { 0.0f, 0.0f }).empty(), "a zero-size screen resolves nothing");
+
+		// Serialization: the file, a load, and the copy Play starts from.
+		const std::filesystem::path file = root / "UI" / "Menu.luxscene";
+		std::filesystem::create_directories(file.parent_path());
+		AssetReference::PathModeScope pathMode;
+		Check(SceneSerializer(scene).Serialize(file), "a scene with a canvas serializes");
+		SceneSerializer(scene).Serialize(root / "UI" / "Menu2.luxscene");
+		Check(ReadText(file) == ReadText(root / "UI" / "Menu2.luxscene"), "saving twice gives the same file");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		const auto verify = [&](Ref<Scene> checked, const char* how)
+		{
+			const auto& restoredCanvas = checked->FindEntityByName("Canvas").GetComponent<UICanvasComponent>();
+			Check(restoredCanvas.ReferenceResolution == glm::vec2(1000.0f, 500.0f) && restoredCanvas.SortOrder == 2 && restoredCanvas.ScaleMode == UI::ScaleMode::ScaleWithScreen, std::string("canvas settings survive ") + how);
+			const auto& restoredPanel = checked->FindEntityByName("Panel").GetComponent<UIElementComponent>();
+			Check(restoredPanel.Rect.OffsetMin == glm::vec2(100.0f, 50.0f) && restoredPanel.Layout.Kind == UI::LayoutKind::Vertical && Near(restoredPanel.Layout.Spacing, 10.0f), std::string("element rectangle and layout survive ") + how);
+			Check(!checked->FindEntityByName("Hidden").GetComponent<UIElementComponent>().Visible && Near(checked->FindEntityByName("Panel").GetComponent<UIImageComponent>().Color.g, 0.4f), std::string("visibility and image color survive ") + how);
+			const auto resolved = UI::ResolveLayout(*checked, screen);
+			Check(resolved.size() == 1 && resolved[0].Elements.size() == 3, std::string("the layout of a scene reloaded from ") + how + " matches");
+		};
+		verify(loaded, "a save");
+		verify(Scene::Copy(loaded), "the copy Play starts from");
+
+		// Text: what survives a save (no font is needed to serialize it).
+		Entity label = scene->CreateEntity("Label");
+		label.SetParent(canvas);
+		label.AddComponent<UIElementComponent>();
+		auto& text = label.AddComponent<UITextComponent>();
+		text.Text = "Play\nQuit";
+		text.Size = 48.0f;
+		text.AlignH = UITextAlignH::Center;
+		text.AlignV = UITextAlignV::Middle;
+		text.Wrap = false;
+		SceneSerializer(scene).Serialize(root / "UI" / "Label.luxscene");
+		Ref<Scene> labelScene = Ref<Scene>::Create();
+		SceneSerializer(labelScene).Deserialize(root / "UI" / "Label.luxscene");
+		const auto& restoredText = labelScene->FindEntityByName("Label").GetComponent<UITextComponent>();
+		Check(restoredText.Text == "Play\nQuit" && Near(restoredText.Size, 48.0f) && restoredText.AlignH == UITextAlignH::Center && restoredText.AlignV == UITextAlignV::Middle && !restoredText.Wrap, "text, size, alignment and wrap survive a save");
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -1403,6 +1578,8 @@ int main(int argc, char** argv)
 	CheckTilemapOps();
 	CheckTilemapScene(outDir);
 	CheckTilemapPhysics(outDir);
+	CheckUILayout();
+	CheckUIScene(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

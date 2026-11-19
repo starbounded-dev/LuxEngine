@@ -2601,6 +2601,27 @@ event that frame (1 outside Play and while culled).
 `Core/Source/Lux/Core/Input.h` — static, with `KeyCodes.h` / `MouseCodes.h`. Frame-accurate state is
 updated by `Application`.
 
+### 2.11a Game UI (M3)
+
+`Core/Source/Lux/UI/`, plan in `docs/GAME_UI_PLAN.md`. A user interface is scene data: a `UICanvasComponent` entity
+(scale mode, reference resolution, sort order) whose descendants carry `UIElementComponent` (anchors, offsets,
+optional `LayoutGroup`) and a look (`UIImageComponent`, `UITextComponent`). Hierarchy order is draw order, so
+prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
+
+- `UILayout.h/.cpp` — pure functions, no registry or GPU: `CanvasScale`, `ResolveRect` (anchors + offsets inside a
+  parent), `LayoutChildren` (horizontal / vertical / grid) and `PreferredGroupSize`. Origin bottom left, y up.
+  Checked headless by `CheckUILayout` / `CheckUIScene` in `tests/2d/Checks2D.cpp`.
+- `UISystem.h/.cpp` — main thread. `ResolveLayout(Scene&, screenSize)` walks each enabled canvas (lowest
+  `SortOrder` first) and returns screen-pixel rectangles; `CaptureDrawItems` turns them into `FrameRenderPacket::UI`
+  (`Draw2DItem` quads and text, transforms in pixels). Text is sized with `Renderer2D::MeasureString` /
+  `GetStringAscent`, which walk the same wrap pass as `DrawString`.
+- Drawing: `Scene::BuildRenderPacketRuntime` fills `packet.UI`; `SubmitRenderPacket` copies it into the
+  `WorldOverlay2D` callback, which draws it after the world items with `ortho(0, w, 0, h)` and no depth test, on the
+  composite framebuffer (so it is not tone-mapped). Only the runtime packet carries it: the Scene View never shows UI.
+- Known limit: `Renderer2D` flushes quads before text, so overlapping UI draws all quads under all text.
+- Components follow the usual five edits (declaration, `Scene::Copy`/`CopyTo`/duplicate lists and `Prefab.cpp`,
+  `SceneSerializer`, `SceneHierarchyPanel` inspector and Create UI menu, `GetAssetList` for textures and fonts).
+
 ### 2.12 Project
 
 `Project` (`Project/Project.h`) is `Ref`-counted with a static active-project slot. Path accessors:

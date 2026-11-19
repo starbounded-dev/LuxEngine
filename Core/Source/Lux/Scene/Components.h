@@ -19,6 +19,7 @@
 #include "Lux/Physics/PhysicsTypes.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Texture.h"
+#include "Lux/UI/UILayout.h"
 #include "Lux/Renderer/UI/Font.h"
 
 #include <glm/glm.hpp>
@@ -586,6 +587,61 @@ namespace Lux {
 		MeshColliderComponent(const MeshColliderComponent&) = default;
 	};
 
+	// Game UI (docs/GAME_UI_PLAN.md). A canvas is the root of a UI tree; its descendants with a
+	// UIElementComponent are laid out inside it and drawn over the finished frame, in hierarchy order.
+	struct UICanvasComponent
+	{
+		bool Enabled = true;
+		UI::ScaleMode ScaleMode = UI::ScaleMode::ScaleWithScreen;
+		glm::vec2 ReferenceResolution = { 1920.0f, 1080.0f };
+		float ScaleFactor = 1.0f; // ConstantPixelSize
+		float Match = 0.5f;       // ScaleWithScreen: 0 follows the width, 1 the height
+		int32_t SortOrder = 0;    // a higher canvas draws over a lower one
+
+		UICanvasComponent() = default;
+		UICanvasComponent(const UICanvasComponent&) = default;
+	};
+
+	// A rectangle in a UI tree. Its parent is the canvas or another element; a parent with a layout group
+	// places its children and ignores their anchors.
+	struct UIElementComponent
+	{
+		bool Visible = true; // hides the element and everything under it
+		UI::RectTransform Rect;
+		UI::LayoutGroup Layout;
+
+		UIElementComponent() = default;
+		UIElementComponent(const UIElementComponent&) = default;
+	};
+
+	struct UIImageComponent
+	{
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+		AssetHandle Texture = 0; // none draws a flat color
+		bool PointFilter = false;
+
+		UIImageComponent() = default;
+		UIImageComponent(const UIImageComponent&) = default;
+	};
+
+	enum class UITextAlignH : uint8_t { Left = 0, Center, Right };
+	enum class UITextAlignV : uint8_t { Top = 0, Middle, Bottom };
+
+	struct UITextComponent
+	{
+		std::string Text;
+		AssetHandle FontHandle = 0; // none is the default font
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float Size = 32.0f; // line height in UI units
+		float LineSpacing = 0.0f;
+		UITextAlignH AlignH = UITextAlignH::Left;
+		UITextAlignV AlignV = UITextAlignV::Top;
+		bool Wrap = true;
+
+		UITextComponent() = default;
+		UITextComponent(const UITextComponent&) = default;
+	};
+
 	struct TextComponent
 	{
 		bool Enabled = true;
@@ -963,7 +1019,7 @@ namespace Lux {
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
-		TextComponent,
+		TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,

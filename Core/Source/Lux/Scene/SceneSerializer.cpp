@@ -764,6 +764,77 @@ namespace Lux {
 				out << Yaml::EndMap;
 			}
 
+			if (entity.HasComponent<UICanvasComponent>())
+			{
+				const auto& canvas = entity.GetComponent<UICanvasComponent>();
+				out << Yaml::Key << "UICanvasComponent";
+				out << Yaml::BeginMap;
+				if (!canvas.Enabled)
+					out << Yaml::Key << "Enabled" << Yaml::Value << false;
+				out << Yaml::Key << "ScaleMode" << Yaml::Value << (int)canvas.ScaleMode;
+				out << Yaml::Key << "ReferenceResolution" << Yaml::Value << canvas.ReferenceResolution;
+				out << Yaml::Key << "ScaleFactor" << Yaml::Value << canvas.ScaleFactor;
+				out << Yaml::Key << "Match" << Yaml::Value << canvas.Match;
+				if (canvas.SortOrder != 0)
+					out << Yaml::Key << "SortOrder" << Yaml::Value << canvas.SortOrder;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<UIElementComponent>())
+			{
+				const auto& element = entity.GetComponent<UIElementComponent>();
+				out << Yaml::Key << "UIElementComponent";
+				out << Yaml::BeginMap;
+				if (!element.Visible)
+					out << Yaml::Key << "Visible" << Yaml::Value << false;
+				out << Yaml::Key << "AnchorMin" << Yaml::Value << element.Rect.AnchorMin;
+				out << Yaml::Key << "AnchorMax" << Yaml::Value << element.Rect.AnchorMax;
+				out << Yaml::Key << "OffsetMin" << Yaml::Value << element.Rect.OffsetMin;
+				out << Yaml::Key << "OffsetMax" << Yaml::Value << element.Rect.OffsetMax;
+				const UI::LayoutGroup& layout = element.Layout;
+				if (layout.Kind != UI::LayoutKind::None)
+				{
+					out << Yaml::Key << "LayoutKind" << Yaml::Value << (int)layout.Kind;
+					out << Yaml::Key << "LayoutPadding" << Yaml::Value << layout.Padding;
+					out << Yaml::Key << "LayoutSpacing" << Yaml::Value << layout.Spacing;
+					out << Yaml::Key << "LayoutCellSize" << Yaml::Value << layout.CellSize;
+					out << Yaml::Key << "LayoutColumns" << Yaml::Value << layout.Columns;
+					out << Yaml::Key << "LayoutAlign" << Yaml::Value << (int)layout.Align;
+					out << Yaml::Key << "LayoutExpand" << Yaml::Value << layout.ExpandChildren;
+				}
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<UIImageComponent>())
+			{
+				const auto& image = entity.GetComponent<UIImageComponent>();
+				out << Yaml::Key << "UIImageComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Color" << Yaml::Value << image.Color;
+				out << Yaml::Key << "Texture" << Yaml::Value;
+				AssetReference::WriteValue(out, image.Texture);
+				if (image.PointFilter)
+					out << Yaml::Key << "PointFilter" << Yaml::Value << true;
+				out << Yaml::EndMap;
+			}
+
+			if (entity.HasComponent<UITextComponent>())
+			{
+				const auto& text = entity.GetComponent<UITextComponent>();
+				out << Yaml::Key << "UITextComponent";
+				out << Yaml::BeginMap;
+				out << Yaml::Key << "Text" << Yaml::Value << text.Text;
+				out << Yaml::Key << "Font" << Yaml::Value;
+				AssetReference::WriteValue(out, text.FontHandle);
+				out << Yaml::Key << "Color" << Yaml::Value << text.Color;
+				out << Yaml::Key << "Size" << Yaml::Value << text.Size;
+				out << Yaml::Key << "LineSpacing" << Yaml::Value << text.LineSpacing;
+				out << Yaml::Key << "AlignH" << Yaml::Value << (int)text.AlignH;
+				out << Yaml::Key << "AlignV" << Yaml::Value << (int)text.AlignV;
+				out << Yaml::Key << "Wrap" << Yaml::Value << text.Wrap;
+				out << Yaml::EndMap;
+			}
+
 			if (entity.HasComponent<RigidBody2DComponent>())
 			{
 				const auto& rb2d = entity.GetComponent<RigidBody2DComponent>();
@@ -1477,6 +1548,56 @@ namespace Lux {
 					component.ShadowColor = text["ShadowColor"].as<glm::vec4>(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
 					component.SortingLayer = text["SortingLayer"].as<uint32_t>(0);
 					component.OrderInLayer = text["OrderInLayer"].as<int32_t>(0);
+				}
+
+				if (const auto canvasNode = entity["UICanvasComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<UICanvasComponent>();
+					component.Enabled = canvasNode["Enabled"].as<bool>(true);
+					component.ScaleMode = (UI::ScaleMode)canvasNode["ScaleMode"].as<int>((int)UI::ScaleMode::ScaleWithScreen);
+					component.ReferenceResolution = canvasNode["ReferenceResolution"].as<glm::vec2>(glm::vec2{ 1920.0f, 1080.0f });
+					component.ScaleFactor = canvasNode["ScaleFactor"].as<float>(1.0f);
+					component.Match = canvasNode["Match"].as<float>(0.5f);
+					component.SortOrder = canvasNode["SortOrder"].as<int32_t>(0);
+				}
+
+				if (const auto elementNode = entity["UIElementComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<UIElementComponent>();
+					component.Visible = elementNode["Visible"].as<bool>(true);
+					component.Rect.AnchorMin = elementNode["AnchorMin"].as<glm::vec2>(glm::vec2{ 0.5f });
+					component.Rect.AnchorMax = elementNode["AnchorMax"].as<glm::vec2>(glm::vec2{ 0.5f });
+					component.Rect.OffsetMin = elementNode["OffsetMin"].as<glm::vec2>(glm::vec2{ -50.0f });
+					component.Rect.OffsetMax = elementNode["OffsetMax"].as<glm::vec2>(glm::vec2{ 50.0f });
+					UI::LayoutGroup& layout = component.Layout;
+					layout.Kind = (UI::LayoutKind)elementNode["LayoutKind"].as<int>((int)UI::LayoutKind::None);
+					layout.Padding = elementNode["LayoutPadding"].as<glm::vec4>(glm::vec4{ 0.0f });
+					layout.Spacing = elementNode["LayoutSpacing"].as<float>(0.0f);
+					layout.CellSize = elementNode["LayoutCellSize"].as<glm::vec2>(glm::vec2{ 100.0f });
+					layout.Columns = elementNode["LayoutColumns"].as<int32_t>(2);
+					layout.Align = (UI::LayoutAlign)elementNode["LayoutAlign"].as<int>((int)UI::LayoutAlign::Start);
+					layout.ExpandChildren = elementNode["LayoutExpand"].as<bool>(false);
+				}
+
+				if (const auto imageNode = entity["UIImageComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<UIImageComponent>();
+					component.Color = imageNode["Color"].as<glm::vec4>(glm::vec4(1.0f));
+					component.Texture = AssetReference::ReadValue(imageNode["Texture"]);
+					component.PointFilter = imageNode["PointFilter"].as<bool>(false);
+				}
+
+				if (const auto uiTextNode = entity["UITextComponent"])
+				{
+					auto& component = deserializedEntity.AddComponent<UITextComponent>();
+					component.Text = uiTextNode["Text"].as<std::string>("");
+					component.FontHandle = AssetReference::ReadValue(uiTextNode["Font"]);
+					component.Color = uiTextNode["Color"].as<glm::vec4>(glm::vec4(1.0f));
+					component.Size = uiTextNode["Size"].as<float>(32.0f);
+					component.LineSpacing = uiTextNode["LineSpacing"].as<float>(0.0f);
+					component.AlignH = (UITextAlignH)uiTextNode["AlignH"].as<int>((int)UITextAlignH::Left);
+					component.AlignV = (UITextAlignV)uiTextNode["AlignV"].as<int>((int)UITextAlignV::Top);
+					component.Wrap = uiTextNode["Wrap"].as<bool>(true);
 				}
 
 				if (const auto rigidBody = entity["RigidBody2DComponent"])
