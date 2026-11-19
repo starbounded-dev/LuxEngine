@@ -179,6 +179,7 @@ namespace Lux::UI
 
 	std::vector<ResolvedCanvas> ResolveLayout(Scene& scene, const glm::vec2& screenSize)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::vector<ResolvedCanvas> canvases;
 		if (screenSize.x < 1.0f || screenSize.y < 1.0f)
 			return canvases;
@@ -208,6 +209,7 @@ namespace Lux::UI
 
 	void CaptureDrawItems(const std::vector<ResolvedCanvas>& canvases, const glm::vec2& screenSize, FrameRenderPacket& packet)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		using Draw2DItem = FrameRenderPacket::Draw2DItem;
 		packet.UIScreenSize = screenSize;
 
@@ -442,6 +444,7 @@ namespace Lux::UI
 
 	std::vector<Event> UpdateInteraction(Scene& scene, InteractionState& state, const glm::vec2& screenSize, const FrameInput& input)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		std::vector<Event> events;
 		std::vector<ResolvedCanvas> canvases = ResolveLayout(scene, screenSize);
 		const Pointer& mouse = input.Mouse;

@@ -52,7 +52,7 @@ that builds but was never run.**
 |---|---|---|---|
 | M1 | **Done (2026-11-15): every Phase 5 check run and passing, F17–F27 fixed (F16(2), the Coral warning, left for the Coral fork); see `docs/HARDENING_PLAN.md`.** **Hardening pass** — run every backlog item marked "builds, not run" (material graph, prefab sync, character controller, fixed update, layouts, quality tiers, area-light shadows, asset-upload fix) | The backlog lists more than a dozen finished features nobody has driven. Each is a release bug waiting | L |
 | M2 | **Skeletal animation** (§2.2) | No characters without it | XL |
-| M3 | **Game UI** (§2.9) | No menus or HUDs without custom code | XL |
+| M3 | **Done 2026-11-19 on Windows (PR #194): canvas, anchors, stack/grid layout, resolution scaling; image (9-slice), text, button, toggle, slider, progress bar, text input, scroll list; keyboard and gamepad focus navigation; C# components and events; captions and sound cues drawn by it; editing in the Game View (select, move, resize, nudge, undo). Checks: `CheckUI*` in `tests/2d/Checks2D.cpp`, `UiTests.cs` in `tests/play`, `UIDemo` in the sample project. Not in 2027.1: world-space UI, rich text, tweens (U7).** **Game UI** (§2.9) | No menus or HUDs without custom code | XL |
 | M4 | **C# API completion** (§2.7): physics queries, scene loading, time, maths types, entity active | Scripts cannot raycast or change scene today | L |
 | M5 | **Beam basics** (§3): never lose work, C# build errors inline, click an error to open the line | The product principle says no external IDE; then the built-in one must be enough | L |
 | M6 | **Done 2026-11-18 on Windows (PR #192): export from the zip with the shipped Dist player and Dist editor, bundled .NET runtime, executable name/version/icon, startup splash, one `Data/` folder, pack obfuscation (plan phases 1-3), Export and Run, Start Scene; `tests/runtime/run_standalone_export.py`. Linux export from the zip layout verified in WSL (llvmpipe). The Windows CI package job built and zipped it (Dist editor + Runtime/Dist); the Linux CI package job has not run (same-repository PRs skip Linux). Open: obfuscation phases 4-7.** **Export that stands alone** (§4): works from the release zip with no source tree, lean layout, no .NET install for players, game name and icon | The whole point of a release | L |
@@ -279,7 +279,7 @@ The most complete system in the engine. Almost nothing to add.
 | E6 | Sound Editor, Mixer, Sound Banks, Audio Debugger, See the Sound | ✔ | KEEP | 27 | — |
 | E7 | **Beam** code editor | ✔ multi-tab editor; ◐ 12-phase plan not started | FINISH the phases behind M5: upstream core, never lose work, search, C# build errors inline, jump to line. Roslyn completion: `27?`. Vim mode, local history: `28` | 27 | L |
 | E8 | Animation tools: clip preview, skeleton view, state-machine graph (reuse the node canvas) | none | ADD with M2 | 27 | L |
-| E9 | UI editor in the Game View | none | ADD with M3 | 27 | L |
+| E9 | UI editor in the Game View | ✔ done (Edit UI in the Game View) | ADD with M3 | 27 | L |
 | E10 | Particle editor | none | ADD with G1 | 27? | M |
 | E11 | Prefab edit mode (open a prefab alone) | ? | Check, ADD | 27? | M |
 | E12 | Play controls: Play, Simulate, Stop, Pause, Step one frame | ✔ Play/Simulate/Stop; ? Pause and Step | ADD what is missing | 27 | S |

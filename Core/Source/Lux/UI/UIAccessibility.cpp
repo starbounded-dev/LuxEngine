@@ -43,6 +43,7 @@ namespace Lux::UI
 
 	void CaptureAccessibility(const glm::vec2& screenSize, FrameRenderPacket& packet)
 	{
+		LUX_PROFILE_FUNCTION_AUTO;
 		using Draw2DItem = FrameRenderPacket::Draw2DItem;
 		if (!AudioAccessibility::IsActive() || !AudioAccessibility::GetConfig().BuiltInUI || screenSize.x < 1.0f || screenSize.y < 1.0f)
 			return;

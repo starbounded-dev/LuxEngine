@@ -18,6 +18,11 @@ namespace PlayTest
 		{
 			var button = FindEntityByName("UIButton");
 			var toggle = FindEntityByName("UIToggle");
+			if (button == null || toggle == null || button.GetComponent<UIWidgetComponent>() == null)
+			{
+				Log.Error($"UiCheck: UIButton found {button != null}, UIToggle found {toggle != null}, widget component {button?.GetComponent<UIWidgetComponent>() != null}");
+				return;
+			}
 			button.GetComponent<UIWidgetComponent>().Clicked += () => m_Clicks++;
 			toggle.GetComponent<UIWidgetComponent>().Toggled += on => { m_Toggles++; m_LastToggle = on; };
 			// Removed again: must never run.
