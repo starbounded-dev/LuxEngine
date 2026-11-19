@@ -8,6 +8,13 @@
 
 #include "Lux/Vendor/TextEditor.h"
 #include "Lux/Vendor/TextDiff.h"
+#include "Lux/Utilities/SourceLocation.h"
+
+#include "Beam/BeamBuildService.h"
+#include "Beam/BeamSearch.h"
+#include "Beam/BeamSession.h"
+
+#include <functional>
 
 #include <filesystem>
 #include <string>
@@ -22,13 +29,23 @@ namespace Lux
 	{
 	public:
 		TextEditorPanel();
-		virtual ~TextEditorPanel() = default;
+		virtual ~TextEditorPanel();
 
 		virtual void OnImGuiRender(bool& isOpen) override;
 		void OnEvent(Event& event) override;
 		void OnClose() override { m_KeyboardFocus = false; }
 
 		void OpenFile(const std::filesystem::path& path);
+		// Opens a file with the cursor on a 1-based line (and column, 0 for none) and brings Beam to the front: what a click on a
+		// compiler error or a console stack trace does.
+		void OpenFileAt(const std::filesystem::path& path, int line, int column = 0);
+
+		// Builds the project's C# scripts (Ctrl+Shift+B): saves the open .cs files, runs the build on its own thread, shows the errors in
+		// place and calls the callback on the main thread when it succeeded (the editor reloads the assembly there).
+		void StartBuild();
+		void SetBuildSucceededCallback(std::function<void()> callback) { m_OnBuildSucceeded = std::move(callback); }
+		bool IsBuilding() const { return m_Build.IsRunning(); }
+		const std::vector<BuildDiagnostic>& GetProblems() const { return m_Problems; }
 		void Save();
 		void SaveAs(const std::filesystem::path& path);
 
@@ -42,6 +59,8 @@ namespace Lux
 		static bool RunPanelControlsSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
 		static bool RunWorkspaceSelfTests(const std::filesystem::path& directory,
 										  std::vector<std::string>& failures);
+		// Beam never loses work, builds C# and shows its errors: real documents, files and a real dotnet build in the runner's project.
+		static bool RunBeamSelfTests(const std::filesystem::path& directory, std::vector<std::string>& failures);
 #endif
 
 	private:
@@ -57,6 +76,15 @@ namespace Lux
 			std::string DisplayPath;
 			std::string TabLabel;
 			ImGuiID TabID = 0;
+
+			// Never lose work: what the file held when this buffer was last in step with it, what the disk says now, and the backup copy.
+			size_t SavedHash = 0;                // of the text on disk; the buffer is dirty exactly when its text hashes differently
+			uint64_t DiskTime = 0;               // the file's last write time when it was loaded or saved
+			bool DiskChanged = false;            // changed on disk while the buffer has unsaved edits
+			bool DiskDeleted = false;
+			std::string BackupName;              // in the session folder, while the buffer is dirty
+			size_t BackedUpVersion = ~size_t(0);
+			double LastBackupTime = 0.0;
 		};
 
 		static bool ReadFileString(const std::filesystem::path& path, std::string& text);
@@ -77,6 +105,28 @@ namespace Lux
 		void RequestCloseDocument(int index);   // prompts before discarding a dirty tab
 		void HandleShortcuts();
 		void RunAction(int action);
+
+		// Never lose work.
+		static size_t HashText(const std::string& text);
+		void MarkSaved(Document& doc);
+		void ReloadDocument(Document& doc);
+		void CheckExternalChanges();
+		void UpdateBackups(bool force = false);
+		void SaveSession();
+		void RestoreSession();
+		std::filesystem::path SessionDirectory() const;
+
+		// Building C# and showing what the compiler said.
+		void HandleBuildResult(ScriptBuildResult& result);
+		void ApplyDiagnosticMarkers(Document& doc);
+		void UI_Problems(float height);
+		float ProblemsHeight() const;
+		// Find in files, in the same strip under the editor as the problems.
+		void StartSearch();
+		void OpenSearch();
+		void UI_Search(float height);
+		void UI_BottomPanel(float height);
+		void UI_FileBars(Document& doc);
 
 		void UI_Toolbar();
 		void UI_Tabs();
@@ -111,5 +161,27 @@ namespace Lux
 		bool m_DiffSideBySide = true;
 
 		std::filesystem::path m_EmptyPath;   // stable empty return for GetCurrentPath()
+
+		BeamBuildService m_Build;
+		std::function<void()> m_OnBuildSucceeded;
+		std::vector<BuildDiagnostic> m_Problems;
+		std::string m_BuildStatus;           // "Building...", "Build succeeded", "Build failed: 2 errors"; empty before the first build
+		bool m_BuildFailed = false;
+		bool m_ShowProblems = true;
+
+		BeamSearch m_Search;
+		std::vector<BeamSearchMatch> m_SearchResults;
+		char m_SearchQuery[256] = {};
+		bool m_ShowSearch = false;
+		bool m_SearchFocus = false;
+		bool m_SearchCase = false;
+		size_t m_SearchFiles = 0;
+		bool m_SearchTruncated = false;
+
+		bool m_SessionRestored = false;
+		bool m_SessionDirty = false;
+		double m_LastSessionSave = 0.0;
+		double m_LastDiskCheck = 0.0;
+		bool m_WasFocused = false;
 	};
 }

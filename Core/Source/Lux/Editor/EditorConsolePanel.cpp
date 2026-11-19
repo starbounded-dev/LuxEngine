@@ -14,10 +14,12 @@
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/ImGui/Colors.h"
 #include "Lux/ImGui/ImGuiEx.h"
+#include "Lux/Project/Project.h"
 #include "Lux/Utilities/StringUtils.h"
 
 #include <imgui/imgui_internal.h>
 
+#include <algorithm>
 #include <format>
 #include <imgui/misc/cpp/imgui_stdlib.h>
 
@@ -461,12 +463,33 @@ namespace Lux {
 					}
 					const ImVec2 textMin = ImGui::GetCursorScreenPos();
 					const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x);
-					if (ImGui::Selectable("##message", false, ImGuiSelectableFlags_SpanAllColumns,
+					if (ImGui::Selectable("##message", false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick,
 										  {0.0f, cellHeight}))
 					{
-						m_DetailedMessage = message.LongMessage;
-						m_DetailedCaption = row.Caption;
-						openDetails = true;
+						// A double click on a message that names a file and line goes there; a click shows the whole message.
+						if (m_OpenSource && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+						{
+							const std::vector<SourceLink> links = FindSourceLinks(message.LongMessage);
+							if (!links.empty())
+								m_OpenSource(links.front().Location);
+						}
+						else
+						{
+							m_DetailedMessage = message.LongMessage;
+							m_DetailedCaption = row.Caption;
+							m_DetailedLinks = m_OpenSource ? FindSourceLinks(message.LongMessage) : std::vector<SourceLink>();
+							openDetails = true;
+						}
+					}
+					if (m_OpenSource && ImGui::IsItemHovered() && message.LongMessage.find(':') != std::string::npos)
+					{
+						// Only looked up while hovered: the file system is not asked for every row of the log.
+						if (const std::vector<SourceLink> links = FindSourceLinks(message.LongMessage); !links.empty())
+						{
+							const auto name = links.front().Location.File.filename().u8string();
+							ImGui::SetTooltip("Double-click to open %s, line %d, in Beam",
+								std::string(reinterpret_cast<const char*>(name.data()), name.size()).c_str(), links.front().Location.Line);
+						}
 					}
 					if (ImGui::BeginPopupContextItem("ConsoleMessageContext"))
 					{
@@ -541,12 +564,81 @@ namespace Lux {
 				m_DetailedPanelOpen = false;
 			}
 			ImGui::TextWrapped("%s", m_DetailedCaption.c_str());
+			if (!m_DetailedLinks.empty())
+			{
+				ImGui::TextUnformatted("Open in Beam:");
+				for (size_t i = 0; i < m_DetailedLinks.size(); ++i)
+				{
+					const SourceLink& link = m_DetailedLinks[i];
+					const auto name = link.Location.File.filename().u8string();
+					ImGui::SameLine();
+					ImGuiEx::ScopedID linkID(static_cast<int>(i));
+					const std::string label = std::format("{}:{}", std::string(reinterpret_cast<const char*>(name.data()), name.size()), link.Location.Line);
+					if (ImGui::SmallButton(label.c_str()))
+					{
+						m_OpenSource(link.Location);
+						ImGui::CloseCurrentPopup();
+						m_DetailedPanelOpen = false;
+					}
+					ImGui::SetItemTooltip("%s", link.Line.c_str());
+					if (i >= 7)
+						break; // a long stack trace: the rest is one click away in the text
+				}
+			}
 			ImGui::Separator();
 			ImGui::BeginChild("##message_text", {0.0f, 0.0f});
 			ImGui::TextWrapped("%s", m_DetailedMessage.c_str());
 			ImGui::EndChild();
 			ImGui::EndPopup();
 		}
+	}
+
+	std::vector<EditorConsolePanel::SourceLink> EditorConsolePanel::FindSourceLinks(const std::string& message)
+	{
+		std::vector<SourceLink> links;
+		size_t begin = 0;
+		while (begin < message.size() && links.size() < 16)
+		{
+			size_t end = message.find('\n', begin);
+			if (end == std::string::npos)
+				end = message.size();
+			const std::string_view line(message.data() + begin, end - begin);
+			begin = end + 1;
+
+			SourceLocation location;
+			if (!FindSourceLocation(line, location))
+				continue;
+
+			// A relative path is the project's: next to the project file, or under its assets.
+			std::error_code error;
+			if (location.File.is_relative())
+			{
+				std::filesystem::path found;
+				if (const Ref<Project> project = Project::GetActive())
+				{
+					for (const std::filesystem::path& root : { project->GetProjectDirectory(), project->GetAssetDirectory() })
+					{
+						if (std::filesystem::exists(root / location.File, error))
+						{
+							found = root / location.File;
+							break;
+						}
+					}
+				}
+				if (found.empty())
+					continue;
+				location.File = found.lexically_normal();
+			}
+			else if (!std::filesystem::exists(location.File, error))
+			{
+				continue;
+			}
+
+			const bool known = std::any_of(links.begin(), links.end(), [&](const SourceLink& link) { return link.Location.File == location.File && link.Location.Line == location.Line; });
+			if (!known)
+				links.push_back({ std::move(location), std::string(line) });
+		}
+		return links;
 	}
 
 	const char* EditorConsolePanel::GetMessageType(const ConsoleMessage& message) const

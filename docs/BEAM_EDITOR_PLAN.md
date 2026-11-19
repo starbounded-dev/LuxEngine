@@ -1,5 +1,7 @@
 # LuxEngine Beam Editor Plan
 
+**M5 scope (2027.1, done 2026-11-19, PR #195):** the plan is cut to what the must-have names. In: Phase 1 (never lose work: atomic save, truthful dirty flag, external-change bar, session and backup restore, shortcut guard), Phase 5 (build C# from Beam with `Lux::Process`, parsed compiler errors as inline markers and a Problems list, reload on success), jump to line (open Beam at a file and line from the Problems list and from console errors, SC7), and find in files. Out for 2027.1: the upstream `TextEditor` swap (Phase 0; folding, word wrap, squiggles), YAML highlighting, the shader service, Roslyn, Vim, local history. Inline errors use the vendored editor's line markers instead of squiggles.
+
 **Status (2026-11-09): not started as planned.** No phase has landed: the vendored editor is still the September copy (no folding or word wrap), and none of the NEW files exist (`Editor/Source/Beam/`, `FuzzyMatch`, `Process.h`, the C# service, Vim, local history, keymaps). The editor remaster (`docs/EDITOR_REMASTER_PLAN.md` Phases 1-2, `974d6acf`) separately improved Beam's tabs, Ctrl+P open-documents list, find/replace, go to line, text zoom and status bar.
 
 The phased design for reworking **Beam**, LuxEngine's in-editor text and code editor, into a fast,

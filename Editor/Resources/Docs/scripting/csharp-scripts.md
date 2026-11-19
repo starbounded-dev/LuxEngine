@@ -37,6 +37,20 @@ use **Save As** inside the dialog to recover to a different destination. Failed 
 the original document path and language. A file that cannot be read reports an error without
 creating an empty replacement document.
 
+## Never losing work
+
+Beam keeps a copy of every unsaved file outside your project a few seconds after you stop typing, and remembers your open tabs. If the editor or the computer stops, reopening the project brings the tabs back, unsaved text included (a tab with a dot is still unsaved). Undoing back to the saved text clears the dot. Saving writes a temporary file first and then replaces the file, so a crash while saving leaves the old or the new version, never half of one.
+
+If a file changes on disk while it is open (a git checkout, another editor), a tab without unsaved changes follows the file. A tab with unsaved changes shows a bar: **Load the disk version**, **Keep my version**, or **Compare**. A file that was deleted keeps its text; **Save** writes it again.
+
+## Building and fixing errors
+
+**Ctrl+Shift+B** (or **Build C#** in the toolbar) saves the open `.cs` files and builds the project's scripts without leaving Beam. The build runs in the background; a **Problems** strip under the editor shows what the compiler said. A failed build marks each error's line (hover the mark for the message) and lists every error and warning there: click one to jump to the line. A good build reloads your scripts, the same as **Ctrl+R**. **Cancel** stops a build in progress. Nothing else needs installing: this uses the .NET SDK the engine already needs.
+
+When a script throws, its stack trace is in the **Log** panel. Double-click a message that names a file and line (a compiler error, a stack trace) to open that place in Beam, or click the message and use **Open in Beam** in its details.
+
+**Ctrl+Shift+F** searches the text files in your project's assets (scripts, shaders, scenes) and lists each matching line; click a result to open it. The search runs in the background and skips cache and build folders and binary files.
+
 ## Create a script
 
 In the **Content Browser**, choose **New → C# Script…** (also in the right-click **New** menu).

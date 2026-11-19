@@ -215,6 +215,12 @@ If an existing helper *almost* does what you need, **extend the helper** in its 
 rather than writing a one-off at the call site. A near-miss utility is a signal to grow it, not to
 route around it.
 
+### Running a program — `Lux::Process`
+
+`Core/Source/Lux/Utilities/Process.h`. To run a tool and read its output, use `Process::Run` with an argument array (no shell, no
+quoting, no console window) from a worker thread; never `std::system`. `ScriptBuilder::Build` is the model: it turns the lines
+into `BuildDiagnostic`s with `ParseCompilerDiagnostic`. `FindSourceLocation` finds a `file:line` in any text.
+
 ### Asset references in saved files — `Lux::AssetReference`
 
 `Core/Source/Lux/Asset/AssetReference.h`. A serializer that writes an asset reference calls

@@ -30,7 +30,10 @@
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Scene/Tilemap.h"
+#include "Lux/Scripting/ScriptBuilder.h"
 #include "Lux/UI/UIAccessibility.h"
+#include "Lux/Utilities/Process.h"
+#include "Lux/Utilities/SourceLocation.h"
 #include "Lux/UI/UIEditor.h"
 #include "Lux/UI/UILayout.h"
 #include "Lux/UI/UISystem.h"
@@ -1979,6 +1982,88 @@ namespace {
 		Check(!result.Select && !session.IsDragging(), "pressing on empty space selects nothing");
 	}
 
+	// ---- M5 Beam: source locations, compiler output, processes, a real build -----------------------
+
+	void CheckSourceLocations()
+	{
+		SourceLocation location;
+		Check(FindSourceLocation("C:\\game\\Source\\Player.cs(12,34): error CS1002: ; expected [C:\\game\\Scripts.csproj]", location)
+			&& location.File == std::filesystem::path("C:\\game\\Source\\Player.cs").lexically_normal() && location.Line == 12 && location.Column == 34, "an MSBuild location is found with its line and column");
+		Check(FindSourceLocation("   at Game.Player.OnUpdate(Single ts) in C:\\My Game\\Source\\Player.cs:line 27", location)
+			&& location.File.filename() == "Player.cs" && location.Line == 27 && location.Column == 0 && location.File.string().find("My Game") != std::string::npos, ".NET stack trace line: the path may hold spaces, and a missing column is 0");
+		Check(FindSourceLocation("/home/me/game/Source/Player.cs:12:34: error: boom", location) && location.File == std::filesystem::path("/home/me/game/Source/Player.cs") && location.Line == 12 && location.Column == 34, "a gcc/glslang style path:line:col");
+		Check(FindSourceLocation("Shader compile failed in Shaders/Foo.glsl:57", location) && location.File == std::filesystem::path("Shaders/Foo.glsl") && location.Line == 57, "a relative path:line inside a sentence");
+		Check(FindSourceLocation("Player.cs(7)", location) && location.Line == 7 && location.Column == 0, "path(line) without a column");
+		Check(!FindSourceLocation("it took 10:30:15 to build", location) && !FindSourceLocation("a:1", location) && !FindSourceLocation("version 2.5(3) done", location) && !FindSourceLocation("no location here", location),
+			"times, one-letter names, version numbers and plain text are not locations");
+		Check(!FindSourceLocation("Foo.cs:0", location), "line 0 is not a line");
+	}
+
+	void CheckCompilerDiagnostics()
+	{
+		BuildDiagnostic diagnostic;
+		Check(ParseCompilerDiagnostic("C:\\game\\Source\\Player.cs(12,34): error CS1002: ; expected [C:\\game\\Scripts.csproj]", diagnostic)
+			&& diagnostic.Severity == DiagnosticSeverity::Error && diagnostic.Code == "CS1002" && diagnostic.Message == "; expected"
+			&& diagnostic.Location.Line == 12 && diagnostic.Location.Column == 34 && diagnostic.Location.File.filename() == "Player.cs", "an error line is split into location, code and message, and the project tag is dropped");
+		Check(ParseCompilerDiagnostic("/g/Source/A.cs(3,9): warning CS0168: The variable 'x' is declared but never used [/g/S.csproj]", diagnostic)
+			&& diagnostic.Severity == DiagnosticSeverity::Warning && diagnostic.Code == "CS0168" && diagnostic.Message.find("never used") != std::string::npos, "a warning, with a message that holds quotes");
+		Check(!ParseCompilerDiagnostic("CSC : error CS8032: An instance of analyzer could not be created", diagnostic), "a message with no file and line is not a diagnostic");
+		Check(!ParseCompilerDiagnostic("Build succeeded.", diagnostic) && !ParseCompilerDiagnostic("  Scripts -> C:\\game\\Binaries\\Scripts.dll", diagnostic), "ordinary build output is not a diagnostic");
+		Check(ParseCompilerDiagnostic("/g/B.cs(1,1): error : plain message", diagnostic) && diagnostic.Code.empty() && diagnostic.Message == "plain message", "an error without a code");
+	}
+
+	void CheckProcess()
+	{
+		std::vector<std::string> lines;
+		ProcessOptions options;
+#ifdef _WIN32
+		options.Arguments = { "cmd", "/c", "echo one&& echo two 1>&2&& exit 3" };
+#else
+		options.Arguments = { "/bin/sh", "-c", "echo one; echo two 1>&2; exit 3" };
+#endif
+		options.OnLine = [&lines](std::string_view line) { lines.emplace_back(line); };
+		ProcessResult result = Process::Run(options);
+		Check(result.Started && result.ExitCode == 3 && lines.size() == 2 && lines[0] == "one" && lines[1].starts_with("two"), "a process's stdout and stderr arrive line by line, in order, with its exit code");
+
+		options.Arguments = { "this-program-does-not-exist-lux" };
+		result = Process::Run(options);
+		Check(!result.Started || result.ExitCode != 0, "a program that does not exist is reported, not run");
+
+		std::atomic<bool> cancel{ false };
+		options.Cancel = &cancel;
+#ifdef _WIN32
+		options.Arguments = { "cmd", "/c", "ping -n 30 127.0.0.1 >nul" };
+#else
+		options.Arguments = { "/bin/sh", "-c", "sleep 30" };
+#endif
+		std::thread stopper([&cancel]() { std::this_thread::sleep_for(std::chrono::milliseconds(300)); cancel = true; });
+		const auto began = std::chrono::steady_clock::now();
+		result = Process::Run(options);
+		stopper.join();
+		Check(result.Started && result.Cancelled && std::chrono::steady_clock::now() - began < std::chrono::seconds(10), "a running process stops when it is cancelled");
+	}
+
+	void CheckScriptBuild(const std::filesystem::path& root)
+	{
+		const std::filesystem::path project = root / "Beam" / "Scripts" / "Scripts.csproj";
+		std::filesystem::create_directories(project.parent_path() / "Source");
+		WriteText(project, "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <OutputType>Library</OutputType>\n"
+			"    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>\n    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n    <OutputPath>Binaries\\</OutputPath>\n  </PropertyGroup>\n  <ItemGroup>\n    <Compile Include=\"Source\\**\\*.cs\" />\n  </ItemGroup>\n</Project>\n");
+		WriteText(project.parent_path() / "Source" / "Good.cs", "public class Good { public int Value() { return 1; } }\n");
+		WriteText(project.parent_path() / "Source" / "Bad.cs", "public class Bad\n{\n    public int Value()\n    {\n        return missing;\n    }\n}\n");
+
+		ScriptBuildResult result = ScriptBuilder::Build(project, "Debug");
+		bool foundBad = false;
+		for (const BuildDiagnostic& diagnostic : result.Diagnostics)
+			foundBad |= diagnostic.Location.File.filename() == "Bad.cs" && diagnostic.Location.Line == 5 && diagnostic.Code == "CS0103" && diagnostic.Severity == DiagnosticSeverity::Error;
+		Check(!result.Success && result.ExitCode != 0 && foundBad, "a real dotnet build reports a compile error with its file, line and code");
+		Check(!result.Output.empty(), "and keeps what the compiler printed");
+
+		std::filesystem::remove(project.parent_path() / "Source" / "Bad.cs");
+		result = ScriptBuilder::Build(project, "Debug");
+		Check(result.Success && result.Diagnostics.empty() && std::filesystem::exists(project.parent_path() / "Binaries" / "Scripts.dll"), "after the error is fixed the build succeeds and writes the assembly");
+	}
+
 	void CheckUIScene(const std::filesystem::path& root)
 	{
 		Ref<Scene> scene = Ref<Scene>::Create();
@@ -2121,6 +2206,10 @@ int main(int argc, char** argv)
 	CheckUINavigation();
 	CheckUICaptions();
 	CheckUIEditing();
+	CheckSourceLocations();
+	CheckCompilerDiagnostics();
+	CheckProcess();
+	CheckScriptBuild(outDir);
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

@@ -570,7 +570,16 @@ namespace Lux {
 		m_PanelManager->AddPanel<PropertiesPanel>(PanelCategory::View, "PropertiesPanel", "Properties", true, m_SceneHierarchyPanel);
 		Ref<ContentBrowserPanel> contentBrowserPanel = m_PanelManager->AddPanel<ContentBrowserPanel>(PanelCategory::View, CONTENT_BROWSER_PANEL_ID, "Content Browser", true);
 		Ref<TextEditorPanel> textEditorPanel = m_PanelManager->AddPanel<TextEditorPanel>(PanelCategory::View, "TextEditorPanel", "Beam", true);
+		// Beam builds the C# scripts on its own thread; the editor loads the new assembly when the build succeeded.
+		textEditorPanel->SetBuildSucceededCallback([this]() { ReloadScriptsWithFeedback(); });
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
+		// A click on a file and line in a console message (a compiler error, a C# stack trace) opens it in Beam.
+		m_ConsolePanel->SetOpenSourceCallback([this, textEditorPanel](const SourceLocation& location) mutable
+		{
+			textEditorPanel->OpenFileAt(location.File, location.Line, location.Column);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("TextEditorPanel")))
+				panelData->IsOpen = true;
+		});
 		m_GameViewPanel = m_PanelManager->AddPanel<GameViewPanel>(PanelCategory::View, GAME_VIEW_PANEL_ID, "Game View", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
@@ -988,6 +997,21 @@ namespace Lux {
 			status += ".status";
 			if (!FileSystem::WriteFileAtomically(status, report))
 				LUX_CORE_ERROR_TAG("Editor", "Cannot publish browser-panel self-test report");
+			Application::Get().QueueEvent([]()
+										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
+		if (FileSystem::HasEnvironmentVariable("LUX_BEAM_SELFTEST"))
+		{
+			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_BEAM_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = TextEditorPanel::RunBeamSelfTests(directory, failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish Beam self-test report");
 			Application::Get().QueueEvent([]()
 										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 		}

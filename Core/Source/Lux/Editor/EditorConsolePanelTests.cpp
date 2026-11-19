@@ -2,6 +2,7 @@
 // Copyright (c) 2025-2026 starbounded-dev
 
 #include "lpch.h"
+#include <fstream>
 #include "EditorConsolePanel.h"
 
 #ifndef LUX_DIST
@@ -42,6 +43,21 @@ namespace Lux
 			int fontWidth = 0, fontHeight = 0;
 			io.Fonts->GetTexDataAsRGBA32(&pixels, &fontWidth, &fontHeight);
 			OnProjectChanged(nullptr);
+			{
+				// Source links: a compiler error and a .NET stack trace name files that exist; a time stamp and a missing file do not.
+				const std::filesystem::path existing = std::filesystem::temp_directory_path() / "lux_console_link_test.cs";
+				{
+					std::ofstream(existing) << "class A {}";
+				}
+				const std::string text = std::format("Build failed\n{}(12,5): error CS0103: nope\n   at Game.Player.OnUpdate() in {}:line 27\n   at Game.Player.OnUpdate() in {}:line 27\n"
+					"   at Game.Gone.Run() in C:\\no\\such\\file.cs:line 3\nelapsed 10:30:15", existing.string(), existing.string(), existing.string());
+				const auto links = FindSourceLinks(text);
+				std::filesystem::remove(existing);
+				require(links.size() == 2, "Source links must list each distinct existing file and line once");
+				require(links[0].Location.Line == 12 && links[0].Location.Column == 5 && links[1].Location.Line == 27, "Source links must keep the compiler's line and the stack trace's line");
+				require(links[0].Line.find("CS0103") != std::string::npos, "A source link must keep its message line for the tooltip");
+				require(FindSourceLinks("plain text with no place in it").empty(), "A message without a location has no links");
+			}
 			for (int row = 0; row < 180; ++row)
 				AppendMessage({"Repeated ## literal message", std::format("Full message {}", row),
 							   row % 2 ? "B" : "A", static_cast<int16_t>(BIT(row % 3)),
