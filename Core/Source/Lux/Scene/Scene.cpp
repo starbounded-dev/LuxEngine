@@ -1481,7 +1481,7 @@ namespace Lux {
 			const auto& component = view.get<ParticleSystemComponent>(e);
 			const Entity entity{ e, this };
 			const UUID id = entity.GetUUID();
-			if (!component.Enabled || IsInactive(e) || (editorPreview && !component.PreviewInEditor))
+			if (!component.Enabled || IsInactive(e) || (editorPreview && !component.PreviewInEditor && id != m_ParticlePreviewEntity))
 			{
 				if (editorPreview)
 					m_ParticleStates.erase(id);

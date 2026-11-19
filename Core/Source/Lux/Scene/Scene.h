@@ -313,6 +313,8 @@ namespace Lux {
 		Particles::State* GetParticleState(Entity entity);
 		// The same, made when it is not there yet (a script plays a system before the first step). Null without the component.
 		Particles::State* GetOrCreateParticleState(Entity entity, bool emitting);
+		// The entity whose system plays in the editor besides the ones with Preview In Editor on (the Particle Editor's selection); 0 for none.
+		void SetParticlePreviewEntity(UUID entityID) { m_ParticlePreviewEntity = entityID; }
 		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
 		// higher draws later, on top. Other entities return 0. The editor uses it to pick the visible one.
 		int64_t GetDrawOrder(Entity entity);
@@ -495,6 +497,7 @@ namespace Lux {
 
 		// Live particles per ParticleSystemComponent entity: runtime state, never serialized or copied.
 		std::unordered_map<UUID, Particles::State> m_ParticleStates;
+		UUID m_ParticlePreviewEntity = 0;
 
 	public:
 		ScriptStorage& GetScriptStorage() { return m_ScriptStorage; }

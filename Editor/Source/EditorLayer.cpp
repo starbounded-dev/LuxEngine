@@ -76,6 +76,7 @@
 #include "Panels/SoundBankEditorPanel.h"
 #include "Panels/SpriteSheetEditorPanel.h"
 #include "Panels/TilePalettePanel.h"
+#include "Panels/ParticleEditorPanel.h"
 
 #include "Lux/Scene/Prefab.h"
 #include "Lux/Asset/PrefabSerializer.h"
@@ -124,6 +125,7 @@ namespace Lux {
 #define SOUND_BANK_EDITOR_PANEL_ID "SoundBankEditorPanel"
 #define SPRITE_SHEET_EDITOR_PANEL_ID "SpriteSheetEditorPanel"
 #define TILE_PALETTE_PANEL_ID "TilePalettePanel"
+#define PARTICLE_EDITOR_PANEL_ID "ParticleEditorPanel"
 #define HELP_PANEL_ID "HelpPanel"
 
 	namespace {
@@ -646,6 +648,13 @@ namespace Lux {
 				panelData->IsOpen = true;
 		});
 
+		m_ParticleEditorPanel = m_PanelManager->AddPanel<ParticleEditorPanel>(PanelCategory::View, PARTICLE_EDITOR_PANEL_ID, "Particle Editor", false);
+		m_SceneHierarchyPanel->SetOpenParticleEditorCallback([this]()
+		{
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash(PARTICLE_EDITOR_PANEL_ID)))
+				panelData->IsOpen = true;
+		});
+
 		Ref<AudioMixerPanel> audioMixerPanel = m_PanelManager->AddPanel<AudioMixerPanel>(PanelCategory::View, AUDIO_MIXER_PANEL_ID, "Audio Mixer", false);
 		audioMixerPanel->SetUndoCallback([this](const std::string& label, std::function<void()> undo, std::function<void()> redo)
 		{
@@ -1015,6 +1024,21 @@ namespace Lux {
 			Application::Get().QueueEvent([]()
 										  { Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
 		}
+		if (FileSystem::HasEnvironmentVariable("LUX_PARTICLE_SELFTEST"))
+		{
+			const std::filesystem::path directory = FileSystem::GetEnvironmentVariable("LUX_PARTICLE_SELFTEST");
+			std::vector<std::string> failures;
+			const bool passed = ParticleEditorPanel::RunSelfTests(failures);
+			std::string report = passed ? "PASS\n" : "FAIL\n";
+			for (const auto& failure : failures)
+				report += failure + '\n';
+			std::filesystem::path status = directory;
+			status += ".status";
+			if (!FileSystem::WriteFileAtomically(status, report))
+				LUX_CORE_ERROR_TAG("Editor", "Cannot publish the particle self-test report");
+			Application::Get().QueueEvent([]()
+											{ Application::Get().DispatchEvent<WindowCloseEvent, true>(); });
+		}
 		if (FileSystem::HasEnvironmentVariable("LUX_WORKSPACE_DOCUMENTS_SELFTEST"))
 		{
 			const std::filesystem::path directory =
@@ -1250,7 +1274,12 @@ namespace Lux {
 		case SceneState::Edit:
 		{
 			viewportCamera.OnUpdate(ts);
-			// Systems that ask for it play in the editor (the Particle System's Preview In Editor).
+			// Systems that ask for it play in the editor (the Particle System's Preview In Editor), and the one the Particle Editor shows.
+			if (m_ParticleEditorPanel)
+			{
+				m_ParticleEditorPanel->SetTarget(m_SceneHierarchyPanel ? m_SceneHierarchyPanel->GetSelectedEntity() : Entity{});
+				m_ActiveScene->SetParticlePreviewEntity(m_ParticleEditorPanel->GetPreviewEntity());
+			}
 			m_ActiveScene->UpdateParticles(ts, true);
 
 			// When SceneRenderer is ready, let it own the full visible frame and

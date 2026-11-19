@@ -2392,6 +2392,13 @@ namespace {
 		for (uint32_t i = 1; i < Curve::MaxKeys; i++)
 			full.Add(static_cast<float>(i) / 10.0f, 1.0f);
 		Check(full.Count == Curve::MaxKeys && !full.Add(0.95f, 1.0f), "curve: no more than eight keys");
+		Curve removable = Curve::Linear(0.0f, 1.0f);
+		removable.Add(0.5f, 3.0f);
+		Check(removable.Remove(1) && removable.Count == 2 && Near(removable.Evaluate(0.5f), 0.5f) && !removable.Remove(7), "curve: a key can be removed, an unknown one cannot");
+		Curve single(1.0f);
+		Check(!single.Remove(0) && single.Count == 1, "curve: the last key stays");
+		Gradient removableGradient = Gradient::Fade(glm::vec4(1.0f));
+		Check(removableGradient.Remove(0) && removableGradient.Count == 1 && !removableGradient.Remove(0), "gradient: a key can be removed, the last one stays");
 
 		Gradient fade = Gradient::Fade(glm::vec4(1.0f, 0.5f, 0.0f, 1.0f));
 		const glm::vec4 mid = fade.Evaluate(0.5f);

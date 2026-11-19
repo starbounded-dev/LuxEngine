@@ -249,6 +249,16 @@ namespace Lux::Particles
 		return true;
 	}
 
+	bool Curve::Remove(uint32_t index)
+	{
+		if (Count <= 1 || index >= Count)
+			return false;
+		for (uint32_t i = index; i + 1 < Count; i++)
+			Keys[i] = Keys[i + 1];
+		Count--;
+		return true;
+	}
+
 	bool Curve::operator==(const Curve& other) const
 	{
 		if (Count != other.Count)
@@ -296,6 +306,16 @@ namespace Lux::Particles
 		}
 		Keys[at] = { t, color };
 		Count++;
+		return true;
+	}
+
+	bool Gradient::Remove(uint32_t index)
+	{
+		if (Count <= 1 || index >= Count)
+			return false;
+		for (uint32_t i = index; i + 1 < Count; i++)
+			Keys[i] = Keys[i + 1];
+		Count--;
 		return true;
 	}
 

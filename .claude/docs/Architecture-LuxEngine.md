@@ -2719,6 +2719,15 @@ releasing, `Emit` works either way). C#: `ParticleSystemComponent` (`ScriptCore/
 in `ScriptGlue.cpp`) reaches the live state through `Scene::GetOrCreateParticleState`, so a script may play a system
 before the scene's first step; `tests/play/Scripts/ParticleTests.cs` checks it in Play.
 
+Editor (E10): `Core/Source/Lux/Editor/ParticleWidgets.{h,cpp}` draws a `Particles::Curve` and a `Particles::Gradient` (drag a key, double-click
+to add, right-click to remove, the end keys keep their time; every change calls `ImGui::MarkItemEdited` so the editor's snapshot undo sees it
+like a property) and `PropertyCurve` / `PropertyGradient` put them in a property grid row. `Editor/Source/Panels/ParticleEditorPanel` shows the
+selected entity's system (`SetTarget` each frame from `EditorLayer`'s Edit state), with Play/Pause/Restart/Step/Clear and the live count; it
+names the system to preview through `GetPreviewEntity`, which `EditorLayer` hands to `Scene::SetParticlePreviewEntity` before
+`UpdateParticles(ts, true)`, so a previewed system plays without `PreviewInEditor`. `ParticleEditorPanel::RunSelfTests`
+(`LUX_PARTICLE_SELFTEST`, `tests/editor/run_particles.py`) drives the widgets with real mouse events in a private ImGui context and renders the
+panel in each state.
+
 ### 2.12 Project
 
 `Project` (`Project/Project.h`) is `Ref`-counted with a static active-project slot. Path accessors:

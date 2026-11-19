@@ -30,6 +30,8 @@ namespace Lux::Particles
 		float Evaluate(float t) const;
 		// Adds a key in time order; false when full. Keys at the same time replace each other.
 		bool Add(float t, float value);
+		// Removes a key; false for the only key.
+		bool Remove(uint32_t index);
 		bool operator==(const Curve& other) const;
 	};
 
@@ -48,6 +50,7 @@ namespace Lux::Particles
 
 		glm::vec4 Evaluate(float t) const;
 		bool Add(float t, const glm::vec4& color);
+		bool Remove(uint32_t index);
 		bool operator==(const Gradient& other) const;
 	};
 

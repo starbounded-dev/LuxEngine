@@ -5,6 +5,7 @@
 #include "Lux/ImGui/AudioWidgets.h"
 
 #include "SceneHierarchyPanel.h"
+#include "ParticleWidgets.h"
 
 #include "Lux/Audio/AudioEngine.h"
 #include "Lux/Audio/Sound.h"
@@ -4185,15 +4186,8 @@ namespace Lux {
 						changed = true;
 					}
 				};
-				// The first and last key of a curve or gradient; the full editors arrive with the Particle Editor panel.
-				const auto curveEnds = [&changed](const char* from, const char* to, Curve& c)
-				{
-					Curve::Key& a = c.Keys[0];
-					Curve::Key& b = c.Keys[c.Count > 1 ? c.Count - 1 : 0];
-					changed |= ImGuiEx::Property(from, a.Value, 0.01f, 0.0f, 100.0f);
-					if (c.Count > 1)
-						changed |= ImGuiEx::Property(to, b.Value, 0.01f, 0.0f, 100.0f);
-				};
+				if (m_OpenParticleEditorCallback && ImGui::Button("Open Particle Editor"))
+					m_OpenParticleEditorCallback();
 
 				ImGui::SeparatorText("Emission");
 				ImGuiEx::BeginPropertyGrid();
@@ -4260,15 +4254,9 @@ namespace Lux {
 
 				ImGui::SeparatorText("Over Life");
 				ImGuiEx::BeginPropertyGrid();
-				curveEnds("Size At Birth", "Size At Death", s.SizeOverLife);
-				curveEnds("Speed At Birth", "Speed At Death", s.SpeedOverLife);
-				{
-					Gradient::Key& a = s.ColorOverLife.Keys[0];
-					Gradient::Key& b = s.ColorOverLife.Keys[s.ColorOverLife.Count > 1 ? s.ColorOverLife.Count - 1 : 0];
-					changed |= ImGuiEx::PropertyColor("Color At Birth", a.Color);
-					if (s.ColorOverLife.Count > 1)
-						changed |= ImGuiEx::PropertyColor("Color At Death", b.Color);
-				}
+				changed |= ParticleWidgets::PropertyCurve("Size Over Life", s.SizeOverLife, 4.0f, "A multiplier on the start size from birth (left) to death (right). Double-click to add a key, right-click a key to remove it.");
+				changed |= ParticleWidgets::PropertyCurve("Speed Over Life", s.SpeedOverLife, 4.0f, "A multiplier on the particle's speed over its life.");
+				changed |= ParticleWidgets::PropertyGradient("Color Over Life", s.ColorOverLife, "Multiplied by the start color from birth (left) to death (right).");
 				ImGuiEx::EndPropertyGrid();
 
 				ImGui::SeparatorText("Texture Sheet");

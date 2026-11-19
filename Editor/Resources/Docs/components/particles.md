@@ -20,7 +20,11 @@ A system plays when the scene plays. Turn on **Preview In Editor** to watch it w
 
 ## Over life
 
-**Size**, **Speed** and **Color** change from a particle's birth to its death. By default the color fades out. The Particle Editor panel draws these as curves and gradients with up to eight keys.
+**Size**, **Speed** and **Color** change from a particle's birth to its death, drawn as two curves and a gradient with up to eight keys. By default the color fades out. Drag a key to move it (the first and last keys move up and down only), double-click an empty place to add one, right-click a key to remove it. A curve is a multiplier on the start value; the gradient is multiplied by the start color.
+
+## The Particle Editor
+
+**Open Particle Editor** on the component (or **View > Particle Editor**) opens a panel for the selected system. With **Preview** on, the system plays in the editor without pressing Play: **Pause** and **Play** freeze and resume it, **Restart** starts it over, **Step** moves it one frame while paused, **Clear** removes the particles in the air. It shows how many particles are alive against Max Particles, how far into its duration the system is, and how many releases were dropped because the limit was reached. The panel holds the over-life curves and gradient with more room; the inspector keeps every other setting.
 
 ## Texture sheet
 
