@@ -573,6 +573,13 @@ namespace Lux {
 		// Beam builds the C# scripts on its own thread; the editor loads the new assembly when the build succeeded.
 		textEditorPanel->SetBuildSucceededCallback([this]() { ReloadScriptsWithFeedback(); });
 		m_ConsolePanel = m_PanelManager->AddPanel<EditorConsolePanel>(PanelCategory::View, CONSOLE_PANEL_ID, "Log", true);
+		// A click on a file and line in a console message (a compiler error, a C# stack trace) opens it in Beam.
+		m_ConsolePanel->SetOpenSourceCallback([this, textEditorPanel](const SourceLocation& location) mutable
+		{
+			textEditorPanel->OpenFileAt(location.File, location.Line, location.Column);
+			if (PanelData* panelData = m_PanelManager->GetPanelData(Hash::GenerateFNVHash("TextEditorPanel")))
+				panelData->IsOpen = true;
+		});
 		m_GameViewPanel = m_PanelManager->AddPanel<GameViewPanel>(PanelCategory::View, GAME_VIEW_PANEL_ID, "Game View", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);

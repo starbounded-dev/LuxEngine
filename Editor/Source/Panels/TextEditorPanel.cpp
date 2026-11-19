@@ -32,7 +32,7 @@ namespace Lux
 		enum class BeamAction
 		{
 			New, Save, Find, Editor, Diff, SaveAs, GoToLine, Close, Open, Documents, ZoomIn, ZoomOut,
-			ZoomReset, LineNumbers, Minimap, Build, Problems
+			ZoomReset, LineNumbers, Minimap, Build, Problems, FindInFiles
 		};
 
 		constexpr double k_BackupInterval = 3.0;      // seconds between a dirty buffer's backups
@@ -608,7 +608,7 @@ namespace Lux
 
 	float TextEditorPanel::ProblemsHeight() const
 	{
-		if (!m_ShowProblems || (m_Problems.empty() && m_BuildStatus.empty()))
+		if (!m_ShowSearch && (!m_ShowProblems || (m_Problems.empty() && m_BuildStatus.empty())))
 			return 0.0f;
 		return std::min(ImGui::GetFontSize() * 11.0f, ImGui::GetContentRegionAvail().y * 0.4f);
 	}
@@ -657,6 +657,99 @@ namespace Lux
 				const SourceLocation location = m_Problems[jump].Location;
 				OpenFileAt(location.File, location.Line, location.Column);
 			}
+		}
+		ImGui::EndChild();
+	}
+
+	void TextEditorPanel::OpenSearch()
+	{
+		m_ShowSearch = true;
+		m_SearchFocus = true;
+		m_RequestFocus = true;
+	}
+
+	void TextEditorPanel::StartSearch()
+	{
+		m_SearchResults.clear();
+		m_SearchFiles = 0;
+		m_SearchTruncated = false;
+		if (!Project::GetActive())
+			return;
+		BeamSearchOptions options;
+		options.Query = m_SearchQuery;
+		options.CaseSensitive = m_SearchCase;
+		options.Root = Project::GetActiveAssetDirectory();
+		m_Search.Start(options);
+	}
+
+	void TextEditorPanel::UI_BottomPanel(float height)
+	{
+		if (m_ShowSearch)
+			UI_Search(height);
+		else
+			UI_Problems(height);
+	}
+
+	void TextEditorPanel::UI_Search(float height)
+	{
+		if (height <= 0.0f)
+			return;
+		if (ImGui::BeginChild("beam_search", {0.0f, height}, ImGuiChildFlags_Borders))
+		{
+			if (m_SearchFocus)
+			{
+				ImGui::SetKeyboardFocusHere();
+				m_SearchFocus = false;
+			}
+			ImGui::SetNextItemWidth(std::max(ImGui::GetFontSize() * 6.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFontSize() * 11.0f));
+			bool search = ImGui::InputTextWithHint("##beam_search_query", "Find in files (Enter)", m_SearchQuery, sizeof(m_SearchQuery), ImGuiInputTextFlags_EnterReturnsTrue);
+			ImGui::SameLine();
+			search |= ImGui::Checkbox("Aa##beam_search_case", &m_SearchCase);
+			ImGui::SetItemTooltip("Match case");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Close##beam_search_close"))
+				m_ShowSearch = false;
+			if (search)
+				StartSearch();
+
+			const bool running = m_Search.IsRunning();
+			if (running)
+				ImGui::TextUnformatted("Searching...");
+			else if (m_SearchQuery[0])
+				ImGui::Text("%zu match%s in %zu file%s searched%s", m_SearchResults.size(), m_SearchResults.size() == 1 ? "" : "es", m_SearchFiles, m_SearchFiles == 1 ? "" : "s",
+					m_SearchTruncated ? " (the first matches only)" : "");
+			else
+				ImGui::TextUnformatted("Searches the project's assets: scripts, shaders, scenes and other text files.");
+
+			if (ImGui::BeginChild("beam_search_results", {0.0f, 0.0f}))
+			{
+				const std::filesystem::path root = Project::GetActive() ? Project::GetActiveAssetDirectory() : std::filesystem::path();
+				int jump = -1;
+				ImGuiListClipper clipper;
+				clipper.Begin(static_cast<int>(m_SearchResults.size()));
+				while (clipper.Step())
+				{
+					for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+					{
+						const BeamSearchMatch& match = m_SearchResults[i];
+						std::error_code error;
+						std::filesystem::path shown = std::filesystem::relative(match.File, root, error);
+						if (error || shown.empty())
+							shown = match.File.filename();
+						const auto shownText = shown.generic_u8string();
+						const std::string label = std::format("{}:{}  {}", std::string(reinterpret_cast<const char*>(shownText.data()), shownText.size()), match.Line, match.Text);
+						ImGuiEx::ScopedID id(i);
+						if (ImGui::Selectable(label.c_str()))
+							jump = i;
+					}
+				}
+				if (jump >= 0)
+				{
+					const BeamSearchMatch match = m_SearchResults[jump];
+					OpenFileAt(match.File, match.Line, match.Column);
+				}
+			}
+			ImGui::EndChild();
 		}
 		ImGui::EndChild();
 	}
@@ -946,6 +1039,8 @@ namespace Lux
 		};
 		if (io.KeyShift && pressed(ImGuiKey_B))
 			StartBuild();
+		else if (io.KeyShift && pressed(ImGuiKey_F))
+			OpenSearch();
 		else if (pressed(ImGuiKey_N))
 			NewDocument();
 		else if (pressed(ImGuiKey_O))
@@ -1044,6 +1139,10 @@ namespace Lux
 			break;
 		case BeamAction::Problems:
 			m_ShowProblems = !m_ShowProblems;
+			m_ShowSearch = false;
+			break;
+		case BeamAction::FindInFiles:
+			OpenSearch();
 			break;
 		case BeamAction::Minimap:
 			m_ShowMinimap = !m_ShowMinimap;
@@ -1074,6 +1173,7 @@ namespace Lux
 			{static_cast<int>(BeamAction::ZoomReset), "Reset Zoom", nullptr, "Ctrl+0", true, false, false, true},
 			{static_cast<int>(BeamAction::LineNumbers), "Line Numbers", nullptr, nullptr, true, m_ShowLineNumbers, false, true},
 			{static_cast<int>(BeamAction::Minimap), "Minimap", nullptr, nullptr, true, m_ShowMinimap, false, true},
+			{static_cast<int>(BeamAction::FindInFiles), "Find in Files...", nullptr, "Ctrl+Shift+F", Project::GetActive() != nullptr, false, false, true},
 			{static_cast<int>(BeamAction::Problems), "Problems", nullptr, nullptr, true, m_ShowProblems, false, true}
 		};
 		RunAction(ImGuiEx::PanelActionBar("beam_actions", actions));
@@ -1316,6 +1416,7 @@ namespace Lux
 				HandleBuildResult(buildResult);
 			if (m_Build.IsRunning())
 				m_BuildStatus = "Building... " + m_Build.GetLatestLine();
+			m_Search.Poll(m_SearchResults, m_SearchFiles, m_SearchTruncated);
 			UpdateBackups();
 			if (m_SessionDirty && now - m_LastSessionSave >= k_SessionInterval)
 				SaveSession();
@@ -1363,7 +1464,7 @@ namespace Lux
 			RunAction(ImGuiEx::PanelEmptyState("beam_empty", "No file open",
 				"Create a text file here, or open an existing file from the Content Browser. "
 				"Your open files stay with you when you change workspaces.", create));
-			UI_Problems(ProblemsHeight());
+			UI_BottomPanel(ProblemsHeight());
 			ImGui::End();
 			return;
 		}
@@ -1396,7 +1497,7 @@ namespace Lux
 			doc->Editor.Render(editorId.c_str(), {-1.0f, height}, true);
 		}
 		RefreshDirty(*doc);
-		UI_Problems(problemsHeight);
+		UI_BottomPanel(problemsHeight);
 
 		UI_StatusBar(*doc);
 

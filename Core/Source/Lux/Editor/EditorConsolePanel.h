@@ -8,10 +8,12 @@
 #include "EditorConsole/ConsoleMessage.h"
 
 #include "Lux/Renderer/Texture.h"
+#include "Lux/Utilities/SourceLocation.h"
 
 #include <imgui/imgui.h>
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 #include <set>
 #include <string>
@@ -32,6 +34,19 @@ namespace Lux {
 #endif
 
 		void Focus();
+
+		// A click on a message with a file and line in it (a compiler error, a C# stack trace, a shader error) opens that place: the
+		// editor gives the console a way to open Beam, and the console only finds the places.
+		void SetOpenSourceCallback(std::function<void(const SourceLocation&)> callback) { m_OpenSource = std::move(callback); }
+
+		struct SourceLink
+		{
+			SourceLocation Location;
+			std::string Line; // the message line it came from, for the tooltip
+		};
+		// Every distinct file and line named in a message's lines whose file exists. Relative paths are looked for under the project and
+		// its assets.
+		static std::vector<SourceLink> FindSourceLinks(const std::string& message);
 
 		// Honours the "Clear on Play" toggle. Called by the editor when a Play session starts.
 		void OnScenePlay();
@@ -85,6 +100,9 @@ namespace Lux {
 		bool m_EnableScrollToLatest = true;
 
 		int16_t m_MessageFilters = (int16_t)ConsoleMessageFlags::All;
+
+		std::function<void(const SourceLocation&)> m_OpenSource;
+		std::vector<SourceLink> m_DetailedLinks;
 
 		bool m_DetailedPanelOpen = false;
 		std::string m_DetailedMessage;

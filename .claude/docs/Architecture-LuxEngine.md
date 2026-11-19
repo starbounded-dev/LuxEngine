@@ -1377,6 +1377,22 @@ Split between engine-owned framework (`Core/Source/Lux/Editor/`) and the editor 
   callback; rapid edits cannot evade the close prompt or mark freshly saved text dirty later.
   Layout changes keep the same Beam document objects. All of this runs on main; no renderer or
   asset data flow changes.
+  M5 (never lose work, build, jump to line): `Editor/Source/Beam/`. `BeamSession` keeps, per project and under
+  `FileSystem::GetPersistentStoragePath()/Beam/<hash>/`, a `session.txt` (open tabs, active tab, cursors) and one
+  `backup_*.txt` per dirty buffer; `TextEditorPanel` writes backups ~3 s after a change (`UpdateBackups`), saves the
+  session on tab changes, restores it on its first frame with a project open (`RestoreSession`), and does both at
+  destruction. `Document::SavedHash` makes "dirty" mean "different from the file" (compared only when the editor's change
+  version moved, so undo back to the saved text clears it; `SetText` is not an edit and must be followed by `MarkSaved`).
+  `CheckExternalChanges` (every second and on focus) compares `FileSystem::GetLastWriteTime`: unedited buffers reload,
+  edited ones get the bar (`UI_FileBars`). `BeamBuildService` runs `ScriptBuilder::Build` on a `Lux::Thread`; `Lux::Process`
+  (`Core/Platform/*/*Process.cpp`) spawns `dotnet build` with captured output and no shell; `ParseCompilerDiagnostic`
+  (`Lux/Utilities/SourceLocation`) turns MSBuild lines into `BuildDiagnostic`s; `HandleBuildResult` fills the Problems
+  strip, adds line markers to the open documents and calls the editor's callback (`ReloadScriptsWithFeedback`) on success.
+  `BeamSearch` is find in files on its own thread (matches come back in batches, a generation counter cancels). The
+  console (`EditorConsolePanel::FindSourceLinks`) finds `file:line` in a message and calls
+  `SetOpenSourceCallback`, which opens `TextEditorPanel::OpenFileAt`. Self-tests: `TextEditorPanel::RunBeamSelfTests`
+  (`tests/editor/run_beam.py`, a real editor and a real `dotnet build`), `CheckSourceLocations` / `CheckCompilerDiagnostics` /
+  `CheckProcess` / `CheckScriptBuild` in `tests/2d/Checks2D.cpp`.
   Beam caches UTF-8 document labels when paths/lifetimes change, disambiguates duplicate basenames
   with parent suffixes, and tracks native tab order separately from the owning document vector.
   Open Documents, Go to Line and close decisions remain in Beam; popup submission clears pending

@@ -58,6 +58,8 @@ Handled in `TextEditorPanel::HandleShortcuts` (`Editor/Source/Panels/TextEditorP
 | `Ctrl+W` | Close current tab |
 | `Ctrl+F` | Find / Replace |
 | `Ctrl+G` | Go to line |
+| `Ctrl+Shift+B` | Build the project's C# scripts (saves open `.cs` files; errors show in place) |
+| `Ctrl+Shift+F` | Find in files (the project's assets) |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | Next / previous tab |
 
 (`Ctrl+Tab` is intentionally avoided — reserved by ImGui for window navigation.)

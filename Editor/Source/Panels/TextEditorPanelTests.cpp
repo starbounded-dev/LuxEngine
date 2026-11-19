@@ -19,6 +19,7 @@
 #include "Lux/Renderer/MaterialGraph/MaterialGraph.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/FileSystem.h"
+#include "Beam/BeamSearch.h"
 
 #include <imgui/imgui_internal.h>
 
@@ -203,6 +204,49 @@ namespace Lux
 				frame(beam);
 				beam.ActiveDocument()->Editor.GetCurrentCursor(line, column);
 				Require(line == beam.ActiveDocument()->Editor.GetLineCount() - 1, "A line past the end must land on the last line");
+			}
+
+			{
+				// -- find in files ------------------------------------------------------------
+				BeamSearchOptions options;
+				options.Query = "health";
+				std::vector<BeamSearchMatch> found;
+				BeamSearch::SearchText("a.cs", "int Health;\r\n  return HEALTH;\nnothing\nhealth", options, found);
+				Require(found.size() == 3 && found[0].Line == 1 && found[0].Column == 5 && found[1].Line == 2 && found[1].Text == "return HEALTH;" && found[2].Line == 4, "A case-insensitive search must find each matching line once, trimmed, with its line and column");
+				found.clear();
+				options.CaseSensitive = true;
+				BeamSearch::SearchText("a.cs", "int Health;\nhealth", options, found);
+				Require(found.size() == 1 && found[0].Line == 2, "A case-sensitive search must only match the same case");
+				found.clear();
+				BeamSearch::SearchText("a.cs", "", options, found);
+				Require(found.empty(), "An empty file has nothing to find");
+
+				write(assets / "Search" / "One.cs", "class One { int Needle; }\n");
+				write(assets / "Search" / "Two.glsl", "// the NEEDLE in a shader\nvoid main() {}\n");
+				write(assets / "Search" / "Cache" / "Skipped.cs", "needle in a skipped folder\n");
+				{
+					std::ofstream binary(assets / "Search" / "Blob.bin", std::ios::binary);
+					binary << "needle" << '\0' << "needle";
+				}
+				TextEditorPanel beam;
+				frame(beam);
+				std::copy_n("needle", 7, beam.m_SearchQuery);
+				beam.StartSearch();
+				for (int i = 0; i < 400 && (beam.m_Search.IsRunning() || beam.m_SearchResults.empty()); ++i)
+				{
+					frame(beam);
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				}
+				for (int i = 0; i < 20; ++i)
+					frame(beam);
+				std::vector<std::string> names;
+				for (const BeamSearchMatch& match : beam.m_SearchResults)
+					names.push_back(match.File.filename().string());
+				std::sort(names.begin(), names.end());
+				Require(names == std::vector<std::string>{ "One.cs", "Two.glsl" }, "Find in files must search text files in the assets, skipping the Cache folder and binary files");
+				beam.OpenFileAt(beam.m_SearchResults[0].File, beam.m_SearchResults[0].Line, beam.m_SearchResults[0].Column);
+				Require(beam.ActiveDocument() != nullptr, "A result must open its file");
+				frame(beam);
 			}
 
 			{

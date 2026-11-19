@@ -11,6 +11,7 @@
 #include "Lux/Utilities/SourceLocation.h"
 
 #include "Beam/BeamBuildService.h"
+#include "Beam/BeamSearch.h"
 #include "Beam/BeamSession.h"
 
 #include <functional>
@@ -120,6 +121,11 @@ namespace Lux
 		void ApplyDiagnosticMarkers(Document& doc);
 		void UI_Problems(float height);
 		float ProblemsHeight() const;
+		// Find in files, in the same strip under the editor as the problems.
+		void StartSearch();
+		void OpenSearch();
+		void UI_Search(float height);
+		void UI_BottomPanel(float height);
 		void UI_FileBars(Document& doc);
 
 		void UI_Toolbar();
@@ -162,6 +168,15 @@ namespace Lux
 		std::string m_BuildStatus;           // "Building...", "Build succeeded", "Build failed: 2 errors"; empty before the first build
 		bool m_BuildFailed = false;
 		bool m_ShowProblems = true;
+
+		BeamSearch m_Search;
+		std::vector<BeamSearchMatch> m_SearchResults;
+		char m_SearchQuery[256] = {};
+		bool m_ShowSearch = false;
+		bool m_SearchFocus = false;
+		bool m_SearchCase = false;
+		size_t m_SearchFiles = 0;
+		bool m_SearchTruncated = false;
 
 		bool m_SessionRestored = false;
 		bool m_SessionDirty = false;
