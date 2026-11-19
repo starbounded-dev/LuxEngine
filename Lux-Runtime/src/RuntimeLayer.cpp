@@ -22,6 +22,7 @@
 #include "Lux/Scene/SceneAudioVerification.h"
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Utilities/FileSystem.h"
+#include <atomic>
 #include <fstream>
 #include <format>
 
@@ -62,6 +63,13 @@ namespace Lux
 	{
 		if (FileSystem::HasEnvironmentVariable("LUX_RUNTIME_AUDIO_REPORT"))
 			m_AudioVerificationPath = FileSystem::GetEnvironmentVariable("LUX_RUNTIME_AUDIO_REPORT");
+		if (FileSystem::HasEnvironmentVariable("LUX_RUNTIME_CAPTURE"))
+		{
+			m_CapturePath = FileSystem::GetEnvironmentVariable("LUX_RUNTIME_CAPTURE");
+			if (FileSystem::HasEnvironmentVariable("LUX_RUNTIME_CAPTURE_FRAME"))
+				m_CaptureFrame = (uint32_t)std::max(1, std::atoi(FileSystem::GetEnvironmentVariable("LUX_RUNTIME_CAPTURE_FRAME").c_str()));
+			m_CaptureState = std::make_shared<std::atomic<int>>(0);
+		}
 		if (!OpenProject())
 		{
 			RuntimeSplash::Hide();
@@ -306,9 +314,6 @@ namespace Lux
 		const bool wasOpen = m_ShowAudioAccessibility;
 		if (ImGui::IsKeyPressed(ImGuiKey_F10, false))
 			m_ShowAudioAccessibility = !m_ShowAudioAccessibility;
-		const auto* viewport = ImGui::GetMainViewport();
-		ImGuiEx::AudioAccessibilityOverlay({ viewport->Pos.x, viewport->Pos.y },
-			{ viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y });
 		ImGuiEx::AudioAccessibilityMenu(m_ShowAudioAccessibility);
 		if (m_ShowAudioAccessibility && !wasOpen)
 		{
@@ -365,6 +370,15 @@ namespace Lux
 		m_RuntimeScene->OnViewportResize(width, height);
 		m_Renderer2DProjection = glm::ortho(0.0f, (float)width, 0.0f, (float)height);
 
+		{
+			// Game UI: the mouse in the window's pixels, origin at the bottom left like the canvas.
+			const auto [mouseX, mouseY] = Input::GetMousePosition();
+			UI::Pointer pointer;
+			pointer.Position = { mouseX, (float)height - mouseY };
+			pointer.Present = mouseX >= 0.0f && mouseY >= 0.0f && mouseX < (float)width && mouseY < (float)height;
+			pointer.Down = Input::IsMouseButtonDown(MouseButton::Left);
+			m_RuntimeScene->SetUIPointer(pointer);
+		}
 		m_RuntimeScene->OnUpdateRuntime(ts);
 		if (m_VRSession)
 		{
@@ -379,6 +393,57 @@ namespace Lux
 		DrawRuntimeOverlay();
 		SubmitFinalImageToSwapChain();
 		UpdateAudioVerification();
+		UpdateCapture();
+	}
+
+	void RuntimeLayer::UpdateCapture()
+	{
+		if (!m_CaptureState)
+			return;
+
+		if (const int state = m_CaptureState->load(std::memory_order_acquire); state != 0)
+		{
+			m_CaptureState.reset();
+			Application::Get().Close();
+			return;
+		}
+
+		Ref<Image2D> image = m_SceneRenderer ? m_SceneRenderer->GetFinalPassImage() : nullptr;
+		if (!image || ++m_CaptureFrames != m_CaptureFrame)
+			return;
+
+		// Queued after this frame's rendering, so the copy reads the finished frame. The layout is the golden
+		// capture's (Editor/Source/Tools/GoldenCapture.cpp): a 32-byte header, then the texels.
+		const std::filesystem::path path = m_CapturePath;
+		const auto state = m_CaptureState;
+		Renderer::Submit([image, path, state]() mutable
+		{
+			Buffer pixels;
+			image->CopyToHostBuffer(pixels);
+			const ImageSpecification& spec = image->GetSpecification();
+			uint32_t type = 255; // 0 UNorm8, 1 Float16, 2 Float32, 255 raw
+			switch (spec.Format)
+			{
+				case ImageFormat::RGBA:
+				case ImageFormat::SRGBA:   type = 0; break;
+				case ImageFormat::RGBA16F: type = 1; break;
+				case ImageFormat::RGBA32F: type = 2; break;
+				default: break;
+			}
+			const uint32_t bytesPerPixel = Utils::GetImageFormatBPP(spec.Format);
+			const uint64_t size = (uint64_t)spec.Width * spec.Height * bytesPerPixel;
+			bool ok = pixels && pixels.Size >= size;
+			if (ok)
+			{
+				const uint32_t header[8] = { 0x4D49584C /* "LXIM" */, 1, spec.Width, spec.Height, type == 255 ? bytesPerPixel : 4, type, (uint32_t)spec.Format, bytesPerPixel };
+				std::ofstream file(path, std::ios::binary | std::ios::trunc);
+				file.write(reinterpret_cast<const char*>(header), sizeof(header));
+				file.write(static_cast<const char*>(pixels.Data), (std::streamsize)size);
+				ok = file.good();
+			}
+			pixels.Release();
+			state->store(ok ? 1 : -1, std::memory_order_release);
+		});
 	}
 
 	void RuntimeLayer::UpdateAudioVerification()
@@ -558,6 +623,19 @@ namespace Lux
 	void RuntimeLayer::OnEvent(Event& event)
 	{
 		EventDispatcher dispatcher(event);
+		// Game UI text inputs and scroll lists; the event still reaches everything else.
+		dispatcher.Dispatch<KeyTypedEvent>([this](KeyTypedEvent& typed)
+		{
+			if (m_RuntimeScene)
+				m_RuntimeScene->AddUITypedCharacter(static_cast<char32_t>(typed.GetKeyCode()));
+			return false;
+		});
+		dispatcher.Dispatch<MouseScrolledEvent>([this](MouseScrolledEvent& scrolled)
+		{
+			if (m_RuntimeScene)
+				m_RuntimeScene->AddUIScroll(scrolled.GetYOffset());
+			return false;
+		});
 		dispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& keyEvent)
 		{
 			if (keyEvent.GetRepeatCount() == 0 && Input::IsKeyDown(KeyCode::LeftControl) && keyEvent.GetKeyCode() == KeyCode::F3)

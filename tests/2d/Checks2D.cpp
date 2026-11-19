@@ -30,6 +30,10 @@
 #include "Lux/Scene/SceneSerializer.h"
 #include "Lux/Scene/SceneTemplates.h"
 #include "Lux/Scene/Tilemap.h"
+#include "Lux/UI/UIAccessibility.h"
+#include "Lux/UI/UIEditor.h"
+#include "Lux/UI/UILayout.h"
+#include "Lux/UI/UISystem.h"
 
 #include <GLFW/deps/stb_image_write.h>
 #include <stb_image.h>
@@ -1367,6 +1371,714 @@ namespace {
 		(void)root;
 	}
 
+	// ---- M3 Game UI: layout math, scene components, drawing --------------------------------------
+
+	void CheckUILayout()
+	{
+		using namespace Lux::UI;
+
+		// Resolution scaling.
+		const glm::vec2 reference{ 1920.0f, 1080.0f };
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.5f, { 1920.0f, 1080.0f }), 1.0f), "a screen at the reference resolution scales by 1");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.5f, { 3840.0f, 2160.0f }), 2.0f), "a screen twice the reference scales by 2");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.0f, { 960.0f, 2160.0f }), 0.5f), "Match 0 follows the width");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 1.0f, { 960.0f, 2160.0f }), 2.0f), "Match 1 follows the height");
+		Check(Near(CanvasScale(ScaleMode::ScaleWithScreen, reference, 1.0f, 0.5f, { 960.0f, 2160.0f }), 1.0f), "Match 0.5 of a halved width and a doubled height cancels out (log blend)");
+		Check(Near(CanvasScale(ScaleMode::FitInside, reference, 1.0f, 0.5f, { 3840.0f, 1080.0f }), 1.0f), "FitInside takes the smaller scale");
+		Check(Near(CanvasScale(ScaleMode::FillScreen, reference, 1.0f, 0.5f, { 3840.0f, 1080.0f }), 2.0f), "FillScreen takes the larger scale");
+		Check(Near(CanvasScale(ScaleMode::ConstantPixelSize, reference, 1.5f, 0.5f, { 100.0f, 100.0f }), 1.5f), "ConstantPixelSize ignores the screen");
+		const Rect canvas = CanvasRect({ 3840.0f, 2160.0f }, 2.0f);
+		Check(canvas.Max == glm::vec2(1920.0f, 1080.0f), "the canvas rectangle is the screen over the scale");
+
+		// Anchors.
+		const Rect parent{ { 100.0f, 50.0f }, { 500.0f, 250.0f } }; // 400 x 200
+		RectTransform centered; // anchors at the middle, +-50
+		Check(ResolveRect(centered, parent) == Rect{ { 250.0f, 100.0f }, { 350.0f, 200.0f } }, "centered anchors keep a fixed size at the middle");
+		RectTransform stretched;
+		stretched.AnchorMin = { 0.0f, 0.0f };
+		stretched.AnchorMax = { 1.0f, 1.0f };
+		stretched.OffsetMin = { 10.0f, 20.0f };
+		stretched.OffsetMax = { -30.0f, -40.0f };
+		Check(ResolveRect(stretched, parent) == Rect{ { 110.0f, 70.0f }, { 470.0f, 210.0f } }, "stretched anchors make the offsets margins");
+		RectTransform corner;
+		corner.AnchorMin = corner.AnchorMax = { 1.0f, 0.0f };
+		corner.OffsetMin = { -110.0f, 10.0f };
+		corner.OffsetMax = { -10.0f, 60.0f };
+		Check(ResolveRect(corner, parent) == Rect{ { 390.0f, 60.0f }, { 490.0f, 110.0f } }, "a bottom-right anchor keeps its distance from the corner");
+
+		// Stacks.
+		const Rect content{ { 0.0f, 0.0f }, { 300.0f, 100.0f } };
+		std::vector<LayoutChild> three(3);
+		for (LayoutChild& child : three)
+			child.PreferredSize = { 60.0f, 40.0f };
+		LayoutGroup row;
+		row.Kind = LayoutKind::Horizontal;
+		row.Spacing = 10.0f;
+		row.Padding = { 5.0f, 5.0f, 5.0f, 5.0f };
+		std::vector<Rect> rects = LayoutChildren(row, content, three);
+		Check(rects[0] == Rect{ { 5.0f, 55.0f }, { 65.0f, 95.0f } } && rects[1].Min.x == 75.0f && rects[2].Max.x == 205.0f, "a row runs left to right with spacing and padding, aligned to the top");
+		row.Align = LayoutAlign::Center;
+		Check(LayoutChildren(row, content, three)[0].Min.y == 30.0f, "Center aligns a row's children vertically");
+		row.ExpandChildren = true;
+		rects = LayoutChildren(row, content, three);
+		Check(Near(rects[0].Size().x, 60.0f + (290.0f - 180.0f - 20.0f) / 3.0f) && Near(rects[2].Max.x, 295.0f), "ExpandChildren shares the spare length equally and fills the content");
+		LayoutGroup column;
+		column.Kind = LayoutKind::Vertical;
+		column.Spacing = 5.0f;
+		rects = LayoutChildren(column, { { 0.0f, 0.0f }, { 100.0f, 300.0f } }, three);
+		Check(rects[0] == Rect{ { 0.0f, 260.0f }, { 60.0f, 300.0f } } && rects[1].Max.y == 255.0f && rects[2].Min.y == 170.0f, "a column runs top to bottom");
+		column.Align = LayoutAlign::End;
+		Check(LayoutChildren(column, { { 0.0f, 0.0f }, { 100.0f, 300.0f } }, three)[0].Min.x == 40.0f, "End aligns a column's children to the right");
+
+		// Dragging in the Game View.
+		const Rect box{ { 100.0f, 100.0f }, { 300.0f, 200.0f } };
+		Check(PickHandle(box, { 200.0f, 150.0f }, 8.0f) == DragHandle::Body, "the middle of a rectangle is its body");
+		Check(PickHandle(box, { 102.0f, 103.0f }, 8.0f) == DragHandle::BottomLeft && PickHandle(box, { 298.0f, 198.0f }, 8.0f) == DragHandle::TopRight, "a corner is picked within the grab distance");
+		Check(PickHandle(box, { 200.0f, 101.0f }, 8.0f) == DragHandle::Bottom && PickHandle(box, { 299.0f, 150.0f }, 8.0f) == DragHandle::Right, "so is an edge");
+		Check(PickHandle(box, { 93.0f, 150.0f }, 8.0f) == DragHandle::Left && PickHandle(box, { 50.0f, 150.0f }, 8.0f) == DragHandle::None, "a handle reaches a little outside, and no further");
+		Check(PickHandle({ { 0.0f, 0.0f }, { 12.0f, 12.0f } }, { 6.0f, 6.0f }, 8.0f) == DragHandle::Body, "a tiny rectangle can still be grabbed by its middle");
+		RectTransform fixedSize;
+		fixedSize.OffsetMin = { -50.0f, -25.0f };
+		fixedSize.OffsetMax = { 50.0f, 25.0f };
+		RectTransform moved = DragRect(fixedSize, DragHandle::Body, { 10.0f, -5.0f });
+		Check(moved.OffsetMin == glm::vec2(-40.0f, -30.0f) && moved.OffsetMax == glm::vec2(60.0f, 20.0f) && moved.AnchorMin == fixedSize.AnchorMin, "moving shifts both offsets and leaves the anchors");
+		RectTransform sized = DragRect(fixedSize, DragHandle::TopRight, { 20.0f, 10.0f });
+		Check(sized.OffsetMax == glm::vec2(70.0f, 35.0f) && sized.OffsetMin == fixedSize.OffsetMin, "a corner moves the two offsets it touches");
+		sized = DragRect(fixedSize, DragHandle::Left, { -30.0f, 99.0f });
+		Check(sized.OffsetMin == glm::vec2(-80.0f, -25.0f) && sized.OffsetMax == fixedSize.OffsetMax, "an edge moves one offset along its own axis only");
+		sized = DragRect(fixedSize, DragHandle::Right, { -500.0f, 0.0f });
+		Check(sized.OffsetMax.x - sized.OffsetMin.x == 1.0f && sized.OffsetMin.x == -50.0f, "a fixed size cannot be dragged below one unit");
+		sized = DragRect(fixedSize, DragHandle::Left, { 500.0f, 0.0f });
+		Check(sized.OffsetMax.x - sized.OffsetMin.x == 1.0f && sized.OffsetMax.x == 50.0f, "from the other side too");
+		RectTransform margins = stretched;
+		margins = DragRect(margins, DragHandle::Right, { -500.0f, 0.0f });
+		Check(margins.OffsetMax.x == stretched.OffsetMax.x - 500.0f, "a stretched axis is all margins, which may be anything");
+		Check(DragRect(fixedSize, DragHandle::None, { 5.0f, 5.0f }).OffsetMin == fixedSize.OffsetMin, "no handle, no change");
+
+		// Grids.
+		LayoutGroup grid;
+		grid.Kind = LayoutKind::Grid;
+		grid.Columns = 2;
+		grid.CellSize = { 50.0f, 30.0f };
+		grid.Spacing = 10.0f;
+		rects = LayoutChildren(grid, { { 0.0f, 0.0f }, { 200.0f, 200.0f } }, three);
+		Check(rects[0] == Rect{ { 0.0f, 170.0f }, { 50.0f, 200.0f } } && rects[1].Min.x == 60.0f && rects[2] == Rect{ { 0.0f, 130.0f }, { 50.0f, 160.0f } }, "a grid fills rows from the top left");
+		Check(PreferredGroupSize(grid, three) == glm::vec2(110.0f, 70.0f), "a grid's preferred size covers its cells and spacing");
+		Check(PreferredGroupSize(row, three) == glm::vec2(180.0f + 20.0f + 10.0f, 40.0f + 10.0f), "a row's preferred size adds its children, spacing and padding");
+		Check(LayoutChildren(LayoutGroup{}, content, three)[0] == Rect{}, "no layout leaves the child's own rectangle to the caller");
+		Check(LayoutChildren(row, content, {}).empty(), "a group without children lays out nothing");
+	}
+
+	// ---- M3 Game UI: widgets under simulated pointer and keyboard input ----------------------------
+
+	void CheckUIWidgets(const std::filesystem::path& root)
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>().ScaleMode = UI::ScaleMode::ConstantPixelSize;
+		const glm::vec2 screen{ 1000.0f, 500.0f };
+
+		const auto makeWidget = [&](const char* name, Entity parent, glm::vec2 min, glm::vec2 max, UIWidgetKind kind)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.SetParent(parent);
+			auto& element = entity.AddComponent<UIElementComponent>();
+			element.Rect.AnchorMin = element.Rect.AnchorMax = { 0.0f, 0.0f };
+			element.Rect.OffsetMin = min;
+			element.Rect.OffsetMax = max;
+			entity.AddComponent<UIImageComponent>();
+			entity.AddComponent<UIWidgetComponent>().Kind = kind;
+			return entity;
+		};
+		Entity button = makeWidget("Button", canvas, { 100.0f, 100.0f }, { 200.0f, 150.0f }, UIWidgetKind::Button);
+		Entity toggle = makeWidget("Toggle", canvas, { 300.0f, 100.0f }, { 340.0f, 140.0f }, UIWidgetKind::Toggle);
+		Entity slider = makeWidget("Slider", canvas, { 400.0f, 100.0f }, { 600.0f, 120.0f }, UIWidgetKind::Slider);
+		Entity whole = makeWidget("Whole", canvas, { 400.0f, 150.0f }, { 600.0f, 170.0f }, UIWidgetKind::Slider);
+		whole.GetComponent<UIWidgetComponent>().MaxValue = 10.0f;
+		whole.GetComponent<UIWidgetComponent>().WholeNumbers = true;
+		Entity disabled = makeWidget("Disabled", canvas, { 700.0f, 100.0f }, { 800.0f, 150.0f }, UIWidgetKind::Button);
+		disabled.GetComponent<UIWidgetComponent>().Interactable = false;
+
+		Entity list = makeWidget("List", canvas, { 100.0f, 200.0f }, { 300.0f, 300.0f }, UIWidgetKind::ScrollList);
+		list.GetComponent<UIElementComponent>().Layout.Kind = UI::LayoutKind::Vertical;
+		list.GetComponent<UIElementComponent>().Layout.Spacing = 10.0f;
+		std::vector<Entity> rows;
+		for (int i = 0; i < 5; i++)
+			rows.push_back(makeWidget(("Row" + std::to_string(i)).c_str(), list, { 0.0f, 0.0f }, { 160.0f, 40.0f }, UIWidgetKind::Button));
+
+		Entity field = makeWidget("Field", canvas, { 500.0f, 300.0f }, { 700.0f, 340.0f }, UIWidgetKind::TextInput);
+		field.AddComponent<UITextComponent>();
+		field.GetComponent<UIWidgetComponent>().MaxLength = 12;
+
+		UI::InteractionState state;
+		const auto step = [&](glm::vec2 at, bool down, bool present = true, float scroll = 0.0f, const std::u32string& typed = {}, UI::Keys keys = {})
+		{
+			UI::FrameInput input;
+			input.Mouse.Position = at;
+			input.Mouse.Down = down;
+			input.Mouse.Present = present;
+			input.Mouse.Scroll = scroll;
+			input.Typed = typed;
+			input.Edit = keys;
+			input.DeltaTime = 0.1f;
+			return UI::UpdateInteraction(*scene, state, screen, input);
+		};
+		const auto widgetOf = [](Entity entity) -> UIWidgetComponent& { return entity.GetComponent<UIWidgetComponent>(); };
+
+		// Hover and click.
+		std::vector<UI::Event> events = step({ 150.0f, 125.0f }, false);
+		Check(widgetOf(button).Hovered && !widgetOf(toggle).Hovered && events.empty(), "the widget under the pointer is hovered");
+		events = step({ 150.0f, 125.0f }, true);
+		Check(widgetOf(button).Pressed && events.empty(), "pressing a button marks it pressed and does not click yet");
+		events = step({ 150.0f, 125.0f }, false);
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Click && events[0].Element == button.GetUUID() && !widgetOf(button).Pressed, "releasing on the button clicks it");
+		step({ 150.0f, 125.0f }, true);
+		step({ 250.0f, 125.0f }, true);
+		events = step({ 250.0f, 125.0f }, false);
+		Check(events.empty(), "dragging off a button before releasing does not click it");
+		step({ 750.0f, 125.0f }, true);
+		events = step({ 750.0f, 125.0f }, false);
+		Check(events.empty() && widgetOf(disabled).Hovered, "a disabled button is hovered but never clicks");
+		events = step({ 150.0f, 125.0f }, false, false);
+		Check(!widgetOf(button).Hovered, "a pointer outside the view hovers nothing");
+
+		// Toggle.
+		step({ 320.0f, 120.0f }, true);
+		events = step({ 320.0f, 120.0f }, false);
+		Check(widgetOf(toggle).Checked && events.size() == 1 && events[0].Kind == UI::EventKind::Toggled && events[0].Checked, "a click turns a toggle on");
+		step({ 320.0f, 120.0f }, true);
+		events = step({ 320.0f, 120.0f }, false);
+		Check(!widgetOf(toggle).Checked && events.size() == 1 && !events[0].Checked, "and a second click turns it off");
+
+		// Sliders: 200 wide, 20 high, so the handle is 10 wide and the track runs from x 405 to 595.
+		events = step({ 500.0f, 110.0f }, true);
+		Check(Near(widgetOf(slider).Value, 0.5f, 1e-3f) && events.size() == 1 && events[0].Kind == UI::EventKind::ValueChanged, "pressing the middle of a slider sets half its range");
+		events = step({ 5000.0f, 110.0f }, true);
+		Check(Near(widgetOf(slider).Value, 1.0f), "dragging past the end, even off the slider, clamps to the maximum");
+		step({ 5000.0f, 110.0f }, false);
+		step({ 100.0f, 110.0f }, false);
+		Check(Near(widgetOf(slider).Value, 1.0f), "moving the pointer without the button does not move a slider");
+		step({ 405.0f, 160.0f }, true);
+		Check(Near(widgetOf(whole).Value, 0.0f), "a slider's left end is its minimum");
+		step({ 500.0f, 160.0f }, true);
+		Check(widgetOf(whole).Value == 5.0f, "a whole-number slider steps by 1");
+		step({ 500.0f, 160.0f }, false);
+
+		// A scroll list: 5 rows of 40 with 10 between make 240 of content in a 100 high list.
+		std::vector<UI::ResolvedCanvas> resolved = UI::ResolveLayout(*scene, screen);
+		const UI::ResolvedElement* listElement = nullptr;
+		const UI::ResolvedElement* rowElement[5] = {};
+		for (const UI::ResolvedElement& element : resolved[0].Elements)
+		{
+			if (element.Element == list)
+				listElement = &element;
+			for (int i = 0; i < 5; i++)
+			{
+				if (element.Element == rows[i])
+					rowElement[i] = &element;
+			}
+		}
+		Check(listElement && Near(listElement->ScrollRange, 140.0f), "a list's scroll range is its content minus its height");
+		Check(rowElement[0] && rowElement[0]->Clipped && rowElement[0]->Clip == UI::Rect{ { 100.0f, 200.0f }, { 300.0f, 300.0f } } && rowElement[0]->ScreenRect == UI::Rect{ { 100.0f, 260.0f }, { 260.0f, 300.0f } }
+			&& rowElement[4]->ScreenRect == UI::Rect{ { 100.0f, 60.0f }, { 260.0f, 100.0f } }, "rows are laid out from the list's top, clipped to the list");
+		step({ 150.0f, 250.0f }, false, true, -1.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 60.0f), "a wheel notch down moves the content up by 60");
+		step({ 150.0f, 250.0f }, false, true, -9.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 140.0f), "scrolling stops at the end of the content");
+		step({ 150.0f, 250.0f }, false, true, 9.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 0.0f), "and at the start");
+		step({ 700.0f, 400.0f }, false, true, -3.0f);
+		Check(Near(widgetOf(list).ScrollOffset, 0.0f), "the wheel only scrolls the list under the pointer");
+		widgetOf(list).ScrollOffset = 30.0f;
+		step({ 150.0f, 195.0f }, false);
+		Check(!widgetOf(rows[2]).Hovered, "the part of a row outside the list cannot be hovered");
+		step({ 150.0f, 215.0f }, false);
+		Check(widgetOf(rows[2]).Hovered && !widgetOf(list).Hovered, "the part inside can, and the row wins over the list behind it");
+		step({ 150.0f, 215.0f }, true);
+		events = step({ 150.0f, 215.0f }, false);
+		Check(events.size() == 1 && events[0].Element == rows[2].GetUUID(), "a row in a scrolled list can be clicked");
+		FrameRenderPacket packet;
+		UI::CaptureDrawItems(UI::ResolveLayout(*scene, screen), screen, packet);
+		bool outsideListDrawn = false;
+		int rowQuads = 0;
+		for (const auto& item : packet.UI)
+		{
+			const float low = item.Transform[3].y - item.Transform[1].y * 0.5f, high = item.Transform[3].y + item.Transform[1].y * 0.5f;
+			if (std::abs(item.Transform[0].x - 160.0f) > 1e-3f) // a row is 160 wide, whole or cut at its top or bottom
+				continue;
+			rowQuads++;
+			if (low < 200.0f - 1e-3f || high > 300.0f + 1e-3f)
+				outsideListDrawn = true;
+		}
+		Check(rowQuads >= 2 && !outsideListDrawn, "the visible rows are drawn and no quad of them lies outside the list");
+
+		// Text input.
+		step({ 600.0f, 320.0f }, true);
+		step({ 600.0f, 320.0f }, false);
+		Check(widgetOf(field).Focused && state.Focus == field.GetUUID(), "clicking a text input focuses it");
+		UI::Keys none;
+		events = step({ 600.0f, 320.0f }, false, true, 0.0f, U"h\u00E9llo");
+		const std::string typed = field.GetComponent<UITextComponent>().Text;
+		Check(typed == "h\xC3\xA9llo" && events.size() == 1 && events[0].Kind == UI::EventKind::TextChanged, "typed characters are added, UTF-8 encoded");
+		UI::Keys backspace;
+		backspace.Backspace = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, backspace);
+		UI::Keys left;
+		left.Left = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, left);
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, left);
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, left);
+		Check(field.GetComponent<UITextComponent>().Text == "h\xC3\xA9ll" && widgetOf(field).CaretIndex == 1, "Backspace removes the character before the caret and Left moves back over a whole character");
+		step({ 600.0f, 320.0f }, false, true, 0.0f, U"X");
+		Check(field.GetComponent<UITextComponent>().Text == "hX\xC3\xA9ll", "typing inserts at the caret");
+		UI::Keys del;
+		del.Delete = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, del);
+		Check(field.GetComponent<UITextComponent>().Text == "hXll", "Delete removes the character after the caret, a two-byte one whole");
+		step({ 600.0f, 320.0f }, false, true, 0.0f, U"123456789012345");
+		Check(field.GetComponent<UITextComponent>().Text.size() == 12, "Max Length caps the text");
+		UI::Keys enter;
+		enter.Enter = true;
+		events = step({ 600.0f, 320.0f }, false, true, 0.0f, {}, enter);
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Submit, "Enter submits");
+		UI::Keys escape;
+		escape.Escape = true;
+		step({ 600.0f, 320.0f }, false, true, 0.0f, {}, escape);
+		Check(!widgetOf(field).Focused && state.Focus == 0, "Escape ends editing");
+		step({ 600.0f, 320.0f }, false, true, 0.0f, U"Z");
+		Check(field.GetComponent<UITextComponent>().Text.find('Z') == std::string::npos, "an unfocused input ignores typing");
+		step({ 600.0f, 320.0f }, true);
+		step({ 600.0f, 320.0f }, false);
+		step({ 10.0f, 10.0f }, true);
+		step({ 10.0f, 10.0f }, false);
+		Check(!widgetOf(field).Focused, "clicking elsewhere ends editing");
+
+		// Saved fields.
+		widgetOf(slider).Value = 0.25f;
+		widgetOf(list).ScrollOffset = 40.0f;
+		widgetOf(field).Placeholder = "Name";
+		widgetOf(toggle).Checked = true;
+		widgetOf(disabled).AccentColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+		button.GetComponent<UIImageComponent>().SliceBorder = { 4.0f, 5.0f, 6.0f, 7.0f };
+		button.GetComponent<UIImageComponent>().SliceScale = 2.0f;
+		const std::filesystem::path file = root / "UI" / "Widgets.luxscene";
+		std::filesystem::create_directories(file.parent_path());
+		AssetReference::PathModeScope pathMode;
+		Check(SceneSerializer(scene).Serialize(file), "a scene with widgets serializes");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		const auto verify = [&](Ref<Scene> checked, const char* how)
+		{
+			const auto& s = checked->FindEntityByName("Slider").GetComponent<UIWidgetComponent>();
+			const auto& w = checked->FindEntityByName("Whole").GetComponent<UIWidgetComponent>();
+			const auto& l = checked->FindEntityByName("List").GetComponent<UIWidgetComponent>();
+			const auto& f = checked->FindEntityByName("Field").GetComponent<UIWidgetComponent>();
+			const auto& d = checked->FindEntityByName("Disabled").GetComponent<UIWidgetComponent>();
+			Check(s.Kind == UIWidgetKind::Slider && Near(s.Value, 0.25f) && w.WholeNumbers && Near(w.MaxValue, 10.0f), std::string("slider value, range and steps survive ") + how);
+			Check(l.Kind == UIWidgetKind::ScrollList && Near(l.ScrollOffset, 40.0f) && f.Placeholder == "Name" && f.MaxLength == 12, std::string("scroll offset, placeholder and max length survive ") + how);
+			Check(checked->FindEntityByName("Toggle").GetComponent<UIWidgetComponent>().Checked && !d.Interactable && Near(d.AccentColor.r, 1.0f) && Near(d.AccentColor.g, 0.0f), std::string("toggle state, interactable and colors survive ") + how);
+			const auto& image = checked->FindEntityByName("Button").GetComponent<UIImageComponent>();
+			Check(image.SliceBorder == glm::vec4(4.0f, 5.0f, 6.0f, 7.0f) && Near(image.SliceScale, 2.0f), std::string("9-slice borders survive ") + how);
+			Check(!s.Hovered && !s.Pressed && !s.Focused, std::string("runtime state is not saved with ") + how);
+		};
+		verify(loaded, "a save");
+		verify(Scene::Copy(loaded), "the copy Play starts from");
+	}
+
+	// ---- M3 Game UI: keyboard and gamepad navigation ------------------------------------------------
+
+	void CheckUINavigation()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>().ScaleMode = UI::ScaleMode::ConstantPixelSize;
+		const glm::vec2 screen{ 1000.0f, 500.0f };
+
+		const auto makeWidget = [&](const char* name, Entity parent, glm::vec2 min, glm::vec2 max, UIWidgetKind kind)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.SetParent(parent);
+			auto& element = entity.AddComponent<UIElementComponent>();
+			element.Rect.AnchorMin = element.Rect.AnchorMax = { 0.0f, 0.0f };
+			element.Rect.OffsetMin = min;
+			element.Rect.OffsetMax = max;
+			entity.AddComponent<UIImageComponent>();
+			entity.AddComponent<UIWidgetComponent>().Kind = kind;
+			return entity;
+		};
+		// A and F on the top row, B and C below, a slider and a text input at the bottom, a scroll list on the right.
+		Entity a = makeWidget("A", canvas, { 100.0f, 300.0f }, { 200.0f, 340.0f }, UIWidgetKind::Button);
+		Entity b = makeWidget("B", canvas, { 100.0f, 200.0f }, { 200.0f, 240.0f }, UIWidgetKind::Button);
+		Entity c = makeWidget("C", canvas, { 300.0f, 200.0f }, { 400.0f, 240.0f }, UIWidgetKind::Button);
+		Entity slider = makeWidget("Slider", canvas, { 100.0f, 100.0f }, { 300.0f, 120.0f }, UIWidgetKind::Slider);
+		Entity field = makeWidget("Field", canvas, { 400.0f, 100.0f }, { 600.0f, 140.0f }, UIWidgetKind::TextInput);
+		field.AddComponent<UITextComponent>();
+		Entity toggle = makeWidget("Toggle", canvas, { 500.0f, 300.0f }, { 540.0f, 340.0f }, UIWidgetKind::Toggle);
+		Entity bar = makeWidget("Bar", canvas, { 100.0f, 400.0f }, { 300.0f, 410.0f }, UIWidgetKind::ProgressBar);
+		Entity list = makeWidget("List", canvas, { 700.0f, 100.0f }, { 900.0f, 200.0f }, UIWidgetKind::ScrollList);
+		list.GetComponent<UIElementComponent>().Layout.Kind = UI::LayoutKind::Vertical;
+		list.GetComponent<UIElementComponent>().Layout.Spacing = 10.0f;
+		std::vector<Entity> rows;
+		for (int i = 0; i < 5; i++)
+			rows.push_back(makeWidget(("Row" + std::to_string(i)).c_str(), list, { 0.0f, 0.0f }, { 160.0f, 40.0f }, UIWidgetKind::Button));
+
+		UI::InteractionState state;
+		const auto step = [&](UI::Nav nav, glm::vec2 at = { -1.0f, -1.0f }, bool down = false)
+		{
+			UI::FrameInput input;
+			input.Mouse.Position = at;
+			input.Mouse.Present = at.x >= 0.0f;
+			input.Mouse.Down = down;
+			input.Navigate = nav;
+			input.DeltaTime = 0.1f;
+			return UI::UpdateInteraction(*scene, state, screen, input);
+		};
+		const auto navTo = [](bool UI::Nav::* key) { UI::Nav nav; nav.*key = true; return nav; };
+		const auto widgetOf = [](Entity entity) -> UIWidgetComponent& { return entity.GetComponent<UIWidgetComponent>(); };
+
+		step({});
+		Check(state.Focus == 0 && !state.FocusVisible, "with no key pressed nothing is focused");
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus == a.GetUUID() && widgetOf(a).Focused && widgetOf(a).FocusRing && state.FocusVisible, "the first key focuses the first widget and shows the ring");
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus == b.GetUUID() && !widgetOf(a).Focused, "Down moves to the widget below");
+		step(navTo(&UI::Nav::Right));
+		Check(state.Focus == c.GetUUID(), "Right moves to the widget on the right");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus == toggle.GetUUID(), "Up picks the nearest widget above, here the toggle");
+		step(navTo(&UI::Nav::Next));
+		Check(state.Focus == rows[0].GetUUID(), "Next goes to the next widget in the tree, skipping the list and the progress bar");
+		step(navTo(&UI::Nav::Previous));
+		Check(state.Focus == toggle.GetUUID(), "Previous goes back");
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		step(navTo(&UI::Nav::Next));
+		Check(state.Focus == rows[4].GetUUID() && Near(widgetOf(list).ScrollOffset, 140.0f), "focusing a row below the list scrolls it into view");
+		step(navTo(&UI::Nav::Next));
+		Check(state.Focus == a.GetUUID(), "Next wraps from the last widget to the first");
+		step(navTo(&UI::Nav::Previous));
+		Check(state.Focus == rows[4].GetUUID() && Near(widgetOf(list).ScrollOffset, 140.0f), "Previous wraps back");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus == rows[3].GetUUID() && Near(widgetOf(list).ScrollOffset, 140.0f), "Up inside the list moves one row");
+		for (int i = 0; i < 3; i++)
+			step(navTo(&UI::Nav::Up));
+		Check(state.Focus == rows[0].GetUUID() && Near(widgetOf(list).ScrollOffset, 0.0f), "and back to the top scrolls it up again");
+
+		// Confirm and Cancel.
+		state.Focus = b.GetUUID();
+		std::vector<UI::Event> events = step(navTo(&UI::Nav::Confirm));
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Click && events[0].Element == b.GetUUID(), "Confirm clicks the focused button");
+		state.Focus = toggle.GetUUID();
+		events = step(navTo(&UI::Nav::Confirm));
+		Check(widgetOf(toggle).Checked && events.size() == 1 && events[0].Kind == UI::EventKind::Toggled && events[0].Checked, "Confirm flips the focused toggle");
+		events = step(navTo(&UI::Nav::Cancel));
+		Check(events.size() == 1 && events[0].Kind == UI::EventKind::Cancel && events[0].Element == toggle.GetUUID(), "Cancel reports the focused widget");
+
+		// A slider takes Left and Right itself.
+		state.Focus = slider.GetUUID();
+		events = step(navTo(&UI::Nav::Right));
+		Check(state.Focus == slider.GetUUID() && Near(widgetOf(slider).Value, 0.05f) && events.size() == 1 && events[0].Kind == UI::EventKind::ValueChanged, "Right on a slider raises it by a twentieth of its range");
+		step(navTo(&UI::Nav::Left));
+		step(navTo(&UI::Nav::Left));
+		Check(Near(widgetOf(slider).Value, 0.0f), "Left lowers it and it stops at the minimum");
+		widgetOf(slider).WholeNumbers = true;
+		widgetOf(slider).MaxValue = 10.0f;
+		step(navTo(&UI::Nav::Right));
+		step(navTo(&UI::Nav::Right));
+		Check(widgetOf(slider).Value == 2.0f, "a whole-number slider moves by 1");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus != slider.GetUUID(), "Up and Down still leave a slider");
+
+		// A text input keeps Left, Right and Confirm for editing.
+		state.Focus = field.GetUUID();
+		events = step(navTo(&UI::Nav::Left));
+		events = step(navTo(&UI::Nav::Confirm));
+		Check(state.Focus == field.GetUUID() && events.empty(), "Left and Confirm do nothing to the focus while a text input is focused");
+		events = step(navTo(&UI::Nav::Cancel));
+		Check(state.Focus == field.GetUUID() && events.empty(), "and Cancel is left to the input (Escape ends editing there)");
+		step(navTo(&UI::Nav::Up));
+		Check(state.Focus != field.GetUUID(), "Up leaves it");
+
+		// Disabled widgets are skipped; Start Focused picks the first target; the mouse hides the ring.
+		widgetOf(b).Interactable = false;
+		state.Focus = a.GetUUID();
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus != b.GetUUID(), "a disabled widget is never focused by navigation");
+		widgetOf(b).Interactable = true;
+		UI::InteractionState fresh;
+		state = fresh;
+		widgetOf(toggle).StartFocused = true;
+		step(navTo(&UI::Nav::Down));
+		Check(state.Focus == toggle.GetUUID(), "the first key focuses the Start Focused widget");
+		step({}, { 150.0f, 220.0f }, true);
+		step({}, { 150.0f, 220.0f }, false);
+		Check(state.Focus == b.GetUUID() && !state.FocusVisible && !widgetOf(b).FocusRing && widgetOf(b).Focused, "a mouse click moves the focus without a ring");
+		step(navTo(&UI::Nav::Right));
+		Check(state.FocusVisible && widgetOf(c).Focused && widgetOf(c).FocusRing, "and the next key brings the ring back");
+
+		// The ring is four quads around the widget.
+		const auto drawn = [&]()
+		{
+			FrameRenderPacket packet;
+			UI::CaptureDrawItems(UI::ResolveLayout(*scene, screen), screen, packet);
+			return packet.UI.size();
+		};
+		const size_t withRing = drawn();
+		widgetOf(c).FocusRing = false;
+		Check(withRing == drawn() + 4, "a focus ring adds four quads");
+
+		// Saved: Start Focused only.
+		Check(widgetOf(toggle).StartFocused, "Start Focused is kept in the component");
+		Ref<Scene> copy = Scene::Copy(scene);
+		Check(copy->FindEntityByName("Toggle").GetComponent<UIWidgetComponent>().StartFocused, "and in the copy Play starts from");
+	}
+
+	// ---- M3 Game UI: which captions show ------------------------------------------------------------
+
+	void CheckUICaptions()
+	{
+		const auto subtitle = [](const char* speaker, const char* text, bool offScreen = false, glm::vec3 position = { 0.0f, 0.0f, 0.0f })
+		{
+			AccessibleSubtitle entry;
+			entry.Event.SpeakerName = speaker;
+			entry.Event.Text = text;
+			entry.Event.IsOffScreen = offScreen;
+			entry.Event.SpeakerPosition = position;
+			entry.SpeakerColor = { 0.5f, 0.6f, 0.7f, 1.0f };
+			return entry;
+		};
+		const auto oneLine = [](const std::string&) { return 1; };
+		const auto twoLines = [](const std::string& text) { return text.size() > 20 ? 2 : 1; };
+		const auto ahead = [](const glm::vec3& position) { return position; }; // the world position is the direction here
+
+		AudioAccessibilityPreferences preferences;
+		preferences.MaxLines = 3;
+		std::vector<AccessibleSubtitle> subtitles = { subtitle("Ann", "one"), subtitle("Bob", "two"), subtitle("Cy", "three"), subtitle("Di", "four") };
+		auto shown = UI::CollectCaptions(subtitles, preferences, oneLine, ahead);
+		Check(shown.size() == 3 && shown[0].Text == "Bob: two" && shown[2].Text == "Di: four", "the newest entries that fit in Maximum lines show, oldest first");
+		Check(Near(shown[0].Color.b, 0.7f), "an entry keeps its speaker's color");
+
+		preferences.SpeakerNames = false;
+		Check(UI::CollectCaptions(subtitles, preferences, oneLine, ahead)[0].Text == "two", "speaker names can be turned off");
+		preferences.SpeakerNames = true;
+
+		subtitles.push_back(subtitle("Ed", "a long line that wraps over two lines"));
+		shown = UI::CollectCaptions(subtitles, preferences, twoLines, ahead);
+		Check(shown.size() == 2 && shown[1].Lines == 2 && shown[0].Text == "Di: four", "a two-line entry takes two of the three lines");
+		preferences.MaxLines = 1;
+		shown = UI::CollectCaptions(subtitles, preferences, twoLines, ahead);
+		Check(shown.size() == 1 && shown[0].Text.starts_with("Ed:"), "the newest entry shows even when it is longer than Maximum lines");
+
+		preferences.MaxLines = 3;
+		std::vector<AccessibleSubtitle> distant = { subtitle("", "left", true, { -1.0f, 0.0f, 0.0f }), subtitle("", "right", true, { 1.0f, 0.0f, 0.0f }),
+			subtitle("", "behind", true, { 0.0f, 0.0f, -1.0f }), subtitle("", "ahead", true, { 0.0f, 0.0f, 1.0f }), subtitle("", "seen", false, { 1.0f, 0.0f, 0.0f }) };
+		preferences.MaxLines = 5;
+		shown = UI::CollectCaptions(distant, preferences, oneLine, ahead);
+		Check(shown[0].Text == "< left" && shown[1].Text == "> right" && shown[2].Text == "[behind] behind" && shown[3].Text == "[ahead] ahead" && shown[4].Text == "seen",
+			"an off-screen speaker gets an arrow or a behind/ahead tag, an on-screen one none");
+		preferences.DirectionIndicators = false;
+		Check(UI::CollectCaptions(distant, preferences, oneLine, ahead)[0].Text == "left", "direction indicators can be turned off");
+		Check(UI::CollectCaptions({}, preferences, oneLine, ahead).empty(), "no subtitles, no captions");
+	}
+
+	// ---- M3 Game UI: editing by pointer ----------------------------------------------------------------
+
+	void CheckUIEditing()
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>().ScaleMode = UI::ScaleMode::ConstantPixelSize;
+		canvas.GetComponent<UICanvasComponent>().ScaleFactor = 2.0f; // two pixels per unit, so a drag must be divided by it
+		const glm::vec2 screen{ 1000.0f, 600.0f };
+
+		const auto makeElement = [&](const char* name, Entity parent, glm::vec2 min, glm::vec2 max)
+		{
+			Entity entity = scene->CreateEntity(name);
+			entity.SetParent(parent);
+			auto& element = entity.AddComponent<UIElementComponent>();
+			element.Rect.AnchorMin = element.Rect.AnchorMax = { 0.0f, 0.0f };
+			element.Rect.OffsetMin = min;
+			element.Rect.OffsetMax = max;
+			return entity;
+		};
+		Entity back = makeElement("Back", canvas, { 50.0f, 50.0f }, { 250.0f, 200.0f });       // 100..500 x 100..400 px
+		Entity front = makeElement("Front", canvas, { 100.0f, 100.0f }, { 150.0f, 150.0f });   // 200..300 x 200..300 px, over Back
+		Entity row = makeElement("Row", canvas, { 300.0f, 50.0f }, { 400.0f, 150.0f });
+		row.GetComponent<UIElementComponent>().Layout.Kind = UI::LayoutKind::Vertical;
+		Entity placed = makeElement("Placed", row, { 0.0f, 0.0f }, { 40.0f, 40.0f });
+
+		UI::EditSession session;
+		const auto frame = [&](glm::vec2 point, bool down, bool pressed, UUID selected = 0)
+		{
+			UI::EditInput input;
+			input.Point = point;
+			input.Inside = true;
+			input.Down = down;
+			input.Pressed = pressed;
+			input.Selected = selected;
+			input.Grab = 8.0f;
+			return session.Update(UI::ResolveLayout(*scene, screen), input);
+		};
+		const auto rectOf = [](Entity entity) { return entity.GetComponent<UIElementComponent>().Rect; };
+
+		UI::EditOutput result = frame({ 250.0f, 250.0f }, false, false);
+		Check(result.Under && result.Under->Element == front && !result.Select, "the topmost element under the pointer is found, and nothing is selected by hovering");
+		result = frame({ 150.0f, 350.0f }, false, false);
+		Check(result.Under && result.Under->Element == back, "where the element in front ends, the one behind is under the pointer");
+
+		// A click selects and starts a move; the drag is in whole units of the canvas (2 pixels each).
+		result = frame({ 250.0f, 250.0f }, true, true);
+		Check(result.Select == front.GetUUID() && session.IsDragging() && session.GetHandle() == UI::DragHandle::Body, "pressing on an unselected element selects it and starts moving it");
+		result = frame({ 270.0f, 241.0f }, true, false, front.GetUUID());
+		Check(rectOf(front).OffsetMin == glm::vec2(110.0f, 95.0f) || rectOf(front).OffsetMin == glm::vec2(110.0f, 96.0f), "moving by 20 x -9 pixels moves it 10 x -4.5 units, rounded to whole units");
+		result = frame({ 270.0f, 240.0f }, true, false, front.GetUUID());
+		Check(rectOf(front).OffsetMin == glm::vec2(110.0f, 95.0f) && rectOf(front).OffsetMax == glm::vec2(160.0f, 145.0f) && rectOf(front).AnchorMin == glm::vec2(0.0f), "the offsets move together and the anchors stay");
+		result = frame({ 270.0f, 240.0f }, false, false, front.GetUUID());
+		Check(result.Ended && result.EndedEntity == front.GetUUID() && result.EndedHandle == UI::DragHandle::Body && !session.IsDragging(), "releasing the button ends the drag with one undo step");
+		result = frame({ 270.0f, 240.0f }, false, false, front.GetUUID());
+		Check(!result.Ended, "and only one");
+
+		// A click without a drag changes nothing and records nothing.
+		const UI::RectTransform before = rectOf(front);
+		frame({ 250.0f, 240.0f }, true, true, front.GetUUID());
+		result = frame({ 250.0f, 240.0f }, false, false, front.GetUUID());
+		Check(!result.Ended && rectOf(front).OffsetMin == before.OffsetMin, "a click without a drag leaves the element alone and records nothing");
+
+		// A handle of the selected element resizes it. Front is now 220..320 x 190..290 px; its top right corner is (320, 290).
+		result = frame({ 319.0f, 289.0f }, true, true, front.GetUUID());
+		Check(session.GetHandle() == UI::DragHandle::TopRight && !result.Select, "pressing on a corner of the selected element picks the corner, not the element behind");
+		frame({ 359.0f, 309.0f }, true, false, front.GetUUID());
+		result = frame({ 359.0f, 309.0f }, false, false, front.GetUUID());
+		Check(rectOf(front).OffsetMax == glm::vec2(160.0f + 20.0f, 145.0f + 10.0f) && rectOf(front).OffsetMin == before.OffsetMin && result.EndedHandle == UI::DragHandle::TopRight, "dragging a corner resizes by the distance in units");
+
+		// The drag goes on when the pointer leaves the view.
+		UI::EditInput outside;
+		outside.Point = { 2000.0f, 250.0f };
+		outside.Inside = false;
+		outside.Down = true;
+		frame({ 250.0f, 240.0f }, true, true, front.GetUUID());
+		outside.Selected = front.GetUUID();
+		session.Update(UI::ResolveLayout(*scene, screen), outside);
+		Check(rectOf(front).OffsetMin.x > 800.0f, "a drag follows the pointer outside the view");
+		frame({ 2000.0f, 250.0f }, false, false, front.GetUUID());
+
+		// An element placed by its parent's layout is selected but never dragged.
+		result = frame({ 640.0f, 260.0f }, true, true);
+		Check(result.Select == placed.GetUUID() && !session.IsDragging() && result.LayoutControlled, "an element placed by a layout is selected but cannot be dragged");
+		Check(!UI::EditSession::Nudge(placed, { 5.0f, 0.0f }) && UI::EditSession::Nudge(back, { 5.0f, -5.0f }) && rectOf(back).OffsetMin == glm::vec2(55.0f, 45.0f), "nudging works on a free element and is refused on a placed one");
+		frame({ 640.0f, 260.0f }, false, false);
+
+		// Finish ends a drag when the mode is switched off.
+		frame({ 150.0f, 150.0f }, true, true);
+		frame({ 170.0f, 170.0f }, true, false);
+		result = session.Finish();
+		Check(result.Ended && !session.IsDragging() && !session.Finish().Ended, "switching editing off ends a drag in progress with its undo step");
+		result = frame({ 900.0f, 590.0f }, true, true);
+		Check(!result.Select && !session.IsDragging(), "pressing on empty space selects nothing");
+	}
+
+	void CheckUIScene(const std::filesystem::path& root)
+	{
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity canvas = scene->CreateEntity("Canvas");
+		auto& canvasComponent = canvas.AddComponent<UICanvasComponent>();
+		canvasComponent.ReferenceResolution = { 1000.0f, 500.0f };
+		canvasComponent.SortOrder = 2;
+
+		Entity panel = scene->CreateEntity("Panel");
+		panel.SetParent(canvas);
+		auto& panelElement = panel.AddComponent<UIElementComponent>();
+		panelElement.Rect.AnchorMin = { 0.0f, 0.0f };
+		panelElement.Rect.AnchorMax = { 1.0f, 1.0f };
+		panelElement.Rect.OffsetMin = { 100.0f, 50.0f };
+		panelElement.Rect.OffsetMax = { -100.0f, -50.0f };
+		panelElement.Layout.Kind = UI::LayoutKind::Vertical;
+		panelElement.Layout.Spacing = 10.0f;
+		panel.AddComponent<UIImageComponent>().Color = { 0.2f, 0.4f, 0.6f, 0.8f };
+
+		Entity first = scene->CreateEntity("First");
+		first.SetParent(panel);
+		first.AddComponent<UIElementComponent>().Rect.OffsetMax = { 50.0f, 25.0f }; // a 100 x 75 ask
+		first.AddComponent<UIImageComponent>();
+		Entity hidden = scene->CreateEntity("Hidden");
+		hidden.SetParent(panel);
+		hidden.AddComponent<UIElementComponent>().Visible = false;
+		hidden.AddComponent<UIImageComponent>();
+		Entity second = scene->CreateEntity("Second");
+		second.SetParent(panel);
+		second.AddComponent<UIElementComponent>();
+		second.AddComponent<UIImageComponent>();
+
+		// Layout: a 2000 x 1000 screen scales the 1000 x 500 reference by 2. A hidden element takes no room.
+		const glm::vec2 screen{ 2000.0f, 1000.0f };
+		std::vector<UI::ResolvedCanvas> canvases = UI::ResolveLayout(*scene, screen);
+		Check(canvases.size() == 1 && Near(canvases[0].Scale, 2.0f) && canvases[0].Elements.size() == 3, "one canvas resolves with its panel and two visible children");
+		if (canvases.size() == 1 && canvases[0].Elements.size() == 3)
+		{
+			const auto& elements = canvases[0].Elements;
+			Check(elements[0].Element == panel && Near(elements[0].ScreenRect.Min.x, 200.0f) && Near(elements[0].ScreenRect.Max.y, 900.0f), "the stretched panel is inset by its margins, in pixels");
+			Check(elements[1].Element == first && elements[2].Element == second, "children follow hierarchy order and a hidden element is skipped");
+			// Panel content in UI units is 800 x 400 from (100, 50); the first child asks 100 x 75 and sits at the top.
+			Check(Near(elements[1].ScreenRect.Size().x, 200.0f) && Near(elements[1].ScreenRect.Size().y, 150.0f) && Near(elements[1].ScreenRect.Max.y, 900.0f), "the column places the first child at the panel top, scaled to pixels");
+			Check(Near(elements[2].ScreenRect.Max.y, 900.0f - (75.0f + 10.0f) * 2.0f), "the second child sits below the first with the spacing");
+		}
+
+		// Drawing.
+		FrameRenderPacket packet;
+		UI::CaptureDrawItems(canvases, screen, packet);
+		Check(packet.UI.size() == 3 && packet.UIScreenSize == screen, "three images produce three draw items for the screen");
+		if (packet.UI.size() == 3)
+		{
+			Check(packet.UI[0].Type == FrameRenderPacket::Draw2DItem::Kind::Quad && Near(packet.UI[0].Color.b, 0.6f), "the panel is a flat quad of its color");
+			Check(Near(packet.UI[0].Transform[3].x, 1000.0f) && Near(packet.UI[0].Transform[0].x, 1600.0f), "a quad's transform is its center and size in pixels");
+		}
+
+		canvasComponent.Enabled = false;
+		Check(UI::ResolveLayout(*scene, screen).empty(), "a disabled canvas draws nothing");
+		canvasComponent.Enabled = true;
+		Check(UI::ResolveLayout(*scene, { 0.0f, 0.0f }).empty(), "a zero-size screen resolves nothing");
+
+		// Serialization: the file, a load, and the copy Play starts from.
+		const std::filesystem::path file = root / "UI" / "Menu.luxscene";
+		std::filesystem::create_directories(file.parent_path());
+		AssetReference::PathModeScope pathMode;
+		Check(SceneSerializer(scene).Serialize(file), "a scene with a canvas serializes");
+		SceneSerializer(scene).Serialize(root / "UI" / "Menu2.luxscene");
+		Check(ReadText(file) == ReadText(root / "UI" / "Menu2.luxscene"), "saving twice gives the same file");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(file), "and loads back");
+		const auto verify = [&](Ref<Scene> checked, const char* how)
+		{
+			const auto& restoredCanvas = checked->FindEntityByName("Canvas").GetComponent<UICanvasComponent>();
+			Check(restoredCanvas.ReferenceResolution == glm::vec2(1000.0f, 500.0f) && restoredCanvas.SortOrder == 2 && restoredCanvas.ScaleMode == UI::ScaleMode::ScaleWithScreen, std::string("canvas settings survive ") + how);
+			const auto& restoredPanel = checked->FindEntityByName("Panel").GetComponent<UIElementComponent>();
+			Check(restoredPanel.Rect.OffsetMin == glm::vec2(100.0f, 50.0f) && restoredPanel.Layout.Kind == UI::LayoutKind::Vertical && Near(restoredPanel.Layout.Spacing, 10.0f), std::string("element rectangle and layout survive ") + how);
+			Check(!checked->FindEntityByName("Hidden").GetComponent<UIElementComponent>().Visible && Near(checked->FindEntityByName("Panel").GetComponent<UIImageComponent>().Color.g, 0.4f), std::string("visibility and image color survive ") + how);
+			const auto resolved = UI::ResolveLayout(*checked, screen);
+			Check(resolved.size() == 1 && resolved[0].Elements.size() == 3, std::string("the layout of a scene reloaded from ") + how + " matches");
+		};
+		verify(loaded, "a save");
+		verify(Scene::Copy(loaded), "the copy Play starts from");
+
+		// Text: what survives a save (no font is needed to serialize it).
+		Entity label = scene->CreateEntity("Label");
+		label.SetParent(canvas);
+		label.AddComponent<UIElementComponent>();
+		auto& text = label.AddComponent<UITextComponent>();
+		text.Text = "Play\nQuit";
+		text.Size = 48.0f;
+		text.AlignH = UITextAlignH::Center;
+		text.AlignV = UITextAlignV::Middle;
+		text.Wrap = false;
+		SceneSerializer(scene).Serialize(root / "UI" / "Label.luxscene");
+		Ref<Scene> labelScene = Ref<Scene>::Create();
+		SceneSerializer(labelScene).Deserialize(root / "UI" / "Label.luxscene");
+		const auto& restoredText = labelScene->FindEntityByName("Label").GetComponent<UITextComponent>();
+		Check(restoredText.Text == "Play\nQuit" && Near(restoredText.Size, 48.0f) && restoredText.AlignH == UITextAlignH::Center && restoredText.AlignV == UITextAlignV::Middle && !restoredText.Wrap, "text, size, alignment and wrap survive a save");
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -1403,6 +2115,12 @@ int main(int argc, char** argv)
 	CheckTilemapOps();
 	CheckTilemapScene(outDir);
 	CheckTilemapPhysics(outDir);
+	CheckUILayout();
+	CheckUIScene(outDir);
+	CheckUIWidgets(outDir);
+	CheckUINavigation();
+	CheckUICaptions();
+	CheckUIEditing();
 
 	std::printf("RESULT: %s (%d failure%s)\n", s_Failures == 0 ? "PASS" : "FAIL", s_Failures, s_Failures == 1 ? "" : "s");
 	std::fflush(stdout);

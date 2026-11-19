@@ -1282,6 +1282,78 @@ namespace Lux {
 		return false;
 	}
 
+	static std::u32string To_UTF32(const std::string& s);
+
+	float Renderer2D::GetStringAscent(const Ref<Font>& font)
+	{
+		if (!font || !font->GetMSDFData())
+			return 0.0f;
+		const auto& metrics = font->GetMSDFData()->FontGeometry.getMetrics();
+		return (float)(metrics.ascenderY / (metrics.ascenderY - metrics.descenderY));
+	}
+
+	glm::vec2 Renderer2D::MeasureString(const std::string& string, const Ref<Font>& font, float maxWidth, float lineHeightOffset, float kerningOffset, int* outLines)
+	{
+		if (outLines)
+			*outLines = 0;
+		if (string.empty() || !font || !font->GetMSDFData())
+			return glm::vec2(0.0f);
+
+		// The same walk as DrawString's wrap pass, so the size matches what is drawn.
+		const std::u32string text = To_UTF32(string);
+		const auto& fontGeometry = font->GetMSDFData()->FontGeometry;
+		const auto& metrics = fontGeometry.getMetrics();
+		const double fsScale = 1 / (metrics.ascenderY - metrics.descenderY);
+		const double pitch = fsScale * metrics.lineHeight + lineHeightOffset;
+
+		double x = 0.0, widest = 0.0;
+		int lines = 1, lastSpace = -1;
+		for (int i = 0; i < (int)text.size(); i++)
+		{
+			const char32_t character = text[i];
+			if (character == '\n')
+			{
+				widest = std::max(widest, x);
+				x = 0;
+				lines++;
+				continue;
+			}
+			if (character == '\r')
+				continue;
+
+			auto glyph = fontGeometry.getGlyph(character);
+			if (!glyph)
+				continue;
+
+			if (character != ' ')
+			{
+				double pl, pb, pr, pt;
+				glyph->getQuadPlaneBounds(pl, pb, pr, pt);
+				if (x + pr * fsScale > maxWidth && lastSpace != -1)
+				{
+					i = lastSpace;
+					lastSpace = -1;
+					widest = std::max(widest, x);
+					x = 0;
+					lines++;
+					continue;
+				}
+			}
+			else
+			{
+				lastSpace = i;
+			}
+
+			double advance = glyph->getAdvance();
+			fontGeometry.getAdvance(advance, character, i + 1 < (int)text.size() ? text[i + 1] : U' ');
+			x += fsScale * advance + kerningOffset;
+		}
+		widest = std::max(widest, x);
+		if (outLines)
+			*outLines = lines;
+		return { (float)widest, (float)(fsScale * (metrics.ascenderY - metrics.descenderY) + (lines - 1) * pitch) };
+	}
+
 	void Renderer2D::DrawString(const std::string& string, const glm::vec3& position, float maxWidth, const glm::vec4& color)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

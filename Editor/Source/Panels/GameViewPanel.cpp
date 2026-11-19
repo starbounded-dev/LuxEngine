@@ -7,11 +7,16 @@
 #include "Viewport/Viewport.h"
 
 #include "Lux/Debug/Profiler.h"
+#include "Lux/Editor/EditorStack.h"
+#include "Lux/Editor/SelectionManager.h"
 #include "Lux/ImGui/AudioAccessibilityWidgets.h"
 #include "Lux/ImGui/ImGuiCore.h"
 #include "Lux/ImGui/ImGuiUtilities.h"
 #include "Lux/Renderer/SceneRenderer.h"
+#include "Lux/Scene/Components.h"
+#include "Lux/Scene/Entity.h"
 #include "Lux/Scene/Scene.h"
+#include "Lux/UI/UIEditor.h"
 
 #include <algorithm>
 
@@ -130,7 +135,8 @@ namespace Lux {
 		ImGui::SetNextWindowSize({800.0f, 500.0f}, ImGuiCond_FirstUseEver);
 		if (m_Viewport->BeginImGui(&isOpen))
 		{
-			if (m_Scene && m_Scene->GetPrimaryCameraEntity())
+			// A scene with only a canvas (a menu) has no camera and still has an image: the interface over an empty frame.
+			if (m_Scene && (m_Scene->GetPrimaryCameraEntity() || !m_Scene->GetAllEntitiesWith<UICanvasComponent>().empty()))
 				DrawGameImage();
 			else
 				DrawNoCameraMessage();
@@ -152,17 +158,194 @@ namespace Lux {
 				cursor.x + (imageBounds[0].x - bounds[0].x),
 				cursor.y + (imageBounds[0].y - bounds[0].y) });
 			ImGuiEx::Image(image, ImVec2{ imageSize.x, imageSize.y });
+
+			if (m_Scene && imageSize.x > 1.0f && imageSize.y > 1.0f)
+			{
+				if (m_Scene->IsRunning())
+					FeedUIInput(imageBounds[0], imageBounds[1]);
+				else
+					DrawUIEditing(imageBounds[0], imageBounds[1]);
+			}
 		}
 
-		// Captions and the accessibility menu belong over the game, and only while it runs.
+		// The accessibility menu belongs over the game, and only while it runs. The captions are drawn by the game UI.
 		if (m_Scene->IsRunning())
 		{
-			const glm::vec2* imageBounds = m_Viewport->GetImageBounds();
-			ImGuiEx::AudioAccessibilityOverlay(imageBounds[0], imageBounds[1]);
 			if ((m_Viewport->IsFocused() || m_ShowAccessibilityMenu) && ImGui::IsKeyPressed(ImGuiKey_F10, false))
 				m_ShowAccessibilityMenu = !m_ShowAccessibilityMenu;
 			ImGuiEx::AudioAccessibilityMenu(m_ShowAccessibilityMenu);
 		}
+	}
+
+	namespace
+	{
+		// The game's view is shown stretched over the image: its pixels (origin bottom left) and the image's (top left) differ
+		// by a scale and a flip.
+		glm::vec2 ToViewPixels(const ImVec2& point, const glm::vec2& imageMin, const glm::vec2& imageMax, const glm::vec2& view)
+		{
+			const glm::vec2 size = imageMax - imageMin;
+			return { (point.x - imageMin.x) / size.x * view.x, (1.0f - (point.y - imageMin.y) / size.y) * view.y };
+		}
+
+		ImVec2 ToImage(const glm::vec2& pixel, const glm::vec2& imageMin, const glm::vec2& imageMax, const glm::vec2& view)
+		{
+			const glm::vec2 size = imageMax - imageMin;
+			return { imageMin.x + pixel.x / view.x * size.x, imageMin.y + (1.0f - pixel.y / view.y) * size.y };
+		}
+
+		ImGuiMouseCursor CursorFor(UI::DragHandle handle)
+		{
+			switch (handle)
+			{
+				case UI::DragHandle::Body: return ImGuiMouseCursor_ResizeAll;
+				case UI::DragHandle::Left:
+				case UI::DragHandle::Right: return ImGuiMouseCursor_ResizeEW;
+				case UI::DragHandle::Bottom:
+				case UI::DragHandle::Top: return ImGuiMouseCursor_ResizeNS;
+				case UI::DragHandle::BottomLeft:
+				case UI::DragHandle::TopRight: return ImGuiMouseCursor_ResizeNESW;
+				case UI::DragHandle::BottomRight:
+				case UI::DragHandle::TopLeft: return ImGuiMouseCursor_ResizeNWSE;
+				default: return ImGuiMouseCursor_Arrow;
+			}
+		}
+	}
+
+	void GameViewPanel::FeedUIInput(const glm::vec2& imageMin, const glm::vec2& imageMax)
+	{
+		const glm::vec2 view{ (float)m_Scene->GetViewportWidth(), (float)m_Scene->GetViewportHeight() };
+		if (view.x < 1.0f || view.y < 1.0f)
+			return;
+
+		ImGuiIO& io = ImGui::GetIO();
+		const bool inside = m_Viewport->IsHovered() && io.MousePos.x >= imageMin.x && io.MousePos.x <= imageMax.x
+			&& io.MousePos.y >= imageMin.y && io.MousePos.y <= imageMax.y;
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && inside)
+			m_UIPressedInside = true;
+		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			m_UIPressedInside = false;
+
+		UI::Pointer pointer;
+		pointer.Position = ToViewPixels(io.MousePos, imageMin, imageMax, view);
+		pointer.Present = inside || m_UIPressedInside; // a drag that left the image still reaches its slider
+		pointer.Down = m_UIPressedInside;
+		m_Scene->SetUIPointer(pointer);
+		if (inside && io.MouseWheel != 0.0f)
+			m_Scene->AddUIScroll(io.MouseWheel);
+
+		// Keys go to the game only while this panel has the focus; the inspector's text fields keep theirs.
+		const bool keyboard = m_Viewport->IsFocused();
+		m_Scene->SetUIKeyboardEnabled(keyboard);
+		if (keyboard)
+		{
+			for (int i = 0; i < io.InputQueueCharacters.Size; ++i)
+				m_Scene->AddUITypedCharacter(static_cast<char32_t>(io.InputQueueCharacters[i]));
+		}
+	}
+
+	void GameViewPanel::DrawUIEditing(const glm::vec2& imageMin, const glm::vec2& imageMax)
+	{
+		// One undo step per finished drag.
+		const auto record = [](const UI::EditOutput& result)
+		{
+			if (result.Ended)
+				EditorStack::Get().MarkEntitiesEdited({ result.EndedEntity }, result.EndedHandle == UI::DragHandle::Body ? "Move UI Element" : "Resize UI Element");
+		};
+
+		if (m_Scene->GetAllEntitiesWith<UICanvasComponent>().empty())
+		{
+			record(m_UIEdit.Finish());
+			return;
+		}
+
+		ImGui::SetCursorScreenPos(ImVec2{ imageMin.x + 8.0f, imageMin.y + 8.0f });
+		ImGui::Checkbox("Edit UI##GameViewEditUI", &m_EditUI);
+		const bool overCheckbox = ImGui::IsItemHovered();
+		if (!m_EditUI)
+		{
+			record(m_UIEdit.Finish());
+			return;
+		}
+
+		const glm::vec2 view{ (float)m_Scene->GetViewportWidth(), (float)m_Scene->GetViewportHeight() };
+		if (view.x < 1.0f || view.y < 1.0f)
+			return;
+
+		const std::vector<UI::ResolvedCanvas> canvases = UI::ResolveLayout(*m_Scene, view);
+		const ImVec2 mouse = ImGui::GetMousePos();
+
+		UI::EditInput input;
+		input.Point = ToViewPixels(mouse, imageMin, imageMax, view);
+		input.Inside = m_Viewport->IsHovered() && !overCheckbox && mouse.x >= imageMin.x && mouse.x <= imageMax.x
+			&& mouse.y >= imageMin.y && mouse.y <= imageMax.y;
+		input.Down = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+		input.Pressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+		input.Grab = 8.0f * view.x / std::max(imageMax.x - imageMin.x, 1.0f); // 8 image pixels, in view pixels
+		for (UUID id : SelectionManager::GetSelections(SelectionContext::Scene))
+		{
+			input.Selected = id;
+			break;
+		}
+
+		// Arrow keys nudge the selected element by a unit (ten with Shift) while the panel has the focus.
+		if (!m_UIEdit.IsDragging() && input.Selected && m_Viewport->IsFocused())
+		{
+			const float step = ImGui::GetIO().KeyShift ? 10.0f : 1.0f;
+			glm::vec2 nudge{ 0.0f };
+			if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) nudge.x -= step;
+			if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) nudge.x += step;
+			if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) nudge.y -= step;
+			if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) nudge.y += step;
+			if (nudge != glm::vec2(0.0f) && UI::EditSession::Nudge(m_Scene->GetEntityByUUID(input.Selected), nudge))
+				EditorStack::Get().MarkEntitiesEdited({ input.Selected }, "Move UI Element");
+		}
+
+		const UI::EditOutput result = m_UIEdit.Update(canvases, input);
+		record(result);
+		if (result.Select)
+		{
+			SelectionManager::DeselectAll(SelectionContext::Scene);
+			SelectionManager::Select(SelectionContext::Scene, result.Select);
+		}
+		if (result.Hover != UI::DragHandle::None)
+			ImGui::SetMouseCursor(CursorFor(result.Hover));
+
+		// The overlay: the hovered element faintly, the selected one with its handles.
+		ImDrawList* draw = ImGui::GetWindowDrawList();
+		const auto rectOnScreen = [&](const UI::Rect& rect, ImVec2& topLeft, ImVec2& bottomRight)
+		{
+			topLeft = ToImage({ rect.Min.x, rect.Max.y }, imageMin, imageMax, view);
+			bottomRight = ToImage({ rect.Max.x, rect.Min.y }, imageMin, imageMax, view);
+		};
+		draw->PushClipRect(ImVec2{ imageMin.x, imageMin.y }, ImVec2{ imageMax.x, imageMax.y }, true);
+		if (result.Under && result.Under != result.Selected)
+		{
+			ImVec2 a, b;
+			rectOnScreen(result.Under->ScreenRect, a, b);
+			draw->AddRect(a, b, IM_COL32(255, 255, 255, 90), 0.0f, 0, 1.0f);
+		}
+		if (result.Selected)
+		{
+			ImVec2 a, b;
+			rectOnScreen(result.Selected->ScreenRect, a, b);
+			const ImU32 color = result.LayoutControlled ? IM_COL32(255, 180, 60, 255) : IM_COL32(60, 160, 255, 255);
+			draw->AddRect(a, b, color, 0.0f, 0, 2.0f);
+			if (!result.LayoutControlled)
+			{
+				const float middleX = (a.x + b.x) * 0.5f, middleY = (a.y + b.y) * 0.5f, half = 3.5f;
+				const ImVec2 handles[8] = { { a.x, a.y }, { b.x, a.y }, { a.x, b.y }, { b.x, b.y }, { middleX, a.y }, { middleX, b.y }, { a.x, middleY }, { b.x, middleY } };
+				for (const ImVec2& handle : handles)
+				{
+					draw->AddRectFilled({ handle.x - half, handle.y - half }, { handle.x + half, handle.y + half }, IM_COL32(255, 255, 255, 255));
+					draw->AddRect({ handle.x - half, handle.y - half }, { handle.x + half, handle.y + half }, color);
+				}
+			}
+			else if (input.Inside)
+			{
+				draw->AddText(ImVec2{ a.x, std::max(imageMin.y, a.y - ImGui::GetTextLineHeight() - 2.0f) }, color, "Placed by the parent's layout");
+			}
+		}
+		draw->PopClipRect();
 	}
 
 	void GameViewPanel::DrawNoCameraMessage() const

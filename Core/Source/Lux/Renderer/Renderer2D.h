@@ -76,6 +76,13 @@ namespace Lux {
 		void DrawString(const std::string& string, const Ref<Font>& font, const glm::vec3& position, float maxWidth, const glm::vec4& color = glm::vec4(1.0f));
 		void DrawString(const std::string& string, const Ref<Font>& font, const glm::mat4& transform, float maxWidth, const glm::vec4& color = glm::vec4(1.0f), float lineHeightOffset = 0.0f, float kerningOffset = 0.0f);
 
+		// Width of the longest line and height of all lines, in the units DrawString lays out in (one em tall,
+		// scaled by the transform), with the same wrapping at maxWidth. A line is one em tall plus LineSpacing.
+		static glm::vec2 MeasureString(const std::string& string, const Ref<Font>& font, float maxWidth, float lineHeightOffset = 0.0f, float kerningOffset = 0.0f, int* outLines = nullptr);
+
+		// Height of the first line above its baseline, in the same units: where the top of the text sits.
+		static float GetStringAscent(const Ref<Font>& font);
+
 		float GetLineWidth();
 		void SetLineWidth(float lineWidth);
 

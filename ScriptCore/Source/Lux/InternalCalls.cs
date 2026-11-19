@@ -16,6 +16,16 @@ namespace Lux
 		internal static delegate*<ulong, int, float> Animation_GetScalar;
 		internal static delegate*<ulong, int, float, Bool32> Animation_SetScalar;
 		internal static delegate*<ulong, ulong, float, Bool32> Animation_CrossFade;
+		internal static delegate*<ulong, int, float> UI_GetFloat;
+		internal static delegate*<ulong, int, float, void> UI_SetFloat;
+		internal static delegate*<ulong, int, Bool32> UI_GetBool;
+		internal static delegate*<ulong, int, Bool32, void> UI_SetBool;
+		internal static delegate*<ulong, int, Vector4*, void> UI_GetVector;
+		internal static delegate*<ulong, int, Vector4*, void> UI_SetVector;
+		internal static delegate*<ulong, int, NativeString> UI_GetText;
+		internal static delegate*<ulong, int, NativeString, void> UI_SetText;
+		internal static delegate*<ulong, void> UI_Focus;
+		internal static delegate*<ulong, void> UI_Click;
 		internal static delegate*<ulong, NativeString, float, Bool32> Animation_PlayState;
 		internal static delegate*<ulong, NativeString> Animation_GetState;
 		internal static delegate*<ulong, NativeString, int, float, Bool32> Animation_SetParameter;

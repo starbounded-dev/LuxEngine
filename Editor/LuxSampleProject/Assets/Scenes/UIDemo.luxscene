@@ -1,0 +1,378 @@
+Scene: UIDemo
+Entities:
+  - Entity: 16200000000003000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.174533, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 30
+      Radiance: [1, 0.85, 0.7]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 16200000000003000002
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.4
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 16200000000003000003
+    TagComponent:
+      Tag: Ground
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, -100]
+      Rotation: [0, 0, 0]
+      Scale: [400, 1, 400]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Wall.lmat
+      Visible: true
+  - Entity: 16200000000003000004
+    TagComponent:
+      Tag: Pillar Behind 0
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-30, 30, 90]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000005
+    TagComponent:
+      Tag: Pillar Behind 1
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-18, 30, 110]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000006
+    TagComponent:
+      Tag: Pillar Behind 2
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-6, 30, 130]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000007
+    TagComponent:
+      Tag: Pillar Behind 3
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [6, 30, 90]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000008
+    TagComponent:
+      Tag: Pillar Behind 4
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [18, 30, 110]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000009
+    TagComponent:
+      Tag: Pillar Behind 5
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [30, 30, 130]
+      Rotation: [0, 0, 0]
+      Scale: [3, 60, 3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000010
+    TagComponent:
+      Tag: Pillar Ahead 0
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-14, 4, -40]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 8, 1.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000011
+    TagComponent:
+      Tag: Pillar Ahead 1
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [6, 4, -50]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 8, 1.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000012
+    TagComponent:
+      Tag: Pillar Ahead 2
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [20, 4, -60]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 8, 1.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003000013
+    TagComponent:
+      Tag: Reference Sphere
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1, -12]
+      Rotation: [0, 0, 0]
+      Scale: [2, 2, 2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Sphere.gltf
+      MaterialTable:
+        0: Materials/RenderFeatures/RF_Satin.lmat
+      Visible: true
+  - Entity: 16200000000003009999
+    TagComponent:
+      Tag: LowSun Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.2, 0]
+      Rotation: [-0.08, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 60
+        PerspectiveNear: 0.1
+        PerspectiveFar: 600
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 17000000000000001
+    TagComponent:
+      Tag: UI Canvas
+    Parent: 0
+    Children:
+      - Handle: 17000000000000002
+      - Handle: 17000000000000006
+      - Handle: 17000000000000007
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      ScaleMode: 1
+      ReferenceResolution: [1920, 1080]
+      ScaleFactor: 1
+      Match: 0.5
+
+  - Entity: 17000000000000002
+    TagComponent:
+      Tag: Menu Panel
+    Parent: 17000000000000001
+    Children:
+      - Handle: 17000000000000003
+      - Handle: 17000000000000004
+      - Handle: 17000000000000005
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0.5, 0.5]
+      AnchorMax: [0.5, 0.5]
+      OffsetMin: [-300, -250]
+      OffsetMax: [300, 250]
+      LayoutKind: 2
+      LayoutPadding: [30, 30, 30, 30]
+      LayoutSpacing: 20
+      LayoutCellSize: [100, 100]
+      LayoutColumns: 2
+      LayoutAlign: 1
+      LayoutExpand: false
+    UIImageComponent:
+      Color: [0.05, 0.07, 0.12, 0.85]
+      Texture: 0
+
+  - Entity: 17000000000000003
+    TagComponent:
+      Tag: Title
+    Parent: 17000000000000002
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0.5, 0.5]
+      AnchorMax: [0.5, 0.5]
+      OffsetMin: [-270, -40]
+      OffsetMax: [270, 40]
+    UITextComponent:
+      Text: Main Menu
+      Font: 0
+      Color: [1, 1, 1, 1]
+      Size: 64
+      LineSpacing: 0
+      AlignH: 1
+      AlignV: 1
+      Wrap: true
+
+  - Entity: 17000000000000004
+    TagComponent:
+      Tag: Play Button
+    Parent: 17000000000000002
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0.5, 0.5]
+      AnchorMax: [0.5, 0.5]
+      OffsetMin: [-200, -35]
+      OffsetMax: [200, 35]
+    UIImageComponent:
+      Color: [0.15, 0.55, 0.3, 1]
+      Texture: 0
+
+  - Entity: 17000000000000005
+    TagComponent:
+      Tag: Quit Button
+    Parent: 17000000000000002
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0.5, 0.5]
+      AnchorMax: [0.5, 0.5]
+      OffsetMin: [-200, -35]
+      OffsetMax: [200, 35]
+    UIImageComponent:
+      Color: [0.65, 0.2, 0.2, 1]
+      Texture: 0
+
+  - Entity: 17000000000000006
+    TagComponent:
+      Tag: Corner Badge
+    Parent: 17000000000000001
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [1, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [-220, 20]
+      OffsetMax: [-20, 80]
+    UIImageComponent:
+      Color: [0.9, 0.7, 0.1, 1]
+      Texture: 0
+
+  - Entity: 17000000000000007
+    TagComponent:
+      Tag: Hint
+    Parent: 17000000000000001
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [1, 1]
+      OffsetMin: [40, -120]
+      OffsetMax: [-40, -40]
+    UITextComponent:
+      Text: Anchored to the top, stretched across the screen
+      Font: 0
+      Color: [0.9, 0.9, 0.9, 1]
+      Size: 36
+      LineSpacing: 0
+      AlignH: 0
+      AlignV: 0
+      Wrap: true

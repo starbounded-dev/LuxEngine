@@ -19,6 +19,7 @@
 #include "Lux/Physics/PhysicsTypes.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Texture.h"
+#include "Lux/UI/UILayout.h"
 #include "Lux/Renderer/UI/Font.h"
 
 #include <glm/glm.hpp>
@@ -586,6 +587,103 @@ namespace Lux {
 		MeshColliderComponent(const MeshColliderComponent&) = default;
 	};
 
+	// Game UI (docs/GAME_UI_PLAN.md). A canvas is the root of a UI tree; its descendants with a
+	// UIElementComponent are laid out inside it and drawn over the finished frame, in hierarchy order.
+	struct UICanvasComponent
+	{
+		bool Enabled = true;
+		UI::ScaleMode ScaleMode = UI::ScaleMode::ScaleWithScreen;
+		glm::vec2 ReferenceResolution = { 1920.0f, 1080.0f };
+		float ScaleFactor = 1.0f; // ConstantPixelSize
+		float Match = 0.5f;       // ScaleWithScreen: 0 follows the width, 1 the height
+		int32_t SortOrder = 0;    // a higher canvas draws over a lower one
+
+		UICanvasComponent() = default;
+		UICanvasComponent(const UICanvasComponent&) = default;
+	};
+
+	// A rectangle in a UI tree. Its parent is the canvas or another element; a parent with a layout group
+	// places its children and ignores their anchors.
+	struct UIElementComponent
+	{
+		bool Visible = true; // hides the element and everything under it
+		UI::RectTransform Rect;
+		UI::LayoutGroup Layout;
+
+		UIElementComponent() = default;
+		UIElementComponent(const UIElementComponent&) = default;
+	};
+
+	struct UIImageComponent
+	{
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+		AssetHandle Texture = 0; // none draws a flat color
+		bool PointFilter = false;
+		// 9-slice: the texture's left, bottom, right and top borders in texels. All zero stretches the whole image;
+		// otherwise the corners keep their size (drawn at SliceScale UI units per texel) and the edges and middle stretch.
+		glm::vec4 SliceBorder{ 0.0f };
+		float SliceScale = 1.0f;
+
+		UIImageComponent() = default;
+		UIImageComponent(const UIImageComponent&) = default;
+	};
+
+	enum class UITextAlignH : uint8_t { Left = 0, Center, Right };
+	enum class UITextAlignV : uint8_t { Top = 0, Middle, Bottom };
+
+	enum class UIWidgetKind : uint8_t { Button = 0, Toggle, Slider, ProgressBar, TextInput, ScrollList };
+
+	// Behaviour for the element it sits on. The look comes from the element's UIImageComponent (the background, track
+	// or box) and UITextComponent (a text input's text); the widget tints the image by state and draws its own parts
+	// (fill, handle, check mark, caret) in AccentColor. A scroll list scrolls the children its layout places.
+	struct UIWidgetComponent
+	{
+		UIWidgetKind Kind = UIWidgetKind::Button;
+		bool Interactable = true;
+		bool StartFocused = false; // the first navigation key focuses this widget instead of the first one in the tree
+		glm::vec4 HoverTint{ 1.15f, 1.15f, 1.15f, 1.0f };    // multiplies the image color
+		glm::vec4 PressedTint{ 0.75f, 0.75f, 0.75f, 1.0f };
+		glm::vec4 DisabledTint{ 0.5f, 0.5f, 0.5f, 0.6f };
+		glm::vec4 AccentColor{ 0.25f, 0.6f, 1.0f, 1.0f };    // fill, handle, check mark and caret
+
+		float Value = 0.0f; // Slider, ProgressBar
+		float MinValue = 0.0f;
+		float MaxValue = 1.0f;
+		bool WholeNumbers = false; // Slider: steps of 1
+		bool Checked = false;      // Toggle
+
+		std::string Placeholder; // TextInput, shown in the text's color at half strength while it is empty and unfocused
+		int32_t MaxLength = 64;  // TextInput, in bytes
+
+		float ScrollOffset = 0.0f; // ScrollList: UI units the content is moved up
+
+		// Runtime state, never saved: set by the UI update and read by drawing and scripts.
+		bool Hovered = false;
+		bool Pressed = false;
+		bool Focused = false;
+		bool FocusRing = false; // Focused by keyboard or gamepad navigation: drawn with a ring
+		int32_t CaretIndex = -1; // TextInput: byte offset, -1 until first focus puts it at the end
+		float CaretTime = 0.0f;  // seconds since the caret last moved (it blinks)
+
+		UIWidgetComponent() = default;
+		UIWidgetComponent(const UIWidgetComponent&) = default;
+	};
+
+	struct UITextComponent
+	{
+		std::string Text;
+		AssetHandle FontHandle = 0; // none is the default font
+		glm::vec4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float Size = 32.0f; // line height in UI units
+		float LineSpacing = 0.0f;
+		UITextAlignH AlignH = UITextAlignH::Left;
+		UITextAlignV AlignV = UITextAlignV::Top;
+		bool Wrap = true;
+
+		UITextComponent() = default;
+		UITextComponent(const UITextComponent&) = default;
+	};
+
 	struct TextComponent
 	{
 		bool Enabled = true;
@@ -963,7 +1061,7 @@ namespace Lux {
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
-		TextComponent,
+		TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,

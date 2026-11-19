@@ -107,6 +107,8 @@ namespace Lux {
 		m_Packet.Reset();
 		if (!scene->BuildRenderPacketRuntime(m_Packet, renderer))
 			return;
+		// Screen-space UI and captions would sit flat and at the same place in both eyes of the headset.
+		m_Packet.UI.clear();
 
 		// The pose is read here, after the scene update and as late as the main thread can, so the
 		// image starts from the newest head rotation.

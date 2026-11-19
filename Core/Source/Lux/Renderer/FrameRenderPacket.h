@@ -95,6 +95,10 @@ namespace Lux {
 		float MeshSyncMs = 0.0f; // CPU time of the render-scene sync that produced Meshes
 
 		std::vector<Draw2DItem> Draw2D;
+		// Game UI, in draw order, with transforms in screen pixels (origin bottom left). Drawn after Draw2D with a
+		// pixel-space projection of UIScreenSize.
+		std::vector<Draw2DItem> UI;
+		glm::vec2 UIScreenSize{ 0.0f };
 		std::vector<DebugLine> AudioZoneLines;
 		std::vector<DebugLine> ScriptLines; // C# Gizmos (Scene::AddDebugLine)
 		std::vector<ColliderDebugItem> ColliderDebug;
@@ -106,6 +110,7 @@ namespace Lux {
 			Meshes = nullptr;
 			MeshSyncMs = 0.0f;
 			Draw2D.clear();
+			UI.clear();
 			AudioZoneLines.clear();
 			ScriptLines.clear();
 			ColliderDebug.clear();

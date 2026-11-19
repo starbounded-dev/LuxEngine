@@ -60,6 +60,13 @@ namespace Lux
 		std::filesystem::path m_ProjectPath;
 		std::filesystem::path m_AudioVerificationPath;
 		uint32_t m_AudioVerificationFrames = 0;
+		// LUX_RUNTIME_CAPTURE=<file> writes the final frame as an LXIM image (tests/rendering/golden_compare.py --to-png)
+		// after LUX_RUNTIME_CAPTURE_FRAME frames (default 120), then closes the game.
+		std::filesystem::path m_CapturePath;
+		uint32_t m_CaptureFrame = 120;
+		uint32_t m_CaptureFrames = 0;
+		std::shared_ptr<std::atomic<int>> m_CaptureState; // 0 idle or waiting, 1 written, -1 failed
+		void UpdateCapture();
 		uint32_t m_FramesSinceStart = 0;
 
 		Ref<Project> m_RuntimeProject;

@@ -2601,6 +2601,71 @@ event that frame (1 outside Play and while culled).
 `Core/Source/Lux/Core/Input.h` — static, with `KeyCodes.h` / `MouseCodes.h`. Frame-accurate state is
 updated by `Application`.
 
+### 2.11a Game UI (M3)
+
+`Core/Source/Lux/UI/`, plan in `docs/GAME_UI_PLAN.md`. A user interface is scene data: a `UICanvasComponent` entity
+(scale mode, reference resolution, sort order) whose descendants carry `UIElementComponent` (anchors, offsets,
+optional `LayoutGroup`) and a look (`UIImageComponent`, `UITextComponent`). Hierarchy order is draw order, so
+prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
+
+- `UILayout.h/.cpp` — pure functions, no registry or GPU: `CanvasScale`, `ResolveRect` (anchors + offsets inside a
+  parent), `LayoutChildren` (horizontal / vertical / grid) and `PreferredGroupSize`. Origin bottom left, y up.
+  Checked headless by `CheckUILayout` / `CheckUIScene` in `tests/2d/Checks2D.cpp`.
+- `UISystem.h/.cpp` — main thread. `ResolveLayout(Scene&, screenSize)` walks each enabled canvas (lowest
+  `SortOrder` first) and returns screen-pixel rectangles; `CaptureDrawItems` turns them into `FrameRenderPacket::UI`
+  (`Draw2DItem` quads and text, transforms in pixels). Text is sized with `Renderer2D::MeasureString` /
+  `GetStringAscent`, which walk the same wrap pass as `DrawString`.
+- Drawing: `Scene::BuildRenderPacketRuntime` fills `packet.UI`; `SubmitRenderPacket` copies it into the
+  `WorldOverlay2D` callback, which draws it after the world items with `ortho(0, w, 0, h)` and no depth test, on the
+  composite framebuffer (so it is not tone-mapped). Only the runtime packet carries it: the Scene View never shows UI.
+- Known limit: `Renderer2D` flushes quads before text, so overlapping UI draws all quads under all text.
+- Widgets (U2): `UIWidgetComponent` (button, toggle, slider, progress bar, text input, scroll list) sits on an element and
+  borrows its look from `UIImageComponent` / `UITextComponent`; `CaptureDrawItems` tints the image by state and draws the
+  widget's own parts (fill, handle, check mark, caret). `UIImageComponent::SliceBorder` makes a 9-slice (nine quads, UV
+  v grows upward like the quad). A scroll list lays its children out in a taller content rectangle moved by
+  `ScrollOffset`; `ResolvedElement::Clip` cuts quads (and their UVs) at the list edge and drops text that does not fit.
+- Input (U2): `UI/UIInput.h` holds the plain-data `FrameInput` (`Pointer`, `Keys`, typed characters), `Event` and
+  `InteractionState`. The host calls `Scene::SetUIPointer` each frame (the player uses the window mouse, y flipped; the
+  Game View will use its image rectangle) and forwards `KeyTypedEvent` / `MouseScrolledEvent` to
+  `AddUITypedCharacter` / `AddUIScroll`. `Scene::UpdateUI` (main thread, in `OnUpdateRuntime`, real time so a paused game
+  still has working menus) runs `UI::UpdateInteraction`, which hit-tests the topmost widget, handles press/click/drag/
+  text editing/wheel, and leaves this frame's `Event`s in `Scene::GetUIEvents()` for the C# API.
+- Navigation (U3): `UI::Nav` in `FrameInput` (arrows, Tab, d-pad, left stick, bumpers, face buttons; `ReadNavigation` adds
+  repeat, held-time slots start at -1). `InteractionState::Focus` is the focused widget and `FocusVisible` says
+  whether keyboard/gamepad navigation (not the mouse) put it there; widgets get `Focused` and `FocusRing`. Directional
+  moves pick the nearest widget ahead (distance along + 2x sideways); Next/Previous cycle the hierarchy order;
+  focusing a row in a scroll list moves its `ScrollOffset` to reveal it. `Cancel` is an `Event`.
+- C# (U6): `UI/UIScriptBindings.{h,cpp}` registers `UI_Get/Set{Float,Bool,Vector,Text}`, `UI_Focus` and `UI_Click` (fields are
+  enums shared with `ScriptCore/Source/Lux/UI.cs`) and finds the managed `Lux.UIEvents` type. `Scene::UpdateUI` merges events
+  scripts queued with `QueueUIEvent` (`Click()`) with the frame's input events and calls `UIScriptBindings::Dispatch`, which
+  invokes the static `UIEvents.Dispatch` once per event; handlers live in a managed dictionary keyed by entity id and are
+  cleared by `UIScriptBindings::Reset` whenever a scene ends (a reload reuses the same ids). The five components are
+  registered in `RegisterComponentTypes`. Play checks: `tests/play/Scripts/UiTests.cs` (the Finisher and SceneLoading
+  counts in `PlayTests.cs` / `ApiTests.cs` include its three results).
+- Captions (U4): `UI/UIAccessibility.{h,cpp}`. `CaptureAccessibility` (called from `BuildRenderPacketRuntime` after the canvases)
+  turns `AudioAccessibility::GetSubtitles()` / `GetSoundCues()` into packet items: a box above the bottom edge with one wrapped
+  text block per entry, plus a marker and label per sound cue. `CollectCaptions` (pure) picks the entries that fit in
+  `MaxLines`, newest at the bottom. This replaced the ImGui `AudioAccessibilityOverlay`, which an exported (Dist) game never had:
+  the runtime and the Game View no longer call an ImGui overlay (the F10 options menu stays ImGui and editor/Release only).
+  VR clears `packet.UI` (flat screen-space UI would sit the same in both eyes).
+- Editing (U5 / E9): `GameViewPanel` is the UI editor, `UI/UIEditor.{h,cpp}` its logic. While the scene runs, `FeedUIInput`
+  maps the mouse over the image to view pixels (scale + y flip), calls `Scene::SetUIPointer`, forwards the wheel and ImGui's
+  typed characters, and switches `SetUIKeyboardEnabled` with the panel's focus. While it does not, `DrawUIEditing` fills a
+  `UI::EditInput` (pointer, buttons, first selected entity) and runs `UI::EditSession::Update` over `ResolveLayout`: the
+  session finds the topmost element under the pointer, says which entity a click selects (the panel applies it through
+  `SelectionManager`), and drags with `UI::PickHandle` / `UI::DragRect` (pure, in `UILayout`): only the offsets change, in
+  whole canvas units, and a finished drag comes back as `Ended` for one `EditorStack::MarkEntitiesEdited` step. An element
+  whose parent has a layout group is selectable but outlined orange and never dragged. A scene with a canvas and no camera
+  still gets a Game View image. All of it but the ImGui drawing is checked headless (`CheckUIEditing`).
+- The UI pass uses `SceneRenderer::GetScreenSpaceRenderer2D()`: one `Renderer2D` shares its vertex buffers between a frame's
+  `BeginScene`/`EndScene` passes, so a second pass on the world renderer overwrote the first pass's quads and text.
+- A scene with a canvas but no primary camera still renders: `BuildRenderPacketRuntime` falls back to a default camera,
+  so a menu scene shows its UI over an empty frame.
+- `LUX_RUNTIME_CAPTURE=<file>` (with `LUX_RUNTIME_CAPTURE_FRAME`, default 120) makes the player write its final frame as an
+  LXIM image after that many frames and quit; `tests/rendering/golden_compare.py --to-png` converts it.
+- Components follow the usual five edits (declaration, `Scene::Copy`/`CopyTo`/duplicate lists and `Prefab.cpp`,
+  `SceneSerializer`, `SceneHierarchyPanel` inspector and Create UI menu, `GetAssetList` for textures and fonts).
+
 ### 2.12 Project
 
 `Project` (`Project/Project.h`) is `Ref`-counted with a static active-project slot. Path accessors:

@@ -30,6 +30,8 @@
 
 #include "entt/entt.hpp"
 
+#include "Lux/UI/UIInput.h"
+
 #include <glm/glm.hpp>
 #include <functional>
 #include <unordered_set>
@@ -235,6 +237,19 @@ namespace Lux {
 		uint32_t GetViewportWidth() const { return m_ViewportWidth; }
 		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
 
+		// Game UI input. The host sets the pointer each frame (screen pixels, origin bottom left, relative to the view the
+		// UI is drawn in) and forwards typed characters; Update reads them and fills the events scripts read.
+		void SetUIPointer(const UI::Pointer& pointer) { const float scroll = m_UIPointer.Scroll; m_UIPointer = pointer; m_UIPointer.Scroll += scroll; }
+		void AddUITypedCharacter(char32_t character) { m_UITyped.push_back(character); }
+		void AddUIScroll(float notches) { m_UIPointer.Scroll += notches; }
+		// Off: the UI ignores the keyboard (navigation, editing, typed characters). The editor turns it off while the Game View is
+		// not the focused panel, so typing in the inspector does not move a menu. A player never needs it.
+		void SetUIKeyboardEnabled(bool enabled) { m_UIKeyboard = enabled; }
+		const std::vector<UI::Event>& GetUIEvents() const { return m_UIEvents; }
+		// An event a script made (UIWidgetComponent.Click): delivered with the next update's events.
+		void QueueUIEvent(const UI::Event& event) { m_UIQueued.push_back(event); }
+		UI::InteractionState& GetUIState() { return m_UIState; }
+
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
 		void SetPaused(bool paused) { m_IsPaused = paused; }
@@ -285,6 +300,7 @@ namespace Lux {
 		bool BuildRenderPacketRuntime(FrameRenderPacket& packet, Ref<SceneRenderer> renderer);
 		void SubmitRenderPacket(Ref<SceneRenderer> renderer, const FrameRenderPacket& packet) const;
 		void CaptureDraw2D(FrameRenderPacket& packet);
+		void UpdateUI(Timestep ts);
 		// Advances every playing SpriteAnimatorComponent and shows the clip's frame on its sprite.
 		void UpdateSpriteAnimators(Timestep ts);
 		// Where a sprite, circle or text entity sits in the 2D draw order (sorting layer, then order in layer);
@@ -362,6 +378,15 @@ namespace Lux {
 	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
+
+		UI::Pointer m_UIPointer;
+		std::u32string m_UITyped;
+		UI::InteractionState m_UIState;
+		std::vector<UI::Event> m_UIEvents; // this frame's, replaced each update
+		std::vector<UI::Event> m_UIQueued;
+		bool m_UIKeyboard = true;
+		float m_UIKeyHeld[8] = {};
+		float m_UINavHeld[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 
 		PostProcessSettings m_PostProcessSettings;
 		std::vector<AssetHandle> m_SoundBanks;

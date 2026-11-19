@@ -54,6 +54,11 @@ namespace Lux {
 	LUX_COMPONENT_DOC_TOPIC(Joint2DComponent, "components/2d", "2D: Sprites, Circles and Text")
 	LUX_COMPONENT_DOC_TOPIC(CircleRendererComponent, "components/2d", "2D: Sprites, Circles and Text")
 	LUX_COMPONENT_DOC_TOPIC(TextComponent, "components/2d", "2D: Sprites, Circles and Text")
+	LUX_COMPONENT_DOC_TOPIC(UICanvasComponent, "components/ui", "Game UI")
+	LUX_COMPONENT_DOC_TOPIC(UIElementComponent, "components/ui", "Game UI")
+	LUX_COMPONENT_DOC_TOPIC(UIImageComponent, "components/ui", "Game UI")
+	LUX_COMPONENT_DOC_TOPIC(UITextComponent, "components/ui", "Game UI")
+	LUX_COMPONENT_DOC_TOPIC(UIWidgetComponent, "components/ui", "Game UI")
 	LUX_COMPONENT_DOC_TOPIC(PrefabComponent, "editor/prefabs", "Prefabs")
 
 #undef LUX_COMPONENT_DOC_TOPIC
