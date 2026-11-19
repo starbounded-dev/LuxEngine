@@ -39,6 +39,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Audio](components/audio)
 - [2D: Sprites, Circles and Text](components/2d)
 - [Game UI](components/ui)
+- [Particles](components/particles)
 
 ## Scripting
 

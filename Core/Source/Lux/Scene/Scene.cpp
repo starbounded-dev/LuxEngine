@@ -609,6 +609,7 @@ namespace Lux {
 		m_AudioZones.Remove(entity.GetUUID());
 		m_PhysicsAudio.Remove(entity.GetUUID());
 		m_Footsteps.erase(entity.GetUUID());
+		m_ParticleStates.erase(entity.GetUUID());
 		if (m_PhysicsScene2D)
 			m_PhysicsScene2D->DestroyBody(entity.GetUUID());
 		m_EntityMap.erase(entity.GetUUID());
@@ -1042,6 +1043,7 @@ namespace Lux {
 	void Scene::OnRuntimeStop()
 	{
 		m_IsRunning = false;
+		m_ParticleStates.clear();
 
 		OnAcousticsStop();
 		OnPhysics3DStop();
@@ -1228,7 +1230,10 @@ namespace Lux {
 		ApplyBoneAttachments();
 		RefreshInactiveEntities();
 		if (simulating)
+		{
 			UpdateSpriteAnimators(scaledTs);
+			UpdateParticles(scaledTs, false);
+		}
 		AudioScriptBindings::Update(m_IsPaused);
 		ScriptGlue::UpdateInput();
 		UpdateUI(ts);
@@ -1461,6 +1466,56 @@ namespace Lux {
 		m_PostUpdateQueue.clear();
 	}
 
+	void Scene::UpdateParticles(Timestep ts, bool editorPreview)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		auto view = m_Registry.view<ParticleSystemComponent>();
+		if (view.empty())
+		{
+			m_ParticleStates.clear();
+			return;
+		}
+
+		for (auto e : view)
+		{
+			const auto& component = view.get<ParticleSystemComponent>(e);
+			const Entity entity{ e, this };
+			const UUID id = entity.GetUUID();
+			if (!component.Enabled || IsInactive(e) || (editorPreview && !component.PreviewInEditor))
+			{
+				if (editorPreview)
+					m_ParticleStates.erase(id);
+				continue;
+			}
+
+			auto found = m_ParticleStates.find(id);
+			if (found == m_ParticleStates.end())
+			{
+				found = m_ParticleStates.emplace(id, Particles::MakeState(component.Seed)).first;
+				found->second.Playing = component.PlayOnAwake || editorPreview;
+			}
+			Particles::Step(found->second, component.Settings, GetWorldSpaceTransformMatrix(entity), static_cast<float>(ts));
+		}
+
+		// A system that lost its component or its entity leaves nothing behind.
+		if (m_ParticleStates.size() > view.size())
+		{
+			std::erase_if(m_ParticleStates, [&](const auto& entry)
+			{
+				const Entity owner = TryGetEntityWithUUID(entry.first);
+				return !owner || !owner.HasComponent<ParticleSystemComponent>();
+			});
+		}
+	}
+
+	Particles::State* Scene::GetParticleState(Entity entity)
+	{
+		if (!entity)
+			return nullptr;
+		const auto found = m_ParticleStates.find(entity.GetUUID());
+		return found != m_ParticleStates.end() ? &found->second : nullptr;
+	}
+
 	void Scene::UpdateSpriteAnimators(Timestep ts)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -1494,7 +1549,10 @@ namespace Lux {
 		ApplyBoneAttachments();
 		RefreshInactiveEntities();
 		if (!m_IsPaused || m_StepFrames > 0)
+		{
 			UpdateSpriteAnimators(ts);
+			UpdateParticles(ts, false);
+		}
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			StepPhysics(ts);
@@ -1513,6 +1571,7 @@ namespace Lux {
 	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
 		AdvanceAnimators(m_Registry, ts, false, false);
+		UpdateParticles(ts, true);
 		// Render 2D
 		RenderScene(camera);
 
@@ -1617,7 +1676,7 @@ namespace Lux {
 		using DuplicateComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent, ParticleSystemComponent,
 			MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,
@@ -1691,7 +1750,7 @@ namespace Lux {
 	using PrefabInstantiationComponents =
 		ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
+		RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent, ParticleSystemComponent,
 		MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
@@ -1876,7 +1935,7 @@ namespace Lux {
 		using PrefabSyncComponents =
 			ComponentGroup<TransformComponent, SpriteRendererComponent, SpriteAnimatorComponent, PolygonCollider2DComponent, CapsuleCollider2DComponent, EdgeCollider2DComponent, Joint2DComponent, TilemapComponent, CircleRendererComponent, CameraComponent, ScriptComponent,
 			NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent,
-			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
+			RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent, ParticleSystemComponent,
 			MeshComponent, MeshTagComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 			DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 			AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent, FolderComponent>;
@@ -3883,6 +3942,29 @@ namespace Lux {
 			}
 		}
 
+		// Draw particles: one item per 2D system, its particles older first.
+		{
+			auto view = m_Registry.view<TransformComponent, ParticleSystemComponent>();
+			for (auto entity : view)
+			{
+				const auto& particles = view.get<ParticleSystemComponent>(entity);
+				if (!particles.Enabled || IsInactive(entity) || particles.Settings.Mode != Particles::RenderMode::Sprite2D)
+					continue;
+				const Entity owner{ entity, this };
+				const auto found = m_ParticleStates.find(owner.GetUUID());
+				if (found == m_ParticleStates.end() || found->second.Count() == 0)
+					continue;
+
+				Draw2DItem item;
+				item.Type = Draw2DItem::Kind::Particles;
+				item.Transform = GetWorldSpaceTransformMatrix(owner);
+				item.Texture = AssetManager::GetAsset<Texture2D>(particles.Texture);
+				Particles::Fill(found->second, particles.Settings, item.Transform, glm::vec3(0.0f), item.ParticleInstances);
+				const float depth = depthOf(item.Transform);
+				sorted.push_back({ rankOf(particles.SortingLayer), particles.OrderInLayer, depth, std::move(item) });
+			}
+		}
+
 		// Draw circles
 		{
 			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
@@ -3959,6 +4041,11 @@ namespace Lux {
 			const auto& text = entity.GetComponent<TextComponent>();
 			return key(text.SortingLayer, text.OrderInLayer);
 		}
+		if (entity.HasComponent<ParticleSystemComponent>())
+		{
+			const auto& particles = entity.GetComponent<ParticleSystemComponent>();
+			return key(particles.SortingLayer, particles.OrderInLayer);
+		}
 		return 0;
 	}
 
@@ -4016,7 +4103,20 @@ namespace Lux {
 						case FrameRenderPacket::Draw2DItem::Kind::Circle:
 						renderer2D->DrawCircle(item.Transform, item.Color);
 						break;
-					case FrameRenderPacket::Draw2DItem::Kind::Tiles:
+					case FrameRenderPacket::Draw2DItem::Kind::Particles:
+							for (const Particles::Instance& particle : item.ParticleInstances)
+							{
+								const glm::vec4 color = particle.GetColor();
+								const glm::mat4 quad = glm::translate(glm::mat4(1.0f), particle.Position)
+									* glm::rotate(glm::mat4(1.0f), particle.Rotation, glm::vec3(0.0f, 0.0f, 1.0f))
+									* glm::scale(glm::mat4(1.0f), glm::vec3(particle.Size, 1.0f));
+								if (item.Texture)
+									renderer2D->DrawQuad(quad, item.Texture, 1.0f, color, glm::vec2(particle.UVRect.x, particle.UVRect.y), glm::vec2(particle.UVRect.z, particle.UVRect.w));
+								else
+									renderer2D->DrawQuad(quad, color);
+							}
+							break;
+						case FrameRenderPacket::Draw2DItem::Kind::Tiles:
 						for (const FrameRenderPacket::Draw2DItem::Tile& tile : item.Tiles)
 						{
 							const glm::mat4 quad = item.Transform * glm::translate(glm::mat4(1.0f), glm::vec3(tile.Cell + glm::vec2(0.5f), 0.0f));
@@ -4722,6 +4822,12 @@ namespace Lux {
 
 	template<>
 	void Scene::OnComponentAdded<TextComponent>(Entity entity, TextComponent& component)
+	{
+
+	}
+
+	template<>
+	void Scene::OnComponentAdded<ParticleSystemComponent>(Entity entity, ParticleSystemComponent& component)
 	{
 
 	}

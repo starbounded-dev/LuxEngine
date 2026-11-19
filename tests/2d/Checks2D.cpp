@@ -15,6 +15,7 @@
 #include "Lux/Core/Base.h"
 #include "Lux/Core/Log.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Particles/ParticleSystem.h"
 #include "Lux/Physics/ContactPairTracker.h"
 #include "Lux/Physics2D/PhysicsScene2D.h"
 #include "Lux/Project/Project.h"
@@ -2164,6 +2165,388 @@ namespace {
 		Check(restoredText.Text == "Play\nQuit" && Near(restoredText.Size, 48.0f) && restoredText.AlignH == UITextAlignH::Center && restoredText.AlignV == UITextAlignV::Middle && !restoredText.Wrap, "text, size, alignment and wrap survive a save");
 	}
 
+	// ---- Particles (docs/PARTICLES_PLAN.md) ---------------------------------------------------------------------------
+
+	// Steps a state for `seconds` of 1/60 s frames.
+	void RunParticles(Particles::State& state, const Particles::Settings& settings, const glm::mat4& emitter, float seconds)
+	{
+		for (int i = 0, frames = static_cast<int>(seconds * 60.0f + 0.5f); i < frames; i++)
+			Particles::Step(state, settings, emitter, 1.0f / 60.0f);
+	}
+
+	void CheckParticleSimulation()
+	{
+		using namespace Particles;
+		const glm::mat4 origin(1.0f);
+
+		Settings base;
+		base.Lifetime = { 10.0f, 10.0f };
+		base.Speed = { 0.0f, 0.0f };
+		base.Gravity = glm::vec3(0.0f);
+
+		// The same seed and settings give the same particles; another seed does not.
+		{
+			Settings settings = base;
+			settings.Rate = 120.0f;
+			settings.Speed = { 1.0f, 3.0f };
+			settings.ConeAngle = 60.0f;
+			State a = MakeState(7), b = MakeState(7), c = MakeState(8);
+			RunParticles(a, settings, origin, 2.0f);
+			RunParticles(b, settings, origin, 2.0f);
+			RunParticles(c, settings, origin, 2.0f);
+			bool same = a.Count() == b.Count() && a.Count() > 100;
+			for (uint32_t i = 0; same && i < a.Count(); i++)
+				same = a.Position[i] == b.Position[i] && a.Velocity[i] == b.Velocity[i];
+			Check(same, "particles: the same seed and settings give identical particles");
+			Check(a.Position[0] != c.Position[0], "particles: another seed gives other particles");
+		}
+
+		// The rate sets how many are released, and a slow frame is cut up into fixed steps.
+		{
+			Settings settings = base;
+			settings.Rate = 60.0f;
+			State state = MakeState(1);
+			RunParticles(state, settings, origin, 1.0f);
+			Check(state.Count() >= 58 && state.Count() <= 62, std::format("particles: 60 per second releases about 60 in a second (got {})", state.Count()));
+			State slow = MakeState(1);
+			for (int i = 0; i < 4; i++)
+				Step(slow, settings, origin, 0.25f);
+			Check(slow.Count() >= 58 && slow.Count() <= 62, std::format("particles: four quarter-second frames release the same (got {})", slow.Count()));
+			State capped = MakeState(1);
+			Step(capped, settings, origin, 5.0f);
+			Check(capped.Count() >= 14 && capped.Count() <= 16, std::format("particles: a long frame counts for at most a quarter second (got {})", capped.Count()));
+			settings.Rate = 0.0f;
+			State none = MakeState(1);
+			RunParticles(none, settings, origin, 1.0f);
+			Check(none.Count() == 0, "particles: a rate of 0 releases nothing");
+		}
+
+		// A one-shot system stops releasing at its duration and its particles die at the end of their lifetime.
+		{
+			Settings settings = base;
+			settings.Looping = false;
+			settings.Duration = 0.5f;
+			settings.Rate = 60.0f;
+			settings.Lifetime = { 0.5f, 0.5f };
+			State state = MakeState(1);
+			RunParticles(state, settings, origin, 0.4f);
+			const uint32_t during = state.Count();
+			RunParticles(state, settings, origin, 2.0f);
+			Check(during > 15 && state.Count() == 0, std::format("particles: a one-shot system empties after its particles' lifetime (had {}, ends with {})", during, state.Count()));
+			bool sized = state.Age.size() == state.Position.size() && state.Age.size() == state.Velocity.size() && state.Age.size() == state.StartSize.size() && state.Age.size() == state.FrameSeed.size();
+			Check(sized, "particles: every array stays the same length");
+		}
+
+		// The limit drops releases and counts them.
+		{
+			Settings settings = base;
+			settings.Rate = 6000.0f;
+			settings.MaxParticles = 50;
+			State state = MakeState(1);
+			RunParticles(state, settings, origin, 1.0f);
+			Check(state.Count() == 50 && state.Dropped > 0, std::format("particles: Max Particles caps the live count (got {}, dropped {})", state.Count(), state.Dropped));
+			settings.MaxParticles = 1000000;
+			State huge = MakeState(1);
+			Emit(huge, settings, origin, 50000);
+			Check(huge.Count() == Settings::HardMaxParticles, "particles: no system goes past the hard limit");
+		}
+
+		// Gravity pulls, drag slows, an emit call releases at once.
+		{
+			Settings settings = base;
+			settings.Rate = 0.0f;
+			settings.Gravity = { 0.0f, -10.0f, 0.0f };
+			State state = MakeState(1);
+			Emit(state, settings, origin, 1);
+			RunParticles(state, settings, origin, 1.0f);
+			Check(state.Count() == 1 && state.Position[0].y < -4.7f && state.Position[0].y > -5.4f, std::format("particles: gravity drops a particle about 5 units in a second (y {:.2f})", state.Position[0].y));
+
+			settings.Gravity = glm::vec3(0.0f);
+			settings.Speed = { 10.0f, 10.0f };
+			settings.ConeAngle = 0.0f;
+			State free = MakeState(1), dragged = MakeState(1);
+			Emit(free, settings, origin, 1);
+			RunParticles(free, settings, origin, 1.0f);
+			settings.Drag = 3.0f;
+			Emit(dragged, settings, origin, 1);
+			RunParticles(dragged, settings, origin, 1.0f);
+			Check(free.Position[0].y > 9.0f && dragged.Position[0].y < free.Position[0].y * 0.5f, "particles: drag slows a particle down");
+		}
+
+		// Bursts release their count at their time, repeated for their cycles.
+		{
+			Settings settings = base;
+			settings.Rate = 0.0f;
+			settings.BurstCount = 1;
+			settings.Bursts[0] = { 0.5f, 10, 2, 0.25f };
+			State state = MakeState(1);
+			RunParticles(state, settings, origin, 0.4f);
+			const uint32_t before = state.Count();
+			RunParticles(state, settings, origin, 0.2f);
+			const uint32_t first = state.Count();
+			RunParticles(state, settings, origin, 0.3f);
+			Check(before == 0 && first == 10 && state.Count() == 20, std::format("particles: a burst of 10 at 0.5 s repeated twice (counts {}, {}, {})", before, first, state.Count()));
+		}
+
+		// A looping system that prewarms starts full; one that does not starts empty.
+		{
+			Settings settings = base;
+			settings.Looping = true;
+			settings.Duration = 2.0f;
+			settings.Rate = 10.0f;
+			State cold = MakeState(1), warm = MakeState(1);
+			Step(cold, settings, origin, 0.0f);
+			settings.Prewarm = true;
+			Step(warm, settings, origin, 0.0f);
+			Check(cold.Count() == 0 && warm.Count() >= 18 && warm.Count() <= 22, std::format("particles: prewarm plays one duration first (cold {}, prewarmed {})", cold.Count(), warm.Count()));
+		}
+
+		// World space leaves particles behind a moving emitter; local space carries them along.
+		{
+			Settings settings = base;
+			settings.Rate = 0.0f;
+			const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f));
+			for (const bool world : { true, false })
+			{
+				settings.WorldSpace = world;
+				State state = MakeState(1);
+				Emit(state, settings, origin, 1);
+				std::vector<Instance> instances;
+				Fill(state, settings, moved, glm::vec3(0.0f), instances);
+				Check(instances.size() == 1 && Near(instances[0].Position.x, world ? 0.0f : 5.0f), std::format("particles: {} space follows the emitter only when local", world ? "world" : "local"));
+			}
+			settings.WorldSpace = true;
+			State fromMoved = MakeState(1);
+			Emit(fromMoved, settings, moved, 1);
+			Check(Near(fromMoved.Position[0].x, 5.0f), "particles: a world-space particle is released where the emitter is");
+		}
+
+		// 2D systems spread in the XY plane only.
+		{
+			Settings settings = base;
+			settings.Mode = RenderMode::Sprite2D;
+			settings.Speed = { 3.0f, 3.0f };
+			settings.ConeAngle = 90.0f;
+			State state = MakeState(3);
+			Emit(state, settings, origin, 200);
+			bool flat = true;
+			for (uint32_t i = 0; i < state.Count(); i++)
+				flat = flat && state.Velocity[i].z == 0.0f && state.Position[i].z == 0.0f;
+			Check(flat, "particles: a 2D system keeps every particle in the XY plane");
+		}
+	}
+
+	void CheckParticleCurves()
+	{
+		using namespace Particles;
+
+		Curve constant(2.0f);
+		Check(Near(constant.Evaluate(0.0f), 2.0f) && Near(constant.Evaluate(0.7f), 2.0f), "curve: one key is a constant");
+		Curve ramp = Curve::Linear(0.0f, 1.0f);
+		Check(Near(ramp.Evaluate(0.25f), 0.25f) && Near(ramp.Evaluate(-1.0f), 0.0f) && Near(ramp.Evaluate(2.0f), 1.0f), "curve: a line between two keys, flat outside them");
+		Curve bump = Curve::Linear(0.0f, 0.0f);
+		Check(bump.Add(0.5f, 2.0f) && bump.Count == 3 && Near(bump.Evaluate(0.25f), 1.0f) && Near(bump.Evaluate(0.75f), 1.0f), "curve: a key added in the middle keeps the keys in time order");
+		Check(bump.Add(0.5f, 4.0f) && bump.Count == 3 && Near(bump.Evaluate(0.5f), 4.0f), "curve: a key at the same time replaces the old one");
+		Curve full(0.0f);
+		for (uint32_t i = 1; i < Curve::MaxKeys; i++)
+			full.Add(static_cast<float>(i) / 10.0f, 1.0f);
+		Check(full.Count == Curve::MaxKeys && !full.Add(0.95f, 1.0f), "curve: no more than eight keys");
+
+		Gradient fade = Gradient::Fade(glm::vec4(1.0f, 0.5f, 0.0f, 1.0f));
+		const glm::vec4 mid = fade.Evaluate(0.5f);
+		Check(Near(mid.r, 1.0f) && Near(mid.g, 0.5f) && Near(mid.a, 0.5f), "gradient: a fade halves the alpha at mid life");
+		Gradient three = Gradient(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+		three.Add(1.0f, glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+		three.Add(0.5f, glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
+		Check(Near(three.Evaluate(0.5f).g, 1.0f) && Near(three.Evaluate(0.25f).r, 0.5f) && Near(three.Evaluate(0.75f).b, 0.5f), "gradient: three keys blend in two segments");
+
+		// Texture sheet frames: frame 0 at the top left, v up, and a frame past the end wraps.
+		const glm::vec4 f0 = FrameUV(4, 2, 0), f5 = FrameUV(4, 2, 5), f8 = FrameUV(4, 2, 8);
+		Check(Near(f0.x, 0.0f) && Near(f0.y, 0.5f) && Near(f0.z, 0.25f) && Near(f0.w, 1.0f), "texture sheet: frame 0 is the top left cell");
+		Check(Near(f5.x, 0.25f) && Near(f5.y, 0.0f) && Near(f5.z, 0.5f) && Near(f5.w, 0.5f), "texture sheet: frame 5 of 4 x 2 is the second cell of the bottom row");
+		Check(f8 == f0, "texture sheet: a frame past the end starts over");
+
+		// What reaches the renderer: size and color over life, the frame, the packed color.
+		Settings settings;
+		settings.Rate = 0.0f;
+		settings.Lifetime = { 1.0f, 1.0f };
+		settings.Speed = { 0.0f, 0.0f };
+		settings.Gravity = glm::vec3(0.0f);
+		settings.Size = { 2.0f, 2.0f };
+		settings.SizeOverLife = Curve::Linear(1.0f, 0.0f);
+		settings.StartColor = glm::vec4(4.0f, 2.0f, 1.0f, 1.0f);
+		settings.ColorOverLife = Gradient::Fade(glm::vec4(1.0f));
+		settings.TilesX = 2;
+		settings.TilesY = 2;
+		settings.FrameCycles = 1.0f;
+		State state = MakeState(1);
+		Emit(state, settings, glm::mat4(1.0f), 1);
+		RunParticles(state, settings, glm::mat4(1.0f), 0.5f);
+		std::vector<Instance> out;
+		Fill(state, settings, glm::mat4(1.0f), glm::vec3(0.0f), out);
+		const glm::vec4 color = out.empty() ? glm::vec4(0.0f) : out[0].GetColor();
+		Check(out.size() == 1 && Near(out[0].Size.x, 1.0f, 0.05f), std::format("particles: the size curve halves the size at mid life (size {:.2f})", out.empty() ? 0.0f : out[0].Size.x));
+		Check(Near(color.r, 4.0f, 0.02f) && Near(color.g, 2.0f, 0.02f) && Near(color.a, 0.5f, 0.02f), std::format("particles: start color times gradient survives packing, HDR included ({:.2f}, {:.2f}, {:.2f})", color.r, color.g, color.a));
+		Check(!out.empty() && out[0].UVRect == FrameUV(2, 2, 2), "particles: the texture sheet advances over life (frame 2 of 4 at mid life)");
+
+		// Alpha particles draw far to near; additive ones are left alone.
+		Settings sorting;
+		sorting.Rate = 0.0f;
+		sorting.Lifetime = { 5.0f, 5.0f };
+		sorting.Speed = { 0.0f, 0.0f };
+		sorting.Gravity = glm::vec3(0.0f);
+		State layered = MakeState(1);
+		for (int i = 0; i < 3; i++)
+		{
+			Emit(layered, sorting, glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, static_cast<float>(-i * 10))), 1);
+		}
+		std::vector<Instance> sorted;
+		Fill(layered, sorting, glm::mat4(1.0f), glm::vec3(0.0f), sorted);
+		Check(sorted.size() == 3 && sorted[0].Position.z < sorted[1].Position.z && sorted[1].Position.z < sorted[2].Position.z, "particles: alpha particles are sorted far to near");
+	}
+
+	void CheckParticleScene(const std::filesystem::path& root)
+	{
+		using namespace Particles;
+		Ref<Project> project = Ref<Project>::Create();
+		project->GetConfig().SortingLayers = { { 0, "Default" }, { 7, "Foreground" } };
+		Project::SetActive(project);
+
+		Ref<Scene> scene = Ref<Scene>::Create();
+		Entity entity = scene->CreateEntity("Sparks");
+		entity.GetComponent<TransformComponent>().Translation = { 2.0f, 1.0f, 0.0f };
+		auto& component = entity.AddComponent<ParticleSystemComponent>();
+		component.Seed = 42;
+		component.SortingLayer = 7;
+		component.OrderInLayer = 3;
+		component.PlayOnAwake = true;
+		Settings& s = component.Settings;
+		s.Mode = RenderMode::Sprite2D;
+		s.Looping = false;
+		s.Duration = 2.5f;
+		s.Prewarm = false;
+		s.Rate = 100.0f;
+		s.MaxParticles = 400;
+		s.BurstCount = 2;
+		s.Bursts[0] = { 0.5f, 12, 3, 0.25f };
+		s.Bursts[1] = { 1.0f, 5, 1, 0.5f };
+		s.Lifetime = { 0.5f, 1.5f };
+		s.Speed = { 1.0f, 4.0f };
+		s.Size = { 0.25f, 0.5f };
+		s.Rotation = { -45.0f, 45.0f };
+		s.AngularVelocity = { -90.0f, 90.0f };
+		s.EmitShape = Shape::Sphere;
+		s.ConeAngle = 30.0f;
+		s.Radius = 0.5f;
+		s.BoxSize = { 1.0f, 2.0f, 3.0f };
+		s.Gravity = { 0.0f, 1.5f, 0.0f };
+		s.Drag = 0.25f;
+		s.WorldSpace = false;
+		s.StartColor = { 4.0f, 2.0f, 0.5f, 1.0f };
+		s.ColorOverLife = Gradient(glm::vec4(1.0f, 1.0f, 0.5f, 1.0f));
+		s.ColorOverLife.Add(0.5f, glm::vec4(1.0f, 0.5f, 0.0f, 0.75f));
+		s.ColorOverLife.Add(1.0f, glm::vec4(0.5f, 0.0f, 0.0f, 0.0f));
+		s.SizeOverLife = Curve::Linear(0.5f, 2.0f);
+		s.SizeOverLife.Add(0.25f, 1.5f);
+		s.SpeedOverLife = Curve::Linear(1.0f, 0.25f);
+		s.TilesX = 4;
+		s.TilesY = 2;
+		s.Frames = FrameMode::Random;
+		s.FrameCycles = 2.0f;
+		s.BlendMode = Blend::Additive;
+		s.SoftDistance = 1.25f;
+
+		// Every setting survives a save, a copy and a duplicate.
+		const Settings expected = s;
+		std::filesystem::create_directories(root / "Particles");
+		SceneSerializer(scene).Serialize(root / "Particles" / "Sparks.luxscene");
+		Ref<Scene> loaded = Ref<Scene>::Create();
+		Check(SceneSerializer(loaded).Deserialize(root / "Particles" / "Sparks.luxscene"), "particles: the scene file loads");
+		const Entity restoredEntity = loaded->FindEntityByName("Sparks");
+		const bool hasComponent = restoredEntity && restoredEntity.HasComponent<ParticleSystemComponent>();
+		Check(hasComponent, "particles: the component survives a save");
+		if (hasComponent)
+		{
+			const auto& restored = restoredEntity.GetComponent<ParticleSystemComponent>();
+			Check(restored.Settings == expected, "particles: every setting survives a save");
+			Check(restored.Seed == 42 && restored.SortingLayer == 7 && restored.OrderInLayer == 3 && restored.PlayOnAwake && !restored.PreviewInEditor, "particles: seed, sorting and play flags survive a save");
+		}
+		Ref<Scene> copy = Scene::Copy(scene);
+		Check(copy->FindEntityByName("Sparks").GetComponent<ParticleSystemComponent>().Settings == expected, "particles: a scene copy (Play) keeps every setting");
+		Entity duplicate = scene->DuplicateEntity(entity);
+		Check(duplicate.HasComponent<ParticleSystemComponent>() && duplicate.GetComponent<ParticleSystemComponent>().Settings == expected, "particles: a duplicate keeps every setting");
+		scene->DestroyEntity(duplicate);
+		// Adding a component of the same kind may move the others: take the references again.
+		ParticleSystemComponent& live = entity.GetComponent<ParticleSystemComponent>();
+		Settings& liveSettings = live.Settings;
+
+		// A default component in a scene saved by an older build has no particle keys: it loads with the defaults.
+		{
+			Ref<Scene> plain = Ref<Scene>::Create();
+			plain->CreateEntity("Plain").AddComponent<ParticleSystemComponent>();
+			SceneSerializer(plain).Serialize(root / "Particles" / "Plain.luxscene");
+			Ref<Scene> plainLoaded = Ref<Scene>::Create();
+			SceneSerializer(plainLoaded).Deserialize(root / "Particles" / "Plain.luxscene");
+			Check(plainLoaded->FindEntityByName("Plain").GetComponent<ParticleSystemComponent>().Settings == Settings{}, "particles: a default system saves and loads as the defaults");
+		}
+
+		// Playing a scene steps the system and the frame packet carries its particles in the draw order.
+		Entity sprite = scene->CreateEntity("Sprite");
+		auto& spriteComponent = sprite.AddComponent<SpriteRendererComponent>(glm::vec4(1.0f));
+		spriteComponent.SortingLayer = 0;
+		liveSettings.Looping = true;
+		liveSettings.Rate = 60.0f;
+		liveSettings.BurstCount = 0;
+		liveSettings.WorldSpace = true;
+		liveSettings.Lifetime = { 5.0f, 5.0f };
+		liveSettings.Gravity = glm::vec3(0.0f);
+		live.SortingLayer = 7;
+		for (int i = 0; i < 30; i++)
+			scene->UpdateParticles(Timestep(1.0f / 60.0f), false);
+		const Particles::State* state = scene->GetParticleState(entity);
+		Check(state && state->Count() >= 28 && state->Count() <= 32, std::format("particles: a scene steps its systems (got {}, time {:.3f})", state ? state->Count() : 0, state ? state->Time : 0.0f));
+		FrameRenderPacket packet;
+		scene->CaptureDraw2D(packet);
+		const FrameRenderPacket::Draw2DItem* particleItem = nullptr;
+		size_t particleIndex = 0, spriteIndex = 0;
+		for (size_t i = 0; i < packet.Draw2D.size(); i++)
+		{
+			if (packet.Draw2D[i].Type == FrameRenderPacket::Draw2DItem::Kind::Particles)
+			{
+				particleItem = &packet.Draw2D[i];
+				particleIndex = i;
+			}
+			else
+				spriteIndex = i;
+		}
+		Check(particleItem && particleItem->ParticleInstances.size() == state->Count(), "particles: the frame packet carries one item with every live particle");
+		Check(particleItem && particleIndex > spriteIndex, "particles: a system in a higher sorting layer draws after the sprite");
+
+		// The editor steps only systems that ask for a preview, and forgets one that stops asking.
+		Ref<Scene> editing = Ref<Scene>::Create();
+		Entity previewed = editing->CreateEntity("Previewed");
+		auto& previewComponent = previewed.AddComponent<ParticleSystemComponent>();
+		previewComponent.Settings.Mode = RenderMode::Sprite2D;
+		editing->UpdateParticles(Timestep(0.5f), true);
+		Check(editing->GetParticleState(previewed) == nullptr, "particles: the editor does not step a system without a preview");
+		previewComponent.PreviewInEditor = true;
+		editing->UpdateParticles(Timestep(0.5f), true);
+		editing->UpdateParticles(Timestep(0.5f), true);
+		Check(editing->GetParticleState(previewed) && editing->GetParticleState(previewed)->Count() > 0, "particles: the editor steps a system with a preview");
+		previewComponent.PreviewInEditor = false;
+		editing->UpdateParticles(Timestep(0.0f), true);
+		Check(editing->GetParticleState(previewed) == nullptr, "particles: a system that stops previewing loses its particles");
+
+		// A system that is switched off, or whose entity is inactive, draws nothing.
+		entity.GetComponent<ParticleSystemComponent>().Enabled = false;
+		FrameRenderPacket offPacket;
+		scene->CaptureDraw2D(offPacket);
+		bool drawn = false;
+		for (const auto& item : offPacket.Draw2D)
+			drawn = drawn || item.Type == FrameRenderPacket::Draw2DItem::Kind::Particles;
+		Check(!drawn, "particles: a disabled system draws nothing");
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -2206,6 +2589,9 @@ int main(int argc, char** argv)
 	CheckUINavigation();
 	CheckUICaptions();
 	CheckUIEditing();
+	CheckParticleSimulation();
+	CheckParticleCurves();
+	CheckParticleScene(outDir);
 	CheckSourceLocations();
 	CheckCompilerDiagnostics();
 	CheckProcess();

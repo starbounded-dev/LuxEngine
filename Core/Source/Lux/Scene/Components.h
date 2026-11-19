@@ -16,6 +16,7 @@
 #include "Lux/Audio/AcousticMaterial.h"
 #include "Lux/Core/UUID.h"
 #include "Lux/Math/Math.h"
+#include "Lux/Particles/ParticleSystem.h"
 #include "Lux/Physics/PhysicsTypes.h"
 #include "Lux/Renderer/MaterialAsset.h"
 #include "Lux/Renderer/Texture.h"
@@ -587,6 +588,23 @@ namespace Lux {
 		MeshColliderComponent(const MeshColliderComponent&) = default;
 	};
 
+	// Particles (docs/PARTICLES_PLAN.md). The settings are plain data (Lux/Particles); the live particles belong to the
+	// scene, are never saved and are not copied into Play.
+	struct ParticleSystemComponent
+	{
+		bool Enabled = true;
+		Particles::Settings Settings;
+		AssetHandle Texture = 0;     // none draws plain colored quads
+		uint32_t Seed = 1;           // the same seed gives the same particles
+		bool PlayOnAwake = true;     // false: nothing is released until a script plays it
+		bool PreviewInEditor = false; // steps the system in the editor, outside Play
+		uint32_t SortingLayer = 0;   // 2D: the project's sorting layer
+		int32_t OrderInLayer = 0;
+
+		ParticleSystemComponent() = default;
+		ParticleSystemComponent(const ParticleSystemComponent&) = default;
+	};
+
 	// Game UI (docs/GAME_UI_PLAN.md). A canvas is the root of a UI tree; its descendants with a
 	// UIElementComponent are laid out inside it and drawn over the finished frame, in hierarchy order.
 	struct UICanvasComponent
@@ -1061,7 +1079,7 @@ namespace Lux {
 		NativeScriptComponent, RigidBody2DComponent, BoxCollider2DComponent,
 		CircleCollider2DComponent, RigidBodyComponent, CharacterControllerComponent, CompoundColliderComponent, BoxColliderComponent,
 		SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent,
-		TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent,
+		TextComponent, UICanvasComponent, UIElementComponent, UIImageComponent, UITextComponent, UIWidgetComponent, ParticleSystemComponent,
 		MeshComponent, MeshTagComponent, PrefabComponent, StaticMeshComponent, SkeletonComponent, SubmeshComponent,
 		DirectionalLightComponent, PointLightComponent, SpotLightComponent, AreaLightComponent, SkyLightComponent,
 		AudioSourceComponent, AudioListenerComponent, AudioSurfaceComponent, AudioZoneComponent, AudioPortalComponent, MusicDirectorComponent,

@@ -2682,6 +2682,32 @@ prefabs, undo, YAML and the C# `Entity` API need no UI-specific code.
 - Components follow the usual five edits (declaration, `Scene::Copy`/`CopyTo`/duplicate lists and `Prefab.cpp`,
   `SceneSerializer`, `SceneHierarchyPanel` inspector and Create UI menu, `GetAssetList` for textures and fonts).
 
+### 2.11b Particles (M13)
+
+`Core/Source/Lux/Particles/ParticleSystem.{h,cpp}`, plan in `docs/PARTICLES_PLAN.md`. The simulation is pure code over plain
+data (no registry, no GPU, any thread): `Particles::Settings` (emission rate, bursts, duration, looping, prewarm, start
+ranges, shape cone/sphere/box, gravity, drag, world or local space, `Curve` and `Gradient` over life of up to eight linear
+keys, texture sheet, blend, soft distance, render mode), `Particles::State` (structure-of-arrays with swap-remove, a seeded
+xorshift generator, time, emit accumulator, burst progress, dropped count) and `Step` (fixed 1/60 s steps, a frame is cut
+at 0.25 s), `Emit`, `Prewarm`, `Fill` (the 48-byte `Instance`s the renderer draws: position, rotation, size, half-float
+color, UV rectangle; 3D alpha systems sort far to near, 2D systems draw older first, additive is unsorted). The same
+settings, seed and elapsed time always give the same particles.
+
+`ParticleSystemComponent` (`Components.h`) holds the `Settings`, a texture, a seed, `PlayOnAwake`, `PreviewInEditor` and the
+2D sorting layer and order. The live `State` lives in `Scene::m_ParticleStates` keyed by entity UUID: never saved, never
+copied (Play starts from the edit scene's copy and so from nothing), erased with the entity and cleared by `OnRuntimeStop`.
+`Scene::UpdateParticles(ts, editorPreview)` steps every enabled, active system from `OnUpdateRuntime`, `OnUpdateSimulation`
+(both honour pause and step) and `OnUpdateEditor` (only systems with `PreviewInEditor`; one that stops asking loses its
+particles). All of it is main thread; the renderer sees only the packet.
+
+2D systems (`RenderMode::Sprite2D`) enter the frame packet as one `Draw2DItem::Kind::Particles` item per system from
+`CaptureDraw2D`, sorted with sprites by sorting layer, order and depth, and `SubmitRenderPacket` draws each instance as a
+`Renderer2D::DrawQuad` (alpha blend only; the texture sheet is the instance's UV rectangle). A 2D system's particles stay in
+the XY plane. Settings are saved by `WriteParticleSettings` / `ReadParticleSettings` in `SceneSerializer.cpp` (every field,
+curves and gradients as key lists; a missing key loads the default). Inspector: `SceneHierarchyPanel.cpp` (sections per
+module, whole-component copy for a multi-selection), Create > Create Effects. Checks: `CheckParticleSimulation`,
+`CheckParticleCurves`, `CheckParticleScene` in `tests/2d/Checks2D.cpp`.
+
 ### 2.12 Project
 
 `Project` (`Project/Project.h`) is `Ref`-counted with a static active-project slot. Path accessors:

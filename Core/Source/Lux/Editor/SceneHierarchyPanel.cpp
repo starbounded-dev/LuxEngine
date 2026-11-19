@@ -1040,6 +1040,24 @@ namespace Lux {
 			folder.AddComponent<FolderComponent>();
 		}
 
+		if (ImGui::BeginMenu("Create Effects"))
+		{
+			if (ImGui::MenuItem("Particle System"))
+			{
+				Entity entity = createEntity("Particle System");
+				entity.AddComponent<ParticleSystemComponent>();
+			}
+
+			if (ImGui::MenuItem("Particle System (2D)"))
+			{
+				Entity entity = createEntity("Particle System");
+				auto& particles = entity.AddComponent<ParticleSystemComponent>();
+				particles.Settings.Mode = Particles::RenderMode::Sprite2D;
+			}
+
+			ImGui::EndMenu();
+		}
+
 		if (ImGui::BeginMenu("Create 2D"))
 		{
 			if (ImGui::MenuItem("Sprite"))
@@ -1973,6 +1991,7 @@ namespace Lux {
 
 				const bool canAddCamera = canAddComponent.template operator()<CameraComponent>();
 				const bool canAddScript = canAddComponent.template operator()<ScriptComponent>();
+				const bool canAddParticles = canAddComponent.template operator()<ParticleSystemComponent>();
 				const bool canAddUICanvas = canAddComponent.template operator()<UICanvasComponent>();
 				const bool canAddUIElement = canAddComponent.template operator()<UIElementComponent>();
 				const bool canAddUIImage = canAddComponent.template operator()<UIImageComponent>();
@@ -2040,8 +2059,21 @@ namespace Lux {
 					});
 				}
 
-				if (canAddText || canAddSpriteRenderer || canAddSpriteAnimator || canAddCircleRenderer || canAddStaticMesh)
+				if (canAddText || canAddSpriteRenderer || canAddSpriteAnimator || canAddCircleRenderer || canAddStaticMesh || canAddParticles)
 					addCategoryHeader("Rendering");
+
+				if (canAddParticles)
+				{
+					addComponentRow("Particle System", EditorResources::SpriteIcon, [this, &entityIDs]()
+					{
+						for (UUID entityID : entityIDs)
+						{
+							Entity entity = m_Context->GetEntityByUUID(entityID);
+							if (entity && !entity.HasComponent<ParticleSystemComponent>())
+								entity.AddComponent<ParticleSystemComponent>();
+						}
+					});
+				}
 
 				if (canAddUICanvas)
 				{
@@ -2671,6 +2703,7 @@ namespace Lux {
 						row.operator()<SpriteAnimatorComponent>("SpriteAnimatorComponent", "Sprite Animator");
 						row.operator()<TilemapComponent>("TilemapComponent", "Tilemap");
 						row.operator()<CircleRendererComponent>("CircleRendererComponent", "Circle Renderer");
+						row.operator()<ParticleSystemComponent>("ParticleSystemComponent", "Particle System");
 						row.operator()<UICanvasComponent>("UICanvasComponent", "UI Canvas");
 						row.operator()<UIElementComponent>("UIElementComponent", "UI Element");
 						row.operator()<UIImageComponent>("UIImageComponent", "UI Image");
@@ -4134,6 +4167,147 @@ namespace Lux {
 				}
 
 				ImGuiEx::EndPropertyGrid();
+			});
+
+		DrawComponentSection<ParticleSystemComponent>(m_Context, entityIDs, "Particle System", EditorResources::SpriteIcon,
+			[this](ParticleSystemComponent& first, const std::vector<UUID>& selectedEntities, bool)
+			{
+				using namespace Particles;
+				Particles::Settings& s = first.Settings;
+				bool changed = false;
+				const auto range = [&changed](const char* label, Range& r, float speed, float min, float max, const char* help)
+				{
+					glm::vec2 v{ r.Min, r.Max };
+					if (ImGuiEx::Property(label, v, speed, min, max, help))
+					{
+						r.Min = std::min(v.x, v.y);
+						r.Max = std::max(v.x, v.y);
+						changed = true;
+					}
+				};
+				// The first and last key of a curve or gradient; the full editors arrive with the Particle Editor panel.
+				const auto curveEnds = [&changed](const char* from, const char* to, Curve& c)
+				{
+					Curve::Key& a = c.Keys[0];
+					Curve::Key& b = c.Keys[c.Count > 1 ? c.Count - 1 : 0];
+					changed |= ImGuiEx::Property(from, a.Value, 0.01f, 0.0f, 100.0f);
+					if (c.Count > 1)
+						changed |= ImGuiEx::Property(to, b.Value, 0.01f, 0.0f, 100.0f);
+				};
+
+				ImGui::SeparatorText("Emission");
+				ImGuiEx::BeginPropertyGrid();
+				changed |= ImGuiEx::Property("Looping", s.Looping, "A looping system starts over when its duration ends.");
+				changed |= ImGuiEx::Property("Duration", s.Duration, 0.1f, 0.05f, 600.0f, "Seconds the system releases particles for (a looping one repeats)." );
+				if (s.Looping)
+					changed |= ImGuiEx::Property("Prewarm", s.Prewarm, "Start as if one whole duration had already played.");
+				changed |= ImGuiEx::Property("Rate", s.Rate, 0.5f, 0.0f, 10000.0f, "Particles released per second.");
+				changed |= ImGuiEx::Property("Max Particles", s.MaxParticles, 1u, Particles::Settings::HardMaxParticles, "A release past this many live particles is dropped.");
+				int32_t bursts = static_cast<int32_t>(s.BurstCount);
+				if (ImGuiEx::Property("Bursts", bursts, 0, static_cast<int32_t>(Particles::Settings::MaxBursts), "Particles released all at once."))
+				{
+					s.BurstCount = static_cast<uint32_t>(std::clamp(bursts, 0, static_cast<int32_t>(Particles::Settings::MaxBursts)));
+					changed = true;
+				}
+				for (uint32_t i = 0; i < s.BurstCount; i++)
+				{
+					Burst& burst = s.Bursts[i];
+					int32_t count = burst.Count, cycles = burst.Cycles;
+					const std::string name = std::format("Burst {}", i + 1);
+					changed |= ImGuiEx::Property((name + " Time").c_str(), burst.Time, 0.05f, 0.0f, 600.0f);
+					if (ImGuiEx::Property((name + " Count").c_str(), count, 1, 5000))
+					{
+						burst.Count = static_cast<uint16_t>(std::clamp(count, 1, 5000));
+						changed = true;
+					}
+					if (ImGuiEx::Property((name + " Cycles").c_str(), cycles, 1, 1000))
+					{
+						burst.Cycles = static_cast<uint16_t>(std::clamp(cycles, 1, 1000));
+						changed = true;
+					}
+					changed |= ImGuiEx::Property((name + " Interval").c_str(), burst.Interval, 0.05f, 0.0f, 600.0f);
+				}
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::SeparatorText("Shape");
+				ImGuiEx::BeginPropertyGrid();
+				static const char* shapes[] = { "Cone", "Sphere", "Box" };
+				changed |= ImGuiEx::PropertyDropdown("Shape", shapes, 3, s.EmitShape);
+				if (s.EmitShape == Shape::Cone)
+					changed |= ImGuiEx::Property("Cone Angle", s.ConeAngle, 0.5f, 0.0f, 180.0f, "Degrees from straight up (+Y). 180 sends particles every way.");
+				if (s.EmitShape != Shape::Box)
+					changed |= ImGuiEx::Property("Radius", s.Radius, 0.05f, 0.0f, 1000.0f);
+				else
+					changed |= ImGuiEx::Property("Box Size", s.BoxSize, 0.05f, 0.0f, 1000.0f);
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::SeparatorText("Start");
+				ImGuiEx::BeginPropertyGrid();
+				range("Lifetime", first.Settings.Lifetime, 0.05f, 0.01f, 600.0f, "Seconds a particle lives (min, max).");
+				range("Speed", first.Settings.Speed, 0.05f, 0.0f, 1000.0f, "Units per second at birth (min, max).");
+				range("Size", first.Settings.Size, 0.01f, 0.0f, 1000.0f, "Width and height at birth (min, max).");
+				range("Rotation", first.Settings.Rotation, 1.0f, -360.0f, 360.0f, "Degrees at birth (min, max).");
+				range("Angular Velocity", first.Settings.AngularVelocity, 1.0f, -3600.0f, 3600.0f, "Degrees per second (min, max).");
+				changed |= ImGuiEx::PropertyColor("Start Color", s.StartColor, "Multiplied by the color over life. Values above 1 glow with Bloom.");
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::SeparatorText("Motion");
+				ImGuiEx::BeginPropertyGrid();
+				changed |= ImGuiEx::Property("Gravity", s.Gravity, 0.05f, -1000.0f, 1000.0f, "Units per second squared. A negative Y falls; a positive one rises, like smoke.");
+				changed |= ImGuiEx::Property("Drag", s.Drag, 0.01f, 0.0f, 60.0f);
+				changed |= ImGuiEx::Property("World Space", s.WorldSpace, "On: particles stay where they were released when the entity moves. Off: they follow it.");
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::SeparatorText("Over Life");
+				ImGuiEx::BeginPropertyGrid();
+				curveEnds("Size At Birth", "Size At Death", s.SizeOverLife);
+				curveEnds("Speed At Birth", "Speed At Death", s.SpeedOverLife);
+				{
+					Gradient::Key& a = s.ColorOverLife.Keys[0];
+					Gradient::Key& b = s.ColorOverLife.Keys[s.ColorOverLife.Count > 1 ? s.ColorOverLife.Count - 1 : 0];
+					changed |= ImGuiEx::PropertyColor("Color At Birth", a.Color);
+					if (s.ColorOverLife.Count > 1)
+						changed |= ImGuiEx::PropertyColor("Color At Death", b.Color);
+				}
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::SeparatorText("Texture Sheet");
+				ImGuiEx::BeginPropertyGrid();
+				changed |= ImGuiEx::Property("Tiles X", s.TilesX, 1u, 64u, "Columns of frames in the texture.");
+				changed |= ImGuiEx::Property("Tiles Y", s.TilesY, 1u, 64u, "Rows of frames. Frame 0 is the top left.");
+				if (s.TilesX * s.TilesY > 1)
+				{
+					static const char* frameModes[] = { "Over Life", "Random" };
+					changed |= ImGuiEx::PropertyDropdown("Frame", frameModes, 2, s.Frames);
+					if (s.Frames == FrameMode::OverLife)
+						changed |= ImGuiEx::Property("Cycles", s.FrameCycles, 0.05f, 0.0f, 100.0f, "Times the whole sheet plays during a particle's life.");
+				}
+				ImGuiEx::EndPropertyGrid();
+
+				ImGui::SeparatorText("Renderer");
+				ImGuiEx::BeginPropertyGrid();
+				static const char* renderModes[] = { "Billboard (3D)", "Sprite (2D)" };
+				changed |= ImGuiEx::PropertyDropdown("Render Mode", renderModes, 2, s.Mode);
+				static const char* blends[] = { "Alpha", "Additive", "Premultiplied" };
+				changed |= ImGuiEx::PropertyDropdown("Blend", blends, 3, s.BlendMode, "2D sprites always blend with alpha.");
+				if (s.Mode == RenderMode::Billboard3D)
+					changed |= ImGuiEx::Property("Soft Distance", s.SoftDistance, 0.01f, 0.0f, 100.0f, "Units over which a particle fades out where it meets geometry. 0 is a hard edge.");
+				AssetHandle texture = first.Texture;
+				if (ImGuiEx::PropertyAssetReference<Texture2D>("Texture", texture, "None draws a plain colored shape."))
+				{
+					first.Texture = texture;
+					changed = true;
+				}
+				changed |= ImGuiEx::Property("Seed", first.Seed, 0u, 0xFFFFFFFFu, "The same seed gives the same particles every time.");
+				changed |= ImGuiEx::Property("Play On Awake", first.PlayOnAwake, "Off: nothing is released until a script plays it.");
+				changed |= ImGuiEx::Property("Preview In Editor", first.PreviewInEditor, "Plays the system in the editor, outside Play.");
+				if (s.Mode == RenderMode::Sprite2D)
+					DrawSortingProperties(m_Context, first, selectedEntities);
+				ImGuiEx::EndPropertyGrid();
+
+				// Whole-component copy: a multi-selection edit sets every field on all of them.
+				if (changed)
+					ApplyToSelection<ParticleSystemComponent>(m_Context, selectedEntities, [&first](ParticleSystemComponent& component, Entity) { component = first; });
 			});
 
 		DrawComponentSection<UICanvasComponent>(m_Context, entityIDs, "UI Canvas", EditorResources::SpriteIcon,
