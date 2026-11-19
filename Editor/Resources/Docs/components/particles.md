@@ -8,7 +8,7 @@ A system plays when the scene plays. Turn on **Preview In Editor** to watch it w
 
 - **Looping** and **Duration**: a looping system starts over when its duration ends; a one-shot system stops releasing at its duration and its particles live out their lifetime. **Prewarm** starts a looping system as if one whole duration had already played.
 - **Rate**: particles released per second. **Bursts** release a number of particles at once at a time, repeated for a number of cycles. Up to four.
-- **Max Particles**: a release past this many live particles is dropped. No system goes past 20 000.
+- **Max Particles**: a release past this many live particles is dropped. No system goes past 20 000, and a frame draws at most 50 000 particles in 3D; the rest are dropped.
 
 ## Shape and start values
 
