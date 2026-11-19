@@ -5,6 +5,7 @@
 #include "UIEditor.h"
 
 #include "Lux/Scene/Components.h"
+#include "Lux/Scene/Scene.h" // Entity's template members are defined with Scene
 
 #include <algorithm>
 #include <cmath>
@@ -37,7 +38,7 @@ namespace Lux::UI
 
 	bool EditSession::IsLayoutControlled(Entity element)
 	{
-		Entity parent = element.GetParent(); // not const: Entity instantiates its const accessors only for the engine's own uses
+		Entity parent = element.GetParent();
 		return parent && parent.HasComponent<UIElementComponent>() && parent.GetComponent<UIElementComponent>().Layout.Kind != LayoutKind::None;
 	}
 
