@@ -18,6 +18,7 @@ layout(push_constant) uniform Info
     vec2 u_InvSize;
     int  u_FirstLod;
     bool u_IsFirstPass;
+    bool u_UseMin; // the occlusion pyramid keeps the farthest depth (reversed Z: the smallest) so a texel proves full cover
 };
 
 layout(binding = 0, r32f) writeonly uniform image2D o_HZB[4];
@@ -74,7 +75,7 @@ void main()
     ivec2 dispatchThreadId = ivec2(LOCAL_SIZE * gl_WorkGroupID) + groupThreadId;
     vec2 bufferUV = (vec2(dispatchThreadId) + vec2(0.5)) * u_DispatchThreadIdToBufferUV.xy;
     vec4 deviceZ = Gather4(u_InputDepth, bufferUV, u_FirstLod - 1);
-    float closestDeviceZ = max(max(deviceZ.x, deviceZ.y), max(deviceZ.z, deviceZ.w));
+    float closestDeviceZ = u_UseMin ? min(min(deviceZ.x, deviceZ.y), min(deviceZ.z, deviceZ.w)) : max(max(deviceZ.x, deviceZ.y), max(deviceZ.z, deviceZ.w));
     ivec2 outputPixelPos = dispatchThreadId;
     if(u_IsFirstPass)
     {
@@ -102,7 +103,7 @@ void main()
                 // LDS index
                 parentDeviceZ[i] = sharedClosestDeviceZ[gl_LocalInvocationIndex + i * reduceBankSize];
             }
-            closestDeviceZ = max(max(parentDeviceZ.x, parentDeviceZ.y), max(parentDeviceZ.z, parentDeviceZ.w));
+            closestDeviceZ = u_UseMin ? min(min(parentDeviceZ.x, parentDeviceZ.y), min(parentDeviceZ.z, parentDeviceZ.w)) : max(max(parentDeviceZ.x, parentDeviceZ.y), max(parentDeviceZ.z, parentDeviceZ.w));
             outputPixelPos = outputPixelPos >> ivec2(1);
             sharedClosestDeviceZ[gl_LocalInvocationIndex] = closestDeviceZ;
             imageStore(o_HZB[mipLevel], outputPixelPos, closestDeviceZ.xxxx);

@@ -1850,6 +1850,8 @@ namespace Lux {
 			hzbSpec.GenerateMips = true;
 			hzbSpec.DebugName = "HierarchicalZ";
 			m_HierarchicalDepthTexture.Texture = Texture2D::Create(hzbSpec);
+			hzbSpec.DebugName = "HierarchicalFarZ";
+			m_HierarchicalFarDepthTexture.Texture = Texture2D::Create(hzbSpec);
 
 			ComputePassSpecification hzbPassSpec;
 			hzbPassSpec.DebugName = "HierarchicalDepth";
@@ -1929,7 +1931,7 @@ namespace Lux {
 			m_MeshCullingPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_MeshCullingPass->SetInput("VisibleObjectIndexes", m_SBSVisibleObjectIndexes);
 			m_MeshCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
-			m_MeshCullingPass->SetInput("u_HZB", m_HierarchicalDepthTexture.Texture);
+			m_MeshCullingPass->SetInput("u_HZB", m_HierarchicalFarDepthTexture.Texture);
 			m_MeshCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			LUX_CORE_VERIFY(m_MeshCullingPass->Validate());
 			m_MeshCullingPass->Bake();
@@ -1945,7 +1947,7 @@ namespace Lux {
 			m_MeshEarlyCullingPass->SetInput("GPUSceneInstances", m_SBSGPUSceneInstances);
 			m_MeshEarlyCullingPass->SetInput("VisibleObjectIndexes", m_SBSObjectIndexes);
 			m_MeshEarlyCullingPass->SetInput("IndirectDrawCommands", m_SBSIndirectDrawCommands);
-			m_MeshEarlyCullingPass->SetInput("u_HZB", m_HierarchicalDepthTexture.Texture);
+			m_MeshEarlyCullingPass->SetInput("u_HZB", m_HierarchicalFarDepthTexture.Texture);
 			m_MeshEarlyCullingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			LUX_CORE_VERIFY(m_MeshEarlyCullingPass->Validate());
 			m_MeshEarlyCullingPass->Bake();
@@ -3230,6 +3232,7 @@ namespace Lux {
 			m_SSROptions.HZBUvFactor = glm::vec2(viewportSize) / glm::vec2(hzbWidth, hzbHeight);
 
 			m_HierarchicalDepthTexture.Texture->Resize(hzbWidth, hzbHeight);
+			m_HierarchicalFarDepthTexture.Texture->Resize(hzbWidth, hzbHeight);
 			m_HZBPrimed = false;
 			const uint32_t mipCount = m_HierarchicalDepthTexture.Texture->GetMipLevelCount();
 			m_HierarchicalDepthTexture.ImageViews.resize(mipCount);
@@ -3242,6 +3245,15 @@ namespace Lux {
 				viewSpec.Mip = mip;
 				viewSpec.DebugName = "HierarchicalDepthTexture-" + std::to_string(mip);
 				m_HierarchicalDepthTexture.ImageViews[mip] = ImageView::Create(viewSpec);
+			}
+
+			m_HierarchicalFarDepthTexture.ImageViews.resize(mipCount);
+			viewSpec.Image = m_HierarchicalFarDepthTexture.Texture->GetImage();
+			for (uint32_t mip = 0; mip < mipCount; mip++)
+			{
+				viewSpec.Mip = mip;
+				viewSpec.DebugName = "HierarchicalFarDepthTexture-" + std::to_string(mip);
+				m_HierarchicalFarDepthTexture.ImageViews[mip] = ImageView::Create(viewSpec);
 			}
 
 			CreateHZBPassMaterials();
@@ -3349,29 +3361,28 @@ namespace Lux {
 
 		constexpr uint32_t maxMipBatchSize = 4;
 		const uint32_t hzbMipCount = m_HierarchicalDepthTexture.Texture->GetMipLevelCount();
-		m_HZBMaterials.clear();
-		m_HZBMaterials.resize(DivideRoundUp(hzbMipCount, maxMipBatchSize));
-
-		for (uint32_t startDestMip = 0; startDestMip < hzbMipCount; startDestMip += maxMipBatchSize)
+		for (MippedTexture* pyramid : { &m_HierarchicalDepthTexture, &m_HierarchicalFarDepthTexture })
 		{
-			Ref<Material> material = Material::Create(m_HierarchicalDepthPass->GetShader(), "HZB");
-			if (startDestMip == 0)
-			{
-				material->Set("u_InputDepth", m_PreDepthPass->GetDepthOutput());
-			}
-			else
-			{
-				const uint32_t parentMip = startDestMip - 1u;
-				material->Set("u_InputDepth", m_HierarchicalDepthTexture.ImageViews[parentMip]);
-			}
+			std::vector<Ref<Material>>& materials = pyramid == &m_HierarchicalDepthTexture ? m_HZBMaterials : m_HZBFarMaterials;
+			materials.clear();
+			materials.resize(DivideRoundUp(hzbMipCount, maxMipBatchSize));
 
-			for (uint32_t outputIndex = 0; outputIndex < maxMipBatchSize; outputIndex++)
+			for (uint32_t startDestMip = 0; startDestMip < hzbMipCount; startDestMip += maxMipBatchSize)
 			{
-				const uint32_t destMip = glm::min(startDestMip + outputIndex, hzbMipCount - 1u);
-				material->Set("o_HZB", m_HierarchicalDepthTexture.ImageViews[destMip], outputIndex);
-			}
+				Ref<Material> material = Material::Create(m_HierarchicalDepthPass->GetShader(), "HZB");
+				if (startDestMip == 0)
+					material->Set("u_InputDepth", m_PreDepthPass->GetDepthOutput());
+				else
+					material->Set("u_InputDepth", pyramid->ImageViews[startDestMip - 1u]);
 
-			m_HZBMaterials[startDestMip / maxMipBatchSize] = material;
+				for (uint32_t outputIndex = 0; outputIndex < maxMipBatchSize; outputIndex++)
+				{
+					const uint32_t destMip = glm::min(startDestMip + outputIndex, hzbMipCount - 1u);
+					material->Set("o_HZB", pyramid->ImageViews[destMip], outputIndex);
+				}
+
+				materials[startDestMip / maxMipBatchSize] = material;
+			}
 		}
 	}
 
@@ -4039,6 +4050,8 @@ namespace Lux {
 
 		if (m_HierarchicalDepthTexture.Texture)
 			addRenderTargetImage(m_HierarchicalDepthTexture.Texture->GetImage());
+		if (m_HierarchicalFarDepthTexture.Texture)
+			addRenderTargetImage(m_HierarchicalFarDepthTexture.Texture->GetImage());
 		if (m_PreIntegrationVisibilityTexture.Texture)
 			addRenderTargetImage(m_PreIntegrationVisibilityTexture.Texture->GetImage());
 		if (m_PreConvolutedTexture.Texture)
@@ -4389,6 +4402,7 @@ namespace Lux {
 
 		std::vector<RenderGraph::ResourceHandle> hzbOutputs;
 		hzbOutputs.push_back(m_HierarchicalDepthTexture.Texture ? addTexture("HZB", m_HierarchicalDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
+		hzbOutputs.push_back(m_HierarchicalFarDepthTexture.Texture ? addTexture("HZBFar", m_HierarchicalFarDepthTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 		addPass("HZB", preDepthOutputs, hzbOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::HZBCompute));
 		addPass("Mesh Culling", hzbOutputs, {}, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::MeshCullingPass),
 			{ { objectIndexes, AccessKind::StorageRead }, { visibleObjectIndexes, AccessKind::StorageWrite }, { indirectDrawCommands, AccessKind::StorageReadWrite } });
@@ -5194,6 +5208,7 @@ namespace Lux {
 			};
 
 		invalidateViews(m_HierarchicalDepthTexture.ImageViews);
+		invalidateViews(m_HierarchicalFarDepthTexture.ImageViews);
 		invalidateViews(m_PreIntegrationVisibilityTexture.ImageViews);
 		if (m_PreIntegrationVisibilityTexture.Texture)
 			m_PreIntegrationVisibilityClear = Ref<StorageImageClear>::Create(m_PreIntegrationVisibilityTexture.Texture->GetImage(), 0);
@@ -5223,6 +5238,8 @@ namespace Lux {
 		if (isSameImage(m_ShadowMapImage) || isSameImage(m_SpotShadowMapImage))
 			return false;
 		if (m_HierarchicalDepthTexture.Texture && isSameImage(m_HierarchicalDepthTexture.Texture->GetImage()))
+			return false;
+		if (m_HierarchicalFarDepthTexture.Texture && isSameImage(m_HierarchicalFarDepthTexture.Texture->GetImage()))
 			return false;
 		if (m_PreDepthPass && isSameImage(m_PreDepthPass->GetDepthOutput()))
 			return false;
@@ -9035,15 +9052,16 @@ namespace Lux {
 			glm::vec2 InvSize;
 			int FirstLod = 0;
 			int IsFirstPass = 0;
+			int UseMin = 0;
 		};
 
 		BeginProfiledGPU("HZB");
 		Renderer::BeginComputePass(m_CommandBuffer, m_HierarchicalDepthPass);
 
-		auto reduceHZB = [&](uint32_t startDestMip, uint32_t parentMip, const glm::vec2& dispatchThreadIdToBufferUV, const glm::vec2& inputViewportMaxBound, bool isFirstPass)
+		auto reduceHZB = [&](const std::vector<Ref<Material>>& materials, bool useMin, uint32_t startDestMip, uint32_t parentMip, const glm::vec2& dispatchThreadIdToBufferUV, const glm::vec2& inputViewportMaxBound, bool isFirstPass)
 		{
 			const uint32_t materialIndex = startDestMip / maxMipBatchSize;
-			if (materialIndex >= m_HZBMaterials.size() || !m_HZBMaterials[materialIndex])
+			if (materialIndex >= materials.size() || !materials[materialIndex])
 				return;
 
 			const glm::uvec2 srcSize = DivideRoundUp(m_HierarchicalDepthTexture.Texture->GetSize(), 1u << glm::min(parentMip, 31u));
@@ -9058,6 +9076,7 @@ namespace Lux {
 			};
 			pushConstants.FirstLod = 1;
 			pushConstants.IsFirstPass = isFirstPass ? 1 : 0;
+			pushConstants.UseMin = useMin ? 1 : 0;
 
 			const glm::uvec3 workGroups = {
 				DivideRoundUp(glm::max(1u, dstSize.x), 8u),
@@ -9065,14 +9084,18 @@ namespace Lux {
 				1
 			};
 
-			Renderer::DispatchCompute(m_CommandBuffer, m_HierarchicalDepthPass, m_HZBMaterials[materialIndex], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
-			m_HierarchicalDepthPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, m_HierarchicalDepthTexture.Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
+			Renderer::DispatchCompute(m_CommandBuffer, m_HierarchicalDepthPass, materials[materialIndex], workGroups, Buffer(&pushConstants, sizeof(pushConstants)));
+			m_HierarchicalDepthPass->GetPipeline()->ImageMemoryBarrier(m_CommandBuffer, (useMin ? m_HierarchicalFarDepthTexture : m_HierarchicalDepthTexture).Texture->GetImage(), ResourceAccessFlags::ShaderWrite, ResourceAccessFlags::ShaderRead);
 		};
 
 		const glm::uvec2 depthSize = m_PreDepthPass->GetDepthOutput()->GetSize();
+		for (const bool farPyramid : { false, true })
+		{
+		const std::vector<Ref<Material>>& materials = farPyramid ? m_HZBFarMaterials : m_HZBMaterials;
 		if (depthSize.x > 0 && depthSize.y > 0)
 		{
 			reduceHZB(
+				materials, farPyramid,
 				0,
 				0,
 				1.0f / glm::vec2(depthSize),
@@ -9087,11 +9110,13 @@ namespace Lux {
 				continue;
 
 			reduceHZB(
+				materials, farPyramid,
 				startDestMip,
 				startDestMip - 1u,
 				2.0f / glm::vec2(parentSize),
 				glm::vec2(1.0f),
 				false);
+		}
 		}
 
 		Renderer::EndComputePass(m_CommandBuffer, m_HierarchicalDepthPass);

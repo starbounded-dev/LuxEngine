@@ -144,16 +144,19 @@ bool IsSphereOccluded(vec4 sphere)
 	float mip = clamp(ceil(log2(max(rectSize.x, rectSize.y))), 0.0, float(u_PushConstants.NumDepthMips - 1u));
 
 	vec2 hzbUVFactor = u_PushConstants.HZBUVFactorAndViewportSize.xy;
-	vec2 hzbMinUV = minUV * hzbUVFactor;
-	vec2 hzbMaxUV = maxUV * hzbUVFactor;
+	// The viewport is negative-height (NDC +Y is texture row 0), so the pyramid is read upside down relative to the clip-space rectangle.
+	vec2 hzbMinUV = vec2(minUV.x, 1.0 - maxUV.y) * hzbUVFactor;
+	vec2 hzbMaxUV = vec2(maxUV.x, 1.0 - minUV.y) * hzbUVFactor;
 	vec2 hzbCenterUV = (hzbMinUV + hzbMaxUV) * 0.5;
 
-	float closestDeviceZ = 0.0;
-	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbMinUV, mip).r);
-	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), vec2(hzbMaxUV.x, hzbMinUV.y), mip).r);
-	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), vec2(hzbMinUV.x, hzbMaxUV.y), mip).r);
-	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbMaxUV, mip).r);
-	closestDeviceZ = max(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbCenterUV, mip).r);
+	// The pyramid keeps the farthest depth per texel (reversed Z: the smallest), so the smallest sample over the rectangle is the depth
+	// the whole rectangle is certainly covered to; the object hides only if its nearest point is farther than that.
+	float closestDeviceZ = 1.0;
+	closestDeviceZ = min(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbMinUV, mip).r);
+	closestDeviceZ = min(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), vec2(hzbMaxUV.x, hzbMinUV.y), mip).r);
+	closestDeviceZ = min(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), vec2(hzbMinUV.x, hzbMaxUV.y), mip).r);
+	closestDeviceZ = min(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbMaxUV, mip).r);
+	closestDeviceZ = min(closestDeviceZ, textureLod(sampler2D(u_HZB, r_PointSampler), hzbCenterUV, mip).r);
 
 	return closestDeviceZ > nearestDeviceZ + u_PushConstants.DepthBias;
 }
