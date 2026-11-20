@@ -1417,6 +1417,7 @@ namespace Lux {
 
 				m_SplashScreen->OnImGuiRender(m_TitlebarHeight);
 				UI_AboutPopup();
+				UI_ProjectDialogs();
 				ImGui::End(); // Lux Editor
 				UI_StartupSplashHandOff();
 				return;
@@ -1459,6 +1460,7 @@ namespace Lux {
 			if (m_ShowImGuiStyleEditor)
 				ImGui::ShowStyleEditor();
 			UI_AboutPopup();
+			UI_ProjectDialogs();
 
 			// Command palette overlay — drawn late, brings itself to front via SetNextWindowFocus.
 			// The Ctrl+Shift+P chord is read through ImGui's own input rather than the engine key
@@ -1693,6 +1695,76 @@ namespace Lux {
 			}
 
 			ImGui::EndPopup();
+		}
+	}
+
+	void EditorLayer::UI_ProjectDialogs()
+	{
+		ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+
+		// The upgrade offer.
+		if (m_PendingProjectUpgrade && !ImGui::IsPopupOpen("Upgrade Project"))
+			ImGui::OpenPopup("Upgrade Project");
+		ImGui::SetNextWindowPos(mainViewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (ImGui::BeginPopupModal("Upgrade Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			bool upgrade = false, cancel = false;
+			if (!m_PendingProjectUpgrade)
+				cancel = true;
+			else
+			{
+				const PendingProjectUpgrade& pending = *m_PendingProjectUpgrade;
+				const std::string maker = pending.Report.EngineVersion.empty() ? std::string("an earlier Lux") : std::format("Lux {}", pending.Report.EngineVersion);
+				ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+				ImGui::TextWrapped("%s was last saved by %s. This Lux can bring %zu of its files up to the current format.", pending.Path.filename().string().c_str(), maker.c_str(), pending.Report.Files.size());
+				ImGui::Spacing();
+				ImGui::TextWrapped("Before anything changes, the original files are copied to the project's .luxbackup folder. Once upgraded, an older Lux may not open the project.");
+				ImGui::PopTextWrapPos();
+				ImGui::Spacing();
+				upgrade = ImGui::Button("Upgrade and Open##project_upgrade");
+				ImGui::SameLine();
+				cancel = ImGui::Button("Cancel##project_upgrade_cancel");
+			}
+			if (upgrade || cancel)
+				ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+
+			if (cancel)
+				m_PendingProjectUpgrade.reset();
+			if (upgrade)
+			{
+				const PendingProjectUpgrade pending = *m_PendingProjectUpgrade;
+				m_PendingProjectUpgrade.reset();
+				const ProjectUpgrade::Result result = ProjectUpgrade::Upgrade(pending.Path, pending.Report);
+				if (result.Ok)
+				{
+					LUX_CORE_WARN_TAG("Project", "The originals of the upgraded files are in '{}'", result.Backup.string());
+					OpenProject(pending.Path);
+				}
+				else
+				{
+					LUX_CORE_ERROR_TAG("Project", "{}", result.Error);
+					m_ProjectNotice = result.Error;
+				}
+			}
+		}
+
+		// A project that cannot be opened.
+		if (!m_ProjectNotice.empty() && !ImGui::IsPopupOpen("Project Not Opened"))
+			ImGui::OpenPopup("Project Not Opened");
+		ImGui::SetNextWindowPos(mainViewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (ImGui::BeginPopupModal("Project Not Opened", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			ImGui::PushTextWrapPos(ImGui::GetFontSize() * 34.0f);
+			ImGui::TextWrapped("%s", m_ProjectNotice.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::Spacing();
+			const bool close = ImGui::Button("Close##project_notice") || m_ProjectNotice.empty();
+			if (close)
+				ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			if (close)
+				m_ProjectNotice.clear();
 		}
 	}
 
@@ -4462,6 +4534,36 @@ namespace Lux {
 
 	void EditorLayer::OpenProject(const std::filesystem::path& path)
 	{
+		// A project made by another Lux: refuse a newer one, offer to upgrade an older one (with a backup), before anything is loaded.
+		const ProjectUpgradeReport upgrade = ProjectUpgrade::Inspect(path);
+		if (upgrade.Result == ProjectUpgradeReport::State::Newer)
+		{
+			LUX_CORE_ERROR_TAG("Project", "{}", upgrade.Message);
+			m_ProjectNotice = upgrade.Message;
+			return;
+		}
+		if (upgrade.Result == ProjectUpgradeReport::State::NeedsUpgrade)
+		{
+			const ProjectUpgrade::Decision decision = ProjectUpgrade::UnattendedDecision();
+			if (decision == ProjectUpgrade::Decision::Ask)
+			{
+				m_PendingProjectUpgrade = PendingProjectUpgrade{ path, upgrade };
+				return; // the dialog calls OpenProject again after Upgrade
+			}
+			if (decision == ProjectUpgrade::Decision::No)
+			{
+				LUX_CORE_ERROR_TAG("Project", "'{}' needs an upgrade ({} file(s)) and LUX_PROJECT_UPGRADE=no: not opened", path.filename().string(), upgrade.Files.size());
+				return;
+			}
+			const ProjectUpgrade::Result result = ProjectUpgrade::Upgrade(path, upgrade);
+			if (!result.Ok)
+			{
+				LUX_CORE_ERROR_TAG("Project", "{}", result.Error);
+				m_ProjectNotice = result.Error;
+				return;
+			}
+		}
+
 		StartupSplash::Report(0.5f, std::format("Loading {}", path.filename().string()));
 		if (Project::Load(path))
 		{

@@ -1,0 +1,236 @@
+Project:
+  Name: LuxSample
+  AssetDirectory: Assets
+  AssetRegistry: Assets/AssetRegistry.lzr
+  AudioCommandsRegistryPath: AudioCommandsRegistry.lzr
+  MeshPath: Meshes
+  MeshSourcePath: Meshes/Source
+  AnimationPath: Animation
+  ScriptModulePath: Scripts/Binaries/LuxSample.dll
+  DefaultNamespace: LuxSample
+  StartScene: Scenes/NewSceneSystem.luxscene
+  AutomaticallyReloadAssembly: true
+  AutoSave: true
+  AutoSaveInterval: 300
+  RuntimeExport:
+    GameName: LuxSample
+    WindowWidth: 1920
+    WindowHeight: 1080
+    Fullscreen: false
+    VSync: false
+    IconPath: Textures/luxLogo.png
+    TargetConfig: Dist
+  SceneRenderer:
+    Rendering:
+      QualityPreset: Cinematic
+      FrustumCulling: true
+      OcclusionCulling: false
+      GPUDrivenRendering: true
+      MeshLODs: true
+      MeshLODDistanceScale: 1
+      VariableRateShading: true
+      MeshShaders: false
+      GTAO: true
+      GTAOBentNormals: true
+      GTAODenoisePasses: 8
+      GTAOSliceCount: 9
+      GTAOStepsPerSlice: 3
+      GTAOVisibilityBitmask: false
+      GTAOThickness: 0.5
+      GTAONoisePasses: 1
+      AOShadowTolerance: 1
+      SSR: true
+      JumpFloodOutline: true
+      RenderScaleMode: Scale100
+      FixedRenderWidth: 1920
+      FixedRenderHeight: 1080
+      DynamicResolutionMinScale: 0.5
+      DynamicResolutionMaxScale: 1
+      DynamicResolutionTargetGPUTime: 16.67
+      TextureMipBias: -1.5
+      DistanceMipBias: true
+      DistanceMipBiasStart: 10
+      DistanceMipBiasEnd: 100
+      DistanceMipBiasMax: 0.5
+      OcclusionDepthBias: 0.003
+      OcclusionBoundsScale: 1.15
+      GTAOResolutionScale: 1
+      SSRQuality: Full
+      SSRResolutionScale: 1
+      SMAA: true
+      SMAAThreshold: 0.1
+      SMAALocalContrastAdaptationFactor: 2
+    Shadows:
+      SoftShadows: true
+      ShadowCulling: true
+      MaxDistance: 201
+      DistanceFade: 50
+      ActiveCascadeCount: 4
+      SplitLambda: 0.82
+      NearOffset: 0
+      FarOffset: 50
+      CascadeFade: 1
+      FilterMode: 1
+      DirectionalPCSSCascades: 2
+      PCSSBlockerSamples: 16
+      PCSSFilterSamples: 24
+      PCFRadiusTexels: 1.75
+      SpotPCFRadiusTexels: 2
+      ResolutionLimit: 8K
+    PostFX:
+      Bloom:
+        Enabled: true
+        ResolutionScale: 4
+        Threshold: 1
+        Knee: 0.1
+        UpsampleScale: 1
+        Intensity: 0.33
+        DirtIntensity: 1
+      DOF:
+        Enabled: true
+        ResolutionScale: 1
+        FocusDistance: 5.1
+        BlurSize: 0.6
+      SSR:
+        HalfRes: false
+        MaxSteps: 128
+        Brightness: 0.7
+        DepthTolerance: 0.8
+  Audio:
+    FileStreamingDurationThreshold: 1
+    Windows:
+      Enabled: false
+      Performance:
+        MuteWhenUnfocused: false
+        RealVoices: 64
+        CPUPercent: 5
+        RaytracingMilliseconds: 2
+        BankMemoryMiB: 64
+        BusVoices:
+          bus:/: 64
+    Linux:
+      Enabled: false
+      Performance:
+        MuteWhenUnfocused: false
+        RealVoices: 64
+        CPUPercent: 5
+        RaytracingMilliseconds: 2
+        BankMemoryMiB: 64
+        BusVoices:
+          bus:/: 64
+    AcousticMaterials: {}
+    SurfaceTable: 0
+    DialogueTable: 0
+    DialogueLanguage: en
+    Accessibility:
+      Version: 1
+      BuiltInUI: true
+      DefaultLanguage: en
+      DescriptionDuck: 0.25
+      Defaults:
+        Subtitles: true
+        Captions: false
+        VisualCues: false
+        SpeakerNames: true
+        DirectionIndicators: true
+        Mono: false
+        AudioDescriptions: false
+        TextSize: 24
+        BackgroundOpacity: 0.75
+        DurationMultiplier: 1
+        MaxLines: 3
+        DialogueBoost: 1
+        DynamicRange: 0
+        Volumes:
+          Master: 1
+          Music: 1
+          SFX: 1
+          Dialogue: 1
+          UI: 1
+          Ambience: 1
+      Buses:
+        Master: bus:/
+        Music: ""
+        SFX: ""
+        Dialogue: ""
+        UI: ""
+        Ambience: ""
+      Events: {}
+      SpeakerColors: {}
+    Performance:
+      MuteWhenUnfocused: false
+      RealVoices: 64
+      CPUPercent: 5
+      RaytracingMilliseconds: 2
+      BankMemoryMiB: 64
+      BusVoices:
+        bus:/: 64
+    ZoneReverbMode: 0
+    Occlusion:
+      Source: Engine
+      UpdateRateHz: 20
+      CastBudget: 32
+      Strength: 1
+  Physics:
+    FixedTimestep: 0.016666668
+    Gravity: [0, -9.81, 0]
+    SolverPositionIterations: 8
+    SolverVelocityIterations: 2
+    MaxBodies: 1000
+    CaptureOnPlay: true
+    CaptureMethod: LiveDebug
+  Log:
+    Animation:
+      Enabled: true
+      LevelFilter: Warn
+    Asset Pack:
+      Enabled: true
+      LevelFilter: Warn
+    AssetManager:
+      Enabled: true
+      LevelFilter: Info
+    AssetSystem:
+      Enabled: true
+      LevelFilter: Info
+    Assimp:
+      Enabled: true
+      LevelFilter: Error
+    Audio:
+      Enabled: true
+      LevelFilter: Info
+    Core:
+      Enabled: true
+      LevelFilter: Trace
+    GLFW:
+      Enabled: true
+      LevelFilter: Error
+    Memory:
+      Enabled: true
+      LevelFilter: Error
+    Mesh:
+      Enabled: true
+      LevelFilter: Warn
+    Physics:
+      Enabled: true
+      LevelFilter: Warn
+    Project:
+      Enabled: true
+      LevelFilter: Warn
+    RenderGraph:
+      Enabled: true
+      LevelFilter: Trace
+    Renderer:
+      Enabled: true
+      LevelFilter: Info
+    Scene:
+      Enabled: true
+      LevelFilter: Info
+    Scripting:
+      Enabled: true
+      LevelFilter: Warn
+    Sound Spatializer:
+      Enabled: true
+      LevelFilter: Warn
+    Timer:
+      Enabled: false
+      LevelFilter: Trace

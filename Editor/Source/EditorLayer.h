@@ -6,6 +6,7 @@
 #include "Lux.h"
 
 #include "Lux/Project/Project.h"
+#include "Lux/Project/ProjectUpgrade.h"
 
 #include <functional>
 #include <map>
@@ -86,6 +87,8 @@ namespace Lux
 		void UI_DrawSceneView(bool& open);
 		void UI_DrawMenubar();
 		void UI_AboutPopup();
+		// The dialogs of opening a project made by another Lux: the upgrade offer, and a project that cannot be opened.
+		void UI_ProjectDialogs();
 		void UI_StartupSplashHandOff();
 		void RegisterCommands();
 		void SetCameraBookmark(int slot);       // 1..9, captures the current editor camera
@@ -476,6 +479,15 @@ namespace Lux
 		bool m_ShowImGuiMetrics = false;
 		bool m_ShowImGuiStyleEditor = false;
 		bool m_ShowAboutPopup = false;
+
+		// A project with older files, waiting for the person to choose Upgrade or Cancel (docs/PROJECT_FORMAT_PLAN.md).
+		struct PendingProjectUpgrade
+		{
+			std::filesystem::path Path;
+			ProjectUpgradeReport Report;
+		};
+		std::optional<PendingProjectUpgrade> m_PendingProjectUpgrade;
+		std::string m_ProjectNotice; // why a project was not opened; shown until closed
 
 		// Editor resources
 		Ref<Texture2D> m_IconPlay, m_IconPause, m_IconStep, m_IconSimulate, m_IconStop;

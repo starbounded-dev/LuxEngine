@@ -1,3 +1,4 @@
+FormatVersion: 1
 Scene: AudioTest
 PostProcess:
   Exposure: 1

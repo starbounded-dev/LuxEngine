@@ -22,6 +22,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 - [Inspecting CPU and GPU Timings](editor/diagnostics) — live charts, paused history and GPU passes.
 - [Prefabs](editor/prefabs) — reusable entity hierarchies, overrides, Apply and Revert.
 - [Authoring Audio](editor/audio-authoring) — Sounds, Sound Banks, the mixer and the parameters the engine drives.
+- [Project Versions and Upgrades](editor/project-versions) — what happens when you open a project made by another Lux.
 - [Exporting a Game](editor/export) — building a standalone player, and its settings.
 - [Keyboard Shortcuts](editor/shortcuts)
 

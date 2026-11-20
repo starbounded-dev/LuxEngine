@@ -1,3 +1,4 @@
+FormatVersion: 1
 Scene: LuxBipedRootMotion
 Entities:
   - Entity: 7200000000000000001
