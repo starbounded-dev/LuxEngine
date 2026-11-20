@@ -2742,6 +2742,25 @@ is installed. `ProjectSerializer` handles `.luxproj`; `UserPreferences` holds ma
 `FileSystem::GetPersistentStoragePath()`);
 `TieringSettings` / `TieringSerializer` hold quality tiers.
 
+**Format versions** (`Project/FormatVersion.{h,cpp}`, `Project/ProjectUpgrade.{h,cpp}`, plan `docs/PROJECT_FORMAT_PLAN.md`).
+Project, scene and prefab (a prefab is a scene file) and material files start with `FormatVersion: N`; the project file also
+records `EngineVersion` (messages only, nothing decides by it). Sound, sound bank, sprite sheet and animation graph files keep
+the `Version` inside their root map and take part with that number. No key is version 0 (everything saved before 2027.1);
+version 1 is what 2027.1 writes and changes no data. `FormatVersion::CheckReadable` refuses a newer file (the project, scene and
+material loaders call it), `FormatVersion::Steps()` is the ordered table of upgrade steps (kind, from, text to text; a new
+format change adds its step there, and `Current` for its kind moves), `Stamp` inserts the key first in the file's own line
+endings. `ProjectUpgrade::Inspect` reads the project file and every versioned text file under the asset directory and reports
+UpToDate, NeedsUpgrade, Newer or Unreadable; `Upgrade` copies each file that changes to `<project>/.luxbackup/<date-time>/`
+(same relative path) before rewriting any of them atomically, and a failed backup leaves the project untouched.
+`EditorLayer::OpenProject(path)` inspects first: a newer project is refused with a dialog, an older one is offered the
+upgrade (`UI_ProjectDialogs`) and opens only after Upgrade. Unattended runs decide through
+`ProjectUpgrade::UnattendedDecision`: `LUX_PROJECT_UPGRADE=yes|no|ask`, and yes inside the test harnesses (`LUX_NO_WATCHDOG`,
+`LUX_USER_DATA_DIR`). The runtime player does not upgrade: an export is made by the matching editor, and the packed project
+header's own version check refuses a newer one. Checks: `CheckFormatVersionText` and `CheckProjectFormat` in
+`tests/2d/Checks2D.cpp` against the saved 2026.1 project in `tests/project-format/old-2026.1` (never regenerate it),
+`tests/editor/run_project_upgrade.py` in a real editor. The sample project is committed already stamped, or an unattended
+run would rewrite it.
+
 > **Regression trap:** the editor persists renderer quality settings into the project file. When a
 > visual regression appears "from nowhere", diff the `.luxproj` before diffing code.
 

@@ -4,6 +4,7 @@
 #include "lpch.h"
 #include "Lux/Utilities/FileSystem.h"
 #include "SceneSerializer.h"
+#include "Lux/Project/FormatVersion.h"
 #include "Lux/Scene/Tilemap.h"
 
 #include "Components.h"
@@ -2190,6 +2191,7 @@ namespace Lux {
 	// so the full scene document and the undo metadata snapshot share one source.
 	static void SerializeSceneMetadata(Yaml::Writer& out, const Ref<Scene>& scene)
 	{
+		out << Yaml::Key << FormatVersion::Key << Yaml::Value << FormatVersion::Current(FormatVersion::Kind::Scene);
 		out << Yaml::Key << "Scene" << Yaml::Value << scene->GetName();
 		if (!scene->GetSoundBanks().empty())
 		{
@@ -2940,6 +2942,10 @@ namespace Lux {
 			LUX_CORE_ERROR("Scene YAML is missing the required Scene root field.");
 			return false;
 		}
+
+		// A scene or prefab saved by a newer Lux is refused, not half-read.
+		if (!FormatVersion::CheckReadable(FormatVersion::Kind::Scene, data["FormatVersion"].as<uint32_t>(0), {}))
+			return false;
 
 		if (data["Entities"] && !data["Entities"].IsSequence())
 		{

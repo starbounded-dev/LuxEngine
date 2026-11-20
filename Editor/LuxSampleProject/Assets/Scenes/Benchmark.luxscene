@@ -1,3 +1,4 @@
+FormatVersion: 1
 Scene: Benchmark
 SoundBanks: [Audio/Banks/AudioDemo.lbank, Audio/Banks/Benchmark.lbank]
 PostProcess:

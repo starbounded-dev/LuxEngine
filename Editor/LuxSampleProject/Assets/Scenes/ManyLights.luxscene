@@ -1,3 +1,4 @@
+FormatVersion: 1
 Scene: ManyLights
 Entities:
   - Entity: 16200000000002000001

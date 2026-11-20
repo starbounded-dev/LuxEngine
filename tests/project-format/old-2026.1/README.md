@@ -1,0 +1,1 @@
+A project as 2026.1 saved it: no `FormatVersion` anywhere, copied from the sample project before the format versions existed. `tests/2d/Checks2D.cpp` (`CheckProjectFormat`) copies it, checks that it still loads, upgrades the copy and checks the backup. Never regenerate these files: they are the point.

@@ -18,7 +18,9 @@
 #include "Lux/Particles/ParticleSystem.h"
 #include "Lux/Physics/ContactPairTracker.h"
 #include "Lux/Physics2D/PhysicsScene2D.h"
+#include "Lux/Project/FormatVersion.h"
 #include "Lux/Project/Project.h"
+#include "Lux/Project/ProjectUpgrade.h"
 #include "Lux/Project/ProjectSerializer.h"
 #include "Lux/Renderer/FrameRenderPacket.h"
 #include "Lux/Renderer/Renderer2D.h"
@@ -49,6 +51,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <string>
 
 bool g_ApplicationRunning = true;
@@ -2595,6 +2598,174 @@ namespace {
 		Check(!drawn, "particles: a disabled system draws nothing");
 	}
 
+	// ---- Project format versions (docs/PROJECT_FORMAT_PLAN.md) ---------------------------------------------------------
+
+	void CheckFormatVersionText()
+	{
+		using namespace FormatVersion;
+
+		// Stamping: first line, the file's own line endings and byte order mark, never twice.
+		Check(Stamp("Scene: A\nEntities:\n", 1) == "FormatVersion: 1\nScene: A\nEntities:\n", "format version: a stamp is the first line");
+		Check(Stamp("Scene: A\r\nEntities:\r\n", 1) == "FormatVersion: 1\r\nScene: A\r\nEntities:\r\n", "format version: a stamp keeps Windows line endings");
+		Check(Stamp(std::string("\xEF\xBB\xBF") + "Scene: A\n", 1) == std::string("\xEF\xBB\xBF") + "FormatVersion: 1\nScene: A\n", "format version: a stamp goes after the byte order mark");
+		Check(Stamp(Stamp("Scene: A\n", 1), 1) == "FormatVersion: 1\nScene: A\n", "format version: stamping twice changes nothing");
+
+		// Reading.
+		Check(Recorded(Kind::Scene, "Scene: A\n") == 0, "format version: a file without the key is version 0");
+		Check(Recorded(Kind::Scene, "FormatVersion: 1\nScene: A\n") == 1, "format version: the key is read");
+		Check(Recorded(Kind::Project, "EngineVersion: \"2027.1\"\nFormatVersion: 7\nProject:\n") == 7, "format version: the key need not be first");
+		Check(Recorded(Kind::Scene, "FormatVersion: 12\r\nScene: A\r\n") == 12, "format version: Windows line endings");
+		Check(RecordedEngine("FormatVersion: 1\nEngineVersion: \"2027.1-abc\"\nProject:\n") == "2027.1-abc" && RecordedEngine("Project:\n").empty(), "format version: the engine that saved a project");
+		Check(Recorded(Kind::Sound, "Sound:\n  Version: 2\n") == 2 && Recorded(Kind::Sound, "Sound:\n  Version: 9\n") == 9, "format version: a sound keeps its own number");
+		Check(Recorded(Kind::SoundBank, "SoundBank:\n  Resident: true\n") == Current(Kind::SoundBank), "format version: an unnumbered bank is the current one, as its loader reads it");
+
+		Kind kind;
+		Check(KindOf("A/B.luxscene", kind) && kind == Kind::Scene && KindOf("x.LPREFAB", kind) && kind == Kind::Scene && KindOf("m.lmat", kind) && kind == Kind::Material
+			&& KindOf("p.luxproj", kind) && kind == Kind::Project && !KindOf("a.png", kind), "format version: files are told apart by extension, prefabs are scenes");
+
+		// The steps: in order, from the file's version, stopping where there is none.
+		const std::vector<FormatVersion::Step> steps = {
+			{ Kind::Scene, 0, [](const std::string& text) { return text + "# 0 to 1\n"; } },
+			{ Kind::Scene, 1, [](const std::string& text) { return text + "# 1 to 2\n"; } },
+			{ Kind::Material, 0, [](const std::string& text) { return text + "# material\n"; } },
+		};
+		uint32_t reached = 0;
+		Check(Upgrade(Kind::Scene, "S\n", 0, 2, steps, &reached) == "S\n# 0 to 1\n# 1 to 2\n" && reached == 2, "format version: a file is walked through every step to the target");
+		Check(Upgrade(Kind::Scene, "S\n", 1, 2, steps, &reached) == "S\n# 1 to 2\n" && reached == 2, "format version: a file starts at its own version");
+		Check(Upgrade(Kind::Scene, "S\n", 0, 3, steps, &reached) == "S\n# 0 to 1\n# 1 to 2\n" && reached == 2, "format version: it stops where a step is missing");
+		Check(Upgrade(Kind::Material, "M\n", 0, 1, steps, &reached) == "M\n# material\n" && reached == 1, "format version: steps belong to their kind");
+		Check(Upgrade(Kind::Scene, "S\n", 2, 2, steps, &reached) == "S\n" && reached == 2, "format version: a current file is left alone");
+
+		// This build's own steps take 0 to 1.
+		Check(Upgrade(Kind::Project, "Project:\n", 0, Current(Kind::Project), Steps()) == "FormatVersion: 1\nProject:\n", "format version: the shipped step stamps a project");
+		Check(CheckReadable(Kind::Scene, Current(Kind::Scene), {}) && !CheckReadable(Kind::Scene, Current(Kind::Scene) + 1, "x.luxscene", "2099.1"), "format version: a newer version is refused");
+		const std::string message = NewerMessage(Kind::Material, 40, "Stone.lmat", "2099.1");
+		Check(message.find("Stone.lmat") != std::string::npos && message.find("2099.1") != std::string::npos && message.find("40") != std::string::npos && message.find("update Lux") != std::string::npos,
+			"format version: the message names the file, the version and the Lux that wrote it");
+	}
+
+	void CheckProjectFormat(const std::filesystem::path& root)
+	{
+		namespace fs = std::filesystem;
+		const fs::path fixture = fs::current_path().parent_path() / "tests" / "project-format" / "old-2026.1";
+		Check(fs::exists(fixture / "Old.luxproj"), "project format: the saved 2026.1 project is in the repository");
+		if (!fs::exists(fixture / "Old.luxproj"))
+			return;
+
+		const fs::path work = root / "ProjectFormat";
+		std::error_code error;
+		fs::remove_all(work, error);
+		fs::create_directories(work, error);
+		fs::copy(fixture, work, fs::copy_options::recursive, error);
+		const fs::path projectFile = work / "Old.luxproj";
+		const std::vector<fs::path> versioned = { projectFile, work / "Assets/Scenes/Main.luxscene", work / "Assets/Prefabs/Crate.lprefab", work / "Assets/Materials/Bench_000.lmat" };
+
+		// As 2026.1 saved it: no number anywhere, and everything still loads.
+		for (const fs::path& file : versioned)
+		{
+			FormatVersion::Kind fileKind;
+			FormatVersion::KindOf(file, fileKind);
+			Check(FormatVersion::Recorded(fileKind, ReadText(file).substr(0, 2048)) == 0, "project format: the saved project has no version in " + file.filename().string());
+		}
+		{
+			Ref<Project> project = Project::Load(projectFile);
+			Check(project != nullptr, "project format: a project from before the versions still loads");
+			Ref<Scene> scene = Ref<Scene>::Create();
+			Check(SceneSerializer(scene).Deserialize(work / "Assets/Scenes/Main.luxscene"), "project format: a scene from before the versions still loads");
+			Ref<Scene> prefabScene = Ref<Scene>::Create();
+			Check(SceneSerializer(prefabScene).Deserialize(work / "Assets/Prefabs/Crate.lprefab"), "project format: a prefab from before the versions still loads");
+		}
+
+		// Inspect: four files change; sounds, banks and graphs carry their own current numbers.
+		const ProjectUpgradeReport report = ProjectUpgrade::Inspect(projectFile);
+		Check(report.Result == ProjectUpgradeReport::State::NeedsUpgrade && report.Files.size() == 4 && report.Files.front().Path == projectFile, std::format("project format: an old project needs an upgrade of its project file, scene, prefab and material (got {} files)", report.Files.size()));
+
+		std::map<fs::path, std::string> originals;
+		for (const ProjectUpgradeFile& file : report.Files)
+			originals[file.Path] = ReadText(file.Path);
+		const std::string untouchedSound = ReadText(work / "Assets/Audio/Sounds/Music.lsound");
+
+		// Upgrade: a backup of every original, then the files stamped and otherwise identical.
+		const ProjectUpgrade::Result result = ProjectUpgrade::Upgrade(projectFile, report);
+		Check(result.Ok && result.Upgraded == 4 && fs::is_directory(result.Backup), "project format: the upgrade succeeds and makes a backup folder");
+		bool backedUp = true, stamped = true, otherwiseSame = true;
+		for (const auto& [path, original] : originals)
+		{
+			const fs::path inBackup = result.Backup / fs::relative(path, work);
+			backedUp = backedUp && fs::exists(inBackup) && ReadText(inBackup) == original;
+			const std::string now = ReadText(path);
+			stamped = stamped && now.rfind("FormatVersion: 1", 0) == 0;
+			otherwiseSame = otherwiseSame && now.size() > original.size() && now.substr(now.find('\n') + 1) == original;
+		}
+		Check(backedUp, "project format: every original is in the backup, byte for byte, at its own relative path");
+		Check(stamped, "project format: every upgraded file starts with its version");
+		Check(otherwiseSame, "project format: an upgrade changes nothing but the version line");
+		Check(ReadText(work / "Assets/Audio/Sounds/Music.lsound") == untouchedSound, "project format: a file that needs nothing is not rewritten");
+		Check(ProjectUpgrade::Inspect(projectFile).Result == ProjectUpgradeReport::State::UpToDate, "project format: an upgraded project is up to date");
+		const ProjectUpgrade::Result again = ProjectUpgrade::Upgrade(projectFile, ProjectUpgrade::Inspect(projectFile));
+		Check(again.Ok && again.Upgraded == 0 && again.Backup.empty(), "project format: upgrading again does nothing and makes no backup");
+
+		{
+			Ref<Project> project = Project::Load(projectFile);
+			Check(project != nullptr, "project format: the upgraded project loads");
+			Ref<Scene> scene = Ref<Scene>::Create();
+			Check(SceneSerializer(scene).Deserialize(work / "Assets/Scenes/Main.luxscene"), "project format: the upgraded scene loads");
+		}
+
+		// A failed backup leaves the project as it was.
+		{
+			const fs::path blocked = root / "ProjectFormatBlocked";
+			fs::remove_all(blocked, error);
+			fs::copy(fixture, blocked, fs::copy_options::recursive, error);
+			WriteText(blocked / ".luxbackup", "a file where the backup folder goes");
+			const ProjectUpgradeReport blockedReport = ProjectUpgrade::Inspect(blocked / "Old.luxproj");
+			const ProjectUpgrade::Result failed = ProjectUpgrade::Upgrade(blocked / "Old.luxproj", blockedReport);
+			Check(!failed.Ok && !failed.Error.empty() && ReadText(blocked / "Old.luxproj") == ReadText(fixture / "Old.luxproj"), "project format: when the backup cannot be made nothing is changed");
+		}
+
+		// Newer files are refused, and say so.
+		{
+			const fs::path newer = root / "ProjectFormatNewer";
+			fs::remove_all(newer, error);
+			fs::copy(work, newer, fs::copy_options::recursive, error);
+			fs::remove_all(newer / ".luxbackup", error);
+
+			WriteText(newer / "Assets/Scenes/Future.luxscene", "FormatVersion: 99\n" + ReadText(newer / "Assets/Scenes/Main.luxscene").substr(ReadText(newer / "Assets/Scenes/Main.luxscene").find('\n') + 1));
+			Ref<Scene> scene = Ref<Scene>::Create();
+			Check(!SceneSerializer(scene).Deserialize(newer / "Assets/Scenes/Future.luxscene"), "project format: a scene saved by a newer Lux is refused");
+			const ProjectUpgradeReport newerReport = ProjectUpgrade::Inspect(newer / "Old.luxproj");
+			Check(newerReport.Result == ProjectUpgradeReport::State::Newer && newerReport.Message.find("Future.luxscene") != std::string::npos && newerReport.Message.find("99") != std::string::npos, "project format: a project with a newer scene is reported newer, naming the file");
+
+			fs::remove(newer / "Assets/Scenes/Future.luxscene");
+			std::string projectText = ReadText(newer / "Old.luxproj");
+			projectText.replace(projectText.find("FormatVersion: 1"), 16, "FormatVersion: 42");
+			WriteText(newer / "Old.luxproj", "EngineVersion: \"2099.3\"\n" + projectText);
+			Check(Project::Load(newer / "Old.luxproj") == nullptr, "project format: a project saved by a newer Lux is refused");
+			const ProjectUpgradeReport projectReport = ProjectUpgrade::Inspect(newer / "Old.luxproj");
+			Check(projectReport.Result == ProjectUpgradeReport::State::Newer && projectReport.EngineVersion == "2099.3" && projectReport.Message.find("2099.3") != std::string::npos, "project format: the newer project's report names the Lux that wrote it");
+		}
+
+		// What this build writes carries the number.
+		{
+			const fs::path fresh = root / "ProjectFormatFresh";
+			fs::remove_all(fresh, error);
+			Ref<Project> project = Ref<Project>::Create();
+			project->GetConfig().Name = "Fresh";
+			std::filesystem::create_directories(fresh);
+			Check(ProjectSerializer(project).Serialize(fresh / "Fresh.luxproj"), "project format: a project saves");
+			const std::string text = ReadText(fresh / "Fresh.luxproj");
+			Check(text.rfind("FormatVersion: 1", 0) == 0 && text.find("EngineVersion:") != std::string::npos, "project format: a saved project records its format version and the engine that saved it");
+
+			Ref<Scene> scene = Ref<Scene>::Create();
+			scene->CreateEntity("Thing");
+			SceneSerializer(scene).Serialize(fresh / "Thing.luxscene");
+			Check(ReadText(fresh / "Thing.luxscene").rfind("FormatVersion: 1", 0) == 0, "project format: a saved scene records its format version");
+			Ref<Scene> loaded = Ref<Scene>::Create();
+			Check(SceneSerializer(loaded).Deserialize(fresh / "Thing.luxscene") && loaded->FindEntityByName("Thing"), "project format: a scene with its version loads");
+			Check(ProjectUpgrade::Inspect(fresh / "Fresh.luxproj").Result == ProjectUpgradeReport::State::UpToDate, "project format: what this build saves is up to date");
+		}
+	}
+
 }
 
 int main(int argc, char** argv)
@@ -2637,6 +2808,8 @@ int main(int argc, char** argv)
 	CheckUINavigation();
 	CheckUICaptions();
 	CheckUIEditing();
+	CheckFormatVersionText();
+	CheckProjectFormat(outDir);
 	CheckParticleSimulation();
 	CheckParticleCurves();
 	CheckParticleScene(outDir);

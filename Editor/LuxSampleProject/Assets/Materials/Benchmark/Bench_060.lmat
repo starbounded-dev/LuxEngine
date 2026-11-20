@@ -1,3 +1,4 @@
+FormatVersion: 1
 Material:
   Transparent: false
   AlbedoColor: [0.92, 0.92, 0.92]
