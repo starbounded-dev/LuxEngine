@@ -1469,3 +1469,7 @@ and normal process exit; it does not require a console message. Dist omits the c
 and logging preferences cannot determine whether acoustic verification passed. Publication
 failure remains a missing/stale-marker failure, with native errors reported through the normal
 tagged logger.
+
+### Occlusion culling reads the far HZB
+
+`m_HierarchicalDepthTexture` keeps the *closest* depth per texel (SSR, GTAO) and must not be used to cull: one near pixel would hide anything behind it in the texel. `m_HierarchicalFarDepthTexture` is the same pyramid with the farthest depth (`u_UseMin` in `HZB.glsl`); `MeshCulling.glsl` takes the smallest sample over the object's rectangle and compares it with the object's nearest depth. The viewport is negative-height, so the lookup flips V. `tests/rendering/run_occlusion_check.py` renders Coin Run's level with occlusion culling on and off and requires identical images.

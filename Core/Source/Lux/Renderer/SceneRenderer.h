@@ -1931,6 +1931,8 @@ namespace Lux {
 		// ── HZB / SSR prepasses ───────────────────────────────────────────────
 		Ref<ComputePass> m_HierarchicalDepthPass;
 		MippedTexture    m_HierarchicalDepthTexture;
+		MippedTexture    m_HierarchicalFarDepthTexture;   // same pyramid keeping the farthest depth: what occlusion culling tests against
+		std::vector<Ref<Material>> m_HZBFarMaterials;
 		std::vector<Ref<Material>> m_HZBMaterials;
 
 		Ref<ComputePass> m_PreIntegrationPass;

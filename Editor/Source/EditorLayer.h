@@ -431,6 +431,8 @@ namespace Lux
 		std::optional<PendingRuntimeExport> m_PendingRuntimeExport;
 		// 2D view: snap moves to whole pixels at this scale (1 / pixels-per-unit world units).
 		bool m_PixelSnap2D = true;
+		bool m_ShowTileGrid2D = true;      // 2D view: cell lines over each tilemap
+
 		float m_PixelsPerUnit2D = 100.0f;
 		bool m_UseGizmoSnap = false;
 		float m_TranslationSnapValue = 0.5f;

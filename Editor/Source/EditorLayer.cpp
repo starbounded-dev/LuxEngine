@@ -2770,6 +2770,8 @@ namespace Lux {
 				ImGui::SetItemTooltip("Orthographic view of the XY plane. Middle or right drag pans, the wheel zooms.");
 				if (view2D)
 				{
+					ImGui::Checkbox("Tile Grid", &m_ShowTileGrid2D);
+					ImGui::SetItemTooltip("Cell lines over each tilemap, matching its cell size.");
 					ImGui::Checkbox("Pixel Snap", &m_PixelSnap2D);
 					ImGui::SetItemTooltip("Move gizmos snap to whole pixels at the scale below.");
 					if (m_PixelSnap2D)
@@ -3482,6 +3484,39 @@ namespace Lux {
 
 		if (m_TilePalettePanel && m_SceneState == SceneState::Edit && m_TilePalettePanel->IsPainting())
 			m_TilePalettePanel->DrawOverlay(*m_Renderer2D, m_ActiveScene->GetWorldSpaceTransformMatrix(m_TilePalettePanel->GetTarget()));
+
+		if (m_ShowTileGrid2D && viewportCamera.Is2DMode() && m_SceneState == SceneState::Edit)
+		{
+			// The view is orthographic and looks down Z, so the visible rectangle is the unprojected NDC square.
+			const glm::mat4 inverseViewProj = glm::inverse(viewportCamera.GetViewProjection());
+			const glm::vec4 gridColor = { 1.0f, 1.0f, 1.0f, 0.18f };
+			for (auto entity : m_ActiveScene->GetAllEntitiesWith<TransformComponent, TilemapComponent>())
+			{
+				Entity tilemap = { entity, m_ActiveScene.Raw() };
+				const glm::vec2 cell = tilemap.GetComponent<TilemapComponent>().CellSize;
+				if (cell.x <= 0.0f || cell.y <= 0.0f)
+					continue;
+				const glm::mat4 world = m_ActiveScene->GetWorldSpaceTransformMatrix(tilemap);
+				const glm::mat4 toLocal = glm::inverse(world);
+				glm::vec2 lo(FLT_MAX), hi(-FLT_MAX);
+				for (const glm::vec2 corner : { glm::vec2(-1, -1), glm::vec2(1, -1), glm::vec2(1, 1), glm::vec2(-1, 1) })
+				{
+					glm::vec4 p = inverseViewProj * glm::vec4(corner, 0.0f, 1.0f);
+					p = toLocal * glm::vec4(glm::vec3(p) / p.w, 1.0f);
+					lo = glm::min(lo, glm::vec2(p));
+					hi = glm::max(hi, glm::vec2(p));
+				}
+				const int x0 = (int)std::floor(lo.x / cell.x), x1 = (int)std::ceil(hi.x / cell.x);
+				const int y0 = (int)std::floor(lo.y / cell.y), y1 = (int)std::ceil(hi.y / cell.y);
+				if (x1 - x0 > 400 || y1 - y0 > 400) // zoomed out so far the lines would be a solid wash
+					continue;
+				auto point = [&](float x, float y) { return glm::vec3(world * glm::vec4(x, y, 0.0005f, 1.0f)); };
+				for (int x = x0; x <= x1; x++)
+					m_Renderer2D->DrawLine(point(x * cell.x, y0 * cell.y), point(x * cell.x, y1 * cell.y), gridColor);
+				for (int y = y0; y <= y1; y++)
+					m_Renderer2D->DrawLine(point(x0 * cell.x, y * cell.y), point(x1 * cell.x, y * cell.y), gridColor);
+			}
+		}
 
 		if (m_ShowPhysicsColliders)
 		{
