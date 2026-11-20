@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>CoinRun</AssemblyName>
+    <RootNamespace>CoinRun</RootNamespace>
+    <Configurations>Debug;Release;Dist</Configurations>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>Binaries\</OutputPath>
+    <IntermediateOutputPath>..\..\Cache\ScriptBuild\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' != 'Debug'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Source\Game.cs" />
+    <Compile Include="Source\PlayerController.cs" />
+    <Compile Include="Source\FollowCamera.cs" />
+    <Compile Include="Source\Coin.cs" />
+    <Compile Include="Source\Goal.cs" />
+    <Compile Include="Source\GameManager.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="ScriptCore">
+      <HintPath>..\..\..\..\Resources\Scripts\ScriptCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Coral.Managed">
+      <HintPath>..\..\..\..\DotNet\Coral.Managed.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

@@ -68,6 +68,7 @@ Sandbox/Resources/Cache
 Core/vendor/NFD-Extended
 Core/vendor/tracy
 Editor/LuxSampleProject/Assets/Scripts/Binaries
+!Editor/Samples/*/Assets/Scripts/*.csproj
 # The sample games: their scripts are built by CI and by tests/samples, never committed
 Editor/Samples/*/Assets/Scripts/Binaries/
 Editor/Samples/*/Assets/Scripts/obj/
