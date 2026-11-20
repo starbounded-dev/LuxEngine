@@ -1,0 +1,17 @@
+FormatVersion: 1
+Project:
+  Name: PixelHop
+  AssetDirectory: Assets
+  AssetRegistry: Assets/AssetRegistry.lzr
+  ScriptModulePath: Scripts/Binaries/PixelHop.dll
+  DefaultNamespace: PixelHop
+  StartScene: Scenes/Level1.luxscene
+  AutomaticallyReloadAssembly: true
+  AutoSave: false
+  RuntimeExport:
+    GameName: PixelHop
+    WindowWidth: 1280
+    WindowHeight: 720
+    Fullscreen: false
+    VSync: true
+    TargetConfig: Dist

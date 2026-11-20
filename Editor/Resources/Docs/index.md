@@ -6,6 +6,7 @@ Welcome. This manual ships with the editor, so it works offline and always match
 
 ## Getting started
 
+- [Sample Games](getting-started/sample-games) — Coin Run (3D) and Pixel Hop (2D), made only with the editor.
 - [Your First Game](getting-started/first-game) — build, play and export a small physics scene.
 - [Your First 2D Game](getting-started/2d-game) — sprites, 2D physics and a score.
 - [Prefabs, Step by Step](getting-started/prefab-walkthrough) — make, place, override and spawn a prefab.

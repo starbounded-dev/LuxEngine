@@ -1,0 +1,58 @@
+Assets:
+  - Handle: 106799932104233519
+    FilePath: Meshes/Source/Default/Cylinder.gltf
+    Type: MeshSource
+  - Handle: 476022026564384291
+    FilePath: Scripts/Source/Goal.cs
+    Type: ScriptFile
+  - Handle: 726165310159121270
+    FilePath: Materials/GoalClosed.lmat
+    Type: Material
+  - Handle: 1255150933058934151
+    FilePath: Materials/Grass.lmat
+    Type: Material
+  - Handle: 1477086488566226076
+    FilePath: Materials/Hero.lmat
+    Type: Material
+  - Handle: 2027709156989017706
+    FilePath: Materials/Stone.lmat
+    Type: Material
+  - Handle: 2306177324595579112
+    FilePath: Meshes/Source/Default/Sphere.gltf
+    Type: MeshSource
+  - Handle: 2315332275394931228
+    FilePath: Materials/Gold.lmat
+    Type: Material
+  - Handle: 2984883983261705051
+    FilePath: Scenes/Level.luxscene
+    Type: Scene
+  - Handle: 3275358171062437238
+    FilePath: Meshes/Source/Default/Materials/Capsule_0_Material_0.lmat
+    Type: Material
+  - Handle: 3942492787035832618
+    FilePath: Scripts/Source/PlayerController.cs
+    Type: ScriptFile
+  - Handle: 4003087475522252464
+    FilePath: Scripts/Source/Coin.cs
+    Type: ScriptFile
+  - Handle: 4511650690849608923
+    FilePath: Scripts/Source/Game.cs
+    Type: ScriptFile
+  - Handle: 5194322543512334392
+    FilePath: Scripts/Source/GameManager.cs
+    Type: ScriptFile
+  - Handle: 5300835168294265811
+    FilePath: Meshes/Source/Default/Materials/Cylinder_0_Material_0.lmat
+    Type: Material
+  - Handle: 7382543262759151692
+    FilePath: Meshes/Source/Default/Capsule.gltf
+    Type: MeshSource
+  - Handle: 8140550182181809606
+    FilePath: Meshes/Source/Default/Cube.gltf
+    Type: MeshSource
+  - Handle: 10586975590049114829
+    FilePath: Meshes/Source/Default/Materials/Cube_0_Material_0.lmat
+    Type: Material
+  - Handle: 14194636444802600601
+    FilePath: Scripts/Source/FollowCamera.cs
+    Type: ScriptFile

@@ -1,0 +1,34 @@
+Assets:
+  - Handle: 1007644784738891003
+    FilePath: Scripts/Source/Coin.cs
+    Type: ScriptFile
+  - Handle: 1037544635285065377
+    FilePath: Scenes/Level2.luxscene
+    Type: Scene
+  - Handle: 2355140941306488555
+    FilePath: Sprites/Atlas.lsheet
+    Type: SpriteSheet
+  - Handle: 2624056943260234121
+    FilePath: Sprites/Atlas.png
+    Type: Texture
+  - Handle: 3316066672869266530
+    FilePath: Scripts/Source/Flag.cs
+    Type: ScriptFile
+  - Handle: 3765922851104852291
+    FilePath: Scenes/Level1.luxscene
+    Type: Scene
+  - Handle: 5800092912721747571
+    FilePath: Scripts/Source/Hero.cs
+    Type: ScriptFile
+  - Handle: 8708017186625417559
+    FilePath: Scripts/Source/GameManager.cs
+    Type: ScriptFile
+  - Handle: 10393196729847419582
+    FilePath: Scripts/Source/Game.cs
+    Type: ScriptFile
+  - Handle: 13411531300735868018
+    FilePath: Scripts/Source/Enemy.cs
+    Type: ScriptFile
+  - Handle: 17039506113451764829
+    FilePath: Scripts/Source/CameraFollow.cs
+    Type: ScriptFile

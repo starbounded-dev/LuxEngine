@@ -1,0 +1,54 @@
+SpriteSheet:
+  Version: 1
+  Texture: 2624056943260234121
+  PixelsPerUnit: 16
+  CellSize: [16, 16]
+  Spacing: [0, 0]
+  Margin: [0, 0]
+  Frames:
+    - Name: ground
+      Rect: [0, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+      Solid: true
+    - Name: brick
+      Rect: [16, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+      Solid: true
+    - Name: idle
+      Rect: [32, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+    - Name: run1
+      Rect: [48, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+    - Name: run2
+      Rect: [64, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+    - Name: enemy1
+      Rect: [80, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+    - Name: enemy2
+      Rect: [96, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+    - Name: coin
+      Rect: [112, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+    - Name: flag
+      Rect: [128, 0, 16, 16]
+      Pivot: [0.5, 0.5]
+  Clips:
+    - Name: idle
+      FramesPerSecond: 4
+      Wrap: Loop
+      Frames: [2]
+    - Name: run
+      FramesPerSecond: 10
+      Wrap: Loop
+      Frames: [3, 4]
+    - Name: walk
+      FramesPerSecond: 4
+      Wrap: Loop
+      Frames: [5, 6]
+    - Name: still
+      FramesPerSecond: 4
+      Wrap: Loop
+      Frames: [7]

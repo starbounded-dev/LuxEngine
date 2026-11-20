@@ -1,0 +1,769 @@
+FormatVersion: 1
+Scene: Level
+Entities:
+  - Entity: 5100000000000000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.9, 0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 6
+      Radiance: [1, 0.95, 0.85]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 5100000000000000002
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0.55
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.4]
+  - Entity: 5100000000000000003
+    TagComponent:
+      Tag: Start
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [10, 1, 10]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Grass.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: false
+    BoxColliderComponent:
+      HalfSize: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      Friction: 0.8
+      Restitution: 0
+  - Entity: 5100000000000000004
+    TagComponent:
+      Tag: Step1
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, -10]
+      Rotation: [0, 0, 0]
+      Scale: [5, 1, 5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Stone.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: false
+    BoxColliderComponent:
+      HalfSize: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      Friction: 0.8
+      Restitution: 0
+  - Entity: 5100000000000000005
+    TagComponent:
+      Tag: Step2
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3.5, 0.7, -16]
+      Rotation: [0, 0, 0]
+      Scale: [4, 1, 4]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Stone.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: false
+    BoxColliderComponent:
+      HalfSize: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      Friction: 0.8
+      Restitution: 0
+  - Entity: 5100000000000000006
+    TagComponent:
+      Tag: Step3
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [7, 1.4, -21.5]
+      Rotation: [0, 0, 0]
+      Scale: [4, 1, 4]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Stone.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: false
+    BoxColliderComponent:
+      HalfSize: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      Friction: 0.8
+      Restitution: 0
+  - Entity: 5100000000000000007
+    TagComponent:
+      Tag: Step4
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3, 2.1, -27]
+      Rotation: [0, 0, 0]
+      Scale: [4, 1, 4]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Stone.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: false
+    BoxColliderComponent:
+      HalfSize: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      Friction: 0.8
+      Restitution: 0
+  - Entity: 5100000000000000008
+    TagComponent:
+      Tag: Summit
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.8, -35]
+      Rotation: [0, 0, 0]
+      Scale: [8, 1, 8]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Grass.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: false
+    BoxColliderComponent:
+      HalfSize: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      Friction: 0.8
+      Restitution: 0
+  - Entity: 5100000000000000009
+    TagComponent:
+      Tag: Player
+    Parent: 0
+    Children:
+      - Handle: 5100000000000000010
+    TransformComponent:
+      Position: [0, 1, 2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.PlayerController
+      ScriptID: 1212444024
+    CharacterControllerComponent:
+      SlopeLimitDeg: 50
+      StepOffset: 0.4
+      DisableGravity: false
+    CapsuleColliderComponent:
+      Radius: 0.4
+      HalfHeight: 0.5
+      Offset: [0, 0, 0]
+  - Entity: 5100000000000000010
+    TagComponent:
+      Tag: PlayerBody
+    Parent: 5100000000000000009
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.9, 0.8]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Capsule.gltf
+      MaterialTable:
+        0: Materials/Hero.lmat
+      Visible: true
+  - Entity: 5100000000000000011
+    TagComponent:
+      Tag: Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 5, 9]
+      Rotation: [-0.4, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.FollowCamera
+      ScriptID: 1672294733
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 60
+        PerspectiveNear: 0.1
+        PerspectiveFar: 300
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 5100000000000000012
+    TagComponent:
+      Tag: Coin01
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-3, 1, -2]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000013
+    TagComponent:
+      Tag: Coin02
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3, 1, 2]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000014
+    TagComponent:
+      Tag: Coin03
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1, 1.5, -10]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000015
+    TagComponent:
+      Tag: Coin04
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1, 1.5, -10.5]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000016
+    TagComponent:
+      Tag: Coin05
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3.5, 2.2, -16]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000017
+    TagComponent:
+      Tag: Coin06
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [7, 2.9, -21.5]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000018
+    TagComponent:
+      Tag: Coin07
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3, 3.6, -27]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000019
+    TagComponent:
+      Tag: Coin08
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2, 4.3, -35]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000020
+    TagComponent:
+      Tag: Coin09
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2, 4.3, -35]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000021
+    TagComponent:
+      Tag: Coin10
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.3, -33]
+      Rotation: [1.5708, 0, 0]
+      Scale: [0.7, 0.1, 0.7]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Coin
+      ScriptID: 3376738116
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/Gold.lmat
+      Visible: true
+    RigidBodyComponent:
+      BodyType: 0
+      LayerID: 0
+      Mass: 1
+      DisableGravity: false
+      IsTrigger: true
+    SphereColliderComponent:
+      Radius: 0.8
+      Offset: [0, 0, 0]
+      Friction: 0.6
+      Restitution: 0
+  - Entity: 5100000000000000022
+    TagComponent:
+      Tag: Goal
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.8, -37]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 3, 1.2]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.Goal
+      ScriptID: 1969609762
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cylinder.gltf
+      MaterialTable:
+        0: Materials/GoalClosed.lmat
+      Visible: true
+  - Entity: 5100000000000000023
+    TagComponent:
+      Tag: GoalSparks
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 6.4, -37]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      Texture: 0
+      Seed: 7
+      PreviewInEditor: false
+      PlayOnAwake: false
+      Looping: true
+      Duration: 2
+      Rate: 40
+      MaxParticles: 300
+      Lifetime: [1.2, 2]
+      Speed: [0.8, 1.6]
+      Size: [0.08, 0.14]
+      Shape: 0
+      ConeAngle: 20
+      Radius: 0.5
+      Gravity: [0, 0.4, 0]
+      WorldSpace: true
+      StartColor: [6, 4, 1.2, 1]
+      ColorOverLife:
+        - [0, 1, 1, 1, 1]
+        - [1, 1, 0.6, 0.2, 0]
+      SizeOverLife:
+        - [0, 1]
+        - [1, 0.2]
+      Blend: 1
+      SoftDistance: 0.1
+      RenderMode: 0
+  - Entity: 5100000000000000024
+    TagComponent:
+      Tag: Sparkle
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -50, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ParticleSystemComponent:
+      Texture: 0
+      Seed: 3
+      PreviewInEditor: false
+      PlayOnAwake: false
+      Looping: false
+      Duration: 0.5
+      Rate: 0
+      MaxParticles: 200
+      Lifetime: [0.4, 0.8]
+      Speed: [2, 4.5]
+      Size: [0.1, 0.18]
+      Shape: 1
+      Radius: 0.2
+      Gravity: [0, -6, 0]
+      WorldSpace: true
+      StartColor: [8, 5, 1, 1]
+      ColorOverLife:
+        - [0, 1, 1, 1, 1]
+        - [1, 1, 0.5, 0.1, 0]
+      SizeOverLife:
+        - [0, 1]
+        - [1, 0.1]
+      Blend: 1
+      SoftDistance: 0.05
+      RenderMode: 0
+  - Entity: 5100000000000000025
+    TagComponent:
+      Tag: HUD
+    Parent: 0
+    Children:
+      - Handle: 5100000000000000026
+      - Handle: 5100000000000000027
+      - Handle: 5100000000000000028
+      - Handle: 5100000000000000029
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UICanvasComponent:
+      ScaleMode: 1
+      ReferenceResolution: [1920, 1080]
+  - Entity: 5100000000000000026
+    TagComponent:
+      Tag: CoinsText
+    Parent: 5100000000000000025
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0, 1]
+      AnchorMax: [0, 1]
+      OffsetMin: [40, -110]
+      OffsetMax: [700, -30]
+    UITextComponent:
+      Text: "Coins 0 / 10"
+      Font: 0
+      Color: [1, 0.85, 0.3, 1]
+      Size: 56
+      AlignH: 0
+      AlignV: 1
+  - Entity: 5100000000000000027
+    TagComponent:
+      Tag: TimeText
+    Parent: 5100000000000000025
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [1, 1]
+      AnchorMax: [1, 1]
+      OffsetMin: [-500, -110]
+      OffsetMax: [-40, -30]
+    UITextComponent:
+      Text: "0.0 s"
+      Font: 0
+      Color: [1, 1, 1, 1]
+      Size: 48
+      AlignH: 2
+      AlignV: 1
+  - Entity: 5100000000000000028
+    TagComponent:
+      Tag: MessageText
+    Parent: 5100000000000000025
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 1]
+      OffsetMin: [0, 0]
+      OffsetMax: [0, 0]
+    UITextComponent:
+      Text: ""
+      Font: 0
+      Color: [1, 1, 1, 1]
+      Size: 96
+      AlignH: 1
+      AlignV: 1
+  - Entity: 5100000000000000029
+    TagComponent:
+      Tag: HelpText
+    Parent: 5100000000000000025
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    UIElementComponent:
+      AnchorMin: [0, 0]
+      AnchorMax: [1, 0]
+      OffsetMin: [0, 24]
+      OffsetMax: [0, 80]
+    UITextComponent:
+      Text: "WASD move   Space jump   Q / E turn the camera   R restart"
+      Font: 0
+      Color: [1, 1, 1, 0.8]
+      Size: 34
+      AlignH: 1
+      AlignV: 1
+  - Entity: 5100000000000000030
+    TagComponent:
+      Tag: GameManager
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      Enabled: true
+      ClassName: CoinRun.GameManager
+      ScriptID: 1209223114

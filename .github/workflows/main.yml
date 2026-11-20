@@ -409,6 +409,13 @@ jobs:
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: python tests/scripting/run_managed.py
 
+      # The sample games ship with their scripts built (docs/SAMPLE_GAMES_PLAN.md): the editor does not build a project's scripts when it opens one.
+      - name: Build the sample games' scripts
+        if: matrix.configuration == 'Dist'
+        working-directory: ${{env.GITHUB_WORKSPACE}}
+        run: |
+          foreach ($sample in 'CoinRun', 'PixelHop') { dotnet build "Editor/Samples/$sample/Assets/Scripts/$sample.csproj" -c Dist --nologo -v:q; if ($LASTEXITCODE -ne 0) { throw "$sample scripts did not build" } }
+
       - name: 'Package: editor artifact'
         if: matrix.configuration == 'Dist'
         working-directory: ${{env.GITHUB_WORKSPACE}}
@@ -417,7 +424,7 @@ jobs:
           $editorOutput = Join-Path "bin" "$configuration-windows-x86_64\Editor"
           $artifactRoot = Join-Path "artifacts" "Editor-$configuration"
           $editorItems = @(
-            "LuxSampleProject",
+            "Samples",
             "Resources",
             "DotNet"
           )
@@ -813,7 +820,12 @@ jobs:
           mkdir -p "$root/lib"
           cp -a "$out/." "$root/"
 
-          for item in LuxSampleProject Resources DotNet; do
+          # The sample games ship with their scripts built.
+          for sample in CoinRun PixelHop; do
+            dotnet build "Editor/Samples/$sample/Assets/Scripts/$sample.csproj" -c Dist --nologo -v:q
+          done
+
+          for item in Samples Resources DotNet; do
             if [ ! -e "Editor/$item" ]; then
               echo "Editor artifact input was not found: Editor/$item" >&2
               exit 1
@@ -823,7 +835,7 @@ jobs:
 
           # Drop build intermediates and asset caches that the build regenerates. Scripts/Binaries
           # is deliberately kept - it holds the sample game's compiled script assembly.
-          find "$root/LuxSampleProject" -type d \
+          find "$root/Samples" -type d \
             \( -name Intermediates -o -name obj -o -name Cache \) -prune -exec rm -rf {} + 2>/dev/null || true
 
           # Editor state, regenerated on first run and gitignored, so absent in a clean checkout.
