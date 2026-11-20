@@ -1,0 +1,13 @@
+FormatVersion: 1
+Material:
+  Transparent: false
+  AlbedoColor: [0.3, 0.62, 0.28]
+  Emission: 0
+  UseNormalMap: false
+  Metalness: 0
+  Roughness: 0.9
+  AlbedoMap: 0
+  NormalMap: 0
+  MetalnessMap: 0
+  RoughnessMap: 0
+  UVTiling: [1, 1]

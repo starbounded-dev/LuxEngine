@@ -1,0 +1,17 @@
+FormatVersion: 1
+Project:
+  Name: CoinRun
+  AssetDirectory: Assets
+  AssetRegistry: Assets/AssetRegistry.lzr
+  ScriptModulePath: Scripts/Binaries/CoinRun.dll
+  DefaultNamespace: CoinRun
+  StartScene: Scenes/Level.luxscene
+  AutomaticallyReloadAssembly: true
+  AutoSave: false
+  RuntimeExport:
+    GameName: CoinRun
+    WindowWidth: 1280
+    WindowHeight: 720
+    Fullscreen: false
+    VSync: true
+    TargetConfig: Dist
