@@ -101,6 +101,7 @@ namespace Lux {
 			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
+			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak" };

@@ -352,6 +352,7 @@ bool TraceDistance(vec3 o, vec3 d, float tMax, out float t, out bool backface)
 
 layout(set = 1, binding = 74) uniform textureCube u_PTEnvironment;
 layout(set = 1, binding = 75) uniform sampler u_PTEnvironmentSampler;
+const uint FLAG_MIS = 4u;     // weight next-event estimation against BSDF-sampled hits of the analytic area lights
 const uint FLAG_ENV_MAP = 2u; // sample u_PTEnvironment (the scene's radiance map) instead of the sky/ground colours
 
 vec3 PTRotateAboutY(float degrees, vec3 v)
@@ -372,7 +373,7 @@ vec3 Environment(vec3 d)
 }
 
 // Direct light from one randomly chosen light. Returns radiance * BRDF * cos / pdf.
-vec3 DirectLight(Surface s, vec3 V)
+vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 {
 	const uint lightCount = u_Push.Counts.x;
 	if (lightCount == 0u || (u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
@@ -401,6 +402,7 @@ vec3 DirectLight(Surface s, vec3 V)
 	vec3 L;
 	float dist = 1.0e30;
 	vec3 radiance = vec3(0.0);
+	float lightPdfSolid = 0.0; // solid-angle pdf of having chosen this sample, for MIS (area lights only)
 	if (type == 0) // directional: a.xyz toward the light, b.rgb radiance * intensity
 	{
 		L = normalize(a.xyz);
@@ -456,6 +458,7 @@ vec3 DirectLight(Surface s, vec3 V)
 		L = toLight / dist;
 		float cosLight = max(dot(emitNormal, -L), 0.0);
 		radiance = b.rgb * (cosLight * area / d2);
+		lightPdfSolid = lightPmf * d2 / (area * max(cosLight, 1e-6));
 	}
 	else // point (1) / spot (2): a.xyz position, b.rgb radiance * intensity, b.a range
 	{
@@ -478,7 +481,99 @@ vec3 DirectLight(Surface s, vec3 V)
 		return vec3(0.0);
 	if (Occluded(origin, L, dist - 2e-3))
 		return vec3(0.0);
-	return EvalBRDF(s, V, L) * radiance / lightPmf;
+	// Power heuristic against the BSDF sampling the same direction (the last bounce never traces its BSDF ray, so it keeps full weight).
+	float misWeight = 1.0;
+	if ((u_Push.Counts.y & FLAG_MIS) != 0u && !lastBounce && lightPdfSolid > 0.0)
+	{
+		const float pb = BSDFPdf(s, V, L);
+		misWeight = lightPdfSolid * lightPdfSolid / (lightPdfSolid * lightPdfSolid + pb * pb);
+	}
+	return EvalBRDF(s, V, L) * radiance * (misWeight / lightPmf);
+}
+
+// Emission of the analytic area lights along a ray that left a surface (bounce >= 1), weighted against next-event estimation at
+// that surface: the BSDF-sampling half of MIS. Lights are packed last (rect/disk/sphere/tube), so the scan stops at the first
+// non-area light. Only the emitting side counts, as in DirectLight. tMax is the distance to the first surface.
+vec3 AreaLightEmission(vec3 o, vec3 d, float tMax, float bsdfPdf)
+{
+	vec3 sum = vec3(0.0);
+	for (uint i = u_Push.Counts.x; i > 0u; i--)
+	{
+		const uint index = i - 1u;
+		const vec4 a = Lights[4u * index + 0u];
+		const int type = int(a.w + 0.5);
+		if (type < 3)
+			break;
+		const vec4 b = Lights[4u * index + 1u];
+		const vec4 c = Lights[4u * index + 2u];
+		const vec4 dd = Lights[4u * index + 3u];
+		float t = 0.0;
+		float area = 1.0;
+		vec3 emitNormal = vec3(0.0, 1.0, 0.0);
+		bool hit = false;
+		if (type == 5) // sphere
+		{
+			const float radius = length(c.xyz);
+			const vec3 oc = o - a.xyz;
+			const float bq = dot(oc, d);
+			const float disc = bq * bq - (dot(oc, oc) - radius * radius);
+			area = 4.0 * PI * radius * radius;
+			if (disc > 0.0)
+			{
+				t = -bq - sqrt(disc);
+				hit = t > 1e-4 && t < tMax;
+				emitNormal = normalize(oc + t * d);
+			}
+		}
+		else if (type == 6) // tube
+		{
+			const float halfLength = length(c.xyz);
+			const vec3 axis = c.xyz / max(halfLength, 1e-6);
+			const float radius = length(dd.xyz);
+			const vec3 oc = o - a.xyz;
+			const vec3 dPerp = d - axis * dot(d, axis);
+			const vec3 oPerp = oc - axis * dot(oc, axis);
+			const float qa = dot(dPerp, dPerp);
+			const float qb = dot(dPerp, oPerp);
+			const float disc = qb * qb - qa * (dot(oPerp, oPerp) - radius * radius);
+			area = 2.0 * PI * radius * 2.0 * halfLength;
+			if (qa > 1e-10 && disc > 0.0)
+			{
+				t = (-qb - sqrt(disc)) / qa;
+				const vec3 q = oc + t * d;
+				hit = t > 1e-4 && t < tMax && abs(dot(q, axis)) <= halfLength;
+				emitNormal = normalize(q - axis * dot(q, axis));
+			}
+		}
+		else // rect (3) and disk (4), emitting along -normalize(cross(c, dd))
+		{
+			const vec3 areaCross = cross(c.xyz, dd.xyz);
+			const float areaLen = length(areaCross);
+			emitNormal = -areaCross / max(areaLen, 1e-8);
+			const float dn = dot(emitNormal, d);
+			area = type == 4 ? PI * areaLen : 4.0 * areaLen;
+			if (dn < -1e-6)
+			{
+				t = dot(a.xyz - o, emitNormal) / dn;
+				if (t > 1e-4 && t < tMax)
+				{
+					const vec3 p = o + t * d - a.xyz;
+					const float u = dot(p, c.xyz) / max(dot(c.xyz, c.xyz), 1e-8);
+					const float v = dot(p, dd.xyz) / max(dot(dd.xyz, dd.xyz), 1e-8);
+					hit = type == 4 ? (u * u + v * v <= 1.0) : (abs(u) <= 1.0 && abs(v) <= 1.0);
+				}
+			}
+		}
+		if (!hit || max(b.r, max(b.g, b.b)) <= 0.0)
+			continue;
+		const float cosLight = dot(emitNormal, -d);
+		if (cosLight <= 0.0)
+			continue;
+		const float pmf = max(Lights[4u * index + 3u].w - (index == 0u ? 0.0 : Lights[4u * (index - 1u) + 3u].w), 1e-6);
+		const float pLight = pmf * t * t / (area * max(cosLight, 1e-4));
+		sum += b.rgb * (bsdfPdf * bsdfPdf / (bsdfPdf * bsdfPdf + pLight * pLight));
+	}
+	return sum;
 }
 
 // Radiance arriving along the ray (origin, dir): emission, next-event estimation and BSDF-sampled bounces,
@@ -489,11 +584,18 @@ vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
 	vec3 throughput = vec3(1.0);
 	g_ConeWidth = 0.0;
 	g_ConeAngle = g_InitialConeAngle;
+	float prevPdf = 0.0;
+	const bool mis = (u_Push.Counts.y & FLAG_MIS) != 0u && u_Push.Counts.x > 0u && (u_Push.Counts.y & FLAG_UNIFORM_ENV) == 0u;
 
 	for (uint bounce = 0u; bounce <= maxBounces; bounce++)
 	{
 		Surface s;
-		if (!TraceClosest(origin, dir, s))
+		const bool hit = TraceClosest(origin, dir, s);
+		// Lights seen by a ray that left a surface in this loop (its start has next-event estimation); the first ray starts
+		// at a camera or at a surface another pass shades, so it never counts them.
+		if (mis && bounce > 0u)
+			radiance += throughput * AreaLightEmission(origin, dir, hit ? length(s.P - origin) : 1.0e30, prevPdf);
+		if (!hit)
 		{
 			radiance += throughput * Environment(dir);
 			break;
@@ -506,7 +608,7 @@ vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
 		g_ConeAngle = mix(0.03, 0.45, s.Rough);
 
 		vec3 V = -dir;
-		radiance += throughput * DirectLight(s, V);
+		radiance += throughput * DirectLight(s, V, bounce == maxBounces);
 
 		if (bounce == maxBounces)
 			break;
@@ -518,6 +620,7 @@ vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
 		if (pdf <= 1e-6)
 			break;
 		throughput *= EvalBRDF(s, V, L) / pdf;
+		prevPdf = pdf;
 
 		// Russian roulette after a few bounces.
 		if (bounce >= 2u)

@@ -333,6 +333,8 @@ namespace Lux {
 		uint32_t PathTracerMaxBounces = 4;
 		// Pick the light for next-event estimation by its expected irradiance (RayTracing/PathTraceLights.h) instead of uniformly. Unbiased; fewer noisy pixels with many lights of different power.
 		bool     PathTracerPowerLightSampling = true;
+		// Multiple importance sampling: weight next-event estimation against BSDF-sampled hits of the analytic area lights (power heuristic). Unbiased; far less noise on glossy surfaces under large lights.
+		bool     PathTracerMIS = true;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;

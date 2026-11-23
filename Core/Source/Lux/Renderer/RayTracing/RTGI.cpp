@@ -188,6 +188,7 @@ namespace Lux {
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<RTGIState> state = m_RTGIState;
 		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTGITracePass);
+		signature = HashBytes(signature, &envParams.Flags, sizeof(envParams.Flags));
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{

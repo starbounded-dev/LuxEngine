@@ -72,7 +72,20 @@ def check_power(config):
     check(ep < eu * 0.85, f"at 8 spp power sampling has lower error vs the reference (uniform {eu:.4f}, power {ep:.4f})")
 
 
-CHECKS = {"power": check_power}
+def check_mis(config):
+    """#233: MIS between light and BSDF sampling. Same converged image (no double counting), lower error at equal low spp."""
+    scene = "GI_GlossyArea"
+    base = "PathTracer=1,PathTracerBounces=2"
+    ref = capture("mis-ref", scene, f"{base},PathTracerSamples=1024,PTMIS=0", config, spp(1024))
+    mis_conv = capture("mis-conv", scene, f"{base},PathTracerSamples=1024,PTMIS=1", config, spp(1024))
+    check(rmse(ref, mis_conv) < 0.02, f"converged MIS image matches the NEE-only one (RMSE {rmse(ref, mis_conv):.4f}; a double count would show here)")
+    off = capture("mis-off8", scene, f"{base},PathTracerSamples=8,PTMIS=0", config, spp(8))
+    on = capture("mis-on8", scene, f"{base},PathTracerSamples=8,PTMIS=1", config, spp(8))
+    eo, em = rmse(off, ref), rmse(on, ref)
+    check(em < eo * 0.9, f"at 8 spp MIS has lower error vs the reference (NEE only {eo:.4f}, MIS {em:.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis}
 
 
 def main():

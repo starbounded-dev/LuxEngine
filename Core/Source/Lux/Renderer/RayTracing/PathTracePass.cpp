@@ -140,6 +140,8 @@ namespace Lux {
 		pass->SetInput("GPUMaterials", m_SBSGPUMaterials);
 		pass->SetInput("u_PTMaterialSampler", Renderer::GetRepeatSampler());
 		pass->SetBindlessTextures(m_BindlessTextures);
+		if (m_Options.PathTracerMIS)
+			params.Flags |= 4; // FLAG_MIS
 		return params;
 	}
 
@@ -264,6 +266,7 @@ namespace Lux {
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<PathTraceState> state = m_PathTraceState;
 		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_PathTracePass);
+		signature = HashBytes(signature, &envParams.Flags, sizeof(envParams.Flags));
 		Ref<ComputePass> diffPass = diff ? m_PathTraceDiffPass : nullptr;
 		Ref<Image2D> diffImage = diff ? m_PathTraceDiffImage : nullptr;
 		Ref<StorageBuffer> diffPartials = diff ? m_PathTraceDiffPartials : nullptr;
