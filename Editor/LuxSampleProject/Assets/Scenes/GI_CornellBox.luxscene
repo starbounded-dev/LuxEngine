@@ -1,0 +1,153 @@
+FormatVersion: 1
+Scene: GI_CornellBox
+Entities:
+  - Entity: 16300000000004000001
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [5.2, 0.1, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000004000002
+    TagComponent:
+      Tag: Ceiling
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 5.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [5.2, 0.1, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000004000003
+    TagComponent:
+      Tag: Back Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.5, -2.55]
+      Rotation: [0, 0, 0]
+      Scale: [5.2, 5.0, 0.1]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000004000004
+    TagComponent:
+      Tag: Left Wall (red)
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.55, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 5.0, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Red.lmat
+      Visible: true
+  - Entity: 16300000000004000005
+    TagComponent:
+      Tag: Right Wall (green)
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.55, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 5.0, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Green.lmat
+      Visible: true
+  - Entity: 16300000000004000006
+    TagComponent:
+      Tag: Tall Box
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-0.9, 1.5, -0.9]
+      Rotation: [0, 0.3, 0]
+      Scale: [1.5, 3.0, 1.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000004000007
+    TagComponent:
+      Tag: Short Box
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0.95, 0.75, 0.6]
+      Rotation: [0, -0.3, 0]
+      Scale: [1.5, 1.5, 1.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000004000008
+    TagComponent:
+      Tag: Ceiling Light
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.95, 0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 0
+      Radiance: [1, 0.92, 0.8]
+      Intensity: 90
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1.6
+      Height: 1.6
+      Radius: 0.5
+      Length: 1
+      TwoSided: false
+      Range: 14
+      CastsShadows: true
+  - Entity: 16300000000004000009
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.5, 9.2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 40
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

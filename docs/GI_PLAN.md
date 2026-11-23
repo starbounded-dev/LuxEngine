@@ -94,3 +94,8 @@ Only one external source was reviewed: **[Fast-SDF-AO](https://github.com/wrong-
 
 ## Next
 Phase 0 is the first thing to implement (`/dev` then `/cr`, then `/send-pr`). Not started.
+
+## Status (2026-11-23)
+- Done and verified: GI0 hardware/shader path (`python tests/rendering/run_ray_query_spike.py`: BLAS+TLAS, compute ray query, 107 analytic cases pass on an RTX 4070 Ti, no editor).
+- Built, not run in the editor: `Path Tracing` card in the Scene Renderer panel (session-only options on `SceneRendererOptions`, off by default, not wired to a renderer) and the `GI_CornellBox` sample scene (`Editor/LuxSampleProject/Assets/Scenes`, materials in `Materials/GI`).
+- Not started: engine RHI/NRI acceleration-structure wrapper (rest of GI0), GI1 to GI5. These need in-engine GPU runs, which need an editor launch the owner has not approved.

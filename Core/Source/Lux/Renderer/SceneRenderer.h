@@ -305,6 +305,13 @@ namespace Lux {
 		bool  ShowCascadeFrustums = false;
 		bool  ShowLightComplexity = false;
 		bool  ShowMaterialComplexity = false;
+		// Opt-in path tracer (editor-only ground-truth reference, docs/GI_PLAN.md, #213). Session-only: never saved into
+		// the project, off by default, and the raster renderer is untouched while it is off. The renderer backend is not
+		// built yet, so these are the control surface only; nothing reads them today.
+		bool     EnablePathTracer = false;
+		uint32_t PathTracerMaxBounces = 4;
+		uint32_t PathTracerTargetSamples = 256;
+		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;
 		bool  EnableShadowCulling = true;
 		bool  EnableMainViewCulling = true;

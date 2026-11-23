@@ -664,6 +664,26 @@ namespace Lux {
 			EndSettingsCard();
 		}
 
+		// ---- Path Tracing --------------------------------------------------------------------
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Max Bounces", "Target Samples", "Reset Accumulation" }))
+		{
+			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
+			{
+				ImGui::TextDisabled("Opt-in reference renderer. The raster renderer stays the default.");
+				ImGui::TextDisabled("Backend not built yet (GI1, #213): these controls are not wired to a renderer.");
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				toggle("Enable Path Tracer", options.EnablePathTracer);
+				if (match("Max Bounces"))
+					ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u);
+				if (match("Target Samples"))
+					ImGuiEx::Property("Target Samples", options.PathTracerTargetSamples, 1u, 65536u);
+				ImGuiEx::EndPropertyGrid();
+				if (ImGui::Button("Reset Accumulation"))
+					options.PathTracerResetCounter++;
+			}
+			EndSettingsCard();
+		}
+
 		// ---- Post FX -------------------------------------------------------------------------
 		if (CardHasMatch(queryLower, "Post FX", { "Bloom", "Bloom Resolution", "Bloom Threshold", "Bloom Knee", "Bloom Intensity", "Bloom Dirt Intensity", "Bloom Streaks", "Bloom Streak Length", "Bloom Streak Intensity", "Bloom Streak Rotation", "Bloom Halo Intensity", "Bloom Chromatic Spread", "DOF", "DOF Resolution", "DOF Focus Distance", "DOF Blur Size", "SSR Max Steps", "SSR Brightness", "SSR Depth Tolerance" }))
 		{
