@@ -331,6 +331,8 @@ namespace Lux {
 		float    PathTracerDiffScale = 0.2f; // linear error mapped to full red
 		float    PathTracerDiffPeak = 1.0f;  // linear radiance mapped to 1 before comparing; above 1 the error covers bright (HDR) areas too
 		uint32_t PathTracerMaxBounces = 4;
+		// Pick the light for next-event estimation by its expected irradiance (RayTracing/PathTraceLights.h) instead of uniformly. Unbiased; fewer noisy pixels with many lights of different power.
+		bool     PathTracerPowerLightSampling = true;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;

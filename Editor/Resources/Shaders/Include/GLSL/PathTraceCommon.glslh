@@ -378,7 +378,19 @@ vec3 DirectLight(Surface s, vec3 V)
 	if (lightCount == 0u || (u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
 		return vec3(0.0);
 
-	const uint index = min(uint(Rand() * float(lightCount)), lightCount - 1u);
+	// Choose a light by the CDF the host packed into every light's D.w (PackLights): pmf_i = cdf_i - cdf_(i-1).
+	const float chooseU = Rand();
+	uint lo = 0u, hi = lightCount - 1u;
+	while (lo < hi)
+	{
+		const uint mid = (lo + hi) >> 1u;
+		if (Lights[4u * mid + 3u].w >= chooseU)
+			hi = mid;
+		else
+			lo = mid + 1u;
+	}
+	const uint index = lo;
+	const float lightPmf = max(Lights[4u * index + 3u].w - (index == 0u ? 0.0 : Lights[4u * (index - 1u) + 3u].w), 1e-6);
 	const vec4 a = Lights[4u * index + 0u];
 	const vec4 b = Lights[4u * index + 1u];
 	const vec4 c = Lights[4u * index + 2u];
@@ -466,7 +478,7 @@ vec3 DirectLight(Surface s, vec3 V)
 		return vec3(0.0);
 	if (Occluded(origin, L, dist - 2e-3))
 		return vec3(0.0);
-	return EvalBRDF(s, V, L) * radiance * float(lightCount);
+	return EvalBRDF(s, V, L) * radiance / lightPmf;
 }
 
 // Radiance arriving along the ray (origin, dir): emission, next-event estimation and BSDF-sampled bounces,

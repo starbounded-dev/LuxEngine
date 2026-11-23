@@ -1,0 +1,87 @@
+FormatVersion: 1
+Scene: GI_GlossyArea
+Entities:
+  - Entity: 17000000000000027
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 0.1, 10]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Glossy.lmat
+      Visible: true
+  - Entity: 17000000000000028
+    TagComponent:
+      Tag: Large Rect
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.5, 3.0, 0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 0
+      Radiance: [1, 0.95, 0.85]
+      Intensity: 18
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 3.5
+      Height: 2.0
+      Radius: 0.5
+      Length: 1.6
+      TwoSided: false
+      Range: 30
+      CastsShadows: true
+  - Entity: 17000000000000029
+    TagComponent:
+      Tag: Small Rect
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [4.0, 2.2, -1.0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 0
+      Radiance: [1, 0.95, 0.85]
+      Intensity: 400
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 0.25
+      Height: 0.25
+      Radius: 0.5
+      Length: 1.6
+      TwoSided: false
+      Range: 30
+      CastsShadows: true
+  - Entity: 17000000000000030
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 5.5, 7]
+      Rotation: [-0.62, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

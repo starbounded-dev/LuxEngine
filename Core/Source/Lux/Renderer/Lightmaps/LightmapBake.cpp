@@ -476,7 +476,7 @@ namespace Lux {
 		if (bake.CurrentStage == Stage::Run)
 		{
 			std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(m_SubmittedRenderScene->GetStaticMeshProxies());
-			std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment);
+			std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
 			const uint32_t size = bake.AtlasSize;
 			const uint32_t target = bake.TargetSamples;
 			const uint32_t maxBounces = std::clamp(m_Options.PathTracerMaxBounces, 1u, 16u);

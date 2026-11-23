@@ -234,7 +234,7 @@ namespace Lux {
 		if (m_SubmittedRenderScene)
 			proxies = m_SubmittedRenderScene->GetStaticMeshProxies();
 		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
-		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment);
+		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
 
 		const bool uniformEnvironment = m_Options.PathTracerUniformEnvironment;
 		const float environmentIntensity = m_FrameEnvironment.EnvironmentIntensity;
