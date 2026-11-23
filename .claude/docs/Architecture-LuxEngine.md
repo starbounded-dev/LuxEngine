@@ -249,6 +249,13 @@ before the next recorded draw under either policy. Resource frees use the same e
 
 Three layers (`Renderer` facade → `SceneRenderer` → `Renderer2D`/`DebugRenderer`) over NRI/Vulkan.
 
+**Opt-in ray tracing (`Renderer/RayTracing/`, `Renderer/Lightmaps/`).** The raster renderer is the default and every ray-traced
+feature is an option that costs nothing while off. `RHIDevice::SupportsRayQuery()` gates it; `RHIAccelerationStructure` is a new
+descriptor input type; `RayTracingScene` builds BLAS/TLAS from the render scene; on top of it sit the path tracer (editor reference),
+the lightmap baker, a realtime-GI probe volume and per-pixel ray-traced GI, plus a diff pass that compares the raster frame with the
+path-traced reference. Details, bindings and traps: `.claude/docs/Rendering.md` ("Ray tracing and the path tracer"), plan and status:
+`docs/GI_PLAN.md`.
+
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
 `TextureSubresourceRange` (a default range is *every* mip and layer), `GPUQueue`, `ResourceState`,
 `DrawIndexedIndirectCommand`, and the render-target/viewport/vertex-attribute limits. Public

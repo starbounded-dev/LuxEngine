@@ -95,7 +95,24 @@ Only one external source was reviewed: **[Fast-SDF-AO](https://github.com/wrong-
 ## Next
 Phase 0 is the first thing to implement (`/dev` then `/cr`, then `/send-pr`). Not started.
 
-## Status (2026-11-23)
-- Done and verified: GI0 hardware/shader path (`python tests/rendering/run_ray_query_spike.py`: BLAS+TLAS, compute ray query, 107 analytic cases pass on an RTX 4070 Ti, no editor).
-- Built, not run in the editor: `Path Tracing` card in the Scene Renderer panel (session-only options on `SceneRendererOptions`, off by default, not wired to a renderer) and the `GI_CornellBox` sample scene (`Editor/LuxSampleProject/Assets/Scenes`, materials in `Materials/GI`).
-- Not started: engine RHI/NRI acceleration-structure wrapper (rest of GI0), GI1 to GI5. These need in-engine GPU runs, which need an editor launch the owner has not approved.
+## Status (2026-11-23, end of the implementation run)
+All six phases are built and verified by `python tests/rendering/run_ray_query_spike.py` and `python tests/rendering/run_path_trace_check.py`
+(real GPU runs through the golden-capture harness; the editor was launched with the owner's permission). Raster output with every option
+off is bit-identical to `dev` (`LowSun` capture compared).
+
+| Phase | State | Evidence |
+|---|---|---|
+| GI0 ray-query spike + RHI | Done | AS as a descriptor input, `RayTracingScene`, standalone spike (107 analytic hits) |
+| GI1 path tracer | Done | Cornell colour bleeding, white furnace ratio 0.87 (the engine BRDF is not energy conserving), noise 16 -> 256 spp x0.46 |
+| GI2 diff views | Done | heat map + MAE/PSNR; "Diff Lightmap / Realtime GI / RTGI" buttons |
+| GI3 lightmaps | Done, with limits | bake over the PT kernel; MAE vs PT 0.136 -> 0.113 |
+| GI4 realtime GI | Done, with limits | 16x8x16 SH probe volume; MAE 0.136 -> 0.119 |
+| GI5 ray-traced GI | Done, with limits | per-pixel + a-trous denoise; MAE 0.136 -> 0.116 |
+| GI-S card + sample scene | Built; the panel was not clicked through | `GI_CornellBox`, `GI_Furnace`; card audited for balanced ImGui scopes |
+
+**Known limits (follow-ups):** path tracer and GI use constant material colour (no textures), a constant sky, rect area lights only, no
+skinned meshes. Lightmaps need non-overlapping UV1/UV0 (no xatlas unwrapper), are a sidecar file (no asset type, **not in runtime exports**),
+and are indirect-only. Probes have no visibility term (leaks). RTGI traces the primary surface itself, so geometry outside the ray-traced
+scene gets no GI. The error metrics are on the low-resolution Cornell box only and are not a benchmark. Not built or run: Dist, Linux,
+Debug with validation layers (the Release runs reported 0 validation messages only because Release has no layers). The raster-vs-reference
+comparison is in display-linear [0, 1], so exposure and tone mapping are not part of it.
