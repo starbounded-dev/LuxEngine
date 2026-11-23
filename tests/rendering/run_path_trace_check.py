@@ -159,6 +159,13 @@ def main():
         wall = textured[int(h * 0.27):int(h * 0.50), int(w * 0.40):int(w * 0.70)]
         check(float(wall.std()) > 0.04, f"the triplanar-mapped brick wall repeats its texture instead of smearing it (std {float(wall.std()):.3f})")
 
+        # 11. Skinned meshes are in the ray-traced scene: the posed biped is visible and orange in the path tracer.
+        labels.append("gi-check-skinned")
+        biped = capture(labels[-1], "LuxBipedWalk", "PathTracer=1,PathTracerSamples=48", args.config, 250)
+        h, w = biped.shape[:2]
+        body = biped[int(h * 0.38):int(h * 0.60), int(w * 0.47):int(w * 0.53)].reshape(-1, 3).mean(axis=0)
+        check(body[0] > body[2] * 1.3, f"the skinned biped is in the path-traced frame (torso rgb {body.round(3)})")
+
         # 10. An .hdr sky: escaping rays see the HDR environment (the background has structure, not a flat colour).
         labels.append("gi-check-hdr")
         hdr = capture(labels[-1], "GI_HDRSky", "PathTracer=1,PathTracerSamples=64", args.config, 330)

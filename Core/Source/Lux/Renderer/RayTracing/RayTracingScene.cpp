@@ -157,7 +157,11 @@ namespace Lux {
 		std::vector<InstanceInput> instances;
 		for (const StaticMeshRenderProxy* proxy : proxies)
 		{
-			if (!proxy || !proxy->Visible || !proxy->MeshSource || !proxy->StaticMesh || proxy->IsSkinned())
+			if (!proxy || !proxy->Visible || !proxy->MeshSource || !proxy->StaticMesh)
+				continue;
+			// A skinned proxy is traced from a CPU-skinned copy (its palette is the raster renderer's), when the mesh has skin data.
+			const bool skinned = proxy->IsSkinned() && !proxy->MeshSource->GetBoneInfluences().empty();
+			if (proxy->IsSkinned() && !skinned)
 				continue;
 
 			const auto& submeshes = proxy->MeshSource->GetSubmeshes();
@@ -172,7 +176,13 @@ namespace Lux {
 				InstanceInput input;
 				input.Source = proxy->MeshSource;
 				input.Submesh = submeshIndex;
-				input.ObjectToWorld = proxy->WorldTransform * submesh.Transform;
+				// A skinned proxy's rows ignore the submesh node transform (RenderScene).
+				input.ObjectToWorld = skinned ? proxy->WorldTransform : proxy->WorldTransform * submesh.Transform;
+				if (skinned)
+				{
+					input.Variant = (proxy->SkinPaletteHash ^ (static_cast<uint64_t>(proxy->EntityID) * 0x9E3779B97F4A7C15ull)) | 1ull;
+					input.SkinPalette = proxy->SkinPalette;
+				}
 				if (Ref<MaterialAsset> material = ResolveMaterial(*proxy, submesh.MaterialIndex))
 				{
 					input.Albedo = material->GetAlbedoColor();
@@ -206,16 +216,17 @@ namespace Lux {
 			std::vector<SubmeshKey> keys;
 			for (const InstanceInput& input : instances)
 				keys.push_back(KeyOf(input));
-			std::sort(keys.begin(), keys.end(), [](const SubmeshKey& a, const SubmeshKey& b) { return std::tie(a.Source, a.Submesh) < std::tie(b.Source, b.Submesh); });
+			std::sort(keys.begin(), keys.end(), [](const SubmeshKey& a, const SubmeshKey& b) { return std::tie(a.Source, a.Submesh, a.Variant) < std::tie(b.Source, b.Submesh, b.Variant); });
 			keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
 			for (const SubmeshKey& key : keys)
-				geometrySignature = HashValue(HashValue(geometrySignature, key.Source), key.Submesh);
+				geometrySignature = HashValue(HashValue(HashValue(geometrySignature, key.Source), key.Submesh), key.Variant);
 		}
 		uint64_t instanceSignature = HashValue(1469598103934665603ull, static_cast<uint32_t>(instances.size()));
 		for (const InstanceInput& input : instances)
 		{
 			instanceSignature = HashValue(instanceSignature, input.Source.Raw());
 			instanceSignature = HashValue(instanceSignature, input.Submesh);
+			instanceSignature = HashValue(instanceSignature, input.Variant);
 			instanceSignature = HashValue(instanceSignature, input.ObjectToWorld);
 			instanceSignature = HashValue(instanceSignature, input.Albedo);
 			instanceSignature = HashValue(instanceSignature, input.Metalness);
@@ -274,6 +285,20 @@ namespace Lux {
 			const auto& sourceIndices = key.Source->GetIndices();
 
 			Pending entry = { key, static_cast<uint32_t>(vertices.size()), submesh.VertexCount, static_cast<uint32_t>(indices.size()), submesh.IndexCount };
+			// The palette of a skinned instance (the first one with this key).
+			const std::vector<glm::mat4>* palette = nullptr;
+			if (key.Variant != 0)
+			{
+				for (const InstanceInput& input : instances)
+				{
+					if (KeyOf(input) == key)
+					{
+						palette = &input.SkinPalette;
+						break;
+					}
+				}
+			}
+			const auto& influences = key.Source->GetBoneInfluences();
 			for (uint32_t v = 0; v < submesh.VertexCount; v++)
 			{
 				const uint32_t source = submesh.BaseVertex + v;
@@ -282,8 +307,23 @@ namespace Lux {
 					vertices.push_back({ glm::vec4(0, 0, 0, 0), glm::vec4(0, 1, 0, 0) });
 					continue;
 				}
+				glm::vec3 position = sourceVertices[source].Position;
+				glm::vec3 normal = sourceVertices[source].Normal;
+				if (palette && source < influences.size())
+				{
+					// Linear blend skinning, as Skinning.glsl: the weighted sum of the palette matrices.
+					glm::mat4 blended(0.0f);
+					for (int i = 0; i < 4; i++)
+					{
+						const uint32_t bone = influences[source].BoneInfoIndices[i];
+						if (bone < palette->size())
+							blended += (*palette)[bone] * influences[source].Weights[i];
+					}
+					position = glm::vec3(blended * glm::vec4(position, 1.0f));
+					normal = glm::normalize(glm::mat3(blended) * normal);
+				}
 				// w components carry the uv the raster shader uses, (u, 1 - v), for material textures.
-				vertices.push_back({ glm::vec4(sourceVertices[source].Position, sourceVertices[source].Texcoord.x), glm::vec4(sourceVertices[source].Normal, 1.0f - sourceVertices[source].Texcoord.y) });
+				vertices.push_back({ glm::vec4(position, sourceVertices[source].Texcoord.x), glm::vec4(normal, 1.0f - sourceVertices[source].Texcoord.y) });
 			}
 			// Index (triangle) k covers scalar indices 3k..3k+2; BaseIndex is in scalar indices.
 			for (uint32_t i = 0; i < submesh.IndexCount; i++)

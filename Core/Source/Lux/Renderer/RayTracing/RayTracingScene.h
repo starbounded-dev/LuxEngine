@@ -57,7 +57,8 @@ namespace Lux {
 		{
 			const MeshSource* Source = nullptr;
 			uint32_t Submesh = 0;
-			bool operator==(const SubmeshKey& other) const { return Source == other.Source && Submesh == other.Submesh; }
+			uint64_t Variant = 0; // 0 for a static mesh; for a skinned instance a hash of its entity and pose (its own skinned copy)
+			bool operator==(const SubmeshKey& other) const { return Source == other.Source && Submesh == other.Submesh && Variant == other.Variant; }
 		};
 
 		// One drawn submesh, resolved on the main thread (materials and meshes are asset-system objects).
@@ -71,6 +72,8 @@ namespace Lux {
 			glm::vec3 Emission{ 0.0f };
 			float Roughness = 0.5f;
 			uint32_t MaterialID = 0xffffffffu; // the raster renderer's GPU material row (textures), or none
+			uint64_t Variant = 0;              // nonzero: a skinned instance, with its own CPU-skinned geometry
+			std::vector<glm::mat4> SkinPalette; // bone model pose * inverse bind, as the skinning shader reads it
 		};
 
 		RayTracingScene();
@@ -98,7 +101,7 @@ namespace Lux {
 	private:
 		struct SubmeshKeyHash
 		{
-			size_t operator()(const SubmeshKey& key) const { return std::hash<const void*>()(key.Source) * 31u + key.Submesh; }
+			size_t operator()(const SubmeshKey& key) const { return (std::hash<const void*>()(key.Source) * 31u + key.Submesh) * 1099511628211ull ^ key.Variant; }
 		};
 		struct BLASRecord
 		{
@@ -106,7 +109,7 @@ namespace Lux {
 			uint32_t VertexBase = 0;
 			uint32_t IndexBase = 0;
 		};
-		static SubmeshKey KeyOf(const InstanceInput& input) { return { input.Source.Raw(), input.Submesh }; }
+		static SubmeshKey KeyOf(const InstanceInput& input) { return { input.Source.Raw(), input.Submesh, input.Variant }; }
 		void EnsureCapacity(Ref<StorageBuffer> buffer, uint32_t bytes);
 		void BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
 		void BuildTLAS(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances, bool geometryRebuilt);
