@@ -44,11 +44,14 @@ namespace Lux {
 			glm::vec4 NormalRow0;
 			glm::vec4 NormalRow1;
 			glm::vec4 NormalRow2;
+			glm::vec4 WorldRow0;
+			glm::vec4 WorldRow1;
+			glm::vec4 WorldRow2;
 			glm::uvec4 Info; // x: first vertex of the BLAS, y: first index
 			glm::vec4 AlbedoMetal;
 			glm::vec4 EmissionRough;
 		};
-		static_assert(sizeof(GPUInstance) == 96);
+		static_assert(sizeof(GPUInstance) == 144);
 
 		struct SubmeshKey
 		{

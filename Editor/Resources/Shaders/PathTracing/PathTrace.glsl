@@ -62,6 +62,7 @@ void main()
 	vec3 origin = u_Camera.InverseViewMatrix[3].xyz;
 	vec3 dir = normalize((u_Camera.InverseViewMatrix * vec4(viewDir, 0.0)).xyz);
 
+	g_InitialConeAngle = 2.0 / (u_Camera.ProjectionMatrix[1][1] * float(u_Push.SizeFrameBounces.y));
 	vec3 radiance = TracePath(origin, dir, u_Push.SizeFrameBounces.w);
 
 	// Firefly clamp (a documented bias): single samples above this are scaled down, preserving hue.

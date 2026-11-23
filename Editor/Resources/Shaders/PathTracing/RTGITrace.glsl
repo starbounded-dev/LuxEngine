@@ -59,6 +59,7 @@ void main()
 	vec3 origin = u_Camera.InverseViewMatrix[3].xyz;
 	vec3 dir = normalize((u_Camera.InverseViewMatrix * vec4(viewDir, 0.0)).xyz);
 
+	g_InitialConeAngle = 2.0 / (u_Camera.ProjectionMatrix[1][1] * float(u_Push.SizeFrameBounces.y));
 	Surface s;
 	if (!TraceClosest(origin, dir, s))
 	{

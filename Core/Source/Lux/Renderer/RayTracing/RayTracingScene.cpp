@@ -451,6 +451,9 @@ namespace Lux {
 			gpu.NormalRow0 = glm::vec4(inverse[0], 0.0f);
 			gpu.NormalRow1 = glm::vec4(inverse[1], 0.0f);
 			gpu.NormalRow2 = glm::vec4(inverse[2], 0.0f);
+			gpu.WorldRow0 = glm::vec4(input.ObjectToWorld[0][0], input.ObjectToWorld[1][0], input.ObjectToWorld[2][0], input.ObjectToWorld[3][0]);
+			gpu.WorldRow1 = glm::vec4(input.ObjectToWorld[0][1], input.ObjectToWorld[1][1], input.ObjectToWorld[2][1], input.ObjectToWorld[3][1]);
+			gpu.WorldRow2 = glm::vec4(input.ObjectToWorld[0][2], input.ObjectToWorld[1][2], input.ObjectToWorld[2][2], input.ObjectToWorld[3][2]);
 			gpu.Info = glm::uvec4(blas.VertexBase, blas.IndexBase, input.MaterialID, 0);
 			gpu.AlbedoMetal = glm::vec4(input.Albedo, input.Metalness);
 			gpu.EmissionRough = glm::vec4(input.Emission, input.Roughness);
