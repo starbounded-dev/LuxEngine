@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Max Bounces", "Target Samples", "Reset Accumulation" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -693,6 +693,31 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 				if (ImGui::Button("Reset Accumulation"))
 					options.PathTracerResetCounter++;
+
+				ImGui::Separator();
+				ImGui::TextDisabled("Baked lightmaps (indirect diffuse), written next to the project assets.");
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				toggle("Use Lightmaps", options.EnableLightmaps);
+				ImGuiEx::EndPropertyGrid();
+				const bool baking = m_Context && m_Context->IsLightmapBaking();
+				ImGui::BeginDisabled(baking || !RHIDevice::SupportsRayQuery());
+				if (ImGui::Button("Bake Lightmaps") && m_Context)
+					m_Context->StartLightmapBake();
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				if (baking)
+					ImGui::ProgressBar(m_Context->GetLightmapBakeProgress(), ImVec2(160.0f, 0.0f));
+				else
+					ImGui::TextDisabled("%s", m_Context && m_Context->HasLightmap() ? "Lightmap loaded" : "No lightmap for this scene");
+				if (ImGui::Button("Diff Lightmap") && m_Context)
+				{
+					// The raster frame with the lightmap against the path-traced reference.
+					options.EnablePathTracer = true;
+					options.PathTracerDiffHeatmap = true;
+					options.EnableLightmaps = true;
+				}
+				ImGui::SameLine();
+				ImGui::TextDisabled("(heat map, MAE and PSNR against the path tracer)");
 			}
 			EndSettingsCard();
 		}

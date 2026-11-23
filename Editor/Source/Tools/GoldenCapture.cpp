@@ -97,9 +97,10 @@ namespace Lux {
 			{ "PathTracer", &SceneRendererOptions::EnablePathTracer },
 			{ "PathTracerFurnace", &SceneRendererOptions::PathTracerUniformEnvironment },
 			{ "PathTracerDiff", &SceneRendererOptions::PathTracerDiffHeatmap },
+			{ "Lightmaps", &SceneRendererOptions::EnableLightmaps },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -273,7 +274,13 @@ namespace Lux {
 					options.*option.Member = enabled;
 			}
 
-			if (name == "PathTracerSamples")
+			if (name == "BakeLightmaps")
+			{
+				uint32_t samples = 64;
+				std::from_chars(value.data(), value.data() + value.size(), samples);
+				renderer.StartLightmapBake(samples);
+			}
+			else if (name == "PathTracerSamples")
 			{
 				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerTargetSamples);
 			}

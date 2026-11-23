@@ -101,6 +101,40 @@ layout(push_constant) uniform PushConstants
 	uint _pad2;
 } u_MaterialUniforms;
 
+// Baked indirect diffuse (lightmaps, docs/GI_PLAN.md). LightmapRects[0] = (atlas width, height, 0, 0);
+// LightmapRects[1 + GPUScene instance ID] = (scale.xy, offset.xy) into the atlas, or zero for an instance
+// without a lightmap (the common case: the lookup then costs one read and changes nothing). The atlas
+// holds the mean incident radiance per texel as RGBA16F packed into a uvec2.
+layout(std430, set = 2, binding = 71) readonly buffer LightmapRects { vec4 u_LightmapRects[]; };
+layout(std430, set = 2, binding = 72) readonly buffer LightmapAtlas { uvec2 u_LightmapTexels[]; };
+
+vec3 FetchLightmapTexel(ivec2 texel, ivec2 size)
+{
+	texel = clamp(texel, ivec2(0), size - ivec2(1));
+	uint texelIndex = uint(texel.y * size.x + texel.x);
+	if (texelIndex >= uint(u_LightmapTexels.length()))
+		return vec3(0.0);
+	uvec2 packedTexel = u_LightmapTexels[texelIndex];
+	return vec3(unpackHalf2x16(packedTexel.x), unpackHalf2x16(packedTexel.y).x);
+}
+
+vec3 SampleLightmap(uint objectIndex, vec2 uv)
+{
+	uint rectIndex = 1u + GetInstanceGPUSceneID(objectIndex);
+	if (rectIndex >= uint(u_LightmapRects.length()))
+		return vec3(0.0);
+	vec4 rect = u_LightmapRects[rectIndex];
+	if (!(rect.x > 0.0 && rect.x <= 1.0 && rect.y > 0.0 && rect.y <= 1.0))
+		return vec3(0.0);
+	ivec2 size = ivec2(u_LightmapRects[0].xy);
+	vec2 atlasPosition = (rect.zw + rect.xy * uv) * vec2(size) - 0.5;
+	ivec2 base = ivec2(floor(atlasPosition));
+	vec2 f = atlasPosition - vec2(base);
+	vec3 a = mix(FetchLightmapTexel(base, size), FetchLightmapTexel(base + ivec2(1, 0), size), f.x);
+	vec3 b = mix(FetchLightmapTexel(base + ivec2(0, 1), size), FetchLightmapTexel(base + ivec2(1, 1), size), f.x);
+	return mix(a, b, f.y);
+}
+
 vec4 ToLinear(vec4 sRGB)
 {
 	bvec3 cutoff = lessThan(sRGB.rgb, vec3(0.04045));
@@ -198,6 +232,9 @@ void main()
 			discard;
 	}
 #endif
+
+	// Baked indirect diffuse: the lightmap's incident radiance, reflected by the diffuse albedo.
+	emissive += SampleLightmap(InputObjectIndex, InputTexCoord1) * baseColor * (1.0 - metalness);
 
 	o_Emissive = vec4(emissive, 1.0);
 

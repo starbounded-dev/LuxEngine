@@ -566,6 +566,8 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(!m_Active, "Cannot change scene while rendering");
 		m_Scene = scene;
+		if (m_LightmapRects)
+			RefreshLightmap();
 	}
 
 	void SceneRenderer::InitOptions()
@@ -2080,6 +2082,25 @@ namespace Lux {
 			m_GeometryPass = RenderPass::Create(rpSpec);
 			m_GeometryPass->SetOptionalInput("SceneData", m_UBSScene);
 			BindSceneRenderPassInputs(m_GeometryPass, PassInputCamera | PassInputRenderer | PassInputMaterialScene);
+			{
+				// Baked indirect diffuse inputs: zeroed (no lightmap) until a lightmap is set; never null, so the pass validates.
+				StorageBufferSpecification lightmapSpec;
+				lightmapSpec.GPUOnly = false;
+				lightmapSpec.DebugName = "Lightmap Rects";
+				m_LightmapRects = StorageBuffer::Create(256, lightmapSpec);
+				lightmapSpec.DebugName = "Lightmap Atlas";
+				m_LightmapAtlas = StorageBuffer::Create(256, lightmapSpec);
+				for (const Ref<StorageBuffer>& buffer : { m_LightmapRects, m_LightmapAtlas })
+				{
+					if (void* mapped = buffer->GetBuffer().Map(0, 256))
+					{
+						std::memset(mapped, 0, 256);
+						buffer->GetBuffer().Unmap();
+					}
+				}
+				SetRenderPassInputIfValid(m_GeometryPass, "LightmapRects", m_LightmapRects);
+				SetRenderPassInputIfValid(m_GeometryPass, "LightmapAtlas", m_LightmapAtlas);
+			}
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
@@ -4622,6 +4643,10 @@ namespace Lux {
 		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
 		if (m_Options.EnablePathTracer && RHIDevice::SupportsRayQuery())
 			addPass("Path Trace", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::PathTracePass));
+
+		// Lightmap bake (editor action): runs only while one is in progress, after the raster frame it samples the scene from.
+		if (IsLightmapBaking())
+			addPass("Lightmap Bake", sceneColorCurrent, {}, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::LightmapBakePass));
 
 		const bool wireframeActive = executable
 			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
@@ -9620,6 +9645,7 @@ namespace Lux {
 	void SceneRenderer::GBufferPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "GBufferPass");
+		UpdateLightmapRects();
 		BeginProfiledGPU("GBufferPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 

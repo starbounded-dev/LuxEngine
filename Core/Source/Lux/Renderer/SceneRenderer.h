@@ -37,6 +37,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include "Lux/Renderer/DebugPalette.h"
+#include "Lux/Renderer/Lightmaps/Lightmap.h"
 #include "Lux/Renderer/RayTracing/RayTracingScene.h"
 #include <memory>
 #include <cstdint>
@@ -310,6 +311,8 @@ namespace Lux {
 		// Opt-in path tracer (editor-only ground-truth reference, docs/GI_PLAN.md, #213). Session-only: never saved into
 		// the project, off by default, and the raster renderer is untouched while it is off (RayTracing/PathTracePass.cpp).
 		bool     EnablePathTracer = false;
+		// Use the scene's baked lightmap (a sidecar written by the baker) as indirect diffuse. No effect without one.
+		bool     EnableLightmaps = true;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
 		// converge to the environment radiance).
 		bool     PathTracerUniformEnvironment = false;
@@ -1458,7 +1461,21 @@ namespace Lux {
 		// SceneRendererOptions::EnablePathTracer is set and the device supports ray queries.
 		struct PathTraceState;
 		void PathTracePass();
+		// Lightmaps, Lightmaps/LightmapBake.cpp.
+		struct LightmapBakeState;
+		void LightmapBakePass();
+		void UpdateLightmapRects();
+		void RefreshLightmap();
 	public:
+		// Editor-only: bakes the scene's lightmap over the next frames (needs ray queries), saves it as a sidecar and
+		// uses it. False when a bake is already running or the device or build cannot bake.
+		bool StartLightmapBake(uint32_t samples = 128, float texelsPerMetre = 16.0f);
+		bool IsLightmapBaking() const;
+		float GetLightmapBakeProgress() const; // 0..1
+		std::string GetLightmapBakeStatus() const;
+		bool HasLightmap() const { return m_Lightmap != nullptr; }
+		void SetLightmap(Ref<LightmapData> lightmap);
+		void ClearLightmap();
 		// Samples accumulated by the path tracer so far (0 while it is off or has nothing to trace).
 		uint32_t GetPathTraceSampleCount() const;
 		// MAE and PSNR (linear light, [0, 1]) of the last diff; false until one has been read back.
@@ -1952,6 +1969,14 @@ namespace Lux {
 		Ref<Image2D> m_PathTraceAccumImage;         // RGBA32F running mean
 		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
 		Ref<StorageBuffer> m_PathTraceLights;
+		Ref<LightmapData> m_Lightmap;
+		Ref<StorageBuffer> m_LightmapRects;         // [0] atlas size, [1 + GPU-scene instance ID] rect (G-buffer pass input)
+		Ref<StorageBuffer> m_LightmapAtlas;         // RGBA16F texels packed into uvec2 (G-buffer pass input)
+		uint64_t m_LightmapRectsSignature = 0;
+		std::shared_ptr<LightmapBakeState> m_LightmapBake;
+		Ref<ComputePass> m_LightmapBakePass;
+		Ref<StorageBuffer> m_LightmapBakeTexels;
+		Ref<StorageBuffer> m_LightmapBakeAccum;
 		Ref<ComputePass> m_PathTraceDiffPass;
 		Ref<Image2D> m_PathTraceDiffImage;          // RGBA16F heat map
 		Ref<StorageBuffer> m_PathTraceDiffPartials; // per-workgroup sums, host-visible

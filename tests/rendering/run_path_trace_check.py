@@ -99,6 +99,23 @@ def main():
         check(bool(match), "the diff pass logged MAE / PSNR")
         mae, psnr = float(match[-1][0]), float(match[-1][1])
         check(0.005 < mae < 0.5 and 3.0 < psnr < 60.0, f"diff MAE {mae:.4f}, PSNR {psnr:.2f} dB are in range")
+        # 5. Lightmaps: bake the Cornell box, then the raster frame is closer to the path-traced reference with the
+        # lightmap than without it ("Diff Lightmap"), and colour bleeds onto the floor.
+        sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_CornellBox.lxlm"
+        sidecar.unlink(missing_ok=True)
+        labels.append("gi-check-bake")
+        capture(labels[-1], "GI_CornellBox", "BakeLightmaps=128,Lightmaps=1", args.config, 330)
+        check(sidecar.exists() and sidecar.stat().st_size > 1_000_000, f"the bake wrote its sidecar ({sidecar.stat().st_size if sidecar.exists() else 0} bytes)")
+        maes = {}
+        for use in ("0", "1"):
+            labels.append(f"gi-check-diff-lm{use}")
+            capture(labels[-1], "GI_CornellBox", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,Lightmaps={use}", args.config, 330)
+            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellBox.log").read_text(encoding="utf-8", errors="replace")
+            found = re.findall(r"diff vs raster: MAE ([0-9.]+)", text)
+            check(bool(found), f"diff log present for Lightmaps={use}")
+            maes[use] = float(found[-1])
+        check(maes["1"] < maes["0"] * 0.9, f"lightmap lowers the error against the path tracer (MAE {maes['0']:.4f} -> {maes['1']:.4f})")
+        sidecar.unlink(missing_ok=True)
         print("All path tracer checks passed")
     finally:
         if not args.keep:

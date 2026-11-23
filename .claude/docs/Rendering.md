@@ -1504,3 +1504,22 @@ GPU runs. With every ray-traced option off the frame is bit-identical to before 
 - **Checks.** `python tests/rendering/run_ray_query_spike.py` (raw Vulkan, analytic hit distances);
   `python tests/rendering/run_path_trace_check.py` (Cornell colour bleeding, white furnace, convergence, through the
   golden-capture harness; `PathTracer=1,PathTracerSamples=N,PathTracerFurnace=1,PathTracerBounces=N` options).
+
+### Baked lightmaps (opt-in, editor bake)
+
+`SceneRenderer::StartLightmapBake` (UI: Scene Renderer > Path Tracing > Bake Lightmaps; golden option `BakeLightmaps=N`) bakes
+*indirect* diffuse for every drawn static submesh into one atlas, `Lightmaps/LightmapBake.cpp`:
+
+- Each (entity, submesh) gets a rectangle sized from its world area (16 texels/m by default); the CPU rasterises the mesh's
+  UV1 (UV0 when the mesh has no second UV set, because the attribute stream defaults UV1 to UV0) to find a world position and
+  normal per texel. UVs must not overlap; there is no unwrapper yet (xatlas is a follow-up).
+- `PathTraceBake.glsl` adds one cosine-weighted path per texel per frame (shared kernel `Include/GLSL/PathTraceCommon.glslh`),
+  storing the mean incident radiance. Result: gutter-dilated, saved as `<project assets>/Lightmaps/<scene name>.lxlm`
+  (`LightmapData`), loaded again by `SceneRenderer::SetScene`. **Not part of runtime exports yet** (no asset type).
+- Use: `GBuffer_Static.glsl` adds `albedo * (1 - metalness) * lightmap` to the emissive target. Inputs are two storage
+  buffers bound to the G-buffer pass at set 2, bindings 71 (`LightmapRects`: `[0]` atlas size, `[1 + GPU-scene instance ID]`
+  rect) and 72 (`LightmapAtlas`: RGBA16F as `uvec2`). Zero rects mean no lightmap; the frame is bit-identical to before
+  (checked with `LowSun`). Trap found: a host-visible `StorageBuffer` rewrites its *whole* local copy, so always upload the
+  full size zero-padded (stale bytes read as rectangles caused a device-lost). The shader also bounds-checks both buffers.
+- `tests/rendering/run_path_trace_check.py` bakes the Cornell box and asserts that the lightmapped raster frame is closer to
+  the path tracer than the unlit one (MAE 0.136 -> 0.113).
