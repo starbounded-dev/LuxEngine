@@ -51,7 +51,7 @@ Entities:
     StaticMeshComponent:
       AssetID: Meshes/Source/Default/Cube.gltf
       MaterialTable:
-        0: Materials/Brick.lmat
+        0: Materials/GI/GI_BrickTriplanar.lmat
       Visible: true
   - Entity: 16300000000009000004
     TagComponent:
