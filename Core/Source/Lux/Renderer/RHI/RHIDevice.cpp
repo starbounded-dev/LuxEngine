@@ -140,6 +140,9 @@ namespace Lux {
 			&& nri::nriGetInterface(*device, NRI_INTERFACE(nri::HelperInterface), static_cast<nri::HelperInterface*>(&api)) == nri::Result::SUCCESS
 			&& nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), static_cast<nri::WrapperVKInterface*>(&api)) == nri::Result::SUCCESS
 			&& nri::nriGetInterface(*device, NRI_INTERFACE(nri::SwapChainInterface), static_cast<nri::SwapChainInterface*>(&api)) == nri::Result::SUCCESS;
+		// Optional: failure only leaves the interface zeroed (SupportsRayQuery() is false).
+		if (interfacesFound && api.GetDeviceDesc(*device).tiers.rayTracing >= 2)
+			nri::nriGetInterface(*device, NRI_INTERFACE(nri::RayTracingInterface), static_cast<nri::RayTracingInterface*>(&api));
 		if (interfacesFound && api.GetDeviceDesc(*device).features.meshShader)
 			interfacesFound = nri::nriGetInterface(*device, NRI_INTERFACE(nri::MeshShaderInterface), static_cast<nri::MeshShaderInterface*>(&api)) == nri::Result::SUCCESS;
 
@@ -201,6 +204,11 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(s_Data, "RHIDevice is not initialized");
 		return s_Data->Queues[static_cast<size_t>(queue)];
+	}
+
+	bool RHIDevice::SupportsRayQuery()
+	{
+		return s_Data && s_Data->API.GetDeviceDesc(*s_Data->Device).tiers.rayTracing >= 2 && s_Data->API.CreateAccelerationStructure != nullptr;
 	}
 
 	const nri::DeviceDesc& RHIDevice::GetDesc()

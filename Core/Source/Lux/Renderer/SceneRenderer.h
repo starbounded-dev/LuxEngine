@@ -37,6 +37,8 @@
 #include <glm/glm.hpp>
 #include <array>
 #include "Lux/Renderer/DebugPalette.h"
+#include "Lux/Renderer/RayTracing/RayTracingScene.h"
+#include <memory>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -306,9 +308,11 @@ namespace Lux {
 		bool  ShowLightComplexity = false;
 		bool  ShowMaterialComplexity = false;
 		// Opt-in path tracer (editor-only ground-truth reference, docs/GI_PLAN.md, #213). Session-only: never saved into
-		// the project, off by default, and the raster renderer is untouched while it is off. The renderer backend is not
-		// built yet, so these are the control surface only; nothing reads them today.
+		// the project, off by default, and the raster renderer is untouched while it is off (RayTracing/PathTracePass.cpp).
 		bool     EnablePathTracer = false;
+		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
+		// converge to the environment radiance).
+		bool     PathTracerUniformEnvironment = false;
 		uint32_t PathTracerMaxBounces = 4;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
@@ -1446,6 +1450,15 @@ namespace Lux {
 		void EarlyMeshCullingPass();
 		void ShadowMeshCullingPass();
 		void ClusterBuildPass();
+		// Opt-in path tracer, RayTracing/PathTracePass.cpp. Off (and not even created) unless
+		// SceneRendererOptions::EnablePathTracer is set and the device supports ray queries.
+		struct PathTraceState;
+		void PathTracePass();
+	public:
+		// Samples accumulated by the path tracer so far (0 while it is off or has nothing to trace).
+		uint32_t GetPathTraceSampleCount() const;
+	private:
+		bool EnsurePathTracer();
 		void ClusterLightCullingPass();
 		void SkyboxPass();
 		void SelectedGeometryPass();
@@ -1926,6 +1939,13 @@ namespace Lux {
 		// is the ObjectIndexes buffer too.
 		Ref<ComputePass> m_ShadowCullingPass;
 		Ref<ComputePass> m_ClusterBuildPass;        // builds m_SBSClusterAABBs
+		bool m_PathTracerUnavailable = false;       // shader failed to load: do not retry every frame
+		Ref<RayTracingScene> m_RayTracingScene;
+		Ref<ComputePass> m_PathTracePass;
+		Ref<Image2D> m_PathTraceAccumImage;         // RGBA32F running mean
+		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
+		Ref<StorageBuffer> m_PathTraceLights;
+		std::shared_ptr<PathTraceState> m_PathTraceState; // render-thread accumulation state
 		Ref<ComputePass> m_ClusterLightCullingPass; // assigns lights to clusters
 		uint32_t         m_MeshCullDrawCount = 0;
 

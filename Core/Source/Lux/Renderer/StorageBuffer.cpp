@@ -14,6 +14,7 @@ namespace Lux {
 	{
 		m_BufferDesc.Size = size;
 		m_BufferDesc.IsVertexBuffer = m_Specification.VertexBuffer;
+		m_BufferDesc.IsAccelerationStructureInput = m_Specification.AccelerationStructureInput;
 		m_BufferDesc.CanHaveRawViews = true;
 		m_BufferDesc.CanHaveUAVs = true;
 		m_BufferDesc.IsDrawIndirectArgs = m_Specification.DrawIndirect;

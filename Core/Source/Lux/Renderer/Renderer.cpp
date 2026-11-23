@@ -1846,6 +1846,39 @@ namespace Lux {
 		});
 	}
 
+	void Renderer::RT_DispatchCompute(RenderCommandBuffer& renderCommandBuffer, const ComputePass& computePass, const glm::uvec3& workGroups, const Buffer& constants)
+	{
+		RT_RecordDispatch(renderCommandBuffer, computePass, nullptr, workGroups, constants);
+	}
+
+	void Renderer::RT_CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
+	{
+		const ImageInfo& source = sourceImage->GetImageInfo();
+		const ImageInfo& destination = destinationImage->GetImageInfo();
+		if (!source.RHITexture || !destination.RHITexture)
+			return;
+
+		const uint32_t copyWidth = std::min(sourceImage->GetWidth(), destinationImage->GetWidth());
+		const uint32_t copyHeight = std::min(sourceImage->GetHeight(), destinationImage->GetHeight());
+		if (copyWidth == 0 || copyHeight == 0)
+			return;
+
+		const TextureSubresourceRange layers{ 0, 1, 0, 1 };
+		renderCommandBuffer->RT_RequireTextureState(source.Tracked, layers, ResourceState::CopySource);
+		renderCommandBuffer->RT_RequireTextureState(destination.Tracked, layers, ResourceState::CopyDest);
+		nri::CommandBuffer* commandBuffer = renderCommandBuffer->RT_BeginNRITransfer();
+		if (!commandBuffer)
+			return;
+
+		nri::TextureRegionDesc region = {};
+		region.width = static_cast<nri::Dim_t>(copyWidth);
+		region.height = static_cast<nri::Dim_t>(copyHeight);
+		region.depth = 1;
+		region.planes = nri::PlaneBits::ALL;
+		RHIDevice::API().CmdCopyTexture(*commandBuffer, *destination.RHITexture, &region, *source.RHITexture, &region);
+		renderCommandBuffer->RT_EndNRISegment();
+	}
+
 	void Renderer::BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

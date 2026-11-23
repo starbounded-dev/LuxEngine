@@ -37,6 +37,7 @@ namespace Lux {
 		void SetInput(std::string_view name, Ref<TextureCube> textureCube);
 		void SetInput(std::string_view name, Ref<Image2D> image);
 		void SetInput(std::string_view name, Ref<Sampler> sampler);
+		void SetInput(std::string_view name, Ref<RHIAccelerationStructure> accelerationStructure);
 
 		Ref<Image2D> GetOutput(uint32_t index);
 		Ref<Image2D> GetDepthOutput();

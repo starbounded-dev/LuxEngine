@@ -4618,6 +4618,11 @@ namespace Lux {
 			sceneColorCurrent = particleOutputs;
 		}
 
+		// Opt-in path tracer (RayTracing/PathTracePass.cpp): replaces the raster result in scene colour, before
+		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
+		if (m_Options.EnablePathTracer && RHIDevice::SupportsRayQuery())
+			addPass("Path Trace", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::PathTracePass));
+
 		const bool wireframeActive = executable
 			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
 				|| ((m_Options.ShowPhysicsColliders || m_Options.ShowDebugCategories) && !GetMeshPass(MeshPassType::PhysicsCollider).DrawList.empty()))

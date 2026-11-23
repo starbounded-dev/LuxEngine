@@ -94,9 +94,11 @@ namespace Lux {
 			{ "SoftShadows", &SceneRendererOptions::SoftShadows },
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
+			{ "PathTracer", &SceneRendererOptions::EnablePathTracer },
+			{ "PathTracerFurnace", &SceneRendererOptions::PathTracerUniformEnvironment },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -270,7 +272,15 @@ namespace Lux {
 					options.*option.Member = enabled;
 			}
 
-			if (name == "Bloom")
+			if (name == "PathTracerSamples")
+			{
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerTargetSamples);
+			}
+			else if (name == "PathTracerBounces")
+			{
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerMaxBounces);
+			}
+			else if (name == "Bloom")
 			{
 				renderer.GetBloomSettings().Enabled = enabled;
 			}

@@ -19,6 +19,8 @@ namespace Lux {
 		bool DrawIndirect = false;
 		// Also bindable as a draw's vertex buffer (a compute pass writes it, draws read it).
 		bool VertexBuffer = false;
+		// Also readable by an acceleration structure build (ray-tracing geometry). Needs RHIDevice::SupportsRayQuery.
+		bool AccelerationStructureInput = false;
 		std::string DebugName = "StorageBuffer";
 	};
 

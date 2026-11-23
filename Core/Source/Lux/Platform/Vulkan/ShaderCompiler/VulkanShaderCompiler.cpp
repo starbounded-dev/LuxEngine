@@ -1175,6 +1175,21 @@ namespace Lux {
 		}
 
 		LUX_SHADER_REFLECTION_INFO("Separate Samplers:");
+		for (const auto& resource : resources.acceleration_structures)
+		{
+			const uint32_t binding = compiler.get_decoration(resource.id, spv::DecorationBinding);
+			const uint32_t descriptorSet = compiler.get_decoration(resource.id, spv::DecorationDescriptorSet);
+			if (descriptorSet >= m_ReflectionData.ShaderDescriptorSets.size())
+				m_ReflectionData.ShaderDescriptorSets.resize(descriptorSet + 1);
+			auto& entry = m_ReflectionData.ShaderDescriptorSets[descriptorSet].SeparateSamplers[binding];
+			entry.BindingPoint = binding;
+			entry.DescriptorSet = descriptorSet;
+			entry.Name = resource.name;
+			entry.Dimension = ShaderResource::k_AccelerationStructureDimension;
+			entry.ArraySize = 1;
+			entry.ShaderStage = shaderStage;
+		}
+
 		for (const auto& resource : resources.separate_samplers)
 		{
 			const auto& name = resource.name;

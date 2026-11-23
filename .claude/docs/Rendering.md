@@ -1473,3 +1473,34 @@ tagged logger.
 ### Occlusion culling reads the far HZB
 
 `m_HierarchicalDepthTexture` keeps the *closest* depth per texel (SSR, GTAO) and must not be used to cull: one near pixel would hide anything behind it in the texel. `m_HierarchicalFarDepthTexture` is the same pyramid with the farthest depth (`u_UseMin` in `HZB.glsl`); `MeshCulling.glsl` takes the smallest sample over the object's rectangle and compares it with the object's nearest depth. The viewport is negative-height, so the lookup flips V. `tests/rendering/run_occlusion_check.py` renders Coin Run's level with occlusion culling on and off and requires identical images.
+
+## Ray tracing and the path tracer (opt-in)
+
+Ray tracing is an option, never a requirement: the raster renderer is the default and the only path every
+GPU runs. With every ray-traced option off the frame is bit-identical to before (checked by capturing
+`LowSun` with and without) and nothing below is created.
+
+- **Device support.** `RHIDevice::SupportsRayQuery()` (NRI ray-tracing tier 2: acceleration structures and ray
+  queries). `RHIDevice::Init` fetches `nri::RayTracingInterface` into `NRIInterface` only then.
+- **Acceleration structure as a shader input.** `RHIAccelerationStructure` is bound like any other input
+  (`ComputePass::SetInput(name, Ref<RHIAccelerationStructure>)`, `RenderResourceType/RenderInputType::AccelerationStructure`).
+  Reflection stores `accelerationStructureEXT` bindings in `ShaderDescriptorSet::SeparateSamplers` with
+  `Dimension == ShaderResource::k_AccelerationStructureDimension` (255), so the `.refl` cache and shader-pack
+  formats did not change. `RHIShader` turns them into `nri::DescriptorType::ACCELERATION_STRUCTURE` ranges.
+- **`RayTracingScene`** (`Renderer/RayTracing/`). One BLAS per (mesh source, submesh), one TLAS instance per drawn
+  submesh, plus SSBOs (`RTVertices`, `RTIndices`, `RTInstances`) at set 1 bindings 60-62. Inputs are gathered on the
+  main thread (`GatherInstances`: materials and meshes are asset objects), built on the render thread
+  (`RT_Update`) into the frame command buffer; skinned meshes are left out. Its `StorageBuffer`s are stable objects
+  that `Resize` in place, so descriptor sets rebake by themselves. Builds end in an NRI global barrier; AS memory is
+  freed through `Renderer::SubmitResourceFree`.
+- **Path tracer** (`PathTracePass.cpp`, `Shaders/PathTracing/PathTrace.glsl`). A graph pass added after Particles only
+  while `SceneRendererOptions::EnablePathTracer` is on: it accumulates a running mean (RGBA32F, one sample per frame,
+  restarting when the scene, camera, lights or settings change) and `Renderer::RT_CopyImage`s the result into scene
+  colour, so bloom, exposure and tone mapping apply as usual. NEE to one light per bounce (directional, point, spot,
+  rect area), BSDF-sampled continuation, BRDF terms copied from `PBR.glslh`. Albedo is the material colour (textures
+  are not sampled in v1); the environment is a constant sky/ground colour. Editor-only: the shader is loaded on
+  first use and needs the shader compiler, so Dist skips it. Its options are session-only (never saved to the
+  project, avoiding the `LuxSample.luxproj` trap). New bindings: set 1, 60-66 (above every existing binding).
+- **Checks.** `python tests/rendering/run_ray_query_spike.py` (raw Vulkan, analytic hit distances);
+  `python tests/rendering/run_path_trace_check.py` (Cornell colour bleeding, white furnace, convergence, through the
+  golden-capture harness; `PathTracer=1,PathTracerSamples=N,PathTracerFurnace=1,PathTracerBounces=N` options).

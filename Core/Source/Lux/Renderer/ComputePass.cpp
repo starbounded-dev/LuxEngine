@@ -92,6 +92,12 @@ namespace Lux {
 		m_DescriptorSetManager.SetInput(name, sampler);
 	}
 
+	void ComputePass::SetInput(std::string_view name, Ref<RHIAccelerationStructure> accelerationStructure)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_DescriptorSetManager.SetInput(name, accelerationStructure);
+	}
+
 	Ref<Image2D> ComputePass::GetOutput(uint32_t index)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;

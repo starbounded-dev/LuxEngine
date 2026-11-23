@@ -12,6 +12,7 @@
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -665,14 +666,18 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Max Bounces", "Target Samples", "Reset Accumulation" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Max Bounces", "Target Samples", "Reset Accumulation" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
 				ImGui::TextDisabled("Opt-in reference renderer. The raster renderer stays the default.");
-				ImGui::TextDisabled("Backend not built yet (GI1, #213): these controls are not wired to a renderer.");
+				if (!RHIDevice::SupportsRayQuery())
+					ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "This GPU has no ray queries: the path tracer is unavailable.");
+				else if (options.EnablePathTracer)
+					ImGui::Text("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Enable Path Tracer", options.EnablePathTracer);
+				toggle("Uniform Environment (furnace test)", options.PathTracerUniformEnvironment);
 				if (match("Max Bounces"))
 					ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u);
 				if (match("Target Samples"))
