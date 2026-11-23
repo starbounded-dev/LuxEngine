@@ -259,6 +259,7 @@ namespace Lux {
 	void SceneRenderer::LightmapBakePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "LightmapBakePass");
+		ApplyRTTuning();
 		if (!m_LightmapBake)
 			return;
 		LightmapBakeState& bake = *m_LightmapBake;

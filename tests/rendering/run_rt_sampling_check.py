@@ -145,7 +145,48 @@ def check_denoise(config):
     check(en < eo * 0.9, f"6 frames after the camera stops the denoiser is closer to the settled image (old filter {eo:.4f}, denoiser {en:.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise}
+def rt_lines(tag, scene):
+    return [line for line in read_log(tag, scene).splitlines() if "[RT]" in line]
+
+
+def check_compact(config):
+    """#240: BLAS compaction. The static BLASes of Sponza shrink by a good margin and the image does not change."""
+    import re
+    scene = "AudioSponza"
+    base = "PathTracer=1,PathTracerSamples=8"
+    on = capture("cp-on", scene, f"{base},RTCompact=1", config, 600)
+    off = capture("cp-off", scene, f"{base},RTCompact=0", config, 600)
+    lines = [line for line in rt_lines("cp-on", scene) if "compacted" in line]
+    check(bool(lines) and not [line for line in rt_lines("cp-off", scene) if "compacted" in line], "compaction runs with the option on and not with it off")
+    match = re.search(r"([\d.]+) MiB -> ([\d.]+) MiB", lines[0])
+    before, after = float(match.group(1)), float(match.group(2))
+    check(after < before * 0.7, f"BLAS memory shrinks ({before:.2f} MiB -> {after:.2f} MiB)")
+    check(rmse(on, off) < 0.005, f"the compacted scene renders the same (RMSE {rmse(on, off):.4f})")
+
+
+def check_tlas(config):
+    """#240: TLAS refit on transform-only changes (entities moving). Same image as rebuilding the TLAS every frame."""
+    scene = "GI_CornellBox"
+    base = "PathTracer=1,PathTracerSamples=1,MoveEntities=2"
+    on = capture("tl-on", scene, f"{base},RTTLASUpdate=1", config, 300)
+    off = capture("tl-off", scene, f"{base},RTTLASUpdate=0", config, 300)
+    check(any("TLAS is refit" in line for line in rt_lines("tl-on", scene)), "the TLAS is refit in place for moving instances")
+    check(not any("TLAS is refit" in line for line in rt_lines("tl-off", scene)), "with the option off the TLAS is rebuilt")
+    check(rmse(on, off) < 0.005, f"the refit TLAS renders the same as a rebuilt one (RMSE {rmse(on, off):.4f})")
+
+
+def check_refit(config):
+    """#239: skinned BLAS refit. A pulsing bone changes the pose every frame; refit and rebuild must render the same."""
+    scene = "RigPosed"
+    base = "PathTracer=1,PathTracerSamples=1,PosePulse=40"
+    on = capture("rf-on", scene, f"{base},RTRefit=1", config, 300)
+    off = capture("rf-off", scene, f"{base},RTRefit=0", config, 300)
+    check(any("refit in place" in line and "skinned" in line for line in rt_lines("rf-on", scene)), "a new pose refits the skinned BLAS")
+    check(not any("skinned BLASes are refit" in line for line in rt_lines("rf-off", scene)), "with the option off every BLAS is rebuilt")
+    check(rmse(on, off) < 0.005, f"the refit BLAS renders the same as a rebuilt one (RMSE {rmse(on, off):.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit}
 
 
 def main():

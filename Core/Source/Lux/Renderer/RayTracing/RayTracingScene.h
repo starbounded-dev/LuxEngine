@@ -57,7 +57,7 @@ namespace Lux {
 		{
 			const MeshSource* Source = nullptr;
 			uint32_t Submesh = 0;
-			uint64_t Variant = 0; // 0 for a static mesh; for a skinned instance a hash of its entity and pose (its own skinned copy)
+			uint64_t Variant = 0; // 0 for a static mesh; for a skinned instance a hash of its entity (its own skinned copy; stable across poses)
 			bool operator==(const SubmeshKey& other) const { return Source == other.Source && Submesh == other.Submesh && Variant == other.Variant; }
 		};
 
@@ -72,9 +72,19 @@ namespace Lux {
 			glm::vec3 Emission{ 0.0f };
 			float Roughness = 0.5f;
 			uint32_t MaterialID = 0xffffffffu; // the raster renderer's GPU material row (textures), or none
-			uint64_t Variant = 0;              // nonzero: a skinned instance, with its own CPU-skinned geometry
+			uint64_t Variant = 0;              // nonzero: a skinned instance, with its own CPU-skinned geometry (stable per entity)
+			uint64_t PoseHash = 0;             // hash of the skin palette: a changed pose refits the BLAS instead of rebuilding it
 			std::vector<glm::mat4> SkinPalette; // bone model pose * inverse bind, as the skinning shader reads it
 		};
+
+		// Acceleration-structure tuning, process-wide (set from SceneRendererOptions; render thread reads it in RT_Update).
+		struct Tuning
+		{
+			bool CompactBLAS = true;   // static BLASes are built compactable and later copied into right-sized structures
+			bool RefitSkinned = true;  // a changed skin pose updates the BLAS in place instead of rebuilding every BLAS
+			bool UpdateTLAS = true;    // a transform-only change refits the TLAS instead of rebuilding it
+		};
+		static void SetTuning(const Tuning& tuning);
 
 		RayTracingScene();
 		~RayTracingScene() override;
@@ -90,6 +100,11 @@ namespace Lux {
 		uint32_t GetInstanceCount() const { return m_InstanceCount; }
 		uint32_t GetBLASCount() const { return static_cast<uint32_t>(m_BLASes.size()); }
 		uint64_t GetTriangleCount() const { return m_TriangleCount; }
+		// Render-thread counters (logged by the checks): how many BLAS refits / TLAS updates / TLAS rebuilds / compactions ran.
+		uint32_t GetBLASRefitCount() const { return m_BLASRefits; }
+		uint32_t GetTLASUpdateCount() const { return m_TLASUpdates; }
+		uint32_t GetTLASRebuildCount() const { return m_TLASRebuilds; }
+		uint32_t GetCompactedBLASCount() const { return m_CompactedBLASes; }
 
 		const Ref<StorageBuffer>& GetVertexBuffer() const { return m_VertexBuffer; }
 		const Ref<StorageBuffer>& GetIndexBuffer() const { return m_IndexBuffer; }
@@ -108,17 +123,39 @@ namespace Lux {
 			nri::AccelerationStructure* Structure = nullptr;
 			uint32_t VertexBase = 0;
 			uint32_t IndexBase = 0;
+			uint32_t VertexCount = 0;
+			uint32_t IndexCount = 0;
+			bool Updatable = false;   // built with ALLOW_UPDATE (skinned)
+			uint64_t PoseHash = 0;    // pose the BLAS currently holds
+		};
+		// Static BLASes whose compacted sizes are being read back (a few frames after the build, never stalling).
+		struct CompactionBatch
+		{
+			nri::QueryPool* Pool = nullptr;
+			nri::Buffer* Readback = nullptr;
+			std::vector<SubmeshKey> Keys;
+			std::vector<nri::AccelerationStructure*> Sources;
+			std::vector<nri::BottomLevelGeometryDesc> Geometries;
+			uint64_t IssuedAt = 0;
+			uint64_t GeometrySignature = 0;
 		};
 		static SubmeshKey KeyOf(const InstanceInput& input) { return { input.Source.Raw(), input.Submesh, input.Variant }; }
 		void EnsureCapacity(Ref<StorageBuffer> buffer, uint32_t bytes);
 		void BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
-		void BuildTLAS(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances, bool geometryRebuilt);
+		void BuildTLAS(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances, bool geometryRebuilt, bool forceRebuild, const Tuning& tuning);
+		void RefitSkinned(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
+		bool ProcessCompaction(Ref<RenderCommandBuffer> cb); // true when a BLAS was swapped (the TLAS must be rebuilt)
 		void ReleaseGeometry();
 		void ReleaseTLAS();
 
 		std::unordered_map<SubmeshKey, BLASRecord, SubmeshKeyHash> m_BLASes;
 		uint64_t m_GeometrySignature = 0;
 		uint64_t m_InstanceSignature = 0;
+		uint64_t m_PoseSignature = 0;
+		uint64_t m_UpdateCounter = 0;
+		uint32_t m_BLASRefits = 0, m_TLASUpdates = 0, m_TLASRebuilds = 0, m_CompactedBLASes = 0;
+		bool m_TLASBuilt = false;
+		std::vector<CompactionBatch> m_Compactions;
 		uint64_t m_TriangleCount = 0;
 		uint32_t m_InstanceCount = 0;
 		uint32_t m_TLASCapacity = 0;

@@ -102,6 +102,9 @@ namespace Lux {
 			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
+			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
+			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
+			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },
 			{ "RTGIDenoise", &SceneRendererOptions::RTGIDenoiser },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
@@ -109,7 +112,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -436,6 +439,20 @@ namespace Lux {
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
 
+
+		// PosePulse=<degrees>: every skeleton with a DebugBone bends it by degrees * sin(frame / 10) each frame, so skinned meshes change
+		// pose every frame (the BLAS refit check).
+		if (const auto it = m_Options.find("PosePulse"); it != m_Options.end())
+		{
+			float degrees = 0.0f;
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), degrees);
+			for (const entt::entity handle : scene.GetAllEntitiesWith<SkeletonComponent>())
+			{
+				auto& skeletonComponent = Entity{ handle, &scene }.GetComponent<SkeletonComponent>();
+				if (!skeletonComponent.DebugBone.empty())
+					skeletonComponent.DebugBendDegrees = degrees * std::sin(static_cast<float>(m_SceneFrames) * 0.1f);
+			}
+		}
 
 		// Select=<entity name>: selects that entity once, so its outline and selection draws are captured.
 		if (const auto it = m_Options.find("Select"); it != m_Options.end() && !m_Selected)

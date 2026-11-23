@@ -336,6 +336,7 @@ namespace Lux {
 	void SceneRenderer::RTGIPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "RTGIPass");
+		ApplyRTTuning();
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !m_SubmittedRenderScene || !EnsureRTGI())
 			return;
 

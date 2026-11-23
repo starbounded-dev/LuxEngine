@@ -344,6 +344,10 @@ namespace Lux {
 		bool     PathTracerMIS = true;
 		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
 		bool     PathTracerReSTIRDI = false;
+		// Acceleration-structure tuning (RayTracing/RayTracingScene.h Tuning): compact static BLASes, refit skinned BLASes in place on a new pose, refit the TLAS on transform-only changes. All on; off restores the plain rebuilds (A/B).
+		bool     RTCompactBLAS = true;
+		bool     RTRefitSkinned = true;
+		bool     RTUpdateTLAS = true;
 		// Adaptive sampling: once a pixel has 16 samples it stops tracing when the relative standard error of its mean luminance falls
 		// below this (0 = off, every pixel gets every sample). Slightly biased by the stopping rule, so off by default and for reference renders.
 		float    PathTracerAdaptiveThreshold = 0.0f;
@@ -2018,6 +2022,14 @@ namespace Lux {
 		Ref<ComputePass> m_GIProbePass;
 		Ref<ComputePass> m_RTGITracePass;
 		bool EnsureRTGIReSTIR();
+		void ApplyRTTuning() const
+		{
+			RayTracingScene::Tuning tuning;
+			tuning.CompactBLAS = m_Options.RTCompactBLAS;
+			tuning.RefitSkinned = m_Options.RTRefitSkinned;
+			tuning.UpdateTLAS = m_Options.RTUpdateTLAS;
+			RayTracingScene::SetTuning(tuning);
+		}
 		bool EnsureRTGIDenoiser();
 		Ref<ComputePass> m_RTGITemporalPasses[2];
 		Ref<ComputePass> m_RTGIVarFilters[3];

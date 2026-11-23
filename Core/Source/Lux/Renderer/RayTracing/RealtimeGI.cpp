@@ -130,6 +130,7 @@ namespace Lux {
 	void SceneRenderer::RealtimeGIPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "RealtimeGIPass");
+		ApplyRTTuning();
 		if (!m_SubmittedRenderScene || !EnsureRealtimeGI())
 			return;
 

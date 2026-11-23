@@ -15,6 +15,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <tuple>
 
@@ -39,6 +40,9 @@ namespace Lux {
 		uint64_t HashValue(uint64_t hash, const T& value) { return HashBytes(hash, &value, sizeof(T)); }
 
 		uint64_t AlignUp(uint64_t value, uint64_t alignment) { return (value + alignment - 1) / alignment * alignment; }
+
+		std::atomic<uint32_t> s_TuningBits{ 7u }; // bit 0 compaction, 1 skinned refit, 2 TLAS update
+		constexpr uint64_t k_CompactionDelay = 8; // RT_Update calls between a build and reading its compacted sizes back
 
 		struct PackedRTVertex
 		{
@@ -121,6 +125,15 @@ namespace Lux {
 		for (auto& [key, record] : m_BLASes)
 			structures.push_back(record.Structure);
 		m_BLASes.clear();
+		for (CompactionBatch& batch : m_Compactions)
+		{
+			Renderer::SubmitResourceFree([pool = batch.Pool, readback = batch.Readback]()
+			{
+				RHIDevice::API().DestroyQueryPool(pool);
+				RHIDevice::API().DestroyBuffer(readback);
+			});
+		}
+		m_Compactions.clear();
 		Renderer::SubmitResourceFree([structures = std::move(structures)]()
 		{
 			for (nri::AccelerationStructure* structure : structures)
@@ -149,6 +162,12 @@ namespace Lux {
 		m_TLASInstanceBuffer = nullptr;
 		m_TLASScratch = nullptr;
 		m_TLASCapacity = 0;
+		m_TLASBuilt = false;
+	}
+
+	void RayTracingScene::SetTuning(const Tuning& tuning)
+	{
+		s_TuningBits = (tuning.CompactBLAS ? 1u : 0u) | (tuning.RefitSkinned ? 2u : 0u) | (tuning.UpdateTLAS ? 4u : 0u);
 	}
 
 	std::vector<RayTracingScene::InstanceInput> RayTracingScene::GatherInstances(const std::vector<const StaticMeshRenderProxy*>& proxies)
@@ -180,7 +199,8 @@ namespace Lux {
 				input.ObjectToWorld = skinned ? proxy->WorldTransform : proxy->WorldTransform * submesh.Transform;
 				if (skinned)
 				{
-					input.Variant = (proxy->SkinPaletteHash ^ (static_cast<uint64_t>(proxy->EntityID) * 0x9E3779B97F4A7C15ull)) | 1ull;
+					input.Variant = (static_cast<uint64_t>(proxy->EntityID) * 0x9E3779B97F4A7C15ull) | 1ull;
+					input.PoseHash = proxy->SkinPaletteHash;
 					input.SkinPalette = proxy->SkinPalette;
 				}
 				if (Ref<MaterialAsset> material = ResolveMaterial(*proxy, submesh.MaterialIndex))
@@ -204,14 +224,88 @@ namespace Lux {
 		return instances;
 	}
 
+	namespace {
+
+		// The vertices of one submesh in the layout the shaders read (position + uv.x, normal + uv.y); skinned when a palette is given.
+		void AppendVertices(std::vector<PackedRTVertex>& vertices, const MeshSource& source, const Submesh& submesh, const std::vector<glm::mat4>* palette)
+		{
+			const auto& sourceVertices = source.GetVertices();
+			const auto& influences = source.GetBoneInfluences();
+			for (uint32_t v = 0; v < submesh.VertexCount; v++)
+			{
+				const uint32_t index = submesh.BaseVertex + v;
+				if (index >= sourceVertices.size())
+				{
+					vertices.push_back({ glm::vec4(0, 0, 0, 0), glm::vec4(0, 1, 0, 0) });
+					continue;
+				}
+				glm::vec3 position = sourceVertices[index].Position;
+				glm::vec3 normal = sourceVertices[index].Normal;
+				if (palette && index < influences.size())
+				{
+					// Linear blend skinning, as Skinning.glsl: the weighted sum of the palette matrices.
+					glm::mat4 blended(0.0f);
+					for (int i = 0; i < 4; i++)
+					{
+						const uint32_t bone = influences[index].BoneInfoIndices[i];
+						if (bone < palette->size())
+							blended += (*palette)[bone] * influences[index].Weights[i];
+					}
+					position = glm::vec3(blended * glm::vec4(position, 1.0f));
+					normal = glm::normalize(glm::mat3(blended) * normal);
+				}
+				// w components carry the uv the raster shader uses, (u, 1 - v), for material textures.
+				vertices.push_back({ glm::vec4(position, sourceVertices[index].Texcoord.x), glm::vec4(normal, 1.0f - sourceVertices[index].Texcoord.y) });
+			}
+		}
+
+		nri::BottomLevelGeometryDesc MakeGeometry(nri::Buffer* vertexBuffer, nri::Buffer* indexBuffer, uint32_t vertexBase, uint32_t vertexCount, uint32_t indexBase, uint32_t indexCount)
+		{
+			nri::BottomLevelGeometryDesc geometry = {};
+			geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
+			geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
+			geometry.triangles.vertexBuffer = vertexBuffer;
+			geometry.triangles.vertexOffset = static_cast<uint64_t>(vertexBase) * sizeof(PackedRTVertex);
+			geometry.triangles.vertexNum = vertexCount;
+			geometry.triangles.vertexStride = sizeof(PackedRTVertex);
+			geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
+			geometry.triangles.indexBuffer = indexBuffer;
+			geometry.triangles.indexOffset = static_cast<uint64_t>(indexBase) * sizeof(uint32_t);
+			geometry.triangles.indexNum = indexCount;
+			geometry.triangles.indexType = nri::IndexType::UINT32;
+			return geometry;
+		}
+
+		void RecordASBarrier(const NRIInterface& api, nri::CommandBuffer* commands)
+		{
+			// The TLAS build (and the shaders) read what the builds wrote.
+			nri::GlobalBarrierDesc global = {};
+			global.before = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
+			global.after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::ACCELERATION_STRUCTURE | nri::StageBits::COMPUTE_SHADER };
+			nri::BarrierDesc barrier = {};
+			barrier.globals = &global;
+			barrier.globalNum = 1;
+			api.CmdBarrier(*commands, barrier);
+		}
+
+	}
+
 	bool RayTracingScene::RT_Update(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		if (!RHIDevice::SupportsRayQuery())
 			return false;
+		m_UpdateCounter++;
 
-		// Which meshes are present decides the geometry; transforms and materials only the TLAS.
+		Tuning tuning;
+		const uint32_t bits = s_TuningBits.load();
+		tuning.CompactBLAS = (bits & 1u) != 0;
+		tuning.RefitSkinned = (bits & 2u) != 0;
+		tuning.UpdateTLAS = (bits & 4u) != 0;
+
+		// Which meshes are present decides the geometry; transforms and materials only the TLAS; a skin pose only the skinned BLAS.
 		uint64_t geometrySignature = 1469598103934665603ull;
+		uint64_t poseSignature = 1469598103934665603ull;
 		{
 			std::vector<SubmeshKey> keys;
 			for (const InstanceInput& input : instances)
@@ -227,17 +321,24 @@ namespace Lux {
 			instanceSignature = HashValue(instanceSignature, input.Source.Raw());
 			instanceSignature = HashValue(instanceSignature, input.Submesh);
 			instanceSignature = HashValue(instanceSignature, input.Variant);
+			instanceSignature = HashValue(instanceSignature, input.PoseHash);
 			instanceSignature = HashValue(instanceSignature, input.ObjectToWorld);
 			instanceSignature = HashValue(instanceSignature, input.Albedo);
 			instanceSignature = HashValue(instanceSignature, input.Metalness);
 			instanceSignature = HashValue(instanceSignature, input.Roughness);
 			instanceSignature = HashValue(instanceSignature, input.Emission);
 			instanceSignature = HashValue(instanceSignature, input.MaterialID);
+			if (input.Variant != 0)
+				poseSignature = HashValue(HashValue(HashValue(poseSignature, input.Source.Raw()), input.Submesh), input.PoseHash);
 		}
 
 		const bool geometryChanged = geometrySignature != m_GeometrySignature;
+		const bool poseChanged = poseSignature != m_PoseSignature;
 		const bool instancesChanged = instanceSignature != m_InstanceSignature;
-		if (!geometryChanged && !instancesChanged)
+
+		// Compaction swaps BLASes a few frames after their build; the TLAS then points at the new ones.
+		const bool compacted = !geometryChanged && ProcessCompaction(cb);
+		if (!geometryChanged && !instancesChanged && !compacted)
 			return false;
 
 		if (instances.empty())
@@ -247,22 +348,41 @@ namespace Lux {
 			m_InstanceCount = 0;
 			m_GeometrySignature = geometrySignature;
 			m_InstanceSignature = instanceSignature;
+			m_PoseSignature = poseSignature;
 			return true;
 		}
 
+		bool rebuiltBLAS = geometryChanged;
 		if (geometryChanged)
 			BuildGeometry(cb, instances);
-		BuildTLAS(cb, instances, geometryChanged);
+		else if (poseChanged)
+		{
+			if (tuning.RefitSkinned)
+				RefitSkinned(cb, instances);
+			else
+			{
+				BuildGeometry(cb, instances); // A/B: the old behaviour, every BLAS rebuilt for a new pose
+				rebuiltBLAS = true;
+			}
+		}
+		BuildTLAS(cb, instances, rebuiltBLAS, compacted, tuning);
 
 		m_GeometrySignature = geometrySignature;
 		m_InstanceSignature = instanceSignature;
-		return true;
+		m_PoseSignature = poseSignature;
+		return instancesChanged || geometryChanged; // a compaction alone changes no image
 	}
 
 	void RayTracingScene::BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const NRIInterface& api = RHIDevice::API();
+		const Tuning tuning = [&]
+		{
+			Tuning t;
+			t.CompactBLAS = (s_TuningBits.load() & 1u) != 0;
+			return t;
+		}();
 		ReleaseGeometry();
 
 		// Unique (source, submesh) in first-seen order; vertices and indices concatenated.
@@ -275,16 +395,15 @@ namespace Lux {
 
 		std::vector<PackedRTVertex> vertices;
 		std::vector<uint32_t> indices;
-		struct Pending { SubmeshKey Key; uint32_t VertexBase; uint32_t VertexCount; uint32_t IndexBase; uint32_t IndexCount; };
+		struct Pending { SubmeshKey Key; uint32_t VertexBase; uint32_t VertexCount; uint32_t IndexBase; uint32_t IndexCount; uint64_t PoseHash; };
 		std::vector<Pending> pending;
 		m_TriangleCount = 0;
 		for (const SubmeshKey& key : keys)
 		{
 			const Submesh& submesh = key.Source->GetSubmeshes()[key.Submesh];
-			const auto& sourceVertices = key.Source->GetVertices();
 			const auto& sourceIndices = key.Source->GetIndices();
 
-			Pending entry = { key, static_cast<uint32_t>(vertices.size()), submesh.VertexCount, static_cast<uint32_t>(indices.size()), submesh.IndexCount };
+			Pending entry = { key, static_cast<uint32_t>(vertices.size()), submesh.VertexCount, static_cast<uint32_t>(indices.size()), submesh.IndexCount, 0 };
 			// The palette of a skinned instance (the first one with this key).
 			const std::vector<glm::mat4>* palette = nullptr;
 			if (key.Variant != 0)
@@ -294,37 +413,12 @@ namespace Lux {
 					if (KeyOf(input) == key)
 					{
 						palette = &input.SkinPalette;
+						entry.PoseHash = input.PoseHash;
 						break;
 					}
 				}
 			}
-			const auto& influences = key.Source->GetBoneInfluences();
-			for (uint32_t v = 0; v < submesh.VertexCount; v++)
-			{
-				const uint32_t source = submesh.BaseVertex + v;
-				if (source >= sourceVertices.size())
-				{
-					vertices.push_back({ glm::vec4(0, 0, 0, 0), glm::vec4(0, 1, 0, 0) });
-					continue;
-				}
-				glm::vec3 position = sourceVertices[source].Position;
-				glm::vec3 normal = sourceVertices[source].Normal;
-				if (palette && source < influences.size())
-				{
-					// Linear blend skinning, as Skinning.glsl: the weighted sum of the palette matrices.
-					glm::mat4 blended(0.0f);
-					for (int i = 0; i < 4; i++)
-					{
-						const uint32_t bone = influences[source].BoneInfoIndices[i];
-						if (bone < palette->size())
-							blended += (*palette)[bone] * influences[source].Weights[i];
-					}
-					position = glm::vec3(blended * glm::vec4(position, 1.0f));
-					normal = glm::normalize(glm::mat3(blended) * normal);
-				}
-				// w components carry the uv the raster shader uses, (u, 1 - v), for material textures.
-				vertices.push_back({ glm::vec4(position, sourceVertices[source].Texcoord.x), glm::vec4(normal, 1.0f - sourceVertices[source].Texcoord.y) });
-			}
+			AppendVertices(vertices, *key.Source, submesh, palette);
 			// Index (triangle) k covers scalar indices 3k..3k+2; BaseIndex is in scalar indices.
 			for (uint32_t i = 0; i < submesh.IndexCount; i++)
 			{
@@ -348,7 +442,7 @@ namespace Lux {
 		EnsureCapacity(m_IndexBuffer, static_cast<uint32_t>(indices.size() * sizeof(uint32_t)));
 		m_IndexBuffer->RT_SetData(cb, indices.data(), static_cast<uint32_t>(indices.size() * sizeof(uint32_t)));
 
-		// One BLAS (one geometry) per submesh.
+		// One BLAS (one geometry) per submesh. Skinned ones can be refit; static ones compacted.
 		std::vector<nri::BottomLevelGeometryDesc> geometries(pending.size());
 		std::vector<nri::BuildBottomLevelAccelerationStructureDesc> builds(pending.size());
 		std::vector<nri::AccelerationStructure*> structures(pending.size(), nullptr);
@@ -356,24 +450,16 @@ namespace Lux {
 		uint64_t scratchTotal = 0;
 		for (size_t i = 0; i < pending.size(); i++)
 		{
-			nri::BottomLevelGeometryDesc& geometry = geometries[i];
-			geometry = {};
-			geometry.flags = nri::BottomLevelGeometryBits::OPAQUE_GEOMETRY;
-			geometry.type = nri::BottomLevelGeometryType::TRIANGLES;
-			geometry.triangles.vertexBuffer = m_VertexBuffer->GetRHIBuffer();
-			geometry.triangles.vertexOffset = static_cast<uint64_t>(pending[i].VertexBase) * sizeof(PackedRTVertex);
-			geometry.triangles.vertexNum = pending[i].VertexCount;
-			geometry.triangles.vertexStride = sizeof(PackedRTVertex);
-			geometry.triangles.vertexFormat = nri::Format::RGB32_SFLOAT;
-			geometry.triangles.indexBuffer = m_IndexBuffer->GetRHIBuffer();
-			geometry.triangles.indexOffset = static_cast<uint64_t>(pending[i].IndexBase) * sizeof(uint32_t);
-			geometry.triangles.indexNum = pending[i].IndexCount;
-			geometry.triangles.indexType = nri::IndexType::UINT32;
+			geometries[i] = MakeGeometry(m_VertexBuffer->GetRHIBuffer(), m_IndexBuffer->GetRHIBuffer(), pending[i].VertexBase, pending[i].VertexCount, pending[i].IndexBase, pending[i].IndexCount);
 
 			nri::AccelerationStructureDesc desc = {};
-			desc.geometries = &geometry;
+			desc.geometries = &geometries[i];
 			desc.geometryOrInstanceNum = 1;
 			desc.flags = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
+			if (pending[i].Key.Variant != 0)
+				desc.flags = desc.flags | nri::AccelerationStructureBits::ALLOW_UPDATE;
+			else if (tuning.CompactBLAS)
+				desc.flags = desc.flags | nri::AccelerationStructureBits::ALLOW_COMPACTION;
 			desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
 			if (api.CreateCommittedAccelerationStructure(RHIDevice::Get(), nri::MemoryLocation::DEVICE, 0.0f, desc, structures[i]) != nri::Result::SUCCESS)
 			{
@@ -387,6 +473,7 @@ namespace Lux {
 
 		nri::Buffer* scratch = CreateRawBuffer(scratchTotal, nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT BLAS Scratch");
 		std::vector<nri::BuildBottomLevelAccelerationStructureDesc> validBuilds;
+		CompactionBatch batch;
 		for (size_t i = 0; i < pending.size(); i++)
 		{
 			if (!structures[i])
@@ -404,7 +491,18 @@ namespace Lux {
 			record.Structure = structures[i];
 			record.VertexBase = pending[i].VertexBase;
 			record.IndexBase = pending[i].IndexBase;
+			record.VertexCount = pending[i].VertexCount;
+			record.IndexCount = pending[i].IndexCount;
+			record.Updatable = pending[i].Key.Variant != 0;
+			record.PoseHash = pending[i].PoseHash;
 			m_BLASes[pending[i].Key] = record;
+
+			if (tuning.CompactBLAS && !record.Updatable)
+			{
+				batch.Keys.push_back(pending[i].Key);
+				batch.Sources.push_back(structures[i]);
+				batch.Geometries.push_back(geometries[i]);
+			}
 		}
 
 		if (!validBuilds.empty() && scratch)
@@ -412,14 +510,30 @@ namespace Lux {
 			if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
 			{
 				api.CmdBuildBottomLevelAccelerationStructures(*commands, validBuilds.data(), static_cast<uint32_t>(validBuilds.size()));
-				// The TLAS build (and the shaders) read what these builds wrote.
-				nri::GlobalBarrierDesc global = {};
-				global.before = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
-				global.after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::ACCELERATION_STRUCTURE | nri::StageBits::COMPUTE_SHADER };
-				nri::BarrierDesc barrier = {};
-				barrier.globals = &global;
-				barrier.globalNum = 1;
-				api.CmdBarrier(*commands, barrier);
+				RecordASBarrier(api, commands);
+
+				// Ask the GPU how small each static BLAS could be; the answer is read a few frames later (ProcessCompaction).
+				if (!batch.Keys.empty())
+				{
+					const uint32_t count = static_cast<uint32_t>(batch.Keys.size());
+					if (api.CreateQueryPool(RHIDevice::Get(), { nri::QueryType::ACCELERATION_STRUCTURE_COMPACTED_SIZE, count }, batch.Pool) == nri::Result::SUCCESS)
+					{
+						batch.Readback = CreateRawBuffer(count * sizeof(uint64_t), nri::BufferUsageBits::NONE, nri::MemoryLocation::HOST_READBACK, "RT BLAS Compacted Sizes");
+						if (batch.Readback)
+						{
+							api.CmdResetQueries(*commands, *batch.Pool, 0, count);
+							api.CmdWriteAccelerationStructureSizes(*commands, batch.Sources.data(), count, *batch.Pool, 0);
+							api.CmdCopyQueries(*commands, *batch.Pool, 0, count, *batch.Readback, 0);
+							batch.IssuedAt = m_UpdateCounter;
+							batch.GeometrySignature = 0; // set by RT_Update's caller flow below
+							m_Compactions.push_back(std::move(batch));
+						}
+						else
+						{
+							api.DestroyQueryPool(batch.Pool);
+						}
+					}
+				}
 				cb->RT_EndNRISegment();
 			}
 		}
@@ -430,7 +544,147 @@ namespace Lux {
 		}
 	}
 
-	void RayTracingScene::BuildTLAS(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances, bool geometryRebuilt)
+	void RayTracingScene::RefitSkinned(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		const NRIInterface& api = RHIDevice::API();
+
+		struct Refit { SubmeshKey Key; const InstanceInput* Input; };
+		std::vector<Refit> refits;
+		for (const InstanceInput& input : instances)
+		{
+			if (input.Variant == 0)
+				continue;
+			const SubmeshKey key = KeyOf(input);
+			auto it = m_BLASes.find(key);
+			if (it == m_BLASes.end() || !it->second.Updatable || !it->second.Structure || it->second.PoseHash == input.PoseHash)
+				continue;
+			if (std::find_if(refits.begin(), refits.end(), [&](const Refit& r) { return r.Key == key; }) == refits.end())
+				refits.push_back({ key, &input });
+		}
+		if (refits.empty())
+			return;
+
+		std::vector<nri::BottomLevelGeometryDesc> geometries(refits.size());
+		std::vector<nri::BuildBottomLevelAccelerationStructureDesc> builds(refits.size());
+		std::vector<uint64_t> scratchOffsets(refits.size(), 0);
+		uint64_t scratchTotal = 0;
+		for (size_t i = 0; i < refits.size(); i++)
+		{
+			BLASRecord& record = m_BLASes[refits[i].Key];
+			const Submesh& submesh = refits[i].Key.Source->GetSubmeshes()[refits[i].Key.Submesh];
+			std::vector<PackedRTVertex> vertices;
+			AppendVertices(vertices, *refits[i].Key.Source, submesh, &refits[i].Input->SkinPalette);
+			m_VertexBuffer->RT_SetData(cb, vertices.data(), static_cast<uint32_t>(vertices.size() * sizeof(PackedRTVertex)), static_cast<uint32_t>(record.VertexBase * sizeof(PackedRTVertex)));
+			geometries[i] = MakeGeometry(m_VertexBuffer->GetRHIBuffer(), m_IndexBuffer->GetRHIBuffer(), record.VertexBase, record.VertexCount, record.IndexBase, record.IndexCount);
+			scratchOffsets[i] = scratchTotal;
+			scratchTotal += AlignUp(api.GetAccelerationStructureUpdateScratchBufferSize(*record.Structure), k_ScratchAlignment);
+		}
+
+		nri::Buffer* scratch = CreateRawBuffer(scratchTotal, nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT BLAS Update Scratch");
+		if (!scratch)
+			return;
+		for (size_t i = 0; i < refits.size(); i++)
+		{
+			BLASRecord& record = m_BLASes[refits[i].Key];
+			builds[i] = {};
+			builds[i].dst = record.Structure;
+			builds[i].src = record.Structure; // an update in place
+			builds[i].geometries = &geometries[i];
+			builds[i].geometryNum = 1;
+			builds[i].scratchBuffer = scratch;
+			builds[i].scratchOffset = scratchOffsets[i];
+			record.PoseHash = refits[i].Input->PoseHash;
+		}
+		if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
+		{
+			api.CmdBuildBottomLevelAccelerationStructures(*commands, builds.data(), static_cast<uint32_t>(builds.size()));
+			RecordASBarrier(api, commands);
+			cb->RT_EndNRISegment();
+		}
+		m_BLASRefits += static_cast<uint32_t>(refits.size());
+		if (m_BLASRefits == static_cast<uint32_t>(refits.size()))
+			LUX_CORE_INFO_TAG("Renderer", "[RT] skinned BLASes are refit in place ({} this frame)", refits.size());
+		Renderer::SubmitResourceFree([scratch]() { RHIDevice::API().DestroyBuffer(scratch); });
+	}
+
+	bool RayTracingScene::ProcessCompaction(Ref<RenderCommandBuffer> cb)
+	{
+		if (m_Compactions.empty())
+			return false;
+		const NRIInterface& api = RHIDevice::API();
+		bool swapped = false;
+		for (size_t b = 0; b < m_Compactions.size();)
+		{
+			CompactionBatch& batch = m_Compactions[b];
+			if (m_UpdateCounter < batch.IssuedAt + k_CompactionDelay)
+			{
+				b++;
+				continue;
+			}
+
+			// The GPU wrote the sizes at least k_CompactionDelay updates ago, so mapping does not wait.
+			std::vector<uint64_t> sizes(batch.Keys.size(), 0);
+			if (const void* mapped = api.MapBuffer(*batch.Readback, 0, sizes.size() * sizeof(uint64_t)))
+			{
+				std::memcpy(sizes.data(), mapped, sizes.size() * sizeof(uint64_t));
+				api.UnmapBuffer(*batch.Readback);
+			}
+
+			std::vector<nri::AccelerationStructure*> retired;
+			uint64_t bytesBefore = 0, bytesAfter = 0;
+			if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
+			{
+				for (size_t i = 0; i < batch.Keys.size(); i++)
+				{
+					auto it = m_BLASes.find(batch.Keys[i]);
+					if (it == m_BLASes.end() || it->second.Structure != batch.Sources[i] || sizes[i] == 0)
+						continue; // rebuilt or freed since
+					nri::MemoryDesc memory = {};
+					api.GetAccelerationStructureMemoryDesc(*batch.Sources[i], nri::MemoryLocation::DEVICE, memory);
+					if (sizes[i] >= memory.size)
+						continue; // nothing to gain
+					nri::AccelerationStructureDesc desc = {};
+					desc.optimizedSize = sizes[i];
+					desc.geometries = &batch.Geometries[i];
+					desc.geometryOrInstanceNum = 1;
+					desc.flags = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
+					desc.type = nri::AccelerationStructureType::BOTTOM_LEVEL;
+					nri::AccelerationStructure* compact = nullptr;
+					if (api.CreateCommittedAccelerationStructure(RHIDevice::Get(), nri::MemoryLocation::DEVICE, 0.0f, desc, compact) != nri::Result::SUCCESS)
+						continue;
+					api.CmdCopyAccelerationStructure(*commands, *compact, *batch.Sources[i], nri::CopyMode::COMPACT);
+					it->second.Structure = compact;
+					retired.push_back(batch.Sources[i]);
+					bytesBefore += memory.size;
+					bytesAfter += sizes[i];
+					swapped = true;
+				}
+				if (!retired.empty())
+					RecordASBarrier(api, commands);
+				cb->RT_EndNRISegment();
+			}
+			if (!retired.empty())
+			{
+				m_CompactedBLASes += static_cast<uint32_t>(retired.size());
+				LUX_CORE_INFO_TAG("Renderer", "[RT] compacted {} BLASes: {:.2f} MiB -> {:.2f} MiB", retired.size(), bytesBefore / 1048576.0, bytesAfter / 1048576.0);
+				Renderer::SubmitResourceFree([retired = std::move(retired)]()
+				{
+					for (nri::AccelerationStructure* structure : retired)
+						RHIDevice::API().DestroyAccelerationStructure(structure);
+				});
+			}
+			Renderer::SubmitResourceFree([pool = batch.Pool, readback = batch.Readback]()
+			{
+				RHIDevice::API().DestroyQueryPool(pool);
+				RHIDevice::API().DestroyBuffer(readback);
+			});
+			m_Compactions.erase(m_Compactions.begin() + b);
+		}
+		return swapped;
+	}
+
+	void RayTracingScene::BuildTLAS(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances, bool geometryRebuilt, bool forceRebuild, const Tuning& tuning)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const NRIInterface& api = RHIDevice::API();
@@ -445,7 +699,7 @@ namespace Lux {
 
 			nri::AccelerationStructureDesc desc = {};
 			desc.geometryOrInstanceNum = capacity;
-			desc.flags = nri::AccelerationStructureBits::PREFER_FAST_TRACE;
+			desc.flags = nri::AccelerationStructureBits::PREFER_FAST_TRACE | nri::AccelerationStructureBits::ALLOW_UPDATE;
 			desc.type = nri::AccelerationStructureType::TOP_LEVEL;
 			if (api.CreateCommittedAccelerationStructure(RHIDevice::Get(), nri::MemoryLocation::DEVICE, 0.0f, desc, m_TLAS) != nri::Result::SUCCESS)
 			{
@@ -459,8 +713,10 @@ namespace Lux {
 				m_TLASDescriptor = nullptr;
 			}
 			m_TLASCapacity = capacity;
+			m_TLASBuilt = false;
 			m_TLASInstanceBuffer = CreateRawBuffer(sizeof(nri::TopLevelInstance) * capacity, nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT, nri::MemoryLocation::HOST_UPLOAD, "RT TLAS Instances");
-			m_TLASScratch = CreateRawBuffer(api.GetAccelerationStructureBuildScratchBufferSize(*m_TLAS), nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT TLAS Scratch");
+			const uint64_t scratchSize = std::max(api.GetAccelerationStructureBuildScratchBufferSize(*m_TLAS), api.GetAccelerationStructureUpdateScratchBufferSize(*m_TLAS));
+			m_TLASScratch = CreateRawBuffer(scratchSize, nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT TLAS Scratch");
 		}
 		if (!m_TLAS || !m_TLASInstanceBuffer || !m_TLASScratch)
 			return;
@@ -504,8 +760,12 @@ namespace Lux {
 		EnsureCapacity(m_InstanceBuffer, instanceBytes);
 		m_InstanceBuffer->RT_SetData(cb, gpuInstances.data(), instanceBytes);
 
+		// A refit keeps the tree and only moves its bounds: valid while the instance count and every BLAS stay the same.
+		const bool update = tuning.UpdateTLAS && m_TLASBuilt && !geometryRebuilt && !forceRebuild && count == m_InstanceCount;
+
 		nri::BuildTopLevelAccelerationStructureDesc build = {};
 		build.dst = m_TLAS;
+		build.src = update ? m_TLAS : nullptr;
 		build.instanceNum = count;
 		build.instanceBuffer = m_TLASInstanceBuffer;
 		build.instanceOffset = 0;
@@ -524,6 +784,14 @@ namespace Lux {
 			api.CmdBarrier(*commands, barrier);
 			cb->RT_EndNRISegment();
 		}
+		if (update)
+		{
+			if (m_TLASUpdates++ == 0)
+				LUX_CORE_INFO_TAG("Renderer", "[RT] the TLAS is refit in place for transform-only changes");
+		}
+		else
+			m_TLASRebuilds++;
+		m_TLASBuilt = true;
 		m_InstanceCount = count;
 	}
 

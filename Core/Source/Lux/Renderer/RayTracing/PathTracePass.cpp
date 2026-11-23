@@ -298,6 +298,7 @@ namespace Lux {
 	void SceneRenderer::PathTracePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PathTracePass");
+		ApplyRTTuning();
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !EnsurePathTracer())
 			return;
 
