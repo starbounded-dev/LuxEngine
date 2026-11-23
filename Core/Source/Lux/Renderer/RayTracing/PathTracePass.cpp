@@ -19,6 +19,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 
 namespace Lux {
@@ -27,6 +28,11 @@ namespace Lux {
 	struct SceneRenderer::PathTraceState
 	{
 		std::atomic<uint32_t> Frame{ 0 }; // samples already in the accumulation image (read by the editor panel)
+		std::atomic<float> DiffMAE{ -1.0f };  // < 0 until the first diff has been read back
+		std::atomic<float> DiffPSNR{ 0.0f };
+		uint32_t DiffGroups = 0;              // partial sums the last diff dispatch wrote (0: none pending)
+		uint32_t DiffPixels = 0;
+		uint32_t DiffReads = 0;
 		uint32_t ResetCounter = 0;
 		uint64_t Signature = 0;
 	};
@@ -85,6 +91,12 @@ namespace Lux {
 			return packed;
 		}
 
+		struct DiffPush
+		{
+			glm::uvec4 SizeGroups;
+			glm::vec4 Params;
+		};
+
 		struct PathTracePush
 		{
 			glm::uvec4 SizeFrameBounces;
@@ -98,6 +110,56 @@ namespace Lux {
 	uint32_t SceneRenderer::GetPathTraceSampleCount() const
 	{
 		return m_PathTraceState ? m_PathTraceState->Frame.load() : 0u;
+	}
+
+	bool SceneRenderer::GetPathTraceDiffStats(float& mae, float& psnr) const
+	{
+		if (!m_PathTraceState || m_PathTraceState->DiffMAE.load() < 0.0f)
+			return false;
+		mae = m_PathTraceState->DiffMAE.load();
+		psnr = m_PathTraceState->DiffPSNR.load();
+		return true;
+	}
+
+	bool SceneRenderer::EnsurePathTraceDiff()
+	{
+		if (m_PathTraceDiffPass)
+			return true;
+		auto library = Renderer::GetShaderLibrary();
+		if (library->GetShaders().find("PathTraceDiff") == library->GetShaders().end())
+			library->Load("Resources/Shaders/PathTracing/PathTraceDiff.glsl");
+		if (library->GetShaders().find("PathTraceDiff") == library->GetShaders().end())
+			return false;
+
+		ImageSpecification spec;
+		spec.Format = ImageFormat::RGBA16F;
+		spec.Usage = ImageUsage::Storage;
+		spec.Width = std::max(1u, m_ViewportWidth);
+		spec.Height = std::max(1u, m_ViewportHeight);
+		spec.DebugName = "PathTrace-Diff";
+		m_PathTraceDiffImage = Image2D::Create(spec);
+		m_PathTraceDiffImage->Invalidate();
+		StorageBufferSpecification bufferSpec;
+		bufferSpec.GPUOnly = false;
+		bufferSpec.DebugName = "PathTrace Diff Partials";
+		m_PathTraceDiffPartials = StorageBuffer::Create(256, bufferSpec);
+
+		ComputePassSpecification passSpec;
+		passSpec.DebugName = "PathTraceDiff";
+		passSpec.Pipeline = PipelineCompute::Create(library->Get("PathTraceDiff"));
+		m_PathTraceDiffPass = ComputePass::Create(passSpec);
+		m_PathTraceDiffPass->SetInput("u_DiffRasterColor", GetSceneColorOutput());
+		m_PathTraceDiffPass->SetInput("u_DiffReferenceColor", m_PathTraceImage);
+		m_PathTraceDiffPass->SetInput("o_DiffImage", m_PathTraceDiffImage);
+		m_PathTraceDiffPass->SetInput("DiffPartials", m_PathTraceDiffPartials);
+		if (!m_PathTraceDiffPass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] the diff pass inputs do not match its shader");
+			m_PathTraceDiffPass = nullptr;
+			return false;
+		}
+		m_PathTraceDiffPass->Bake();
+		return true;
 	}
 
 	bool SceneRenderer::EnsurePathTracer()
@@ -173,7 +235,13 @@ namespace Lux {
 		{
 			m_PathTraceAccumImage->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_PathTraceImage->Resize(m_ViewportWidth, m_ViewportHeight);
+			if (m_PathTraceDiffImage)
+				m_PathTraceDiffImage->Resize(m_ViewportWidth, m_ViewportHeight);
 		}
+
+		const bool diff = m_Options.PathTracerDiffHeatmap && EnsurePathTraceDiff();
+		if (diff)
+			m_PathTraceDiffPass->SetInput("u_DiffRasterColor", GetSceneColorOutput()); // follows scene colour recreations
 
 		// Snapshot everything the render thread needs; proxies and light arrays are not stable after this call.
 		std::vector<const StaticMeshRenderProxy*> proxies;
@@ -209,6 +277,10 @@ namespace Lux {
 		Ref<Image2D> image = m_PathTraceImage;
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<PathTraceState> state = m_PathTraceState;
+		Ref<ComputePass> diffPass = diff ? m_PathTraceDiffPass : nullptr;
+		Ref<Image2D> diffImage = diff ? m_PathTraceDiffImage : nullptr;
+		Ref<StorageBuffer> diffPartials = diff ? m_PathTraceDiffPartials : nullptr;
+		const float diffScale = m_Options.PathTracerDiffScale;
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
@@ -243,9 +315,54 @@ namespace Lux {
 				state->Frame++;
 			}
 
+			if (state->Frame.load() == 0 || !sceneColor)
+				return;
+
+			if (diffPass)
+			{
+				// The diff goes first: scene colour still holds the raster frame here.
+				const uint32_t groupsX = (width + 7u) / 8u, groupsY = (height + 7u) / 8u;
+				const uint32_t groups = groupsX * groupsY;
+				if (state->DiffGroups > 0 && diffPartials->GetSize() >= state->DiffGroups * sizeof(glm::vec2) && state->DiffPixels > 0)
+				{
+					// Read the previous dispatch's sums (a frame or more old, so the GPU has finished with them).
+					const void* mapped = diffPartials->GetBuffer().Map(0, state->DiffGroups * sizeof(glm::vec2));
+					if (mapped)
+					{
+						double sumAbs = 0.0, sumSq = 0.0;
+						const glm::vec2* partials = static_cast<const glm::vec2*>(mapped);
+						for (uint32_t i = 0; i < state->DiffGroups; i++)
+						{
+							sumAbs += partials[i].x;
+							sumSq += partials[i].y;
+						}
+						diffPartials->GetBuffer().Unmap();
+						const double mse = sumSq / state->DiffPixels;
+						state->DiffMAE = static_cast<float>(sumAbs / state->DiffPixels);
+						state->DiffPSNR = mse > 1e-12 ? static_cast<float>(-10.0 * std::log10(mse)) : 99.0f;
+						// Logged now and then so a headless run (the golden harness) can assert on it.
+						if (++state->DiffReads % 60 == 0)
+							LUX_CORE_INFO_TAG("Core", "[PathTracer] diff vs raster: MAE {:.5f}, PSNR {:.2f} dB", state->DiffMAE.load(), state->DiffPSNR.load());
+					}
+				}
+
+				if (diffPartials->GetSize() < groups * sizeof(glm::vec2))
+					diffPartials->Resize(groups * static_cast<uint32_t>(sizeof(glm::vec2)));
+				DiffPush diffPush = {};
+				diffPush.SizeGroups = glm::uvec4(width, height, groupsX, 0u);
+				diffPush.Params = glm::vec4(diffScale, 0.0f, 0.0f, 0.0f);
+				cb->RT_BeginMarker("PathTraceDiff");
+				diffPass->Prepare();
+				Renderer::RT_DispatchCompute(*cb, *diffPass, glm::uvec3(groupsX, groupsY, 1u), Buffer(&diffPush, sizeof(diffPush)));
+				cb->RT_EndMarker();
+				state->DiffGroups = groups;
+				state->DiffPixels = width * height;
+				Renderer::RT_CopyImage(cb, diffImage, sceneColor);
+				return;
+			}
+
 			// Replace the raster result in scene colour (post-processing then runs as usual).
-			if (state->Frame > 0 && sceneColor)
-				Renderer::RT_CopyImage(cb, image, sceneColor);
+			Renderer::RT_CopyImage(cb, image, sceneColor);
 		});
 	}
 

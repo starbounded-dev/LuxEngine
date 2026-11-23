@@ -10,6 +10,7 @@ afterwards unless --keep (the M: drive is small).
 """
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,15 @@ def main():
         region = (slice(int(h * 0.34), int(h * 0.58)), slice(int(w * 0.42), int(w * 0.58)))
         ratio = noise(n256[region]) / max(noise(n16[region]), 1e-9)
         check(0.1 <= ratio <= 0.6, f"noise at 256 spp / noise at 16 spp = {ratio:.3f} (expected about 0.25)")
+        # 4. Diff view: the heat map is not flat and the logged MAE / PSNR are sane.
+        labels.append("gi-check-diff")
+        diff = capture(labels[-1], "GI_CornellBox", "PathTracer=1,PathTracerDiff=1,PathTracerSamples=64", args.config, 300)
+        check(float(diff.std()) > 0.05, f"diff heat map has structure (std {float(diff.std()):.3f})")
+        log = (ROOT / "bin/golden" / labels[-1] / "GI_CornellBox.log").read_text(encoding="utf-8", errors="replace")
+        match = re.findall(r"diff vs raster: MAE ([0-9.]+), PSNR ([0-9.]+) dB", log)
+        check(bool(match), "the diff pass logged MAE / PSNR")
+        mae, psnr = float(match[-1][0]), float(match[-1][1])
+        check(0.005 < mae < 0.5 and 3.0 < psnr < 60.0, f"diff MAE {mae:.4f}, PSNR {psnr:.2f} dB are in range")
         print("All path tracer checks passed")
     finally:
         if not args.keep:

@@ -313,6 +313,10 @@ namespace Lux {
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
 		// converge to the environment radiance).
 		bool     PathTracerUniformEnvironment = false;
+		// Replace the view with an error heat map of the raster frame against the converged path-traced reference
+		// (PathTraceDiff.glsl). Needs EnablePathTracer. The raster frame is whatever indirect-diffuse source is active.
+		bool     PathTracerDiffHeatmap = false;
+		float    PathTracerDiffScale = 0.2f; // linear error mapped to full red
 		uint32_t PathTracerMaxBounces = 4;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
@@ -1457,8 +1461,11 @@ namespace Lux {
 	public:
 		// Samples accumulated by the path tracer so far (0 while it is off or has nothing to trace).
 		uint32_t GetPathTraceSampleCount() const;
+		// MAE and PSNR (linear light, [0, 1]) of the last diff; false until one has been read back.
+		bool GetPathTraceDiffStats(float& mae, float& psnr) const;
 	private:
 		bool EnsurePathTracer();
+		bool EnsurePathTraceDiff();
 		void ClusterLightCullingPass();
 		void SkyboxPass();
 		void SelectedGeometryPass();
@@ -1945,6 +1952,9 @@ namespace Lux {
 		Ref<Image2D> m_PathTraceAccumImage;         // RGBA32F running mean
 		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
 		Ref<StorageBuffer> m_PathTraceLights;
+		Ref<ComputePass> m_PathTraceDiffPass;
+		Ref<Image2D> m_PathTraceDiffImage;          // RGBA16F heat map
+		Ref<StorageBuffer> m_PathTraceDiffPartials; // per-workgroup sums, host-visible
 		std::shared_ptr<PathTraceState> m_PathTraceState; // render-thread accumulation state
 		Ref<ComputePass> m_ClusterLightCullingPass; // assigns lights to clusters
 		uint32_t         m_MeshCullDrawCount = 0;

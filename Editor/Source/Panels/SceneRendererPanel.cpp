@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Max Bounces", "Target Samples", "Reset Accumulation" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Max Bounces", "Target Samples", "Reset Accumulation" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -674,10 +674,18 @@ namespace Lux {
 				if (!RHIDevice::SupportsRayQuery())
 					ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "This GPU has no ray queries: the path tracer is unavailable.");
 				else if (options.EnablePathTracer)
+				{
 					ImGui::Text("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
+					float mae = 0.0f, psnr = 0.0f;
+					if (options.PathTracerDiffHeatmap && m_Context && m_Context->GetPathTraceDiffStats(mae, psnr))
+						ImGui::Text("Diff vs raster: MAE %.4f, PSNR %.1f dB", mae, psnr);
+				}
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Enable Path Tracer", options.EnablePathTracer);
 				toggle("Uniform Environment (furnace test)", options.PathTracerUniformEnvironment);
+				toggle("Diff vs Raster (heat map)", options.PathTracerDiffHeatmap);
+				if (match("Diff Scale"))
+					ImGuiEx::Property("Diff Scale", options.PathTracerDiffScale, 0.01f, 0.01f, 1.0f);
 				if (match("Max Bounces"))
 					ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u);
 				if (match("Target Samples"))

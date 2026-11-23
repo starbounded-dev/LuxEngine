@@ -96,6 +96,7 @@ namespace Lux {
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 			{ "PathTracer", &SceneRendererOptions::EnablePathTracer },
 			{ "PathTracerFurnace", &SceneRendererOptions::PathTracerUniformEnvironment },
+			{ "PathTracerDiff", &SceneRendererOptions::PathTracerDiffHeatmap },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces" };
