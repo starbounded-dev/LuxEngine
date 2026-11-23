@@ -451,6 +451,7 @@ namespace Lux {
 			m_LightmapBakePass->SetInput("RTLights", m_PathTraceLights);
 			m_LightmapBakePass->SetInput("LMTexels", m_LightmapBakeTexels);
 			m_LightmapBakePass->SetInput("LMAccum", m_LightmapBakeAccum);
+			PreparePathTraceEnvironment(m_LightmapBakePass);
 			if (!m_LightmapBakePass->Validate())
 				return fail("the bake pass inputs do not match its shader");
 			m_LightmapBakePass->Bake();
@@ -472,6 +473,7 @@ namespace Lux {
 			Ref<ComputePass> pass = m_LightmapBakePass;
 			Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
 			std::shared_ptr<LightmapBakeState> state = m_LightmapBake;
+			const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_LightmapBakePass);
 			if (state->Frame.load() < target)
 			{
 				Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
@@ -490,6 +492,7 @@ namespace Lux {
 					push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, 0u);
 					push.SkyRadiance = glm::vec4(0.35f, 0.5f, 0.8f, 0.0f);
 					push.GroundRadiance = glm::vec4(0.12f, 0.1f, 0.09f, 0.0f);
+					ApplyPathTraceEnvironment(push, envParams);
 					cb->RT_BeginMarker("LightmapBake");
 					pass->Prepare();
 					Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((size * size + 63u) / 64u, 1u, 1u), Buffer(&push, sizeof(push)));

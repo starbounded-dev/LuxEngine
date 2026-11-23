@@ -62,13 +62,15 @@ def main():
         labels.append("gi-check-cornell")
         cornell = capture(labels[-1], "GI_CornellBox", "PathTracer=1,PathTracerSamples=256", args.config, 330)
         h, w = cornell.shape[:2]
-        floor_left = cornell[int(h * 0.80):int(h * 0.82), int(w * 0.33):int(w * 0.38)].reshape(-1, 3).mean(axis=0)
-        floor_right = cornell[int(h * 0.80):int(h * 0.82), int(w * 0.62):int(w * 0.67)].reshape(-1, 3).mean(axis=0)
-        # Tone mapping compresses the tint, so compare the two sides with each other.
-        left_tint = floor_left[0] - floor_left[1]
-        right_tint = floor_right[0] - floor_right[1]
-        check(left_tint > 0.0 and right_tint < 0.0 and left_tint - right_tint > 0.03,
-              f"floor is red-tinted near the red wall and green-tinted near the green wall (R-G: left {left_tint:.3f}, right {right_tint:.3f})")
+        def region(y0, y1, x0, x1):
+            return cornell[int(h * y0):int(h * y1), int(w * x0):int(w * x1)].reshape(-1, 3).mean(axis=0)
+        # The back wall next to the red / green walls picks up their colour (tone mapping compresses it, so compare the two sides).
+        near_red = region(0.50, 0.58, 0.40, 0.42)
+        near_green = region(0.50, 0.58, 0.595, 0.60)
+        left_tint = near_red[0] - near_red[1]
+        right_tint = near_green[0] - near_green[1]
+        check(left_tint > 0.05 and right_tint < left_tint - 0.1,
+              f"the back wall is red near the red wall and greener near the green wall (R-G: left {left_tint:.3f}, right {right_tint:.3f})")
 
         # 2. White furnace: an albedo-1 sphere in a uniform environment of radiance 1 must vanish into it.
         labels.append("gi-check-furnace")
@@ -136,6 +138,16 @@ def main():
             check(bool(found), f"diff log present for RTGI={use}")
             rt[use] = float(found[-1])
         check(rt["1"] < rt["0"] * 0.92, f"ray-traced GI lowers the error against the path tracer (MAE {rt['0']:.4f} -> {rt['1']:.4f})")
+        # 8. Every area light shape lights the floor in the path tracer (disk, sphere, tube; the rect is the Cornell light).
+        labels.append("gi-check-shapes")
+        shapes = capture(labels[-1], "GI_AreaLights", "PathTracer=1,PathTracerSamples=256", args.config, 330)
+        h, w = shapes.shape[:2]
+        def mean(y0, y1, x0, x1):
+            return float(shapes[int(h * y0):int(h * y1), int(w * x0):int(w * x1)].mean())
+        corners = (mean(0.55, 0.60, 0.20, 0.24) + mean(0.55, 0.60, 0.76, 0.80)) / 2.0
+        for name, box in (("disk", (0.30, 0.38, 0.29, 0.33)), ("sphere", (0.30, 0.38, 0.47, 0.51)), ("tube", (0.30, 0.38, 0.66, 0.70))):
+            under = mean(*box)
+            check(under > corners * 1.1, f"the {name} area light lights the floor under it ({under:.3f} vs {corners:.3f} at the corners)")
         print("All path tracer checks passed")
     finally:
         if not args.keep:

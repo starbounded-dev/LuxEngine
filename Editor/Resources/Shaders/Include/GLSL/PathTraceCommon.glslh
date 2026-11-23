@@ -3,7 +3,7 @@
 
 // Shared by PathTrace.glsl (editor path tracer) and PathTraceBake.glsl (lightmap baker): the scene
 // bindings, the BRDF (PBR.glslh terms), ray queries, next-event estimation and the path loop.
-// Needs GL_EXT_ray_query. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights.
+// Needs GL_EXT_ray_query. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights, 74 environment cube, 75 its sampler.
 
 struct RTInstance
 {
@@ -196,10 +196,41 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	return true;
 }
 
+// Distance to the first surface along a ray, and whether it was hit from behind (the origin is inside geometry).
+bool TraceDistance(vec3 o, vec3 d, float tMax, out float t, out bool backface)
+{
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, tMax);
+	while (rayQueryProceedEXT(q)) {}
+	if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT)
+	{
+		t = tMax;
+		backface = false;
+		return false;
+	}
+	t = rayQueryGetIntersectionTEXT(q, true);
+	backface = !rayQueryGetIntersectionFrontFaceEXT(q, true);
+	return true;
+}
+
+layout(set = 1, binding = 74) uniform textureCube u_PTEnvironment;
+layout(set = 1, binding = 75) uniform sampler u_PTEnvironmentSampler;
+const uint FLAG_ENV_MAP = 2u; // sample u_PTEnvironment (the scene's radiance map) instead of the sky/ground colours
+
+vec3 PTRotateAboutY(float degrees, vec3 v)
+{
+	float a = radians(degrees);
+	return mat3(vec3(cos(a), 0.0, sin(a)), vec3(0.0, 1.0, 0.0), vec3(-sin(a), 0.0, cos(a))) * v;
+}
+
+// Radiance escaping along d: the scene environment map (SkyRadiance.a = its intensity, GroundRadiance.a = its
+// rotation about +Y in degrees) when FLAG_ENV_MAP is set, otherwise a sky/ground gradient.
 vec3 Environment(vec3 d)
 {
 	if ((u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
 		return u_Push.SkyRadiance.rgb;
+	if ((u_Push.Counts.y & FLAG_ENV_MAP) != 0u)
+		return textureLod(samplerCube(u_PTEnvironment, u_PTEnvironmentSampler), PTRotateAboutY(u_Push.GroundRadiance.a, d), 0.0).rgb * u_Push.SkyRadiance.a;
 	return mix(u_Push.GroundRadiance.rgb, u_Push.SkyRadiance.rgb, clamp(0.5 + 0.5 * d.y, 0.0, 1.0));
 }
 
@@ -226,18 +257,56 @@ vec3 DirectLight(Surface s, vec3 V)
 		L = normalize(a.xyz);
 		radiance = b.rgb;
 	}
-	else if (type == 3) // rect area: centre a.xyz, half-extents c.xyz / dd.xyz, emits along -normalize(cross(c, dd))
+	else if (type >= 3) // area lights: 3 rect, 4 disk, 5 sphere, 6 tube. Centre a.xyz, half vectors c.xyz / dd.xyz
 	{
-		vec3 p = a.xyz + (2.0 * Rand() - 1.0) * c.xyz + (2.0 * Rand() - 1.0) * dd.xyz;
+		vec3 p;
+		vec3 emitNormal;
+		float area;
+		if (type == 5) // sphere: radius |c|, uniform on the surface, emits outward
+		{
+			float radius = length(c.xyz);
+			float z = 1.0 - 2.0 * Rand();
+			float phi = 2.0 * PI * Rand();
+			float rr = sqrt(max(1.0 - z * z, 0.0));
+			emitNormal = vec3(rr * cos(phi), rr * sin(phi), z);
+			p = a.xyz + emitNormal * radius;
+			area = 4.0 * PI * radius * radius;
+		}
+		else if (type == 6) // tube: axis half-vector c, radius |dd|, uniform on the side surface
+		{
+			vec3 axis = c.xyz;
+			float halfLength = length(axis);
+			vec3 e1, e2;
+			Basis(axis / max(halfLength, 1e-6), e1, e2);
+			float phi = 2.0 * PI * Rand();
+			emitNormal = cos(phi) * e1 + sin(phi) * e2;
+			p = a.xyz + (2.0 * Rand() - 1.0) * axis + emitNormal * length(dd.xyz);
+			area = 2.0 * PI * length(dd.xyz) * 2.0 * halfLength;
+		}
+		else // rect (3) and disk (4): span c x dd, emit along -normalize(cross(c, dd))
+		{
+			vec3 areaCross = cross(c.xyz, dd.xyz);
+			float areaLen = length(areaCross);
+			emitNormal = -areaCross / max(areaLen, 1e-8);
+			if (type == 4)
+			{
+				float r = sqrt(Rand());
+				float phi = 2.0 * PI * Rand();
+				p = a.xyz + r * (cos(phi) * c.xyz + sin(phi) * dd.xyz);
+				area = PI * areaLen;
+			}
+			else
+			{
+				p = a.xyz + (2.0 * Rand() - 1.0) * c.xyz + (2.0 * Rand() - 1.0) * dd.xyz;
+				area = 4.0 * areaLen;
+			}
+		}
 		vec3 toLight = p - s.P;
 		float d2 = max(dot(toLight, toLight), 1e-6);
 		dist = sqrt(d2);
 		L = toLight / dist;
-		vec3 areaCross = cross(c.xyz, dd.xyz);
-		float areaLen = length(areaCross);
-		vec3 emitDir = -areaCross / max(areaLen, 1e-8);
-		float cosLight = max(dot(emitDir, -L), 0.0);
-		radiance = b.rgb * (cosLight * 4.0 * areaLen / d2);
+		float cosLight = max(dot(emitNormal, -L), 0.0);
+		radiance = b.rgb * (cosLight * area / d2);
 	}
 	else // point (1) / spot (2): a.xyz position, b.rgb radiance * intensity, b.a range
 	{

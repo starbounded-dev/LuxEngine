@@ -122,6 +122,23 @@ namespace Lux {
 		return true;
 	}
 
+	PathTraceEnvParams SceneRenderer::PreparePathTraceEnvironment(Ref<ComputePass> pass)
+	{
+		PathTraceEnvParams params;
+		Ref<TextureCube> radiance;
+		if (m_FrameEnvironment.Environment)
+			radiance = m_FrameEnvironment.Environment->RadianceMap;
+		if (radiance)
+		{
+			params.Flags = 2;
+			params.Intensity = m_FrameEnvironment.EnvironmentIntensity;
+			params.Rotation = m_FrameEnvironment.EnvironmentRotation;
+		}
+		pass->SetInput("u_PTEnvironment", radiance ? radiance : Renderer::GetBlackCubeTexture());
+		pass->SetInput("u_PTEnvironmentSampler", Renderer::GetClampSampler());
+		return params;
+	}
+
 	bool SceneRenderer::EnsurePathTracer()
 	{
 		if (m_PathTracePass)
@@ -176,6 +193,7 @@ namespace Lux {
 		m_PathTracePass->SetInput("RTLights", m_PathTraceLights);
 		m_PathTracePass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
 		m_PathTracePass->SetInput("o_PathTraceImage", m_PathTraceImage);
+		PreparePathTraceEnvironment(m_PathTracePass);
 		if (!m_PathTracePass->Validate())
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] the PathTrace pass inputs do not match its shader; the path tracer is off for this session");
@@ -241,6 +259,7 @@ namespace Lux {
 		Ref<Image2D> image = m_PathTraceImage;
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<PathTraceState> state = m_PathTraceState;
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_PathTracePass);
 		Ref<ComputePass> diffPass = diff ? m_PathTraceDiffPass : nullptr;
 		Ref<Image2D> diffImage = diff ? m_PathTraceDiffImage : nullptr;
 		Ref<StorageBuffer> diffPartials = diff ? m_PathTraceDiffPartials : nullptr;
@@ -271,6 +290,7 @@ namespace Lux {
 				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, 0u, 0u);
 				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
+				ApplyPathTraceEnvironment(push, envParams);
 
 				cb->RT_BeginMarker("PathTrace");
 				pass->Prepare();

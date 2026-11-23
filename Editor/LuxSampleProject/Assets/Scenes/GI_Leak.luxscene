@@ -1,0 +1,136 @@
+FormatVersion: 1
+Scene: GI_Leak
+Entities:
+  - Entity: 16300000000007000001
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [10.2, 0.1, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000007000002
+    TagComponent:
+      Tag: Ceiling
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [10.2, 0.1, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000007000003
+    TagComponent:
+      Tag: Back Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2, -2.55]
+      Rotation: [0, 0, 0]
+      Scale: [10.2, 4.0, 0.1]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000007000004
+    TagComponent:
+      Tag: Left Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-5.05, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 4.0, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Red.lmat
+      Visible: true
+  - Entity: 16300000000007000005
+    TagComponent:
+      Tag: Right Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [5.05, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 4.0, 5.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Green.lmat
+      Visible: true
+  - Entity: 16300000000007000006
+    TagComponent:
+      Tag: Divider
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.1, 4.0, 5.0]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000007000007
+    TagComponent:
+      Tag: Lamp (left room)
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.5, 3.3, 0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.92, 0.8]
+      Intensity: 25
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: false
+      MinRadius: 0.1
+      Radius: 14
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 16300000000007000008
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.0, 11]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

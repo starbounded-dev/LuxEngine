@@ -6,11 +6,17 @@
 // Fibonacci sphere with the shared path kernel (direct light by next-event estimation at every hit, plus
 // bounces), projects the incoming radiance onto L1 spherical harmonics and blends it into its history
 // (hysteresis: lighting changes show up over a few frames; the temporal blend never touches the camera, so
-// camera motion cannot ghost). GBuffer_Static.glsl reads the grid as indirect diffuse. Probes have no
-// visibility term, so light leaks through thin walls (documented limit). See docs/GI_PLAN.md, GI4.
+// camera motion cannot ghost). GBuffer_Static.glsl reads the grid as indirect diffuse.
+//
+// Visibility (GIL5): besides radiance each probe keeps an 8x8 octahedral map of the mean distance and mean squared
+// distance to the nearest surface per direction, and the share of rays that hit a surface from behind (the probe sits
+// inside geometry). The G-buffer pass weights probes with them (Chebyshev, as DDGI) so light does not leak through
+// walls.
 //
 // GIProbes layout (vec4 elements): [0] = (grid origin, 1 when the grid is valid), [1] = (cell size, 0),
-// [2] = (dims, 0) as floats, then 4 vec4 per probe: SH L1 coefficients (r,g,b in xyz) for Y00, Y1-1, Y10, Y11.
+// [2] = (dims, 0) as floats, then 36 vec4 per probe: [0..3] SH L1 radiance (r,g,b in xyz; w of the first = backface
+// share) for Y00, Y1-1, Y10, Y11; [4..35] the distance map, 64 texels (texel t at element 4 + t/2, xy for even t, zw for
+// odd t) holding (mean distance, mean squared distance).
 //
 #version 460 core
 #pragma stage : comp
@@ -24,6 +30,20 @@ layout(std430, set = 2, binding = 73) buffer GIProbes { vec4 u_GIProbes[]; };
 
 const float Y0 = 0.282095;
 const float Y1 = 0.488603;
+const uint MAX_RAYS = 128u;
+const uint PROBE_STRIDE = 36u;
+const int MAP_SIZE = 8;
+
+vec2 SignNotZero(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
+
+vec3 OctDecode(vec2 uv)
+{
+	vec2 e = uv * 2.0 - 1.0;
+	vec3 n = vec3(e.x, e.y, 1.0 - abs(e.x) - abs(e.y));
+	if (n.z < 0.0)
+		n.xy = (1.0 - abs(n.yx)) * SignNotZero(n.xy);
+	return normalize(n);
+}
 
 void main()
 {
@@ -38,7 +58,7 @@ void main()
 	const vec3 position = origin + vec3(coord) * cell;
 
 	const uint frame = u_Push.SizeFrameBounces.z;
-	const uint rayCount = u_Push.SizeFrameBounces.y;
+	const uint rayCount = min(u_Push.SizeFrameBounces.y, MAX_RAYS);
 	g_Rng = PCG(index + PCG(frame * 7919u + 3u));
 
 	// Random rotation of the sphere pattern per probe per frame.
@@ -51,6 +71,10 @@ void main()
 	vec3 sh1 = vec3(0.0);
 	vec3 sh2 = vec3(0.0);
 	vec3 sh3 = vec3(0.0);
+	float backfaces = 0.0;
+	vec3 rayDirections[MAX_RAYS];
+	float rayDistances[MAX_RAYS];
+	const float maxDistance = 2.0 * length(cell * vec3(dims));
 	for (uint i = 0u; i < rayCount; i++)
 	{
 		float z = 1.0 - (2.0 * float(i) + 1.0) / float(rayCount);
@@ -68,15 +92,49 @@ void main()
 		sh1 += radiance * (Y1 * dir.y);
 		sh2 += radiance * (Y1 * dir.z);
 		sh3 += radiance * (Y1 * dir.x);
+
+		float hitT;
+		bool back;
+		TraceDistance(position, dir, maxDistance, hitT, back);
+		backfaces += back ? 1.0 : 0.0;
+		rayDirections[i] = dir;
+		rayDistances[i] = hitT;
 	}
 	const float weight = 4.0 * PI / float(rayCount);
 	sh0 *= weight; sh1 *= weight; sh2 *= weight; sh3 *= weight;
+	const float backfaceShare = backfaces / float(rayCount);
 
 	// Hysteresis: the first frames after a change take the new estimate outright.
 	const float alpha = frame < 4u ? 1.0 : 0.06;
-	const uint base = 3u + index * 4u;
-	u_GIProbes[base + 0u] = vec4(mix(u_GIProbes[base + 0u].xyz, sh0, alpha), 0.0);
+	const uint base = 3u + index * PROBE_STRIDE;
+	u_GIProbes[base + 0u] = vec4(mix(u_GIProbes[base + 0u].xyz, sh0, alpha), mix(u_GIProbes[base + 0u].w, backfaceShare, alpha));
 	u_GIProbes[base + 1u] = vec4(mix(u_GIProbes[base + 1u].xyz, sh1, alpha), 0.0);
 	u_GIProbes[base + 2u] = vec4(mix(u_GIProbes[base + 2u].xyz, sh2, alpha), 0.0);
 	u_GIProbes[base + 3u] = vec4(mix(u_GIProbes[base + 3u].xyz, sh3, alpha), 0.0);
+
+	// Octahedral distance map: each texel gathers the rays near its direction.
+	for (uint pair = 0u; pair < 32u; pair++)
+	{
+		vec4 updated = vec4(0.0);
+		for (uint lane = 0u; lane < 2u; lane++)
+		{
+			uint texel = pair * 2u + lane;
+			vec2 uv = (vec2(float(texel % 8u), float(texel / 8u)) + 0.5) / float(MAP_SIZE);
+			vec3 texelDirection = OctDecode(uv);
+			float sum1 = 0.0, sum2 = 0.0, sumWeight = 0.0;
+			for (uint i = 0u; i < rayCount; i++)
+			{
+				float w = pow(max(dot(texelDirection, rayDirections[i]), 0.0), 24.0);
+				sum1 += w * rayDistances[i];
+				sum2 += w * rayDistances[i] * rayDistances[i];
+				sumWeight += w;
+			}
+			vec2 value = sumWeight > 1e-4 ? vec2(sum1, sum2) / sumWeight : vec2(maxDistance, maxDistance * maxDistance);
+			if (lane == 0u)
+				updated.xy = value;
+			else
+				updated.zw = value;
+		}
+		u_GIProbes[base + 4u + pair] = mix(u_GIProbes[base + 4u + pair], updated, alpha);
+	}
 }

@@ -1,0 +1,111 @@
+FormatVersion: 1
+Scene: GI_AreaLights
+Entities:
+  - Entity: 16300000000006000001
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 0.1, 6]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000006000002
+    TagComponent:
+      Tag: Disk Light
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-4, 2.0, 0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 1
+      Radiance: [1, 0.95, 0.85]
+      Intensity: 60
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1.0
+      Height: 1.0
+      Radius: 0.5
+      Length: 1.6
+      TwoSided: false
+      Range: 12
+      CastsShadows: true
+  - Entity: 16300000000006000003
+    TagComponent:
+      Tag: Sphere Light
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.0, 0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 2
+      Radiance: [1, 0.95, 0.85]
+      Intensity: 60
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1.0
+      Height: 1.0
+      Radius: 0.5
+      Length: 1.6
+      TwoSided: false
+      Range: 12
+      CastsShadows: true
+  - Entity: 16300000000006000004
+    TagComponent:
+      Tag: Tube Light
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [4, 2.0, 0]
+      Rotation: [-1.570796, 0, 0]
+      Scale: [1, 1, 1]
+    AreaLightComponent:
+      Shape: 3
+      Radiance: [1, 0.95, 0.85]
+      Intensity: 60
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Width: 1.0
+      Height: 1.0
+      Radius: 0.5
+      Length: 1.6
+      TwoSided: false
+      Range: 12
+      CastsShadows: true
+  - Entity: 16300000000006000005
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 9, 6]
+      Rotation: [-1.1, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

@@ -115,6 +115,7 @@ namespace Lux {
 		m_RTGITracePass->SetInput("o_RTGIAccum", m_RTGIAccum);
 		m_RTGITracePass->SetInput("o_RTGIAlbedo", m_RTGIAlbedo);
 		m_RTGITracePass->SetInput("o_RTGINormal", m_RTGINormal);
+		PreparePathTraceEnvironment(m_RTGITracePass);
 		bool valid = m_RTGITracePass->Validate();
 		if (valid)
 			m_RTGITracePass->Bake();
@@ -186,6 +187,7 @@ namespace Lux {
 		Ref<Image2D> result = m_RTGIResult;
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<RTGIState> state = m_RTGIState;
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTGITracePass);
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
@@ -210,6 +212,7 @@ namespace Lux {
 			tracePush.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, 0u);
 			tracePush.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			tracePush.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
+			ApplyPathTraceEnvironment(tracePush, envParams);
 			cb->RT_BeginMarker("RTGI");
 			trace->Prepare();
 			Renderer::RT_DispatchCompute(*cb, *trace, groups, Buffer(&tracePush, sizeof(tracePush)));

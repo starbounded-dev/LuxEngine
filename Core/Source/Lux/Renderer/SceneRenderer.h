@@ -1500,6 +1500,8 @@ namespace Lux {
 		bool GetPathTraceDiffStats(float& mae, float& psnr) const;
 	private:
 		bool EnsurePathTracer();
+		// Binds the scene's radiance map (or a black cube) and its sampler to a ray-traced compute pass; returns what the push constants need.
+		PathTraceEnvParams PreparePathTraceEnvironment(Ref<ComputePass> pass);
 		bool EnsurePathTraceDiff();
 		void ClusterLightCullingPass();
 		void SkyboxPass();

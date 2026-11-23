@@ -136,16 +136,72 @@ vec3 SampleLightmap(uint objectIndex, vec2 uv)
 }
 
 // Realtime GI probe volume (GIProbeUpdate.glsl): [0] = (origin, 1 when valid), [1] = (cell size), [2] = (dims),
-// then 4 vec4 of L1 spherical harmonics per probe. Zero (the default) means no volume.
+// then 36 vec4 per probe: L1 radiance SH (w of the first: share of rays that hit a surface from behind) and an 8x8
+// octahedral map of (mean distance, mean squared distance). Zero (the default) means no volume.
 layout(std430, set = 2, binding = 73) readonly buffer GIProbes { vec4 u_GIProbes[]; };
 
-vec3 EvaluateGIProbe(uvec3 coord, uvec3 dims, vec3 n)
+vec2 GISignNotZero(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
+
+vec2 GIOctEncode(vec3 n)
 {
+	n /= (abs(n.x) + abs(n.y) + abs(n.z));
+	vec2 e = n.xy;
+	if (n.z < 0.0)
+		e = (1.0 - abs(e.yx)) * GISignNotZero(e);
+	return e * 0.5 + 0.5;
+}
+
+vec2 GIDistanceTexel(uint base, uint x, uint y)
+{
+	uint texel = min(y, 7u) * 8u + min(x, 7u);
+	vec4 pair = u_GIProbes[base + 4u + texel / 2u];
+	return (texel & 1u) == 0u ? pair.xy : pair.zw;
+}
+
+// (mean distance, mean squared distance) toward `dir`, bilinear over the probe's octahedral map.
+vec2 GIDistanceMoments(uint base, vec3 dir)
+{
+	vec2 position = GIOctEncode(dir) * 8.0 - 0.5;
+	vec2 f = position - floor(position);
+	ivec2 i0 = ivec2(floor(position));
+	uvec2 u0 = uvec2(max(i0, ivec2(0)));
+	uvec2 u1 = uvec2(max(i0 + ivec2(1), ivec2(0)));
+	vec2 a = mix(GIDistanceTexel(base, u0.x, u0.y), GIDistanceTexel(base, u1.x, u0.y), f.x);
+	vec2 b = mix(GIDistanceTexel(base, u0.x, u1.y), GIDistanceTexel(base, u1.x, u1.y), f.x);
+	return mix(a, b, f.y);
+}
+
+// Mean incident radiance (irradiance / pi) in direction n from one probe, and its visibility weight for `position`.
+vec3 EvaluateGIProbe(uvec3 coord, uvec3 dims, vec3 n, vec3 position, vec3 origin, vec3 cell, out float visibility)
+{
+	visibility = 0.0;
 	uint probe = coord.x + dims.x * (coord.y + dims.y * coord.z);
-	uint base = 3u + probe * 4u;
-	if (base + 3u >= uint(u_GIProbes.length()))
+	uint base = 3u + probe * 36u;
+	if (base + 35u >= uint(u_GIProbes.length()))
 		return vec3(0.0);
-	// Cosine-convolved L1: mean incident radiance (irradiance / pi) in direction n.
+
+	// A probe inside geometry (most of its rays hit back faces) sees nothing useful.
+	float backfaces = u_GIProbes[base].w;
+	float insideWeight = 1.0 - clamp((backfaces - 0.1) * 4.0, 0.0, 1.0);
+
+	// Chebyshev visibility from the probe's distance moments toward the shaded point (as DDGI).
+	vec3 toPoint = position - (origin + vec3(coord) * cell);
+	float distance = length(toPoint);
+	float vis = 1.0;
+	if (distance > 1e-4)
+	{
+		vec2 moments = GIDistanceMoments(base, toPoint / distance);
+		float mean = max(moments.x, 0.0);
+		if (distance > mean)
+		{
+			float variance = abs(moments.y - mean * mean);
+			float d = distance - mean;
+			vis = variance / (variance + d * d);
+			vis = vis * vis * vis;
+		}
+	}
+	visibility = max(vis, 0.0) * insideWeight;
+
 	return u_GIProbes[base].xyz * 0.282095 + (2.0 / 3.0) * 0.488603 * (u_GIProbes[base + 1u].xyz * n.y + u_GIProbes[base + 2u].xyz * n.z + u_GIProbes[base + 3u].xyz * n.x);
 }
 
@@ -153,19 +209,31 @@ vec3 SampleGIProbes(vec3 position, vec3 n)
 {
 	if (u_GIProbes.length() < 3 || u_GIProbes[0].w < 0.5)
 		return vec3(0.0);
+	vec3 origin = u_GIProbes[0].xyz;
 	vec3 cell = u_GIProbes[1].xyz;
 	uvec3 dims = uvec3(u_GIProbes[2].xyz);
-	vec3 g = clamp((position - u_GIProbes[0].xyz) / max(cell, vec3(1e-4)), vec3(0.0), vec3(dims) - 1.0001);
+	// Bias toward the surface normal so a probe behind a thin wall is not the nearest one.
+	vec3 biased = position + n * (0.3 * min(cell.x, min(cell.y, cell.z)));
+	vec3 g = clamp((biased - origin) / max(cell, vec3(1e-4)), vec3(0.0), vec3(dims) - 1.0001);
 	uvec3 i0 = uvec3(floor(g));
 	vec3 f = g - vec3(i0);
 	vec3 result = vec3(0.0);
+	vec3 plain = vec3(0.0);
+	float weightSum = 0.0;
 	for (uint corner = 0u; corner < 8u; corner++)
 	{
 		uvec3 offset = uvec3(corner & 1u, (corner >> 1u) & 1u, (corner >> 2u) & 1u);
 		vec3 w3 = mix(vec3(1.0) - f, f, vec3(offset));
-		result += EvaluateGIProbe(min(i0 + offset, dims - uvec3(1)), dims, n) * (w3.x * w3.y * w3.z);
+		float trilinear = w3.x * w3.y * w3.z;
+		float visibility;
+		vec3 value = EvaluateGIProbe(min(i0 + offset, dims - uvec3(1)), dims, n, biased, origin, cell, visibility);
+		plain += value * trilinear;
+		float w = trilinear * visibility;
+		result += value * w;
+		weightSum += w;
 	}
-	return max(result, vec3(0.0));
+	// Every probe rejected: fall back to plain trilinear rather than darkness.
+	return max(weightSum > 1e-3 ? result / weightSum : plain, vec3(0.0));
 }
 
 vec4 ToLinear(vec4 sRGB)

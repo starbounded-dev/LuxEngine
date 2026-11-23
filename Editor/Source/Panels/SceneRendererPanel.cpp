@@ -715,7 +715,7 @@ namespace Lux {
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Realtime GI", options.EnableRealtimeGI);
 				if (match("GI Rays Per Probe"))
-					ImGuiEx::Property("GI Rays Per Probe", options.RealtimeGIRaysPerProbe, 8u, 512u);
+					ImGuiEx::Property("GI Rays Per Probe", options.RealtimeGIRaysPerProbe, 8u, 128u);
 				if (match("GI Bounces"))
 					ImGuiEx::Property("GI Bounces", options.RealtimeGIBounces, 1u, 4u);
 				ImGuiEx::EndPropertyGrid();

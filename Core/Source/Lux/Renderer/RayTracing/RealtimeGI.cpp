@@ -114,6 +114,7 @@ namespace Lux {
 		m_GIProbePass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
 		m_GIProbePass->SetInput("RTLights", m_PathTraceLights);
 		m_GIProbePass->SetInput("GIProbes", m_GIProbes);
+		PreparePathTraceEnvironment(m_GIProbePass);
 		if (!m_GIProbePass->Validate())
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[RealtimeGI] the probe pass inputs do not match its shader; realtime GI is off for this session");
@@ -166,7 +167,7 @@ namespace Lux {
 		// buffer's CPU copy must never be uploaded over it).
 		const glm::vec4 header[3] = { glm::vec4(boundsMin, 1.0f), glm::vec4(cell, 0.0f), glm::vec4(glm::vec3(k_ProbeDims), 0.0f) };
 		const uint32_t probeCount = k_ProbeDims.x * k_ProbeDims.y * k_ProbeDims.z;
-		const uint32_t bufferBytes = static_cast<uint32_t>(sizeof(header) + probeCount * 4 * sizeof(glm::vec4));
+		const uint32_t bufferBytes = static_cast<uint32_t>(sizeof(header) + probeCount * 36 * sizeof(glm::vec4));
 		if (m_GIProbes->GetSize() < bufferBytes)
 		{
 			m_GIProbes->Resize(bufferBytes);
@@ -184,7 +185,7 @@ namespace Lux {
 
 		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
 		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment);
-		const uint32_t rays = std::clamp(m_Options.RealtimeGIRaysPerProbe, 8u, 512u);
+		const uint32_t rays = std::clamp(m_Options.RealtimeGIRaysPerProbe, 8u, 128u);
 		const uint32_t bounces = std::clamp(m_Options.RealtimeGIBounces, 1u, 4u);
 		const float environmentIntensity = m_FrameEnvironment.EnvironmentIntensity;
 
@@ -198,6 +199,7 @@ namespace Lux {
 		Ref<ComputePass> pass = m_GIProbePass;
 		Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
 		std::shared_ptr<RealtimeGIState> state = m_RealtimeGIState;
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_GIProbePass);
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
 			const bool changed = scene->RT_Update(cb, instances);
@@ -220,6 +222,7 @@ namespace Lux {
 			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, 0u);
 			push.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			push.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
+			ApplyPathTraceEnvironment(push, envParams);
 			cb->RT_BeginMarker("GIProbeUpdate");
 			pass->Prepare();
 			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((probeCount + 63u) / 64u, 1u, 1u), Buffer(&push, sizeof(push)));

@@ -15,6 +15,14 @@
 
 namespace Lux {
 
+	// What the shared kernel needs to read the scene's environment map (PathTraceCommon.glslh Environment()).
+	struct PathTraceEnvParams
+	{
+		uint32_t Flags = 0; // 2: sample the environment map
+		float Intensity = 1.0f;
+		float Rotation = 0.0f; // degrees about +Y
+	};
+
 	struct StaticMeshRenderProxy;
 
 
