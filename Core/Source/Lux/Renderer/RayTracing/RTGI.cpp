@@ -25,6 +25,8 @@ namespace Lux {
 		uint32_t Parity = 0; // which reservoir set the ReSTIR GI trace writes
 		uint64_t ReuseSignature = 0; // everything but the camera: reservoirs are reprojected, so a moving camera keeps them
 		bool ReuseValid = false;
+		bool DenoiseValid = false; // the temporal history holds a previous frame of this scene
+		uint32_t DenoiseParity = 0;
 	};
 
 	namespace {
@@ -231,6 +233,106 @@ namespace Lux {
 		return true;
 	}
 
+	struct RTGITemporalPush
+	{
+		glm::uvec4 SizeValidAge;
+	};
+
+	bool SceneRenderer::EnsureRTGIDenoiser()
+	{
+		if (m_RTGITemporalPasses[0])
+			return true;
+		if (m_RTGIDenoiserUnavailable || !m_RTGITracePass)
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		for (const char* name : { "RTGITemporal", "RTGIFilterVar" })
+		{
+			if (library->GetShaders().find(name) == library->GetShaders().end())
+				library->Load(std::string("Resources/Shaders/PathTracing/") + name + ".glsl");
+			if (library->GetShaders().find(name) == library->GetShaders().end())
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "[RTGI] {}.glsl did not compile; the RTGI denoiser is off for this session", name);
+				m_RTGIDenoiserUnavailable = true;
+				return false;
+			}
+		}
+		auto createImage = [&](ImageFormat format, const char* name) -> Ref<Image2D>
+		{
+			ImageSpecification spec;
+			spec.Format = format;
+			spec.Usage = ImageUsage::Storage;
+			spec.Width = std::max(1u, m_ViewportWidth);
+			spec.Height = std::max(1u, m_ViewportHeight);
+			spec.DebugName = name;
+			Ref<Image2D> image = Image2D::Create(spec);
+			image->Invalidate();
+			return image;
+		};
+		for (int i = 0; i < 2; i++)
+		{
+			m_TDHist0[i] = createImage(ImageFormat::RGBA16F, "RTGI-TDHist0");
+			m_TDHist1[i] = createImage(ImageFormat::RGBA32F, "RTGI-TDHist1");
+			m_TDNormal[i] = createImage(ImageFormat::RGBA16F, "RTGI-TDNormal");
+		}
+		m_TDDenoised = createImage(ImageFormat::RGBA32F, "RTGI-TDDenoised");
+		m_TDVarC = createImage(ImageFormat::RGBA32F, "RTGI-TDVarC");
+		m_TDVarD = createImage(ImageFormat::RGBA32F, "RTGI-TDVarD");
+
+		bool valid = true;
+		for (int i = 0; i < 2 && valid; i++)
+		{
+			const int prev = 1 - i;
+			ComputePassSpecification spec;
+			spec.DebugName = "RTGITemporal";
+			spec.Pipeline = PipelineCompute::Create(library->Get("RTGITemporal"));
+			Ref<ComputePass> pass = ComputePass::Create(spec);
+			pass->SetInput("Camera", m_UBSCamera);
+			pass->SetInput("u_RTGIAlbedoTex", m_RTGIAlbedo);
+			pass->SetInput("u_RTGINormalTex", m_RTGINormal);
+			pass->SetInput("u_TDNoisy", m_RTGIAccum);
+			pass->SetInput("u_TDPrev0", m_TDHist0[prev]);
+			pass->SetInput("u_TDPrev1", m_TDHist1[prev]);
+			pass->SetInput("u_TDPrevNormal", m_TDNormal[prev]);
+			pass->SetInput("o_TDHist0", m_TDHist0[i]);
+			pass->SetInput("o_TDHist1", m_TDHist1[i]);
+			pass->SetInput("o_TDNormal", m_TDNormal[i]);
+			pass->SetInput("o_TDDenoised", m_TDDenoised);
+			valid = pass->Validate();
+			if (valid)
+				pass->Bake();
+			m_RTGITemporalPasses[i] = pass;
+		}
+		// Variance-guided chain: denoised -> C -> D -> (+ scene colour) -> result.
+		const Ref<Image2D> inputs[3] = { m_TDDenoised, m_TDVarC, m_TDVarD };
+		const Ref<Image2D> outputs[3] = { m_TDVarC, m_TDVarD, m_TDVarC };
+		for (int i = 0; i < 3 && valid; i++)
+		{
+			ComputePassSpecification spec;
+			spec.DebugName = i == 2 ? "RTGIFilterVarFinal" : "RTGIFilterVar";
+			spec.Pipeline = PipelineCompute::Create(library->Get("RTGIFilterVar"));
+			Ref<ComputePass> pass = ComputePass::Create(spec);
+			pass->SetInput("u_RTGIInput", inputs[i]);
+			pass->SetInput("u_RTGIAlbedoTex", m_RTGIAlbedo);
+			pass->SetInput("u_RTGINormalTex", m_RTGINormal);
+			pass->SetInput("u_RTGISceneColor", GetSceneColorOutput());
+			pass->SetInput("o_RTGIVarOut", outputs[i]);
+			pass->SetInput("o_RTGIVarFinal", m_RTGIResult);
+			valid = pass->Validate();
+			if (valid)
+				pass->Bake();
+			m_RTGIVarFilters[i] = pass;
+		}
+		if (!valid)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTGI] denoiser pass inputs do not match the shaders; the denoiser is off for this session");
+			m_RTGITemporalPasses[0] = m_RTGITemporalPasses[1] = nullptr;
+			m_RTGIDenoiserUnavailable = true;
+			return false;
+		}
+		LUX_CORE_INFO_TAG("Renderer", "[RTGI] denoiser ready");
+		return true;
+	}
+
 	void SceneRenderer::RTGIPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "RTGIPass");
@@ -248,6 +350,19 @@ namespace Lux {
 			for (int i = 0; i < 2; i++)
 				for (Ref<Image2D> image : { m_RGSample[i], m_RGSampleNormal[i], m_RGRadiance[i], m_RGGPos[i], m_RGGNormal[i] })
 					image->Resize(m_ViewportWidth, m_ViewportHeight);
+		}
+		const bool denoise = m_Options.RTGIDenoiser && EnsureRTGIDenoiser();
+		if (denoise)
+		{
+			if (m_TDDenoised->GetWidth() != m_ViewportWidth || m_TDDenoised->GetHeight() != m_ViewportHeight)
+			{
+				for (int i = 0; i < 2; i++)
+					for (Ref<Image2D> image : { m_TDHist0[i], m_TDHist1[i], m_TDNormal[i] })
+						image->Resize(m_ViewportWidth, m_ViewportHeight);
+				for (Ref<Image2D> image : { m_TDDenoised, m_TDVarC, m_TDVarD })
+					image->Resize(m_ViewportWidth, m_ViewportHeight);
+			}
+			m_RTGIVarFilters[2]->SetInput("u_RTGISceneColor", GetSceneColorOutput());
 		}
 		// Scene colour may have been recreated (a resize); the final pass samples it.
 		m_RTGIFilterPasses[2]->SetInput("u_RTGISceneColor", GetSceneColorOutput());
@@ -268,6 +383,7 @@ namespace Lux {
 		signature = HashBytes(signature, &width, sizeof(width));
 		signature = HashBytes(signature, &height, sizeof(height));
 		signature = HashBytes(signature, &reuse, sizeof(reuse));
+		signature = HashBytes(signature, &denoise, sizeof(denoise));
 		const uint32_t historyLength = std::clamp(m_Options.RTGIHistoryLength, 1u, 256u);
 		signature = HashBytes(signature, &historyLength, sizeof(historyLength));
 		uint64_t reuseSignature = HashBytes(1469598103934665603ull, &bounces, sizeof(bounces));
@@ -279,6 +395,8 @@ namespace Lux {
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
 		Ref<ComputePass> trace = m_RTGITracePass;
+		Ref<ComputePass> temporalPasses[2] = { denoise ? m_RTGITemporalPasses[0] : nullptr, denoise ? m_RTGITemporalPasses[1] : nullptr };
+		Ref<ComputePass> varFilters[3] = { denoise ? m_RTGIVarFilters[0] : nullptr, denoise ? m_RTGIVarFilters[1] : nullptr, denoise ? m_RTGIVarFilters[2] : nullptr };
 		Ref<ComputePass> reusePasses[2] = { reuse ? m_RTGIReSTIRPasses[0] : nullptr, reuse ? m_RTGIReSTIRPasses[1] : nullptr };
 		Ref<ComputePass> filters[3] = { m_RTGIFilterPasses[0], m_RTGIFilterPasses[1], m_RTGIFilterPasses[2] };
 		Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
@@ -294,6 +412,7 @@ namespace Lux {
 			if (changed || state->ReuseSignature != reuseSignature)
 			{
 				state->ReuseValid = false;
+				state->DenoiseValid = false;
 				state->ReuseSignature = reuseSignature;
 			}
 			if (changed || state->Signature != signature)
@@ -313,7 +432,7 @@ namespace Lux {
 			const glm::uvec3 groups((width + 7u) / 8u, (height + 7u) / 8u, 1u);
 			RTGITracePush tracePush = {};
 			tracePush.SizeFrameBounces = glm::uvec4(width, height, state->Frame, bounces);
-			tracePush.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, historyLength);
+			tracePush.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, temporalPasses[0] ? 1u : historyLength);
 			tracePush.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			tracePush.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 			ApplyPathTraceEnvironment(tracePush, envParams);
@@ -333,13 +452,34 @@ namespace Lux {
 			}
 
 			const uint32_t steps[3] = { 1u, 2u, 4u };
-			for (uint32_t i = 0; i < 3; i++)
+			if (temporalPasses[0])
 			{
-				RTGIFilterPush push = {};
-				push.SizeModeStep = glm::uvec4(width, height, i == 2 ? 1u : 0u, steps[i]);
-				push.Params = glm::vec4(32.0f, 0.04f, 0.0f, 0.0f);
-				filters[i]->Prepare();
-				Renderer::RT_DispatchCompute(*cb, *filters[i], groups, Buffer(&push, sizeof(push)));
+				// The trace wrote a raw per-frame estimate; reproject-and-blend it, then filter guided by its variance.
+				RTGITemporalPush temporalPush = {};
+				temporalPush.SizeValidAge = glm::uvec4(width, height, state->DenoiseValid ? 1u : 0u, historyLength);
+				temporalPasses[state->DenoiseParity]->Prepare();
+				Renderer::RT_DispatchCompute(*cb, *temporalPasses[state->DenoiseParity], groups, Buffer(&temporalPush, sizeof(temporalPush)));
+				state->DenoiseParity ^= 1u;
+				state->DenoiseValid = true;
+				for (uint32_t i = 0; i < 3; i++)
+				{
+					RTGIFilterPush push = {};
+					push.SizeModeStep = glm::uvec4(width, height, i == 2 ? 1u : 0u, steps[i]);
+					push.Params = glm::vec4(32.0f, 0.04f, 4.0f, 0.0f);
+					varFilters[i]->Prepare();
+					Renderer::RT_DispatchCompute(*cb, *varFilters[i], groups, Buffer(&push, sizeof(push)));
+				}
+			}
+			else
+			{
+				for (uint32_t i = 0; i < 3; i++)
+				{
+					RTGIFilterPush push = {};
+					push.SizeModeStep = glm::uvec4(width, height, i == 2 ? 1u : 0u, steps[i]);
+					push.Params = glm::vec4(32.0f, 0.04f, 0.0f, 0.0f);
+					filters[i]->Prepare();
+					Renderer::RT_DispatchCompute(*cb, *filters[i], groups, Buffer(&push, sizeof(push)));
+				}
 			}
 			cb->RT_EndMarker();
 			state->Frame++;

@@ -130,7 +130,22 @@ def check_restir_gi(config):
     check(er < ep * 0.8, f"without temporal accumulation reuse has lower error vs the settled image (plain {ep:.4f}, reuse {er:.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi}
+def check_denoise(config):
+    """#238: spatiotemporal RTGI denoiser. After a camera sway (which makes the old filter restart its running mean every frame) the
+    reprojected history must leave the image closer to the settled one, and a static camera must settle to the same image."""
+    scene = "GI_BounceSpot"
+    base = "RTGI=1,Lightmaps=0"
+    sway = "CameraSway=0.12:150:190"  # back at the authored pose after frame 190
+    ref = capture("dn-ref", scene, base, config, 1000)
+    static = capture("dn-static", scene, f"{base},RTGIDenoise=1", config, 400)
+    check(rmse(static, ref) < 0.01, f"a static camera settles to the plain RTGI image (RMSE {rmse(static, ref):.4f})")
+    old = capture("dn-old", scene, f"{base},{sway}", config, 196)
+    new = capture("dn-new", scene, f"{base},RTGIDenoise=1,{sway}", config, 196)
+    eo, en = rmse(old, ref), rmse(new, ref)
+    check(en < eo * 0.9, f"6 frames after the camera stops the denoiser is closer to the settled image (old filter {eo:.4f}, denoiser {en:.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise}
 
 
 def main():

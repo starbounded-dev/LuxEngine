@@ -324,6 +324,9 @@ namespace Lux {
 		bool     RTGIReuse = false;
 		// Temporal blend: frames averaged into a pixel's estimate once the camera and scene hold still (the floor of the running-mean weight is 1 / this). 1 = no accumulation.
 		uint32_t RTGIHistoryLength = 32;
+		// Spatiotemporal denoiser for RTGI (SVGF-style, RayTracing/RTGI.cpp): reprojects the accumulated estimate instead of restarting it
+		// when the camera moves, tracks the variance and filters with a variance-guided a-trous. RTGIHistoryLength is its maximum age.
+		bool     RTGIDenoiser = false;
 		uint32_t RealtimeGIRaysPerProbe = 64;
 		uint32_t RealtimeGIBounces = 2;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
@@ -2015,6 +2018,11 @@ namespace Lux {
 		Ref<ComputePass> m_GIProbePass;
 		Ref<ComputePass> m_RTGITracePass;
 		bool EnsureRTGIReSTIR();
+		bool EnsureRTGIDenoiser();
+		Ref<ComputePass> m_RTGITemporalPasses[2];
+		Ref<ComputePass> m_RTGIVarFilters[3];
+		Ref<Image2D> m_TDHist0[2], m_TDHist1[2], m_TDNormal[2], m_TDDenoised, m_TDVarC, m_TDVarD;
+		bool m_RTGIDenoiserUnavailable = false;
 		Ref<ComputePass> m_RTGIReSTIRPasses[2];
 		Ref<Image2D> m_RGSample[2], m_RGSampleNormal[2], m_RGRadiance[2], m_RGGPos[2], m_RGGNormal[2];
 		bool m_RTGIReSTIRUnavailable = false;

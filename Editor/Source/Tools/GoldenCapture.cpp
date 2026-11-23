@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -101,13 +102,14 @@ namespace Lux {
 			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
+			{ "RTGIDenoise", &SceneRendererOptions::RTGIDenoiser },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -421,7 +423,17 @@ namespace Lux {
 
 		// Re-applied every frame: nothing the user does with the mouse may move the capture.
 		camera.SetActive(false);
-		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw);
+		// CameraSway=<amplitude radians>:<first frame>:<last frame>: sways the yaw through one full 40-frame sine period per 40 frames, so a
+		// stop frame that is a multiple of 40 after the start leaves the camera exactly at its authored pose (temporal-filter checks).
+		float swayYaw = 0.0f;
+		if (const auto it = m_Options.find("CameraSway"); it != m_Options.end())
+		{
+			float amplitude = 0.0f;
+			unsigned first = 0, last = 0;
+			if (std::sscanf(it->second.c_str(), "%f:%u:%u", &amplitude, &first, &last) == 3 && m_SceneFrames >= first && m_SceneFrames <= last)
+				swayYaw = amplitude * std::sin(static_cast<float>(m_SceneFrames - first) * 6.2831853f / 40.0f);
+		}
+		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
 
 
