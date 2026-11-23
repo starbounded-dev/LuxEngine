@@ -335,6 +335,11 @@ namespace Lux {
 		bool     PathTracerPowerLightSampling = true;
 		// Multiple importance sampling: weight next-event estimation against BSDF-sampled hits of the analytic area lights (power heuristic). Unbiased; far less noise on glossy surfaces under large lights.
 		bool     PathTracerMIS = true;
+		// Adaptive sampling: once a pixel has 16 samples it stops tracing when the relative standard error of its mean luminance falls
+		// below this (0 = off, every pixel gets every sample). Slightly biased by the stopping rule, so off by default and for reference renders.
+		float    PathTracerAdaptiveThreshold = 0.0f;
+		// Debug: show each pixel's sample count (1.0 = 256 samples) instead of the image.
+		bool     PathTracerSampleHeatmap = false;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;
@@ -1991,6 +1996,7 @@ namespace Lux {
 		bool m_PathTracerUnavailable = false;       // shader failed to load: do not retry every frame
 		Ref<RayTracingScene> m_RayTracingScene;
 		Ref<ComputePass> m_PathTracePass;
+		Ref<Image2D> m_PathTraceMomentsImage;
 		Ref<Image2D> m_PathTraceAccumImage;         // RGBA32F running mean
 		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
 		Ref<StorageBuffer> m_PathTraceLights;

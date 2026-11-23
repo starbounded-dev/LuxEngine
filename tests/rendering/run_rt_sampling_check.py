@@ -85,7 +85,23 @@ def check_mis(config):
     check(em < eo * 0.9, f"at 8 spp MIS has lower error vs the reference (NEE only {eo:.4f}, MIS {em:.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis}
+def check_adaptive(config):
+    """#234: adaptive sampling. The sample-count heat map gives the effective samples per pixel; at that equal budget the
+    adaptive image must beat plain progressive accumulation, and the saving must be real."""
+    scene = "GI_CornellBox"
+    base = "PathTracer=1,PathTracerBounces=3"
+    ref = capture("ad-ref", scene, f"{base},PathTracerSamples=1024", config, spp(1024))
+    adaptive = capture("ad-on", scene, f"{base},PathTracerSamples=256,PTAdaptive=0.04", config, spp(256))
+    heat = capture("ad-heat", scene, f"{base},PathTracerSamples=256,PTAdaptive=0.04,PTHeat=1", config, spp(256)).mean()
+    calibration = [(n, capture(f"ad-cal{n}", scene, f"{base},PathTracerSamples={n},PTHeat=1", config, spp(n)).mean()) for n in (64, 128, 256)]
+    effective = float(np.interp(heat, [0.0] + [level for _, level in calibration], [0.0] + [n for n, _ in calibration]))
+    check(effective <= 0.85 * 256, f"adaptive sampling traces fewer samples (about {effective:.0f} of 256 per pixel on average)")
+    equal = capture("ad-equal", scene, f"{base},PathTracerSamples={max(int(effective), 4)}", config, spp(max(int(effective), 4)))
+    ea, ee = rmse(adaptive, ref), rmse(equal, ref)
+    check(ea < ee, f"at the same average sample count adaptive has lower error vs the reference (adaptive {ea:.4f}, uniform {ee:.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive}
 
 
 def main():

@@ -44,6 +44,7 @@ layout(std140, set = 2, binding = 0) uniform Camera
 
 layout(rgba32f, set = 1, binding = 65) uniform image2D o_PathTraceAccum;
 layout(rgba16f, set = 1, binding = 66) uniform writeonly image2D o_PathTraceImage;
+layout(rgba32f, set = 1, binding = 98) uniform image2D o_PathTraceMoments; // x = sum of luminance, y = sum of luminance^2 (adaptive sampling)
 
 void main()
 {
@@ -53,6 +54,27 @@ void main()
 
 	const uint frame = u_Push.SizeFrameBounces.z;
 	g_Rng = PCG(pixel.x + PCG(pixel.y + PCG(frame * 9781u + 1u)));
+
+	// Per-pixel sample count n (the accumulation alpha) and luminance moments. With adaptive sampling a pixel whose relative
+	// standard error is already below the threshold is left alone; otherwise every pixel has n == frame.
+	float n = 0.0;
+	vec3 previous = vec3(0.0);
+	vec2 moments = vec2(0.0);
+	if (frame > 0u)
+	{
+		const vec4 accumulated = imageLoad(o_PathTraceAccum, ivec2(pixel));
+		previous = accumulated.rgb;
+		n = accumulated.a;
+		moments = imageLoad(o_PathTraceMoments, ivec2(pixel)).xy;
+	}
+	const float adaptiveThreshold = uintBitsToFloat(u_Push.Counts.z);
+	if (adaptiveThreshold > 0.0 && n >= 16.0)
+	{
+		const float meanLuminance = moments.x / n;
+		const float variance = max(moments.y / n - meanLuminance * meanLuminance, 0.0);
+		if (sqrt(variance / n) / max(meanLuminance, 0.02) < adaptiveThreshold)
+			return;
+	}
 
 	// Primary ray with a box-filtered sub-pixel jitter.
 	vec2 uv = (vec2(pixel) + vec2(Rand(), Rand())) / vec2(u_Push.SizeFrameBounces.xy);
@@ -71,8 +93,10 @@ void main()
 	if (peak > maxSample)
 		radiance *= maxSample / peak;
 
-	vec3 previous = frame == 0u ? vec3(0.0) : imageLoad(o_PathTraceAccum, ivec2(pixel)).rgb;
-	vec3 mean = (previous * float(frame) + radiance) / float(frame + 1u);
-	imageStore(o_PathTraceAccum, ivec2(pixel), vec4(mean, 1.0));
-	imageStore(o_PathTraceImage, ivec2(pixel), vec4(mean, 1.0));
+	const float luminance = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
+	vec3 mean = (previous * n + radiance) / (n + 1.0);
+	imageStore(o_PathTraceAccum, ivec2(pixel), vec4(mean, n + 1.0));
+	imageStore(o_PathTraceMoments, ivec2(pixel), vec4(moments + vec2(luminance, luminance * luminance), 0.0, 0.0));
+	const float heat = (n + 1.0) / max(float(u_Push.Counts.w), 1.0);
+	imageStore(o_PathTraceImage, ivec2(pixel), u_Push.Counts.w != 0u ? vec4(vec3(heat), 1.0) : vec4(mean, 1.0));
 }

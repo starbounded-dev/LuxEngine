@@ -20,6 +20,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <atomic>
+#include <bit>
 #include <cmath>
 #include <cstring>
 
@@ -182,6 +183,9 @@ namespace Lux {
 		accumSpec.DebugName = "PathTrace-Accum";
 		m_PathTraceAccumImage = Image2D::Create(accumSpec);
 		m_PathTraceAccumImage->Invalidate();
+		accumSpec.DebugName = "PathTrace-Moments";
+		m_PathTraceMomentsImage = Image2D::Create(accumSpec);
+		m_PathTraceMomentsImage->Invalidate();
 		accumSpec.Format = ImageFormat::RGBA16F;
 		accumSpec.DebugName = "PathTrace-Image";
 		m_PathTraceImage = Image2D::Create(accumSpec);
@@ -199,6 +203,7 @@ namespace Lux {
 		m_PathTracePass->SetInput("RTLights", m_PathTraceLights);
 		m_PathTracePass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
 		m_PathTracePass->SetInput("o_PathTraceImage", m_PathTraceImage);
+		m_PathTracePass->SetInput("o_PathTraceMoments", m_PathTraceMomentsImage);
 		PreparePathTraceEnvironment(m_PathTracePass);
 		if (!m_PathTracePass->Validate())
 		{
@@ -222,6 +227,7 @@ namespace Lux {
 		if (m_PathTraceImage->GetWidth() != m_ViewportWidth || m_PathTraceImage->GetHeight() != m_ViewportHeight)
 		{
 			m_PathTraceAccumImage->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_PathTraceMomentsImage->Resize(m_ViewportWidth, m_ViewportHeight);
 			m_PathTraceImage->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_PathTraceDiffImage)
 				m_PathTraceDiffImage->Resize(m_ViewportWidth, m_ViewportHeight);
@@ -243,6 +249,8 @@ namespace Lux {
 		const uint32_t maxBounces = std::clamp(m_Options.PathTracerMaxBounces, 1u, 16u);
 		const uint32_t targetSamples = std::max(1u, m_Options.PathTracerTargetSamples);
 		const uint32_t resetCounter = m_Options.PathTracerResetCounter;
+		const float adaptiveThreshold = std::max(m_Options.PathTracerAdaptiveThreshold, 0.0f);
+		const bool sampleHeatmap = m_Options.PathTracerSampleHeatmap;
 		const uint32_t width = m_ViewportWidth;
 		const uint32_t height = m_ViewportHeight;
 
@@ -257,6 +265,8 @@ namespace Lux {
 		signature = HashBytes(signature, &height, sizeof(height));
 		signature = HashBytes(signature, &uniformEnvironment, sizeof(uniformEnvironment));
 		signature = HashBytes(signature, &environmentIntensity, sizeof(environmentIntensity));
+		signature = HashBytes(signature, &adaptiveThreshold, sizeof(adaptiveThreshold));
+		signature = HashBytes(signature, &sampleHeatmap, sizeof(sampleHeatmap));
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
@@ -295,7 +305,7 @@ namespace Lux {
 
 				PathTracePush push = {};
 				push.SizeFrameBounces = glm::uvec4(width, height, state->Frame.load(), maxBounces);
-				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, 0u, 0u);
+				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, std::bit_cast<uint32_t>(adaptiveThreshold), sampleHeatmap ? 256u : 0u);
 				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 				ApplyPathTraceEnvironment(push, envParams);
