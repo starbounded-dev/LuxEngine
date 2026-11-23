@@ -268,6 +268,7 @@ namespace Lux {
 		Ref<Image2D> diffImage = diff ? m_PathTraceDiffImage : nullptr;
 		Ref<StorageBuffer> diffPartials = diff ? m_PathTraceDiffPartials : nullptr;
 		const float diffScale = m_Options.PathTracerDiffScale;
+		const float diffPeak = std::max(m_Options.PathTracerDiffPeak, 0.01f);
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
@@ -338,7 +339,7 @@ namespace Lux {
 					diffPartials->Resize(groups * static_cast<uint32_t>(sizeof(glm::vec2)));
 				DiffPush diffPush = {};
 				diffPush.SizeGroups = glm::uvec4(width, height, groupsX, 0u);
-				diffPush.Params = glm::vec4(diffScale, 0.0f, 0.0f, 0.0f);
+				diffPush.Params = glm::vec4(diffScale, 1.0f / diffPeak, 0.0f, 0.0f);
 				cb->RT_BeginMarker("PathTraceDiff");
 				diffPass->Prepare();
 				Renderer::RT_DispatchCompute(*cb, *diffPass, glm::uvec3(groupsX, groupsY, 1u), Buffer(&diffPush, sizeof(diffPush)));

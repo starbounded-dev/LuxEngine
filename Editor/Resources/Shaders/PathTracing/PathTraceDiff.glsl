@@ -24,7 +24,7 @@ layout(std430, set = 1, binding = 70) writeonly buffer DiffPartials { vec2 Parti
 layout(push_constant) uniform DiffPush
 {
 	uvec4 SizeGroups; // width, height, groups per row, unused
-	vec4 Params;      // x: error value mapped to full red
+	vec4 Params;      // x: error value mapped to full red, y: 1 / peak (values are divided by it before the [0, 1] clamp)
 } u_Push;
 
 shared float s_Abs[64];
@@ -46,8 +46,9 @@ void main()
 
 	if (pixel.x < u_Push.SizeGroups.x && pixel.y < u_Push.SizeGroups.y)
 	{
-		vec3 raster = clamp(texelFetch(u_DiffRasterColor, ivec2(pixel), 0).rgb, 0.0, 1.0);
-		vec3 reference = clamp(texelFetch(u_DiffReferenceColor, ivec2(pixel), 0).rgb, 0.0, 1.0);
+		// Linear HDR divided by the peak (GIL9): a peak above 1 keeps bright errors from clipping.
+		vec3 raster = clamp(texelFetch(u_DiffRasterColor, ivec2(pixel), 0).rgb * u_Push.Params.y, 0.0, 1.0);
+		vec3 reference = clamp(texelFetch(u_DiffReferenceColor, ivec2(pixel), 0).rgb * u_Push.Params.y, 0.0, 1.0);
 		vec3 difference = abs(raster - reference);
 		absError = (difference.r + difference.g + difference.b) * (1.0 / 3.0);
 		sqError = dot(difference, difference) * (1.0 / 3.0);

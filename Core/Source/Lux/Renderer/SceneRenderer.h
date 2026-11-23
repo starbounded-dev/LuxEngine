@@ -329,6 +329,7 @@ namespace Lux {
 		// (PathTraceDiff.glsl). Needs EnablePathTracer. The raster frame is whatever indirect-diffuse source is active.
 		bool     PathTracerDiffHeatmap = false;
 		float    PathTracerDiffScale = 0.2f; // linear error mapped to full red
+		float    PathTracerDiffPeak = 1.0f;  // linear radiance mapped to 1 before comparing; above 1 the error covers bright (HDR) areas too
 		uint32_t PathTracerMaxBounces = 4;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes

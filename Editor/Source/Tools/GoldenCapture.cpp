@@ -102,7 +102,7 @@ namespace Lux {
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -276,7 +276,11 @@ namespace Lux {
 					options.*option.Member = enabled;
 			}
 
-			if (name == "BakeLightmaps")
+			if (name == "DiffPeak")
+			{
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerDiffPeak);
+			}
+			else if (name == "BakeLightmaps")
 			{
 				uint32_t samples = 64;
 				std::from_chars(value.data(), value.data() + value.size(), samples);

@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -686,6 +686,8 @@ namespace Lux {
 				toggle("Diff vs Raster (heat map)", options.PathTracerDiffHeatmap);
 				if (match("Diff Scale"))
 					ImGuiEx::Property("Diff Scale", options.PathTracerDiffScale, 0.01f, 0.01f, 1.0f);
+				if (match("Diff Peak (HDR)"))
+					ImGuiEx::Property("Diff Peak (HDR)", options.PathTracerDiffPeak, 0.1f, 1.0f, 64.0f);
 				if (match("Max Bounces"))
 					ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u);
 				if (match("Target Samples"))
