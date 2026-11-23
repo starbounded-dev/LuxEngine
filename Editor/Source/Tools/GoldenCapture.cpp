@@ -99,6 +99,7 @@ namespace Lux {
 			{ "PathTracerDiff", &SceneRendererOptions::PathTracerDiffHeatmap },
 			{ "Lightmaps", &SceneRendererOptions::EnableLightmaps },
 			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
+			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps" };

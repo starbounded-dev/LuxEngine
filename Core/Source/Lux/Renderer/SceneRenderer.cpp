@@ -4647,6 +4647,10 @@ namespace Lux {
 			sceneColorCurrent = particleOutputs;
 		}
 
+		// Ray-traced GI: adds denoised per-pixel indirect diffuse to scene colour (before the path tracer, which overrides it).
+		if (m_Options.EnableRTGI && RHIDevice::SupportsRayQuery())
+			addPass("RTGI", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTGIPass));
+
 		// Opt-in path tracer (RayTracing/PathTracePass.cpp): replaces the raster result in scene colour, before
 		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
 		if (m_Options.EnablePathTracer && RHIDevice::SupportsRayQuery())

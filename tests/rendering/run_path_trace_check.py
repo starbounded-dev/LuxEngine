@@ -126,6 +126,16 @@ def main():
             check(bool(found), f"diff log present for RealtimeGI={use}")
             gi[use] = float(found[-1])
         check(gi["1"] < gi["0"] * 0.92, f"realtime GI lowers the error against the path tracer (MAE {gi['0']:.4f} -> {gi['1']:.4f})")
+        # 7. Ray-traced GI (per pixel, denoised): closer to the path tracer than the raster frame alone ("Diff RTGI").
+        rt = {}
+        for use in ("0", "1"):
+            labels.append(f"gi-check-diff-rtgi{use}")
+            capture(labels[-1], "GI_CornellBox", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,RTGI={use},Lightmaps=0", args.config, 330)
+            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellBox.log").read_text(encoding="utf-8", errors="replace")
+            found = re.findall(r"diff vs raster: MAE ([0-9.]+)", text)
+            check(bool(found), f"diff log present for RTGI={use}")
+            rt[use] = float(found[-1])
+        check(rt["1"] < rt["0"] * 0.92, f"ray-traced GI lowers the error against the path tracer (MAE {rt['0']:.4f} -> {rt['1']:.4f})")
         print("All path tracer checks passed")
     finally:
         if not args.keep:

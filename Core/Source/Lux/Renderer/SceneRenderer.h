@@ -316,6 +316,10 @@ namespace Lux {
 		// Realtime GI: a probe volume updated by ray queries every frame (RayTracing/RealtimeGI.cpp), read as indirect diffuse.
 		// RT-only and off by default. It stacks with lightmaps, so use one or the other.
 		bool     EnableRealtimeGI = false;
+		// Ray-traced GI: per-pixel indirect diffuse by ray queries, denoised and added to scene colour after the raster
+		// lighting (RayTracing/RTGI.cpp). RT-only and off by default; use it instead of lightmaps / probes.
+		bool     EnableRTGI = false;
+		uint32_t RTGIBounces = 1;
 		uint32_t RealtimeGIRaysPerProbe = 64;
 		uint32_t RealtimeGIBounces = 2;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
@@ -1470,6 +1474,9 @@ namespace Lux {
 		struct LightmapBakeState;
 		// Realtime GI, RayTracing/RealtimeGI.cpp.
 		struct RealtimeGIState;
+		struct RTGIState;
+		void RTGIPass();
+		bool EnsureRTGI();
 		void RealtimeGIPass();
 		bool EnsureRealtimeGI();
 		void SyncRealtimeGI();
@@ -1983,6 +1990,11 @@ namespace Lux {
 		Ref<LightmapData> m_Lightmap;
 		Ref<StorageBuffer> m_GIProbes;              // grid header + SH probes (G-buffer pass input, written by the probe pass)
 		Ref<ComputePass> m_GIProbePass;
+		Ref<ComputePass> m_RTGITracePass;
+		Ref<ComputePass> m_RTGIFilterPasses[3];
+		Ref<Image2D> m_RTGIAccum, m_RTGIAlbedo, m_RTGINormal, m_RTGITempA, m_RTGITempB, m_RTGIResult;
+		std::shared_ptr<RTGIState> m_RTGIState;
+		bool m_RTGIUnavailable = false;
 		std::shared_ptr<RealtimeGIState> m_RealtimeGIState;
 		bool m_RealtimeGIUnavailable = false;
 		bool m_GIProbesActive = false;

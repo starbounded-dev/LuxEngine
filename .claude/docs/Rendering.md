@@ -1534,3 +1534,13 @@ trilinearly samples the grid (`GIProbes`, set 2 binding 73) as indirect diffuse.
 through thin walls) and skinned meshes are not in the ray-traced scene. Gotcha: the probe buffer's header is written through
 `NRIBuffer::Map`, never `SetData`, because a host-visible `StorageBuffer` re-uploads its whole CPU copy and would erase the
 GPU-written probes. Switching it off clears the grid's valid flag (`SyncRealtimeGI`); the frame is then bit-identical to before.
+
+### Ray-traced GI (opt-in, RT-only)
+
+`SceneRendererOptions::EnableRTGI` adds the graph pass "RTGI" (`RayTracing/RTGI.cpp`, `RTGITrace.glsl`, `RTGIFilter.glsl`) after
+the raster lighting and before the path tracer. `RTGITrace` finds the visible surface with a primary ray in the ray-traced scene
+(no G-buffer decode, so skinned meshes get no GI), then traces one cosine-weighted indirect path per pixel with the shared
+kernel, blended into a per-pixel history that restarts whenever the camera, lights or scene change (no reprojection, so it cannot
+ghost). `RTGIFilter` runs three edge-aware a-trous iterations (normal and distance weights) and the last one adds
+`albedo * (1 - metalness) * E` to scene colour, copied back with `Renderer::RT_CopyImage`. Use it instead of lightmaps / probes (they
+stack). Images are RGBA16F at set 1 bindings 90-97.
