@@ -115,7 +115,22 @@ def check_restir_di(config):
     check(er < en * 0.85, f"at 4 spp ReSTIR DI has lower error vs the reference (plain NEE {en:.4f}, ReSTIR {er:.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di}
+def check_restir_gi(config):
+    """#237: ReSTIR GI reuse for RTGI, on a scene whose floor is lit only by a bright wall patch (high-variance indirect light).
+    With temporal accumulation off (RTGIHistory=1: what a moving camera sees) reuse must beat plain RTGI against the settled
+    image, and the settled reuse image must stay close to the settled plain one."""
+    scene = "GI_BounceSpot"
+    base = "RTGI=1,Lightmaps=0"
+    settled = capture("rg-settled", scene, base, config, 400)
+    settled_reuse = capture("rg-settled-r", scene, f"{base},RTGIReuse=1", config, 400)
+    check(rmse(settled_reuse, settled) < 0.01, f"settled reuse stays close to plain RTGI (RMSE {rmse(settled_reuse, settled):.4f})")
+    plain1 = capture("rg-plain1", scene, f"{base},RTGIHistory=1", config, 400)
+    reuse1 = capture("rg-reuse1", scene, f"{base},RTGIHistory=1,RTGIReuse=1", config, 400)
+    ep, er = rmse(plain1, settled), rmse(reuse1, settled)
+    check(er < ep * 0.8, f"without temporal accumulation reuse has lower error vs the settled image (plain {ep:.4f}, reuse {er:.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi}
 
 
 def main():

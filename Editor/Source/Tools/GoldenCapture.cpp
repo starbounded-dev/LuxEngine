@@ -100,13 +100,14 @@ namespace Lux {
 			{ "Lightmaps", &SceneRendererOptions::EnableLightmaps },
 			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
+			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -290,6 +291,8 @@ namespace Lux {
 				std::from_chars(value.data(), value.data() + value.size(), samples);
 				renderer.StartLightmapBake(samples);
 			}
+			else if (name == "RTGIHistory")
+				std::from_chars(value.data(), value.data() + value.size(), options.RTGIHistoryLength);
 			else if (name == "PTAdaptive")
 				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerAdaptiveThreshold);
 			else if (name == "PathTracerSamples")

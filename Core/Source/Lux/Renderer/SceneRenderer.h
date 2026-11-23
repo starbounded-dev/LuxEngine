@@ -320,6 +320,10 @@ namespace Lux {
 		// lighting (RayTracing/RTGI.cpp). RT-only and off by default; use it instead of lightmaps / probes.
 		bool     EnableRTGI = false;
 		uint32_t RTGIBounces = 1;
+		// ReSTIR GI reuse for RTGI: pixels resample each other's indirect paths (previous frame, reprojected, plus neighbours) instead of using only their own path. Less noise per ray; biased (1/M normalisation, diffuse sample radiance), so opt-in.
+		bool     RTGIReuse = false;
+		// Temporal blend: frames averaged into a pixel's estimate once the camera and scene hold still (the floor of the running-mean weight is 1 / this). 1 = no accumulation.
+		uint32_t RTGIHistoryLength = 32;
 		uint32_t RealtimeGIRaysPerProbe = 64;
 		uint32_t RealtimeGIBounces = 2;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
@@ -2010,6 +2014,10 @@ namespace Lux {
 		Ref<StorageBuffer> m_GIProbes;              // grid header + SH probes (G-buffer pass input, written by the probe pass)
 		Ref<ComputePass> m_GIProbePass;
 		Ref<ComputePass> m_RTGITracePass;
+		bool EnsureRTGIReSTIR();
+		Ref<ComputePass> m_RTGIReSTIRPasses[2];
+		Ref<Image2D> m_RGSample[2], m_RGSampleNormal[2], m_RGRadiance[2], m_RGGPos[2], m_RGGNormal[2];
+		bool m_RTGIReSTIRUnavailable = false;
 		Ref<ComputePass> m_RTGIFilterPasses[3];
 		Ref<Image2D> m_RTGIAccum, m_RTGIAlbedo, m_RTGINormal, m_RTGITempA, m_RTGITempB, m_RTGIResult;
 		std::shared_ptr<RTGIState> m_RTGIState;

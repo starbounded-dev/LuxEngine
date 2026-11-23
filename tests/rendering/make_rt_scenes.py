@@ -61,6 +61,33 @@ def point(tag, pos, colour, intensity, radius):
 """)
 
 
+def spot(tag, pos, rot, intensity, angle):
+    return entity(tag, pos, rot=rot, body=f"""    SpotLightComponent:
+      Radiance: [1, 0.95, 0.85]
+      Angle: {angle}
+      AngleAttenuation: 2
+      CastsShadows: false
+      SoftShadows: false
+      Falloff: 1
+      Intensity: {intensity}
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Range: 30
+      ShadowDistance: 0
+      ShadowResolutionTier: 1
+""")
+
+
+def wall(tag, pos, scale):
+    return entity(tag, pos, scale, body="""    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+""")
+
+
 def area(tag, pos, rot, shape, intensity, width=1.0, height=1.0):
     return entity(tag, pos, rot=rot, body=f"""    AreaLightComponent:
       Shape: {shape}
@@ -110,6 +137,14 @@ def main():
         colour = [(1, 0.8, 0.6), (0.6, 0.8, 1), (1, 1, 1), (0.8, 1, 0.7)][i % 4]
         lights.append(point(f"Light {i}", (round(radius * math.cos(angle), 3), 1.4, round(radius * math.sin(angle), 3)), colour, intensity, 9))
     write("GI_PowerLights", [floor("Materials/GI/GI_White.lmat")] + lights + [camera((0, 9, 7), (-1.0, 0, 0))])
+
+    # A narrow spot lights a patch of the back wall; the floor only sees that patch indirectly (high-variance GI: reuse territory).
+    write("GI_BounceSpot", [
+        floor("Materials/GI/GI_White.lmat", (14, 0.1, 14)),
+        wall("Back Wall", (0, 3, -5), (14, 6, 0.2)),
+        spot("Spot", (0, 3, 4), (0, 0, 0), 900, 10),
+        camera((0, 2.2, 8), (-0.12, 0, 0)),
+    ])
 
     material = MATERIALS / "GI_Glossy.lmat"
     material.write_text("""FormatVersion: 1
