@@ -16,7 +16,7 @@ Every box must be ticked before this can merge: the "PR checklist" check fails u
 - [ ] **Linux:** I built and ran it on Linux, or it can't affect Linux (say why). CI doesn't build Linux for same-repository PRs
 - [ ] **Tests:** the headless suites this touches pass (`ctest` for `tests/audio/native`, `tests/audio/run.py`, `tests/audio/run_managed.py`, `tests/rendering`, `tests/runtime`), and new behaviour has a test or a golden scene
 - [ ] **Rendering:** golden scenes are unchanged, or the new references are accepted and the reason is below (or: no rendering change)
-- [ ] **Standing rules:** no temporal rendering (TAA, temporal upscalers or denoisers), and nothing new a game maker has to install besides the .NET SDK
+- [ ] **Standing rules:** nothing new a game maker has to install besides the .NET SDK
 - [ ] **Docs:** the README ("What works today", "Honest limitations"), `docs/Editor/` and the in-editor help match the new behaviour (or: no user-visible change)
 
 ## When it applies

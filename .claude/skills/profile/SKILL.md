@@ -34,9 +34,8 @@ but it predates the Tracy GPU context and says GPU zones were reverted. They wer
    quality settings, threading policy, and **window focus** (focus alone changes the frame rate 2x
    under `MAILBOX` — `Rendering.md`). If any differ, the comparison is void; say so.
 4. **Median of at least three runs**, after a warm-up.
-5. **Never trade image quality for speed silently.** In particular never propose enabling TAA,
-   SMAA T2x, or any temporal accumulation as an optimization — temporal techniques are a hard no in
-   this engine. Quality trade-offs are the user's call; present them as options.
+5. **Never trade image quality for speed silently.** Quality trade-offs are the user's call; present
+   them as options.
 6. **Settings leak into the project file.** The editor saves every renderer quality option into
    `Editor/LuxSampleProject/LuxSample.luxproj`. Toggling features to measure them will dirty that
    file. Restore it (`git diff` it) before finishing, and never commit measurement-time settings.

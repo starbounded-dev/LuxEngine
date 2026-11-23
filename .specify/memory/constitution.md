@@ -36,8 +36,6 @@ plan adds a utility, it names the existing helper it checked (`Lux::FileSystem`,
   pipelines, shaders, and layouts are cached, never built per frame; GPU resources are freed through
   the release queue; validation errors are bugs.
 - Shaders are GLSL-first (`Editor/Resources/Shaders/*.glsl`).
-- No temporal rendering techniques (TAA, temporal upscalers, temporal accumulation). Ghosting is a
-  red line; quality is bought spatially.
 
 ### IV. Independently Verifiable Phases
 

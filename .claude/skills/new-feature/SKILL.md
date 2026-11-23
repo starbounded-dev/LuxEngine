@@ -67,7 +67,7 @@ For each sub-issue, in order:
 1. Run `/dev` once per session first; read the sub-issue body and the code it touches. Cite only
    what you read; mark anything that doesn't exist yet as NEW.
 2. Implement only that sub-issue. Respect `.claude/docs/` (Conventions, Threading, Rendering,
-   Building, Architecture) and the standing rules: no temporal rendering; ray tracing, terrain and
+   Building, Architecture) and the standing rules: ray tracing, terrain and
    DDGI start from scratch; DX11/DX12 scaffolding stays; no new installs for game makers.
 3. Add or edit source files -> run `scripts\Win-GenProjects.bat`, then build.
 4. **Done means:** it builds; the editor/runtime runs it; one concrete check proves it works (name
