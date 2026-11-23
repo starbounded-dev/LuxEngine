@@ -135,6 +135,39 @@ vec3 SampleLightmap(uint objectIndex, vec2 uv)
 	return mix(a, b, f.y);
 }
 
+// Realtime GI probe volume (GIProbeUpdate.glsl): [0] = (origin, 1 when valid), [1] = (cell size), [2] = (dims),
+// then 4 vec4 of L1 spherical harmonics per probe. Zero (the default) means no volume.
+layout(std430, set = 2, binding = 73) readonly buffer GIProbes { vec4 u_GIProbes[]; };
+
+vec3 EvaluateGIProbe(uvec3 coord, uvec3 dims, vec3 n)
+{
+	uint probe = coord.x + dims.x * (coord.y + dims.y * coord.z);
+	uint base = 3u + probe * 4u;
+	if (base + 3u >= uint(u_GIProbes.length()))
+		return vec3(0.0);
+	// Cosine-convolved L1: mean incident radiance (irradiance / pi) in direction n.
+	return u_GIProbes[base].xyz * 0.282095 + (2.0 / 3.0) * 0.488603 * (u_GIProbes[base + 1u].xyz * n.y + u_GIProbes[base + 2u].xyz * n.z + u_GIProbes[base + 3u].xyz * n.x);
+}
+
+vec3 SampleGIProbes(vec3 position, vec3 n)
+{
+	if (u_GIProbes.length() < 3 || u_GIProbes[0].w < 0.5)
+		return vec3(0.0);
+	vec3 cell = u_GIProbes[1].xyz;
+	uvec3 dims = uvec3(u_GIProbes[2].xyz);
+	vec3 g = clamp((position - u_GIProbes[0].xyz) / max(cell, vec3(1e-4)), vec3(0.0), vec3(dims) - 1.0001);
+	uvec3 i0 = uvec3(floor(g));
+	vec3 f = g - vec3(i0);
+	vec3 result = vec3(0.0);
+	for (uint corner = 0u; corner < 8u; corner++)
+	{
+		uvec3 offset = uvec3(corner & 1u, (corner >> 1u) & 1u, (corner >> 2u) & 1u);
+		vec3 w3 = mix(vec3(1.0) - f, f, vec3(offset));
+		result += EvaluateGIProbe(min(i0 + offset, dims - uvec3(1)), dims, n) * (w3.x * w3.y * w3.z);
+	}
+	return max(result, vec3(0.0));
+}
+
 vec4 ToLinear(vec4 sRGB)
 {
 	bvec3 cutoff = lessThan(sRGB.rgb, vec3(0.04045));
@@ -234,7 +267,7 @@ void main()
 #endif
 
 	// Baked indirect diffuse: the lightmap's incident radiance, reflected by the diffuse albedo.
-	emissive += SampleLightmap(InputObjectIndex, InputTexCoord1) * baseColor * (1.0 - metalness);
+	emissive += (SampleLightmap(InputObjectIndex, InputTexCoord1) + SampleGIProbes(Input.WorldPosition, worldNormal)) * baseColor * (1.0 - metalness);
 
 	o_Emissive = vec4(emissive, 1.0);
 

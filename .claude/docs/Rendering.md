@@ -1523,3 +1523,14 @@ GPU runs. With every ray-traced option off the frame is bit-identical to before 
   full size zero-padded (stale bytes read as rectangles caused a device-lost). The shader also bounds-checks both buffers.
 - `tests/rendering/run_path_trace_check.py` bakes the Cornell box and asserts that the lightmapped raster frame is closer to
   the path tracer than the unlit one (MAE 0.136 -> 0.113).
+
+### Realtime GI probe volume (opt-in, RT-only)
+
+`SceneRendererOptions::EnableRealtimeGI` adds a graph pass "GI Probes" (`RayTracing/RealtimeGI.cpp`, `GIProbeUpdate.glsl`):
+a 16x8x16 probe grid over the static meshes' bounds, each probe tracing `RealtimeGIRaysPerProbe` rays per frame with the shared
+path kernel, projected onto L1 spherical harmonics and blended into its history (hysteresis; the blend is per probe, never
+screen-space, so camera motion cannot ghost; the first frames after a scene or light change replace the history). `GBuffer_Static.glsl`
+trilinearly samples the grid (`GIProbes`, set 2 binding 73) as indirect diffuse. Probes have no visibility term (light leaks
+through thin walls) and skinned meshes are not in the ray-traced scene. Gotcha: the probe buffer's header is written through
+`NRIBuffer::Map`, never `SetData`, because a host-visible `StorageBuffer` re-uploads its whole CPU copy and would erase the
+GPU-written probes. Switching it off clears the grid's valid flag (`SyncRealtimeGI`); the frame is then bit-identical to before.

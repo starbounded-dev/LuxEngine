@@ -2098,6 +2098,14 @@ namespace Lux {
 						buffer->GetBuffer().Unmap();
 					}
 				}
+				lightmapSpec.DebugName = "GI Probes";
+				m_GIProbes = StorageBuffer::Create(256, lightmapSpec);
+				if (void* mapped = m_GIProbes->GetBuffer().Map(0, 256))
+				{
+					std::memset(mapped, 0, 256);
+					m_GIProbes->GetBuffer().Unmap();
+				}
+				SetRenderPassInputIfValid(m_GeometryPass, "GIProbes", m_GIProbes);
 				SetRenderPassInputIfValid(m_GeometryPass, "LightmapRects", m_LightmapRects);
 				SetRenderPassInputIfValid(m_GeometryPass, "LightmapAtlas", m_LightmapAtlas);
 			}
@@ -4643,6 +4651,10 @@ namespace Lux {
 		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
 		if (m_Options.EnablePathTracer && RHIDevice::SupportsRayQuery())
 			addPass("Path Trace", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::PathTracePass));
+
+		// Realtime GI: the probe volume update, read by the G-buffer pass (a frame late is fine: the probes blend over time).
+		if (m_Options.EnableRealtimeGI && RHIDevice::SupportsRayQuery())
+			addPass("GI Probes", sceneColorCurrent, {}, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RealtimeGIPass));
 
 		// Lightmap bake (editor action): runs only while one is in progress, after the raster frame it samples the scene from.
 		if (IsLightmapBaking())
@@ -9646,6 +9658,7 @@ namespace Lux {
 	{
 		ScopedCPUProfile cpuProfile(*this, "GBufferPass");
 		UpdateLightmapRects();
+		SyncRealtimeGI();
 		BeginProfiledGPU("GBufferPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 

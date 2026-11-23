@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -693,6 +693,23 @@ namespace Lux {
 				ImGuiEx::EndPropertyGrid();
 				if (ImGui::Button("Reset Accumulation"))
 					options.PathTracerResetCounter++;
+
+				ImGui::Separator();
+				ImGui::TextDisabled("Realtime GI: a probe volume updated by ray queries every frame (RT-only; use it or lightmaps).");
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				toggle("Realtime GI", options.EnableRealtimeGI);
+				if (match("GI Rays Per Probe"))
+					ImGuiEx::Property("GI Rays Per Probe", options.RealtimeGIRaysPerProbe, 8u, 512u);
+				if (match("GI Bounces"))
+					ImGuiEx::Property("GI Bounces", options.RealtimeGIBounces, 1u, 4u);
+				ImGuiEx::EndPropertyGrid();
+				if (ImGui::Button("Diff Realtime GI") && m_Context)
+				{
+					options.EnablePathTracer = true;
+					options.PathTracerDiffHeatmap = true;
+					options.EnableRealtimeGI = true;
+					options.EnableLightmaps = false;
+				}
 
 				ImGui::Separator();
 				ImGui::TextDisabled("Baked lightmaps (indirect diffuse), written next to the project assets.");

@@ -98,6 +98,7 @@ namespace Lux {
 			{ "PathTracerFurnace", &SceneRendererOptions::PathTracerUniformEnvironment },
 			{ "PathTracerDiff", &SceneRendererOptions::PathTracerDiffHeatmap },
 			{ "Lightmaps", &SceneRendererOptions::EnableLightmaps },
+			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
 		};
 
 		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps" };

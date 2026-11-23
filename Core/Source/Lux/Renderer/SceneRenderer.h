@@ -313,6 +313,11 @@ namespace Lux {
 		bool     EnablePathTracer = false;
 		// Use the scene's baked lightmap (a sidecar written by the baker) as indirect diffuse. No effect without one.
 		bool     EnableLightmaps = true;
+		// Realtime GI: a probe volume updated by ray queries every frame (RayTracing/RealtimeGI.cpp), read as indirect diffuse.
+		// RT-only and off by default. It stacks with lightmaps, so use one or the other.
+		bool     EnableRealtimeGI = false;
+		uint32_t RealtimeGIRaysPerProbe = 64;
+		uint32_t RealtimeGIBounces = 2;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
 		// converge to the environment radiance).
 		bool     PathTracerUniformEnvironment = false;
@@ -1463,12 +1468,18 @@ namespace Lux {
 		void PathTracePass();
 		// Lightmaps, Lightmaps/LightmapBake.cpp.
 		struct LightmapBakeState;
+		// Realtime GI, RayTracing/RealtimeGI.cpp.
+		struct RealtimeGIState;
+		void RealtimeGIPass();
+		bool EnsureRealtimeGI();
+		void SyncRealtimeGI();
 		void LightmapBakePass();
 		void UpdateLightmapRects();
 		void RefreshLightmap();
 	public:
 		// Editor-only: bakes the scene's lightmap over the next frames (needs ray queries), saves it as a sidecar and
 		// uses it. False when a bake is already running or the device or build cannot bake.
+		uint32_t GetRealtimeGIUpdateCount() const; // probe updates dispatched so far
 		bool StartLightmapBake(uint32_t samples = 128, float texelsPerMetre = 16.0f);
 		bool IsLightmapBaking() const;
 		float GetLightmapBakeProgress() const; // 0..1
@@ -1970,6 +1981,11 @@ namespace Lux {
 		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
 		Ref<StorageBuffer> m_PathTraceLights;
 		Ref<LightmapData> m_Lightmap;
+		Ref<StorageBuffer> m_GIProbes;              // grid header + SH probes (G-buffer pass input, written by the probe pass)
+		Ref<ComputePass> m_GIProbePass;
+		std::shared_ptr<RealtimeGIState> m_RealtimeGIState;
+		bool m_RealtimeGIUnavailable = false;
+		bool m_GIProbesActive = false;
 		Ref<StorageBuffer> m_LightmapRects;         // [0] atlas size, [1 + GPU-scene instance ID] rect (G-buffer pass input)
 		Ref<StorageBuffer> m_LightmapAtlas;         // RGBA16F texels packed into uvec2 (G-buffer pass input)
 		uint64_t m_LightmapRectsSignature = 0;
