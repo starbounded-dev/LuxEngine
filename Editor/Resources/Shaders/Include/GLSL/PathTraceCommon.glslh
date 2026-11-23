@@ -88,6 +88,17 @@ vec4 PTSampleMaterialTexture(uint index, vec2 uv, float uvFootprint)
 	return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(index)], u_PTMaterialSampler), uv, lod);
 }
 
+// Where a material's maps are sampled (MaterialMapping.glslh): UV0, or triplanar in world (1) or object (2) space.
+vec4 PTSampleMapped(uint index, uint mode, vec2 uv, vec2 uvX, vec2 uvY, vec2 uvZ, vec3 weights, float footprint)
+{
+	if (mode == 0u)
+		return PTSampleMaterialTexture(index, uv, footprint);
+	return PTSampleMaterialTexture(index, uvX, footprint) * weights.x
+		+ PTSampleMaterialTexture(index, uvY, footprint) * weights.y
+		+ PTSampleMaterialTexture(index, uvZ, footprint) * weights.z;
+}
+
+
 const float PI = 3.14159265359;
 const float MIN_ALPHA = 0.0064;
 const uint FLAG_UNIFORM_ENV = 1u;
@@ -274,22 +285,44 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 			float uvArea = 0.5 * abs((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y));
 			float worldArea = 0.5 * length(cross(p1 - p0, p2 - p0));
 			float uvPerWorld = worldArea > 1e-10 ? sqrt(uvArea / worldArea) : 0.0;
+			// Triplanar mapping: project the world (or object) position instead of using the mesh uv.
+			const uint mapping = m.DetailTextureIndices.w;
+			vec2 uvX = uv, uvY = uv, uvZ = uv;
+			vec3 triWeights = vec3(1.0, 0.0, 0.0);
+			if (mapping != 0u)
+			{
+				vec3 position = s.P;
+				vec3 mapNormal = n;
+				if (mapping == 2u)
+				{
+					position = Vertices[2u * i0].xyz * w.x + Vertices[2u * i1].xyz * w.y + Vertices[2u * i2].xyz * w.z;
+					mapNormal = nObj;
+				}
+				mapNormal = normalize(mapNormal);
+				vec3 axisSign = vec3(mapNormal.x < 0.0 ? -1.0 : 1.0, mapNormal.y < 0.0 ? -1.0 : 1.0, mapNormal.z < 0.0 ? -1.0 : 1.0);
+				vec3 weightsRaw = pow(abs(mapNormal), vec3(max(m.Detail.w, 1.0)));
+				triWeights = weightsRaw / max(weightsRaw.x + weightsRaw.y + weightsRaw.z, 1e-5);
+				uvX = uvMatrix * vec2(position.z * axisSign.x, position.y) + m.UVOffset.xy;
+				uvY = uvMatrix * vec2(position.x * axisSign.y, position.z) + m.UVOffset.xy;
+				uvZ = uvMatrix * vec2(-position.x * axisSign.z, position.y) + m.UVOffset.xy;
+				uvPerWorld = sqrt(abs(uvMatrix[0][0] * uvMatrix[1][1] - uvMatrix[0][1] * uvMatrix[1][0]));
+			}
 			float coneWidth = g_ConeWidth + g_ConeAngle * t;
 			float footprint = coneWidth / max(abs(dot(n, d)), 0.1) * uvPerWorld;
 			const float lod = footprint;
 			const uint selects = m.ExtraTextureIndices.w;
 			vec3 base = clamp(m.BaseColor.rgb, vec3(0.0), vec3(128.0));
 			if ((flags & PT_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE) != 0u && m.TextureIndices.x != PT_TEXTURE_INVALID)
-				base *= PTSampleMaterialTexture(m.TextureIndices.x, uv, lod).rgb;
+				base *= PTSampleMapped(m.TextureIndices.x, mapping, uv, uvX, uvY, uvZ, triWeights, lod).rgb;
 			float metal = clamp(m.Scalars.x, 0.0, 1.0);
 			if ((flags & PT_MATERIAL_FLAG_HAS_METALNESS_TEXTURE) != 0u && m.TextureIndices.z != PT_TEXTURE_INVALID)
-				metal *= PTSampleMaterialTexture(m.TextureIndices.z, uv, lod)[(selects >> 0u) & 3u];
+				metal *= PTSampleMapped(m.TextureIndices.z, mapping, uv, uvX, uvY, uvZ, triWeights, lod)[(selects >> 0u) & 3u];
 			float rough = clamp(m.Scalars.y, 0.0, 1.0);
 			if ((flags & PT_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE) != 0u && m.TextureIndices.w != PT_TEXTURE_INVALID)
-				rough *= PTSampleMaterialTexture(m.TextureIndices.w, uv, lod)[(selects >> 2u) & 3u];
+				rough *= PTSampleMapped(m.TextureIndices.w, mapping, uv, uvX, uvY, uvZ, triWeights, lod)[(selects >> 2u) & 3u];
 			vec3 emission = max(m.Emissive.rgb, vec3(0.0));
 			if ((flags & PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE) != 0u && m.ExtraTextureIndices.x != PT_TEXTURE_INVALID)
-				emission *= PTSampleMaterialTexture(m.ExtraTextureIndices.x, uv, lod).rgb;
+				emission *= PTSampleMapped(m.ExtraTextureIndices.x, mapping, uv, uvX, uvY, uvZ, triWeights, lod).rgb;
 			s.Albedo = base;
 			s.Metal = clamp(metal, 0.0, 1.0);
 			s.Rough = clamp(rough, 0.05, 1.0);

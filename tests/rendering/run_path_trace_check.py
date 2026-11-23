@@ -156,6 +156,9 @@ def main():
         check(float(floor.std()) > 0.03 and floor[..., 0].mean() > floor[..., 2].mean() * 1.15,
               f"the wood floor shows texture detail and a warm colour (std {float(floor.std()):.3f}, rgb {floor.reshape(-1, 3).mean(axis=0).round(3)})")
 
+        wall = textured[int(h * 0.27):int(h * 0.50), int(w * 0.40):int(w * 0.70)]
+        check(float(wall.std()) > 0.04, f"the triplanar-mapped brick wall repeats its texture instead of smearing it (std {float(wall.std()):.3f})")
+
         # 10. An .hdr sky: escaping rays see the HDR environment (the background has structure, not a flat colour).
         labels.append("gi-check-hdr")
         hdr = capture(labels[-1], "GI_HDRSky", "PathTracer=1,PathTracerSamples=64", args.config, 330)
