@@ -142,11 +142,20 @@ vec3 CalculatePreethamSkyRGB(vec3 sunDirection, vec3 viewDirection, float turbid
 	return YxyToLinearSRGB(yxy) * SKY_LUMINANCE_SCALE;
 }
 
-vec3 CalculateLowerHemisphere(vec3 horizonColor, vec3 viewDirection, vec3 sunDirection, float sunVisibility)
+// The ground below the horizon. The horizon colour varies with azimuth (warm toward the sun), and that variation must fade
+// out toward the nadir: where every azimuth meets at one point, an azimuth-dependent colour is a visible pinch (the very
+// bottom of the sky looked like a swirl). `averageHorizon` is the azimuth-independent horizon colour the ground settles on.
+vec3 CalculateLowerHemisphere(vec3 horizonColor, vec3 averageHorizon, vec3 viewDirection, vec3 sunDirection, float sunVisibility)
 {
-	float horizon = clamp(1.0 - abs(viewDirection.y) * 2.0, 0.0, 1.0);
-	float sunFacing = pow(max(dot(normalize(vec3(viewDirection.x, 0.0, viewDirection.z) + vec3(0.0001)),
-		normalize(vec3(sunDirection.x, 0.0, sunDirection.z) + vec3(0.0001))), 0.0), 4.0);
+	float depth = clamp(-viewDirection.y, 0.0, 1.0);
+	float horizon = 1.0 - smoothstep(0.0, 0.5, depth); // 1 at the horizon, 0 from 30 degrees down
+	float poleFade = smoothstep(0.0, 0.35, length(viewDirection.xz)); // azimuth is undefined at the nadir
+	float azimuthStrength = poleFade * (1.0 - smoothstep(0.0, 0.7, depth));
+	horizonColor = mix(averageHorizon, horizonColor, azimuthStrength);
+
+	vec2 viewAzimuth = viewDirection.xz / max(length(viewDirection.xz), 1e-4);
+	vec2 sunAzimuth = sunDirection.xz / max(length(sunDirection.xz), 1e-4);
+	float sunFacing = pow(max(dot(viewAzimuth, sunAzimuth), 0.0), 4.0) * poleFade;
 
 	vec3 groundTint = mix(vec3(0.025, 0.027, 0.030), horizonColor * vec3(0.34, 0.36, 0.38), 0.65);
 	groundTint += horizonColor * horizon * (0.18 + 0.22 * sunFacing * sunVisibility);
@@ -192,7 +201,13 @@ void main()
 	float lowerBlend = 1.0 - smoothstep(-0.06, 0.02, viewDirection.y);
 	if (lowerBlend > 0.0)
 	{
-		vec3 lowerColor = CalculateLowerHemisphere(skyColor, viewDirection, sunDirection, sunVisibility);
+		// The azimuth-independent horizon colour: the sky at the horizon toward the sun and away from it, averaged.
+		vec2 sunAzimuth = sunDirection.xz / max(length(sunDirection.xz), 1e-4);
+		vec3 towardSun = normalize(vec3(sunAzimuth.x, 0.001, sunAzimuth.y));
+		vec3 awayFromSun = normalize(vec3(-sunAzimuth.x, 0.001, -sunAzimuth.y));
+		vec3 averageHorizon = 0.5 * (CalculatePreethamSkyRGB(sunDirection, towardSun, turbidity) + CalculatePreethamSkyRGB(sunDirection, awayFromSun, turbidity));
+		averageHorizon = mix(vec3(0.004, 0.006, 0.011), averageHorizon, twilightVisibility);
+		vec3 lowerColor = CalculateLowerHemisphere(skyColor, averageHorizon, viewDirection, sunDirection, sunVisibility);
 		skyColor = mix(skyColor, lowerColor, lowerBlend);
 	}
 

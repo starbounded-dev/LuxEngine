@@ -67,6 +67,7 @@ namespace Lux {
 			float Metalness = 0.0f;
 			glm::vec3 Emission{ 0.0f };
 			float Roughness = 0.5f;
+			uint32_t MaterialID = 0xffffffffu; // the raster renderer's GPU material row (textures), or none
 		};
 
 		RayTracingScene();

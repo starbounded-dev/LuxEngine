@@ -180,6 +180,14 @@ namespace Lux {
 					input.Roughness = material->GetRoughness();
 					input.Emission = input.Albedo * material->GetEmission();
 				}
+				for (const GPUSceneInstanceRef& ref : proxy->SubmeshInstances)
+				{
+					if (ref.InstanceID != InvalidGPUSceneInstanceID && ref.Data.Metadata.y == submeshIndex)
+					{
+						input.MaterialID = ref.Data.Metadata.z;
+						break;
+					}
+				}
 				instances.push_back(input);
 			}
 		}
@@ -213,6 +221,7 @@ namespace Lux {
 			instanceSignature = HashValue(instanceSignature, input.Metalness);
 			instanceSignature = HashValue(instanceSignature, input.Roughness);
 			instanceSignature = HashValue(instanceSignature, input.Emission);
+			instanceSignature = HashValue(instanceSignature, input.MaterialID);
 		}
 
 		const bool geometryChanged = geometrySignature != m_GeometrySignature;
@@ -270,10 +279,11 @@ namespace Lux {
 				const uint32_t source = submesh.BaseVertex + v;
 				if (source >= sourceVertices.size())
 				{
-					vertices.push_back({ glm::vec4(0, 0, 0, 1), glm::vec4(0, 1, 0, 0) });
+					vertices.push_back({ glm::vec4(0, 0, 0, 0), glm::vec4(0, 1, 0, 0) });
 					continue;
 				}
-				vertices.push_back({ glm::vec4(sourceVertices[source].Position, 1.0f), glm::vec4(sourceVertices[source].Normal, 0.0f) });
+				// w components carry the uv the raster shader uses, (u, 1 - v), for material textures.
+				vertices.push_back({ glm::vec4(sourceVertices[source].Position, sourceVertices[source].Texcoord.x), glm::vec4(sourceVertices[source].Normal, 1.0f - sourceVertices[source].Texcoord.y) });
 			}
 			// Index (triangle) k covers scalar indices 3k..3k+2; BaseIndex is in scalar indices.
 			for (uint32_t i = 0; i < submesh.IndexCount; i++)
@@ -441,7 +451,7 @@ namespace Lux {
 			gpu.NormalRow0 = glm::vec4(inverse[0], 0.0f);
 			gpu.NormalRow1 = glm::vec4(inverse[1], 0.0f);
 			gpu.NormalRow2 = glm::vec4(inverse[2], 0.0f);
-			gpu.Info = glm::uvec4(blas.VertexBase, blas.IndexBase, 0, 0);
+			gpu.Info = glm::uvec4(blas.VertexBase, blas.IndexBase, input.MaterialID, 0);
 			gpu.AlbedoMetal = glm::vec4(input.Albedo, input.Metalness);
 			gpu.EmissionRough = glm::vec4(input.Emission, input.Roughness);
 		}

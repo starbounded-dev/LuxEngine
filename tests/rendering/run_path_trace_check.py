@@ -148,6 +148,20 @@ def main():
         for name, box in (("disk", (0.30, 0.38, 0.29, 0.33)), ("sphere", (0.30, 0.38, 0.47, 0.51)), ("tube", (0.30, 0.38, 0.66, 0.70))):
             under = mean(*box)
             check(under > corners * 1.1, f"the {name} area light lights the floor under it ({under:.3f} vs {corners:.3f} at the corners)")
+        # 9. Material textures: the textured floor shows texture detail and wood colour in the path tracer.
+        labels.append("gi-check-textured")
+        textured = capture(labels[-1], "GI_Textured", "PathTracer=1,PathTracerSamples=128", args.config, 330)
+        h, w = textured.shape[:2]
+        floor = textured[int(h * 0.80):int(h * 0.95), int(w * 0.20):int(w * 0.80)]
+        check(float(floor.std()) > 0.03 and floor[..., 0].mean() > floor[..., 2].mean() * 1.15,
+              f"the wood floor shows texture detail and a warm colour (std {float(floor.std()):.3f}, rgb {floor.reshape(-1, 3).mean(axis=0).round(3)})")
+
+        # 10. An .hdr sky: escaping rays see the HDR environment (the background has structure, not a flat colour).
+        labels.append("gi-check-hdr")
+        hdr = capture(labels[-1], "GI_HDRSky", "PathTracer=1,PathTracerSamples=64", args.config, 330)
+        h, w = hdr.shape[:2]
+        sky = hdr[int(h * 0.05):int(h * 0.40), int(w * 0.05):int(w * 0.95)]
+        check(float(sky.std()) > 0.08, f"the HDR sky has structure in the path tracer (std {float(sky.std()):.3f})")
         print("All path tracer checks passed")
     finally:
         if not args.keep:

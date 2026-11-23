@@ -16,6 +16,7 @@
 #version 460 core
 #pragma stage : comp
 #extension GL_EXT_ray_query : require
+#extension GL_EXT_nonuniform_qualifier : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

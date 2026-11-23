@@ -6,6 +6,7 @@
 #include "Lux/Core/Base.h"
 
 #include "Lux/Renderer/DescriptorSetManager.h"
+#include "Lux/Renderer/BindlessTextureTable.h"
 #include "PipelineCompute.h"
 
 namespace Lux {
@@ -52,7 +53,14 @@ namespace Lux {
 		// place; re-bakes the descriptor sets against the new binding layouts.
 		void OnShaderReloaded();
 
-		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const { return m_DescriptorSetManager.GetDescriptorSet(frameIndex, set); }
+		BoundDescriptorSet GetDescriptorSet(uint32_t frameIndex, uint32_t set) const
+		{
+			if (set == BindlessTextureTable::DescriptorSet)
+				return m_BindlessTextures ? m_BindlessTextures->RT_GetDescriptorSet(frameIndex) : BoundDescriptorSet{};
+			return m_DescriptorSetManager.GetDescriptorSet(frameIndex, set);
+		}
+		// The table this pass's shader reads through BindlessTextureTable::DescriptorSet (ray-traced passes read material textures).
+		void SetBindlessTextures(Ref<BindlessTextureTable> table) { m_BindlessTextures = std::move(table); }
 		bool ManagesDescriptorSet(uint32_t set) const { return m_DescriptorSetManager.ManagesSet(set); }
 
 		virtual Ref<PipelineCompute> GetPipeline() const;
@@ -67,6 +75,7 @@ namespace Lux {
 	private:
 		ComputePassSpecification m_Specification;
 		DescriptorSetManager m_DescriptorSetManager;
+		Ref<BindlessTextureTable> m_BindlessTextures;
 	};
 
 }

@@ -136,6 +136,10 @@ namespace Lux {
 		}
 		pass->SetInput("u_PTEnvironment", radiance ? radiance : Renderer::GetBlackCubeTexture());
 		pass->SetInput("u_PTEnvironmentSampler", Renderer::GetClampSampler());
+		// The raster renderer's material rows and bindless textures, so albedo / metalness / roughness / emissive maps apply.
+		pass->SetInput("GPUMaterials", m_SBSGPUMaterials);
+		pass->SetInput("u_PTMaterialSampler", Renderer::GetRepeatSampler());
+		pass->SetBindlessTextures(m_BindlessTextures);
 		return params;
 	}
 

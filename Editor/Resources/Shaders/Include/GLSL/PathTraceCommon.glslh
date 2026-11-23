@@ -3,7 +3,7 @@
 
 // Shared by PathTrace.glsl (editor path tracer) and PathTraceBake.glsl (lightmap baker): the scene
 // bindings, the BRDF (PBR.glslh terms), ray queries, next-event estimation and the path loop.
-// Needs GL_EXT_ray_query. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights, 74 environment cube, 75 its sampler.
+// Needs GL_EXT_ray_query and GL_EXT_nonuniform_qualifier. Material rows: set 2 binding 7, bindless textures: set 4. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights, 74 environment cube, 75 its sampler.
 
 struct RTInstance
 {
@@ -28,6 +28,52 @@ layout(push_constant) uniform PathTracePush
 	vec4 SkyRadiance;       // rgb sky (upper hemisphere), a unused
 	vec4 GroundRadiance;    // rgb ground (lower hemisphere)
 } u_Push;
+
+// Mirrors GPUMaterial in MaterialScene.glslh / MaterialScene.h: the engine's material rows, so the path tracer shades with
+// the same colours and textures as the raster renderer (GIL1). Keep the three in step.
+struct GPUMaterial
+{
+	vec4 BaseColor;
+	vec4 Scalars;        // x = metalness, y = roughness, z = emission, w = material complexity
+	uvec4 TextureIndices; // x = albedo, y = normal, z = metalness, w = roughness
+	uvec4 Metadata;       // x = flags, y = alpha mode, z = RenderMaterialID, w = floatBits(env map rotation)
+	vec4 Emissive;        // rgb = linear emissive radiance, w = occlusion strength
+	vec4 Surface;
+	vec4 UVTransform;     // 2x2 matrix columns (xy, zw)
+	vec4 UVOffset;        // xy = offset
+	uvec4 ExtraTextureIndices; // x = emissive, y = occlusion, z = height, w = packed-map channel selects
+	vec4 Transmission;
+	uvec4 TransmissionTextureIndices;
+	vec4 Refraction;
+	vec4 AttenuationColor;
+	vec4 Lobes;
+	vec4 Sheen;
+	vec4 Subsurface;
+	uvec4 DetailTextureIndices;
+	vec4 Detail;
+	vec4 GraphParameters[8];
+};
+
+layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
+{
+	GPUMaterial Materials[];
+} r_GPUMaterials;
+layout(set = 4, binding = 0) uniform texture2D u_GPUMaterialTextures[];
+layout(set = 1, binding = 76) uniform sampler u_PTMaterialSampler;
+
+const uint PT_NO_MATERIAL = 0xffffffffu;
+const uint PT_TEXTURE_INVALID = 0xffffffffu;
+const uint PT_MATERIAL_FLAG_VALID = 1u << 0u;
+const uint PT_MATERIAL_FLAG_MISSING = 1u << 1u;
+const uint PT_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE = 1u << 6u;
+const uint PT_MATERIAL_FLAG_HAS_METALNESS_TEXTURE = 1u << 8u;
+const uint PT_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE = 1u << 9u;
+const uint PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE = 1u << 12u;
+
+vec4 PTSampleMaterialTexture(uint index, vec2 uv, float lod)
+{
+	return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(index)], u_PTMaterialSampler), uv, lod);
+}
 
 const float PI = 3.14159265359;
 const float MIN_ALPHA = 0.0064;
@@ -192,6 +238,37 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	s.Metal = inst.AlbedoMetal.a;
 	s.Rough = clamp(inst.EmissionRough.a, 0.04, 1.0);
 	s.Emission = inst.EmissionRough.rgb;
+
+	// The engine's material row, with its textures, when the instance has one (the vertex w components hold uv).
+	const uint materialId = inst.Info.z;
+	if (materialId != PT_NO_MATERIAL && materialId < uint(r_GPUMaterials.Materials.length()))
+	{
+		GPUMaterial m = r_GPUMaterials.Materials[materialId];
+		const uint flags = m.Metadata.x;
+		if ((flags & PT_MATERIAL_FLAG_VALID) != 0u && (flags & PT_MATERIAL_FLAG_MISSING) == 0u)
+		{
+			vec2 uv = vec2(Vertices[2u * i0].w, Vertices[2u * i0 + 1u].w) * w.x + vec2(Vertices[2u * i1].w, Vertices[2u * i1 + 1u].w) * w.y + vec2(Vertices[2u * i2].w, Vertices[2u * i2 + 1u].w) * w.z;
+			uv = mat2(m.UVTransform.xy, m.UVTransform.zw) * uv + m.UVOffset.xy;
+			const float lod = min(7.0, 0.5 * log2(1.0 + t * t * 0.05));
+			const uint selects = m.ExtraTextureIndices.w;
+			vec3 base = clamp(m.BaseColor.rgb, vec3(0.0), vec3(128.0));
+			if ((flags & PT_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE) != 0u && m.TextureIndices.x != PT_TEXTURE_INVALID)
+				base *= PTSampleMaterialTexture(m.TextureIndices.x, uv, lod).rgb;
+			float metal = clamp(m.Scalars.x, 0.0, 1.0);
+			if ((flags & PT_MATERIAL_FLAG_HAS_METALNESS_TEXTURE) != 0u && m.TextureIndices.z != PT_TEXTURE_INVALID)
+				metal *= PTSampleMaterialTexture(m.TextureIndices.z, uv, lod)[(selects >> 0u) & 3u];
+			float rough = clamp(m.Scalars.y, 0.0, 1.0);
+			if ((flags & PT_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE) != 0u && m.TextureIndices.w != PT_TEXTURE_INVALID)
+				rough *= PTSampleMaterialTexture(m.TextureIndices.w, uv, lod)[(selects >> 2u) & 3u];
+			vec3 emission = max(m.Emissive.rgb, vec3(0.0));
+			if ((flags & PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE) != 0u && m.ExtraTextureIndices.x != PT_TEXTURE_INVALID)
+				emission *= PTSampleMaterialTexture(m.ExtraTextureIndices.x, uv, lod).rgb;
+			s.Albedo = base;
+			s.Metal = clamp(metal, 0.0, 1.0);
+			s.Rough = clamp(rough, 0.05, 1.0);
+			s.Emission = emission;
+		}
+	}
 	s.F0 = mix(vec3(0.04), s.Albedo, s.Metal);
 	return true;
 }

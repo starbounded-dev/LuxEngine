@@ -1,0 +1,106 @@
+FormatVersion: 1
+Scene: GI_Textured
+Entities:
+  - Entity: 16300000000009000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.9, 0.5, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 0.95, 0.85]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 0
+      ShadowResolutionTier: 2
+  - Entity: 16300000000009000002
+    TagComponent:
+      Tag: Wood Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [10, 0.1, 10]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/WoodFloor.lmat
+      Visible: true
+  - Entity: 16300000000009000003
+    TagComponent:
+      Tag: Brick Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1.5, -3]
+      Rotation: [0, 0, 0]
+      Scale: [8, 3, 0.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Brick.lmat
+      Visible: true
+  - Entity: 16300000000009000004
+    TagComponent:
+      Tag: Metal Ball
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.5, 0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Sphere.gltf
+      MaterialTable:
+        0: Materials/MetalPlate.lmat
+      Visible: true
+  - Entity: 16300000000009000005
+    TagComponent:
+      Tag: Plaster Cube
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.5, 0.5, 0.3]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/Plaster.lmat
+      Visible: true
+  - Entity: 16300000000009000006
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.2, 6]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 55
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

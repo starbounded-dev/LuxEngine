@@ -1,0 +1,85 @@
+FormatVersion: 1
+Scene: GI_HDRSky
+Entities:
+  - Entity: 16300000000008000001
+    TagComponent:
+      Tag: Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: Environment/venice_dawn_1_4k.hdr
+      Intensity: 1
+      Lod: 0
+      DynamicSky: false
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 16300000000008000002
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [8, 0.1, 8]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 16300000000008000003
+    TagComponent:
+      Tag: Red Ball
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.2, 0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Sphere.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Red.lmat
+      Visible: true
+  - Entity: 16300000000008000004
+    TagComponent:
+      Tag: Green Ball
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.2, 0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.2, 1.2, 1.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Sphere.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Green.lmat
+      Visible: true
+  - Entity: 16300000000008000005
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 1.6, 6]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 55
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
