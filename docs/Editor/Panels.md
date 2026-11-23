@@ -379,3 +379,12 @@ Full page: **[Audio](Audio.md)**.
 - The Content Browser has its own deep-dive: **[Content Browser](Content-Browser.md)**.
 - To add your own panel: **[Extending → Add a panel](Extending.md#recipe-add-a-new-panel)**.
 - Panel styling (fonts, colours, icons, the `ImGuiEx` helpers): **[Theme, Fonts & Icons](Theme-Fonts-Icons.md)**.
+
+## Scene Renderer: Path Tracing (ray-traced features)
+
+The **Path Tracing** card in the Scene Renderer panel controls the opt-in ray-traced features. They need a GPU with ray queries
+(the card says so when it has none) and cost nothing while off; the raster renderer stays the default.
+
+- **Enable Path Tracer** replaces the viewport with a progressive path-traced frame (samples are shown; it restarts when the camera, lights or scene change). **Max Bounces**, **Target Samples** and **Reset Accumulation** tune it. **Uniform Environment** is the white-furnace test.
+- **Diff vs Raster** shows an error heat map of the raster frame against the path tracer, with MAE and PSNR; **Diff Scale** is the error mapped to red and **Diff Peak (HDR)** lets bright areas count. The **Diff Lightmap**, **Diff Realtime GI** and **Diff RTGI** buttons set the right combination.
+- **Bake Lightmaps** writes `Assets/Lightmaps/<scene>.lxlm` (indirect light, needs non-overlapping UVs); **Use Lightmaps** toggles it. **Realtime GI** adds a probe volume, **Ray-Traced GI** adds per-pixel indirect light. Use one GI source at a time.

@@ -353,6 +353,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **Volume system** — blendable post-process, atmosphere, and fog volumes (box/sphere) that override settings per region.
 - **GPU-driven bits** — GPU scene buffers, compute mesh culling, per-pass GPU timing.
 - **2D batch renderer** — quads/sprites, circles, lines, and MSDF text rendering.
+- **Ray tracing and global illumination (opt-in, GPUs with ray queries).** Scene Renderer panel > Path Tracing: an editor path tracer used as a ground-truth reference, baked lightmaps, a realtime probe volume and per-pixel ray-traced GI, plus a diff view (error heat map, MAE/PSNR) of the raster frame against the reference. Off by default and the raster renderer is unchanged while off; it runs on the GPU's RT cores. See `docs/GI_PLAN.md`.
 - **Editor rendering** — jump-flood selection outlines, depth-tested collider pass, wireframe and G-buffer/AO debug views, infinite grid, debug renderer.
 - Sky atmosphere, volumetric clouds and TAA were removed during the renderer simplification pass and are not currently available.
 
@@ -403,6 +404,7 @@ Docking ImGui editor ("Monolith, warmed" theme) with viewport + ImGuizmo gizmos,
 - **2D is a renderer, not a toolset.** Sprites, circles, lines, and text render fine, but there are no tilemaps or 2D-specific editor workflows.
 - **Obfuscation is not protection.** The key travels inside the game, a game's script assembly is still written in plain form to the temp folder while it runs, and script symbols are not renamed yet ([docs/OBFUSCATION_PLAN.md](docs/OBFUSCATION_PLAN.md) phases 4-7).
 - **Exports have no icon or splash on Linux.** Name, version, icon and splash branding is Windows only.
+- **Ray-traced features are editor-side and Windows-tested.** The path tracer needs the shader compiler (not in Dist), shades with flat/mapped material colour only (no transmission, clearcoat or sheen), and lightmaps are indirect-only, need non-overlapping UVs and have no automatic unwrap yet. Linux and Dist were not run.
 - **Rough edges everywhere.** One sample project, no packaged releases — you build from source.
 
 ***

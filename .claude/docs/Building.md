@@ -298,7 +298,7 @@ Read this **before** opening the file you think is broken.
 | Added a build toggle | Add to `BuildOptions.OPTIONS` + `newoption` in `premake5.lua`, then regenerate | |
 | Pulled a branch that bumped a submodule | `scripts\Setup.bat` | Runs `git submodule update --init --recursive` + `git lfs pull` |
 | Pulled a branch that bumped the Vulkan SDK | `scripts\Setup.bat` | Re-runs `Vulkan.CheckVulkanSDK()` |
-| Changed a shader (`.glsl` / `.glslh`) | nothing to run it — hot-reload, or restart. Before committing: from `Editor/`, `..\bin\Release-windows-x86_64\Editor\Editor.exe --build-shader-pack`, then commit `Resources/ShaderPack.lsp` and `.stamp` | Shaders compile at runtime and are cached (`.claude/docs/Rendering.md`); the Dist editor can't compile and refuses a stale engine pack, and CI's `tests/shaders/check_engine_pack.py` fails until it is rebuilt |
+| Changed a shader (`.glsl` / `.glslh`) | nothing to run it — hot-reload, or restart. Before committing: `python scripts/Update-ShaderPack.py` (it runs `Editor.exe --build-shader-pack` and re-checks; the `.githooks/pre-push` hook blocks a push while the pack is stale), then commit `Resources/ShaderPack.lsp` and `.stamp` | Shaders compile at runtime and are cached (`.claude/docs/Rendering.md`); the Dist editor can't compile and refuses a stale engine pack, and CI's `tests/shaders/check_engine_pack.py` fails until it is rebuilt |
 | Changed C# in `ScriptCore` or a project's scripts | rebuild the solution | MSBuild builds the C# projects in-solution |
 | Changed `ScriptCore`'s public API | document it (`///`), rebuild, rerun `tools/ScriptApiDocs` | CI's API reference check fails otherwise |
 
