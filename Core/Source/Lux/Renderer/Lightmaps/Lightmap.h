@@ -18,8 +18,8 @@ namespace Lux {
 	// RGBA16F, and where each lit submesh instance sits in it. The renderer adds
 	// albedo * (1 - metalness) * radiance as indirect diffuse (GBuffer_Static.glsl).
 	//
-	// Stored as a sidecar file `<project assets>/Lightmaps/<scene name>.lxlm` found by convention, so
-	// there is no asset type yet: it is not part of runtime exports (docs/GI_PLAN.md, GI3 limits).
+	// Stored as a sidecar file `<project assets>/Lightmaps/<scene name>.lxlm` found by convention (no asset type);
+	// runtime exports copy the folder next to the runtime project file (EditorLayer, RuntimeProject step).
 	class LightmapData : public RefCounted
 	{
 	public:
@@ -41,7 +41,10 @@ namespace Lux {
 		bool Save(const std::filesystem::path& path) const;
 		static Ref<LightmapData> Load(const std::filesystem::path& path);
 
-		// <project assets>/Lightmaps/<sceneName>.lxlm; empty without an active project.
+		// Where a scene's lightmap is written: <project assets>/Lightmaps/<sceneName>.lxlm; empty without an active project.
+		static std::filesystem::path SavePathForScene(const std::string& sceneName);
+		// Where it is read from: the same file in the editor, or <project directory>/Lightmaps/ in an export (the editor
+		// copies the folder next to the runtime project file). Empty when neither exists.
 		static std::filesystem::path PathForScene(const std::string& sceneName);
 	};
 

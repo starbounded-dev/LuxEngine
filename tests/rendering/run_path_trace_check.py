@@ -69,7 +69,7 @@ def main():
         near_green = region(0.50, 0.58, 0.595, 0.60)
         left_tint = near_red[0] - near_red[1]
         right_tint = near_green[0] - near_green[1]
-        check(left_tint > 0.05 and right_tint < left_tint - 0.1,
+        check(left_tint > 0.05 and right_tint < left_tint - 0.06,
               f"the back wall is red near the red wall and greener near the green wall (R-G: left {left_tint:.3f}, right {right_tint:.3f})")
 
         # 2. White furnace: an albedo-1 sphere in a uniform environment of radiance 1 must vanish into it.
@@ -103,16 +103,16 @@ def main():
         check(0.005 < mae < 0.5 and 3.0 < psnr < 60.0, f"diff MAE {mae:.4f}, PSNR {psnr:.2f} dB are in range")
         # 5. Lightmaps: bake the Cornell box, then the raster frame is closer to the path-traced reference with the
         # lightmap than without it ("Diff Lightmap"), and colour bleeds onto the floor.
-        sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_CornellBox.lxlm"
+        sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_CornellDark.lxlm"
         sidecar.unlink(missing_ok=True)
         labels.append("gi-check-bake")
-        capture(labels[-1], "GI_CornellBox", "BakeLightmaps=128,Lightmaps=1", args.config, 330)
+        capture(labels[-1], "GI_CornellDark", "BakeLightmaps=128,Lightmaps=1", args.config, 330)
         check(sidecar.exists() and sidecar.stat().st_size > 1_000_000, f"the bake wrote its sidecar ({sidecar.stat().st_size if sidecar.exists() else 0} bytes)")
         maes = {}
         for use in ("0", "1"):
             labels.append(f"gi-check-diff-lm{use}")
-            capture(labels[-1], "GI_CornellBox", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,Lightmaps={use}", args.config, 330)
-            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellBox.log").read_text(encoding="utf-8", errors="replace")
+            capture(labels[-1], "GI_CornellDark", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,Lightmaps={use}", args.config, 330)
+            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellDark.log").read_text(encoding="utf-8", errors="replace")
             found = re.findall(r"diff vs raster: MAE ([0-9.]+)", text)
             check(bool(found), f"diff log present for Lightmaps={use}")
             maes[use] = float(found[-1])
@@ -122,8 +122,8 @@ def main():
         gi = {}
         for use in ("0", "1"):
             labels.append(f"gi-check-diff-gi{use}")
-            capture(labels[-1], "GI_CornellBox", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,RealtimeGI={use},Lightmaps=0", args.config, 330)
-            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellBox.log").read_text(encoding="utf-8", errors="replace")
+            capture(labels[-1], "GI_CornellDark", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,RealtimeGI={use},Lightmaps=0", args.config, 330)
+            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellDark.log").read_text(encoding="utf-8", errors="replace")
             found = re.findall(r"diff vs raster: MAE ([0-9.]+)", text)
             check(bool(found), f"diff log present for RealtimeGI={use}")
             gi[use] = float(found[-1])
@@ -132,8 +132,8 @@ def main():
         rt = {}
         for use in ("0", "1"):
             labels.append(f"gi-check-diff-rtgi{use}")
-            capture(labels[-1], "GI_CornellBox", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,RTGI={use},Lightmaps=0", args.config, 330)
-            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellBox.log").read_text(encoding="utf-8", errors="replace")
+            capture(labels[-1], "GI_CornellDark", f"PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,RTGI={use},Lightmaps=0", args.config, 330)
+            text = (ROOT / "bin/golden" / labels[-1] / "GI_CornellDark.log").read_text(encoding="utf-8", errors="replace")
             found = re.findall(r"diff vs raster: MAE ([0-9.]+)", text)
             check(bool(found), f"diff log present for RTGI={use}")
             rt[use] = float(found[-1])

@@ -367,6 +367,7 @@ namespace Lux {
 			{
 				const Submesh& submesh = instance.Source->GetSubmeshes()[instance.Submesh];
 				const glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(instance.ObjectToWorld)));
+				uint32_t coveredTexels = 0, overlappedTexels = 0;
 				for (uint32_t t = 0; t < submesh.IndexCount / 3; t++)
 				{
 					uint32_t v[3];
@@ -401,12 +402,23 @@ namespace Lux {
 								continue;
 							BakeTexel& texel = texels[static_cast<size_t>(instance.Y + y) * size + (instance.X + x)];
 							if (texel.Normal.w > 0.5f)
-								continue; // first triangle wins (overlapping UVs are a documented limit)
+							{
+								overlappedTexels++; // first triangle wins; counted so overlapping UVs are reported below
+								continue;
+							}
+							coveredTexels++;
 							const glm::vec3 n = glm::normalize(normal[0] * w0 + normal[1] * w1 + normal[2] * w2);
 							texel.Position = glm::vec4(position[0] * w0 + position[1] * w1 + position[2] * w2, 0.0f);
 							texel.Normal = glm::vec4(n, 1.0f);
 						}
 					}
+				}
+				// Overlapping lightmap UVs make several surfaces share texels and light each other wrongly: say so.
+				if (overlappedTexels > 16 && overlappedTexels * 20 > coveredTexels)
+				{
+					LUX_CORE_WARN_TAG("Core", "[Lightmap] submesh {} of '{}' has overlapping lightmap UVs ({} of {} texels shared). Unwrap it with a non-overlapping second UV set (UV1); the bake used the first triangle at each texel.",
+						instance.Submesh, std::filesystem::path(instance.Source->GetFilePath()).filename().string(), overlappedTexels, coveredTexels + overlappedTexels);
+					bake.Status = "overlapping UVs";
 				}
 				LightmapData::Entry entry;
 				entry.EntityID = instance.EntityID;
@@ -581,7 +593,7 @@ namespace Lux {
 				result->Texels[i * 4 + 3] = glm::packHalf1x16(1.0f);
 			}
 
-			const std::filesystem::path path = m_Scene ? LightmapData::PathForScene(m_Scene->GetName()) : std::filesystem::path();
+			const std::filesystem::path path = m_Scene ? LightmapData::SavePathForScene(m_Scene->GetName()) : std::filesystem::path();
 			if (!path.empty() && !result->Save(path))
 				LUX_CORE_WARN_TAG("Core", "[Lightmap] could not save {}", path.string());
 			SetLightmap(result);

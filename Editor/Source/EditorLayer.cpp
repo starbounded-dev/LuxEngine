@@ -5390,6 +5390,19 @@ namespace Lux {
 			if (!CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true))
 				return false;
 			LUX_CONSOLE_LOG_INFO("  AssetPack.lap: created");
+
+			// Baked lightmaps are read by convention from <project directory>/Lightmaps/ at runtime (LightmapData::PathForScene).
+			const std::filesystem::path lightmaps = Project::GetActiveAssetDirectory() / "Lightmaps";
+			if (std::filesystem::is_directory(lightmaps, ec))
+			{
+				std::filesystem::copy(lightmaps, exportAssets / "Lightmaps", std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, ec);
+				if (ec)
+				{
+					LUX_CONSOLE_LOG_ERROR("Runtime export failed while copying the lightmaps: {}", ec.message());
+					return false;
+				}
+				LUX_CONSOLE_LOG_INFO("  Lightmaps: copied");
+			}
 			return true;
 		}
 

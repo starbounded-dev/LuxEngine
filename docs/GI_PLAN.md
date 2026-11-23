@@ -95,24 +95,43 @@ Only one external source was reviewed: **[Fast-SDF-AO](https://github.com/wrong-
 ## Next
 Phase 0 is the first thing to implement (`/dev` then `/cr`, then `/send-pr`). Not started.
 
-## Status (2026-11-23, end of the implementation run)
+## Status (2026-11-23, after the limits pass)
 All six phases are built and verified by `python tests/rendering/run_ray_query_spike.py` and `python tests/rendering/run_path_trace_check.py`
-(real GPU runs through the golden-capture harness; the editor was launched with the owner's permission). Raster output with every option
-off is bit-identical to `dev` (`LowSun` capture compared).
+(real GPU runs through the golden-capture harness). With every option off the raster frame is bit-identical to `dev` (compared on `LowSun`
+before the sky fix below; the Preetham lower hemisphere changed on purpose, so a sky-visible golden needs re-accepting).
 
 | Phase | State | Evidence |
 |---|---|---|
 | GI0 ray-query spike + RHI | Done | AS as a descriptor input, `RayTracingScene`, standalone spike (107 analytic hits) |
-| GI1 path tracer | Done | Cornell colour bleeding, white furnace ratio 0.87 (the engine BRDF is not energy conserving), noise 16 -> 256 spp x0.46 |
-| GI2 diff views | Done | heat map + MAE/PSNR; "Diff Lightmap / Realtime GI / RTGI" buttons |
-| GI3 lightmaps | Done, with limits | bake over the PT kernel; MAE vs PT 0.136 -> 0.113 |
-| GI4 realtime GI | Done, with limits | 16x8x16 SH probe volume; MAE 0.136 -> 0.119 |
-| GI5 ray-traced GI | Done, with limits | per-pixel + a-trous denoise; MAE 0.136 -> 0.116 |
-| GI-S card + sample scene | Built; the panel was not clicked through | `GI_CornellBox`, `GI_Furnace`; card audited for balanced ImGui scopes |
+| GI1 path tracer | Done | Cornell colour bleeding, white furnace 0.87 (the engine BRDF is not energy conserving), noise falls with samples |
+| GI2 diff views | Done | heat map + MAE/PSNR; Diff Lightmap / Realtime GI / RTGI buttons |
+| GI3 lightmaps | Done, limits below | bake over the PT kernel |
+| GI4 realtime GI | Done | SH probe volume + DDGI-style octahedral distance visibility |
+| GI5 ray-traced GI | Done | per-pixel + a-trous denoise |
+| GI-S card + sample scenes | Built; the panel was not clicked through | `GI_CornellBox`, `GI_Furnace`, `GI_AreaLights`, `GI_Leak`, `GI_Textured`, `GI_HDRSky` |
 
-**Known limits (follow-ups):** path tracer and GI use constant material colour (no textures), a constant sky, rect area lights only, no
-skinned meshes. Lightmaps need non-overlapping UV1/UV0 (no xatlas unwrapper), are a sidecar file (no asset type, **not in runtime exports**),
-and are indirect-only. Probes have no visibility term (leaks). RTGI traces the primary surface itself, so geometry outside the ray-traced
-scene gets no GI. The error metrics are on the low-resolution Cornell box only and are not a benchmark. Not built or run: Dist, Linux,
-Debug with validation layers (the Release runs reported 0 validation messages only because Release has no layers). The raster-vs-reference
-comparison is in display-linear [0, 1], so exposure and tone mapping are not part of it.
+**Limits pass (issues #221 to #231).** The comparison scenes for lightmaps, probes and RTGI use `GI_CornellDark` (no sky ambient): the raster renderer's image-based ambient light would otherwise be added on top of the baked/traced indirect and hide the gain.
+
+| Limit | Result |
+|---|---|
+| GIL1 material textures | Done: the engine's material rows and bindless textures (albedo, metalness, roughness, emissive maps), UV and triplanar world/object mapping, ray-cone mip selection; scene `GI_Textured` |
+| GIL2 constant sky | Done: the scene's radiance map (dynamic sky or an `.hdr` SkyLight) with intensity and rotation; scene `GI_HDRSky` |
+| GIL3 area light shapes | Done: rect, disk, sphere, tube; scene `GI_AreaLights` |
+| GIL4 skinned meshes | Done: CPU linear-blend skinning per instance (a changed pose rebuilds the BLASes; refit is a follow-up in #231) |
+| GIL5 probe leaks | Implemented (octahedral mean/mean-squared distance per probe, Chebyshev weights, backface probe rejection, normal bias). The `GI_Leak` scene did not isolate a measurable difference, so the gain is not demonstrated |
+| GIL6 exports | Export copies `Lightmaps/` next to the runtime project file and the runtime reads it from there. Not run end to end (needs a Dist editor and player) |
+| GIL7 UV overlap / unwrapper | The baker now detects and reports overlapping UVs. An automatic xatlas unwrap is NOT done: it splits vertices, so it needs MeshSource support for a replacement UV1 stream |
+| GIL8 validation / Dist | Debug build with the Khronos validation layer and synchronization validation: 0 messages across the path tracer, probes + diff, RTGI and the lightmap bake on `GI_CornellBox`. A Dist build was not made (the ray-traced code compiles in every config; the shaders need the compiler, so Dist skips them) |
+| GIL9 HDR metric | Done: `PathTracerDiffPeak` scales radiance before the clamp so bright errors count |
+
+Also found and fixed on the way: the Preetham sky's lower hemisphere carried the horizon's azimuth variation all the way to the nadir,
+which showed as a bright pinch at the very bottom of the sky; it now fades to an azimuth-independent ground colour.
+
+**Hardware ray tracing.** The ray-traced features use `VK_KHR_ray_query` over `VK_KHR_acceleration_structure`, which run on the RT cores of an
+RTX card (and the ray accelerators of RDNA2+) automatically whenever `RHIDevice::SupportsRayQuery()` is true; without it the options are
+unavailable and raster is unchanged. Making that visible (device, GPU timings), build tuning (compaction, refit, persistent scratch), the
+ray-tracing-pipeline path (shader execution reordering, opacity micromaps) and optional denoisers (NRD, then DLSS Ray Reconstruction) are
+tracked in #231.
+
+**Other limits that remain:** the path tracer has no transmission/clearcoat/sheen lobes; rect/disk lights are one-sided only; lightmaps are
+indirect-only; RTGI traces its own primary surface, so geometry outside the ray-traced scene gets no GI. Not built or run: Linux, Dist.

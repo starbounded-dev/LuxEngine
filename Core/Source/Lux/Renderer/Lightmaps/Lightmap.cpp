@@ -97,12 +97,27 @@ namespace Lux {
 		return result;
 	}
 
-	std::filesystem::path LightmapData::PathForScene(const std::string& sceneName)
+	std::filesystem::path LightmapData::SavePathForScene(const std::string& sceneName)
 	{
 		Ref<Project> project = Project::GetActive();
 		if (!project || sceneName.empty())
 			return {};
 		return project->GetAssetDirectory() / "Lightmaps" / (sceneName + ".lxlm");
+	}
+
+	std::filesystem::path LightmapData::PathForScene(const std::string& sceneName)
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project || sceneName.empty())
+			return {};
+		std::error_code error;
+		for (const std::filesystem::path& root : { project->GetAssetDirectory(), project->GetProjectDirectory() })
+		{
+			const std::filesystem::path candidate = root / "Lightmaps" / (sceneName + ".lxlm");
+			if (std::filesystem::exists(candidate, error))
+				return candidate;
+		}
+		return {};
 	}
 
 }
