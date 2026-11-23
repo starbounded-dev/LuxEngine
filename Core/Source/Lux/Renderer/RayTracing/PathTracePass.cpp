@@ -36,6 +36,7 @@ namespace Lux {
 		uint32_t DiffPixels = 0;
 		uint32_t DiffReads = 0;
 		uint32_t ResetCounter = 0;
+		uint32_t ReSTIRParity = 0; // which of the two reservoir sets this frame writes
 		uint64_t Signature = 0;
 	};
 
@@ -204,6 +205,7 @@ namespace Lux {
 		m_PathTracePass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
 		m_PathTracePass->SetInput("o_PathTraceImage", m_PathTraceImage);
 		m_PathTracePass->SetInput("o_PathTraceMoments", m_PathTraceMomentsImage);
+		m_PathTracePass->SetInput("u_ReSTIRDirect", m_PathTraceImage); // placeholder until ReSTIR DI is on (never read then)
 		PreparePathTraceEnvironment(m_PathTracePass);
 		if (!m_PathTracePass->Validate())
 		{
@@ -214,6 +216,82 @@ namespace Lux {
 		}
 		m_PathTracePass->Bake();
 		LUX_CORE_INFO_TAG("Renderer", "[PathTracer] ready (ray queries on this device)");
+		return true;
+	}
+
+	bool SceneRenderer::EnsureReSTIRDI()
+	{
+		if (m_ReSTIRDirect)
+			return true;
+		if (m_ReSTIRDIUnavailable || !m_PathTracePass)
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		if (library->GetShaders().find("ReSTIRDI") == library->GetShaders().end())
+			library->Load("Resources/Shaders/PathTracing/ReSTIRDI.glsl");
+		if (library->GetShaders().find("ReSTIRDI") == library->GetShaders().end())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[ReSTIR] ReSTIRDI.glsl did not compile; ReSTIR DI is off for this session");
+			m_ReSTIRDIUnavailable = true;
+			return false;
+		}
+		auto createImage = [&](ImageFormat format, const char* name) -> Ref<Image2D>
+		{
+			ImageSpecification spec;
+			spec.Format = format;
+			spec.Usage = ImageUsage::Storage;
+			spec.Width = std::max(1u, m_ViewportWidth);
+			spec.Height = std::max(1u, m_ViewportHeight);
+			spec.DebugName = name;
+			Ref<Image2D> image = Image2D::Create(spec);
+			image->Invalidate();
+			return image;
+		};
+		for (int i = 0; i < 2; i++)
+		{
+			m_ReSTIRResA[i] = createImage(ImageFormat::RGBA32F, "ReSTIR-ResA");
+			m_ReSTIRResB[i] = createImage(ImageFormat::RGBA32F, "ReSTIR-ResB");
+			m_ReSTIRGPos[i] = createImage(ImageFormat::RGBA32F, "ReSTIR-GPos");
+			m_ReSTIRGNormal[i] = createImage(ImageFormat::RGBA16F, "ReSTIR-GNormal");
+		}
+		m_ReSTIRDirect = createImage(ImageFormat::RGBA16F, "ReSTIR-Direct");
+
+		bool valid = true;
+		for (int i = 0; i < 2 && valid; i++)
+		{
+			const int prev = 1 - i;
+			ComputePassSpecification spec;
+			spec.DebugName = "ReSTIRDI";
+			spec.Pipeline = PipelineCompute::Create(library->Get("ReSTIRDI"));
+			Ref<ComputePass> pass = ComputePass::Create(spec);
+			pass->SetInput("Camera", m_UBSCamera);
+			pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+			pass->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
+			pass->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
+			pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+			pass->SetInput("RTLights", m_PathTraceLights);
+			pass->SetInput("o_RDResA", m_ReSTIRResA[i]);
+			pass->SetInput("o_RDResB", m_ReSTIRResB[i]);
+			pass->SetInput("o_RDGPos", m_ReSTIRGPos[i]);
+			pass->SetInput("o_RDGNormal", m_ReSTIRGNormal[i]);
+			pass->SetInput("o_RDDirect", m_ReSTIRDirect);
+			pass->SetInput("u_RDPrevResA", m_ReSTIRResA[prev]);
+			pass->SetInput("u_RDPrevResB", m_ReSTIRResB[prev]);
+			pass->SetInput("u_RDPrevGPos", m_ReSTIRGPos[prev]);
+			pass->SetInput("u_RDPrevGNormal", m_ReSTIRGNormal[prev]);
+			PreparePathTraceEnvironment(pass);
+			valid = pass->Validate();
+			if (valid)
+				pass->Bake();
+			m_ReSTIRDIPasses[i] = pass;
+		}
+		if (!valid)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[ReSTIR] pass inputs do not match the shader; ReSTIR DI is off for this session");
+			m_ReSTIRDirect = nullptr;
+			m_ReSTIRDIUnavailable = true;
+			return false;
+		}
+		LUX_CORE_INFO_TAG("Renderer", "[ReSTIR] DI ready");
 		return true;
 	}
 
@@ -231,6 +309,23 @@ namespace Lux {
 			m_PathTraceImage->Resize(m_ViewportWidth, m_ViewportHeight);
 			if (m_PathTraceDiffImage)
 				m_PathTraceDiffImage->Resize(m_ViewportWidth, m_ViewportHeight);
+		}
+
+		const bool restirDI = m_Options.PathTracerReSTIRDI && EnsureReSTIRDI();
+		if (restirDI)
+		{
+			if (m_ReSTIRDirect->GetWidth() != m_ViewportWidth || m_ReSTIRDirect->GetHeight() != m_ViewportHeight)
+			{
+				m_ReSTIRDirect->Resize(m_ViewportWidth, m_ViewportHeight);
+				for (int i = 0; i < 2; i++)
+				{
+					m_ReSTIRResA[i]->Resize(m_ViewportWidth, m_ViewportHeight);
+					m_ReSTIRResB[i]->Resize(m_ViewportWidth, m_ViewportHeight);
+					m_ReSTIRGPos[i]->Resize(m_ViewportWidth, m_ViewportHeight);
+					m_ReSTIRGNormal[i]->Resize(m_ViewportWidth, m_ViewportHeight);
+				}
+			}
+			m_PathTracePass->SetInput("u_ReSTIRDirect", m_ReSTIRDirect);
 		}
 
 		const bool diff = m_Options.PathTracerDiffHeatmap && EnsurePathTraceDiff();
@@ -275,7 +370,10 @@ namespace Lux {
 		Ref<Image2D> image = m_PathTraceImage;
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<PathTraceState> state = m_PathTraceState;
-		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_PathTracePass);
+		PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_PathTracePass);
+		if (restirDI)
+			envParams.Flags |= 8; // FLAG_RESTIR_DI
+		Ref<ComputePass> restirPasses[2] = { restirDI ? m_ReSTIRDIPasses[0] : nullptr, restirDI ? m_ReSTIRDIPasses[1] : nullptr };
 		signature = HashBytes(signature, &envParams.Flags, sizeof(envParams.Flags));
 		Ref<ComputePass> diffPass = diff ? m_PathTraceDiffPass : nullptr;
 		Ref<Image2D> diffImage = diff ? m_PathTraceDiffImage : nullptr;
@@ -309,6 +407,19 @@ namespace Lux {
 				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 				ApplyPathTraceEnvironment(push, envParams);
+
+				if (restirPasses[0])
+				{
+					// Reservoirs: candidates + temporal / spatial reuse from the previous frame's set, one shadow ray, direct light image.
+					PathTracePush restirPush = push;
+					restirPush.Counts.z = state->Frame.load() > 0 ? 1u : 0u;
+					restirPush.Counts.w = 4u;
+					cb->RT_BeginMarker("ReSTIRDI");
+					restirPasses[state->ReSTIRParity]->Prepare();
+					Renderer::RT_DispatchCompute(*cb, *restirPasses[state->ReSTIRParity], glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&restirPush, sizeof(restirPush)));
+					cb->RT_EndMarker();
+					state->ReSTIRParity ^= 1u;
+				}
 
 				cb->RT_BeginMarker("PathTrace");
 				pass->Prepare();

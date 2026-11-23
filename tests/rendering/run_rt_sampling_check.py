@@ -101,7 +101,21 @@ def check_adaptive(config):
     check(ea < ee, f"at the same average sample count adaptive has lower error vs the reference (adaptive {ea:.4f}, uniform {ee:.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive}
+def check_restir_di(config):
+    """#236: ReSTIR DI on the 24-light scene. Biased and opt-in, so the converged image only has to stay close to the unbiased
+    reference; at a handful of samples the reservoir reuse must beat plain power-sampled next-event estimation."""
+    scene = "GI_PowerLights"
+    base = "PathTracer=1,PathTracerBounces=2"
+    ref = capture("rd-ref", scene, f"{base},PathTracerSamples=1024", config, spp(1024))
+    conv = capture("rd-conv", scene, f"{base},PathTracerSamples=256,PTReSTIR=1", config, spp(256))
+    check(rmse(conv, ref) < 0.03, f"converged ReSTIR DI stays close to the unbiased reference (RMSE {rmse(conv, ref):.4f})")
+    plain = capture("rd-nee4", scene, f"{base},PathTracerSamples=4", config, spp(4))
+    restir = capture("rd-restir4", scene, f"{base},PathTracerSamples=4,PTReSTIR=1", config, spp(4))
+    en, er = rmse(plain, ref), rmse(restir, ref)
+    check(er < en * 0.85, f"at 4 spp ReSTIR DI has lower error vs the reference (plain NEE {en:.4f}, ReSTIR {er:.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di}
 
 
 def main():

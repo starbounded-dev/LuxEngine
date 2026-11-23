@@ -102,6 +102,7 @@ namespace Lux {
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
+			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 

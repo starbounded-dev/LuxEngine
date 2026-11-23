@@ -335,6 +335,8 @@ namespace Lux {
 		bool     PathTracerPowerLightSampling = true;
 		// Multiple importance sampling: weight next-event estimation against BSDF-sampled hits of the analytic area lights (power heuristic). Unbiased; far less noise on glossy surfaces under large lights.
 		bool     PathTracerMIS = true;
+		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
+		bool     PathTracerReSTIRDI = false;
 		// Adaptive sampling: once a pixel has 16 samples it stops tracing when the relative standard error of its mean luminance falls
 		// below this (0 = off, every pixel gets every sample). Slightly biased by the stopping rule, so off by default and for reference renders.
 		float    PathTracerAdaptiveThreshold = 0.0f;
@@ -1997,6 +1999,10 @@ namespace Lux {
 		Ref<RayTracingScene> m_RayTracingScene;
 		Ref<ComputePass> m_PathTracePass;
 		Ref<Image2D> m_PathTraceMomentsImage;
+		bool EnsureReSTIRDI();
+		Ref<ComputePass> m_ReSTIRDIPasses[2];
+		Ref<Image2D> m_ReSTIRResA[2], m_ReSTIRResB[2], m_ReSTIRGPos[2], m_ReSTIRGNormal[2], m_ReSTIRDirect;
+		bool m_ReSTIRDIUnavailable = false;
 		Ref<Image2D> m_PathTraceAccumImage;         // RGBA32F running mean
 		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
 		Ref<StorageBuffer> m_PathTraceLights;

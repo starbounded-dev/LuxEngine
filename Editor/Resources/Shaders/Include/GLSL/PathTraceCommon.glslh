@@ -80,6 +80,10 @@ float g_ConeWidth = 0.0;
 float g_ConeAngle = 0.002;
 float g_InitialConeAngle = 0.002;
 
+// Set by PathTrace.glsl when ReSTIR DI supplies the first hit's direct light (and then BSDF-sampled light hits from that hit are not counted).
+bool g_UseExternalDirect = false;
+vec3 g_ExternalDirect = vec3(0.0);
+
 // uvFootprint: the ray cone's width at the hit expressed in uv units (width / cos * uv-per-world).
 vec4 PTSampleMaterialTexture(uint index, vec2 uv, float uvFootprint)
 {
@@ -352,6 +356,7 @@ bool TraceDistance(vec3 o, vec3 d, float tMax, out float t, out bool backface)
 
 layout(set = 1, binding = 74) uniform textureCube u_PTEnvironment;
 layout(set = 1, binding = 75) uniform sampler u_PTEnvironmentSampler;
+const uint FLAG_RESTIR_DI = 8u; // the path tracer takes its first-hit direct light from the ReSTIR DI image
 const uint FLAG_MIS = 4u;     // weight next-event estimation against BSDF-sampled hits of the analytic area lights
 const uint FLAG_ENV_MAP = 2u; // sample u_PTEnvironment (the scene's radiance map) instead of the sky/ground colours
 
@@ -372,37 +377,43 @@ vec3 Environment(vec3 d)
 	return mix(u_Push.GroundRadiance.rgb, u_Push.SkyRadiance.rgb, clamp(0.5 + 0.5 * d.y, 0.0, 1.0));
 }
 
-// Direct light from one randomly chosen light. Returns radiance * BRDF * cos / pdf.
-vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
+// Probability of choosing light `index` (the packed CDF: pmf_i = cdf_i - cdf_(i-1)).
+float LightPmf(uint index)
 {
-	const uint lightCount = u_Push.Counts.x;
-	if (lightCount == 0u || (u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
-		return vec3(0.0);
+	return max(Lights[4u * index + 3u].w - (index == 0u ? 0.0 : Lights[4u * (index - 1u) + 3u].w), 1e-6);
+}
 
-	// Choose a light by the CDF the host packed into every light's D.w (PackLights): pmf_i = cdf_i - cdf_(i-1).
-	const float chooseU = Rand();
-	uint lo = 0u, hi = lightCount - 1u;
+// Light index for a uniform random number, by binary search of the CDF.
+uint ChooseLight(float u)
+{
+	uint lo = 0u, hi = u_Push.Counts.x - 1u;
 	while (lo < hi)
 	{
 		const uint mid = (lo + hi) >> 1u;
-		if (Lights[4u * mid + 3u].w >= chooseU)
+		if (Lights[4u * mid + 3u].w >= u)
 			hi = mid;
 		else
 			lo = mid + 1u;
 	}
-	const uint index = lo;
-	const float lightPmf = max(Lights[4u * index + 3u].w - (index == 0u ? 0.0 : Lights[4u * (index - 1u) + 3u].w), 1e-6);
+	return lo;
+}
+
+// One sample of light `index` seen from P, placed by u1, u2 (so the same numbers rebuild the same point from another surface:
+// ReSTIR). Returns false when the light cannot reach P. radiance has the area / distance^2 / emitter cosine folded in, so the
+// contribution of the sample is EvalBRDF * radiance / (probability of choosing the sample). solidFactor is, for area lights,
+// d^2 / (area * cosLight): the solid-angle pdf of the sample is pmf * solidFactor (0 for point / spot / directional lights).
+bool SampleLight(uint index, float u1, float u2, vec3 P, vec3 N, out vec3 L, out float dist, out vec3 radiance, out float solidFactor)
+{
 	const vec4 a = Lights[4u * index + 0u];
 	const vec4 b = Lights[4u * index + 1u];
 	const vec4 c = Lights[4u * index + 2u];
 	const vec4 dd = Lights[4u * index + 3u];
 	const int type = int(a.w + 0.5);
-	const vec3 origin = s.P + s.N * 1e-3;
 
-	vec3 L;
-	float dist = 1.0e30;
-	vec3 radiance = vec3(0.0);
-	float lightPdfSolid = 0.0; // solid-angle pdf of having chosen this sample, for MIS (area lights only)
+	L = vec3(0.0, 1.0, 0.0);
+	dist = 1.0e30;
+	radiance = vec3(0.0);
+	solidFactor = 0.0;
 	if (type == 0) // directional: a.xyz toward the light, b.rgb radiance * intensity
 	{
 		L = normalize(a.xyz);
@@ -416,8 +427,8 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 		if (type == 5) // sphere: radius |c|, uniform on the surface, emits outward
 		{
 			float radius = length(c.xyz);
-			float z = 1.0 - 2.0 * Rand();
-			float phi = 2.0 * PI * Rand();
+			float z = 1.0 - 2.0 * u1;
+			float phi = 2.0 * PI * u2;
 			float rr = sqrt(max(1.0 - z * z, 0.0));
 			emitNormal = vec3(rr * cos(phi), rr * sin(phi), z);
 			p = a.xyz + emitNormal * radius;
@@ -429,9 +440,9 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 			float halfLength = length(axis);
 			vec3 e1, e2;
 			Basis(axis / max(halfLength, 1e-6), e1, e2);
-			float phi = 2.0 * PI * Rand();
+			float phi = 2.0 * PI * u1;
 			emitNormal = cos(phi) * e1 + sin(phi) * e2;
-			p = a.xyz + (2.0 * Rand() - 1.0) * axis + emitNormal * length(dd.xyz);
+			p = a.xyz + (2.0 * u2 - 1.0) * axis + emitNormal * length(dd.xyz);
 			area = 2.0 * PI * length(dd.xyz) * 2.0 * halfLength;
 		}
 		else // rect (3) and disk (4): span c x dd, emit along -normalize(cross(c, dd))
@@ -441,28 +452,28 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 			emitNormal = -areaCross / max(areaLen, 1e-8);
 			if (type == 4)
 			{
-				float r = sqrt(Rand());
-				float phi = 2.0 * PI * Rand();
+				float r = sqrt(u1);
+				float phi = 2.0 * PI * u2;
 				p = a.xyz + r * (cos(phi) * c.xyz + sin(phi) * dd.xyz);
 				area = PI * areaLen;
 			}
 			else
 			{
-				p = a.xyz + (2.0 * Rand() - 1.0) * c.xyz + (2.0 * Rand() - 1.0) * dd.xyz;
+				p = a.xyz + (2.0 * u1 - 1.0) * c.xyz + (2.0 * u2 - 1.0) * dd.xyz;
 				area = 4.0 * areaLen;
 			}
 		}
-		vec3 toLight = p - s.P;
+		vec3 toLight = p - P;
 		float d2 = max(dot(toLight, toLight), 1e-6);
 		dist = sqrt(d2);
 		L = toLight / dist;
 		float cosLight = max(dot(emitNormal, -L), 0.0);
 		radiance = b.rgb * (cosLight * area / d2);
-		lightPdfSolid = lightPmf * d2 / (area * max(cosLight, 1e-6));
+		solidFactor = d2 / (area * max(cosLight, 1e-6));
 	}
 	else // point (1) / spot (2): a.xyz position, b.rgb radiance * intensity, b.a range
 	{
-		vec3 toLight = a.xyz - s.P;
+		vec3 toLight = a.xyz - P;
 		float d2 = max(dot(toLight, toLight), 0.01);
 		dist = sqrt(d2);
 		L = toLight / dist;
@@ -476,13 +487,30 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 		}
 		radiance = b.rgb * atten;
 	}
+	return dot(N, L) > 0.0 && max(radiance.r, max(radiance.g, radiance.b)) > 0.0;
+}
 
-	if (dot(s.N, L) <= 0.0 || max(radiance.r, max(radiance.g, radiance.b)) <= 0.0)
+// Direct light from one light chosen by the packed CDF. Returns radiance * BRDF * cos / pdf.
+vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
+{
+	const uint lightCount = u_Push.Counts.x;
+	if (lightCount == 0u || (u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
 		return vec3(0.0);
-	if (Occluded(origin, L, dist - 2e-3))
+
+	const uint index = ChooseLight(Rand());
+	const float lightPmf = LightPmf(index);
+	const float u1 = Rand(), u2 = Rand();
+	vec3 L;
+	float dist, solidFactor;
+	vec3 radiance;
+	if (!SampleLight(index, u1, u2, s.P, s.N, L, dist, radiance, solidFactor))
 		return vec3(0.0);
+	if (Occluded(s.P + s.N * 1e-3, L, dist - 2e-3))
+		return vec3(0.0);
+
 	// Power heuristic against the BSDF sampling the same direction (the last bounce never traces its BSDF ray, so it keeps full weight).
 	float misWeight = 1.0;
+	const float lightPdfSolid = lightPmf * solidFactor;
 	if ((u_Push.Counts.y & FLAG_MIS) != 0u && !lastBounce && lightPdfSolid > 0.0)
 	{
 		const float pb = BSDFPdf(s, V, L);
@@ -593,7 +621,7 @@ vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
 		const bool hit = TraceClosest(origin, dir, s);
 		// Lights seen by a ray that left a surface in this loop (its start has next-event estimation); the first ray starts
 		// at a camera or at a surface another pass shades, so it never counts them.
-		if (mis && bounce > 0u)
+		if (mis && bounce > (g_UseExternalDirect ? 1u : 0u))
 			radiance += throughput * AreaLightEmission(origin, dir, hit ? length(s.P - origin) : 1.0e30, prevPdf);
 		if (!hit)
 		{
@@ -608,7 +636,7 @@ vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
 		g_ConeAngle = mix(0.03, 0.45, s.Rough);
 
 		vec3 V = -dir;
-		radiance += throughput * DirectLight(s, V, bounce == maxBounces);
+		radiance += throughput * ((g_UseExternalDirect && bounce == 0u) ? g_ExternalDirect : DirectLight(s, V, bounce == maxBounces));
 
 		if (bounce == maxBounces)
 			break;

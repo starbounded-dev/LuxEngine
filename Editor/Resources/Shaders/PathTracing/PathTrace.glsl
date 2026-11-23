@@ -17,6 +17,7 @@
 #pragma stage : comp
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_samplerless_texture_functions : require
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -44,6 +45,7 @@ layout(std140, set = 2, binding = 0) uniform Camera
 
 layout(rgba32f, set = 1, binding = 65) uniform image2D o_PathTraceAccum;
 layout(rgba16f, set = 1, binding = 66) uniform writeonly image2D o_PathTraceImage;
+layout(set = 1, binding = 109) uniform texture2D u_ReSTIRDirect; // first-hit direct light from ReSTIR DI (read only when FLAG_RESTIR_DI is set)
 layout(rgba32f, set = 1, binding = 98) uniform image2D o_PathTraceMoments; // x = sum of luminance, y = sum of luminance^2 (adaptive sampling)
 
 void main()
@@ -77,7 +79,9 @@ void main()
 	}
 
 	// Primary ray with a box-filtered sub-pixel jitter.
-	vec2 uv = (vec2(pixel) + vec2(Rand(), Rand())) / vec2(u_Push.SizeFrameBounces.xy);
+	// ReSTIR DI shades the pixel-centre surface, so that mode traces from the centre too.
+	const bool restir = (u_Push.Counts.y & FLAG_RESTIR_DI) != 0u;
+	vec2 uv = (vec2(pixel) + (restir ? vec2(0.5) : vec2(Rand(), Rand()))) / vec2(u_Push.SizeFrameBounces.xy);
 	vec2 ndc = vec2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
 	vec4 viewPoint = u_Camera.InverseProjectionMatrix * vec4(ndc, 1.0, 1.0);
 	vec3 viewDir = normalize(viewPoint.xyz / viewPoint.w);
@@ -85,6 +89,11 @@ void main()
 	vec3 dir = normalize((u_Camera.InverseViewMatrix * vec4(viewDir, 0.0)).xyz);
 
 	g_InitialConeAngle = 2.0 / (u_Camera.ProjectionMatrix[1][1] * float(u_Push.SizeFrameBounces.y));
+	if (restir)
+	{
+		g_UseExternalDirect = true;
+		g_ExternalDirect = texelFetch(u_ReSTIRDirect, ivec2(pixel), 0).rgb;
+	}
 	vec3 radiance = TracePath(origin, dir, u_Push.SizeFrameBounces.w);
 
 	// Firefly clamp (a documented bias): single samples above this are scaled down, preserving hue.
