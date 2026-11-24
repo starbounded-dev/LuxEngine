@@ -63,7 +63,7 @@ void StoreState(uint index, PathState st)
 	States[6u * index + 2u] = vec4(st.Throughput, st.PrevPdf);
 	States[6u * index + 3u] = vec4(st.Radiance, uintBitsToFloat(g_Rng));
 	States[6u * index + 4u] = vec4(st.SigmaA, st.SigmaS.x);
-	States[6u * index + 5u] = vec4(st.SigmaS.yz, 0.0, 0.0);
+	States[6u * index + 5u] = vec4(st.SigmaS.yz, st.InObject ? 1.0 : 0.0, 0.0);
 }
 
 PathState LoadState(uint index)
@@ -84,6 +84,7 @@ PathState LoadState(uint index)
 	st.Radiance = d.xyz;
 	st.SigmaA = e.xyz;
 	st.SigmaS = vec3(e.w, f.xy);
+	st.InObject = f.z > 0.5;
 	g_Rng = floatBitsToUint(d.w);
 	return st;
 }
@@ -165,6 +166,7 @@ void main()
 		st.ConeAngle = g_InitialConeAngle;
 		st.SigmaA = vec3(0.0);
 		st.SigmaS = vec3(0.0);
+		st.InObject = false;
 		const bool alive = TraceBounces(st, 0u, 0u, maxBounces);
 		StoreState(index, st);
 		const uint key = alive ? OctahedralBin(st.Dir) : BIN_COUNT;

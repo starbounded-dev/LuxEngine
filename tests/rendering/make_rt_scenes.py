@@ -200,6 +200,12 @@ def main():
         if scene_name == "GI_GlassSlab":
             text = text.replace("Sphere.gltf", "Cube.gltf").replace("Scale: [3, 3, 3]", "Scale: [6, 6, 0.5]")
         (SCENES / f"{scene_name}.luxscene").write_text(text, encoding="utf-8", newline=chr(10))
+    # An empty-looking scene (one cube far below the view, so the ray-traced scene exists) for the fog checks: its centre ray crosses
+    # only the fog sphere, its corner rays miss it.
+    # A point light inside a fog sphere on a black background: the fog glows around it (next-event estimation in the medium).
+    write("GI_FogLight", [nosky(), mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), point("Lamp", (0, 0, 0), (1, 1, 1), 60, 30), camera((0, 0, 8), (0, 0, 0))])
+    write("GI_FogEmpty", [mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), camera((0, 0, 8), (0, 0, 0))])
+
     # The white-furnace sphere with a clearcoat layer: still must not exceed the environment.
     furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8").replace("GI_Furnace.lmat", "GI_FurnaceCoat.lmat").replace("Scene: GI_Furnace", "Scene: GI_FurnaceCoat")
     (SCENES / "GI_FurnaceCoat.luxscene").write_text(furnace, encoding="utf-8", newline=chr(10))

@@ -331,6 +331,7 @@ namespace Lux {
 		uint32_t RealtimeGIBounces = 2;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
 		// converge to the environment radiance).
+		float    PathTracerFurnaceRadiance = 1.0f; // radiance of the uniform environment (the furnace test); other values calibrate the tone mapper in the checks
 		bool     PathTracerUniformEnvironment = false;
 		// Replace the view with an error heat map of the raster frame against the converged path-traced reference
 		// (PathTraceDiff.glsl). Needs EnablePathTracer. The raster frame is whatever indirect-diffuse source is active.
@@ -346,6 +347,13 @@ namespace Lux {
 		bool     PathTracerLobes = true;
 		// Transparent materials with transmission refract in the path tracer: smooth dielectric (Fresnel, Snell, total internal reflection) with Beer-Lambert absorption from the material's attenuation colour and distance. Shadow rays stay opaque.
 		bool     PathTracerGlass = true;
+		// Global homogeneous fog in the path tracer (RayTracing: PathTraceCommon.glslh): extinction per metre (0 = off), scattering albedo, Henyey-Greenstein anisotropy g,
+		// and an optional sphere (radius 0 = unbounded) around FogCenter. The raster renderer has no volumetric fog, so this is path-tracer-only. Directional lights are not attenuated by it.
+		float    PathTracerFogDensity = 0.0f;
+		glm::vec3 PathTracerFogAlbedo{ 1.0f };
+		float    PathTracerFogAnisotropy = 0.0f;
+		float    PathTracerFogRadius = 0.0f;
+		glm::vec3 PathTracerFogCenter{ 0.0f };
 		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
 		bool     PathTracerReSTIRDI = false;
 		// Ray sorting: bounce 1+ of every path runs with rays binned by direction (PathTraceWavefront.glsl) so neighbouring threads trace similar rays. Same image, only the work order changes; measured by the checks, off unless it is faster. No ReSTIR DI, adaptive sampling or heat map in this mode.

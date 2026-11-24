@@ -245,6 +245,34 @@ def furnace_ratio(image):
     return float(centre.mean() / corner.mean())
 
 
+_TONE = []
+
+
+def tone_curve(config):
+    """The captures are tone mapped. Measure the display value of a uniform furnace of known radiance, once, so a measured pixel can be
+    turned back into linear radiance: returns (display values ascending, radiances)."""
+    if not _TONE:
+        pairs = []
+        for level in (1.0, 0.75, 0.5, 0.35, 0.25, 0.15, 0.08):
+            image = capture(f"tone-{level}", "GI_FogEmpty", f"PathTracer=1,PathTracerFurnace=1,PathTracerSamples=8,PTFurnaceL={level}", config, spp(8))
+            h, w = image.shape[:2]
+            pairs.append((float(image[h // 2 - 20:h // 2 + 20, w // 2 - 20:w // 2 + 20].mean()), level))
+        pairs.sort()
+        _TONE.extend(pairs)
+    return _TONE
+
+
+def linear_radiance(config, display):
+    table = tone_curve(config)
+    return float(np.interp(display, [d for d, _ in table], [r for _, r in table]))
+
+
+def linear_centre(config, image):
+    """Linear radiance of the image centre (the furnace environment is radiance 1), through the measured tone curve."""
+    h, w = image.shape[:2]
+    return linear_radiance(config, float(image[h // 2 - 20:h // 2 + 20, w // 2 - 20:w // 2 + 20].mean()))
+
+
 def check_glass(config):
     """#242: glass. A no-absorption dielectric sphere in a white furnace vanishes (more completely than the 0.87 diffuse sphere), an
     absorbing slab with an invisible interface transmits exp(-sigma d), and glass off makes the sphere an opaque grey ball."""
@@ -252,7 +280,11 @@ def check_glass(config):
     ratio = furnace_ratio(capture("gl-furnace", "GI_GlassFurnace", base, config, 330))
     check(0.97 < ratio < 1.03, f"a glass sphere in the white furnace vanishes (ratio {ratio:.3f})")
     slab = furnace_ratio(capture("gl-slab", "GI_GlassSlab", base, config, 330))
-    check(abs(slab - 0.5 ** 0.5) < 0.03, f"an absorbing slab transmits exp(-sigma d) (ratio {slab:.3f}, expected {0.5 ** 0.5:.3f})")
+    slab_image = capture("gl-slab-lin", "GI_GlassSlab", base, config, 330)
+    slab = linear_centre(config, slab_image)
+    linear_colour = ((0.5 + 0.055) / 1.055) ** 2.4  # the material's attenuation colour 0.5 is sRGB; the row holds it linear
+    expected = linear_colour ** 0.5  # attenuation distance 1 m, slab thickness 0.5 m
+    check(abs(slab - expected) < 0.03, f"an absorbing slab transmits exp(-sigma d) in linear radiance ({slab:.3f}, expected {expected:.3f})")
     solid = furnace_ratio(capture("gl-slab-off", "GI_GlassSlab", f"{base},PTGlass=0", config, 330))
     check(solid > 0.9, f"with glass off the slab is an opaque white block that absorbs nothing (ratio {solid:.3f})")
     plain_off = capture("gl-plain-off", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTGlass=0", config, spp(16))
@@ -260,7 +292,33 @@ def check_glass(config):
     check(rmse(plain_on, plain_off) < 1e-6, f"a scene without glass renders identically (RMSE {rmse(plain_on, plain_off):.7f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass}
+def check_fog(config):
+    """#243: volumetrics, analytically. A purely absorbing fog sphere transmits exp(-sigma * chord); an albedo-1 scattering fog in a
+    uniform environment changes nothing (white furnace); no fog renders identically."""
+    import math
+    scene = "GI_FogEmpty"
+    base = "PathTracer=1,PathTracerFurnace=1,PathTracerSamples=256,PathTracerBounces=32"
+    sigma, radius = 0.25, 2.0
+    absorbing = capture("fg-abs", scene, f"{base},PTFog={sigma}:{radius}:0:0", config, 330)
+    ratio = linear_centre(config, absorbing)
+    expected = math.exp(-sigma * 2.0 * radius)
+    check(abs(ratio - expected) < 0.03, f"a purely absorbing fog sphere transmits exp(-sigma d) (ratio {ratio:.3f}, expected {expected:.3f})")
+    scattering = linear_centre(config, capture("fg-scat", scene, f"{base},PTFog=0.5:{radius}:0.4:1", config, 330))
+    check(abs(scattering - 1.0) < 0.03, f"an albedo-1 fog in a uniform environment vanishes (ratio {scattering:.3f})")
+    glow = "PathTracer=1,PathTracerSamples=128,PathTracerBounces=4"
+    lit = capture("fg-light", "GI_FogLight", f"{glow},PTFog=0.4:2:0:1", config, 330)
+    dark = capture("fg-dark", "GI_FogLight", glow, config, 330)
+    h, w = lit.shape[:2]
+    centre = float(lit[h // 2 - 20:h // 2 + 20, w // 2 - 20:w // 2 + 20].mean())
+    rim = float(lit[h // 2 - 20:h // 2 + 20, int(w * 0.5 + h * 0.18):int(w * 0.5 + h * 0.18) + 40].mean())
+    check(centre > 0.1 and float(dark.mean()) < 0.02, f"a lamp inside fog glows (centre {centre:.3f}) where the same scene without fog is black ({float(dark.mean()):.3f})")
+    check(centre > rim * 1.5, f"the glow falls off away from the lamp (centre {centre:.3f}, off to the side {rim:.3f})")
+    plain_off = capture("fg-plain", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16", config, spp(16))
+    plain_zero = capture("fg-zero", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTFog=0:0:0:1", config, spp(16))
+    check(rmse(plain_zero, plain_off) < 1e-6, f"fog density 0 renders identically (RMSE {rmse(plain_zero, plain_off):.7f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog}
 
 
 def main():

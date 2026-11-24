@@ -37,6 +37,9 @@ namespace Lux {
 			glm::uvec4 Counts;
 			glm::vec4 SkyRadiance;
 			glm::vec4 GroundRadiance;
+			glm::vec4 Medium;       // fog: density, anisotropy, radius (PathTraceCommon.glslh)
+			glm::vec4 MediumAlbedo;
+			glm::vec4 MediumCenter;
 		};
 
 		struct RTGIFilterPush

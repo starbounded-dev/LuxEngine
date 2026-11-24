@@ -65,6 +65,9 @@ namespace Lux {
 			glm::uvec4 Counts;
 			glm::vec4 SkyRadiance;
 			glm::vec4 GroundRadiance;
+			glm::vec4 Medium;       // fog: density, anisotropy, radius (PathTraceCommon.glslh)
+			glm::vec4 MediumAlbedo;
+			glm::vec4 MediumCenter;
 		};
 
 	}
@@ -405,6 +408,10 @@ namespace Lux {
 		const uint32_t maxBounces = std::clamp(m_Options.PathTracerMaxBounces, 1u, 16u);
 		const uint32_t targetSamples = std::max(1u, m_Options.PathTracerTargetSamples);
 		const uint32_t resetCounter = m_Options.PathTracerResetCounter;
+		const glm::vec4 fogMedium(std::max(m_Options.PathTracerFogDensity, 0.0f), std::clamp(m_Options.PathTracerFogAnisotropy, -0.99f, 0.99f), std::max(m_Options.PathTracerFogRadius, 0.0f), 0.0f);
+		const glm::vec4 fogAlbedo(m_Options.PathTracerFogAlbedo, 0.0f);
+		const glm::vec4 fogCenter(m_Options.PathTracerFogCenter, 0.0f);
+		const float furnaceRadiance = m_Options.PathTracerFurnaceRadiance;
 		const float adaptiveThreshold = std::max(m_Options.PathTracerAdaptiveThreshold, 0.0f);
 		const bool sampleHeatmap = m_Options.PathTracerSampleHeatmap;
 		const uint32_t width = m_ViewportWidth;
@@ -424,6 +431,10 @@ namespace Lux {
 		signature = HashBytes(signature, &adaptiveThreshold, sizeof(adaptiveThreshold));
 		signature = HashBytes(signature, &sampleHeatmap, sizeof(sampleHeatmap));
 		signature = HashBytes(signature, &raySort, sizeof(raySort));
+		signature = HashBytes(signature, &fogMedium, sizeof(fogMedium));
+		signature = HashBytes(signature, &furnaceRadiance, sizeof(furnaceRadiance));
+		signature = HashBytes(signature, &fogAlbedo, sizeof(fogAlbedo));
+		signature = HashBytes(signature, &fogCenter, sizeof(fogCenter));
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
@@ -468,9 +479,12 @@ namespace Lux {
 				PathTracePush push = {};
 				push.SizeFrameBounces = glm::uvec4(width, height, state->Frame.load(), maxBounces);
 				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, std::bit_cast<uint32_t>(adaptiveThreshold), sampleHeatmap ? 256u : 0u);
-				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
-				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(1.0f) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
+				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(furnaceRadiance) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
+				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(furnaceRadiance) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 				ApplyPathTraceEnvironment(push, envParams);
+				push.Medium = fogMedium;
+				push.MediumAlbedo = fogAlbedo;
+				push.MediumCenter = fogCenter;
 
 				if (restirPasses[0])
 				{

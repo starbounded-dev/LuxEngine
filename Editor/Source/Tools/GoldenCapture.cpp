@@ -115,7 +115,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -262,6 +262,21 @@ namespace Lux {
 	void GoldenCapture::ApplyOptions(SceneRenderer& renderer) const
 	{
 		SceneRendererOptions& options = renderer.GetOptions();
+
+		if (const auto it = m_Options.find("PTFurnaceL"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.PathTracerFurnaceRadiance);
+
+		// PTFog=<density>:<radius>:<anisotropy>:<albedo>[:<centre x>:<y>:<z>]: the path tracer's global fog (radius 0 = unbounded).
+		if (const auto it = m_Options.find("PTFog"); it != m_Options.end())
+		{
+			float density = 0.0f, radius = 0.0f, anisotropy = 0.0f, albedo = 1.0f, cx = 0.0f, cy = 0.0f, cz = 0.0f;
+			std::sscanf(it->second.c_str(), "%f:%f:%f:%f:%f:%f:%f", &density, &radius, &anisotropy, &albedo, &cx, &cy, &cz);
+			options.PathTracerFogDensity = density;
+			options.PathTracerFogRadius = radius;
+			options.PathTracerFogAnisotropy = anisotropy;
+			options.PathTracerFogAlbedo = glm::vec3(albedo);
+			options.PathTracerFogCenter = glm::vec3(cx, cy, cz);
+		}
 
 		// Quality=0..4 (Low..Cinematic) puts every category at one tier through the call the quality
 		// menu makes. First, so the fixed settings and the other options still win over it.
@@ -457,6 +472,7 @@ namespace Lux {
 			}
 		}
 
+		// (PTFog is applied in ApplyOptions.)
 		// Select=<entity name>: selects that entity once, so its outline and selection draws are captured.
 		if (const auto it = m_Options.find("Select"); it != m_Options.end() && !m_Selected)
 		{
