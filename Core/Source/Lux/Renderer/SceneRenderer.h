@@ -342,6 +342,8 @@ namespace Lux {
 		bool     PathTracerPowerLightSampling = true;
 		// Multiple importance sampling: weight next-event estimation against BSDF-sampled hits of the analytic area lights (power heuristic). Unbiased; far less noise on glossy surfaces under large lights.
 		bool     PathTracerMIS = true;
+		// Clearcoat, sheen and anisotropy of the material rows in the path-traced BRDF (the formulas of PBR.glslh), so Diff views match the raster lobes.
+		bool     PathTracerLobes = true;
 		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
 		bool     PathTracerReSTIRDI = false;
 		// Ray sorting: bounce 1+ of every path runs with rays binned by direction (PathTraceWavefront.glsl) so neighbouring threads trace similar rays. Same image, only the work order changes; measured by the checks, off unless it is faster. No ReSTIR DI, adaptive sampling or heat map in this mode.

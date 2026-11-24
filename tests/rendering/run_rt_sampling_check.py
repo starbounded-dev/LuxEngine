@@ -202,7 +202,43 @@ def check_sort(config):
     print(f"MEASURED: GPU median {times[0]:.2f} ms unsorted, {times[1]:.2f} ms sorted ({times[1] / times[0]:.2f}x)")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort}
+def diff_mae(tag, scene, options, config, frame):
+    import re
+    capture(tag, scene, options, config, frame)
+    found = re.findall(r"diff vs raster: MAE ([0-9.]+)", read_log(tag, scene))
+    check(bool(found), f"{tag}: the diff pass logged its MAE")
+    return float(found[-1])
+
+
+def check_lobes(config):
+    """#241: clearcoat, sheen and anisotropy in the path tracer. On a no-sky scene with point lights the raster frame already has the
+    lobes; the path tracer must agree with it better when it has them too, and a coated furnace sphere must not gain energy."""
+    scene = "GI_Lobes"
+    base = "PathTracer=1,PathTracerSamples=128,PathTracerBounces=2"
+    raster = capture("lb-raster", scene, "", config, 330)
+    off = capture("lb-off", scene, f"{base},PTLobes=0", config, 330)
+    on = capture("lb-on", scene, f"{base},PTLobes=1", config, 330)
+    h, w = raster.shape[:2]
+    def band(x0, x1):
+        return (slice(int(h * 0.33), int(h * 0.65)), slice(int(w * x0), int(w * x1)))
+    for name, (x0, x1) in {"cloth (sheen)": (0.45, 0.55), "brushed (anisotropy)": (0.6, 0.75)}.items():
+        region = band(x0, x1)
+        eo, en = rmse(off[region], raster[region]), rmse(on[region], raster[region])
+        check(en < eo * 0.85, f"{name}: the path tracer agrees better with the raster frame with the lobe (RMSE {eo:.4f} -> {en:.4f})")
+    region = band(0.2, 0.8)
+    check(rmse(on[region], raster[region]) <= rmse(off[region], raster[region]), "no lobe makes the sphere band worse overall")
+    plain_off = capture("lb-plain-off", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTLobes=0", config, spp(16))
+    plain_on = capture("lb-plain-on", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTLobes=1", config, spp(16))
+    check(rmse(plain_on, plain_off) < 1e-6, f"a scene without lobed materials renders identically (RMSE {rmse(plain_on, plain_off):.7f})")
+    furnace = capture("lb-furnace", "GI_FurnaceCoat", "PathTracer=1,PathTracerFurnace=1,PathTracerSamples=256,PathTracerBounces=8", config, 330)
+    h, w = furnace.shape[:2]
+    centre = furnace[h // 2 - 20:h // 2 + 20, w // 2 - 20:w // 2 + 20].reshape(-1, 3).mean(axis=0)
+    corner = furnace[10:40, 10:40].reshape(-1, 3).mean(axis=0)
+    ratio = float(centre.mean() / corner.mean())
+    check(0.7 < ratio < 1.02, f"a clearcoated furnace sphere does not exceed the environment (ratio {ratio:.3f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes}
 
 
 def main():

@@ -144,6 +144,8 @@ namespace Lux {
 		pass->SetBindlessTextures(m_BindlessTextures);
 		if (m_Options.PathTracerMIS)
 			params.Flags |= 4; // FLAG_MIS
+		if (m_Options.PathTracerLobes)
+			params.Flags |= 16; // FLAG_LOBES
 		return params;
 	}
 

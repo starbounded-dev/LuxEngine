@@ -72,6 +72,11 @@ const uint PT_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE = 1u << 6u;
 const uint PT_MATERIAL_FLAG_HAS_METALNESS_TEXTURE = 1u << 8u;
 const uint PT_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE = 1u << 9u;
 const uint PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE = 1u << 12u;
+const uint PT_MATERIAL_FLAG_HAS_CLEARCOAT = 1u << 16u;
+const uint PT_MATERIAL_FLAG_HAS_SHEEN = 1u << 17u;
+const uint PT_MATERIAL_FLAG_HAS_SUBSURFACE = 1u << 18u;
+const uint PT_MATERIAL_FLAG_HAS_ANISOTROPY = 1u << 19u;
+const uint PT_MATERIAL_FLAG_TRANSPARENT = 1u << 2u;
 
 // Ray cone (Akenine-Moller et al.): the width of the ray's footprint grows with distance and with each bounce, and picks
 // the texture mip so tiled and distant textures neither alias nor smear. Each shader sets g_InitialConeAngle (the camera's
@@ -106,6 +111,7 @@ vec4 PTSampleMapped(uint index, uint mode, vec2 uv, vec2 uvX, vec2 uvY, vec2 uvZ
 const float PI = 3.14159265359;
 const float MIN_ALPHA = 0.0064;
 const uint FLAG_UNIFORM_ENV = 1u;
+const uint FLAG_LOBES = 16u; // clearcoat, sheen and anisotropy of the material rows
 
 // ---- random -----------------------------------------------------------------------------------
 uint g_Rng;
@@ -145,6 +151,11 @@ vec3 DiffuseFrostbite(vec3 albedo, float roughness, float NdotV, float NdotL, fl
 	return albedo * (lightScatter * viewScatter * energyFactor / PI);
 }
 
+const uint PT_LOBE_CLEARCOAT = 1u;
+const uint PT_LOBE_SHEEN = 2u;
+const uint PT_LOBE_ANISOTROPY = 8u;
+const float PT_SHEEN_ALBEDO = 0.2; // PBR.glslh LUX_SHEEN_ALBEDO
+
 struct Surface
 {
 	vec3 P;
@@ -154,7 +165,41 @@ struct Surface
 	float Rough;
 	vec3 Emission;
 	vec3 F0;
+	bool FrontFace; // the ray arrived at the outside of the surface (before the normal was turned toward it)
+	uint Lobes;     // PT_LOBE_* of the material row (0 for plain materials, which take the original code path everywhere)
+	float Coat;
+	float CoatRough;
+	vec3 SheenColor;
+	float SheenRough;
+	float Aniso;
+	vec3 T;         // anisotropy tangent / bitangent
+	vec3 B;
 };
+
+// Anisotropic GGX, Charlie sheen and Neubelt visibility: PBR.glslh, so the path tracer and the raster renderer agree.
+float DistributionGGXAnisotropic(float at, float ab, float ToH, float BoH, float NoH)
+{
+	float a2 = at * ab;
+	vec3 v = vec3(ab * ToH, at * BoH, a2 * NoH);
+	float w2 = a2 / max(dot(v, v), 1e-7);
+	return a2 * w2 * w2 / PI;
+}
+float VisibilityGGXAnisotropic(float at, float ab, float ToV, float BoV, float ToL, float BoL, float NoV, float NoL)
+{
+	float lambdaV = NoL * length(vec3(at * ToV, ab * BoV, NoV));
+	float lambdaL = NoV * length(vec3(at * ToL, ab * BoL, NoL));
+	return 0.5 / max(lambdaV + lambdaL, 1e-7);
+}
+float DistributionCharlie(float roughness, float NoH)
+{
+	float invAlpha = 1.0 / max(roughness * roughness, 1e-3);
+	float sin2h = max(1.0 - NoH * NoH, 0.0078125);
+	return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
+}
+float VisibilityNeubelt(float NoV, float NoL)
+{
+	return 1.0 / max(4.0 * (NoL + NoV - NoL * NoV), 1e-4);
+}
 
 // BRDF * cos(theta_l) for light direction L, view V.
 vec3 EvalBRDF(Surface s, vec3 V, vec3 L)
@@ -169,10 +214,36 @@ vec3 EvalBRDF(Surface s, vec3 V, vec3 L)
 	float LdotH = max(dot(L, H), 0.0);
 	float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
 	vec3 F = s.F0 + (1.0 - s.F0) * pow(1.0 - VdotH, 5.0);
-	vec3 spec = F * (DistributionGGX(NdotH, alpha) * VisibilitySmith(NdotV, NdotL, alpha));
+	vec3 spec;
+	if ((s.Lobes & PT_LOBE_ANISOTROPY) != 0u)
+	{
+		float at = max(alpha * (1.0 + s.Aniso), MIN_ALPHA);
+		float ab = max(alpha * (1.0 - s.Aniso), MIN_ALPHA);
+		spec = F * (DistributionGGXAnisotropic(at, ab, dot(s.T, H), dot(s.B, H), NdotH)
+			* VisibilityGGXAnisotropic(at, ab, dot(s.T, V), dot(s.B, V), dot(s.T, L), dot(s.B, L), NdotV, NdotL));
+	}
+	else
+		spec = F * (DistributionGGX(NdotH, alpha) * VisibilitySmith(NdotV, NdotL, alpha));
 	vec3 diffuseColor = s.Albedo * (1.0 - s.Metal);
 	vec3 diff = DiffuseFrostbite(diffuseColor, s.Rough, NdotV, NdotL, LdotH) * (vec3(1.0) - F);
-	return (diff + spec) * NdotL;
+	vec3 result = (diff + spec) * NdotL;
+	if (s.Lobes == 0u)
+		return result;
+
+	if ((s.Lobes & PT_LOBE_SHEEN) != 0u)
+	{
+		float sheen = DistributionCharlie(s.SheenRough, NdotH) * VisibilityNeubelt(NdotV, NdotL);
+		result = result * (1.0 - max(s.SheenColor.r, max(s.SheenColor.g, s.SheenColor.b)) * PT_SHEEN_ALBEDO) + s.SheenColor * (sheen * NdotL);
+	}
+	if ((s.Lobes & PT_LOBE_CLEARCOAT) != 0u)
+	{
+		// A dielectric layer (F0 4%) on top that takes its Fresnel share from everything under it [Kelemen; Filament].
+		float coatAlpha = max(s.CoatRough * s.CoatRough, MIN_ALPHA);
+		float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * s.Coat;
+		float coat = DistributionGGX(NdotH, coatAlpha) * (0.25 / max(VdotH * VdotH, 1e-4)) * Fc;
+		result = result * (1.0 - Fc) + vec3(min(coat, 10.0) * NdotL);
+	}
+	return result;
 }
 
 float SpecProbability(Surface s)
@@ -180,7 +251,20 @@ float SpecProbability(Surface s)
 	return clamp(0.05 + dot(s.F0, vec3(0.3333)) + (1.0 - s.Rough) * 0.25, 0.05, 0.95);
 }
 
-// pdf (solid angle) of sampling L: mixture of cosine diffuse and GGX NDF sampling.
+// Sampling mixture of a lobed surface: clearcoat GGX (probability pCoat), base GGX, cosine diffuse. Plain surfaces keep the
+// original two-way mixture (and its random number use) exactly.
+float CoatProbability(Surface s)
+{
+	return (s.Lobes & PT_LOBE_CLEARCOAT) != 0u ? 0.25 * s.Coat : 0.0;
+}
+float SpecSamplingAlpha(Surface s)
+{
+	float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
+	// Anisotropic highlights are wider than the isotropic proposal unless it uses the larger of the two alphas.
+	return (s.Lobes & PT_LOBE_ANISOTROPY) != 0u ? alpha * (1.0 + abs(s.Aniso)) : alpha;
+}
+
+// pdf (solid angle) of sampling L: mixture of cosine diffuse, GGX NDF sampling and (for a clearcoat) coat GGX sampling.
 float BSDFPdf(Surface s, vec3 V, vec3 L)
 {
 	float NdotL = dot(s.N, L);
@@ -189,11 +273,21 @@ float BSDFPdf(Surface s, vec3 V, vec3 L)
 	vec3 H = normalize(L + V);
 	float NdotH = max(dot(s.N, H), 0.0);
 	float VdotH = max(dot(V, H), 1e-4);
-	float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
-	float pSpec = SpecProbability(s);
 	float pdfDiff = NdotL / PI;
-	float pdfSpec = DistributionGGX(NdotH, alpha) * NdotH / (4.0 * VdotH);
-	return (1.0 - pSpec) * pdfDiff + pSpec * pdfSpec;
+	if (s.Lobes == 0u)
+	{
+		float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
+		float pSpec = SpecProbability(s);
+		float pdfSpec = DistributionGGX(NdotH, alpha) * NdotH / (4.0 * VdotH);
+		return (1.0 - pSpec) * pdfDiff + pSpec * pdfSpec;
+	}
+	float pCoat = CoatProbability(s);
+	float pSpec = SpecProbability(s) * (1.0 - pCoat);
+	float pdfSpec = DistributionGGX(NdotH, SpecSamplingAlpha(s)) * NdotH / (4.0 * VdotH);
+	float pdf = (1.0 - pCoat - pSpec) * pdfDiff + pSpec * pdfSpec;
+	if (pCoat > 0.0)
+		pdf += pCoat * DistributionGGX(NdotH, max(s.CoatRough * s.CoatRough, MIN_ALPHA)) * NdotH / (4.0 * VdotH);
+	return pdf;
 }
 
 void Basis(vec3 n, out vec3 t, out vec3 b)
@@ -203,27 +297,45 @@ void Basis(vec3 n, out vec3 t, out vec3 b)
 	b = cross(n, t);
 }
 
+vec3 SampleGGXReflection(Surface s, vec3 V, float alpha, vec3 t, vec3 b)
+{
+	float u1 = Rand(), u2 = Rand();
+	float cosT = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
+	float sinT = sqrt(max(1.0 - cosT * cosT, 0.0));
+	float phi = 2.0 * PI * u2;
+	vec3 H = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + s.N * cosT);
+	return reflect(-V, H);
+}
+
+vec3 SampleCosine(Surface s, vec3 t, vec3 b)
+{
+	float u1 = Rand(), u2 = Rand();
+	float r = sqrt(u1);
+	float phi = 2.0 * PI * u2;
+	return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + s.N * sqrt(max(1.0 - u1, 0.0)));
+}
+
 bool SampleBSDF(Surface s, vec3 V, out vec3 L)
 {
 	vec3 t, b;
 	Basis(s.N, t, b);
-	if (Rand() < SpecProbability(s))
+	if (s.Lobes == 0u)
 	{
-		float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
-		float u1 = Rand(), u2 = Rand();
-		float cosT = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
-		float sinT = sqrt(max(1.0 - cosT * cosT, 0.0));
-		float phi = 2.0 * PI * u2;
-		vec3 H = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + s.N * cosT);
-		L = reflect(-V, H);
+		if (Rand() < SpecProbability(s))
+			L = SampleGGXReflection(s, V, max(s.Rough * s.Rough, MIN_ALPHA), t, b);
+		else
+			L = SampleCosine(s, t, b);
+		return dot(L, s.N) > 0.0;
 	}
+	float pCoat = CoatProbability(s);
+	float pSpec = SpecProbability(s) * (1.0 - pCoat);
+	float choice = Rand();
+	if (choice < pCoat)
+		L = SampleGGXReflection(s, V, max(s.CoatRough * s.CoatRough, MIN_ALPHA), t, b);
+	else if (choice < pCoat + pSpec)
+		L = SampleGGXReflection(s, V, SpecSamplingAlpha(s), t, b);
 	else
-	{
-		float u1 = Rand(), u2 = Rand();
-		float r = sqrt(u1);
-		float phi = 2.0 * PI * u2;
-		L = normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + s.N * sqrt(max(1.0 - u1, 0.0)));
-	}
+		L = SampleCosine(s, t, b);
 	return dot(L, s.N) > 0.0;
 }
 
@@ -257,6 +369,7 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	vec3 nObj = normalize(Vertices[2u * i0 + 1u].xyz * w.x + Vertices[2u * i1 + 1u].xyz * w.y + Vertices[2u * i2 + 1u].xyz * w.z);
 	vec3 n = normalize(vec3(dot(inst.NormalRow0.xyz, nObj), dot(inst.NormalRow1.xyz, nObj), dot(inst.NormalRow2.xyz, nObj)));
 	// Face the ray: the surface is shaded from the side the ray arrives on.
+	s.FrontFace = dot(n, d) <= 0.0;
 	if (dot(n, d) > 0.0)
 		n = -n;
 
@@ -266,6 +379,14 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	s.Metal = inst.AlbedoMetal.a;
 	s.Rough = clamp(inst.EmissionRough.a, 0.04, 1.0);
 	s.Emission = inst.EmissionRough.rgb;
+	s.Lobes = 0u;
+	s.Coat = 0.0;
+	s.CoatRough = 0.1;
+	s.SheenColor = vec3(0.0);
+	s.SheenRough = 0.5;
+	s.Aniso = 0.0;
+	s.T = vec3(1.0, 0.0, 0.0);
+	s.B = vec3(0.0, 0.0, 1.0);
 
 	// The engine's material row, with its textures, when the instance has one (the vertex w components hold uv).
 	const uint materialId = inst.Info.z;
@@ -331,6 +452,41 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 			s.Metal = clamp(metal, 0.0, 1.0);
 			s.Rough = clamp(rough, 0.05, 1.0);
 			s.Emission = emission;
+				if ((u_Push.Counts.y & FLAG_LOBES) != 0u)
+				{
+					if ((flags & PT_MATERIAL_FLAG_HAS_CLEARCOAT) != 0u)
+					{
+						s.Lobes |= PT_LOBE_CLEARCOAT;
+						s.Coat = m.Lobes.x;
+						s.CoatRough = m.Lobes.y;
+					}
+					if ((flags & PT_MATERIAL_FLAG_HAS_SHEEN) != 0u)
+					{
+						s.Lobes |= PT_LOBE_SHEEN;
+						s.SheenColor = m.Sheen.rgb;
+						s.SheenRough = m.Sheen.w;
+					}
+					if ((flags & PT_MATERIAL_FLAG_HAS_ANISOTROPY) != 0u)
+					{
+						// The surface tangent along increasing u, from the triangle's position and uv deltas, turned by the material's rotation.
+						vec3 e1 = p1 - p0, e2 = p2 - p0;
+						vec2 d1 = uv1 - uv0, d2 = uv2 - uv0;
+						float det = d1.x * d2.y - d2.x * d1.y;
+						vec3 tangent = abs(det) > 1e-12 ? (e1 * d2.y - e2 * d1.y) / det : e1;
+						tangent -= n * dot(n, tangent);
+						if (dot(tangent, tangent) < 1e-12)
+						{
+							vec3 unused;
+							Basis(n, tangent, unused);
+						}
+						tangent = normalize(tangent);
+						vec3 bitangent = cross(n, tangent);
+						s.T = cos(m.Lobes.w) * tangent + sin(m.Lobes.w) * bitangent;
+						s.B = cross(n, s.T);
+						s.Lobes |= PT_LOBE_ANISOTROPY;
+						s.Aniso = m.Lobes.z;
+					}
+				}
 		}
 	}
 	s.F0 = mix(vec3(0.04), s.Albedo, s.Metal);

@@ -108,6 +108,7 @@ namespace Lux {
 			{ "RTGIDenoise", &SceneRendererOptions::RTGIDenoiser },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
+			{ "PTLobes", &SceneRendererOptions::PathTracerLobes },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },

@@ -121,6 +121,35 @@ def camera(pos, rot):
 """)
 
 
+def nosky():
+    return entity("No Sky", (0, 0, 0), body="""    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+""")
+
+
+def mesh(tag, asset, pos, scale, material, rot=(0, 0, 0)):
+    return entity(tag, pos, scale, rot, body=f"""    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/{asset}.gltf
+      MaterialTable:
+        0: Materials/GI/{material}.lmat
+      Visible: true
+""")
+
+
+def write_material(name, albedo, metalness, roughness, extra=None):
+    lines = ["FormatVersion: 1", "Material:", "  Transparent: false", f"  AlbedoColor: [{albedo[0]}, {albedo[1]}, {albedo[2]}]", "  Emission: 0",
+             "  UseNormalMap: false", f"  Metalness: {metalness}", f"  Roughness: {roughness}", "  AlbedoMap: 0", "  NormalMap: 0", "  MetalnessMap: 0", "  RoughnessMap: 0"]
+    for key, value in (extra or {}).items():
+        lines.append(f"  {key}: {value}")
+    lines.append("  MaterialFlags: 66")
+    (MATERIALS / f"{name}.lmat").write_text(chr(10).join(lines), encoding="utf-8", newline=chr(10))
+    print("wrote", name)
+
+
 def write(name, entities):
     text = f"FormatVersion: 1\nScene: {name}\nEntities:\n" + "".join(entities)
     (SCENES / f"{name}.luxscene").write_text(text.rstrip("\n"), encoding="utf-8", newline="\n")
@@ -145,6 +174,25 @@ def main():
         spot("Spot", (0, 3, 4), (0, 0, 0), 900, 10),
         camera((0, 2.2, 8), (-0.12, 0, 0)),
     ])
+
+    # Lobed materials on a no-sky scene with point lights: the raster frame and the path tracer see the same direct lighting.
+    write_material("GI_Coat", (0.7, 0.05, 0.05), 0.0, 0.55, {"Clearcoat": 1.0, "ClearcoatRoughness": 0.06})
+    write_material("GI_Cloth", (0.15, 0.2, 0.5), 0.0, 0.85, {"SheenColor": "[0.9, 0.9, 1.0]", "SheenRoughness": 0.45})
+    write_material("GI_Brushed", (0.9, 0.7, 0.4), 1.0, 0.35, {"Anisotropy": 0.85})
+    write("GI_Lobes", [nosky(), floor("Materials/GI/GI_White.lmat", (14, 0.1, 10)),
+                       mesh("Coat", "Sphere", (-2.6, 1.0, 0), (1.0, 1.0, 1.0), "GI_Coat"),
+                       mesh("Cloth", "Sphere", (0, 1.0, 0), (1.0, 1.0, 1.0), "GI_Cloth"),
+                       mesh("Brushed", "Sphere", (2.6, 1.0, 0), (1.0, 1.0, 1.0), "GI_Brushed"),
+                       point("Key", (-3.5, 4.0, 3.0), (1, 0.95, 0.9), 120, 20),
+                       point("Rim", (3.5, 3.0, -3.0), (0.8, 0.9, 1.0), 70, 20),
+                       point("Fill", (0.5, 2.0, 4.5), (1, 1, 1), 40, 20),
+                       camera((0, 3.2, 7.5), (-0.33, 0, 0))])
+
+    # The white-furnace sphere with a clearcoat layer: still must not exceed the environment.
+    furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8").replace("GI_Furnace.lmat", "GI_FurnaceCoat.lmat").replace("Scene: GI_Furnace", "Scene: GI_FurnaceCoat")
+    (SCENES / "GI_FurnaceCoat.luxscene").write_text(furnace, encoding="utf-8", newline=chr(10))
+    coat = (MATERIALS / "GI_Furnace.lmat").read_text(encoding="utf-8").rstrip() + chr(10) + "  Clearcoat: 1.0" + chr(10) + "  ClearcoatRoughness: 0.2"
+    (MATERIALS / "GI_FurnaceCoat.lmat").write_text(coat, encoding="utf-8", newline=chr(10))
 
     material = MATERIALS / "GI_Glossy.lmat"
     material.write_text("""FormatVersion: 1
