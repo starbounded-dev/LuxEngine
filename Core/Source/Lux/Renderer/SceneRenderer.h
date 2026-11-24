@@ -327,6 +327,8 @@ namespace Lux {
 		uint32_t RTShadowRays = 4;
 		float    RTReflectionRoughnessCutoff = 0.4f; // surfaces rougher than this keep the raster reflection
 		uint32_t RTReflectionRays = 2;
+		// A reflection ray that hits geometry replaces the raster environment reflection it would otherwise add to (no double count under a bright sky).
+		bool     RTReflectionReplaceEnvironment = true;
 		uint32_t RTGIBounces = 1;
 		// ReSTIR GI reuse for RTGI: pixels resample each other's indirect paths (previous frame, reprojected, plus neighbours) instead of using only their own path. Less noise per ray; biased (1/M normalisation, diffuse sample radiance), so opt-in.
 		bool     RTGIReuse = false;

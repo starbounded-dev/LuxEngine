@@ -229,6 +229,11 @@ def main():
                         point("Rim", (3.5, 3.0, -2.0), (0.5, 0.7, 1.0), 90, 25),
                         camera((0, 3.4, 8.5), (-0.28, 0, 0))])
 
+    # The same polished floor under a bright sky: a reflection ray that hits the ball must replace the sky reflection, not add to it.
+    mirror_text = (SCENES / "GI_Mirror.luxscene").read_text(encoding="utf-8").replace("Scene: GI_Mirror", "Scene: GI_MirrorSky")
+    mirror_text = mirror_text.replace("Intensity: 0\n      Lod: 0", "Intensity: 1.5\n      Lod: 0", 1)
+    (SCENES / "GI_MirrorSky.luxscene").write_text(mirror_text, encoding="utf-8", newline=chr(10))
+
     # Subsurface: a white-scattering sphere in the furnace, and a thin warm slab lit only from behind.
     write_material("GI_SSS", (1.0, 1.0, 1.0), 0.0, 0.5, {"SubsurfaceColor": "[1, 1, 1]", "SubsurfaceThickness": 0.0})
     base_furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8")

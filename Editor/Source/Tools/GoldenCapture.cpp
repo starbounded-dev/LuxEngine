@@ -104,6 +104,7 @@ namespace Lux {
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
 			{ "RTReflections", &SceneRendererOptions::EnableRTReflections },
+			{ "RTReflEnv", &SceneRendererOptions::RTReflectionReplaceEnvironment },
 			{ "RTShadows", &SceneRendererOptions::EnableRTShadows },
 			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
@@ -121,7 +122,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "TexLibFetch" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "TexLibFetch" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -269,6 +270,8 @@ namespace Lux {
 	{
 		SceneRendererOptions& options = renderer.GetOptions();
 
+		if (const auto it = m_Options.find("RTReflRays"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.RTReflectionRays);
 		if (const auto it = m_Options.find("GIProbeSpacing"); it != m_Options.end())
 			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.RealtimeGIProbeSpacing);
 		if (const auto it = m_Options.find("PTDebug"); it != m_Options.end())

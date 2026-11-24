@@ -362,6 +362,21 @@ def check_reflections(config):
     check(rmse(off, raster) < 1e-6, f"with the option off the raster frame is unchanged (RMSE {rmse(off, raster):.7f})")
 
 
+def check_reflection_sky(config):
+    """#251: under a bright sky a reflection ray that hits geometry replaces the sky reflection. With the replacement the polished floor
+    agrees better with the path tracer than the old add-on; a single ray on the mirror floor matches the default ray count."""
+    scene = "GI_MirrorSky"
+    reference = capture("rk-pt", scene, "PathTracer=1,PathTracerSamples=256,PathTracerBounces=4", config, spp(256))
+    old = capture("rk-old", scene, "RTReflections=1,RTReflEnv=0", config, 330)
+    new = capture("rk-new", scene, "RTReflections=1,RTReflEnv=1", config, 330)
+    h, w = old.shape[:2]
+    band = (slice(int(h * 0.62), int(h * 0.95)), slice(int(w * 0.15), int(w * 0.85)))
+    eo, en = rmse(old[band], reference[band]), rmse(new[band], reference[band])
+    check(en < eo * 0.9, f"replacing the sky reflection is closer to the path tracer under a bright sky (RMSE {eo:.4f} -> {en:.4f})")
+    one = capture("rk-1", scene, "RTReflections=1,RTReflRays=1", config, 330)
+    check(rmse(one[band], new[band]) < 0.02, f"one ray on the mirror floor matches the default count (RMSE {rmse(one[band], new[band]):.4f})")
+
+
 def check_shadows(config):
     """#246: ray-traced directional shadows replace the cascades. The sun's shadow distance is 3 m, so the cascades end before the box and
     sphere (10 m away) and the raster frame has no shadows there; the ray-traced mask has no range limit and must match the path tracer far
@@ -479,7 +494,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
 
 
 def main():

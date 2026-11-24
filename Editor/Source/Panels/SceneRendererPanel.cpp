@@ -737,6 +737,7 @@ namespace Lux {
 					ImGuiEx::Property("Reflection Roughness Cutoff", options.RTReflectionRoughnessCutoff, 0.01f, 0.0f, 1.0f);
 				if (match("Reflection Rays"))
 					ImGuiEx::Property("Reflection Rays", options.RTReflectionRays, 1u, 16u);
+				toggle("Reflections Replace Sky", options.RTReflectionReplaceEnvironment);
 				toggle("Ray-Traced Shadows", options.EnableRTShadows);
 				if (match("Shadow Light Radius"))
 					ImGuiEx::Property("Shadow Light Radius", options.RTShadowAngularRadiusDegrees, 0.05f, 0.0f, 30.0f);

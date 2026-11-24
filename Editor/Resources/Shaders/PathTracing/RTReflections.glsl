@@ -5,9 +5,9 @@
 // Runs after the raster lighting. For every pixel the raster depth and G-buffer give the surface (so the pass lines up with raster
 // pixels: cutouts, particles and transparents are not mis-traced); a smooth enough surface traces GGX-sampled reflection rays in the
 // ray-traced scene, shades what they hit (emission + direct light by next-event estimation) and adds F * radiance to scene colour.
-// Rays that escape add nothing: the sky is already in the frame as the raster environment reflection. That is also why the
-// environment reflection of a pixel whose ray DOES hit geometry stays in the frame (a double count under a bright sky; exact in
-// a scene without one). See docs/GI_PLAN.md.
+// Rays that escape add nothing: the sky is already in the frame as the raster environment reflection. A ray that hits geometry
+// replaces it: the radiance the environment would have given along that ray is subtracted (flag 128), so a bright sky is not
+// counted twice. A mirror-smooth surface (the GGX lobe is a point) needs one ray, not the configured count. See docs/GI_PLAN.md.
 //
 #version 460 core
 #pragma stage : comp
@@ -102,7 +102,8 @@ void main()
 	vec3 t, b;
 	Basis(N, t, b);
 
-	const uint rays = max(u_Push.Counts.z, 1u);
+	const uint rays = roughness < 0.06 ? 1u : max(u_Push.Counts.z, 1u);
+	const bool replaceEnvironment = (u_Push.Counts.y & 128u) != 0u;
 	vec3 sum = vec3(0.0);
 	for (uint k = 0u; k < rays; k++)
 	{
@@ -118,8 +119,8 @@ void main()
 		if (!TraceClosest(P + N * 2e-3, R, s))
 			continue; // the sky: the raster environment reflection already has it
 		const vec3 fresnel = F0 + (vec3(1.0) - F0) * pow(1.0 - max(dot(V, H), 0.0), 5.0);
-		sum += fresnel * (s.Emission + ShadeHit(s, -R));
+		sum += fresnel * (s.Emission + ShadeHit(s, -R) - (replaceEnvironment ? Environment(R) : vec3(0.0)));
 	}
-	scene.rgb += sum / float(rays);
+	scene.rgb = max(scene.rgb + sum / float(rays), vec3(0.0));
 	imageStore(o_RRResult, pixel, scene);
 }

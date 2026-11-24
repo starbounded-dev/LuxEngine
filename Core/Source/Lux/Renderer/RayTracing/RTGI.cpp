@@ -420,6 +420,7 @@ namespace Lux {
 		const uint32_t width = m_ViewportWidth, height = m_ViewportHeight;
 		const uint32_t rays = std::clamp(m_Options.RTReflectionRays, 1u, 16u);
 		const float cutoff = std::clamp(m_Options.RTReflectionRoughnessCutoff, 0.0f, 1.0f);
+		const uint32_t replaceEnvironment = m_Options.RTReflectionReplaceEnvironment ? 128u : 0u;
 		const uint32_t frame = m_RTReflFrame++;
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
@@ -445,6 +446,7 @@ namespace Lux {
 			push.SizeFrameBounces = glm::uvec4(width, height, frame, 0u);
 			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, rays, std::bit_cast<uint32_t>(cutoff));
 			ApplyPathTraceEnvironment(push, envParams);
+			push.Counts.y |= replaceEnvironment;
 			cb->RT_BeginMarker("RTReflections");
 			pass->Prepare();
 			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
