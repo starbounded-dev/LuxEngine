@@ -59,6 +59,9 @@ void main()
 	const vec3 position = origin + vec3(coord) * cell;
 
 	const uint frame = u_Push.SizeFrameBounces.z;
+	// Auto placement: a probe found inside solid geometry on an earlier update (most of its rays hit back faces) is refreshed every 16th frame only.
+	if (u_Push.Counts.w != 0u && frame > 8u && u_GIProbes[3u + index * PROBE_STRIDE].w > 0.8 && (frame & 15u) != 0u)
+		return;
 	const uint rayCount = min(u_Push.SizeFrameBounces.y, MAX_RAYS);
 	g_Rng = PCG(index + PCG(frame * 7919u + 3u));
 

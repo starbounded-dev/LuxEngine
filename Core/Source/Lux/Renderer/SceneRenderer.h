@@ -336,6 +336,9 @@ namespace Lux {
 		// when the camera moves, tracks the variance and filters with a variance-guided a-trous. RTGIHistoryLength is its maximum age.
 		bool     RTGIDenoiser = false;
 		uint32_t RealtimeGIRaysPerProbe = 64;
+		// Probe auto placement: grid spacing in metres (0 = the fixed 16x8x16 grid over the scene bounds); the dimensions follow the scene size
+		// (clamped to 2..64 per axis and 16384 probes) and probes found inside solid geometry are only refreshed now and then.
+		float    RealtimeGIProbeSpacing = 0.0f;
 		uint32_t RealtimeGIBounces = 2;
 		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
 		// converge to the environment radiance).

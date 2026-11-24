@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Ray-Traced Shadows", "Shadow Light Radius", "Shadow Rays", "Debug View" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Ray-Traced Shadows", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -761,6 +761,8 @@ namespace Lux {
 				toggle("Realtime GI", options.EnableRealtimeGI);
 				if (match("GI Rays Per Probe"))
 					ImGuiEx::Property("GI Rays Per Probe", options.RealtimeGIRaysPerProbe, 8u, 128u);
+				if (match("Probe Spacing"))
+					ImGuiEx::Property("Probe Spacing", options.RealtimeGIProbeSpacing, 0.05f, 0.0f, 10.0f);
 				if (match("GI Bounces"))
 					ImGuiEx::Property("GI Bounces", options.RealtimeGIBounces, 1u, 4u);
 				ImGuiEx::EndPropertyGrid();

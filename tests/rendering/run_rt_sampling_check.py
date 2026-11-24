@@ -415,7 +415,21 @@ def check_lmdenoise(config):
     check(abs(float(clean.mean()) - float(reference.mean())) < 0.02, f"the denoiser keeps the overall light level (mean {float(clean.mean()):.3f} vs {float(reference.mean()):.3f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise}
+def check_probes(config):
+    """#249: probe auto placement. The grid follows the scene size and the requested spacing (logged), and the probe-lit frame is as close
+    to the path tracer as the fixed grid's."""
+    import re
+    scene = "GI_CornellDark"
+    base = "PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,RealtimeGI=1,Lightmaps=0"
+    fixed = diff_mae("pb-fixed", scene, base, config, 330)
+    auto = diff_mae("pb-auto", scene, f"{base},GIProbeSpacing=0.7", config, 330)
+    fixed_dims = re.findall(r"probe grid (\d+)x(\d+)x(\d+)", read_log("pb-fixed", scene))
+    auto_dims = re.findall(r"probe grid (\d+)x(\d+)x(\d+)", read_log("pb-auto", scene))
+    check(bool(fixed_dims) and bool(auto_dims) and fixed_dims[-1] == ("16", "8", "16") and auto_dims[-1] != fixed_dims[-1], f"the grid follows the spacing (fixed {fixed_dims[-1:]}, auto {auto_dims[-1:]})")
+    check(auto <= fixed * 1.15, f"auto placement is as close to the path tracer as the fixed grid (MAE {fixed:.4f} -> {auto:.4f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes}
 
 
 def main():

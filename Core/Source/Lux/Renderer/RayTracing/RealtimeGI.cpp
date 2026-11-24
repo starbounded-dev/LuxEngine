@@ -26,6 +26,7 @@ namespace Lux {
 		uint32_t Frame = 0;       // render thread: frames since the scene, lights or grid last changed
 		uint64_t Signature = 0;
 		std::atomic<uint32_t> Updates{ 0 };
+		glm::uvec3 LastDims{ 0u };
 	};
 
 	namespace {
@@ -165,12 +166,28 @@ namespace Lux {
 		const glm::vec3 margin = glm::max((boundsMax - boundsMin) * 0.02f, glm::vec3(0.05f));
 		boundsMin -= margin;
 		boundsMax += margin;
-		const glm::vec3 cell = (boundsMax - boundsMin) / glm::vec3(k_ProbeDims - glm::uvec3(1));
+		// Auto placement: dimensions from the scene extent and the requested spacing; otherwise the fixed grid.
+		glm::uvec3 dims = k_ProbeDims;
+		if (m_Options.RealtimeGIProbeSpacing > 0.0f)
+		{
+			const glm::vec3 extent = boundsMax - boundsMin;
+			const float spacing = std::max(m_Options.RealtimeGIProbeSpacing, 0.05f);
+			glm::vec3 counts = glm::clamp(glm::ceil(extent / spacing) + glm::vec3(1.0f), glm::vec3(2.0f), glm::vec3(64.0f));
+			while (counts.x * counts.y * counts.z > 16384.0f)
+				counts = glm::max(glm::floor(counts * 0.9f), glm::vec3(2.0f));
+			dims = glm::uvec3(counts);
+		}
+		if (dims != m_RealtimeGIState->LastDims)
+		{
+			m_RealtimeGIState->LastDims = dims;
+			LUX_CORE_INFO_TAG("Renderer", "[RealtimeGI] probe grid {}x{}x{} ({} probes)", dims.x, dims.y, dims.z, dims.x * dims.y * dims.z);
+		}
+		const glm::vec3 cell = (boundsMax - boundsMin) / glm::vec3(dims - glm::uvec3(1));
 
 		// Grid header, written straight into the mapped buffer (the probe region is written by the GPU, so the
 		// buffer's CPU copy must never be uploaded over it).
-		const glm::vec4 header[3] = { glm::vec4(boundsMin, 1.0f), glm::vec4(cell, 0.0f), glm::vec4(glm::vec3(k_ProbeDims), 0.0f) };
-		const uint32_t probeCount = k_ProbeDims.x * k_ProbeDims.y * k_ProbeDims.z;
+		const glm::vec4 header[3] = { glm::vec4(boundsMin, 1.0f), glm::vec4(cell, 0.0f), glm::vec4(glm::vec3(dims), 0.0f) };
+		const uint32_t probeCount = dims.x * dims.y * dims.z;
 		const uint32_t bufferBytes = static_cast<uint32_t>(sizeof(header) + probeCount * 36 * sizeof(glm::vec4));
 		if (m_GIProbes->GetSize() < bufferBytes)
 		{
@@ -189,6 +206,7 @@ namespace Lux {
 
 		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
 		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
+		const bool autoPlacement = m_Options.RealtimeGIProbeSpacing > 0.0f;
 		const uint32_t rays = std::clamp(m_Options.RealtimeGIRaysPerProbe, 8u, 128u);
 		const uint32_t bounces = std::clamp(m_Options.RealtimeGIBounces, 1u, 4u);
 		const float environmentIntensity = m_FrameEnvironment.EnvironmentIntensity;
@@ -197,6 +215,7 @@ namespace Lux {
 		if (!lights.empty())
 			signature = HashBytes(signature, lights.data(), lights.size() * sizeof(glm::vec4));
 		signature = HashBytes(signature, &bounces, sizeof(bounces));
+		signature = HashBytes(signature, &autoPlacement, sizeof(autoPlacement));
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
@@ -223,7 +242,7 @@ namespace Lux {
 
 			GIPush push = {};
 			push.SizeFrameBounces = glm::uvec4(probeCount, rays, state->Frame, bounces);
-			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, 0u);
+			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, autoPlacement ? 1u : 0u);
 			push.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			push.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 			ApplyPathTraceEnvironment(push, envParams);
