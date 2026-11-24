@@ -61,6 +61,7 @@
 #include "Panels/TextEditorPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
+#include "Panels/TextureLibraryPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
 #include "Panels/AudioDebugPanel.h"
 #include "Panels/GameViewPanel.h"
@@ -585,6 +586,7 @@ namespace Lux {
 		m_GameViewPanel = m_PanelManager->AddPanel<GameViewPanel>(PanelCategory::View, GAME_VIEW_PANEL_ID, "Game View", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
+		m_PanelManager->AddPanel<TextureLibraryPanel>(PanelCategory::View, "TextureLibraryPanel", "Texture Library", false);
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 

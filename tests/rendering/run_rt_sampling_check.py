@@ -446,7 +446,29 @@ def check_unwrap(config):
     check(after >= before and charts >= 1 and triangles > 0 and used >= 20, f"{before} -> {after} vertices, {charts} charts, {used}% of a {side}x{side} atlas, {triangles} triangles")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap}
+def check_texlib(config):
+    """#230: texture library. The editor lists Poly Haven and ambientCG textures and downloads one texture from each (needs network):
+    the maps arrive as real JPEG files in Assets/Textures/Library. The panel itself is UI and was not clicked through."""
+    import re
+    library = ROOT / "Editor/LuxSampleProject/Assets/Textures/Library"
+    try:
+        capture("tl-fetch", "GI_CornellBox", "TexLibFetch=brick_wall_001:Bricks076A", config, 60)
+        log = read_log("tl-fetch", "GI_CornellBox")
+        listed = re.findall(r"polyhaven list ok: (\d+) textures", log)
+        check(bool(listed) and int(listed[0]) > 100, f"Poly Haven lists its textures ({listed})")
+        listed = re.findall(r"ambientcg list ok: (\d+) textures", log)
+        check(bool(listed) and int(listed[0]) > 10, f"ambientCG lists its textures ({listed})")
+        for folder in ("brick_wall_001", "Bricks076A"):
+            files = [p for p in (library / folder).glob("*") if p.suffix.lower() in (".jpg", ".png")]
+            check(len(files) >= 2, f"{folder}: {len(files)} map files downloaded")
+            jpgs = [p for p in files if p.suffix.lower() == ".jpg"]
+            check(all(p.read_bytes()[:2] == bytes([0xFF, 0xD8]) and p.stat().st_size > 10000 for p in jpgs), f"{folder}: the JPEG maps are real images")
+    finally:
+        import shutil
+        shutil.rmtree(library, ignore_errors=True)
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
 
 
 def main():

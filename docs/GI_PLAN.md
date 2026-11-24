@@ -161,6 +161,16 @@ tracked in #231.
 
 | #246 | Ray-traced directional shadows: a visibility mask traced from the raster depth/G-buffer, read by deferred lighting in place of the cascades (soft by an angular radius) | `GI_Shadows` with the sun's shadow distance at 3 m (cascades end before the objects): RMSE vs the path tracer 0.205 -> 0.065; option off identical. Directional light only: point/spot/area shadows still use the shadow maps/atlas, and the translucency path keeps the cascades |
 
+### Workflow pass (issues #227, #230, #247-#249, 2026-11-23)
+
+| Issue | Feature | Result |
+|---|---|---|
+| #247 | Per-pixel debug views (bounces, rays, noise, samples) | more allowed bounces/rays move the views up the heat ramp, the noise view cools with samples |
+| #248 | Lightmap denoiser (CPU a-trous on the read-back atlas, normal/position/luminance weights) | a 16-sample bake renders closer to a 512-sample bake with it (RMSE 0.0138 -> 0.0110) |
+| #249 | Probe auto placement (grid from the bounds and a spacing; probes inside geometry refresh rarely) | `GI_CornellDark`: 729 probes vs 2048, Diff MAE 0.0156 -> 0.0162 |
+| #227 | xatlas vendored (MIT) and an unwrap report; the unwrapped UVs are NOT written back into the mesh (vertex splitting across GPU buffers, meshlets, LODs): open | the default cube: 128 -> 128 vertices, 6 charts, 98% of the atlas |
+| #230 | Texture Library panel: Poly Haven (871 textures) and ambientCG browse/search/download over WinHTTP (Windows only, header-only), maps land in Assets/Textures/Library/<name>/ | both download real JPEG maps (headless check); the panel itself was not clicked through; no thumbnails or drag-and-drop yet |
+
 **Limits of this pass:** ReSTIR DI/GI and adaptive sampling are biased and must stay off for reference renders; ReSTIR DI traces from pixel centres and cannot combine with ray sorting; the ReSTIR GI sample treats radiance as direction independent; the denoiser has no motion vectors for moving objects (camera motion only) and was checked with camera motion, not object motion; skinned refit speed is unmeasured on a heavy mesh.
 
 **Other limits that remain:** the path tracer has no transmission/clearcoat/sheen lobes; rect/disk lights are one-sided only; lightmaps are

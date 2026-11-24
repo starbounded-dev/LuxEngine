@@ -4,6 +4,7 @@
 #include "GoldenCapture.h"
 
 #include "Viewport/Viewport.h"
+#include "Panels/TextureLibraryPanel.h"
 
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 #include "Lux/Core/Application.h"
@@ -120,7 +121,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "TexLibFetch" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -466,6 +467,36 @@ namespace Lux {
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
 
+
+		// TexLibFetch=<Poly Haven id>:<ambientCG id>: once, lists both texture libraries and downloads one texture from each into
+		// Assets/Textures/Library, logging what arrived (the texture library panel's check).
+		if (const auto it = m_Options.find("TexLibFetch"); it != m_Options.end() && m_SceneFrames == 5)
+		{
+			const size_t colon = it->second.find(':');
+			const std::string polyHavenId = it->second.substr(0, colon);
+			const std::string ambientId = colon == std::string::npos ? std::string() : it->second.substr(colon + 1);
+			std::vector<TextureLibrary::Entry> entries;
+			std::string error;
+			const bool listed = TextureLibrary::ListPolyHaven(entries, error);
+			LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] polyhaven list {}: {} textures {}", listed ? "ok" : "failed", entries.size(), error);
+			std::vector<TextureLibrary::Entry> ambient;
+			const bool ambientListed = TextureLibrary::ListAmbientCG("brick", ambient, error);
+			LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] ambientcg list {}: {} textures {}", ambientListed ? "ok" : "failed", ambient.size(), error);
+			const std::filesystem::path library = Project::GetActiveAssetDirectory() / "Textures" / "Library";
+			for (const auto& [source, id] : { std::pair<std::string, std::string>{ "polyhaven", polyHavenId }, std::pair<std::string, std::string>{ "ambientcg", ambientId } })
+			{
+				if (id.empty())
+					continue;
+				std::vector<std::string> written;
+				error.clear();
+				std::filesystem::create_directories(library / id);
+				const bool ok = source == "polyhaven" ? TextureLibrary::DownloadPolyHaven(id, library / id, written, error) : TextureLibrary::DownloadAmbientCG(id, library / id, written, error);
+				std::string files;
+				for (const std::string& file : written)
+					files += file + ";";
+				LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] {} download {} {}: {} files {} {}", source, id, ok ? "ok" : "failed", written.size(), files, error);
+			}
+		}
 
 		// PosePulse=<degrees>: every skeleton with a DebugBone bends it by degrees * sin(frame / 10) each frame, so skinned meshes change
 		// pose every frame (the BLAS refit check).
