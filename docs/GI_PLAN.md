@@ -149,6 +149,18 @@ unavailable and raster is unchanged. Making that visible (device, GPU timings), 
 ray-tracing-pipeline path (shader execution reordering, opacity micromaps) and optional denoisers (NRD, then DLSS Ray Reconstruction) are
 tracked in #231.
 
+### Materials, media and reflections pass (issues #241-#245, 2026-11-23)
+
+| Issue | Feature | Result |
+|---|---|---|
+| #241 | Clearcoat, sheen, anisotropy in the path-traced BRDF (PBR.glslh formulas, tangent from uv deltas) | on `GI_Lobes` the sheen sphere's RMSE vs the raster frame 0.090 -> 0.037, anisotropic 0.094 -> 0.065; coated furnace sphere 0.872; plain scenes identical |
+| #242 | Glass: smooth dielectric, Fresnel, Snell, TIR, Beer-Lambert absorption | furnace sphere 1.000; absorbing slab 0.471 vs 0.463 (attenuation colour is sRGB-authored, the row holds it linear); shadow rays stay opaque, so delta lights cast black shadows through glass |
+| #243 | Fog: homogeneous, free-flight, HG phase, NEE in the medium, optional sphere (path tracer only; the raster renderer has no fog) | absorbing sphere 0.374 vs exp(-sigma d) 0.368; albedo-1 furnace 1.000; a lamp in fog glows; directional lights are not attenuated |
+| #244 | Subsurface random walk (mean free path 5 cm, albedo = subsurface colour) | 0.8 m albedo-1 sphere in the furnace 0.993; thin slab lit from behind glows (0.218 vs 0) |
+| #245 | Ray-traced reflections on the raster depth/G-buffer (replace SSR while on) | `GI_Mirror` floor RMSE vs path tracer 0.0537 -> 0.0278; escaped rays add nothing, so a bright sky double counts where geometry is hit |
+
+Ray-traced shadows (#246) are not done.
+
 **Limits of this pass:** ReSTIR DI/GI and adaptive sampling are biased and must stay off for reference renders; ReSTIR DI traces from pixel centres and cannot combine with ray sorting; the ReSTIR GI sample treats radiance as direction independent; the denoiser has no motion vectors for moving objects (camera motion only) and was checked with camera motion, not object motion; skinned refit speed is unmeasured on a heavy mesh.
 
 **Other limits that remain:** the path tracer has no transmission/clearcoat/sheen lobes; rect/disk lights are one-sided only; lightmaps are

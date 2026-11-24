@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -699,6 +699,17 @@ namespace Lux {
 				toggle("Sample Count Heat Map", options.PathTracerSampleHeatmap);
 				toggle("ReSTIR DI (biased)", options.PathTracerReSTIRDI);
 				toggle("Ray Sorting (experimental, slower)", options.PathTracerRaySort);
+				toggle("Lobes (clearcoat, sheen, anisotropy)", options.PathTracerLobes);
+				toggle("Glass (refraction)", options.PathTracerGlass);
+				toggle("Subsurface Scattering", options.PathTracerSubsurface);
+				if (match("Fog Density"))
+					ImGuiEx::Property("Fog Density", options.PathTracerFogDensity, 0.01f, 0.0f, 10.0f);
+				if (match("Fog Albedo"))
+					ImGuiEx::PropertyColor("Fog Albedo", options.PathTracerFogAlbedo);
+				if (match("Fog Anisotropy"))
+					ImGuiEx::Property("Fog Anisotropy", options.PathTracerFogAnisotropy, 0.01f, -0.95f, 0.95f);
+				if (match("Fog Radius"))
+					ImGuiEx::Property("Fog Radius", options.PathTracerFogRadius, 0.1f, 0.0f, 1000.0f);
 				ImGuiEx::EndPropertyGrid();
 				ImGui::TextDisabled("Adaptive Threshold 0 = off. ReSTIR DI uses pixel-centre rays; Ray Sorting excludes ReSTIR DI.");
 				if (ImGui::Button("Reset Accumulation"))
@@ -714,6 +725,11 @@ namespace Lux {
 					ImGuiEx::Property("RTGI History", options.RTGIHistoryLength, 1u, 256u);
 				toggle("ReSTIR GI Reuse (biased)", options.RTGIReuse);
 				toggle("RTGI Denoiser", options.RTGIDenoiser);
+				toggle("Ray-Traced Reflections", options.EnableRTReflections);
+				if (match("Reflection Roughness Cutoff"))
+					ImGuiEx::Property("Reflection Roughness Cutoff", options.RTReflectionRoughnessCutoff, 0.01f, 0.0f, 1.0f);
+				if (match("Reflection Rays"))
+					ImGuiEx::Property("Reflection Rays", options.RTReflectionRays, 1u, 16u);
 				toggle("Compact BLASes", options.RTCompactBLAS);
 				toggle("Refit Skinned BLASes", options.RTRefitSkinned);
 				toggle("Refit TLAS", options.RTUpdateTLAS);
