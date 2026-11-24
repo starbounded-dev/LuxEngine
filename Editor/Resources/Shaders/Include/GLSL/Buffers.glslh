@@ -167,7 +167,7 @@ layout(std140, set = 2, binding = 1) uniform RendererData
 	uniform vec4 ShadowFilterParams; // x = directional PCF radius in texels, y = spot PCF radius in texels
 	uniform uint ShadowFilterSampleCount;  // PCSS filter taps, 1..SHADOW_KERNEL_SIZE
 	uniform float Time; // seconds since the application started, for material graphs
-	uniform uint ShadowKernelPadding1;
+	uniform uint RTShadows; // 1: the directional light's visibility comes from the ray-traced mask (u_RTShadowMask), not the cascades
 	uniform uint ShadowKernelPadding2;
 	// Unit-disk sample offsets built on the CPU: xy = filter tap i of ShadowFilterSampleCount,
 	// zw = blocker-search tap i of ShadowBlockerSampleCount. Each set is a Vogel disk over its own count.

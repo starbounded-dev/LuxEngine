@@ -351,7 +351,30 @@ def check_reflections(config):
     check(rmse(off, raster) < 1e-6, f"with the option off the raster frame is unchanged (RMSE {rmse(off, raster):.7f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections}
+def check_shadows(config):
+    """#246: ray-traced directional shadows replace the cascades. The sun's shadow distance is 3 m, so the cascades end before the box and
+    sphere (10 m away) and the raster frame has no shadows there; the ray-traced mask has no range limit and must match the path tracer far
+    better. The option off must leave the raster frame identical."""
+    scene = "GI_Shadows"
+    reference = capture("rs-pt", scene, "PathTracer=1,PathTracerSamples=256,PathTracerBounces=2", config, spp(256))
+    raster = capture("rs-raster", scene, "", config, 330)
+    traced = capture("rs-on", scene, "RTShadows=1", config, 330)
+    h, w = raster.shape[:2]
+    lit = (slice(int(h * 0.82), int(h * 0.95)), slice(int(w * 0.3), int(w * 0.7)))
+    shadowed = (slice(int(h * 0.38), int(h * 0.66)), slice(int(w * 0.33), int(w * 0.7)))
+
+    def normalised(image):
+        """Each renderer's own lit floor is its unit, so the comparison is about the shadows, not the overall light level."""
+        return image / max(float(np.median(image[lit])), 1e-6)
+
+    r, t, p = normalised(raster), normalised(traced), normalised(reference)
+    er, et = rmse(r[shadowed], p[shadowed]), rmse(t[shadowed], p[shadowed])
+    check(et < er * 0.6, f"around the shadows the frame agrees better with the path tracer with ray-traced shadows (RMSE {er:.4f} -> {et:.4f})")
+    off = capture("rs-off", scene, "RTShadows=0", config, 330)
+    check(rmse(off, raster) < 1e-6, f"with the option off the raster frame is unchanged (RMSE {rmse(off, raster):.7f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows}
 
 
 def main():

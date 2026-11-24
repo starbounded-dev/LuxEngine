@@ -103,6 +103,7 @@ namespace Lux {
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
 			{ "RTReflections", &SceneRendererOptions::EnableRTReflections },
+			{ "RTShadows", &SceneRendererOptions::EnableRTShadows },
 			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
 			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },

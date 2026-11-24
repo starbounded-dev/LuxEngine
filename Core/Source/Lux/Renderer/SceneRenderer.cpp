@@ -2226,6 +2226,7 @@ namespace Lux {
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			// Rebound every frame in BeginScene: the resolved GTAO image, or white when GTAO is off.
 			m_DeferredLightingPass->SetInput("u_AmbientOcclusion", Renderer::GetWhiteTexture());
+			m_DeferredLightingPass->SetInput("u_RTShadowMask", Renderer::GetWhiteTexture()); // the ray-traced directional shadow mask while that option is on
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
@@ -4536,6 +4537,12 @@ namespace Lux {
 		}
 
 		{
+			if (m_Options.EnableRTShadows && RHIDevice::SupportsRayQuery())
+			{
+				std::vector<RenderGraph::ResourceHandle> shadowReads = gbufferOutputs;
+				appendResources(shadowReads, preDepthOutputs);
+				addPass("RTShadows", shadowReads, {}, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTShadowsPass));
+			}
 			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
 			appendResources(deferredReads, preDepthOutputs);
 			appendResources(deferredReads, shadowOutputs);
@@ -6253,6 +6260,7 @@ namespace Lux {
 			m_RendererDataUB.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
 			m_RendererDataUB.GPUSceneDebugMode = ResolveGPUSceneDebugMode(m_DebugViewMode);
 			m_RendererDataUB.Time = Application::Get().GetTime();
+			m_RendererDataUB.RTShadows = (m_Options.EnableRTShadows && m_RTShadowMask && RHIDevice::SupportsRayQuery()) ? 1u : 0u;
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
@@ -6271,10 +6279,15 @@ namespace Lux {
 		// Resolved GTAO for deferred lighting's indirect term; the AO Composite pass writes it earlier
 		// in the frame whenever GTAO is on.
 		Ref<Image2D> ambientOcclusion = (m_Options.EnableGTAO && m_AOCompositePass) ? m_AOCompositePass->GetOutput(0) : nullptr;
-		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap, ambientOcclusion]() mutable
+		Ref<Image2D> shadowMask = (m_Options.EnableRTShadows && m_RTShadowMask && RHIDevice::SupportsRayQuery()) ? m_RTShadowMask : nullptr;
+		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap, ambientOcclusion, shadowMask]() mutable
 		{
 			if (deferredPass)
 			{
+				if (shadowMask)
+					deferredPass->SetInput("u_RTShadowMask", shadowMask);
+				else
+					deferredPass->SetInput("u_RTShadowMask", Renderer::GetWhiteTexture());
 				deferredPass->SetInput("u_EnvRadianceTex", radianceMap);
 				deferredPass->SetInput("u_EnvIrradianceTex", irradianceMap);
 				if (ambientOcclusion)

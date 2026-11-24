@@ -1,0 +1,107 @@
+FormatVersion: 1
+Scene: GI_Shadows
+Entities:
+  - Entity: 17000000000000041
+    TagComponent:
+      Tag: No Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 17000000000000040
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.85, 0.6, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 0.95, 0.9]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 3
+      ShadowResolutionTier: 2
+  - Entity: 17000000000000042
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [20, 0.1, 14]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000043
+    TagComponent:
+      Tag: Box
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.6, 1.0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 2.0, 1.6]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000044
+    TagComponent:
+      Tag: Ball
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.2, 0.8, 0.6]
+      Rotation: [0, 0, 0]
+      Scale: [1.6, 1.6, 1.6]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Sphere.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000045
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 5.5, 9]
+      Rotation: [-0.5, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

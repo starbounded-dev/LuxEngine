@@ -200,6 +200,25 @@ def main():
         if scene_name == "GI_GlassSlab":
             text = text.replace("Sphere.gltf", "Cube.gltf").replace("Scale: [3, 3, 3]", "Scale: [6, 6, 0.5]")
         (SCENES / f"{scene_name}.luxscene").write_text(text, encoding="utf-8", newline=chr(10))
+    # A sun, a box and a sphere on a white floor, no sky: shadows only. The sun's shadow distance is 3 m, so the shadow maps end well before the objects (10 m from the camera).
+    sun = entity("Sun", (0, 0, 0), rot=(-0.85, 0.6, 0), body="""    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 0.95, 0.9]
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: true
+      LightSize: 0.5
+      ShadowAmount: 1
+      ShadowDistance: 3
+      ShadowResolutionTier: 2
+""")
+    write("GI_Shadows", [nosky(), sun, floor("Materials/GI/GI_White.lmat", (20, 0.1, 14)),
+                         mesh("Box", "Cube", (-1.6, 1.0, 0), (1.6, 2.0, 1.6), "GI_White"),
+                         mesh("Ball", "Sphere", (2.2, 0.8, 0.6), (1.6, 1.6, 1.6), "GI_White"),
+                         camera((0, 5.5, 9), (-0.5, 0, 0))])
+
     # A polished metal floor under a red sphere and two coloured lamps (no sky): its reflection is what ray-traced reflections add.
     write_material("GI_Mirror", (0.95, 0.95, 0.95), 1.0, 0.04)
     write_material("GI_RedBall", (0.9, 0.1, 0.08), 0.0, 0.6)

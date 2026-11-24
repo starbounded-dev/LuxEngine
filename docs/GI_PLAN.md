@@ -159,7 +159,7 @@ tracked in #231.
 | #244 | Subsurface random walk (mean free path 5 cm, albedo = subsurface colour) | 0.8 m albedo-1 sphere in the furnace 0.993; thin slab lit from behind glows (0.218 vs 0) |
 | #245 | Ray-traced reflections on the raster depth/G-buffer (replace SSR while on) | `GI_Mirror` floor RMSE vs path tracer 0.0537 -> 0.0278; escaped rays add nothing, so a bright sky double counts where geometry is hit |
 
-Ray-traced shadows (#246) are not done.
+| #246 | Ray-traced directional shadows: a visibility mask traced from the raster depth/G-buffer, read by deferred lighting in place of the cascades (soft by an angular radius) | `GI_Shadows` with the sun's shadow distance at 3 m (cascades end before the objects): RMSE vs the path tracer 0.205 -> 0.065; option off identical. Directional light only: point/spot/area shadows still use the shadow maps/atlas, and the translucency path keeps the cascades |
 
 **Limits of this pass:** ReSTIR DI/GI and adaptive sampling are biased and must stay off for reference renders; ReSTIR DI traces from pixel centres and cannot combine with ray sorting; the ReSTIR GI sample treats radiance as direction independent; the denoiser has no motion vectors for moving objects (camera motion only) and was checked with camera motion, not object motion; skinned refit speed is unmeasured on a heavy mesh.
 

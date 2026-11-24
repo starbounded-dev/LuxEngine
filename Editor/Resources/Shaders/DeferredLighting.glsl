@@ -43,6 +43,8 @@ layout(set = 1, binding = 15) uniform utexture2D u_GBufferMaterialObjectID;
 // Resolved GTAO (the AO Composite pass), or white when GTAO is off.
 layout(set = 1, binding = 16) uniform texture2D u_AmbientOcclusion;
 layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
+// The ray-traced directional shadow mask (r: visibility), white while RTShadows is off.
+layout(set = 1, binding = 18) uniform texture2D u_RTShadowMask;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
 
@@ -84,6 +86,13 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 nor
 {
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0)
 		return 0.0;
+
+	// Ray-traced shadows: the mask was traced for the shading normal (the translucency path passes its flipped one and keeps the cascades).
+	if (u_RendererData.RTShadows != 0u && dot(normal, m_Params.Normal) > 0.999)
+	{
+		float rayTraced = texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).r;
+		return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - rayTraced, 0.0, 1.0);
+	}
 
 	uint cascadeIndex = 0;
 	for (uint i = 0; i < 3; i++)

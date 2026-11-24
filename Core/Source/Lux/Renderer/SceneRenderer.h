@@ -321,6 +321,10 @@ namespace Lux {
 		bool     EnableRTGI = false;
 		// Ray-traced reflections (RayTracing/RTGI.cpp, RTReflections.glsl): smooth surfaces add the reflection of the ray-traced scene to the raster frame, from the raster depth and G-buffer. RT-only.
 		bool     EnableRTReflections = false;
+		// Ray-traced directional shadows (RayTracing/RTGI.cpp, RTShadows.glsl): deferred lighting reads a visibility mask traced from the raster depth/G-buffer instead of the cascade shadow maps. Soft by the light's angular radius. RT-only.
+		bool     EnableRTShadows = false;
+		float    RTShadowAngularRadiusDegrees = 0.5f; // the sun is about 0.27
+		uint32_t RTShadowRays = 4;
 		float    RTReflectionRoughnessCutoff = 0.4f; // surfaces rougher than this keep the raster reflection
 		uint32_t RTReflectionRays = 2;
 		uint32_t RTGIBounces = 1;
@@ -1795,7 +1799,8 @@ namespace Lux {
 			glm::vec4 ShadowFilterParams = { 1.25f, 1.5f, 0.0f, 0.0f }; // x=dir PCF texels, y=spot PCF texels
 			uint32_t  ShadowFilterSampleCount = 24;
 			float     Time = 0.0f; // seconds, for material graphs
-			uint32_t  ShadowKernelPadding[2] = { 0, 0 };
+			uint32_t  RTShadows = 0;
+			uint32_t  ShadowKernelPadding2 = 0;
 			// xy = filter tap i, zw = blocker-search tap i; each a Vogel disk over its own count.
 			glm::vec4 ShadowKernel[ShadowKernelSize] = {};
 		} m_RendererDataUB;
@@ -2047,6 +2052,12 @@ namespace Lux {
 		Ref<ComputePass> m_RTGITracePass;
 		bool EnsureRTGIReSTIR();
 		void RTReflectionsPass();
+		void RTShadowsPass();
+		bool EnsureRTShadows();
+		Ref<ComputePass> m_RTShadowPass;
+		Ref<Image2D> m_RTShadowMask;
+		bool m_RTShadowUnavailable = false;
+		uint32_t m_RTShadowFrame = 0;
 		// Screen-space reflections, unless ray-traced reflections replace them (they trace the same surfaces and would add on top of SSR).
 		bool SSRActive() const;
 		bool EnsureRTReflections();
