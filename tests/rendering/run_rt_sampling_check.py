@@ -292,6 +292,20 @@ def check_glass(config):
     check(rmse(plain_on, plain_off) < 1e-6, f"a scene without glass renders identically (RMSE {rmse(plain_on, plain_off):.7f})")
 
 
+def check_glass_shadow(config):
+    """#252: shadow rays pass through glass. The floor in the shadow of a red-tinted plate is lit red with glass on, and as dark as an
+    opaque plate's shadow with glass off."""
+    scene = "GI_GlassShadow"
+    base = "PathTracer=1,PathTracerSamples=128,PathTracerBounces=2"
+    on = capture("gs-on", scene, base, config, 330)
+    off = capture("gs-off", scene, f"{base},PTGlass=0", config, 330)
+    red = lambda im: (im[..., 0] > 1.8 * im[..., 1]) & (im[..., 0] > 1.8 * im[..., 2]) & (im[..., 0] > 0.05)
+    mask = red(on)
+    check(int(mask.sum()) > 500, f"the shadow of the red plate is a red region ({int(mask.sum())} red pixels)")
+    check(int(red(off).sum()) < 50, f"with glass off the plate casts no coloured shadow ({int(red(off).sum())} red pixels)")
+    check(float(on[mask][:, 0].mean()) > float(off[mask][:, 0].mean()) * 1.25, f"the red shadow gets more red light than under an opaque plate (red {float(on[mask][:, 0].mean()):.3f} vs opaque {float(off[mask][:, 0].mean()):.3f})")
+
+
 def check_fog(config):
     """#243: volumetrics, analytically. A purely absorbing fog sphere transmits exp(-sigma * chord); an albedo-1 scattering fog in a
     uniform environment changes nothing (white furnace); no fog renders identically."""
@@ -494,7 +508,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
 
 
 def main():

@@ -234,6 +234,14 @@ def main():
     mirror_text = mirror_text.replace("Intensity: 0\n      Lod: 0", "Intensity: 1.5\n      Lod: 0", 1)
     (SCENES / "GI_MirrorSky.luxscene").write_text(mirror_text, encoding="utf-8", newline=chr(10))
 
+    # A tinted glass plate beside a point light: its shadow on the floor must carry the glass colour (the camera never looks through the plate).
+    tint = [line.replace("AttenuationDistance: 1", "AttenuationDistance: 0.2").replace("[0.5, 0.5, 0.5]", "[0.9, 0.15, 0.1]") for line in slab]
+    (MATERIALS / "GI_GlassTint.lmat").write_text(chr(10).join(tint), encoding="utf-8", newline=chr(10))
+    write("GI_GlassShadow", [nosky(), floor("Materials/GI/GI_White.lmat", (14, 0.1, 10)),
+                             mesh("Plate", "Cube", (-1.8, 1.2, 0), (1.5, 0.2, 2.5), "GI_GlassTint"),
+                             point("Key", (-4.5, 3.2, 0), (1, 1, 1), 160, 30),
+                             camera((0, 4.5, 6.5), (-0.62, 0, 0))])
+
     # Subsurface: a white-scattering sphere in the furnace, and a thin warm slab lit only from behind.
     write_material("GI_SSS", (1.0, 1.0, 1.0), 0.0, 0.5, {"SubsurfaceColor": "[1, 1, 1]", "SubsurfaceThickness": 0.0})
     base_furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8")

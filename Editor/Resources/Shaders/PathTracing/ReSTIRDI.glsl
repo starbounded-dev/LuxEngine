@@ -168,8 +168,9 @@ void main()
 	{
 		vec3 L, radiance;
 		float dist, solidFactor;
-		if (SampleLight(selectedIndex, selectedU1, selectedU2, s.P, s.N, L, dist, radiance, solidFactor) && !Occluded(s.P + s.N * 1e-3, L, dist - 2e-3))
-			color = EvalBRDF(s, V, L) * radiance * W * FogToLight(s.P, L, dist);
+		vec3 shadow = vec3(0.0);
+		if (SampleLight(selectedIndex, selectedU1, selectedU2, s.P, s.N, L, dist, radiance, solidFactor) && (shadow = ShadowTransmittance(s.P + s.N * 1e-3, L, dist - 2e-3), max(shadow.r, max(shadow.g, shadow.b)) > 0.0))
+			color = EvalBRDF(s, V, L) * radiance * W * FogToLight(s.P, L, dist) * shadow;
 		else
 			W = 0.0;
 	}

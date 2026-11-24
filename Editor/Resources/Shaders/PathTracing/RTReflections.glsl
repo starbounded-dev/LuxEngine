@@ -61,9 +61,10 @@ vec3 ShadeHit(Surface s, vec3 V)
 		const float u1 = Rand(), u2 = Rand();
 		vec3 L, radiance;
 		float dist, solidFactor;
-		if (!SampleLight(index, u1, u2, s.P, s.N, L, dist, radiance, solidFactor) || Occluded(s.P + s.N * 1e-3, L, dist - 2e-3))
+		if (!SampleLight(index, u1, u2, s.P, s.N, L, dist, radiance, solidFactor))
 			continue;
-		sum += EvalBRDF(s, V, L) * radiance * FogToLight(s.P, L, dist);
+		const vec3 shadow = ShadowTransmittance(s.P + s.N * 1e-3, L, dist - 2e-3);
+		sum += EvalBRDF(s, V, L) * radiance * FogToLight(s.P, L, dist) * shadow;
 	}
 	return sum;
 }
