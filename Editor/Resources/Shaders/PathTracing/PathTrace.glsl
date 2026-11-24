@@ -48,6 +48,13 @@ layout(rgba16f, set = 1, binding = 66) uniform writeonly image2D o_PathTraceImag
 layout(set = 1, binding = 109) uniform texture2D u_ReSTIRDirect; // first-hit direct light from ReSTIR DI (read only when FLAG_RESTIR_DI is set)
 layout(rgba32f, set = 1, binding = 98) uniform image2D o_PathTraceMoments; // x = sum of luminance, y = sum of luminance^2 (adaptive sampling)
 
+// Blue -> cyan -> green -> yellow -> red.
+vec3 HeatRamp(float v)
+{
+	v = clamp(v, 0.0, 1.0) * 4.0;
+	return clamp(vec3(v - 2.0, 2.0 - abs(v - 2.0), 2.0 - v), 0.0, 1.0);
+}
+
 void main()
 {
 	const uvec2 pixel = gl_GlobalInvocationID.xy;
@@ -106,6 +113,23 @@ void main()
 	vec3 mean = (previous * n + radiance) / (n + 1.0);
 	imageStore(o_PathTraceAccum, ivec2(pixel), vec4(mean, n + 1.0));
 	imageStore(o_PathTraceMoments, ivec2(pixel), vec4(moments + vec2(luminance, luminance * luminance), 0.0, 0.0));
-	const float heat = (n + 1.0) / max(float(u_Push.Counts.w), 1.0);
-	imageStore(o_PathTraceImage, ivec2(pixel), u_Push.Counts.w != 0u ? vec4(vec3(heat), 1.0) : vec4(mean, 1.0));
+	// Debug views (Counts.w): 1 bounces taken (of 8), 2 rays traced (of 12), 3 noise (relative standard error of the luminance mean x4),
+	// 4 samples taken (of 256, grey).
+	vec3 shown = mean;
+	switch (u_Push.Counts.w)
+	{
+	case 1u: shown = HeatRamp(float(g_BounceCount) / 8.0); break;
+	case 2u: shown = HeatRamp(float(g_RayCount) / 12.0); break;
+	case 3u:
+	{
+		const vec2 m = moments + vec2(luminance, luminance * luminance);
+		const float meanL = m.x / (n + 1.0);
+		const float variance = max(m.y / (n + 1.0) - meanL * meanL, 0.0);
+		shown = HeatRamp(4.0 * sqrt(variance / (n + 1.0)) / max(meanL, 0.02));
+		break;
+	}
+	case 4u: shown = vec3((n + 1.0) / 256.0); break;
+	default: break;
+	}
+	imageStore(o_PathTraceImage, ivec2(pixel), vec4(shown, 1.0));
 }

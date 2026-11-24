@@ -374,7 +374,31 @@ def check_shadows(config):
     check(rmse(off, raster) < 1e-6, f"with the option off the raster frame is unchanged (RMSE {rmse(off, raster):.7f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows}
+def check_debug(config):
+    """#247: per-pixel debug views. Inside the room (the empty surround has no paths), more allowed bounces or rays turn the heat ramp from
+    blue toward green/red (the blue channel falls); the noise view's blue channel rises as samples accumulate; the normal image is
+    shown with the view off."""
+    scene = "GI_CornellBox"
+
+    def blue(tag, options, frame):
+        image = capture(tag, scene, f"PathTracer=1,{options}", config, frame)
+        h, w = image.shape[:2]
+        return float(image[int(h * 0.3):int(h * 0.7), int(w * 0.34):int(w * 0.66), 2].mean())
+
+    low = blue("db-b1", "PathTracerSamples=16,PathTracerBounces=1,PTDebug=1", spp(16))
+    high = blue("db-b8", "PathTracerSamples=16,PathTracerBounces=8,PTDebug=1", spp(16))
+    check(low > high * 1.1, f"more allowed bounces move the bounce view up the ramp (blue {low:.3f} -> {high:.3f})")
+    low = blue("db-r1", "PathTracerSamples=16,PathTracerBounces=1,PTDebug=2", spp(16))
+    high = blue("db-r8", "PathTracerSamples=16,PathTracerBounces=8,PTDebug=2", spp(16))
+    check(low > high * 1.05, f"more allowed bounces move the ray view up the ramp (blue {low:.3f} -> {high:.3f})")
+    few = blue("db-n16", "PathTracerSamples=16,PathTracerBounces=4,PTDebug=3", spp(16))
+    many = blue("db-n256", "PathTracerSamples=256,PathTracerBounces=4,PTDebug=3", spp(256))
+    check(many > few * 1.05, f"the noise view cools as samples accumulate (blue {few:.3f} -> {many:.3f})")
+    plain = capture("db-off", scene, "PathTracer=1,PathTracerSamples=16,PTDebug=0", config, spp(16))
+    check(float(plain.mean()) > 0.2 and float(plain[..., 0].mean()) > float(plain[..., 2].mean()) * 0.8, "with the view off the normal image is shown")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug}
 
 
 def main():

@@ -353,8 +353,13 @@ bool SampleBSDF(Surface s, vec3 V, out vec3 L)
 }
 
 // ---- scene queries ----------------------------------------------------------------------------
+// Per-path counters for the debug views: rays traced (closest-hit and shadow) and surfaces scattered at.
+uint g_RayCount = 0u;
+uint g_BounceCount = 0u;
+
 bool Occluded(vec3 o, vec3 d, float tMax)
 {
+	g_RayCount++;
 	rayQueryEXT q;
 	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, tMax);
 	while (rayQueryProceedEXT(q)) {}
@@ -363,6 +368,7 @@ bool Occluded(vec3 o, vec3 d, float tMax)
 
 bool TraceClosest(vec3 o, vec3 d, out Surface s)
 {
+	g_RayCount++;
 	rayQueryEXT q;
 	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, 1.0e30);
 	while (rayQueryProceedEXT(q)) {}
@@ -1008,6 +1014,7 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 			break;
 		}
 
+		g_BounceCount++;
 		radiance += throughput * s.Emission;
 
 		// The cone keeps growing from this hit; a rough surface scatters it wider.

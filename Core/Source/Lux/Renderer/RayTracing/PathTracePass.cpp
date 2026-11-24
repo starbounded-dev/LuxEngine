@@ -415,7 +415,7 @@ namespace Lux {
 		const glm::vec4 fogCenter(m_Options.PathTracerFogCenter, 0.0f);
 		const float furnaceRadiance = m_Options.PathTracerFurnaceRadiance;
 		const float adaptiveThreshold = std::max(m_Options.PathTracerAdaptiveThreshold, 0.0f);
-		const bool sampleHeatmap = m_Options.PathTracerSampleHeatmap;
+		const uint32_t debugView = m_Options.PathTracerDebugView != 0 ? std::min(m_Options.PathTracerDebugView, 4u) : (m_Options.PathTracerSampleHeatmap ? 4u : 0u);
 		const uint32_t width = m_ViewportWidth;
 		const uint32_t height = m_ViewportHeight;
 
@@ -431,7 +431,7 @@ namespace Lux {
 		signature = HashBytes(signature, &uniformEnvironment, sizeof(uniformEnvironment));
 		signature = HashBytes(signature, &environmentIntensity, sizeof(environmentIntensity));
 		signature = HashBytes(signature, &adaptiveThreshold, sizeof(adaptiveThreshold));
-		signature = HashBytes(signature, &sampleHeatmap, sizeof(sampleHeatmap));
+		signature = HashBytes(signature, &debugView, sizeof(debugView));
 		signature = HashBytes(signature, &raySort, sizeof(raySort));
 		signature = HashBytes(signature, &fogMedium, sizeof(fogMedium));
 		signature = HashBytes(signature, &furnaceRadiance, sizeof(furnaceRadiance));
@@ -480,7 +480,7 @@ namespace Lux {
 
 				PathTracePush push = {};
 				push.SizeFrameBounces = glm::uvec4(width, height, state->Frame.load(), maxBounces);
-				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, std::bit_cast<uint32_t>(adaptiveThreshold), sampleHeatmap ? 256u : 0u);
+				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, std::bit_cast<uint32_t>(adaptiveThreshold), debugView);
 				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(furnaceRadiance) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(furnaceRadiance) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 				ApplyPathTraceEnvironment(push, envParams);

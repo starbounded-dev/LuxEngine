@@ -377,6 +377,8 @@ namespace Lux {
 		float    PathTracerAdaptiveThreshold = 0.0f;
 		// Debug: show each pixel's sample count (1.0 = 256 samples) instead of the image.
 		bool     PathTracerSampleHeatmap = false;
+		// Debug view replacing the image: 0 none, 1 bounces per path, 2 rays per path, 3 noise estimate, 4 sample count (the heat map above).
+		uint32_t PathTracerDebugView = 0;
 		uint32_t PathTracerTargetSamples = 256;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;

@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Ray-Traced Shadows", "Shadow Light Radius", "Shadow Rays" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Ray-Traced Shadows", "Shadow Light Radius", "Shadow Rays", "Debug View" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -711,6 +711,13 @@ namespace Lux {
 				if (match("Fog Radius"))
 					ImGuiEx::Property("Fog Radius", options.PathTracerFogRadius, 0.1f, 0.0f, 1000.0f);
 				ImGuiEx::EndPropertyGrid();
+				if (match("Debug View"))
+				{
+					static const char* views[] = { "Off", "Bounces per path", "Rays per path", "Noise estimate", "Samples per pixel" };
+					int view = static_cast<int>(std::min(options.PathTracerDebugView, 4u));
+					if (ImGui::Combo("Debug View", &view, views, 5))
+						options.PathTracerDebugView = static_cast<uint32_t>(view);
+				}
 				ImGui::TextDisabled("Adaptive Threshold 0 = off. ReSTIR DI uses pixel-centre rays; Ray Sorting excludes ReSTIR DI.");
 				if (ImGui::Button("Reset Accumulation"))
 					options.PathTracerResetCounter++;
