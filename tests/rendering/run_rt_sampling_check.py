@@ -318,7 +318,23 @@ def check_fog(config):
     check(rmse(plain_zero, plain_off) < 1e-6, f"fog density 0 renders identically (RMSE {rmse(plain_zero, plain_off):.7f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog}
+def check_sss(config):
+    """#244: subsurface scattering. An albedo-1 random-walk sphere in the white furnace vanishes; a thin slab lit only from behind glows
+    on its front face with the walk and stays black without it; a scene without subsurface materials renders identically."""
+    furnace = furnace_ratio(capture("ss-furnace", "GI_SSSFurnace", "PathTracer=1,PathTracerFurnace=1,PathTracerSamples=256,PathTracerBounces=96", config, 330))
+    check(0.95 < furnace < 1.04, f"a subsurface sphere in the white furnace vanishes (ratio {furnace:.3f})")
+    options = "PathTracer=1,PathTracerSamples=256,PathTracerBounces=96"
+    lit = capture("ss-lit", "GI_SSSBacklit", options, config, 330)
+    dark = capture("ss-dark", "GI_SSSBacklit", f"{options},PTSSS=0", config, 330)
+    h, w = lit.shape[:2]
+    centre = (slice(h // 2 - 40, h // 2 + 40), slice(w // 2 - 40, w // 2 + 40))
+    check(float(lit[centre].mean()) > 0.05 and float(dark[centre].mean()) < 0.02, f"light reaches the front of a thin slab through the material ({float(lit[centre].mean()):.3f}) and not without it ({float(dark[centre].mean()):.3f})")
+    plain_off = capture("ss-plain-off", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTSSS=0", config, spp(16))
+    plain_on = capture("ss-plain-on", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTSSS=1", config, spp(16))
+    check(rmse(plain_on, plain_off) < 1e-6, f"a scene without subsurface materials renders identically (RMSE {rmse(plain_on, plain_off):.7f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss}
 
 
 def main():

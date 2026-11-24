@@ -116,6 +116,8 @@ const float MIN_ALPHA = 0.0064;
 const uint FLAG_UNIFORM_ENV = 1u;
 const uint FLAG_LOBES = 16u; // clearcoat, sheen and anisotropy of the material rows
 const uint FLAG_GLASS = 32u; // transparent materials with transmission refract (smooth dielectric)
+const uint FLAG_SSS = 64u;   // subsurface materials scatter light through the object (random walk)
+const float PT_SSS_MEAN_FREE_PATH = 0.05; // metres between scattering events inside a subsurface object
 
 // ---- random -----------------------------------------------------------------------------------
 uint g_Rng;
@@ -182,6 +184,9 @@ struct Surface
 	float Transmission;
 	float IOR;
 	vec3 GlassSigma; // absorption coefficient inside the glass (Beer-Lambert), 1 / metre
+	bool SSS;        // a subsurface material (row Subsurface): part of its diffuse light random-walks through the object
+	float SSSThickness;
+	vec3 SSSColor;
 };
 
 // Anisotropic GGX, Charlie sheen and Neubelt visibility: PBR.glslh, so the path tracer and the raster renderer agree.
@@ -399,6 +404,9 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	s.Transmission = 0.0;
 	s.IOR = 1.5;
 	s.GlassSigma = vec3(0.0);
+	s.SSS = false;
+	s.SSSThickness = 1.0;
+	s.SSSColor = vec3(0.0);
 
 	// The engine's material row, with its textures, when the instance has one (the vertex w components hold uv).
 	const uint materialId = inst.Info.z;
@@ -470,6 +478,13 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 					s.Transmission = clamp(m.Refraction.x, 0.0, 1.0);
 					s.IOR = max(m.Refraction.y, 1.0);
 					s.GlassSigma = m.Refraction.w > 0.0 ? -log(max(m.AttenuationColor.rgb, vec3(1e-4))) / m.Refraction.w : vec3(0.0);
+				}
+				if ((u_Push.Counts.y & FLAG_SSS) != 0u && (flags & PT_MATERIAL_FLAG_HAS_SUBSURFACE) != 0u)
+				{
+					s.SSS = true;
+					s.SSSColor = clamp(m.Subsurface.rgb, vec3(0.0), vec3(0.999));
+					s.SSSThickness = clamp(m.Subsurface.w, 0.0, 1.0);
+					s.Albedo *= s.SSSThickness; // the rest of the diffuse light goes through the object instead of bouncing off it
 				}
 				if ((u_Push.Counts.y & FLAG_LOBES) != 0u)
 				{
@@ -898,6 +913,7 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 	vec3 sigmaA = st.SigmaA;
 	vec3 sigmaS = st.SigmaS;
 	bool inObject = st.InObject;
+	uint walkSteps = 0u; // scatter events inside a subsurface object: they do not use up the path's bounces
 	bool alive = true;
 	const bool mis = (u_Push.Counts.y & FLAG_MIS) != 0u && u_Push.Counts.x > 0u && (u_Push.Counts.y & FLAG_UNIFORM_ENV) == 0u;
 
@@ -908,7 +924,8 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		const float segmentLength = hit ? length(s.P - origin) : 1.0e30;
 		g_InObject = inObject;
 		// Absorption by the medium the ray just crossed (inside glass): Beer-Lambert, exact.
-		if (sigmaA.x + sigmaA.y + sigmaA.z > 0.0)
+		const bool objectMedium = inObject && (sigmaS.x + sigmaS.y + sigmaS.z) > 0.0; // a scattering medium inside the object: free-flight below
+		if (sigmaA.x + sigmaA.y + sigmaA.z > 0.0 && !objectMedium)
 			throughput *= exp(-sigmaA * segmentLength);
 
 		// The fog along this segment: free-flight sampling with the mean extinction decides whether the ray scatters before it
@@ -918,12 +935,22 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		float scatterDistance = 0.0;
 		vec3 fogSigmaT = vec3(0.0), fogSigmaS = vec3(0.0);
 		float fogAverage = 0.0;
-		if (FogInterval(origin, dir, segmentLength, fogT0, fogT1))
+		if (objectMedium || FogInterval(origin, dir, segmentLength, fogT0, fogT1))
 		{
-			const vec3 fogAlbedo = clamp(u_Push.MediumAlbedo.rgb, vec3(0.0), vec3(1.0));
-			fogSigmaT = vec3(u_Push.Medium.x);
-			fogSigmaS = fogSigmaT * fogAlbedo;
-			fogAverage = u_Push.Medium.x;
+			if (objectMedium)
+			{
+				fogT0 = 0.0;
+				fogT1 = segmentLength;
+				fogSigmaT = sigmaA + sigmaS;
+				fogSigmaS = sigmaS;
+			}
+			else
+			{
+				const vec3 fogAlbedo = clamp(u_Push.MediumAlbedo.rgb, vec3(0.0), vec3(1.0));
+				fogSigmaT = vec3(u_Push.Medium.x);
+				fogSigmaS = fogSigmaT * fogAlbedo;
+			}
+			fogAverage = (fogSigmaT.x + fogSigmaT.y + fogSigmaT.z) / 3.0;
 			if (fogSigmaS.x + fogSigmaS.y + fogSigmaS.z > 0.0)
 			{
 				const float freeFlight = -log(max(1.0 - Rand(), 1e-7)) / fogAverage;
@@ -940,7 +967,7 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 
 		if (fogScatter)
 		{
-			if (bounce == maxBounces)
+			if (bounce == maxBounces && !objectMedium)
 			{
 				alive = false;
 				break;
@@ -948,9 +975,20 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 			// weight = T(t) sigma_s / pdf(t) per channel, where the distance was sampled with the mean extinction
 			throughput *= exp(-fogSigmaT * (scatterDistance - fogT0)) * fogSigmaS / (fogAverage * exp(-fogAverage * (scatterDistance - fogT0)));
 			const vec3 scatterPoint = origin + dir * scatterDistance;
-			radiance += throughput * MediumDirectLight(scatterPoint, dir, u_Push.Medium.y);
-			const vec3 scattered = SamplePhaseHG(dir, u_Push.Medium.y);
-			prevPdf = PhaseHG(dot(scattered, dir), u_Push.Medium.y); // the phase value is the sampling pdf (weight 1)
+			const float phaseG = objectMedium ? 0.0 : u_Push.Medium.y; // isotropic inside objects, which have no lights to estimate toward
+			if (objectMedium)
+			{
+				if (++walkSteps > 512u)
+				{
+					alive = false; // a walk that long has lost its energy to the albedo anyway
+					break;
+				}
+				bounce--; // the loop adds it back: a walk step is not a bounce
+			}
+			if (!objectMedium)
+				radiance += throughput * MediumDirectLight(scatterPoint, dir, phaseG);
+			const vec3 scattered = SamplePhaseHG(dir, phaseG);
+			prevPdf = PhaseHG(dot(scattered, dir), phaseG); // the phase value is the sampling pdf (weight 1)
 			dir = scattered;
 			origin = scatterPoint;
 			continue;
@@ -975,6 +1013,65 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		// The cone keeps growing from this hit; a rough surface scatters it wider.
 		g_ConeWidth += g_ConeAngle * length(s.P - origin);
 		g_ConeAngle = mix(0.03, 0.45, s.Rough);
+
+		// Leaving a subsurface object: the walk reached the inside of the surface. Light arrives from outside through this point with a
+		// Lambertian transmission: next-event estimation and a cosine-sampled continuation on the outer side, both counted.
+		if (inObject && !s.FrontFace && !s.Glass && (sigmaS.x + sigmaS.y + sigmaS.z) > 0.0)
+		{
+			if (bounce == maxBounces)
+			{
+				alive = false;
+				break;
+			}
+			Surface outer = s;
+			outer.N = -s.N;
+			outer.Albedo = vec3(1.0);
+			outer.Metal = 0.0;
+			outer.Rough = 1.0;
+			outer.F0 = vec3(0.0);
+			outer.Lobes = 0u;
+			g_InObject = false;
+			radiance += throughput * DirectLight(outer, outer.N, bounce == maxBounces);
+			vec3 t, b;
+			Basis(outer.N, t, b);
+			dir = SampleCosine(outer, t, b);
+			prevPdf = dot(dir, outer.N) / PI;
+			origin = s.P + outer.N * 1e-3;
+			inObject = false;
+			sigmaA = vec3(0.0);
+			sigmaS = vec3(0.0);
+			continue;
+		}
+
+		// Entering a subsurface object: with probability q the diffuse light goes through the surface (weight (1 - F) / q), otherwise the
+		// usual BSDF continues with its weight divided by 1 - q.
+		float bsdfScale = 1.0;
+		if (s.SSS && s.FrontFace && !inObject && bounce < maxBounces)
+		{
+			const float q = 0.5 * (1.0 - s.SSSThickness);
+			if (q > 0.0)
+			{
+				if (Rand() < q)
+				{
+					const float cosV = clamp(dot(s.N, -dir), 0.0, 1.0);
+					const vec3 fresnelView = s.F0 + (vec3(1.0) - s.F0) * pow(1.0 - cosV, 5.0);
+					throughput *= (vec3(1.0) - fresnelView) * ((1.0 - s.SSSThickness) / q);
+					vec3 t, b;
+					Basis(-s.N, t, b);
+					Surface inward = s;
+					inward.N = -s.N;
+					dir = SampleCosine(inward, t, b);
+					origin = s.P - s.N * 1e-3;
+					inObject = true;
+					const vec3 sigmaT = vec3(1.0 / PT_SSS_MEAN_FREE_PATH);
+					sigmaS = sigmaT * s.SSSColor;
+					sigmaA = sigmaT * (vec3(1.0) - s.SSSColor);
+					prevPdf = 1.0e30;
+					continue;
+				}
+				bsdfScale = 1.0 / (1.0 - q);
+			}
+		}
 
 		// A smooth dielectric: reflect or refract by the Fresnel reflectance, no next-event estimation (its highlights and
 		// light seen through it come from BSDF-sampled rays, so the MIS weight is full). Rough glass is treated as smooth.
@@ -1016,7 +1113,7 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		}
 
 		vec3 V = -dir;
-		radiance += throughput * ((g_UseExternalDirect && bounce == 0u) ? g_ExternalDirect : DirectLight(s, V, bounce == maxBounces));
+		radiance += throughput * (bsdfScale * ((g_UseExternalDirect && bounce == 0u) ? g_ExternalDirect : DirectLight(s, V, bounce == maxBounces)));
 
 		if (bounce == maxBounces)
 		{
@@ -1036,7 +1133,7 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 			alive = false;
 			break;
 		}
-		throughput *= EvalBRDF(s, V, L) / pdf;
+		throughput *= EvalBRDF(s, V, L) * (bsdfScale / pdf);
 		prevPdf = pdf;
 
 		// Russian roulette after a few bounces.

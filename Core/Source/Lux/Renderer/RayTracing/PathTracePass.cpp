@@ -151,6 +151,8 @@ namespace Lux {
 			params.Flags |= 16; // FLAG_LOBES
 		if (m_Options.PathTracerGlass)
 			params.Flags |= 32; // FLAG_GLASS
+		if (m_Options.PathTracerSubsurface)
+			params.Flags |= 64; // FLAG_SSS
 		return params;
 	}
 

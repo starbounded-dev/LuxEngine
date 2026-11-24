@@ -347,6 +347,8 @@ namespace Lux {
 		bool     PathTracerLobes = true;
 		// Transparent materials with transmission refract in the path tracer: smooth dielectric (Fresnel, Snell, total internal reflection) with Beer-Lambert absorption from the material's attenuation colour and distance. Shadow rays stay opaque.
 		bool     PathTracerGlass = true;
+		// Subsurface materials (row Subsurface) random-walk part of their diffuse light through the closed mesh (mean free path 5 cm, albedo = subsurface colour, thickness 0..1 = how little goes through) instead of the raster lobe's wrap approximation.
+		bool     PathTracerSubsurface = true;
 		// Global homogeneous fog in the path tracer (RayTracing: PathTraceCommon.glslh): extinction per metre (0 = off), scattering albedo, Henyey-Greenstein anisotropy g,
 		// and an optional sphere (radius 0 = unbounded) around FogCenter. The raster renderer has no volumetric fog, so this is path-tracer-only. Directional lights are not attenuated by it.
 		float    PathTracerFogDensity = 0.0f;

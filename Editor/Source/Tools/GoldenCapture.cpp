@@ -110,6 +110,7 @@ namespace Lux {
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTLobes", &SceneRendererOptions::PathTracerLobes },
 			{ "PTGlass", &SceneRendererOptions::PathTracerGlass },
+			{ "PTSSS", &SceneRendererOptions::PathTracerSubsurface },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },

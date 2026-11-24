@@ -1,0 +1,39 @@
+FormatVersion: 1
+Scene: GI_SSSFurnace
+Entities:
+  - Entity: 16300000000005000001
+    TagComponent:
+      Tag: Furnace Sphere
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Sphere.gltf
+      MaterialTable:
+        0: Materials/GI/GI_SSS.lmat
+      Visible: true
+  - Entity: 16300000000005000002
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 8]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 40
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

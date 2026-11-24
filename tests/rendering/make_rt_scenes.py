@@ -200,6 +200,13 @@ def main():
         if scene_name == "GI_GlassSlab":
             text = text.replace("Sphere.gltf", "Cube.gltf").replace("Scale: [3, 3, 3]", "Scale: [6, 6, 0.5]")
         (SCENES / f"{scene_name}.luxscene").write_text(text, encoding="utf-8", newline=chr(10))
+    # Subsurface: a white-scattering sphere in the furnace, and a thin warm slab lit only from behind.
+    write_material("GI_SSS", (1.0, 1.0, 1.0), 0.0, 0.5, {"SubsurfaceColor": "[1, 1, 1]", "SubsurfaceThickness": 0.0})
+    base_furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8")
+    (SCENES / "GI_SSSFurnace.luxscene").write_text(base_furnace.replace("GI_Furnace.lmat", "GI_SSS.lmat").replace("Scene: GI_Furnace", "Scene: GI_SSSFurnace").replace("Scale: [3, 3, 3]", "Scale: [0.8, 0.8, 0.8]"), encoding="utf-8", newline=chr(10))
+    write_material("GI_Wax", (0.9, 0.75, 0.55), 0.0, 0.6, {"SubsurfaceColor": "[0.95, 0.8, 0.6]", "SubsurfaceThickness": 0.2})
+    write("GI_SSSBacklit", [nosky(), mesh("Wax Slab", "Cube", (0, 0, 0), (4, 4, 0.3), "GI_Wax"), point("Backlight", (0, 0, -1.5), (1, 1, 1), 200, 30), camera((0, 0, 6), (0, 0, 0))])
+
     # An empty-looking scene (one cube far below the view, so the ray-traced scene exists) for the fog checks: its centre ray crosses
     # only the fog sphere, its corner rays miss it.
     # A point light inside a fog sphere on a black background: the fog glows around it (next-event estimation in the medium).
