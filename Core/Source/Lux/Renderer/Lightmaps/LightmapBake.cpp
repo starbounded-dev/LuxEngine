@@ -65,6 +65,57 @@ namespace Lux {
 			uint32_t X = 0, Y = 0;
 		};
 
+		// Edge-aware a-trous filter over the baked atlas (covered texels only): four 5x5 iterations, taps 1, 2, 4 and 8 texels apart, weighted by
+		// the texel's world normal and position (so it never blurs across geometry or UV seams) and by luminance relative to its own level
+		// (so shadow edges survive). Run on the CPU once, after the bake is read back.
+		void DenoiseLightmap(std::vector<glm::vec3>& radiance, const std::vector<uint8_t>& covered, const BakeTexel* texels, uint32_t size)
+		{
+			const auto luminance = [](const glm::vec3& c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
+			const float kernel[5] = { 1.0f / 16.0f, 4.0f / 16.0f, 6.0f / 16.0f, 4.0f / 16.0f, 1.0f / 16.0f };
+			std::vector<glm::vec3> next(radiance.size());
+			for (const int step : { 1, 2, 4, 8 })
+			{
+				for (int y = 0; y < static_cast<int>(size); y++)
+				{
+					for (int x = 0; x < static_cast<int>(size); x++)
+					{
+						const size_t index = static_cast<size_t>(y) * size + x;
+						if (!covered[index])
+						{
+							next[index] = radiance[index];
+							continue;
+						}
+						const glm::vec3 p0 = glm::vec3(texels[index].Position);
+						const glm::vec3 n0 = glm::vec3(texels[index].Normal);
+						const float l0 = luminance(radiance[index]);
+						glm::vec3 sum(0.0f);
+						float weightSum = 0.0f;
+						for (int dy = -2; dy <= 2; dy++)
+						{
+							for (int dx = -2; dx <= 2; dx++)
+							{
+								const int nx = x + dx * step, ny = y + dy * step;
+								if (nx < 0 || ny < 0 || nx >= static_cast<int>(size) || ny >= static_cast<int>(size))
+									continue;
+								const size_t other = static_cast<size_t>(ny) * size + nx;
+								if (!covered[other])
+									continue;
+								const float wN = std::pow(std::max(glm::dot(n0, glm::vec3(texels[other].Normal)), 0.0f), 32.0f);
+								const float wP = std::exp(-glm::distance(p0, glm::vec3(texels[other].Position)) / 0.15f);
+								const float l1 = luminance(radiance[other]);
+								const float wL = std::exp(-std::abs(l0 - l1) / (0.5f * std::max(l0, l1) + 0.02f));
+								const float w = kernel[dx + 2] * kernel[dy + 2] * wN * wP * wL;
+								sum += radiance[other] * w;
+								weightSum += w;
+							}
+						}
+						next[index] = weightSum > 1e-6f ? sum / weightSum : radiance[index];
+					}
+				}
+				radiance.swap(next);
+			}
+		}
+
 		glm::vec2 LightmapUV(const MeshSource& source, uint32_t vertexIndex)
 		{
 			const auto& attributes = source.GetVertexAttributes();
@@ -543,6 +594,8 @@ namespace Lux {
 					covered[i] = 1;
 				}
 			}
+			if (m_Options.LightmapDenoise)
+				DenoiseLightmap(radiance, covered, static_cast<const BakeTexel*>(texelMapped), size);
 			m_LightmapBakeTexels->GetBuffer().Unmap();
 			m_LightmapBakeAccum->GetBuffer().Unmap();
 

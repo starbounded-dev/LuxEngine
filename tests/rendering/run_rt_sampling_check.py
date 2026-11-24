@@ -398,7 +398,24 @@ def check_debug(config):
     check(float(plain.mean()) > 0.2 and float(plain[..., 0].mean()) > float(plain[..., 2].mean()) * 0.8, "with the view off the normal image is shown")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug}
+def check_lmdenoise(config):
+    """#248: lightmap denoising. A 16-sample bake with the denoiser is closer (as rendered) to a 512-sample bake than the raw 16-sample
+    bake, and the denoiser does not darken the result."""
+    scene = "GI_CornellDark"
+    sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_CornellDark.lxlm"
+    try:
+        reference = capture("ld-ref", scene, "BakeLightmaps=512,Lightmaps=1,LMDenoise=0", config, 900)
+        raw = capture("ld-raw", scene, "BakeLightmaps=16,Lightmaps=1,LMDenoise=0", config, 900)
+        clean = capture("ld-clean", scene, "BakeLightmaps=16,Lightmaps=1,LMDenoise=1", config, 900)
+    finally:
+        if sidecar.exists():
+            sidecar.unlink()
+    er, ec = rmse(raw, reference), rmse(clean, reference)
+    check(ec < er * 0.8, f"the denoised 16-sample bake is closer to the 512-sample bake (RMSE {er:.4f} -> {ec:.4f})")
+    check(abs(float(clean.mean()) - float(reference.mean())) < 0.02, f"the denoiser keeps the overall light level (mean {float(clean.mean()):.3f} vs {float(reference.mean()):.3f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise}
 
 
 def main():

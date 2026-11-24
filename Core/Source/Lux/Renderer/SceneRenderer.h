@@ -353,6 +353,8 @@ namespace Lux {
 		bool     PathTracerMIS = true;
 		// Clearcoat, sheen and anisotropy of the material rows in the path-traced BRDF (the formulas of PBR.glslh), so Diff views match the raster lobes.
 		bool     PathTracerLobes = true;
+		// Edge-aware denoise of a finished lightmap bake (a-trous in atlas space, weights from the texel's world normal, position and luminance), so low-sample bakes come out clean.
+		bool     LightmapDenoise = true;
 		// Transparent materials with transmission refract in the path tracer: smooth dielectric (Fresnel, Snell, total internal reflection) with Beer-Lambert absorption from the material's attenuation colour and distance. Shadow rays stay opaque.
 		bool     PathTracerGlass = true;
 		// Subsurface materials (row Subsurface) random-walk part of their diffuse light through the closed mesh (mean free path 5 cm, albedo = subsurface colour, thickness 0..1 = how little goes through) instead of the raster lobe's wrap approximation.

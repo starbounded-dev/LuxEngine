@@ -111,6 +111,7 @@ namespace Lux {
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTLobes", &SceneRendererOptions::PathTracerLobes },
+			{ "LMDenoise", &SceneRendererOptions::LightmapDenoise },
 			{ "PTGlass", &SceneRendererOptions::PathTracerGlass },
 			{ "PTSSS", &SceneRendererOptions::PathTracerSubsurface },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
