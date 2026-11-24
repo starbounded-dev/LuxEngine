@@ -334,7 +334,24 @@ def check_sss(config):
     check(rmse(plain_on, plain_off) < 1e-6, f"a scene without subsurface materials renders identically (RMSE {rmse(plain_on, plain_off):.7f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss}
+def check_reflections(config):
+    """#245: ray-traced reflections replace SSR (they trace the same surfaces). On a no-sky scene with a polished floor the frame with them
+    must be closer to the path tracer than the raster frame with screen-space reflections."""
+    scene = "GI_Mirror"
+    reference = capture("rr-pt", scene, "PathTracer=1,PathTracerSamples=256,PathTracerBounces=4", config, spp(256))
+    raster = capture("rr-raster", scene, "", config, 330)
+    traced = capture("rr-on", scene, "RTReflections=1", config, 330)
+    h, w = raster.shape[:2]
+    floor_band = (slice(int(h * 0.62), int(h * 0.95)), slice(int(w * 0.15), int(w * 0.85)))
+    er, et = rmse(raster[floor_band], reference[floor_band]), rmse(traced[floor_band], reference[floor_band])
+    check(et < er * 0.8, f"on the polished floor the frame agrees better with the path tracer with ray-traced reflections (RMSE {er:.4f} -> {et:.4f})")
+    sphere_top = (slice(int(h * 0.25), int(h * 0.5)), slice(int(w * 0.4), int(w * 0.6)))
+    check(rmse(traced[sphere_top], raster[sphere_top]) < 0.01, "pixels that reflect nothing (the sphere itself) are untouched")
+    off = capture("rr-off", scene, "RTReflections=0", config, 330)
+    check(rmse(off, raster) < 1e-6, f"with the option off the raster frame is unchanged (RMSE {rmse(off, raster):.7f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections}
 
 
 def main():

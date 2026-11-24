@@ -102,6 +102,7 @@ namespace Lux {
 			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
 			{ "RTGI", &SceneRendererOptions::EnableRTGI },
 			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
+			{ "RTReflections", &SceneRendererOptions::EnableRTReflections },
 			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
 			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },

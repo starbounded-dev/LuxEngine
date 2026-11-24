@@ -200,6 +200,16 @@ def main():
         if scene_name == "GI_GlassSlab":
             text = text.replace("Sphere.gltf", "Cube.gltf").replace("Scale: [3, 3, 3]", "Scale: [6, 6, 0.5]")
         (SCENES / f"{scene_name}.luxscene").write_text(text, encoding="utf-8", newline=chr(10))
+    # A polished metal floor under a red sphere and two coloured lamps (no sky): its reflection is what ray-traced reflections add.
+    write_material("GI_Mirror", (0.95, 0.95, 0.95), 1.0, 0.04)
+    write_material("GI_RedBall", (0.9, 0.1, 0.08), 0.0, 0.6)
+    write("GI_Mirror", [nosky(), floor("Materials/GI/GI_Mirror.lmat", (16, 0.1, 12)),
+                        mesh("Ball", "Sphere", (0, 1.0, 0), (2, 2, 2), "GI_RedBall"),
+                        mesh("Blue Box", "Cube", (-3.2, 0.75, -1.0), (1.5, 1.5, 1.5), "GI_White"),
+                        point("Key", (-2.5, 4.5, 3.0), (1, 0.95, 0.9), 150, 25),
+                        point("Rim", (3.5, 3.0, -2.0), (0.5, 0.7, 1.0), 90, 25),
+                        camera((0, 3.4, 8.5), (-0.28, 0, 0))])
+
     # Subsurface: a white-scattering sphere in the furnace, and a thin warm slab lit only from behind.
     write_material("GI_SSS", (1.0, 1.0, 1.0), 0.0, 0.5, {"SubsurfaceColor": "[1, 1, 1]", "SubsurfaceThickness": 0.0})
     base_furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8")

@@ -9,6 +9,7 @@
 #include "Lux/Renderer/SceneRenderer.h"
 
 #include "Lux/Renderer/ComputePass.h"
+#include <bit>
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RayTracing/PathTraceLights.h"
@@ -334,6 +335,122 @@ namespace Lux {
 		}
 		LUX_CORE_INFO_TAG("Renderer", "[RTGI] denoiser ready");
 		return true;
+	}
+
+	bool SceneRenderer::EnsureRTReflections()
+	{
+		if (m_RTReflPass)
+			return true;
+		if (m_RTReflUnavailable || !RHIDevice::SupportsRayQuery() || !ShaderCompiler::IsAvailable() || !m_PreDepthPass)
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		if (library->GetShaders().find("RTReflections") == library->GetShaders().end())
+			library->Load("Resources/Shaders/PathTracing/RTReflections.glsl");
+		if (library->GetShaders().find("RTReflections") == library->GetShaders().end())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTReflections] RTReflections.glsl did not compile; ray-traced reflections are off for this session");
+			m_RTReflUnavailable = true;
+			return false;
+		}
+		if (!m_RayTracingScene)
+			m_RayTracingScene = Ref<RayTracingScene>::Create();
+		if (!m_PathTraceLights)
+		{
+			StorageBufferSpecification lightSpec;
+			lightSpec.GPUOnly = false;
+			lightSpec.DebugName = "PathTrace Lights";
+			m_PathTraceLights = StorageBuffer::Create(256, lightSpec);
+		}
+		ImageSpecification spec;
+		spec.Format = ImageFormat::RGBA16F;
+		spec.Usage = ImageUsage::Storage;
+		spec.Width = std::max(1u, m_ViewportWidth);
+		spec.Height = std::max(1u, m_ViewportHeight);
+		spec.DebugName = "RTReflections-Result";
+		m_RTReflResult = Image2D::Create(spec);
+		m_RTReflResult->Invalidate();
+
+		ComputePassSpecification passSpec;
+		passSpec.DebugName = "RTReflections";
+		passSpec.Pipeline = PipelineCompute::Create(library->Get("RTReflections"));
+		Ref<ComputePass> pass = ComputePass::Create(passSpec);
+		pass->SetInput("Camera", m_UBSCamera);
+		pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		pass->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
+		pass->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
+		pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+		pass->SetInput("RTLights", m_PathTraceLights);
+		pass->SetInput("o_RRResult", m_RTReflResult);
+		pass->SetInput("u_RRDepth", m_PreDepthPass->GetDepthOutput());
+		pass->SetInput("u_RRNormal", GetGeometryNormalOutput());
+		pass->SetInput("u_RRMetalRough", GetGeometryMetalRoughOutput());
+		pass->SetInput("u_RRBaseColor", GetGeometryBaseColorOutput());
+		pass->SetInput("u_RRSceneColor", GetSceneColorOutput());
+		PreparePathTraceEnvironment(pass);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTReflections] pass inputs do not match the shader; ray-traced reflections are off for this session");
+			m_RTReflUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_RTReflPass = pass;
+		LUX_CORE_INFO_TAG("Renderer", "[RTReflections] ready");
+		return true;
+	}
+
+	void SceneRenderer::RTReflectionsPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "RTReflectionsPass");
+		ApplyRTTuning();
+		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !m_SubmittedRenderScene || !EnsureRTReflections())
+			return;
+		if (m_RTReflResult->GetWidth() != m_ViewportWidth || m_RTReflResult->GetHeight() != m_ViewportHeight)
+			m_RTReflResult->Resize(m_ViewportWidth, m_ViewportHeight);
+		// The G-buffer and scene colour are recreated on a resize.
+		m_RTReflPass->SetInput("u_RRDepth", m_PreDepthPass->GetDepthOutput());
+		m_RTReflPass->SetInput("u_RRNormal", GetGeometryNormalOutput());
+		m_RTReflPass->SetInput("u_RRMetalRough", GetGeometryMetalRoughOutput());
+		m_RTReflPass->SetInput("u_RRBaseColor", GetGeometryBaseColorOutput());
+		m_RTReflPass->SetInput("u_RRSceneColor", GetSceneColorOutput());
+
+		std::vector<const StaticMeshRenderProxy*> proxies = m_SubmittedRenderScene->GetStaticMeshProxies();
+		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
+		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
+		const uint32_t width = m_ViewportWidth, height = m_ViewportHeight;
+		const uint32_t rays = std::clamp(m_Options.RTReflectionRays, 1u, 16u);
+		const float cutoff = std::clamp(m_Options.RTReflectionRoughnessCutoff, 0.0f, 1.0f);
+		const uint32_t frame = m_RTReflFrame++;
+
+		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
+		Ref<RayTracingScene> scene = m_RayTracingScene;
+		Ref<ComputePass> pass = m_RTReflPass;
+		Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
+		Ref<Image2D> result = m_RTReflResult;
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTReflPass);
+
+		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
+		{
+			scene->RT_Update(cb, instances);
+			if (!scene->IsValid() || !sceneColor)
+				return;
+			const uint32_t lightBytes = static_cast<uint32_t>(lights.size() * sizeof(glm::vec4));
+			if (lightBuffer->GetSize() < lightBytes)
+				lightBuffer->Resize(lightBytes);
+			if (lightBytes > 0)
+				lightBuffer->RT_SetData(cb, lights.data(), lightBytes);
+
+			RTGITracePush push = {};
+			push.SizeFrameBounces = glm::uvec4(width, height, frame, 0u);
+			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, rays, std::bit_cast<uint32_t>(cutoff));
+			ApplyPathTraceEnvironment(push, envParams);
+			cb->RT_BeginMarker("RTReflections");
+			pass->Prepare();
+			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
+			cb->RT_EndMarker();
+			Renderer::RT_CopyImage(cb, result, sceneColor);
+		});
 	}
 
 	void SceneRenderer::RTGIPass()

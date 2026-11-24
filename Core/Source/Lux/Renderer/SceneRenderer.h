@@ -319,6 +319,10 @@ namespace Lux {
 		// Ray-traced GI: per-pixel indirect diffuse by ray queries, denoised and added to scene colour after the raster
 		// lighting (RayTracing/RTGI.cpp). RT-only and off by default; use it instead of lightmaps / probes.
 		bool     EnableRTGI = false;
+		// Ray-traced reflections (RayTracing/RTGI.cpp, RTReflections.glsl): smooth surfaces add the reflection of the ray-traced scene to the raster frame, from the raster depth and G-buffer. RT-only.
+		bool     EnableRTReflections = false;
+		float    RTReflectionRoughnessCutoff = 0.4f; // surfaces rougher than this keep the raster reflection
+		uint32_t RTReflectionRays = 2;
 		uint32_t RTGIBounces = 1;
 		// ReSTIR GI reuse for RTGI: pixels resample each other's indirect paths (previous frame, reprojected, plus neighbours) instead of using only their own path. Less noise per ray; biased (1/M normalisation, diffuse sample radiance), so opt-in.
 		bool     RTGIReuse = false;
@@ -2042,6 +2046,14 @@ namespace Lux {
 		Ref<ComputePass> m_GIProbePass;
 		Ref<ComputePass> m_RTGITracePass;
 		bool EnsureRTGIReSTIR();
+		void RTReflectionsPass();
+		// Screen-space reflections, unless ray-traced reflections replace them (they trace the same surfaces and would add on top of SSR).
+		bool SSRActive() const;
+		bool EnsureRTReflections();
+		Ref<ComputePass> m_RTReflPass;
+		Ref<Image2D> m_RTReflResult;
+		bool m_RTReflUnavailable = false;
+		uint32_t m_RTReflFrame = 0;
 		void ApplyRTTuning() const
 		{
 			RayTracingScene::Tuning tuning;

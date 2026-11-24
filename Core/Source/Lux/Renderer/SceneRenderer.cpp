@@ -4440,7 +4440,7 @@ namespace Lux {
 		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
 		// in scope because the SSR node below appends it as a read dependency.
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
-		if (m_Options.EnableSSR)
+		if (SSRActive())
 		{
 			preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 			addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
@@ -4585,14 +4585,14 @@ namespace Lux {
 
 		// The pre-convolved opaque scene feeds SSR and refraction; it runs when either needs it.
 		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
-		if (m_Options.EnableSSR || m_FrameHasRefraction)
+		if (SSRActive() || m_FrameHasRefraction)
 		{
 			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
 		}
 
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
-		if (m_Options.EnableSSR)
+		if (SSRActive())
 		{
 			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
 			ssrOutputs.push_back(ssrImage);
@@ -4650,6 +4650,10 @@ namespace Lux {
 		// Ray-traced GI: adds denoised per-pixel indirect diffuse to scene colour (before the path tracer, which overrides it).
 		if (m_Options.EnableRTGI && RHIDevice::SupportsRayQuery())
 			addPass("RTGI", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTGIPass));
+
+		// Ray-traced reflections: smooth surfaces add the reflected ray-traced scene to scene colour (after the GI, before the path tracer).
+		if (m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery())
+			addPass("RTReflections", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTReflectionsPass));
 
 		// Opt-in path tracer (RayTracing/PathTracePass.cpp): replaces the raster result in scene colour, before
 		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
@@ -10115,7 +10119,7 @@ namespace Lux {
 	void SceneRenderer::PreConvolutionCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
-		if (!(m_Options.EnableSSR || m_FrameHasRefraction) || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
+		if (!(SSRActive() || m_FrameHasRefraction) || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
 			return;
 
 		struct PreConvolutionComputePushConstants
@@ -10181,10 +10185,15 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	bool SceneRenderer::SSRActive() const
+	{
+		return m_Options.EnableSSR && !(m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery());
+	}
+
 	void SceneRenderer::SSRCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SSR");
-		if (!m_Options.EnableSSR || !m_SSRPass || !m_SSRImage)
+		if (!SSRActive() || !m_SSRPass || !m_SSRImage)
 			return;
 
 		SSROptionsUB ssrOptions = m_SSROptions;
@@ -10210,7 +10219,7 @@ namespace Lux {
 	void SceneRenderer::SSRCompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SSRComposite");
-		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
+		if (!SSRActive() || !m_SSRCompositePass || !m_SSRCompositeMaterial)
 			return;
 
 		// The composite is a straight upsampling sample of the SSR buffer, matching Hazel.
@@ -10929,7 +10938,7 @@ namespace Lux {
 				return GetGeometryNormalOutput();
 
 			case DebugViewMode::SSR:
-				if (!m_Options.EnableSSR)
+				if (!SSRActive())
 					return nullptr;
 				return m_SSRFinalImage ? m_SSRFinalImage : m_SSRImage;
 
