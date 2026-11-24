@@ -127,11 +127,29 @@ before the sky fix below; the Preetham lower hemisphere changed on purpose, so a
 Also found and fixed on the way: the Preetham sky's lower hemisphere carried the horizon's azimuth variation all the way to the nadir,
 which showed as a bright pinch at the very bottom of the sky; it now fades to an azimuth-independent ground colour.
 
+### Sampling, reuse and acceleration-structure pass (issues #232-#240, 2026-11-23)
+
+All opt-in; the unbiased path tracer stays the reference. Each row was verified on the RTX 4070 Ti by its own check in `tests/rendering/run_rt_sampling_check.py` (scenes from `tests/rendering/make_rt_scenes.py`).
+
+| Issue | Feature | Result |
+|---|---|---|
+| #232 | Power-weighted light choice (CDF in `PackLights`, D.w of each light) | converged image unchanged (RMSE 0.009); 8-spp error vs reference on 24 lights 0.069 -> 0.037 |
+| #233 | MIS between NEE and BSDF sampling (analytic rect/disk/sphere/tube hit tests, power heuristic) | converged image equals NEE-only (RMSE 0.003, so no double count); 8-spp error 0.037 -> 0.033 on a glossy floor under large + small lights |
+| #234 | Adaptive sampling (per-pixel count and luminance moments; Russian roulette already existed) | at the same average sample count (about 42 of 256 on `GI_CornellBox`) error vs reference 0.0105 -> 0.0050; biased by the stopping rule, off by default |
+| #235 | Ray sorting (software wavefront, bins by octahedral direction) | identical image (RMSE 0) but SLOWER: Sponza 2.89 -> 3.75 ms GPU (1.30x), Cornell 1.48 -> 1.79 ms. Off by default; hardware SER needs an RT-pipeline raygen and the NRI fork has no reorder extension |
+| #236 | ReSTIR DI (fused spatiotemporal resampling, one shadow ray) | 24 lights, 4 spp: error vs reference 0.053 -> 0.019; converged within 0.005; biased (1/M), centre-of-pixel rays |
+| #237 | ReSTIR GI reuse for RTGI (Jacobian, visibility ray) | `GI_BounceSpot`, no temporal accumulation: error vs settled 0.0055 -> 0.0034; settled image within 0.003 of plain RTGI |
+| #238 | In-house spatiotemporal RTGI denoiser (reprojection, moments, variance-guided a-trous). NRD is not in the repo and DLSS-RR needs engine motion vectors and a proprietary SDK: both stay optional follow-ups | 6 frames after a camera sway error vs settled 0.0030 -> 0.0023; a static camera settles within 0.0016 |
+| #239 | Skinned BLAS refit (stable entity key + pose hash, ALLOW_UPDATE) | renders identically to rebuilding (RMSE 0); on the tiny rig mesh no measurable speedup (the gain scales with triangles) |
+| #240 | BLAS compaction (deferred size readback) and TLAS refit | Sponza 26 BLASes 17.8 -> 7.4 MiB, identical image; moving instances refit the TLAS, identical image |
+
 **Hardware ray tracing.** The ray-traced features use `VK_KHR_ray_query` over `VK_KHR_acceleration_structure`, which run on the RT cores of an
 RTX card (and the ray accelerators of RDNA2+) automatically whenever `RHIDevice::SupportsRayQuery()` is true; without it the options are
 unavailable and raster is unchanged. Making that visible (device, GPU timings), build tuning (compaction, refit, persistent scratch), the
 ray-tracing-pipeline path (shader execution reordering, opacity micromaps) and optional denoisers (NRD, then DLSS Ray Reconstruction) are
 tracked in #231.
+
+**Limits of this pass:** ReSTIR DI/GI and adaptive sampling are biased and must stay off for reference renders; ReSTIR DI traces from pixel centres and cannot combine with ray sorting; the ReSTIR GI sample treats radiance as direction independent; the denoiser has no motion vectors for moving objects (camera motion only) and was checked with camera motion, not object motion; skinned refit speed is unmeasured on a heavy mesh.
 
 **Other limits that remain:** the path tracer has no transmission/clearcoat/sheen lobes; rect/disk lights are one-sided only; lightmaps are
 indirect-only; RTGI traces its own primary surface, so geometry outside the ray-traced scene gets no GI. Not built or run: Linux, Dist.

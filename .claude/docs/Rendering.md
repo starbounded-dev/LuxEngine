@@ -1535,6 +1535,17 @@ through thin walls) and skinned meshes are not in the ray-traced scene. Gotcha: 
 `NRIBuffer::Map`, never `SetData`, because a host-visible `StorageBuffer` re-uploads its whole CPU copy and would erase the
 GPU-written probes. Switching it off clears the grid's valid flag (`SyncRealtimeGI`); the frame is then bit-identical to before.
 
+### Ray-tracing sampling, reuse and acceleration-structure tuning (opt-in)
+
+Each item has its own `SceneRendererOptions` switch and its own check in `tests/rendering/run_rt_sampling_check.py` (see `docs/GI_PLAN.md` for the measured results). Invariants:
+
+- **The unbiased path tracer is the reference** behind every Diff view. Biased options (ReSTIR DI/GI, adaptive sampling) are opt-in and must stay off for reference renders.
+- **Light choice** is by a CDF `PackLights` writes into `D.w` of each light; `ChooseLight` / `LightPmf` / `SampleLight` in `PathTraceCommon.glslh` are shared by the path tracer, probes, RTGI, the baker and ReSTIR DI (`SampleLight` rebuilds a sample from `(light, u1, u2)` at any surface). Area lights are packed last: `AreaLightEmission` scans from the end for BSDF-sampled hits (MIS, bounce >= 1 only). Light `D.w` is never a free slot any more.
+- **`PathTracePush` is shared** by PathTrace, PathTraceBake, GIProbeUpdate, RTGITrace and the ReSTIR/wavefront kernels. `Counts.y` carries flags (`FLAG_MIS` 4, `FLAG_RESTIR_DI` 8); `Counts.z/w` are pass-specific (adaptive threshold bits / heat normaliser; ReSTIR history valid / candidates; RTGI history valid / temporal length; wavefront row stride / mode). Pick the next free binding by grepping every shader: set 1 uses 60-77, 80-81, 90-97, 98, 100-109, 110-119, 120-127, 128-129, 140-143.
+- **Reservoirs, history and path states live in GPU-only images / storage buffers**, ping-ponged by frame parity (two `ComputePass` instances per kernel); never host-visible buffers.
+- **`TracePath` is `TraceBounces` over a `PathState`**, so a path can be suspended and resumed (the wavefront experiment). Per-path random state travels with the path: a resumed path equals an uninterrupted one.
+- **Acceleration-structure tuning** (`RayTracingScene::Tuning`, set per pass from the options): skinned instances key their BLAS by entity and track the pose hash apart (a new pose is an in-place `ALLOW_UPDATE` build); static BLASes are built `ALLOW_COMPACTION`, sizes are read back `k_CompactionDelay` updates later (no stall) and the BLAS is copied (`COMPACT`) and swapped, after which the TLAS is rebuilt; the TLAS is `ALLOW_UPDATE` and refit when only transforms or material rows changed.
+
 ### Ray-traced GI (opt-in, RT-only)
 
 `SceneRendererOptions::EnableRTGI` adds the graph pass "RTGI" (`RayTracing/RTGI.cpp`, `RTGITrace.glsl`, `RTGIFilter.glsl`) after

@@ -353,7 +353,7 @@ Every push to `dev` publishes a **pre-release** on the [Releases page](https://g
 - **Volume system** — blendable post-process, atmosphere, and fog volumes (box/sphere) that override settings per region.
 - **GPU-driven bits** — GPU scene buffers, compute mesh culling, per-pass GPU timing.
 - **2D batch renderer** — quads/sprites, circles, lines, and MSDF text rendering.
-- **Ray tracing and global illumination (opt-in, GPUs with ray queries).** Scene Renderer panel > Path Tracing: an editor path tracer used as a ground-truth reference, baked lightmaps, a realtime probe volume and per-pixel ray-traced GI, plus a diff view (error heat map, MAE/PSNR) of the raster frame against the reference. Off by default and the raster renderer is unchanged while off; it runs on the GPU's RT cores. See `docs/GI_PLAN.md`.
+- **Ray tracing and global illumination (opt-in, GPUs with ray queries).** Scene Renderer panel > Path Tracing: an editor path tracer used as a ground-truth reference, baked lightmaps, a realtime probe volume and per-pixel ray-traced GI, plus a diff view (error heat map, MAE/PSNR) of the raster frame against the reference. Light sampling by power and MIS, adaptive sampling, ReSTIR DI and GI reuse, an RTGI denoiser and acceleration-structure compaction/refit are opt-in options of the same card (software ray sorting is included but measured slower). Off by default and the raster renderer is unchanged while off; it runs on the GPU's RT cores. See `docs/GI_PLAN.md`.
 - **Editor rendering** — jump-flood selection outlines, depth-tested collider pass, wireframe and G-buffer/AO debug views, infinite grid, debug renderer.
 - Sky atmosphere, volumetric clouds and TAA were removed during the renderer simplification pass and are not currently available.
 

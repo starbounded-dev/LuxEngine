@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -692,7 +692,15 @@ namespace Lux {
 					ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u);
 				if (match("Target Samples"))
 					ImGuiEx::Property("Target Samples", options.PathTracerTargetSamples, 1u, 65536u);
+				toggle("Power Light Sampling", options.PathTracerPowerLightSampling);
+				toggle("Multiple Importance Sampling", options.PathTracerMIS);
+				if (match("Adaptive Threshold"))
+					ImGuiEx::Property("Adaptive Threshold", options.PathTracerAdaptiveThreshold, 0.005f, 0.0f, 0.5f);
+				toggle("Sample Count Heat Map", options.PathTracerSampleHeatmap);
+				toggle("ReSTIR DI (biased)", options.PathTracerReSTIRDI);
+				toggle("Ray Sorting (experimental, slower)", options.PathTracerRaySort);
 				ImGuiEx::EndPropertyGrid();
+				ImGui::TextDisabled("Adaptive Threshold 0 = off. ReSTIR DI uses pixel-centre rays; Ray Sorting excludes ReSTIR DI.");
 				if (ImGui::Button("Reset Accumulation"))
 					options.PathTracerResetCounter++;
 
@@ -702,6 +710,13 @@ namespace Lux {
 				toggle("Ray-Traced GI", options.EnableRTGI);
 				if (match("RTGI Bounces"))
 					ImGuiEx::Property("RTGI Bounces", options.RTGIBounces, 1u, 4u);
+				if (match("RTGI History"))
+					ImGuiEx::Property("RTGI History", options.RTGIHistoryLength, 1u, 256u);
+				toggle("ReSTIR GI Reuse (biased)", options.RTGIReuse);
+				toggle("RTGI Denoiser", options.RTGIDenoiser);
+				toggle("Compact BLASes", options.RTCompactBLAS);
+				toggle("Refit Skinned BLASes", options.RTRefitSkinned);
+				toggle("Refit TLAS", options.RTUpdateTLAS);
 				ImGuiEx::EndPropertyGrid();
 				if (ImGui::Button("Diff RTGI") && m_Context)
 				{
