@@ -41,7 +41,7 @@ layout(std140, set = 2, binding = 0) uniform Camera
 
 layout(rgba32f, set = 1, binding = 65) uniform image2D o_PathTraceAccum;
 layout(rgba16f, set = 1, binding = 66) uniform writeonly image2D o_PathTraceImage;
-layout(std430, set = 1, binding = 140) buffer PathStates { vec4 States[]; };       // 4 vec4 per path: origin+coneWidth, dir+coneAngle, throughput+prevPdf, radiance+rng bits
+layout(std430, set = 1, binding = 140) buffer PathStates { vec4 States[]; };       // 6 vec4 per path: origin+coneWidth, dir+coneAngle, throughput+prevPdf, radiance+rng bits, sigmaA+sigmaS.x, sigmaS.yz
 layout(std430, set = 1, binding = 141) buffer PathKeys { uint Keys[]; };           // bin per pixel (64 = the path ended in the first bounce)
 layout(std430, set = 1, binding = 142) buffer PathBins { uint Bins[]; };           // [0..64] counts, [65..129] offsets, [130..194] cursors, [195] live paths
 layout(std430, set = 1, binding = 143) buffer PathSorted { uint Sorted[]; };       // pixel index per sorted slot
@@ -58,18 +58,22 @@ uint OctahedralBin(vec3 d)
 
 void StoreState(uint index, PathState st)
 {
-	States[4u * index + 0u] = vec4(st.Origin, st.ConeWidth);
-	States[4u * index + 1u] = vec4(st.Dir, st.ConeAngle);
-	States[4u * index + 2u] = vec4(st.Throughput, st.PrevPdf);
-	States[4u * index + 3u] = vec4(st.Radiance, uintBitsToFloat(g_Rng));
+	States[6u * index + 0u] = vec4(st.Origin, st.ConeWidth);
+	States[6u * index + 1u] = vec4(st.Dir, st.ConeAngle);
+	States[6u * index + 2u] = vec4(st.Throughput, st.PrevPdf);
+	States[6u * index + 3u] = vec4(st.Radiance, uintBitsToFloat(g_Rng));
+	States[6u * index + 4u] = vec4(st.SigmaA, st.SigmaS.x);
+	States[6u * index + 5u] = vec4(st.SigmaS.yz, 0.0, 0.0);
 }
 
 PathState LoadState(uint index)
 {
-	const vec4 a = States[4u * index + 0u];
-	const vec4 b = States[4u * index + 1u];
-	const vec4 c = States[4u * index + 2u];
-	const vec4 d = States[4u * index + 3u];
+	const vec4 a = States[6u * index + 0u];
+	const vec4 b = States[6u * index + 1u];
+	const vec4 c = States[6u * index + 2u];
+	const vec4 d = States[6u * index + 3u];
+	const vec4 e = States[6u * index + 4u];
+	const vec4 f = States[6u * index + 5u];
 	PathState st;
 	st.Origin = a.xyz;
 	st.ConeWidth = a.w;
@@ -78,6 +82,8 @@ PathState LoadState(uint index)
 	st.Throughput = c.xyz;
 	st.PrevPdf = c.w;
 	st.Radiance = d.xyz;
+	st.SigmaA = e.xyz;
+	st.SigmaS = vec3(e.w, f.xy);
 	g_Rng = floatBitsToUint(d.w);
 	return st;
 }
@@ -157,6 +163,8 @@ void main()
 		st.ConeWidth = 0.0;
 		g_InitialConeAngle = 2.0 / (u_Camera.ProjectionMatrix[1][1] * float(height));
 		st.ConeAngle = g_InitialConeAngle;
+		st.SigmaA = vec3(0.0);
+		st.SigmaS = vec3(0.0);
 		const bool alive = TraceBounces(st, 0u, 0u, maxBounces);
 		StoreState(index, st);
 		const uint key = alive ? OctahedralBin(st.Dir) : BIN_COUNT;

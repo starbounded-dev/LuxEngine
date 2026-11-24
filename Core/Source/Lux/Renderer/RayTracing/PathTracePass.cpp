@@ -146,6 +146,8 @@ namespace Lux {
 			params.Flags |= 4; // FLAG_MIS
 		if (m_Options.PathTracerLobes)
 			params.Flags |= 16; // FLAG_LOBES
+		if (m_Options.PathTracerGlass)
+			params.Flags |= 32; // FLAG_GLASS
 		return params;
 	}
 
@@ -486,7 +488,7 @@ namespace Lux {
 				if (wavefront)
 				{
 					const uint32_t pixels = width * height;
-					const uint32_t bytes[4] = { pixels * 64u, pixels * 4u, 256u * 4u, pixels * 4u };
+					const uint32_t bytes[4] = { pixels * 96u, pixels * 4u, 256u * 4u, pixels * 4u };
 					for (int i = 0; i < 4; i++)
 					{
 						if (wavefrontBuffers[i]->GetSize() < bytes[i])

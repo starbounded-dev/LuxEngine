@@ -188,6 +188,18 @@ def main():
                        point("Fill", (0.5, 2.0, 4.5), (1, 1, 1), 40, 20),
                        camera((0, 3.2, 7.5), (-0.33, 0, 0))])
 
+    # Glass: a clear sphere in the furnace, and an absorbing slab with index 1 (an invisible interface) for Beer-Lambert.
+    glass = ["FormatVersion: 1", "Material:", "  Transparent: true", "  AlbedoColor: [1, 1, 1]", "  Emission: 0", "  UseNormalMap: false", "  Roughness: 0", "  AlbedoMap: 0", "  NormalMap: 0",
+             "  MetalnessMap: 0", "  RoughnessMap: 0", "  Transparency: 1", "  Transmission: 1", "  IOR: 1.5", "  Thickness: 1", "  MaterialFlags: 69"]
+    (MATERIALS / "GI_Glass.lmat").write_text(chr(10).join(glass), encoding="utf-8", newline=chr(10))
+    slab = [line.replace("IOR: 1.5", "IOR: 1.0") for line in glass[:-1]] + ["  AttenuationColor: [0.5, 0.5, 0.5]", "  AttenuationDistance: 1", "  MaterialFlags: 69"]
+    (MATERIALS / "GI_GlassSlab.lmat").write_text(chr(10).join(slab), encoding="utf-8", newline=chr(10))
+    base = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8")
+    for scene_name, material_name in (("GI_GlassFurnace", "GI_Glass"), ("GI_GlassSlab", "GI_GlassSlab")):
+        text = base.replace("GI_Furnace.lmat", f"{material_name}.lmat").replace("Scene: GI_Furnace", f"Scene: {scene_name}")
+        if scene_name == "GI_GlassSlab":
+            text = text.replace("Sphere.gltf", "Cube.gltf").replace("Scale: [3, 3, 3]", "Scale: [6, 6, 0.5]")
+        (SCENES / f"{scene_name}.luxscene").write_text(text, encoding="utf-8", newline=chr(10))
     # The white-furnace sphere with a clearcoat layer: still must not exceed the environment.
     furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8").replace("GI_Furnace.lmat", "GI_FurnaceCoat.lmat").replace("Scene: GI_Furnace", "Scene: GI_FurnaceCoat")
     (SCENES / "GI_FurnaceCoat.luxscene").write_text(furnace, encoding="utf-8", newline=chr(10))

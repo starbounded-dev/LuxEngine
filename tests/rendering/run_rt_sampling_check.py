@@ -238,7 +238,29 @@ def check_lobes(config):
     check(0.7 < ratio < 1.02, f"a clearcoated furnace sphere does not exceed the environment (ratio {ratio:.3f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes}
+def furnace_ratio(image):
+    h, w = image.shape[:2]
+    centre = image[h // 2 - 20:h // 2 + 20, w // 2 - 20:w // 2 + 20].reshape(-1, 3).mean(axis=0)
+    corner = image[10:40, 10:40].reshape(-1, 3).mean(axis=0)
+    return float(centre.mean() / corner.mean())
+
+
+def check_glass(config):
+    """#242: glass. A no-absorption dielectric sphere in a white furnace vanishes (more completely than the 0.87 diffuse sphere), an
+    absorbing slab with an invisible interface transmits exp(-sigma d), and glass off makes the sphere an opaque grey ball."""
+    base = "PathTracer=1,PathTracerFurnace=1,PathTracerSamples=256,PathTracerBounces=24"
+    ratio = furnace_ratio(capture("gl-furnace", "GI_GlassFurnace", base, config, 330))
+    check(0.97 < ratio < 1.03, f"a glass sphere in the white furnace vanishes (ratio {ratio:.3f})")
+    slab = furnace_ratio(capture("gl-slab", "GI_GlassSlab", base, config, 330))
+    check(abs(slab - 0.5 ** 0.5) < 0.03, f"an absorbing slab transmits exp(-sigma d) (ratio {slab:.3f}, expected {0.5 ** 0.5:.3f})")
+    solid = furnace_ratio(capture("gl-slab-off", "GI_GlassSlab", f"{base},PTGlass=0", config, 330))
+    check(solid > 0.9, f"with glass off the slab is an opaque white block that absorbs nothing (ratio {solid:.3f})")
+    plain_off = capture("gl-plain-off", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTGlass=0", config, spp(16))
+    plain_on = capture("gl-plain-on", "GI_CornellBox", "PathTracer=1,PathTracerSamples=16,PTGlass=1", config, spp(16))
+    check(rmse(plain_on, plain_off) < 1e-6, f"a scene without glass renders identically (RMSE {rmse(plain_on, plain_off):.7f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass}
 
 
 def main():

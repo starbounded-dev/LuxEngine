@@ -344,6 +344,8 @@ namespace Lux {
 		bool     PathTracerMIS = true;
 		// Clearcoat, sheen and anisotropy of the material rows in the path-traced BRDF (the formulas of PBR.glslh), so Diff views match the raster lobes.
 		bool     PathTracerLobes = true;
+		// Transparent materials with transmission refract in the path tracer: smooth dielectric (Fresnel, Snell, total internal reflection) with Beer-Lambert absorption from the material's attenuation colour and distance. Shadow rays stay opaque.
+		bool     PathTracerGlass = true;
 		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
 		bool     PathTracerReSTIRDI = false;
 		// Ray sorting: bounce 1+ of every path runs with rays binned by direction (PathTraceWavefront.glsl) so neighbouring threads trace similar rays. Same image, only the work order changes; measured by the checks, off unless it is faster. No ReSTIR DI, adaptive sampling or heat map in this mode.

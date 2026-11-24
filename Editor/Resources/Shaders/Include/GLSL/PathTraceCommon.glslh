@@ -112,6 +112,7 @@ const float PI = 3.14159265359;
 const float MIN_ALPHA = 0.0064;
 const uint FLAG_UNIFORM_ENV = 1u;
 const uint FLAG_LOBES = 16u; // clearcoat, sheen and anisotropy of the material rows
+const uint FLAG_GLASS = 32u; // transparent materials with transmission refract (smooth dielectric)
 
 // ---- random -----------------------------------------------------------------------------------
 uint g_Rng;
@@ -174,6 +175,10 @@ struct Surface
 	float Aniso;
 	vec3 T;         // anisotropy tangent / bitangent
 	vec3 B;
+	bool Glass;     // a smooth dielectric (transparent row with transmission)
+	float Transmission;
+	float IOR;
+	vec3 GlassSigma; // absorption coefficient inside the glass (Beer-Lambert), 1 / metre
 };
 
 // Anisotropic GGX, Charlie sheen and Neubelt visibility: PBR.glslh, so the path tracer and the raster renderer agree.
@@ -387,6 +392,10 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	s.Aniso = 0.0;
 	s.T = vec3(1.0, 0.0, 0.0);
 	s.B = vec3(0.0, 0.0, 1.0);
+	s.Glass = false;
+	s.Transmission = 0.0;
+	s.IOR = 1.5;
+	s.GlassSigma = vec3(0.0);
 
 	// The engine's material row, with its textures, when the instance has one (the vertex w components hold uv).
 	const uint materialId = inst.Info.z;
@@ -452,6 +461,13 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 			s.Metal = clamp(metal, 0.0, 1.0);
 			s.Rough = clamp(rough, 0.05, 1.0);
 			s.Emission = emission;
+				if ((u_Push.Counts.y & FLAG_GLASS) != 0u && (flags & PT_MATERIAL_FLAG_TRANSPARENT) != 0u && m.Refraction.x > 0.0)
+				{
+					s.Glass = true;
+					s.Transmission = clamp(m.Refraction.x, 0.0, 1.0);
+					s.IOR = max(m.Refraction.y, 1.0);
+					s.GlassSigma = m.Refraction.w > 0.0 ? -log(max(m.AttenuationColor.rgb, vec3(1e-4))) / m.Refraction.w : vec3(0.0);
+				}
 				if ((u_Push.Counts.y & FLAG_LOBES) != 0u)
 				{
 					if ((flags & PT_MATERIAL_FLAG_HAS_CLEARCOAT) != 0u)
@@ -771,6 +787,8 @@ struct PathState
 	float PrevPdf;
 	float ConeWidth;
 	float ConeAngle;
+	vec3 SigmaA;    // absorption coefficient of the medium the ray travels in (inside glass), 0 in air
+	vec3 SigmaS;    // scattering coefficient of that medium (subsurface / volumes)
 };
 
 // Runs bounces firstBounce..lastBounce of a path (maxBounces is the path's own limit). Returns true when the path is still alive
@@ -784,6 +802,8 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 	float prevPdf = st.PrevPdf;
 	g_ConeWidth = st.ConeWidth;
 	g_ConeAngle = st.ConeAngle;
+	vec3 sigmaA = st.SigmaA;
+	vec3 sigmaS = st.SigmaS;
 	bool alive = true;
 	const bool mis = (u_Push.Counts.y & FLAG_MIS) != 0u && u_Push.Counts.x > 0u && (u_Push.Counts.y & FLAG_UNIFORM_ENV) == 0u;
 
@@ -791,6 +811,9 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 	{
 		Surface s;
 		const bool hit = TraceClosest(origin, dir, s);
+		// Absorption by the medium the ray just crossed (inside glass): Beer-Lambert, exact.
+		if (sigmaA.x + sigmaA.y + sigmaA.z > 0.0)
+			throughput *= exp(-sigmaA * (hit ? length(s.P - origin) : 1.0e30));
 		// Lights seen by a ray that left a surface in this loop (its start has next-event estimation); the first ray starts
 		// at a camera or at a surface another pass shades, so it never counts them.
 		if (mis && bounce > (g_UseExternalDirect ? 1u : 0u))
@@ -807,6 +830,44 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		// The cone keeps growing from this hit; a rough surface scatters it wider.
 		g_ConeWidth += g_ConeAngle * length(s.P - origin);
 		g_ConeAngle = mix(0.03, 0.45, s.Rough);
+
+		// A smooth dielectric: reflect or refract by the Fresnel reflectance, no next-event estimation (its highlights and
+		// light seen through it come from BSDF-sampled rays, so the MIS weight is full). Rough glass is treated as smooth.
+		if (s.Glass && Rand() < s.Transmission)
+		{
+			if (bounce == maxBounces)
+			{
+				alive = false;
+				break;
+			}
+			const float cosI = clamp(dot(s.N, -dir), 0.0, 1.0);
+			const float eta = s.FrontFace ? 1.0 / s.IOR : s.IOR; // n_incident / n_transmitted
+			const float sin2T = eta * eta * (1.0 - cosI * cosI);
+			float fresnel = 1.0;
+			vec3 refracted = vec3(0.0);
+			if (sin2T < 1.0)
+			{
+				const float cosT = sqrt(1.0 - sin2T);
+				const float rs = (eta * cosI - cosT) / (eta * cosI + cosT);
+				const float rp = (cosI - eta * cosT) / (cosI + eta * cosT);
+				fresnel = 0.5 * (rs * rs + rp * rp);
+				refracted = normalize(eta * dir + (eta * cosI - cosT) * s.N);
+			}
+			if (Rand() < fresnel)
+			{
+				dir = reflect(dir, s.N);
+				origin = s.P + s.N * 1e-3;
+			}
+			else
+			{
+				dir = refracted;
+				origin = s.P - s.N * 1e-3;
+				throughput *= eta * eta; // radiance scales with the squared index ratio
+				sigmaA = s.FrontFace ? s.GlassSigma : vec3(0.0);
+			}
+			prevPdf = 1.0e30;
+			continue;
+		}
 
 		vec3 V = -dir;
 		radiance += throughput * ((g_UseExternalDirect && bounce == 0u) ? g_ExternalDirect : DirectLight(s, V, bounce == maxBounces));
@@ -851,6 +912,8 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 	st.Origin = origin;
 	st.Dir = dir;
 	st.Radiance = radiance;
+	st.SigmaA = sigmaA;
+	st.SigmaS = sigmaS;
 	st.Throughput = throughput;
 	st.PrevPdf = prevPdf;
 	st.ConeWidth = g_ConeWidth;
@@ -870,6 +933,8 @@ vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
 	st.PrevPdf = 0.0;
 	st.ConeWidth = 0.0;
 	st.ConeAngle = g_InitialConeAngle;
+	st.SigmaA = vec3(0.0);
+	st.SigmaS = vec3(0.0);
 	TraceBounces(st, 0u, maxBounces, maxBounces);
 	return st.Radiance;
 }
