@@ -104,6 +104,9 @@ namespace Lux {
 		push.Counts.y |= environment.Flags;
 		push.SkyRadiance.a = environment.Intensity;
 		push.GroundRadiance.a = environment.Rotation;
+		push.Medium = environment.FogMedium;
+		push.MediumAlbedo = environment.FogAlbedo;
+		push.MediumCenter = environment.FogCenter;
 	}
 
 }

@@ -63,7 +63,7 @@ vec3 ShadeHit(Surface s, vec3 V)
 		float dist, solidFactor;
 		if (!SampleLight(index, u1, u2, s.P, s.N, L, dist, radiance, solidFactor) || Occluded(s.P + s.N * 1e-3, L, dist - 2e-3))
 			continue;
-		sum += EvalBRDF(s, V, L) * radiance;
+		sum += EvalBRDF(s, V, L) * radiance * FogToLight(s.P, L, dist);
 	}
 	return sum;
 }

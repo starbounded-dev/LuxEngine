@@ -609,6 +609,15 @@ vec3 FogTransmittance(vec3 o, vec3 d, float t)
 	return exp(-vec3(u_Push.Medium.x) * (t1 - t0));
 }
 
+// Fog between a point and a light at distance dist along L. A directional light (dist ~ infinite) only crosses fog that is limited to a sphere:
+// an unbounded fog would extinguish it completely, so the sun skips it.
+vec3 FogToLight(vec3 P, vec3 L, float dist)
+{
+	if (dist < 1.0e29)
+		return FogTransmittance(P, L, dist);
+	return u_Push.Medium.z > 0.0 ? FogTransmittance(P, L, 1.0e8) : vec3(1.0);
+}
+
 float PhaseHG(float cosTheta, float g)
 {
 	const float denom = 1.0 + g * g - 2.0 * g * cosTheta;
@@ -773,7 +782,7 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 		misWeight = lightPdfSolid * lightPdfSolid / (lightPdfSolid * lightPdfSolid + pb * pb);
 	}
 	// Fog between the surface and the light (not for the directional light, whose distance is infinite).
-	const vec3 fogTransmittance = dist < 1.0e29 ? FogTransmittance(s.P, L, dist) : vec3(1.0);
+	const vec3 fogTransmittance = FogToLight(s.P, L, dist);
 	return EvalBRDF(s, V, L) * radiance * (fogTransmittance * (misWeight / lightPmf));
 }
 
@@ -794,9 +803,7 @@ vec3 MediumDirectLight(vec3 P, vec3 dir, float g)
 	if (Occluded(P, L, dist - 2e-3))
 		return vec3(0.0);
 	const float phase = PhaseHG(dot(L, dir), g);
-	vec3 transmittance = vec3(1.0);
-	if (dist < 1.0e29)
-		transmittance = FogTransmittance(P, L, dist);
+	const vec3 transmittance = FogToLight(P, L, dist);
 	float misWeight = 1.0;
 	const float lightPdfSolid = lightPmf * solidFactor;
 	if ((u_Push.Counts.y & FLAG_MIS) != 0u && lightPdfSolid > 0.0)

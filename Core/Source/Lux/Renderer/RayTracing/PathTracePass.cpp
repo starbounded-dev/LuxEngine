@@ -153,6 +153,9 @@ namespace Lux {
 			params.Flags |= 32; // FLAG_GLASS
 		if (m_Options.PathTracerSubsurface)
 			params.Flags |= 64; // FLAG_SSS
+		params.FogMedium = glm::vec4(std::max(m_Options.PathTracerFogDensity, 0.0f), std::clamp(m_Options.PathTracerFogAnisotropy, -0.99f, 0.99f), std::max(m_Options.PathTracerFogRadius, 0.0f), 0.0f);
+		params.FogAlbedo = glm::vec4(m_Options.PathTracerFogAlbedo, 0.0f);
+		params.FogCenter = glm::vec4(m_Options.PathTracerFogCenter, 0.0f);
 		return params;
 	}
 

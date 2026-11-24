@@ -21,6 +21,10 @@ namespace Lux {
 		uint32_t Flags = 0; // 2: sample the environment map
 		float Intensity = 1.0f;
 		float Rotation = 0.0f; // degrees about +Y
+		// Global fog, the same for every ray-traced pass (PathTraceCommon.glslh: Medium, MediumAlbedo, MediumCenter).
+		glm::vec4 FogMedium = glm::vec4(0.0f);
+		glm::vec4 FogAlbedo = glm::vec4(0.0f);
+		glm::vec4 FogCenter = glm::vec4(0.0f);
 	};
 
 	struct StaticMeshRenderProxy;

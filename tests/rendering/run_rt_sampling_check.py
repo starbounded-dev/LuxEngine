@@ -318,6 +318,17 @@ def check_fog(config):
     check(rmse(plain_zero, plain_off) < 1e-6, f"fog density 0 renders identically (RMSE {rmse(plain_zero, plain_off):.7f})")
 
 
+def check_fog_gi(config):
+    """#250: fog in the raster-frame GI passes. An absorbing fog darkens the probe-lit and RTGI-lit frames; density 0 changes nothing."""
+    scene = "GI_CornellDark"
+    for label, base in (("probes", "RealtimeGI=1,Lightmaps=0"), ("rtgi", "RTGI=1,Lightmaps=0")):
+        off = float(capture(f"fgi-{label}-off", scene, base, config, 400).mean())
+        on = float(capture(f"fgi-{label}-on", scene, f"{base},PTFog=0.6:0:0:0", config, 400).mean())
+        zero = float(capture(f"fgi-{label}-zero", scene, f"{base},PTFog=0:0:0:0", config, 400).mean())
+        check(on < off * 0.97, f"fog darkens the {label}-lit frame ({off:.4f} -> {on:.4f})")
+        check(abs(zero - off) < 1e-4, f"fog density 0 leaves the {label}-lit frame unchanged ({off:.4f} vs {zero:.4f})")
+
+
 def check_sss(config):
     """#244: subsurface scattering. An albedo-1 random-walk sphere in the white furnace vanishes; a thin slab lit only from behind glows
     on its front face with the walk and stays black without it; a scene without subsurface materials renders identically."""
@@ -468,7 +479,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
 
 
 def main():
