@@ -429,7 +429,24 @@ def check_probes(config):
     check(auto <= fixed * 1.15, f"auto placement is as close to the path tracer as the fixed grid (MAE {fixed:.4f} -> {auto:.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes}
+def check_unwrap(config):
+    """#227: xatlas unwrap of a submesh whose lightmap UVs overlap (the cube's). Charts are cut, vertices split, the triangle count kept and
+    the atlas used; the log is the evidence."""
+    import re
+    scene = "GI_CornellDark"
+    sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_CornellDark.lxlm"
+    try:
+        capture("un-report", scene, "BakeLightmaps=4,Lightmaps=1,LMUnwrapReport=1", config, 330)
+    finally:
+        if sidecar.exists():
+            sidecar.unlink()
+    found = re.findall(r"unwrap of submesh \d+: (\d+) -> (\d+) vertices, (\d+) charts, (\d+)% of a (\d+)x(\d+) atlas used, (\d+) triangles", read_log("un-report", scene))
+    check(bool(found), "the bake reports an xatlas unwrap for the overlapping cube")
+    before, after, charts, used, side, _, triangles = (int(v) for v in found[0])
+    check(after >= before and charts >= 1 and triangles > 0 and used >= 20, f"{before} -> {after} vertices, {charts} charts, {used}% of a {side}x{side} atlas, {triangles} triangles")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "sss": check_sss, "reflections": check_reflections, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap}
 
 
 def main():

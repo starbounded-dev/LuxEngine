@@ -112,6 +112,7 @@ namespace Lux {
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTLobes", &SceneRendererOptions::PathTracerLobes },
 			{ "LMDenoise", &SceneRendererOptions::LightmapDenoise },
+			{ "LMUnwrapReport", &SceneRendererOptions::LightmapUnwrapReport },
 			{ "PTGlass", &SceneRendererOptions::PathTracerGlass },
 			{ "PTSSS", &SceneRendererOptions::PathTracerSubsurface },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },

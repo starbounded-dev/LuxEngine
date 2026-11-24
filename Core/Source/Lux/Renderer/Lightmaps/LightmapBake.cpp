@@ -19,6 +19,7 @@
 #include "Lux/Core/Application.h"
 #include "Lux/Renderer/ComputePass.h"
 #include "Lux/Renderer/Lightmaps/Lightmap.h"
+#include "Lux/Renderer/Lightmaps/LightmapUnwrap.h"
 #include "Lux/Renderer/PipelineCompute.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Renderer/RayTracing/PathTraceLights.h"
@@ -474,6 +475,13 @@ namespace Lux {
 					LUX_CORE_WARN_TAG("Core", "[Lightmap] submesh {} of '{}' has overlapping lightmap UVs ({} of {} texels shared). Unwrap it with a non-overlapping second UV set (UV1); the bake used the first triangle at each texel.",
 						instance.Submesh, std::filesystem::path(instance.Source->GetFilePath()).filename().string(), overlappedTexels, coveredTexels + overlappedTexels);
 					bake.Status = "overlapping UVs";
+					if (m_Options.LightmapUnwrapReport)
+					{
+						// What an automatic unwrap of this submesh would give (xatlas): the report the mesh rewrite would be based on.
+						const LightmapUnwrapResult unwrap = UnwrapSubmeshForLightmap(*instance.Source, instance.Source->GetSubmeshes()[instance.Submesh]);
+						LUX_CORE_INFO_TAG("Core", "[Lightmap] unwrap of submesh {}: {} -> {} vertices, {} charts, {:.0f}% of a {}x{} atlas used, {} triangles", instance.Submesh,
+							instance.Source->GetSubmeshes()[instance.Submesh].VertexCount, unwrap.UV.size(), unwrap.ChartCount, unwrap.Utilization * 100.0f, unwrap.AtlasSize, unwrap.AtlasSize, unwrap.Indices.size() / 3);
+					}
 				}
 				LightmapData::Entry entry;
 				entry.EntityID = instance.EntityID;
