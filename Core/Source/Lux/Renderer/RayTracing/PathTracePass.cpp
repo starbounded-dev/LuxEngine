@@ -219,6 +219,61 @@ namespace Lux {
 		return true;
 	}
 
+	bool SceneRenderer::EnsurePathTraceWavefront()
+	{
+		if (m_PathTraceWavefrontPass)
+			return true;
+		if (m_PathTraceWavefrontUnavailable || !m_PathTracePass)
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		if (library->GetShaders().find("PathTraceWavefront") == library->GetShaders().end())
+			library->Load("Resources/Shaders/PathTracing/PathTraceWavefront.glsl");
+		if (library->GetShaders().find("PathTraceWavefront") == library->GetShaders().end())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] PathTraceWavefront.glsl did not compile; ray sorting is off for this session");
+			m_PathTraceWavefrontUnavailable = true;
+			return false;
+		}
+		StorageBufferSpecification spec;
+		spec.GPUOnly = true;
+		spec.DebugName = "PathTrace States";
+		m_PTWStates = StorageBuffer::Create(256, spec);
+		spec.DebugName = "PathTrace Keys";
+		m_PTWKeys = StorageBuffer::Create(256, spec);
+		spec.DebugName = "PathTrace Bins";
+		m_PTWBins = StorageBuffer::Create(256 * sizeof(uint32_t), spec);
+		spec.DebugName = "PathTrace Sorted";
+		m_PTWSorted = StorageBuffer::Create(256, spec);
+
+		ComputePassSpecification passSpec;
+		passSpec.DebugName = "PathTraceWavefront";
+		passSpec.Pipeline = PipelineCompute::Create(library->Get("PathTraceWavefront"));
+		Ref<ComputePass> pass = ComputePass::Create(passSpec);
+		pass->SetInput("Camera", m_UBSCamera);
+		pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		pass->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
+		pass->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
+		pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+		pass->SetInput("RTLights", m_PathTraceLights);
+		pass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
+		pass->SetInput("o_PathTraceImage", m_PathTraceImage);
+		pass->SetInput("PathStates", m_PTWStates);
+		pass->SetInput("PathKeys", m_PTWKeys);
+		pass->SetInput("PathBins", m_PTWBins);
+		pass->SetInput("PathSorted", m_PTWSorted);
+		PreparePathTraceEnvironment(pass);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] the wavefront pass inputs do not match its shader; ray sorting is off for this session");
+			m_PathTraceWavefrontUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_PathTraceWavefrontPass = pass;
+		LUX_CORE_INFO_TAG("Renderer", "[PathTracer] ray sorting ready");
+		return true;
+	}
+
 	bool SceneRenderer::EnsureReSTIRDI()
 	{
 		if (m_ReSTIRDirect)
@@ -312,6 +367,7 @@ namespace Lux {
 				m_PathTraceDiffImage->Resize(m_ViewportWidth, m_ViewportHeight);
 		}
 
+		const bool raySort = m_Options.PathTracerRaySort && !m_Options.PathTracerReSTIRDI && EnsurePathTraceWavefront();
 		const bool restirDI = m_Options.PathTracerReSTIRDI && EnsureReSTIRDI();
 		if (restirDI)
 		{
@@ -363,6 +419,7 @@ namespace Lux {
 		signature = HashBytes(signature, &environmentIntensity, sizeof(environmentIntensity));
 		signature = HashBytes(signature, &adaptiveThreshold, sizeof(adaptiveThreshold));
 		signature = HashBytes(signature, &sampleHeatmap, sizeof(sampleHeatmap));
+		signature = HashBytes(signature, &raySort, sizeof(raySort));
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
@@ -374,6 +431,8 @@ namespace Lux {
 		PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_PathTracePass);
 		if (restirDI)
 			envParams.Flags |= 8; // FLAG_RESTIR_DI
+		Ref<ComputePass> wavefront = raySort ? m_PathTraceWavefrontPass : nullptr;
+		Ref<StorageBuffer> wavefrontBuffers[4] = { m_PTWStates, m_PTWKeys, m_PTWBins, m_PTWSorted };
 		Ref<ComputePass> restirPasses[2] = { restirDI ? m_ReSTIRDIPasses[0] : nullptr, restirDI ? m_ReSTIRDIPasses[1] : nullptr };
 		signature = HashBytes(signature, &envParams.Flags, sizeof(envParams.Flags));
 		Ref<ComputePass> diffPass = diff ? m_PathTraceDiffPass : nullptr;
@@ -422,10 +481,35 @@ namespace Lux {
 					state->ReSTIRParity ^= 1u;
 				}
 
-				cb->RT_BeginMarker("PathTrace");
-				pass->Prepare();
-				Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
-				cb->RT_EndMarker();
+				if (wavefront)
+				{
+					const uint32_t pixels = width * height;
+					const uint32_t bytes[4] = { pixels * 64u, pixels * 4u, 256u * 4u, pixels * 4u };
+					for (int i = 0; i < 4; i++)
+					{
+						if (wavefrontBuffers[i]->GetSize() < bytes[i])
+							wavefrontBuffers[i]->Resize(bytes[i]);
+					}
+					const uint32_t groupsX = (width + 7u) / 8u, groupsY = (height + 7u) / 8u;
+					cb->RT_BeginMarker("PathTraceSorted");
+					// clear bins, first bounce + histogram, prefix scan, scatter (finishing dead paths), the rest of the live paths in sorted order
+					for (const uint32_t mode : { 1u, 0u, 3u, 4u, 5u })
+					{
+						PathTracePush modePush = push;
+						modePush.Counts.z = groupsX * 8u;
+						modePush.Counts.w = mode;
+						wavefront->Prepare();
+						Renderer::RT_DispatchCompute(*cb, *wavefront, glm::uvec3(groupsX, groupsY, 1u), Buffer(&modePush, sizeof(modePush)));
+					}
+					cb->RT_EndMarker();
+				}
+				else
+				{
+					cb->RT_BeginMarker("PathTrace");
+					pass->Prepare();
+					Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
+					cb->RT_EndMarker();
+				}
 				state->Frame++;
 			}
 

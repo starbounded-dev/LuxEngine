@@ -109,6 +109,7 @@ namespace Lux {
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
+			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 

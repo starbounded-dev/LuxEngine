@@ -186,7 +186,23 @@ def check_refit(config):
     check(rmse(on, off) < 0.005, f"the refit BLAS renders the same as a rebuilt one (RMSE {rmse(on, off):.4f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit}
+def check_sort(config):
+    """#235: software ray sorting. Equivalence is the pass condition; the GPU time is a measurement, printed and recorded in the
+    issue. On the RTX 4070 Ti it is ~30% SLOWER than the unsorted tracer (Sponza 2.9 -> 3.8 ms), so PathTracerRaySort stays off."""
+    import json
+    scene = "AudioSponza"
+    base = "PathTracer=1,PathTracerSamples=100000,PathTracerBounces=8"
+    off = capture("so-off", scene, base, config, 600)
+    on = capture("so-on", scene, f"{base},PTSort=1", config, 600)
+    check(rmse(on, off) < 0.001, f"the sorted tracer renders the same image (RMSE {rmse(on, off):.5f})")
+    times = []
+    for tag in ("so-off", "so-on"):
+        perf = json.loads((ROOT / "bin/golden" / f"rt-check-{tag}" / f"{scene}.perf.json").read_text())
+        times.append(perf["gpuStats"]["median"])
+    print(f"MEASURED: GPU median {times[0]:.2f} ms unsorted, {times[1]:.2f} ms sorted ({times[1] / times[0]:.2f}x)")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort}
 
 
 def main():

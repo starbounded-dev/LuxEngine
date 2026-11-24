@@ -1,6 +1,6 @@
 Kind: Engine
 EngineVersion: 2026.1
-ShaderInputs: 1695110396
+ShaderInputs: 1969703344
 GlobalMacros: __HZ_AO_METHOD=2;__HZ_GTAO_COMPUTE_BENT_NORMALS=0;__HZ_REFLECTION_OCCLUSION_METHOD=0;
 RendererName: NVIDIA GeForce RTX 4070 Ti
 VendorID: 4318
