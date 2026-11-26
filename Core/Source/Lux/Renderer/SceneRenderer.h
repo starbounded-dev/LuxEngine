@@ -1761,7 +1761,10 @@ namespace Lux {
 			float       EnvironmentMapIntensity = 1.0f;
 			float       EnvironmentMapRotation = 0.0f; // degrees about +Y
 			glm::vec3   Padding{};
+			glm::vec4   FogMedium{ 0.0f };
+			glm::vec4   FogCenter{ 0.0f };
 		} m_SceneUB;
+		static_assert(offsetof(UBScene, FogMedium) == 64 && offsetof(UBScene, FogCenter) == 80);
 
 		struct UBShadow
 		{

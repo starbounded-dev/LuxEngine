@@ -1,6 +1,8 @@
 #ifndef LUX_PATH_TRACE_COMMON_GLSLH
 #define LUX_PATH_TRACE_COMMON_GLSLH
 
+#include <FogVolume.glslh>
+
 // Shared by PathTrace.glsl (editor path tracer) and PathTraceBake.glsl (lightmap baker): the scene
 // bindings, the BRDF (PBR.glslh terms), ray queries, next-event estimation and the path loop.
 // Needs GL_EXT_ray_query and GL_EXT_nonuniform_qualifier. Material rows: set 2 binding 7, bindless textures: set 4. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights, 74 environment cube, 75 its sampler.
@@ -602,23 +604,9 @@ bool g_InObject = false;
 // Where the ray (o, d) is inside the fog sphere, clipped to [0, tMax].
 bool FogInterval(vec3 o, vec3 d, float tMax, out float t0, out float t1)
 {
-	t0 = 0.0;
-	t1 = tMax;
 	if (u_Push.Medium.x <= 0.0 || g_InObject)
 		return false;
-	const float radius = u_Push.Medium.z;
-	if (radius > 0.0)
-	{
-		const vec3 oc = o - u_Push.MediumCenter.xyz;
-		const float b = dot(oc, d);
-		const float disc = b * b - (dot(oc, oc) - radius * radius);
-		if (disc <= 0.0)
-			return false;
-		const float root = sqrt(disc);
-		t0 = max(-b - root, 0.0);
-		t1 = min(-b + root, tMax);
-	}
-	return t1 > t0;
+	return LuxFogInterval(o, d, tMax, u_Push.MediumCenter.xyz, u_Push.Medium.z, t0, t1);
 }
 
 // Transmittance of the fog along (o, d) up to distance t.
@@ -634,9 +622,7 @@ vec3 FogTransmittance(vec3 o, vec3 d, float t)
 // an unbounded fog would extinguish it completely, so the sun skips it.
 vec3 FogToLight(vec3 P, vec3 L, float dist)
 {
-	if (dist < 1.0e29)
-		return FogTransmittance(P, L, dist);
-	return u_Push.Medium.z > 0.0 ? FogTransmittance(P, L, 1.0e8) : vec3(1.0);
+	return g_InObject ? vec3(1.0) : vec3(LuxFogToLight(P, L, dist, u_Push.Medium.x, u_Push.MediumCenter.xyz, u_Push.Medium.z));
 }
 
 float PhaseHG(float cosTheta, float g)

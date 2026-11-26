@@ -1,0 +1,34 @@
+#ifndef LUX_FOG_VOLUME_GLSLH
+#define LUX_FOG_VOLUME_GLSLH
+
+bool LuxFogInterval(vec3 origin, vec3 direction, float lengthLimit, vec3 centre, float radius, out float entry, out float exit)
+{
+	entry = 0.0;
+	exit = lengthLimit;
+	if (radius > 0.0)
+	{
+		const vec3 offset = origin - centre;
+		const float b = dot(offset, direction);
+		const float discriminant = b * b - (dot(offset, offset) - radius * radius);
+		if (discriminant <= 0.0)
+			return false;
+		const float halfChord = sqrt(discriminant);
+		entry = max(-b - halfChord, 0.0);
+		exit = min(-b + halfChord, lengthLimit);
+	}
+	return exit > entry;
+}
+
+float LuxFogToLight(vec3 origin, vec3 direction, float lightDistance, float density, vec3 centre, float radius)
+{
+	// A directional source crosses a finite fog sphere. The unbounded medium has no finite light-to-surface distance.
+	if (density <= 0.0 || (lightDistance >= 1.0e29 && radius <= 0.0))
+		return 1.0;
+	float entry, exit;
+	const float lengthLimit = lightDistance >= 1.0e29 ? 1.0e8 : lightDistance;
+	if (!LuxFogInterval(origin, direction, lengthLimit, centre, radius, entry, exit))
+		return 1.0;
+	return exp(-density * (exit - entry));
+}
+
+#endif

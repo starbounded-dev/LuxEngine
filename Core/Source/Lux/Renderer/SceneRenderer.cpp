@@ -5576,6 +5576,9 @@ namespace Lux {
 			m_SceneUB.CameraPosition = glm::vec3(glm::inverse(camera.ViewMatrix)[3]);
 			m_SceneUB.EnvironmentMapIntensity = m_FrameEnvironment.EnvironmentIntensity;
 			m_SceneUB.EnvironmentMapRotation = m_FrameEnvironment.EnvironmentRotation;
+			m_SceneUB.FogMedium = glm::vec4(std::max(m_Options.PathTracerFogDensity, 0.0f), 0.0f,
+				std::max(m_Options.PathTracerFogRadius, 0.0f), 0.0f);
+			m_SceneUB.FogCenter = glm::vec4(m_Options.PathTracerFogCenter, 0.0f);
 
 			auto sceneData = m_SceneUB;
 			Ref<SceneRenderer> instance = this;

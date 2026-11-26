@@ -403,6 +403,11 @@ Structurally:
   behind a structure hash. The pipeline is deferred PBR: G-buffer, clustered (froxel) light culling,
   HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, particles, then
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
+- The renderer's fog settings supply the same homogeneous medium to raster direct lighting and
+  ray-traced transport. Raster shaders read density, radius and centre from `SceneData`; the
+  path tracer, ReSTIR, RT reflections, probes, RTGI and the lightmap baker use the shared path
+  tracing parameters. Both paths clip light segments with `FogVolume.glslh`. The raster LTC
+  area-light integral evaluates transmittance along the segment to the emitter centre.
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
   maintains them through `RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)`, which

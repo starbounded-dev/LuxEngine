@@ -156,6 +156,19 @@ def write(name, entities):
     print("wrote", name)
 
 
+def write_fog_sun_scene():
+    # The sphere sits on the floor-to-sun ray, outside the camera-to-floor ray.
+    sun = entity("Sun", (0, 0, 0), rot=(-math.pi / 2, 0, 0), body="""    DirectionalLightComponent:
+      Intensity: 2
+      Radiance: [1, 1, 1]
+      Unit: 0
+      UseColorTemperature: false
+      CastShadows: false
+""")
+    write("GI_FogSun", [nosky(), sun, floor("Materials/GI/GI_White.lmat"),
+                       camera((0, 4, 6), (-math.atan2(4, 6), 0, 0))])
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []
@@ -278,6 +291,7 @@ def main():
     # A point light inside a fog sphere on a black background: the fog glows around it (next-event estimation in the medium).
     write("GI_FogLight", [nosky(), mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), point("Lamp", (0, 0, 0), (1, 1, 1), 60, 30), camera((0, 0, 8), (0, 0, 0))])
     write("GI_FogEmpty", [mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), camera((0, 0, 8), (0, 0, 0))])
+    write_fog_sun_scene()
 
     # The white-furnace sphere with a clearcoat layer: still must not exceed the environment.
     furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8").replace("GI_Furnace.lmat", "GI_FurnaceCoat.lmat").replace("Scene: GI_Furnace", "Scene: GI_FurnaceCoat")

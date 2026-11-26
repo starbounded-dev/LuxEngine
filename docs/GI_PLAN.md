@@ -180,7 +180,7 @@ indirect-only; RTGI traces its own primary surface, so geometry outside the ray-
 
 | Issue | Change | Windows Release verification |
 |---|---|---|
-| #250 | Ray-traced lighting through fog | The analytic absorbing sphere transmitted 0.374 against an expected 0.368. Fog darkened the probe-lit frame from 0.0856 to 0.0659 and the RTGI-lit frame from 0.0885 to 0.0659. Zero density reproduced both frames. |
+| #250 | Shared fog extinction for raster direct light, ReSTIR DI, RT reflections, probes, RTGI and lightmap baking | In `GI_FogSun`, sunlit radiance fell to 0.522 in raster and 0.521 in both path tracing modes (analytic centre chord 0.489). Moving the sphere out of the light path reproduced the clear image in each mode. In direct shadow, fog reduced the probe-lit region from 0.2061 to 0.0110 and the RTGI-lit region from 0.2395 to 0.0109. Zero density reproduced both GI frames. |
 | #251 | Replace sky reflections on geometry hits and use one ray on mirrors | In `GI_MirrorSky`, replacement reduced mirror-floor RMSE against the path tracer from 0.0946 to 0.0588. A one-ray capture matched the default mirror frame. |
 | #252 | Transmit and tint shadow rays through glass | The tinted plate produced 59,012 red pixels, and disabling glass produced none. Mean red in the affected region was 0.369 through glass and 0.244 under the opaque plate. |
 | #253 | Opt-in xatlas UV generation during static source-mesh import | The wall-and-floor mean RMSE against the path tracer fell from 0.0995 to 0.0684. A fresh import reported the same two charts. The unbaked frame was identical. The report-only check retained the four source triangles. |

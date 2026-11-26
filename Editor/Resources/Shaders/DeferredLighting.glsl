@@ -181,7 +181,8 @@ vec3 CalculateDirLightTransmission(vec3 worldPosition, vec3 viewPosition)
 		return vec3(0.0);
 
 	vec3 Lradiance = u_Scene.DirectionalLights.Radiance * u_Scene.DirectionalLights.Multiplier;
-	return LuxDiffuseTransmissionLobe(m_Params.Normal, Li) * Lradiance * CalculateDirectionalShadow(worldPosition, viewPosition, -m_Params.Normal);
+	return LuxDiffuseTransmissionLobe(m_Params.Normal, Li) * Lradiance *
+		DirectionalFogTransmittance(worldPosition, Li) * CalculateDirectionalShadow(worldPosition, viewPosition, -m_Params.Normal);
 }
 
 vec3 DebugGradient(float value)
@@ -252,7 +253,7 @@ void main()
 	}
 
 	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition, m_Params.Normal);
-	vec3 directLighting = CalculateDirLights(F0) * shadowScale;
+	vec3 directLighting = CalculateDirLights(F0, worldPosition) * shadowScale;
 	if (diffuseTransmission > 0.0)
 		directLighting += CalculateDirLightTransmission(worldPosition, viewPosition);
 	directLighting += CalculatePointLightsShadowed(F0, worldPosition, u_SpotShadowTexture);

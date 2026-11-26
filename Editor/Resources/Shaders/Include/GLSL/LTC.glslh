@@ -369,7 +369,9 @@ vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, floa
 		float facing = front ? 1.0 : -1.0;
 		float diffuse = LTC_FormFactor(facing * LTC_PolygonFormFactor(light, worldPosition, frame));
 		float specular = LTC_FormFactor(facing * LTC_PolygonFormFactor(light, worldPosition, specularTransform));
-		result += light.Radiance * (light.Intensity * window * visibility) * (diffuseColor * diffuse + specularScale * specular);
+		// The analytic shape integral uses the centre ray for medium transmittance.
+		float fog = LocalLightFogTransmittance(worldPosition, -fromLight * inversesqrt(max(distanceSq, 1e-12)), distanceSq);
+		result += light.Radiance * (light.Intensity * window * visibility * fog) * (diffuseColor * diffuse + specularScale * specular);
 	}
 	return result;
 }

@@ -353,15 +353,52 @@ def check_fog(config):
     check(rmse(plain_zero, plain_off) < 1e-6, f"fog density 0 renders identically (RMSE {rmse(plain_zero, plain_off):.7f})")
 
 
+def check_fog_sun(config):
+    """#250: bounded fog extinguishes the directional light before it reaches a clear line of sight."""
+    import math
+
+    scene = "GI_FogSun"
+    density, radius = 0.55, 0.65
+    expected = math.exp(-density * 2 * radius)
+    modes = (
+        ("path", "PathTracer=1,PathTracerSamples=128,PathTracerBounces=1", spp(128)),
+        ("restir", "PathTracer=1,PathTracerSamples=128,PathTracerBounces=1,PTReSTIR=1", spp(128)),
+        ("raster", "PathTracer=0,Lightmaps=0,RealtimeGI=0,RTGI=0", 120),
+    )
+    ratios = {}
+    for label, mode, frame in modes:
+        options = f"{mode},Bloom=0"
+        plain = capture(f"fsun-{label}-off", scene, options, config, frame)
+        through = capture(f"fsun-{label}-on", scene, f"{options},PTFog={density}:{radius}:0:0:0:1.5:0", config, frame)
+        clear = linear_centre(config, plain)
+        check(0.18 < clear < 0.95, f"{label}: the clear sunlit patch is inside the calibrated range ({clear:.3f})")
+        ratio = linear_centre(config, through) / clear
+        ratios[label] = ratio
+        check(abs(ratio - expected) < 0.055,
+              f"{label}: bounded fog attenuates sunlight by its chord length (ratio {ratio:.3f}, expected {expected:.3f})")
+
+        out_of_path = capture(f"fsun-{label}-miss", scene, f"{options},PTFog={density}:{radius}:0:0:40:1.5:0", config, frame)
+        check(rmse(plain, out_of_path) < 1e-6, f"{label}: a fog sphere outside the sun and camera rays leaves the image unchanged")
+
+    check(max(ratios.values()) - min(ratios.values()) < 0.02, f"all three paths agree on fog transmittance ({ratios})")
+
+
 def check_fog_gi(config):
-    """#250: fog in the raster-frame GI passes. An absorbing fog darkens the probe-lit and RTGI-lit frames; density 0 changes nothing."""
+    """#250: fog attenuates indirect light. Measure each GI method where the unoccluded camera sees almost no raster direct light."""
     scene = "GI_CornellDark"
-    for label, base in (("probes", "RealtimeGI=1,Lightmaps=0"), ("rtgi", "RTGI=1,Lightmaps=0")):
-        off = float(capture(f"fgi-{label}-off", scene, base, config, 400).mean())
-        on = float(capture(f"fgi-{label}-on", scene, f"{base},PTFog=0.6:0:0:0", config, 400).mean())
-        zero = float(capture(f"fgi-{label}-zero", scene, f"{base},PTFog=0:0:0:0", config, 400).mean())
-        check(on < off * 0.97, f"fog darkens the {label}-lit frame ({off:.4f} -> {on:.4f})")
-        check(abs(zero - off) < 1e-4, f"fog density 0 leaves the {label}-lit frame unchanged ({off:.4f} vs {zero:.4f})")
+    base = "Lightmaps=0,Bloom=0"
+    direct = capture("fgi-direct", scene, f"{base},RealtimeGI=0,RTGI=0", config, 400)
+    dark = direct.max(axis=-1) < 0.02
+    for label, mode in (("probes", "RealtimeGI=1,RTGI=0"), ("rtgi", "RealtimeGI=0,RTGI=1")):
+        options = f"{base},{mode}"
+        off = capture(f"fgi-{label}-off", scene, options, config, 400)
+        on = capture(f"fgi-{label}-on", scene, f"{options},PTFog=0.6:0:0:0", config, 400)
+        zero = capture(f"fgi-{label}-zero", scene, f"{options},PTFog=0:0:0:0", config, 400)
+        indirectly_lit = dark & (off.mean(axis=-1) > 0.04)
+        check(int(indirectly_lit.sum()) > 500, f"the {label} light reaches {int(indirectly_lit.sum())} pixels in direct shadow")
+        clear, fogged = float(off[indirectly_lit].mean()), float(on[indirectly_lit].mean())
+        check(fogged < clear * 0.8, f"fog darkens the {label} light in the direct shadow ({clear:.4f} -> {fogged:.4f})")
+        check(rmse(zero, off) < 1e-4, f"fog density 0 leaves the {label}-lit frame unchanged")
 
 
 def check_sss(config):
@@ -612,7 +649,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
 
 
 def main():

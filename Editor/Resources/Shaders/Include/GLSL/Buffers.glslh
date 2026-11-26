@@ -24,6 +24,8 @@ layout(std140, set = 1, binding = 5) uniform SceneData
 	vec3 CameraPosition; // Offset = 32
 	float EnvironmentMapIntensity;
 	float EnvironmentMapRotation; // degrees about +Y (the sky light's rotation)
+	vec4 FogMedium; // x: density, z: radius
+	vec4 FogCenter; // xyz: centre in world space
 } u_Scene;
 
 
