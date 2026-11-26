@@ -2227,6 +2227,16 @@ namespace Lux {
 			out << Yaml::Key << "Lift" << Yaml::Value << post.Lift;
 			out << Yaml::Key << "GradeGamma" << Yaml::Value << post.GradeGamma;
 			out << Yaml::Key << "Gain" << Yaml::Value << post.Gain;
+			const auto& fog = post.HeightFog;
+			out << Yaml::Key << "HeightFog" << Yaml::Value << Yaml::BeginMap;
+			out << Yaml::Key << "Enabled" << Yaml::Value << fog.Enabled;
+			out << Yaml::Key << "Density" << Yaml::Value << fog.Density;
+			out << Yaml::Key << "ReferenceHeight" << Yaml::Value << fog.ReferenceHeight;
+			out << Yaml::Key << "HeightFalloff" << Yaml::Value << fog.HeightFalloff;
+			out << Yaml::Key << "StartDistance" << Yaml::Value << fog.StartDistance;
+			out << Yaml::Key << "MaxDistance" << Yaml::Value << fog.MaxDistance;
+			out << Yaml::Key << "Colour" << Yaml::Value << fog.Colour;
+			out << Yaml::EndMap;
 			out << Yaml::EndMap;
 		}
 	}
@@ -2255,9 +2265,9 @@ namespace Lux {
 
 		// Absent in scenes written before post-processing moved off volumes; those simply
 		// keep the struct defaults.
+		PostProcessSettings post;
 		if (auto postProcess = data["PostProcess"])
 		{
-			PostProcessSettings post;
 			post.Exposure = postProcess["Exposure"].as<float>(post.Exposure);
 			post.ExposureControl = static_cast<ExposureMode>(postProcess["ExposureMode"].as<uint32_t>(static_cast<uint32_t>(post.ExposureControl)));
 			post.Aperture = postProcess["Aperture"].as<float>(post.Aperture);
@@ -2279,8 +2289,19 @@ namespace Lux {
 			post.Lift = postProcess["Lift"].as<glm::vec3>(post.Lift);
 			post.GradeGamma = postProcess["GradeGamma"].as<glm::vec3>(post.GradeGamma);
 			post.Gain = postProcess["Gain"].as<glm::vec3>(post.Gain);
-			scene->SetPostProcessSettings(post);
+			if (const auto heightFog = postProcess["HeightFog"])
+			{
+				auto& fog = post.HeightFog;
+				fog.Enabled = heightFog["Enabled"].as<bool>(fog.Enabled);
+				fog.Density = heightFog["Density"].as<float>(fog.Density);
+				fog.ReferenceHeight = heightFog["ReferenceHeight"].as<float>(fog.ReferenceHeight);
+				fog.HeightFalloff = heightFog["HeightFalloff"].as<float>(fog.HeightFalloff);
+				fog.StartDistance = heightFog["StartDistance"].as<float>(fog.StartDistance);
+				fog.MaxDistance = heightFog["MaxDistance"].as<float>(fog.MaxDistance);
+				fog.Colour = heightFog["Colour"].as<glm::vec3>(fog.Colour);
+			}
 		}
+		scene->SetPostProcessSettings(post);
 
 		return true;
 	}

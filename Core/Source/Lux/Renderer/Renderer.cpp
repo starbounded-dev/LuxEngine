@@ -606,6 +606,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-WeightAndBlend.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/DOF.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SceneComposite.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/HeightFog.glsl");
 
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");

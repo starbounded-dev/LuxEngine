@@ -60,6 +60,7 @@ namespace Lux {
 		bool m_CardPathTracing = false;
 		bool m_CardPostFX = false;
 		bool m_CardColorGrading = false;
+		bool m_CardHeightFog = false;
 		bool m_QualityCategoriesOpen = false;
 	};
 

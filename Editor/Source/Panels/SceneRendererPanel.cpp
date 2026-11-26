@@ -890,6 +890,30 @@ namespace Lux {
 			EndSettingsCard();
 		}
 
+		if (m_Scene && CardHasMatch(queryLower, "Height Fog", { "Enable Height Fog", "Density at Reference Height", "Reference Height", "Height Falloff", "Fog Start Distance", "Fog Max Distance", "Fog Colour" }))
+		{
+			if (BeginSettingsCard("card_height_fog", LUX_ICON_SUN_O, "Height Fog", m_CardHeightFog, searching))
+			{
+				auto& fog = m_Scene->GetPostProcessSettings().HeightFog;
+				ImGuiEx::BeginPropertyGrid();
+				toggle("Enable Height Fog", fog.Enabled);
+				if (match("Density at Reference Height"))
+					ImGuiEx::Property("Density at Reference Height", fog.Density, 0.001f, 0.0f, 10.0f);
+				if (match("Reference Height"))
+					ImGuiEx::Property("Reference Height", fog.ReferenceHeight, 0.1f, -10000.0f, 10000.0f);
+				if (match("Height Falloff"))
+					ImGuiEx::Property("Height Falloff", fog.HeightFalloff, 0.01f, 0.0f, 10.0f);
+				if (match("Fog Start Distance"))
+					ImGuiEx::Property("Fog Start Distance", fog.StartDistance, 0.1f, 0.0f, 10000.0f);
+				if (match("Fog Max Distance"))
+					ImGuiEx::Property("Fog Max Distance", fog.MaxDistance, 0.1f, 0.0f, 10000.0f);
+				if (match("Fog Colour"))
+					ImGuiEx::PropertyColor("Fog Colour", fog.Colour);
+				ImGuiEx::EndPropertyGrid();
+			}
+			EndSettingsCard();
+		}
+
 		// ---- Color Grading (scene post-processing) -------------------------------------------
 		if (m_Scene && CardHasMatch(queryLower, "Color Grading Exposure Tonemap", { "Mode", "Aperture (f-stop)", "Shutter Speed (s)", "ISO", "EV100", "Exposure Compensation", "Min EV100", "Max EV100", "Adapt Up (EV/s)", "Adapt Down (EV/s)", "Tonemap", "Gamma", "Color Filter", "Saturation", "Contrast", "White Temperature", "White Tint", "Lift", "Gamma (grade)", "Gain" }))
 		{
@@ -995,6 +1019,7 @@ namespace Lux {
 		out << Yaml::Key << "ShadowsOpen" << Yaml::Value << m_CardShadows;
 		out << Yaml::Key << "PostFXOpen" << Yaml::Value << m_CardPostFX;
 		out << Yaml::Key << "ColorGradingOpen" << Yaml::Value << m_CardColorGrading;
+		out << Yaml::Key << "HeightFogOpen" << Yaml::Value << m_CardHeightFog;
 		out << Yaml::Key << "QualityCategoriesOpen" << Yaml::Value << m_QualityCategoriesOpen;
 	}
 
@@ -1006,6 +1031,7 @@ namespace Lux {
 		m_CardShadows = state["ShadowsOpen"].as<bool>(m_CardShadows);
 		m_CardPostFX = state["PostFXOpen"].as<bool>(m_CardPostFX);
 		m_CardColorGrading = state["ColorGradingOpen"].as<bool>(m_CardColorGrading);
+		m_CardHeightFog = state["HeightFogOpen"].as<bool>(m_CardHeightFog);
 		m_QualityCategoriesOpen = state["QualityCategoriesOpen"].as<bool>(m_QualityCategoriesOpen);
 	}
 

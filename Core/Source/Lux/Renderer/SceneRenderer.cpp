@@ -501,6 +501,7 @@ namespace Lux {
 			"RTCausticsPass",
 			"RTCausticPhotons",
 			"RTCausticResolve",
+			"HeightFog",
 			"ReSTIRDI",
 			"JumpFlood",
 			"BloomCompute",
@@ -4696,6 +4697,16 @@ namespace Lux {
 		// Ray-traced reflections: smooth surfaces add the reflected ray-traced scene to scene colour (after the GI, before the path tracer).
 		if (m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery())
 			addPass("RTReflections", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTReflectionsPass));
+
+		const auto& heightFog = frame.PostProcess.HeightFog;
+		if (heightFog.Enabled && heightFog.Density > 0.0f && heightFog.MaxDistance > std::max(heightFog.StartDistance, 0.0f))
+		{
+			auto reads = sceneColorCurrent;
+			appendResources(reads, preDepthOutputs);
+			addPass("Height Fog", reads, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources)
+				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::HeightFogPass));
+		}
 
 		// Opt-in path tracer (RayTracing/PathTracePass.cpp): replaces the raster result in scene colour, before
 		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
@@ -10632,6 +10643,75 @@ namespace Lux {
 
 		Renderer::EndComputePass(m_CommandBuffer, m_BloomFFTPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::HeightFogPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "HeightFog");
+		const Ref<Image2D> sceneColour = GetSceneColorOutput();
+		const Ref<Image2D> depth = m_PreDepthPass->GetDepthOutput();
+		if (!sceneColour || !depth || m_HeightFogUnavailable)
+			return;
+		const uint32_t width = sceneColour->GetWidth();
+		const uint32_t height = sceneColour->GetHeight();
+		if (!m_HeightFogPass)
+		{
+			auto library = Renderer::GetShaderLibrary();
+			if (!library->GetShaders().contains("HeightFog"))
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Height fog is unavailable because its shader is missing");
+				m_HeightFogUnavailable = true;
+				return;
+			}
+			ImageSpecification imageSpec;
+			imageSpec.Format = ImageFormat::RGBA16F;
+			imageSpec.Usage = ImageUsage::Storage;
+			imageSpec.Width = width;
+			imageSpec.Height = height;
+			imageSpec.DebugName = "HeightFogResult";
+			auto result = Image2D::Create(imageSpec);
+			result->Invalidate();
+			ComputePassSpecification passSpec;
+			passSpec.DebugName = "HeightFog";
+			passSpec.Pipeline = PipelineCompute::Create(library->Get("HeightFog"));
+			auto pass = ComputePass::Create(passSpec);
+			pass->SetInput("Camera", m_UBSCamera);
+			pass->SetInput("u_HeightFogScene", sceneColour);
+			pass->SetInput("u_HeightFogDepth", depth);
+			pass->SetInput("o_HeightFogScene", result);
+			if (!pass->Validate())
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Height fog shader inputs do not match the compute pass");
+				m_HeightFogUnavailable = true;
+				return;
+			}
+			pass->Bake();
+			m_HeightFogPass = pass;
+			m_HeightFogResult = result;
+		}
+		else
+		{
+			if (m_HeightFogResult->GetWidth() != width || m_HeightFogResult->GetHeight() != height)
+				m_HeightFogResult->Resize(width, height);
+			m_HeightFogPass->SetInput("u_HeightFogScene", sceneColour);
+			m_HeightFogPass->SetInput("u_HeightFogDepth", depth);
+		}
+		const auto fog = GetResolvedPostProcessSettings().HeightFog;
+		const glm::vec4 push[2] = {
+			{ fog.Density, fog.ReferenceHeight, std::max(fog.HeightFalloff, 0.0f), fog.MaxDistance },
+			{ glm::max(fog.Colour, glm::vec3(0.0f)), std::max(fog.StartDistance, 0.0f) }
+		};
+		GetOrCreatePassProfile("HeightFog").GPUActive = true;
+		Renderer::Submit([cb = m_CommandBuffer, pass = m_HeightFogPass, result = m_HeightFogResult, sceneColour,
+			width, height, medium = push[0], colourStart = push[1]]() mutable
+		{
+			const glm::vec4 settings[] = { medium, colourStart };
+			Renderer::RT_BeginGPUPerfMarker(cb, "HeightFog");
+			pass->Prepare();
+			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(settings, sizeof(settings)));
+			Renderer::RT_EndGPUPerfMarker(cb);
+			Renderer::RT_CopyImage(cb, result, sceneColour);
+		});
 	}
 
 	void SceneRenderer::AutoExposurePass()

@@ -408,6 +408,10 @@ Structurally:
   path tracer, ReSTIR, RT reflections, probes, RTGI and the lightmap baker use the shared path
   tracing parameters. Both paths clip light segments with `FogVolume.glslh`. The raster LTC
   area-light integral evaluates transmittance along the segment to the emitter centre.
+- Scene post-processing settings also support optional analytic height and distance fog for the
+  raster camera. A compute pass integrates exponential density up to the opaque depth or
+  the configured distance limit and composites the fog radiance in HDR before exposure.
+  The settings survive scene copies and asset-pack export. Distance fog is the zero-falloff case.
 - The opt-in ray-traced reflection pass reads the raster G-buffer. A ray that hits geometry
   replaces the contribution of the sky along that ray. Mirrors use one ray. The adaptive budget
   reduces the count toward the roughness cutoff, and the optional spatial filter uses depth,

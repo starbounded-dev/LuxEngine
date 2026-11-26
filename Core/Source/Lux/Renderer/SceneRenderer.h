@@ -384,7 +384,7 @@ namespace Lux {
 		// Subsurface materials (row Subsurface) random-walk part of their diffuse light through the closed mesh (mean free path 5 cm, albedo = subsurface colour, thickness 0..1 = how little goes through) instead of the raster lobe's wrap approximation.
 		bool     PathTracerSubsurface = true;
 		// Global homogeneous fog in the path tracer (RayTracing: PathTraceCommon.glslh): extinction per metre (0 = off), scattering albedo, Henyey-Greenstein anisotropy g,
-		// and an optional sphere (radius 0 = unbounded) around FogCenter. The raster renderer has no volumetric fog, so this is path-tracer-only. Directional lights are not attenuated by it.
+		// and an optional sphere (radius 0 = unbounded) around FogCenter. Raster direct lighting and ray-traced transport share its extinction.
 		float    PathTracerFogDensity = 0.0f;
 		glm::vec3 PathTracerFogAlbedo{ 1.0f };
 		float    PathTracerFogAnisotropy = 0.0f;
@@ -1600,6 +1600,7 @@ namespace Lux {
 		void SSRCompute();
 		void SSRCompositePass();
 		void BloomCompute();
+		void HeightFogPass();
 		void AutoExposurePass();
 		float ComputeFinalExposure(const PostProcessSettings& settings) const;
 		void CompositePass();
@@ -2343,6 +2344,9 @@ namespace Lux {
 		Ref<ComputePass> m_LuminanceAveragePass;
 		Ref<StorageBufferSet> m_SBSLuminanceHistogram;   // 256-bin histogram (per-frame)
 		Ref<StorageBufferSet> m_SBSExposureState;        // { adapted luminance, exposure }
+		Ref<ComputePass> m_HeightFogPass;
+		Ref<Image2D> m_HeightFogResult;
+		bool m_HeightFogUnavailable = false;
 
 		static constexpr uint32_t s_LuminanceHistogramBins = 256;
 		static constexpr float s_AutoExposureMinLogLuminance = -10.0f; // log2 luminance for bin 1

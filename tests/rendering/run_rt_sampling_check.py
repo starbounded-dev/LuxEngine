@@ -791,6 +791,60 @@ def check_rt_caustic(config):
                 fixture.write_bytes(saved)
 
 
+def check_height_fog(config):
+    """#55: check the authored fog against analytic camera-ray extinction."""
+    from make_rt_scenes import SCENES, height_fog_scene
+
+    fixtures = {"GI_HeightFogOff": {"enabled": False}, "GI_HeightFogDistance": {},
+                "GI_HeightFogHeight": {"falloff": 0.7}, "GI_HeightFogStart": {"start": 6.0}}
+    paths = {SCENES / f"{scene}.luxscene": scene for scene in fixtures}
+    saved = {path: path.read_bytes() if path.exists() else None for path in paths}
+    try:
+        for path, scene in paths.items():
+            path.write_text(height_fog_scene(scene, **fixtures[scene]), encoding="utf-8")
+        images = {}
+        for scene in fixtures:
+            images[scene] = capture(scene.removeprefix("GI_").lower(), scene, "Bloom=0,DOF=0,Lightmaps=0",
+                                    config, 100, size="961x541")
+        clear = images["GI_HeightFogOff"][..., 0]
+
+        def fog_amount(image, u, v):
+            y, x = round(clear.shape[0] * v), round(clear.shape[1] * u)
+            region = np.s_[y - 3:y + 4, x - 3:x + 4]
+            return float(np.mean((image[region][..., 0] - clear[region]) / np.maximum(1 - clear[region], 1e-6)))
+
+        homogeneous = images["GI_HeightFogDistance"]
+        near, far = fog_amount(homogeneous, 0.34, 0.5), fog_amount(homogeneous, 0.66, 0.5)
+        tangent = np.tan(np.deg2rad(60) / 2)  # Scene View's perspective, with the fixture's authored pose
+        horizontal = (0.66 * 2 - 1) * tangent * clear.shape[1] / clear.shape[0]
+        view_length = np.sqrt(1 + horizontal ** 2)
+        near_expected, far_expected = (1 - np.exp(-0.12 * view_length * depth) for depth in (3.95, 9.95))
+        check(abs(near - near_expected) < 0.012 and abs(far - far_expected) < 0.012,
+              f"distance fog matches Beer–Lambert extinction (near {near:.3f}/{near_expected:.3f}, far {far:.3f}/{far_expected:.3f})")
+        height = images["GI_HeightFogHeight"]
+        high, low = fog_amount(height, 0.66, 0.28), fog_amount(height, 0.66, 0.72)
+        vertical = (1.0 - 2.0 * 0.28) * tangent
+        travel = 9.95 * np.sqrt(1 + horizontal ** 2 + vertical ** 2)
+        height_exponent = 9.95 * vertical * fixtures["GI_HeightFogHeight"]["falloff"]
+        low_expected = 1 - np.exp(-0.12 * travel * np.expm1(height_exponent) / height_exponent)
+        high_expected = 1 - np.exp(0.12 * travel * np.expm1(-height_exponent) / height_exponent)
+        check(abs(low - low_expected) < 0.012 and abs(high - high_expected) < 0.012,
+              f"height fog matches integrated density ({low:.3f}/{low_expected:.3f} low, {high:.3f}/{high_expected:.3f} high)")
+        start = images["GI_HeightFogStart"]
+        start_near, start_far = fog_amount(start, 0.34, 0.5), fog_amount(start, 0.66, 0.5)
+        check(abs(start_near) < 0.004 and abs(start_far - (1 - np.exp(-0.12 * (9.95 * view_length - 6)))) < 0.025,
+              f"start distance leaves the nearby surface clear and clips the far segment ({start_near:.3f}, {start_far:.3f})")
+        path = ROOT / "bin/golden/rt-check-heightfogoff/GI_HeightFogOff.perf.json"
+        check("HeightFog" not in json.loads(path.read_text(encoding="utf-8"))["passes"],
+              "disabling height fog skips the raster fog pass")
+    finally:
+        for path, text in saved.items():
+            if text is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(text)
+
+
 def check_lmdenoise(config):
     """#248: lightmap denoising. A 16-sample bake with the denoiser is closer (as rendered) to a 512-sample bake than the raw 16-sample
     bake, and the denoiser does not darken the result."""
@@ -999,7 +1053,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():

@@ -140,6 +140,29 @@ def mesh(tag, asset, pos, scale, material, rot=(0, 0, 0), folder="Default"):
 """)
 
 
+def height_fog_scene(name, *, enabled=True, falloff=0.0, start=0.0):
+    geometry = wall("Far Wall", (0, 0, -10), (30, 20, 0.1))
+    geometry += wall("Near Blocker", (-1, 0, -4), (1.6, 2, 0.1))
+    return f"""FormatVersion: 1
+Scene: {name}
+PostProcess:
+  ExposureMode: 1
+  ExposureEV100: 0
+  ExposureCompensation: 0.2630344058
+  Gamma: 1
+  Tonemap: 2
+  HeightFog:
+    Enabled: {str(enabled).lower()}
+    Density: 0.12
+    ReferenceHeight: 0
+    HeightFalloff: {falloff}
+    StartDistance: {start}
+    MaxDistance: 12
+    Colour: [1, 0, 0]
+Entities:
+{geometry}{nosky()}{camera((0, 0, 0), (0, 0, 0))}"""
+
+
 def write_material(name, albedo, metalness, roughness, extra=None, *, emission=0):
     lines = ["FormatVersion: 1", "Material:", "  Transparent: false", f"  AlbedoColor: [{albedo[0]}, {albedo[1]}, {albedo[2]}]", f"  Emission: {emission}",
              "  UseNormalMap: false", f"  Metalness: {metalness}", f"  Roughness: {roughness}", "  AlbedoMap: 0", "  NormalMap: 0", "  MetalnessMap: 0", "  RoughnessMap: 0"]
