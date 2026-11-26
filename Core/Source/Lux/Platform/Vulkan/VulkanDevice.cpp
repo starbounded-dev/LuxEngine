@@ -525,6 +525,14 @@ namespace Lux {
 		// NRI's pipeline-statistics query pools count task and mesh invocations when the device can.
 		auto supportedMeshShader = vk::PhysicalDeviceMeshShaderFeaturesEXT();
 		auto supportedRayTracingMaintenance1 = vk::PhysicalDeviceRayTracingMaintenance1FeaturesKHR();
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		auto reorderFeatures = vk::PhysicalDeviceRayTracingInvocationReorderFeaturesEXT();
+		const bool reorderExtension = rayPipelineSupported && rayQuerySupported &&
+			std::any_of(deviceExtensions.begin(), deviceExtensions.end(), [](const vk::ExtensionProperties& ext)
+			{
+				return std::string_view(ext.extensionName.data()) == VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME;
+			});
+#endif
 
 		// Put the user-provided extension structure at the end of the chain
 		pNext = m_DeviceParams.physicalDeviceFeatures2Extensions;
@@ -537,9 +545,26 @@ namespace Lux {
 		APPEND_EXTENSION(!vulkan14 && maintenance6Supported, maintenance6Features);
 		APPEND_EXTENSION(meshletsSupported, supportedMeshShader);
 		APPEND_EXTENSION(rayTracingMaintenance1Supported, supportedRayTracingMaintenance1);
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		APPEND_EXTENSION(reorderExtension, reorderFeatures);
+#endif
 
 		physicalDeviceFeatures2.pNext = pNext;
 		m_VulkanPhysicalDevice.getFeatures2(&physicalDeviceFeatures2);
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		bool enableReordering = false;
+		if (reorderExtension && reorderFeatures.rayTracingInvocationReorder)
+		{
+			vk::PhysicalDeviceRayTracingInvocationReorderPropertiesEXT reorderProperties;
+			vk::PhysicalDeviceProperties2 properties;
+			properties.pNext = &reorderProperties;
+			m_VulkanPhysicalDevice.getProperties2(&properties);
+			enableReordering = reorderProperties.rayTracingInvocationReorderReorderingHint ==
+				vk::RayTracingInvocationReorderModeEXT::eReorder;
+			if (enableReordering)
+				enabledExtensions.device.insert(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
+		}
+#endif
 
 		std::unordered_set<int> uniqueQueueFamilies = {
 			m_QueueFamilyIndices.Graphics };
@@ -598,6 +623,9 @@ namespace Lux {
 			APPEND_EXTENSION(rayPipelineSupported, rayPipelineFeatures)
 			APPEND_EXTENSION(rayTracingMaintenance1Supported, rayTracingMaintenance1Features)
 			APPEND_EXTENSION(rayQuerySupported, rayQueryFeatures)
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+			APPEND_EXTENSION(enableReordering, reorderFeatures)
+#endif
 			APPEND_EXTENSION(meshletsSupported, meshletFeatures)
 			APPEND_EXTENSION(vrsSupported, vrsFeatures)
 			APPEND_EXTENSION(physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3, vulkan13features)

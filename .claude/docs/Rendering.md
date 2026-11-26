@@ -1504,6 +1504,12 @@ GPU runs. With every ray-traced option off the frame is bit-identical to before 
 - **Checks.** `python tests/rendering/run_ray_query_spike.py` (raw Vulkan, analytic hit distances);
   `python tests/rendering/run_path_trace_check.py` (Cornell colour bleeding, white furnace, convergence, through the
   golden-capture harness; `PathTracer=1,PathTracerSamples=N,PathTracerFurnace=1,PathTracerBounces=N` options).
+- **Shader execution reordering.** `PTSER=1` selects a separate path-tracer pipeline on devices
+  reporting actual reordering through `VK_EXT_ray_tracing_invocation_reorder`. The ray-generation
+  shader reorders after the first trace using the hit material ID or a miss hint. Closest-hit and miss stages return
+  geometric hit data to the shared path kernel. Shadow rays keep using ray queries. The NRI shader
+  binding table is mapped once at pipeline creation and retired with the pipeline. The compute
+  path is used when SER is off or initialization fails.
 
 ### Baked lightmaps (opt-in, editor bake)
 

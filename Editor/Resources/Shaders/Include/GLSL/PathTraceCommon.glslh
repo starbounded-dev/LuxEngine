@@ -357,6 +357,11 @@ bool SampleBSDF(Surface s, vec3 V, out vec3 L)
 uint g_RayCount = 0u;
 uint g_BounceCount = 0u;
 
+#ifdef LUX_PATH_TRACE_SER
+#include <PathTraceHitPayload.glslh>
+layout(location = 0) rayPayloadEXT PathTraceHitPayload g_Hit;
+#endif
+
 bool Occluded(vec3 o, vec3 d, float tMax)
 {
 	g_RayCount++;
@@ -369,6 +374,21 @@ bool Occluded(vec3 o, vec3 d, float tMax)
 bool TraceClosest(vec3 o, vec3 d, out Surface s)
 {
 	g_RayCount++;
+#ifdef LUX_PATH_TRACE_SER
+	traceRayEXT(u_RTScene, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, o, 1e-4, d, 1.0e30, 0);
+	if (g_RayCount == 1u)
+	{
+		// The SDK reflector can read the hint-only instruction. It cannot parse hit-object types.
+		const uint hint = g_Hit.Instance == 0xffffffffu ? 0x100u : Instances[g_Hit.Instance].Info.z & 0xffu;
+		reorderThreadEXT(hint, 9u);
+	}
+	if (g_Hit.Instance == 0xffffffffu)
+		return false;
+	const float t = g_Hit.Distance;
+	const uint instanceIndex = g_Hit.Instance;
+	const uint prim = g_Hit.Primitive;
+	const vec2 bary = g_Hit.Barycentric;
+#else
 	rayQueryEXT q;
 	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, 1.0e30);
 	while (rayQueryProceedEXT(q)) {}
@@ -379,6 +399,7 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	const uint instanceIndex = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true));
 	const uint prim = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
 	const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, true);
+#endif
 	const vec3 w = vec3(1.0 - bary.x - bary.y, bary.x, bary.y);
 
 	RTInstance inst = Instances[instanceIndex];

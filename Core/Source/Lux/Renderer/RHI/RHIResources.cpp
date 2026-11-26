@@ -115,6 +115,8 @@ namespace Lux {
 				usage |= nri::BufferUsageBits::ARGUMENT;
 			if (desc.IsAccelerationStructureInput)
 				usage |= nri::BufferUsageBits::ACCELERATION_STRUCTURE_BUILD_INPUT;
+			if (desc.IsShaderBindingTable)
+				usage |= nri::BufferUsageBits::SHADER_BINDING_TABLE;
 			if (desc.IsConstantBuffer)
 				usage |= nri::BufferUsageBits::CONSTANT;
 			if (desc.CanHaveRawViews || desc.CanHaveUAVs)

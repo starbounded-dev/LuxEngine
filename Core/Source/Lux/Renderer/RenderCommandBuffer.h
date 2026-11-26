@@ -194,7 +194,7 @@ namespace Lux {
 		// opened (logged).
 		nri::CommandBuffer* RT_BeginNRIDraw(const NRIDrawBindings& bindings);
 
-		// One NRI compute dispatch (NRI migration Phase 9).
+		// Descriptor and pipeline bindings shared by compute and ray-tracing dispatches.
 		struct NRIDispatchDesc
 		{
 			nri::PipelineLayout* PipelineLayout = nullptr;
@@ -203,6 +203,7 @@ namespace Lux {
 			std::array<BoundDescriptorSet, MaxDescriptorSets> DescriptorSets = {};
 			const void* RootConstants = nullptr;
 			uint32_t RootConstantsSize = 0;
+			bool RayTracing = false;
 		};
 		// Closes an open rendering scope, requires the sets as RT_BeginNRIDraw does, and opens an NRI
 		// segment with the pipeline, sets and root constants bound. Record the dispatch into the
@@ -240,7 +241,7 @@ namespace Lux {
 		RenderCommandBuffer(uint32_t count, bool enableQueries, const std::string& debugName, GPUQueue queue = GPUQueue::Graphics);
 		virtual ~RenderCommandBuffer();
 	private:
-		enum class RequiredBindPoint : uint8_t { None, Graphics, Compute };
+		enum class RequiredBindPoint : uint8_t { None, Graphics, Compute, RayTracing };
 		// Starts the requirements of a draw or dispatch. True when what was required before has been
 		// forgotten: the bind point changed, or a copy, clear or write happened since (NVRHI forgot
 		// its committed state in both cases).

@@ -36,6 +36,9 @@ namespace Lux {
 				case ShaderStage::Compute:			return nri::StageBits::COMPUTE_SHADER;
 				case ShaderStage::Amplification:	return nri::StageBits::TASK_SHADER;
 				case ShaderStage::Mesh:				return nri::StageBits::MESH_SHADER;
+				case ShaderStage::RayGeneration:	return nri::StageBits::RAYGEN_SHADER;
+				case ShaderStage::Miss:				return nri::StageBits::MISS_SHADER;
+				case ShaderStage::ClosestHit:		return nri::StageBits::CLOSEST_HIT_SHADER;
 				default:							break;
 			}
 			LUX_CORE_ASSERT(false, "Unknown shader stage");

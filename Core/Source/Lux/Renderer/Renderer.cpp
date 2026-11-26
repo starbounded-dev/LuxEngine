@@ -396,11 +396,13 @@ namespace Lux {
 
 	// Records one compute dispatch: the pass's sets, and the material's at set 0 when it has a
 	// compatible one there. Skipped, logged once per shader, when an NRI object is missing.
-	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material, const glm::uvec3& workGroups, const Buffer& constants)
+	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material,
+		const glm::uvec3& size, const Buffer& constants, bool rayTracing = false)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RHIShader> shader = computePass.GetShader().As<RHIShader>();
 		RenderCommandBuffer::NRIDispatchDesc desc;
+		desc.RayTracing = rayTracing;
 		desc.PipelineLayout = shader->GetNRIPipelineLayout();
 		desc.Pipeline = computePass.GetPipeline()->GetNRIPipeline();
 		const char* problem = !desc.PipelineLayout ? "it has no NRI pipeline layout"
@@ -438,7 +440,10 @@ namespace Lux {
 		if (!nriCommandBuffer)
 			return;
 
-		RHIDevice::API().CmdDispatch(*nriCommandBuffer, { workGroups.x, workGroups.y, workGroups.z });
+		if (rayTracing)
+			RHIDevice::API().CmdDispatchRays(*nriCommandBuffer, computePass.GetPipeline()->GetRayTracingDispatch(size));
+		else
+			RHIDevice::API().CmdDispatch(*nriCommandBuffer, { size.x, size.y, size.z });
 		commandBuffer.RT_EndNRISegment();
 	}
 
@@ -1849,6 +1854,11 @@ namespace Lux {
 	void Renderer::RT_DispatchCompute(RenderCommandBuffer& renderCommandBuffer, const ComputePass& computePass, const glm::uvec3& workGroups, const Buffer& constants)
 	{
 		RT_RecordDispatch(renderCommandBuffer, computePass, nullptr, workGroups, constants);
+	}
+
+	void Renderer::RT_DispatchRays(RenderCommandBuffer& renderCommandBuffer, const ComputePass& rayPass, const glm::uvec3& dimensions, const Buffer& constants)
+	{
+		RT_RecordDispatch(renderCommandBuffer, rayPass, nullptr, dimensions, constants, true);
 	}
 
 	void Renderer::RT_CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)

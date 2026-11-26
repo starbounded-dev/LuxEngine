@@ -100,6 +100,7 @@ namespace Lux {
 		// True when acceleration structures AND ray queries can be used (NRI tier 2+), so shaders may use
 		// GL_EXT_ray_query. Ray tracing is opt-in everywhere; the raster renderer never needs it.
 		static bool SupportsRayQuery();
+		static bool SupportsShaderExecutionReordering();
 
 		// Creates, records and submits a little work through NRI on the shared device (buffer,
 		// texture, view, barrier, zero fill, fence wait) and destroys it again. Logs the outcome.

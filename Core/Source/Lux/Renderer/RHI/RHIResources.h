@@ -67,6 +67,7 @@ namespace Lux {
 		bool IsDrawIndirectArgs = false;
 		// Read by acceleration structure builds (BLAS vertex/index data).
 		bool IsAccelerationStructureInput = false;
+		bool IsShaderBindingTable = false;
 		// Shader-readable as a raw (byte-address) buffer.
 		bool CanHaveRawViews = false;
 		bool CanHaveUAVs = false;

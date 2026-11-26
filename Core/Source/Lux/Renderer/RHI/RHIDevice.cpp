@@ -7,6 +7,8 @@
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/RHI/RHIResources.h"
 
+#include <vulkan/vulkan_core.h>
+
 namespace Lux {
 
 	namespace {
@@ -15,6 +17,7 @@ namespace Lux {
 		{
 			nri::Device* Device = nullptr;
 			NRIInterface API = {};
+			bool ShaderExecutionReordering = false;
 			std::array<nri::Queue*, static_cast<size_t>(GPUQueue::Count)> Queues = {};
 		};
 
@@ -152,6 +155,11 @@ namespace Lux {
 			Shutdown();
 			return false;
 		}
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		s_Data->ShaderExecutionReordering = api.CreateRayTracingPipeline && api.CmdDispatchRays &&
+			std::find(createInfo.DeviceExtensions.begin(), createInfo.DeviceExtensions.end(),
+				VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) != createInfo.DeviceExtensions.end();
+#endif
 
 		for (size_t i = 0; i < k_QueueTypes.size(); i++)
 		{
@@ -209,6 +217,11 @@ namespace Lux {
 	bool RHIDevice::SupportsRayQuery()
 	{
 		return s_Data && s_Data->API.GetDeviceDesc(*s_Data->Device).tiers.rayTracing >= 2 && s_Data->API.CreateAccelerationStructure != nullptr;
+	}
+
+	bool RHIDevice::SupportsShaderExecutionReordering()
+	{
+		return s_Data && s_Data->ShaderExecutionReordering;
 	}
 
 	const nri::DeviceDesc& RHIDevice::GetDesc()

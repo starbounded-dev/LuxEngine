@@ -261,6 +261,11 @@ overlapping static submeshes to xatlas lightmap UVs before `BuildRenderGeometry`
 vertices preserve the source attributes outside UV1, and placements that share a geometry range
 share the remap. The setting defaults to off and applies to future source imports.
 
+The optional path-tracer SER pipeline uses the same path kernel and reflected descriptor inputs
+as the compute path. `PipelineCompute` owns its NRI ray pipeline and shader binding table when
+its shader has ray-generation, miss and closest-hit stages. `RenderCommandBuffer` records those
+dispatches at NRI's ray-tracing bind point. The compute path remains the default.
+
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
 `TextureSubresourceRange` (a default range is *every* mip and layer), `GPUQueue`, `ResourceState`,
 `DrawIndexedIndirectCommand`, and the render-target/viewport/vertex-attribute limits. Public

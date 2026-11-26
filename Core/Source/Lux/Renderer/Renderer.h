@@ -289,6 +289,7 @@ namespace Lux {
 		// Render thread only: records a compute dispatch / an image copy at once, for passes whose inputs the
 		// render thread decides (the path tracer). The main-thread versions queue the same work.
 		static void RT_DispatchCompute(RenderCommandBuffer& renderCommandBuffer, const ComputePass& computePass, const glm::uvec3& workGroups, const Buffer& constants);
+		static void RT_DispatchRays(RenderCommandBuffer& renderCommandBuffer, const ComputePass& rayPass, const glm::uvec3& dimensions, const Buffer& constants);
 		static void RT_CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 
 		static Ref<Texture2D> GetWhiteTexture();

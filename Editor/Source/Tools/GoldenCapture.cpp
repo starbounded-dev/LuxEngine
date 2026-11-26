@@ -119,6 +119,7 @@ namespace Lux {
 			{ "PTSSS", &SceneRendererOptions::PathTracerSubsurface },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
+			{ "PTSER", &SceneRendererOptions::PathTracerShaderExecutionReordering },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 

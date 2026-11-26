@@ -173,7 +173,6 @@ namespace Lux {
 
 						// Skipped ':'
 						const std::string_view stage(tokens[++index]);
-						LUX_CORE_VERIFY(stage == "vert" || stage == "frag" || stage == "comp" || stage == "task" || stage == "mesh", "Invalid shader type specified");
 						ShaderStage foundStage = ShaderUtils::PreprocessorStageToShaderStage(stage);
 
 						const bool alreadyIncluded = std::find_if(includeData.begin(), includeData.end(), [fullPath, foundStage](const IncludeData& data)
@@ -280,7 +279,6 @@ namespace Lux {
 					++index;
 
 					const std::string_view stage = tokens[index];
-					LUX_CORE_VERIFY(stage == "vert" || stage == "frag" || stage == "comp" || stage == "task" || stage == "mesh", "Invalid shader type specified");
 					auto shaderStage = ShaderUtils::PreprocessorStageToShaderStage(stage);
 
 					if constexpr (Lang == ShaderUtils::SourceLang::HLSL)

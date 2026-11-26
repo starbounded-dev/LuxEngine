@@ -202,6 +202,27 @@ def check_sort(config):
     print(f"MEASURED: GPU median {times[0]:.2f} ms unsorted, {times[1]:.2f} ms sorted ({times[1] / times[0]:.2f}x)")
 
 
+def check_ser(config):
+    """#254: the ray-tracing pipeline executes, agrees with compute, and remains opt-in."""
+    scene = "GI_Lobes"
+    options = "PathTracer=1,PathTracerBounces=4,PathTracerSamples=64"
+    baseline = capture("ser-reference", scene, options, config, spp(64))
+    reordered = capture("ser-on", scene, f"{options},PTSER=1", config, spp(64))
+    log = read_log("ser-on", scene)
+    if "shader execution reordering is unavailable on this device" in log:
+        check(rmse(baseline, reordered) < 1e-6, "SER falls back to the compute image on unsupported hardware")
+        print("SKIP: this device does not support hardware reordering")
+        return
+
+    ready = "shader execution reordering pipeline ready"
+    check(ready in log and ready not in read_log("ser-reference", scene),
+          "only the opt-in capture creates the shader execution reordering pipeline")
+    error = rmse(baseline, reordered)
+    check(error < 0.003, f"the ray pipeline matches compute at equal sample count (RMSE {error:.6f})")
+    disabled = capture("ser-off", scene, f"{options},PTSER=0", config, spp(64))
+    check(rmse(baseline, disabled) < 1e-6, "explicitly disabling SER preserves the compute image")
+
+
 def diff_mae(tag, scene, options, config, frame):
     import re
     capture(tag, scene, options, config, frame)
@@ -569,7 +590,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
 
 
 def main():

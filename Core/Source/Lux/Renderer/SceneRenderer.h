@@ -377,6 +377,7 @@ namespace Lux {
 		bool     PathTracerReSTIRDI = false;
 		// Ray sorting: bounce 1+ of every path runs with rays binned by direction (PathTraceWavefront.glsl) so neighbouring threads trace similar rays. Same image, only the work order changes; measured by the checks, off unless it is faster. No ReSTIR DI, adaptive sampling or heat map in this mode.
 		bool     PathTracerRaySort = false;
+		bool     PathTracerShaderExecutionReordering = false;
 		// Acceleration-structure tuning (RayTracing/RayTracingScene.h Tuning): compact static BLASes, refit skinned BLASes in place on a new pose, refit the TLAS on transform-only changes. All on; off restores the plain rebuilds (A/B).
 		bool     RTCompactBLAS = true;
 		bool     RTRefitSkinned = true;
@@ -1558,6 +1559,8 @@ namespace Lux {
 		bool GetPathTraceDiffStats(float& mae, float& psnr) const;
 	private:
 		bool EnsurePathTracer();
+		bool EnsurePathTraceSER();
+		Ref<ComputePass> CreatePathTracePass(const Ref<Shader>& shader);
 		// Binds the scene's radiance map (or a black cube) and its sampler to a ray-traced compute pass; returns what the push constants need.
 		PathTraceEnvParams PreparePathTraceEnvironment(Ref<ComputePass> pass);
 		bool EnsurePathTraceDiff();
@@ -2045,6 +2048,8 @@ namespace Lux {
 		bool m_PathTracerUnavailable = false;       // shader failed to load: do not retry every frame
 		Ref<RayTracingScene> m_RayTracingScene;
 		Ref<ComputePass> m_PathTracePass;
+		Ref<ComputePass> m_PathTraceSERPass;
+		bool m_PathTraceSERUnavailable = false;
 		Ref<Image2D> m_PathTraceMomentsImage;
 		bool EnsureReSTIRDI();
 		bool EnsurePathTraceWavefront();

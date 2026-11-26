@@ -699,6 +699,8 @@ namespace Lux {
 				toggle("Sample Count Heat Map", options.PathTracerSampleHeatmap);
 				toggle("ReSTIR DI (biased)", options.PathTracerReSTIRDI);
 				toggle("Ray Sorting (experimental, slower)", options.PathTracerRaySort);
+				if (RHIDevice::SupportsShaderExecutionReordering())
+					toggle("Shader Execution Reordering", options.PathTracerShaderExecutionReordering);
 				toggle("Lobes (clearcoat, sheen, anisotropy)", options.PathTracerLobes);
 				toggle("Glass (refraction)", options.PathTracerGlass);
 				toggle("Subsurface Scattering", options.PathTracerSubsurface);

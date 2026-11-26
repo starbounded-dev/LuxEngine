@@ -142,8 +142,6 @@ namespace Lux {
 	void PipelineCompute::RT_CreatePipeline()
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
-		LUX_CORE_INFO_TAG("Renderer", "[PipelineCompute] Creating compute pipeline: {}", m_Shader->GetName());
-
 		CreateNRIPipeline();
 	}
 
@@ -154,6 +152,7 @@ namespace Lux {
 
 	void PipelineCompute::ReleaseNRIPipeline()
 	{
+		m_ShaderBindingTable.Reset();
 		if (!m_NRIPipeline)
 			return;
 
@@ -169,6 +168,13 @@ namespace Lux {
 		ReleaseNRIPipeline();
 
 		Ref<RHIShader> shader = m_Shader.As<RHIShader>();
+		if (!shader->GetSPIRV(ShaderStage::RayGeneration).empty())
+		{
+			CreateNRIRayTracingPipeline(*shader);
+			return;
+		}
+
+		LUX_CORE_INFO_TAG("Renderer", "[PipelineCompute] Creating compute pipeline: {}", m_Shader->GetName());
 		nri::PipelineLayout* layout = shader->GetNRIPipelineLayout();
 		const std::vector<uint32_t>& spirv = shader->GetSPIRV(ShaderStage::Compute);
 		if (!layout || spirv.empty())
@@ -191,6 +197,101 @@ namespace Lux {
 		}
 
 		RHIDevice::API().SetDebugName(m_NRIPipeline, m_Shader->GetName().c_str());
+	}
+
+	void PipelineCompute::CreateNRIRayTracingPipeline(const RHIShader& shader)
+	{
+		constexpr std::array stages = { ShaderStage::RayGeneration, ShaderStage::Miss, ShaderStage::ClosestHit };
+		constexpr std::array nriStages = { nri::StageBits::RAYGEN_SHADER, nri::StageBits::MISS_SHADER, nri::StageBits::CLOSEST_HIT_SHADER };
+		std::array<nri::ShaderDesc, stages.size()> shaders{};
+		std::array<nri::ShaderGroupDesc, stages.size()> groups{};
+		for (uint32_t index = 0; index < stages.size(); ++index)
+		{
+			const auto& spirv = shader.GetSPIRV(stages[index]);
+			if (spirv.empty())
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "[RayTracing] missing stage {} for {}", ShaderStageToString(stages[index]), shader.GetName());
+				return;
+			}
+			shaders[index] = { nriStages[index], spirv.data(), spirv.size() * sizeof(uint32_t), "main" };
+			groups[index].shaderIndices[0] = index + 1;
+		}
+
+		const NRIInterface& api = RHIDevice::API();
+		nri::Device& device = RHIDevice::Get();
+		const nri::ShaderLibraryDesc library{ shaders.data(), static_cast<uint32_t>(shaders.size()) };
+		nri::RayTracingPipelineDesc desc{};
+		desc.pipelineLayout = shader.GetNRIPipelineLayout();
+		desc.shaderLibrary = &library;
+		desc.shaderGroups = groups.data();
+		desc.shaderGroupNum = static_cast<uint32_t>(groups.size());
+		desc.recursionMaxDepth = 1;
+		desc.rayPayloadMaxSize = 2 * sizeof(glm::uvec4);
+		desc.rayHitAttributeMaxSize = sizeof(glm::vec2);
+		if (!desc.pipelineLayout || !api.CreateRayTracingPipeline ||
+			api.CreateRayTracingPipeline(device, desc, m_NRIPipeline) != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RayTracing] could not create pipeline {}", shader.GetName());
+			m_NRIPipeline = nullptr;
+			return;
+		}
+
+		const nri::DeviceDesc& deviceDesc = RHIDevice::GetDesc();
+		const uint32_t alignment = deviceDesc.memoryAlignment.shaderBindingTable;
+		const uint32_t handleSize = deviceDesc.shaderStage.rayTracing.shaderGroupIdentifierSize;
+		if (alignment == 0 || handleSize == 0)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RayTracing] invalid shader binding table limits for {}", shader.GetName());
+			ReleaseNRIPipeline();
+			return;
+		}
+		m_ShaderBindingTableStride = ((handleSize + alignment - 1) / alignment) * alignment;
+		const uint64_t tableSize = groups.size() * m_ShaderBindingTableStride;
+		RHIBufferDesc tableDesc{};
+		tableDesc.Size = tableSize + alignment - 1;
+		tableDesc.Access = CPUAccess::Write;
+		tableDesc.IsShaderBindingTable = true;
+		tableDesc.DebugName = shader.GetName() + " SBT";
+		m_ShaderBindingTable = NRIBuffer::Create(tableDesc);
+		if (!m_ShaderBindingTable)
+		{
+			ReleaseNRIPipeline();
+			return;
+		}
+
+		const uint64_t address = api.GetBufferDeviceAddress(*m_ShaderBindingTable.Get());
+		m_ShaderBindingTableOffset = (alignment - address % alignment) % alignment;
+		void* mapped = m_ShaderBindingTable.Map(m_ShaderBindingTableOffset, tableSize);
+		if (!mapped)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RayTracing] could not map the shader binding table for {}", shader.GetName());
+			ReleaseNRIPipeline();
+			return;
+		}
+		const nri::Result written = api.WriteShaderGroupIdentifiers(*m_NRIPipeline, 0, desc.shaderGroupNum, m_ShaderBindingTableStride, mapped);
+		m_ShaderBindingTable.Unmap();
+		if (written != nri::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RayTracing] could not write shader group identifiers for {}", shader.GetName());
+			ReleaseNRIPipeline();
+			return;
+		}
+		api.SetDebugName(m_NRIPipeline, shader.GetName().c_str());
+	}
+
+	nri::DispatchRaysDesc PipelineCompute::GetRayTracingDispatch(const glm::uvec3& dimensions) const
+	{
+		const nri::Buffer* buffer = m_ShaderBindingTable.Get();
+		const uint64_t offset = m_ShaderBindingTableOffset;
+		const uint64_t stride = m_ShaderBindingTableStride;
+		nri::DispatchRaysDesc dispatch{};
+		dispatch.raygenShaderRecord = { buffer, offset, stride, stride };
+		dispatch.missShaderBindingTable = { buffer, offset + stride, stride, stride };
+		dispatch.hitShaderBindingTable = { buffer, offset + 2 * stride, stride, stride };
+		dispatch.width = dimensions.x;
+		dispatch.height = dimensions.y;
+		dispatch.depth = dimensions.z;
+		return dispatch;
 	}
 
 	void PipelineCompute::BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags fromAccess, ResourceAccessFlags toAccess)

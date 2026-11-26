@@ -204,30 +204,71 @@ namespace Lux {
 		m_PathTraceImage = Image2D::Create(accumSpec);
 		m_PathTraceImage->Invalidate();
 
-		ComputePassSpecification passSpec;
-		passSpec.DebugName = "PathTrace";
-		passSpec.Pipeline = PipelineCompute::Create(library->Get("PathTrace"));
-		m_PathTracePass = ComputePass::Create(passSpec);
-		m_PathTracePass->SetInput("Camera", m_UBSCamera);
-		m_PathTracePass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
-		m_PathTracePass->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
-		m_PathTracePass->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
-		m_PathTracePass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
-		m_PathTracePass->SetInput("RTLights", m_PathTraceLights);
-		m_PathTracePass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
-		m_PathTracePass->SetInput("o_PathTraceImage", m_PathTraceImage);
-		m_PathTracePass->SetInput("o_PathTraceMoments", m_PathTraceMomentsImage);
-		m_PathTracePass->SetInput("u_ReSTIRDirect", m_PathTraceImage); // placeholder until ReSTIR DI is on (never read then)
-		PreparePathTraceEnvironment(m_PathTracePass);
-		if (!m_PathTracePass->Validate())
+		m_PathTracePass = CreatePathTracePass(library->Get("PathTrace"));
+		if (!m_PathTracePass)
 		{
-			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] the PathTrace pass inputs do not match its shader; the path tracer is off for this session");
-			m_PathTracePass = nullptr;
 			m_PathTracerUnavailable = true;
 			return false;
 		}
-		m_PathTracePass->Bake();
 		LUX_CORE_INFO_TAG("Renderer", "[PathTracer] ready (ray queries on this device)");
+		return true;
+	}
+
+	Ref<ComputePass> SceneRenderer::CreatePathTracePass(const Ref<Shader>& shader)
+	{
+		ComputePassSpecification passSpec;
+		passSpec.DebugName = shader->GetName();
+		passSpec.Pipeline = PipelineCompute::Create(shader);
+		if (!passSpec.Pipeline->GetNRIPipeline())
+			return nullptr;
+
+		Ref<ComputePass> pass = ComputePass::Create(passSpec);
+		pass->SetInput("Camera", m_UBSCamera);
+		pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		pass->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
+		pass->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
+		pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+		pass->SetInput("RTLights", m_PathTraceLights);
+		pass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
+		pass->SetInput("o_PathTraceImage", m_PathTraceImage);
+		pass->SetInput("o_PathTraceMoments", m_PathTraceMomentsImage);
+		// Keep the inactive sampled descriptor separate from the writable path-trace image.
+		pass->SetInput("u_ReSTIRDirect", Renderer::GetBlackTexture());
+		PreparePathTraceEnvironment(pass);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] the {} pass inputs do not match its shader", shader->GetName());
+			return nullptr;
+		}
+		pass->Bake();
+		return pass;
+	}
+
+	bool SceneRenderer::EnsurePathTraceSER()
+	{
+		if (m_PathTraceSERPass)
+			return true;
+		if (m_PathTraceSERUnavailable)
+			return false;
+		if (!RHIDevice::SupportsShaderExecutionReordering())
+		{
+			LUX_CORE_WARN_TAG("Renderer", "[PathTracer] shader execution reordering is unavailable on this device");
+			m_PathTraceSERUnavailable = true;
+			return false;
+		}
+
+		auto library = Renderer::GetShaderLibrary();
+		if (!library->GetShaders().contains("PathTraceSER"))
+			library->Load("Resources/Shaders/PathTracing/PathTraceSER.glsl");
+		if (library->GetShaders().contains("PathTraceSER"))
+			m_PathTraceSERPass = CreatePathTracePass(library->Get("PathTraceSER"));
+		if (!m_PathTraceSERPass)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[PathTracer] could not initialize SER; using compute ray queries");
+			m_PathTraceSERUnavailable = true;
+			return false;
+		}
+		LUX_CORE_INFO_TAG("Renderer", "[PathTracer] shader execution reordering pipeline ready");
 		return true;
 	}
 
@@ -379,7 +420,9 @@ namespace Lux {
 				m_PathTraceDiffImage->Resize(m_ViewportWidth, m_ViewportHeight);
 		}
 
-		const bool raySort = m_Options.PathTracerRaySort && !m_Options.PathTracerReSTIRDI && EnsurePathTraceWavefront();
+		Ref<ComputePass> pass = m_PathTracePass;
+		Ref<ComputePass> serPass = m_Options.PathTracerShaderExecutionReordering && EnsurePathTraceSER() ? m_PathTraceSERPass : nullptr;
+		const bool raySort = !serPass && m_Options.PathTracerRaySort && !m_Options.PathTracerReSTIRDI && EnsurePathTraceWavefront();
 		const bool restirDI = m_Options.PathTracerReSTIRDI && EnsureReSTIRDI();
 		if (restirDI)
 		{
@@ -394,7 +437,9 @@ namespace Lux {
 					m_ReSTIRGNormal[i]->Resize(m_ViewportWidth, m_ViewportHeight);
 				}
 			}
-			m_PathTracePass->SetInput("u_ReSTIRDirect", m_ReSTIRDirect);
+			pass->SetInput("u_ReSTIRDirect", m_ReSTIRDirect);
+			if (serPass)
+				serPass->SetInput("u_ReSTIRDirect", m_ReSTIRDirect);
 		}
 
 		const bool diff = m_Options.PathTracerDiffHeatmap && EnsurePathTraceDiff();
@@ -443,12 +488,13 @@ namespace Lux {
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
-		Ref<ComputePass> pass = m_PathTracePass;
 		Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
 		Ref<Image2D> image = m_PathTraceImage;
 		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<PathTraceState> state = m_PathTraceState;
-		PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_PathTracePass);
+		PathTraceEnvParams envParams = PreparePathTraceEnvironment(pass);
+		if (serPass)
+			PreparePathTraceEnvironment(serPass);
 		if (restirDI)
 			envParams.Flags |= 8; // FLAG_RESTIR_DI
 		Ref<ComputePass> wavefront = raySort ? m_PathTraceWavefrontPass : nullptr;
@@ -463,11 +509,13 @@ namespace Lux {
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
+			const bool ser = serPass && serPass->GetPipeline()->GetNRIPipeline();
+			const uint64_t dispatchSignature = HashBytes(signature, &ser, sizeof(ser));
 			const bool sceneChanged = scene->RT_Update(cb, instances);
-			if (sceneChanged || state->Signature != signature || state->ResetCounter != resetCounter)
+			if (sceneChanged || state->Signature != dispatchSignature || state->ResetCounter != resetCounter)
 			{
 				state->Frame = 0;
-				state->Signature = signature;
+				state->Signature = dispatchSignature;
 				state->ResetCounter = resetCounter;
 			}
 			if (!scene->IsValid())
@@ -528,9 +576,17 @@ namespace Lux {
 				}
 				else
 				{
-					cb->RT_BeginMarker("PathTrace");
-					pass->Prepare();
-					Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
+					cb->RT_BeginMarker(ser ? "PathTraceSER" : "PathTrace");
+					if (ser)
+					{
+						serPass->Prepare();
+						Renderer::RT_DispatchRays(*cb, *serPass, glm::uvec3(width, height, 1u), Buffer(&push, sizeof(push)));
+					}
+					else
+					{
+						pass->Prepare();
+						Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
+					}
 					cb->RT_EndMarker();
 				}
 				state->Frame++;

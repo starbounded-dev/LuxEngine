@@ -1,0 +1,7 @@
+struct PathTraceHitPayload
+{
+	vec2 Barycentric;
+	float Distance;
+	uint Primitive;
+	uint Instance;
+};
