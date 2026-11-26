@@ -75,6 +75,7 @@ namespace Lux {
 			float Metalness = 0.0f;
 			glm::vec3 Emission{ 0.0f };
 			float Roughness = 0.5f;
+			bool Refractive = false;
 			uint32_t MaterialID = 0xffffffffu; // the raster renderer's GPU material row (textures), or none
 			uint64_t Variant = 0;              // nonzero: a skinned instance, with its own CPU-skinned geometry (stable per entity)
 			uint64_t PoseHash = 0;             // hash of the skin palette: a changed pose refits the BLAS instead of rebuilding it

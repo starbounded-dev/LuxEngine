@@ -208,7 +208,9 @@ namespace Lux {
 					input.Albedo = material->GetAlbedoColor();
 					input.Metalness = material->GetMetalness();
 					input.Roughness = material->GetRoughness();
-					const glm::vec3 emissionColor = glm::clamp(material->GetSurfaceParameters().EmissiveColor, glm::vec3(0.0f), glm::vec3(1.0f));
+					const auto& surface = material->GetSurfaceParameters();
+					input.Refractive = material->IsTransparent() && surface.Transmission > 0.0f && surface.IOR > 1.001f;
+					const glm::vec3 emissionColor = glm::clamp(surface.EmissiveColor, glm::vec3(0.0f), glm::vec3(1.0f));
 					input.Emission = glm::pow(emissionColor, glm::vec3(2.2f)) * std::max(material->GetEmission(), 0.0f);
 				}
 				for (const GPUSceneInstanceRef& ref : proxy->SubmeshInstances)

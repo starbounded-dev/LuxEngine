@@ -268,6 +268,24 @@ def write_rt_translucent_scenes():
         ])
 
 
+def write_caustic_scenes():
+    for name, material in (("GI_RTCaustic", "GI_Glass"), ("GI_RTNoRefraction", "GI_GlassTint")):
+        sun = entity("Sun", (0, 0, 0), rot=(-1.36, 0.25, 0), body="""    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 1, 1]
+      Unit: 0
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: false
+      ShadowAmount: 1
+""")
+        write(name, [
+            nosky(), sun, floor("Materials/GI/GI_White.lmat"),
+            mesh("Glass sphere", "Sphere", (0, 1.25, 0), (1.8, 1.8, 1.8), material),
+            camera((0, 3.7, 5.8), (-0.52, 0, 0)),
+        ])
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []

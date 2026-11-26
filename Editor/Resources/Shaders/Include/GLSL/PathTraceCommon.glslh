@@ -838,7 +838,7 @@ bool SampleLight(uint index, float u1, float u2, vec3 P, vec3 N, out vec3 L, out
 // What a shadow ray lets through: 0 when an opaque surface blocks it, otherwise the colour of the glass it crosses (white when it is
 // free). With glass enabled the ray walks through up to 6 glass surfaces, applying the Beer-Lambert tint for the path it spent inside
 // (the front face starts the run, the back face ends it). Without glass it is the cheap any-hit test.
-vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
+vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax, bool blockRefractiveGlass)
 {
 	if ((u_Push.Counts.y & FLAG_GLASS) == 0u)
 		return Occluded(o, d, tMax) ? vec3(0.0) : vec3(1.0);
@@ -853,7 +853,7 @@ vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
 		const float t = distance(o, s.P);
 		if (t >= tMax - 1e-3)
 			return visibility;
-		if (!s.Glass)
+		if (!s.Glass || (blockRefractiveGlass && s.IOR > 1.001))
 			return vec3(0.0);
 		if (s.FrontFace)
 			enteredAt = travelled + t;
@@ -866,6 +866,11 @@ vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
 		o = s.P + d * 1e-3;
 	}
 	return vec3(0.0);
+}
+
+vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
+{
+	return ShadowTransmittance(o, d, tMax, false);
 }
 
 vec3 ShadowTransmittanceToLight(vec3 position, vec3 normal, vec3 direction, float distanceToLight)

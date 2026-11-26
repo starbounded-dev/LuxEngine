@@ -43,6 +43,7 @@ layout(set = 1, binding = 161) uniform texture2D u_RSNormal;  // view-space norm
 layout(rgba16f, set = 1, binding = 162) uniform writeonly image2D o_RSMask;
 
 const uint RS_TRANSLUCENT_VISIBILITY = 1u << 8u;
+const uint RS_REFRACTIVE_CAUSTICS = 1u << 9u;
 
 float LocalAmbientVisibility(vec3 origin, vec3 direction, float radius)
 {
@@ -92,7 +93,7 @@ void main()
 			const vec3 L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + toLight * cosT);
 			const vec3 start = origin + L * 1e-3;
 			if ((u_Push.Counts.y & RS_TRANSLUCENT_VISIBILITY) != 0u)
-				visible += ShadowTransmittance(start, L, distanceLimit);
+				visible += ShadowTransmittance(start, L, distanceLimit, (u_Push.Counts.y & RS_REFRACTIVE_CAUSTICS) != 0u);
 			else if (!Occluded(start, L, distanceLimit))
 				visible += vec3(1.0);
 		}

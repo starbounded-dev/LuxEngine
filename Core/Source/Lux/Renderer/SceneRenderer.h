@@ -326,6 +326,8 @@ namespace Lux {
 		// Ray-traced directional shadows (RayTracing/RTGI.cpp, RTShadows.glsl): deferred lighting reads a visibility mask traced from the raster depth/G-buffer instead of the cascade shadow maps. Soft by the light's angular radius. RT-only.
 		bool     EnableRTShadows = false;
 		bool     EnableRTTranslucentShadows = false;
+		bool     EnableRTCaustics = false;
+		uint32_t RTCausticPhotons = 65536;
 		bool     EnableRTAreaLightShadows = false;
 		uint32_t RTAreaShadowRays = 8;
 		bool     EnableRTContactShadows = false;
@@ -2086,6 +2088,14 @@ namespace Lux {
 		bool EnsureRTGIReSTIR();
 		void RTReflectionsPass();
 		void RTShadowsPass();
+		void RTCausticsPass();
+		bool EnsureRTCaustics();
+		Ref<ComputePass> m_RTCausticTrace;
+		Ref<ComputePass> m_RTCausticResolve;
+		Ref<Image2D> m_RTCausticFlux;
+		Ref<Image2D> m_RTCausticResult;
+		Ref<StorageImageClear> m_RTCausticClear;
+		bool m_RTCausticsUnavailable = false;
 		bool EnsureRTShadows();
 		bool EnsureRTVisibilityFilter();
 		uint32_t GetRTVisibilityFlags() const;

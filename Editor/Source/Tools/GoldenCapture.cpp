@@ -109,6 +109,7 @@ namespace Lux {
 			{ "RTReflDenoise", &SceneRendererOptions::RTReflectionDenoiser },
 			{ "RTShadows", &SceneRendererOptions::EnableRTShadows },
 			{ "RTTranslucentShadows", &SceneRendererOptions::EnableRTTranslucentShadows },
+			{ "RTCaustics", &SceneRendererOptions::EnableRTCaustics },
 			{ "RTAreaShadows", &SceneRendererOptions::EnableRTAreaLightShadows },
 			{ "RTContact", &SceneRendererOptions::EnableRTContactShadows },
 			{ "RTAO", &SceneRendererOptions::EnableRTAmbientOcclusion },

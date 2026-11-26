@@ -495,6 +495,9 @@ namespace Lux {
 			"RTReflectionsDenoise",
 			"RTShadowsPass",
 			"RTVisibilityFilter",
+			"RTCausticsPass",
+			"RTCausticPhotons",
+			"RTCausticResolve",
 			"ReSTIRDI",
 			"JumpFlood",
 			"BloomCompute",
@@ -4597,6 +4600,16 @@ namespace Lux {
 			appendResources(aoDebugReads, preDepthOutputs);
 			appendResources(aoDebugReads, aoFinalOutputs);
 			addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
+		}
+
+		if (m_Options.EnableRTCaustics && RHIDevice::SupportsRayQuery())
+		{
+			auto reads = sceneColorCurrent;
+			appendResources(reads, gbufferOutputs);
+			appendResources(reads, preDepthOutputs);
+			addPass("RT Caustics", reads, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources)
+				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTCausticsPass));
 		}
 
 		// The pre-convolved opaque scene feeds SSR and refraction; it runs when either needs it.
@@ -9801,6 +9814,7 @@ namespace Lux {
 
 		BeginProfiledGPU("AreaLightPass");
 		const bool translucent = m_Options.EnableRTTranslucentShadows;
+		const uint32_t glassFlags = (translucent ? 1u : 0u) | (m_Options.EnableRTCaustics && !m_RTCausticsUnavailable ? 2u : 0u);
 		if ((m_Options.EnableRTAreaLightShadows || translucent) && m_SubmittedRenderScene && EnsureRTAreaLightPass())
 		{
 			ApplyRTTuning();
@@ -9813,7 +9827,7 @@ namespace Lux {
 			auto instances = RayTracingScene::GatherInstances(m_SubmittedRenderScene->GetStaticMeshProxies());
 			Renderer::Submit([cb = m_CommandBuffer, scene = m_RayTracingScene, rtPass = m_RTAreaLightPass,
 				rtMaterial = m_RTAreaLightMaterial, shadowMapPass = m_AreaLightPass, shadowMapMaterial = m_AreaLightMaterial,
-				rays, translucent, instances = std::move(instances)]() mutable
+				rays, glassFlags, instances = std::move(instances)]() mutable
 			{
 				scene->RT_Update(cb, instances);
 				if (scene->IsValid())
@@ -9822,7 +9836,7 @@ namespace Lux {
 					if (Renderer::RT_BeginRenderPass(*cb, *rtPass, {}, false))
 					{
 						rtMaterial->Set("u_AreaShadowSettings.Rays", rays);
-						rtMaterial->Set("u_AreaShadowSettings.Translucent", translucent ? 1u : 0u);
+						rtMaterial->Set("u_AreaShadowSettings.Translucent", glassFlags);
 						Renderer::RT_SubmitFullscreenQuad(*cb, *rtPass->GetPipeline(), *rtMaterial);
 						cb->RT_EndNRIRenderPass();
 						return;

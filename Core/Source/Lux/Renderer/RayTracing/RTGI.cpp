@@ -675,6 +675,7 @@ namespace Lux {
 		const bool contactShadow = (visibilityFlags & k_RTContactShadow) != 0u;
 		const bool ambientOcclusion = (visibilityFlags & k_RTAmbientOcclusion) != 0u;
 		const bool translucentShadows = m_Options.EnableRTTranslucentShadows;
+		const bool refractiveCaustics = m_Options.EnableRTCaustics && !m_RTCausticsUnavailable;
 		const float radius = fullShadow ? glm::radians(std::clamp(m_Options.RTShadowAngularRadiusDegrees, 0.0f, 30.0f)) : 0.0f;
 		const float contactDistance = contactShadow ? std::clamp(m_Options.RTContactShadowDistance, 0.01f, 10.0f) : 0.0f;
 		const float shadowDistance = sun.Intensity > 0.0f ? (fullShadow ? 1e30f : contactDistance) : 0.0f;
@@ -704,6 +705,8 @@ namespace Lux {
 				push.SkyRadiance = glm::vec4(toLight, radius);
 				if (translucentShadows)
 					push.Counts.y |= (1u << 8u) | (1u << 5u); // translucent visibility and glass material evaluation
+				if (refractiveCaustics)
+					push.Counts.y |= 1u << 9u;
 				push.GroundRadiance.x = shadowDistance;
 				push.GroundRadiance.y = aoRadius;
 				Renderer::RT_BeginGPUPerfMarker(cb, "RTShadowsPass");
@@ -720,6 +723,173 @@ namespace Lux {
 				Renderer::RT_DispatchCompute(*cb, *filter, groups, Buffer());
 				Renderer::RT_EndGPUPerfMarker(cb);
 			}
+		});
+	}
+
+	bool SceneRenderer::EnsureRTCaustics()
+	{
+		if (m_RTCausticTrace)
+			return true;
+		if (m_RTCausticsUnavailable || !RHIDevice::SupportsRayQuery() || !ShaderCompiler::IsAvailable())
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		for (const char* name : { "RTCausticPhotons", "RTCausticResolve" })
+		{
+			if (!library->GetShaders().contains(name))
+				library->Load(std::string("Resources/Shaders/PathTracing/") + name + ".glsl");
+			if (!library->GetShaders().contains(name))
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "[RTCaustics] {} did not compile; caustics are unavailable", name);
+				m_RTCausticsUnavailable = true;
+				return false;
+			}
+		}
+		if (!m_RayTracingScene)
+			m_RayTracingScene = Ref<RayTracingScene>::Create();
+		if (!m_PathTraceLights)
+		{
+			StorageBufferSpecification spec;
+			spec.GPUOnly = false;
+			spec.DebugName = "PathTrace Lights";
+			m_PathTraceLights = StorageBuffer::Create(256, spec);
+		}
+
+		ImageSpecification spec;
+		spec.Usage = ImageUsage::Storage;
+		spec.Format = ImageFormat::RED32UI;
+		spec.Width = 3u * ((m_ViewportWidth + 3u) / 4u);
+		spec.Height = (m_ViewportHeight + 3u) / 4u;
+		spec.DebugName = "RTCaustics-Flux";
+		Ref<Image2D> flux = Image2D::Create(spec);
+		flux->Invalidate();
+		spec.Format = ImageFormat::RGBA16F;
+		spec.Width = m_ViewportWidth;
+		spec.Height = m_ViewportHeight;
+		spec.DebugName = "RTCaustics-SceneColor";
+		Ref<Image2D> result = Image2D::Create(spec);
+		result->Invalidate();
+
+		ComputePassSpecification photonSpec;
+		photonSpec.DebugName = "RTCausticPhotons";
+		photonSpec.Pipeline = PipelineCompute::Create(library->Get("RTCausticPhotons"));
+		Ref<ComputePass> trace = ComputePass::Create(photonSpec);
+		trace->SetInput("Camera", m_UBSCamera);
+		trace->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		trace->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
+		trace->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
+		trace->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+		trace->SetInput("RTLights", m_PathTraceLights);
+		trace->SetInput("u_CausticDepth", m_PreDepthPass->GetDepthOutput());
+		trace->SetInput("o_CausticFlux", flux);
+		PreparePathTraceEnvironment(trace);
+
+		ComputePassSpecification resolveSpec;
+		resolveSpec.DebugName = "RTCausticResolve";
+		resolveSpec.Pipeline = PipelineCompute::Create(library->Get("RTCausticResolve"));
+		Ref<ComputePass> resolve = ComputePass::Create(resolveSpec);
+		resolve->SetInput("Camera", m_UBSCamera);
+		resolve->SetInput("u_CausticDepth", m_PreDepthPass->GetDepthOutput());
+		resolve->SetInput("u_CausticNormal", GetGeometryNormalOutput());
+		resolve->SetInput("u_CausticBaseColor", GetGeometryBaseColorOutput());
+		resolve->SetInput("u_CausticMetalRough", GetGeometryMetalRoughOutput());
+		resolve->SetInput("u_CausticSceneColor", GetSceneColorOutput());
+		resolve->SetInput("u_CausticFlux", flux);
+		resolve->SetInput("o_CausticResult", result);
+		if (!trace->Validate() || !resolve->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTCaustics] pass inputs do not match the shaders; caustics are unavailable");
+			m_RTCausticsUnavailable = true;
+			return false;
+		}
+		trace->Bake();
+		resolve->Bake();
+		m_RTCausticFlux = flux;
+		m_RTCausticResult = result;
+		m_RTCausticClear = Ref<StorageImageClear>::Create(flux, 0);
+		m_RTCausticTrace = trace;
+		m_RTCausticResolve = resolve;
+		return true;
+	}
+
+	void SceneRenderer::RTCausticsPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "RTCausticsPass");
+		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !m_SubmittedRenderScene)
+			return;
+		auto instances = RayTracingScene::GatherInstances(m_SubmittedRenderScene->GetStaticMeshProxies());
+		if (std::none_of(instances.begin(), instances.end(), [](const auto& instance) { return instance.Refractive; }))
+			return;
+		auto lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
+		if (lights.empty() || !EnsureRTCaustics())
+			return;
+		ApplyRTTuning();
+
+		AABB bounds(glm::vec3(FLT_MAX), glm::vec3(-FLT_MAX));
+		AABB glassBounds = bounds;
+		for (const auto& instance : instances)
+		{
+			const AABB instanceBounds = instance.Source->GetSubmeshes()[instance.Submesh].BoundingBox.Transformed(instance.ObjectToWorld);
+			bounds.Min = glm::min(bounds.Min, instanceBounds.Min);
+			bounds.Max = glm::max(bounds.Max, instanceBounds.Max);
+			if (instance.Refractive)
+			{
+				glassBounds.Min = glm::min(glassBounds.Min, instanceBounds.Min);
+				glassBounds.Max = glm::max(glassBounds.Max, instanceBounds.Max);
+			}
+		}
+		const glm::vec3 centre = glassBounds.Center();
+		const float radius = 0.5f * glm::length(glassBounds.Size()) + 0.01f;
+		const float directionalDistance = glm::length(glm::max(glm::abs(bounds.Min - centre), glm::abs(bounds.Max - centre))) + 0.1f;
+		const uint32_t width = m_ViewportWidth, height = m_ViewportHeight;
+		const uint32_t photons = std::clamp(m_Options.RTCausticPhotons, 4096u, 262144u);
+		if (m_RTCausticResult->GetWidth() != width || m_RTCausticResult->GetHeight() != height)
+		{
+			m_RTCausticFlux->Resize(3u * ((width + 3u) / 4u), (height + 3u) / 4u);
+			m_RTCausticResult->Resize(width, height);
+			m_RTCausticClear = Ref<StorageImageClear>::Create(m_RTCausticFlux, 0);
+		}
+		const Ref<Image2D> depth = m_PreDepthPass->GetDepthOutput();
+		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		m_RTCausticTrace->SetInput("u_CausticDepth", depth);
+		m_RTCausticResolve->SetInput("u_CausticDepth", depth);
+		m_RTCausticResolve->SetInput("u_CausticNormal", GetGeometryNormalOutput());
+		m_RTCausticResolve->SetInput("u_CausticBaseColor", GetGeometryBaseColorOutput());
+		m_RTCausticResolve->SetInput("u_CausticMetalRough", GetGeometryMetalRoughOutput());
+		m_RTCausticResolve->SetInput("u_CausticSceneColor", sceneColor);
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTCausticTrace);
+		GetOrCreatePassProfile("RTCausticPhotons").GPUActive = true;
+		GetOrCreatePassProfile("RTCausticResolve").GPUActive = true;
+
+		Renderer::Submit([cb = m_CommandBuffer, scene = m_RayTracingScene, clear = m_RTCausticClear,
+			trace = m_RTCausticTrace, resolve = m_RTCausticResolve, result = m_RTCausticResult, sceneColor,
+			lightBuffer = m_PathTraceLights, envParams, centre, radius, directionalDistance, width, height, photons,
+			instances = std::move(instances), lights = std::move(lights)]() mutable
+		{
+			scene->RT_Update(cb, instances);
+			if (!scene->IsValid() || !sceneColor)
+				return;
+			const uint32_t lightBytes = static_cast<uint32_t>(lights.size() * sizeof(glm::vec4));
+			if (lightBuffer->GetSize() < lightBytes)
+				lightBuffer->Resize(lightBytes);
+			lightBuffer->RT_SetData(cb, lights.data(), lightBytes);
+
+			RTGITracePush push = {};
+			push.SizeFrameBounces = glm::uvec4(width, height, 0u, photons);
+			push.Counts = glm::uvec4(PathTraceLightCount(lights), 32u, 0u, 0u);
+			ApplyPathTraceEnvironment(push, envParams);
+			push.SkyRadiance = glm::vec4(centre, radius);
+			push.GroundRadiance.x = directionalDistance;
+			Renderer::RT_BeginGPUPerfMarker(cb, "RTCausticPhotons");
+			clear->RT_Record(*cb, glm::vec4(0.0f));
+			trace->Prepare();
+			Renderer::RT_DispatchCompute(*cb, *trace, glm::uvec3((photons + 63u) / 64u, 1u, 1u), Buffer(&push, sizeof(push)));
+			Renderer::RT_EndGPUPerfMarker(cb);
+			Renderer::RT_BeginGPUPerfMarker(cb, "RTCausticResolve");
+			resolve->Prepare();
+			const glm::uvec4 resolvePush(photons, 0u, 0u, 0u);
+			Renderer::RT_DispatchCompute(*cb, *resolve, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&resolvePush, sizeof(resolvePush)));
+			Renderer::RT_EndGPUPerfMarker(cb);
+			Renderer::RT_CopyImage(cb, result, sceneColor);
 		});
 	}
 

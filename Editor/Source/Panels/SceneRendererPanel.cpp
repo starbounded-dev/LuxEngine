@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Sample Emissive Meshes", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Adaptive Reflection Rays", "Reflection Denoiser", "Reflections Replace Sky", "Ray-Traced Shadows", "RT Translucent Shadows", "RT Area-Light Shadows", "Area Shadow Rays", "RT Contact Shadows", "Contact Shadow Distance", "RT Ambient Occlusion", "Ambient Occlusion Radius", "Ambient Occlusion Rays", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Sample Emissive Meshes", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Adaptive Reflection Rays", "Reflection Denoiser", "Reflections Replace Sky", "Ray-Traced Shadows", "RT Translucent Shadows", "RT Caustics", "Caustic Photons", "RT Area-Light Shadows", "Area Shadow Rays", "RT Contact Shadows", "Contact Shadow Distance", "RT Ambient Occlusion", "Ambient Occlusion Radius", "Ambient Occlusion Rays", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -747,6 +747,9 @@ namespace Lux {
 				toggle("Reflections Replace Sky", options.RTReflectionReplaceEnvironment);
 				toggle("Ray-Traced Shadows", options.EnableRTShadows);
 				toggle("RT Translucent Shadows", options.EnableRTTranslucentShadows);
+				toggle("RT Caustics", options.EnableRTCaustics);
+				if (match("Caustic Photons"))
+					ImGuiEx::Property("Caustic Photons", options.RTCausticPhotons, 4096u, 262144u);
 				toggle("RT Area-Light Shadows", options.EnableRTAreaLightShadows);
 				if (match("Area Shadow Rays"))
 					ImGuiEx::Property("Area Shadow Rays", options.RTAreaShadowRays, 1u, 32u);

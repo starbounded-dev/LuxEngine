@@ -701,6 +701,41 @@ def check_rt_translucent(config):
                 fixture.write_bytes(saved)
 
 
+def check_rt_caustic(config):
+    """#261: photons redirect light into a focused patch when the glass refracts."""
+    from make_rt_scenes import SCENES, write_caustic_scenes
+
+    refractive, neutral = "GI_RTCaustic", "GI_RTNoRefraction"
+    fixtures = {SCENES / f"{scene}.luxscene": None for scene in (refractive, neutral)}
+    for fixture in fixtures:
+        if fixture.exists():
+            fixtures[fixture] = fixture.read_bytes()
+    try:
+        write_caustic_scenes()
+        base = "RTShadows=1,GTAO=0,Bloom=0,DOF=0,SSR=0,Lightmaps=0"
+        off = capture("caustic-off", refractive, f"{base},RTCaustics=0", config, 200)
+        on = capture("caustic-on", refractive, f"{base},RTCaustics=1", config, 200, perf_frames=60)
+        h, w = off.shape[:2]
+        ground = (slice(int(h * 0.53), int(h * 0.90)), slice(int(w * 0.25), int(w * 0.75)))
+        increase = (on[ground] - off[ground]).mean(axis=-1)
+        focal = increase > 0.08
+        check(80 < int(focal.sum()) < increase.size / 8,
+              f"refracted photons concentrate into a bright patch ({focal.sum()} pixels)")
+        check(float(increase[focal].mean()) > 0.13, f"the focal patch gains {increase[focal].mean():.3f} display intensity")
+        neutral_off = capture("caustic-neutral-off", neutral, f"{base},RTCaustics=0", config, 200)
+        neutral_on = capture("caustic-neutral-on", neutral, f"{base},RTCaustics=1", config, 200)
+        check(rmse(neutral_off, neutral_on) < 1e-6, "glass with IOR 1 produces no caustic")
+        perf = json.loads((ROOT / "bin/golden/rt-check-caustic-on" / f"{refractive}.perf.json").read_text(encoding="utf-8"))
+        trace, resolve = (perf["passes"][name]["gpuMs"] for name in ("RTCausticPhotons", "RTCausticResolve"))
+        check(trace > 0 and resolve > 0, f"photon tracing took {trace:.3f} ms and resolve took {resolve:.3f} ms")
+    finally:
+        for fixture, saved in fixtures.items():
+            if saved is None:
+                fixture.unlink(missing_ok=True)
+            else:
+                fixture.write_bytes(saved)
+
+
 def check_lmdenoise(config):
     """#248: lightmap denoising. A 16-sample bake with the denoiser is closer (as rendered) to a 512-sample bake than the raw 16-sample
     bake, and the denoiser does not darken the result."""
@@ -884,7 +919,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():
