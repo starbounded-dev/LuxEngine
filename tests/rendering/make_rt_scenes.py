@@ -200,6 +200,15 @@ def write_many_lights_scene(name, copies):
     ])
 
 
+def write_mesh_emitter_scene():
+    write("GI_MeshEmitter", [
+        nosky(),
+        floor("Materials/GI/GI_White.lmat"),
+        mesh("Small emitter", "Cube", (0.7, 1.2, -0.3), (0.38, 0.04, 0.38), "GI_Emit"),
+        camera((0, 2.4, 4.4), (-0.50, 0, 0)),
+    ])
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []

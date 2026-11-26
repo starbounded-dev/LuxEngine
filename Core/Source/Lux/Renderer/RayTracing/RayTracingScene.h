@@ -51,7 +51,7 @@ namespace Lux {
 			glm::vec4 WorldRow0;
 			glm::vec4 WorldRow1;
 			glm::vec4 WorldRow2;
-			glm::uvec4 Info; // x: first vertex of the BLAS, y: first index
+			glm::uvec4 Info; // first BLAS vertex, first BLAS index, material row, emissive instance ordinal
 			glm::vec4 AlbedoMetal;
 			glm::vec4 EmissionRough;
 		};
@@ -79,6 +79,8 @@ namespace Lux {
 			uint64_t Variant = 0;              // nonzero: a skinned instance, with its own CPU-skinned geometry (stable per entity)
 			uint64_t PoseHash = 0;             // hash of the skin palette: a changed pose refits the BLAS instead of rebuilding it
 			std::vector<glm::mat4> SkinPalette; // bone model pose * inverse bind, as the skinning shader reads it
+
+			bool IsEmissive() const { return glm::any(glm::greaterThan(Emission, glm::vec3(0.0f))); }
 		};
 
 		// Acceleration-structure tuning, process-wide (set from SceneRendererOptions; render thread reads it in RT_Update).

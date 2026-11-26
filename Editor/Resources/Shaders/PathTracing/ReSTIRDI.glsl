@@ -54,7 +54,7 @@ layout(set = 1, binding = 107) uniform texture2D u_RDPrevGPos;
 layout(set = 1, binding = 108) uniform texture2D u_RDPrevGNormal;
 
 const float MAX_HISTORY = 32.0;
-const uint CANDIDATES_PER_ROUND = 8u;
+const uint CANDIDATES_PER_ROUND = 4u;
 const uint PRESAMPLED_ROUNDS = 4u;
 shared uint s_CandidateLights[CANDIDATES_PER_ROUND * PRESAMPLED_ROUNDS];
 
@@ -190,7 +190,7 @@ void main()
 		vec3 L, radiance;
 		float dist, solidFactor;
 		vec3 shadow = vec3(0.0);
-		if (SampleLight(selectedIndex, selectedU1, selectedU2, s.P, s.N, L, dist, radiance, solidFactor) && (shadow = ShadowTransmittance(s.P + s.N * 1e-3, L, dist - 2e-3), max(shadow.r, max(shadow.g, shadow.b)) > 0.0))
+		if (SampleLight(selectedIndex, selectedU1, selectedU2, s.P, s.N, L, dist, radiance, solidFactor) && (shadow = ShadowTransmittanceToLight(s.P, s.N, L, dist), max(shadow.r, max(shadow.g, shadow.b)) > 0.0))
 			color = EvalBRDF(s, V, L) * radiance * W * FogToLight(s.P, L, dist) * shadow;
 		else
 			W = 0.0;

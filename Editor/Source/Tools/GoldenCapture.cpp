@@ -120,6 +120,7 @@ namespace Lux {
 			{ "PTGlass", &SceneRendererOptions::PathTracerGlass },
 			{ "PTSSS", &SceneRendererOptions::PathTracerSubsurface },
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
+			{ "PTMeshLights", &SceneRendererOptions::PathTracerSampleEmissiveMeshes },
 			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
 			{ "PTSER", &SceneRendererOptions::PathTracerShaderExecutionReordering },
 			{ "GIProbeAdaptive", &SceneRendererOptions::RealtimeGIAdaptiveProbes },

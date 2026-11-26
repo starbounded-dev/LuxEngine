@@ -208,7 +208,8 @@ namespace Lux {
 					input.Albedo = material->GetAlbedoColor();
 					input.Metalness = material->GetMetalness();
 					input.Roughness = material->GetRoughness();
-					input.Emission = input.Albedo * material->GetEmission();
+					const glm::vec3 emissionColor = glm::clamp(material->GetSurfaceParameters().EmissiveColor, glm::vec3(0.0f), glm::vec3(1.0f));
+					input.Emission = glm::pow(emissionColor, glm::vec3(2.2f)) * std::max(material->GetEmission(), 0.0f);
 				}
 				for (const GPUSceneInstanceRef& ref : proxy->SubmeshInstances)
 				{
@@ -727,6 +728,7 @@ namespace Lux {
 		if (!mapped)
 			return;
 		std::memset(mapped, 0, sizeof(nri::TopLevelInstance) * m_TLASCapacity);
+		uint32_t emitterOrdinal = 0;
 		for (uint32_t i = 0; i < count; i++)
 		{
 			const InstanceInput& input = instances[i];
@@ -750,7 +752,7 @@ namespace Lux {
 			gpu.WorldRow0 = glm::vec4(input.ObjectToWorld[0][0], input.ObjectToWorld[1][0], input.ObjectToWorld[2][0], input.ObjectToWorld[3][0]);
 			gpu.WorldRow1 = glm::vec4(input.ObjectToWorld[0][1], input.ObjectToWorld[1][1], input.ObjectToWorld[2][1], input.ObjectToWorld[3][1]);
 			gpu.WorldRow2 = glm::vec4(input.ObjectToWorld[0][2], input.ObjectToWorld[1][2], input.ObjectToWorld[2][2], input.ObjectToWorld[3][2]);
-			gpu.Info = glm::uvec4(blas.VertexBase, blas.IndexBase, input.MaterialID, 0);
+			gpu.Info = glm::uvec4(blas.VertexBase, blas.IndexBase, input.MaterialID, input.IsEmissive() ? emitterOrdinal++ : 0xffffffffu);
 			gpu.AlbedoMetal = glm::vec4(input.Albedo, input.Metalness);
 			gpu.EmissionRough = glm::vec4(input.Emission, input.Roughness);
 		}

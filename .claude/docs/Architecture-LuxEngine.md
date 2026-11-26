@@ -416,7 +416,10 @@ Structurally:
 - Ray-traced passes share a light table that stores each light's probability and an alias
   entry. Selection takes a fixed number of buffer reads. In dense scenes, the ReSTIR DI
   compute workgroup shares candidate indices. Each pixel samples its own position on the
-  emitter and resamples its own reservoir.
+  emitter and resamples its own reservoir. The path tracer and ReSTIR DI can select emissive
+  submeshes from the same table, then sample one triangle from the instance's traced geometry.
+  They use world triangle area and emitter cosine for the solid-angle PDF. BSDF hits use the
+  same PDF for MIS, or defer to ReSTIR for direct illumination of the first hit.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

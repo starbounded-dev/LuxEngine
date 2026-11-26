@@ -15,7 +15,7 @@ struct RTInstance
 	vec4 WorldRow0;      // rows of the object-to-world 3x4 (for texture footprints)
 	vec4 WorldRow1;
 	vec4 WorldRow2;
-	uvec4 Info;          // x = first vertex of the BLAS in RTVertices, y = first index in RTIndices
+	uvec4 Info;          // first BLAS vertex, first BLAS index, material row, emissive instance ordinal
 	vec4 AlbedoMetal;    // rgb albedo, a metalness
 	vec4 EmissionRough;  // rgb emitted radiance, a roughness
 };
@@ -172,6 +172,8 @@ struct Surface
 	float Metal;
 	float Rough;
 	vec3 Emission;
+	uint MeshLight;
+	float MeshLightFootprint; // triangle area times triangle count and the cosine at an emitter hit
 	vec3 F0;
 	bool FrontFace; // the ray arrived at the outside of the surface (before the normal was turned toward it)
 	uint Lobes;     // PT_LOBE_* of the material row (0 for plain materials, which take the original code path everywhere)
@@ -373,6 +375,18 @@ bool Occluded(vec3 o, vec3 d, float tMax)
 	return rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
+vec3 RTWorldPoint(RTInstance instance, vec3 objectPoint)
+{
+	vec4 point = vec4(objectPoint, 1.0);
+	return vec3(dot(instance.WorldRow0, point), dot(instance.WorldRow1, point), dot(instance.WorldRow2, point));
+}
+
+uint FirstMeshLight()
+{
+	const uint count = u_Push.Counts.x;
+	return count == 0u ? 0u : floatBitsToUint(Lights[4u * count].z);
+}
+
 bool TraceClosest(vec3 o, vec3 d, out Surface s)
 {
 	g_RayCount++;
@@ -421,6 +435,18 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 	s.Metal = inst.AlbedoMetal.a;
 	s.Rough = clamp(inst.EmissionRough.a, 0.04, 1.0);
 	s.Emission = inst.EmissionRough.rgb;
+	s.MeshLight = 0xffffffffu;
+	s.MeshLightFootprint = 0.0;
+	const uint firstMeshLight = inst.Info.w == 0xffffffffu ? u_Push.Counts.x : FirstMeshLight();
+	if (inst.Info.w < u_Push.Counts.x - firstMeshLight)
+	{
+		s.MeshLight = firstMeshLight + inst.Info.w;
+		const uint triangleCount = floatBitsToUint(Lights[4u * s.MeshLight + 2u].y);
+		const vec3 p0 = RTWorldPoint(inst, Vertices[2u * i0].xyz);
+		const vec3 p1 = RTWorldPoint(inst, Vertices[2u * i1].xyz);
+		const vec3 p2 = RTWorldPoint(inst, Vertices[2u * i2].xyz);
+		s.MeshLightFootprint = 0.5 * float(triangleCount) * abs(dot(cross(p1 - p0, p2 - p0), d));
+	}
 	s.Lobes = 0u;
 	s.Coat = 0.0;
 	s.CoatRough = 0.1;
@@ -453,9 +479,9 @@ bool TraceClosest(vec3 o, vec3 d, out Surface s)
 			vec2 uv0 = uvMatrix * vec2(Vertices[2u * i0].w, Vertices[2u * i0 + 1u].w);
 			vec2 uv1 = uvMatrix * vec2(Vertices[2u * i1].w, Vertices[2u * i1 + 1u].w);
 			vec2 uv2 = uvMatrix * vec2(Vertices[2u * i2].w, Vertices[2u * i2 + 1u].w);
-			vec3 p0 = vec3(dot(inst.WorldRow0, vec4(Vertices[2u * i0].xyz, 1.0)), dot(inst.WorldRow1, vec4(Vertices[2u * i0].xyz, 1.0)), dot(inst.WorldRow2, vec4(Vertices[2u * i0].xyz, 1.0)));
-			vec3 p1 = vec3(dot(inst.WorldRow0, vec4(Vertices[2u * i1].xyz, 1.0)), dot(inst.WorldRow1, vec4(Vertices[2u * i1].xyz, 1.0)), dot(inst.WorldRow2, vec4(Vertices[2u * i1].xyz, 1.0)));
-			vec3 p2 = vec3(dot(inst.WorldRow0, vec4(Vertices[2u * i2].xyz, 1.0)), dot(inst.WorldRow1, vec4(Vertices[2u * i2].xyz, 1.0)), dot(inst.WorldRow2, vec4(Vertices[2u * i2].xyz, 1.0)));
+			vec3 p0 = RTWorldPoint(inst, Vertices[2u * i0].xyz);
+			vec3 p1 = RTWorldPoint(inst, Vertices[2u * i1].xyz);
+			vec3 p2 = RTWorldPoint(inst, Vertices[2u * i2].xyz);
 			float uvArea = 0.5 * abs((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y));
 			float worldArea = 0.5 * length(cross(p1 - p0, p2 - p0));
 			float uvPerWorld = worldArea > 1e-10 ? sqrt(uvArea / worldArea) : 0.0;
@@ -664,6 +690,51 @@ uint ChooseLight(float u)
 	return fract(columnSample) < alias.x ? column : floatBitsToUint(alias.y);
 }
 
+vec3 MeshEmitterRadiance(RTInstance instance, uvec3 triangle, vec3 bary, vec3 worldPoint, vec3 direction)
+{
+	if (instance.Info.z >= uint(r_GPUMaterials.Materials.length()))
+		return instance.EmissionRough.rgb;
+	const GPUMaterial material = r_GPUMaterials.Materials[instance.Info.z];
+	const uint flags = material.Metadata.x;
+	if ((flags & PT_MATERIAL_FLAG_VALID) == 0u || (flags & PT_MATERIAL_FLAG_MISSING) != 0u)
+		return instance.EmissionRough.rgb;
+
+	const vec3 emission = max(material.Emissive.rgb, vec3(0.0));
+	const uint map = material.ExtraTextureIndices.x;
+	if ((flags & PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE) == 0u || map == PT_TEXTURE_INVALID)
+		return emission;
+
+	const mat2 transform = mat2(material.UVTransform.xy, material.UVTransform.zw);
+	const vec2 offset = material.UVOffset.xy;
+	const uint mode = material.DetailTextureIndices.w;
+	if (mode == 0u)
+	{
+		const vec2 uv = vec2(Vertices[2u * triangle.x].w, Vertices[2u * triangle.x + 1u].w) * bary.x
+			+ vec2(Vertices[2u * triangle.y].w, Vertices[2u * triangle.y + 1u].w) * bary.y
+			+ vec2(Vertices[2u * triangle.z].w, Vertices[2u * triangle.z + 1u].w) * bary.z;
+		return emission * PTSampleMaterialTexture(map, transform * uv + offset, 0.0).rgb;
+	}
+
+	vec3 normal = normalize(Vertices[2u * triangle.x + 1u].xyz * bary.x
+		+ Vertices[2u * triangle.y + 1u].xyz * bary.y + Vertices[2u * triangle.z + 1u].xyz * bary.z);
+	vec3 position = worldPoint;
+	if (mode == 2u)
+		position = Vertices[2u * triangle.x].xyz * bary.x + Vertices[2u * triangle.y].xyz * bary.y + Vertices[2u * triangle.z].xyz * bary.z;
+	else
+	{
+		normal = normalize(vec3(dot(instance.NormalRow0.xyz, normal), dot(instance.NormalRow1.xyz, normal), dot(instance.NormalRow2.xyz, normal)));
+		if (dot(normal, direction) > 0.0)
+			normal = -normal;
+	}
+	const vec3 axisSign = mix(vec3(1.0), vec3(-1.0), lessThan(normal, vec3(0.0)));
+	const vec3 rawWeights = pow(abs(normal), vec3(max(material.Detail.w, 1.0)));
+	const vec3 weights = rawWeights / max(dot(rawWeights, vec3(1.0)), 1e-5);
+	const vec2 uvX = transform * vec2(position.z * axisSign.x, position.y) + offset;
+	const vec2 uvY = transform * vec2(position.x * axisSign.y, position.z) + offset;
+	const vec2 uvZ = transform * vec2(-position.x * axisSign.z, position.y) + offset;
+	return emission * PTSampleMapped(map, mode, uvX, uvX, uvY, uvZ, weights, 0.0).rgb;
+}
+
 // One sample of light `index` seen from P, placed by u1, u2 (so the same numbers rebuild the same point from another surface:
 // ReSTIR). Returns false when the light cannot reach P. radiance has the area / distance^2 / emitter cosine folded in, so the
 // contribution of the sample is EvalBRDF * radiance / (probability of choosing the sample). solidFactor is, for area lights,
@@ -684,6 +755,29 @@ bool SampleLight(uint index, float u1, float u2, vec3 P, vec3 N, out vec3 L, out
 	{
 		L = normalize(a.xyz);
 		radiance = b.rgb;
+	}
+	else if (type == 7)
+	{
+		const RTInstance instance = Instances[floatBitsToUint(c.x)];
+		const uint count = floatBitsToUint(c.y);
+		const float triangleSample = u1 * float(count);
+		const uint firstIndex = instance.Info.y + 3u * min(uint(triangleSample), count - 1u);
+		const uvec3 triangle = instance.Info.xxx + uvec3(Indices[firstIndex], Indices[firstIndex + 1u], Indices[firstIndex + 2u]);
+		const vec3 p0 = RTWorldPoint(instance, Vertices[2u * triangle.x].xyz);
+		const vec3 p1 = RTWorldPoint(instance, Vertices[2u * triangle.y].xyz);
+		const vec3 p2 = RTWorldPoint(instance, Vertices[2u * triangle.z].xyz);
+		const float root = sqrt(fract(triangleSample));
+		const vec3 bary = vec3(1.0 - root, root * (1.0 - u2), root * u2);
+		const vec3 p = p0 * bary.x + p1 * bary.y + p2 * bary.z;
+		const vec3 toLight = p - P;
+		const float distanceSquared = max(dot(toLight, toLight), 1e-6);
+		dist = sqrt(distanceSquared);
+		L = toLight / dist;
+		const float footprint = 0.5 * float(count) * abs(dot(cross(p1 - p0, p2 - p0), L));
+		if (footprint <= 1e-10)
+			return false;
+		solidFactor = distanceSquared / footprint;
+		radiance = MeshEmitterRadiance(instance, triangle, bary, p, L) / solidFactor;
 	}
 	else if (type >= 3) // area lights: 3 rect, 4 disk, 5 sphere, 6 tube. Centre a.xyz, half vectors c.xyz / dd.xyz
 	{
@@ -790,6 +884,21 @@ vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
 	return vec3(0.0);
 }
 
+vec3 ShadowTransmittanceToLight(vec3 position, vec3 normal, vec3 direction, float distanceToLight)
+{
+	const vec3 offset = normal * 1e-3;
+	if (distanceToLight >= 1.0e29)
+		return ShadowTransmittance(position + offset, direction, distanceToLight);
+
+	// Keep the ray endpoint at the sampled light position after the receiver bias. An offset
+	// along the old direction could cross an emitter at a grazing angle before the ray ends.
+	const vec3 segment = direction * distanceToLight - offset;
+	const float rayLength = length(segment);
+	if (rayLength <= 2e-3)
+		return vec3(1.0);
+	return ShadowTransmittance(position + offset, segment / rayLength, rayLength - 2e-3);
+}
+
 // Direct light from one light chosen by the alias table. Returns radiance * BRDF * cos / pdf.
 vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 {
@@ -805,7 +914,7 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 	vec3 radiance;
 	if (!SampleLight(index, u1, u2, s.P, s.N, L, dist, radiance, solidFactor))
 		return vec3(0.0);
-	const vec3 shadow = ShadowTransmittance(s.P + s.N * 1e-3, L, dist - 2e-3);
+	const vec3 shadow = ShadowTransmittanceToLight(s.P, s.N, L, dist);
 	if (max(shadow.r, max(shadow.g, shadow.b)) <= 0.0)
 		return vec3(0.0);
 
@@ -854,7 +963,7 @@ vec3 MediumDirectLight(vec3 P, vec3 dir, float g)
 vec3 AreaLightEmission(vec3 o, vec3 d, float tMax, float bsdfPdf)
 {
 	vec3 sum = vec3(0.0);
-	for (uint i = u_Push.Counts.x; i > 0u; i--)
+	for (uint i = FirstMeshLight(); i > 0u; i--)
 	{
 		const uint index = i - 1u;
 		const vec4 a = Lights[4u * index + 0u];
@@ -1059,7 +1168,20 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		}
 
 		g_BounceCount++;
-		radiance += throughput * s.Emission;
+		float emissionWeight = 1.0;
+		if (bounce > 0u && s.MeshLightFootprint > 0.0 && prevPdf > 0.0 && prevPdf < 1.0e29
+			&& (u_Push.Counts.y & FLAG_UNIFORM_ENV) == 0u)
+		{
+			if (!mis || (g_UseExternalDirect && bounce == 1u))
+				emissionWeight = 0.0;
+			else
+			{
+				const float lightPdf = LightPmf(s.MeshLight) * segmentLength * segmentLength / s.MeshLightFootprint;
+				const float ratio = lightPdf / prevPdf;
+				emissionWeight = 1.0 / (1.0 + ratio * ratio);
+			}
+		}
+		radiance += throughput * s.Emission * emissionWeight;
 
 		// The cone keeps growing from this hit; a rough surface scatters it wider.
 		g_ConeWidth += g_ConeAngle * length(s.P - origin);

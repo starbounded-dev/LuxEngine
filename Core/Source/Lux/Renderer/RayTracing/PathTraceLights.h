@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <span>
 #include <vector>
 
 namespace Lux {
@@ -21,9 +22,11 @@ namespace Lux {
 	//   point:       A = (position, 1)      B = (radiance * intensity, range)
 	//   spot:        A = (position, 2)      B = (radiance * intensity, range)   C = (direction, cos half angle)
 	//   area:        A = (centre, 3 + shape: rect 3, disk 4, sphere 5, tube 6)        B = (radiance * intensity)   C = half right   D = half up
+	//   mesh:        A.w = 7                B = (emissive radiance, approximate area)   C.xy = instance and triangle count (as bits)
 	// D.w stores the light's probability mass. In the alias table, x is the probability of keeping the selected
 	// column and y is the alternative light index (as bits). powerSampling weights the choice by expected irradiance.
-	inline std::vector<glm::vec4> PackLights(const LightEnvironment& environment, bool powerSampling = true)
+	inline std::vector<glm::vec4> PackLights(const LightEnvironment& environment, bool powerSampling = true,
+		std::span<const RayTracingScene::InstanceInput> meshInstances = {})
 	{
 		std::vector<glm::vec4> packed;
 		auto add = [&](const glm::vec4& a, const glm::vec4& b, const glm::vec4& c, const glm::vec4& d)
@@ -57,6 +60,22 @@ namespace Lux {
 				add(glm::vec4(light.Position, 3.0f + static_cast<float>(light.Shape)), glm::vec4(light.Radiance * light.Intensity, 0.0f), glm::vec4(light.HalfRight, 0.0f), glm::vec4(light.HalfUp, 0.0f));
 		}
 
+		const uint32_t firstMeshLight = static_cast<uint32_t>(packed.size() / 4);
+		for (uint32_t instanceIndex = 0; instanceIndex < meshInstances.size(); instanceIndex++)
+		{
+			const auto& input = meshInstances[instanceIndex];
+			if (!input.IsEmissive())
+				continue;
+			const Submesh& submesh = input.Source->GetSubmeshes()[input.Submesh];
+			const glm::vec3 extent = submesh.BoundingBox.Max - submesh.BoundingBox.Min;
+			const glm::vec3 scale(glm::length(glm::vec3(input.ObjectToWorld[0])), glm::length(glm::vec3(input.ObjectToWorld[1])),
+				glm::length(glm::vec3(input.ObjectToWorld[2])));
+			const glm::vec3 span = extent * scale;
+			const float area = std::max(2.0f * (span.x * span.y + span.x * span.z + span.y * span.z), 1e-4f);
+			add(glm::vec4(0.0f, 0.0f, 0.0f, 7.0f), glm::vec4(input.Emission, area),
+				glm::vec4(std::bit_cast<float>(instanceIndex), std::bit_cast<float>(submesh.IndexCount / 3u), 0.0f, 0.0f), glm::vec4(0.0f));
+		}
+
 		const size_t count = packed.size() / 4;
 		if (count > 0)
 		{
@@ -70,7 +89,9 @@ namespace Lux {
 				const int type = static_cast<int>(packed[4 * i].w + 0.5f);
 				const float lum = std::max(luminance(packed[4 * i + 1]), 0.0f);
 				float area = 1.0f;
-				if (type >= 3)
+				if (type == 7)
+					area = packed[4 * i + 1].w;
+				else if (type >= 3)
 				{
 					const glm::vec3 c = glm::vec3(packed[4 * i + 2]), d = glm::vec3(packed[4 * i + 3]);
 					const float crossLength = glm::length(glm::cross(c, d));
@@ -114,6 +135,7 @@ namespace Lux {
 				weights[replacement] -= 1.0 - weights[slot];
 				(weights[replacement] < 1.0 ? underfull : overfull).push_back(replacement);
 			}
+			packed[aliasBase].z = std::bit_cast<float>(firstMeshLight);
 		}
 		return packed;
 	}

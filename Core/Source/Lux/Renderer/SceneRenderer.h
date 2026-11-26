@@ -378,6 +378,7 @@ namespace Lux {
 		glm::vec3 PathTracerFogCenter{ 0.0f };
 		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
 		bool     PathTracerReSTIRDI = false;
+		bool     PathTracerSampleEmissiveMeshes = true;
 		// Ray sorting: bounce 1+ of every path runs with rays binned by direction (PathTraceWavefront.glsl) so neighbouring threads trace similar rays. Same image, only the work order changes; measured by the checks, off unless it is faster. No ReSTIR DI, adaptive sampling or heat map in this mode.
 		bool     PathTracerRaySort = false;
 		bool     PathTracerShaderExecutionReordering = false;

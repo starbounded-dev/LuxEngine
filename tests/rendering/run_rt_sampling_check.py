@@ -98,7 +98,7 @@ def check_many_lights(config):
     try:
         write_many_lights_scene(few, 1)
         write_many_lights_scene(many, 12)
-        base = "PathTracer=1,PathTracerBounces=2,Bloom=0,DOF=0"
+        base = "PathTracer=1,PathTracerBounces=2,Bloom=0,DOF=0,PTMeshLights=0"
         few_reference = capture("ml-few-ref", few, f"{base},PathTracerSamples=512", config, spp(512))
         reference = capture("ml-many-ref", many, f"{base},PathTracerSamples=512", config, spp(512))
         energy_difference = abs(float(few_reference.mean()) - float(reference.mean()))
@@ -125,6 +125,40 @@ def check_many_lights(config):
                 path.unlink(missing_ok=True)
             else:
                 path.write_bytes(content)
+
+
+def check_mesh_lights(config):
+    """#256: sample a small mesh emitter directly and compare energy against BSDF hits alone."""
+    from make_rt_scenes import SCENES, write_mesh_emitter_scene
+
+    scene = "GI_MeshEmitter"
+    fixture = SCENES / f"{scene}.luxscene"
+    saved = fixture.read_bytes() if fixture.exists() else None
+    try:
+        write_mesh_emitter_scene()
+        base = "PathTracer=1,PathTracerBounces=1,Bloom=0,DOF=0"
+        reference = capture("meshlight-bsdf-ref", scene, f"{base},PathTracerSamples=1024,PTMeshLights=0", config, spp(1024))
+        converged = capture("meshlight-nee-ref", scene, f"{base},PathTracerSamples=512", config, spp(512))
+        raw = capture("meshlight-bsdf4", scene, f"{base},PathTracerSamples=4,PTMeshLights=0", config, spp(4))
+        sampled = capture("meshlight-nee4", scene, f"{base},PathTracerSamples=4", config, spp(4))
+        restir = capture("meshlight-restir4", scene, f"{base},PathTracerSamples=4,PTReSTIR=1", config, spp(4))
+        h, w = reference.shape[:2]
+        floor = (slice(int(h * 0.54), int(h * 0.88)), slice(int(w * 0.2), int(w * 0.8)))
+        expected, actual = float(reference[floor].mean()), float(converged[floor].mean())
+        check(expected > 0.03 and abs(actual - expected) < expected * 0.1,
+              f"direct mesh sampling preserves converged light on the floor ({expected:.4f} vs {actual:.4f})")
+        old_error = rmse(raw[floor], reference[floor])
+        traced_error = rmse(sampled[floor], reference[floor])
+        restir_error = rmse(restir[floor], reference[floor])
+        check(traced_error < old_error * 0.93,
+              f"at four samples mesh-light MIS improves on BSDF hits ({old_error:.4f} -> {traced_error:.4f})")
+        check(restir_error < old_error * 0.75,
+              f"ReSTIR reuse further reduces four-sample mesh-emitter error ({old_error:.4f} -> {restir_error:.4f})")
+    finally:
+        if saved is None:
+            fixture.unlink(missing_ok=True)
+        else:
+            fixture.write_bytes(saved)
 
 
 def check_adaptive(config):
@@ -749,7 +783,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():
