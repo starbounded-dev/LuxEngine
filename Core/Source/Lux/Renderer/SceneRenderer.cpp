@@ -493,6 +493,8 @@ namespace Lux {
 			"SSRComposite",
 			"RTReflectionsPass",
 			"RTReflectionsDenoise",
+			"RTShadowsPass",
+			"RTVisibilityFilter",
 			"ReSTIRDI",
 			"JumpFlood",
 			"BloomCompute",
@@ -4541,7 +4543,7 @@ namespace Lux {
 		}
 
 		{
-			if (m_Options.EnableRTShadows && RHIDevice::SupportsRayQuery())
+			if (GetRTVisibilityFlags() != 0u)
 			{
 				std::vector<RenderGraph::ResourceHandle> shadowReads = gbufferOutputs;
 				appendResources(shadowReads, preDepthOutputs);
@@ -6268,7 +6270,7 @@ namespace Lux {
 			m_RendererDataUB.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
 			m_RendererDataUB.GPUSceneDebugMode = ResolveGPUSceneDebugMode(m_DebugViewMode);
 			m_RendererDataUB.Time = Application::Get().GetTime();
-			m_RendererDataUB.RTShadows = (m_Options.EnableRTShadows && m_RTShadowMask && RHIDevice::SupportsRayQuery()) ? 1u : 0u;
+			m_RendererDataUB.RTShadows = m_RTShadowMask ? GetRTVisibilityFlags() : 0u;
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
@@ -6287,7 +6289,9 @@ namespace Lux {
 		// Resolved GTAO for deferred lighting's indirect term; the AO Composite pass writes it earlier
 		// in the frame whenever GTAO is on.
 		Ref<Image2D> ambientOcclusion = (m_Options.EnableGTAO && m_AOCompositePass) ? m_AOCompositePass->GetOutput(0) : nullptr;
-		Ref<Image2D> shadowMask = (m_Options.EnableRTShadows && m_RTShadowMask && RHIDevice::SupportsRayQuery()) ? m_RTShadowMask : nullptr;
+		const uint32_t visibilityFlags = GetRTVisibilityFlags();
+		const bool filteredVisibility = (visibilityFlags & (k_RTContactShadow | k_RTAmbientOcclusion)) != 0u && m_RTFilteredVisibility;
+		Ref<Image2D> shadowMask = filteredVisibility ? m_RTFilteredVisibility : (visibilityFlags != 0u ? m_RTShadowMask : nullptr);
 		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap, ambientOcclusion, shadowMask]() mutable
 		{
 			if (deferredPass)

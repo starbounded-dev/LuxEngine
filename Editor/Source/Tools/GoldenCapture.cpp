@@ -108,6 +108,8 @@ namespace Lux {
 			{ "RTReflBudget", &SceneRendererOptions::RTReflectionAdaptiveBudget },
 			{ "RTReflDenoise", &SceneRendererOptions::RTReflectionDenoiser },
 			{ "RTShadows", &SceneRendererOptions::EnableRTShadows },
+			{ "RTContact", &SceneRendererOptions::EnableRTContactShadows },
+			{ "RTAO", &SceneRendererOptions::EnableRTAmbientOcclusion },
 			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
 			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },

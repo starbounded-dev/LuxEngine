@@ -323,6 +323,11 @@ namespace Lux {
 		bool     EnableRTReflections = false;
 		// Ray-traced directional shadows (RayTracing/RTGI.cpp, RTShadows.glsl): deferred lighting reads a visibility mask traced from the raster depth/G-buffer instead of the cascade shadow maps. Soft by the light's angular radius. RT-only.
 		bool     EnableRTShadows = false;
+		bool     EnableRTContactShadows = false;
+		bool     EnableRTAmbientOcclusion = false;
+		float    RTContactShadowDistance = 0.6f;
+		float    RTAmbientOcclusionRadius = 1.0f;
+		uint32_t RTAmbientOcclusionRays = 6;
 		float    RTShadowAngularRadiusDegrees = 0.5f; // the sun is about 0.27
 		uint32_t RTShadowRays = 4;
 		float    RTReflectionRoughnessCutoff = 0.4f; // surfaces rougher than this keep the raster reflection
@@ -2077,9 +2082,18 @@ namespace Lux {
 		void RTReflectionsPass();
 		void RTShadowsPass();
 		bool EnsureRTShadows();
+		bool EnsureRTVisibilityFilter();
+		uint32_t GetRTVisibilityFlags() const;
+		static constexpr uint32_t k_RTFullDirectionalShadow = 1u;
+		static constexpr uint32_t k_RTContactShadow = 2u;
+		static constexpr uint32_t k_RTAmbientOcclusion = 4u;
 		Ref<ComputePass> m_RTShadowPass;
 		Ref<Image2D> m_RTShadowMask;
+		Ref<StorageImageClear> m_RTShadowMaskClear;
+		Ref<ComputePass> m_RTVisibilityFilter;
+		Ref<Image2D> m_RTFilteredVisibility;
 		bool m_RTShadowUnavailable = false;
+		bool m_RTVisibilityFilterUnavailable = false;
 		uint32_t m_RTShadowFrame = 0;
 		// Screen-space reflections, unless ray-traced reflections replace them (they trace the same surfaces and would add on top of SSR).
 		bool SSRActive() const;

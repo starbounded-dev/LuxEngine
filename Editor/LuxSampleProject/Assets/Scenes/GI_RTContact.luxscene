@@ -1,0 +1,106 @@
+FormatVersion: 1
+Scene: GI_RTContact
+Entities:
+  - Entity: 17000000000000002
+    TagComponent:
+      Tag: No Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 17000000000000001
+    TagComponent:
+      Tag: Sun
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [-0.84, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 1, 1]
+      Unit: 0
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: false
+      LightSize: 0.25
+      ShadowAmount: 1
+      ShadowDistance: 3
+      ShadowResolutionTier: 1
+  - Entity: 17000000000000003
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [12, 0.1, 12]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000004
+    TagComponent:
+      Tag: Low blocker
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.15, 0.28, -0.35]
+      Rotation: [0, 0, 0]
+      Scale: [0.85, 0.18, 0.6]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_RedBall.lmat
+      Visible: true
+  - Entity: 17000000000000005
+    TagComponent:
+      Tag: High blocker
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.15, 1.4, -0.35]
+      Rotation: [0, 0, 0]
+      Scale: [0.85, 0.18, 0.6]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_RedBall.lmat
+      Visible: true
+  - Entity: 17000000000000006
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.4, 5.0]
+      Rotation: [-0.722, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

@@ -420,6 +420,11 @@ Structurally:
   submeshes from the same table, then sample one triangle from the instance's traced geometry.
   They use world triangle area and emitter cosine for the solid-angle PDF. BSDF hits use the
   same PDF for MIS, or defer to ReSTIR for direct illumination of the first hit.
+- The raster ray-traced visibility pass supports full directional shadows, short directional
+  contact rays and local ambient occlusion. Contact rays combine with the cascades, and the
+  ambient visibility replaces GTAO for deferred indirect lighting. The depth-and-normal filter
+  preserves silhouettes. Directional visibility occupies RGB and ambient visibility occupies
+  alpha in the shared mask.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

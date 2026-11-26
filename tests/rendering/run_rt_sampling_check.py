@@ -600,6 +600,40 @@ def check_debug(config):
     check(float(plain.mean()) > 0.2 and float(plain[..., 0].mean()) > float(plain[..., 2].mean()) * 0.8, "with the view off the normal image is shown")
 
 
+def check_rt_visibility(config):
+    """#257: finite contact rays add the near shadow, and AO attenuates only local ambient light."""
+    base = "GTAO=0,Lightmaps=0,Bloom=0,DOF=0,SSR=0"
+    scene = "GI_RTContact"
+    plain = capture("rtv-contact-off", scene, f"{base},RTContact=0", config, 160)
+    contact = capture("rtv-contact-on", scene, f"{base},RTContact=1", config, 160)
+    full = capture("rtv-contact-full", scene, f"{base},RTShadows=1", config, 160)
+    reference = capture("rtv-contact-ref", scene, f"{base},PathTracer=1,PathTracerSamples=128,PathTracerBounces=1", config, spp(128))
+    h, w = plain.shape[:2]
+    xs = np.arange(w)[None, :]
+    floor = (plain.max(axis=-1) - plain.min(axis=-1)) < 0.035
+    full_shadow = floor & ((plain - full).mean(axis=-1) > 0.13)
+    near = full_shadow & (xs < 0.48 * w)
+    far = full_shadow & (xs > 0.52 * w)
+    check(min(int(near.sum()), int(far.sum())) > 400, f"the full rays find both occluders ({near.sum()} near and {far.sum()} far pixels)")
+    old, new = rmse(plain[near], reference[near]), rmse(contact[near], reference[near])
+    check(new < old * 0.65, f"contact rays improve the near shadow against the path tracer ({old:.4f} -> {new:.4f})")
+    check(rmse(plain[far], contact[far]) < 0.005, "contact rays leave the elevated occluder's distant shadow for the full shadow pass")
+
+    scene = "GI_RTAmbient"
+    plain = capture("rtv-ao-off", scene, f"{base},RTAO=0", config, 160)
+    ambient = capture("rtv-ao-on", scene, f"{base},RTAO=1", config, 160)
+    # The elevated occluder is farther above the floor than the AO radius. Only the low one shades the floor.
+    darkened = (plain - ambient).mean(axis=-1) > 0.025
+    left = darkened & (xs < 0.48 * w)
+    right = darkened & (xs > 0.52 * w)
+    check(int(left.sum()) > 500 and int(right.sum()) < int(left.sum()) * 0.06,
+          f"ambient rays darken locally under the low occluder ({left.sum()} near and {right.sum()} far pixels)")
+    timing = json.loads((ROOT / "bin/golden/rt-check-rtv-ao-on" / f"{scene}.perf.json").read_text(encoding="utf-8"))
+    trace = timing["passes"]["RTShadowsPass"]["gpuMs"]
+    filtering = timing["passes"]["RTVisibilityFilter"]["gpuMs"]
+    check(trace > 0 and filtering > 0, f"ambient visibility traced in {trace:.3f} ms and filtered in {filtering:.3f} ms")
+
+
 def check_lmdenoise(config):
     """#248: lightmap denoising. A 16-sample bake with the denoiser is closer (as rendered) to a 512-sample bake than the raw 16-sample
     bake, and the denoiser does not darken the result."""
@@ -783,7 +817,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():

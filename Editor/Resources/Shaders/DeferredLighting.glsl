@@ -88,7 +88,8 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 nor
 		return 0.0;
 
 	// Ray-traced shadows: the mask was traced for the shading normal (the translucency path passes its flipped one and keeps the cascades).
-	if (u_RendererData.RTShadows != 0u && dot(normal, m_Params.Normal) > 0.999)
+	const bool frontFace = dot(normal, m_Params.Normal) > 0.999;
+	if ((u_RendererData.RTShadows & 1u) != 0u && frontFace)
 	{
 		float rayTraced = texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).r;
 		return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - rayTraced, 0.0, 1.0);
@@ -165,6 +166,8 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 nor
 		shadowScale = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowCoords[cascadeIndex], u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowCoords[cascadeIndex]);
 	}
 
+	if ((u_RendererData.RTShadows & 2u) != 0u && frontFace)
+		shadowScale = min(shadowScale, texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).r);
 	return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0, 1.0);
 }
 
@@ -261,7 +264,9 @@ void main()
 
 	// Material AO and screen-space GTAO occlude the ambient/IBL term only (specular through specular
 	// occlusion inside the IBL evaluation). Direct light already has shadow-map visibility.
-	float screenSpaceAO = texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
+	float screenSpaceAO = (u_RendererData.RTShadows & 4u) != 0u
+		? texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).a
+		: texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
 	float ambientOcclusion = max(gbuffer.AmbientOcclusion, 0.0) * screenSpaceAO;
 	vec3 iblLighting = LuxApplyLobesIBL(IBL(F0, Lr, ambientOcclusion), u_EnvRadianceTex, u_EnvIrradianceTex,
 		m_Params.Normal, m_Params.View, u_Scene.EnvironmentMapRotation, ambientOcclusion) * u_Scene.EnvironmentMapIntensity;

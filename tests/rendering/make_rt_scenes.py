@@ -209,6 +209,32 @@ def write_mesh_emitter_scene():
     ])
 
 
+def write_rt_visibility_scenes():
+    sun = entity("Sun", (0, 0, 0), rot=(-0.84, 0, 0), body="""    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 1, 1]
+      Unit: 0
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: false
+      LightSize: 0.25
+      ShadowAmount: 1
+      ShadowDistance: 3
+      ShadowResolutionTier: 1
+""")
+    def geometry():
+        return [
+            floor("Materials/GI/GI_White.lmat", (12, 0.1, 12)),
+            mesh("Low blocker", "Cube", (-1.15, 0.28, -0.35), (0.85, 0.18, 0.6), "GI_RedBall"),
+            mesh("High blocker", "Cube", (1.15, 1.40, -0.35), (0.85, 0.18, 0.6), "GI_RedBall"),
+            camera((0, 4.4, 5.0), (-0.722, 0, 0)),
+        ]
+
+    write("GI_RTContact", [nosky(), sun, *geometry()])
+    sky = nosky().replace("Tag: No Sky", "Tag: Sky").replace("Intensity: 0", "Intensity: 1.25")
+    write("GI_RTAmbient", [sky, *geometry()])
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []
@@ -333,6 +359,7 @@ def main():
     write("GI_FogEmpty", [mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), camera((0, 0, 8), (0, 0, 0))])
     write_fog_sun_scene()
     write_rough_reflection_scene()
+    write_rt_visibility_scenes()
 
     # The white-furnace sphere with a clearcoat layer: still must not exceed the environment.
     furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8").replace("GI_Furnace.lmat", "GI_FurnaceCoat.lmat").replace("Scene: GI_Furnace", "Scene: GI_FurnaceCoat")

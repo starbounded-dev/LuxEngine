@@ -531,6 +531,15 @@ namespace Lux {
 		});
 	}
 
+	uint32_t SceneRenderer::GetRTVisibilityFlags() const
+	{
+		if (m_RTShadowUnavailable || !RHIDevice::SupportsRayQuery() || !ShaderCompiler::IsAvailable())
+			return 0u;
+		return (m_Options.EnableRTShadows ? k_RTFullDirectionalShadow : 0u)
+			| (m_Options.EnableRTContactShadows ? k_RTContactShadow : 0u)
+			| (m_Options.EnableRTAmbientOcclusion ? k_RTAmbientOcclusion : 0u);
+	}
+
 	bool SceneRenderer::EnsureRTShadows()
 	{
 		if (m_RTShadowPass)
@@ -563,6 +572,7 @@ namespace Lux {
 		spec.DebugName = "RTShadows-Mask";
 		m_RTShadowMask = Image2D::Create(spec);
 		m_RTShadowMask->Invalidate();
+		m_RTShadowMaskClear = Ref<StorageImageClear>::Create(m_RTShadowMask, 0);
 
 		ComputePassSpecification passSpec;
 		passSpec.DebugName = "RTShadows";
@@ -582,12 +592,53 @@ namespace Lux {
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[RTShadows] pass inputs do not match the shader; ray-traced shadows are off for this session");
 			m_RTShadowMask = nullptr;
+			m_RTShadowMaskClear = nullptr;
 			m_RTShadowUnavailable = true;
 			return false;
 		}
 		pass->Bake();
 		m_RTShadowPass = pass;
 		LUX_CORE_INFO_TAG("Renderer", "[RTShadows] ready");
+		return true;
+	}
+
+	bool SceneRenderer::EnsureRTVisibilityFilter()
+	{
+		if (m_RTVisibilityFilter)
+			return true;
+		if (m_RTVisibilityFilterUnavailable)
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		if (!library->GetShaders().contains("RTVisibilityFilter"))
+			library->Load("Resources/Shaders/PathTracing/RTVisibilityFilter.glsl");
+		if (!library->GetShaders().contains("RTVisibilityFilter"))
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTShadows] visibility filter did not compile; using unfiltered visibility");
+			m_RTVisibilityFilterUnavailable = true;
+			return false;
+		}
+		ImageSpecification spec = m_RTShadowMask->GetSpecification();
+		spec.DebugName = "RTShadows-FilteredMask";
+		Ref<Image2D> output = Image2D::Create(spec);
+		output->Invalidate();
+		ComputePassSpecification passSpec;
+		passSpec.DebugName = "RTVisibilityFilter";
+		passSpec.Pipeline = PipelineCompute::Create(library->Get("RTVisibilityFilter"));
+		Ref<ComputePass> pass = ComputePass::Create(passSpec);
+		pass->SetInput("Camera", m_UBSCamera);
+		pass->SetInput("u_RSDepth", m_PreDepthPass->GetDepthOutput());
+		pass->SetInput("u_RSNormal", GetGeometryNormalOutput());
+		pass->SetInput("u_RSRawMask", m_RTShadowMask);
+		pass->SetInput("o_RSMask", output);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTShadows] visibility filter inputs do not match the shader; using unfiltered visibility");
+			m_RTVisibilityFilterUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_RTFilteredVisibility = output;
+		m_RTVisibilityFilter = pass;
 		return true;
 	}
 
@@ -598,38 +649,74 @@ namespace Lux {
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !m_SubmittedRenderScene || !EnsureRTShadows())
 			return;
 		if (m_RTShadowMask->GetWidth() != m_ViewportWidth || m_RTShadowMask->GetHeight() != m_ViewportHeight)
+		{
 			m_RTShadowMask->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_RTShadowMaskClear = Ref<StorageImageClear>::Create(m_RTShadowMask, 0);
+		}
 		m_RTShadowPass->SetInput("u_RSDepth", m_PreDepthPass->GetDepthOutput());
 		m_RTShadowPass->SetInput("u_RSNormal", GetGeometryNormalOutput());
+		const uint32_t visibilityFlags = GetRTVisibilityFlags();
+		const bool denoise = (visibilityFlags & (k_RTContactShadow | k_RTAmbientOcclusion)) != 0u && EnsureRTVisibilityFilter();
+		if (denoise)
+		{
+			if (m_RTFilteredVisibility->GetWidth() != m_ViewportWidth || m_RTFilteredVisibility->GetHeight() != m_ViewportHeight)
+				m_RTFilteredVisibility->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_RTVisibilityFilter->SetInput("u_RSDepth", m_PreDepthPass->GetDepthOutput());
+			m_RTVisibilityFilter->SetInput("u_RSNormal", GetGeometryNormalOutput());
+			GetOrCreatePassProfile("RTVisibilityFilter").GPUActive = true;
+		}
+		GetOrCreatePassProfile("RTShadowsPass").GPUActive = true;
 
 		std::vector<const StaticMeshRenderProxy*> proxies = m_SubmittedRenderScene->GetStaticMeshProxies();
 		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
 		const DirectionalLight& sun = m_SceneData.SceneLightEnvironment.DirectionalLights[0];
 		const glm::vec3 toLight = glm::length(sun.Direction) > 1e-5f ? glm::normalize(sun.Direction) : glm::vec3(0.0f, 1.0f, 0.0f);
-		const float radius = glm::radians(std::clamp(m_Options.RTShadowAngularRadiusDegrees, 0.0f, 30.0f));
+		const bool fullShadow = (visibilityFlags & k_RTFullDirectionalShadow) != 0u;
+		const bool contactShadow = (visibilityFlags & k_RTContactShadow) != 0u;
+		const bool ambientOcclusion = (visibilityFlags & k_RTAmbientOcclusion) != 0u;
+		const float radius = fullShadow ? glm::radians(std::clamp(m_Options.RTShadowAngularRadiusDegrees, 0.0f, 30.0f)) : 0.0f;
+		const float contactDistance = contactShadow ? std::clamp(m_Options.RTContactShadowDistance, 0.01f, 10.0f) : 0.0f;
+		const float shadowDistance = sun.Intensity > 0.0f ? (fullShadow ? 1e30f : contactDistance) : 0.0f;
+		const float aoRadius = std::clamp(m_Options.RTAmbientOcclusionRadius, 0.01f, 25.0f);
 		const uint32_t width = m_ViewportWidth, height = m_ViewportHeight;
-		const uint32_t rays = std::clamp(m_Options.RTShadowRays, 1u, 64u);
+		const uint32_t rays = fullShadow ? std::clamp(m_Options.RTShadowRays, 1u, 64u) : 1u;
+		const uint32_t aoRays = ambientOcclusion ? std::clamp(m_Options.RTAmbientOcclusionRays, 1u, 16u) : 0u;
 		const uint32_t frame = m_RTShadowFrame++;
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
 		Ref<ComputePass> pass = m_RTShadowPass;
+		Ref<ComputePass> filter = denoise ? m_RTVisibilityFilter : nullptr;
+		Ref<StorageImageClear> rawMaskClear = m_RTShadowMaskClear;
 		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTShadowPass);
 
 		Renderer::Submit([=, instances = std::move(instances)]() mutable
 		{
 			scene->RT_Update(cb, instances);
-			if (!scene->IsValid())
-				return;
-			RTGITracePush push = {};
-			push.SizeFrameBounces = glm::uvec4(width, height, frame, 0u);
-			push.Counts = glm::uvec4(0u, 0u, rays, 0u);
-			ApplyPathTraceEnvironment(push, envParams);
-			push.SkyRadiance = glm::vec4(toLight, radius);
-			cb->RT_BeginMarker("RTShadows");
-			pass->Prepare();
-			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
-			cb->RT_EndMarker();
+			const glm::uvec3 groups((width + 7u) / 8u, (height + 7u) / 8u, 1u);
+			if (scene->IsValid())
+			{
+				RTGITracePush push = {};
+				push.SizeFrameBounces = glm::uvec4(width, height, frame, 0u);
+				push.Counts = glm::uvec4(0u, 0u, rays, aoRays);
+				ApplyPathTraceEnvironment(push, envParams);
+				push.SkyRadiance = glm::vec4(toLight, radius);
+				push.GroundRadiance.x = shadowDistance;
+				push.GroundRadiance.y = aoRadius;
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTShadowsPass");
+				pass->Prepare();
+				Renderer::RT_DispatchCompute(*cb, *pass, groups, Buffer(&push, sizeof(push)));
+				Renderer::RT_EndGPUPerfMarker(cb);
+			}
+			else
+				rawMaskClear->RT_Record(*cb, glm::vec4(1.0f));
+			if (filter)
+			{
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTVisibilityFilter");
+				filter->Prepare();
+				Renderer::RT_DispatchCompute(*cb, *filter, groups, Buffer());
+				Renderer::RT_EndGPUPerfMarker(cb);
+			}
 		});
 	}
 
