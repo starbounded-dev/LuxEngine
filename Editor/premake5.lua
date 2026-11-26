@@ -42,6 +42,10 @@ project "Editor"
 		"../Core/vendor/"
 	}
 
+	-- EditorLayer.cpp has outgrown MSVC's default object-file section limit in Debug (error C1128).
+	filter { "system:windows", "files:Source/EditorLayer.cpp" }
+		buildoptions { "/bigobj" }
+
 	filter "system:windows"
 		-- Incremental build directories can retain the previous dynamically loaded backend.
 		postbuildcommands { '{DELETE} "%{cfg.targetdir}/vaudionative.dll"' }
