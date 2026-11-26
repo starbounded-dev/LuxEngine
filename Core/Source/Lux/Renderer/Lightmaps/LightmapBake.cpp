@@ -459,7 +459,8 @@ namespace Lux {
 							BakeTexel& texel = texels[static_cast<size_t>(instance.Y + y) * size + (instance.X + x)];
 							if (texel.Normal.w > 0.5f)
 							{
-								overlappedTexels++; // first triangle wins; counted so overlapping UVs are reported below
+								if (std::min(w0, std::min(w1, w2)) > 1e-3f)
+									overlappedTexels++; // first triangle wins; counted (strictly inside, so triangles that only share an edge are not) so overlapping UVs are reported below
 								continue;
 							}
 							coveredTexels++;
@@ -472,7 +473,7 @@ namespace Lux {
 				// Overlapping lightmap UVs make several surfaces share texels and light each other wrongly: say so.
 				if (overlappedTexels > 16 && overlappedTexels * 20 > coveredTexels)
 				{
-					LUX_CORE_WARN_TAG("Core", "[Lightmap] submesh {} of '{}' has overlapping lightmap UVs ({} of {} texels shared). Unwrap it with a non-overlapping second UV set (UV1); the bake used the first triangle at each texel.",
+					LUX_CORE_WARN_TAG("Core", "[Lightmap] submesh {} of '{}' has overlapping lightmap UVs ({} of {} texels shared). Unwrap it with a non-overlapping second UV set (UV1), or turn on Auto-Unwrap Lightmap UVs and reimport the mesh; the bake used the first triangle at each texel.",
 						instance.Submesh, std::filesystem::path(instance.Source->GetFilePath()).filename().string(), overlappedTexels, coveredTexels + overlappedTexels);
 					bake.Status = "overlapping UVs";
 					if (m_Options.LightmapUnwrapReport)

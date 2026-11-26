@@ -141,6 +141,8 @@ namespace Lux {
 		bool m_RunSelfTest = false;
 		bool m_Play = false, m_PlayStarted = false, m_AudioVerified = false;
 		bool m_ExitWhenDone = true;
+		uint32_t m_LightmapBakeSamples = 0;
+		bool m_LightmapBakeStarted = false;
 		std::map<std::string, std::string> m_Options;
 
 		Stage m_Stage = Stage::OpenProject;

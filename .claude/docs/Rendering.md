@@ -1512,7 +1512,9 @@ GPU runs. With every ray-traced option off the frame is bit-identical to before 
 
 - Each (entity, submesh) gets a rectangle sized from its world area (16 texels/m by default); the CPU rasterises the mesh's
   UV1 (UV0 when the mesh has no second UV set, because the attribute stream defaults UV1 to UV0) to find a world position and
-  normal per texel. UVs must not overlap; there is no unwrapper yet (xatlas is a follow-up).
+  normal per texel. Overlapping UVs are reported during the bake. The editor's source mesh importer can
+  apply a deterministic xatlas unwrap to overlapping static submeshes before generating render geometry.
+  It is off by default. Golden captures opt in before opening the project with `AutoUnwrap=1`.
 - `PathTraceBake.glsl` adds one cosine-weighted path per texel per frame (shared kernel `Include/GLSL/PathTraceCommon.glslh`),
   storing the mean incident radiance. Result: gutter-dilated, saved as `<project assets>/Lightmaps/<scene name>.lxlm`
   (`LightmapData`), loaded again by `SceneRenderer::SetScene`. **Not part of runtime exports yet** (no asset type).

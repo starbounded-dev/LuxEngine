@@ -708,6 +708,7 @@ namespace Lux
 		ImportAssimpMaterials(m_Path, scene, meshSource);
 
 		// ── GPU buffers ───────────────────────────────────────────────────────
+		meshSource->UnwrapOverlappingLightmapUVs();
 		meshSource->BuildRenderGeometry();
 
 		LUX_CORE_INFO("AssimpMeshImporter: Loaded '{}' – {} submeshes, {} vertices, {} indices",

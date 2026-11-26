@@ -470,20 +470,81 @@ def check_probes(config):
 
 
 def check_unwrap(config):
-    """#227: xatlas unwrap of a submesh whose lightmap UVs overlap (the cube's). Charts are cut, vertices split, the triangle count kept and
-    the atlas used; the log is the evidence."""
+    """#227: report the xatlas result for a deliberately overlapping mesh without changing its UVs."""
     import re
-    scene = "GI_CornellDark"
-    sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_CornellDark.lxlm"
+    scene = "GI_OverlapUV"
+    sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_OverlapUV.lxlm"
+    previous_sidecar = sidecar.read_bytes() if sidecar.exists() else None
     try:
+        sidecar.unlink(missing_ok=True)
         capture("un-report", scene, "BakeLightmaps=4,Lightmaps=1,LMUnwrapReport=1", config, 330)
     finally:
-        if sidecar.exists():
-            sidecar.unlink()
-    found = re.findall(r"unwrap of submesh \d+: (\d+) -> (\d+) vertices, (\d+) charts, (\d+)% of a (\d+)x(\d+) atlas used, (\d+) triangles", read_log("un-report", scene))
-    check(bool(found), "the bake reports an xatlas unwrap for the overlapping cube")
+        if previous_sidecar is None:
+            sidecar.unlink(missing_ok=True)
+        else:
+            sidecar.write_bytes(previous_sidecar)
+    log = read_log("un-report", scene)
+    check("overlapping lightmap UVs" in log and "unwrapped submesh" not in log, "reporting leaves the original overlap in place")
+    found = re.findall(r"unwrap of submesh \d+: (\d+) -> (\d+) vertices, (\d+) charts, (\d+)% of a (\d+)x(\d+) atlas used, (\d+) triangles", log)
+    check(bool(found), "the bake reports an xatlas unwrap for the overlapping room")
     before, after, charts, used, side, _, triangles = (int(v) for v in found[0])
-    check(after >= before and charts >= 1 and triangles > 0 and used >= 20, f"{before} -> {after} vertices, {charts} charts, {used}% of a {side}x{side} atlas, {triangles} triangles")
+    check(before == 8 and after >= before and charts == 2 and triangles == 4 and used >= 20,
+          f"{before} -> {after} vertices, {charts} charts, {used}% of a {side}x{side} atlas, {triangles} triangles")
+
+
+def check_unwrap_apply(config):
+    """#253: applying the unwrap separates the floor and wall lightmaps while preserving their unbaked appearance."""
+    import re
+
+    scene = "GI_OverlapUV"
+    sidecar = ROOT / "Editor/LuxSampleProject/Assets/Lightmaps/GI_OverlapUV.lxlm"
+    previous_sidecar = sidecar.read_bytes() if sidecar.exists() else None
+    bake_options = "BakeLightmaps=64,Lightmaps=1,LMDenoise=1,Bloom=0"
+    try:
+        sidecar.unlink(missing_ok=True)
+        reference = capture("ua-pt", scene, "PathTracer=1,PathTracerSamples=256,PathTracerBounces=4,Bloom=0", config, spp(256))
+        overlap = capture("ua-off", scene, bake_options, config, 900)
+        check(sidecar.is_file(), "the overlapping mesh produced a lightmap")
+        sidecar.unlink()
+        unwrapped = capture("ua-on", scene, f"{bake_options},AutoUnwrap=1", config, 900)
+        check(sidecar.is_file(), "the unwrapped mesh produced a lightmap")
+        sidecar.unlink()
+        unbaked = capture("ua-unbaked", scene, "Lightmaps=0,Bloom=0", config, 330)
+        unbaked_unwrapped = capture("ua-on2", scene, "Lightmaps=0,Bloom=0,AutoUnwrap=1", config, 330)
+    finally:
+        if previous_sidecar is None:
+            sidecar.unlink(missing_ok=True)
+        else:
+            sidecar.write_bytes(previous_sidecar)
+
+    overlap_warning = r"submesh \d+ of 'LightmapOverlap\.gltf' has overlapping lightmap UVs"
+    unwrap_report = r"unwrapped submesh \d+ of .*LightmapOverlap\.gltf.*"
+    before_log = read_log("ua-off", scene)
+    after_log = read_log("ua-on", scene)
+    check(bool(re.search(overlap_warning, before_log)) and not re.search(unwrap_report, before_log),
+          "the default import preserves the room's overlapping UVs and the bake reports them")
+    first = re.findall(unwrap_report, after_log)
+    second = re.findall(unwrap_report, read_log("ua-on2", scene))
+    check(bool(first) and not re.search(overlap_warning, after_log), "auto-unwrap separates the overlapping lightmap charts")
+    check(first == second, "a fresh import produces the same vertex and chart counts")
+
+    unbaked_error = rmse(unbaked, unbaked_unwrapped)
+    check(unbaked_error < 0.003, f"without lightmaps, unwrapping preserves the raster frame (RMSE {unbaked_error:.5f})")
+
+    def surface_means(image):
+        height, width = image.shape[:2]
+        columns = slice(int(width * 0.49), int(width * 0.61))
+        wall = image[int(height * 0.25):int(height * 0.39), columns]
+        floor = image[int(height * 0.72):int(height * 0.84), columns]
+        return np.array([wall.mean(axis=(0, 1)), floor.mean(axis=(0, 1))])
+
+    expected = surface_means(reference)
+    contrast = float((expected[1] - expected[0]).mean())
+    check(contrast > 0.025, f"the reference separates the lit floor from the upper wall (mean difference {contrast:.4f})")
+    before_error = rmse(surface_means(overlap), expected)
+    after_error = rmse(surface_means(unwrapped), expected)
+    check(after_error < before_error * 0.85,
+          f"unwrapping improves the wall and floor lightmap means against the path tracer (RMSE {before_error:.4f} -> {after_error:.4f})")
 
 
 def check_texlib(config):
@@ -508,7 +569,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
 
 
 def main():

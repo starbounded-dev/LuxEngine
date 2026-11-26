@@ -1,0 +1,70 @@
+FormatVersion: 1
+Scene: GI_OverlapUV
+Entities:
+  - Entity: 17000000000000058
+    TagComponent:
+      Tag: No Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 17000000000000059
+    TagComponent:
+      Tag: Room
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/GI/LightmapOverlap.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000060
+    TagComponent:
+      Tag: Lamp
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.3, 1.1, 1.6]
+      Rotation: [0, 0, 0]
+      Scale: [2.2, 0.12, 2.0]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Emit.lmat
+      Visible: true
+  - Entity: 17000000000000061
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3.0, 8.0]
+      Rotation: [-0.2, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

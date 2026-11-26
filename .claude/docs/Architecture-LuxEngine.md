@@ -256,6 +256,11 @@ the lightmap baker, a realtime-GI probe volume and per-pixel ray-traced GI, plus
 path-traced reference. Details, bindings and traps: `.claude/docs/Rendering.md` ("Ray tracing and the path tracer"), plan and status:
 `docs/GI_PLAN.md`.
 
+With `MeshSource::SetAutoUnwrapLightmapUVs` enabled before import, `AssimpMeshImporter` remaps
+overlapping static submeshes to xatlas lightmap UVs before `BuildRenderGeometry`. Duplicated
+vertices preserve the source attributes outside UV1, and placements that share a geometry range
+share the remap. The setting defaults to off and applies to future source imports.
+
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
 `TextureSubresourceRange` (a default range is *every* mip and layer), `GPUQueue`, `ResourceState`,
 `DrawIndexedIndirectCommand`, and the render-target/viewport/vertex-attribute limits. Public

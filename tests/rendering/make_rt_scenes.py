@@ -131,9 +131,9 @@ def nosky():
 """)
 
 
-def mesh(tag, asset, pos, scale, material, rot=(0, 0, 0)):
+def mesh(tag, asset, pos, scale, material, rot=(0, 0, 0), folder="Default"):
     return entity(tag, pos, scale, rot, body=f"""    StaticMeshComponent:
-      AssetID: Meshes/Source/Default/{asset}.gltf
+      AssetID: Meshes/Source/{folder}/{asset}.gltf
       MaterialTable:
         0: Materials/GI/{material}.lmat
       Visible: true
@@ -241,6 +241,30 @@ def main():
                              mesh("Plate", "Cube", (-1.8, 1.2, 0), (1.5, 0.2, 2.5), "GI_GlassTint"),
                              point("Key", (-4.5, 3.2, 0), (1, 1, 1), 160, 30),
                              camera((0, 4.5, 6.5), (-0.62, 0, 0))])
+
+    # A floor and a wall in ONE submesh whose UVs are both the full 0..1 square: their lightmap UVs overlap completely until the mesh is unwrapped.
+    import base64, json, struct
+    pos = [(-4, 0, -3), (4, 0, -3), (4, 0, 3), (-4, 0, 3), (-4, 0, -3), (4, 0, -3), (4, 4, -3), (-4, 4, -3)]
+    nrm = [(0, 1, 0)] * 4 + [(0, 0, 1)] * 4
+    uvs = [(0, 0), (1, 0), (1, 1), (0, 1)] * 2
+    idx = [0, 3, 2, 0, 2, 1, 4, 5, 6, 4, 6, 7]
+    blob = b"".join(struct.pack("<3f", *v) for v in pos) + b"".join(struct.pack("<3f", *v) for v in nrm) + b"".join(struct.pack("<2f", *v) for v in uvs) + struct.pack("<12H", *idx)
+    gltf = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3}]}],
+            "buffers": [{"byteLength": len(blob), "uri": "data:application/octet-stream;base64," + base64.b64encode(blob).decode()}],
+            "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 96}, {"buffer": 0, "byteOffset": 96, "byteLength": 96}, {"buffer": 0, "byteOffset": 192, "byteLength": 64}, {"buffer": 0, "byteOffset": 256, "byteLength": 24}],
+            "accessors": [{"bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-4, 0, -3], "max": [4, 4, 3]}, {"bufferView": 1, "componentType": 5126, "count": 8, "type": "VEC3"},
+                          {"bufferView": 2, "componentType": 5126, "count": 8, "type": "VEC2"}, {"bufferView": 3, "componentType": 5123, "count": 12, "type": "SCALAR"}]}
+    gi_meshes = ROOT / "Editor/LuxSampleProject/Assets/Meshes/Source/GI"
+    gi_meshes.mkdir(parents=True, exist_ok=True)
+    (gi_meshes / "LightmapOverlap.gltf").write_text(json.dumps(gltf), encoding="utf-8", newline=chr(10))
+    # The low emissive box lights the nearby floor more than the upper wall.
+    # Keep it left of the wall and floor regions sampled by the check.
+    write_material("GI_Emit", (1.0, 0.85, 0.6), 0.0, 0.5)
+    emit = (MATERIALS / "GI_Emit.lmat").read_text(encoding="utf-8").replace("Emission: 0", "Emission: 30")
+    (MATERIALS / "GI_Emit.lmat").write_text(emit, encoding="utf-8", newline=chr(10))
+    write("GI_OverlapUV", [nosky(), mesh("Room", "LightmapOverlap", (0, 0, 0), (1, 1, 1), "GI_White", folder="GI"),
+                           mesh("Lamp", "Cube", (-2.3, 1.1, 1.6), (2.2, 0.12, 2.0), "GI_Emit"), camera((0, 3.0, 8.0), (-0.2, 0, 0))])
 
     # Subsurface: a white-scattering sphere in the furnace, and a thin warm slab lit only from behind.
     write_material("GI_SSS", (1.0, 1.0, 1.0), 0.0, 0.5, {"SubsurfaceColor": "[1, 1, 1]", "SubsurfaceThickness": 0.0})

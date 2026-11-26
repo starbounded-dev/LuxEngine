@@ -122,7 +122,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "TexLibFetch" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "TexLibFetch" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -220,6 +220,15 @@ namespace Lux {
 		m_Play = ParseBool(GetEnv("LUX_GOLDEN_PLAY"));
 		m_ExitWhenDone = GetEnv("LUX_GOLDEN_EXIT") != "0";
 		ParseOptions(GetEnv("LUX_GOLDEN_OPTIONS"));
+		// Source meshes must see the option before the capture project opens.
+		if (const auto it = m_Options.find("AutoUnwrap"); it != m_Options.end())
+			MeshSource::SetAutoUnwrapLightmapUVs(ParseBool(it->second));
+		if (const auto it = m_Options.find("BakeLightmaps"); it != m_Options.end())
+		{
+			uint32_t samples = 64;
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), samples);
+			m_LightmapBakeSamples = std::max(samples, 1u);
+		}
 		if (const auto it = m_Options.find("MoveEntities"); it != m_Options.end())
 			std::from_chars(it->second.data(), it->second.data() + it->second.size(), m_MoveEntityCount);
 		if (const auto it = m_Options.find("MoveStop"); it != m_Options.end())
@@ -320,12 +329,6 @@ namespace Lux {
 			if (name == "DiffPeak")
 			{
 				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerDiffPeak);
-			}
-			else if (name == "BakeLightmaps")
-			{
-				uint32_t samples = 64;
-				std::from_chars(value.data(), value.data() + value.size(), samples);
-				renderer.StartLightmapBake(samples);
 			}
 			else if (name == "RTGIHistory")
 				std::from_chars(value.data(), value.data() + value.size(), options.RTGIHistoryLength);
@@ -470,6 +473,15 @@ namespace Lux {
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
 
+		if (m_LightmapBakeSamples > 0 && !m_LightmapBakeStarted && m_IdleFrames >= m_IdleFramesRequired && renderer.IsReady())
+		{
+			m_LightmapBakeStarted = renderer.StartLightmapBake(m_LightmapBakeSamples);
+			if (!m_LightmapBakeStarted)
+			{
+				Finish(false, "could not start the requested lightmap bake");
+				return;
+			}
+		}
 
 		// TexLibFetch=<Poly Haven id>:<ambientCG id>: once, lists both texture libraries and downloads one texture from each into
 		// Assets/Textures/Library, logging what arrived (the texture library panel's check).
@@ -640,9 +652,22 @@ namespace Lux {
 				const bool streamingIdle = !assetManager || assetManager->GetPendingAsyncLoadCount() == 0;
 				m_IdleFrames = streamingIdle ? m_IdleFrames + 1 : 0;
 
+				const bool rendererReady = m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
+				bool lightmapReady = m_LightmapBakeSamples == 0;
+				if (m_LightmapBakeStarted && rendererReady && !renderer->IsLightmapBaking())
+				{
+					const std::string status = renderer->GetLightmapBakeStatus();
+					if (status != "done")
+					{
+						Finish(false, std::format("lightmap bake failed: {}", status));
+						break;
+					}
+					lightmapReady = true;
+				}
+
 				// With MoveEntities, capture only on a frame rendered at the loop's start (the original pose).
 				const bool atRestPose = m_MoveEntityCount == 0 || m_MovePhase == 0;
-				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
+				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && rendererReady && lightmapReady;
 				if (m_MoveEntityCount > 0 && m_MoveStopFrames > 0)
 				{
 					// MoveStop: stop on a rest-pose frame, then capture exactly MoveStop frames later.
@@ -671,7 +696,7 @@ namespace Lux {
 				}
 				else if (m_SceneFrames >= m_TimeoutFrames)
 				{
-					Finish(false, std::format("asset streaming never went idle within {} frames", m_TimeoutFrames));
+					Finish(false, std::format("the scene was not ready for capture within {} frames", m_TimeoutFrames));
 				}
 				break;
 			}

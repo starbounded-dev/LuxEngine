@@ -26,6 +26,10 @@ namespace Lux {
 		float Utilization = 0.0f; // covered fraction of the atlas
 	};
 
+	// True when the submesh's lightmap UVs (UV1, else UV0) overlap enough to need an unwrap: more than 5% of the texels the triangles cover on a
+	// 128x128 raster belong to two triangles (the bake's rule, on a coarser grid).
+	bool LightmapUVsOverlap(const MeshSource& source, const Submesh& submesh);
+
 	// resolution: the atlas side in texels the charts are packed into; padding: gutter between charts in texels.
 	LightmapUnwrapResult UnwrapSubmeshForLightmap(const MeshSource& source, const Submesh& submesh, uint32_t resolution = 256, uint32_t padding = 2);
 
