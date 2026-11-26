@@ -30,3 +30,19 @@ separate snapshot, including its names and values, for inspection; **Resume pass
 again. **Fit** resets that chart's range. Narrow panels show full pass names above horizontal value
 bars. Pass charts include completed positive GPU measurements only. Closing either diagnostic
 panel stops its history sampling; changing its renderer context clears the previous history.
+
+## Path tracing and ray-traced GI
+
+Open **Scene Renderer** and expand **Path Tracing**. The card shows the GPU, its NRI ray-tracing
+tier and measured trace and acceleration-structure times. **Enable Path Tracer** starts a
+progressive reference image. **Max Bounces** and **Target Samples** are saved with the scene,
+and **Reset Accumulation** restarts the current view.
+
+**Diff vs Raster** displays the image error, mean absolute error and PSNR. **Diff Lightmap**,
+**Diff Realtime GI** and **Diff RTGI** select the indirect-light source to compare.
+Use **Debug View** to inspect bounce count, ray count, noise or samples per pixel.
+
+**Ray-Traced GI** adds denoised indirect light to raster rendering. **Half-Resolution RTGI**
+traces fewer pixels and reconstructs the result at the viewport size. **NVIDIA NRD** and
+**DLSS Ray Reconstruction** are available in compatible SDK builds. The raster renderer is
+the default.

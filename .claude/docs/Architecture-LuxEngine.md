@@ -256,10 +256,9 @@ the lightmap baker, a realtime-GI probe volume and per-pixel ray-traced GI, plus
 path-traced reference. Details, bindings and traps: `.claude/docs/Rendering.md` ("Ray tracing and the path tracer"), plan and status:
 `docs/GI_PLAN.md`.
 
-With `MeshSource::SetAutoUnwrapLightmapUVs` enabled before import, `AssimpMeshImporter` remaps
-overlapping static submeshes to xatlas lightmap UVs before `BuildRenderGeometry`. Duplicated
-vertices preserve the source attributes outside UV1, and placements that share a geometry range
-share the remap. The setting defaults to off and applies to future source imports.
+`AssimpMeshImporter` generates xatlas lightmap UVs before `BuildRenderGeometry` when the source
+asset has **Generate Lightmap UVs** enabled. Static and skinned chart vertices preserve the
+source attributes and skin influences. Placements that share geometry share the remap.
 
 The optional path-tracer SER pipeline uses the same path kernel and reflected descriptor inputs
 as the compute path. `PipelineCompute` owns its NRI ray pipeline and shader binding table when

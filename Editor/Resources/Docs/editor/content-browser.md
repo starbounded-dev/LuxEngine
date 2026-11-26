@@ -23,6 +23,17 @@ Right-click empty space and choose **Import** to copy a file into the current fo
 
 Distant objects automatically draw simpler versions of their meshes (levels of detail), built when the mesh loads. You do not need to make them yourself.
 
+Right-click a mesh source and choose **Generate Lightmap UVs** to unwrap its lightmap channel.
+Use **Bake Lightmaps** in the Scene Renderer panel after the mesh finishes reimporting.
+
+**Texture Residency** controls how a texture uses GPU memory. **Resident** keeps the source
+available at full detail, **Stream Mips** loads finer levels when a visible surface needs them,
+and **Stream Virtual Pages** loads individual pages on supported GPUs.
+
+Open **Texture Library** from the View menu to browse and import CC0 materials from
+Poly Haven and ambientCG. Imported textures and materials are stored in the project's
+`Assets/Textures/Library` folder for offline use.
+
 ## Creating assets
 
 Right-click empty space and use **New** to create a **Folder**, **Scene** or **Material**. Double-click a material to edit it in the [Node Canvas](material-editor), a scene to open it, and a prefab to edit it (see [Prefabs](prefabs)).

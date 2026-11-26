@@ -92,9 +92,6 @@ Only one external source was reviewed: **[Fast-SDF-AO](https://github.com/wrong-
 - **Caveat:** its numbers (0.054 MAE vs the author's 512-ray reference, Apple M1) are self-benchmarked, not independent. The README says several stages (SHaRC cache, AO accumulation, reflection reprojection) rely on temporal history; that is now permitted here.
 - A broader literature/prior-art search (DDGI, RTXGI, lightmapper designs) was **not** done in this pass; do it at the start of Phases 3 and 4.
 
-## Next
-Phase 0 is the first thing to implement (`/dev` then `/cr`, then `/send-pr`). Not started.
-
 ## Status (2026-11-23, after the limits pass)
 All six phases are built and verified by `python tests/rendering/run_ray_query_spike.py` and `python tests/rendering/run_path_trace_check.py`
 (real GPU runs through the golden-capture harness). With every option off the raster frame is bit-identical to `dev` (compared on `LowSun`
@@ -117,10 +114,10 @@ before the sky fix below; the Preetham lower hemisphere changed on purpose, so a
 | GIL1 material textures | Done: the engine's material rows and bindless textures (albedo, metalness, roughness, emissive maps), UV and triplanar world/object mapping, ray-cone mip selection; scene `GI_Textured` |
 | GIL2 constant sky | Done: the scene's radiance map (dynamic sky or an `.hdr` SkyLight) with intensity and rotation; scene `GI_HDRSky` |
 | GIL3 area light shapes | Done: rect, disk, sphere, tube; scene `GI_AreaLights` |
-| GIL4 skinned meshes | Done: CPU linear-blend skinning per instance (a changed pose rebuilds the BLASes; refit is a follow-up in #231) |
+| GIL4 skinned meshes | CPU linear-blend skinning per instance. The acceleration-structure pass below covers BLAS refit. |
 | GIL5 probe leaks | Implemented (octahedral mean/mean-squared distance per probe, Chebyshev weights, backface probe rejection, normal bias). The `GI_Leak` scene did not isolate a measurable difference, so the gain is not demonstrated |
-| GIL6 exports | Export copies `Lightmaps/` next to the runtime project file and the runtime reads it from there. Not run end to end (needs a Dist editor and player) |
-| GIL7 UV overlap / unwrapper | The baker now detects and reports overlapping UVs. An automatic xatlas unwrap is NOT done: it splits vertices, so it needs MeshSource support for a replacement UV1 stream |
+| GIL6 exports | Export copies `Lightmaps/` into the runtime assets and resolves them by scene name. The Dist export check remains tracked in #226. |
+| GIL7 UV overlap / unwrapper | The baker reports overlaps. The asset registry stores the xatlas import choice. Static and skinned meshes carry the generated UV1 data through reimport and export. |
 | GIL8 validation / Dist | Debug build with the Khronos validation layer and synchronization validation: 0 messages across the path tracer, probes + diff, RTGI and the lightmap bake on `GI_CornellBox`. A Dist build was not made (the ray-traced code compiles in every config; the shaders need the compiler, so Dist skips them) |
 | GIL9 HDR metric | Done: `PathTracerDiffPeak` scales radiance before the clamp so bright errors count |
 
@@ -202,13 +199,13 @@ applies to the fixture. The engine continues to use its existing scene RT geomet
 | #247 | Per-pixel debug views (bounces, rays, noise, samples) | more allowed bounces/rays move the views up the heat ramp, the noise view cools with samples |
 | #248 | Lightmap denoiser (CPU a-trous on the read-back atlas, normal/position/luminance weights) | a 16-sample bake renders closer to a 512-sample bake with it (RMSE 0.0138 -> 0.0110) |
 | #249 | Probe auto placement (grid from the bounds and a spacing; probes inside geometry refresh rarely) | `GI_CornellDark`: 729 probes vs 2048, Diff MAE 0.0156 -> 0.0162 |
-| #227 | xatlas vendored (MIT) and an unwrap report; the unwrapped UVs are NOT written back into the mesh (vertex splitting across GPU buffers, meshlets, LODs): open | the default cube: 128 -> 128 vertices, 6 charts, 98% of the atlas |
-| #230 | Texture Library panel: Poly Haven (871 textures) and ambientCG browse/search/download over WinHTTP (Windows only, header-only), maps land in Assets/Textures/Library/<name>/ | both download real JPEG maps (headless check); the panel itself was not clicked through; no thumbnails or drag-and-drop yet |
+| #227 | Initial xatlas integration (MIT) and chart reporting. The permanent mesh rewrite is measured under #253 below. | the default cube: 128 -> 128 vertices, 6 charts, 98% of the atlas |
+| #230 | Initial Texture Library panel with Poly Haven and ambientCG browse, search and download. Cross-platform material import, previews and asset drops are covered below. | both providers downloaded JPEG maps in the headless checks |
 
 **Limits of this pass:** ReSTIR DI/GI and adaptive sampling are biased and must stay off for reference renders; ReSTIR DI traces from pixel centres and cannot combine with ray sorting; the ReSTIR GI sample treats radiance as direction independent; the denoiser has no motion vectors for moving objects (camera motion only) and was checked with camera motion, not object motion; skinned refit speed is unmeasured on a heavy mesh.
 
-**Other limits that remain:** the path tracer has no transmission/clearcoat/sheen lobes; rect/disk lights are one-sided only; lightmaps are
-indirect-only; RTGI traces its own primary surface, so geometry outside the ray-traced scene gets no GI. Not built or run: Linux, Dist.
+Rect and disk emitters are one-sided. Lightmaps store indirect lighting. RTGI traces its own
+primary surface and applies to geometry in the ray-traced scene.
 
 ### Ray-tracing follow-up (2026-11-25)
 
@@ -235,7 +232,34 @@ both the EXT and NV hit-object types. The SER pipeline uses the EXT hint instruc
 closest-hit or miss shader returns. The optimized SPIR-V used by the editor contains
 `OpReorderThreadWithHintEXT`.
 
-The final Windows Release Editor build at `33a1bdcd` passed all 27 checks in
+The earlier Windows Release Editor build at `33a1bdcd` passed all 27 checks in
 `tests/rendering/run_rt_sampling_check.py`. The checks resumed on the same executable after
 the execution connection dropped. The Windows Release `Lux-Runtime` build also linked,
 and the regenerated engine shader pack matched the committed shader sources.
+
+### Final verification (2026-11-26)
+
+The Windows Release Editor and Lux-Runtime were rebuilt at `cb88bdaa`. The RTX 4070 Ti
+passed all 42 checks in `tests/rendering/run_rt_sampling_check.py` in one run with both
+NVIDIA SDKs required and Vulkan synchronization validation enabled. All 178 assertions
+passed. The 198 capture logs contained zero validation errors or shader compilation failures.
+`tests/shaders/check_engine_pack.py` also passed.
+
+The final captures reduced xatlas wall-and-floor error from 0.0949 to 0.0637 RMSE,
+adaptive probe error from 0.0399 to 0.0331 MAE at 168 probes, and half-resolution RTGI
+time from 0.649 to 0.298 ms. Native Ray Reconstruction reduced glossy-scene error
+from 0.0977 to 0.0060 RMSE against a 512-sample path-traced reference.
+
+The same Windows Editor used the built-in denoiser and path accumulation when the
+SDK libraries were absent. Settings-panel tests passed with both Single and Multi
+render threading. The exported virtual-texture player loaded 10 visible pages and
+matched the resident export within 0.0012 RMSE. Separate Windows player captures
+verified height fog, skinned xatlas geometry, NRD and DLSS Ray Reconstruction.
+
+The SDK-free Ubuntu Release Editor and Lux-Runtime also built. The exported fog
+scene on llvmpipe measured 0.388 and 0.710 against analytic values of 0.388 and
+0.709. The Ubuntu texture-library check exercised both providers and reproduced its
+imported materials from disk in a second run.
+
+Open follow-ups cover isolated probe-leak evidence (#225), the Dist lightmap export
+(#226), and the Debug and Dist configuration sweep (#228).
