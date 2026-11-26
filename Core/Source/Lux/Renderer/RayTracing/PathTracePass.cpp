@@ -409,6 +409,7 @@ namespace Lux {
 		ApplyRTTuning();
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !EnsurePathTracer())
 			return;
+		GetOrCreatePassProfile("RTPathTrace").GPUActive = true;
 
 		// Targets follow the viewport.
 		if (m_PathTraceImage->GetWidth() != m_ViewportWidth || m_PathTraceImage->GetHeight() != m_ViewportHeight)
@@ -556,6 +557,7 @@ namespace Lux {
 					state->ReSTIRParity ^= 1u;
 				}
 
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTPathTrace");
 				if (wavefront)
 				{
 					const uint32_t pixels = width * height;
@@ -593,6 +595,7 @@ namespace Lux {
 					}
 					cb->RT_EndMarker();
 				}
+				Renderer::RT_EndGPUPerfMarker(cb);
 				state->Frame++;
 			}
 

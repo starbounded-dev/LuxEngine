@@ -184,6 +184,8 @@ namespace Lux {
 
 	void SceneRendererPanel::SetContext(const Ref<SceneRenderer>& context)
 	{
+		if (m_Context != context)
+			m_LastRTTimings.fill(0.0f);
 		m_Context = context;
 		ApplyProjectSettingsToContext();
 	}
@@ -670,7 +672,11 @@ namespace Lux {
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
-				ImGui::TextDisabled("Opt-in reference renderer. The raster renderer stays the default.");
+				if (RHIDevice::IsInitialized())
+				{
+					const auto& device = RHIDevice::GetDesc();
+					ImGui::TextDisabled("%s | NRI ray tracing tier %u", device.adapterDesc.name, static_cast<unsigned>(device.tiers.rayTracing));
+				}
 				if (!RHIDevice::SupportsRayQuery())
 					ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "This GPU has no ray queries: the path tracer is unavailable.");
 				else if (options.EnablePathTracer)
@@ -679,6 +685,22 @@ namespace Lux {
 					float mae = 0.0f, psnr = 0.0f;
 					if (options.PathTracerDiffHeatmap && m_Context && m_Context->GetPathTraceDiffStats(mae, psnr))
 						ImGui::Text("Diff vs raster: MAE %.4f, PSNR %.1f dB", mae, psnr);
+				}
+				constexpr std::array<std::pair<std::string_view, const char*>, 6> timingLabels {{
+					{ "RTBLASBuild", "BLAS build" }, { "RTBLASRefit", "BLAS refit" },
+					{ "RTTLASBuild", "TLAS build" }, { "RTTLASRefit", "TLAS refit" },
+					{ "RTPathTrace", "Path trace" }, { "RTGITrace", "RTGI trace" }
+				}};
+				if (m_Context && RHIDevice::SupportsRayQuery())
+				{
+					for (const auto& entry : m_Context->GetStatistics().PassProfiles)
+						if (entry.GPUTime > 0.0f)
+							for (size_t i = 0; i < timingLabels.size(); ++i)
+								if (timingLabels[i].first == entry.Name)
+									m_LastRTTimings[i] = entry.GPUTime;
+					for (size_t i = 0; i < timingLabels.size(); ++i)
+						if (m_LastRTTimings[i] > 0.0f)
+							ImGui::TextDisabled("%s %.3f ms GPU", timingLabels[i].second, m_LastRTTimings[i]);
 				}
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Enable Path Tracer", options.EnablePathTracer);

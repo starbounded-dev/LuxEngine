@@ -6,6 +6,7 @@
 #include "Lux/Editor/EditorPanel.h"
 #include "Lux/Renderer/SceneRenderer.h"
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -50,6 +51,7 @@ namespace Lux {
 		bool m_DebugViewsRuntimeSuspended = false;
 		bool m_IsFocused = false;
 		std::string m_SaveError;
+		std::array<float, 6> m_LastRTTimings{};
 
 		// Revamped panel state: a live settings-search box and per-card collapse state.
 		char m_SearchBuffer[128] = {};

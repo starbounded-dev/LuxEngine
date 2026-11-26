@@ -315,6 +315,17 @@ def check_refit(config):
     check(any("refit in place" in line and "skinned" in line for line in rt_lines("rf-on", scene)), "a new pose refits the skinned BLAS")
     check(not any("skinned BLASes are refit" in line for line in rt_lines("rf-off", scene)), "with the option off every BLAS is rebuilt")
     check(rmse(on, off) < 0.005, f"the refit BLAS renders the same as a rebuilt one (RMSE {rmse(on, off):.4f})")
+    for tag, label in (("rf-on", "RTBLASRefit"), ("rf-off", "RTBLASBuild")):
+        allocations = [line for line in rt_lines(tag, scene) if "persistent BLAS scratch:" in line]
+        check(len(allocations) == 1, f"{tag}: animated poses reuse one BLAS scratch allocation")
+        perf_path = ROOT / "bin/golden" / f"rt-check-{tag}" / f"{scene}.perf.json"
+        perf = json.loads(perf_path.read_text(encoding="utf-8"))
+        timings = perf["passes"]
+        check(all(timings.get(name, {}).get("gpuMs", 0) > 0 for name in (label, "RTPathTrace")),
+              f"{tag}: timestamp queries measured BLAS work and the path tracer")
+        trace_ms = timings["RTPathTrace"]["gpuMs"]
+        primary_mrays = on.shape[0] * on.shape[1] / (1000 * trace_ms)
+        print(f"MEASURED: {label} {timings[label]['gpuMs']:.3f} ms, path trace {trace_ms:.3f} ms ({primary_mrays:.1f} million primary rays/s)")
 
 
 def check_sort(config):

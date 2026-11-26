@@ -148,9 +148,10 @@ namespace Lux {
 		};
 		static SubmeshKey KeyOf(const InstanceInput& input) { return { input.Source.Raw(), input.Submesh, input.Variant }; }
 		void EnsureCapacity(Ref<StorageBuffer> buffer, uint32_t bytes);
-		void BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
+		nri::Buffer* EnsureBLASScratch(uint64_t bytes);
+		bool BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
 		void BuildTLAS(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances, bool geometryRebuilt, bool forceRebuild, const Tuning& tuning);
-		void RefitSkinned(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
+		bool RefitSkinned(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances);
 		bool ProcessCompaction(Ref<RenderCommandBuffer> cb); // true when a BLAS was swapped (the TLAS must be rebuilt)
 		void ReleaseGeometry();
 		void ReleaseTLAS();
@@ -170,6 +171,8 @@ namespace Lux {
 		Ref<StorageBuffer> m_VertexBuffer;
 		Ref<StorageBuffer> m_IndexBuffer;
 		Ref<StorageBuffer> m_InstanceBuffer;
+		nri::Buffer* m_BLASScratch = nullptr;
+		uint64_t m_BLASScratchCapacity = 0;
 
 		nri::AccelerationStructure* m_TLAS = nullptr;
 		nri::Descriptor* m_TLASDescriptor = nullptr;

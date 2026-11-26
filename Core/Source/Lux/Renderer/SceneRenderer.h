@@ -2124,13 +2124,15 @@ namespace Lux {
 		bool m_RTReflUnavailable = false;
 		bool m_RTReflDenoiseUnavailable = false;
 		uint32_t m_RTReflFrame = 0;
-		void ApplyRTTuning() const
+		void ApplyRTTuning()
 		{
 			RayTracingScene::Tuning tuning;
 			tuning.CompactBLAS = m_Options.RTCompactBLAS;
 			tuning.RefitSkinned = m_Options.RTRefitSkinned;
 			tuning.UpdateTLAS = m_Options.RTUpdateTLAS;
 			RayTracingScene::SetTuning(tuning);
+			for (const char* pass : { "RTBLASBuild", "RTBLASRefit", "RTTLASBuild", "RTTLASRefit" })
+				GetOrCreatePassProfile(pass).GPUActive = true;
 		}
 		bool EnsureRTGIDenoiser();
 		bool EnsureRTGIUpscale();

@@ -23,8 +23,6 @@ namespace Lux {
 
 	namespace {
 
-		constexpr uint64_t k_ScratchAlignment = 256;
-
 		uint64_t HashBytes(uint64_t hash, const void* data, size_t size)
 		{
 			const uint8_t* bytes = static_cast<const uint8_t*>(data);
@@ -115,6 +113,24 @@ namespace Lux {
 	{
 		ReleaseGeometry();
 		ReleaseTLAS();
+		if (m_BLASScratch)
+			Renderer::SubmitResourceFree([scratch = m_BLASScratch]() { RHIDevice::API().DestroyBuffer(scratch); });
+	}
+
+	nri::Buffer* RayTracingScene::EnsureBLASScratch(uint64_t bytes)
+	{
+		if (m_BLASScratch && bytes <= m_BLASScratchCapacity)
+			return m_BLASScratch;
+		const uint64_t capacity = AlignUp(std::max<uint64_t>(bytes, 256), 64u * 1024u);
+		nri::Buffer* replacement = CreateRawBuffer(capacity, nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT BLAS Scratch");
+		if (!replacement)
+			return nullptr;
+		if (m_BLASScratch)
+			Renderer::SubmitResourceFree([scratch = m_BLASScratch]() { RHIDevice::API().DestroyBuffer(scratch); });
+		m_BLASScratch = replacement;
+		m_BLASScratchCapacity = capacity;
+		LUX_CORE_INFO_TAG("Renderer", "[RT] persistent BLAS scratch: {} bytes", capacity);
+		return m_BLASScratch;
 	}
 
 	void RayTracingScene::ReleaseGeometry()
@@ -286,9 +302,31 @@ namespace Lux {
 			global.before = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
 			global.after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ,
 				nri::StageBits::ACCELERATION_STRUCTURE | nri::StageBits::COMPUTE_SHADER | nri::StageBits::FRAGMENT_SHADER };
+			if (RHIDevice::SupportsShaderExecutionReordering())
+				global.after.stages |= nri::StageBits::RAY_TRACING_SHADERS;
 			nri::BarrierDesc barrier = {};
 			barrier.globals = &global;
 			barrier.globalNum = 1;
+			api.CmdBarrier(*commands, barrier);
+		}
+
+		void RecordASBuildDependencies(const NRIInterface& api, nri::CommandBuffer* commands, nri::Buffer* scratch)
+		{
+			// Builds reuse the scratch and refits write AS memory still readable by the previous frame.
+			auto readerStages = nri::StageBits::ACCELERATION_STRUCTURE | nri::StageBits::COMPUTE_SHADER | nri::StageBits::FRAGMENT_SHADER;
+			if (RHIDevice::SupportsShaderExecutionReordering())
+				readerStages |= nri::StageBits::RAY_TRACING_SHADERS;
+			const nri::GlobalBarrierDesc traversal = {
+				{ nri::AccessBits::ACCELERATION_STRUCTURE_READ, readerStages },
+				{ nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE }
+			};
+			const nri::AccessStage scratchAccess{ nri::AccessBits::SCRATCH_BUFFER, nri::StageBits::ACCELERATION_STRUCTURE };
+			const nri::BufferBarrierDesc scratchReuse{ scratch, scratchAccess, scratchAccess };
+			nri::BarrierDesc barrier = {};
+			barrier.globals = &traversal;
+			barrier.globalNum = 1;
+			barrier.buffers = &scratchReuse;
+			barrier.bufferNum = 1;
 			api.CmdBarrier(*commands, barrier);
 		}
 
@@ -356,18 +394,14 @@ namespace Lux {
 			return true;
 		}
 
-		bool rebuiltBLAS = geometryChanged;
-		if (geometryChanged)
-			BuildGeometry(cb, instances);
-		else if (poseChanged)
+		const bool rebuiltBLAS = geometryChanged || (poseChanged && !tuning.RefitSkinned);
+		if ((rebuiltBLAS && !BuildGeometry(cb, instances)) ||
+			(!rebuiltBLAS && poseChanged && !RefitSkinned(cb, instances)))
 		{
-			if (tuning.RefitSkinned)
-				RefitSkinned(cb, instances);
-			else
-			{
-				BuildGeometry(cb, instances); // A/B: the old behaviour, every BLAS rebuilt for a new pose
-				rebuiltBLAS = true;
-			}
+			if (rebuiltBLAS)
+				m_GeometrySignature = 0;
+			ReleaseTLAS();
+			return true;
 		}
 		BuildTLAS(cb, instances, rebuiltBLAS, compacted, tuning);
 
@@ -377,7 +411,7 @@ namespace Lux {
 		return instancesChanged || geometryChanged; // a compaction alone changes no image
 	}
 
-	void RayTracingScene::BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
+	bool RayTracingScene::BuildGeometry(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const NRIInterface& api = RHIDevice::API();
@@ -452,6 +486,7 @@ namespace Lux {
 		std::vector<nri::AccelerationStructure*> structures(pending.size(), nullptr);
 		std::vector<uint64_t> scratchOffsets(pending.size(), 0);
 		uint64_t scratchTotal = 0;
+		const uint64_t scratchAlignment = std::max(1u, RHIDevice::GetDesc().memoryAlignment.scratchBufferOffset);
 		for (size_t i = 0; i < pending.size(); i++)
 		{
 			geometries[i] = MakeGeometry(m_VertexBuffer->GetRHIBuffer(), m_IndexBuffer->GetRHIBuffer(), pending[i].VertexBase, pending[i].VertexCount, pending[i].IndexBase, pending[i].IndexCount);
@@ -472,10 +507,19 @@ namespace Lux {
 				continue;
 			}
 			scratchOffsets[i] = scratchTotal;
-			scratchTotal += AlignUp(api.GetAccelerationStructureBuildScratchBufferSize(*structures[i]), k_ScratchAlignment);
+			scratchTotal += AlignUp(api.GetAccelerationStructureBuildScratchBufferSize(*structures[i]), scratchAlignment);
 		}
 
-		nri::Buffer* scratch = CreateRawBuffer(scratchTotal, nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT BLAS Scratch");
+		nri::Buffer* scratch = EnsureBLASScratch(scratchTotal);
+		if (!scratch || std::find(structures.begin(), structures.end(), nullptr) != structures.end())
+		{
+			Renderer::SubmitResourceFree([structures = std::move(structures)]() {
+				for (auto* structure : structures)
+					if (structure)
+						RHIDevice::API().DestroyAccelerationStructure(structure);
+			});
+			return false;
+		}
 		std::vector<nri::BuildBottomLevelAccelerationStructureDesc> validBuilds;
 		CompactionBatch batch;
 		for (size_t i = 0; i < pending.size(); i++)
@@ -513,6 +557,8 @@ namespace Lux {
 		{
 			if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
 			{
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTBLASBuild");
+				RecordASBuildDependencies(api, commands, scratch);
 				api.CmdBuildBottomLevelAccelerationStructures(*commands, validBuilds.data(), static_cast<uint32_t>(validBuilds.size()));
 				RecordASBarrier(api, commands);
 
@@ -538,17 +584,16 @@ namespace Lux {
 						}
 					}
 				}
+				Renderer::RT_EndGPUPerfMarker(cb);
 				cb->RT_EndNRISegment();
 			}
+			else
+				return false;
 		}
-
-		if (scratch)
-		{
-			Renderer::SubmitResourceFree([scratch]() { RHIDevice::API().DestroyBuffer(scratch); });
-		}
+		return true;
 	}
 
-	void RayTracingScene::RefitSkinned(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
+	bool RayTracingScene::RefitSkinned(Ref<RenderCommandBuffer> cb, const std::vector<InstanceInput>& instances)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		const NRIInterface& api = RHIDevice::API();
@@ -567,12 +612,21 @@ namespace Lux {
 				refits.push_back({ key, &input });
 		}
 		if (refits.empty())
-			return;
+			return true;
 
 		std::vector<nri::BottomLevelGeometryDesc> geometries(refits.size());
 		std::vector<nri::BuildBottomLevelAccelerationStructureDesc> builds(refits.size());
 		std::vector<uint64_t> scratchOffsets(refits.size(), 0);
 		uint64_t scratchTotal = 0;
+		const uint64_t scratchAlignment = std::max(1u, RHIDevice::GetDesc().memoryAlignment.scratchBufferOffset);
+		for (size_t i = 0; i < refits.size(); i++)
+		{
+			scratchOffsets[i] = scratchTotal;
+			scratchTotal += AlignUp(api.GetAccelerationStructureUpdateScratchBufferSize(*m_BLASes.at(refits[i].Key).Structure), scratchAlignment);
+		}
+		nri::Buffer* scratch = EnsureBLASScratch(scratchTotal);
+		if (!scratch)
+			return false;
 		for (size_t i = 0; i < refits.size(); i++)
 		{
 			BLASRecord& record = m_BLASes[refits[i].Key];
@@ -581,16 +635,6 @@ namespace Lux {
 			AppendVertices(vertices, *refits[i].Key.Source, submesh, &refits[i].Input->SkinPalette);
 			m_VertexBuffer->RT_SetData(cb, vertices.data(), static_cast<uint32_t>(vertices.size() * sizeof(PackedRTVertex)), static_cast<uint32_t>(record.VertexBase * sizeof(PackedRTVertex)));
 			geometries[i] = MakeGeometry(m_VertexBuffer->GetRHIBuffer(), m_IndexBuffer->GetRHIBuffer(), record.VertexBase, record.VertexCount, record.IndexBase, record.IndexCount);
-			scratchOffsets[i] = scratchTotal;
-			scratchTotal += AlignUp(api.GetAccelerationStructureUpdateScratchBufferSize(*record.Structure), k_ScratchAlignment);
-		}
-
-		nri::Buffer* scratch = CreateRawBuffer(scratchTotal, nri::BufferUsageBits::SCRATCH, nri::MemoryLocation::DEVICE, "RT BLAS Update Scratch");
-		if (!scratch)
-			return;
-		for (size_t i = 0; i < refits.size(); i++)
-		{
-			BLASRecord& record = m_BLASes[refits[i].Key];
 			builds[i] = {};
 			builds[i].dst = record.Structure;
 			builds[i].src = record.Structure; // an update in place
@@ -598,18 +642,24 @@ namespace Lux {
 			builds[i].geometryNum = 1;
 			builds[i].scratchBuffer = scratch;
 			builds[i].scratchOffset = scratchOffsets[i];
-			record.PoseHash = refits[i].Input->PoseHash;
 		}
 		if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
 		{
+			Renderer::RT_BeginGPUPerfMarker(cb, "RTBLASRefit");
+			RecordASBuildDependencies(api, commands, scratch);
 			api.CmdBuildBottomLevelAccelerationStructures(*commands, builds.data(), static_cast<uint32_t>(builds.size()));
 			RecordASBarrier(api, commands);
+			Renderer::RT_EndGPUPerfMarker(cb);
 			cb->RT_EndNRISegment();
 		}
+		else
+			return false;
+		for (const Refit& refit : refits)
+			m_BLASes.at(refit.Key).PoseHash = refit.Input->PoseHash;
 		m_BLASRefits += static_cast<uint32_t>(refits.size());
 		if (m_BLASRefits == static_cast<uint32_t>(refits.size()))
 			LUX_CORE_INFO_TAG("Renderer", "[RT] skinned BLASes are refit in place ({} this frame)", refits.size());
-		Renderer::SubmitResourceFree([scratch]() { RHIDevice::API().DestroyBuffer(scratch); });
+		return true;
 	}
 
 	bool RayTracingScene::ProcessCompaction(Ref<RenderCommandBuffer> cb)
@@ -779,6 +829,8 @@ namespace Lux {
 
 		if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
 		{
+			Renderer::RT_BeginGPUPerfMarker(cb, update ? "RTTLASRefit" : "RTTLASBuild");
+			RecordASBuildDependencies(api, commands, m_TLASScratch);
 			api.CmdBuildTopLevelAccelerationStructures(*commands, &build, 1);
 			nri::GlobalBarrierDesc global = {};
 			global.before = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
@@ -790,6 +842,7 @@ namespace Lux {
 			barrier.globals = &global;
 			barrier.globalNum = 1;
 			api.CmdBarrier(*commands, barrier);
+			Renderer::RT_EndGPUPerfMarker(cb);
 			cb->RT_EndNRISegment();
 		}
 		if (update)

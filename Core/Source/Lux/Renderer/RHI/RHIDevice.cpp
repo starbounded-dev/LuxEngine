@@ -71,8 +71,8 @@ namespace Lux {
 				desc.adapterDesc.queueNum[static_cast<size_t>(nri::QueueType::GRAPHICS)],
 				desc.adapterDesc.queueNum[static_cast<size_t>(nri::QueueType::COMPUTE)],
 				desc.adapterDesc.queueNum[static_cast<size_t>(nri::QueueType::COPY)]);
-			LUX_CORE_INFO_TAG("Renderer", "[RHI]   tiers: bindless {}, resourceBinding {}, shadingRate {}",
-				desc.tiers.bindless, desc.tiers.resourceBinding, desc.tiers.shadingRate);
+			LUX_CORE_INFO_TAG("Renderer", "[RHI]   tiers: bindless {}, resourceBinding {}, shadingRate {}, rayTracing {}",
+				desc.tiers.bindless, desc.tiers.resourceBinding, desc.tiers.shadingRate, desc.tiers.rayTracing);
 			LUX_CORE_INFO_TAG("Renderer", "[RHI]   features: meshShader {}, enhancedBarriers {}, timestamp {}, pipelineStatistics {}, viewportOriginBottomLeft {}, rootConstantsOffset {}",
 				static_cast<bool>(desc.features.meshShader), static_cast<bool>(desc.features.enhancedBarriers),
 				static_cast<bool>(desc.features.timestamp), static_cast<bool>(desc.features.pipelineStatistics),
