@@ -634,6 +634,45 @@ def check_rt_visibility(config):
     check(trace > 0 and filtering > 0, f"ambient visibility traced in {trace:.3f} ms and filtered in {filtering:.3f} ms")
 
 
+def check_rt_area(config):
+    """#260: compare an area-light penumbra and unoccluded illumination to the path tracer."""
+    from make_rt_scenes import SCENES, write_rt_area_scenes
+
+    shaded, clear = "GI_RTAreaShadow", "GI_RTAreaClear"
+    fixtures = {SCENES / f"{scene}.luxscene": None for scene in (shaded, clear)}
+    for fixture in fixtures:
+        if fixture.exists():
+            fixtures[fixture] = fixture.read_bytes()
+    try:
+        write_rt_area_scenes()
+        base = "GTAO=0,Lightmaps=0,Bloom=0,DOF=0,SSR=0,PCSS=1"
+        pt = f"{base},PathTracer=1,PathTracerSamples=512,PathTracerBounces=1"
+        ground_truth = capture("ras-pt", shaded, pt, config, spp(512))
+        ground_truth_clear = capture("ras-pt-clear", clear, pt, config, spp(512))
+        shadow_map = capture("ras-map", shaded, f"{base},RTAreaShadows=0", config, 230)
+        traced = capture("ras-rt", shaded, f"{base},RTAreaShadows=1", config, 230, perf_frames=60)
+        raster_clear = capture("ras-clear", clear, base, config, 230)
+        traced_clear = capture("ras-rt-clear", clear, f"{base},RTAreaShadows=1", config, 230)
+        check(rmse(traced_clear, raster_clear) < 1e-6, "ray-traced area visibility preserves unoccluded area lighting")
+
+        h, w = ground_truth.shape[:2]
+        band = (slice(int(h * 0.50), int(h * 0.85)), slice(int(w * 0.25), int(w * 0.75)))
+        ref_visibility = ground_truth[band].mean(axis=-1) / np.maximum(ground_truth_clear[band].mean(axis=-1), 1e-4)
+        map_visibility = shadow_map[band].mean(axis=-1) / np.maximum(raster_clear[band].mean(axis=-1), 1e-4)
+        rt_visibility = traced[band].mean(axis=-1) / np.maximum(raster_clear[band].mean(axis=-1), 1e-4)
+        penumbra = (ref_visibility > 0.2) & (ref_visibility < 0.87) & (ground_truth_clear[band].mean(axis=-1) > 0.08)
+        check(int(penumbra.sum()) > 1000, f"the reference has a measurable area-light penumbra ({penumbra.sum()} pixels)")
+        old = rmse(map_visibility[penumbra], ref_visibility[penumbra])
+        new = rmse(rt_visibility[penumbra], ref_visibility[penumbra])
+        check(new < old * 0.90, f"ray queries improve the area-light penumbra against the path tracer ({old:.4f} -> {new:.4f})")
+    finally:
+        for fixture, saved in fixtures.items():
+            if saved is None:
+                fixture.unlink(missing_ok=True)
+            else:
+                fixture.write_bytes(saved)
+
+
 def check_lmdenoise(config):
     """#248: lightmap denoising. A 16-sample bake with the denoiser is closer (as rendered) to a 512-sample bake than the raw 16-sample
     bake, and the denoiser does not darken the result."""
@@ -817,7 +856,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():

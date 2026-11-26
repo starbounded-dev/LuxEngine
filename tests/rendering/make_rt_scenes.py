@@ -235,6 +235,20 @@ def write_rt_visibility_scenes():
     write("GI_RTAmbient", [sky, *geometry()])
 
 
+def write_rt_area_scenes():
+    def setup():
+        return [
+            nosky(),
+            floor("Materials/GI/GI_White.lmat"),
+            area("Large rectangle", (-0.3, 2.8, -0.9), (-math.pi / 2, 0, 0), 0, 5.0, 3.4, 2.2) + "      SoftShadows: true\n",
+            camera((0, 4.0, 5.8), (-0.59, 0, 0)),
+        ]
+
+    blocker = mesh("Blocker", "Cube", (0, 0.8, 0.1), (1.05, 0.22, 0.95), "GI_RedBall")
+    write("GI_RTAreaShadow", [*setup(), blocker])
+    write("GI_RTAreaClear", setup())
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []

@@ -4572,7 +4572,10 @@ namespace Lux {
 				appendResources(areaReads, shadowOutputs);
 				appendResources(areaReads, sceneColorCurrent);
 				std::vector<RenderGraph::ResourceHandle> areaOutputs = addRenderPassResources("Area Lights", m_AreaLightPass);
-				addPass("Area Lights", areaReads, areaOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AreaLightPass));
+				const auto areaFlags = m_Options.EnableRTAreaLightShadows && RHIDevice::SupportsRayQuery()
+					? static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Graphics) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources))
+					: RenderGraph::PassFlags::Graphics;
+				addPass("Area Lights", areaReads, areaOutputs, areaFlags, makeExecute(&SceneRenderer::AreaLightPass));
 				sceneColorCurrent = areaOutputs;
 			}
 
@@ -5712,13 +5715,16 @@ namespace Lux {
 					light.ShadowFlags = 0;
 					continue;
 				}
+				light.ShadowFlags |= AreaLightRTShadow;
+				if ((light.ShadowFlags & AreaLightShadowSoft) != 0)
+					light.ShadowFlags |= AreaLightRTShadowSoft;
 
 				// A light whose whole lit sphere lies beyond the shadow distance casts nothing visible.
 				const glm::vec3 toLight = light.Position - m_SceneUB.CameraPosition;
 				const float distanceSquared = glm::dot(toLight, toLight);
 				if (glm::sqrt(distanceSquared) - light.Range > m_Options.MaxShadowDistance)
 				{
-					light.ShadowFlags = 0;
+					light.ShadowFlags &= AreaLightRTShadow | AreaLightRTShadowSoft;
 					continue;
 				}
 
@@ -5958,7 +5964,7 @@ namespace Lux {
 				AreaLight& light = m_AreaLightsUB.AreaLights[i];
 				if (!selectedAreaShadowCasters[i])
 				{
-					light.ShadowFlags = 0;
+					light.ShadowFlags &= AreaLightRTShadow | AreaLightRTShadowSoft;
 					continue;
 				}
 
@@ -9742,6 +9748,50 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	bool SceneRenderer::EnsureRTAreaLightPass()
+	{
+		if (m_RTAreaLightUnavailable || !RHIDevice::SupportsRayQuery() || !ShaderCompiler::IsAvailable())
+			return false;
+		const auto framebuffer = m_AreaLightPass->GetTargetFramebuffer();
+		if (m_RTAreaLightPass && m_RTAreaLightPass->GetTargetFramebuffer() == framebuffer)
+			return true;
+
+		auto library = Renderer::GetShaderLibrary();
+		if (!library->GetShaders().contains("DeferredLighting_AreaRT"))
+			library->Load("Resources/Shaders/DeferredLighting_AreaRT.glsl");
+		if (!library->GetShaders().contains("DeferredLighting_AreaRT"))
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTAreaShadows] shader did not compile; using shadow maps");
+			m_RTAreaLightUnavailable = true;
+			return false;
+		}
+		if (!m_RayTracingScene)
+			m_RayTracingScene = Ref<RayTracingScene>::Create();
+
+		PipelineSpecification pipeline = m_AreaLightPass->GetPipeline()->GetSpecification();
+		pipeline.Shader = library->Get("DeferredLighting_AreaRT");
+		pipeline.DebugName = "RTAreaLights";
+		RenderPassSpecification passSpec = m_AreaLightPass->GetSpecification();
+		passSpec.DebugName = "RTAreaLights";
+		passSpec.Pipeline = Pipeline::Create(pipeline);
+		Ref<RenderPass> pass = RenderPass::Create(passSpec);
+		BindSceneRenderPassInputs(pass, PassInputCommonScene | PassInputShadowMaps | PassInputDepth | PassInputGBuffer);
+		pass->SetInput("AreaLightData", m_UBSAreaLights);
+		pass->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
+		pass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
+		pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTAreaShadows] pass inputs do not match the shader; using shadow maps");
+			m_RTAreaLightUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_RTAreaLightMaterial = Material::Create(pipeline.Shader, "RTAreaLights");
+		m_RTAreaLightPass = pass;
+		return true;
+	}
+
 	void SceneRenderer::AreaLightPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "AreaLightPass");
@@ -9749,9 +9799,46 @@ namespace Lux {
 			return;
 
 		BeginProfiledGPU("AreaLightPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
+		if (m_Options.EnableRTAreaLightShadows && m_SubmittedRenderScene && EnsureRTAreaLightPass())
+		{
+			ApplyRTTuning();
+			m_RTAreaLightPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferBaseColor", GetGeometryBaseColorOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferNormal", GetGeometryNormalOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferMetalRoughAO", GetGeometryMetalRoughOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferMaterialObjectID", GetGeometryMaterialIDOutput());
+			const uint32_t rays = std::clamp(m_Options.RTAreaShadowRays, 1u, 32u);
+			auto instances = RayTracingScene::GatherInstances(m_SubmittedRenderScene->GetStaticMeshProxies());
+			Renderer::Submit([cb = m_CommandBuffer, scene = m_RayTracingScene, rtPass = m_RTAreaLightPass,
+				rtMaterial = m_RTAreaLightMaterial, shadowMapPass = m_AreaLightPass, shadowMapMaterial = m_AreaLightMaterial,
+				rays, instances = std::move(instances)]() mutable
+			{
+				scene->RT_Update(cb, instances);
+				if (scene->IsValid())
+				{
+					rtPass->Prepare();
+					if (Renderer::RT_BeginRenderPass(*cb, *rtPass, {}, false))
+					{
+						rtMaterial->Set("u_AreaShadowSettings.Rays", rays);
+						Renderer::RT_SubmitFullscreenQuad(*cb, *rtPass->GetPipeline(), *rtMaterial);
+						cb->RT_EndNRIRenderPass();
+						return;
+					}
+				}
+				shadowMapPass->Prepare();
+				if (Renderer::RT_BeginRenderPass(*cb, *shadowMapPass, {}, false))
+				{
+					Renderer::RT_SubmitFullscreenQuad(*cb, *shadowMapPass->GetPipeline(), *shadowMapMaterial);
+					cb->RT_EndNRIRenderPass();
+				}
+			});
+		}
+		else
+		{
+			Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
+			Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
+			Renderer::EndRenderPass(m_CommandBuffer);
+		}
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 

@@ -280,6 +280,7 @@ namespace Lux {
 		// nothing recorded, outside such a pass or when the draw cannot be recorded (logged once per
 		// pipeline).
 		static bool RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw);
+		static void RT_SubmitFullscreenQuad(RenderCommandBuffer& renderCommandBuffer, const Pipeline& pipeline, Material& material);
 		// The same for a mesh-task draw, with `meshletSet` at set 0.
 		static bool RT_DrawMeshTasks(RenderCommandBuffer& renderCommandBuffer, const BoundDescriptorSet& meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups);
 		// Clears a storage image mip prepared by `clear` (see StorageImageClear).

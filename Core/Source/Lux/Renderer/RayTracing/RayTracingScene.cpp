@@ -282,7 +282,8 @@ namespace Lux {
 			// The TLAS build (and the shaders) read what the builds wrote.
 			nri::GlobalBarrierDesc global = {};
 			global.before = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
-			global.after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, nri::StageBits::ACCELERATION_STRUCTURE | nri::StageBits::COMPUTE_SHADER };
+			global.after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ,
+				nri::StageBits::ACCELERATION_STRUCTURE | nri::StageBits::COMPUTE_SHADER | nri::StageBits::FRAGMENT_SHADER };
 			nri::BarrierDesc barrier = {};
 			barrier.globals = &global;
 			barrier.globalNum = 1;
@@ -779,9 +780,9 @@ namespace Lux {
 			api.CmdBuildTopLevelAccelerationStructures(*commands, &build, 1);
 			nri::GlobalBarrierDesc global = {};
 			global.before = { nri::AccessBits::ACCELERATION_STRUCTURE_WRITE, nri::StageBits::ACCELERATION_STRUCTURE };
-			const auto traceStages = RHIDevice::SupportsShaderExecutionReordering()
-				? nri::StageBits::COMPUTE_SHADER | nri::StageBits::RAY_TRACING_SHADERS
-				: nri::StageBits::COMPUTE_SHADER;
+			auto traceStages = nri::StageBits::COMPUTE_SHADER | nri::StageBits::FRAGMENT_SHADER;
+			if (RHIDevice::SupportsShaderExecutionReordering())
+				traceStages |= nri::StageBits::RAY_TRACING_SHADERS;
 			global.after = { nri::AccessBits::ACCELERATION_STRUCTURE_READ, traceStages };
 			nri::BarrierDesc barrier = {};
 			barrier.globals = &global;

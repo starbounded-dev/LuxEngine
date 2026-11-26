@@ -204,6 +204,8 @@ namespace Lux {
 	{
 		AreaLightShadowCasts = 1u << 0,
 		AreaLightShadowSoft = 1u << 1,
+		AreaLightRTShadow = 1u << 2,
+		AreaLightRTShadowSoft = 1u << 3,
 	};
 
 	// The spot-atlas tile a one-sided rect or disk area light renders its shadow into: a 120-degree cone
@@ -323,6 +325,8 @@ namespace Lux {
 		bool     EnableRTReflections = false;
 		// Ray-traced directional shadows (RayTracing/RTGI.cpp, RTShadows.glsl): deferred lighting reads a visibility mask traced from the raster depth/G-buffer instead of the cascade shadow maps. Soft by the light's angular radius. RT-only.
 		bool     EnableRTShadows = false;
+		bool     EnableRTAreaLightShadows = false;
+		uint32_t RTAreaShadowRays = 8;
 		bool     EnableRTContactShadows = false;
 		bool     EnableRTAmbientOcclusion = false;
 		float    RTContactShadowDistance = 0.6f;
@@ -2261,6 +2265,10 @@ namespace Lux {
 		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
 		Ref<RenderPass>  m_AreaLightPass;               // fullscreen LTC area lights, added over deferred lighting
 		Ref<Material>    m_AreaLightMaterial;
+		bool EnsureRTAreaLightPass();
+		Ref<RenderPass> m_RTAreaLightPass;
+		Ref<Material> m_RTAreaLightMaterial;
+		bool m_RTAreaLightUnavailable = false;
 
 		// Particles (docs/PARTICLES_PLAN.md): one color-only pass per blend mode on scene color (the shader reads PreDepth for the
 		// depth test and the soft edge), one shared quad, and one instance buffer per frame in flight.

@@ -1905,22 +1905,22 @@ namespace Lux {
 			{
 				LUX_PROFILE_FUNC("VulkanRenderer::SubmitFullscreenQuad");
 
-				if (material == nullptr)
-				{
-					return;
-				}
-
-				const Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
-
-				IndexedDraw draw;
-				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
-				draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
-				draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
-				draw.Constants = uniformStorageBuffer.Data;
-				draw.ConstantsSize = static_cast<uint32_t>(uniformStorageBuffer.Size);
-				draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				RT_DrawIndexed(*renderCommandBuffer, draw);
+				if (material)
+					RT_SubmitFullscreenQuad(*renderCommandBuffer, *pipeline, *material);
 			});
+	}
+
+	void Renderer::RT_SubmitFullscreenQuad(RenderCommandBuffer& renderCommandBuffer, const Pipeline& pipeline, Material& material)
+	{
+		const Buffer uniformStorageBuffer = material.GetUniformStorageBuffer();
+		IndexedDraw draw;
+		draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline.GetShader(), &material);
+		draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
+		draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
+		draw.Constants = uniformStorageBuffer.Data;
+		draw.ConstantsSize = static_cast<uint32_t>(uniformStorageBuffer.Size);
+		draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
+		RT_DrawIndexed(renderCommandBuffer, draw);
 	}
 
 	void Renderer::SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides)

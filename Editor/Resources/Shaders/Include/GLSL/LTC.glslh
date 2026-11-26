@@ -20,6 +20,8 @@ const uint AREA_LIGHT_SHAPE_TUBE = 3u;
 const uint AREA_LIGHT_TWO_SIDED = 1u;  // AreaLightFlags in SceneRenderer.h
 const uint AREA_LIGHT_SHADOW_CASTS = 1u; // AreaLightShadowFlags in SceneRenderer.h
 const uint AREA_LIGHT_SHADOW_SOFT = 2u;
+const uint AREA_LIGHT_RT_SHADOW = 4u;
+const uint AREA_LIGHT_RT_SHADOW_SOFT = 8u;
 
 #define MAX_AREA_LIGHTS 32 // LightEnvironment::MaxAreaLights
 
@@ -313,6 +315,10 @@ float LTC_AreaLightShadow(AreaLight light, vec3 worldPosition, vec3 N, bool fron
 		flatShape ? AREA_PCSS_MAX_SEARCH_UV : SPOT_PCSS_MAX_SEARCH_UV);
 }
 
+#ifdef LUX_RT_AREA_SHADOWS
+#include <AreaLightRayShadow.glslh>
+#endif
+
 // Outgoing radiance from every area light at a surface point: Lambert diffuse and GGX specular, each
 // light's shadow (if it casts one) applied to both. shadowAtlas is the spot shadow atlas.
 vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, float metalness, float roughness, vec3 F0, texture2D shadowAtlas)
@@ -355,12 +361,17 @@ vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, floa
 
 		// Read from the light as placed: a sphere or tube is integrated below as a shape facing the point.
 		float visibility = 1.0;
+#ifdef LUX_RT_AREA_SHADOWS
+		if ((light.ShadowFlags & AREA_LIGHT_RT_SHADOW) != 0u)
+			visibility = LuxTraceAreaShadow(light, i, worldPosition, N);
+#else
 		if ((light.ShadowFlags & AREA_LIGHT_SHADOW_CASTS) != 0u)
 		{
 			visibility = LTC_AreaLightShadow(light, worldPosition, N, front, shadowAtlas);
-			if (visibility <= 0.0)
-				continue;
 		}
+#endif
+		if (visibility <= 0.0)
+			continue;
 
 		if (!flatShape)
 			light = LTC_FacingShape(light, worldPosition);

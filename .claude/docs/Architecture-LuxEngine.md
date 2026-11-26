@@ -425,6 +425,10 @@ Structurally:
   ambient visibility replaces GTAO for deferred indirect lighting. The depth-and-normal filter
   preserves silhouettes. Directional visibility occupies RGB and ambient visibility occupies
   alpha in the shared mask.
+- The optional deferred area-light pipeline evaluates visibility with ray queries across
+  the emitter, weighted by its projected contribution at the receiver. It shares the LTC
+  BRDF integration and framebuffer with the shadow-atlas path. The renderer selects the
+  atlas path if it cannot bind a valid ray-tracing scene.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

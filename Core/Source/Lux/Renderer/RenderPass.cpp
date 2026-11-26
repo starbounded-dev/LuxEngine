@@ -80,6 +80,12 @@ namespace Lux {
 		m_DescriptorSetManager.SetInput(name, texture);
 	}
 
+	void RenderPass::SetInput(std::string_view name, Ref<RHIAccelerationStructure> accelerationStructure)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		m_DescriptorSetManager.SetInput(name, accelerationStructure);
+	}
+
 	void RenderPass::SetInput(std::string_view name, Ref<Texture2D> texture, uint32_t arrayIndex)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
