@@ -4,7 +4,7 @@
 //
 // Reservoir-based spatiotemporal importance resampling of direct light (Bitterli et al. 2020), fused into one pass. Per pixel:
 //   1. find the visible surface with a ray (no G-buffer needed) and write it to this frame's G-buffer;
-//   2. draw a few candidate light samples (light chosen by the packed power CDF, placed by two random numbers) and keep one
+//   2. draw a few candidate light samples (light chosen by the power-weighted alias table, placed by two random numbers) and keep one
 //      by streaming resampling, with the unshadowed contribution as the target function;
 //   3. merge the previous frame's reservoirs at the reprojected pixel and a few neighbours of it (after normal and position
 //      tests), re-evaluating their light samples at this surface;
@@ -54,6 +54,9 @@ layout(set = 1, binding = 107) uniform texture2D u_RDPrevGPos;
 layout(set = 1, binding = 108) uniform texture2D u_RDPrevGNormal;
 
 const float MAX_HISTORY = 32.0;
+const uint CANDIDATES_PER_ROUND = 8u;
+const uint PRESAMPLED_ROUNDS = 4u;
+shared uint s_CandidateLights[CANDIDATES_PER_ROUND * PRESAMPLED_ROUNDS];
 
 float Lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
@@ -71,10 +74,24 @@ void main()
 {
 	const uvec2 pixel = gl_GlobalInvocationID.xy;
 	const uvec2 size = u_Push.SizeFrameBounces.xy;
+	const uint frame = u_Push.SizeFrameBounces.z;
+	const bool presample = u_Push.Counts.x >= 64u;
+	if (presample)
+	{
+		// Share only light indices. Each pixel picks its own column, emitter position and reservoir winner.
+		// Keep the barrier before the bounds check so partial workgroups participate.
+		const uint lane = gl_LocalInvocationIndex;
+		if (lane < CANDIDATES_PER_ROUND * PRESAMPLED_ROUNDS)
+		{
+			const uint tile = gl_WorkGroupID.x + gl_NumWorkGroups.x * gl_WorkGroupID.y;
+			const uint randomBits = PCG(lane + PCG(tile + PCG(frame * 5219u + 19u)));
+			s_CandidateLights[lane] = ChooseLight(float(randomBits >> 8u) * (1.0 / 16777216.0));
+		}
+		barrier();
+	}
 	if (pixel.x >= size.x || pixel.y >= size.y)
 		return;
 
-	const uint frame = u_Push.SizeFrameBounces.z;
 	g_Rng = PCG(pixel.x + PCG(pixel.y + PCG(frame * 7919u + 3u)));
 	const bool historyValid = u_Push.Counts.z != 0u;
 	const uint candidates = max(u_Push.Counts.w, 1u);
@@ -108,7 +125,11 @@ void main()
 	float weightSum = 0.0, count = 0.0;
 	for (uint i = 0u; i < candidates; i++)
 	{
-		const uint index = ChooseLight(Rand());
+		const float choice = Rand();
+		const uint column = min(uint(choice * float(CANDIDATES_PER_ROUND)), CANDIDATES_PER_ROUND - 1u);
+		const uint index = presample && i < PRESAMPLED_ROUNDS
+			? s_CandidateLights[i * CANDIDATES_PER_ROUND + column]
+			: ChooseLight(choice);
 		const float u1 = Rand(), u2 = Rand();
 		const float target = TargetPdf(s, V, index, u1, u2);
 		const float weight = target / LightPmf(index);

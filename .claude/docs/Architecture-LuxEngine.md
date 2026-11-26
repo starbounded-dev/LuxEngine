@@ -413,6 +413,10 @@ Structurally:
   reduces the count toward the roughness cutoff, and the optional spatial filter uses depth,
   normal, roughness, metalness and base colour to filter the signed correction before adding
   it to raster lighting. The trace and filter have separate GPU timers.
+- Ray-traced passes share a light table that stores each light's probability and an alias
+  entry. Selection takes a fixed number of buffer reads. In dense scenes, the ReSTIR DI
+  compute workgroup shares candidate indices. Each pixel samples its own position on the
+  emitter and resamples its own reservoir.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

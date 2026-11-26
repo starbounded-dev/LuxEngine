@@ -425,6 +425,8 @@ namespace Lux {
 		const bool raySort = !serPass && m_Options.PathTracerRaySort && !m_Options.PathTracerReSTIRDI && EnsurePathTraceWavefront();
 		const bool restirDI = m_Options.PathTracerReSTIRDI && EnsureReSTIRDI();
 		if (restirDI)
+			GetOrCreatePassProfile("ReSTIRDI").GPUActive = true;
+		if (restirDI)
 		{
 			if (m_ReSTIRDirect->GetWidth() != m_ViewportWidth || m_ReSTIRDirect->GetHeight() != m_ViewportHeight)
 			{
@@ -531,7 +533,7 @@ namespace Lux {
 
 				PathTracePush push = {};
 				push.SizeFrameBounces = glm::uvec4(width, height, state->Frame.load(), maxBounces);
-				push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), uniformEnvironment ? 1u : 0u, std::bit_cast<uint32_t>(adaptiveThreshold), debugView);
+				push.Counts = glm::uvec4(PathTraceLightCount(lights), uniformEnvironment ? 1u : 0u, std::bit_cast<uint32_t>(adaptiveThreshold), debugView);
 				push.SkyRadiance = glm::vec4(uniformEnvironment ? glm::vec3(furnaceRadiance) : glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 				push.GroundRadiance = glm::vec4(uniformEnvironment ? glm::vec3(furnaceRadiance) : glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 				ApplyPathTraceEnvironment(push, envParams);
@@ -545,10 +547,10 @@ namespace Lux {
 					PathTracePush restirPush = push;
 					restirPush.Counts.z = state->Frame.load() > 0 ? 1u : 0u;
 					restirPush.Counts.w = 4u;
-					cb->RT_BeginMarker("ReSTIRDI");
+					Renderer::RT_BeginGPUPerfMarker(cb, "ReSTIRDI");
 					restirPasses[state->ReSTIRParity]->Prepare();
 					Renderer::RT_DispatchCompute(*cb, *restirPasses[state->ReSTIRParity], glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&restirPush, sizeof(restirPush)));
-					cb->RT_EndMarker();
+					Renderer::RT_EndGPUPerfMarker(cb);
 					state->ReSTIRParity ^= 1u;
 				}
 

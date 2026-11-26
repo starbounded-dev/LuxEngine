@@ -86,6 +86,47 @@ def check_mis(config):
     check(em < eo * 0.9, f"at 8 spp MIS has lower error vs the reference (NEE only {eo:.4f}, MIS {em:.4f})")
 
 
+def check_many_lights(config):
+    """#256: with the same total power and geometry, scale from 24 to 288 lights."""
+    from make_rt_scenes import SCENES, write_many_lights_scene
+
+    few, many = "GI_LightScale24", "GI_LightScale288"
+    saved = {}
+    for scene in (few, many):
+        fixture = SCENES / f"{scene}.luxscene"
+        saved[fixture] = fixture.read_bytes() if fixture.exists() else None
+    try:
+        write_many_lights_scene(few, 1)
+        write_many_lights_scene(many, 12)
+        base = "PathTracer=1,PathTracerBounces=2,Bloom=0,DOF=0"
+        few_reference = capture("ml-few-ref", few, f"{base},PathTracerSamples=512", config, spp(512))
+        reference = capture("ml-many-ref", many, f"{base},PathTracerSamples=512", config, spp(512))
+        energy_difference = abs(float(few_reference.mean()) - float(reference.mean()))
+        check(energy_difference < 0.01 and rmse(few_reference, reference) < 0.04,
+              f"splitting light power across 288 emitters preserves the converged image (mean delta {energy_difference:.4f})")
+
+        low = capture("ml-nee4", many, f"{base},PathTracerSamples=4", config, spp(4))
+        resampled = capture("ml-restir4", many, f"{base},PathTracerSamples=4,PTReSTIR=1", config, spp(4))
+        raw_error, resampled_error = rmse(low, reference), rmse(resampled, reference)
+        check(resampled_error < raw_error * 0.9,
+              f"spatial reuse improves the 288-light image at four samples ({raw_error:.4f} -> {resampled_error:.4f})")
+
+        timings = []
+        for name, scene in (("ml-perf-few", few), ("ml-perf-many", many)):
+            capture(name, scene, f"{base},PathTracerSamples=65536,PTReSTIR=1", config, 220, perf_frames=80)
+            data = json.loads((ROOT / "bin/golden" / f"rt-check-{name}" / f"{scene}.perf.json").read_text(encoding="utf-8"))
+            trace = data["passes"]["ReSTIRDI"]
+            check(data["complete"] and trace["frames"] >= 75 and trace["gpuMs"] > 0.0, f"{scene} produced valid ReSTIR GPU timings")
+            timings.append(trace["gpuMs"])
+        check(timings[1] < timings[0] * 1.25, f"ReSTIR GPU cost stays close across 24 and 288 lights ({timings[0]:.3f} -> {timings[1]:.3f} ms)")
+    finally:
+        for path, content in saved.items():
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(content)
+
+
 def check_adaptive(config):
     """#234: adaptive sampling. The sample-count heat map gives the effective samples per pixel; at that equal budget the
     adaptive image must beat plain progressive accumulation, and the saving must be real."""
@@ -708,7 +749,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():

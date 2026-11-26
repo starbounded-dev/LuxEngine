@@ -66,7 +66,7 @@ uint ReflectionRayCount(float roughness, float cutoff)
 }
 
 // Light leaving a hit toward the reflecting surface: every light gets its own sample when there are few (no light-choice noise in what a
-// mirror shows), otherwise one light by the power CDF as the path tracer does.
+// mirror shows), otherwise one light by the power-weighted alias table as the path tracer does.
 vec3 ShadeHit(Surface s, vec3 V)
 {
 	const uint count = u_Push.Counts.x;

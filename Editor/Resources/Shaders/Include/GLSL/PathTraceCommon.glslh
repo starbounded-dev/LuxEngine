@@ -24,7 +24,7 @@ layout(set = 1, binding = 60) uniform accelerationStructureEXT u_RTScene;
 layout(std430, set = 1, binding = 61) readonly buffer RTVertices { vec4 Vertices[]; };   // [2i] position, [2i+1] normal
 layout(std430, set = 1, binding = 62) readonly buffer RTIndices { uint Indices[]; };
 layout(std430, set = 1, binding = 63) readonly buffer RTInstances { RTInstance Instances[]; };
-layout(std430, set = 1, binding = 64) readonly buffer RTLights { vec4 Lights[]; };       // 4 vec4 per light
+layout(std430, set = 1, binding = 64) readonly buffer RTLights { vec4 Lights[]; };       // 4 vec4 per light followed by alias entries
 
 layout(push_constant) uniform PathTracePush
 {
@@ -648,25 +648,20 @@ vec3 SamplePhaseHG(vec3 d, float g)
 	return normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + d * cosTheta);
 }
 
-// Probability of choosing light `index` (the packed CDF: pmf_i = cdf_i - cdf_(i-1)).
+// The original probability of choosing this light, independent of its alias-table column.
 float LightPmf(uint index)
 {
-	return max(Lights[4u * index + 3u].w - (index == 0u ? 0.0 : Lights[4u * (index - 1u) + 3u].w), 1e-6);
+	return Lights[4u * index + 3u].w;
 }
 
-// Light index for a uniform random number, by binary search of the CDF.
+// The integer part selects an alias column and the fractional part selects one of its two lights.
 uint ChooseLight(float u)
 {
-	uint lo = 0u, hi = u_Push.Counts.x - 1u;
-	while (lo < hi)
-	{
-		const uint mid = (lo + hi) >> 1u;
-		if (Lights[4u * mid + 3u].w >= u)
-			hi = mid;
-		else
-			lo = mid + 1u;
-	}
-	return lo;
+	const uint count = u_Push.Counts.x;
+	const float columnSample = u * float(count);
+	const uint column = min(uint(columnSample), count - 1u);
+	const vec2 alias = Lights[4u * count + column].xy;
+	return fract(columnSample) < alias.x ? column : floatBitsToUint(alias.y);
 }
 
 // One sample of light `index` seen from P, placed by u1, u2 (so the same numbers rebuild the same point from another surface:
@@ -795,7 +790,7 @@ vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
 	return vec3(0.0);
 }
 
-// Direct light from one light chosen by the packed CDF. Returns radiance * BRDF * cos / pdf.
+// Direct light from one light chosen by the alias table. Returns radiance * BRDF * cos / pdf.
 vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 {
 	const uint lightCount = u_Push.Counts.x;
@@ -827,7 +822,7 @@ vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
 	return EvalBRDF(s, V, L) * radiance * (fogTransmittance * shadow * (misWeight / lightPmf));
 }
 
-// Next-event estimation at a point inside a medium: one light chosen by the CDF, the phase function instead of a BRDF, MIS against
+// Next-event estimation at a point inside a medium: one light chosen by the alias table, the phase function instead of a BRDF, MIS against
 // phase sampling, transmittance of the fog to the light (not applied to directional lights, whose distance is infinite).
 vec3 MediumDirectLight(vec3 P, vec3 dir, float g)
 {
@@ -931,7 +926,7 @@ vec3 AreaLightEmission(vec3 o, vec3 d, float tMax, float bsdfPdf)
 		const float cosLight = dot(emitNormal, -d);
 		if (cosLight <= 0.0)
 			continue;
-		const float pmf = max(Lights[4u * index + 3u].w - (index == 0u ? 0.0 : Lights[4u * (index - 1u) + 3u].w), 1e-6);
+		const float pmf = LightPmf(index);
 		const float pLight = pmf * t * t / (area * max(cosLight, 1e-4));
 		sum += b.rgb * FogTransmittance(o, d, t) * (bsdfPdf * bsdfPdf / (bsdfPdf * bsdfPdf + pLight * pLight));
 	}

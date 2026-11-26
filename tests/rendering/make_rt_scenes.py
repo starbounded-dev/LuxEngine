@@ -180,6 +180,26 @@ def write_rough_reflection_scene():
     ])
 
 
+def write_many_lights_scene(name, copies):
+    # Split each light's power across colocated emitters so both scenes have the same reference energy.
+    lights = []
+    for i in range(24):
+        angle = 2 * math.pi * i / 24
+        distance = 2.0 + 0.65 * (i % 5)
+        position = (round(distance * math.cos(angle), 3), 1.4, round(distance * math.sin(angle), 3))
+        radiance = [(1, 0.8, 0.6), (0.6, 0.8, 1), (0.8, 1, 0.7)][i % 3]
+        power = 0.4 * 2 ** (i % 12)
+        for j in range(copies):
+            lights.append(point(f"Light {i}-{j}", position, radiance, power / copies, 8.0))
+    write(name, [
+        nosky(),
+        floor("Materials/GI/GI_White.lmat"),
+        mesh("Emissive mesh", "Cube", (0.5, 1.6, 0), (0.8, 0.3, 0.8), "GI_ReflectionEmitter"),
+        camera((0, 9, 7), (-1.0, 0, 0)),
+        *lights,
+    ])
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []

@@ -565,7 +565,7 @@ namespace Lux {
 
 					BakePush push = {};
 					push.SizeFrameBounces = glm::uvec4(size * size, 0u, state->Frame.load(), maxBounces);
-					push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, 0u);
+					push.Counts = glm::uvec4(PathTraceLightCount(lights), 0u, 0u, 0u);
 					push.SkyRadiance = glm::vec4(0.35f, 0.5f, 0.8f, 0.0f);
 					push.GroundRadiance = glm::vec4(0.12f, 0.1f, 0.09f, 0.0f);
 					ApplyPathTraceEnvironment(push, envParams);

@@ -512,7 +512,7 @@ namespace Lux {
 
 			RTGITracePush push = {};
 			push.SizeFrameBounces = glm::uvec4(width, height, frame, 0u);
-			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, rays, std::bit_cast<uint32_t>(cutoff));
+			push.Counts = glm::uvec4(PathTraceLightCount(lights), 0u, rays, std::bit_cast<uint32_t>(cutoff));
 			ApplyPathTraceEnvironment(push, envParams);
 			push.Counts.y |= reflectionFlags;
 			const glm::uvec3 groups((width + 7u) / 8u, (height + 7u) / 8u, 1u);
@@ -733,7 +733,7 @@ namespace Lux {
 			const glm::uvec3 groups((width + 7u) / 8u, (height + 7u) / 8u, 1u);
 			RTGITracePush tracePush = {};
 			tracePush.SizeFrameBounces = glm::uvec4(width, height, state->Frame, bounces);
-			tracePush.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, temporalPasses[0] ? 1u : historyLength);
+			tracePush.Counts = glm::uvec4(PathTraceLightCount(lights), 0u, 0u, temporalPasses[0] ? 1u : historyLength);
 			tracePush.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			tracePush.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 			ApplyPathTraceEnvironment(tracePush, envParams);

@@ -8,19 +8,21 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <vector>
 
 namespace Lux {
 
-	// 4 vec4 per light, mirrored by DirectLight in PathTrace.glsl:
+	inline constexpr size_t k_PathTraceLightElementsPerEntry = 5;
+
+	// Four consecutive vec4 per light, followed by one alias-table vec4 per light:
 	//   directional: A = (toward light, 0)  B = (radiance * intensity)
 	//   point:       A = (position, 1)      B = (radiance * intensity, range)
 	//   spot:        A = (position, 2)      B = (radiance * intensity, range)   C = (direction, cos half angle)
 	//   area:        A = (centre, 3 + shape: rect 3, disk 4, sphere 5, tube 6)        B = (radiance * intensity)   C = half right   D = half up
-	// D.w of every light holds the running CDF of the light-choice probabilities (the last one is exactly 1), so DirectLight picks
-	// a light with probability pmf_i = cdf_i - cdf_(i-1) and divides by it. powerSampling weights the choice by each light's expected
-	// irradiance (an importance heuristic: still unbiased, far less noise when light powers differ); off, every light is equally likely.
+	// D.w stores the light's probability mass. In the alias table, x is the probability of keeping the selected
+	// column and y is the alternative light index (as bits). powerSampling weights the choice by expected irradiance.
 	inline std::vector<glm::vec4> PackLights(const LightEnvironment& environment, bool powerSampling = true)
 	{
 		std::vector<glm::vec4> packed;
@@ -61,8 +63,8 @@ namespace Lux {
 			// Expected irradiance at a reference distance of 4 m: directional lum, point / spot lum / d^2, area lum * area / d^2.
 			auto luminance = [](const glm::vec4& v) { return 0.2126f * v.x + 0.7152f * v.y + 0.0722f * v.z; };
 			constexpr float referenceDistance2 = 16.0f;
-			std::vector<float> weights(count, 1.0f);
-			float total = 0.0f;
+			std::vector<double> weights(count, 1.0);
+			double total = 0.0;
 			for (size_t i = 0; i < count; i++)
 			{
 				const int type = static_cast<int>(packed[4 * i].w + 0.5f);
@@ -85,18 +87,41 @@ namespace Lux {
 				weights[i] = powerSampling ? std::max(power, 0.0f) : 1.0f;
 				total += weights[i];
 			}
-			// Mixed with a uniform floor so no light has zero probability (unbiasedness needs p > 0 wherever it contributes).
-			float cdf = 0.0f;
-			for (size_t i = 0; i < count; i++)
+			// The uniform component preserves a nonzero probability for every light. Build the
+			// alias table in linear time so every shader can sample in constant time.
+			const size_t aliasBase = packed.size();
+			packed.resize(count * k_PathTraceLightElementsPerEntry);
+			std::vector<uint32_t> underfull, overfull;
+			underfull.reserve(count);
+			overfull.reserve(count);
+			const double uniform = 1.0 / static_cast<double>(count);
+			for (uint32_t i = 0; i < count; i++)
 			{
-				const float pmf = powerSampling && total > 0.0f ? 0.9f * weights[i] / total + 0.1f / static_cast<float>(count) : 1.0f / static_cast<float>(count);
-				cdf += pmf;
-				packed[4 * i + 3].w = i + 1 == count ? 1.0f : cdf;
+				const double pmf = powerSampling && total > 0.0 ? 0.9 * weights[i] / total + 0.1 * uniform : uniform;
+				packed[4 * i + 3].w = static_cast<float>(pmf);
+				packed[aliasBase + i] = glm::vec4(1.0f, std::bit_cast<float>(i), 0.0f, 0.0f);
+				weights[i] = pmf * static_cast<double>(count);
+				(weights[i] < 1.0 ? underfull : overfull).push_back(i);
+			}
+			while (!underfull.empty() && !overfull.empty())
+			{
+				const uint32_t slot = underfull.back();
+				underfull.pop_back();
+				const uint32_t replacement = overfull.back();
+				overfull.pop_back();
+				packed[aliasBase + slot].x = static_cast<float>(std::clamp(weights[slot], 0.0, 1.0));
+				packed[aliasBase + slot].y = std::bit_cast<float>(replacement);
+				weights[replacement] -= 1.0 - weights[slot];
+				(weights[replacement] < 1.0 ? underfull : overfull).push_back(replacement);
 			}
 		}
 		return packed;
 	}
 
+	inline uint32_t PathTraceLightCount(const std::vector<glm::vec4>& packed)
+	{
+		return static_cast<uint32_t>(packed.size() / k_PathTraceLightElementsPerEntry);
+	}
 
 	template<typename Push>
 	inline void ApplyPathTraceEnvironment(Push& push, const PathTraceEnvParams& environment)

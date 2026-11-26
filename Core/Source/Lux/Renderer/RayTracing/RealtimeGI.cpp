@@ -270,7 +270,7 @@ namespace Lux {
 			const uint32_t framesAtCurrentPositions = usePlacement ? state->Frame - k_PlacementWarmupFrames : state->Frame;
 			GIPush push = {};
 			push.SizeFrameBounces = glm::uvec4(probeCount, rays, framesAtCurrentPositions, bounces);
-			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, autoPlacement ? k_AutoRefresh : 0u);
+			push.Counts = glm::uvec4(PathTraceLightCount(lights), 0u, 0u, autoPlacement ? k_AutoRefresh : 0u);
 			if (adaptivePlacement)
 				push.Counts.w |= usePlacement ? k_UsePlacement : k_MeasureError;
 			push.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);

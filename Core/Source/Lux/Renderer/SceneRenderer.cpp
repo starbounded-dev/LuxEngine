@@ -493,6 +493,7 @@ namespace Lux {
 			"SSRComposite",
 			"RTReflectionsPass",
 			"RTReflectionsDenoise",
+			"ReSTIRDI",
 			"JumpFlood",
 			"BloomCompute",
 			"CompositePass",
