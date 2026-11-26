@@ -108,7 +108,7 @@ before the sky fix below; the Preetham lower hemisphere changed on purpose, so a
 | GI3 lightmaps | Done, limits below | bake over the PT kernel |
 | GI4 realtime GI | Done | SH probe volume + DDGI-style octahedral distance visibility |
 | GI5 ray-traced GI | Done | per-pixel + a-trous denoise |
-| GI-S card + sample scenes | Built; the panel was not clicked through | `GI_CornellBox`, `GI_Furnace`, `GI_AreaLights`, `GI_Leak`, `GI_Textured`, `GI_HDRSky` |
+| GI-S card + sample scenes | Enable, bounce limit and sample target are saved per scene. Reset Accumulation restarts the current preview. Reopening an authored Cornell Box produced the same frame as explicitly enabling three bounces and 16 samples. | `GI_CornellBox`, `GI_Furnace`, `GI_AreaLights`, `GI_Leak`, `GI_Textured`, `GI_HDRSky` |
 
 **Limits pass (issues #221 to #231).** The comparison scenes for lightmaps, probes and RTGI use `GI_CornellDark` (no sky ambient): the raster renderer's image-based ambient light would otherwise be added on top of the baked/traced indirect and hide the gain.
 

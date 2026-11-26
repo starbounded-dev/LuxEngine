@@ -456,6 +456,10 @@ Structurally:
   and textures with alpha coverage use mip streaming. Bindless frame tables keep the previously
   bound images alive until their frame slot is reusable. Runtime packs preserve the source
   pixels and residency mode for the standalone asset loader.
+- The Scene Renderer panel stores Enable Path Tracer, Max Bounces and Target Samples in
+  scene metadata. Scene copies and exports preserve them, and attaching a scene applies
+  them to that viewport and resets its accumulation. Scenes with no settings use raster.
+  Reset Accumulation restarts the current view without changing the saved scene settings.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

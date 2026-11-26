@@ -370,7 +370,7 @@ namespace Lux {
 		bool     PathTracerDiffHeatmap = false;
 		float    PathTracerDiffScale = 0.2f; // linear error mapped to full red
 		float    PathTracerDiffPeak = 1.0f;  // linear radiance mapped to 1 before comparing; above 1 the error covers bright (HDR) areas too
-		uint32_t PathTracerMaxBounces = 4;
+		uint32_t PathTracerMaxBounces = ScenePathTracingSettings{}.MaxBounces;
 		// Pick the light for next-event estimation by its expected irradiance (RayTracing/PathTraceLights.h) instead of uniformly. Unbiased; fewer noisy pixels with many lights of different power.
 		bool     PathTracerPowerLightSampling = true;
 		// Multiple importance sampling: weight next-event estimation against BSDF-sampled hits of the analytic area lights (power heuristic). Unbiased; far less noise on glossy surfaces under large lights.
@@ -409,7 +409,7 @@ namespace Lux {
 		bool     PathTracerSampleHeatmap = false;
 		// Debug view replacing the image: 0 none, 1 bounces per path, 2 rays per path, 3 noise estimate, 4 sample count (the heat map above).
 		uint32_t PathTracerDebugView = 0;
-		uint32_t PathTracerTargetSamples = 256;
+		uint32_t PathTracerTargetSamples = ScenePathTracingSettings{}.TargetSamples;
 		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;
 		bool  EnableShadowCulling = true;
@@ -885,6 +885,7 @@ namespace Lux {
 		void InitOptions();
 
 		void SetScene(Ref<Scene> scene);
+		void ApplyScenePathTracingSettings();
 		void SetViewportSize(uint32_t width, uint32_t height);
 		// Main thread. Values are clamped to a usable range.
 		void SetGridSettings(const GridSettings& settings);

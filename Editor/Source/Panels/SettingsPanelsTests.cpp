@@ -597,7 +597,7 @@ namespace Lux
 						check();
 					}
 					for (const char* query :
-						 {"Show", "Shadows", "Bloom", "GTAO", "Tonemap", "Saturation", "Render"})
+						 {"Show", "Shadows", "Bloom", "GTAO", "Tonemap", "Saturation", "Render", "Path Tracing", "Reset Accumulation"})
 					{
 						std::snprintf(panel.m_SearchBuffer, sizeof(panel.m_SearchBuffer), "%s", query);
 						frame(190.0f);
@@ -613,6 +613,21 @@ namespace Lux
 			Require(before == after && !panel.m_ProjectRendererSettingsDirty &&
 						sceneBefore == SceneSerializer(panel.m_Scene).SerializeToString(),
 					"Viewing renderer cards changed authored renderer or scene data");
+			std::snprintf(panel.m_SearchBuffer, sizeof(panel.m_SearchBuffer), "%s", "Reset Accumulation");
+			frame(650.0f);
+			frame(650.0f);
+			ImGuiWindow* pathTracingCard = nullptr;
+			for (ImGuiWindow* window : GImGui->Windows)
+				if (window->Active && window->RootWindow == ImGui::FindWindowByName("Scene Renderer") &&
+					std::string_view(window->Name).find("/##card_") != std::string_view::npos)
+					pathTracingCard = window;
+			Require(pathTracingCard, "The Path Tracing card did not show Reset Accumulation search");
+			const uint32_t resetCounter = renderer->GetOptions().PathTracerResetCounter;
+			ImGui::ActivateItemByID(pathTracingCard->GetID("Reset Accumulation"));
+			frame(650.0f);
+			Require(renderer->GetOptions().PathTracerResetCounter == resetCounter + 1 &&
+						sceneBefore == SceneSerializer(panel.m_Scene).SerializeToString(),
+					"Reset Accumulation did not restart the renderer's transient preview");
 			std::snprintf(panel.m_SearchBuffer, sizeof(panel.m_SearchBuffer), "%s", "shadows");
 			panel.m_CardShadows = false;
 			frame(190.0f);

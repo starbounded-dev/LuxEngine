@@ -6150,6 +6150,7 @@ namespace Lux {
 		for (const EntityDelta& delta : command.Entities)
 			targets.emplace_back(delta.Handle, undo ? delta.Before : delta.After);
 		const std::string* meta = command.MetaChanged ? &(undo ? command.MetaBefore : command.MetaAfter) : nullptr;
+		const auto pathTracing = m_EditorScene ? m_EditorScene->GetPathTracingSettings() : ScenePathTracingSettings{};
 
 		if (!m_EditorScene || !SceneSerializer(m_EditorScene).ApplyEntitySnapshots(meta, targets))
 		{
@@ -6157,6 +6158,8 @@ namespace Lux {
 			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
 			return;
 		}
+		if (m_SceneRenderer && pathTracing != m_EditorScene->GetPathTracingSettings())
+			m_SceneRenderer->ApplyScenePathTracingSettings();
 
 #ifdef LUX_DEBUG
 		// The live scene must now equal the (already rolled) baseline; anything else means a step

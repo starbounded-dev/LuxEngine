@@ -51,6 +51,36 @@ def load_image(path):
     return image / 255.0 if not cap.is_float() else image
 
 
+def check_path_tracing_settings(config):
+    """#218: reopening a scene restores the path tracer mode, bounce limit and sample target."""
+    from make_rt_scenes import SCENES
+
+    scene = "GI_CornellBox"
+    fixture = SCENES / f"{scene}.luxscene"
+    saved = fixture.read_bytes()
+    options = "Bloom=0,DOF=0,Lightmaps=0"
+    trace = f"{options},PathTracer=1"
+    frame = 160
+    raster = capture("pt-settings-default", scene, options, config, frame)
+    explicit = capture("pt-settings-explicit", scene, f"{trace},PathTracerBounces=3,PathTracerSamples=16", config, frame)
+    short = capture("pt-settings-short", scene, f"{trace},PathTracerBounces=1,PathTracerSamples=16", config, frame)
+    noisy = capture("pt-settings-noisy", scene, f"{trace},PathTracerBounces=3,PathTracerSamples=2", config, frame)
+    try:
+        fixture.write_bytes(saved.replace(b"Entities:", b"PathTracing:\n  Enabled: true\n  MaxBounces: 3\n  TargetSamples: 16\nEntities:", 1))
+        restored = capture("pt-settings-restored", scene, options, config, frame)
+        switched_off = capture("pt-settings-off", scene, f"{options},PathTracer=0", config, frame)
+    finally:
+        fixture.write_bytes(saved)
+    error = rmse(explicit, restored)
+    check(error < 0.001, f"reopened scene matches its explicit path tracing settings ({error:.4f} RMSE)")
+    check(rmse(short, restored) > 0.005 and rmse(noisy, restored) > 0.005,
+          "the stored bounce and sample limits measurably change the path-traced frame")
+    check(rmse(raster, switched_off) < 0.001 and rmse(raster, restored) > 0.005,
+          "legacy scenes render in raster mode and the path-tracer override remains available")
+    report = ROOT / "bin/golden/rt-check-pt-settings-restored/scene-serializer-selftest.txt"
+    check(report.read_text(encoding="utf-8").startswith("PASS"), "scene metadata and scene copy preserve the authored settings")
+
+
 def read_log(tag, scene):
     return (ROOT / "bin/golden" / f"rt-check-{tag}" / f"{scene}.log").read_text(encoding="utf-8", errors="replace")
 
@@ -1158,7 +1188,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib, "texture_streaming": check_texture_streaming}
+CHECKS = {"path_tracing_settings": check_path_tracing_settings, "power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib, "texture_streaming": check_texture_streaming}
 
 
 def main():

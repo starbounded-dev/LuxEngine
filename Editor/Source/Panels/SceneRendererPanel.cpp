@@ -9,6 +9,7 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
@@ -675,16 +676,22 @@ namespace Lux {
 				if (RHIDevice::IsInitialized())
 				{
 					const auto& device = RHIDevice::GetDesc();
-					ImGui::TextDisabled("%s | NRI ray tracing tier %u", device.adapterDesc.name, static_cast<unsigned>(device.tiers.rayTracing));
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					ImGui::TextWrapped("%s | NRI ray tracing tier %u", device.adapterDesc.name, static_cast<unsigned>(device.tiers.rayTracing));
+					ImGui::PopStyleColor();
 				}
 				if (!RHIDevice::SupportsRayQuery())
-					ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "This GPU has no ray queries: the path tracer is unavailable.");
+				{
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.3f, 1.0f));
+					ImGui::TextWrapped("Path tracing requires GPU support for ray queries.");
+					ImGui::PopStyleColor();
+				}
 				else if (options.EnablePathTracer)
 				{
-					ImGui::Text("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
+					ImGui::TextWrapped("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
 					float mae = 0.0f, psnr = 0.0f;
 					if (options.PathTracerDiffHeatmap && m_Context && m_Context->GetPathTraceDiffStats(mae, psnr))
-						ImGui::Text("Diff vs raster: MAE %.4f, PSNR %.1f dB", mae, psnr);
+						ImGui::TextWrapped("Diff vs raster: MAE %.4f, PSNR %.1f dB", mae, psnr);
 				}
 				constexpr std::array<std::pair<std::string_view, const char*>, 6> timingLabels {{
 					{ "RTBLASBuild", "BLAS build" }, { "RTBLASRefit", "BLAS refit" },
@@ -700,20 +707,38 @@ namespace Lux {
 									m_LastRTTimings[i] = entry.GPUTime;
 					for (size_t i = 0; i < timingLabels.size(); ++i)
 						if (m_LastRTTimings[i] > 0.0f)
-							ImGui::TextDisabled("%s %.3f ms GPU", timingLabels[i].second, m_LastRTTimings[i]);
+							ImGui::TextWrapped("%s %.3f ms GPU", timingLabels[i].second, m_LastRTTimings[i]);
 				}
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
-				toggle("Enable Path Tracer", options.EnablePathTracer);
+				bool sceneSettingsChanged = false;
+				auto* pathTracing = m_Scene ? &m_Scene->GetPathTracingSettings() : nullptr;
+				if (toggle("Enable Path Tracer", options.EnablePathTracer))
+				{
+					options.PathTracerResetCounter++;
+					if (pathTracing)
+					{
+						pathTracing->Enabled = options.EnablePathTracer;
+						sceneSettingsChanged = true;
+					}
+				}
 				toggle("Uniform Environment (furnace test)", options.PathTracerUniformEnvironment);
 				toggle("Diff vs Raster (heat map)", options.PathTracerDiffHeatmap);
 				if (match("Diff Scale"))
 					ImGuiEx::Property("Diff Scale", options.PathTracerDiffScale, 0.01f, 0.01f, 1.0f);
 				if (match("Diff Peak (HDR)"))
 					ImGuiEx::Property("Diff Peak (HDR)", options.PathTracerDiffPeak, 0.1f, 1.0f, 64.0f);
-				if (match("Max Bounces"))
-					ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u);
-				if (match("Target Samples"))
-					ImGuiEx::Property("Target Samples", options.PathTracerTargetSamples, 1u, 65536u);
+				if (match("Max Bounces") && ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u) && pathTracing)
+				{
+					pathTracing->MaxBounces = options.PathTracerMaxBounces;
+					sceneSettingsChanged = true;
+				}
+				if (match("Target Samples") && ImGuiEx::Property("Target Samples", options.PathTracerTargetSamples, 1u, 65536u) && pathTracing)
+				{
+					pathTracing->TargetSamples = options.PathTracerTargetSamples;
+					sceneSettingsChanged = true;
+				}
+				if (sceneSettingsChanged)
+					EditorStack::Get().MarkSceneEdited("Path Tracing Settings");
 				toggle("Power Light Sampling", options.PathTracerPowerLightSampling);
 				toggle("Sample Emissive Meshes", options.PathTracerSampleEmissiveMeshes);
 				toggle("Multiple Importance Sampling", options.PathTracerMIS);
@@ -742,15 +767,16 @@ namespace Lux {
 				{
 					static const char* views[] = { "Off", "Bounces per path", "Rays per path", "Noise estimate", "Samples per pixel" };
 					int view = static_cast<int>(std::min(options.PathTracerDebugView, 4u));
-					if (ImGui::Combo("Debug View", &view, views, 5))
+					ImGui::TextUnformatted("Debug View");
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					if (ImGui::Combo("##path_trace_debug_view", &view, views, 5))
 						options.PathTracerDebugView = static_cast<uint32_t>(view);
 				}
-				ImGui::TextDisabled("Adaptive Threshold 0 = off. ReSTIR DI uses pixel-centre rays; Ray Sorting excludes ReSTIR DI.");
-				if (ImGui::Button("Reset Accumulation"))
+				if (match("Reset Accumulation") && ImGui::Button("Reset Accumulation", ImVec2(-FLT_MIN, 0.0f)))
 					options.PathTracerResetCounter++;
 
 				ImGui::Separator();
-				ImGui::TextDisabled("Ray-traced GI: per-pixel indirect diffuse by ray queries, denoised (RT-only; instead of lightmaps / probes).");
+				ImGui::TextWrapped("Ray-Traced GI");
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Ray-Traced GI", options.EnableRTGI);
 				if (match("RTGI Bounces"))
@@ -792,7 +818,7 @@ namespace Lux {
 				toggle("Refit Skinned BLASes", options.RTRefitSkinned);
 				toggle("Refit TLAS", options.RTUpdateTLAS);
 				ImGuiEx::EndPropertyGrid();
-				if (ImGui::Button("Diff RTGI") && m_Context)
+				if (match("Diff RTGI") && ImGui::Button("Diff RTGI", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
 				{
 					options.EnablePathTracer = true;
 					options.PathTracerDiffHeatmap = true;
@@ -802,7 +828,7 @@ namespace Lux {
 				}
 
 				ImGui::Separator();
-				ImGui::TextDisabled("Realtime GI: a probe volume updated by ray queries every frame (RT-only; use it or lightmaps).");
+				ImGui::TextWrapped("Light Probes");
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Realtime GI", options.EnableRealtimeGI);
 				if (match("GI Rays Per Probe"))
@@ -813,7 +839,7 @@ namespace Lux {
 				if (match("GI Bounces"))
 					ImGuiEx::Property("GI Bounces", options.RealtimeGIBounces, 1u, 4u);
 				ImGuiEx::EndPropertyGrid();
-				if (ImGui::Button("Diff Realtime GI") && m_Context)
+				if (match("Diff Realtime GI") && ImGui::Button("Diff Realtime GI", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
 				{
 					options.EnablePathTracer = true;
 					options.PathTracerDiffHeatmap = true;
@@ -822,29 +848,29 @@ namespace Lux {
 				}
 
 				ImGui::Separator();
-				ImGui::TextDisabled("Baked lightmaps (indirect diffuse), written next to the project assets.");
+				ImGui::TextWrapped("Lightmaps");
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
 				toggle("Use Lightmaps", options.EnableLightmaps);
 				ImGuiEx::EndPropertyGrid();
 				const bool baking = m_Context && m_Context->IsLightmapBaking();
-				ImGui::BeginDisabled(baking || !RHIDevice::SupportsRayQuery());
-				if (ImGui::Button("Bake Lightmaps") && m_Context)
-					m_Context->StartLightmapBake();
-				ImGui::EndDisabled();
-				ImGui::SameLine();
-				if (baking)
-					ImGui::ProgressBar(m_Context->GetLightmapBakeProgress(), ImVec2(160.0f, 0.0f));
-				else
-					ImGui::TextDisabled("%s", m_Context && m_Context->HasLightmap() ? "Lightmap loaded" : "No lightmap for this scene");
-				if (ImGui::Button("Diff Lightmap") && m_Context)
+				if (match("Bake Lightmaps"))
+				{
+					ImGui::BeginDisabled(baking || !RHIDevice::SupportsRayQuery());
+					if (ImGui::Button("Bake Lightmaps", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
+						m_Context->StartLightmapBake();
+					ImGui::EndDisabled();
+					if (baking)
+						ImGui::ProgressBar(m_Context->GetLightmapBakeProgress(), ImVec2(-FLT_MIN, 0.0f));
+					else
+						ImGui::TextWrapped("%s", m_Context && m_Context->HasLightmap() ? "Lightmap loaded" : "No lightmap for this scene");
+				}
+				if (match("Diff Lightmap") && ImGui::Button("Diff Lightmap", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
 				{
 					// The raster frame with the lightmap against the path-traced reference.
 					options.EnablePathTracer = true;
 					options.PathTracerDiffHeatmap = true;
 					options.EnableLightmaps = true;
 				}
-				ImGui::SameLine();
-				ImGui::TextDisabled("(heat map, MAE and PSNR against the path tracer)");
 			}
 			EndSettingsCard();
 		}

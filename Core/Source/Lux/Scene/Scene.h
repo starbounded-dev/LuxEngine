@@ -61,6 +61,15 @@ namespace Lux {
 	struct FrameRenderPacket;
 	class MeshSource;
 
+	struct ScenePathTracingSettings
+	{
+		bool Enabled = false;
+		uint32_t MaxBounces = 4;
+		uint32_t TargetSamples = 256;
+
+		bool operator==(const ScenePathTracingSettings&) const = default;
+	};
+
 	class Scene : public Asset
 	{
 	public:
@@ -82,6 +91,9 @@ namespace Lux {
 		PostProcessSettings& GetPostProcessSettings() { return m_PostProcessSettings; }
 		const PostProcessSettings& GetPostProcessSettings() const { return m_PostProcessSettings; }
 		void SetPostProcessSettings(const PostProcessSettings& settings) { m_PostProcessSettings = settings; }
+
+		ScenePathTracingSettings& GetPathTracingSettings() { return m_PathTracingSettings; }
+		const ScenePathTracingSettings& GetPathTracingSettings() const { return m_PathTracingSettings; }
 
 		// The Sound Banks this scene loads before it starts playing and unloads when it stops.
 		const std::vector<AssetHandle>& GetSoundBanks() const { return m_SoundBanks; }
@@ -401,6 +413,7 @@ namespace Lux {
 		float m_UINavHeld[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 
 		PostProcessSettings m_PostProcessSettings;
+		ScenePathTracingSettings m_PathTracingSettings;
 		std::vector<AssetHandle> m_SoundBanks;
 
 		bool m_IsRunning = false;

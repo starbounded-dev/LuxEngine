@@ -2193,6 +2193,14 @@ namespace Lux {
 	{
 		out << Yaml::Key << FormatVersion::Key << Yaml::Value << FormatVersion::Current(FormatVersion::Kind::Scene);
 		out << Yaml::Key << "Scene" << Yaml::Value << scene->GetName();
+		if (const auto& settings = scene->GetPathTracingSettings(); settings != ScenePathTracingSettings{})
+		{
+			out << Yaml::Key << "PathTracing" << Yaml::Value << Yaml::BeginMap;
+			out << Yaml::Key << "Enabled" << Yaml::Value << settings.Enabled;
+			out << Yaml::Key << "MaxBounces" << Yaml::Value << settings.MaxBounces;
+			out << Yaml::Key << "TargetSamples" << Yaml::Value << settings.TargetSamples;
+			out << Yaml::EndMap;
+		}
 		if (!scene->GetSoundBanks().empty())
 		{
 			out << Yaml::Key << "SoundBanks" << Yaml::Value << Yaml::Flow << Yaml::BeginSeq;
@@ -2262,6 +2270,15 @@ namespace Lux {
 					banks.push_back(handle);
 		}
 		scene->SetSoundBanks(std::move(banks));
+
+		ScenePathTracingSettings pathTracing;
+		if (const auto settings = data["PathTracing"]; settings && settings.IsMap())
+		{
+			pathTracing.Enabled = settings["Enabled"].as<bool>(pathTracing.Enabled);
+			pathTracing.MaxBounces = std::clamp(settings["MaxBounces"].as<uint32_t>(pathTracing.MaxBounces), 1u, 16u);
+			pathTracing.TargetSamples = std::clamp(settings["TargetSamples"].as<uint32_t>(pathTracing.TargetSamples), 1u, 65536u);
+		}
+		scene->GetPathTracingSettings() = pathTracing;
 
 		// Absent in scenes written before post-processing moved off volumes; those simply
 		// keep the struct defaults.
@@ -2819,6 +2836,7 @@ namespace Lux {
 		// Switched-off state: an inactive entity and a disabled component must come back off.
 		childA.GetComponent<TagComponent>().Active = false;
 		childA.GetComponent<PointLightComponent>().Enabled = false;
+		src->GetPathTracingSettings() = { true, 7, 192 };
 
 		std::string meta1;
 		std::map<UUID, std::string> ents1 = SceneSerializer(src).SerializeEntitySnapshots(meta1);
@@ -2839,6 +2857,8 @@ namespace Lux {
 		checkListener(dst->TryGetEntityWithUUID(listenerRig.GetUUID()), "Listener round-trip");
 		for (const auto& [scene, operation] : { std::pair{ dst, "Round-trip" }, std::pair{ Scene::Copy(dst), "Scene copy" } })
 		{
+			if (scene->GetPathTracingSettings() != src->GetPathTracingSettings())
+				fail(std::format("{} changed scene path tracing settings", operation));
 			Entity restoredLight = scene->TryGetEntityWithUUID(childA.GetUUID());
 			if (!restoredLight || scene->IsEntityActiveInHierarchy(restoredLight) || !restoredLight.HasComponent<PointLightComponent>()
 				|| restoredLight.GetComponent<PointLightComponent>().Enabled)
