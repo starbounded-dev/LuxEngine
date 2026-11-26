@@ -126,7 +126,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "TexLibFetch" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -397,6 +397,18 @@ namespace Lux {
 					break;
 				}
 
+				if (const auto option = m_Options.find("AutoUnwrapAsset"); option != m_Options.end())
+				{
+					auto manager = Project::GetEditorAssetManager();
+					const AssetHandle handle = manager->GetOrImportAsset(option->second);
+					if (handle && manager->GetMetadata(handle).Status == AssetStatus::Loading)
+						break;
+					if (!manager->SetGenerateLightmapUVs(handle, true))
+					{
+						Finish(false, std::format("could not enable lightmap UV generation for '{}'", option->second));
+						break;
+					}
+				}
 				const std::filesystem::path absoluteScene = Project::GetActiveAssetDirectory() / m_ScenePath;
 				if (!m_Hooks.OpenScene(absoluteScene))
 				{

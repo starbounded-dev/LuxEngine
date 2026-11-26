@@ -678,7 +678,37 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
+def check_unwrap_skinned(config):
+    """#253: the published import option generates UVs on a skinned mesh and preserves its posed render."""
+    import re
+
+    scene = "RigPosed"
+    mesh = "Meshes/Source/Rig/RiggedSimple.gltf"
+    registry = ROOT / "Editor/LuxSampleProject/Assets/AssetRegistry.lzr"
+    original = registry.read_bytes() if registry.exists() else None
+    options = "PathTracer=1,PathTracerSamples=32,Lightmaps=0,Bloom=0"
+    try:
+        before = capture("uvskin-before", scene, options, config, spp(32))
+        generated = capture("uvskin-enable", scene, f"{options},AutoUnwrapAsset={mesh}", config, spp(32))
+        persisted = capture("uvskin-persisted", scene, options, config, spp(32))
+    finally:
+        if original is None:
+            registry.unlink(missing_ok=True)
+        else:
+            registry.write_bytes(original)
+
+    pattern = r"unwrapped skinned submesh .*RiggedSimple[.]gltf.*: (\d+) -> (\d+) vertices, (\d+) charts"
+    initial = re.findall(pattern, read_log("uvskin-before", scene))
+    first = re.findall(pattern, read_log("uvskin-enable", scene))
+    again = re.findall(pattern, read_log("uvskin-persisted", scene))
+    check(not initial and bool(first) and bool(again) and first[-1] == again[-1],
+          f"the per-asset unwrap persists and rebuilds the same skinned layout after restart ({first[-1:]}, {again[-1:]})")
+    difference = rmse(before, generated)
+    check(difference < 0.002 and rmse(generated, persisted) < 0.002,
+          f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
+
+
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():

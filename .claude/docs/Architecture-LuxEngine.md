@@ -413,6 +413,11 @@ Structurally:
   reduces the count toward the roughness cutoff, and the optional spatial filter uses depth,
   normal, roughness, metalness and base colour to filter the signed correction before adding
   it to raster lighting. The trace and filter have separate GPU timers.
+- The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
+  each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
+  the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,
+  meshlets and LODs are built from the remapped geometry. Asset packs carry the resulting UV1
+  and skin streams to the runtime. Rebake lightmaps after changing the source import setting.
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
   maintains them through `RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)`, which

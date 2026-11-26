@@ -894,6 +894,14 @@ namespace Lux {
 			if (result.IsSet(ContentBrowserAction::Reload) && item->GetType() == ContentBrowserItem::ItemType::Asset)
 				AssetManager::ReloadData(item->GetID());
 
+			if (result.IsSet(ContentBrowserAction::ToggleLightmapUVs))
+			{
+				auto manager = Project::GetEditorAssetManager();
+				const AssetMetadata metadata = manager->GetMetadata(item->GetID());
+				if (!manager->SetGenerateLightmapUVs(item->GetID(), !metadata.GenerateLightmapUVs))
+					LUX_CORE_ERROR_TAG("Editor", "Could not change lightmap UV generation for '{}'", metadata.FilePath.generic_string());
+			}
+
 			if (result.IsSet(ContentBrowserAction::OpenDeleteDialogue) && !item->IsRenaming())
 				m_OpenDeletePopup = true;
 

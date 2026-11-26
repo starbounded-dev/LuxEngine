@@ -491,7 +491,7 @@ namespace Lux
 	////////////////////////////////////////////////////////
 
 	bool MeshSource::s_RetainFullCPUGeometry = true;
-	bool MeshSource::s_AutoUnwrapLightmapUVs = false;
+	std::atomic_bool MeshSource::s_AutoUnwrapLightmapUVs = false;
 
 	void MeshSource::SetGeometryCacheDirectory(const std::filesystem::path& directory)
 	{
@@ -622,13 +622,19 @@ namespace Lux
 		return { submesh.BaseVertex, submesh.BaseIndex, submesh.IndexCount, submesh.VertexCount, 0.0f };
 	}
 
-	// Replaces the lightmap UVs of each overlapping, non-skinned submesh with an xatlas unwrap. The new vertices are appended and the submesh's
+	// Replaces submesh lightmap UVs with an xatlas unwrap. The new vertices are appended and the submesh's
 	// indices overwritten in place (same triangle count, now local to the appended block), so no other submesh moves and nothing but this mesh's
 	// own import has seen the geometry yet. Placements of one geometry (equal ranges) share the result.
-	void MeshSource::UnwrapOverlappingLightmapUVs()
+	void MeshSource::UnwrapLightmapUVs(bool onlyOverlapping)
 	{
-		if (!s_AutoUnwrapLightmapUVs || m_Vertices.empty() || m_Indices.empty() || !m_BoneInfluences.empty())
+		if (m_Vertices.empty() || m_Indices.empty())
 			return;
+		const bool hasWeights = !m_BoneInfluences.empty();
+		if (hasWeights && m_BoneInfluences.size() != m_Vertices.size())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[Lightmap] invalid vertex influence count for '{}'", m_FilePath);
+			return;
+		}
 		std::map<std::array<uint32_t, 4>, std::vector<uint32_t>> groups;
 		for (uint32_t i = 0; i < static_cast<uint32_t>(m_Submeshes.size()); i++)
 		{
@@ -638,7 +644,7 @@ namespace Lux
 		for (const auto& [range, members] : groups)
 		{
 			const Submesh submesh = m_Submeshes[members.front()];
-			if (submesh.IsRigged || submesh.VertexCount < 3 || submesh.IndexCount < 3 || !LightmapUVsOverlap(*this, submesh))
+			if (submesh.VertexCount < 3 || submesh.IndexCount < 3 || (onlyOverlapping && !LightmapUVsOverlap(*this, submesh)))
 				continue;
 			const LightmapUnwrapResult result = UnwrapSubmeshForLightmap(*this, submesh);
 			if (!result.Success || result.Indices.size() != submesh.IndexCount)
@@ -661,6 +667,8 @@ namespace Lux
 				attributes.UV1 = glm::packHalf2x16(glm::vec2(result.UV[i].x, 1.0f - result.UV[i].y)); // the bake and GBuffer_Static.glsl flip v
 				m_Vertices.push_back(copy);
 				m_VertexAttributes.push_back(attributes);
+				if (hasWeights)
+					m_BoneInfluences.push_back(m_BoneInfluences[source]);
 			}
 			for (uint32_t k = 0; k < submesh.IndexCount; k++)
 			{
@@ -673,7 +681,8 @@ namespace Lux
 				m_Submeshes[member].BaseVertex = newBase;
 				m_Submeshes[member].VertexCount = static_cast<uint32_t>(result.UV.size());
 			}
-			LUX_CORE_INFO_TAG("Renderer", "[Lightmap] unwrapped submesh {} of '{}': {} -> {} vertices, {} charts", members.front(), m_FilePath, submesh.VertexCount, result.UV.size(), result.ChartCount);
+			LUX_CORE_INFO_TAG("Renderer", "[Lightmap] unwrapped {}submesh {} of '{}': {} -> {} vertices, {} charts",
+				submesh.IsRigged ? "skinned " : "", members.front(), m_FilePath, submesh.VertexCount, result.UV.size(), result.ChartCount);
 		}
 	}
 

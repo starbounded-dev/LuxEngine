@@ -360,6 +360,14 @@ namespace Lux {
 		if (m_Type == ItemType::Asset && ImGui::MenuItem("Reload"))
 			actionResult.Set(ContentBrowserAction::Reload, true);
 
+		if (m_Type == ItemType::Asset && AssetManager::GetAssetType(m_ID) == AssetType::MeshSource)
+		{
+			const AssetMetadata metadata = Project::GetEditorAssetManager()->GetMetadata(m_ID);
+			if (ImGui::MenuItem("Generate Lightmap UVs", nullptr, metadata.GenerateLightmapUVs, metadata.Status != AssetStatus::Loading))
+				actionResult.Set(ContentBrowserAction::ToggleLightmapUVs, true);
+			ImGui::SetItemTooltip("Reimport with an automatic lightmap UV layout. Rebake existing lightmaps after changing this setting.");
+		}
+
 		if (context->GetSelectionCount() == 1 && ImGui::MenuItem("Rename"))
 			actionResult.Set(ContentBrowserAction::StartRenaming, true);
 

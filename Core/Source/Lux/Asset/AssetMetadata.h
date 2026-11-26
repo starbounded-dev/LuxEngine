@@ -26,6 +26,7 @@ namespace Lux
 		AssetStatus Status = AssetStatus::None;
 		uint64_t FileLastWriteTime = 0;
 		bool IsDataLoaded = false;
+		bool GenerateLightmapUVs = false;
 
 		bool IsValid() const { return Handle != 0; }
 		operator bool() const { return IsValid(); }

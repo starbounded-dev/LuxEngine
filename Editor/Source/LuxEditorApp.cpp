@@ -183,9 +183,9 @@ namespace Lux {
 
 		// The editor imports source meshes in every config, Dist included; the player never does
 		// (MeshSerializer.h). Registered before the Application exists, so before any asset loads.
-		MeshSourceSerializer::SetSourceImporter([](const std::filesystem::path& path)
+		MeshSourceSerializer::SetSourceImporter([](const std::filesystem::path& path, bool generateLightmapUVs)
 		{
-			return AssimpMeshImporter(path).ImportToMeshSource();
+			return AssimpMeshImporter(path).ImportToMeshSource(generateLightmapUVs);
 		});
 
 		std::filesystem::path shaderPackOutput;

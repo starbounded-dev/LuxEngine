@@ -18,7 +18,7 @@ namespace Lux
 		// Reads a source mesh file (glTF, FBX, ...). The application that imports source meshes,
 		// the editor, registers it once at startup, before any asset loads. The player loads
 		// meshes from asset packs and registers none, so it never links Assimp, in any config.
-		using SourceImporter = Ref<MeshSource>(*)(const std::filesystem::path& path);
+		using SourceImporter = Ref<MeshSource>(*)(const std::filesystem::path& path, bool generateLightmapUVs);
 		static void SetSourceImporter(SourceImporter importer);
 
 		virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;

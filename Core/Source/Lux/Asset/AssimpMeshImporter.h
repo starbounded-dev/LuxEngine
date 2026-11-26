@@ -20,7 +20,7 @@ namespace Lux
 		explicit AssimpMeshImporter(const std::filesystem::path& path);
 
 		// Load the mesh source.  Returns nullptr on failure.
-		Ref<MeshSource> ImportToMeshSource();
+		Ref<MeshSource> ImportToMeshSource(bool generateLightmapUVs);
 
 		static std::vector<std::filesystem::path> GetReferencedTexturePaths(const std::filesystem::path& path);
 

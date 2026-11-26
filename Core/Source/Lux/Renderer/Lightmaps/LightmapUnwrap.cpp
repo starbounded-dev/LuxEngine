@@ -112,7 +112,7 @@ namespace Lux {
 		packOptions.bruteForce = false;
 		xatlas::Generate(atlas, chartOptions, packOptions);
 
-		if (atlas->meshCount == 1 && atlas->width > 0 && atlas->height > 0)
+		if (atlas->meshCount == 1 && atlas->atlasCount <= 1 && atlas->width > 0 && atlas->height > 0)
 		{
 			const xatlas::Mesh& mesh = atlas->meshes[0];
 			result.SourceVertex.resize(mesh.vertexCount);

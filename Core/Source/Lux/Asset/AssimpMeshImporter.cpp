@@ -554,7 +554,7 @@ namespace Lux
 			TraverseNodes(meshSource, node->mChildren[i], worldTransform, nodeIndex, placedSubmeshes);
 	}
 
-	Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource()
+	Ref<MeshSource> AssimpMeshImporter::ImportToMeshSource(bool generateLightmapUVs)
 	{
 		Ref<MeshSource> meshSource = Ref<MeshSource>::Create();
 		meshSource->m_FilePath = m_Path.string();
@@ -708,7 +708,8 @@ namespace Lux
 		ImportAssimpMaterials(m_Path, scene, meshSource);
 
 		// ── GPU buffers ───────────────────────────────────────────────────────
-		meshSource->UnwrapOverlappingLightmapUVs();
+		if (generateLightmapUVs || MeshSource::GetAutoUnwrapLightmapUVs())
+			meshSource->UnwrapLightmapUVs(!generateLightmapUVs);
 		meshSource->BuildRenderGeometry();
 
 		LUX_CORE_INFO("AssimpMeshImporter: Loaded '{}' – {} submeshes, {} vertices, {} indices",
