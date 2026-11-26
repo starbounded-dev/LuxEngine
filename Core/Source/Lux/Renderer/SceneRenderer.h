@@ -351,6 +351,8 @@ namespace Lux {
 		// Spatiotemporal denoiser for RTGI (SVGF-style, RayTracing/RTGI.cpp): reprojects the accumulated estimate instead of restarting it
 		// when the camera moves, tracks the variance and filters with a variance-guided a-trous. RTGIHistoryLength is its maximum age.
 		bool     RTGIDenoiser = false;
+		// Half-resolution tracing and temporal denoising with a depth/normal-guided full-resolution resolve.
+		bool     RTGIHalfResolution = false;
 		uint32_t RealtimeGIRaysPerProbe = 64;
 		// Probe auto placement: grid spacing in metres (0 = the fixed 16x8x16 grid over the scene bounds); the dimensions follow the scene size
 		// (clamped to 2..64 per axis and 16384 probes) and probes found inside solid geometry are only refreshed now and then.
@@ -2130,8 +2132,11 @@ namespace Lux {
 			RayTracingScene::SetTuning(tuning);
 		}
 		bool EnsureRTGIDenoiser();
+		bool EnsureRTGIUpscale();
 		Ref<ComputePass> m_RTGITemporalPasses[2];
 		Ref<ComputePass> m_RTGIVarFilters[3];
+		Ref<ComputePass> m_RTGIUpscalePass;
+		bool m_RTGIUpscaleUnavailable = false;
 		Ref<Image2D> m_TDHist0[2], m_TDHist1[2], m_TDNormal[2], m_TDDenoised, m_TDVarC, m_TDVarD;
 		bool m_RTGIDenoiserUnavailable = false;
 		Ref<ComputePass> m_RTGIReSTIRPasses[2];

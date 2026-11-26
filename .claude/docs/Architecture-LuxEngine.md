@@ -413,6 +413,12 @@ Structurally:
   reduces the count toward the roughness cutoff, and the optional spatial filter uses depth,
   normal, roughness, metalness and base colour to filter the signed correction before adding
   it to raster lighting. The trace and filter have separate GPU timers.
+- The optional half-resolution RTGI path runs the indirect radiance trace, temporal
+  reprojection and variance-guided filter at half width and height. A compute pass tests
+  full-resolution G-buffer normals and receiver positions against the traced surfaces,
+  then applies diffuse irradiance before refraction and particles. The native path keeps
+  its existing resolution, and the camera, viewport and lighting settings govern history
+  reuse. The renderer tracks trace, denoise and reconstruction GPU time separately.
 - Ray-traced passes share a light table that stores each light's probability and an alias
   entry. Selection takes a fixed number of buffer reads. In dense scenes, the ReSTIR DI
   compute workgroup shares candidate indices. Each pixel samples its own position on the

@@ -26,11 +26,13 @@ from golden_compare import Capture  # noqa: E402
 LABELS = []
 
 
-def capture(tag, scene, options, config, frame, *, perf_frames=10):
+def capture(tag, scene, options, config, frame, *, perf_frames=10, size=None):
     label = f"rt-check-{tag}"
     LABELS.append(label)
     command = [sys.executable, str(ROOT / "tests/rendering/golden_run.py"), "--label", label, "--scenes", scene, "--config", config,
                "--options", options, "--frame", str(frame), "--perf-frames", str(perf_frames), "--perf-warmup", "5", "--timeout", "600"]
+    if size:
+        command.extend(["--size", size])
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     if result.returncode != 0 or " OK " not in result.stdout:
         print(result.stdout[-2000:], result.stderr[-1000:])
@@ -219,6 +221,55 @@ def check_denoise(config):
     new = capture("dn-new", scene, f"{base},RTGIDenoise=1,{sway}", config, 196)
     eo, en = rmse(old, ref), rmse(new, ref)
     check(en < eo * 0.9, f"6 frames after the camera stops the denoiser is closer to the settled image (old filter {eo:.4f}, denoiser {en:.4f})")
+
+
+def check_rtgi_upscale(config):
+    """#258: measure the half-resolution trace, temporal filtering and edge-guided reconstruction."""
+    size = "961x541"
+    image_options = "Bloom=0,DOF=0,Lightmaps=0"
+    base = f"{image_options},RTGI=1,RTGIDenoise=1,RTGIHistory=32"
+    half = f"{base},RTGIHalfResolution=1"
+    # No raster environment lighting. A path tracer bounce count of two includes the first diffuse bounce.
+    compare_scene = "GI_CornellDark"
+    reference = capture("up-pt", compare_scene, f"{image_options},PathTracer=1,PathTracerBounces=2,PathTracerSamples=256", config, spp(256), size=size)
+    raster = capture("up-raster", compare_scene, image_options, config, 200, size=size)
+    native = capture("up-native", compare_scene, base, config, 280, size=size)
+    reconstruction = capture("up-reconstruction", compare_scene, half, config, 280, size=size)
+    full_error, reduced_error = rmse(native, reference), rmse(reconstruction, reference)
+    delta = rmse(reconstruction, native)
+    check(reduced_error < rmse(raster, reference) and reduced_error < full_error + 0.015 and delta < 0.02,
+          f"half-resolution GI retains the full-resolution improvement against the path tracer ({rmse(raster, reference):.4f} raster, {full_error:.4f} full, {reduced_error:.4f} half; {delta:.4f} full vs half)")
+
+    scene = "GI_BounceSpot"
+    full = capture("up-full", scene, base, config, 280, size=size, perf_frames=60)
+    reduced = capture("up-half", scene, half, config, 280, size=size, perf_frames=60)
+
+    # A full-period yaw returns to the authored view. It exposes fresh wall/floor pixels during the sway.
+    sway = "CameraSway=0.18:150:190"
+    moved = capture("up-sway", scene, f"{half},{sway}", config, 196, size=size)
+    no_history = capture("up-sway-single", scene, f"{half},{sway},RTGIHistory=1", config, 196, size=size)
+    moving_error, single_error = rmse(moved, reduced), rmse(no_history, reduced)
+    check(moving_error < single_error * 0.9,
+          f"temporal reprojection survives the camera sway and disocclusions ({single_error:.4f} single-frame, {moving_error:.4f} reprojected)")
+    switched = capture("up-switch", scene, f"{half},RTGIFullResolutionAtFrame=200", config, 280, size=size)
+    switch_error = rmse(switched, full)
+    check(np.isfinite(switched).all() and switch_error < 0.015,
+          f"switching to full resolution resets history and converges to the native image (RMSE {switch_error:.4f})")
+
+    def timings(label):
+        path = ROOT / "bin/golden" / f"rt-check-{label}" / f"{scene}.perf.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        check(data["complete"] and "RTGITrace" in data["passes"], f"{label} completed RTGI GPU timings")
+        return data["passes"]
+
+    native_cost, half_cost = timings("up-full"), timings("up-half")
+    check("RTGIUpscale" not in native_cost and "RTGIUpscale" not in timings("up-switch"),
+          "full-resolution fallback does not dispatch the upscale pass")
+    native_total = native_cost["RTGITrace"]["gpuMs"] + native_cost["RTGIFilter"]["gpuMs"]
+    half_total = sum(half_cost[name]["gpuMs"] for name in ("RTGITrace", "RTGIFilter", "RTGIUpscale"))
+    trace_full, trace_half = native_cost["RTGITrace"]["gpuMs"], half_cost["RTGITrace"]["gpuMs"]
+    check(0 < trace_half < 0.75 * trace_full and half_total < 0.85 * native_total,
+          f"half-resolution GI reduces trace time ({trace_full:.3f} -> {trace_half:.3f} ms) and total time ({native_total:.3f} -> {half_total:.3f} ms)")
 
 
 def rt_lines(tag, scene):
@@ -919,7 +970,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():

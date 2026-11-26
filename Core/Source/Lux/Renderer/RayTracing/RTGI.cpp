@@ -28,6 +28,7 @@ namespace Lux {
 		bool ReuseValid = false;
 		bool DenoiseValid = false; // the temporal history holds a previous frame of this scene
 		uint32_t DenoiseParity = 0;
+		uint64_t LastRenderedFrame = 0;
 	};
 
 	namespace {
@@ -334,6 +335,48 @@ namespace Lux {
 			return false;
 		}
 		LUX_CORE_INFO_TAG("Renderer", "[RTGI] denoiser ready");
+		return true;
+	}
+
+	bool SceneRenderer::EnsureRTGIUpscale()
+	{
+		if (m_RTGIUpscalePass)
+			return true;
+		if (m_RTGIUpscaleUnavailable)
+			return false;
+		auto library = Renderer::GetShaderLibrary();
+		const char* name = "RTGIUpscale";
+		if (!library->GetShaders().contains(name))
+			library->Load("Resources/Shaders/PathTracing/RTGIUpscale.glsl");
+		if (!library->GetShaders().contains(name))
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTGI] {} did not compile; using full-resolution RTGI", name);
+			m_RTGIUpscaleUnavailable = true;
+			return false;
+		}
+
+		ComputePassSpecification spec;
+		spec.DebugName = name;
+		spec.Pipeline = PipelineCompute::Create(library->Get(name));
+		Ref<ComputePass> pass = ComputePass::Create(spec);
+		pass->SetInput("Camera", m_UBSCamera);
+		pass->SetInput("u_RTGIAlbedoTex", m_RTGIAlbedo);
+		pass->SetInput("u_RTGINormalTex", m_RTGINormal);
+		pass->SetInput("u_RTGISceneColor", GetSceneColorOutput());
+		pass->SetInput("u_RTGIUpscaleInput", m_TDVarC);
+		pass->SetInput("u_RTGIUpscaleDepth", m_PreDepthPass->GetDepthOutput());
+		pass->SetInput("u_RTGIUpscaleNormal", GetGeometryNormalOutput());
+		pass->SetInput("u_RTGIUpscaleBaseColor", GetGeometryBaseColorOutput());
+		pass->SetInput("u_RTGIUpscaleMetalRough", GetGeometryMetalRoughOutput());
+		pass->SetInput("o_RTGIVarFinal", m_RTGIResult);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTGI] upscaler inputs do not match the shader; using full-resolution RTGI");
+			m_RTGIUpscaleUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_RTGIUpscalePass = pass;
 		return true;
 	}
 
@@ -900,58 +943,77 @@ namespace Lux {
 		if (m_ViewportWidth == 0 || m_ViewportHeight == 0 || !m_SubmittedRenderScene || !EnsureRTGI())
 			return;
 
-		if (m_RTGIAccum->GetWidth() != m_ViewportWidth || m_RTGIAccum->GetHeight() != m_ViewportHeight)
+		const uint32_t fullWidth = m_ViewportWidth, fullHeight = m_ViewportHeight;
+		const glm::mat4 projection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix();
+		const bool upscale = m_Options.RTGIHalfResolution && projection[3][3] != 1.0f && EnsureRTGIDenoiser() && EnsureRTGIUpscale();
+		const uint32_t width = upscale ? (fullWidth + 1u) / 2u : fullWidth;
+		const uint32_t height = upscale ? (fullHeight + 1u) / 2u : fullHeight;
+		if (m_RTGIAccum->GetWidth() != width || m_RTGIAccum->GetHeight() != height)
 		{
-			for (Ref<Image2D> image : { m_RTGIAccum, m_RTGIAlbedo, m_RTGINormal, m_RTGITempA, m_RTGITempB, m_RTGIResult })
-				image->Resize(m_ViewportWidth, m_ViewportHeight);
+			for (Ref<Image2D> image : { m_RTGIAccum, m_RTGIAlbedo, m_RTGINormal, m_RTGITempA, m_RTGITempB })
+				image->Resize(width, height);
 		}
+		if (m_RTGIResult->GetWidth() != fullWidth || m_RTGIResult->GetHeight() != fullHeight)
+			m_RTGIResult->Resize(fullWidth, fullHeight);
 		const bool reuse = m_Options.RTGIReuse && EnsureRTGIReSTIR();
-		if (reuse && (m_RGSample[0]->GetWidth() != m_ViewportWidth || m_RGSample[0]->GetHeight() != m_ViewportHeight))
+		if (reuse && (m_RGSample[0]->GetWidth() != width || m_RGSample[0]->GetHeight() != height))
 		{
 			for (int i = 0; i < 2; i++)
 				for (Ref<Image2D> image : { m_RGSample[i], m_RGSampleNormal[i], m_RGRadiance[i], m_RGGPos[i], m_RGGNormal[i] })
-					image->Resize(m_ViewportWidth, m_ViewportHeight);
+					image->Resize(width, height);
 		}
-		const bool denoise = m_Options.RTGIDenoiser && EnsureRTGIDenoiser();
+		const bool denoise = upscale || (m_Options.RTGIDenoiser && EnsureRTGIDenoiser());
+		const Ref<Image2D> sceneColor = GetSceneColorOutput();
 		if (denoise)
 		{
-			if (m_TDDenoised->GetWidth() != m_ViewportWidth || m_TDDenoised->GetHeight() != m_ViewportHeight)
+			if (m_TDDenoised->GetWidth() != width || m_TDDenoised->GetHeight() != height)
 			{
 				for (int i = 0; i < 2; i++)
 					for (Ref<Image2D> image : { m_TDHist0[i], m_TDHist1[i], m_TDNormal[i] })
-						image->Resize(m_ViewportWidth, m_ViewportHeight);
+						image->Resize(width, height);
 				for (Ref<Image2D> image : { m_TDDenoised, m_TDVarC, m_TDVarD })
-					image->Resize(m_ViewportWidth, m_ViewportHeight);
+					image->Resize(width, height);
 			}
-			m_RTGIVarFilters[2]->SetInput("u_RTGISceneColor", GetSceneColorOutput());
+			m_RTGIVarFilters[2]->SetInput("u_RTGISceneColor", sceneColor);
+		}
+		if (upscale)
+		{
+			m_RTGIUpscalePass->SetInput("u_RTGISceneColor", sceneColor);
+			m_RTGIUpscalePass->SetInput("u_RTGIUpscaleDepth", m_PreDepthPass->GetDepthOutput());
+			m_RTGIUpscalePass->SetInput("u_RTGIUpscaleNormal", GetGeometryNormalOutput());
+			m_RTGIUpscalePass->SetInput("u_RTGIUpscaleBaseColor", GetGeometryBaseColorOutput());
+			m_RTGIUpscalePass->SetInput("u_RTGIUpscaleMetalRough", GetGeometryMetalRoughOutput());
+			GetOrCreatePassProfile("RTGIUpscale").GPUActive = true;
 		}
 		// Scene colour may have been recreated (a resize); the final pass samples it.
-		m_RTGIFilterPasses[2]->SetInput("u_RTGISceneColor", GetSceneColorOutput());
+		m_RTGIFilterPasses[2]->SetInput("u_RTGISceneColor", sceneColor);
+		GetOrCreatePassProfile("RTGITrace").GPUActive = true;
+		GetOrCreatePassProfile("RTGIFilter").GPUActive = true;
 
 		std::vector<const StaticMeshRenderProxy*> proxies = m_SubmittedRenderScene->GetStaticMeshProxies();
 		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
 		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
 		const uint32_t bounces = std::clamp(m_Options.RTGIBounces, 1u, 4u);
 		const float environmentIntensity = m_FrameEnvironment.EnvironmentIntensity;
-		const uint32_t width = m_ViewportWidth, height = m_ViewportHeight;
-
-		uint64_t signature = HashBytes(1469598103934665603ull, &m_SceneData.SceneCamera.ViewMatrix, sizeof(glm::mat4));
-		const glm::mat4 projection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix();
-		signature = HashBytes(signature, &projection, sizeof(projection));
-		if (!lights.empty())
-			signature = HashBytes(signature, lights.data(), lights.size() * sizeof(glm::vec4));
-		signature = HashBytes(signature, &bounces, sizeof(bounces));
-		signature = HashBytes(signature, &width, sizeof(width));
-		signature = HashBytes(signature, &height, sizeof(height));
-		signature = HashBytes(signature, &reuse, sizeof(reuse));
-		signature = HashBytes(signature, &denoise, sizeof(denoise));
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTGITracePass);
 		const uint32_t historyLength = std::clamp(m_Options.RTGIHistoryLength, 1u, 256u);
-		signature = HashBytes(signature, &historyLength, sizeof(historyLength));
-		uint64_t reuseSignature = HashBytes(1469598103934665603ull, &bounces, sizeof(bounces));
-		reuseSignature = HashBytes(reuseSignature, &width, sizeof(width));
-		reuseSignature = HashBytes(reuseSignature, &height, sizeof(height));
+		uint64_t reuseSignature = HashBytes(1469598103934665603ull, &projection, sizeof(projection));
+		reuseSignature = HashBytes(reuseSignature, &bounces, sizeof(bounces));
+		reuseSignature = HashBytes(reuseSignature, &fullWidth, sizeof(fullWidth));
+		reuseSignature = HashBytes(reuseSignature, &fullHeight, sizeof(fullHeight));
+		reuseSignature = HashBytes(reuseSignature, &upscale, sizeof(upscale));
+		reuseSignature = HashBytes(reuseSignature, &reuse, sizeof(reuse));
+		reuseSignature = HashBytes(reuseSignature, &denoise, sizeof(denoise));
+		reuseSignature = HashBytes(reuseSignature, &historyLength, sizeof(historyLength));
+		reuseSignature = HashBytes(reuseSignature, &envParams.Flags, sizeof(envParams.Flags));
+		reuseSignature = HashBytes(reuseSignature, &envParams.Intensity, sizeof(envParams.Intensity));
+		reuseSignature = HashBytes(reuseSignature, &envParams.Rotation, sizeof(envParams.Rotation));
+		reuseSignature = HashBytes(reuseSignature, &envParams.FogMedium, sizeof(envParams.FogMedium));
+		reuseSignature = HashBytes(reuseSignature, &envParams.FogAlbedo, sizeof(envParams.FogAlbedo));
+		reuseSignature = HashBytes(reuseSignature, &envParams.FogCenter, sizeof(envParams.FogCenter));
 		if (!lights.empty())
 			reuseSignature = HashBytes(reuseSignature, lights.data(), lights.size() * sizeof(glm::vec4));
+		const uint64_t signature = HashBytes(reuseSignature, &m_SceneData.SceneCamera.ViewMatrix, sizeof(glm::mat4));
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
@@ -960,29 +1022,30 @@ namespace Lux {
 		Ref<ComputePass> varFilters[3] = { denoise ? m_RTGIVarFilters[0] : nullptr, denoise ? m_RTGIVarFilters[1] : nullptr, denoise ? m_RTGIVarFilters[2] : nullptr };
 		Ref<ComputePass> reusePasses[2] = { reuse ? m_RTGIReSTIRPasses[0] : nullptr, reuse ? m_RTGIReSTIRPasses[1] : nullptr };
 		Ref<ComputePass> filters[3] = { m_RTGIFilterPasses[0], m_RTGIFilterPasses[1], m_RTGIFilterPasses[2] };
+		Ref<ComputePass> upscalePass = upscale ? m_RTGIUpscalePass : nullptr;
 		Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
 		Ref<Image2D> result = m_RTGIResult;
-		Ref<Image2D> sceneColor = GetSceneColorOutput();
 		std::shared_ptr<RTGIState> state = m_RTGIState;
-		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTGITracePass);
-		signature = HashBytes(signature, &envParams.Flags, sizeof(envParams.Flags));
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
 			const bool changed = scene->RT_Update(cb, instances);
-			if (changed || state->ReuseSignature != reuseSignature)
+			const uint64_t frameNumber = Renderer::RT_GetFrameNumber();
+			const bool interrupted = state->LastRenderedFrame + 1 != frameNumber;
+			if (changed || interrupted || state->ReuseSignature != reuseSignature)
 			{
 				state->ReuseValid = false;
 				state->DenoiseValid = false;
 				state->ReuseSignature = reuseSignature;
 			}
-			if (changed || state->Signature != signature)
+			if (changed || interrupted || state->Signature != signature)
 			{
 				state->Frame = 0;
 				state->Signature = signature;
 			}
 			if (!scene->IsValid() || !sceneColor)
 				return;
+			state->LastRenderedFrame = frameNumber;
 
 			const uint32_t lightBytes = static_cast<uint32_t>(lights.size() * sizeof(glm::vec4));
 			if (lightBuffer->GetSize() < lightBytes)
@@ -998,6 +1061,7 @@ namespace Lux {
 			tracePush.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 			ApplyPathTraceEnvironment(tracePush, envParams);
 			cb->RT_BeginMarker("RTGI");
+			Renderer::RT_BeginGPUPerfMarker(cb, "RTGITrace");
 			if (reusePasses[0])
 			{
 				tracePush.Counts.z = state->ReuseValid ? 1u : 0u;
@@ -1011,7 +1075,9 @@ namespace Lux {
 				trace->Prepare();
 				Renderer::RT_DispatchCompute(*cb, *trace, groups, Buffer(&tracePush, sizeof(tracePush)));
 			}
+			Renderer::RT_EndGPUPerfMarker(cb);
 
+			Renderer::RT_BeginGPUPerfMarker(cb, "RTGIFilter");
 			const uint32_t steps[3] = { 1u, 2u, 4u };
 			if (temporalPasses[0])
 			{
@@ -1025,7 +1091,7 @@ namespace Lux {
 				for (uint32_t i = 0; i < 3; i++)
 				{
 					RTGIFilterPush push = {};
-					push.SizeModeStep = glm::uvec4(width, height, i == 2 ? 1u : 0u, steps[i]);
+					push.SizeModeStep = glm::uvec4(width, height, i == 2 && !upscalePass ? 1u : 0u, steps[i]);
 					push.Params = glm::vec4(32.0f, 0.04f, 4.0f, 0.0f);
 					varFilters[i]->Prepare();
 					Renderer::RT_DispatchCompute(*cb, *varFilters[i], groups, Buffer(&push, sizeof(push)));
@@ -1041,6 +1107,14 @@ namespace Lux {
 					filters[i]->Prepare();
 					Renderer::RT_DispatchCompute(*cb, *filters[i], groups, Buffer(&push, sizeof(push)));
 				}
+			}
+			Renderer::RT_EndGPUPerfMarker(cb);
+			if (upscalePass)
+			{
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTGIUpscale");
+				upscalePass->Prepare();
+				Renderer::RT_DispatchCompute(*cb, *upscalePass, glm::uvec3((fullWidth + 7u) / 8u, (fullHeight + 7u) / 8u, 1u), {});
+				Renderer::RT_EndGPUPerfMarker(cb);
 			}
 			cb->RT_EndMarker();
 			state->Frame++;

@@ -82,9 +82,9 @@ void main()
 		incident *= 16.0 / peak;
 
 	// Running mean that settles to a 1/32 exponential average, restarting at frame 0.
-	vec3 history = imageLoad(o_RTGIAccum, ivec2(pixel)).rgb;
 	float alpha = frame == 0u ? 1.0 : max(1.0 / float(frame + 1u), 1.0 / float(max(u_Push.Counts.w, 1u)));
-	imageStore(o_RTGIAccum, ivec2(pixel), vec4(mix(history, incident, alpha), 1.0));
+	vec3 history = alpha < 1.0 ? mix(imageLoad(o_RTGIAccum, ivec2(pixel)).rgb, incident, alpha) : incident;
+	imageStore(o_RTGIAccum, ivec2(pixel), vec4(history, 1.0));
 	imageStore(o_RTGIAlbedo, ivec2(pixel), vec4(s.Albedo * (1.0 - s.Metal), length(s.P - origin)));
 	imageStore(o_RTGINormal, ivec2(pixel), vec4(s.N, 0.0));
 }

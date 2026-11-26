@@ -117,6 +117,7 @@ namespace Lux {
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
 			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },
 			{ "RTGIDenoise", &SceneRendererOptions::RTGIDenoiser },
+			{ "RTGIHalfResolution", &SceneRendererOptions::RTGIHalfResolution },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
 			{ "PTLobes", &SceneRendererOptions::PathTracerLobes },
@@ -132,7 +133,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "RTGIFullResolutionAtFrame", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -494,6 +495,14 @@ namespace Lux {
 		}
 		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
+		if (const auto it = m_Options.find("RTGIFullResolutionAtFrame"); it != m_Options.end())
+		{
+			uint32_t frame = 0;
+			const auto end = it->second.data() + it->second.size();
+			const auto parsed = std::from_chars(it->second.data(), end, frame);
+			if (parsed.ec == std::errc{} && parsed.ptr == end && m_SceneFrames >= frame)
+				renderer.GetOptions().RTGIHalfResolution = false;
+		}
 
 		if (m_LightmapBakeSamples > 0 && !m_LightmapBakeStarted && m_IdleFrames >= m_IdleFramesRequired && renderer.IsReady())
 		{

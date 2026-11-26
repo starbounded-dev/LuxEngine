@@ -493,6 +493,9 @@ namespace Lux {
 			"SSRComposite",
 			"RTReflectionsPass",
 			"RTReflectionsDenoise",
+			"RTGITrace",
+			"RTGIFilter",
+			"RTGIUpscale",
 			"RTShadowsPass",
 			"RTVisibilityFilter",
 			"RTCausticsPass",
@@ -4612,6 +4615,20 @@ namespace Lux {
 				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTCausticsPass));
 		}
 
+		// Opaque-surface GI belongs in the input to refraction, SSR and particle compositing.
+		if (m_Options.EnableRTGI && RHIDevice::SupportsRayQuery())
+		{
+			auto reads = sceneColorCurrent;
+			if (m_Options.RTGIHalfResolution)
+			{
+				appendResources(reads, gbufferOutputs);
+				appendResources(reads, preDepthOutputs);
+			}
+			addPass("RTGI", reads, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources)
+				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTGIPass));
+		}
+
 		// The pre-convolved opaque scene feeds SSR and refraction; it runs when either needs it.
 		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
 		if (SSRActive() || m_FrameHasRefraction)
@@ -4675,10 +4692,6 @@ namespace Lux {
 			addPass("Particles", particleReads, particleOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ParticlesPass));
 			sceneColorCurrent = particleOutputs;
 		}
-
-		// Ray-traced GI: adds denoised per-pixel indirect diffuse to scene colour (before the path tracer, which overrides it).
-		if (m_Options.EnableRTGI && RHIDevice::SupportsRayQuery())
-			addPass("RTGI", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTGIPass));
 
 		// Ray-traced reflections: smooth surfaces add the reflected ray-traced scene to scene colour (after the GI, before the path tracer).
 		if (m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery())
@@ -5498,7 +5511,7 @@ namespace Lux {
 			m_CameraUB.View = camera.ViewMatrix;
 			m_CameraUB.InverseView = viewInverse;
 			m_CameraUB.UnjitteredViewProjection = unjitteredViewProj;
-			// Nothing reads it since the G-buffer velocity target was dropped; kept in the shared block.
+			// RTGI reprojects static receiver positions with the previous view-projection.
 			m_CameraUB.PreviousViewProjection = m_PreviousViewProjection;
 			// Permanently zero now that nothing jitters the projection.
 			m_CameraUB.Jitter = glm::vec2(0.0f);
