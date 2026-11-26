@@ -451,8 +451,8 @@ namespace Lux {
 
 		// NRI treats VK_KHR_ray_tracing_pipeline and VK_KHR_ray_tracing_maintenance1 as a pair: with
 		// the pipeline extension it loads vkCmdTraceRaysIndirect2KHR, and it cannot wrap the device
-		// when that is missing. Lux uses no ray-tracing pipelines, so a device without maintenance1
-		// goes without the pipeline extension rather than failing to start.
+		// when that is missing. Keep the ordinary ray-query path available on devices that lack
+		// maintenance1 by omitting the pipeline extension needed for optional SER.
 		if (enabledExtensions.device.count(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) && !enabledExtensions.device.count(VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME))
 		{
 			enabledExtensions.device.erase(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);

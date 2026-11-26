@@ -694,8 +694,8 @@ context see the same device NRI drives.
   and loads their functions as if they always were: with `VK_KHR_ray_tracing_pipeline` it loads
   `vkCmdTraceRaysIndirect2KHR` from `VK_KHR_ray_tracing_maintenance1`, and `nriCreateDeviceFromVKDevice`
   fails when that is missing. `VulkanDevice` enables maintenance1 (and its features) with the
-  ray-tracing extensions, and leaves the pipeline extension off on a device without it (Lux uses no
-  ray-tracing pipelines). Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
+  ray-tracing extensions, and leaves the pipeline extension off on a device without it. That device
+  can still use the ray-query path. Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
   fork patch LUX-2). Check `DeviceVK::ResolveDispatchTable` before enabling a new extension.
 - **Surface extensions.** The fork loads a platform's surface function only when its instance
   extension is enabled, and NRI's swapchain calls the `get_surface_capabilities2` queries without
@@ -1497,10 +1497,9 @@ GPU runs. With every ray-traced option off the frame is bit-identical to before 
   while `SceneRendererOptions::EnablePathTracer` is on: it accumulates a running mean (RGBA32F, one sample per frame,
   restarting when the scene, camera, lights or settings change) and `Renderer::RT_CopyImage`s the result into scene
   colour, so bloom, exposure and tone mapping apply as usual. NEE to one light per bounce (directional, point, spot,
-  rect area), BSDF-sampled continuation, BRDF terms copied from `PBR.glslh`. Albedo is the material colour (textures
-  are not sampled in v1); the environment is a constant sky/ground colour. Editor-only: the shader is loaded on
-  first use and needs the shader compiler, so Dist skips it. Its options are session-only (never saved to the
-  project, avoiding the `LuxSample.luxproj` trap). New bindings: set 1, 60-66 (above every existing binding).
+  rect area), BSDF-sampled continuation and the engine material rows and bindless textures. The environment
+  uses the scene's radiance map when available. The shader is loaded on first use and needs a shader
+  compiler. Path-tracer options are session-only. Its original bindings occupy set 1, 60–66.
 - **Checks.** `python tests/rendering/run_ray_query_spike.py` (raw Vulkan, analytic hit distances);
   `python tests/rendering/run_path_trace_check.py` (Cornell colour bleeding, white furnace, convergence, through the
   golden-capture harness; `PathTracer=1,PathTracerSamples=N,PathTracerFurnace=1,PathTracerBounces=N` options).
@@ -1523,7 +1522,8 @@ GPU runs. With every ray-traced option off the frame is bit-identical to before 
   It is off by default. Golden captures opt in before opening the project with `AutoUnwrap=1`.
 - `PathTraceBake.glsl` adds one cosine-weighted path per texel per frame (shared kernel `Include/GLSL/PathTraceCommon.glslh`),
   storing the mean incident radiance. Result: gutter-dilated, saved as `<project assets>/Lightmaps/<scene name>.lxlm`
-  (`LightmapData`), loaded again by `SceneRenderer::SetScene`. **Not part of runtime exports yet** (no asset type).
+  (`LightmapData`), loaded again by `SceneRenderer::SetScene`. Editor export copies those sidecars
+  into the exported assets, where the runtime resolves them by scene name.
 - Use: `GBuffer_Static.glsl` adds `albedo * (1 - metalness) * lightmap` to the emissive target. Inputs are two storage
   buffers bound to the G-buffer pass at set 2, bindings 71 (`LightmapRects`: `[0]` atlas size, `[1 + GPU-scene instance ID]`
   rect) and 72 (`LightmapAtlas`: RGBA16F as `uvec2`). Zero rects mean no lightmap; the frame is bit-identical to before
