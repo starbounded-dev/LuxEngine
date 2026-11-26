@@ -724,6 +724,9 @@ namespace Lux {
 			uint32_t TextureStreamingPromotions = 0;
 			uint32_t TextureStreamingEvictions = 0;
 			uint64_t TextureStreamingFineBytes = 0;
+			uint32_t VirtualTexturePages = 0;
+			uint32_t VirtualTexturePageUploads = 0;
+			uint32_t VirtualTexturePageEvictions = 0;
 			std::vector<PassProfile> PassProfiles;
 		};
 
@@ -2323,6 +2326,13 @@ namespace Lux {
 		std::vector<Ref<Texture2D>> m_GPUMaterialTextures;
 		Ref<BindlessTextureTable> m_BindlessTextures;
 		Scope<TextureStreamingCache> m_TextureStreamingCache;
+		struct VirtualTextureFeedbackState;
+		Ref<StorageBufferSet> m_SBSVirtualTextureFeedback;
+		Ref<VirtualTextureFeedbackState> m_VirtualTextureFeedback;
+		uint64_t m_TextureFeedbackSequence = 0;
+		bool m_VirtualTextureFeedbackSupported = false;
+		void PrepareVirtualTextureFeedback();
+		void CopyVirtualTextureFeedback(uint64_t generation);
 		uint32_t m_ResolvedTextureSlotCount = 0;
 
 		// ── Selected / wireframe ──────────────────────────────────────────────

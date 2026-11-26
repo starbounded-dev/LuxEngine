@@ -38,11 +38,23 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
 namespace Lux {
+
+	struct SceneRenderer::VirtualTextureFeedbackState : RefCounted
+	{
+		std::vector<NRIBuffer> Readbacks;             // render thread, one per frame slot
+		std::vector<uint64_t> FrameGenerations;      // render thread
+		std::mutex Mutex;
+		std::vector<uint32_t> Words;
+		uint64_t Generation = 0;
+		uint64_t Sequence = 0;
+		bool AllocationFailed = false;
+	};
 
 	// Push-constant layout that every mesh-draw shader in this engine expects.
 	// Must match the first four fields of the mesh draw push_constant blocks.
@@ -1459,6 +1471,9 @@ namespace Lux {
 
 			spec.DebugName = "GPUMaterials";
 			m_SBSGPUMaterials = StorageBufferSet::Create(spec, sizeof(GPUMaterialData) * 1024);
+			StorageBufferSpecification feedbackSpec;
+			feedbackSpec.DebugName = "VirtualTextureFeedback";
+			m_SBSVirtualTextureFeedback = StorageBufferSet::Create(feedbackSpec, sizeof(uint32_t));
 
 			spec.DebugName = "MeshCullDrawData";
 			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
@@ -2067,7 +2082,10 @@ namespace Lux {
 
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "GBuffer-Static";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBuffer_Static");
+			const auto shaders = Renderer::GetShaderLibrary();
+			m_VirtualTextureFeedbackSupported = RHIDevice::SupportsFragmentStorageAtomics() &&
+				shaders->GetShaders().contains("GBuffer_VirtualTexture") && shaders->GetShaders().contains("Transparent_VirtualTexture");
+			pipelineSpec.Shader = shaders->Get(m_VirtualTextureFeedbackSupported ? "GBuffer_VirtualTexture" : "GBuffer_Static");
 			pipelineSpec.TargetFramebuffer = m_GeometryPassFramebuffer;
 			pipelineSpec.Layout = vertexLayout;
 			// Vertex colour and UV1 (Mesh.h VertexAttributes), for material graphs; the transparent
@@ -2158,7 +2176,7 @@ namespace Lux {
 			transparentSpec.DebugName = "TransparentForward";
 
 			pipelineSpec.DebugName = "TransparentForward";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent");
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get(m_VirtualTextureFeedbackSupported ? "Transparent_VirtualTexture" : "HazelPBR_Transparent");
 			pipelineSpec.TargetFramebuffer = Framebuffer::Create(transparentSpec);
 			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
 			pipelineSpec.DepthWrite = false;
@@ -3127,6 +3145,7 @@ namespace Lux {
 		{
 			SetRenderPassInputIfValid(renderPass, "GPUSceneInstances", m_SBSGPUSceneInstances);
 			SetRenderPassInputIfValid(renderPass, "GPUMaterials", m_SBSGPUMaterials);
+			SetRenderPassInputIfValid(renderPass, "VirtualTextureFeedback", m_SBSVirtualTextureFeedback);
 			SetRenderPassInputIfValid(renderPass, "ObjectIndexes", m_SBSVisibleObjectIndexes);
 			SetRenderPassInputIfValid(renderPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
 			renderPass->SetBindlessTextures(m_BindlessTextures);
@@ -7844,6 +7863,26 @@ namespace Lux {
 		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
 		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureSlots.size();
+		const auto updateTextureSlot = [this](GPUTextureIndex index, const Ref<Texture2D>& texture) {
+			m_GPUMaterialTextures[index] = texture;
+			m_BindlessTextures->SetSlot(index, texture);
+		};
+		uint64_t feedbackGeneration = 0;
+		if (m_TextureStreamingCache)
+		{
+			auto& cache = *m_TextureStreamingCache;
+			cache.ConfigureVirtual(uploadedTextureCount, m_VirtualTextureFeedbackSupported ? MaxGPUTextureSceneTextures() : uploadedTextureCount, updateTextureSlot);
+			feedbackGeneration = cache.FeedbackGeneration();
+			if (m_VirtualTextureFeedback)
+			{
+				std::lock_guard lock(m_VirtualTextureFeedback->Mutex);
+				if (m_TextureFeedbackSequence != m_VirtualTextureFeedback->Sequence)
+				{
+					cache.ReadFeedback(m_VirtualTextureFeedback->Words, m_VirtualTextureFeedback->Generation);
+					m_TextureFeedbackSequence = m_VirtualTextureFeedback->Sequence;
+				}
+			}
+		}
 
 		if (m_TextureStreamingCache && !m_TextureStreamingCache->Empty())
 		{
@@ -7880,22 +7919,23 @@ namespace Lux {
 			for (const auto& instance : m_TransientGPUSceneInstances)
 				requestInstance(instance);
 			const uint64_t bytes = uint64_t(std::clamp(m_Options.TextureStreamingBudgetMiB, 1u, 512u)) * 1024 * 1024;
-			cache.Apply(bytes, [this](GPUTextureIndex index, const Ref<Texture2D>& texture) {
-				m_GPUMaterialTextures[index] = texture;
-				m_BindlessTextures->SetSlot(index, texture);
-			});
+			cache.Apply(bytes, updateTextureSlot);
 			const auto& residency = cache.GetStatistics();
 			m_Statistics.StreamedTextures = residency.StreamedTextures;
 			m_Statistics.StreamedFineTextures = residency.FineTextures;
 			m_Statistics.TextureStreamingPromotions = residency.Promotions;
 			m_Statistics.TextureStreamingEvictions = residency.Evictions;
 			m_Statistics.TextureStreamingFineBytes = residency.FineBytes;
+			m_Statistics.VirtualTexturePages = residency.VirtualPages;
+			m_Statistics.VirtualTexturePageUploads = residency.PageUploads;
+			m_Statistics.VirtualTexturePageEvictions = residency.PageEvictions;
 		}
 		else
 		{
 			m_Statistics.StreamedTextures = 0;
 			m_Statistics.StreamedFineTextures = 0;
 			m_Statistics.TextureStreamingFineBytes = 0;
+			m_Statistics.VirtualTexturePages = 0;
 		}
 		// Before recording the passes that read this frame's material bindings.
 		m_BindlessTextures->Flush();
@@ -8534,6 +8574,8 @@ namespace Lux {
 				transientSceneData = std::move(transientGPUSceneData),
 				materialData = gpuMaterialData,
 				transientMaterialData = transientGPUMaterialData,
+				virtualTextures = feedbackGeneration ? m_TextureStreamingCache->GetVirtualMapping()
+					: std::unordered_map<GPUTextureIndex, GPUTextureIndex>{},
 				requiredObjectIndexCount, requiredVisibleObjectIndexCount,
 				persistentSceneCount, persistentGPUMaterialCount]() mutable {
 
@@ -8621,6 +8663,29 @@ namespace Lux {
 						instance->m_SBSGPUMaterials->Resize(gpuMaterialBytes * 2u);
 				}
 
+				if (!virtualTextures.empty())
+				{
+					const auto encode = [&virtualTextures](GPUTextureIndex& index) {
+						if (const auto slot = virtualTextures.find(index); slot != virtualTextures.end())
+							index = TextureStreamingCache::VirtualTextureBit | slot->second;
+					};
+					const auto encodeMaterials = [&encode](std::vector<GPUMaterialData>& materials) {
+						for (GPUMaterialData& material : materials)
+						{
+							for (uint32_t channel = 0; channel < 4; ++channel)
+								encode(material.TextureIndices[channel]);
+							for (uint32_t channel = 0; channel < 3; ++channel)
+							{
+								encode(material.ExtraTextureIndices[channel]);
+								encode(material.DetailTextureIndices[channel]);
+							}
+							encode(material.TransmissionTextureIndices.x);
+						}
+					};
+					encodeMaterials(materialData);
+					encodeMaterials(transientMaterialData);
+				}
+
 				if (!materialData.empty())
 				{
 					const uint32_t uploadBytes = (uint32_t)(materialData.size() * sizeof(GPUMaterialData));
@@ -8676,6 +8741,8 @@ namespace Lux {
 
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
+		if (feedbackGeneration)
+			PrepareVirtualTextureFeedback();
 
 		// The graph is rebuilt every frame (cheap — keeps execute callbacks and image
 		// refs current), but Compile() — the lifetime/alias analysis, by far the heavier
@@ -8744,6 +8811,8 @@ namespace Lux {
 			LUX_PROFILE_SCOPE("RenderGraph::Execute");
 			m_RenderGraph.Execute(renderGraphResult, m_CommandBuffer);
 		}
+		if (feedbackGeneration)
+			CopyVirtualTextureFeedback(feedbackGeneration);
 
 		m_CommandBuffer->End();
 
@@ -10706,6 +10775,69 @@ namespace Lux {
 
 		Renderer::EndComputePass(m_CommandBuffer, m_BloomFFTPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::PrepareVirtualTextureFeedback()
+	{
+		constexpr uint32_t bytes = TextureStreamingCache::FeedbackWords * sizeof(uint32_t);
+		if (!m_VirtualTextureFeedback)
+		{
+			m_VirtualTextureFeedback = Ref<VirtualTextureFeedbackState>::Create();
+			m_SBSVirtualTextureFeedback->Resize(bytes);
+		}
+		Renderer::Submit([cb = m_CommandBuffer, gpu = m_SBSVirtualTextureFeedback, state = m_VirtualTextureFeedback]() mutable {
+			const uint32_t frame = Renderer::RT_GetCurrentFrameIndex();
+			if (state->Readbacks.empty() && !state->AllocationFailed)
+			{
+				RHIBufferDesc spec;
+				spec.Size = bytes;
+				spec.Access = CPUAccess::Read;
+				spec.DebugName = "Virtual Texture Feedback Readback";
+				state->Readbacks.resize(gpu->GetBufferCount());
+				state->FrameGenerations.resize(gpu->GetBufferCount());
+				for (auto& readback : state->Readbacks)
+				{
+					readback = NRIBuffer::Create(spec);
+					if (!readback)
+						state->AllocationFailed = true;
+				}
+			}
+			if (!state->AllocationFailed && state->FrameGenerations[frame])
+			{
+				// The frame slot's fence has retired before recording into this slot again.
+				auto& readback = state->Readbacks[frame];
+				if (const void* data = readback.Map(0, bytes))
+				{
+					std::lock_guard lock(state->Mutex);
+					state->Words.resize(TextureStreamingCache::FeedbackWords);
+					std::memcpy(state->Words.data(), data, bytes);
+					state->Generation = state->FrameGenerations[frame];
+					++state->Sequence;
+					readback.Unmap();
+				}
+				state->FrameGenerations[frame] = 0;
+			}
+			static constexpr std::array<uint32_t, TextureStreamingCache::FeedbackWords> clear{};
+			gpu->RT_Get()->RT_SetData(cb, clear.data(), bytes);
+		});
+	}
+
+	void SceneRenderer::CopyVirtualTextureFeedback(uint64_t generation)
+	{
+		constexpr uint32_t bytes = TextureStreamingCache::FeedbackWords * sizeof(uint32_t);
+		Renderer::Submit([cb = m_CommandBuffer, gpu = m_SBSVirtualTextureFeedback, state = m_VirtualTextureFeedback, generation]() mutable {
+			if (state->AllocationFailed || state->Readbacks.empty())
+				return;
+			const uint32_t frame = Renderer::RT_GetCurrentFrameIndex();
+			const Ref<StorageBuffer> feedback = gpu->RT_Get();
+			cb->RT_RequireBufferState(feedback->GetBuffer().GetTracked(), ResourceState::CopySource);
+			if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
+			{
+				RHIDevice::API().CmdCopyBuffer(*commands, *state->Readbacks[frame].Get(), 0, *feedback->GetRHIBuffer(), 0, bytes);
+				cb->RT_EndNRISegment();
+				state->FrameGenerations[frame] = generation;
+			}
+		});
 	}
 
 	void SceneRenderer::HeightFogPass()

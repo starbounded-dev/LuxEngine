@@ -85,7 +85,7 @@ bool HasGPUMaterialFlag(uint flags, uint flag)
 
 bool IsGPUTextureIndexValid(uint textureIndex)
 {
-	return textureIndex != GPU_TEXTURE_INVALID_INDEX && textureIndex < uint(GPU_TEXTURE_SCENE_MAX_TEXTURES);
+	return (textureIndex & ~0x40000000u) < uint(GPU_TEXTURE_SCENE_MAX_TEXTURES);
 }
 
 GPUMaterial GetGPUMaterialForObject(uint objectIndex)

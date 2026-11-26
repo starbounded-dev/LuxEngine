@@ -70,6 +70,7 @@ namespace Lux {
 		std::vector<std::string> InstanceExtensions;
 		std::vector<std::string> DeviceExtensions;
 		bool EnableValidation = false;
+		bool FragmentStorageAtomics = false;
 	};
 
 	// The NRI device. It wraps the VkDevice that VulkanDevice creates (so Aftermath and the
@@ -101,6 +102,7 @@ namespace Lux {
 		// GL_EXT_ray_query. Ray tracing is opt-in everywhere; the raster renderer never needs it.
 		static bool SupportsRayQuery();
 		static bool SupportsShaderExecutionReordering();
+		static bool SupportsFragmentStorageAtomics();
 
 		// Creates, records and submits a little work through NRI on the shared device (buffer,
 		// texture, view, barrier, zero fill, fence wait) and destroys it again. Logs the outcome.

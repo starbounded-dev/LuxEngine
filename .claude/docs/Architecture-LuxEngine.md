@@ -449,7 +449,11 @@ Structurally:
   and applies the selected mesh or slot only while its project, scene and mesh still match.
 - Texture residency is selected in the asset registry. Streamed textures start with a
   coarse mip tail. The scene renderer uses visible receiver bounds and screen coverage to
-  choose fine mip chains within a per-view budget. Bindless frame tables keep the previously
+  choose fine mip chains within a per-view budget. Virtual textures use fragment feedback
+  from the opaque and transparent material passes to request individual pages within the
+  same budget. The readback is consumed when its frame slot is reused, and generation
+  checks discard requests for stale page tables. Devices without fragment storage atomics
+  and textures with alpha coverage use mip streaming. Bindless frame tables keep the previously
   bound images alive until their frame slot is reusable. Runtime packs preserve the source
   pixels and residency mode for the standalone asset loader.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for

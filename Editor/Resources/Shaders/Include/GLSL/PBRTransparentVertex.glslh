@@ -1,0 +1,72 @@
+#include <Buffers.glslh>
+#include <Lighting.glslh>
+#include <ShadowMapping.glslh>
+
+layout(location = 0) in vec3 a_Position;
+layout(location = 1) in vec4 a_QTangent; // tangent frame, QTangent.glslh
+layout(location = 2) in vec2 a_TexCoord;
+// The attribute stream (Mesh.h VertexAttributes): vertex colour and a second UV set.
+layout(location = 3) in vec4 a_Color;
+layout(location = 4) in vec2 a_TexCoord1;
+
+#include <QTangent.glslh>
+
+struct VertexOutput
+{
+	vec3 WorldPosition;
+	vec3 Normal;
+	vec2 TexCoord;
+	mat3 WorldNormals;
+	mat3 WorldTransform;
+	vec3 Binormal;
+
+	mat3 CameraView;
+
+	vec4 ShadowMapCoords[4];
+	vec3 ViewPosition;
+};
+
+layout(location = 0) out VertexOutput Output;
+layout(location = 18) flat out uint OutputObjectIndex;
+layout(location = 19) out vec4 OutputVertexColor;
+layout(location = 20) out vec2 OutputTexCoord1;
+
+layout(push_constant) uniform Material
+{
+	uint ObjectIndexBase;
+	uint _pad;
+	uint BoneBase;
+	uint BoneStride;
+} u_MaterialUniforms;
+
+// Make sure both shaders compute the exact same answer(PreDepth).
+// We need to have the same exact calculations to produce the gl_Position value (eg. matrix multiplications).
+invariant gl_Position;
+
+void main()
+{
+	uint objectIndex = u_MaterialUniforms.ObjectIndexBase + gl_InstanceIndex;
+	mat4 transform = GetInstanceTransform(objectIndex);
+	vec4 worldPosition = transform * vec4(a_Position, 1.0);
+
+	OutputObjectIndex = objectIndex;
+	Output.WorldPosition = worldPosition.xyz;
+	const mat3 tbn = QTangent_ToTBN(a_QTangent); // columns: tangent, binormal, normal
+	Output.Normal = mat3(transform) * tbn[2];
+	Output.TexCoord = vec2(a_TexCoord.x, 1.0 - a_TexCoord.y);
+	OutputVertexColor = a_Color;
+	OutputTexCoord1 = vec2(a_TexCoord1.x, 1.0 - a_TexCoord1.y);
+	Output.WorldNormals = mat3(transform) * tbn;
+	Output.WorldTransform = mat3(transform);
+	Output.Binormal = tbn[1];
+
+	Output.CameraView = mat3(u_Camera.ViewMatrix);
+
+	Output.ShadowMapCoords[0] = u_DirShadow.DirLightMatrices[0] * vec4(Output.WorldPosition, 1.0);
+	Output.ShadowMapCoords[1] = u_DirShadow.DirLightMatrices[1] * vec4(Output.WorldPosition, 1.0);
+	Output.ShadowMapCoords[2] = u_DirShadow.DirLightMatrices[2] * vec4(Output.WorldPosition, 1.0);
+	Output.ShadowMapCoords[3] = u_DirShadow.DirLightMatrices[3] * vec4(Output.WorldPosition, 1.0);
+	Output.ViewPosition = vec3(u_Camera.ViewMatrix * vec4(Output.WorldPosition, 1.0));
+
+	gl_Position = u_Camera.ViewProjectionMatrix * worldPosition;
+}

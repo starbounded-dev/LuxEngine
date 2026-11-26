@@ -166,6 +166,7 @@ namespace Lux {
 		uint32_t m_ClusterEntries = 0, m_ClusterLightsDropped = 0; // last entries, most dropped in any frame
 		uint32_t m_StreamedTextures = 0, m_StreamingPromotions = 0, m_StreamingEvictions = 0;
 		uint64_t m_PeakFineTextureBytes = 0;
+		uint32_t m_VirtualPages = 0, m_VirtualPageUploads = 0, m_VirtualPageEvictions = 0;
 
 		struct CameraPose
 		{

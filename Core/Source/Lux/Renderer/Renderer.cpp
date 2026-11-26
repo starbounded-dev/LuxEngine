@@ -574,6 +574,8 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBuffer_Static.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBuffer_VirtualTexture.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Transparent_VirtualTexture.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting_Area.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBufferDebug.glsl");

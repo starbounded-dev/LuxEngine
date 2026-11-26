@@ -441,6 +441,7 @@ namespace Lux {
 		createInfo.InstanceExtensions.assign(vulkanDeviceManager->GetEnabledInstanceExtensions().begin(), vulkanDeviceManager->GetEnabledInstanceExtensions().end());
 		createInfo.DeviceExtensions.assign(vulkanDeviceManager->GetEnabledDeviceExtensions().begin(), vulkanDeviceManager->GetEnabledDeviceExtensions().end());
 		createInfo.EnableValidation = enableValidation;
+		createInfo.FragmentStorageAtomics = vulkanDeviceManager->GetVulkanPhysicalDevice().getFeatures().fragmentStoresAndAtomics;
 
 		// NRI owns every GPU texture and buffer (NRI migration Phase 8), so there is no fallback.
 		LUX_CORE_VERIFY(RHIDevice::Init(createInfo), "Failed to wrap the Vulkan device in NRI");

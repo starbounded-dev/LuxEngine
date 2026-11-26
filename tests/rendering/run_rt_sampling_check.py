@@ -41,7 +41,11 @@ def capture(tag, scene, options, config, frame, *, perf_frames=10, size=None, pr
     if result.returncode != 0 or " OK " not in result.stdout:
         print(result.stdout[-2000:], result.stderr[-1000:])
         raise SystemExit(f"capture {label} failed")
-    cap = Capture(ROOT / "bin/golden" / label / f"{scene}.lximg")
+    return load_image(ROOT / "bin/golden" / label / f"{scene}.lximg")
+
+
+def load_image(path):
+    cap = Capture(path)
     values = np.array(cap.values(), dtype=np.float64)
     image = values.reshape(cap.height, cap.width, cap.channels)[..., :3]
     return image / 255.0 if not cap.is_float() else image
@@ -1063,6 +1067,18 @@ def check_texture_streaming(config):
         check(0 < working_set["measuredFineBytes"] <= 6 * 1024 * 1024 and working_set["promotions"] >= 3 and working_set["evictions"] >= 2,
               f"visiting a different surface evicts and reloads mips within budget ({working_set})")
         check(rmse(near, returned) < 0.003, "the mip-streaming camera route restores the same image on return")
+
+        virtual = texture_streaming_project(root / "virtual", 2)
+        pages = capture("stream-pages", scene, f"{options},TextureStreamingBudget=3", config, 140, project=virtual, size="961x541")
+        pages_return = capture("stream-pages-return", scene, f"{options},TextureStreamingBudget=3,{route}", config, 260, project=virtual, size="961x541")
+        virtual_stats = stats("stream-pages-return")
+        virtual_error = rmse(pages[roi], reference[roi])
+        check(virtual_stats["virtualPages"] > 0 and virtual_stats["pageEvictions"] > 0 and
+              virtual_stats["pageUploads"] > virtual_stats["virtualPages"] and virtual_stats["promotions"] == 0,
+              f"visible UV feedback streams, evicts and reloads individual texture pages ({virtual_stats})")
+        check(virtual_stats["measuredFineBytes"] <= 3 * 1024 * 1024 and virtual_error < limited_error * 0.8,
+              f"individual pages recover high-frequency detail in the 3 MiB budget ({virtual_error:.4f} RMSE)")
+        check(rmse(pages, pages_return) < 0.003, "revisiting the first surface restores its virtual pages")
 
 
 def check_texlib(config):

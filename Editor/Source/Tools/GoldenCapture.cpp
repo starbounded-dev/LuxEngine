@@ -919,6 +919,9 @@ namespace Lux {
 		m_StreamingPromotions = stats.TextureStreamingPromotions;
 		m_StreamingEvictions = stats.TextureStreamingEvictions;
 		m_PeakFineTextureBytes = std::max(m_PeakFineTextureBytes, stats.TextureStreamingFineBytes);
+		m_VirtualPages = std::max(m_VirtualPages, stats.VirtualTexturePages);
+		m_VirtualPageUploads = stats.VirtualTexturePageUploads;
+		m_VirtualPageEvictions = stats.VirtualTexturePageEvictions;
 
 		for (const SceneRenderer::PassProfile& profile : stats.PassProfiles)
 		{
@@ -967,8 +970,10 @@ namespace Lux {
 		json += std::format("  \"warmupFrames\": {},\n", m_PerfWarmupDone);
 		json += std::format("  \"lostReadinessFrames\": {},\n", m_LostReadinessFrames);
 		json += std::format("  \"clusterLightEntries\": {},\n  \"clusterLightsDropped\": {},\n", m_ClusterEntries, m_ClusterLightsDropped);
-		json += std::format("  \"textureStreaming\": {{ \"textures\": {}, \"promotions\": {}, \"evictions\": {}, \"measuredFineBytes\": {} }},\n",
-			m_StreamedTextures, m_StreamingPromotions, m_StreamingEvictions, m_PeakFineTextureBytes);
+		json += std::format("  \"textureStreaming\": {{ \"textures\": {}, \"promotions\": {}, \"evictions\": {}, \"measuredFineBytes\": {}, "
+			"\"virtualPages\": {}, \"pageUploads\": {}, \"pageEvictions\": {} }},\n",
+			m_StreamedTextures, m_StreamingPromotions, m_StreamingEvictions, m_PeakFineTextureBytes,
+			m_VirtualPages, m_VirtualPageUploads, m_VirtualPageEvictions);
 		json += std::format("  \"complete\": {},\n", m_PerfSamples >= m_PerfFrames ? "true" : "false");
 		json += std::format("  \"frameStats\": {},\n", SummarizeSamples(m_FrameSamples));
 		json += std::format("  \"gpuStats\": {},\n", SummarizeSamples(m_GPUSamples));

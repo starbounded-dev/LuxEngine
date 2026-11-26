@@ -412,6 +412,10 @@ namespace Lux
 		if (!image || ++m_CaptureFrames != m_CaptureFrame)
 			return;
 
+		const auto& stats = m_SceneRenderer->GetStatistics();
+		LUX_CORE_INFO_TAG("Renderer", "Runtime capture residency: {} virtual pages, {} page uploads",
+			stats.VirtualTexturePages, stats.VirtualTexturePageUploads);
+
 		// Queued after this frame's rendering, so the copy reads the finished frame. The layout is the golden
 		// capture's (Editor/Source/Tools/GoldenCapture.cpp): a 32-byte header, then the texels.
 		const std::filesystem::path path = m_CapturePath;

@@ -51,6 +51,7 @@ layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
 	GPUMaterial Materials[];
 } r_GPUMaterials;
 layout(set = 4, binding = 0) uniform texture2D u_GPUMaterialTextures[];
+#include <VirtualTexture.glslh>
 layout(set = 1, binding = 76) uniform sampler u_PTMaterialSampler;
 
 const uint PT_NO_MATERIAL = 0xffffffffu;
@@ -81,6 +82,12 @@ vec3 g_ExternalDirect = vec3(0.0);
 // uvFootprint: the ray cone's width at the hit expressed in uv units (width / cos * uv-per-world).
 vec4 PTSampleMaterialTexture(uint index, vec2 uv, float uvFootprint)
 {
+	if (LuxIsVirtualTexture(index))
+	{
+		const vec4 header = LuxVirtualTextureHeader(index, u_PTMaterialSampler);
+		const float lod = log2(max(uvFootprint * max(header.x, header.y), 1.0));
+		return LuxSampleVirtualTexture(index, header, uv, lod, u_PTMaterialSampler);
+	}
 	const vec2 size = vec2(textureSize(sampler2D(u_GPUMaterialTextures[nonuniformEXT(index)], u_PTMaterialSampler), 0));
 	const float lod = clamp(log2(max(uvFootprint * max(size.x, size.y), 1e-6)), 0.0, 14.0);
 	return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(index)], u_PTMaterialSampler), uv, lod);

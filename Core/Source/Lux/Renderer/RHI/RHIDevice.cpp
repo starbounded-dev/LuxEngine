@@ -18,6 +18,7 @@ namespace Lux {
 			nri::Device* Device = nullptr;
 			NRIInterface API = {};
 			bool ShaderExecutionReordering = false;
+			bool FragmentStorageAtomics = false;
 			std::array<nri::Queue*, static_cast<size_t>(GPUQueue::Count)> Queues = {};
 		};
 
@@ -155,6 +156,7 @@ namespace Lux {
 			Shutdown();
 			return false;
 		}
+		s_Data->FragmentStorageAtomics = createInfo.FragmentStorageAtomics;
 #if defined(VK_EXT_ray_tracing_invocation_reorder)
 		s_Data->ShaderExecutionReordering = api.CreateRayTracingPipeline && api.CmdDispatchRays &&
 			std::find(createInfo.DeviceExtensions.begin(), createInfo.DeviceExtensions.end(),
@@ -222,6 +224,11 @@ namespace Lux {
 	bool RHIDevice::SupportsShaderExecutionReordering()
 	{
 		return s_Data && s_Data->ShaderExecutionReordering;
+	}
+
+	bool RHIDevice::SupportsFragmentStorageAtomics()
+	{
+		return s_Data && s_Data->FragmentStorageAtomics;
 	}
 
 	const nri::DeviceDesc& RHIDevice::GetDesc()
