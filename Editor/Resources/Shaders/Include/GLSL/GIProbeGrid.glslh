@@ -1,0 +1,48 @@
+#pragma once
+
+const uint GI_PROBE_HEADER = 3u;
+const uint GI_PROBE_STRIDE = 36u;
+const uint GI_MAX_AXIS_SIZE = 64u;
+
+uint GIProbeIndex(uvec3 coord, uvec3 dims)
+{
+	return coord.x + dims.x * (coord.y + dims.y * coord.z);
+}
+
+uint GIPlacementBase(uvec3 dims)
+{
+	return GI_PROBE_HEADER + GI_PROBE_STRIDE * dims.x * dims.y * dims.z;
+}
+
+uint GIPlacementAxis(uint placement, uvec3 dims, uint axis)
+{
+	return placement + 1u + (axis > 0u ? dims.x : 0u) + (axis > 1u ? dims.y : 0u);
+}
+
+vec3 GIProbePosition(vec3 origin, vec3 cell, uvec3 coord, uvec3 dims, uint placement)
+{
+	vec3 index = vec3(coord);
+	if (placement != 0u)
+	{
+		for (uint axis = 0u; axis < 3u; axis++)
+			index[axis] = u_GIProbes[GIPlacementAxis(placement, dims, axis) + coord[axis]].x;
+	}
+	return origin + index * cell;
+}
+
+float GIProbeGridCoordinate(float position, uint start, uint count)
+{
+	uint lower = 0u;
+	uint upper = count - 1u;
+	while (upper - lower > 1u)
+	{
+		const uint middle = (lower + upper) / 2u;
+		if (position < u_GIProbes[start + middle].x)
+			upper = middle;
+		else
+			lower = middle;
+	}
+	const float first = u_GIProbes[start + lower].x;
+	const float last = u_GIProbes[start + upper].x;
+	return float(lower) + clamp((position - first) / max(last - first, 1e-4), 0.0, 0.9999);
+}

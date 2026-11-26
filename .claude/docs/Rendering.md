@@ -1543,6 +1543,15 @@ through thin walls) and skinned meshes are not in the ray-traced scene. Gotcha: 
 `NRIBuffer::Map`, never `SetData`, because a host-visible `StorageBuffer` re-uploads its whole CPU copy and would erase the
 GPU-written probes. Switching it off clears the grid's valid flag (`SyncRealtimeGI`); the frame is then bit-identical to before.
 
+Adaptive placement (`GIProbeAdaptive=1`) starts on the uniform lattice. It records an exponentially
+weighted squared radiance residual in the second SH coefficient's unused `w` field. After 32
+updates, a dispatch redistributes the existing planes toward intervals with higher residuals and
+greater differences between neighboring probes. The outer planes stay fixed, and moved probes
+restart their history. Header `[2].w` enables the buffer tail, which holds a validity flag followed
+by the X, Y and Z plane coordinates in grid units. The G-buffer finds the bracketing planes before
+interpolating, and uses those same positions for visibility. GPU barriers order the placement and
+probe updates with fragment reads of this CPU-visible buffer.
+
 ### Ray-tracing sampling, reuse and acceleration-structure tuning (opt-in)
 
 Each item has its own `SceneRendererOptions` switch and its own check in `tests/rendering/run_rt_sampling_check.py` (see `docs/GI_PLAN.md` for the measured results). Invariants:

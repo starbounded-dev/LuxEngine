@@ -490,6 +490,28 @@ def check_probes(config):
     check(auto <= fixed * 1.15, f"auto placement is as close to the path tracer as the fixed grid (MAE {fixed:.4f} -> {auto:.4f})")
 
 
+def check_adaptive_probes(config):
+    """#255: probe placement uses measured variation to improve indirect light within the same budget."""
+    import re
+
+    scene = "GI_OverlapUV"
+    base = "PathTracer=1,PathTracerDiff=1,PathTracerSamples=128,PathTracerBounces=4,RealtimeGI=1,Lightmaps=0,GIProbeSpacing=1.4"
+    uniform = diff_mae("ap-uniform", scene, base, config, 400)
+    adaptive = diff_mae("ap-adaptive", scene, f"{base},GIProbeAdaptive=1", config, 400)
+    uniform_log = read_log("ap-uniform", scene)
+    adaptive_log = read_log("ap-adaptive", scene)
+    budget = re.findall(r"probe grid \d+x\d+x\d+ \((\d+) probes\)", uniform_log)
+    placed = re.findall(r"adapted (\d+) probes from measured radiance variation", adaptive_log)
+    check(bool(budget) and bool(placed) and int(placed[-1]) == int(budget[-1]) and "adapted " not in uniform_log,
+          f"adaptive placement redistributes the same probe budget (uniform {budget[-1:]}, adaptive {placed[-1:]})")
+    check(adaptive < uniform * 0.99, f"adaptive probes reduce the error against the path tracer (MAE {uniform:.4f} -> {adaptive:.4f})")
+
+    off = capture("ap-off", scene, "RealtimeGI=0,Lightmaps=0", config, 230)
+    off_adaptive = capture("ap-off-adaptive", scene, "RealtimeGI=0,Lightmaps=0,GIProbeAdaptive=1", config, 230)
+    check(rmse(off, off_adaptive) < 1e-6 and "adapted " not in read_log("ap-off-adaptive", scene),
+          "adaptive placement leaves the frame unchanged when realtime GI is off")
+
+
 def check_unwrap(config):
     """#227: report the xatlas result for a deliberately overlapping mesh without changing its UVs."""
     import re
@@ -590,7 +612,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
 
 
 def main():

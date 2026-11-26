@@ -182,6 +182,7 @@ indirect-only; RTGI traces its own primary surface, so geometry outside the ray-
 |---|---|---|
 | #253 | Opt-in xatlas UV generation during static source-mesh import | The wall-and-floor mean RMSE against the path tracer fell from 0.0995 to 0.0684. A fresh import reported the same two charts. The unbaked frame was identical. The report-only check retained the four source triangles. |
 | #254 | Opt-in Vulkan shader execution reordering after the first ray, with a material hint | On the RTX 4070 Ti, the SER and compute images matched at RMSE 0.000019 at 64 samples. Explicitly disabling SER reproduced the default image. The median of three 120-frame GPU runs in `GI_Lobes`, 1280×720, was 1.543 ms with compute and 1.912 ms with SER, about 24% slower. The Vulkan validation capture was clean. SER stays off by default. |
+| #255 | Opt-in redistribution of realtime GI probe planes based on measured radiance variation | On the localized emitter in `GI_OverlapUV`, adaptive placement reduced path-tracer MAE from 0.0433 to 0.0358 with 168 probes in both runs. The option left the frame identical with realtime GI off. The Vulkan synchronization-validation capture was clean. |
 
 The installed Vulkan SDK compiles hit-object instructions, but its SPIRV-Cross reflector rejects
 both the EXT and NV hit-object types. The SER pipeline uses the EXT hint instruction after the

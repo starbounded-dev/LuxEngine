@@ -32,6 +32,13 @@ namespace Lux {
 	namespace {
 
 		constexpr glm::uvec3 k_ProbeDims = { 16u, 8u, 16u };
+		constexpr uint32_t k_ProbeStride = 36;
+		constexpr uint32_t k_PlacementWarmupFrames = 32;
+		// GIPush::Counts.w flags shared with GIProbeUpdate.glsl.
+		constexpr uint32_t k_AutoRefresh = 1;
+		constexpr uint32_t k_MeasureError = 2;
+		constexpr uint32_t k_UsePlacement = 4;
+		constexpr uint32_t k_BuildPlacement = 8;
 
 		struct GIPush
 		{
@@ -53,6 +60,23 @@ namespace Lux {
 				hash *= 1099511628211ull;
 			}
 			return hash;
+		}
+
+		void RT_ProbeBarrier(RenderCommandBuffer& commandBuffer, nri::StageBits from, nri::StageBits to)
+		{
+			// The CPU-visible buffer is not tracked by descriptor binding. Both GPU stages use
+			// its storage data, so order the adaptive readers and writers explicitly.
+			if (nri::CommandBuffer* commands = commandBuffer.RT_BeginNRITransfer())
+			{
+				nri::GlobalBarrierDesc global{};
+				global.before = { nri::AccessBits::SHADER_RESOURCE_STORAGE, from };
+				global.after = { nri::AccessBits::SHADER_RESOURCE_STORAGE, to };
+				nri::BarrierDesc barrier{};
+				barrier.globals = &global;
+				barrier.globalNum = 1;
+				RHIDevice::API().CmdBarrier(*commands, barrier);
+				commandBuffer.RT_EndNRISegment();
+			}
 		}
 
 	}
@@ -183,12 +207,14 @@ namespace Lux {
 			LUX_CORE_INFO_TAG("Renderer", "[RealtimeGI] probe grid {}x{}x{} ({} probes)", dims.x, dims.y, dims.z, dims.x * dims.y * dims.z);
 		}
 		const glm::vec3 cell = (boundsMax - boundsMin) / glm::vec3(dims - glm::uvec3(1));
+		const bool adaptivePlacement = m_Options.RealtimeGIAdaptiveProbes;
 
 		// Grid header, written straight into the mapped buffer (the probe region is written by the GPU, so the
 		// buffer's CPU copy must never be uploaded over it).
-		const glm::vec4 header[3] = { glm::vec4(boundsMin, 1.0f), glm::vec4(cell, 0.0f), glm::vec4(glm::vec3(dims), 0.0f) };
+		const glm::vec4 header[3] = { glm::vec4(boundsMin, 1.0f), glm::vec4(cell, 0.0f), glm::vec4(glm::vec3(dims), adaptivePlacement ? 1.0f : 0.0f) };
 		const uint32_t probeCount = dims.x * dims.y * dims.z;
-		const uint32_t bufferBytes = static_cast<uint32_t>(sizeof(header) + probeCount * 36 * sizeof(glm::vec4));
+		const uint32_t placementSlots = adaptivePlacement ? 1 + dims.x + dims.y + dims.z : 0;
+		const uint32_t bufferBytes = static_cast<uint32_t>(sizeof(header) + (probeCount * k_ProbeStride + placementSlots) * sizeof(glm::vec4));
 		if (m_GIProbes->GetSize() < bufferBytes)
 		{
 			m_GIProbes->Resize(bufferBytes);
@@ -240,15 +266,32 @@ namespace Lux {
 			if (lightBytes > 0)
 				lightBuffer->RT_SetData(cb, lights.data(), lightBytes);
 
+			const bool usePlacement = adaptivePlacement && state->Frame >= k_PlacementWarmupFrames;
+			const uint32_t framesAtCurrentPositions = usePlacement ? state->Frame - k_PlacementWarmupFrames : state->Frame;
 			GIPush push = {};
-			push.SizeFrameBounces = glm::uvec4(probeCount, rays, state->Frame, bounces);
-			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, autoPlacement ? 1u : 0u);
+			push.SizeFrameBounces = glm::uvec4(probeCount, rays, framesAtCurrentPositions, bounces);
+			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, 0u, autoPlacement ? k_AutoRefresh : 0u);
+			if (adaptivePlacement)
+				push.Counts.w |= usePlacement ? k_UsePlacement : k_MeasureError;
 			push.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			push.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 			ApplyPathTraceEnvironment(push, envParams);
 			cb->RT_BeginMarker("GIProbeUpdate");
 			pass->Prepare();
+			constexpr auto probeReadStages = nri::StageBits::FRAGMENT_SHADER | nri::StageBits::COMPUTE_SHADER;
+			if (adaptivePlacement)
+				RT_ProbeBarrier(*cb, probeReadStages, nri::StageBits::COMPUTE_SHADER);
+			if (usePlacement && framesAtCurrentPositions == 0)
+			{
+				GIPush placement = push;
+				placement.Counts.w = k_BuildPlacement;
+				Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3(1u), Buffer(&placement, sizeof(placement)));
+				RT_ProbeBarrier(*cb, nri::StageBits::COMPUTE_SHADER, nri::StageBits::COMPUTE_SHADER);
+				LUX_CORE_INFO_TAG("Renderer", "[RealtimeGI] adapted {} probes from measured radiance variation", probeCount);
+			}
 			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((probeCount + 63u) / 64u, 1u, 1u), Buffer(&push, sizeof(push)));
+			if (adaptivePlacement)
+				RT_ProbeBarrier(*cb, nri::StageBits::COMPUTE_SHADER, probeReadStages);
 			cb->RT_EndMarker();
 			state->Frame++;
 			state->Updates++;

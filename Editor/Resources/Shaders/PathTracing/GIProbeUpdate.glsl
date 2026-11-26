@@ -28,12 +28,16 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 #include <PathTraceCommon.glslh>
 
 layout(std430, set = 2, binding = 73) buffer GIProbes { vec4 u_GIProbes[]; };
+#include <GIProbeGrid.glslh>
 
 const float Y0 = 0.282095;
 const float Y1 = 0.488603;
 const uint MAX_RAYS = 128u;
-const uint PROBE_STRIDE = 36u;
 const int MAP_SIZE = 8;
+const uint GI_AUTO_REFRESH = 1u;
+const uint GI_MEASURE_ERROR = 2u;
+const uint GI_USE_PLACEMENT = 4u;
+const uint GI_BUILD_PLACEMENT = 8u;
 
 vec2 SignNotZero(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
 
@@ -46,21 +50,100 @@ vec3 OctDecode(vec2 uv)
 	return normalize(n);
 }
 
+// A plane pair shares one spacing interval along its axis. Measure radiance variation across
+// the planes and changes observed at the probes while warming up on the uniform lattice.
+float ProbeIntervalError(uint interval, uint axis, uvec3 dims)
+{
+	const uint first = (axis + 1u) % 3u;
+	const uint second = (axis + 2u) % 3u;
+	uvec3 coord = uvec3(0u);
+	coord[axis] = interval;
+	uvec3 next = uvec3(0u);
+	next[axis] = 1u;
+	float error = 0.0;
+	float count = 0.0;
+	for (uint row = 0u; row < dims[first]; row++)
+	{
+		coord[first] = row;
+		for (uint column = 0u; column < dims[second]; column++)
+		{
+			coord[second] = column;
+			const uint a = GI_PROBE_HEADER + GI_PROBE_STRIDE * GIProbeIndex(coord, dims);
+			const uint b = GI_PROBE_HEADER + GI_PROBE_STRIDE * GIProbeIndex(coord + next, dims);
+			const vec4 shA = u_GIProbes[a];
+			const vec4 shB = u_GIProbes[b];
+			if (max(shA.w, shB.w) > 0.8)
+				continue;
+			const float variance = max(u_GIProbes[a + 1u].w, u_GIProbes[b + 1u].w);
+			error += sqrt(max(variance, 0.0)) + length(shB.xyz - shA.xyz);
+			count += 1.0;
+		}
+	}
+	return error / max(count, 1.0);
+}
+
+void PlaceProbeAxis(uint axis, uvec3 dims)
+{
+	const uint placement = GIPlacementBase(dims);
+	const uint start = GIPlacementAxis(placement, dims, axis);
+	const uint intervals = dims[axis] - 1u;
+	float errors[GI_MAX_AXIS_SIZE - 1u];
+	float totalError = 0.0;
+	for (uint i = 0u; i < intervals; i++)
+	{
+		errors[i] = ProbeIntervalError(i, axis, dims);
+		totalError += errors[i];
+	}
+	const float meanError = totalError / float(intervals);
+	float cumulative[GI_MAX_AXIS_SIZE];
+	cumulative[0] = 0.0;
+	for (uint i = 0u; i < intervals; i++)
+	{
+		// A uniform part keeps all regions covered. The cap limits what one noisy plane can consume.
+		const float density = 1.0 + min(errors[i] / max(meanError, 1e-6), 4.0);
+		cumulative[i + 1u] = cumulative[i] + density;
+	}
+	uint interval = 0u;
+	u_GIProbes[start] = vec4(0.0);
+	for (uint i = 1u; i < intervals; i++)
+	{
+		const float target = cumulative[intervals] * (float(i) / float(intervals));
+		while (interval + 1u < intervals && cumulative[interval + 1u] < target)
+			interval++;
+		const float fraction = (target - cumulative[interval]) / (cumulative[interval + 1u] - cumulative[interval]);
+		u_GIProbes[start + i] = vec4(float(interval) + fraction, 0.0, 0.0, 0.0);
+	}
+	u_GIProbes[start + intervals] = vec4(float(intervals), 0.0, 0.0, 0.0);
+	if (axis == 0u)
+		u_GIProbes[placement] = vec4(1.0, 0.0, 0.0, 0.0);
+}
+
 void main()
 {
 	const uint index = gl_GlobalInvocationID.x;
+	const uint placementFlags = u_Push.Counts.w;
+	const uvec3 dims = uvec3(u_GIProbes[2].xyz);
+	if ((placementFlags & GI_BUILD_PLACEMENT) != 0u)
+	{
+		if (index < 3u)
+			PlaceProbeAxis(index, dims);
+		return;
+	}
 	if (index >= u_Push.SizeFrameBounces.x)
 		return;
 
 	const vec3 origin = u_GIProbes[0].xyz;
 	const vec3 cell = u_GIProbes[1].xyz;
-	const uvec3 dims = uvec3(u_GIProbes[2].xyz);
 	const uvec3 coord = uvec3(index % dims.x, (index / dims.x) % dims.y, index / (dims.x * dims.y));
-	const vec3 position = origin + vec3(coord) * cell;
+	const uint placement = (placementFlags & GI_USE_PLACEMENT) != 0u ? GIPlacementBase(dims) : 0u;
+	const vec3 position = GIProbePosition(origin, cell, coord, dims, placement);
 
 	const uint frame = u_Push.SizeFrameBounces.z;
+	const bool measureError = (placementFlags & GI_MEASURE_ERROR) != 0u;
+	if (measureError && frame == 0u && index == 0u)
+		u_GIProbes[GIPlacementBase(dims)] = vec4(0.0);
 	// Auto placement: a probe found inside solid geometry on an earlier update (most of its rays hit back faces) is refreshed every 16th frame only.
-	if (u_Push.Counts.w != 0u && frame > 8u && u_GIProbes[3u + index * PROBE_STRIDE].w > 0.8 && (frame & 15u) != 0u)
+	if ((placementFlags & GI_AUTO_REFRESH) != 0u && frame > 8u && u_GIProbes[GI_PROBE_HEADER + index * GI_PROBE_STRIDE].w > 0.8 && (frame & 15u) != 0u)
 		return;
 	const uint rayCount = min(u_Push.SizeFrameBounces.y, MAX_RAYS);
 	g_Rng = PCG(index + PCG(frame * 7919u + 3u));
@@ -110,9 +193,16 @@ void main()
 
 	// Hysteresis: the first frames after a change take the new estimate outright.
 	const float alpha = frame < 4u ? 1.0 : 0.06;
-	const uint base = 3u + index * PROBE_STRIDE;
+	const uint base = GI_PROBE_HEADER + index * GI_PROBE_STRIDE;
+	float error = 0.0;
+	if (measureError && frame > 0u)
+	{
+		const vec3 residual = sh0 - u_GIProbes[base].xyz;
+		const float sampleError = dot(residual, residual);
+		error = mix(u_GIProbes[base + 1u].w, sampleError, max(1.0 / float(frame), 0.08));
+	}
 	u_GIProbes[base + 0u] = vec4(mix(u_GIProbes[base + 0u].xyz, sh0, alpha), mix(u_GIProbes[base + 0u].w, backfaceShare, alpha));
-	u_GIProbes[base + 1u] = vec4(mix(u_GIProbes[base + 1u].xyz, sh1, alpha), 0.0);
+	u_GIProbes[base + 1u] = vec4(mix(u_GIProbes[base + 1u].xyz, sh1, alpha), error);
 	u_GIProbes[base + 2u] = vec4(mix(u_GIProbes[base + 2u].xyz, sh2, alpha), 0.0);
 	u_GIProbes[base + 3u] = vec4(mix(u_GIProbes[base + 3u].xyz, sh3, alpha), 0.0);
 

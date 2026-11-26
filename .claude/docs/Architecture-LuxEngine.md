@@ -266,6 +266,10 @@ as the compute path. `PipelineCompute` owns its NRI ray pipeline and shader bind
 its shader has ray-generation, miss and closest-hit stages. `RenderCommandBuffer` records those
 dispatches at NRI's ray-tracing bind point. The compute path remains the default.
 
+Realtime GI keeps the uniform probe lattice by default. Its opt-in adaptive placement uses the
+same probe allocation and repositions planes after measuring radiance variation on the GPU.
+The update shader and G-buffer share one probe buffer layout and use the same relocated coordinates.
+
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
 `TextureSubresourceRange` (a default range is *every* mip and layer), `GPUQueue`, `ResourceState`,
 `DrawIndexedIndirectCommand`, and the render-target/viewport/vertex-attribute limits. Public

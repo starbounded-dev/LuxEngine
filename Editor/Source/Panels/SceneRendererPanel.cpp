@@ -766,6 +766,7 @@ namespace Lux {
 					ImGuiEx::Property("GI Rays Per Probe", options.RealtimeGIRaysPerProbe, 8u, 128u);
 				if (match("Probe Spacing"))
 					ImGuiEx::Property("Probe Spacing", options.RealtimeGIProbeSpacing, 0.05f, 0.0f, 10.0f);
+				toggle("Adaptive Probe Placement", options.RealtimeGIAdaptiveProbes);
 				if (match("GI Bounces"))
 					ImGuiEx::Property("GI Bounces", options.RealtimeGIBounces, 1u, 4u);
 				ImGuiEx::EndPropertyGrid();

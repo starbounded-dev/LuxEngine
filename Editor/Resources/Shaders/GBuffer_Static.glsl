@@ -139,6 +139,7 @@ vec3 SampleLightmap(uint objectIndex, vec2 uv)
 // then 36 vec4 per probe: L1 radiance SH (w of the first: share of rays that hit a surface from behind) and an 8x8
 // octahedral map of (mean distance, mean squared distance). Zero (the default) means no volume.
 layout(std430, set = 2, binding = 73) readonly buffer GIProbes { vec4 u_GIProbes[]; };
+#include <GIProbeGrid.glslh>
 
 vec2 GISignNotZero(vec2 v) { return vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0); }
 
@@ -172,12 +173,11 @@ vec2 GIDistanceMoments(uint base, vec3 dir)
 }
 
 // Mean incident radiance (irradiance / pi) in direction n from one probe, and its visibility weight for `position`.
-vec3 EvaluateGIProbe(uvec3 coord, uvec3 dims, vec3 n, vec3 position, vec3 origin, vec3 cell, out float visibility)
+vec3 EvaluateGIProbe(uvec3 coord, uvec3 dims, vec3 n, vec3 position, vec3 origin, vec3 cell, uint placement, out float visibility)
 {
 	visibility = 0.0;
-	uint probe = coord.x + dims.x * (coord.y + dims.y * coord.z);
-	uint base = 3u + probe * 36u;
-	if (base + 35u >= uint(u_GIProbes.length()))
+	const uint base = GI_PROBE_HEADER + GIProbeIndex(coord, dims) * GI_PROBE_STRIDE;
+	if (base + GI_PROBE_STRIDE > uint(u_GIProbes.length()))
 		return vec3(0.0);
 
 	// A probe inside geometry (most of its rays hit back faces) sees nothing useful.
@@ -185,7 +185,7 @@ vec3 EvaluateGIProbe(uvec3 coord, uvec3 dims, vec3 n, vec3 position, vec3 origin
 	float insideWeight = 1.0 - clamp((backfaces - 0.1) * 4.0, 0.0, 1.0);
 
 	// Chebyshev visibility from the probe's distance moments toward the shaded point (as DDGI).
-	vec3 toPoint = position - (origin + vec3(coord) * cell);
+	vec3 toPoint = position - GIProbePosition(origin, cell, coord, dims, placement);
 	float distance = length(toPoint);
 	float vis = 1.0;
 	if (distance > 1e-4)
@@ -215,6 +215,17 @@ vec3 SampleGIProbes(vec3 position, vec3 n)
 	// Bias toward the surface normal so a probe behind a thin wall is not the nearest one.
 	vec3 biased = position + n * (0.3 * min(cell.x, min(cell.y, cell.z)));
 	vec3 g = clamp((biased - origin) / max(cell, vec3(1e-4)), vec3(0.0), vec3(dims) - 1.0001);
+	uint placement = 0u;
+	if (u_GIProbes[2].w > 0.5)
+	{
+		const uint header = GIPlacementBase(dims);
+		if (header + dims.x + dims.y + dims.z < uint(u_GIProbes.length()) && u_GIProbes[header].x > 0.5)
+		{
+			placement = header;
+			for (uint axis = 0u; axis < 3u; axis++)
+				g[axis] = GIProbeGridCoordinate(g[axis], GIPlacementAxis(placement, dims, axis), dims[axis]);
+		}
+	}
 	uvec3 i0 = uvec3(floor(g));
 	vec3 f = g - vec3(i0);
 	vec3 result = vec3(0.0);
@@ -226,7 +237,7 @@ vec3 SampleGIProbes(vec3 position, vec3 n)
 		vec3 w3 = mix(vec3(1.0) - f, f, vec3(offset));
 		float trilinear = w3.x * w3.y * w3.z;
 		float visibility;
-		vec3 value = EvaluateGIProbe(min(i0 + offset, dims - uvec3(1)), dims, n, biased, origin, cell, visibility);
+		vec3 value = EvaluateGIProbe(min(i0 + offset, dims - uvec3(1)), dims, n, biased, origin, cell, placement, visibility);
 		plain += value * trilinear;
 		float w = trilinear * visibility;
 		result += value * w;

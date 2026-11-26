@@ -120,6 +120,7 @@ namespace Lux {
 			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
 			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
 			{ "PTSER", &SceneRendererOptions::PathTracerShaderExecutionReordering },
+			{ "GIProbeAdaptive", &SceneRendererOptions::RealtimeGIAdaptiveProbes },
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
