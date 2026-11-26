@@ -693,3 +693,17 @@ the package's lib directory, so SDK paths cannot hide missing game dependencies.
 manifests/settings are untouched. Release/Dist package checks need no validation-layer override.
 The manual Linux Vulkan probe now exercises this exact helper and loader setup before engine
 compilation, without fetching private audio SDKs; its manifest and tool output are retained.
+
+### Optional NVIDIA NRD SDK
+
+Build NVIDIA NRD v4.17.3 from its upstream source in Release before generating Lux projects.
+Use `NRD_EMBEDS_SPIRV_SHADERS=ON`, `NRD_EMBEDS_DXIL_SHADERS=OFF`,
+`NRD_EMBEDS_DXBC_SHADERS=OFF`, `NRD_NORMAL_ENCODING=3` and `NRD_ROUGHNESS_ENCODING=1`.
+Set `LUX_NRD_SDK` to that source directory for project generation. Lux generates the
+NRI 181 compatibility adaptation under `bin-int/NRD`. Debug and Release app builds stage
+the library and license. The runtime exporter carries them in the package. The SDK loads
+on first use through the **NVIDIA NRD** control under **Ray-Traced GI**.
+
+Run `python tests/rendering/run_rt_sampling_check.py nrd --keep` with
+`LUX_TEST_REQUIRE_NRD=1` to require native RELAX dispatch in the capture. An SDK-free
+runner exercises the built-in fallback. Unset `LUX_NRD_SDK` for ordinary project generation.

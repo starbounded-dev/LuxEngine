@@ -25,7 +25,7 @@ namespace Lux::RuntimeExport {
 		const auto named = [&filename](std::string_view name) { return filename.starts_with(name) || filename.starts_with(std::string("lib") + std::string(name)); };
 		if (named("assimp"))
 			return false;
-		if (target == RuntimeExportTarget::Dist && (named("shaderc") || named("dxcompiler")))
+		if (target == RuntimeExportTarget::Dist && (named("shaderc") || named("dxcompiler") || named("NRD")))
 			return false;
 		// FMOD's, left in the shared output folder by an FMOD build from before its removal.
 		return !filename.starts_with("fmod") && !filename.starts_with("libfmod");

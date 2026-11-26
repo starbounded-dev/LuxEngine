@@ -5460,6 +5460,10 @@ namespace Lux {
 			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
 			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
 			{
+				const auto nrdNotice = runtimeDirectory / "NRD-LICENSE.txt";
+				if (targetConfig != RuntimeExportTarget::Dist && RuntimeExport::FileExists(nrdNotice) &&
+					!CopyFileIfExists(nrdNotice, exportRoot / nrdNotice.filename(), true))
+					return false;
 #ifdef LUX_PLATFORM_LINUX
 				const std::filesystem::path libDir = exportRoot / "lib";
 				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })

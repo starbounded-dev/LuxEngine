@@ -460,6 +460,11 @@ Structurally:
   scene metadata. Scene copies and exports preserve them, and attaching a scene applies
   them to that viewport and resets its accumulation. Scenes with no settings use raster.
   Reset Accumulation restarts the current view without changing the saved scene settings.
+- Optional RTGI RELAX diffuse is recorded through the NRI device. It receives first
+  indirect hit distance, view depth, normal, roughness and camera motion directly from
+  the RTGI trace variant. Geometry or lighting changes restart its history. SDK resources
+  retire with their frame fences. ReSTIR GI and half-resolution RTGI use the built-in
+  denoiser, as do builds without a compatible packaged NRD library.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

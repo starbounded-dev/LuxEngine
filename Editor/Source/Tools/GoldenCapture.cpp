@@ -119,6 +119,7 @@ namespace Lux {
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
 			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },
 			{ "RTGIDenoise", &SceneRendererOptions::RTGIDenoiser },
+			{ "RTGINRD", &SceneRendererOptions::RTGINRD },
 			{ "RTGIHalfResolution", &SceneRendererOptions::RTGIHalfResolution },
 			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
 			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },

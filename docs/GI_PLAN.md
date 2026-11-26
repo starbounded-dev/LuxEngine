@@ -149,6 +149,14 @@ unavailable and raster is unchanged. Making that visible (device, GPU timings), 
 ray-tracing-pipeline path (shader execution reordering, opacity micromaps) and optional denoisers (NRD, then DLSS Ray Reconstruction) are
 tracked in #231.
 
+**NVIDIA NRD.** The optional SDK drives RELAX diffuse at native RTGI resolution. The
+trace supplies the first indirect hit distance, linear view depth, normal and roughness,
+and per-pixel camera motion. Scene changes restart the history. The RTX 4070 Ti ran
+NRD and the composite in 0.312 ms at 961×541, using 25.55 MiB for the SDK working set.
+Six frames after a camera sway, RMSE against the settled image fell from 0.0061 to
+0.0009. The denoised Cornell Box reduced RMSE against the path tracer from 0.0719 to
+0.0315 versus raster. The optional Windows library adds 4.95 MiB to the package.
+
 ### Materials, media and reflections pass (issues #241-#245, 2026-11-23)
 
 | Issue | Feature | Result |

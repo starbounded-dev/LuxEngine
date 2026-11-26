@@ -16,6 +16,7 @@ project "Lux-Runtime"
 	debugdir "%{cfg.targetdir}"
 
 	links { "Core" }
+	StageNrdSdk()
 
 	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE" }
 

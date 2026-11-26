@@ -7,6 +7,7 @@ project "Editor"
 	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
 
 	links { "Core" }
+	StageNrdSdk()
 
 	-- The crash watchdog is built next to Editor.exe, where CrashWatchdog::Start looks for it.
 	if os.target() == "windows" then

@@ -90,6 +90,13 @@ project "Core"
 
 	IncludeDependencies()
 
+	if LuxNrdSdk then
+		includedirs { path.join(LuxNrdSdk, "Include"), path.join(LuxNrdSdk, "Integration"), LuxNrdIntegration }
+		filter "files:Source/Lux/Renderer/RayTracing/RTGI.cpp"
+			defines { "LUX_HAS_NRD" }
+		filter {}
+	end
+
 	defines {
 		"GLM_FORCE_DEPTH_ZERO_TO_ONE",
 		-- NRI is linked statically; without this NRI_API is dllimport on Windows.

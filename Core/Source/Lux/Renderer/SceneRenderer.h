@@ -353,6 +353,7 @@ namespace Lux {
 		// Spatiotemporal denoiser for RTGI (SVGF-style, RayTracing/RTGI.cpp): reprojects the accumulated estimate instead of restarting it
 		// when the camera moves, tracks the variance and filters with a variance-guided a-trous. RTGIHistoryLength is its maximum age.
 		bool     RTGIDenoiser = false;
+		bool     RTGINRD = false;
 		// Half-resolution tracing and temporal denoising with a depth/normal-guided full-resolution resolve.
 		bool     RTGIHalfResolution = false;
 		uint32_t RealtimeGIRaysPerProbe = 64;
@@ -886,6 +887,7 @@ namespace Lux {
 
 		void SetScene(Ref<Scene> scene);
 		void ApplyScenePathTracingSettings();
+		static bool HasNRDSdk();
 		void SetViewportSize(uint32_t width, uint32_t height);
 		// Main thread. Values are clamped to a usable range.
 		void SetGridSettings(const GridSettings& settings);
@@ -2146,6 +2148,10 @@ namespace Lux {
 				GetOrCreatePassProfile(pass).GPUActive = true;
 		}
 		bool EnsureRTGIDenoiser();
+		struct RTGINrdState;
+		Ref<RTGINrdState> EnsureRTGINrd(uint32_t width, uint32_t height);
+		Ref<RefCounted> m_RTGINrd;
+		bool m_RTGINrdUnavailable = false;
 		bool EnsureRTGIUpscale();
 		Ref<ComputePass> m_RTGITemporalPasses[2];
 		Ref<ComputePass> m_RTGIVarFilters[3];

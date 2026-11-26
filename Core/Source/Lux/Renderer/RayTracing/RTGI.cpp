@@ -17,6 +17,10 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
 
+#if defined(LUX_HAS_NRD) && !defined(LUX_DIST)
+#include "NrdSdk.h"
+#endif
+
 namespace Lux {
 
 	struct SceneRenderer::RTGIState
@@ -30,6 +34,123 @@ namespace Lux {
 		uint32_t DenoiseParity = 0;
 		uint64_t LastRenderedFrame = 0;
 	};
+
+	struct SceneRenderer::RTGINrdState : RefCounted
+	{
+		uint32_t Width = 0, Height = 0;
+		Ref<ComputePass> Trace, Combine;
+		Ref<Image2D> Radiance, Normals, Depth, Motion, Result;
+		std::atomic<bool> Failed{ false };
+
+		bool RT_Denoise(RenderCommandBuffer& cb, const glm::mat4& view, const glm::mat4& projection, bool reset);
+
+#if defined(LUX_HAS_NRD) && !defined(LUX_DIST)
+		struct Integration : RefCounted
+		{
+			nrd::Integration Instance;
+		};
+		Ref<Integration> Native;
+		glm::mat4 PreviousView{ 1.0f }, PreviousProjection{ 1.0f };
+		uint32_t FrameIndex = 0;
+
+		~RTGINrdState() override
+		{
+			if (Native)
+				Renderer::SubmitResourceFree([native = std::move(Native)] {});
+		}
+#endif
+	};
+
+	bool SceneRenderer::HasNRDSdk()
+	{
+#if defined(LUX_HAS_NRD) && !defined(LUX_DIST)
+		static const bool installed = !NrdSdk::FindLibrary().empty();
+		return installed && RHIDevice::SupportsRayQuery();
+#else
+		return false;
+#endif
+	}
+
+	bool SceneRenderer::RTGINrdState::RT_Denoise(RenderCommandBuffer& cb, const glm::mat4& view, const glm::mat4& projection, bool reset)
+	{
+#if defined(LUX_HAS_NRD) && !defined(LUX_DIST)
+		constexpr nrd::Identifier identifier = 1;
+		if (Failed.load(std::memory_order_acquire))
+			return false;
+		if (!Native)
+		{
+			const nrd::DenoiserDesc denoiser{ identifier, nrd::Denoiser::RELAX_DIFFUSE };
+			nrd::InstanceCreationDesc instance{};
+			instance.denoisers = &denoiser;
+			instance.denoisersNum = 1;
+			nrd::IntegrationCreationDesc desc{};
+			std::memcpy(desc.name, "Lux RTGI", sizeof("Lux RTGI"));
+			desc.resourceWidth = static_cast<uint16_t>(Width);
+			desc.resourceHeight = static_cast<uint16_t>(Height);
+			desc.queuedFrameNum = static_cast<uint8_t>(Renderer::GetConfig().FramesInFlight);
+			desc.autoWaitForIdle = false;
+			auto native = Ref<Integration>::Create();
+			if (native->Instance.Recreate(desc, instance, &RHIDevice::Get()) != nrd::Result::SUCCESS)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "[RTGI] NRD initialization failed; using Lux denoising");
+				Failed.store(true, std::memory_order_release);
+				return false;
+			}
+			LUX_CORE_INFO_TAG("Renderer", "[RTGI] NRD RELAX diffuse active at {}x{}, {:.2f} MiB SDK working memory",
+				Width, Height, native->Instance.GetTotalMemoryUsageInMb());
+			Native = std::move(native);
+			reset = true;
+		}
+		auto& native = Native->Instance;
+		nrd::CommonSettings settings;
+		settings.frameIndex = FrameIndex++;
+		settings.accumulationMode = reset ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
+		std::memcpy(settings.viewToClipMatrix, &projection[0][0], sizeof(settings.viewToClipMatrix));
+		std::memcpy(settings.worldToViewMatrix, &view[0][0], sizeof(settings.worldToViewMatrix));
+		std::memcpy(settings.viewToClipMatrixPrev, reset ? &projection[0][0] : &PreviousProjection[0][0], sizeof(settings.viewToClipMatrixPrev));
+		std::memcpy(settings.worldToViewMatrixPrev, reset ? &view[0][0] : &PreviousView[0][0], sizeof(settings.worldToViewMatrixPrev));
+		settings.resourceSize[0] = settings.resourceSizePrev[0] = settings.rectSize[0] = settings.rectSizePrev[0] = static_cast<uint16_t>(Width);
+		settings.resourceSize[1] = settings.resourceSizePrev[1] = settings.rectSize[1] = settings.rectSizePrev[1] = static_cast<uint16_t>(Height);
+		PreviousView = view;
+		PreviousProjection = projection;
+		native.NewFrame();
+		if (native.SetCommonSettings(settings) != nrd::Result::SUCCESS)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTGI] NRD settings were rejected; using Lux denoising");
+			Failed.store(true, std::memory_order_release);
+			return false;
+		}
+
+		nrd::ResourceSnapshot resources;
+		resources.restoreInitialState = true;
+		constexpr nri::AccessLayoutStage sampled{ nri::AccessBits::SHADER_RESOURCE, nri::Layout::SHADER_RESOURCE, nri::StageBits::ALL };
+		const auto addInput = [&](nrd::ResourceType slot, const Ref<Image2D>& image)
+		{
+			cb.RT_RequireTextureState(image->GetImageInfo().Tracked, {}, ResourceState::ShaderResource);
+			nrd::Resource input;
+			input.nri.texture = image->GetHandle();
+			input.state = sampled;
+			resources.SetResource(slot, input);
+		};
+		addInput(nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST, Radiance);
+		addInput(nrd::ResourceType::IN_NORMAL_ROUGHNESS, Normals);
+		addInput(nrd::ResourceType::IN_VIEWZ, Depth);
+		addInput(nrd::ResourceType::IN_MV, Motion);
+		cb.RT_RequireTextureState(Result->GetImageInfo().Tracked, {}, ResourceState::UnorderedAccess);
+		nrd::Resource output;
+		output.nri.texture = Result->GetHandle();
+		output.state = { nri::AccessBits::SHADER_RESOURCE_STORAGE | nri::AccessBits::CLEAR_STORAGE,
+			nri::Layout::SHADER_RESOURCE_STORAGE, nri::StageBits::ALL };
+		resources.SetResource(nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST, output);
+		if (auto* commands = cb.RT_BeginNRISegment())
+		{
+			native.Denoise(&identifier, 1, *commands, resources);
+			cb.RT_EndNRISegment();
+			return true;
+		}
+#endif
+		return false;
+	}
 
 	namespace {
 
@@ -61,6 +182,98 @@ namespace Lux {
 			return hash;
 		}
 
+	}
+
+	Ref<SceneRenderer::RTGINrdState> SceneRenderer::EnsureRTGINrd(uint32_t width, uint32_t height)
+	{
+		if (m_RTGINrdUnavailable)
+			return nullptr;
+#if defined(LUX_HAS_NRD) && !defined(LUX_DIST)
+		if (m_RTGINrd)
+		{
+			const auto existing = m_RTGINrd.As<RTGINrdState>();
+			if (existing->Failed.load(std::memory_order_acquire))
+			{
+				m_RTGINrd = nullptr;
+				m_RTGINrdUnavailable = true;
+				return nullptr;
+			}
+			if (existing->Width == width && existing->Height == height)
+				return existing;
+		}
+		if (HasNRDSdk() && NrdSdk::Get().Ready)
+		{
+			const auto& sdk = *NrdSdk::Get().GetLibraryDesc();
+			if (sdk.versionMajor == NRD_VERSION_MAJOR && sdk.versionMinor == NRD_VERSION_MINOR && sdk.versionBuild == NRD_VERSION_BUILD &&
+				sdk.normalEncoding == nrd::NormalEncoding::RGBA16_UNORM && sdk.roughnessEncoding == nrd::RoughnessEncoding::LINEAR)
+			{
+				auto library = Renderer::GetShaderLibrary();
+				for (const char* name : { "RTGITraceNRD", "RTGINRDCombine" })
+					if (!library->GetShaders().contains(name))
+						library->Load(std::string("Resources/Shaders/PathTracing/") + name + ".glsl");
+				if (library->GetShaders().contains("RTGITraceNRD") && library->GetShaders().contains("RTGINRDCombine"))
+				{
+					auto state = Ref<RTGINrdState>::Create();
+					state->Width = width;
+					state->Height = height;
+					const auto createImage = [&](ImageFormat format, const char* name)
+					{
+						ImageSpecification spec;
+						spec.Format = format;
+						spec.Usage = ImageUsage::Storage;
+						spec.Width = width;
+						spec.Height = height;
+						spec.DebugName = name;
+						auto image = Image2D::Create(spec);
+						image->Invalidate();
+						return image;
+					};
+					state->Radiance = createImage(ImageFormat::RGBA16F, "NRD Diffuse Radiance and Hit Distance");
+					state->Normals = createImage(ImageFormat::RGBA16F, "NRD Normal and Roughness");
+					state->Depth = createImage(ImageFormat::RED32F, "NRD Linear View Depth");
+					state->Motion = createImage(ImageFormat::RG16F, "NRD Motion");
+					state->Result = createImage(ImageFormat::RGBA16F, "NRD Denoised Diffuse");
+
+					ComputePassSpecification spec;
+					spec.DebugName = "RTGITraceNRD";
+					spec.Pipeline = PipelineCompute::Create(library->Get("RTGITraceNRD"));
+					state->Trace = ComputePass::Create(spec);
+					state->Trace->SetInput("Camera", m_UBSCamera);
+					state->Trace->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+					state->Trace->SetInput("RTVertices", m_RayTracingScene->GetVertexBuffer());
+					state->Trace->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
+					state->Trace->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+					state->Trace->SetInput("RTLights", m_PathTraceLights);
+					state->Trace->SetInput("o_RTGIAccum", m_RTGIAccum);
+					state->Trace->SetInput("o_RTGIAlbedo", m_RTGIAlbedo);
+					state->Trace->SetInput("o_RTGINormal", m_RTGINormal);
+					state->Trace->SetInput("o_NRDRadiance", state->Radiance);
+					state->Trace->SetInput("o_NRDNormalRoughness", state->Normals);
+					state->Trace->SetInput("o_NRDViewDepth", state->Depth);
+					state->Trace->SetInput("o_NRDMotion", state->Motion);
+					PreparePathTraceEnvironment(state->Trace);
+
+					spec.DebugName = "RTGINRDCombine";
+					spec.Pipeline = PipelineCompute::Create(library->Get("RTGINRDCombine"));
+					state->Combine = ComputePass::Create(spec);
+					state->Combine->SetInput("u_RTGIAlbedoTex", m_RTGIAlbedo);
+					state->Combine->SetInput("u_RTGISceneColor", GetSceneColorOutput());
+					state->Combine->SetInput("u_NRDDenoised", state->Result);
+					state->Combine->SetInput("o_RTGIOutput", m_RTGIResult);
+					if (state->Trace->Validate() && state->Combine->Validate())
+					{
+						state->Trace->Bake();
+						state->Combine->Bake();
+						m_RTGINrd = state;
+						return state;
+					}
+				}
+			}
+		}
+#endif
+		LUX_CORE_WARN_TAG("Renderer", "[RTGI] compatible NRD SDK or shaders unavailable; using Lux denoising");
+		m_RTGINrdUnavailable = true;
+		return nullptr;
 	}
 
 	bool SceneRenderer::EnsureRTGI()
@@ -962,8 +1175,17 @@ namespace Lux {
 				for (Ref<Image2D> image : { m_RGSample[i], m_RGSampleNormal[i], m_RGRadiance[i], m_RGGPos[i], m_RGGNormal[i] })
 					image->Resize(width, height);
 		}
-		const bool denoise = upscale || (m_Options.RTGIDenoiser && EnsureRTGIDenoiser());
+		const bool useNrd = m_Options.RTGINRD && !upscale && !reuse && projection[3][3] != 1.0f;
+		auto nrd = useNrd ? EnsureRTGINrd(width, height) : Ref<RTGINrdState>{};
+		if (!useNrd)
+			m_RTGINrd = nullptr;
+		const bool denoise = upscale || ((m_Options.RTGIDenoiser || m_Options.RTGINRD) && EnsureRTGIDenoiser());
 		const Ref<Image2D> sceneColor = GetSceneColorOutput();
+		if (nrd)
+		{
+			nrd->Combine->SetInput("u_RTGISceneColor", sceneColor);
+			GetOrCreatePassProfile("RTGINRD").GPUActive = true;
+		}
 		if (denoise)
 		{
 			if (m_TDDenoised->GetWidth() != width || m_TDDenoised->GetHeight() != height)
@@ -995,7 +1217,7 @@ namespace Lux {
 		std::vector<glm::vec4> lights = PackLights(m_SceneData.SceneLightEnvironment, m_Options.PathTracerPowerLightSampling);
 		const uint32_t bounces = std::clamp(m_Options.RTGIBounces, 1u, 4u);
 		const float environmentIntensity = m_FrameEnvironment.EnvironmentIntensity;
-		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTGITracePass);
+		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(nrd ? nrd->Trace : m_RTGITracePass);
 		const uint32_t historyLength = std::clamp(m_Options.RTGIHistoryLength, 1u, 256u);
 		uint64_t reuseSignature = HashBytes(1469598103934665603ull, &projection, sizeof(projection));
 		reuseSignature = HashBytes(reuseSignature, &bounces, sizeof(bounces));
@@ -1004,6 +1226,7 @@ namespace Lux {
 		reuseSignature = HashBytes(reuseSignature, &upscale, sizeof(upscale));
 		reuseSignature = HashBytes(reuseSignature, &reuse, sizeof(reuse));
 		reuseSignature = HashBytes(reuseSignature, &denoise, sizeof(denoise));
+		reuseSignature = HashBytes(reuseSignature, &useNrd, sizeof(useNrd));
 		reuseSignature = HashBytes(reuseSignature, &historyLength, sizeof(historyLength));
 		reuseSignature = HashBytes(reuseSignature, &envParams.Flags, sizeof(envParams.Flags));
 		reuseSignature = HashBytes(reuseSignature, &envParams.Intensity, sizeof(envParams.Intensity));
@@ -1013,11 +1236,12 @@ namespace Lux {
 		reuseSignature = HashBytes(reuseSignature, &envParams.FogCenter, sizeof(envParams.FogCenter));
 		if (!lights.empty())
 			reuseSignature = HashBytes(reuseSignature, lights.data(), lights.size() * sizeof(glm::vec4));
-		const uint64_t signature = HashBytes(reuseSignature, &m_SceneData.SceneCamera.ViewMatrix, sizeof(glm::mat4));
+		const auto view = m_SceneData.SceneCamera.ViewMatrix;
+		const uint64_t signature = HashBytes(reuseSignature, &view, sizeof(view));
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
-		Ref<ComputePass> trace = m_RTGITracePass;
+		Ref<ComputePass> trace = nrd ? nrd->Trace : m_RTGITracePass;
 		Ref<ComputePass> temporalPasses[2] = { denoise ? m_RTGITemporalPasses[0] : nullptr, denoise ? m_RTGITemporalPasses[1] : nullptr };
 		Ref<ComputePass> varFilters[3] = { denoise ? m_RTGIVarFilters[0] : nullptr, denoise ? m_RTGIVarFilters[1] : nullptr, denoise ? m_RTGIVarFilters[2] : nullptr };
 		Ref<ComputePass> reusePasses[2] = { reuse ? m_RTGIReSTIRPasses[0] : nullptr, reuse ? m_RTGIReSTIRPasses[1] : nullptr };
@@ -1032,7 +1256,8 @@ namespace Lux {
 			const bool changed = scene->RT_Update(cb, instances);
 			const uint64_t frameNumber = Renderer::RT_GetFrameNumber();
 			const bool interrupted = state->LastRenderedFrame + 1 != frameNumber;
-			if (changed || interrupted || state->ReuseSignature != reuseSignature)
+			const bool resetHistory = changed || interrupted || state->ReuseSignature != reuseSignature;
+			if (resetHistory)
 			{
 				state->ReuseValid = false;
 				state->DenoiseValid = false;
@@ -1055,8 +1280,8 @@ namespace Lux {
 
 			const glm::uvec3 groups((width + 7u) / 8u, (height + 7u) / 8u, 1u);
 			RTGITracePush tracePush = {};
-			tracePush.SizeFrameBounces = glm::uvec4(width, height, state->Frame, bounces);
-			tracePush.Counts = glm::uvec4(PathTraceLightCount(lights), 0u, 0u, temporalPasses[0] ? 1u : historyLength);
+			tracePush.SizeFrameBounces = glm::uvec4(width, height, nrd ? static_cast<uint32_t>(frameNumber) : state->Frame, bounces);
+			tracePush.Counts = glm::uvec4(PathTraceLightCount(lights), 0u, 0u, nrd || temporalPasses[0] ? 1u : historyLength);
 			tracePush.SkyRadiance = glm::vec4(glm::vec3(0.35f, 0.5f, 0.8f) * environmentIntensity, 0.0f);
 			tracePush.GroundRadiance = glm::vec4(glm::vec3(0.12f, 0.1f, 0.09f) * environmentIntensity, 0.0f);
 			ApplyPathTraceEnvironment(tracePush, envParams);
@@ -1076,6 +1301,25 @@ namespace Lux {
 				Renderer::RT_DispatchCompute(*cb, *trace, groups, Buffer(&tracePush, sizeof(tracePush)));
 			}
 			Renderer::RT_EndGPUPerfMarker(cb);
+
+			if (nrd)
+			{
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTGINRD");
+				const bool denoised = nrd->RT_Denoise(*cb, view, projection, resetHistory);
+				if (denoised)
+				{
+					nrd->Combine->Prepare();
+					Renderer::RT_DispatchCompute(*cb, *nrd->Combine, groups, {});
+				}
+				Renderer::RT_EndGPUPerfMarker(cb);
+				if (denoised)
+				{
+					cb->RT_EndMarker();
+					state->Frame++;
+					Renderer::RT_CopyImage(cb, result, sceneColor);
+					return;
+				}
+			}
 
 			Renderer::RT_BeginGPUPerfMarker(cb, "RTGIFilter");
 			const uint32_t steps[3] = { 1u, 2u, 4u };

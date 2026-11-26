@@ -13,6 +13,11 @@ namespace Lux {
 		return dlopen(fileName, RTLD_NOW | RTLD_LOCAL);
 	}
 
+	void* SharedLibrary::LoadFile(const std::filesystem::path& path)
+	{
+		return Load(path.c_str());
+	}
+
 	void* SharedLibrary::GetSymbol(void* library, const char* name)
 	{
 		return library ? dlsym(library, name) : nullptr;

@@ -19,6 +19,50 @@ newoption {
 
 include "Dependencies.lua"
 
+local nrdSdk = os.getenv("LUX_NRD_SDK")
+if nrdSdk then
+	LuxNrdSdk = path.getabsolute(nrdSdk)
+	if not os.isfile(path.join(LuxNrdSdk, "Include/NRD.h")) or
+		not os.isfile(path.join(LuxNrdSdk, "Integration/NRDIntegration.hpp")) then
+		error("LUX_NRD_SDK must point to the built NRD v4.17.3 source tree")
+	end
+	-- The NVIDIA sample targets NRI 179. Lux's NRI 181 renamed the buffer
+	-- usage and changed GraphicsAPI from sequential values to bit flags.
+	local source = io.readfile(path.join(LuxNrdSdk, "Integration/NRDIntegration.hpp"))
+	for _, change in ipairs({
+		{ "nri::BufferUsageBits::CONSTANT_BUFFER", "nri::BufferUsageBits::CONSTANT" },
+		{ "(&nrdPipelineDesc.computeShaderDXBC)[std::max((int32_t)deviceDesc.graphicsAPI - 1, 0)]", "nrdPipelineDesc.computeShaderSPIRV" },
+	}) do
+		local first, last = source:find(change[1], 1, true)
+		if not first then
+			error("Unsupported NRD integration header. Use NVIDIA NRD v4.17.3.")
+		end
+		source = source:sub(1, first - 1) .. change[2] .. source:sub(last + 1)
+	end
+	LuxNrdIntegration = path.getabsolute("bin-int/NRD")
+	os.mkdir(LuxNrdIntegration)
+	local generated = assert(io.open(path.join(LuxNrdIntegration, "LuxNRDIntegration.hpp"), "wb"))
+	generated:write("// This software contains source code provided by NVIDIA Corporation.\n", source)
+	generated:close()
+end
+
+function StageNrdSdk()
+	if not LuxNrdSdk then
+		return
+	end
+	local binary = os.target() == "windows" and "NRD.dll" or "libNRD.so"
+	local source = path.join(LuxNrdSdk, "_Bin/Release", binary)
+	if not os.isfile(source) then
+		error("Build the Release NRD library before generating LuxEngine projects: " .. source)
+	end
+	filter "configurations:not Dist"
+		postbuildcommands {
+			'{COPYFILE} "' .. source .. '" "%{cfg.targetdir}/' .. binary .. '"',
+			'{COPYFILE} "' .. path.join(LuxNrdSdk, "LICENSE.txt") .. '" "%{cfg.targetdir}/NRD-LICENSE.txt"',
+		}
+	filter {}
+end
+
 workspace "Lux"
 	configurations { "Debug", "Debug-AS", "Release", "Dist" }
 	startproject "Core"

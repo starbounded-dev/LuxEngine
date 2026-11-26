@@ -1077,6 +1077,10 @@ bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint ma
 		Surface s;
 		const bool hit = TraceClosest(origin, dir, s);
 		const float segmentLength = hit ? length(s.P - origin) : 1.0e30;
+#ifdef LUX_RTGI_NRD
+		if (bounce == firstBounce)
+			g_NrdHitDistance = min(segmentLength, 65504.0);
+#endif
 		g_InObject = inObject;
 		// Absorption by the medium the ray just crossed (inside glass): Beer-Lambert, exact.
 		const bool objectMedium = inObject && (sigmaS.x + sigmaS.y + sigmaS.z) > 0.0; // a scattering medium inside the object: free-flight below
