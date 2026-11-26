@@ -1,0 +1,567 @@
+FormatVersion: 1
+Scene: GI_PowerLights
+Entities:
+  - Entity: 17000000000000025
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 0.1, 14]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000001
+    TagComponent:
+      Tag: Light 0
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.0, 1.4, 0.0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.8, 0.6]
+      Intensity: 0.4
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000002
+    TagComponent:
+      Tag: Light 1
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [3.622, 1.4, 0.971]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.6, 0.8, 1]
+      Intensity: 0.8
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000003
+    TagComponent:
+      Tag: Light 2
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [4.763, 1.4, 2.75]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 1.6
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000004
+    TagComponent:
+      Tag: Light 3
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.033, 1.4, 2.033]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.8, 1, 0.7]
+      Intensity: 3.2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000005
+    TagComponent:
+      Tag: Light 4
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.313, 1.4, 4.005]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.8, 0.6]
+      Intensity: 6.4
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000006
+    TagComponent:
+      Tag: Light 5
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0.518, 1.4, 1.932]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.6, 0.8, 1]
+      Intensity: 12.8
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000007
+    TagComponent:
+      Tag: Light 6
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0.0, 1.4, 3.75]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 25.6
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000008
+    TagComponent:
+      Tag: Light 7
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.424, 1.4, 5.313]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.8, 1, 0.7]
+      Intensity: 51.2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000009
+    TagComponent:
+      Tag: Light 8
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.437, 1.4, 2.49]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.8, 0.6]
+      Intensity: 102.4
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000010
+    TagComponent:
+      Tag: Light 9
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-3.27, 1.4, 3.27]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.6, 0.8, 1]
+      Intensity: 204.8
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000011
+    TagComponent:
+      Tag: Light 10
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.732, 1.4, 1.0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 409.6
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000012
+    TagComponent:
+      Tag: Light 11
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-3.622, 1.4, 0.971]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.8, 1, 0.7]
+      Intensity: 819.2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000013
+    TagComponent:
+      Tag: Light 12
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-5.5, 1.4, 0.0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.8, 0.6]
+      Intensity: 0.2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000014
+    TagComponent:
+      Tag: Light 13
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-2.777, 1.4, -0.744]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.6, 0.8, 1]
+      Intensity: 0.4
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000015
+    TagComponent:
+      Tag: Light 14
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-4.005, 1.4, -2.312]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 0.8
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000016
+    TagComponent:
+      Tag: Light 15
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.414, 1.4, -1.414]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.8, 1, 0.7]
+      Intensity: 1.6
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000017
+    TagComponent:
+      Tag: Light 16
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.875, 1.4, -3.248]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.8, 0.6]
+      Intensity: 3.2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000018
+    TagComponent:
+      Tag: Light 17
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.424, 1.4, -5.313]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.6, 0.8, 1]
+      Intensity: 6.4
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000019
+    TagComponent:
+      Tag: Light 18
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-0.0, 1.4, -2.875]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 12.8
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000020
+    TagComponent:
+      Tag: Light 19
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.197, 1.4, -4.467]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.8, 1, 0.7]
+      Intensity: 25.6
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000021
+    TagComponent:
+      Tag: Light 20
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [1.0, 1.4, -1.732]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 0.8, 0.6]
+      Intensity: 51.2
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000022
+    TagComponent:
+      Tag: Light 21
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.652, 1.4, -2.652]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.6, 0.8, 1]
+      Intensity: 102.4
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000023
+    TagComponent:
+      Tag: Light 22
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [4.763, 1.4, -2.75]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 204.8
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000024
+    TagComponent:
+      Tag: Light 23
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [2.777, 1.4, -0.744]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [0.8, 1, 0.7]
+      Intensity: 409.6
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 9
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000026
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 9, 7]
+      Rotation: [-1.0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

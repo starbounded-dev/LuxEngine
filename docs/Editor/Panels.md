@@ -379,3 +379,22 @@ Full page: **[Audio](Audio.md)**.
 - The Content Browser has its own deep-dive: **[Content Browser](Content-Browser.md)**.
 - To add your own panel: **[Extending → Add a panel](Extending.md#recipe-add-a-new-panel)**.
 - Panel styling (fonts, colours, icons, the `ImGuiEx` helpers): **[Theme, Fonts & Icons](Theme-Fonts-Icons.md)**.
+
+## Scene Renderer: Path Tracing (ray-traced features)
+
+The **Path Tracing** card in the Scene Renderer panel controls the opt-in ray-traced features. They need a GPU with ray queries
+(the card says so when it has none) and cost nothing while off; the raster renderer stays the default.
+
+- **Enable Path Tracer** displays a progressive path-traced frame and saves the choice with **Max Bounces** and **Target Samples** in the scene. Accumulation restarts when the camera, scene or lights change. **Reset Accumulation** restarts the current view. **Uniform Environment** enables the white-furnace test.
+- **Diff vs Raster** shows an error heat map of the raster frame against the path tracer, with MAE and PSNR; **Diff Scale** is the error mapped to red and **Diff Peak (HDR)** lets bright areas count. The **Diff Lightmap**, **Diff Realtime GI** and **Diff RTGI** buttons set the right combination.
+- **Power Light Sampling** and **Multiple Importance Sampling** (on) lower the noise with many or large lights without changing the converged image. **Adaptive Threshold** (0 = off) stops tracing pixels whose estimate has settled; **Sample Count Heat Map** shows how many samples each pixel got. **ReSTIR DI (biased)** resamples direct light across pixels and frames (many lights at a few samples; pixel-centre rays). **Ray Sorting** is experimental and measured slower, so it is off.
+- **RTGI History**, **ReSTIR GI Reuse (biased)** and **RTGI Denoiser** tune temporal GI. **Half-Resolution RTGI** denoises at half width and height, then reconstructs indirect light at full resolution. **Compact BLASes**, **Refit Skinned BLASes** and **Refit TLAS** are enabled by default.
+- **NVIDIA NRD** uses RELAX to denoise native-resolution ray-traced GI. **DLSS Ray Reconstruction** uses one path-traced sample per frame. Both SDK options are available in compatible builds and saved with the scene. [Optional SDK build instructions](../../.claude/docs/Building.md#optional-nvidia-nrd-sdk)
+- **Lobes**, **Glass** and **Subsurface Scattering** (all on) enable clearcoat, sheen, anisotropy, refraction and subsurface transport. Glass also transmits tinted shadow rays. **Fog Density / Albedo / Anisotropy / Radius** control homogeneous fog in the path tracer, probes, ray-traced GI, lightmap baking, ReSTIR DI and reflections. A radius of zero makes the fog unbounded.
+- **Ray-Traced Reflections** replaces SSR on smooth surfaces. **Reflections Replace Sky** lets a geometry hit replace the environment reflection. **Adaptive Reflection Rays** varies the ray budget with roughness, and **Reflection Denoiser** filters rough reflections. Mirrors trace one ray.
+- **Ray-Traced Shadows** traces the sun and **RT Area-Light Shadows** traces supported area lights. **RT Contact Shadows** uses a short directional trace, and **RT Ambient Occlusion** darkens diffuse light near occluders. **RT Translucent Shadows** colours transmitted light. **RT Caustics** adds focused illumination from glass.
+- **Debug View** replaces the path-traced image with a heat map of bounces, rays, noise or samples per pixel. **Probe Spacing** (metres, 0 = fixed grid) sizes the realtime GI probe grid from the scene. Lightmap bakes are denoised after they finish.
+- **Shader Execution Reordering** switches the path tracer to the hardware ray-tracing pipeline on supported Vulkan devices. It defaults to off and restarts path-tracer accumulation when changed.
+- **Adaptive Probe Placement** moves probe planes toward areas of measured lighting variation after realtime GI warms up. It preserves the probe count set by **Probe Spacing** and defaults to off.
+- The **Texture Library** panel in the View menu imports CC0 textures from Poly Haven and ambientCG. Imported maps and materials live under `Assets/Textures/Library/<name>/`.
+- **Bake Lightmaps** progressively bakes indirect illumination and writes `Assets/Lightmaps/<scene>.lxlm`. Use **Generate Lightmap UVs** on mesh sources before baking. **Use Lightmaps**, **Realtime GI** and **Ray-Traced GI** select the indirect-light source.

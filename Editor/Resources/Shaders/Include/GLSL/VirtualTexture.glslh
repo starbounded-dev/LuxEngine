@@ -1,0 +1,84 @@
+#ifndef LUX_VIRTUAL_TEXTURE_GLSLH
+#define LUX_VIRTUAL_TEXTURE_GLSLH
+
+const uint LUX_VIRTUAL_TEXTURE_BIT = 0x40000000u;
+const uint LUX_VIRTUAL_TEXTURE_INVALID = 0xffffffffu;
+const int LUX_VIRTUAL_PAGE_SIZE = 128;
+const int LUX_VIRTUAL_PAGE_BORDER = 2;
+
+#ifdef LUX_VIRTUAL_TEXTURE_FEEDBACK
+layout(std430, set = 2, binding = 180) buffer VirtualTextureFeedback
+{
+	uint Requests[];
+} b_VirtualTextureFeedback;
+#endif
+
+bool LuxIsVirtualTexture(uint index)
+{
+	return index != LUX_VIRTUAL_TEXTURE_INVALID && (index & LUX_VIRTUAL_TEXTURE_BIT) != 0u;
+}
+
+vec4 LuxVirtualTextureHeader(uint encodedIndex, sampler materialSampler)
+{
+	const uint table = encodedIndex & ~LUX_VIRTUAL_TEXTURE_BIT;
+	return texelFetch(sampler2D(u_GPUMaterialTextures[nonuniformEXT(table)], materialSampler), ivec2(0), 0);
+}
+
+vec4 LuxSampleVirtualMip(uint table, vec4 header, vec2 uv, int requestedMip, sampler materialSampler)
+{
+	const int tail = int(header.z);
+	const uint coarse = uint(header.w);
+	if (requestedMip >= tail)
+		return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(coarse)], materialSampler), uv, float(requestedMip - tail));
+	const ivec2 baseSize = ivec2(header.xy);
+	int atlasRow = 1;
+	uint feedbackPage = 0u;
+#ifdef LUX_VIRTUAL_TEXTURE_FEEDBACK
+	const uint feedbackBase = uint(texelFetch(sampler2D(u_GPUMaterialTextures[nonuniformEXT(table)], materialSampler), ivec2(1, 0), 0).x);
+#endif
+	for (int mip = 0; mip < tail; ++mip)
+	{
+		const ivec2 extent = max(baseSize >> mip, ivec2(1));
+		const ivec2 tiles = (extent + LUX_VIRTUAL_PAGE_SIZE - 1) / LUX_VIRTUAL_PAGE_SIZE;
+		if (mip >= requestedMip)
+		{
+			const vec2 texels = fract(uv) * vec2(extent);
+			const ivec2 page = min(ivec2(texels) / LUX_VIRTUAL_PAGE_SIZE, tiles - 1);
+#ifdef LUX_VIRTUAL_TEXTURE_FEEDBACK
+			if (mip == requestedMip && feedbackBase != 0u)
+			{
+				const uint bit = feedbackBase - 1u + feedbackPage + uint(page.y * tiles.x + page.x);
+				atomicOr(b_VirtualTextureFeedback.Requests[bit >> 5u], 1u << (bit & 31u));
+			}
+#endif
+			const uint resident = uint(texelFetch(sampler2D(u_GPUMaterialTextures[nonuniformEXT(table)], materialSampler),
+				ivec2(page.x, atlasRow + page.y), 0).x);
+			if (resident != 0u)
+			{
+				const vec2 local = texels - vec2(page * LUX_VIRTUAL_PAGE_SIZE) + float(LUX_VIRTUAL_PAGE_BORDER);
+				const float physicalSize = float(LUX_VIRTUAL_PAGE_SIZE + 2 * LUX_VIRTUAL_PAGE_BORDER);
+				return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(resident)], materialSampler), local / physicalSize, 0.0);
+			}
+		}
+		atlasRow += tiles.y;
+		feedbackPage += uint(tiles.x * tiles.y);
+	}
+	return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(coarse)], materialSampler), uv, 0.0);
+}
+
+vec4 LuxSampleVirtualTexture(uint encodedIndex, vec4 header, vec2 uv, float lod, sampler materialSampler)
+{
+	const uint table = encodedIndex & ~LUX_VIRTUAL_TEXTURE_BIT;
+	const float mip = max(lod, 0.0);
+	const int first = int(floor(mip));
+	if (mip >= header.z)
+	{
+		const uint coarse = uint(header.w);
+		return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(coarse)], materialSampler), uv, mip - header.z);
+	}
+	const vec4 a = LuxSampleVirtualMip(table, header, uv, first, materialSampler);
+	const vec4 b = LuxSampleVirtualMip(table, header, uv, first + 1, materialSampler);
+	return mix(a, b, fract(mip));
+}
+
+#endif

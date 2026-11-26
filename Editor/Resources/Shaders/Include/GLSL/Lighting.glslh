@@ -6,6 +6,7 @@
 #include <Buffers.glslh>
 #include <Cluster.glslh>
 #include <PBR.glslh>
+#include <FogVolume.glslh>
 
 // Clustered (froxel) light lists, produced by ClusterLightCulling.glsl.
 layout(std430, set = 1, binding = 22) readonly buffer PointLightGridBuffer
@@ -81,7 +82,19 @@ vec3 LuxDiffuseTransmissionLobe(vec3 N, vec3 L)
 	return g_DiffuseTransmission * (max(dot(-N, L), 0.0) / PI);
 }
 
-vec3 CalculateDirLights(vec3 F0)
+float DirectionalFogTransmittance(vec3 worldPosition, vec3 direction)
+{
+	return LuxFogToLight(worldPosition, direction, 1.0e30, u_Scene.FogMedium.x, u_Scene.FogCenter.xyz, u_Scene.FogMedium.z);
+}
+
+float LocalLightFogTransmittance(vec3 worldPosition, vec3 direction, float distanceSquared)
+{
+	if (u_Scene.FogMedium.x <= 0.0)
+		return 1.0;
+	return LuxFogToLight(worldPosition, direction, sqrt(distanceSquared), u_Scene.FogMedium.x, u_Scene.FogCenter.xyz, u_Scene.FogMedium.z);
+}
+
+vec3 CalculateDirLights(vec3 F0, vec3 worldPosition)
 {
 	vec3 result = vec3(0.0);
 	for (int i = 0; i < 1; i++) //Only one light for now
@@ -91,6 +104,7 @@ vec3 CalculateDirLights(vec3 F0)
 
 		vec3 Li = u_Scene.DirectionalLights.Direction;
 		vec3 Lradiance = u_Scene.DirectionalLights.Radiance * u_Scene.DirectionalLights.Multiplier;
+		Lradiance *= DirectionalFogTransmittance(worldPosition, Li);
 		result += LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li) * Lradiance;
 	}
 	return result;
@@ -131,6 +145,7 @@ vec3 CalculatePointLights(in vec3 F0, vec3 worldPos)
 		vec3 Li = toLight * inversesqrt(max(distanceSq, 1e-12));
 
 		float attenuation = LuxPunctualLightAttenuation(distanceSq, light.Radius);
+		attenuation *= LocalLightFogTransmittance(worldPos, Li, distanceSq);
 		vec3 Lradiance = light.Radiance * light.Multiplier * attenuation;
 		result += LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li) * Lradiance;
 	}
@@ -177,6 +192,7 @@ vec3 CalculateSpotLights(in vec3 F0, vec3 worldPos)
 
 		float attenuation = LuxPunctualLightAttenuation(distanceSq, light.Range);
 		attenuation *= 1.0 - pow(max(rim, 0.001), light.AngleAttenuation);
+		attenuation *= LocalLightFogTransmittance(worldPos, Li, distanceSq);
 
 		vec3 Lradiance = light.Radiance * light.Multiplier * attenuation;
 		result += LuxEvaluateDirectBRDF(F0, m_Params.Albedo, m_Params.Metalness, m_Params.Roughness, m_Params.Normal, m_Params.View, Li) * Lradiance;

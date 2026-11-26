@@ -175,7 +175,7 @@ namespace Lux
 			return false;
 		}
 
-		Ref<MeshSource> meshSource = s_SourceImporter(Project::GetEditorAssetManager()->GetFileSystemPath(metadata));
+		Ref<MeshSource> meshSource = s_SourceImporter(Project::GetEditorAssetManager()->GetFileSystemPath(metadata), metadata.GenerateLightmapUVs);
 		if (!meshSource)
 			return false;
 

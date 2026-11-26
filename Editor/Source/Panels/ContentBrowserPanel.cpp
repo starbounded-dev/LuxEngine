@@ -314,6 +314,12 @@ namespace Lux {
 					RenderItems();
 					ImGui::Columns(1);
 
+					if (m_TextureLibraryDropCallback && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##texture-library-drop")))
+					{
+						m_TextureLibraryDropCallback();
+						ImGui::EndDragDropTarget();
+					}
+
 					if (ImGui::IsWindowFocused() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 						UpdateInput();
 
@@ -893,6 +899,14 @@ namespace Lux {
 
 			if (result.IsSet(ContentBrowserAction::Reload) && item->GetType() == ContentBrowserItem::ItemType::Asset)
 				AssetManager::ReloadData(item->GetID());
+
+			if (result.IsSet(ContentBrowserAction::ToggleLightmapUVs))
+			{
+				auto manager = Project::GetEditorAssetManager();
+				const AssetMetadata metadata = manager->GetMetadata(item->GetID());
+				if (!manager->SetGenerateLightmapUVs(item->GetID(), !metadata.GenerateLightmapUVs))
+					LUX_CORE_ERROR_TAG("Editor", "Could not change lightmap UV generation for '{}'", metadata.FilePath.generic_string());
+			}
 
 			if (result.IsSet(ContentBrowserAction::OpenDeleteDialogue) && !item->IsRenaming())
 				m_OpenDeletePopup = true;
@@ -1987,6 +2001,19 @@ namespace Lux {
 			StartRenamingItem(handle);
 		}
 		return handle;
+	}
+
+	void ContentBrowserPanel::RevealImportedAsset(AssetHandle handle)
+	{
+		auto manager = Project::GetEditorAssetManager();
+		if (!manager || !handle)
+			return;
+		const auto directory = manager->GetFilePath(handle).parent_path();
+		Refresh();
+		if (Ref<DirectoryInfo> imported = GetDirectory(directory))
+			ChangeDirectory(imported);
+		ClearSelections();
+		SelectItem(handle);
 	}
 
 	AssetHandle ContentBrowserPanel::CreateMaterialAsset()

@@ -7,6 +7,8 @@ project "Editor"
 	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
 
 	links { "Core" }
+	StageNrdSdk()
+	StageDlssSdk()
 
 	-- The crash watchdog is built next to Editor.exe, where CrashWatchdog::Start looks for it.
 	if os.target() == "windows" then
@@ -39,6 +41,10 @@ project "Editor"
 		"../Core/Source/",
 		"../Core/vendor/"
 	}
+
+	-- EditorLayer.cpp has outgrown MSVC's default object-file section limit in Debug (error C1128).
+	filter { "system:windows", "files:Source/EditorLayer.cpp" }
+		buildoptions { "/bigobj" }
 
 	filter "system:windows"
 		-- Incremental build directories can retain the previous dynamically loaded backend.

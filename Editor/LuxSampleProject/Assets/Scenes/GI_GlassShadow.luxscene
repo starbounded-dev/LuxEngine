@@ -1,0 +1,92 @@
+FormatVersion: 1
+Scene: GI_GlassShadow
+Entities:
+  - Entity: 17000000000000053
+    TagComponent:
+      Tag: No Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 17000000000000054
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 0.1, 10]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000055
+    TagComponent:
+      Tag: Plate
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-1.8, 1.2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1.5, 0.2, 2.5]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_GlassTint.lmat
+      Visible: true
+  - Entity: 17000000000000056
+    TagComponent:
+      Tag: Key
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [-4.5, 3.2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 160
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 30
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000057
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 4.5, 6.5]
+      Rotation: [-0.62, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

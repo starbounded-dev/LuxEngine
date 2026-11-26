@@ -1,0 +1,77 @@
+FormatVersion: 1
+Scene: GI_SSSBacklit
+Entities:
+  - Entity: 17000000000000040
+    TagComponent:
+      Tag: No Sky
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SkyLightComponent:
+      EnvironmentMap: 0
+      Intensity: 0
+      Lod: 0
+      DynamicSky: true
+      TurbidityAzimuthInclination: [2, 0, 0.2]
+  - Entity: 17000000000000041
+    TagComponent:
+      Tag: Wax Slab
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [4, 4, 0.3]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_Wax.lmat
+      Visible: true
+  - Entity: 17000000000000042
+    TagComponent:
+      Tag: Backlight
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, -1.5]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Radiance: [1, 1, 1]
+      Intensity: 200
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      CastShadows: false
+      SoftShadows: false
+      MinRadius: 0.2
+      Radius: 30
+      LightSize: 0.2
+      Falloff: 1
+  - Entity: 17000000000000043
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 0, 6]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

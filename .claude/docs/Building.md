@@ -298,7 +298,7 @@ Read this **before** opening the file you think is broken.
 | Added a build toggle | Add to `BuildOptions.OPTIONS` + `newoption` in `premake5.lua`, then regenerate | |
 | Pulled a branch that bumped a submodule | `scripts\Setup.bat` | Runs `git submodule update --init --recursive` + `git lfs pull` |
 | Pulled a branch that bumped the Vulkan SDK | `scripts\Setup.bat` | Re-runs `Vulkan.CheckVulkanSDK()` |
-| Changed a shader (`.glsl` / `.glslh`) | nothing to run it — hot-reload, or restart. Before committing: from `Editor/`, `..\bin\Release-windows-x86_64\Editor\Editor.exe --build-shader-pack`, then commit `Resources/ShaderPack.lsp` and `.stamp` | Shaders compile at runtime and are cached (`.claude/docs/Rendering.md`); the Dist editor can't compile and refuses a stale engine pack, and CI's `tests/shaders/check_engine_pack.py` fails until it is rebuilt |
+| Changed a shader (`.glsl` / `.glslh`) | nothing to run it — hot-reload, or restart. Before committing: `python scripts/Update-ShaderPack.py` (it runs `Editor.exe --build-shader-pack` and re-checks; the `.githooks/pre-push` hook blocks a push while the pack is stale), then commit `Resources/ShaderPack.lsp` and `.stamp` | Shaders compile at runtime and are cached (`.claude/docs/Rendering.md`); the Dist editor can't compile and refuses a stale engine pack, and CI's `tests/shaders/check_engine_pack.py` fails until it is rebuilt |
 | Changed C# in `ScriptCore` or a project's scripts | rebuild the solution | MSBuild builds the C# projects in-solution |
 | Changed `ScriptCore`'s public API | document it (`///`), rebuild, rerun `tools/ScriptApiDocs` | CI's API reference check fails otherwise |
 
@@ -693,3 +693,43 @@ the package's lib directory, so SDK paths cannot hide missing game dependencies.
 manifests/settings are untouched. Release/Dist package checks need no validation-layer override.
 The manual Linux Vulkan probe now exercises this exact helper and loader setup before engine
 compilation, without fetching private audio SDKs; its manifest and tool output are retained.
+
+### Optional NVIDIA NRD SDK
+
+Build NVIDIA NRD v4.17.3 from its upstream source in Release before generating Lux projects.
+Use `NRD_EMBEDS_SPIRV_SHADERS=ON`, `NRD_EMBEDS_DXIL_SHADERS=OFF`,
+`NRD_EMBEDS_DXBC_SHADERS=OFF`, `NRD_NORMAL_ENCODING=3` and `NRD_ROUGHNESS_ENCODING=1`.
+Set `LUX_NRD_SDK` to that source directory for project generation. Lux generates the
+NRI 181 compatibility adaptation under `bin-int/NRD`. Debug and Release app builds stage
+the library and license. The runtime exporter carries them in the package. The SDK loads
+on first use through the **NVIDIA NRD** control under **Ray-Traced GI**.
+
+Run `python tests/rendering/run_rt_sampling_check.py nrd --keep` with
+`LUX_TEST_REQUIRE_NRD=1` to require native RELAX dispatch in the capture. An SDK-free
+runner exercises the built-in fallback. Unset `LUX_NRD_SDK` for ordinary project generation.
+
+### Optional NVIDIA DLSS Ray Reconstruction SDK
+
+For a Windows developer build, set `LUX_DLSS_SDK` to the NVIDIA DLSS 310.9.1 SDK
+root and regenerate projects. Debug and Release stage `nvngx_dlssd.dll` and its
+license. The **DLSS Ray Reconstruction** option is under **Path Tracing**. The
+SDK is initialized when a supported scene requests reconstruction. Unset
+`LUX_DLSS_SDK` to generate the ordinary build.
+
+Run `python tests/rendering/run_rt_sampling_check.py ray_reconstruction --keep`
+with `LUX_TEST_REQUIRE_DLSS=1` to require native reconstruction. With both optional
+SDKs staged, `python tests/rendering/run_vendor_denoiser_export.py` verifies the
+scene settings and runs both denoisers in exported Release players.
+
+### Opacity micromap benchmark
+
+Build NRI Release before running the standalone Windows probe. It uses Vulkan
+synchronization validation and compares a bilinear cutout mask with and without
+four-state opacity micromaps.
+
+```powershell
+cmake -S tests/rendering/opacity_micromap -B bin/opacity-micromap-check -G "Visual Studio 18 2026" -A x64
+cmake --build bin/opacity-micromap-check --config Release
+$env:VK_LAYER_VALIDATE_SYNC = "1"
+& bin/opacity-micromap-check/Release/LuxOpacityMicromapProbe.exe bin/opacity-micromap-check/probe.spv
+```

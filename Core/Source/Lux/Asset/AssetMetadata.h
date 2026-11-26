@@ -18,6 +18,13 @@ namespace Lux
 		Missing = 4
 	};
 
+	enum class TextureResidency : uint8_t
+	{
+		Resident,
+		StreamedMips,
+		VirtualPages
+	};
+
 	struct AssetMetadata
 	{
 		AssetHandle Handle = 0;
@@ -26,6 +33,8 @@ namespace Lux
 		AssetStatus Status = AssetStatus::None;
 		uint64_t FileLastWriteTime = 0;
 		bool IsDataLoaded = false;
+		bool GenerateLightmapUVs = false;
+		TextureResidency Residency = TextureResidency::Resident;
 
 		bool IsValid() const { return Handle != 0; }
 		operator bool() const { return IsValid(); }

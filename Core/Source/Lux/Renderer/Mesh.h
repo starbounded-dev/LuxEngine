@@ -14,6 +14,7 @@
 #include "Lux/Renderer/VertexBuffer.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 
+#include <atomic>
 #include <vector>
 #include <glm/glm.hpp>
 
@@ -286,6 +287,9 @@ namespace Lux {
 		// upload, keeping positions + indices for physics. The editor retains
 		// everything (mesh export/serialization reads the full vertices).
 		static void SetRetainFullCPUGeometry(bool retain) { s_RetainFullCPUGeometry = retain; }
+		// Capture override for repairing overlapping UVs on source imports. Authored import settings are per mesh source.
+		static void SetAutoUnwrapLightmapUVs(bool enable) { s_AutoUnwrapLightmapUVs.store(enable, std::memory_order_relaxed); }
+		static bool GetAutoUnwrapLightmapUVs() { return s_AutoUnwrapLightmapUVs.load(std::memory_order_relaxed); }
 		// Where BuildRenderGeometry keeps generated LODs between loads, keyed by the geometry's contents
 		// (the editor sets the open project's Cache/Geometry); empty, the default, means no cache. Any thread.
 		static void SetGeometryCacheDirectory(const std::filesystem::path& directory);
@@ -367,6 +371,8 @@ namespace Lux {
 		// is released (runtime); read via GetVertexPosition/GetVertexCount.
 		std::vector<glm::vec3> m_CollisionPositions;
 		static bool s_RetainFullCPUGeometry;
+		static std::atomic_bool s_AutoUnwrapLightmapUVs;
+		void UnwrapLightmapUVs(bool onlyOverlapping);
 
 		std::vector<BoneInfluence> m_BoneInfluences; // empty, or one per vertex
 		std::vector<BoneInfo> m_BoneInfo;

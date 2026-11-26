@@ -28,9 +28,27 @@ vec4 SampleMaterialBias(texture2D tex, vec2 texCoord, float mipBias)
 }
 
 #ifdef GPU_MATERIAL_SCENE_AVAILABLE
+	#include <VirtualTexture.glslh>
+
 	vec4 SampleMaterialSceneTexture(uint textureIndex, vec2 texCoord, float mipBias)
 	{
+#ifdef LUX_VIRTUAL_TEXTURE_FEEDBACK
+		const vec2 derivativeX = dFdx(texCoord);
+		const vec2 derivativeY = dFdy(texCoord);
+#endif
 		uint resolvedTextureIndex = IsGPUTextureIndexValid(textureIndex) ? textureIndex : 0u;
+		if (LuxIsVirtualTexture(resolvedTextureIndex))
+		{
+			const vec4 header = LuxVirtualTextureHeader(resolvedTextureIndex, r_MaterialSampler);
+#ifdef LUX_VIRTUAL_TEXTURE_FEEDBACK
+			const vec2 dx = derivativeX * header.xy;
+			const vec2 dy = derivativeY * header.xy;
+			const float lod = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 1e-6)) + mipBias;
+#else
+			const float lod = header.z;
+#endif
+			return LuxSampleVirtualTexture(resolvedTextureIndex, header, texCoord, lod, r_MaterialSampler);
+		}
 		return texture(sampler2D(u_GPUMaterialTextures[nonuniformEXT(resolvedTextureIndex)], r_MaterialSampler), texCoord, mipBias);
 	}
 
@@ -39,7 +57,7 @@ vec4 SampleMaterialBias(texture2D tex, vec2 texCoord, float mipBias)
 		if (!IsGPUTextureIndexValid(textureIndex))
 			return SampleMaterialBias(fallbackTexture, texCoord, mipBias);
 
-		return texture(sampler2D(u_GPUMaterialTextures[nonuniformEXT(textureIndex)], r_MaterialSampler), texCoord, mipBias);
+		return SampleMaterialSceneTexture(textureIndex, texCoord, mipBias);
 	}
 #endif
 

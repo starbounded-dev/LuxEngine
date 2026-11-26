@@ -249,6 +249,26 @@ before the next recorded draw under either policy. Resource frees use the same e
 
 Three layers (`Renderer` facade → `SceneRenderer` → `Renderer2D`/`DebugRenderer`) over NRI/Vulkan.
 
+**Opt-in ray tracing (`Renderer/RayTracing/`, `Renderer/Lightmaps/`).** The raster renderer is the default and every ray-traced
+feature is an option that costs nothing while off. `RHIDevice::SupportsRayQuery()` gates it; `RHIAccelerationStructure` is a new
+descriptor input type; `RayTracingScene` builds BLAS/TLAS from the render scene; on top of it sit the path tracer (editor reference),
+the lightmap baker, a realtime-GI probe volume and per-pixel ray-traced GI, plus a diff pass that compares the raster frame with the
+path-traced reference. Details, bindings and traps: `.claude/docs/Rendering.md` ("Ray tracing and the path tracer"), plan and status:
+`docs/GI_PLAN.md`.
+
+`AssimpMeshImporter` generates xatlas lightmap UVs before `BuildRenderGeometry` when the source
+asset has **Generate Lightmap UVs** enabled. Static and skinned chart vertices preserve the
+source attributes and skin influences. Placements that share geometry share the remap.
+
+The optional path-tracer SER pipeline uses the same path kernel and reflected descriptor inputs
+as the compute path. `PipelineCompute` owns its NRI ray pipeline and shader binding table when
+its shader has ray-generation, miss and closest-hit stages. `RenderCommandBuffer` records those
+dispatches at NRI's ray-tracing bind point. The compute path remains the default.
+
+Realtime GI keeps the uniform probe lattice by default. Its opt-in adaptive placement uses the
+same probe allocation and repositions planes after measuring radiance variation on the GPU.
+The update shader and G-buffer share one probe buffer layout and use the same relocated coordinates.
+
 **Renderer vocabulary is `Renderer/RHI/RHITypes.h`**: `ShaderStage`, `TextureDimension`,
 `TextureSubresourceRange` (a default range is *every* mip and layer), `GPUQueue`, `ResourceState`,
 `DrawIndexedIndirectCommand`, and the render-target/viewport/vertex-attribute limits. Public
@@ -382,6 +402,81 @@ Structurally:
   behind a structure hash. The pipeline is deferred PBR: G-buffer, clustered (froxel) light culling,
   HZB + GPU mesh culling (with GPU LOD through persistent main-view and shadow cull groups), GTAO, SSR, volumetric clouds, sky atmosphere, transparent forward, particles, then
   post (TAA, auto-exposure, bloom, composite, SMAA, DOF).
+- The renderer's fog settings supply the same homogeneous medium to raster direct lighting and
+  ray-traced transport. Raster shaders read density, radius and centre from `SceneData`; the
+  path tracer, ReSTIR, RT reflections, probes, RTGI and the lightmap baker use the shared path
+  tracing parameters. Both paths clip light segments with `FogVolume.glslh`. The raster LTC
+  area-light integral evaluates transmittance along the segment to the emitter centre.
+- Scene post-processing settings also support optional analytic height and distance fog for the
+  raster camera. A compute pass integrates exponential density up to the opaque depth or
+  the configured distance limit and composites the fog radiance in HDR before exposure.
+  The settings survive scene copies and asset-pack export. Distance fog is the zero-falloff case.
+- The opt-in ray-traced reflection pass reads the raster G-buffer. A ray that hits geometry
+  replaces the contribution of the sky along that ray. Mirrors use one ray. The adaptive budget
+  reduces the count toward the roughness cutoff, and the optional spatial filter uses depth,
+  normal, roughness, metalness and base colour to filter the signed correction before adding
+  it to raster lighting. The trace and filter have separate GPU timers.
+- The optional half-resolution RTGI path runs the indirect radiance trace, temporal
+  reprojection and variance-guided filter at half width and height. A compute pass tests
+  full-resolution G-buffer normals and receiver positions against the traced surfaces,
+  then applies diffuse irradiance before refraction and particles. The native path keeps
+  its existing resolution, and the camera, viewport and lighting settings govern history
+  reuse. The renderer tracks trace, denoise and reconstruction GPU time separately.
+- Ray-traced passes share a light table that stores each light's probability and an alias
+  entry. Selection takes a fixed number of buffer reads. In dense scenes, the ReSTIR DI
+  compute workgroup shares candidate indices. Each pixel samples its own position on the
+  emitter and resamples its own reservoir. The path tracer and ReSTIR DI can select emissive
+  submeshes from the same table, then sample one triangle from the instance's traced geometry.
+  They use world triangle area and emitter cosine for the solid-angle PDF. BSDF hits use the
+  same PDF for MIS, or defer to ReSTIR for direct illumination of the first hit.
+- The raster ray-traced visibility pass supports full directional shadows, short directional
+  contact rays and local ambient occlusion. Contact rays combine with the cascades, and the
+  ambient visibility replaces GTAO for deferred indirect lighting. The depth-and-normal filter
+  preserves silhouettes. Directional visibility occupies RGB and ambient visibility occupies
+  alpha in the shared mask.
+- The optional deferred area-light pipeline evaluates visibility with ray queries across
+  the emitter, weighted by its projected contribution at the receiver. It shares the LTC
+  BRDF integration and framebuffer with the shadow-atlas path. The renderer selects the
+  atlas path if it cannot bind a valid ray-tracing scene.
+- Translucent RT shadows attenuate the directional mask and area-light visibility per colour
+  channel. The two passes use the traced instance material's transmission, IOR and absorption.
+  The area-light shader reads the same instance table as the compute ray tracers.
+- The opt-in Texture Library panel fetches CC0 material indexes, thumbnails and maps on the
+  JobSystem. Windows uses WinHTTP and Linux loads system libcurl at request time.
+  A project holds complete maps and their material in `Assets/Textures/Library`,
+  so they load through the normal asset pipeline offline. The main thread registers the pack
+  and applies the selected mesh or slot only while its project, scene and mesh still match.
+- Texture residency is selected in the asset registry. Streamed textures start with a
+  coarse mip tail. The scene renderer uses visible receiver bounds and screen coverage to
+  choose fine mip chains within a per-view budget. Virtual textures use fragment feedback
+  from the opaque and transparent material passes to request individual pages within the
+  same budget. The readback is consumed when its frame slot is reused, and generation
+  checks discard requests for stale page tables. Devices without fragment storage atomics
+  and textures with alpha coverage use mip streaming. Bindless frame tables keep the previously
+  bound images alive until their frame slot is reusable. Runtime packs preserve the source
+  pixels and residency mode for the standalone asset loader.
+- The Scene Renderer panel stores Enable Path Tracer, Max Bounces and Target Samples in
+  scene metadata. Scene copies and exports preserve them, and attaching a scene applies
+  them to that viewport and resets its accumulation. Scenes with no settings use raster.
+  Reset Accumulation restarts the current view without changing the saved scene settings.
+- Optional RTGI RELAX diffuse is recorded through the NRI device. It receives first
+  indirect hit distance, view depth, normal, roughness and camera motion directly from
+  the RTGI trace variant. Geometry or lighting changes restart its history. SDK resources
+  retire with their frame fences. ReSTIR GI and half-resolution RTGI use the built-in
+  denoiser, as do builds without a compatible packaged NRD library. Ray-Traced GI
+  and its NRD selection are saved with the scene.
+- DLSS Ray Reconstruction is a Windows SDK option saved with the path-tracing
+  settings. The Vulkan device enables NGX's required extensions when supported.
+  A separate trace pass emits the noisy HDR sample, motion vectors, linear depth,
+  world normal and roughness, diffuse and specular albedos and reflected hit distance.
+  The result enters the same scene colour before tone mapping. Geometry or lighting
+  changes restart reconstruction. Ordinary accumulation remains available in
+  SDK-free builds and for Diff views, ray sorting, ReSTIR DI and SER.
+- The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
+  each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
+  the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,
+  meshlets and LODs are built from the remapped geometry. Asset packs carry the resulting UV1
+  and skin streams to the runtime. Rebake lightmaps after changing the source import setting.
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
   maintains them through `RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)`, which

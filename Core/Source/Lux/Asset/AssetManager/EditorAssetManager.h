@@ -10,6 +10,7 @@
 #include "Lux/Asset/AssetRegistry.h"
 #include "Lux/Asset/AssetSystem/EditorAssetSystem.h"
 
+#include <mutex>
 #include <shared_mutex>
 
 namespace Lux
@@ -55,6 +56,9 @@ namespace Lux
 
 		AssetMetadata GetMetadata(AssetHandle handle) const;
 		void SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
+		// Persists the mesh import option and schedules a reload. Main thread only.
+		bool SetGenerateLightmapUVs(AssetHandle handle, bool enabled);
+		bool SetTextureResidency(AssetHandle handle, TextureResidency residency);
 
 		AssetHandle ImportAsset(const std::filesystem::path& filepath);
 		AssetHandle ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid);
@@ -93,7 +97,7 @@ namespace Lux
 		void LoadAssetRegistry();
 		void ProcessDirectory(const std::filesystem::path& directoryPath);
 		void ReloadAssets();
-		void WriteRegistryToFile();
+		bool WriteRegistryToFile();
 		void RegisterAssetDependencies(const Ref<Asset>& asset);
 		void UpdateDependents(AssetHandle handle);
 
@@ -110,5 +114,6 @@ namespace Lux
 
 		AssetRegistry m_AssetRegistry;
 		mutable std::shared_mutex m_AssetRegistryMutex;
+		std::mutex m_AssetRegistryWriteMutex;
 	};
 }

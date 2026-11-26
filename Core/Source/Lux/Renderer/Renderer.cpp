@@ -396,11 +396,13 @@ namespace Lux {
 
 	// Records one compute dispatch: the pass's sets, and the material's at set 0 when it has a
 	// compatible one there. Skipped, logged once per shader, when an NRI object is missing.
-	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material, const glm::uvec3& workGroups, const Buffer& constants)
+	static void RT_RecordDispatch(RenderCommandBuffer& commandBuffer, const ComputePass& computePass, Material* material,
+		const glm::uvec3& size, const Buffer& constants, bool rayTracing = false)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		Ref<RHIShader> shader = computePass.GetShader().As<RHIShader>();
 		RenderCommandBuffer::NRIDispatchDesc desc;
+		desc.RayTracing = rayTracing;
 		desc.PipelineLayout = shader->GetNRIPipelineLayout();
 		desc.Pipeline = computePass.GetPipeline()->GetNRIPipeline();
 		const char* problem = !desc.PipelineLayout ? "it has no NRI pipeline layout"
@@ -438,7 +440,10 @@ namespace Lux {
 		if (!nriCommandBuffer)
 			return;
 
-		RHIDevice::API().CmdDispatch(*nriCommandBuffer, { workGroups.x, workGroups.y, workGroups.z });
+		if (rayTracing)
+			RHIDevice::API().CmdDispatchRays(*nriCommandBuffer, computePass.GetPipeline()->GetRayTracingDispatch(size));
+		else
+			RHIDevice::API().CmdDispatch(*nriCommandBuffer, { size.x, size.y, size.z });
 		commandBuffer.RT_EndNRISegment();
 	}
 
@@ -569,6 +574,8 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Static.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/HazelPBR_Transparent.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBuffer_Static.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBuffer_VirtualTexture.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/Transparent_VirtualTexture.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/DeferredLighting_Area.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/GBufferDebug.glsl");
@@ -601,6 +608,7 @@ namespace Lux {
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SMAA-WeightAndBlend.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/DOF.glsl");
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/SceneComposite.glsl");
+		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PostProcessing/HeightFog.glsl");
 
 		// Light-culling
 		Renderer::GetShaderLibrary()->Load("Resources/Shaders/PreDepth.glsl");
@@ -1846,6 +1854,44 @@ namespace Lux {
 		});
 	}
 
+	void Renderer::RT_DispatchCompute(RenderCommandBuffer& renderCommandBuffer, const ComputePass& computePass, const glm::uvec3& workGroups, const Buffer& constants)
+	{
+		RT_RecordDispatch(renderCommandBuffer, computePass, nullptr, workGroups, constants);
+	}
+
+	void Renderer::RT_DispatchRays(RenderCommandBuffer& renderCommandBuffer, const ComputePass& rayPass, const glm::uvec3& dimensions, const Buffer& constants)
+	{
+		RT_RecordDispatch(renderCommandBuffer, rayPass, nullptr, dimensions, constants, true);
+	}
+
+	void Renderer::RT_CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
+	{
+		const ImageInfo& source = sourceImage->GetImageInfo();
+		const ImageInfo& destination = destinationImage->GetImageInfo();
+		if (!source.RHITexture || !destination.RHITexture)
+			return;
+
+		const uint32_t copyWidth = std::min(sourceImage->GetWidth(), destinationImage->GetWidth());
+		const uint32_t copyHeight = std::min(sourceImage->GetHeight(), destinationImage->GetHeight());
+		if (copyWidth == 0 || copyHeight == 0)
+			return;
+
+		const TextureSubresourceRange layers{ 0, 1, 0, 1 };
+		renderCommandBuffer->RT_RequireTextureState(source.Tracked, layers, ResourceState::CopySource);
+		renderCommandBuffer->RT_RequireTextureState(destination.Tracked, layers, ResourceState::CopyDest);
+		nri::CommandBuffer* commandBuffer = renderCommandBuffer->RT_BeginNRITransfer();
+		if (!commandBuffer)
+			return;
+
+		nri::TextureRegionDesc region = {};
+		region.width = static_cast<nri::Dim_t>(copyWidth);
+		region.height = static_cast<nri::Dim_t>(copyHeight);
+		region.depth = 1;
+		region.planes = nri::PlaneBits::ALL;
+		RHIDevice::API().CmdCopyTexture(*commandBuffer, *destination.RHITexture, &region, *source.RHITexture, &region);
+		renderCommandBuffer->RT_EndNRISegment();
+	}
+
 	void Renderer::BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage)
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
@@ -1862,22 +1908,22 @@ namespace Lux {
 			{
 				LUX_PROFILE_FUNC("VulkanRenderer::SubmitFullscreenQuad");
 
-				if (material == nullptr)
-				{
-					return;
-				}
-
-				const Buffer uniformStorageBuffer = material->GetUniformStorageBuffer();
-
-				IndexedDraw draw;
-				draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline->GetShader(), material.Raw());
-				draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
-				draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
-				draw.Constants = uniformStorageBuffer.Data;
-				draw.ConstantsSize = static_cast<uint32_t>(uniformStorageBuffer.Size);
-				draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
-				RT_DrawIndexed(*renderCommandBuffer, draw);
+				if (material)
+					RT_SubmitFullscreenQuad(*renderCommandBuffer, *pipeline, *material);
 			});
+	}
+
+	void Renderer::RT_SubmitFullscreenQuad(RenderCommandBuffer& renderCommandBuffer, const Pipeline& pipeline, Material& material)
+	{
+		const Buffer uniformStorageBuffer = material.GetUniformStorageBuffer();
+		IndexedDraw draw;
+		draw.MaterialSet = RT_GetMaterialDescriptorSet(pipeline.GetShader(), &material);
+		draw.Vertices = s_RendererData->QuadVertexBuffer.Raw();
+		draw.Indices = s_RendererData->QuadIndexBuffer.Raw();
+		draw.Constants = uniformStorageBuffer.Data;
+		draw.ConstantsSize = static_cast<uint32_t>(uniformStorageBuffer.Size);
+		draw.IndexCount = s_RendererData->QuadIndexBuffer->GetCount();
+		RT_DrawIndexed(renderCommandBuffer, draw);
 	}
 
 	void Renderer::SubmitFullscreenQuadWithOverrides(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Pipeline> pipeline, Ref<Material> material, Buffer vertexShaderOverrides, Buffer fragmentShaderOverrides)

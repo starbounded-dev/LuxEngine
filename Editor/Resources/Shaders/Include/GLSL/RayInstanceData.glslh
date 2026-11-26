@@ -1,0 +1,22 @@
+#ifndef LUX_RAY_INSTANCE_DATA_GLSLH
+#define LUX_RAY_INSTANCE_DATA_GLSLH
+
+struct RTInstance
+{
+	vec4 NormalRow0;     // rows of the inverse-transpose of the object-to-world 3x3 (w unused)
+	vec4 NormalRow1;
+	vec4 NormalRow2;
+	vec4 WorldRow0;      // rows of the object-to-world 3x4 (for texture footprints)
+	vec4 WorldRow1;
+	vec4 WorldRow2;
+	uvec4 Info;          // first BLAS vertex, first BLAS index, material row, emissive instance ordinal
+	vec4 AlbedoMetal;    // rgb albedo, a metalness
+	vec4 EmissionRough;  // rgb emitted radiance, a roughness
+};
+
+layout(set = 1, binding = 60) uniform accelerationStructureEXT u_RTScene;
+layout(std430, set = 1, binding = 61) readonly buffer RTVertices { vec4 Vertices[]; };   // [2i] position, [2i+1] normal
+layout(std430, set = 1, binding = 62) readonly buffer RTIndices { uint Indices[]; };
+layout(std430, set = 1, binding = 63) readonly buffer RTInstances { RTInstance Instances[]; };
+
+#endif

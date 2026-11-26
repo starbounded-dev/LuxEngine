@@ -1,0 +1,14 @@
+#!/bin/sh
+# Blocks a push whose shader sources and committed engine shader pack disagree (CI would fail the same way).
+# Installed by scripts/Win-GenProjects.py / scripts/Linux-Build.sh (git config core.hooksPath .githooks).
+# Skip once with LUX_SKIP_HOOKS=1 git push ...
+[ "$LUX_SKIP_HOOKS" = "1" ] && exit 0
+ROOT="$(git rev-parse --show-toplevel)" || exit 0
+PY="$(command -v python3 || command -v python)" || exit 0
+if ! "$PY" "$ROOT/tests/shaders/check_engine_pack.py" >/dev/null 2>&1; then
+	echo "pre-push: the engine shader pack is stale (shader sources changed)."
+	echo "  Run:  python scripts/Update-ShaderPack.py   then commit Editor/Resources/ShaderPack.lsp and .stamp"
+	echo "  (skip once: LUX_SKIP_HOOKS=1 git push)"
+	exit 1
+fi
+exit 0

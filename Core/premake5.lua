@@ -59,6 +59,9 @@ project "Core"
 		"vendor/meshoptimizer/**.h",
 		"vendor/meshoptimizer/**.cpp",
 
+		"vendor/xatlas/**.h",
+		"vendor/xatlas/**.cpp",
+
 		"vendor/rapidyaml/ryml_all.hpp",
 		"vendor/rapidyaml/ryml.cpp",
 
@@ -87,6 +90,19 @@ project "Core"
 
 	IncludeDependencies()
 
+	if LuxNrdSdk then
+		includedirs { path.join(LuxNrdSdk, "Include"), path.join(LuxNrdSdk, "Integration"), LuxNrdIntegration }
+		filter "files:Source/Lux/Renderer/RayTracing/RTGI.cpp"
+			defines { "LUX_HAS_NRD" }
+		filter {}
+	end
+	if LuxDlssSdk then
+		includedirs { path.join(LuxDlssSdk, "include") }
+		filter "files:Source/Lux/Renderer/RayTracing/RayReconstruction.cpp"
+			defines { "LUX_HAS_DLSS_RR" }
+		filter {}
+	end
+
 	defines {
 		"GLM_FORCE_DEPTH_ZERO_TO_ONE",
 		-- NRI is linked statically; without this NRI_API is dllimport on Windows.
@@ -97,7 +113,7 @@ project "Core"
 		defines { "LUX_ENABLE_DISCORD" }
 	end
 
-	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/MiniaudioCpp/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
+	filter "files:vendor/FastNoise/**.cpp or files:vendor/soundwave/src/**.cpp or files:vendor/MiniaudioCpp/src/**.cpp or files:vendor/meshoptimizer/**.cpp or files:vendor/xatlas/**.cpp or files:vendor/rapidyaml/ryml.cpp or files:vendor/imgui/misc/cpp/imgui_stdlib.cpp or files:vendor/imgui-node-editor/**.cpp or files:Source/Lux/Core/ApplicationSettings.cpp or files:Source/Lux/Social/DiscordppImpl.cpp"
 	flags { "NoPCH" }
 
 	-- miniaudio's implementation unit is C and must not see the C++ precompiled header.

@@ -23,6 +23,7 @@ namespace Lux {
 		TextureCube,
 		Image2D,
 		Sampler,
+		AccelerationStructure,
 	};
 
 	enum class RenderInputType : uint16_t
@@ -38,7 +39,8 @@ namespace Lux {
 		StorageImage1D,
 		StorageImage2D,
 		StorageImage3D,         // SPIR-V DimCube storage (cubemap)
-		StorageImage3DVolume    // SPIR-V Dim3D storage (true volume)
+		StorageImage3DVolume,   // SPIR-V Dim3D storage (true volume)
+		AccelerationStructure   // accelerationStructureEXT (ray queries)
 	};
 
 	struct RenderInputDeclaration
@@ -166,6 +168,10 @@ namespace Lux {
 			static void Serialize(StreamWriter* writer, const PushConstantRange& range) { writer->WriteRaw(range); }
 			static void Deserialize(StreamReader* reader, PushConstantRange& range) { reader->ReadRaw(range); }
 		};
+
+		// An acceleration structure is reflected as a SeparateSamplers entry with this Dimension, so the
+		// reflection cache and shader-pack formats stay unchanged (old caches and packs keep loading).
+		constexpr uint32_t k_AccelerationStructureDimension = 255;
 
 		struct ShaderDescriptorSet
 		{

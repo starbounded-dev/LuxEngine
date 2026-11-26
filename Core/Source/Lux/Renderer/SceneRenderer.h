@@ -37,6 +37,9 @@
 #include <glm/glm.hpp>
 #include <array>
 #include "Lux/Renderer/DebugPalette.h"
+#include "Lux/Renderer/Lightmaps/Lightmap.h"
+#include "Lux/Renderer/RayTracing/RayTracingScene.h"
+#include <memory>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -49,6 +52,7 @@ namespace Lux {
 
 	struct ProjectSceneRendererSettings;
 	class RenderScene;
+	class TextureStreamingCache;
 	struct StaticMeshRenderProxy;
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -201,6 +205,8 @@ namespace Lux {
 	{
 		AreaLightShadowCasts = 1u << 0,
 		AreaLightShadowSoft = 1u << 1,
+		AreaLightRTShadow = 1u << 2,
+		AreaLightRTShadowSoft = 1u << 3,
 	};
 
 	// The spot-atlas tile a one-sided rect or disk area light renders its shadow into: a 120-degree cone
@@ -244,6 +250,7 @@ namespace Lux {
 
 	struct SceneRendererOptions
 	{
+		uint32_t TextureStreamingBudgetMiB = 64;
 		enum class RenderResolutionScaleMode : uint32_t
 		{
 			Native = 0,
@@ -305,6 +312,107 @@ namespace Lux {
 		bool  ShowCascadeFrustums = false;
 		bool  ShowLightComplexity = false;
 		bool  ShowMaterialComplexity = false;
+		// Opt-in path tracer (editor-only ground-truth reference, docs/GI_PLAN.md, #213). Session-only: never saved into
+		// the project, off by default, and the raster renderer is untouched while it is off (RayTracing/PathTracePass.cpp).
+		bool     EnablePathTracer = false;
+		bool     PathTracerReconstruction = false;
+		// Use the scene's baked lightmap (a sidecar written by the baker) as indirect diffuse. No effect without one.
+		bool     EnableLightmaps = true;
+		// Realtime GI: a probe volume updated by ray queries every frame (RayTracing/RealtimeGI.cpp), read as indirect diffuse.
+		// RT-only and off by default. It stacks with lightmaps, so use one or the other.
+		bool     EnableRealtimeGI = false;
+		// Ray-traced GI: per-pixel indirect diffuse by ray queries, denoised and added to scene colour after the raster
+		// lighting (RayTracing/RTGI.cpp). RT-only and off by default; use it instead of lightmaps / probes.
+		bool     EnableRTGI = false;
+		// Ray-traced reflections (RayTracing/RTGI.cpp, RTReflections.glsl): smooth surfaces add the reflection of the ray-traced scene to the raster frame, from the raster depth and G-buffer. RT-only.
+		bool     EnableRTReflections = false;
+		// Ray-traced directional shadows (RayTracing/RTGI.cpp, RTShadows.glsl): deferred lighting reads a visibility mask traced from the raster depth/G-buffer instead of the cascade shadow maps. Soft by the light's angular radius. RT-only.
+		bool     EnableRTShadows = false;
+		bool     EnableRTTranslucentShadows = false;
+		bool     EnableRTCaustics = false;
+		uint32_t RTCausticPhotons = 65536;
+		bool     EnableRTAreaLightShadows = false;
+		uint32_t RTAreaShadowRays = 8;
+		bool     EnableRTContactShadows = false;
+		bool     EnableRTAmbientOcclusion = false;
+		float    RTContactShadowDistance = 0.6f;
+		float    RTAmbientOcclusionRadius = 1.0f;
+		uint32_t RTAmbientOcclusionRays = 6;
+		float    RTShadowAngularRadiusDegrees = 0.5f; // the sun is about 0.27
+		uint32_t RTShadowRays = 4;
+		float    RTReflectionRoughnessCutoff = 0.4f; // surfaces rougher than this keep the raster reflection
+		uint32_t RTReflectionRays = 2;
+		bool     RTReflectionAdaptiveBudget = true;
+		bool     RTReflectionDenoiser = true;
+		// A reflection ray that hits geometry replaces the raster environment reflection it would otherwise add to (no double count under a bright sky).
+		bool     RTReflectionReplaceEnvironment = true;
+		uint32_t RTGIBounces = 1;
+		// ReSTIR GI reuse for RTGI: pixels resample each other's indirect paths (previous frame, reprojected, plus neighbours) instead of using only their own path. Less noise per ray; biased (1/M normalisation, diffuse sample radiance), so opt-in.
+		bool     RTGIReuse = false;
+		// Temporal blend: frames averaged into a pixel's estimate once the camera and scene hold still (the floor of the running-mean weight is 1 / this). 1 = no accumulation.
+		uint32_t RTGIHistoryLength = 32;
+		// Spatiotemporal denoiser for RTGI (SVGF-style, RayTracing/RTGI.cpp): reprojects the accumulated estimate instead of restarting it
+		// when the camera moves, tracks the variance and filters with a variance-guided a-trous. RTGIHistoryLength is its maximum age.
+		bool     RTGIDenoiser = false;
+		bool     RTGINRD = false;
+		// Half-resolution tracing and temporal denoising with a depth/normal-guided full-resolution resolve.
+		bool     RTGIHalfResolution = false;
+		uint32_t RealtimeGIRaysPerProbe = 64;
+		// Probe auto placement: grid spacing in metres (0 = the fixed 16x8x16 grid over the scene bounds); the dimensions follow the scene size
+		// (clamped to 2..64 per axis and 16384 probes) and probes found inside solid geometry are only refreshed now and then.
+		float    RealtimeGIProbeSpacing = 0.0f;
+		bool     RealtimeGIAdaptiveProbes = false;
+		uint32_t RealtimeGIBounces = 2;
+		// Debug: a uniform white environment and no lights, for the white-furnace test (an albedo-1 sphere must
+		// converge to the environment radiance).
+		float    PathTracerFurnaceRadiance = 1.0f; // radiance of the uniform environment (the furnace test); other values calibrate the tone mapper in the checks
+		bool     PathTracerUniformEnvironment = false;
+		// Replace the view with an error heat map of the raster frame against the converged path-traced reference
+		// (PathTraceDiff.glsl). Needs EnablePathTracer. The raster frame is whatever indirect-diffuse source is active.
+		bool     PathTracerDiffHeatmap = false;
+		float    PathTracerDiffScale = 0.2f; // linear error mapped to full red
+		float    PathTracerDiffPeak = 1.0f;  // linear radiance mapped to 1 before comparing; above 1 the error covers bright (HDR) areas too
+		uint32_t PathTracerMaxBounces = ScenePathTracingSettings{}.MaxBounces;
+		// Pick the light for next-event estimation by its expected irradiance (RayTracing/PathTraceLights.h) instead of uniformly. Unbiased; fewer noisy pixels with many lights of different power.
+		bool     PathTracerPowerLightSampling = true;
+		// Multiple importance sampling: weight next-event estimation against BSDF-sampled hits of the analytic area lights (power heuristic). Unbiased; far less noise on glossy surfaces under large lights.
+		bool     PathTracerMIS = true;
+		// Clearcoat, sheen and anisotropy of the material rows in the path-traced BRDF (the formulas of PBR.glslh), so Diff views match the raster lobes.
+		bool     PathTracerLobes = true;
+		// Edge-aware denoise of a finished lightmap bake (a-trous in atlas space, weights from the texel's world normal, position and luminance), so low-sample bakes come out clean.
+		bool     LightmapDenoise = true;
+		// Log what an automatic xatlas unwrap (vertex splitting, charts, atlas use) would give for every submesh whose lightmap UVs overlap. Writing the unwrapped UVs back into the mesh is not done yet (#227).
+		bool     LightmapUnwrapReport = false;
+		// Transparent materials with transmission refract in the path tracer: smooth dielectric (Fresnel, Snell, total internal reflection) with Beer-Lambert absorption from the material's attenuation colour and distance. Shadow rays stay opaque.
+		bool     PathTracerGlass = true;
+		// Subsurface materials (row Subsurface) random-walk part of their diffuse light through the closed mesh (mean free path 5 cm, albedo = subsurface colour, thickness 0..1 = how little goes through) instead of the raster lobe's wrap approximation.
+		bool     PathTracerSubsurface = true;
+		// Global homogeneous fog in the path tracer (RayTracing: PathTraceCommon.glslh): extinction per metre (0 = off), scattering albedo, Henyey-Greenstein anisotropy g,
+		// and an optional sphere (radius 0 = unbounded) around FogCenter. Raster direct lighting and ray-traced transport share its extinction.
+		float    PathTracerFogDensity = 0.0f;
+		glm::vec3 PathTracerFogAlbedo{ 1.0f };
+		float    PathTracerFogAnisotropy = 0.0f;
+		float    PathTracerFogRadius = 0.0f;
+		glm::vec3 PathTracerFogCenter{ 0.0f };
+		// ReSTIR DI: the path tracer takes its first-hit direct light from reservoir-resampled light samples (RayTracing: ReSTIRDI.glsl) instead of one fresh sample. Biased (1/M normalisation); off by default and for reference renders. Traces from pixel centres (no sub-pixel jitter).
+		bool     PathTracerReSTIRDI = false;
+		bool     PathTracerSampleEmissiveMeshes = true;
+		// Ray sorting: bounce 1+ of every path runs with rays binned by direction (PathTraceWavefront.glsl) so neighbouring threads trace similar rays. Same image, only the work order changes; measured by the checks, off unless it is faster. No ReSTIR DI, adaptive sampling or heat map in this mode.
+		bool     PathTracerRaySort = false;
+		bool     PathTracerShaderExecutionReordering = false;
+		// Acceleration-structure tuning (RayTracing/RayTracingScene.h Tuning): compact static BLASes, refit skinned BLASes in place on a new pose, refit the TLAS on transform-only changes. All on; off restores the plain rebuilds (A/B).
+		bool     RTCompactBLAS = true;
+		bool     RTRefitSkinned = true;
+		bool     RTUpdateTLAS = true;
+		// Adaptive sampling: once a pixel has 16 samples it stops tracing when the relative standard error of its mean luminance falls
+		// below this (0 = off, every pixel gets every sample). Slightly biased by the stopping rule, so off by default and for reference renders.
+		float    PathTracerAdaptiveThreshold = 0.0f;
+		// Debug: show each pixel's sample count (1.0 = 256 samples) instead of the image.
+		bool     PathTracerSampleHeatmap = false;
+		// Debug view replacing the image: 0 none, 1 bounces per path, 2 rays per path, 3 noise estimate, 4 sample count (the heat map above).
+		uint32_t PathTracerDebugView = 0;
+		uint32_t PathTracerTargetSamples = ScenePathTracingSettings{}.TargetSamples;
+		uint32_t PathTracerResetCounter = 0; // bumped by the panel's Reset button; the backend restarts accumulation when it changes
 		bool  SoftShadows = true;
 		bool  EnableShadowCulling = true;
 		bool  EnableMainViewCulling = true;
@@ -613,6 +721,14 @@ namespace Lux {
 			float    TotalGPUTime = 0.0f;
 			PipelineStatistics PipelineStats;
 			MemoryStatistics MemoryStats;
+			uint32_t StreamedTextures = 0;
+			uint32_t StreamedFineTextures = 0;
+			uint32_t TextureStreamingPromotions = 0;
+			uint32_t TextureStreamingEvictions = 0;
+			uint64_t TextureStreamingFineBytes = 0;
+			uint32_t VirtualTexturePages = 0;
+			uint32_t VirtualTexturePageUploads = 0;
+			uint32_t VirtualTexturePageEvictions = 0;
 			std::vector<PassProfile> PassProfiles;
 		};
 
@@ -771,6 +887,10 @@ namespace Lux {
 		void InitOptions();
 
 		void SetScene(Ref<Scene> scene);
+		void ApplySceneRayTracingSettings();
+		static bool HasNRDSdk();
+		static bool HasRayReconstruction();
+		bool IsUsingRayReconstruction() const;
 		void SetViewportSize(uint32_t width, uint32_t height);
 		// Main thread. Values are clamped to a usable range.
 		void SetGridSettings(const GridSettings& settings);
@@ -1439,6 +1559,47 @@ namespace Lux {
 		void EarlyMeshCullingPass();
 		void ShadowMeshCullingPass();
 		void ClusterBuildPass();
+		// Opt-in path tracer, RayTracing/PathTracePass.cpp. Off (and not even created) unless
+		// SceneRendererOptions::EnablePathTracer is set and the device supports ray queries.
+		struct PathTraceState;
+		struct PathTraceReconstruction;
+		void PathTracePass();
+		// Lightmaps, Lightmaps/LightmapBake.cpp.
+		struct LightmapBakeState;
+		// Realtime GI, RayTracing/RealtimeGI.cpp.
+		struct RealtimeGIState;
+		struct RTGIState;
+		void RTGIPass();
+		bool EnsureRTGI();
+		void RealtimeGIPass();
+		bool EnsureRealtimeGI();
+		void SyncRealtimeGI();
+		void LightmapBakePass();
+		void UpdateLightmapRects();
+		void RefreshLightmap();
+	public:
+		// Editor-only: bakes the scene's lightmap over the next frames (needs ray queries), saves it as a sidecar and
+		// uses it. False when a bake is already running or the device or build cannot bake.
+		uint32_t GetRealtimeGIUpdateCount() const; // probe updates dispatched so far
+		bool StartLightmapBake(uint32_t samples = 128, float texelsPerMetre = 16.0f);
+		bool IsLightmapBaking() const;
+		float GetLightmapBakeProgress() const; // 0..1
+		std::string GetLightmapBakeStatus() const;
+		bool HasLightmap() const { return m_Lightmap != nullptr; }
+		void SetLightmap(Ref<LightmapData> lightmap);
+		void ClearLightmap();
+		// Samples accumulated by the path tracer so far (0 while it is off or has nothing to trace).
+		uint32_t GetPathTraceSampleCount() const;
+		// MAE and PSNR (linear light, [0, 1]) of the last diff; false until one has been read back.
+		bool GetPathTraceDiffStats(float& mae, float& psnr) const;
+	private:
+		bool EnsurePathTracer();
+		Ref<PathTraceReconstruction> EnsurePathTraceReconstruction();
+		bool EnsurePathTraceSER();
+		Ref<ComputePass> CreatePathTracePass(const Ref<Shader>& shader, const PathTraceReconstruction* reconstruction = nullptr);
+		// Binds the scene's radiance map (or a black cube) and its sampler to a ray-traced compute pass; returns what the push constants need.
+		PathTraceEnvParams PreparePathTraceEnvironment(Ref<ComputePass> pass);
+		bool EnsurePathTraceDiff();
 		void ClusterLightCullingPass();
 		void SkyboxPass();
 		void SelectedGeometryPass();
@@ -1457,6 +1618,7 @@ namespace Lux {
 		void SSRCompute();
 		void SSRCompositePass();
 		void BloomCompute();
+		void HeightFogPass();
 		void AutoExposurePass();
 		float ComputeFinalExposure(const PostProcessSettings& settings) const;
 		void CompositePass();
@@ -1635,7 +1797,10 @@ namespace Lux {
 			float       EnvironmentMapIntensity = 1.0f;
 			float       EnvironmentMapRotation = 0.0f; // degrees about +Y
 			glm::vec3   Padding{};
+			glm::vec4   FogMedium{ 0.0f };
+			glm::vec4   FogCenter{ 0.0f };
 		} m_SceneUB;
+		static_assert(offsetof(UBScene, FogMedium) == 64 && offsetof(UBScene, FogCenter) == 80);
 
 		struct UBShadow
 		{
@@ -1688,7 +1853,8 @@ namespace Lux {
 			glm::vec4 ShadowFilterParams = { 1.25f, 1.5f, 0.0f, 0.0f }; // x=dir PCF texels, y=spot PCF texels
 			uint32_t  ShadowFilterSampleCount = 24;
 			float     Time = 0.0f; // seconds, for material graphs
-			uint32_t  ShadowKernelPadding[2] = { 0, 0 };
+			uint32_t  RTShadows = 0;
+			uint32_t  ShadowKernelPadding2 = 0;
 			// xy = filter tap i, zw = blocker-search tap i; each a Vogel disk over its own count.
 			glm::vec4 ShadowKernel[ShadowKernelSize] = {};
 		} m_RendererDataUB;
@@ -1919,6 +2085,108 @@ namespace Lux {
 		// is the ObjectIndexes buffer too.
 		Ref<ComputePass> m_ShadowCullingPass;
 		Ref<ComputePass> m_ClusterBuildPass;        // builds m_SBSClusterAABBs
+		bool m_PathTracerUnavailable = false;       // shader failed to load: do not retry every frame
+		Ref<RayTracingScene> m_RayTracingScene;
+		Ref<ComputePass> m_PathTracePass;
+		Ref<ComputePass> m_PathTraceSERPass;
+		Ref<RefCounted> m_PathTraceReconstruction;
+		bool m_PathTraceReconstructionUnavailable = false;
+		bool m_PathTraceSERUnavailable = false;
+		Ref<Image2D> m_PathTraceMomentsImage;
+		bool EnsureReSTIRDI();
+		bool EnsurePathTraceWavefront();
+		Ref<ComputePass> m_PathTraceWavefrontPass;
+		Ref<StorageBuffer> m_PTWStates, m_PTWKeys, m_PTWBins, m_PTWSorted;
+		bool m_PathTraceWavefrontUnavailable = false;
+		Ref<ComputePass> m_ReSTIRDIPasses[2];
+		Ref<Image2D> m_ReSTIRResA[2], m_ReSTIRResB[2], m_ReSTIRGPos[2], m_ReSTIRGNormal[2], m_ReSTIRDirect;
+		bool m_ReSTIRDIUnavailable = false;
+		Ref<Image2D> m_PathTraceAccumImage;         // RGBA32F running mean
+		Ref<Image2D> m_PathTraceImage;              // RGBA16F, copied into scene colour
+		Ref<StorageBuffer> m_PathTraceLights;
+		Ref<LightmapData> m_Lightmap;
+		Ref<StorageBuffer> m_GIProbes;              // grid header + SH probes (G-buffer pass input, written by the probe pass)
+		Ref<ComputePass> m_GIProbePass;
+		Ref<ComputePass> m_RTGITracePass;
+		bool EnsureRTGIReSTIR();
+		void RTReflectionsPass();
+		void RTShadowsPass();
+		void RTCausticsPass();
+		bool EnsureRTCaustics();
+		Ref<ComputePass> m_RTCausticTrace;
+		Ref<ComputePass> m_RTCausticResolve;
+		Ref<Image2D> m_RTCausticFlux;
+		Ref<Image2D> m_RTCausticResult;
+		Ref<StorageImageClear> m_RTCausticClear;
+		bool m_RTCausticsUnavailable = false;
+		bool EnsureRTShadows();
+		bool EnsureRTVisibilityFilter();
+		uint32_t GetRTVisibilityFlags() const;
+		static constexpr uint32_t k_RTFullDirectionalShadow = 1u;
+		static constexpr uint32_t k_RTContactShadow = 2u;
+		static constexpr uint32_t k_RTAmbientOcclusion = 4u;
+		Ref<ComputePass> m_RTShadowPass;
+		Ref<Image2D> m_RTShadowMask;
+		Ref<StorageImageClear> m_RTShadowMaskClear;
+		Ref<ComputePass> m_RTVisibilityFilter;
+		Ref<Image2D> m_RTFilteredVisibility;
+		bool m_RTShadowUnavailable = false;
+		bool m_RTVisibilityFilterUnavailable = false;
+		uint32_t m_RTShadowFrame = 0;
+		// Screen-space reflections, unless ray-traced reflections replace them (they trace the same surfaces and would add on top of SSR).
+		bool SSRActive() const;
+		bool EnsureRTReflections();
+		bool EnsureRTReflectionDenoiser();
+		Ref<ComputePass> m_RTReflPass;
+		Ref<Image2D> m_RTReflResult;
+		Ref<ComputePass> m_RTReflDenoisePass;
+		Ref<Image2D> m_RTReflDenoisedResult;
+		bool m_RTReflUnavailable = false;
+		bool m_RTReflDenoiseUnavailable = false;
+		uint32_t m_RTReflFrame = 0;
+		void ApplyRTTuning()
+		{
+			RayTracingScene::Tuning tuning;
+			tuning.CompactBLAS = m_Options.RTCompactBLAS;
+			tuning.RefitSkinned = m_Options.RTRefitSkinned;
+			tuning.UpdateTLAS = m_Options.RTUpdateTLAS;
+			RayTracingScene::SetTuning(tuning);
+			for (const char* pass : { "RTBLASBuild", "RTBLASRefit", "RTTLASBuild", "RTTLASRefit" })
+				GetOrCreatePassProfile(pass).GPUActive = true;
+		}
+		bool EnsureRTGIDenoiser();
+		struct RTGINrdState;
+		Ref<RTGINrdState> EnsureRTGINrd(uint32_t width, uint32_t height);
+		Ref<RefCounted> m_RTGINrd;
+		bool m_RTGINrdUnavailable = false;
+		bool EnsureRTGIUpscale();
+		Ref<ComputePass> m_RTGITemporalPasses[2];
+		Ref<ComputePass> m_RTGIVarFilters[3];
+		Ref<ComputePass> m_RTGIUpscalePass;
+		bool m_RTGIUpscaleUnavailable = false;
+		Ref<Image2D> m_TDHist0[2], m_TDHist1[2], m_TDNormal[2], m_TDDenoised, m_TDVarC, m_TDVarD;
+		bool m_RTGIDenoiserUnavailable = false;
+		Ref<ComputePass> m_RTGIReSTIRPasses[2];
+		Ref<Image2D> m_RGSample[2], m_RGSampleNormal[2], m_RGRadiance[2], m_RGGPos[2], m_RGGNormal[2];
+		bool m_RTGIReSTIRUnavailable = false;
+		Ref<ComputePass> m_RTGIFilterPasses[3];
+		Ref<Image2D> m_RTGIAccum, m_RTGIAlbedo, m_RTGINormal, m_RTGITempA, m_RTGITempB, m_RTGIResult;
+		std::shared_ptr<RTGIState> m_RTGIState;
+		bool m_RTGIUnavailable = false;
+		std::shared_ptr<RealtimeGIState> m_RealtimeGIState;
+		bool m_RealtimeGIUnavailable = false;
+		bool m_GIProbesActive = false;
+		Ref<StorageBuffer> m_LightmapRects;         // [0] atlas size, [1 + GPU-scene instance ID] rect (G-buffer pass input)
+		Ref<StorageBuffer> m_LightmapAtlas;         // RGBA16F texels packed into uvec2 (G-buffer pass input)
+		uint64_t m_LightmapRectsSignature = 0;
+		std::shared_ptr<LightmapBakeState> m_LightmapBake;
+		Ref<ComputePass> m_LightmapBakePass;
+		Ref<StorageBuffer> m_LightmapBakeTexels;
+		Ref<StorageBuffer> m_LightmapBakeAccum;
+		Ref<ComputePass> m_PathTraceDiffPass;
+		Ref<Image2D> m_PathTraceDiffImage;          // RGBA16F heat map
+		Ref<StorageBuffer> m_PathTraceDiffPartials; // per-workgroup sums, host-visible
+		std::shared_ptr<PathTraceState> m_PathTraceState; // render-thread accumulation state
 		Ref<ComputePass> m_ClusterLightCullingPass; // assigns lights to clusters
 		uint32_t         m_MeshCullDrawCount = 0;
 
@@ -2040,6 +2308,10 @@ namespace Lux {
 		Ref<RenderPass>  m_DeferredLightingPass;        // fullscreen deferred lighting
 		Ref<RenderPass>  m_AreaLightPass;               // fullscreen LTC area lights, added over deferred lighting
 		Ref<Material>    m_AreaLightMaterial;
+		bool EnsureRTAreaLightPass();
+		Ref<RenderPass> m_RTAreaLightPass;
+		Ref<Material> m_RTAreaLightMaterial;
+		bool m_RTAreaLightUnavailable = false;
 
 		// Particles (docs/PARTICLES_PLAN.md): one color-only pass per blend mode on scene color (the shader reads PreDepth for the
 		// depth test and the soft edge), one shared quad, and one instance buffer per frame in flight.
@@ -2067,6 +2339,14 @@ namespace Lux {
 		Ref<Material>    m_GBufferDebugMaterial;
 		std::vector<Ref<Texture2D>> m_GPUMaterialTextures;
 		Ref<BindlessTextureTable> m_BindlessTextures;
+		Scope<TextureStreamingCache> m_TextureStreamingCache;
+		struct VirtualTextureFeedbackState;
+		Ref<StorageBufferSet> m_SBSVirtualTextureFeedback;
+		Ref<VirtualTextureFeedbackState> m_VirtualTextureFeedback;
+		uint64_t m_TextureFeedbackSequence = 0;
+		bool m_VirtualTextureFeedbackSupported = false;
+		void PrepareVirtualTextureFeedback();
+		void CopyVirtualTextureFeedback(uint64_t generation);
 		uint32_t m_ResolvedTextureSlotCount = 0;
 
 		// ── Selected / wireframe ──────────────────────────────────────────────
@@ -2098,6 +2378,9 @@ namespace Lux {
 		Ref<ComputePass> m_LuminanceAveragePass;
 		Ref<StorageBufferSet> m_SBSLuminanceHistogram;   // 256-bin histogram (per-frame)
 		Ref<StorageBufferSet> m_SBSExposureState;        // { adapted luminance, exposure }
+		Ref<ComputePass> m_HeightFogPass;
+		Ref<Image2D> m_HeightFogResult;
+		bool m_HeightFogUnavailable = false;
 
 		static constexpr uint32_t s_LuminanceHistogramBins = 256;
 		static constexpr float s_AutoExposureMinLogLuminance = -10.0f; // log2 luminance for bin 1

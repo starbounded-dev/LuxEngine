@@ -60,8 +60,9 @@ def main() -> int:
     current, recorded, kind = identity(), stamp_field(text, "ShaderInputs"), stamp_field(text, "Kind")
     if kind != "Engine" or current != recorded:
         print(f"FAIL: the engine shader pack is stale (stamp kind {kind or 'none'}, inputs {recorded}; sources now {current}).")
-        print("Rebuild it from the Editor folder with a Debug or Release editor, then commit both files:")
-        print("    ..\\bin\\Release-windows-x86_64\\Editor\\Editor.exe --build-shader-pack")
+        print("Rebuild it with a Debug or Release editor, then commit both files (Resources/ShaderPack.lsp and .stamp):")
+        print("    python scripts/Update-ShaderPack.py")
+        print("  or by hand, from the Editor folder:  ..\\bin\\Release-windows-x86_64\\Editor\\Editor.exe --build-shader-pack")
         return 1
     print(f"PASS: engine shader pack matches the shader sources ({current})")
     return 0

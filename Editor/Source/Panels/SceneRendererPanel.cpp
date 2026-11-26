@@ -9,9 +9,11 @@
 #include "Lux/ImGui/ImGuiWidgets.h"
 #include "Lux/ImGui/PanelControls.h"
 #include "Lux/Core/Events/KeyEvent.h"
+#include "Lux/Editor/EditorStack.h"
 #include "Lux/Editor/FontAwesome.h"
 #include "Lux/Project/Project.h"
 #include "Lux/Renderer/Renderer.h"
+#include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Serialization/Yaml.h"
 #include "Lux/Utilities/StringUtils.h"
 
@@ -183,6 +185,8 @@ namespace Lux {
 
 	void SceneRendererPanel::SetContext(const Ref<SceneRenderer>& context)
 	{
+		if (m_Context != context)
+			m_LastRTTimings.fill(0.0f);
 		m_Context = context;
 		ApplyProjectSettingsToContext();
 	}
@@ -664,6 +668,247 @@ namespace Lux {
 			EndSettingsCard();
 		}
 
+		// ---- Path Tracing --------------------------------------------------------------------
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "DLSS Ray Reconstruction", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Sample Emissive Meshes", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "NVIDIA NRD", "Half-Resolution RTGI", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Adaptive Reflection Rays", "Reflection Denoiser", "Reflections Replace Sky", "Ray-Traced Shadows", "RT Translucent Shadows", "RT Caustics", "Caustic Photons", "RT Area-Light Shadows", "Area Shadow Rays", "RT Contact Shadows", "Contact Shadow Distance", "RT Ambient Occlusion", "Ambient Occlusion Radius", "Ambient Occlusion Rays", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
+		{
+			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
+			{
+				if (RHIDevice::IsInitialized())
+				{
+					const auto& device = RHIDevice::GetDesc();
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					ImGui::TextWrapped("%s | NRI ray tracing tier %u", device.adapterDesc.name, static_cast<unsigned>(device.tiers.rayTracing));
+					ImGui::PopStyleColor();
+				}
+				if (!RHIDevice::SupportsRayQuery())
+				{
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.3f, 1.0f));
+					ImGui::TextWrapped("Path tracing requires GPU support for ray queries.");
+					ImGui::PopStyleColor();
+				}
+				else if (options.EnablePathTracer)
+				{
+					if (m_Context && m_Context->IsUsingRayReconstruction())
+						ImGui::TextWrapped("DLSS Ray Reconstruction active");
+					else
+						ImGui::TextWrapped("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
+					float mae = 0.0f, psnr = 0.0f;
+					if (options.PathTracerDiffHeatmap && m_Context && m_Context->GetPathTraceDiffStats(mae, psnr))
+						ImGui::TextWrapped("Diff vs raster: MAE %.4f, PSNR %.1f dB", mae, psnr);
+				}
+				constexpr std::array<std::pair<std::string_view, const char*>, 6> timingLabels {{
+					{ "RTBLASBuild", "BLAS build" }, { "RTBLASRefit", "BLAS refit" },
+					{ "RTTLASBuild", "TLAS build" }, { "RTTLASRefit", "TLAS refit" },
+					{ "RTPathTrace", "Path trace" }, { "RTGITrace", "RTGI trace" }
+				}};
+				if (m_Context && RHIDevice::SupportsRayQuery())
+				{
+					for (const auto& entry : m_Context->GetStatistics().PassProfiles)
+						if (entry.GPUTime > 0.0f)
+							for (size_t i = 0; i < timingLabels.size(); ++i)
+								if (timingLabels[i].first == entry.Name)
+									m_LastRTTimings[i] = entry.GPUTime;
+					for (size_t i = 0; i < timingLabels.size(); ++i)
+						if (m_LastRTTimings[i] > 0.0f)
+							ImGui::TextWrapped("%s %.3f ms GPU", timingLabels[i].second, m_LastRTTimings[i]);
+				}
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				bool sceneSettingsChanged = false;
+				auto* pathTracing = m_Scene ? &m_Scene->GetPathTracingSettings() : nullptr;
+				if (toggle("Enable Path Tracer", options.EnablePathTracer))
+				{
+					options.PathTracerResetCounter++;
+					if (pathTracing)
+					{
+						pathTracing->Enabled = options.EnablePathTracer;
+						sceneSettingsChanged = true;
+					}
+				}
+				toggle("Uniform Environment (furnace test)", options.PathTracerUniformEnvironment);
+				toggle("Diff vs Raster (heat map)", options.PathTracerDiffHeatmap);
+				if (match("Diff Scale"))
+					ImGuiEx::Property("Diff Scale", options.PathTracerDiffScale, 0.01f, 0.01f, 1.0f);
+				if (match("Diff Peak (HDR)"))
+					ImGuiEx::Property("Diff Peak (HDR)", options.PathTracerDiffPeak, 0.1f, 1.0f, 64.0f);
+				if (match("Max Bounces") && ImGuiEx::Property("Max Bounces", options.PathTracerMaxBounces, 1u, 16u) && pathTracing)
+				{
+					pathTracing->MaxBounces = options.PathTracerMaxBounces;
+					sceneSettingsChanged = true;
+				}
+				if (match("Target Samples") && ImGuiEx::Property("Target Samples", options.PathTracerTargetSamples, 1u, 65536u) && pathTracing)
+				{
+					pathTracing->TargetSamples = options.PathTracerTargetSamples;
+					sceneSettingsChanged = true;
+				}
+				if (match("DLSS Ray Reconstruction"))
+				{
+					ImGui::BeginDisabled(!SceneRenderer::HasRayReconstruction());
+					if (ImGuiEx::Property("DLSS Ray Reconstruction", options.PathTracerReconstruction,
+						"Reconstructs one path-traced sample per frame at native resolution. Diff views, ReSTIR DI, sorting and SER use accumulation.", false))
+					{
+						options.PathTracerResetCounter++;
+						if (pathTracing)
+						{
+							pathTracing->RayReconstruction = options.PathTracerReconstruction;
+							sceneSettingsChanged = true;
+						}
+					}
+					ImGui::EndDisabled();
+				}
+				if (sceneSettingsChanged)
+					EditorStack::Get().MarkSceneEdited("Path Tracing Settings");
+				toggle("Power Light Sampling", options.PathTracerPowerLightSampling);
+				toggle("Sample Emissive Meshes", options.PathTracerSampleEmissiveMeshes);
+				toggle("Multiple Importance Sampling", options.PathTracerMIS);
+				if (match("Adaptive Threshold"))
+					ImGuiEx::Property("Adaptive Threshold", options.PathTracerAdaptiveThreshold, 0.005f, 0.0f, 0.5f);
+				toggle("Sample Count Heat Map", options.PathTracerSampleHeatmap);
+				toggle("ReSTIR DI (biased)", options.PathTracerReSTIRDI);
+				toggle("Ray Sorting (experimental, slower)", options.PathTracerRaySort);
+				if (RHIDevice::SupportsShaderExecutionReordering())
+					toggle("Shader Execution Reordering", options.PathTracerShaderExecutionReordering);
+				toggle("Lobes (clearcoat, sheen, anisotropy)", options.PathTracerLobes);
+				toggle("Glass (refraction)", options.PathTracerGlass);
+				toggle("Subsurface Scattering", options.PathTracerSubsurface);
+				if (match("Fog Density"))
+					ImGuiEx::Property("Fog Density", options.PathTracerFogDensity, 0.01f, 0.0f, 10.0f, "Extinction per unit distance for direct lighting and ray-traced transport.");
+				if (match("Fog Albedo"))
+					ImGuiEx::PropertyColor("Fog Albedo", options.PathTracerFogAlbedo);
+				if (match("Fog Anisotropy"))
+					ImGuiEx::Property("Fog Anisotropy", options.PathTracerFogAnisotropy, 0.01f, -0.95f, 0.95f);
+				if (match("Fog Radius"))
+					ImGuiEx::Property("Fog Radius", options.PathTracerFogRadius, 0.1f, 0.0f, 1000.0f, "Sphere radius in world units. Zero selects unbounded fog.");
+				if (match("Fog Center"))
+					ImGuiEx::Property("Fog Center", options.PathTracerFogCenter, 0.1f, 0.0f, 0.0f, "World position of the bounded fog sphere.");
+				ImGuiEx::EndPropertyGrid();
+				if (match("Debug View"))
+				{
+					static const char* views[] = { "Off", "Bounces per path", "Rays per path", "Noise estimate", "Samples per pixel" };
+					int view = static_cast<int>(std::min(options.PathTracerDebugView, 4u));
+					ImGui::TextUnformatted("Debug View");
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					if (ImGui::Combo("##path_trace_debug_view", &view, views, 5))
+						options.PathTracerDebugView = static_cast<uint32_t>(view);
+				}
+				if (match("Reset Accumulation") && ImGui::Button("Reset Accumulation", ImVec2(-FLT_MIN, 0.0f)))
+					options.PathTracerResetCounter++;
+
+				ImGui::Separator();
+				ImGui::TextWrapped("Ray-Traced GI");
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				auto* rayTracedGI = m_Scene ? &m_Scene->GetRayTracedGISettings() : nullptr;
+				if (toggle("Ray-Traced GI", options.EnableRTGI) && rayTracedGI)
+				{
+					rayTracedGI->Enabled = options.EnableRTGI;
+					EditorStack::Get().MarkSceneEdited("Ray-Traced GI Settings");
+				}
+				if (match("RTGI Bounces"))
+					ImGuiEx::Property("RTGI Bounces", options.RTGIBounces, 1u, 4u);
+				if (match("RTGI History"))
+					ImGuiEx::Property("RTGI History", options.RTGIHistoryLength, 1u, 256u);
+				toggle("ReSTIR GI Reuse (biased)", options.RTGIReuse);
+				toggle("RTGI Denoiser", options.RTGIDenoiser);
+				if (match("NVIDIA NRD"))
+				{
+					ImGui::BeginDisabled(!SceneRenderer::HasNRDSdk());
+					if (ImGuiEx::Property("NVIDIA NRD", options.RTGINRD,
+						"RELAX diffuse denoises native-resolution ray-traced GI. Half-resolution and ReSTIR GI use the built-in denoiser.", false) && rayTracedGI)
+					{
+						rayTracedGI->UseNRD = options.RTGINRD;
+						EditorStack::Get().MarkSceneEdited("Ray-Traced GI Settings");
+					}
+					ImGui::EndDisabled();
+				}
+				toggle("Half-Resolution RTGI", options.RTGIHalfResolution);
+				toggle("Ray-Traced Reflections", options.EnableRTReflections);
+				if (match("Reflection Roughness Cutoff"))
+					ImGuiEx::Property("Reflection Roughness Cutoff", options.RTReflectionRoughnessCutoff, 0.01f, 0.0f, 1.0f);
+				if (match("Reflection Rays"))
+					ImGuiEx::Property("Reflection Rays", options.RTReflectionRays, 1u, 16u, "Maximum rays per rough surface pixel.");
+				toggle("Adaptive Reflection Rays", options.RTReflectionAdaptiveBudget);
+				toggle("Reflection Denoiser", options.RTReflectionDenoiser);
+				toggle("Reflections Replace Sky", options.RTReflectionReplaceEnvironment);
+				toggle("Ray-Traced Shadows", options.EnableRTShadows);
+				toggle("RT Translucent Shadows", options.EnableRTTranslucentShadows);
+				toggle("RT Caustics", options.EnableRTCaustics);
+				if (match("Caustic Photons"))
+					ImGuiEx::Property("Caustic Photons", options.RTCausticPhotons, 4096u, 262144u);
+				toggle("RT Area-Light Shadows", options.EnableRTAreaLightShadows);
+				if (match("Area Shadow Rays"))
+					ImGuiEx::Property("Area Shadow Rays", options.RTAreaShadowRays, 1u, 32u);
+				toggle("RT Contact Shadows", options.EnableRTContactShadows);
+				if (match("Contact Shadow Distance"))
+					ImGuiEx::Property("Contact Shadow Distance", options.RTContactShadowDistance, 0.01f, 0.01f, 10.0f);
+				toggle("RT Ambient Occlusion", options.EnableRTAmbientOcclusion);
+				if (match("Ambient Occlusion Radius"))
+					ImGuiEx::Property("Ambient Occlusion Radius", options.RTAmbientOcclusionRadius, 0.02f, 0.01f, 25.0f);
+				if (match("Ambient Occlusion Rays"))
+					ImGuiEx::Property("Ambient Occlusion Rays", options.RTAmbientOcclusionRays, 1u, 16u);
+				if (match("Shadow Light Radius"))
+					ImGuiEx::Property("Shadow Light Radius", options.RTShadowAngularRadiusDegrees, 0.05f, 0.0f, 30.0f);
+				if (match("Shadow Rays"))
+					ImGuiEx::Property("Shadow Rays", options.RTShadowRays, 1u, 64u);
+				toggle("Compact BLASes", options.RTCompactBLAS);
+				toggle("Refit Skinned BLASes", options.RTRefitSkinned);
+				toggle("Refit TLAS", options.RTUpdateTLAS);
+				ImGuiEx::EndPropertyGrid();
+				if (match("Diff RTGI") && ImGui::Button("Diff RTGI", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
+				{
+					options.EnablePathTracer = true;
+					options.PathTracerDiffHeatmap = true;
+					options.EnableRTGI = true;
+					options.EnableLightmaps = false;
+					options.EnableRealtimeGI = false;
+				}
+
+				ImGui::Separator();
+				ImGui::TextWrapped("Light Probes");
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				toggle("Realtime GI", options.EnableRealtimeGI);
+				if (match("GI Rays Per Probe"))
+					ImGuiEx::Property("GI Rays Per Probe", options.RealtimeGIRaysPerProbe, 8u, 128u);
+				if (match("Probe Spacing"))
+					ImGuiEx::Property("Probe Spacing", options.RealtimeGIProbeSpacing, 0.05f, 0.0f, 10.0f);
+				toggle("Adaptive Probe Placement", options.RealtimeGIAdaptiveProbes);
+				if (match("GI Bounces"))
+					ImGuiEx::Property("GI Bounces", options.RealtimeGIBounces, 1u, 4u);
+				ImGuiEx::EndPropertyGrid();
+				if (match("Diff Realtime GI") && ImGui::Button("Diff Realtime GI", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
+				{
+					options.EnablePathTracer = true;
+					options.PathTracerDiffHeatmap = true;
+					options.EnableRealtimeGI = true;
+					options.EnableLightmaps = false;
+				}
+
+				ImGui::Separator();
+				ImGui::TextWrapped("Lightmaps");
+				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
+				toggle("Use Lightmaps", options.EnableLightmaps);
+				ImGuiEx::EndPropertyGrid();
+				const bool baking = m_Context && m_Context->IsLightmapBaking();
+				if (match("Bake Lightmaps"))
+				{
+					ImGui::BeginDisabled(baking || !RHIDevice::SupportsRayQuery());
+					if (ImGui::Button("Bake Lightmaps", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
+						m_Context->StartLightmapBake();
+					ImGui::EndDisabled();
+					if (baking)
+						ImGui::ProgressBar(m_Context->GetLightmapBakeProgress(), ImVec2(-FLT_MIN, 0.0f));
+					else
+						ImGui::TextWrapped("%s", m_Context && m_Context->HasLightmap() ? "Lightmap loaded" : "No lightmap for this scene");
+				}
+				if (match("Diff Lightmap") && ImGui::Button("Diff Lightmap", ImVec2(-FLT_MIN, 0.0f)) && m_Context)
+				{
+					// The raster frame with the lightmap against the path-traced reference.
+					options.EnablePathTracer = true;
+					options.PathTracerDiffHeatmap = true;
+					options.EnableLightmaps = true;
+				}
+			}
+			EndSettingsCard();
+		}
+
 		// ---- Post FX -------------------------------------------------------------------------
 		if (CardHasMatch(queryLower, "Post FX", { "Bloom", "Bloom Resolution", "Bloom Threshold", "Bloom Knee", "Bloom Intensity", "Bloom Dirt Intensity", "Bloom Streaks", "Bloom Streak Length", "Bloom Streak Intensity", "Bloom Streak Rotation", "Bloom Halo Intensity", "Bloom Chromatic Spread", "DOF", "DOF Resolution", "DOF Focus Distance", "DOF Blur Size", "SSR Max Steps", "SSR Brightness", "SSR Depth Tolerance" }))
 		{
@@ -722,6 +967,30 @@ namespace Lux {
 					projectSettingsChanged |= owned(QualityCategory::Reflections, ImGuiEx::Property("SSR Brightness", ssr.Brightness, 0.01f, 0.0f, 5.0f));
 				if (match("SSR Depth Tolerance"))
 					projectSettingsChanged |= owned(QualityCategory::Reflections, ImGuiEx::Property("SSR Depth Tolerance", ssr.DepthTolerance, 0.01f, 0.0f, 5.0f));
+				ImGuiEx::EndPropertyGrid();
+			}
+			EndSettingsCard();
+		}
+
+		if (m_Scene && CardHasMatch(queryLower, "Height Fog", { "Enable Height Fog", "Density at Reference Height", "Reference Height", "Height Falloff", "Fog Start Distance", "Fog Max Distance", "Fog Colour" }))
+		{
+			if (BeginSettingsCard("card_height_fog", LUX_ICON_SUN_O, "Height Fog", m_CardHeightFog, searching))
+			{
+				auto& fog = m_Scene->GetPostProcessSettings().HeightFog;
+				ImGuiEx::BeginPropertyGrid();
+				toggle("Enable Height Fog", fog.Enabled);
+				if (match("Density at Reference Height"))
+					ImGuiEx::Property("Density at Reference Height", fog.Density, 0.001f, 0.0f, 10.0f);
+				if (match("Reference Height"))
+					ImGuiEx::Property("Reference Height", fog.ReferenceHeight, 0.1f, -10000.0f, 10000.0f);
+				if (match("Height Falloff"))
+					ImGuiEx::Property("Height Falloff", fog.HeightFalloff, 0.01f, 0.0f, 10.0f);
+				if (match("Fog Start Distance"))
+					ImGuiEx::Property("Fog Start Distance", fog.StartDistance, 0.1f, 0.0f, 10000.0f);
+				if (match("Fog Max Distance"))
+					ImGuiEx::Property("Fog Max Distance", fog.MaxDistance, 0.1f, 0.0f, 10000.0f);
+				if (match("Fog Colour"))
+					ImGuiEx::PropertyColor("Fog Colour", fog.Colour);
 				ImGuiEx::EndPropertyGrid();
 			}
 			EndSettingsCard();
@@ -832,6 +1101,7 @@ namespace Lux {
 		out << Yaml::Key << "ShadowsOpen" << Yaml::Value << m_CardShadows;
 		out << Yaml::Key << "PostFXOpen" << Yaml::Value << m_CardPostFX;
 		out << Yaml::Key << "ColorGradingOpen" << Yaml::Value << m_CardColorGrading;
+		out << Yaml::Key << "HeightFogOpen" << Yaml::Value << m_CardHeightFog;
 		out << Yaml::Key << "QualityCategoriesOpen" << Yaml::Value << m_QualityCategoriesOpen;
 	}
 
@@ -843,6 +1113,7 @@ namespace Lux {
 		m_CardShadows = state["ShadowsOpen"].as<bool>(m_CardShadows);
 		m_CardPostFX = state["PostFXOpen"].as<bool>(m_CardPostFX);
 		m_CardColorGrading = state["ColorGradingOpen"].as<bool>(m_CardColorGrading);
+		m_CardHeightFog = state["HeightFogOpen"].as<bool>(m_CardHeightFog);
 		m_QualityCategoriesOpen = state["QualityCategoriesOpen"].as<bool>(m_QualityCategoriesOpen);
 	}
 

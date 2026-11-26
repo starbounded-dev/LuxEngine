@@ -4,13 +4,16 @@
 #include "GoldenCapture.h"
 
 #include "Viewport/Viewport.h"
+#include "TextureLibrary.h"
 
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 #include "Lux/Core/Application.h"
+#include "Lux/Core/JobSystem.h"
 #include "Lux/Core/Version.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Editor/SceneHierarchyPanel.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Skeleton.h"
@@ -32,6 +35,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -94,9 +98,46 @@ namespace Lux {
 			{ "SoftShadows", &SceneRendererOptions::SoftShadows },
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
+			{ "PathTracer", &SceneRendererOptions::EnablePathTracer },
+			{ "PTRayReconstruction", &SceneRendererOptions::PathTracerReconstruction },
+			{ "PathTracerFurnace", &SceneRendererOptions::PathTracerUniformEnvironment },
+			{ "PathTracerDiff", &SceneRendererOptions::PathTracerDiffHeatmap },
+			{ "Lightmaps", &SceneRendererOptions::EnableLightmaps },
+			{ "RealtimeGI", &SceneRendererOptions::EnableRealtimeGI },
+			{ "RTGI", &SceneRendererOptions::EnableRTGI },
+			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
+			{ "RTReflections", &SceneRendererOptions::EnableRTReflections },
+			{ "RTReflEnv", &SceneRendererOptions::RTReflectionReplaceEnvironment },
+			{ "RTReflBudget", &SceneRendererOptions::RTReflectionAdaptiveBudget },
+			{ "RTReflDenoise", &SceneRendererOptions::RTReflectionDenoiser },
+			{ "RTShadows", &SceneRendererOptions::EnableRTShadows },
+			{ "RTTranslucentShadows", &SceneRendererOptions::EnableRTTranslucentShadows },
+			{ "RTCaustics", &SceneRendererOptions::EnableRTCaustics },
+			{ "RTAreaShadows", &SceneRendererOptions::EnableRTAreaLightShadows },
+			{ "RTContact", &SceneRendererOptions::EnableRTContactShadows },
+			{ "RTAO", &SceneRendererOptions::EnableRTAmbientOcclusion },
+			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
+			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
+			{ "RTTLASUpdate", &SceneRendererOptions::RTUpdateTLAS },
+			{ "RTGIDenoise", &SceneRendererOptions::RTGIDenoiser },
+			{ "RTGINRD", &SceneRendererOptions::RTGINRD },
+			{ "RTGIHalfResolution", &SceneRendererOptions::RTGIHalfResolution },
+			{ "PTPowerLights", &SceneRendererOptions::PathTracerPowerLightSampling },
+			{ "PTMIS", &SceneRendererOptions::PathTracerMIS },
+			{ "PTLobes", &SceneRendererOptions::PathTracerLobes },
+			{ "LMDenoise", &SceneRendererOptions::LightmapDenoise },
+			{ "LMUnwrapReport", &SceneRendererOptions::LightmapUnwrapReport },
+			{ "PTGlass", &SceneRendererOptions::PathTracerGlass },
+			{ "PTSSS", &SceneRendererOptions::PathTracerSubsurface },
+			{ "PTReSTIR", &SceneRendererOptions::PathTracerReSTIRDI },
+			{ "PTMeshLights", &SceneRendererOptions::PathTracerSampleEmissiveMeshes },
+			{ "PTSort", &SceneRendererOptions::PathTracerRaySort },
+			{ "PTSER", &SceneRendererOptions::PathTracerShaderExecutionReordering },
+			{ "GIProbeAdaptive", &SceneRendererOptions::RealtimeGIAdaptiveProbes },
+			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "RTGIFullResolutionAtFrame", "CameraSway", "CameraVisit", "TextureStreamingBudget", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch", "TexLibCached" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -194,6 +235,15 @@ namespace Lux {
 		m_Play = ParseBool(GetEnv("LUX_GOLDEN_PLAY"));
 		m_ExitWhenDone = GetEnv("LUX_GOLDEN_EXIT") != "0";
 		ParseOptions(GetEnv("LUX_GOLDEN_OPTIONS"));
+		// Source meshes must see the option before the capture project opens.
+		if (const auto it = m_Options.find("AutoUnwrap"); it != m_Options.end())
+			MeshSource::SetAutoUnwrapLightmapUVs(ParseBool(it->second));
+		if (const auto it = m_Options.find("BakeLightmaps"); it != m_Options.end())
+		{
+			uint32_t samples = 64;
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), samples);
+			m_LightmapBakeSamples = std::max(samples, 1u);
+		}
 		if (const auto it = m_Options.find("MoveEntities"); it != m_Options.end())
 			std::from_chars(it->second.data(), it->second.data() + it->second.size(), m_MoveEntityCount);
 		if (const auto it = m_Options.find("MoveStop"); it != m_Options.end())
@@ -244,6 +294,27 @@ namespace Lux {
 	{
 		SceneRendererOptions& options = renderer.GetOptions();
 
+		if (const auto it = m_Options.find("RTReflRays"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.RTReflectionRays);
+		if (const auto it = m_Options.find("GIProbeSpacing"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.RealtimeGIProbeSpacing);
+		if (const auto it = m_Options.find("PTDebug"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.PathTracerDebugView);
+		if (const auto it = m_Options.find("PTFurnaceL"); it != m_Options.end())
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), options.PathTracerFurnaceRadiance);
+
+		// PTFog=<density>:<radius>:<anisotropy>:<albedo>[:<centre x>:<y>:<z>]: the path tracer's global fog (radius 0 = unbounded).
+		if (const auto it = m_Options.find("PTFog"); it != m_Options.end())
+		{
+			float density = 0.0f, radius = 0.0f, anisotropy = 0.0f, albedo = 1.0f, cx = 0.0f, cy = 0.0f, cz = 0.0f;
+			std::sscanf(it->second.c_str(), "%f:%f:%f:%f:%f:%f:%f", &density, &radius, &anisotropy, &albedo, &cx, &cy, &cz);
+			options.PathTracerFogDensity = density;
+			options.PathTracerFogRadius = radius;
+			options.PathTracerFogAnisotropy = anisotropy;
+			options.PathTracerFogAlbedo = glm::vec3(albedo);
+			options.PathTracerFogCenter = glm::vec3(cx, cy, cz);
+		}
+
 		// Quality=0..4 (Low..Cinematic) puts every category at one tier through the call the quality
 		// menu makes. First, so the fixed settings and the other options still win over it.
 		if (const auto it = m_Options.find("Quality"); it != m_Options.end())
@@ -270,7 +341,25 @@ namespace Lux {
 					options.*option.Member = enabled;
 			}
 
-			if (name == "Bloom")
+			if (name == "DiffPeak")
+			{
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerDiffPeak);
+			}
+			else if (name == "RTGIHistory")
+				std::from_chars(value.data(), value.data() + value.size(), options.RTGIHistoryLength);
+			else if (name == "TextureStreamingBudget")
+				std::from_chars(value.data(), value.data() + value.size(), options.TextureStreamingBudgetMiB);
+			else if (name == "PTAdaptive")
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerAdaptiveThreshold);
+			else if (name == "PathTracerSamples")
+			{
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerTargetSamples);
+			}
+			else if (name == "PathTracerBounces")
+			{
+				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerMaxBounces);
+			}
+			else if (name == "Bloom")
 			{
 				renderer.GetBloomSettings().Enabled = enabled;
 			}
@@ -321,6 +410,18 @@ namespace Lux {
 					break;
 				}
 
+				if (const auto option = m_Options.find("AutoUnwrapAsset"); option != m_Options.end())
+				{
+					auto manager = Project::GetEditorAssetManager();
+					const AssetHandle handle = manager->GetOrImportAsset(option->second);
+					if (handle && manager->GetMetadata(handle).Status == AssetStatus::Loading)
+						break;
+					if (!manager->SetGenerateLightmapUVs(handle, true))
+					{
+						Finish(false, std::format("could not enable lightmap UV generation for '{}'", option->second));
+						break;
+					}
+				}
 				const std::filesystem::path absoluteScene = Project::GetActiveAssetDirectory() / m_ScenePath;
 				if (!m_Hooks.OpenScene(absoluteScene))
 				{
@@ -388,10 +489,134 @@ namespace Lux {
 
 		// Re-applied every frame: nothing the user does with the mouse may move the capture.
 		camera.SetActive(false);
-		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw);
+		// CameraSway=<amplitude radians>:<first frame>:<last frame>: sways the yaw through one full 40-frame sine period per 40 frames, so a
+		// stop frame that is a multiple of 40 after the start leaves the camera exactly at its authored pose (temporal-filter checks).
+		float swayYaw = 0.0f;
+		if (const auto it = m_Options.find("CameraSway"); it != m_Options.end())
+		{
+			float amplitude = 0.0f;
+			unsigned first = 0, last = 0;
+			if (std::sscanf(it->second.c_str(), "%f:%u:%u", &amplitude, &first, &last) == 3 && m_SceneFrames >= first && m_SceneFrames <= last)
+				swayYaw = amplitude * std::sin(static_cast<float>(m_SceneFrames - first) * 6.2831853f / 40.0f);
+		}
+		glm::vec3 focus = m_CameraPose.FocalPoint;
+		if (const auto it = m_Options.find("CameraVisit"); it != m_Options.end())
+		{
+			float translation = 0.0f;
+			unsigned first = 0, last = 0;
+			if (std::sscanf(it->second.c_str(), "%f:%u:%u", &translation, &first, &last) == 3 && m_SceneFrames >= first && m_SceneFrames < last)
+				focus.x += translation;
+		}
+		camera.SetOrbitState(focus, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
+		if (const auto it = m_Options.find("RTGIFullResolutionAtFrame"); it != m_Options.end())
+		{
+			uint32_t frame = 0;
+			const auto end = it->second.data() + it->second.size();
+			const auto parsed = std::from_chars(it->second.data(), end, frame);
+			if (parsed.ec == std::errc{} && parsed.ptr == end && m_SceneFrames >= frame)
+				renderer.GetOptions().RTGIHalfResolution = false;
+		}
 
+		if (m_LightmapBakeSamples > 0 && !m_LightmapBakeStarted && m_IdleFrames >= m_IdleFramesRequired && renderer.IsReady())
+		{
+			m_LightmapBakeStarted = renderer.StartLightmapBake(m_LightmapBakeSamples);
+			if (!m_LightmapBakeStarted)
+			{
+				Finish(false, "could not start the requested lightmap bake");
+				return;
+			}
+		}
 
+		// TexLibFetch and TexLibCached exercise material creation and reuse of the saved .lmats.
+		const bool textureCacheOnly = m_Options.contains("TexLibCached");
+		const auto textureTest = m_Options.find(textureCacheOnly ? "TexLibCached" : "TexLibFetch");
+		if (textureTest != m_Options.end() && !m_TextureFixture)
+		{
+			const size_t separator = textureTest->second.find(':');
+			auto fixture = Ref<TextureFixture>::Create();
+			fixture->IDs = { textureTest->second.substr(0, separator), separator == std::string::npos ? "" : textureTest->second.substr(separator + 1) };
+			if (!TextureLibrary::ValidId(fixture->IDs[0]) || !TextureLibrary::ValidId(fixture->IDs[1]) || !JobSystem::IsMultithreaded())
+			{
+				Finish(false, "texture fixture requires two asset IDs and the multithreaded editor");
+				return;
+			}
+			m_TextureFixture = fixture;
+			if (textureCacheOnly)
+				fixture->Done.store(true, std::memory_order_release);
+			else
+			{
+				JobSystem::Submit([fixture, assets = Project::GetActiveAssetDirectory()]() mutable {
+					for (size_t i = 0; i < fixture->IDs.size(); ++i)
+					{
+						std::vector<TextureLibrary::Entry> entries;
+						const bool listed = i ? TextureLibrary::ListAmbientCG(fixture->IDs[i], entries, fixture->Error)
+							: TextureLibrary::ListPolyHaven(entries, fixture->Error);
+						const auto entry = std::find_if(entries.begin(), entries.end(), [fixture, i](const auto& e) { return e.Id == fixture->IDs[i]; });
+						std::vector<uint8_t> preview;
+						int width = 0, height = 0, channels = 0;
+						if (!listed || entry == entries.end() || !TextureLibrary::HttpGet(entry->Thumbnail, preview, fixture->Error) ||
+							!stbi_info_from_memory(preview.data(), static_cast<int>(preview.size()), &width, &height, &channels))
+						{
+							fixture->Error = std::format("index or thumbnail unavailable for {} ({})", fixture->IDs[i], fixture->Error);
+							break;
+						}
+						LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] {} index: {} entries, decoded {}x{} preview", entry->Source, entries.size(), width, height);
+						TextureLibrary::MaterialRequest request;
+						std::copy(entry->Id.begin(), entry->Id.end(), request.Id.begin());
+						request.Resolution = i ? 1 : 2;
+						request.AmbientCG = i != 0;
+						fixture->Error.clear();
+						if (!TextureLibrary::FetchPack(assets, request, fixture->Error))
+							break;
+					}
+					fixture->Done.store(true, std::memory_order_release);
+				});
+			}
+		}
+		if (m_TextureFixture && !m_TextureFixtureApplied && m_TextureFixture->Done.load(std::memory_order_acquire))
+		{
+			if (!m_TextureFixture->Error.empty())
+			{
+				Finish(false, m_TextureFixture->Error);
+				return;
+			}
+			for (size_t i = 0; i < m_TextureFixture->IDs.size(); ++i)
+			{
+				const std::string& id = m_TextureFixture->IDs[i];
+				TextureLibrary::MaterialRequest request;
+				std::copy(id.begin(), id.end(), request.Id.begin());
+				request.Resolution = i ? 1 : 2;
+				request.AmbientCG = i != 0;
+				Entity target = scene.TryGetEntityWithTag(i ? "Back Wall" : "Floor");
+				const AssetHandle material = TextureLibrary::ImportPack(request);
+				if (!target || !target.HasComponent<StaticMeshComponent>() || !material ||
+					!SceneHierarchyPanel::ApplyMaterial(target.GetComponent<StaticMeshComponent>(), material, i ? std::optional<uint32_t>(0) : std::nullopt))
+				{
+					Finish(false, std::format("could not import or assign texture fixture {}", id));
+					return;
+				}
+				LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] {} {} {}K", textureCacheOnly ? "reopened" : "imported", id, request.Resolution);
+			}
+			m_TextureFixtureApplied = true;
+			m_IdleFrames = 0;
+		}
+
+		// PosePulse=<degrees>: every skeleton with a DebugBone bends it by degrees * sin(frame / 10) each frame, so skinned meshes change
+		// pose every frame (the BLAS refit check).
+		if (const auto it = m_Options.find("PosePulse"); it != m_Options.end())
+		{
+			float degrees = 0.0f;
+			std::from_chars(it->second.data(), it->second.data() + it->second.size(), degrees);
+			for (const entt::entity handle : scene.GetAllEntitiesWith<SkeletonComponent>())
+			{
+				auto& skeletonComponent = Entity{ handle, &scene }.GetComponent<SkeletonComponent>();
+				if (!skeletonComponent.DebugBone.empty())
+					skeletonComponent.DebugBendDegrees = degrees * std::sin(static_cast<float>(m_SceneFrames) * 0.1f);
+			}
+		}
+
+		// (PTFog is applied in ApplyOptions.)
 		// Select=<entity name>: selects that entity once, so its outline and selection draws are captured.
 		if (const auto it = m_Options.find("Select"); it != m_Options.end() && !m_Selected)
 		{
@@ -516,9 +741,23 @@ namespace Lux {
 				const bool streamingIdle = !assetManager || assetManager->GetPendingAsyncLoadCount() == 0;
 				m_IdleFrames = streamingIdle ? m_IdleFrames + 1 : 0;
 
+				const bool rendererReady = m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
+				bool lightmapReady = m_LightmapBakeSamples == 0;
+				if (m_LightmapBakeStarted && rendererReady && !renderer->IsLightmapBaking())
+				{
+					const std::string status = renderer->GetLightmapBakeStatus();
+					if (status != "done")
+					{
+						Finish(false, std::format("lightmap bake failed: {}", status));
+						break;
+					}
+					lightmapReady = true;
+				}
+
 				// With MoveEntities, capture only on a frame rendered at the loop's start (the original pose).
 				const bool atRestPose = m_MoveEntityCount == 0 || m_MovePhase == 0;
-				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && m_IdleFrames >= m_IdleFramesRequired && renderer && renderer->IsReady();
+				const bool textureReady = (!m_Options.contains("TexLibFetch") && !m_Options.contains("TexLibCached")) || m_TextureFixtureApplied;
+				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && rendererReady && lightmapReady && textureReady;
 				if (m_MoveEntityCount > 0 && m_MoveStopFrames > 0)
 				{
 					// MoveStop: stop on a rest-pose frame, then capture exactly MoveStop frames later.
@@ -547,7 +786,7 @@ namespace Lux {
 				}
 				else if (m_SceneFrames >= m_TimeoutFrames)
 				{
-					Finish(false, std::format("asset streaming never went idle within {} frames", m_TimeoutFrames));
+					Finish(false, std::format("the scene was not ready for capture within {} frames", m_TimeoutFrames));
 				}
 				break;
 			}
@@ -678,10 +917,17 @@ namespace Lux {
 		m_GPUSamples.push_back(stats.TotalGPUTime);
 		m_ClusterEntries = stats.ClusterPointIndicesRequested + stats.ClusterSpotIndicesRequested;
 		m_ClusterLightsDropped = std::max(m_ClusterLightsDropped, stats.ClusterPointLightsDropped + stats.ClusterSpotLightsDropped);
+		m_StreamedTextures = stats.StreamedTextures;
+		m_StreamingPromotions = stats.TextureStreamingPromotions;
+		m_StreamingEvictions = stats.TextureStreamingEvictions;
+		m_PeakFineTextureBytes = std::max(m_PeakFineTextureBytes, stats.TextureStreamingFineBytes);
+		m_VirtualPages = std::max(m_VirtualPages, stats.VirtualTexturePages);
+		m_VirtualPageUploads = stats.VirtualTexturePageUploads;
+		m_VirtualPageEvictions = stats.VirtualTexturePageEvictions;
 
 		for (const SceneRenderer::PassProfile& profile : stats.PassProfiles)
 		{
-			if (!profile.Active || !profile.Name)
+			if ((!profile.Active && !profile.GPUActive) || !profile.Name)
 				continue;
 
 			PassTiming& timing = m_PassTimings[profile.Name];
@@ -726,6 +972,10 @@ namespace Lux {
 		json += std::format("  \"warmupFrames\": {},\n", m_PerfWarmupDone);
 		json += std::format("  \"lostReadinessFrames\": {},\n", m_LostReadinessFrames);
 		json += std::format("  \"clusterLightEntries\": {},\n  \"clusterLightsDropped\": {},\n", m_ClusterEntries, m_ClusterLightsDropped);
+		json += std::format("  \"textureStreaming\": {{ \"textures\": {}, \"promotions\": {}, \"evictions\": {}, \"measuredFineBytes\": {}, "
+			"\"virtualPages\": {}, \"pageUploads\": {}, \"pageEvictions\": {} }},\n",
+			m_StreamedTextures, m_StreamingPromotions, m_StreamingEvictions, m_PeakFineTextureBytes,
+			m_VirtualPages, m_VirtualPageUploads, m_VirtualPageEvictions);
 		json += std::format("  \"complete\": {},\n", m_PerfSamples >= m_PerfFrames ? "true" : "false");
 		json += std::format("  \"frameStats\": {},\n", SummarizeSamples(m_FrameSamples));
 		json += std::format("  \"gpuStats\": {},\n", SummarizeSamples(m_GPUSamples));

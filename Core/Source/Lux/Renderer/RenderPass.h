@@ -35,6 +35,7 @@ namespace Lux {
 
 		void SetInput(std::string_view name, Ref<StorageBufferSet> storageBufferSet);
 		void SetInput(std::string_view name, Ref<StorageBuffer> storageBuffer);
+		void SetInput(std::string_view name, Ref<RHIAccelerationStructure> accelerationStructure);
 
 		void SetInput(std::string_view name, Ref<Texture2D> texture);
 		void SetInput(std::string_view name, Ref<Texture2D> texture, uint32_t arrayIndex);

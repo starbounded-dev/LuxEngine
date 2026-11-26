@@ -5,6 +5,7 @@
 #include "TextureSerializer.h"
 
 #include "Lux/Asset/AssetManager.h"
+#include "Lux/Asset/TextureImporter.h"
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/SceneEnvironment.h"
 #include "Lux/Serialization/TextureRuntimeSerializer.h"
@@ -77,7 +78,18 @@ namespace Lux
 			spec.FlipVertically = false;
 			spec.MaxAnisotropy = 16.0f;
 		}
-		Ref<Texture2D> texture = Texture2D::Create(spec, filepath);
+		Ref<Texture2D> texture;
+		if (metadata.Residency == TextureResidency::Resident)
+			texture = Texture2D::Create(spec, filepath);
+		else
+		{
+			spec.DebugName = filepath.filename().string();
+			Buffer source = TextureImporter::ToBufferFromFile(filepath, spec.Format, spec.Width, spec.Height, spec.FlipVertically);
+			if (!source)
+				return false;
+			texture = Texture2D::CreateStreamed(metadata.Residency, spec, source);
+			source.Release();
+		}
 		if (!texture || !texture->Loaded())
 			return false;
 

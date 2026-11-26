@@ -591,9 +591,10 @@ namespace Lux {
 	{
 		LUX_PROFILE_FUNCTION_AUTO;
 		LUX_CORE_ASSERT(desc.PipelineLayout && desc.Pipeline);
-		RT_SuspendNRIRendering("a compute dispatch");
+		RT_SuspendNRIRendering("a shader dispatch");
 
-		RT_BeginRequirements(RequiredBindPoint::Compute);
+		RT_BeginRequirements(desc.RayTracing ? RequiredBindPoint::RayTracing : RequiredBindPoint::Compute);
+		const nri::BindPoint bindPoint = desc.RayTracing ? nri::BindPoint::RAY_TRACING : nri::BindPoint::COMPUTE;
 		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
 			RT_RequireSet(setIndex, desc.DescriptorSets[setIndex]);
 
@@ -603,7 +604,7 @@ namespace Lux {
 			return nullptr;
 
 		const NRIInterface& api = RHIDevice::API();
-		api.CmdSetPipelineLayout(*commandBuffer, nri::BindPoint::COMPUTE, *desc.PipelineLayout);
+		api.CmdSetPipelineLayout(*commandBuffer, bindPoint, *desc.PipelineLayout);
 		api.CmdSetPipeline(*commandBuffer, *desc.Pipeline);
 		for (uint32_t setIndex = 0; setIndex < desc.DescriptorSets.size(); setIndex++)
 		{
@@ -613,7 +614,7 @@ namespace Lux {
 			nri::SetDescriptorSetDesc setDesc = {};
 			setDesc.setIndex = setIndex;
 			setDesc.descriptorSet = desc.DescriptorSets[setIndex].Set;
-			setDesc.bindPoint = nri::BindPoint::COMPUTE;
+			setDesc.bindPoint = bindPoint;
 			api.CmdSetDescriptorSet(*commandBuffer, setDesc);
 		}
 
@@ -623,7 +624,7 @@ namespace Lux {
 			rootConstants.rootConstantIndex = 0;
 			rootConstants.data = desc.RootConstants;
 			rootConstants.size = desc.RootConstantsSize;
-			rootConstants.bindPoint = nri::BindPoint::COMPUTE;
+			rootConstants.bindPoint = bindPoint;
 			api.CmdSetRootConstants(*commandBuffer, rootConstants);
 		}
 		return commandBuffer;

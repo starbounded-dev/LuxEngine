@@ -210,7 +210,13 @@ Invoke `.bat` / `.ps1` through the PowerShell tool, not Bash — MSYS mangles `.
 no-op build can still report success. Full details in `.claude/docs/Building.md`.
 
 If the change touches shaders, delete `Resources/Cache/Shader/` before testing; a stale cache looks
-exactly like a broken shader.
+exactly like a broken shader. Then run `python scripts/Update-ShaderPack.py` and commit
+`Editor/Resources/ShaderPack.lsp` and `.stamp`: CI's "Check the engine shader pack is current" fails
+the Release build until they match the shader sources (the `.githooks/pre-push` hook catches it first).
+
+Incremental builds go by file timestamps. If the system clock moved backwards the build can silently
+skip edited files: after a change that must be in the binary, prove it (a distinctive string in
+`Editor.exe`) and, if it is missing, delete the stale `bin-int` objects, `Core.lib` and `Editor.exe`.
 
 ---
 

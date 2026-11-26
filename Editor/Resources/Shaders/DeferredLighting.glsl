@@ -43,6 +43,8 @@ layout(set = 1, binding = 15) uniform utexture2D u_GBufferMaterialObjectID;
 // Resolved GTAO (the AO Composite pass), or white when GTAO is off.
 layout(set = 1, binding = 16) uniform texture2D u_AmbientOcclusion;
 layout(set = 1, binding = 17) uniform texture2D u_DepthTexture;
+// The ray-traced directional shadow mask (r: visibility), white while RTShadows is off.
+layout(set = 1, binding = 18) uniform texture2D u_RTShadowMask;
 
 layout(set = 3, binding = 5) uniform texture2D u_BRDFLUTTexture;
 
@@ -80,10 +82,18 @@ vec3 IBL(vec3 F0, vec3 Lr, float ao)
 
 // `normal` is the side of the surface the receiver bias offsets toward: the shading normal for
 // reflected light, the back face for transmitted light.
-float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 normal)
+vec3 CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 normal)
 {
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0)
-		return 0.0;
+		return vec3(0.0);
+
+	// Ray-traced shadows: the mask was traced for the shading normal (the translucency path passes its flipped one and keeps the cascades).
+	const bool frontFace = dot(normal, m_Params.Normal) > 0.999;
+	if ((u_RendererData.RTShadows & 1u) != 0u && frontFace)
+	{
+		vec3 rayTraced = texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).rgb;
+		return vec3(1.0) - clamp(vec3(u_Scene.DirectionalLights.ShadowAmount) - rayTraced, vec3(0.0), vec3(1.0));
+	}
 
 	uint cascadeIndex = 0;
 	for (uint i = 0; i < 3; i++)
@@ -156,7 +166,9 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 nor
 		shadowScale = u_RendererData.SoftShadows ? PCSS_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowCoords[cascadeIndex], u_RendererData.LightSize) : HardShadows_DirectionalLight(u_ShadowMapTexture, cascadeIndex, shadowCoords[cascadeIndex]);
 	}
 
-	return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0, 1.0);
+	if ((u_RendererData.RTShadows & 2u) != 0u && frontFace)
+		shadowScale = min(shadowScale, texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).r);
+	return vec3(1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0, 1.0));
 }
 
 // The directional light through a translucent surface. Its shadow is offset toward the light's side,
@@ -172,7 +184,8 @@ vec3 CalculateDirLightTransmission(vec3 worldPosition, vec3 viewPosition)
 		return vec3(0.0);
 
 	vec3 Lradiance = u_Scene.DirectionalLights.Radiance * u_Scene.DirectionalLights.Multiplier;
-	return LuxDiffuseTransmissionLobe(m_Params.Normal, Li) * Lradiance * CalculateDirectionalShadow(worldPosition, viewPosition, -m_Params.Normal);
+	return LuxDiffuseTransmissionLobe(m_Params.Normal, Li) * Lradiance *
+		DirectionalFogTransmittance(worldPosition, Li) * CalculateDirectionalShadow(worldPosition, viewPosition, -m_Params.Normal);
 }
 
 vec3 DebugGradient(float value)
@@ -242,8 +255,8 @@ void main()
 		m_Params.Albedo *= 1.0 - diffuseTransmission;
 	}
 
-	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition, m_Params.Normal);
-	vec3 directLighting = CalculateDirLights(F0) * shadowScale;
+	vec3 shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition, m_Params.Normal);
+	vec3 directLighting = CalculateDirLights(F0, worldPosition) * shadowScale;
 	if (diffuseTransmission > 0.0)
 		directLighting += CalculateDirLightTransmission(worldPosition, viewPosition);
 	directLighting += CalculatePointLightsShadowed(F0, worldPosition, u_SpotShadowTexture);
@@ -251,7 +264,9 @@ void main()
 
 	// Material AO and screen-space GTAO occlude the ambient/IBL term only (specular through specular
 	// occlusion inside the IBL evaluation). Direct light already has shadow-map visibility.
-	float screenSpaceAO = texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
+	float screenSpaceAO = (u_RendererData.RTShadows & 4u) != 0u
+		? texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).a
+		: texture(sampler2D(u_AmbientOcclusion, r_PointSampler), v_TexCoord).r;
 	float ambientOcclusion = max(gbuffer.AmbientOcclusion, 0.0) * screenSpaceAO;
 	vec3 iblLighting = LuxApplyLobesIBL(IBL(F0, Lr, ambientOcclusion), u_EnvRadianceTex, u_EnvIrradianceTex,
 		m_Params.Normal, m_Params.View, u_Scene.EnvironmentMapRotation, ambientOcclusion) * u_Scene.EnvironmentMapIntensity;

@@ -36,6 +36,9 @@ namespace Lux {
 				case ShaderStage::Compute:			return nri::StageBits::COMPUTE_SHADER;
 				case ShaderStage::Amplification:	return nri::StageBits::TASK_SHADER;
 				case ShaderStage::Mesh:				return nri::StageBits::MESH_SHADER;
+				case ShaderStage::RayGeneration:	return nri::StageBits::RAYGEN_SHADER;
+				case ShaderStage::Miss:				return nri::StageBits::MISS_SHADER;
+				case ShaderStage::ClosestHit:		return nri::StageBits::CLOSEST_HIT_SHADER;
 				default:							break;
 			}
 			LUX_CORE_ASSERT(false, "Unknown shader stage");
@@ -122,7 +125,12 @@ namespace Lux {
 		for (const auto& [binding, texture] : descriptorSet.SeparateTextures)
 			poolDesc.textureMaxNum += std::max(texture.ArraySize, 1u) * instanceCount;
 		for (const auto& [binding, sampler] : descriptorSet.SeparateSamplers)
-			poolDesc.samplerMaxNum += std::max(sampler.ArraySize, 1u) * instanceCount;
+		{
+			if (sampler.Dimension == ShaderResource::k_AccelerationStructureDimension)
+				poolDesc.accelerationStructureMaxNum += instanceCount;
+			else
+				poolDesc.samplerMaxNum += std::max(sampler.ArraySize, 1u) * instanceCount;
+		}
 		for (const auto& [binding, image] : descriptorSet.StorageImages)
 			poolDesc.storageTextureMaxNum += std::max(image.ArraySize, 1u) * instanceCount;
 		return poolDesc;
@@ -181,7 +189,7 @@ namespace Lux {
 				for (const auto& [binding, texture] : descriptorSet.SeparateTextures)
 					addRange(binding, nri::DescriptorType::TEXTURE, texture.ArraySize);
 				for (const auto& [binding, sampler] : descriptorSet.SeparateSamplers)
-					addRange(binding, nri::DescriptorType::SAMPLER, sampler.ArraySize);
+					addRange(binding, sampler.Dimension == ShaderResource::k_AccelerationStructureDimension ? nri::DescriptorType::ACCELERATION_STRUCTURE : nri::DescriptorType::SAMPLER, sampler.ArraySize);
 				for (const auto& [binding, image] : descriptorSet.StorageImages)
 					addRange(binding, nri::DescriptorType::STORAGE_TEXTURE, image.ArraySize);
 				for (const auto& [binding, imageSampler] : descriptorSet.ImageSamplers)
@@ -324,8 +332,9 @@ namespace Lux {
 				declare(texture.Name, binding, dimensionInputType(texture.Dimension, RenderInputType::ImageSampler1D, RenderInputType::ImageSampler2D, RenderInputType::ImageSampler3D, RenderInputType::ImageSampler3DVolume), texture.ArraySize);
 			for (auto& [binding, sampler] : shaderDescriptorSet.SeparateSamplers)
 			{
-				// Separate samplers are reflected with dimension 0.
-				const RenderInputType type = sampler.Dimension == 0 ? RenderInputType::ImageSampler
+				// Separate samplers are reflected with dimension 0; acceleration structures with the marker.
+				const RenderInputType type = sampler.Dimension == ShaderResource::k_AccelerationStructureDimension ? RenderInputType::AccelerationStructure
+					: sampler.Dimension == 0 ? RenderInputType::ImageSampler
 					: dimensionInputType(sampler.Dimension, RenderInputType::ImageSampler1D, RenderInputType::ImageSampler2D, RenderInputType::ImageSampler3D, RenderInputType::ImageSampler3DVolume);
 				declare(sampler.Name, binding, type, sampler.ArraySize);
 			}

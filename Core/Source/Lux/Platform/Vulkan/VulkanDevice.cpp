@@ -50,6 +50,7 @@ freely, subject to the following restrictions:
 #include "VulkanDevice.h"
 
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
+#include "Lux/Renderer/RayTracing/RayReconstruction.h"
 
 #include <GLFW/glfw3.h>
 
@@ -108,6 +109,8 @@ namespace Lux {
 		{
 			optionalExtensions.instance.insert(name);
 		}
+		for (const auto& name : RayReconstruction::RequiredInstanceExtensions())
+			optionalExtensions.instance.insert(name);
 
 		// add layers requested by the user
 		for (const std::string& name : m_DeviceParams.requiredVulkanLayers)
@@ -451,8 +454,8 @@ namespace Lux {
 
 		// NRI treats VK_KHR_ray_tracing_pipeline and VK_KHR_ray_tracing_maintenance1 as a pair: with
 		// the pipeline extension it loads vkCmdTraceRaysIndirect2KHR, and it cannot wrap the device
-		// when that is missing. Lux uses no ray-tracing pipelines, so a device without maintenance1
-		// goes without the pipeline extension rather than failing to start.
+		// when that is missing. Keep the ordinary ray-query path available on devices that lack
+		// maintenance1 by omitting the pipeline extension needed for optional SER.
 		if (enabledExtensions.device.count(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) && !enabledExtensions.device.count(VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME))
 		{
 			enabledExtensions.device.erase(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
@@ -460,6 +463,9 @@ namespace Lux {
 		}
 
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
+		if (m_DeviceParams.enableRayTracingExtensions)
+			RayReconstruction::EnableDeviceExtensions(m_VulkanPhysicalDevice, deviceExtensions,
+				enabledExtensions.instance, enabledExtensions.device);
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
 		// The GPU identity that the shader-pack stamp sidecar records (ShaderPack.h § stamp): which
 		// vendor/driver compiled the SPIR-V inside a pack. Captured here, on the one getProperties()
@@ -525,6 +531,14 @@ namespace Lux {
 		// NRI's pipeline-statistics query pools count task and mesh invocations when the device can.
 		auto supportedMeshShader = vk::PhysicalDeviceMeshShaderFeaturesEXT();
 		auto supportedRayTracingMaintenance1 = vk::PhysicalDeviceRayTracingMaintenance1FeaturesKHR();
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		auto reorderFeatures = vk::PhysicalDeviceRayTracingInvocationReorderFeaturesEXT();
+		const bool reorderExtension = rayPipelineSupported && rayQuerySupported &&
+			std::any_of(deviceExtensions.begin(), deviceExtensions.end(), [](const vk::ExtensionProperties& ext)
+			{
+				return std::string_view(ext.extensionName.data()) == VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME;
+			});
+#endif
 
 		// Put the user-provided extension structure at the end of the chain
 		pNext = m_DeviceParams.physicalDeviceFeatures2Extensions;
@@ -537,9 +551,26 @@ namespace Lux {
 		APPEND_EXTENSION(!vulkan14 && maintenance6Supported, maintenance6Features);
 		APPEND_EXTENSION(meshletsSupported, supportedMeshShader);
 		APPEND_EXTENSION(rayTracingMaintenance1Supported, supportedRayTracingMaintenance1);
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		APPEND_EXTENSION(reorderExtension, reorderFeatures);
+#endif
 
 		physicalDeviceFeatures2.pNext = pNext;
 		m_VulkanPhysicalDevice.getFeatures2(&physicalDeviceFeatures2);
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		bool enableReordering = false;
+		if (reorderExtension && reorderFeatures.rayTracingInvocationReorder)
+		{
+			vk::PhysicalDeviceRayTracingInvocationReorderPropertiesEXT reorderProperties;
+			vk::PhysicalDeviceProperties2 properties;
+			properties.pNext = &reorderProperties;
+			m_VulkanPhysicalDevice.getProperties2(&properties);
+			enableReordering = reorderProperties.rayTracingInvocationReorderReorderingHint ==
+				vk::RayTracingInvocationReorderModeEXT::eReorder;
+			if (enableReordering)
+				enabledExtensions.device.insert(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
+		}
+#endif
 
 		std::unordered_set<int> uniqueQueueFamilies = {
 			m_QueueFamilyIndices.Graphics };
@@ -598,6 +629,9 @@ namespace Lux {
 			APPEND_EXTENSION(rayPipelineSupported, rayPipelineFeatures)
 			APPEND_EXTENSION(rayTracingMaintenance1Supported, rayTracingMaintenance1Features)
 			APPEND_EXTENSION(rayQuerySupported, rayQueryFeatures)
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+			APPEND_EXTENSION(enableReordering, reorderFeatures)
+#endif
 			APPEND_EXTENSION(meshletsSupported, meshletFeatures)
 			APPEND_EXTENSION(vrsSupported, vrsFeatures)
 			APPEND_EXTENSION(physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3, vulkan13features)
@@ -620,6 +654,7 @@ namespace Lux {
 			.setFillModeNonSolid(true)
 			// Shadow pancaking uses depth-clamped pipelines; NRI cannot enable this for our wrapped device.
 			.setDepthClamp(physicalDeviceFeatures2.features.depthClamp)
+			.setFragmentStoresAndAtomics(physicalDeviceFeatures2.features.fragmentStoresAndAtomics)
 			.setWideLines(true)
 			.setPipelineStatisticsQuery(true);
 

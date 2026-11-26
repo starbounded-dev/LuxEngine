@@ -33,7 +33,8 @@ namespace Lux {
 		Activated = BIT(14),
 		CreateVariant = BIT(15),
 		CreateSound = BIT(16),
-		ExtractSkeleton = BIT(17)
+		ExtractSkeleton = BIT(17),
+		ToggleLightmapUVs = BIT(18)
 	};
 
 	struct CBItemActionResult

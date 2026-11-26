@@ -1,0 +1,1360 @@
+#ifndef LUX_PATH_TRACE_COMMON_GLSLH
+#define LUX_PATH_TRACE_COMMON_GLSLH
+
+#include <FogVolume.glslh>
+
+// Shared by PathTrace.glsl (editor path tracer) and PathTraceBake.glsl (lightmap baker): the scene
+// bindings, the BRDF (PBR.glslh terms), ray queries, next-event estimation and the path loop.
+// Needs GL_EXT_ray_query and GL_EXT_nonuniform_qualifier. Material rows: set 2 binding 7, bindless textures: set 4. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights, 74 environment cube, 75 its sampler.
+
+#include <RayInstanceData.glslh>
+layout(std430, set = 1, binding = 64) readonly buffer RTLights { vec4 Lights[]; };       // 4 vec4 per light followed by alias entries
+
+layout(push_constant) uniform PathTracePush
+{
+	uvec4 SizeFrameBounces; // width, height, frame index (samples already accumulated), max bounces
+	uvec4 Counts;           // light count, flags (bit 0: uniform-environment debug), 0, 0
+	vec4 SkyRadiance;       // rgb sky (upper hemisphere), a unused
+	vec4 GroundRadiance;    // rgb ground (lower hemisphere)
+	vec4 Medium;            // global fog: x density (1/m, 0 = off), y Henyey-Greenstein anisotropy g, z sphere radius (0 = unbounded)
+	vec4 MediumAlbedo;      // rgb single-scattering albedo of the fog
+	vec4 MediumCenter;      // xyz centre of the fog sphere
+} u_Push;
+
+// Mirrors GPUMaterial in MaterialScene.glslh / MaterialScene.h: the engine's material rows, so the path tracer shades with
+// the same colours and textures as the raster renderer (GIL1). Keep the three in step.
+struct GPUMaterial
+{
+	vec4 BaseColor;
+	vec4 Scalars;        // x = metalness, y = roughness, z = emission, w = material complexity
+	uvec4 TextureIndices; // x = albedo, y = normal, z = metalness, w = roughness
+	uvec4 Metadata;       // x = flags, y = alpha mode, z = RenderMaterialID, w = floatBits(env map rotation)
+	vec4 Emissive;        // rgb = linear emissive radiance, w = occlusion strength
+	vec4 Surface;
+	vec4 UVTransform;     // 2x2 matrix columns (xy, zw)
+	vec4 UVOffset;        // xy = offset
+	uvec4 ExtraTextureIndices; // x = emissive, y = occlusion, z = height, w = packed-map channel selects
+	vec4 Transmission;
+	uvec4 TransmissionTextureIndices;
+	vec4 Refraction;
+	vec4 AttenuationColor;
+	vec4 Lobes;
+	vec4 Sheen;
+	vec4 Subsurface;
+	uvec4 DetailTextureIndices;
+	vec4 Detail;
+	vec4 GraphParameters[8];
+};
+
+layout(std430, set = 2, binding = 7) readonly buffer GPUMaterials
+{
+	GPUMaterial Materials[];
+} r_GPUMaterials;
+layout(set = 4, binding = 0) uniform texture2D u_GPUMaterialTextures[];
+#include <VirtualTexture.glslh>
+layout(set = 1, binding = 76) uniform sampler u_PTMaterialSampler;
+
+const uint PT_NO_MATERIAL = 0xffffffffu;
+const uint PT_TEXTURE_INVALID = 0xffffffffu;
+const uint PT_MATERIAL_FLAG_VALID = 1u << 0u;
+const uint PT_MATERIAL_FLAG_MISSING = 1u << 1u;
+const uint PT_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE = 1u << 6u;
+const uint PT_MATERIAL_FLAG_HAS_METALNESS_TEXTURE = 1u << 8u;
+const uint PT_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE = 1u << 9u;
+const uint PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE = 1u << 12u;
+const uint PT_MATERIAL_FLAG_HAS_CLEARCOAT = 1u << 16u;
+const uint PT_MATERIAL_FLAG_HAS_SHEEN = 1u << 17u;
+const uint PT_MATERIAL_FLAG_HAS_SUBSURFACE = 1u << 18u;
+const uint PT_MATERIAL_FLAG_HAS_ANISOTROPY = 1u << 19u;
+const uint PT_MATERIAL_FLAG_TRANSPARENT = 1u << 2u;
+
+// Ray cone (Akenine-Moller et al.): the width of the ray's footprint grows with distance and with each bounce, and picks
+// the texture mip so tiled and distant textures neither alias nor smear. Each shader sets g_InitialConeAngle (the camera's
+// pixel angle for primary rays) before TracePath.
+float g_ConeWidth = 0.0;
+float g_ConeAngle = 0.002;
+float g_InitialConeAngle = 0.002;
+
+// Set by PathTrace.glsl when ReSTIR DI supplies the first hit's direct light (and then BSDF-sampled light hits from that hit are not counted).
+bool g_UseExternalDirect = false;
+vec3 g_ExternalDirect = vec3(0.0);
+
+// uvFootprint: the ray cone's width at the hit expressed in uv units (width / cos * uv-per-world).
+vec4 PTSampleMaterialTexture(uint index, vec2 uv, float uvFootprint)
+{
+	if (LuxIsVirtualTexture(index))
+	{
+		const vec4 header = LuxVirtualTextureHeader(index, u_PTMaterialSampler);
+		const float lod = log2(max(uvFootprint * max(header.x, header.y), 1.0));
+		return LuxSampleVirtualTexture(index, header, uv, lod, u_PTMaterialSampler);
+	}
+	const vec2 size = vec2(textureSize(sampler2D(u_GPUMaterialTextures[nonuniformEXT(index)], u_PTMaterialSampler), 0));
+	const float lod = clamp(log2(max(uvFootprint * max(size.x, size.y), 1e-6)), 0.0, 14.0);
+	return textureLod(sampler2D(u_GPUMaterialTextures[nonuniformEXT(index)], u_PTMaterialSampler), uv, lod);
+}
+
+// Where a material's maps are sampled (MaterialMapping.glslh): UV0, or triplanar in world (1) or object (2) space.
+vec4 PTSampleMapped(uint index, uint mode, vec2 uv, vec2 uvX, vec2 uvY, vec2 uvZ, vec3 weights, float footprint)
+{
+	if (mode == 0u)
+		return PTSampleMaterialTexture(index, uv, footprint);
+	return PTSampleMaterialTexture(index, uvX, footprint) * weights.x
+		+ PTSampleMaterialTexture(index, uvY, footprint) * weights.y
+		+ PTSampleMaterialTexture(index, uvZ, footprint) * weights.z;
+}
+
+
+const float PI = 3.14159265359;
+const float MIN_ALPHA = 0.0064;
+const uint FLAG_UNIFORM_ENV = 1u;
+const uint FLAG_LOBES = 16u; // clearcoat, sheen and anisotropy of the material rows
+const uint FLAG_GLASS = 32u; // transparent materials with transmission refract (smooth dielectric)
+const uint FLAG_SSS = 64u;   // subsurface materials scatter light through the object (random walk)
+const float PT_SSS_MEAN_FREE_PATH = 0.05; // metres between scattering events inside a subsurface object
+
+// ---- random -----------------------------------------------------------------------------------
+uint g_Rng;
+uint PCG(uint v)
+{
+	uint state = v * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+float Rand()
+{
+	g_Rng = PCG(g_Rng);
+	return float(g_Rng >> 8) * (1.0 / 16777216.0);
+}
+
+// ---- BRDF (PBR.glslh) -------------------------------------------------------------------------
+float DistributionGGX(float NdotH, float alpha)
+{
+	float a2 = alpha * alpha;
+	float d = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+	return a2 / (PI * d * d);
+}
+float VisibilitySmith(float NdotV, float NdotL, float alpha)
+{
+	float a2 = alpha * alpha;
+	float lv = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2);
+	float ll = NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
+	return 0.5 / max(lv + ll, 1e-7);
+}
+vec3 DiffuseFrostbite(vec3 albedo, float roughness, float NdotV, float NdotL, float LdotH)
+{
+	float energyBias = mix(0.0, 0.5, roughness);
+	float energyFactor = mix(1.0, 1.0 / 1.51, roughness);
+	float fd90 = energyBias + 2.0 * LdotH * LdotH * roughness;
+	float lightScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotL, 5.0);
+	float viewScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotV, 5.0);
+	return albedo * (lightScatter * viewScatter * energyFactor / PI);
+}
+
+const uint PT_LOBE_CLEARCOAT = 1u;
+const uint PT_LOBE_SHEEN = 2u;
+const uint PT_LOBE_ANISOTROPY = 8u;
+const float PT_SHEEN_ALBEDO = 0.2; // PBR.glslh LUX_SHEEN_ALBEDO
+
+struct Surface
+{
+	vec3 P;
+	vec3 N;       // shading normal, facing the viewer
+	vec3 Albedo;
+	float Metal;
+	float Rough;
+	vec3 Emission;
+	uint MeshLight;
+	float MeshLightFootprint; // triangle area times triangle count and the cosine at an emitter hit
+	vec3 F0;
+	bool FrontFace; // the ray arrived at the outside of the surface (before the normal was turned toward it)
+	uint Lobes;     // PT_LOBE_* of the material row (0 for plain materials, which take the original code path everywhere)
+	float Coat;
+	float CoatRough;
+	vec3 SheenColor;
+	float SheenRough;
+	float Aniso;
+	vec3 T;         // anisotropy tangent / bitangent
+	vec3 B;
+	bool Glass;     // a smooth dielectric (transparent row with transmission)
+	float Transmission;
+	float IOR;
+	vec3 GlassSigma; // absorption coefficient inside the glass (Beer-Lambert), 1 / metre
+	bool SSS;        // a subsurface material (row Subsurface): part of its diffuse light random-walks through the object
+	float SSSThickness;
+	vec3 SSSColor;
+};
+
+// Anisotropic GGX, Charlie sheen and Neubelt visibility: PBR.glslh, so the path tracer and the raster renderer agree.
+float DistributionGGXAnisotropic(float at, float ab, float ToH, float BoH, float NoH)
+{
+	float a2 = at * ab;
+	vec3 v = vec3(ab * ToH, at * BoH, a2 * NoH);
+	float w2 = a2 / max(dot(v, v), 1e-7);
+	return a2 * w2 * w2 / PI;
+}
+float VisibilityGGXAnisotropic(float at, float ab, float ToV, float BoV, float ToL, float BoL, float NoV, float NoL)
+{
+	float lambdaV = NoL * length(vec3(at * ToV, ab * BoV, NoV));
+	float lambdaL = NoV * length(vec3(at * ToL, ab * BoL, NoL));
+	return 0.5 / max(lambdaV + lambdaL, 1e-7);
+}
+float DistributionCharlie(float roughness, float NoH)
+{
+	float invAlpha = 1.0 / max(roughness * roughness, 1e-3);
+	float sin2h = max(1.0 - NoH * NoH, 0.0078125);
+	return (2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5) / (2.0 * PI);
+}
+float VisibilityNeubelt(float NoV, float NoL)
+{
+	return 1.0 / max(4.0 * (NoL + NoV - NoL * NoV), 1e-4);
+}
+
+// BRDF * cos(theta_l) for light direction L, view V.
+vec3 EvalBRDF(Surface s, vec3 V, vec3 L)
+{
+	float NdotL = dot(s.N, L);
+	if (NdotL <= 0.0)
+		return vec3(0.0);
+	vec3 H = normalize(L + V);
+	float NdotV = max(dot(s.N, V), 1e-4);
+	float NdotH = max(dot(s.N, H), 0.0);
+	float VdotH = max(dot(V, H), 0.0);
+	float LdotH = max(dot(L, H), 0.0);
+	float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
+	vec3 F = s.F0 + (1.0 - s.F0) * pow(1.0 - VdotH, 5.0);
+	vec3 spec;
+	if ((s.Lobes & PT_LOBE_ANISOTROPY) != 0u)
+	{
+		float at = max(alpha * (1.0 + s.Aniso), MIN_ALPHA);
+		float ab = max(alpha * (1.0 - s.Aniso), MIN_ALPHA);
+		spec = F * (DistributionGGXAnisotropic(at, ab, dot(s.T, H), dot(s.B, H), NdotH)
+			* VisibilityGGXAnisotropic(at, ab, dot(s.T, V), dot(s.B, V), dot(s.T, L), dot(s.B, L), NdotV, NdotL));
+	}
+	else
+		spec = F * (DistributionGGX(NdotH, alpha) * VisibilitySmith(NdotV, NdotL, alpha));
+	vec3 diffuseColor = s.Albedo * (1.0 - s.Metal);
+	vec3 diff = DiffuseFrostbite(diffuseColor, s.Rough, NdotV, NdotL, LdotH) * (vec3(1.0) - F);
+	vec3 result = (diff + spec) * NdotL;
+	if (s.Lobes == 0u)
+		return result;
+
+	if ((s.Lobes & PT_LOBE_SHEEN) != 0u)
+	{
+		float sheen = DistributionCharlie(s.SheenRough, NdotH) * VisibilityNeubelt(NdotV, NdotL);
+		result = result * (1.0 - max(s.SheenColor.r, max(s.SheenColor.g, s.SheenColor.b)) * PT_SHEEN_ALBEDO) + s.SheenColor * (sheen * NdotL);
+	}
+	if ((s.Lobes & PT_LOBE_CLEARCOAT) != 0u)
+	{
+		// A dielectric layer (F0 4%) on top that takes its Fresnel share from everything under it [Kelemen; Filament].
+		float coatAlpha = max(s.CoatRough * s.CoatRough, MIN_ALPHA);
+		float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * s.Coat;
+		float coat = DistributionGGX(NdotH, coatAlpha) * (0.25 / max(VdotH * VdotH, 1e-4)) * Fc;
+		result = result * (1.0 - Fc) + vec3(min(coat, 10.0) * NdotL);
+	}
+	return result;
+}
+
+float SpecProbability(Surface s)
+{
+	return clamp(0.05 + dot(s.F0, vec3(0.3333)) + (1.0 - s.Rough) * 0.25, 0.05, 0.95);
+}
+
+// Sampling mixture of a lobed surface: clearcoat GGX (probability pCoat), base GGX, cosine diffuse. Plain surfaces keep the
+// original two-way mixture (and its random number use) exactly.
+float CoatProbability(Surface s)
+{
+	return (s.Lobes & PT_LOBE_CLEARCOAT) != 0u ? 0.25 * s.Coat : 0.0;
+}
+float SpecSamplingAlpha(Surface s)
+{
+	float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
+	// Anisotropic highlights are wider than the isotropic proposal unless it uses the larger of the two alphas.
+	return (s.Lobes & PT_LOBE_ANISOTROPY) != 0u ? alpha * (1.0 + abs(s.Aniso)) : alpha;
+}
+
+// pdf (solid angle) of sampling L: mixture of cosine diffuse, GGX NDF sampling and (for a clearcoat) coat GGX sampling.
+float BSDFPdf(Surface s, vec3 V, vec3 L)
+{
+	float NdotL = dot(s.N, L);
+	if (NdotL <= 0.0)
+		return 0.0;
+	vec3 H = normalize(L + V);
+	float NdotH = max(dot(s.N, H), 0.0);
+	float VdotH = max(dot(V, H), 1e-4);
+	float pdfDiff = NdotL / PI;
+	if (s.Lobes == 0u)
+	{
+		float alpha = max(s.Rough * s.Rough, MIN_ALPHA);
+		float pSpec = SpecProbability(s);
+		float pdfSpec = DistributionGGX(NdotH, alpha) * NdotH / (4.0 * VdotH);
+		return (1.0 - pSpec) * pdfDiff + pSpec * pdfSpec;
+	}
+	float pCoat = CoatProbability(s);
+	float pSpec = SpecProbability(s) * (1.0 - pCoat);
+	float pdfSpec = DistributionGGX(NdotH, SpecSamplingAlpha(s)) * NdotH / (4.0 * VdotH);
+	float pdf = (1.0 - pCoat - pSpec) * pdfDiff + pSpec * pdfSpec;
+	if (pCoat > 0.0)
+		pdf += pCoat * DistributionGGX(NdotH, max(s.CoatRough * s.CoatRough, MIN_ALPHA)) * NdotH / (4.0 * VdotH);
+	return pdf;
+}
+
+void Basis(vec3 n, out vec3 t, out vec3 b)
+{
+	vec3 up = abs(n.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+	t = normalize(cross(up, n));
+	b = cross(n, t);
+}
+
+vec3 SampleGGXReflection(Surface s, vec3 V, float alpha, vec3 t, vec3 b)
+{
+	float u1 = Rand(), u2 = Rand();
+	float cosT = sqrt((1.0 - u1) / (1.0 + (alpha * alpha - 1.0) * u1));
+	float sinT = sqrt(max(1.0 - cosT * cosT, 0.0));
+	float phi = 2.0 * PI * u2;
+	vec3 H = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + s.N * cosT);
+	return reflect(-V, H);
+}
+
+vec3 SampleCosine(Surface s, vec3 t, vec3 b)
+{
+	float u1 = Rand(), u2 = Rand();
+	float r = sqrt(u1);
+	float phi = 2.0 * PI * u2;
+	return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + s.N * sqrt(max(1.0 - u1, 0.0)));
+}
+
+bool SampleBSDF(Surface s, vec3 V, out vec3 L)
+{
+	vec3 t, b;
+	Basis(s.N, t, b);
+	if (s.Lobes == 0u)
+	{
+		if (Rand() < SpecProbability(s))
+			L = SampleGGXReflection(s, V, max(s.Rough * s.Rough, MIN_ALPHA), t, b);
+		else
+			L = SampleCosine(s, t, b);
+		return dot(L, s.N) > 0.0;
+	}
+	float pCoat = CoatProbability(s);
+	float pSpec = SpecProbability(s) * (1.0 - pCoat);
+	float choice = Rand();
+	if (choice < pCoat)
+		L = SampleGGXReflection(s, V, max(s.CoatRough * s.CoatRough, MIN_ALPHA), t, b);
+	else if (choice < pCoat + pSpec)
+		L = SampleGGXReflection(s, V, SpecSamplingAlpha(s), t, b);
+	else
+		L = SampleCosine(s, t, b);
+	return dot(L, s.N) > 0.0;
+}
+
+// ---- scene queries ----------------------------------------------------------------------------
+// Per-path counters for the debug views: rays traced (closest-hit and shadow) and surfaces scattered at.
+uint g_RayCount = 0u;
+uint g_BounceCount = 0u;
+
+#ifdef LUX_PATH_TRACE_SER
+#include <PathTraceHitPayload.glslh>
+layout(location = 0) rayPayloadEXT PathTraceHitPayload g_Hit;
+#endif
+
+bool Occluded(vec3 o, vec3 d, float tMax)
+{
+	g_RayCount++;
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, tMax);
+	while (rayQueryProceedEXT(q)) {}
+	return rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+vec3 RTWorldPoint(RTInstance instance, vec3 objectPoint)
+{
+	vec4 point = vec4(objectPoint, 1.0);
+	return vec3(dot(instance.WorldRow0, point), dot(instance.WorldRow1, point), dot(instance.WorldRow2, point));
+}
+
+uint FirstMeshLight()
+{
+	const uint count = u_Push.Counts.x;
+	return count == 0u ? 0u : floatBitsToUint(Lights[4u * count].z);
+}
+
+bool TraceClosest(vec3 o, vec3 d, out Surface s)
+{
+	g_RayCount++;
+#ifdef LUX_PATH_TRACE_SER
+	traceRayEXT(u_RTScene, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, o, 1e-4, d, 1.0e30, 0);
+	if (g_RayCount == 1u)
+	{
+		// The SDK reflector can read the hint-only instruction. It cannot parse hit-object types.
+		const uint hint = g_Hit.Instance == 0xffffffffu ? 0x100u : Instances[g_Hit.Instance].Info.z & 0xffu;
+		reorderThreadEXT(hint, 9u);
+	}
+	if (g_Hit.Instance == 0xffffffffu)
+		return false;
+	const float t = g_Hit.Distance;
+	const uint instanceIndex = g_Hit.Instance;
+	const uint prim = g_Hit.Primitive;
+	const vec2 bary = g_Hit.Barycentric;
+#else
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, 1.0e30);
+	while (rayQueryProceedEXT(q)) {}
+	if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT)
+		return false;
+
+	const float t = rayQueryGetIntersectionTEXT(q, true);
+	const uint instanceIndex = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(q, true));
+	const uint prim = uint(rayQueryGetIntersectionPrimitiveIndexEXT(q, true));
+	const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(q, true);
+#endif
+	const vec3 w = vec3(1.0 - bary.x - bary.y, bary.x, bary.y);
+
+	RTInstance inst = Instances[instanceIndex];
+	uint i0 = inst.Info.x + Indices[inst.Info.y + prim * 3u + 0u];
+	uint i1 = inst.Info.x + Indices[inst.Info.y + prim * 3u + 1u];
+	uint i2 = inst.Info.x + Indices[inst.Info.y + prim * 3u + 2u];
+	vec3 nObj = normalize(Vertices[2u * i0 + 1u].xyz * w.x + Vertices[2u * i1 + 1u].xyz * w.y + Vertices[2u * i2 + 1u].xyz * w.z);
+	vec3 n = normalize(vec3(dot(inst.NormalRow0.xyz, nObj), dot(inst.NormalRow1.xyz, nObj), dot(inst.NormalRow2.xyz, nObj)));
+	// Face the ray: the surface is shaded from the side the ray arrives on.
+	s.FrontFace = dot(n, d) <= 0.0;
+	if (dot(n, d) > 0.0)
+		n = -n;
+
+	s.P = o + d * t;
+	s.N = n;
+	s.Albedo = inst.AlbedoMetal.rgb;
+	s.Metal = inst.AlbedoMetal.a;
+	s.Rough = clamp(inst.EmissionRough.a, 0.04, 1.0);
+	s.Emission = inst.EmissionRough.rgb;
+	s.MeshLight = 0xffffffffu;
+	s.MeshLightFootprint = 0.0;
+	const uint firstMeshLight = inst.Info.w == 0xffffffffu ? u_Push.Counts.x : FirstMeshLight();
+	if (inst.Info.w < u_Push.Counts.x - firstMeshLight)
+	{
+		s.MeshLight = firstMeshLight + inst.Info.w;
+		const uint triangleCount = floatBitsToUint(Lights[4u * s.MeshLight + 2u].y);
+		const vec3 p0 = RTWorldPoint(inst, Vertices[2u * i0].xyz);
+		const vec3 p1 = RTWorldPoint(inst, Vertices[2u * i1].xyz);
+		const vec3 p2 = RTWorldPoint(inst, Vertices[2u * i2].xyz);
+		s.MeshLightFootprint = 0.5 * float(triangleCount) * abs(dot(cross(p1 - p0, p2 - p0), d));
+	}
+	s.Lobes = 0u;
+	s.Coat = 0.0;
+	s.CoatRough = 0.1;
+	s.SheenColor = vec3(0.0);
+	s.SheenRough = 0.5;
+	s.Aniso = 0.0;
+	s.T = vec3(1.0, 0.0, 0.0);
+	s.B = vec3(0.0, 0.0, 1.0);
+	s.Glass = false;
+	s.Transmission = 0.0;
+	s.IOR = 1.5;
+	s.GlassSigma = vec3(0.0);
+	s.SSS = false;
+	s.SSSThickness = 1.0;
+	s.SSSColor = vec3(0.0);
+
+	// The engine's material row, with its textures, when the instance has one (the vertex w components hold uv).
+	const uint materialId = inst.Info.z;
+	if (materialId != PT_NO_MATERIAL && materialId < uint(r_GPUMaterials.Materials.length()))
+	{
+		GPUMaterial m = r_GPUMaterials.Materials[materialId];
+		const uint flags = m.Metadata.x;
+		if ((flags & PT_MATERIAL_FLAG_VALID) != 0u && (flags & PT_MATERIAL_FLAG_MISSING) == 0u)
+		{
+			vec2 uv = vec2(Vertices[2u * i0].w, Vertices[2u * i0 + 1u].w) * w.x + vec2(Vertices[2u * i1].w, Vertices[2u * i1 + 1u].w) * w.y + vec2(Vertices[2u * i2].w, Vertices[2u * i2 + 1u].w) * w.z;
+			const mat2 uvMatrix = mat2(m.UVTransform.xy, m.UVTransform.zw);
+			uv = uvMatrix * uv + m.UVOffset.xy;
+
+			// uv units per world unit from this triangle, and the cone width at the hit.
+			vec2 uv0 = uvMatrix * vec2(Vertices[2u * i0].w, Vertices[2u * i0 + 1u].w);
+			vec2 uv1 = uvMatrix * vec2(Vertices[2u * i1].w, Vertices[2u * i1 + 1u].w);
+			vec2 uv2 = uvMatrix * vec2(Vertices[2u * i2].w, Vertices[2u * i2 + 1u].w);
+			vec3 p0 = RTWorldPoint(inst, Vertices[2u * i0].xyz);
+			vec3 p1 = RTWorldPoint(inst, Vertices[2u * i1].xyz);
+			vec3 p2 = RTWorldPoint(inst, Vertices[2u * i2].xyz);
+			float uvArea = 0.5 * abs((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y));
+			float worldArea = 0.5 * length(cross(p1 - p0, p2 - p0));
+			float uvPerWorld = worldArea > 1e-10 ? sqrt(uvArea / worldArea) : 0.0;
+			// Triplanar mapping: project the world (or object) position instead of using the mesh uv.
+			const uint mapping = m.DetailTextureIndices.w;
+			vec2 uvX = uv, uvY = uv, uvZ = uv;
+			vec3 triWeights = vec3(1.0, 0.0, 0.0);
+			if (mapping != 0u)
+			{
+				vec3 position = s.P;
+				vec3 mapNormal = n;
+				if (mapping == 2u)
+				{
+					position = Vertices[2u * i0].xyz * w.x + Vertices[2u * i1].xyz * w.y + Vertices[2u * i2].xyz * w.z;
+					mapNormal = nObj;
+				}
+				mapNormal = normalize(mapNormal);
+				vec3 axisSign = vec3(mapNormal.x < 0.0 ? -1.0 : 1.0, mapNormal.y < 0.0 ? -1.0 : 1.0, mapNormal.z < 0.0 ? -1.0 : 1.0);
+				vec3 weightsRaw = pow(abs(mapNormal), vec3(max(m.Detail.w, 1.0)));
+				triWeights = weightsRaw / max(weightsRaw.x + weightsRaw.y + weightsRaw.z, 1e-5);
+				uvX = uvMatrix * vec2(position.z * axisSign.x, position.y) + m.UVOffset.xy;
+				uvY = uvMatrix * vec2(position.x * axisSign.y, position.z) + m.UVOffset.xy;
+				uvZ = uvMatrix * vec2(-position.x * axisSign.z, position.y) + m.UVOffset.xy;
+				uvPerWorld = sqrt(abs(uvMatrix[0][0] * uvMatrix[1][1] - uvMatrix[0][1] * uvMatrix[1][0]));
+			}
+			float coneWidth = g_ConeWidth + g_ConeAngle * t;
+			float footprint = coneWidth / max(abs(dot(n, d)), 0.1) * uvPerWorld;
+			const float lod = footprint;
+			const uint selects = m.ExtraTextureIndices.w;
+			vec3 base = clamp(m.BaseColor.rgb, vec3(0.0), vec3(128.0));
+			if ((flags & PT_MATERIAL_FLAG_HAS_ALBEDO_TEXTURE) != 0u && m.TextureIndices.x != PT_TEXTURE_INVALID)
+				base *= PTSampleMapped(m.TextureIndices.x, mapping, uv, uvX, uvY, uvZ, triWeights, lod).rgb;
+			float metal = clamp(m.Scalars.x, 0.0, 1.0);
+			if ((flags & PT_MATERIAL_FLAG_HAS_METALNESS_TEXTURE) != 0u && m.TextureIndices.z != PT_TEXTURE_INVALID)
+				metal *= PTSampleMapped(m.TextureIndices.z, mapping, uv, uvX, uvY, uvZ, triWeights, lod)[(selects >> 0u) & 3u];
+			float rough = clamp(m.Scalars.y, 0.0, 1.0);
+			if ((flags & PT_MATERIAL_FLAG_HAS_ROUGHNESS_TEXTURE) != 0u && m.TextureIndices.w != PT_TEXTURE_INVALID)
+				rough *= PTSampleMapped(m.TextureIndices.w, mapping, uv, uvX, uvY, uvZ, triWeights, lod)[(selects >> 2u) & 3u];
+			vec3 emission = max(m.Emissive.rgb, vec3(0.0));
+			if ((flags & PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE) != 0u && m.ExtraTextureIndices.x != PT_TEXTURE_INVALID)
+				emission *= PTSampleMapped(m.ExtraTextureIndices.x, mapping, uv, uvX, uvY, uvZ, triWeights, lod).rgb;
+			s.Albedo = base;
+			s.Metal = clamp(metal, 0.0, 1.0);
+			s.Rough = clamp(rough, 0.05, 1.0);
+			s.Emission = emission;
+				if ((u_Push.Counts.y & FLAG_GLASS) != 0u && (flags & PT_MATERIAL_FLAG_TRANSPARENT) != 0u && m.Refraction.x > 0.0)
+				{
+					s.Glass = true;
+					s.Transmission = clamp(m.Refraction.x, 0.0, 1.0);
+					s.IOR = max(m.Refraction.y, 1.0);
+					s.GlassSigma = m.Refraction.w > 0.0 ? -log(max(m.AttenuationColor.rgb, vec3(1e-4))) / m.Refraction.w : vec3(0.0);
+				}
+				if ((u_Push.Counts.y & FLAG_SSS) != 0u && (flags & PT_MATERIAL_FLAG_HAS_SUBSURFACE) != 0u)
+				{
+					s.SSS = true;
+					s.SSSColor = clamp(m.Subsurface.rgb, vec3(0.0), vec3(0.999));
+					s.SSSThickness = clamp(m.Subsurface.w, 0.0, 1.0);
+					s.Albedo *= s.SSSThickness; // the rest of the diffuse light goes through the object instead of bouncing off it
+				}
+				if ((u_Push.Counts.y & FLAG_LOBES) != 0u)
+				{
+					if ((flags & PT_MATERIAL_FLAG_HAS_CLEARCOAT) != 0u)
+					{
+						s.Lobes |= PT_LOBE_CLEARCOAT;
+						s.Coat = m.Lobes.x;
+						s.CoatRough = m.Lobes.y;
+					}
+					if ((flags & PT_MATERIAL_FLAG_HAS_SHEEN) != 0u)
+					{
+						s.Lobes |= PT_LOBE_SHEEN;
+						s.SheenColor = m.Sheen.rgb;
+						s.SheenRough = m.Sheen.w;
+					}
+					if ((flags & PT_MATERIAL_FLAG_HAS_ANISOTROPY) != 0u)
+					{
+						// The surface tangent along increasing u, from the triangle's position and uv deltas, turned by the material's rotation.
+						vec3 e1 = p1 - p0, e2 = p2 - p0;
+						vec2 d1 = uv1 - uv0, d2 = uv2 - uv0;
+						float det = d1.x * d2.y - d2.x * d1.y;
+						vec3 tangent = abs(det) > 1e-12 ? (e1 * d2.y - e2 * d1.y) / det : e1;
+						tangent -= n * dot(n, tangent);
+						if (dot(tangent, tangent) < 1e-12)
+						{
+							vec3 unused;
+							Basis(n, tangent, unused);
+						}
+						tangent = normalize(tangent);
+						vec3 bitangent = cross(n, tangent);
+						s.T = cos(m.Lobes.w) * tangent + sin(m.Lobes.w) * bitangent;
+						s.B = cross(n, s.T);
+						s.Lobes |= PT_LOBE_ANISOTROPY;
+						s.Aniso = m.Lobes.z;
+					}
+				}
+		}
+	}
+	s.F0 = mix(vec3(0.04), s.Albedo, s.Metal);
+	return true;
+}
+
+// Distance to the first surface along a ray, and whether it was hit from behind (the origin is inside geometry).
+bool TraceDistance(vec3 o, vec3 d, float tMax, out float t, out bool backface)
+{
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, u_RTScene, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-4, d, tMax);
+	while (rayQueryProceedEXT(q)) {}
+	if (rayQueryGetIntersectionTypeEXT(q, true) != gl_RayQueryCommittedIntersectionTriangleEXT)
+	{
+		t = tMax;
+		backface = false;
+		return false;
+	}
+	t = rayQueryGetIntersectionTEXT(q, true);
+	backface = !rayQueryGetIntersectionFrontFaceEXT(q, true);
+	return true;
+}
+
+layout(set = 1, binding = 74) uniform textureCube u_PTEnvironment;
+layout(set = 1, binding = 75) uniform sampler u_PTEnvironmentSampler;
+const uint FLAG_RESTIR_DI = 8u; // the path tracer takes its first-hit direct light from the ReSTIR DI image
+const uint FLAG_MIS = 4u;     // weight next-event estimation against BSDF-sampled hits of the analytic area lights
+const uint FLAG_ENV_MAP = 2u; // sample u_PTEnvironment (the scene's radiance map) instead of the sky/ground colours
+
+vec3 PTRotateAboutY(float degrees, vec3 v)
+{
+	float a = radians(degrees);
+	return mat3(vec3(cos(a), 0.0, sin(a)), vec3(0.0, 1.0, 0.0), vec3(-sin(a), 0.0, cos(a))) * v;
+}
+
+// Radiance escaping along d: the scene environment map (SkyRadiance.a = its intensity, GroundRadiance.a = its
+// rotation about +Y in degrees) when FLAG_ENV_MAP is set, otherwise a sky/ground gradient.
+vec3 Environment(vec3 d)
+{
+	if ((u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
+		return u_Push.SkyRadiance.rgb;
+	if ((u_Push.Counts.y & FLAG_ENV_MAP) != 0u)
+		return textureLod(samplerCube(u_PTEnvironment, u_PTEnvironmentSampler), PTRotateAboutY(u_Push.GroundRadiance.a, d), 0.0).rgb * u_Push.SkyRadiance.a;
+	return mix(u_Push.GroundRadiance.rgb, u_Push.SkyRadiance.rgb, clamp(0.5 + 0.5 * d.y, 0.0, 1.0));
+}
+
+// ---- participating media -------------------------------------------------------------------------
+// The global fog is one homogeneous medium, optionally limited to a sphere. While a ray travels inside glass or a subsurface
+// object (g_InObject) the fog does not apply.
+bool g_InObject = false;
+
+// Where the ray (o, d) is inside the fog sphere, clipped to [0, tMax].
+bool FogInterval(vec3 o, vec3 d, float tMax, out float t0, out float t1)
+{
+	if (u_Push.Medium.x <= 0.0 || g_InObject)
+		return false;
+	return LuxFogInterval(o, d, tMax, u_Push.MediumCenter.xyz, u_Push.Medium.z, t0, t1);
+}
+
+// Transmittance of the fog along (o, d) up to distance t.
+vec3 FogTransmittance(vec3 o, vec3 d, float t)
+{
+	float t0, t1;
+	if (!FogInterval(o, d, t, t0, t1))
+		return vec3(1.0);
+	return exp(-vec3(u_Push.Medium.x) * (t1 - t0));
+}
+
+// Fog between a point and a light at distance dist along L. A directional light (dist ~ infinite) only crosses fog that is limited to a sphere:
+// an unbounded fog would extinguish it completely, so the sun skips it.
+vec3 FogToLight(vec3 P, vec3 L, float dist)
+{
+	return g_InObject ? vec3(1.0) : vec3(LuxFogToLight(P, L, dist, u_Push.Medium.x, u_Push.MediumCenter.xyz, u_Push.Medium.z));
+}
+
+float PhaseHG(float cosTheta, float g)
+{
+	const float denom = 1.0 + g * g - 2.0 * g * cosTheta;
+	return (1.0 - g * g) / (4.0 * PI * denom * sqrt(max(denom, 1e-6)));
+}
+
+// A direction scattered from a ray travelling along d, distributed by the Henyey-Greenstein phase function.
+vec3 SamplePhaseHG(vec3 d, float g)
+{
+	const float u1 = Rand(), u2 = Rand();
+	float cosTheta = 1.0 - 2.0 * u1;
+	if (abs(g) > 1e-3)
+	{
+		const float sq = (1.0 - g * g) / (1.0 - g + 2.0 * g * u1);
+		cosTheta = (1.0 + g * g - sq * sq) / (2.0 * g);
+	}
+	const float sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
+	const float phi = 2.0 * PI * u2;
+	vec3 t, b;
+	Basis(d, t, b);
+	return normalize(t * (sinTheta * cos(phi)) + b * (sinTheta * sin(phi)) + d * cosTheta);
+}
+
+// The original probability of choosing this light, independent of its alias-table column.
+float LightPmf(uint index)
+{
+	return Lights[4u * index + 3u].w;
+}
+
+// The integer part selects an alias column and the fractional part selects one of its two lights.
+uint ChooseLight(float u)
+{
+	const uint count = u_Push.Counts.x;
+	const float columnSample = u * float(count);
+	const uint column = min(uint(columnSample), count - 1u);
+	const vec2 alias = Lights[4u * count + column].xy;
+	return fract(columnSample) < alias.x ? column : floatBitsToUint(alias.y);
+}
+
+vec3 MeshEmitterRadiance(RTInstance instance, uvec3 triangle, vec3 bary, vec3 worldPoint, vec3 direction)
+{
+	if (instance.Info.z >= uint(r_GPUMaterials.Materials.length()))
+		return instance.EmissionRough.rgb;
+	const GPUMaterial material = r_GPUMaterials.Materials[instance.Info.z];
+	const uint flags = material.Metadata.x;
+	if ((flags & PT_MATERIAL_FLAG_VALID) == 0u || (flags & PT_MATERIAL_FLAG_MISSING) != 0u)
+		return instance.EmissionRough.rgb;
+
+	const vec3 emission = max(material.Emissive.rgb, vec3(0.0));
+	const uint map = material.ExtraTextureIndices.x;
+	if ((flags & PT_MATERIAL_FLAG_HAS_EMISSIVE_TEXTURE) == 0u || map == PT_TEXTURE_INVALID)
+		return emission;
+
+	const mat2 transform = mat2(material.UVTransform.xy, material.UVTransform.zw);
+	const vec2 offset = material.UVOffset.xy;
+	const uint mode = material.DetailTextureIndices.w;
+	if (mode == 0u)
+	{
+		const vec2 uv = vec2(Vertices[2u * triangle.x].w, Vertices[2u * triangle.x + 1u].w) * bary.x
+			+ vec2(Vertices[2u * triangle.y].w, Vertices[2u * triangle.y + 1u].w) * bary.y
+			+ vec2(Vertices[2u * triangle.z].w, Vertices[2u * triangle.z + 1u].w) * bary.z;
+		return emission * PTSampleMaterialTexture(map, transform * uv + offset, 0.0).rgb;
+	}
+
+	vec3 normal = normalize(Vertices[2u * triangle.x + 1u].xyz * bary.x
+		+ Vertices[2u * triangle.y + 1u].xyz * bary.y + Vertices[2u * triangle.z + 1u].xyz * bary.z);
+	vec3 position = worldPoint;
+	if (mode == 2u)
+		position = Vertices[2u * triangle.x].xyz * bary.x + Vertices[2u * triangle.y].xyz * bary.y + Vertices[2u * triangle.z].xyz * bary.z;
+	else
+	{
+		normal = normalize(vec3(dot(instance.NormalRow0.xyz, normal), dot(instance.NormalRow1.xyz, normal), dot(instance.NormalRow2.xyz, normal)));
+		if (dot(normal, direction) > 0.0)
+			normal = -normal;
+	}
+	const vec3 axisSign = mix(vec3(1.0), vec3(-1.0), lessThan(normal, vec3(0.0)));
+	const vec3 rawWeights = pow(abs(normal), vec3(max(material.Detail.w, 1.0)));
+	const vec3 weights = rawWeights / max(dot(rawWeights, vec3(1.0)), 1e-5);
+	const vec2 uvX = transform * vec2(position.z * axisSign.x, position.y) + offset;
+	const vec2 uvY = transform * vec2(position.x * axisSign.y, position.z) + offset;
+	const vec2 uvZ = transform * vec2(-position.x * axisSign.z, position.y) + offset;
+	return emission * PTSampleMapped(map, mode, uvX, uvX, uvY, uvZ, weights, 0.0).rgb;
+}
+
+// One sample of light `index` seen from P, placed by u1, u2 (so the same numbers rebuild the same point from another surface:
+// ReSTIR). Returns false when the light cannot reach P. radiance has the area / distance^2 / emitter cosine folded in, so the
+// contribution of the sample is EvalBRDF * radiance / (probability of choosing the sample). solidFactor is, for area lights,
+// d^2 / (area * cosLight): the solid-angle pdf of the sample is pmf * solidFactor (0 for point / spot / directional lights).
+bool SampleLight(uint index, float u1, float u2, vec3 P, vec3 N, out vec3 L, out float dist, out vec3 radiance, out float solidFactor)
+{
+	const vec4 a = Lights[4u * index + 0u];
+	const vec4 b = Lights[4u * index + 1u];
+	const vec4 c = Lights[4u * index + 2u];
+	const vec4 dd = Lights[4u * index + 3u];
+	const int type = int(a.w + 0.5);
+
+	L = vec3(0.0, 1.0, 0.0);
+	dist = 1.0e30;
+	radiance = vec3(0.0);
+	solidFactor = 0.0;
+	if (type == 0) // directional: a.xyz toward the light, b.rgb radiance * intensity
+	{
+		L = normalize(a.xyz);
+		radiance = b.rgb;
+	}
+	else if (type == 7)
+	{
+		const RTInstance instance = Instances[floatBitsToUint(c.x)];
+		const uint count = floatBitsToUint(c.y);
+		const float triangleSample = u1 * float(count);
+		const uint firstIndex = instance.Info.y + 3u * min(uint(triangleSample), count - 1u);
+		const uvec3 triangle = instance.Info.xxx + uvec3(Indices[firstIndex], Indices[firstIndex + 1u], Indices[firstIndex + 2u]);
+		const vec3 p0 = RTWorldPoint(instance, Vertices[2u * triangle.x].xyz);
+		const vec3 p1 = RTWorldPoint(instance, Vertices[2u * triangle.y].xyz);
+		const vec3 p2 = RTWorldPoint(instance, Vertices[2u * triangle.z].xyz);
+		const float root = sqrt(fract(triangleSample));
+		const vec3 bary = vec3(1.0 - root, root * (1.0 - u2), root * u2);
+		const vec3 p = p0 * bary.x + p1 * bary.y + p2 * bary.z;
+		const vec3 toLight = p - P;
+		const float distanceSquared = max(dot(toLight, toLight), 1e-6);
+		dist = sqrt(distanceSquared);
+		L = toLight / dist;
+		const float footprint = 0.5 * float(count) * abs(dot(cross(p1 - p0, p2 - p0), L));
+		if (footprint <= 1e-10)
+			return false;
+		solidFactor = distanceSquared / footprint;
+		radiance = MeshEmitterRadiance(instance, triangle, bary, p, L) / solidFactor;
+	}
+	else if (type >= 3) // area lights: 3 rect, 4 disk, 5 sphere, 6 tube. Centre a.xyz, half vectors c.xyz / dd.xyz
+	{
+		vec3 p;
+		vec3 emitNormal;
+		float area;
+		if (type == 5) // sphere: radius |c|, uniform on the surface, emits outward
+		{
+			float radius = length(c.xyz);
+			float z = 1.0 - 2.0 * u1;
+			float phi = 2.0 * PI * u2;
+			float rr = sqrt(max(1.0 - z * z, 0.0));
+			emitNormal = vec3(rr * cos(phi), rr * sin(phi), z);
+			p = a.xyz + emitNormal * radius;
+			area = 4.0 * PI * radius * radius;
+		}
+		else if (type == 6) // tube: axis half-vector c, radius |dd|, uniform on the side surface
+		{
+			vec3 axis = c.xyz;
+			float halfLength = length(axis);
+			vec3 e1, e2;
+			Basis(axis / max(halfLength, 1e-6), e1, e2);
+			float phi = 2.0 * PI * u1;
+			emitNormal = cos(phi) * e1 + sin(phi) * e2;
+			p = a.xyz + (2.0 * u2 - 1.0) * axis + emitNormal * length(dd.xyz);
+			area = 2.0 * PI * length(dd.xyz) * 2.0 * halfLength;
+		}
+		else // rect (3) and disk (4): span c x dd, emit along -normalize(cross(c, dd))
+		{
+			vec3 areaCross = cross(c.xyz, dd.xyz);
+			float areaLen = length(areaCross);
+			emitNormal = -areaCross / max(areaLen, 1e-8);
+			if (type == 4)
+			{
+				float r = sqrt(u1);
+				float phi = 2.0 * PI * u2;
+				p = a.xyz + r * (cos(phi) * c.xyz + sin(phi) * dd.xyz);
+				area = PI * areaLen;
+			}
+			else
+			{
+				p = a.xyz + (2.0 * u1 - 1.0) * c.xyz + (2.0 * u2 - 1.0) * dd.xyz;
+				area = 4.0 * areaLen;
+			}
+		}
+		vec3 toLight = p - P;
+		float d2 = max(dot(toLight, toLight), 1e-6);
+		dist = sqrt(d2);
+		L = toLight / dist;
+		float cosLight = max(dot(emitNormal, -L), 0.0);
+		radiance = b.rgb * (cosLight * area / d2);
+		solidFactor = d2 / (area * max(cosLight, 1e-6));
+	}
+	else // point (1) / spot (2): a.xyz position, b.rgb radiance * intensity, b.a range
+	{
+		vec3 toLight = a.xyz - P;
+		float d2 = max(dot(toLight, toLight), 0.01);
+		dist = sqrt(d2);
+		L = toLight / dist;
+		float ratio = d2 / max(b.a * b.a, 1e-4);
+		float window = clamp(1.0 - ratio * ratio, 0.0, 1.0);
+		float atten = (window * window) / d2;
+		if (type == 2) // spot: c.xyz direction, c.w cos(half angle)
+		{
+			float cs = dot(-L, normalize(c.xyz));
+			atten *= clamp((cs - c.w) / max(1.0 - c.w, 1e-3), 0.0, 1.0);
+		}
+		radiance = b.rgb * atten;
+	}
+	// N == 0 means no surface (a point in a medium): every direction is open.
+	return (dot(N, L) > 0.0 || dot(N, N) == 0.0) && max(radiance.r, max(radiance.g, radiance.b)) > 0.0;
+}
+
+// What a shadow ray lets through: 0 when an opaque surface blocks it, otherwise the colour of the glass it crosses (white when it is
+// free). With glass enabled the ray walks through up to 6 glass surfaces, applying the Beer-Lambert tint for the path it spent inside
+// (the front face starts the run, the back face ends it). Without glass it is the cheap any-hit test.
+vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax, bool blockRefractiveGlass)
+{
+	if ((u_Push.Counts.y & FLAG_GLASS) == 0u)
+		return Occluded(o, d, tMax) ? vec3(0.0) : vec3(1.0);
+	vec3 visibility = vec3(1.0);
+	float travelled = 0.0;
+	float enteredAt = 0.0;
+	for (int crossing = 0; crossing < 6; crossing++)
+	{
+		Surface s;
+		if (!TraceClosest(o, d, s))
+			return visibility;
+		const float t = distance(o, s.P);
+		if (t >= tMax - 1e-3)
+			return visibility;
+		if (!s.Glass || (blockRefractiveGlass && s.IOR > 1.001))
+			return vec3(0.0);
+		if (s.FrontFace)
+			enteredAt = travelled + t;
+		else
+			visibility *= exp(-s.GlassSigma * max(travelled + t - enteredAt, 0.0));
+		const float f0 = pow((s.IOR - 1.0) / (s.IOR + 1.0), 2.0);
+		visibility *= s.Transmission * (1.0 - f0);
+		travelled += t + 1e-3;
+		tMax -= t + 1e-3;
+		o = s.P + d * 1e-3;
+	}
+	return vec3(0.0);
+}
+
+vec3 ShadowTransmittance(vec3 o, vec3 d, float tMax)
+{
+	return ShadowTransmittance(o, d, tMax, false);
+}
+
+vec3 ShadowTransmittanceToLight(vec3 position, vec3 normal, vec3 direction, float distanceToLight)
+{
+	const vec3 offset = normal * 1e-3;
+	if (distanceToLight >= 1.0e29)
+		return ShadowTransmittance(position + offset, direction, distanceToLight);
+
+	// Keep the ray endpoint at the sampled light position after the receiver bias. An offset
+	// along the old direction could cross an emitter at a grazing angle before the ray ends.
+	const vec3 segment = direction * distanceToLight - offset;
+	const float rayLength = length(segment);
+	if (rayLength <= 2e-3)
+		return vec3(1.0);
+	return ShadowTransmittance(position + offset, segment / rayLength, rayLength - 2e-3);
+}
+
+// Direct light from one light chosen by the alias table. Returns radiance * BRDF * cos / pdf.
+vec3 DirectLight(Surface s, vec3 V, bool lastBounce)
+{
+	const uint lightCount = u_Push.Counts.x;
+	if (lightCount == 0u || (u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
+		return vec3(0.0);
+
+	const uint index = ChooseLight(Rand());
+	const float lightPmf = LightPmf(index);
+	const float u1 = Rand(), u2 = Rand();
+	vec3 L;
+	float dist, solidFactor;
+	vec3 radiance;
+	if (!SampleLight(index, u1, u2, s.P, s.N, L, dist, radiance, solidFactor))
+		return vec3(0.0);
+	const vec3 shadow = ShadowTransmittanceToLight(s.P, s.N, L, dist);
+	if (max(shadow.r, max(shadow.g, shadow.b)) <= 0.0)
+		return vec3(0.0);
+
+	// Power heuristic against the BSDF sampling the same direction (the last bounce never traces its BSDF ray, so it keeps full weight).
+	float misWeight = 1.0;
+	const float lightPdfSolid = lightPmf * solidFactor;
+	if ((u_Push.Counts.y & FLAG_MIS) != 0u && !lastBounce && lightPdfSolid > 0.0)
+	{
+		const float pb = BSDFPdf(s, V, L);
+		misWeight = lightPdfSolid * lightPdfSolid / (lightPdfSolid * lightPdfSolid + pb * pb);
+	}
+	// Fog between the surface and the light (not for the directional light, whose distance is infinite).
+	const vec3 fogTransmittance = FogToLight(s.P, L, dist);
+	return EvalBRDF(s, V, L) * radiance * (fogTransmittance * shadow * (misWeight / lightPmf));
+}
+
+// Next-event estimation at a point inside a medium: one light chosen by the alias table, the phase function instead of a BRDF, MIS against
+// phase sampling, transmittance of the fog to the light (not applied to directional lights, whose distance is infinite).
+vec3 MediumDirectLight(vec3 P, vec3 dir, float g)
+{
+	if (u_Push.Counts.x == 0u || (u_Push.Counts.y & FLAG_UNIFORM_ENV) != 0u)
+		return vec3(0.0);
+	const uint index = ChooseLight(Rand());
+	const float lightPmf = LightPmf(index);
+	const float u1 = Rand(), u2 = Rand();
+	vec3 L;
+	float dist, solidFactor;
+	vec3 radiance;
+	if (!SampleLight(index, u1, u2, P, vec3(0.0), L, dist, radiance, solidFactor))
+		return vec3(0.0);
+	const vec3 shadow = ShadowTransmittance(P, L, dist - 2e-3);
+	if (max(shadow.r, max(shadow.g, shadow.b)) <= 0.0)
+		return vec3(0.0);
+	const float phase = PhaseHG(dot(L, dir), g);
+	const vec3 transmittance = FogToLight(P, L, dist);
+	float misWeight = 1.0;
+	const float lightPdfSolid = lightPmf * solidFactor;
+	if ((u_Push.Counts.y & FLAG_MIS) != 0u && lightPdfSolid > 0.0)
+		misWeight = lightPdfSolid * lightPdfSolid / (lightPdfSolid * lightPdfSolid + phase * phase);
+	return radiance * transmittance * shadow * (phase * misWeight / lightPmf);
+}
+
+// Emission of the analytic area lights along a ray that left a surface (bounce >= 1), weighted against next-event estimation at
+// that surface: the BSDF-sampling half of MIS. Lights are packed last (rect/disk/sphere/tube), so the scan stops at the first
+// non-area light. Only the emitting side counts, as in DirectLight. tMax is the distance to the first surface.
+vec3 AreaLightEmission(vec3 o, vec3 d, float tMax, float bsdfPdf)
+{
+	vec3 sum = vec3(0.0);
+	for (uint i = FirstMeshLight(); i > 0u; i--)
+	{
+		const uint index = i - 1u;
+		const vec4 a = Lights[4u * index + 0u];
+		const int type = int(a.w + 0.5);
+		if (type < 3)
+			break;
+		const vec4 b = Lights[4u * index + 1u];
+		const vec4 c = Lights[4u * index + 2u];
+		const vec4 dd = Lights[4u * index + 3u];
+		float t = 0.0;
+		float area = 1.0;
+		vec3 emitNormal = vec3(0.0, 1.0, 0.0);
+		bool hit = false;
+		if (type == 5) // sphere
+		{
+			const float radius = length(c.xyz);
+			const vec3 oc = o - a.xyz;
+			const float bq = dot(oc, d);
+			const float disc = bq * bq - (dot(oc, oc) - radius * radius);
+			area = 4.0 * PI * radius * radius;
+			if (disc > 0.0)
+			{
+				t = -bq - sqrt(disc);
+				hit = t > 1e-4 && t < tMax;
+				emitNormal = normalize(oc + t * d);
+			}
+		}
+		else if (type == 6) // tube
+		{
+			const float halfLength = length(c.xyz);
+			const vec3 axis = c.xyz / max(halfLength, 1e-6);
+			const float radius = length(dd.xyz);
+			const vec3 oc = o - a.xyz;
+			const vec3 dPerp = d - axis * dot(d, axis);
+			const vec3 oPerp = oc - axis * dot(oc, axis);
+			const float qa = dot(dPerp, dPerp);
+			const float qb = dot(dPerp, oPerp);
+			const float disc = qb * qb - qa * (dot(oPerp, oPerp) - radius * radius);
+			area = 2.0 * PI * radius * 2.0 * halfLength;
+			if (qa > 1e-10 && disc > 0.0)
+			{
+				t = (-qb - sqrt(disc)) / qa;
+				const vec3 q = oc + t * d;
+				hit = t > 1e-4 && t < tMax && abs(dot(q, axis)) <= halfLength;
+				emitNormal = normalize(q - axis * dot(q, axis));
+			}
+		}
+		else // rect (3) and disk (4), emitting along -normalize(cross(c, dd))
+		{
+			const vec3 areaCross = cross(c.xyz, dd.xyz);
+			const float areaLen = length(areaCross);
+			emitNormal = -areaCross / max(areaLen, 1e-8);
+			const float dn = dot(emitNormal, d);
+			area = type == 4 ? PI * areaLen : 4.0 * areaLen;
+			if (dn < -1e-6)
+			{
+				t = dot(a.xyz - o, emitNormal) / dn;
+				if (t > 1e-4 && t < tMax)
+				{
+					const vec3 p = o + t * d - a.xyz;
+					const float u = dot(p, c.xyz) / max(dot(c.xyz, c.xyz), 1e-8);
+					const float v = dot(p, dd.xyz) / max(dot(dd.xyz, dd.xyz), 1e-8);
+					hit = type == 4 ? (u * u + v * v <= 1.0) : (abs(u) <= 1.0 && abs(v) <= 1.0);
+				}
+			}
+		}
+		if (!hit || max(b.r, max(b.g, b.b)) <= 0.0)
+			continue;
+		const float cosLight = dot(emitNormal, -d);
+		if (cosLight <= 0.0)
+			continue;
+		const float pmf = LightPmf(index);
+		const float pLight = pmf * t * t / (area * max(cosLight, 1e-4));
+		sum += b.rgb * FogTransmittance(o, d, t) * (bsdfPdf * bsdfPdf / (bsdfPdf * bsdfPdf + pLight * pLight));
+	}
+	return sum;
+}
+
+// A path in flight: where the next ray starts, what it has gathered, and the ray cone, so a path can be suspended after
+// some bounces and resumed (the wavefront / ray-sorting experiment keeps these between kernels).
+struct PathState
+{
+	vec3 Origin;
+	vec3 Dir;
+	vec3 Throughput;
+	vec3 Radiance;
+	float PrevPdf;
+	float ConeWidth;
+	float ConeAngle;
+	vec3 SigmaA;    // absorption coefficient of the medium the ray travels in (inside glass), 0 in air
+	vec3 SigmaS;    // scattering coefficient of that medium (subsurface / volumes)
+	bool InObject;  // the ray is inside glass or a subsurface object (the global fog does not apply there)
+};
+
+// Runs bounces firstBounce..lastBounce of a path (maxBounces is the path's own limit). Returns true when the path is still alive
+// after lastBounce, false when it ended (escaped, absorbed, Russian roulette, or reached maxBounces).
+bool TraceBounces(inout PathState st, uint firstBounce, uint lastBounce, uint maxBounces)
+{
+	vec3 origin = st.Origin;
+	vec3 dir = st.Dir;
+	vec3 radiance = st.Radiance;
+	vec3 throughput = st.Throughput;
+	float prevPdf = st.PrevPdf;
+	g_ConeWidth = st.ConeWidth;
+	g_ConeAngle = st.ConeAngle;
+	vec3 sigmaA = st.SigmaA;
+	vec3 sigmaS = st.SigmaS;
+	bool inObject = st.InObject;
+	uint walkSteps = 0u; // scatter events inside a subsurface object: they do not use up the path's bounces
+	bool alive = true;
+	const bool mis = (u_Push.Counts.y & FLAG_MIS) != 0u && u_Push.Counts.x > 0u && (u_Push.Counts.y & FLAG_UNIFORM_ENV) == 0u;
+
+	for (uint bounce = firstBounce; bounce <= lastBounce; bounce++)
+	{
+		Surface s;
+		const bool hit = TraceClosest(origin, dir, s);
+		const float segmentLength = hit ? length(s.P - origin) : 1.0e30;
+#ifdef LUX_RTGI_NRD
+		if (bounce == firstBounce)
+			g_NrdHitDistance = min(segmentLength, 65504.0);
+#endif
+		g_InObject = inObject;
+		// Absorption by the medium the ray just crossed (inside glass): Beer-Lambert, exact.
+		const bool objectMedium = inObject && (sigmaS.x + sigmaS.y + sigmaS.z) > 0.0; // a scattering medium inside the object: free-flight below
+		if (sigmaA.x + sigmaA.y + sigmaA.z > 0.0 && !objectMedium)
+			throughput *= exp(-sigmaA * segmentLength);
+
+		// The fog along this segment: free-flight sampling with the mean extinction decides whether the ray scatters before it
+		// reaches the surface (the per-channel weights keep chromatic fog unbiased); pure absorption is applied exactly.
+		float fogT0, fogT1;
+		bool fogScatter = false;
+		float scatterDistance = 0.0;
+		vec3 fogSigmaT = vec3(0.0), fogSigmaS = vec3(0.0);
+		float fogAverage = 0.0;
+		if (objectMedium || FogInterval(origin, dir, segmentLength, fogT0, fogT1))
+		{
+			if (objectMedium)
+			{
+				fogT0 = 0.0;
+				fogT1 = segmentLength;
+				fogSigmaT = sigmaA + sigmaS;
+				fogSigmaS = sigmaS;
+			}
+			else
+			{
+				const vec3 fogAlbedo = clamp(u_Push.MediumAlbedo.rgb, vec3(0.0), vec3(1.0));
+				fogSigmaT = vec3(u_Push.Medium.x);
+				fogSigmaS = fogSigmaT * fogAlbedo;
+			}
+			fogAverage = (fogSigmaT.x + fogSigmaT.y + fogSigmaT.z) / 3.0;
+			if (fogSigmaS.x + fogSigmaS.y + fogSigmaS.z > 0.0)
+			{
+				const float freeFlight = -log(max(1.0 - Rand(), 1e-7)) / fogAverage;
+				fogScatter = freeFlight < fogT1 - fogT0;
+				scatterDistance = fogT0 + freeFlight;
+			}
+		}
+		const float rayEnd = fogScatter ? scatterDistance : segmentLength;
+
+		// Lights seen by a ray that left a surface in this loop (its start has next-event estimation); the first ray starts
+		// at a camera or at a surface another pass shades, so it never counts them.
+		if (mis && bounce > (g_UseExternalDirect ? 1u : 0u))
+			radiance += throughput * AreaLightEmission(origin, dir, rayEnd, prevPdf);
+
+		if (fogScatter)
+		{
+			if (bounce == maxBounces && !objectMedium)
+			{
+				alive = false;
+				break;
+			}
+			// weight = T(t) sigma_s / pdf(t) per channel, where the distance was sampled with the mean extinction
+			throughput *= exp(-fogSigmaT * (scatterDistance - fogT0)) * fogSigmaS / (fogAverage * exp(-fogAverage * (scatterDistance - fogT0)));
+			const vec3 scatterPoint = origin + dir * scatterDistance;
+			const float phaseG = objectMedium ? 0.0 : u_Push.Medium.y; // isotropic inside objects, which have no lights to estimate toward
+			if (objectMedium)
+			{
+				if (++walkSteps > 512u)
+				{
+					alive = false; // a walk that long has lost its energy to the albedo anyway
+					break;
+				}
+				bounce--; // the loop adds it back: a walk step is not a bounce
+			}
+			if (!objectMedium)
+				radiance += throughput * MediumDirectLight(scatterPoint, dir, phaseG);
+			const vec3 scattered = SamplePhaseHG(dir, phaseG);
+			prevPdf = PhaseHG(dot(scattered, dir), phaseG); // the phase value is the sampling pdf (weight 1)
+			dir = scattered;
+			origin = scatterPoint;
+			continue;
+		}
+		if (fogSigmaT.x > 0.0)
+		{
+			const float length_ = fogT1 - fogT0;
+			if (fogSigmaS.x + fogSigmaS.y + fogSigmaS.z > 0.0)
+				throughput *= exp(-fogSigmaT * length_) / exp(-fogAverage * length_);
+			else
+				throughput *= exp(-fogSigmaT * length_);
+		}
+		if (!hit)
+		{
+			radiance += throughput * Environment(dir);
+			alive = false;
+			break;
+		}
+
+		g_BounceCount++;
+		float emissionWeight = 1.0;
+		if (bounce > 0u && s.MeshLightFootprint > 0.0 && prevPdf > 0.0 && prevPdf < 1.0e29
+			&& (u_Push.Counts.y & FLAG_UNIFORM_ENV) == 0u)
+		{
+			if (!mis || (g_UseExternalDirect && bounce == 1u))
+				emissionWeight = 0.0;
+			else
+			{
+				const float lightPdf = LightPmf(s.MeshLight) * segmentLength * segmentLength / s.MeshLightFootprint;
+				const float ratio = lightPdf / prevPdf;
+				emissionWeight = 1.0 / (1.0 + ratio * ratio);
+			}
+		}
+		radiance += throughput * s.Emission * emissionWeight;
+
+		// The cone keeps growing from this hit; a rough surface scatters it wider.
+		g_ConeWidth += g_ConeAngle * length(s.P - origin);
+		g_ConeAngle = mix(0.03, 0.45, s.Rough);
+
+		// Leaving a subsurface object: the walk reached the inside of the surface. Light arrives from outside through this point with a
+		// Lambertian transmission: next-event estimation and a cosine-sampled continuation on the outer side, both counted.
+		if (inObject && !s.FrontFace && !s.Glass && (sigmaS.x + sigmaS.y + sigmaS.z) > 0.0)
+		{
+			if (bounce == maxBounces)
+			{
+				alive = false;
+				break;
+			}
+			Surface outer = s;
+			outer.N = -s.N;
+			outer.Albedo = vec3(1.0);
+			outer.Metal = 0.0;
+			outer.Rough = 1.0;
+			outer.F0 = vec3(0.0);
+			outer.Lobes = 0u;
+			g_InObject = false;
+			radiance += throughput * DirectLight(outer, outer.N, bounce == maxBounces);
+			vec3 t, b;
+			Basis(outer.N, t, b);
+			dir = SampleCosine(outer, t, b);
+			prevPdf = dot(dir, outer.N) / PI;
+			origin = s.P + outer.N * 1e-3;
+			inObject = false;
+			sigmaA = vec3(0.0);
+			sigmaS = vec3(0.0);
+			continue;
+		}
+
+		// Entering a subsurface object: with probability q the diffuse light goes through the surface (weight (1 - F) / q), otherwise the
+		// usual BSDF continues with its weight divided by 1 - q.
+		float bsdfScale = 1.0;
+		if (s.SSS && s.FrontFace && !inObject && bounce < maxBounces)
+		{
+			const float q = 0.5 * (1.0 - s.SSSThickness);
+			if (q > 0.0)
+			{
+				if (Rand() < q)
+				{
+					const float cosV = clamp(dot(s.N, -dir), 0.0, 1.0);
+					const vec3 fresnelView = s.F0 + (vec3(1.0) - s.F0) * pow(1.0 - cosV, 5.0);
+					throughput *= (vec3(1.0) - fresnelView) * ((1.0 - s.SSSThickness) / q);
+					vec3 t, b;
+					Basis(-s.N, t, b);
+					Surface inward = s;
+					inward.N = -s.N;
+					dir = SampleCosine(inward, t, b);
+					origin = s.P - s.N * 1e-3;
+					inObject = true;
+					const vec3 sigmaT = vec3(1.0 / PT_SSS_MEAN_FREE_PATH);
+					sigmaS = sigmaT * s.SSSColor;
+					sigmaA = sigmaT * (vec3(1.0) - s.SSSColor);
+					prevPdf = 1.0e30;
+					continue;
+				}
+				bsdfScale = 1.0 / (1.0 - q);
+			}
+		}
+
+		// A smooth dielectric: reflect or refract by the Fresnel reflectance, no next-event estimation (its highlights and
+		// light seen through it come from BSDF-sampled rays, so the MIS weight is full). Rough glass is treated as smooth.
+		if (s.Glass && Rand() < s.Transmission)
+		{
+			if (bounce == maxBounces)
+			{
+				alive = false;
+				break;
+			}
+			const float cosI = clamp(dot(s.N, -dir), 0.0, 1.0);
+			const float eta = s.FrontFace ? 1.0 / s.IOR : s.IOR; // n_incident / n_transmitted
+			const float sin2T = eta * eta * (1.0 - cosI * cosI);
+			float fresnel = 1.0;
+			vec3 refracted = vec3(0.0);
+			if (sin2T < 1.0)
+			{
+				const float cosT = sqrt(1.0 - sin2T);
+				const float rs = (eta * cosI - cosT) / (eta * cosI + cosT);
+				const float rp = (cosI - eta * cosT) / (cosI + eta * cosT);
+				fresnel = 0.5 * (rs * rs + rp * rp);
+				refracted = normalize(eta * dir + (eta * cosI - cosT) * s.N);
+			}
+			if (Rand() < fresnel)
+			{
+				dir = reflect(dir, s.N);
+				origin = s.P + s.N * 1e-3;
+			}
+			else
+			{
+				dir = refracted;
+				origin = s.P - s.N * 1e-3;
+				inObject = s.FrontFace;
+				throughput *= eta * eta; // radiance scales with the squared index ratio
+				sigmaA = s.FrontFace ? s.GlassSigma : vec3(0.0);
+			}
+			prevPdf = 1.0e30;
+			continue;
+		}
+
+		vec3 V = -dir;
+		radiance += throughput * (bsdfScale * ((g_UseExternalDirect && bounce == 0u) ? g_ExternalDirect : DirectLight(s, V, bounce == maxBounces)));
+
+		if (bounce == maxBounces)
+		{
+			alive = false;
+			break;
+		}
+
+		vec3 L;
+		if (!SampleBSDF(s, V, L))
+		{
+			alive = false;
+			break;
+		}
+		float pdf = BSDFPdf(s, V, L);
+		if (pdf <= 1e-6)
+		{
+			alive = false;
+			break;
+		}
+		throughput *= EvalBRDF(s, V, L) * (bsdfScale / pdf);
+		prevPdf = pdf;
+
+		// Russian roulette after a few bounces.
+		if (bounce >= 2u)
+		{
+			float p = clamp(max(throughput.r, max(throughput.g, throughput.b)), 0.05, 0.95);
+			if (Rand() > p)
+			{
+				alive = false;
+				break;
+			}
+			throughput /= p;
+		}
+
+		origin = s.P + s.N * 1e-3;
+		dir = L;
+	}
+
+	st.Origin = origin;
+	st.Dir = dir;
+	st.Radiance = radiance;
+	st.SigmaA = sigmaA;
+	st.SigmaS = sigmaS;
+	st.InObject = inObject;
+	st.Throughput = throughput;
+	st.PrevPdf = prevPdf;
+	st.ConeWidth = g_ConeWidth;
+	st.ConeAngle = g_ConeAngle;
+	return alive;
+}
+
+// Radiance arriving along the ray (origin, dir): emission, next-event estimation and BSDF-sampled bounces,
+// up to maxBounces scattering events with Russian roulette. Shared by the path tracer and the lightmap baker.
+vec3 TracePath(vec3 origin, vec3 dir, uint maxBounces)
+{
+	PathState st;
+	st.Origin = origin;
+	st.Dir = dir;
+	st.Throughput = vec3(1.0);
+	st.Radiance = vec3(0.0);
+	st.PrevPdf = 0.0;
+	st.ConeWidth = 0.0;
+	st.ConeAngle = g_InitialConeAngle;
+	st.SigmaA = vec3(0.0);
+	st.SigmaS = vec3(0.0);
+	st.InObject = false;
+	TraceBounces(st, 0u, maxBounces, maxBounces);
+	return st.Radiance;
+}
+
+#endif

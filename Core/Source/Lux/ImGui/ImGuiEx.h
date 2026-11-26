@@ -1575,6 +1575,7 @@ namespace Lux::ImGuiEx {
 		ImVec4 ButtonLabelColor = ImGui::ColorConvertU32ToFloat4(Colors::Theme::text);
 		ImVec4 ButtonLabelColorError = ImGui::ColorConvertU32ToFloat4(Colors::Theme::textError);
 		bool ShowFullFilePath = false;
+		std::function<void()> OnAdditionalDrop;
 	};
 	inline auto AssetValidityAndName(AssetHandle handle, const PropertyAssetReferenceSettings& settings)
 	{
@@ -1700,6 +1701,8 @@ namespace Lux::ImGuiEx {
 					}
 				}
 
+				if (settings.OnAdditionalDrop)
+					settings.OnAdditionalDrop();
 				ImGui::EndDragDropTarget();
 			}
 		}

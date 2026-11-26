@@ -280,12 +280,18 @@ namespace Lux {
 		// nothing recorded, outside such a pass or when the draw cannot be recorded (logged once per
 		// pipeline).
 		static bool RT_DrawIndexed(RenderCommandBuffer& renderCommandBuffer, const IndexedDraw& draw);
+		static void RT_SubmitFullscreenQuad(RenderCommandBuffer& renderCommandBuffer, const Pipeline& pipeline, Material& material);
 		// The same for a mesh-task draw, with `meshletSet` at set 0.
 		static bool RT_DrawMeshTasks(RenderCommandBuffer& renderCommandBuffer, const BoundDescriptorSet& meshletSet, const void* constants, uint32_t constantsSize, const glm::uvec3& groups);
 		// Clears a storage image mip prepared by `clear` (see StorageImageClear).
 		static void ClearImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageImageClear> clear, const glm::vec4& clearColor);
 		static void CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 		static void BlitImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
+		// Render thread only: records a compute dispatch / an image copy at once, for passes whose inputs the
+		// render thread decides (the path tracer). The main-thread versions queue the same work.
+		static void RT_DispatchCompute(RenderCommandBuffer& renderCommandBuffer, const ComputePass& computePass, const glm::uvec3& workGroups, const Buffer& constants);
+		static void RT_DispatchRays(RenderCommandBuffer& renderCommandBuffer, const ComputePass& rayPass, const glm::uvec3& dimensions, const Buffer& constants);
+		static void RT_CopyImage(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<Image2D> sourceImage, Ref<Image2D> destinationImage);
 
 		static Ref<Texture2D> GetWhiteTexture();
 		static Ref<Texture2D> GetBlackTexture();

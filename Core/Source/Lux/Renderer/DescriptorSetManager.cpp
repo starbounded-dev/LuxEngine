@@ -26,6 +26,7 @@ namespace Lux {
 				case RenderInputType::StorageImage3DVolume: return RenderResourceType::Image2D;        // true 3D volume (UAV)
 				case RenderInputType::UniformBuffer:        return RenderResourceType::UniformBuffer;
 				case RenderInputType::StorageBuffer:        return RenderResourceType::StorageBuffer;
+				case RenderInputType::AccelerationStructure: return RenderResourceType::AccelerationStructure;
 			}
 
 			LUX_CORE_ASSERT(false);
@@ -169,6 +170,11 @@ namespace Lux {
 					Ref<RendererResource> sampler = resource.As<RendererResource>();
 					return sampler ? static_cast<const Sampler*>(sampler->GetDescriptorInfo())->GetRHIDescriptor() : nullptr;
 				}
+				case RenderResourceType::AccelerationStructure:
+				{
+					Ref<RHIAccelerationStructure> as = resource.As<RHIAccelerationStructure>();
+					return as ? as->GetDescriptor() : nullptr;
+				}
 				default:
 					return nullptr;
 			}
@@ -221,6 +227,11 @@ namespace Lux {
 				{
 					Ref<RendererResource> sampler = resource.As<RendererResource>();
 					return sampler ? static_cast<const Sampler*>(sampler->GetDescriptorInfo())->GetRHIDescriptor() : nullptr;
+				}
+				case RenderResourceType::AccelerationStructure:
+				{
+					Ref<RHIAccelerationStructure> as = resource.As<RHIAccelerationStructure>();
+					return as ? as->GetIdentity() : nullptr;
 				}
 				default:
 					return nullptr;
@@ -452,6 +463,21 @@ namespace Lux {
 		if (decl)
 		{
 			InputResources.at(decl->Set).at(decl->Binding).Set(storageBuffer);
+			m_State = State::Pending;
+		}
+		else
+		{
+			LUX_CORE_WARN_TAG("Renderer", "[RenderPass ({})] Input {} not found", m_Specification.DebugName, name);
+		}
+	}
+
+	void DescriptorSetManager::SetInput(std::string_view name, Ref<RHIAccelerationStructure> accelerationStructure)
+	{
+		LUX_PROFILE_FUNCTION_AUTO;
+		const RenderInputDeclaration* decl = GetInputDeclaration(name);
+		if (decl)
+		{
+			InputResources.at(decl->Set).at(decl->Binding).Set(accelerationStructure);
 			m_State = State::Pending;
 		}
 		else

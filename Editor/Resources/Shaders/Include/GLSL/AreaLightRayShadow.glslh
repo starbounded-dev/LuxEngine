@@ -1,0 +1,126 @@
+#ifndef LUX_AREA_LIGHT_RAY_SHADOW_GLSLH
+#define LUX_AREA_LIGHT_RAY_SHADOW_GLSLH
+
+#include <RayInstanceData.glslh>
+#include <MaterialScene.glslh>
+
+layout(push_constant) uniform AreaShadowSettings
+{
+	uint Rays;
+	uint Translucent;
+} u_AreaShadowSettings;
+
+uint LuxAreaShadowHash(uint value)
+{
+	uint state = value * 747796405u + 2891336453u;
+	uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+vec3 LuxAreaShadowSample(AreaLight light, vec2 u, out vec3 emitterNormal)
+{
+	const float phi = 2.0 * PI * u.y;
+	if (light.Shape == AREA_LIGHT_SHAPE_SPHERE)
+	{
+		float z = 1.0 - 2.0 * u.x;
+		float r = sqrt(max(1.0 - z * z, 0.0));
+		emitterNormal = vec3(r * cos(phi), r * sin(phi), z);
+		return light.Position + length(light.HalfRight) * emitterNormal;
+	}
+	if (light.Shape == AREA_LIGHT_SHAPE_TUBE)
+	{
+		vec3 axis = normalize(light.HalfRight);
+		vec3 tangent = normalize(cross(axis, abs(axis.y) < 0.9 ? vec3(0, 1, 0) : vec3(1, 0, 0)));
+		emitterNormal = tangent * cos(phi) + cross(axis, tangent) * sin(phi);
+		return light.Position + light.HalfRight * (2.0 * u.x - 1.0) + length(light.HalfUp) * emitterNormal;
+	}
+	emitterNormal = -normalize(cross(light.HalfRight, light.HalfUp));
+	if (light.Shape == AREA_LIGHT_SHAPE_DISK)
+		return light.Position + sqrt(u.x) * (cos(phi) * light.HalfRight + sin(phi) * light.HalfUp);
+	return light.Position + (2.0 * u.x - 1.0) * light.HalfRight + (2.0 * u.y - 1.0) * light.HalfUp;
+}
+
+vec3 LuxAreaShadowVisibility(vec3 origin, vec3 point)
+{
+	const vec3 segment = point - origin;
+	const float distanceToLight = length(segment);
+	if (distanceToLight <= 2e-3)
+		return vec3(1.0);
+	const vec3 direction = segment / distanceToLight;
+	const bool translucent = (u_AreaShadowSettings.Translucent & 1u) != 0u;
+	const bool blockRefractiveGlass = (u_AreaShadowSettings.Translucent & 2u) != 0u;
+	const uint flags = gl_RayFlagsOpaqueEXT | (translucent ? 0u : gl_RayFlagsTerminateOnFirstHitEXT);
+	vec3 visibility = vec3(1.0);
+	vec3 absorption = vec3(0.0);
+	bool inGlass = false;
+	float remaining = distanceToLight - 1e-3;
+	for (int crossing = 0; crossing < 6 && remaining > 1e-4; crossing++)
+	{
+		rayQueryEXT query;
+		rayQueryInitializeEXT(query, u_RTScene, flags, 0xff, origin, 1e-4, direction, remaining);
+		while (rayQueryProceedEXT(query)) {}
+		if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT)
+			return visibility * exp(-absorption * remaining);
+		if (!translucent)
+			return vec3(0.0);
+
+		const uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+		const uint materialIndex = Instances[instance].Info.z;
+		if (materialIndex >= uint(r_GPUMaterials.Materials.length()))
+			return vec3(0.0);
+		const GPUMaterial material = r_GPUMaterials.Materials[materialIndex];
+		if (!IsGPUMaterialRowUsable(material) || (material.Metadata.x & GPU_MATERIAL_FLAG_TRANSPARENT) == 0u || material.Refraction.x <= 0.0)
+			return vec3(0.0);
+
+		const float t = rayQueryGetIntersectionTEXT(query, true);
+		const bool front = rayQueryGetIntersectionFrontFaceEXT(query, true);
+		const vec3 sigma = material.Refraction.w > 0.0 ? -log(max(material.AttenuationColor.rgb, vec3(1e-4))) / material.Refraction.w : vec3(0.0);
+		if (inGlass)
+			visibility *= exp(-absorption * t);
+		else if (!front)
+			visibility *= exp(-sigma * t);
+		inGlass = front;
+		absorption = inGlass ? sigma : vec3(0.0);
+
+		const float ior = max(material.Refraction.y, 1.0);
+		if (blockRefractiveGlass && ior > 1.001)
+			return vec3(0.0);
+		const float fresnel = (ior - 1.0) / (ior + 1.0);
+		visibility *= clamp(material.Refraction.x, 0.0, 1.0) * (1.0 - fresnel * fresnel);
+		origin += direction * (t + 1e-3);
+		remaining -= t + 1e-3;
+	}
+	return remaining <= 1e-4 ? visibility : vec3(0.0);
+}
+
+vec3 LuxTraceAreaShadow(AreaLight light, uint lightIndex, vec3 worldPosition, vec3 normal)
+{
+	const vec3 origin = worldPosition + normal * 1e-3;
+	if ((light.ShadowFlags & AREA_LIGHT_RT_SHADOW_SOFT) == 0u)
+		return LuxAreaShadowVisibility(origin, light.Position);
+
+	const uint rays = max(u_AreaShadowSettings.Rays, 1u);
+	const uint pixel = uint(gl_FragCoord.x) + LuxAreaShadowHash(uint(gl_FragCoord.y));
+	const uint randomBits = LuxAreaShadowHash(pixel ^ LuxAreaShadowHash(lightIndex + 1u));
+	const vec2 rotation = vec2(randomBits & 0xffffu, randomBits >> 16u) * (1.0 / 65536.0);
+	const bool twoSided = LTC_IsFlatShape(light) && (light.Flags & AREA_LIGHT_TWO_SIDED) != 0u;
+	float total = 0.0;
+	vec3 visible = vec3(0.0);
+	for (uint i = 0u; i < rays; i++)
+	{
+		const vec2 u = fract(vec2((float(i) + 0.5) / float(rays), float(i) * 0.61803398875) + rotation);
+		vec3 emitNormal;
+		const vec3 point = LuxAreaShadowSample(light, u, emitNormal);
+		const vec3 segment = point - worldPosition;
+		const float d2 = max(dot(segment, segment), 1e-6);
+		const vec3 L = segment * inversesqrt(d2);
+		const float emissionCosine = dot(emitNormal, -L);
+		const float weight = max(dot(normal, L), 0.0) * (twoSided ? abs(emissionCosine) : max(emissionCosine, 0.0)) / d2;
+		total += weight;
+		if (weight > 0.0)
+			visible += weight * LuxAreaShadowVisibility(origin, point);
+	}
+	return total > 1e-8 ? visible / total : vec3(1.0);
+}
+
+#endif

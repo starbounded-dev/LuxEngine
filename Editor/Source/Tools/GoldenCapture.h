@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 
 #include <atomic>
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -141,6 +142,16 @@ namespace Lux {
 		bool m_RunSelfTest = false;
 		bool m_Play = false, m_PlayStarted = false, m_AudioVerified = false;
 		bool m_ExitWhenDone = true;
+		uint32_t m_LightmapBakeSamples = 0;
+		bool m_LightmapBakeStarted = false;
+		struct TextureFixture : RefCounted
+		{
+			std::array<std::string, 2> IDs;
+			std::string Error;
+			std::atomic<bool> Done{ false };
+		};
+		Ref<TextureFixture> m_TextureFixture;
+		bool m_TextureFixtureApplied = false;
 		std::map<std::string, std::string> m_Options;
 
 		Stage m_Stage = Stage::OpenProject;
@@ -153,6 +164,9 @@ namespace Lux {
 		uint32_t m_LostReadinessFrames = 0;    // timed frames dropped because asset streaming restarted
 		std::vector<double> m_FrameSamples, m_GPUSamples;
 		uint32_t m_ClusterEntries = 0, m_ClusterLightsDropped = 0; // last entries, most dropped in any frame
+		uint32_t m_StreamedTextures = 0, m_StreamingPromotions = 0, m_StreamingEvictions = 0;
+		uint64_t m_PeakFineTextureBytes = 0;
+		uint32_t m_VirtualPages = 0, m_VirtualPageUploads = 0, m_VirtualPageEvictions = 0;
 
 		struct CameraPose
 		{

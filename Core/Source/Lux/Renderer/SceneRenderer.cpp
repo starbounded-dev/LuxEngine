@@ -8,6 +8,8 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/Exposure.h"
+#include "Lux/Renderer/TextureStreamingCache.h"
+#include "Lux/Renderer/Shader.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
@@ -36,11 +38,23 @@
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
 namespace Lux {
+
+	struct SceneRenderer::VirtualTextureFeedbackState : RefCounted
+	{
+		std::vector<NRIBuffer> Readbacks;             // render thread, one per frame slot
+		std::vector<uint64_t> FrameGenerations;      // render thread
+		std::mutex Mutex;
+		std::vector<uint32_t> Words;
+		uint64_t Generation = 0;
+		uint64_t Sequence = 0;
+		bool AllocationFailed = false;
+	};
 
 	// Push-constant layout that every mesh-draw shader in this engine expects.
 	// Must match the first four fields of the mesh draw push_constant blocks.
@@ -490,6 +504,23 @@ namespace Lux {
 			"PreConvolution",
 			"SSR",
 			"SSRComposite",
+			"RTReflectionsPass",
+			"RTReflectionsDenoise",
+			"RTGITrace",
+			"RTGIFilter",
+			"RTGIUpscale",
+			"RTBLASBuild",
+			"RTBLASRefit",
+			"RTTLASBuild",
+			"RTTLASRefit",
+			"RTPathTrace",
+			"RTShadowsPass",
+			"RTVisibilityFilter",
+			"RTCausticsPass",
+			"RTCausticPhotons",
+			"RTCausticResolve",
+			"HeightFog",
+			"ReSTIRDI",
 			"JumpFlood",
 			"BloomCompute",
 			"CompositePass",
@@ -549,6 +580,7 @@ namespace Lux {
 	SceneRenderer::SceneRenderer(Ref<Scene> scene, SceneRendererSpecification specification)
 		: m_Scene(scene), m_Specification(specification)
 	{
+		ApplySceneRayTracingSettings();
 		Init();
 	}
 
@@ -566,6 +598,22 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(!m_Active, "Cannot change scene while rendering");
 		m_Scene = scene;
+		ApplySceneRayTracingSettings();
+		if (m_LightmapRects)
+			RefreshLightmap();
+	}
+
+	void SceneRenderer::ApplySceneRayTracingSettings()
+	{
+		const auto settings = m_Scene ? m_Scene->GetPathTracingSettings() : ScenePathTracingSettings{};
+		m_Options.EnablePathTracer = settings.Enabled;
+		m_Options.PathTracerMaxBounces = settings.MaxBounces;
+		m_Options.PathTracerTargetSamples = settings.TargetSamples;
+		m_Options.PathTracerReconstruction = settings.RayReconstruction;
+		m_Options.PathTracerResetCounter++;
+		const auto gi = m_Scene ? m_Scene->GetRayTracedGISettings() : SceneRayTracedGISettings{};
+		m_Options.EnableRTGI = gi.Enabled;
+		m_Options.RTGINRD = gi.UseNRD;
 	}
 
 	void SceneRenderer::InitOptions()
@@ -1438,6 +1486,9 @@ namespace Lux {
 
 			spec.DebugName = "GPUMaterials";
 			m_SBSGPUMaterials = StorageBufferSet::Create(spec, sizeof(GPUMaterialData) * 1024);
+			StorageBufferSpecification feedbackSpec;
+			feedbackSpec.DebugName = "VirtualTextureFeedback";
+			m_SBSVirtualTextureFeedback = StorageBufferSet::Create(feedbackSpec, sizeof(uint32_t));
 
 			spec.DebugName = "MeshCullDrawData";
 			m_SBSMeshCullDrawData = StorageBufferSet::Create(spec, sizeof(MeshCullDrawData) * 4096);
@@ -2046,7 +2097,10 @@ namespace Lux {
 
 			PipelineSpecification pipelineSpec;
 			pipelineSpec.DebugName = "GBuffer-Static";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("GBuffer_Static");
+			const auto shaders = Renderer::GetShaderLibrary();
+			m_VirtualTextureFeedbackSupported = RHIDevice::SupportsFragmentStorageAtomics() &&
+				shaders->GetShaders().contains("GBuffer_VirtualTexture") && shaders->GetShaders().contains("Transparent_VirtualTexture");
+			pipelineSpec.Shader = shaders->Get(m_VirtualTextureFeedbackSupported ? "GBuffer_VirtualTexture" : "GBuffer_Static");
 			pipelineSpec.TargetFramebuffer = m_GeometryPassFramebuffer;
 			pipelineSpec.Layout = vertexLayout;
 			// Vertex colour and UV1 (Mesh.h VertexAttributes), for material graphs; the transparent
@@ -2080,6 +2134,33 @@ namespace Lux {
 			m_GeometryPass = RenderPass::Create(rpSpec);
 			m_GeometryPass->SetOptionalInput("SceneData", m_UBSScene);
 			BindSceneRenderPassInputs(m_GeometryPass, PassInputCamera | PassInputRenderer | PassInputMaterialScene);
+			{
+				// Baked indirect diffuse inputs: zeroed (no lightmap) until a lightmap is set; never null, so the pass validates.
+				StorageBufferSpecification lightmapSpec;
+				lightmapSpec.GPUOnly = false;
+				lightmapSpec.DebugName = "Lightmap Rects";
+				m_LightmapRects = StorageBuffer::Create(256, lightmapSpec);
+				lightmapSpec.DebugName = "Lightmap Atlas";
+				m_LightmapAtlas = StorageBuffer::Create(256, lightmapSpec);
+				for (const Ref<StorageBuffer>& buffer : { m_LightmapRects, m_LightmapAtlas })
+				{
+					if (void* mapped = buffer->GetBuffer().Map(0, 256))
+					{
+						std::memset(mapped, 0, 256);
+						buffer->GetBuffer().Unmap();
+					}
+				}
+				lightmapSpec.DebugName = "GI Probes";
+				m_GIProbes = StorageBuffer::Create(256, lightmapSpec);
+				if (void* mapped = m_GIProbes->GetBuffer().Map(0, 256))
+				{
+					std::memset(mapped, 0, 256);
+					m_GIProbes->GetBuffer().Unmap();
+				}
+				SetRenderPassInputIfValid(m_GeometryPass, "GIProbes", m_GIProbes);
+				SetRenderPassInputIfValid(m_GeometryPass, "LightmapRects", m_LightmapRects);
+				SetRenderPassInputIfValid(m_GeometryPass, "LightmapAtlas", m_LightmapAtlas);
+			}
 			LUX_CORE_VERIFY(m_GeometryPass->Validate());
 			m_GeometryPass->Bake();
 
@@ -2110,7 +2191,7 @@ namespace Lux {
 			transparentSpec.DebugName = "TransparentForward";
 
 			pipelineSpec.DebugName = "TransparentForward";
-			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get("HazelPBR_Transparent");
+			pipelineSpec.Shader = Renderer::GetShaderLibrary()->Get(m_VirtualTextureFeedbackSupported ? "Transparent_VirtualTexture" : "HazelPBR_Transparent");
 			pipelineSpec.TargetFramebuffer = Framebuffer::Create(transparentSpec);
 			pipelineSpec.DepthOperator = DepthCompareOperator::GreaterOrEqual;
 			pipelineSpec.DepthWrite = false;
@@ -2197,6 +2278,7 @@ namespace Lux {
 			m_DeferredLightingPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
 			// Rebound every frame in BeginScene: the resolved GTAO image, or white when GTAO is off.
 			m_DeferredLightingPass->SetInput("u_AmbientOcclusion", Renderer::GetWhiteTexture());
+			m_DeferredLightingPass->SetInput("u_RTShadowMask", Renderer::GetWhiteTexture()); // the ray-traced directional shadow mask while that option is on
 			m_DeferredLightingPass->SetInput("r_PointSampler", Renderer::GetPointSampler());
 			m_DeferredLightingPass->SetInput("r_LinearSampler", Renderer::GetClampSampler());
 			LUX_CORE_VERIFY(m_DeferredLightingPass->Validate());
@@ -3078,6 +3160,7 @@ namespace Lux {
 		{
 			SetRenderPassInputIfValid(renderPass, "GPUSceneInstances", m_SBSGPUSceneInstances);
 			SetRenderPassInputIfValid(renderPass, "GPUMaterials", m_SBSGPUMaterials);
+			SetRenderPassInputIfValid(renderPass, "VirtualTextureFeedback", m_SBSVirtualTextureFeedback);
 			SetRenderPassInputIfValid(renderPass, "ObjectIndexes", m_SBSVisibleObjectIndexes);
 			SetRenderPassInputIfValid(renderPass, "r_MaterialSampler", Renderer::GetRepeatSampler());
 			renderPass->SetBindlessTextures(m_BindlessTextures);
@@ -4411,7 +4494,7 @@ namespace Lux {
 		// whole pass (and its per-mip dispatches) when SSR is off. The vector stays
 		// in scope because the SSR node below appends it as a read dependency.
 		std::vector<RenderGraph::ResourceHandle> preIntegrationOutputs;
-		if (m_Options.EnableSSR)
+		if (SSRActive())
 		{
 			preIntegrationOutputs.push_back(m_PreIntegrationVisibilityTexture.Texture ? addTexture("PreIntegration Visibility", m_PreIntegrationVisibilityTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 			addPass("PreIntegration", hzbOutputs, preIntegrationOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreIntegration));
@@ -4507,6 +4590,12 @@ namespace Lux {
 		}
 
 		{
+			if (GetRTVisibilityFlags() != 0u)
+			{
+				std::vector<RenderGraph::ResourceHandle> shadowReads = gbufferOutputs;
+				appendResources(shadowReads, preDepthOutputs);
+				addPass("RTShadows", shadowReads, {}, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTShadowsPass));
+			}
 			std::vector<RenderGraph::ResourceHandle> deferredReads = gbufferOutputs;
 			appendResources(deferredReads, preDepthOutputs);
 			appendResources(deferredReads, shadowOutputs);
@@ -4530,7 +4619,10 @@ namespace Lux {
 				appendResources(areaReads, shadowOutputs);
 				appendResources(areaReads, sceneColorCurrent);
 				std::vector<RenderGraph::ResourceHandle> areaOutputs = addRenderPassResources("Area Lights", m_AreaLightPass);
-				addPass("Area Lights", areaReads, areaOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AreaLightPass));
+				const auto areaFlags = (m_Options.EnableRTAreaLightShadows || m_Options.EnableRTTranslucentShadows) && RHIDevice::SupportsRayQuery()
+					? static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Graphics) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources))
+					: RenderGraph::PassFlags::Graphics;
+				addPass("Area Lights", areaReads, areaOutputs, areaFlags, makeExecute(&SceneRenderer::AreaLightPass));
 				sceneColorCurrent = areaOutputs;
 			}
 
@@ -4554,16 +4646,40 @@ namespace Lux {
 			addPass("AO Debug", aoDebugReads, addRenderPassResources("AO Debug", m_AODebugPass), RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::AODebugPass));
 		}
 
+		if (m_Options.EnableRTCaustics && RHIDevice::SupportsRayQuery())
+		{
+			auto reads = sceneColorCurrent;
+			appendResources(reads, gbufferOutputs);
+			appendResources(reads, preDepthOutputs);
+			addPass("RT Caustics", reads, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources)
+				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTCausticsPass));
+		}
+
+		// Opaque-surface GI belongs in the input to refraction, SSR and particle compositing.
+		if (m_Options.EnableRTGI && RHIDevice::SupportsRayQuery())
+		{
+			auto reads = sceneColorCurrent;
+			if (m_Options.RTGIHalfResolution)
+			{
+				appendResources(reads, gbufferOutputs);
+				appendResources(reads, preDepthOutputs);
+			}
+			addPass("RTGI", reads, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources)
+				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTGIPass));
+		}
+
 		// The pre-convolved opaque scene feeds SSR and refraction; it runs when either needs it.
 		std::vector<RenderGraph::ResourceHandle> preConvolutionOutputs;
-		if (m_Options.EnableSSR || m_FrameHasRefraction)
+		if (SSRActive() || m_FrameHasRefraction)
 		{
 			preConvolutionOutputs.push_back(m_PreConvolutedTexture.Texture ? addTexture("Pre-Convoluted Scene", m_PreConvolutedTexture.Texture->GetImage()) : RenderGraph::InvalidResource);
 			addPass("Pre-Convolution", sceneColorCurrent, preConvolutionOutputs, RenderGraph::PassFlags::Compute, makeExecute(&SceneRenderer::PreConvolutionCompute));
 		}
 
 		std::vector<RenderGraph::ResourceHandle> ssrOutputs;
-		if (m_Options.EnableSSR)
+		if (SSRActive())
 		{
 			const RenderGraph::ResourceHandle ssrImage = addTexture("SSR", m_SSRImage);
 			ssrOutputs.push_back(ssrImage);
@@ -4617,6 +4733,33 @@ namespace Lux {
 			addPass("Particles", particleReads, particleOutputs, RenderGraph::PassFlags::Graphics, makeExecute(&SceneRenderer::ParticlesPass));
 			sceneColorCurrent = particleOutputs;
 		}
+
+		// Ray-traced reflections: smooth surfaces add the reflected ray-traced scene to scene colour (after the GI, before the path tracer).
+		if (m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery())
+			addPass("RTReflections", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RTReflectionsPass));
+
+		const auto& heightFog = frame.PostProcess.HeightFog;
+		if (heightFog.Enabled && heightFog.Density > 0.0f && heightFog.MaxDistance > std::max(heightFog.StartDistance, 0.0f))
+		{
+			auto reads = sceneColorCurrent;
+			appendResources(reads, preDepthOutputs);
+			addPass("Height Fog", reads, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(
+				static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources)
+				| static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::HeightFogPass));
+		}
+
+		// Opt-in path tracer (RayTracing/PathTracePass.cpp): replaces the raster result in scene colour, before
+		// the wireframe overlays and post-processing. Absent from the graph (zero cost) while off.
+		if (m_Options.EnablePathTracer && RHIDevice::SupportsRayQuery())
+			addPass("Path Trace", sceneColorCurrent, sceneColorCurrent, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::PathTracePass));
+
+		// Realtime GI: the probe volume update, read by the G-buffer pass (a frame late is fine: the probes blend over time).
+		if (m_Options.EnableRealtimeGI && RHIDevice::SupportsRayQuery())
+			addPass("GI Probes", sceneColorCurrent, {}, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::RealtimeGIPass));
+
+		// Lightmap bake (editor action): runs only while one is in progress, after the raster frame it samples the scene from.
+		if (IsLightmapBaking())
+			addPass("Lightmap Bake", sceneColorCurrent, {}, static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Compute) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources) | static_cast<uint32_t>(RenderGraph::PassFlags::NeverCull)), makeExecute(&SceneRenderer::LightmapBakePass));
 
 		const bool wireframeActive = executable
 			? ((m_Options.ShowSelectedInWireframe && !GetMeshPass(MeshPassType::Wireframe).DrawList.empty())
@@ -4790,6 +4933,7 @@ namespace Lux {
 						if (name == "AO Debug") return "AODebug";
 						if (name == "Pre-Convolution") return "PreConvolution";
 						if (name == "SSR Composite") return "SSRComposite";
+						if (name == "RTReflections") return "RTReflectionsPass";
 						if (name == "JumpFlood Composite") return "JumpFloodComposite";
 						if (name == "Bloom") return "BloomCompute";
 						if (name == "Composite") return "CompositePass";
@@ -5418,7 +5562,7 @@ namespace Lux {
 			m_CameraUB.View = camera.ViewMatrix;
 			m_CameraUB.InverseView = viewInverse;
 			m_CameraUB.UnjitteredViewProjection = unjitteredViewProj;
-			// Nothing reads it since the G-buffer velocity target was dropped; kept in the shared block.
+			// RTGI reprojects static receiver positions with the previous view-projection.
 			m_CameraUB.PreviousViewProjection = m_PreviousViewProjection;
 			// Permanently zero now that nothing jitters the projection.
 			m_CameraUB.Jitter = glm::vec2(0.0f);
@@ -5519,6 +5663,9 @@ namespace Lux {
 			m_SceneUB.CameraPosition = glm::vec3(glm::inverse(camera.ViewMatrix)[3]);
 			m_SceneUB.EnvironmentMapIntensity = m_FrameEnvironment.EnvironmentIntensity;
 			m_SceneUB.EnvironmentMapRotation = m_FrameEnvironment.EnvironmentRotation;
+			m_SceneUB.FogMedium = glm::vec4(std::max(m_Options.PathTracerFogDensity, 0.0f), 0.0f,
+				std::max(m_Options.PathTracerFogRadius, 0.0f), 0.0f);
+			m_SceneUB.FogCenter = glm::vec4(m_Options.PathTracerFogCenter, 0.0f);
 
 			auto sceneData = m_SceneUB;
 			Ref<SceneRenderer> instance = this;
@@ -5645,13 +5792,16 @@ namespace Lux {
 					light.ShadowFlags = 0;
 					continue;
 				}
+				light.ShadowFlags |= AreaLightRTShadow;
+				if ((light.ShadowFlags & AreaLightShadowSoft) != 0)
+					light.ShadowFlags |= AreaLightRTShadowSoft;
 
 				// A light whose whole lit sphere lies beyond the shadow distance casts nothing visible.
 				const glm::vec3 toLight = light.Position - m_SceneUB.CameraPosition;
 				const float distanceSquared = glm::dot(toLight, toLight);
 				if (glm::sqrt(distanceSquared) - light.Range > m_Options.MaxShadowDistance)
 				{
-					light.ShadowFlags = 0;
+					light.ShadowFlags &= AreaLightRTShadow | AreaLightRTShadowSoft;
 					continue;
 				}
 
@@ -5891,7 +6041,7 @@ namespace Lux {
 				AreaLight& light = m_AreaLightsUB.AreaLights[i];
 				if (!selectedAreaShadowCasters[i])
 				{
-					light.ShadowFlags = 0;
+					light.ShadowFlags &= AreaLightRTShadow | AreaLightRTShadowSoft;
 					continue;
 				}
 
@@ -6203,6 +6353,7 @@ namespace Lux {
 			m_RendererDataUB.DistanceMipBiasMax = m_Options.DistanceMipBiasMax;
 			m_RendererDataUB.GPUSceneDebugMode = ResolveGPUSceneDebugMode(m_DebugViewMode);
 			m_RendererDataUB.Time = Application::Get().GetTime();
+			m_RendererDataUB.RTShadows = m_RTShadowMask ? GetRTVisibilityFlags() : 0u;
 
 			auto rdData = m_RendererDataUB;
 			Ref<SceneRenderer> instance = this;
@@ -6221,10 +6372,17 @@ namespace Lux {
 		// Resolved GTAO for deferred lighting's indirect term; the AO Composite pass writes it earlier
 		// in the frame whenever GTAO is on.
 		Ref<Image2D> ambientOcclusion = (m_Options.EnableGTAO && m_AOCompositePass) ? m_AOCompositePass->GetOutput(0) : nullptr;
-		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap, ambientOcclusion]() mutable
+		const uint32_t visibilityFlags = GetRTVisibilityFlags();
+		const bool filteredVisibility = (visibilityFlags & (k_RTContactShadow | k_RTAmbientOcclusion)) != 0u && m_RTFilteredVisibility;
+		Ref<Image2D> shadowMask = filteredVisibility ? m_RTFilteredVisibility : (visibilityFlags != 0u ? m_RTShadowMask : nullptr);
+		Renderer::Submit([deferredPass = m_DeferredLightingPass, transparentPass = m_GeometryPassTransparent, radianceMap, irradianceMap, ambientOcclusion, shadowMask]() mutable
 		{
 			if (deferredPass)
 			{
+				if (shadowMask)
+					deferredPass->SetInput("u_RTShadowMask", shadowMask);
+				else
+					deferredPass->SetInput("u_RTShadowMask", Renderer::GetWhiteTexture());
 				deferredPass->SetInput("u_EnvRadianceTex", radianceMap);
 				deferredPass->SetInput("u_EnvIrradianceTex", irradianceMap);
 				if (ambientOcclusion)
@@ -7570,16 +7728,21 @@ namespace Lux {
 			gpuTextureSlots.resize(MaxGPUTextureSceneTextures());
 		}
 
-		auto resolveMaterialTexture = [](const GPUTextureSlot& slot) -> Ref<Texture2D>
+		auto resolveMaterialTexture = [this](const GPUTextureSlot& slot, GPUTextureIndex index) -> Ref<Texture2D>
 			{
 				const AssetHandle textureHandle = slot.Handle;
-				if (!textureHandle || !Project::GetAssetManager() || !AssetManager::IsAssetHandleValid(textureHandle))
-					return Renderer::GetWhiteTexture();
-
-				if (AssetManager::GetAssetType(textureHandle) != AssetType::Texture)
-					return Renderer::GetWhiteTexture();
-
-				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+				Ref<Texture2D> texture;
+				if (textureHandle && Project::GetAssetManager() && AssetManager::IsAssetHandleValid(textureHandle) &&
+					AssetManager::GetAssetType(textureHandle) == AssetType::Texture)
+					texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+				if (texture && texture->Loaded() && texture->GetStreamSource())
+				{
+					if (!m_TextureStreamingCache)
+						m_TextureStreamingCache = CreateScope<TextureStreamingCache>();
+					return m_TextureStreamingCache->Track(index, slot, texture);
+				}
+				if (m_TextureStreamingCache)
+					m_TextureStreamingCache->Untrack(index);
 				if (!texture || !texture->Loaded())
 					return Renderer::GetWhiteTexture();
 
@@ -7617,7 +7780,7 @@ namespace Lux {
 		auto resolveSlot = [&](uint32_t textureIndex)
 		{
 			const GPUTextureSlot slot = textureIndex < gpuTextureSlots.size() ? gpuTextureSlots[textureIndex] : GPUTextureSlot{};
-			Ref<Texture2D> texture = resolveMaterialTexture(slot);
+			Ref<Texture2D> texture = resolveMaterialTexture(slot, textureIndex);
 			if (slot.Handle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
 			{
 				missingTextureDescriptorCount++;
@@ -7663,9 +7826,6 @@ namespace Lux {
 			// The missing-slot statistic refreshes on full sweeps.
 			missingTextureDescriptorCount = m_MissingTextureDescriptorCount;
 		}
-		// Before this frame's passes are recorded: they read this frame's table.
-		m_BindlessTextures->Flush();
-
 		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
 		// Same version gate as the texture table. Unlike the texture scratch,
 		// nothing is appended to this one, so an unchanged frame skips the copy
@@ -7718,6 +7878,82 @@ namespace Lux {
 		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
 		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureSlots.size();
+		const auto updateTextureSlot = [this](GPUTextureIndex index, const Ref<Texture2D>& texture) {
+			m_GPUMaterialTextures[index] = texture;
+			m_BindlessTextures->SetSlot(index, texture);
+		};
+		uint64_t feedbackGeneration = 0;
+		if (m_TextureStreamingCache)
+		{
+			auto& cache = *m_TextureStreamingCache;
+			cache.ConfigureVirtual(uploadedTextureCount, m_VirtualTextureFeedbackSupported ? MaxGPUTextureSceneTextures() : uploadedTextureCount, updateTextureSlot);
+			feedbackGeneration = cache.FeedbackGeneration();
+			if (m_VirtualTextureFeedback)
+			{
+				std::lock_guard lock(m_VirtualTextureFeedback->Mutex);
+				if (m_TextureFeedbackSequence != m_VirtualTextureFeedback->Sequence)
+				{
+					cache.ReadFeedback(m_VirtualTextureFeedback->Words, m_VirtualTextureFeedback->Generation);
+					m_TextureFeedbackSequence = m_VirtualTextureFeedback->Sequence;
+				}
+			}
+		}
+
+		if (m_TextureStreamingCache && !m_TextureStreamingCache->Empty())
+		{
+			auto& cache = *m_TextureStreamingCache;
+			cache.BeginFeedback();
+			const glm::mat4& view = m_SceneData.SceneCamera.ViewMatrix;
+			const glm::mat4 projection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix();
+			const float projectionHeight = std::abs(projection[1][1]) * static_cast<float>(m_ViewportHeight);
+			const bool orthographic = projection[3][3] == 1.0f;
+			const auto requestInstance = [&](const GPUSceneInstanceData& instance)
+			{
+				const uint32_t flags = GetGPUSceneInstanceFlags(instance);
+				const uint32_t materialIndex = GetGPUSceneMaterialIndex(instance);
+				const glm::vec4 sphere = instance.BoundsSphere;
+				if (!(flags & static_cast<uint32_t>(GPUSceneInstanceFlags::Visible)) ||
+					materialIndex >= persistentMaterialCount || !m_SceneData.CameraFrustum.IsSphereVisible({ glm::vec3(sphere), sphere.w }))
+					return;
+				const GPUMaterialData& material = gpuMaterialData[materialIndex];
+				const float depth = -(view * glm::vec4(glm::vec3(sphere), 1.0f)).z;
+				const float tiling = std::max({ glm::length(glm::vec2(material.UVTransform)), glm::length(glm::vec2(material.UVTransform.z, material.UVTransform.w)), 1.0f });
+				const float pixels = sphere.w * projectionHeight / ((orthographic ? 1.0f : std::max(depth, 0.1f)) * tiling);
+				for (uint32_t channel = 0; channel < 4; ++channel)
+					cache.Request(material.TextureIndices[channel], pixels);
+				for (uint32_t channel = 0; channel < 3; ++channel)
+				{
+					cache.Request(material.ExtraTextureIndices[channel], pixels);
+					cache.Request(material.DetailTextureIndices[channel], pixels);
+				}
+				cache.Request(material.TransmissionTextureIndices.x, pixels);
+			};
+			if (persistentGPUSceneInstances)
+				for (const auto& instance : *persistentGPUSceneInstances)
+					requestInstance(instance);
+			for (const auto& instance : m_TransientGPUSceneInstances)
+				requestInstance(instance);
+			const uint64_t bytes = uint64_t(std::clamp(m_Options.TextureStreamingBudgetMiB, 1u, 512u)) * 1024 * 1024;
+			cache.Apply(bytes, updateTextureSlot);
+			const auto& residency = cache.GetStatistics();
+			m_Statistics.StreamedTextures = residency.StreamedTextures;
+			m_Statistics.StreamedFineTextures = residency.FineTextures;
+			m_Statistics.TextureStreamingPromotions = residency.Promotions;
+			m_Statistics.TextureStreamingEvictions = residency.Evictions;
+			m_Statistics.TextureStreamingFineBytes = residency.FineBytes;
+			m_Statistics.VirtualTexturePages = residency.VirtualPages;
+			m_Statistics.VirtualTexturePageUploads = residency.PageUploads;
+			m_Statistics.VirtualTexturePageEvictions = residency.PageEvictions;
+		}
+		else
+		{
+			m_Statistics.StreamedTextures = 0;
+			m_Statistics.StreamedFineTextures = 0;
+			m_Statistics.TextureStreamingFineBytes = 0;
+			m_Statistics.VirtualTexturePages = 0;
+		}
+		// Before recording the passes that read this frame's material bindings.
+		m_BindlessTextures->Flush();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{
@@ -8353,6 +8589,8 @@ namespace Lux {
 				transientSceneData = std::move(transientGPUSceneData),
 				materialData = gpuMaterialData,
 				transientMaterialData = transientGPUMaterialData,
+				virtualTextures = feedbackGeneration ? m_TextureStreamingCache->GetVirtualMapping()
+					: std::unordered_map<GPUTextureIndex, GPUTextureIndex>{},
 				requiredObjectIndexCount, requiredVisibleObjectIndexCount,
 				persistentSceneCount, persistentGPUMaterialCount]() mutable {
 
@@ -8440,6 +8678,29 @@ namespace Lux {
 						instance->m_SBSGPUMaterials->Resize(gpuMaterialBytes * 2u);
 				}
 
+				if (!virtualTextures.empty())
+				{
+					const auto encode = [&virtualTextures](GPUTextureIndex& index) {
+						if (const auto slot = virtualTextures.find(index); slot != virtualTextures.end())
+							index = TextureStreamingCache::VirtualTextureBit | slot->second;
+					};
+					const auto encodeMaterials = [&encode](std::vector<GPUMaterialData>& materials) {
+						for (GPUMaterialData& material : materials)
+						{
+							for (uint32_t channel = 0; channel < 4; ++channel)
+								encode(material.TextureIndices[channel]);
+							for (uint32_t channel = 0; channel < 3; ++channel)
+							{
+								encode(material.ExtraTextureIndices[channel]);
+								encode(material.DetailTextureIndices[channel]);
+							}
+							encode(material.TransmissionTextureIndices.x);
+						}
+					};
+					encodeMaterials(materialData);
+					encodeMaterials(transientMaterialData);
+				}
+
 				if (!materialData.empty())
 				{
 					const uint32_t uploadBytes = (uint32_t)(materialData.size() * sizeof(GPUMaterialData));
@@ -8495,6 +8756,8 @@ namespace Lux {
 
 		// ── 3. Execute render passes ──────────────────────────────────────────
 		m_CommandBuffer->Begin();
+		if (feedbackGeneration)
+			PrepareVirtualTextureFeedback();
 
 		// The graph is rebuilt every frame (cheap — keeps execute callbacks and image
 		// refs current), but Compile() — the lifetime/alias analysis, by far the heavier
@@ -8563,6 +8826,8 @@ namespace Lux {
 			LUX_PROFILE_SCOPE("RenderGraph::Execute");
 			m_RenderGraph.Execute(renderGraphResult, m_CommandBuffer);
 		}
+		if (feedbackGeneration)
+			CopyVirtualTextureFeedback(feedbackGeneration);
 
 		m_CommandBuffer->End();
 
@@ -9615,6 +9880,8 @@ namespace Lux {
 	void SceneRenderer::GBufferPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "GBufferPass");
+		UpdateLightmapRects();
+		SyncRealtimeGI();
 		BeginProfiledGPU("GBufferPass");
 		Renderer::BeginRenderPass(m_CommandBuffer, m_GeometryPass);
 
@@ -9665,6 +9932,51 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	bool SceneRenderer::EnsureRTAreaLightPass()
+	{
+		if (m_RTAreaLightUnavailable || !RHIDevice::SupportsRayQuery() || !ShaderCompiler::IsAvailable())
+			return false;
+		const auto framebuffer = m_AreaLightPass->GetTargetFramebuffer();
+		if (m_RTAreaLightPass && m_RTAreaLightPass->GetTargetFramebuffer() == framebuffer)
+			return true;
+
+		auto library = Renderer::GetShaderLibrary();
+		if (!library->GetShaders().contains("DeferredLighting_AreaRT"))
+			library->Load("Resources/Shaders/DeferredLighting_AreaRT.glsl");
+		if (!library->GetShaders().contains("DeferredLighting_AreaRT"))
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTAreaShadows] shader did not compile; using shadow maps");
+			m_RTAreaLightUnavailable = true;
+			return false;
+		}
+		if (!m_RayTracingScene)
+			m_RayTracingScene = Ref<RayTracingScene>::Create();
+
+		PipelineSpecification pipeline = m_AreaLightPass->GetPipeline()->GetSpecification();
+		pipeline.Shader = library->Get("DeferredLighting_AreaRT");
+		pipeline.DebugName = "RTAreaLights";
+		RenderPassSpecification passSpec = m_AreaLightPass->GetSpecification();
+		passSpec.DebugName = "RTAreaLights";
+		passSpec.Pipeline = Pipeline::Create(pipeline);
+		Ref<RenderPass> pass = RenderPass::Create(passSpec);
+		BindSceneRenderPassInputs(pass, PassInputCommonScene | PassInputMaterialScene | PassInputShadowMaps | PassInputDepth | PassInputGBuffer);
+		pass->SetInput("AreaLightData", m_UBSAreaLights);
+		pass->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
+		pass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
+		pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTAreaShadows] pass inputs do not match the shader; using shadow maps");
+			m_RTAreaLightUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_RTAreaLightMaterial = Material::Create(pipeline.Shader, "RTAreaLights");
+		m_RTAreaLightPass = pass;
+		return true;
+	}
+
 	void SceneRenderer::AreaLightPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "AreaLightPass");
@@ -9672,9 +9984,49 @@ namespace Lux {
 			return;
 
 		BeginProfiledGPU("AreaLightPass");
-		Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
-		Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
-		Renderer::EndRenderPass(m_CommandBuffer);
+		const bool translucent = m_Options.EnableRTTranslucentShadows;
+		const uint32_t glassFlags = (translucent ? 1u : 0u) | (m_Options.EnableRTCaustics && !m_RTCausticsUnavailable ? 2u : 0u);
+		if ((m_Options.EnableRTAreaLightShadows || translucent) && m_SubmittedRenderScene && EnsureRTAreaLightPass())
+		{
+			ApplyRTTuning();
+			m_RTAreaLightPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferBaseColor", GetGeometryBaseColorOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferNormal", GetGeometryNormalOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferMetalRoughAO", GetGeometryMetalRoughOutput());
+			m_RTAreaLightPass->SetInput("u_GBufferMaterialObjectID", GetGeometryMaterialIDOutput());
+			const uint32_t rays = std::clamp(m_Options.RTAreaShadowRays, 1u, 32u);
+			auto instances = RayTracingScene::GatherInstances(m_SubmittedRenderScene->GetStaticMeshProxies());
+			Renderer::Submit([cb = m_CommandBuffer, scene = m_RayTracingScene, rtPass = m_RTAreaLightPass,
+				rtMaterial = m_RTAreaLightMaterial, shadowMapPass = m_AreaLightPass, shadowMapMaterial = m_AreaLightMaterial,
+				rays, glassFlags, instances = std::move(instances)]() mutable
+			{
+				scene->RT_Update(cb, instances);
+				if (scene->IsValid())
+				{
+					rtPass->Prepare();
+					if (Renderer::RT_BeginRenderPass(*cb, *rtPass, {}, false))
+					{
+						rtMaterial->Set("u_AreaShadowSettings.Rays", rays);
+						rtMaterial->Set("u_AreaShadowSettings.Translucent", glassFlags);
+						Renderer::RT_SubmitFullscreenQuad(*cb, *rtPass->GetPipeline(), *rtMaterial);
+						cb->RT_EndNRIRenderPass();
+						return;
+					}
+				}
+				shadowMapPass->Prepare();
+				if (Renderer::RT_BeginRenderPass(*cb, *shadowMapPass, {}, false))
+				{
+					Renderer::RT_SubmitFullscreenQuad(*cb, *shadowMapPass->GetPipeline(), *shadowMapMaterial);
+					cb->RT_EndNRIRenderPass();
+				}
+			});
+		}
+		else
+		{
+			Renderer::BeginRenderPass(m_CommandBuffer, m_AreaLightPass);
+			Renderer::SubmitFullscreenQuad(m_CommandBuffer, m_AreaLightPass->GetPipeline(), m_AreaLightMaterial);
+			Renderer::EndRenderPass(m_CommandBuffer);
+		}
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
@@ -10067,7 +10419,7 @@ namespace Lux {
 	void SceneRenderer::PreConvolutionCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "PreConvolution");
-		if (!(m_Options.EnableSSR || m_FrameHasRefraction) || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
+		if (!(SSRActive() || m_FrameHasRefraction) || !m_PreConvolutionComputePass || !m_PreConvolutedTexture.Texture || m_PreConvolutionMaterials.empty())
 			return;
 
 		struct PreConvolutionComputePushConstants
@@ -10133,10 +10485,16 @@ namespace Lux {
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
 	}
 
+	bool SceneRenderer::SSRActive() const
+	{
+		return m_Options.EnableSSR && !(m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery()
+			&& ShaderCompiler::IsAvailable() && !m_RTReflUnavailable);
+	}
+
 	void SceneRenderer::SSRCompute()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SSR");
-		if (!m_Options.EnableSSR || !m_SSRPass || !m_SSRImage)
+		if (!SSRActive() || !m_SSRPass || !m_SSRImage)
 			return;
 
 		SSROptionsUB ssrOptions = m_SSROptions;
@@ -10162,7 +10520,7 @@ namespace Lux {
 	void SceneRenderer::SSRCompositePass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "SSRComposite");
-		if (!m_Options.EnableSSR || !m_SSRCompositePass || !m_SSRCompositeMaterial)
+		if (!SSRActive() || !m_SSRCompositePass || !m_SSRCompositeMaterial)
 			return;
 
 		// The composite is a straight upsampling sample of the SSR buffer, matching Hazel.
@@ -10432,6 +10790,138 @@ namespace Lux {
 
 		Renderer::EndComputePass(m_CommandBuffer, m_BloomFFTPass);
 		Renderer::EndGPUPerfMarker(m_CommandBuffer);
+	}
+
+	void SceneRenderer::PrepareVirtualTextureFeedback()
+	{
+		constexpr uint32_t bytes = TextureStreamingCache::FeedbackWords * sizeof(uint32_t);
+		if (!m_VirtualTextureFeedback)
+		{
+			m_VirtualTextureFeedback = Ref<VirtualTextureFeedbackState>::Create();
+			m_SBSVirtualTextureFeedback->Resize(bytes);
+		}
+		Renderer::Submit([cb = m_CommandBuffer, gpu = m_SBSVirtualTextureFeedback, state = m_VirtualTextureFeedback]() mutable {
+			const uint32_t frame = Renderer::RT_GetCurrentFrameIndex();
+			if (state->Readbacks.empty() && !state->AllocationFailed)
+			{
+				RHIBufferDesc spec;
+				spec.Size = bytes;
+				spec.Access = CPUAccess::Read;
+				spec.DebugName = "Virtual Texture Feedback Readback";
+				state->Readbacks.resize(gpu->GetBufferCount());
+				state->FrameGenerations.resize(gpu->GetBufferCount());
+				for (auto& readback : state->Readbacks)
+				{
+					readback = NRIBuffer::Create(spec);
+					if (!readback)
+						state->AllocationFailed = true;
+				}
+			}
+			if (!state->AllocationFailed && state->FrameGenerations[frame])
+			{
+				// The frame slot's fence has retired before recording into this slot again.
+				auto& readback = state->Readbacks[frame];
+				if (const void* data = readback.Map(0, bytes))
+				{
+					std::lock_guard lock(state->Mutex);
+					state->Words.resize(TextureStreamingCache::FeedbackWords);
+					std::memcpy(state->Words.data(), data, bytes);
+					state->Generation = state->FrameGenerations[frame];
+					++state->Sequence;
+					readback.Unmap();
+				}
+				state->FrameGenerations[frame] = 0;
+			}
+			static constexpr std::array<uint32_t, TextureStreamingCache::FeedbackWords> clear{};
+			gpu->RT_Get()->RT_SetData(cb, clear.data(), bytes);
+		});
+	}
+
+	void SceneRenderer::CopyVirtualTextureFeedback(uint64_t generation)
+	{
+		constexpr uint32_t bytes = TextureStreamingCache::FeedbackWords * sizeof(uint32_t);
+		Renderer::Submit([cb = m_CommandBuffer, gpu = m_SBSVirtualTextureFeedback, state = m_VirtualTextureFeedback, generation]() mutable {
+			if (state->AllocationFailed || state->Readbacks.empty())
+				return;
+			const uint32_t frame = Renderer::RT_GetCurrentFrameIndex();
+			const Ref<StorageBuffer> feedback = gpu->RT_Get();
+			cb->RT_RequireBufferState(feedback->GetBuffer().GetTracked(), ResourceState::CopySource);
+			if (nri::CommandBuffer* commands = cb->RT_BeginNRITransfer())
+			{
+				RHIDevice::API().CmdCopyBuffer(*commands, *state->Readbacks[frame].Get(), 0, *feedback->GetRHIBuffer(), 0, bytes);
+				cb->RT_EndNRISegment();
+				state->FrameGenerations[frame] = generation;
+			}
+		});
+	}
+
+	void SceneRenderer::HeightFogPass()
+	{
+		ScopedCPUProfile cpuProfile(*this, "HeightFog");
+		const Ref<Image2D> sceneColour = GetSceneColorOutput();
+		const Ref<Image2D> depth = m_PreDepthPass->GetDepthOutput();
+		if (!sceneColour || !depth || m_HeightFogUnavailable)
+			return;
+		const uint32_t width = sceneColour->GetWidth();
+		const uint32_t height = sceneColour->GetHeight();
+		if (!m_HeightFogPass)
+		{
+			auto library = Renderer::GetShaderLibrary();
+			if (!library->GetShaders().contains("HeightFog"))
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Height fog is unavailable because its shader is missing");
+				m_HeightFogUnavailable = true;
+				return;
+			}
+			ImageSpecification imageSpec;
+			imageSpec.Format = ImageFormat::RGBA16F;
+			imageSpec.Usage = ImageUsage::Storage;
+			imageSpec.Width = width;
+			imageSpec.Height = height;
+			imageSpec.DebugName = "HeightFogResult";
+			auto result = Image2D::Create(imageSpec);
+			result->Invalidate();
+			ComputePassSpecification passSpec;
+			passSpec.DebugName = "HeightFog";
+			passSpec.Pipeline = PipelineCompute::Create(library->Get("HeightFog"));
+			auto pass = ComputePass::Create(passSpec);
+			pass->SetInput("Camera", m_UBSCamera);
+			pass->SetInput("u_HeightFogScene", sceneColour);
+			pass->SetInput("u_HeightFogDepth", depth);
+			pass->SetInput("o_HeightFogScene", result);
+			if (!pass->Validate())
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "Height fog shader inputs do not match the compute pass");
+				m_HeightFogUnavailable = true;
+				return;
+			}
+			pass->Bake();
+			m_HeightFogPass = pass;
+			m_HeightFogResult = result;
+		}
+		else
+		{
+			if (m_HeightFogResult->GetWidth() != width || m_HeightFogResult->GetHeight() != height)
+				m_HeightFogResult->Resize(width, height);
+			m_HeightFogPass->SetInput("u_HeightFogScene", sceneColour);
+			m_HeightFogPass->SetInput("u_HeightFogDepth", depth);
+		}
+		const auto fog = GetResolvedPostProcessSettings().HeightFog;
+		const glm::vec4 push[2] = {
+			{ fog.Density, fog.ReferenceHeight, std::max(fog.HeightFalloff, 0.0f), fog.MaxDistance },
+			{ glm::max(fog.Colour, glm::vec3(0.0f)), std::max(fog.StartDistance, 0.0f) }
+		};
+		GetOrCreatePassProfile("HeightFog").GPUActive = true;
+		Renderer::Submit([cb = m_CommandBuffer, pass = m_HeightFogPass, result = m_HeightFogResult, sceneColour,
+			width, height, medium = push[0], colourStart = push[1]]() mutable
+		{
+			const glm::vec4 settings[] = { medium, colourStart };
+			Renderer::RT_BeginGPUPerfMarker(cb, "HeightFog");
+			pass->Prepare();
+			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(settings, sizeof(settings)));
+			Renderer::RT_EndGPUPerfMarker(cb);
+			Renderer::RT_CopyImage(cb, result, sceneColour);
+		});
 	}
 
 	void SceneRenderer::AutoExposurePass()
@@ -10881,7 +11371,7 @@ namespace Lux {
 				return GetGeometryNormalOutput();
 
 			case DebugViewMode::SSR:
-				if (!m_Options.EnableSSR)
+				if (!SSRActive())
 					return nullptr;
 				return m_SSRFinalImage ? m_SSRFinalImage : m_SSRImage;
 

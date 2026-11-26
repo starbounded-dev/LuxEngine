@@ -13,6 +13,11 @@ namespace Lux {
 		return static_cast<void*>(LoadLibraryA(fileName));
 	}
 
+	void* SharedLibrary::LoadFile(const std::filesystem::path& path)
+	{
+		return LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+	}
+
 	void* SharedLibrary::GetSymbol(void* library, const char* name)
 	{
 		return library ? reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(library), name)) : nullptr;

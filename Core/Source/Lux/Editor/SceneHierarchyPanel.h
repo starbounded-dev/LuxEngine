@@ -9,6 +9,7 @@
 #include "Lux/Scene/Entity.h"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -42,6 +43,8 @@ namespace Lux {
 
 		// Invoked by the material slots' Edit buttons; the editor opens the Material Editor.
 		void SetOpenMaterialCallback(std::function<void(AssetHandle)> callback) { m_OpenMaterialCallback = std::move(callback); }
+		void SetMaterialDropCallback(std::function<void(UUID, std::optional<uint32_t>)> callback) { m_MaterialDropCallback = std::move(callback); }
+		static bool ApplyMaterial(struct StaticMeshComponent& component, AssetHandle material, std::optional<uint32_t> slot);
 		void SetOpenSoundCallback(std::function<void(AssetHandle)> callback) { m_OpenSoundCallback = std::move(callback); }
 		// Invoked by the Tilemap's Open Tile Palette button.
 		void SetOpenTilePaletteCallback(std::function<void()> callback) { m_OpenTilePaletteCallback = std::move(callback); }
@@ -77,6 +80,7 @@ namespace Lux {
 		size_t m_VisibleEntityCount = 0;
 		std::vector<UUID> m_QueuedEntityDeletions;
 		std::function<void(AssetHandle)> m_OpenMaterialCallback;
+		std::function<void(UUID, std::optional<uint32_t>)> m_MaterialDropCallback;
 		std::function<void(AssetHandle)> m_OpenSoundCallback;
 		std::function<void()> m_OpenTilePaletteCallback;
 		std::function<void()> m_OpenParticleEditorCallback;

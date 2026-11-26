@@ -7,6 +7,8 @@
 #include "Lux/Renderer/RenderCommandBuffer.h"
 #include "Lux/Renderer/RHI/RHIResources.h"
 
+#include <vulkan/vulkan_core.h>
+
 namespace Lux {
 
 	namespace {
@@ -15,6 +17,8 @@ namespace Lux {
 		{
 			nri::Device* Device = nullptr;
 			NRIInterface API = {};
+			bool ShaderExecutionReordering = false;
+			bool FragmentStorageAtomics = false;
 			std::array<nri::Queue*, static_cast<size_t>(GPUQueue::Count)> Queues = {};
 		};
 
@@ -68,8 +72,8 @@ namespace Lux {
 				desc.adapterDesc.queueNum[static_cast<size_t>(nri::QueueType::GRAPHICS)],
 				desc.adapterDesc.queueNum[static_cast<size_t>(nri::QueueType::COMPUTE)],
 				desc.adapterDesc.queueNum[static_cast<size_t>(nri::QueueType::COPY)]);
-			LUX_CORE_INFO_TAG("Renderer", "[RHI]   tiers: bindless {}, resourceBinding {}, shadingRate {}",
-				desc.tiers.bindless, desc.tiers.resourceBinding, desc.tiers.shadingRate);
+			LUX_CORE_INFO_TAG("Renderer", "[RHI]   tiers: bindless {}, resourceBinding {}, shadingRate {}, rayTracing {}",
+				desc.tiers.bindless, desc.tiers.resourceBinding, desc.tiers.shadingRate, desc.tiers.rayTracing);
 			LUX_CORE_INFO_TAG("Renderer", "[RHI]   features: meshShader {}, enhancedBarriers {}, timestamp {}, pipelineStatistics {}, viewportOriginBottomLeft {}, rootConstantsOffset {}",
 				static_cast<bool>(desc.features.meshShader), static_cast<bool>(desc.features.enhancedBarriers),
 				static_cast<bool>(desc.features.timestamp), static_cast<bool>(desc.features.pipelineStatistics),
@@ -140,6 +144,9 @@ namespace Lux {
 			&& nri::nriGetInterface(*device, NRI_INTERFACE(nri::HelperInterface), static_cast<nri::HelperInterface*>(&api)) == nri::Result::SUCCESS
 			&& nri::nriGetInterface(*device, NRI_INTERFACE(nri::WrapperVKInterface), static_cast<nri::WrapperVKInterface*>(&api)) == nri::Result::SUCCESS
 			&& nri::nriGetInterface(*device, NRI_INTERFACE(nri::SwapChainInterface), static_cast<nri::SwapChainInterface*>(&api)) == nri::Result::SUCCESS;
+		// Optional: failure only leaves the interface zeroed (SupportsRayQuery() is false).
+		if (interfacesFound && api.GetDeviceDesc(*device).tiers.rayTracing >= 2)
+			nri::nriGetInterface(*device, NRI_INTERFACE(nri::RayTracingInterface), static_cast<nri::RayTracingInterface*>(&api));
 		if (interfacesFound && api.GetDeviceDesc(*device).features.meshShader)
 			interfacesFound = nri::nriGetInterface(*device, NRI_INTERFACE(nri::MeshShaderInterface), static_cast<nri::MeshShaderInterface*>(&api)) == nri::Result::SUCCESS;
 
@@ -149,6 +156,12 @@ namespace Lux {
 			Shutdown();
 			return false;
 		}
+		s_Data->FragmentStorageAtomics = createInfo.FragmentStorageAtomics;
+#if defined(VK_EXT_ray_tracing_invocation_reorder)
+		s_Data->ShaderExecutionReordering = api.CreateRayTracingPipeline && api.CmdDispatchRays &&
+			std::find(createInfo.DeviceExtensions.begin(), createInfo.DeviceExtensions.end(),
+				VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) != createInfo.DeviceExtensions.end();
+#endif
 
 		for (size_t i = 0; i < k_QueueTypes.size(); i++)
 		{
@@ -201,6 +214,21 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(s_Data, "RHIDevice is not initialized");
 		return s_Data->Queues[static_cast<size_t>(queue)];
+	}
+
+	bool RHIDevice::SupportsRayQuery()
+	{
+		return s_Data && s_Data->API.GetDeviceDesc(*s_Data->Device).tiers.rayTracing >= 2 && s_Data->API.CreateAccelerationStructure != nullptr;
+	}
+
+	bool RHIDevice::SupportsShaderExecutionReordering()
+	{
+		return s_Data && s_Data->ShaderExecutionReordering;
+	}
+
+	bool RHIDevice::SupportsFragmentStorageAtomics()
+	{
+		return s_Data && s_Data->FragmentStorageAtomics;
 	}
 
 	const nri::DeviceDesc& RHIDevice::GetDesc()

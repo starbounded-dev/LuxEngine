@@ -16,6 +16,7 @@ editor runs with LUX_USER_DATA_DIR pointing at another one, so the user's prefer
 import argparse
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -54,7 +55,7 @@ RIGS = {
 }
 
 
-def registry_text(rig, scene_handle, graph=False):
+def registry_text(rig, scene_handle, graph=False, generate_lightmap_uvs=False):
     folder, mesh, skeleton, clip, materials = RIGS[rig]
     entries = [(scene_handle, "Scenes/RigExport.luxscene", "Scene"),
                (MESH, f"Meshes/Source/{folder}/{mesh}", "MeshSource"),
@@ -66,7 +67,12 @@ def registry_text(rig, scene_handle, graph=False):
         entries.append((IDLE, f"Meshes/Source/{folder}/LuxBiped_Idle.lanim", "Animation"))
         entries.append((GRAPH, f"Meshes/Source/{folder}/LuxBiped.lanimgraph", "AnimationGraph"))
     entries += [(h, f"Meshes/Source/{folder}/Materials/{f}", "Material") for h, f in materials]
-    return "Assets:\n" + "".join(f"  - Handle: {h}\n    FilePath: {p}\n    Type: {t}\n" for h, p, t in entries)
+    registry = ["Assets:\n"]
+    for handle, path, asset_type in entries:
+        registry.append(f"  - Handle: {handle}\n    FilePath: {path}\n    Type: {asset_type}\n")
+        if generate_lightmap_uvs and handle == MESH:
+            registry.append("    GenerateLightmapUVs: true\n")
+    return "".join(registry)
 
 
 SCENE_YAML = """Scene: RigExport
@@ -148,7 +154,7 @@ Entities:
 """
 
 
-def write_project(project, config, rig, graph=False):
+def write_project(project, config, rig, graph=False, generate_lightmap_uvs=False):
     assets = project / "Assets"
     (assets / "Scenes").mkdir(parents=True)
     shutil.copytree(ASSETS / "Meshes/Source" / RIGS[rig][0], assets / "Meshes/Source" / RIGS[rig][0])
@@ -159,7 +165,7 @@ def write_project(project, config, rig, graph=False):
         text = (ASSETS / "Meshes/Source/LuxBiped/LuxBiped.lanimgraph").read_text(encoding="utf-8")
         (assets / "Meshes/Source/LuxBiped/LuxBiped.lanimgraph").write_text(text.replace("      Type: Float\n", "      Type: Float\n      Default: 1\n", 1), encoding="utf-8", newline="\n")
     (project / "RigExport.luxproj").write_text(PROJECT.format(scene=SCENE, config=config.capitalize()), encoding="utf-8", newline="\n")
-    (assets / "AssetRegistry.lzr").write_text(registry_text(rig, SCENE, graph), encoding="utf-8", newline="\n")
+    (assets / "AssetRegistry.lzr").write_text(registry_text(rig, SCENE, graph, generate_lightmap_uvs), encoding="utf-8", newline="\n")
     (assets / "Scenes/RigExport.luxscene").write_text(SCENE_YAML.format(mesh=MESH, skeleton=SKELETON, skeleton_extra=extra), encoding="utf-8", newline="\n")
 
 
@@ -169,6 +175,7 @@ def main():
     parser.add_argument("--runtime-config", choices=["debug", "release", "dist"], help="the exported player's configuration (default: --config); dist has no shader compiler, so it needs Skinning.glsl in the shader pack")
     parser.add_argument("--rig", default="luxbiped", choices=sorted(RIGS), help="luxbiped: binary FBX with a playing clip; simple: glTF with the debug bend")
     parser.add_argument("--graph", action="store_true", help="luxbiped only: play through an animation graph instead of one clip")
+    parser.add_argument("--generate-lightmap-uvs", action="store_true", help="export the rig with xatlas-generated lightmap UVs")
     parser.add_argument("--seconds", type=float, default=15.0, help="how long the player runs before it is stopped")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
@@ -176,7 +183,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="lux-rig-export-") as temporary:
         root = Path(temporary)
         project = root / "project"
-        write_project(project, args.runtime_config or args.config, args.rig, args.graph)
+        write_project(project, args.runtime_config or args.config, args.rig, args.graph, args.generate_lightmap_uvs)
         user = root / "user"
         user.mkdir()
         (user / "UserPreferences.yaml").write_text("UserPrefs:\n  ShowSplashScreen: false\n  RecentProjects: []\n", encoding="utf-8")
@@ -214,6 +221,12 @@ def main():
             text += engine_logs[-1].read_text(encoding="utf-8", errors="replace")
 
         problems = []
+        if args.generate_lightmap_uvs:
+            editor_log = (ROOT / "bin/golden" / label / "RigExport.log").read_text(encoding="utf-8", errors="replace")
+            meshes = re.findall(r"unwrapped skinned submesh .*: (\d+) -> (\d+) vertices, (\d+) charts", editor_log)
+            skin = re.search(r"Skinning '.*': (\d+) vertices", text)
+            if not meshes or not skin or int(skin[1]) < max(int(mesh[1]) for mesh in meshes):
+                problems.append("xatlas chart vertices did not reach the packaged skinning pass")
         if not still_running:
             problems.append("the player exited by itself before it was stopped")
         if "Skinning '" not in text:

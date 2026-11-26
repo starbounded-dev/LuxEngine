@@ -6,3 +6,6 @@
 
 # Spec Kit scripts are run by bash on Windows (Git Bash) and Linux; CRLF breaks them.
 /.specify/scripts/bash/*.sh text eol=lf
+
+# Git hooks are run by sh (Git Bash on Windows); CRLF breaks the shebang.
+/.githooks/* text eol=lf

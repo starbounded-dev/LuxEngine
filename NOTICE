@@ -66,6 +66,7 @@ Permissive open-source components
   stb                                  Public Domain / MIT   Copyright (c) 2017 Sean Barrett
   Tracy Profiler                       BSD-3     Copyright (c) 2017-2024 Bartosz Taudul
   Vulkan Memory Allocator              MIT       Copyright (c) 2017-2021 Advanced Micro Devices, Inc.
+  xatlas                               MIT       Copyright (c) 2018-2020 Jonathan Young
 
 Redistributable components under proprietary terms
 --------------------------------------------------
@@ -91,6 +92,10 @@ these SDKs or to redistribute them.
 
   Vulkan SDK                    LunarG / Khronos Group; a collection of
                                 components under Apache-2.0 and other licenses.
+
+Optional builds can include NVIDIA Real-Time Denoisers (NRD) and NVIDIA DLSS
+Ray Reconstruction from separately obtained SDKs. Editor and player packages
+that include these libraries carry the corresponding SDK license files.
 
 Anyone distributing binaries built from this source is responsible for
 complying with those SDK licenses, including their own attribution and

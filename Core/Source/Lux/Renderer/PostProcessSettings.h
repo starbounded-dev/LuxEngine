@@ -26,6 +26,17 @@ namespace Lux {
 		None = 2   // No tonemap (clamp); useful for debugging
 	};
 
+	struct HeightFogSettings
+	{
+		bool Enabled = false;
+		float Density = 0.05f; // extinction per metre at the reference height
+		float ReferenceHeight = 0.0f;
+		float HeightFalloff = 0.1f; // zero is a homogeneous distance fog
+		float StartDistance = 0.0f;
+		float MaxDistance = 100.0f;
+		glm::vec3 Colour{ 0.6f, 0.7f, 0.8f }; // linear scene radiance
+	};
+
 	// Scene-wide post-processing. Authored once per scene rather than per placed volume:
 	// the spatial render-volume system (box/sphere volumes blended by proximity and
 	// priority) was removed, so these values apply to the whole scene.
@@ -81,6 +92,7 @@ namespace Lux {
 		glm::vec3 Lift = { 0.0f, 0.0f, 0.0f };      // shadows (additive)
 		glm::vec3 GradeGamma = { 1.0f, 1.0f, 1.0f }; // midtones (power)
 		glm::vec3 Gain = { 1.0f, 1.0f, 1.0f };       // highlights (multiplicative)
+		HeightFogSettings HeightFog;
 	};
 
 } // namespace Lux

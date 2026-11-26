@@ -694,8 +694,8 @@ context see the same device NRI drives.
   and loads their functions as if they always were: with `VK_KHR_ray_tracing_pipeline` it loads
   `vkCmdTraceRaysIndirect2KHR` from `VK_KHR_ray_tracing_maintenance1`, and `nriCreateDeviceFromVKDevice`
   fails when that is missing. `VulkanDevice` enables maintenance1 (and its features) with the
-  ray-tracing extensions, and leaves the pipeline extension off on a device without it (Lux uses no
-  ray-tracing pipelines). Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
+  ray-tracing extensions, and leaves the pipeline extension off on a device without it. That device
+  can still use the ray-query path. Mesh-shader statistics need `meshShaderQueries` (enabled when supported;
   fork patch LUX-2). Check `DeviceVK::ResolveDispatchTable` before enabling a new extension.
 - **Surface extensions.** The fork loads a platform's surface function only when its instance
   extension is enabled, and NRI's swapchain calls the `get_surface_capabilities2` queries without
@@ -1473,3 +1473,117 @@ tagged logger.
 ### Occlusion culling reads the far HZB
 
 `m_HierarchicalDepthTexture` keeps the *closest* depth per texel (SSR, GTAO) and must not be used to cull: one near pixel would hide anything behind it in the texel. `m_HierarchicalFarDepthTexture` is the same pyramid with the farthest depth (`u_UseMin` in `HZB.glsl`); `MeshCulling.glsl` takes the smallest sample over the object's rectangle and compares it with the object's nearest depth. The viewport is negative-height, so the lookup flips V. `tests/rendering/run_occlusion_check.py` renders Coin Run's level with occlusion culling on and off and requires identical images.
+
+## Ray tracing and the path tracer (opt-in)
+
+Ray tracing is an option, never a requirement: the raster renderer is the default and the only path every
+GPU runs. With every ray-traced option off the frame is bit-identical to before (checked by capturing
+`LowSun` with and without) and nothing below is created.
+
+- **Device support.** `RHIDevice::SupportsRayQuery()` (NRI ray-tracing tier 2: acceleration structures and ray
+  queries). `RHIDevice::Init` fetches `nri::RayTracingInterface` into `NRIInterface` only then.
+- **Acceleration structure as a shader input.** `RHIAccelerationStructure` is bound like any other input
+  (`ComputePass::SetInput(name, Ref<RHIAccelerationStructure>)`, `RenderResourceType/RenderInputType::AccelerationStructure`).
+  Reflection stores `accelerationStructureEXT` bindings in `ShaderDescriptorSet::SeparateSamplers` with
+  `Dimension == ShaderResource::k_AccelerationStructureDimension` (255), so the `.refl` cache and shader-pack
+  formats did not change. `RHIShader` turns them into `nri::DescriptorType::ACCELERATION_STRUCTURE` ranges.
+- **`RayTracingScene`** (`Renderer/RayTracing/`). One BLAS per (mesh source, submesh), one TLAS instance per drawn
+  submesh, plus SSBOs (`RTVertices`, `RTIndices`, `RTInstances`) at set 1 bindings 60-62. Inputs are gathered on the
+  main thread (`GatherInstances`: materials and meshes are asset objects), built on the render thread
+  (`RT_Update`) into the frame command buffer. Skinned meshes use per-instance geometry and in-place pose refits.
+  Its `StorageBuffer`s are stable objects
+  that `Resize` in place, so descriptor sets rebake by themselves. Builds end in an NRI global barrier; AS memory is
+  freed through `Renderer::SubmitResourceFree`.
+- **Path tracer** (`PathTracePass.cpp`, `Shaders/PathTracing/PathTrace.glsl`). A graph pass added after Particles only
+  while `SceneRendererOptions::EnablePathTracer` is on: it accumulates a running mean (RGBA32F, one sample per frame,
+  restarting when the scene, camera, lights or settings change) and `Renderer::RT_CopyImage`s the result into scene
+  colour, so bloom, exposure and tone mapping apply as usual. NEE samples directional, point, spot, area and
+  emissive mesh lights. BSDF continuation uses the engine material rows and bindless textures. The environment
+  uses the scene's radiance map when available. The shader is loaded on first use and needs a shader
+  compiler. Enable, bounce count, sample target and Ray Reconstruction are stored with the scene.
+  Its original bindings occupy set 1, 60–66.
+- **Checks.** `python tests/rendering/run_ray_query_spike.py` (raw Vulkan, analytic hit distances);
+  `python tests/rendering/run_path_trace_check.py` (Cornell colour bleeding, white furnace, convergence, through the
+  golden-capture harness; `PathTracer=1,PathTracerSamples=N,PathTracerFurnace=1,PathTracerBounces=N` options).
+- **Shader execution reordering.** `PTSER=1` selects a separate path-tracer pipeline on devices
+  reporting actual reordering through `VK_EXT_ray_tracing_invocation_reorder`. The ray-generation
+  shader reorders after the first trace using the hit material ID or a miss hint. Closest-hit and miss stages return
+  geometric hit data to the shared path kernel. Shadow rays keep using ray queries. The NRI shader
+  binding table is mapped once at pipeline creation and retired with the pipeline. The compute
+  path is used when SER is off or initialization fails.
+
+### Baked lightmaps (opt-in, editor bake)
+
+`SceneRenderer::StartLightmapBake` (UI: Scene Renderer > Path Tracing > Bake Lightmaps; golden option `BakeLightmaps=N`) bakes
+*indirect* diffuse for every drawn static submesh into one atlas, `Lightmaps/LightmapBake.cpp`:
+
+- Each (entity, submesh) gets a rectangle sized from its world area (16 texels/m by default); the CPU rasterises the mesh's
+  UV1 (UV0 when the mesh has no second UV set, because the attribute stream defaults UV1 to UV0) to find a world position and
+  normal per texel. Overlapping UVs are reported during the bake. The editor's source mesh importer can
+  apply a deterministic xatlas unwrap before generating render geometry. **Generate Lightmap UVs**
+  stores the choice in the asset registry. Chart copies preserve the source attributes and bone weights,
+  and export carries the generated UV1 stream. Golden captures opt in before opening the project with `AutoUnwrap=1`.
+- `PathTraceBake.glsl` adds one cosine-weighted path per texel per frame (shared kernel `Include/GLSL/PathTraceCommon.glslh`),
+  storing the mean incident radiance. Result: gutter-dilated, saved as `<project assets>/Lightmaps/<scene name>.lxlm`
+  (`LightmapData`), loaded again by `SceneRenderer::SetScene`. Editor export copies those sidecars
+  into the exported assets, where the runtime resolves them by scene name.
+- Use: `GBuffer_Static.glsl` adds `albedo * (1 - metalness) * lightmap` to the emissive target. Inputs are two storage
+  buffers bound to the G-buffer pass at set 2, bindings 71 (`LightmapRects`: `[0]` atlas size, `[1 + GPU-scene instance ID]`
+  rect) and 72 (`LightmapAtlas`: RGBA16F as `uvec2`). Zero rects mean no lightmap; the frame is bit-identical to before
+  (checked with `LowSun`). Trap found: a host-visible `StorageBuffer` rewrites its *whole* local copy, so always upload the
+  full size zero-padded (stale bytes read as rectangles caused a device-lost). The shader also bounds-checks both buffers.
+- `tests/rendering/run_path_trace_check.py` bakes the Cornell box and asserts that the lightmapped raster frame is closer to
+  the path tracer than the unlit one (MAE 0.136 -> 0.113).
+
+### Realtime GI probe volume (opt-in, RT-only)
+
+`SceneRendererOptions::EnableRealtimeGI` adds a graph pass "GI Probes" (`RayTracing/RealtimeGI.cpp`, `GIProbeUpdate.glsl`):
+a 16x8x16 probe grid over the static meshes' bounds, each probe tracing `RealtimeGIRaysPerProbe` rays per frame with the shared
+path kernel, projected onto L1 spherical harmonics and blended into its history (hysteresis; the blend is per probe, never
+screen-space, so camera motion cannot ghost; the first frames after a scene or light change replace the history). `GBuffer_Static.glsl`
+trilinearly samples the grid (`GIProbes`, set 2 binding 73) as indirect diffuse. Distance moments weight probe
+visibility, and cells inside geometry update less frequently. The probe buffer's header is written through
+`NRIBuffer::Map`, never `SetData`, because a host-visible `StorageBuffer` re-uploads its whole CPU copy and would erase the
+GPU-written probes. Switching it off clears the grid's valid flag (`SyncRealtimeGI`); the frame is then bit-identical to before.
+
+Adaptive placement (`GIProbeAdaptive=1`) starts on the uniform lattice. It records an exponentially
+weighted squared radiance residual in the second SH coefficient's unused `w` field. After 32
+updates, a dispatch redistributes the existing planes toward intervals with higher residuals and
+greater differences between neighboring probes. The outer planes stay fixed, and moved probes
+restart their history. Header `[2].w` enables the buffer tail, which holds a validity flag followed
+by the X, Y and Z plane coordinates in grid units. The G-buffer finds the bracketing planes before
+interpolating, and uses those same positions for visibility. GPU barriers order the placement and
+probe updates with fragment reads of this CPU-visible buffer.
+
+### Ray-tracing sampling, reuse and acceleration-structure tuning (opt-in)
+
+Each item has its own `SceneRendererOptions` switch and its own check in `tests/rendering/run_rt_sampling_check.py` (see `docs/GI_PLAN.md` for the measured results). Invariants:
+
+- **The unbiased path tracer is the reference** behind every Diff view. Biased options (ReSTIR DI/GI, adaptive sampling) are opt-in and must stay off for reference renders.
+- **Light choice** uses the alias table built by `PackLights`. `D.w` stores the probability mass.
+  `ChooseLight`, `LightPmf` and `SampleLight` in `PathTraceCommon.glslh` are shared across the ray-traced passes.
+  ReSTIR DI shares candidate choices within a workgroup in large light lists and evaluates the selected light at each pixel.
+- **`PathTracePush` is shared** by PathTrace, PathTraceBake, GIProbeUpdate, RTGITrace and the ReSTIR and wavefront kernels.
+  `Counts.y` carries flags and `Counts.z/w` are pass-specific. The reconstruction trace uses `Counts.z/w` for jitter.
+  Search every shader before reserving a binding.
+- **Reservoirs, history and path states live in GPU-only images / storage buffers**, ping-ponged by frame parity (two `ComputePass` instances per kernel); never host-visible buffers.
+- **`TracePath` is `TraceBounces` over a `PathState`**, so a path can be suspended and resumed (the wavefront experiment). Per-path random state travels with the path: a resumed path equals an uninterrupted one.
+- **Acceleration-structure tuning** (`RayTracingScene::Tuning`, set per pass from the options): skinned instances key their BLAS by entity and track the pose hash apart (a new pose is an in-place `ALLOW_UPDATE` build); static BLASes are built `ALLOW_COMPACTION`, sizes are read back `k_CompactionDelay` updates later (no stall) and the BLAS is copied (`COMPACT`) and swapped, after which the TLAS is rebuilt; the TLAS is `ALLOW_UPDATE` and refit when only transforms or material rows changed.
+
+### Ray-traced GI (opt-in, RT-only)
+
+`SceneRendererOptions::EnableRTGI` adds the graph pass "RTGI" (`RayTracing/RTGI.cpp`, `RTGITrace.glsl`, `RTGIFilter.glsl`) after
+the raster lighting and before the path tracer. `RTGITrace` finds the visible surface with a primary ray,
+then traces one cosine-weighted indirect path per pixel. The standard spatial filter uses normal and
+distance weights. The temporal denoiser reprojects the previous frame and uses its variance to guide filtering.
+Half-resolution RTGI reconstructs the filtered signal at full resolution using raster depth, normals and
+material colour. Optional NRD RELAX consumes ray guides at set 1 bindings 181–185. Each route adds
+`albedo * (1 - metalness) * E` to scene colour before copying it back with `Renderer::RT_CopyImage`.
+
+### Texture residency
+
+Virtual textures keep a coarse mip tail resident. The opaque and transparent fragment variants
+request individual pages through storage buffer set 2 binding 180. Each request is one bit.
+The per-view cache reads feedback after the frame slot's fence, verifies the page table generation
+and uploads pages within its fine-texture budget. Path tracing uses ray cones to select a virtual
+mip. Devices without fragment storage atomics and alpha-tested textures use mip streaming instead.

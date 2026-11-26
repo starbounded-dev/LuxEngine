@@ -9,6 +9,7 @@
 #include <Extensions/NRIDeviceCreation.h>
 #include <Extensions/NRIHelper.h>
 #include <Extensions/NRIMeshShader.h>
+#include <Extensions/NRIRayTracing.h>
 #include <Extensions/NRISwapChain.h>
 #include <Extensions/NRIWrapperVK.h>
 
@@ -41,13 +42,15 @@ namespace Lux {
 #endif
 
 	// Every NRI interface Lux uses, filled once by RHIDevice::Init (the layout NRI's samples use).
-	// MeshShaderInterface stays zeroed when the device has no mesh shaders.
+	// MeshShaderInterface stays zeroed when the device has no mesh shaders; RayTracingInterface when
+	// it has no acceleration structures (check RHIDevice::SupportsRayQuery).
 	struct NRIInterface
 		: nri::CoreInterface
 		, nri::HelperInterface
 		, nri::WrapperVKInterface
 		, nri::SwapChainInterface
 		, nri::MeshShaderInterface
+		, nri::RayTracingInterface
 	{
 	};
 
@@ -67,6 +70,7 @@ namespace Lux {
 		std::vector<std::string> InstanceExtensions;
 		std::vector<std::string> DeviceExtensions;
 		bool EnableValidation = false;
+		bool FragmentStorageAtomics = false;
 	};
 
 	// The NRI device. It wraps the VkDevice that VulkanDevice creates (so Aftermath and the
@@ -94,6 +98,11 @@ namespace Lux {
 		// Null when the queue was not created (no dedicated compute or transfer family).
 		static nri::Queue* GetQueue(GPUQueue queue);
 		static const nri::DeviceDesc& GetDesc();
+		// True when acceleration structures AND ray queries can be used (NRI tier 2+), so shaders may use
+		// GL_EXT_ray_query. Ray tracing is opt-in everywhere; the raster renderer never needs it.
+		static bool SupportsRayQuery();
+		static bool SupportsShaderExecutionReordering();
+		static bool SupportsFragmentStorageAtomics();
 
 		// Creates, records and submits a little work through NRI on the shared device (buffer,
 		// texture, view, barrier, zero fill, fence wait) and destroys it again. Logs the outcome.

@@ -19,6 +19,75 @@ newoption {
 
 include "Dependencies.lua"
 
+local nrdSdk = os.getenv("LUX_NRD_SDK")
+if nrdSdk then
+	LuxNrdSdk = path.getabsolute(nrdSdk)
+	if not os.isfile(path.join(LuxNrdSdk, "Include/NRD.h")) or
+		not os.isfile(path.join(LuxNrdSdk, "Integration/NRDIntegration.hpp")) then
+		error("LUX_NRD_SDK must point to the built NRD v4.17.3 source tree")
+	end
+	-- The NVIDIA sample targets NRI 179. Lux's NRI 181 renamed the buffer
+	-- usage and changed GraphicsAPI from sequential values to bit flags.
+	local source = io.readfile(path.join(LuxNrdSdk, "Integration/NRDIntegration.hpp"))
+	for _, change in ipairs({
+		{ "nri::BufferUsageBits::CONSTANT_BUFFER", "nri::BufferUsageBits::CONSTANT" },
+		{ "(&nrdPipelineDesc.computeShaderDXBC)[std::max((int32_t)deviceDesc.graphicsAPI - 1, 0)]", "nrdPipelineDesc.computeShaderSPIRV" },
+	}) do
+		local first, last = source:find(change[1], 1, true)
+		if not first then
+			error("Unsupported NRD integration header. Use NVIDIA NRD v4.17.3.")
+		end
+		source = source:sub(1, first - 1) .. change[2] .. source:sub(last + 1)
+	end
+	LuxNrdIntegration = path.getabsolute("bin-int/NRD")
+	os.mkdir(LuxNrdIntegration)
+	local generated = assert(io.open(path.join(LuxNrdIntegration, "LuxNRDIntegration.hpp"), "wb"))
+	generated:write("// This software contains source code provided by NVIDIA Corporation.\n", source)
+	generated:close()
+end
+
+function StageNrdSdk()
+	if not LuxNrdSdk then
+		return
+	end
+	local binary = os.target() == "windows" and "NRD.dll" or "libNRD.so"
+	local source = path.join(LuxNrdSdk, "_Bin/Release", binary)
+	if not os.isfile(source) then
+		error("Build the Release NRD library before generating LuxEngine projects: " .. source)
+	end
+	filter "configurations:not Dist"
+		postbuildcommands {
+			'{COPYFILE} "' .. source .. '" "%{cfg.targetdir}/' .. binary .. '"',
+			'{COPYFILE} "' .. path.join(LuxNrdSdk, "LICENSE.txt") .. '" "%{cfg.targetdir}/NRD-LICENSE.txt"',
+		}
+	filter {}
+end
+
+local dlssSdk = os.getenv("LUX_DLSS_SDK")
+if dlssSdk and os.target() == "windows" then
+	LuxDlssSdk = path.getabsolute(dlssSdk)
+	if not os.isfile(path.join(LuxDlssSdk, "include/nvsdk_ngx_helpers_dlssd_vk.h")) or
+		not os.isfile(path.join(LuxDlssSdk, "lib/Windows_x86_64/rel/nvngx_dlssd.dll")) then
+		error("LUX_DLSS_SDK must point to the NVIDIA DLSS 310.9.1 SDK with the Windows Ray Reconstruction library")
+	end
+end
+
+function StageDlssSdk()
+	if not LuxDlssSdk then
+		return
+	end
+	filter { "system:windows", "configurations:Release" }
+		links { path.join(LuxDlssSdk, "lib/Windows_x86_64/x64/nvsdk_ngx_d.lib") }
+	filter { "system:windows", "configurations:Debug or Debug-AS" }
+		links { path.join(LuxDlssSdk, "lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib") }
+	filter { "system:windows", "configurations:not Dist" }
+		postbuildcommands {
+			'{COPYFILE} "' .. path.join(LuxDlssSdk, "lib/Windows_x86_64/rel/nvngx_dlssd.dll") .. '" "%{cfg.targetdir}/nvngx_dlssd.dll"',
+			'{COPYFILE} "' .. path.join(LuxDlssSdk, "LICENSE.txt") .. '" "%{cfg.targetdir}/DLSS-LICENSE.txt"',
+		}
+	filter {}
+end
+
 workspace "Lux"
 	configurations { "Debug", "Debug-AS", "Release", "Dist" }
 	startproject "Core"

@@ -1,0 +1,78 @@
+FormatVersion: 1
+Scene: GI_BounceSpot
+Entities:
+  - Entity: 17000000000000027
+    TagComponent:
+      Tag: Floor
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, -0.05, 0]
+      Rotation: [0, 0, 0]
+      Scale: [14, 0.1, 14]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000028
+    TagComponent:
+      Tag: Back Wall
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3, -5]
+      Rotation: [0, 0, 0]
+      Scale: [14, 6, 0.2]
+    StaticMeshComponent:
+      AssetID: Meshes/Source/Default/Cube.gltf
+      MaterialTable:
+        0: Materials/GI/GI_White.lmat
+      Visible: true
+  - Entity: 17000000000000029
+    TagComponent:
+      Tag: Spot
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 3, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    SpotLightComponent:
+      Radiance: [1, 0.95, 0.85]
+      Angle: 10
+      AngleAttenuation: 2
+      CastsShadows: false
+      SoftShadows: false
+      Falloff: 1
+      Intensity: 900
+      Unit: 0
+      ColorTemperature: 6500
+      UseColorTemperature: false
+      Range: 30
+      ShadowDistance: 0
+      ShadowResolutionTier: 1
+  - Entity: 17000000000000030
+    TagComponent:
+      Tag: GI Camera
+    Parent: 0
+    Children:
+      []
+    TransformComponent:
+      Position: [0, 2.2, 8]
+      Rotation: [-0.12, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 50
+        PerspectiveNear: 0.1
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false

@@ -17,6 +17,9 @@ LUX_DIR=${LUX_DIR:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
 export LUX_DIR
 cd "$LUX_DIR"
 
+# The pre-push hook (.githooks/pre-push) keeps the committed engine shader pack in step with the shaders.
+git config core.hooksPath .githooks 2>/dev/null || true
+
 if [ -n "${BUILD_CONFIG+set}" ]
 	then
 		true

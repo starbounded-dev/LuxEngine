@@ -39,4 +39,8 @@ if not config.enabled("skip-scripts"):
     scripts_dir = os.path.join("Editor", "LuxSampleProject", "Assets", "Scripts")
     Configure.run_premake(config, os.path.join(ROOT, PREMAKE), cwd=scripts_dir, include_options=False)
 
+# The pre-push hook (.githooks/pre-push) keeps the committed engine shader pack in step with the shaders.
+import subprocess
+subprocess.run(["git", "config", "core.hooksPath", ".githooks"], cwd=ROOT, check=False)
+
 print(f"{Style.BRIGHT}{Back.GREEN}Done.{Style.RESET_ALL}")

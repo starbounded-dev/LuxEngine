@@ -14,12 +14,14 @@
 #include "Lux/Project/Project.h"
 #include "Lux/Asset/AssetManager.h"
 #include "Lux/Utilities/FileSystem.h"
+#include "Lux/Renderer/Lightmaps/LightmapUnwrap.h"
 
 //#include "Jolt/Core/HashCombine.h"
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/packing.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include "imgui/imgui.h"
@@ -489,6 +491,7 @@ namespace Lux
 	////////////////////////////////////////////////////////
 
 	bool MeshSource::s_RetainFullCPUGeometry = true;
+	std::atomic_bool MeshSource::s_AutoUnwrapLightmapUVs = false;
 
 	void MeshSource::SetGeometryCacheDirectory(const std::filesystem::path& directory)
 	{
@@ -617,6 +620,70 @@ namespace Lux
 		// submesh itself.
 		const Submesh& submesh = m_Submeshes[submeshIndex];
 		return { submesh.BaseVertex, submesh.BaseIndex, submesh.IndexCount, submesh.VertexCount, 0.0f };
+	}
+
+	// Replaces submesh lightmap UVs with an xatlas unwrap. The new vertices are appended and the submesh's
+	// indices overwritten in place (same triangle count, now local to the appended block), so no other submesh moves and nothing but this mesh's
+	// own import has seen the geometry yet. Placements of one geometry (equal ranges) share the result.
+	void MeshSource::UnwrapLightmapUVs(bool onlyOverlapping)
+	{
+		if (m_Vertices.empty() || m_Indices.empty())
+			return;
+		const bool hasWeights = !m_BoneInfluences.empty();
+		if (hasWeights && m_BoneInfluences.size() != m_Vertices.size())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[Lightmap] invalid vertex influence count for '{}'", m_FilePath);
+			return;
+		}
+		std::map<std::array<uint32_t, 4>, std::vector<uint32_t>> groups;
+		for (uint32_t i = 0; i < static_cast<uint32_t>(m_Submeshes.size()); i++)
+		{
+			const Submesh& submesh = m_Submeshes[i];
+			groups[{ submesh.BaseVertex, submesh.BaseIndex, submesh.VertexCount, submesh.IndexCount }].push_back(i);
+		}
+		for (const auto& [range, members] : groups)
+		{
+			const Submesh submesh = m_Submeshes[members.front()];
+			if (submesh.VertexCount < 3 || submesh.IndexCount < 3 || (onlyOverlapping && !LightmapUVsOverlap(*this, submesh)))
+				continue;
+			const LightmapUnwrapResult result = UnwrapSubmeshForLightmap(*this, submesh);
+			if (!result.Success || result.Indices.size() != submesh.IndexCount)
+			{
+				LUX_CORE_ERROR_TAG("Renderer", "[Lightmap] could not unwrap submesh {} of '{}'; keeping its imported UVs", members.front(), m_FilePath);
+				continue;
+			}
+			if (m_VertexAttributes.size() != m_Vertices.size())
+			{
+				m_VertexAttributes.clear();
+				for (const Vertex& vertex : m_Vertices)
+					m_VertexAttributes.push_back(VertexAttributes::Default(vertex.Texcoord));
+			}
+			const uint32_t newBase = static_cast<uint32_t>(m_Vertices.size());
+			for (size_t i = 0; i < result.UV.size(); i++)
+			{
+				const uint32_t source = submesh.BaseVertex + result.SourceVertex[i];
+				const Vertex copy = m_Vertices[source];
+				VertexAttributes attributes = m_VertexAttributes[source];
+				attributes.UV1 = glm::packHalf2x16(glm::vec2(result.UV[i].x, 1.0f - result.UV[i].y)); // the bake and GBuffer_Static.glsl flip v
+				m_Vertices.push_back(copy);
+				m_VertexAttributes.push_back(attributes);
+				if (hasWeights)
+					m_BoneInfluences.push_back(m_BoneInfluences[source]);
+			}
+			for (uint32_t k = 0; k < submesh.IndexCount; k++)
+			{
+				const uint32_t scalar = submesh.BaseIndex + k;
+				Index& index = m_Indices[scalar / 3];
+				(scalar % 3 == 0 ? index.V1 : (scalar % 3 == 1 ? index.V2 : index.V3)) = result.Indices[k];
+			}
+			for (const uint32_t member : members)
+			{
+				m_Submeshes[member].BaseVertex = newBase;
+				m_Submeshes[member].VertexCount = static_cast<uint32_t>(result.UV.size());
+			}
+			LUX_CORE_INFO_TAG("Renderer", "[Lightmap] unwrapped {}submesh {} of '{}': {} -> {} vertices, {} charts",
+				submesh.IsRigged ? "skinned " : "", members.front(), m_FilePath, submesh.VertexCount, result.UV.size(), result.ChartCount);
+		}
 	}
 
 	void MeshSource::BuildRenderGeometry()

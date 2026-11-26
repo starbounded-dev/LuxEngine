@@ -92,5 +92,174 @@ Only one external source was reviewed: **[Fast-SDF-AO](https://github.com/wrong-
 - **Caveat:** its numbers (0.054 MAE vs the author's 512-ray reference, Apple M1) are self-benchmarked, not independent. The README says several stages (SHaRC cache, AO accumulation, reflection reprojection) rely on temporal history; that is now permitted here.
 - A broader literature/prior-art search (DDGI, RTXGI, lightmapper designs) was **not** done in this pass; do it at the start of Phases 3 and 4.
 
-## Next
-Phase 0 is the first thing to implement (`/dev` then `/cr`, then `/send-pr`). Not started.
+## Status (2026-11-23, after the limits pass)
+All six phases are built and verified by `python tests/rendering/run_ray_query_spike.py` and `python tests/rendering/run_path_trace_check.py`
+(real GPU runs through the golden-capture harness). With every option off the raster frame is bit-identical to `dev` (compared on `LowSun`
+before the sky fix below; the Preetham lower hemisphere changed on purpose, so a sky-visible golden needs re-accepting).
+
+| Phase | State | Evidence |
+|---|---|---|
+| GI0 ray-query spike + RHI | Done | AS as a descriptor input, `RayTracingScene`, standalone spike (107 analytic hits) |
+| GI1 path tracer | Done | Cornell colour bleeding, white furnace 0.87 (the engine BRDF is not energy conserving), noise falls with samples |
+| GI2 diff views | Done | heat map + MAE/PSNR; Diff Lightmap / Realtime GI / RTGI buttons |
+| GI3 lightmaps | Done, limits below | bake over the PT kernel |
+| GI4 realtime GI | Done | SH probe volume + DDGI-style octahedral distance visibility |
+| GI5 ray-traced GI | Done | per-pixel + a-trous denoise |
+| GI-S card + sample scenes | Enable, bounce limit and sample target are saved per scene. Reset Accumulation restarts the current preview. Reopening an authored Cornell Box produced the same frame as explicitly enabling three bounces and 16 samples. | `GI_CornellBox`, `GI_Furnace`, `GI_AreaLights`, `GI_Leak`, `GI_Textured`, `GI_HDRSky` |
+
+**Limits pass (issues #221 to #231).** The comparison scenes for lightmaps, probes and RTGI use `GI_CornellDark` (no sky ambient): the raster renderer's image-based ambient light would otherwise be added on top of the baked/traced indirect and hide the gain.
+
+| Limit | Result |
+|---|---|
+| GIL1 material textures | Done: the engine's material rows and bindless textures (albedo, metalness, roughness, emissive maps), UV and triplanar world/object mapping, ray-cone mip selection; scene `GI_Textured` |
+| GIL2 constant sky | Done: the scene's radiance map (dynamic sky or an `.hdr` SkyLight) with intensity and rotation; scene `GI_HDRSky` |
+| GIL3 area light shapes | Done: rect, disk, sphere, tube; scene `GI_AreaLights` |
+| GIL4 skinned meshes | CPU linear-blend skinning per instance. The acceleration-structure pass below covers BLAS refit. |
+| GIL5 probe leaks | Implemented (octahedral mean/mean-squared distance per probe, Chebyshev weights, backface probe rejection, normal bias). The `GI_Leak` scene did not isolate a measurable difference, so the gain is not demonstrated |
+| GIL6 exports | Export copies `Lightmaps/` into the runtime assets and resolves them by scene name. The Dist export check remains tracked in #226. |
+| GIL7 UV overlap / unwrapper | The baker reports overlaps. The asset registry stores the xatlas import choice. Static and skinned meshes carry the generated UV1 data through reimport and export. |
+| GIL8 validation / Dist | Debug build with the Khronos validation layer and synchronization validation: 0 messages across the path tracer, probes + diff, RTGI and the lightmap bake on `GI_CornellBox`. A Dist build was not made (the ray-traced code compiles in every config; the shaders need the compiler, so Dist skips them) |
+| GIL9 HDR metric | Done: `PathTracerDiffPeak` scales radiance before the clamp so bright errors count |
+
+Also found and fixed on the way: the Preetham sky's lower hemisphere carried the horizon's azimuth variation all the way to the nadir,
+which showed as a bright pinch at the very bottom of the sky; it now fades to an azimuth-independent ground colour.
+
+### Sampling, reuse and acceleration-structure pass (issues #232-#240, 2026-11-23)
+
+All opt-in; the unbiased path tracer stays the reference. Each row was verified on the RTX 4070 Ti by its own check in `tests/rendering/run_rt_sampling_check.py` (scenes from `tests/rendering/make_rt_scenes.py`).
+
+| Issue | Feature | Result |
+|---|---|---|
+| #232 | Power-weighted light choice (CDF in `PackLights`, D.w of each light) | converged image unchanged (RMSE 0.009); 8-spp error vs reference on 24 lights 0.069 -> 0.037 |
+| #233 | MIS between NEE and BSDF sampling (analytic rect/disk/sphere/tube hit tests, power heuristic) | converged image equals NEE-only (RMSE 0.003, so no double count); 8-spp error 0.037 -> 0.033 on a glossy floor under large + small lights |
+| #234 | Adaptive sampling (per-pixel count and luminance moments; Russian roulette already existed) | at the same average sample count (about 42 of 256 on `GI_CornellBox`) error vs reference 0.0105 -> 0.0050; biased by the stopping rule, off by default |
+| #235 | Ray sorting (software wavefront, bins by octahedral direction) | identical image (RMSE 0) but SLOWER: Sponza 2.89 -> 3.75 ms GPU (1.30x), Cornell 1.48 -> 1.79 ms. Off by default; hardware SER needs an RT-pipeline raygen and the NRI fork has no reorder extension |
+| #236 | ReSTIR DI (fused spatiotemporal resampling, one shadow ray) | 24 lights, 4 spp: error vs reference 0.053 -> 0.019; converged within 0.005; biased (1/M), centre-of-pixel rays |
+| #237 | ReSTIR GI reuse for RTGI (Jacobian, visibility ray) | `GI_BounceSpot`, no temporal accumulation: error vs settled 0.0055 -> 0.0034; settled image within 0.003 of plain RTGI |
+| #238 | In-house spatiotemporal RTGI denoiser (reprojection, moments, variance-guided a-trous). NRD is not in the repo and DLSS-RR needs engine motion vectors and a proprietary SDK: both stay optional follow-ups | 6 frames after a camera sway error vs settled 0.0030 -> 0.0023; a static camera settles within 0.0016 |
+| #239 | Skinned BLAS refit (stable entity key + pose hash, ALLOW_UPDATE) | renders identically to rebuilding (RMSE 0); on the tiny rig mesh no measurable speedup (the gain scales with triangles) |
+| #240 | BLAS compaction (deferred size readback) and TLAS refit | Sponza 26 BLASes 17.8 -> 7.4 MiB, identical image; moving instances refit the TLAS, identical image |
+
+**Hardware ray tracing.** The ray-traced features use `VK_KHR_ray_query` over `VK_KHR_acceleration_structure`, which run on the RT cores of an
+RTX card (and the ray accelerators of RDNA2+) automatically whenever `RHIDevice::SupportsRayQuery()` is true; without it the options are
+unavailable and raster is unchanged. Making that visible (device, GPU timings), build tuning (compaction, refit, persistent scratch), the
+ray-tracing-pipeline path (shader execution reordering, opacity micromaps) and optional denoisers (NRD, then DLSS Ray Reconstruction) are
+tracked in #231.
+
+**NVIDIA NRD.** The optional SDK drives RELAX diffuse at native RTGI resolution. The
+trace supplies the first indirect hit distance, linear view depth, normal and roughness,
+and per-pixel camera motion. Scene changes restart the history. The RTX 4070 Ti ran
+NRD and the composite in 0.312 ms at 961×541, using 25.55 MiB for the SDK working set.
+Six frames after a camera sway, RMSE against the settled image fell from 0.0061 to
+0.0009. The denoised Cornell Box reduced RMSE against the path tracer from 0.0719 to
+0.0315 versus raster. The optional Windows library adds 4.95 MiB to the package.
+
+**DLSS Ray Reconstruction.** The Windows opt-in reconstructs one native-resolution
+path-traced sample per frame. Its guides come from the primary surface and the first
+reflected intersection, and it retains history under camera motion. At 961×541 on the
+RTX 4070 Ti, preset E took 1.445 ms. It reduced glossy-scene RMSE against the
+512-sample path tracer from 0.0977 to 0.0060, with 0.0066 six frames after camera
+movement. Preset F in SDK 310.9.1 reported hazards during its internal history clears.
+Preset E passed synchronization validation. The optional Windows library adds 46.1 MiB.
+The SDK device-extension query took 0.85 s in the standalone probe. Startup checks
+the pinned SDK's four requirements against Vulkan's existing extension list and
+defers NGX initialization. First-use initialization took 0.69 s and feature creation
+took 0.054 s, excluding shader compilation.
+
+Exported Release players restored both scene selections and bundled the matching
+SDK libraries and licenses. The Cornell export changed by 0.0017 RMSE from the
+raster control with NRD RTGI and by 0.0158 RMSE from one-sample accumulation with
+Ray Reconstruction. The four standalone captures passed Vulkan synchronization
+validation.
+
+**Opacity micromaps.** The NRI Vulkan benchmark built a four-state, subdivision-level
+4 micromap from a bilinear alpha texture with meshoptimizer. Across 32 overlapping
+layers, inline alpha testing and the micromap produced identical visibility for
+1,048,576 rays. Median trace time fell from 1.1930 to 0.6441 ms on the RTX 4070 Ti
+with tier 3. This is a controlled traversal benchmark. Scene foliage can vary in
+alpha cutoff, mip level, material overrides and geometry, so the measured gain
+applies to the fixture. The engine continues to use its existing scene RT geometry.
+
+### Materials, media and reflections pass (issues #241-#245, 2026-11-23)
+
+| Issue | Feature | Result |
+|---|---|---|
+| #241 | Clearcoat, sheen, anisotropy in the path-traced BRDF (PBR.glslh formulas, tangent from uv deltas) | on `GI_Lobes` the sheen sphere's RMSE vs the raster frame 0.090 -> 0.037, anisotropic 0.094 -> 0.065; coated furnace sphere 0.872; plain scenes identical |
+| #242 | Glass: smooth dielectric, Fresnel, Snell, TIR, Beer-Lambert absorption | furnace sphere 1.000; absorbing slab 0.471 vs 0.463 (attenuation colour is sRGB-authored, the row holds it linear); shadow rays stay opaque, so delta lights cast black shadows through glass |
+| #243 | Fog: homogeneous, free-flight, HG phase, NEE in the medium, optional sphere (path tracer only; the raster renderer has no fog) | absorbing sphere 0.374 vs exp(-sigma d) 0.368; albedo-1 furnace 1.000; a lamp in fog glows; directional lights are not attenuated |
+| #244 | Subsurface random walk (mean free path 5 cm, albedo = subsurface colour) | 0.8 m albedo-1 sphere in the furnace 0.993; thin slab lit from behind glows (0.218 vs 0) |
+| #245 | Ray-traced reflections on the raster depth/G-buffer (replace SSR while on) | `GI_Mirror` floor RMSE vs path tracer 0.0537 -> 0.0278; escaped rays add nothing, so a bright sky double counts where geometry is hit |
+
+| #246 | Ray-traced directional shadows: a visibility mask traced from the raster depth/G-buffer, read by deferred lighting in place of the cascades (soft by an angular radius) | `GI_Shadows` with the sun's shadow distance at 3 m (cascades end before the objects): RMSE vs the path tracer 0.205 -> 0.065; option off identical. Directional light only: point/spot/area shadows still use the shadow maps/atlas, and the translucency path keeps the cascades |
+
+### Workflow pass (issues #227, #230, #247-#249, 2026-11-23)
+
+| Issue | Feature | Result |
+|---|---|---|
+| #247 | Per-pixel debug views (bounces, rays, noise, samples) | more allowed bounces/rays move the views up the heat ramp, the noise view cools with samples |
+| #248 | Lightmap denoiser (CPU a-trous on the read-back atlas, normal/position/luminance weights) | a 16-sample bake renders closer to a 512-sample bake with it (RMSE 0.0138 -> 0.0110) |
+| #249 | Probe auto placement (grid from the bounds and a spacing; probes inside geometry refresh rarely) | `GI_CornellDark`: 729 probes vs 2048, Diff MAE 0.0156 -> 0.0162 |
+| #227 | Initial xatlas integration (MIT) and chart reporting. The permanent mesh rewrite is measured under #253 below. | the default cube: 128 -> 128 vertices, 6 charts, 98% of the atlas |
+| #230 | Initial Texture Library panel with Poly Haven and ambientCG browse, search and download. Cross-platform material import, previews and asset drops are covered below. | both providers downloaded JPEG maps in the headless checks |
+
+**Limits of this pass:** ReSTIR DI/GI and adaptive sampling are biased and must stay off for reference renders; ReSTIR DI traces from pixel centres and cannot combine with ray sorting; the ReSTIR GI sample treats radiance as direction independent; the denoiser has no motion vectors for moving objects (camera motion only) and was checked with camera motion, not object motion; skinned refit speed is unmeasured on a heavy mesh.
+
+Rect and disk emitters are one-sided. Lightmaps store indirect lighting. RTGI traces its own
+primary surface and applies to geometry in the ray-traced scene.
+
+### Ray-tracing follow-up (2026-11-25)
+
+| Issue | Change | Windows Release verification |
+|---|---|---|
+| #55 | Scene-authored analytic height and distance fog | At unit exposure, near and far fog amounts measured 0.392 and 0.715. The height fixture measured 0.972 in the low region and 0.455 in the high region. A 6 m start left the near blocker clear. Disabling skipped the fog pass. The exported Windows player measured 0.388 and 0.710 against analytic values of 0.388 and 0.709. |
+| #230 | CC0 texture search, previews, material-pack import, and asset drops | Poly Haven's 2K wall and ambientCG's 1K wood delivered base colour, normal, roughness, occlusion and height, plus metalness for the wood. The viewport and inspector assignment paths changed 8.3% of Cornell pixels. Windows and Ubuntu each reproduced their own render exactly when reopening the saved materials without library requests. |
+| #231 | Hardware tier and GPU timings, persistent BLAS scratch | The RTX 4070 Ti exposed NRI ray-tracing tier 2. The animated fixture reused one 64 KiB scratch allocation in both build modes. At 1280×720, skinned BLAS refit took 0.046 ms and rebuild took 0.182 ms with identical images. The corresponding trace timings were 0.346 and 0.377 ms per sample, or 2.66 and 2.45 billion primary rays per second. |
+| #250 | Shared fog extinction for raster direct light, ReSTIR DI, RT reflections, probes, RTGI and lightmap baking | In `GI_FogSun`, sunlit radiance fell to 0.522 in raster and 0.521 in both path tracing modes (analytic centre chord 0.489). Moving the sphere out of the light path reproduced the clear image in each mode. In direct shadow, fog reduced the probe-lit region from 0.2061 to 0.0110 and the RTGI-lit region from 0.2395 to 0.0109. Zero density reproduced both GI frames. |
+| #251 | Replace the sky reflection on geometry hits, vary ray count by roughness, and denoise rough reflections | In `GI_MirrorSky`, replacement reduced mirror-floor RMSE against the path tracer from 0.0946 to 0.0588. One ray and both filter settings reproduced the mirror floor. In `GI_RoughReflection`, filtering reduced floor RMSE from 0.1007 to 0.0441 against a 512-sample path trace. With a 16-ray maximum, the adaptive budget reduced trace GPU time from 0.329 to 0.141 ms. The filter averaged 0.141 ms over 60 validation frames. |
+| #252 | Transmit and tint shadow rays through glass | The tinted plate produced 59,012 red pixels, and disabling glass produced none. Mean red in the affected region was 0.369 through glass and 0.244 under the opaque plate. |
+| #227, #253 | Persistent per-source xatlas UV generation for static and skinned meshes | The wall-and-floor mean RMSE against the path tracer fell from 0.0995 to 0.0684, and the unbaked frame was identical. The report-only check retained the four source triangles. After restart, the skinned fixture rebuilt the same 12 charts and its posed image matched exactly. The exported player skinned 350 vertices with two bones. |
+| #254 | Opt-in Vulkan shader execution reordering after the first ray, with a material hint | On the RTX 4070 Ti, the SER and compute images matched at RMSE 0.000019 at 64 samples. Explicitly disabling SER reproduced the default image. The median of three 120-frame GPU runs in `GI_Lobes`, 1280×720, was 1.543 ms with compute and 1.912 ms with SER, about 24% slower. The Vulkan validation capture was clean. SER stays off by default. |
+| #255 | Opt-in redistribution of realtime GI probe planes based on measured radiance variation | On the localized emitter in `GI_OverlapUV`, adaptive placement reduced path-tracer MAE from 0.0433 to 0.0358 with 168 probes in both runs. The option left the frame identical with realtime GI off. The Vulkan synchronization-validation capture was clean. |
+| #256 | Constant-time light selection, shared ReSTIR candidates, and direct emissive mesh sampling | Splitting the same power across 24 and 288 analytic lights preserved the converged image. At 288 lights, four-sample RMSE fell from 0.1263 to 0.0367 with ReSTIR. The timed ReSTIR pass took 0.229 and 0.260 ms at the two light counts. In the small emissive-mesh fixture, converged floor brightness was 0.0440 with BSDF hits and 0.0460 with direct sampling. Four-sample RMSE was 0.0727 with BSDF hits, 0.0633 with MIS and 0.0389 with ReSTIR. A second fixture confirmed that the distance-limited shadow ray reaches the emitter sample after applying receiver bias. At 1,024 samples its floor brightness was 0.2385 against 0.2362 for BSDF hits. |
+| #257 | Ray-traced ambient occlusion and directional contact shadows | The short rays reduced near-shadow RMSE against the path tracer from 0.3228 to 0.0564. The raised blocker remained outside contact range. Ambient rays darkened 3,508 near pixels and zero far pixels at the same threshold. Tracing and filtering took 0.133 and 0.037 ms at 1280×720. |
+| #258 | Half-resolution RTGI with temporal denoising and a full-resolution depth/normal resolve | At 961×541, Cornell RMSE against the path tracer was 0.0719 for raster and 0.0321 for both RTGI modes. The two RTGI images differed by 0.0023 RMSE. After a camera sway, temporal reuse lowered error from 0.0097 to 0.0028. Switching back to native converged within 0.0016 RMSE. Trace, filtering and resolve took 0.221 ms together, down from 0.451 ms native on the RTX 4070 Ti. |
+| #259 | Mip streaming and virtual texturing | The mip route used at most 5,592,404 fine-mip bytes with a 6 MiB budget. Increasing the budget from 1 to 6 MiB reduced RMSE against the resident image from 0.1981 to 0.0574. Fragment feedback loaded 30 pages and evicted 22 on the virtual route. Its eight resident pages used 557,568 fine bytes and gave 0.0002 RMSE. Both routes restored the image when returning to the first surface. The exported player loaded ten visible pages and gave 0.0012 RMSE against the resident export. |
+| #260 | Ray-traced soft area-light shadows | On the rectangle-light fixture, penumbra RMSE against the path tracer fell from 0.0787 to 0.0665 over 15,157 pixels. Unoccluded lighting matched exactly. The RT area pass averaged 0.221 ms on the RTX 4070 Ti at 1280×720. |
+| #261 | Tinted directional and area-light shadows, plus optional refractive caustics | Directional and area-light glass transmitted red onto 10,740 and 31,961 pixels. At 65,536 photons, the refractive sphere focused light onto 3,422 pixels with a mean display-intensity gain of 0.267. The IOR 1 control was identical with caustics enabled. Trace and resolve took 0.029 ms and 0.037 ms on the RTX 4070 Ti. |
+
+The installed Vulkan SDK compiles hit-object instructions, but its SPIRV-Cross reflector rejects
+both the EXT and NV hit-object types. The SER pipeline uses the EXT hint instruction after the
+closest-hit or miss shader returns. The optimized SPIR-V used by the editor contains
+`OpReorderThreadWithHintEXT`.
+
+The earlier Windows Release Editor build at `33a1bdcd` passed all 27 checks in
+`tests/rendering/run_rt_sampling_check.py`. The checks resumed on the same executable after
+the execution connection dropped. The Windows Release `Lux-Runtime` build also linked,
+and the regenerated engine shader pack matched the committed shader sources.
+
+### Final verification (2026-11-26)
+
+The Windows Release Editor and Lux-Runtime were rebuilt at `cb88bdaa`. The RTX 4070 Ti
+passed all 42 checks in `tests/rendering/run_rt_sampling_check.py` in one run with both
+NVIDIA SDKs required and Vulkan synchronization validation enabled. All 178 assertions
+passed. The 198 capture logs contained zero validation errors or shader compilation failures.
+`tests/shaders/check_engine_pack.py` also passed.
+
+The final captures reduced xatlas wall-and-floor error from 0.0949 to 0.0637 RMSE,
+adaptive probe error from 0.0399 to 0.0331 MAE at 168 probes, and half-resolution RTGI
+time from 0.649 to 0.298 ms. Native Ray Reconstruction reduced glossy-scene error
+from 0.0977 to 0.0060 RMSE against a 512-sample path-traced reference.
+
+The same Windows Editor used the built-in denoiser and path accumulation when the
+SDK libraries were absent. Settings-panel tests passed with both Single and Multi
+render threading. The exported virtual-texture player loaded 10 visible pages and
+matched the resident export within 0.0012 RMSE. Separate Windows player captures
+verified height fog, skinned xatlas geometry, NRD and DLSS Ray Reconstruction.
+
+The SDK-free Ubuntu Release Editor and Lux-Runtime also built. The exported fog
+scene on llvmpipe measured 0.388 and 0.710 against analytic values of 0.388 and
+0.709. The Ubuntu texture-library check exercised both providers and reproduced its
+imported materials from disk in a second run.
+
+Open follow-ups cover isolated probe-leak evidence (#225), the Dist lightmap export
+(#226), and the Debug and Dist configuration sweep (#228).

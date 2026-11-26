@@ -11,6 +11,7 @@
 
 namespace nri {
 	struct Pipeline;
+	struct DispatchRaysDesc;
 }
 
 namespace Lux {
@@ -35,6 +36,7 @@ namespace Lux {
 		// The compute pipeline over the shader's NRI layout, recreated by CreatePipeline. Null if NRI
 		// rejected it (logged).
 		nri::Pipeline* GetNRIPipeline() const { return m_NRIPipeline; }
+		nri::DispatchRaysDesc GetRayTracingDispatch(const glm::uvec3& dimensions) const;
 		Ref<Shader> GetShader() const { return m_Shader; }
 	public:
 		PipelineCompute(Ref<Shader> computeShader);
@@ -43,10 +45,14 @@ namespace Lux {
 		void RT_CreatePipeline();
 		static void RT_BufferMemoryBarrier(Ref<RenderCommandBuffer> renderCommandBuffer, Ref<StorageBuffer> storageBuffer, ResourceAccessFlags toAccess, const std::string& markerName);
 		void CreateNRIPipeline();
+		void CreateNRIRayTracingPipeline(const RHIShader& shader);
 		void ReleaseNRIPipeline();
 	private:
 		Ref<Shader> m_Shader;
 		nri::Pipeline* m_NRIPipeline = nullptr;
+		NRIBuffer m_ShaderBindingTable;
+		uint64_t m_ShaderBindingTableOffset = 0;
+		uint32_t m_ShaderBindingTableStride = 0;
 	};
 
 }

@@ -19,7 +19,10 @@ namespace Lux { namespace ShaderUtils {
 			if (stage == "comp") return ShaderStage::Compute;
 			if (stage == "task") return ShaderStage::Amplification;
 			if (stage == "mesh") return ShaderStage::Mesh;
-			LUX_CORE_VERIFY(false, "Unknown shader stage.");
+			if (stage == "rgen") return ShaderStage::RayGeneration;
+			if (stage == "rmiss") return ShaderStage::Miss;
+			if (stage == "rchit") return ShaderStage::ClosestHit;
+			LUX_CORE_VERIFY(false, "Unknown shader stage '{}'.", stage);
 			return ShaderStage::None;
 		}
 
@@ -30,6 +33,9 @@ namespace Lux { namespace ShaderUtils {
 			if (stage == ShaderStage::Compute)       return "__COMPUTE_STAGE__";
 			if (stage == ShaderStage::Amplification) return "__TASK_STAGE__";
 			if (stage == ShaderStage::Mesh)          return "__MESH_STAGE__";
+			if (stage == ShaderStage::RayGeneration) return "__RAYGEN_STAGE__";
+			if (stage == ShaderStage::Miss)          return "__MISS_STAGE__";
+			if (stage == ShaderStage::ClosestHit)    return "__CLOSEST_HIT_STAGE__";
 			LUX_CORE_VERIFY(false, "Unknown shader stage.");
 			return "";
 		}
@@ -53,6 +59,9 @@ namespace Lux { namespace ShaderUtils {
 				case ShaderStage::Compute:       return shaderc_compute_shader;
 				case ShaderStage::Amplification: return shaderc_task_shader;
 				case ShaderStage::Mesh:          return shaderc_mesh_shader;
+				case ShaderStage::RayGeneration: return shaderc_raygen_shader;
+				case ShaderStage::Miss:          return shaderc_miss_shader;
+				case ShaderStage::ClosestHit:    return shaderc_closesthit_shader;
 			}
 			LUX_CORE_ASSERT(false);
 			return {};
@@ -69,6 +78,9 @@ namespace Lux { namespace ShaderUtils {
 					case ShaderStage::Compute:       return ".cached_vulkan_debug.comp";
 					case ShaderStage::Amplification: return ".cached_vulkan_debug.task";
 					case ShaderStage::Mesh:          return ".cached_vulkan_debug.mesh";
+					case ShaderStage::RayGeneration: return ".cached_vulkan_debug.rgen";
+					case ShaderStage::Miss:          return ".cached_vulkan_debug.rmiss";
+					case ShaderStage::ClosestHit:    return ".cached_vulkan_debug.rchit";
 				}
 			}
 			else
@@ -80,6 +92,9 @@ namespace Lux { namespace ShaderUtils {
 					case ShaderStage::Compute:       return ".cached_vulkan.comp";
 					case ShaderStage::Amplification: return ".cached_vulkan.task";
 					case ShaderStage::Mesh:          return ".cached_vulkan.mesh";
+					case ShaderStage::RayGeneration: return ".cached_vulkan.rgen";
+					case ShaderStage::Miss:          return ".cached_vulkan.rmiss";
+					case ShaderStage::ClosestHit:    return ".cached_vulkan.rchit";
 				}
 			}
 			LUX_CORE_ASSERT(false);

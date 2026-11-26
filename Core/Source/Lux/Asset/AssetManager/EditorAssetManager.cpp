@@ -230,6 +230,45 @@ namespace Lux
 		LoadAssetAsync(assetHandle);
 	}
 
+	bool EditorAssetManager::SetGenerateLightmapUVs(AssetHandle handle, bool enabled)
+	{
+		const AssetMetadata previous = GetMetadata(handle);
+		if (!previous.IsValid() || previous.Type != AssetType::MeshSource || previous.Status == AssetStatus::Loading)
+			return false;
+		if (previous.GenerateLightmapUVs == enabled)
+			return true;
+
+		AssetMetadata updated = previous;
+		updated.GenerateLightmapUVs = enabled;
+		SetMetadata(handle, updated);
+		if (!WriteRegistryToFile())
+		{
+			SetMetadata(handle, previous);
+			return false;
+		}
+		ReloadDataAsync(handle);
+		return true;
+	}
+
+	bool EditorAssetManager::SetTextureResidency(AssetHandle handle, TextureResidency residency)
+	{
+		const AssetMetadata original = GetMetadata(handle);
+		if (!original.IsValid() || original.Type != AssetType::Texture || original.Status == AssetStatus::Loading)
+			return false;
+		if (original.Residency == residency)
+			return true;
+		AssetMetadata updated = original;
+		updated.Residency = residency;
+		SetMetadata(handle, updated);
+		if (!WriteRegistryToFile())
+		{
+			SetMetadata(handle, original);
+			return false;
+		}
+		ReloadDataAsync(handle);
+		return true;
+	}
+
 	bool EditorAssetManager::EnsureCurrent(AssetHandle assetHandle)
 	{
 		if (IsMemoryAsset(assetHandle))
@@ -804,6 +843,14 @@ namespace Lux
 			metadata.Handle = node["Handle"].as<uint64_t>();
 			metadata.FilePath = node["FilePath"].as<std::string>();
 			metadata.Type = AssetTypeFromString(node["Type"].as<std::string>());
+			if (metadata.Type == AssetType::MeshSource)
+				metadata.GenerateLightmapUVs = node["GenerateLightmapUVs"].as<bool>(false);
+			if (metadata.Type == AssetType::Texture)
+			{
+				const uint32_t value = node["TextureResidency"].as<uint32_t>(0);
+				if (value <= static_cast<uint32_t>(TextureResidency::VirtualPages))
+					metadata.Residency = static_cast<TextureResidency>(value);
+			}
 			if (metadata.Type == AssetType::AudioProject || metadata.Type == AssetType::AudioBank)
 			{
 				// FMOD Studio files are no longer assets; the next registry save drops the entry.
@@ -876,31 +923,34 @@ namespace Lux
 		WriteRegistryToFile();
 	}
 
-	void EditorAssetManager::WriteRegistryToFile()
+	bool EditorAssetManager::WriteRegistryToFile()
 	{
+		std::scoped_lock writeLock(m_AssetRegistryWriteMutex);
 		if (!Project::GetActive())
-			return;
+			return false;
 
 		std::filesystem::path assetRegistryPath = Project::GetActiveAssetRegistryPath();
 		if (assetRegistryPath.empty())
-			return;
+			return false;
 
 		std::filesystem::create_directories(assetRegistryPath.parent_path());
 
-		// Only what identifies an asset is persisted. Status and FileLastWriteTime describe this
+		// Asset identities and source import settings persist. Status and FileLastWriteTime describe this
 		// session: every entry loads as not loaded, and ProcessDirectory re-reads each file's
 		// timestamp at startup, so writing them out would only churn the tracked registry.
 		struct AssetRegistryEntry
 		{
 			std::string FilePath;
 			AssetType Type = AssetType::None;
+			bool GenerateLightmapUVs = false;
+			TextureResidency Residency = TextureResidency::Resident;
 		};
 
 		std::map<uint64_t, AssetRegistryEntry> sortedEntries;
 		{
 			std::shared_lock lock(m_AssetRegistryMutex);
 			for (const auto& [handle, metadata] : m_AssetRegistry)
-				sortedEntries[static_cast<uint64_t>(handle)] = { metadata.FilePath.generic_string(), metadata.Type };
+				sortedEntries[static_cast<uint64_t>(handle)] = { metadata.FilePath.generic_string(), metadata.Type, metadata.GenerateLightmapUVs, metadata.Residency };
 		}
 
 		Yaml::Writer out;
@@ -912,6 +962,10 @@ namespace Lux
 			out << Yaml::Key << "Handle" << Yaml::Value << handle;
 			out << Yaml::Key << "FilePath" << Yaml::Value << entry.FilePath;
 			out << Yaml::Key << "Type" << Yaml::Value << std::string(AssetTypeToString(entry.Type));
+			if (entry.Type == AssetType::MeshSource && entry.GenerateLightmapUVs)
+				out << Yaml::Key << "GenerateLightmapUVs" << Yaml::Value << true;
+			if (entry.Type == AssetType::Texture && entry.Residency != TextureResidency::Resident)
+				out << Yaml::Key << "TextureResidency" << Yaml::Value << static_cast<uint32_t>(entry.Residency);
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;
@@ -923,11 +977,15 @@ namespace Lux
 			std::stringstream existingContent;
 			existingContent << existing.rdbuf();
 			if (existingContent.str() == out.c_str())
-				return;
+				return true;
 		}
 
 		if (!FileSystem::WriteFileAtomically(assetRegistryPath, out.c_str()))
+		{
 			LUX_CORE_ERROR("Failed to write asset registry '{}'", assetRegistryPath.string());
+			return false;
+		}
+		return true;
 	}
 
 	void EditorAssetManager::RegisterAssetDependencies(const Ref<Asset>& asset)

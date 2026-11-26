@@ -61,6 +61,7 @@
 #include "Panels/TextEditorPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/SceneRendererPanel.h"
+#include "Panels/TextureLibraryPanel.h"
 #include "Panels/RendererDebuggerPanel.h"
 #include "Panels/AudioDebugPanel.h"
 #include "Panels/GameViewPanel.h"
@@ -585,6 +586,20 @@ namespace Lux {
 		m_GameViewPanel = m_PanelManager->AddPanel<GameViewPanel>(PanelCategory::View, GAME_VIEW_PANEL_ID, "Game View", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
+		auto textureLibrary = m_PanelManager->AddPanel<TextureLibraryPanel>(PanelCategory::View, "TextureLibraryPanel", "Texture Library", false);
+		const auto revealLibraryMaterial = [this](AssetHandle handle) {
+			if (auto browser = m_PanelManager->GetPanel<ContentBrowserPanel>(CONTENT_BROWSER_PANEL_ID))
+				browser->RevealImportedAsset(handle);
+		};
+		textureLibrary->SetLibraryImportCallback(revealLibraryMaterial);
+		contentBrowserPanel->SetTextureLibraryDropCallback([textureLibrary, revealLibraryMaterial]() mutable {
+			if (const auto request = TextureLibrary::AcceptMaterialDrop())
+				textureLibrary->StartDownload(*request, revealLibraryMaterial);
+		});
+		m_SceneHierarchyPanel->SetMaterialDropCallback([this](UUID id, std::optional<uint32_t> slot) {
+			if (m_SceneState == SceneState::Edit && m_ActiveScene)
+				AcceptTextureLibraryMaterial(m_ActiveScene->TryGetEntityWithUUID(id), slot);
+		});
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
@@ -1186,6 +1201,8 @@ namespace Lux {
 
 		// Before the early-out below: presence should still reflect "no project open".
 		UpdateDiscordPresence();
+		if (auto textureLibrary = m_PanelManager->GetPanel<TextureLibraryPanel>("TextureLibraryPanel"))
+			textureLibrary->Update();
 
 		if (m_StartupTestFrames > 0 && --m_StartupTestFrames == 0)
 		{
@@ -1549,6 +1566,9 @@ namespace Lux {
 								m_SceneHierarchyPanel->SetSelectedEntity(entity);
 						}
 					}
+					const ImGuiPayload* drag = ImGui::GetDragDropPayload();
+					if (m_SceneState == SceneState::Edit && drag && drag->IsDataType(TextureLibrary::PayloadType))
+						AcceptTextureLibraryMaterial(CastMousePick(), std::nullopt);
 					ImGui::EndDragDropTarget();
 				}
 
@@ -3253,6 +3273,29 @@ namespace Lux {
 			visible = { cell.x - 64, cell.y - 64, 129, 129 };
 		m_TilePalettePanel->OnSceneMouse(onPlane, cell, visible, down);
 		return true;
+	}
+
+	void EditorLayer::AcceptTextureLibraryMaterial(Entity entity, std::optional<uint32_t> slot)
+	{
+		if (!entity || !entity.HasComponent<StaticMeshComponent>())
+			return;
+		const auto request = TextureLibrary::AcceptMaterialDrop();
+		if (!request)
+			return;
+		auto textureLibrary = m_PanelManager->GetPanel<TextureLibraryPanel>("TextureLibraryPanel");
+		const Ref<Scene> scene = m_ActiveScene;
+		const UUID id = entity.GetUUID();
+		const AssetHandle mesh = entity.GetComponent<StaticMeshComponent>().StaticMesh;
+		textureLibrary->StartDownload(*request, [this, scene, id, mesh, slot](AssetHandle material) {
+			if (m_SceneState != SceneState::Edit || m_ActiveScene != scene)
+				return;
+			Entity target = scene->TryGetEntityWithUUID(id);
+			if (!target || !target.HasComponent<StaticMeshComponent>())
+				return;
+			auto& component = target.GetComponent<StaticMeshComponent>();
+			if (component.StaticMesh == mesh && SceneHierarchyPanel::ApplyMaterial(component, material, slot))
+				EditorStack::Get().MarkEntitiesEdited({ id }, "Apply texture library material");
+		});
 	}
 
 	Entity EditorLayer::CastMousePick()
@@ -5390,6 +5433,19 @@ namespace Lux {
 			if (!CopyFileIfExists(Project::GetActiveAssetDirectory() / s_RuntimeAssetPackFile, exportAssets / s_RuntimeAssetPackFile, true))
 				return false;
 			LUX_CONSOLE_LOG_INFO("  AssetPack.lap: created");
+
+			// Baked lightmaps are read by convention from <project directory>/Lightmaps/ at runtime (LightmapData::PathForScene).
+			const std::filesystem::path lightmaps = Project::GetActiveAssetDirectory() / "Lightmaps";
+			if (std::filesystem::is_directory(lightmaps, ec))
+			{
+				std::filesystem::copy(lightmaps, exportAssets / "Lightmaps", std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, ec);
+				if (ec)
+				{
+					LUX_CONSOLE_LOG_ERROR("Runtime export failed while copying the lightmaps: {}", ec.message());
+					return false;
+				}
+				LUX_CONSOLE_LOG_INFO("  Lightmaps: copied");
+			}
 			return true;
 		}
 
@@ -5404,6 +5460,15 @@ namespace Lux {
 			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
 			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
 			{
+				if (targetConfig != RuntimeExportTarget::Dist)
+				{
+					for (const auto* filename : { "NRD-LICENSE.txt", "DLSS-LICENSE.txt" })
+					{
+						const auto notice = runtimeDirectory / filename;
+						if (RuntimeExport::FileExists(notice) && !CopyFileIfExists(notice, exportRoot / filename, true))
+							return false;
+					}
+				}
 #ifdef LUX_PLATFORM_LINUX
 				const std::filesystem::path libDir = exportRoot / "lib";
 				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })
@@ -6094,6 +6159,8 @@ namespace Lux {
 		for (const EntityDelta& delta : command.Entities)
 			targets.emplace_back(delta.Handle, undo ? delta.Before : delta.After);
 		const std::string* meta = command.MetaChanged ? &(undo ? command.MetaBefore : command.MetaAfter) : nullptr;
+		const auto pathTracing = m_EditorScene ? m_EditorScene->GetPathTracingSettings() : ScenePathTracingSettings{};
+		const auto rayTracedGI = m_EditorScene ? m_EditorScene->GetRayTracedGISettings() : SceneRayTracedGISettings{};
 
 		if (!m_EditorScene || !SceneSerializer(m_EditorScene).ApplyEntitySnapshots(meta, targets))
 		{
@@ -6101,6 +6168,8 @@ namespace Lux {
 			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
 			return;
 		}
+		if (m_SceneRenderer && (pathTracing != m_EditorScene->GetPathTracingSettings() || rayTracedGI != m_EditorScene->GetRayTracedGISettings()))
+			m_SceneRenderer->ApplySceneRayTracingSettings();
 
 #ifdef LUX_DEBUG
 		// The live scene must now equal the (already rolled) baseline; anything else means a step

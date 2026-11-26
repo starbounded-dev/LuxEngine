@@ -10,6 +10,7 @@
 #include "Lux/Renderer/Texture.h"
 
 #include "Lux/Renderer/RHI/RHIShader.h"
+#include "Lux/Renderer/RHI/RHIAccelerationStructure.h"
 #include "Lux/Renderer/RHI/DescriptorSetGroup.h"
 
 #include <set>
@@ -129,6 +130,13 @@ namespace Lux {
 			Input[arrayIndex] = sampler;
 		}
 
+		void Set(Ref<RHIAccelerationStructure> accelerationStructure, uint32_t arrayIndex = 0)
+		{
+			Type = RenderResourceType::AccelerationStructure;
+			EnsureSize(arrayIndex);
+			Input[arrayIndex] = accelerationStructure;
+		}
+
 	private:
 		void EnsureSize(uint32_t arrayIndex)
 		{
@@ -185,6 +193,10 @@ namespace Lux {
 			{
 				return inputResource == RenderResourceType::StorageBuffer || inputResource == RenderResourceType::StorageBufferSet;
 			}
+			case RenderInputType::AccelerationStructure:
+			{
+				return inputResource == RenderResourceType::AccelerationStructure;
+			}
 		}
 		return false;
 	}
@@ -236,6 +248,7 @@ namespace Lux {
 		void SetInput(std::string_view name, Ref<Image2D> image, uint32_t arrayIndex = 0);
 		void SetInput(std::string_view name, Ref<ImageView> image, uint32_t arrayIndex = 0);
 		void SetInput(std::string_view name, Ref<Sampler> sampler);
+		void SetInput(std::string_view name, Ref<RHIAccelerationStructure> accelerationStructure);
 
 		template<typename T>
 		Ref<T> GetInput(std::string_view name)
