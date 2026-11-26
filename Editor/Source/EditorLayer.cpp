@@ -586,7 +586,20 @@ namespace Lux {
 		m_GameViewPanel = m_PanelManager->AddPanel<GameViewPanel>(PanelCategory::View, GAME_VIEW_PANEL_ID, "Game View", true);
 
 		m_SceneRendererPanel = m_PanelManager->AddPanel<SceneRendererPanel>(PanelCategory::View, SCENE_RENDERER_PANEL_ID, "Scene Renderer", false);
-		m_PanelManager->AddPanel<TextureLibraryPanel>(PanelCategory::View, "TextureLibraryPanel", "Texture Library", false);
+		auto textureLibrary = m_PanelManager->AddPanel<TextureLibraryPanel>(PanelCategory::View, "TextureLibraryPanel", "Texture Library", false);
+		const auto revealLibraryMaterial = [this](AssetHandle handle) {
+			if (auto browser = m_PanelManager->GetPanel<ContentBrowserPanel>(CONTENT_BROWSER_PANEL_ID))
+				browser->RevealImportedAsset(handle);
+		};
+		textureLibrary->SetLibraryImportCallback(revealLibraryMaterial);
+		contentBrowserPanel->SetTextureLibraryDropCallback([textureLibrary, revealLibraryMaterial]() mutable {
+			if (const auto request = TextureLibrary::AcceptMaterialDrop())
+				textureLibrary->StartDownload(*request, revealLibraryMaterial);
+		});
+		m_SceneHierarchyPanel->SetMaterialDropCallback([this](UUID id, std::optional<uint32_t> slot) {
+			if (m_SceneState == SceneState::Edit && m_ActiveScene)
+				AcceptTextureLibraryMaterial(m_ActiveScene->TryGetEntityWithUUID(id), slot);
+		});
 		m_RendererDebuggerPanel = m_PanelManager->AddPanel<RendererDebuggerPanel>(PanelCategory::View, RENDERER_DEBUGGER_PANEL_ID, "Renderer Debugger", false);
 		m_ProfilerPanel = m_PanelManager->AddPanel<ProfilerPanel>(PanelCategory::View, "ProfilerPanel", "Profiler", false);
 
@@ -1188,6 +1201,8 @@ namespace Lux {
 
 		// Before the early-out below: presence should still reflect "no project open".
 		UpdateDiscordPresence();
+		if (auto textureLibrary = m_PanelManager->GetPanel<TextureLibraryPanel>("TextureLibraryPanel"))
+			textureLibrary->Update();
 
 		if (m_StartupTestFrames > 0 && --m_StartupTestFrames == 0)
 		{
@@ -1551,6 +1566,9 @@ namespace Lux {
 								m_SceneHierarchyPanel->SetSelectedEntity(entity);
 						}
 					}
+					const ImGuiPayload* drag = ImGui::GetDragDropPayload();
+					if (m_SceneState == SceneState::Edit && drag && drag->IsDataType(TextureLibrary::PayloadType))
+						AcceptTextureLibraryMaterial(CastMousePick(), std::nullopt);
 					ImGui::EndDragDropTarget();
 				}
 
@@ -3255,6 +3273,29 @@ namespace Lux {
 			visible = { cell.x - 64, cell.y - 64, 129, 129 };
 		m_TilePalettePanel->OnSceneMouse(onPlane, cell, visible, down);
 		return true;
+	}
+
+	void EditorLayer::AcceptTextureLibraryMaterial(Entity entity, std::optional<uint32_t> slot)
+	{
+		if (!entity || !entity.HasComponent<StaticMeshComponent>())
+			return;
+		const auto request = TextureLibrary::AcceptMaterialDrop();
+		if (!request)
+			return;
+		auto textureLibrary = m_PanelManager->GetPanel<TextureLibraryPanel>("TextureLibraryPanel");
+		const Ref<Scene> scene = m_ActiveScene;
+		const UUID id = entity.GetUUID();
+		const AssetHandle mesh = entity.GetComponent<StaticMeshComponent>().StaticMesh;
+		textureLibrary->StartDownload(*request, [this, scene, id, mesh, slot](AssetHandle material) {
+			if (m_SceneState != SceneState::Edit || m_ActiveScene != scene)
+				return;
+			Entity target = scene->TryGetEntityWithUUID(id);
+			if (!target || !target.HasComponent<StaticMeshComponent>())
+				return;
+			auto& component = target.GetComponent<StaticMeshComponent>();
+			if (component.StaticMesh == mesh && SceneHierarchyPanel::ApplyMaterial(component, material, slot))
+				EditorStack::Get().MarkEntitiesEdited({ id }, "Apply texture library material");
+		});
 	}
 
 	Entity EditorLayer::CastMousePick()

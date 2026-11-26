@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 
 #include <atomic>
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -143,6 +144,14 @@ namespace Lux {
 		bool m_ExitWhenDone = true;
 		uint32_t m_LightmapBakeSamples = 0;
 		bool m_LightmapBakeStarted = false;
+		struct TextureFixture : RefCounted
+		{
+			std::array<std::string, 2> IDs;
+			std::string Error;
+			std::atomic<bool> Done{ false };
+		};
+		Ref<TextureFixture> m_TextureFixture;
+		bool m_TextureFixtureApplied = false;
 		std::map<std::string, std::string> m_Options;
 
 		Stage m_Stage = Stage::OpenProject;

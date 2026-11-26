@@ -26,13 +26,17 @@ from golden_compare import Capture  # noqa: E402
 LABELS = []
 
 
-def capture(tag, scene, options, config, frame, *, perf_frames=10, size=None):
+def capture(tag, scene, options, config, frame, *, perf_frames=10, size=None, project=None, threading=None):
     label = f"rt-check-{tag}"
     LABELS.append(label)
     command = [sys.executable, str(ROOT / "tests/rendering/golden_run.py"), "--label", label, "--scenes", scene, "--config", config,
                "--options", options, "--frame", str(frame), "--perf-frames", str(perf_frames), "--perf-warmup", "5", "--timeout", "600"]
     if size:
         command.extend(["--size", size])
+    if project:
+        command.extend(["--project", str(project)])
+    if threading:
+        command.extend(["--threading", threading])
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     if result.returncode != 0 or " OK " not in result.stdout:
         print(result.stdout[-2000:], result.stderr[-1000:])
@@ -919,25 +923,50 @@ def check_unwrap_apply(config):
 
 
 def check_texlib(config):
-    """#230: texture library. The editor lists Poly Haven and ambientCG textures and downloads one texture from each (needs network):
-    the maps arrive as real JPEG files in Assets/Textures/Library. The panel itself is UI and was not clicked through."""
-    import re
-    library = ROOT / "Editor/LuxSampleProject/Assets/Textures/Library"
-    try:
-        capture("tl-fetch", "GI_CornellBox", "TexLibFetch=brick_wall_001:Bricks076A", config, 60)
+    """#230: index, preview, material assembly, mesh/slot assignment and reopening the downloaded assets."""
+    from tempfile import TemporaryDirectory
+
+    scene = "GI_CornellBox"
+    source = ROOT / "Editor/LuxSampleProject"
+    with TemporaryDirectory(prefix="texlib-check-", dir=ROOT / "bin") as temp:
+        root = Path(temp)
+        assets = root / "Assets"
+        project = root / "TextureCheck.luxproj"
+        settings = (source / "LuxSample.luxproj").read_text(encoding="utf-8")
+        settings = settings.replace("Name: LuxSample", "Name: TextureCheck").replace("AutoSave: true", "AutoSave: false")
+        settings = settings.replace("StartScene: Scenes/NewSceneSystem.luxscene", f"StartScene: Scenes/{scene}.luxscene")
+        project.write_text(settings, encoding="utf-8")
+        files = [f"Scenes/{scene}.luxscene", "Meshes/Source/Default/Cube.gltf", "Meshes/Source/Default/Cube.bin"]
+        files.extend(path.relative_to(source / "Assets") for path in (source / "Assets/Materials/GI").glob("*.lmat"))
+        for name in files:
+            destination = assets / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / "Assets" / name, destination)
+
+        options = "Bloom=0,DOF=0,Lightmaps=0"
+        captures = {"project": project, "size": "641x359", "threading": "multi"}
+        plain = capture("tl-plain", scene, options, config, 90, **captures)
+        imported = capture("tl-fetch", scene, f"{options},TexLibFetch=brick_wall_001:WoodFloor043", config, 90, **captures)
         log = read_log("tl-fetch", "GI_CornellBox")
-        listed = re.findall(r"polyhaven list ok: (\d+) textures", log)
-        check(bool(listed) and int(listed[0]) > 100, f"Poly Haven lists its textures ({listed})")
-        listed = re.findall(r"ambientcg list ok: (\d+) textures", log)
-        check(bool(listed) and int(listed[0]) > 10, f"ambientCG lists its textures ({listed})")
-        for folder in ("brick_wall_001", "Bricks076A"):
-            files = [p for p in (library / folder).glob("*") if p.suffix.lower() in (".jpg", ".png")]
-            check(len(files) >= 2, f"{folder}: {len(files)} map files downloaded")
-            jpgs = [p for p in files if p.suffix.lower() == ".jpg"]
-            check(all(p.read_bytes()[:2] == bytes([0xFF, 0xD8]) and p.stat().st_size > 10000 for p in jpgs), f"{folder}: the JPEG maps are real images")
-    finally:
-        import shutil
-        shutil.rmtree(library, ignore_errors=True)
+        for origin in ("polyhaven", "ambientcg"):
+            check(f"{origin} index:" in log, f"{origin} index resolves the material and its preview decodes")
+        library = assets / "Textures/Library"
+        for source_id, material_id, resolution in (("polyhaven", "brick_wall_001", "2K"), ("ambientcg", "WoodFloor043", "1K")):
+            pack = library / f"{source_id}_{material_id}" / resolution
+            material = (pack / f"{material_id}.lmat").read_text(encoding="utf-8")
+            for suffix in ("diffuse", "normal", "roughness"):
+                maps = list(pack.glob(f"{material_id}_{suffix}.*"))
+                check(len(maps) == 1 and maps[0].stat().st_size > 10000 and maps[0].name in material,
+                      f"{source_id} {resolution} material references its downloaded {suffix} map")
+            for suffix in ("ao", "height", "metalness"):
+                for path in pack.glob(f"{material_id}_{suffix}.*"):
+                    check(path.name in material, f"{source_id} material preserves its {suffix} data map")
+        changed = float(np.mean(np.max(np.abs(imported - plain), axis=2) > 0.05))
+        check(changed > 0.05, f"the imported PBR materials change {changed:.1%} of the rendered frame")
+        reopened = capture("tl-offline", scene, f"{options},TexLibCached=brick_wall_001:WoodFloor043", config, 90, **captures)
+        offline_log = read_log("tl-offline", scene)
+        check(np.array_equal(imported, reopened) and "reopened WoodFloor043" in offline_log and "index:" not in offline_log,
+              "the project reopens and renders the same material pixels from disk without library requests")
 
 
 def check_unwrap_skinned(config):

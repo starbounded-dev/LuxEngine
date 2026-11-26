@@ -103,6 +103,7 @@ namespace Lux
 		void UI_ViewportSelectionBadge();
 		void UI_ViewportPerformanceHUD();
 		Entity CastMousePick();
+		void AcceptTextureLibraryMaterial(Entity entity, std::optional<uint32_t> slot);
 		bool UpdateTilePainting();
 		// View and (unreversed) projection of the camera the viewport is rendering through.
 		void GetViewportCameraMatrices(glm::mat4& outView, glm::mat4& outProjection);

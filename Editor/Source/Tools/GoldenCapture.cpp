@@ -4,14 +4,16 @@
 #include "GoldenCapture.h"
 
 #include "Viewport/Viewport.h"
-#include "Panels/TextureLibraryPanel.h"
+#include "TextureLibrary.h"
 
 #include "Lux/Asset/AssetManager/EditorAssetManager.h"
 #include "Lux/Core/Application.h"
+#include "Lux/Core/JobSystem.h"
 #include "Lux/Core/Version.h"
 #include "Lux/Renderer/RHI/RHIDevice.h"
 #include "Lux/Core/Events/ApplicationEvent.h"
 #include "Lux/Editor/EditorCamera.h"
+#include "Lux/Editor/SceneHierarchyPanel.h"
 #include "Lux/Editor/SelectionManager.h"
 #include "Lux/Animation/AnimationGraph.h"
 #include "Lux/Animation/Skeleton.h"
@@ -133,7 +135,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "RTGIFullResolutionAtFrame", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "RTGIFullResolutionAtFrame", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch", "TexLibCached" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -514,34 +516,78 @@ namespace Lux {
 			}
 		}
 
-		// TexLibFetch=<Poly Haven id>:<ambientCG id>: once, lists both texture libraries and downloads one texture from each into
-		// Assets/Textures/Library, logging what arrived (the texture library panel's check).
-		if (const auto it = m_Options.find("TexLibFetch"); it != m_Options.end() && m_SceneFrames == 5)
+		// TexLibFetch and TexLibCached exercise material creation and reuse of the saved .lmats.
+		const bool textureCacheOnly = m_Options.contains("TexLibCached");
+		const auto textureTest = m_Options.find(textureCacheOnly ? "TexLibCached" : "TexLibFetch");
+		if (textureTest != m_Options.end() && !m_TextureFixture)
 		{
-			const size_t colon = it->second.find(':');
-			const std::string polyHavenId = it->second.substr(0, colon);
-			const std::string ambientId = colon == std::string::npos ? std::string() : it->second.substr(colon + 1);
-			std::vector<TextureLibrary::Entry> entries;
-			std::string error;
-			const bool listed = TextureLibrary::ListPolyHaven(entries, error);
-			LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] polyhaven list {}: {} textures {}", listed ? "ok" : "failed", entries.size(), error);
-			std::vector<TextureLibrary::Entry> ambient;
-			const bool ambientListed = TextureLibrary::ListAmbientCG("brick", ambient, error);
-			LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] ambientcg list {}: {} textures {}", ambientListed ? "ok" : "failed", ambient.size(), error);
-			const std::filesystem::path library = Project::GetActiveAssetDirectory() / "Textures" / "Library";
-			for (const auto& [source, id] : { std::pair<std::string, std::string>{ "polyhaven", polyHavenId }, std::pair<std::string, std::string>{ "ambientcg", ambientId } })
+			const size_t separator = textureTest->second.find(':');
+			auto fixture = Ref<TextureFixture>::Create();
+			fixture->IDs = { textureTest->second.substr(0, separator), separator == std::string::npos ? "" : textureTest->second.substr(separator + 1) };
+			if (!TextureLibrary::ValidId(fixture->IDs[0]) || !TextureLibrary::ValidId(fixture->IDs[1]) || !JobSystem::IsMultithreaded())
 			{
-				if (id.empty())
-					continue;
-				std::vector<std::string> written;
-				error.clear();
-				std::filesystem::create_directories(library / id);
-				const bool ok = source == "polyhaven" ? TextureLibrary::DownloadPolyHaven(id, library / id, written, error) : TextureLibrary::DownloadAmbientCG(id, library / id, written, error);
-				std::string files;
-				for (const std::string& file : written)
-					files += file + ";";
-				LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] {} download {} {}: {} files {} {}", source, id, ok ? "ok" : "failed", written.size(), files, error);
+				Finish(false, "texture fixture requires two asset IDs and the multithreaded editor");
+				return;
 			}
+			m_TextureFixture = fixture;
+			if (textureCacheOnly)
+				fixture->Done.store(true, std::memory_order_release);
+			else
+			{
+				JobSystem::Submit([fixture, assets = Project::GetActiveAssetDirectory()]() mutable {
+					for (size_t i = 0; i < fixture->IDs.size(); ++i)
+					{
+						std::vector<TextureLibrary::Entry> entries;
+						const bool listed = i ? TextureLibrary::ListAmbientCG(fixture->IDs[i], entries, fixture->Error)
+							: TextureLibrary::ListPolyHaven(entries, fixture->Error);
+						const auto entry = std::find_if(entries.begin(), entries.end(), [fixture, i](const auto& e) { return e.Id == fixture->IDs[i]; });
+						std::vector<uint8_t> preview;
+						int width = 0, height = 0, channels = 0;
+						if (!listed || entry == entries.end() || !TextureLibrary::HttpGet(entry->Thumbnail, preview, fixture->Error) ||
+							!stbi_info_from_memory(preview.data(), static_cast<int>(preview.size()), &width, &height, &channels))
+						{
+							fixture->Error = std::format("index or thumbnail unavailable for {} ({})", fixture->IDs[i], fixture->Error);
+							break;
+						}
+						LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] {} index: {} entries, decoded {}x{} preview", entry->Source, entries.size(), width, height);
+						TextureLibrary::MaterialRequest request;
+						std::copy(entry->Id.begin(), entry->Id.end(), request.Id.begin());
+						request.Resolution = i ? 1 : 2;
+						request.AmbientCG = i != 0;
+						fixture->Error.clear();
+						if (!TextureLibrary::FetchPack(assets, request, fixture->Error))
+							break;
+					}
+					fixture->Done.store(true, std::memory_order_release);
+				});
+			}
+		}
+		if (m_TextureFixture && !m_TextureFixtureApplied && m_TextureFixture->Done.load(std::memory_order_acquire))
+		{
+			if (!m_TextureFixture->Error.empty())
+			{
+				Finish(false, m_TextureFixture->Error);
+				return;
+			}
+			for (size_t i = 0; i < m_TextureFixture->IDs.size(); ++i)
+			{
+				const std::string& id = m_TextureFixture->IDs[i];
+				TextureLibrary::MaterialRequest request;
+				std::copy(id.begin(), id.end(), request.Id.begin());
+				request.Resolution = i ? 1 : 2;
+				request.AmbientCG = i != 0;
+				Entity target = scene.TryGetEntityWithTag(i ? "Back Wall" : "Floor");
+				const AssetHandle material = TextureLibrary::ImportPack(request);
+				if (!target || !target.HasComponent<StaticMeshComponent>() || !material ||
+					!SceneHierarchyPanel::ApplyMaterial(target.GetComponent<StaticMeshComponent>(), material, i ? std::optional<uint32_t>(0) : std::nullopt))
+				{
+					Finish(false, std::format("could not import or assign texture fixture {}", id));
+					return;
+				}
+				LUX_CORE_INFO_TAG("Editor", "[TextureLibrary] {} {} {}K", textureCacheOnly ? "reopened" : "imported", id, request.Resolution);
+			}
+			m_TextureFixtureApplied = true;
+			m_IdleFrames = 0;
 		}
 
 		// PosePulse=<degrees>: every skeleton with a DebugBone bends it by degrees * sin(frame / 10) each frame, so skinned meshes change
@@ -698,7 +744,8 @@ namespace Lux {
 
 				// With MoveEntities, capture only on a frame rendered at the loop's start (the original pose).
 				const bool atRestPose = m_MoveEntityCount == 0 || m_MovePhase == 0;
-				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && rendererReady && lightmapReady;
+				const bool textureReady = (!m_Options.contains("TexLibFetch") && !m_Options.contains("TexLibCached")) || m_TextureFixtureApplied;
+				const bool canCapture = (!m_Play || m_AudioVerified) && m_SceneFrames >= m_MinFrames && rendererReady && lightmapReady && textureReady;
 				if (m_MoveEntityCount > 0 && m_MoveStopFrames > 0)
 				{
 					// MoveStop: stop on a rest-pose frame, then capture exactly MoveStop frames later.

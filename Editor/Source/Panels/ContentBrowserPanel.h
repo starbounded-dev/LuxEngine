@@ -165,6 +165,8 @@ namespace Lux {
 		ContentBrowserItemList& GetCurrentItems() { return m_CurrentItems; }
 		Ref<DirectoryInfo> GetDirectory(const std::filesystem::path& filepath) const;
 		Ref<ThumbnailCache> GetThumbnailCache() const { return m_ThumbnailCache; }
+		void SetTextureLibraryDropCallback(std::function<void()> callback) { m_TextureLibraryDropCallback = std::move(callback); }
+		void RevealImportedAsset(AssetHandle handle);
 
 		void RegisterItemActivateCallbackForType(AssetType type, const std::function<void(const AssetMetadata&)>& callback)
 		{
@@ -334,6 +336,7 @@ namespace Lux {
 
 		float m_ThumbnailSize = 128.0f;
 		bool m_ShowAssetType = true;
+		std::function<void()> m_TextureLibraryDropCallback;
 
 		// Remake: view mode, sort, type-filter and favourites — persisted via LoadSettings/SaveSettings.
 		ViewMode m_ViewMode = ViewMode::Grid;

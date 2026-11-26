@@ -1641,6 +1641,29 @@ namespace Lux {
 		ImGui::TreePop();
 	}
 
+	bool SceneHierarchyPanel::ApplyMaterial(StaticMeshComponent& component, AssetHandle material, std::optional<uint32_t> slot)
+	{
+		if (!slot)
+		{
+			component.MaterialTable = Ref<MaterialTable>::Create();
+			component.MaterialTable->SetMaterial(0, material);
+			return true;
+		}
+		const uint32_t slotCount = GetMeshMaterialSlotCount(component.StaticMesh);
+		if (*slot >= slotCount)
+			return false;
+		// Resolve every slot before editing. A table containing only slot zero overrides every submesh.
+		std::vector<AssetHandle> effective(slotCount);
+		for (uint32_t index = 0; index < slotCount; ++index)
+			effective[index] = GetEffectiveSlotMaterial(component, index);
+		effective[*slot] = material ? material : GetMeshDefaultMaterial(component.StaticMesh, *slot);
+		if (!component.MaterialTable)
+			component.MaterialTable = Ref<MaterialTable>::Create();
+		for (uint32_t index = 0; index < slotCount; ++index)
+			component.MaterialTable->SetMaterial(index, effective[index]);
+		return true;
+	}
+
 	void SceneHierarchyPanel::DrawStaticMeshMaterialSlots(StaticMeshComponent& component, const std::vector<UUID>& selectedEntities)
 	{
 		// Per-slot overrides are edited for one entity at a time: selected entities may use
@@ -1653,21 +1676,12 @@ namespace Lux {
 			{
 				ImGuiEx::ScopedID slotID((int)slot);
 				AssetHandle materialHandle = GetEffectiveSlotMaterial(component, slot);
-				if (!ImGuiEx::PropertyAssetReference<MaterialAsset>(std::format("Slot {}", slot).c_str(), materialHandle, "Material for this submesh slot. Clearing restores the mesh's own material."))
-					continue;
-
-				// Write every slot explicitly: a table holding only a slot-0 entry means "this material
-				// on every submesh", so a partial table would repaint the whole mesh. All slots are
-				// resolved before any write, since the resolution depends on the table's shape.
-				std::vector<AssetHandle> effective(slotCount);
-				for (uint32_t fill = 0; fill < slotCount; ++fill)
-					effective[fill] = GetEffectiveSlotMaterial(component, fill);
-				effective[slot] = materialHandle ? materialHandle : GetMeshDefaultMaterial(component.StaticMesh, slot);
-
-				if (!component.MaterialTable)
-					component.MaterialTable = Ref<MaterialTable>::Create();
-				for (uint32_t fill = 0; fill < slotCount; ++fill)
-					component.MaterialTable->SetMaterial(fill, effective[fill]);
+				ImGuiEx::PropertyAssetReferenceSettings settings;
+				if (m_MaterialDropCallback)
+					settings.OnAdditionalDrop = [this, entity = selectedEntities.front(), slot] { m_MaterialDropCallback(entity, slot); };
+				if (ImGuiEx::PropertyAssetReference<MaterialAsset>(std::format("Slot {}", slot).c_str(), materialHandle,
+					"Material for this submesh slot. Clearing restores the mesh's own material.", nullptr, settings))
+					ApplyMaterial(component, materialHandle, slot);
 			}
 			ImGuiEx::EndPropertyGrid();
 			ImGui::TreePop();
@@ -4962,7 +4976,10 @@ namespace Lux {
 					return (smc.MaterialTable && smc.MaterialTable->HasMaterial(0)) ? smc.MaterialTable->GetMaterial(0) : AssetHandle{};
 				});
 				ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, mixedMaterial);
-				if (ImGuiEx::PropertyAssetReference<MaterialAsset>("Material", materialHandle, "Static Mesh material override expects a material asset"))
+				ImGuiEx::PropertyAssetReferenceSettings materialSettings;
+				if (m_MaterialDropCallback && selectedEntities.size() == 1)
+					materialSettings.OnAdditionalDrop = [this, entity = selectedEntities.front()] { m_MaterialDropCallback(entity, std::nullopt); };
+				if (ImGuiEx::PropertyAssetReference<MaterialAsset>("Material", materialHandle, "Static Mesh material override expects a material asset", nullptr, materialSettings))
 				{
 					if (!firstComponent.MaterialTable)
 						firstComponent.MaterialTable = Ref<MaterialTable>::Create();

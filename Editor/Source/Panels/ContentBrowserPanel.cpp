@@ -314,6 +314,12 @@ namespace Lux {
 					RenderItems();
 					ImGui::Columns(1);
 
+					if (m_TextureLibraryDropCallback && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##texture-library-drop")))
+					{
+						m_TextureLibraryDropCallback();
+						ImGui::EndDragDropTarget();
+					}
+
 					if (ImGui::IsWindowFocused() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 						UpdateInput();
 
@@ -1995,6 +2001,19 @@ namespace Lux {
 			StartRenamingItem(handle);
 		}
 		return handle;
+	}
+
+	void ContentBrowserPanel::RevealImportedAsset(AssetHandle handle)
+	{
+		auto manager = Project::GetEditorAssetManager();
+		if (!manager || !handle)
+			return;
+		const auto directory = manager->GetFilePath(handle).parent_path();
+		Refresh();
+		if (Ref<DirectoryInfo> imported = GetDirectory(directory))
+			ChangeDirectory(imported);
+		ClearSelections();
+		SelectItem(handle);
 	}
 
 	AssetHandle ContentBrowserPanel::CreateMaterialAsset()
