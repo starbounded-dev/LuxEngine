@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "Texture.h"
+#include "TextureStreamSource.h"
 
 #include "Lux/Renderer/RendererAPI.h"
 #include "Lux/Renderer/Renderer.h"
@@ -384,6 +385,27 @@ namespace Lux {
 			{
 				instance->Invalidate();
 			});
+	}
+
+	Ref<Texture2D> Texture2D::CreateStreamed(TextureResidency mode, const TextureSpecification& specification, Buffer imageData)
+	{
+		if (mode == TextureResidency::Resident || specification.Format != ImageFormat::RGBA ||
+			(specification.Width <= TextureStreamSource::PageSize && specification.Height <= TextureStreamSource::PageSize))
+			return Create(specification, imageData);
+		if (!imageData || imageData.Size != uint64_t(specification.Width) * specification.Height * 4)
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "Invalid texture source for streaming: {}", specification.DebugName);
+			return nullptr;
+		}
+		auto source = Ref<TextureStreamSource>::Create(mode, specification.Width, specification.Height, imageData);
+		const auto& level = source->GetLevel(source->GetTailMip(), false);
+		TextureSpecification coarse = specification;
+		coarse.Width = level.Width;
+		coarse.Height = level.Height;
+		coarse.GenerateMips = true;
+		auto result = Create(coarse, level.View());
+		result->m_StreamSource = source;
+		return result;
 	}
 
 	void Texture2D::CreateFromBuffer(const TextureSpecification& specification, Buffer data)

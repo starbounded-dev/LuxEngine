@@ -52,6 +52,7 @@ namespace Lux {
 
 	struct ProjectSceneRendererSettings;
 	class RenderScene;
+	class TextureStreamingCache;
 	struct StaticMeshRenderProxy;
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -249,6 +250,7 @@ namespace Lux {
 
 	struct SceneRendererOptions
 	{
+		uint32_t TextureStreamingBudgetMiB = 64;
 		enum class RenderResolutionScaleMode : uint32_t
 		{
 			Native = 0,
@@ -717,6 +719,11 @@ namespace Lux {
 			float    TotalGPUTime = 0.0f;
 			PipelineStatistics PipelineStats;
 			MemoryStatistics MemoryStats;
+			uint32_t StreamedTextures = 0;
+			uint32_t StreamedFineTextures = 0;
+			uint32_t TextureStreamingPromotions = 0;
+			uint32_t TextureStreamingEvictions = 0;
+			uint64_t TextureStreamingFineBytes = 0;
 			std::vector<PassProfile> PassProfiles;
 		};
 
@@ -2315,6 +2322,7 @@ namespace Lux {
 		Ref<Material>    m_GBufferDebugMaterial;
 		std::vector<Ref<Texture2D>> m_GPUMaterialTextures;
 		Ref<BindlessTextureTable> m_BindlessTextures;
+		Scope<TextureStreamingCache> m_TextureStreamingCache;
 		uint32_t m_ResolvedTextureSlotCount = 0;
 
 		// ── Selected / wireframe ──────────────────────────────────────────────

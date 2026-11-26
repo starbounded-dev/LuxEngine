@@ -447,6 +447,11 @@ Structurally:
   A project holds complete maps and their material in `Assets/Textures/Library`,
   so they load through the normal asset pipeline offline. The main thread registers the pack
   and applies the selected mesh or slot only while its project, scene and mesh still match.
+- Texture residency is selected in the asset registry. Streamed textures start with a
+  coarse mip tail. The scene renderer uses visible receiver bounds and screen coverage to
+  choose fine mip chains within a per-view budget. Bindless frame tables keep the previously
+  bound images alive until their frame slot is reusable. Runtime packs preserve the source
+  pixels and residency mode for the standalone asset loader.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

@@ -164,6 +164,8 @@ namespace Lux {
 		uint32_t m_LostReadinessFrames = 0;    // timed frames dropped because asset streaming restarted
 		std::vector<double> m_FrameSamples, m_GPUSamples;
 		uint32_t m_ClusterEntries = 0, m_ClusterLightsDropped = 0; // last entries, most dropped in any frame
+		uint32_t m_StreamedTextures = 0, m_StreamingPromotions = 0, m_StreamingEvictions = 0;
+		uint64_t m_PeakFineTextureBytes = 0;
 
 		struct CameraPose
 		{

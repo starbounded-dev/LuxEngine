@@ -987,6 +987,84 @@ def check_unwrap_apply(config):
           f"unwrapping improves the wall and floor lightmap means against the path tracer (RMSE {before_error:.4f} -> {after_error:.4f})")
 
 
+def texture_streaming_project(root, mode):
+    import struct
+    import zlib
+    from make_rt_scenes import camera, mesh, nosky, point
+
+    source = ROOT / "Editor/LuxSampleProject"
+    assets = root / "Assets"
+    for directory in ("Textures", "Materials/GI", "Scenes", "Meshes/Source/Default"):
+        (assets / directory).mkdir(parents=True, exist_ok=True)
+    for name in ("Cube.gltf", "Cube.bin"):
+        relative = f"Meshes/Source/Default/{name}"
+        shutil.copy2(source / "Assets" / relative, assets / relative)
+    size = 2048
+    x = np.arange(size)
+    pattern = (x[None, :] // 8 + x[:, None] // 8) % 2
+
+    def chunk(name, data):
+        return struct.pack(">I", len(data)) + name + data + struct.pack(">I", zlib.crc32(name + data))
+
+    registry = ["Assets:"]
+    geometry = ""
+    for i, suffix in enumerate(("A", "B")):
+        rgb = np.where(pattern[..., None], (255, 220, 200), (20, 32, 52)).astype(np.uint8)
+        if i:
+            rgb = rgb[..., ::-1]
+        scanlines = b"".join(b"\0" + line.tobytes() for line in rgb)
+        png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">2I5B", size, size, 8, 2, 0, 0, 0))
+        png += chunk(b"IDAT", zlib.compress(scanlines, 4)) + chunk(b"IEND", b"")
+        relative = f"Textures/Stream{suffix}.png"
+        (assets / relative).write_bytes(png)
+        registry += [f"  - Handle: {7200000000000004001 + i}", f"    FilePath: {relative}", "    Type: Texture"]
+        if mode:
+            registry += [f"    TextureResidency: {mode}"]
+        material = (source / "Assets/Materials/GI/GI_White.lmat").read_text(encoding="utf-8").replace("AlbedoMap: 0", f"AlbedoMap: {relative}")
+        (assets / f"Materials/GI/Stream{suffix}.lmat").write_text(material, encoding="utf-8")
+        geometry += mesh(f"Panel {suffix}", "Cube", (i * 14, 0, -6), (5, 3, 0.15), f"Stream{suffix}")
+        geometry += point(f"Light {suffix}", (i * 14, 2, -2), (1, 1, 1), 220, 9)
+    (assets / "AssetRegistry.lzr").write_text("\n".join(registry) + "\n", encoding="utf-8")
+    (assets / "Scenes/TextureStreaming.luxscene").write_text(
+        f"FormatVersion: 1\nScene: TextureStreaming\nEntities:\n{geometry}{nosky()}{camera((0, 0, 0), (0, 0, 0))}", encoding="utf-8")
+    project = root / "TextureStreaming.luxproj"
+    settings = (source / "LuxSample.luxproj").read_text(encoding="utf-8")
+    settings = settings.replace("Name: LuxSample", "Name: TextureStreaming").replace("AutoSave: true", "AutoSave: false")
+    settings = settings.replace("StartScene: Scenes/NewSceneSystem.luxscene", "StartScene: Scenes/TextureStreaming.luxscene")
+    project.write_text(settings, encoding="utf-8")
+    return project
+
+
+def check_texture_streaming(config):
+    """#259: compare a camera route with resident, mip-streamed and virtual texture assets."""
+    from tempfile import TemporaryDirectory
+
+    scene = "TextureStreaming"
+    options = "Bloom=0,DOF=0,Lightmaps=0"
+    route = "CameraVisit=14:130:200"
+    with TemporaryDirectory(prefix="texture-residency-", dir=ROOT / "bin") as temp:
+        root = Path(temp)
+        resident = texture_streaming_project(root / "resident", 0)
+        streamed = texture_streaming_project(root / "mips", 1)
+        reference = capture("stream-baseline", scene, options, config, 140, project=resident, size="961x541")
+        near = capture("stream-near", scene, f"{options},TextureStreamingBudget=6", config, 140, project=streamed, size="961x541")
+        limited = capture("stream-limited", scene, f"{options},TextureStreamingBudget=1", config, 140, project=streamed, size="961x541")
+        returned = capture("stream-return", scene, f"{options},TextureStreamingBudget=6,{route}", config, 260, project=streamed, size="961x541")
+        roi = np.s_[170:370, 340:620]
+        near_error, limited_error = rmse(near[roi], reference[roi]), rmse(limited[roi], reference[roi])
+        check(near_error < limited_error * 0.85,
+              f"streaming in finer mips restores visible detail within budget ({limited_error:.4f} -> {near_error:.4f} RMSE)")
+
+        def stats(tag):
+            path = ROOT / "bin/golden" / f"rt-check-{tag}" / f"{scene}.perf.json"
+            return json.loads(path.read_text(encoding="utf-8"))["textureStreaming"]
+
+        working_set = stats("stream-return")
+        check(0 < working_set["measuredFineBytes"] <= 6 * 1024 * 1024 and working_set["promotions"] >= 3 and working_set["evictions"] >= 2,
+              f"visiting a different surface evicts and reloads mips within budget ({working_set})")
+        check(rmse(near, returned) < 0.003, "the mip-streaming camera route restores the same image on return")
+
+
 def check_texlib(config):
     """#230: index, preview, material assembly, mesh/slot assignment and reopening the downloaded assets."""
     from tempfile import TemporaryDirectory
@@ -1064,7 +1142,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib, "texture_streaming": check_texture_streaming}
 
 
 def main():

@@ -8,6 +8,7 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/Exposure.h"
+#include "Lux/Renderer/TextureStreamingCache.h"
 #include "Lux/Renderer/Shader.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Math/Frustum.h"
@@ -7693,16 +7694,21 @@ namespace Lux {
 			gpuTextureSlots.resize(MaxGPUTextureSceneTextures());
 		}
 
-		auto resolveMaterialTexture = [](const GPUTextureSlot& slot) -> Ref<Texture2D>
+		auto resolveMaterialTexture = [this](const GPUTextureSlot& slot, GPUTextureIndex index) -> Ref<Texture2D>
 			{
 				const AssetHandle textureHandle = slot.Handle;
-				if (!textureHandle || !Project::GetAssetManager() || !AssetManager::IsAssetHandleValid(textureHandle))
-					return Renderer::GetWhiteTexture();
-
-				if (AssetManager::GetAssetType(textureHandle) != AssetType::Texture)
-					return Renderer::GetWhiteTexture();
-
-				Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+				Ref<Texture2D> texture;
+				if (textureHandle && Project::GetAssetManager() && AssetManager::IsAssetHandleValid(textureHandle) &&
+					AssetManager::GetAssetType(textureHandle) == AssetType::Texture)
+					texture = AssetManager::GetAsset<Texture2D>(textureHandle);
+				if (texture && texture->Loaded() && texture->GetStreamSource())
+				{
+					if (!m_TextureStreamingCache)
+						m_TextureStreamingCache = CreateScope<TextureStreamingCache>();
+					return m_TextureStreamingCache->Track(index, slot, texture);
+				}
+				if (m_TextureStreamingCache)
+					m_TextureStreamingCache->Untrack(index);
 				if (!texture || !texture->Loaded())
 					return Renderer::GetWhiteTexture();
 
@@ -7740,7 +7746,7 @@ namespace Lux {
 		auto resolveSlot = [&](uint32_t textureIndex)
 		{
 			const GPUTextureSlot slot = textureIndex < gpuTextureSlots.size() ? gpuTextureSlots[textureIndex] : GPUTextureSlot{};
-			Ref<Texture2D> texture = resolveMaterialTexture(slot);
+			Ref<Texture2D> texture = resolveMaterialTexture(slot, textureIndex);
 			if (slot.Handle && texture.Raw() == Renderer::GetWhiteTexture().Raw())
 			{
 				missingTextureDescriptorCount++;
@@ -7786,9 +7792,6 @@ namespace Lux {
 			// The missing-slot statistic refreshes on full sweeps.
 			missingTextureDescriptorCount = m_MissingTextureDescriptorCount;
 		}
-		// Before this frame's passes are recorded: they read this frame's table.
-		m_BindlessTextures->Flush();
-
 		std::vector<GPUMaterialData>& gpuMaterialData = m_ScratchMaterialData;
 		// Same version gate as the texture table. Unlike the texture scratch,
 		// nothing is appended to this one, so an unchanged frame skips the copy
@@ -7841,6 +7844,61 @@ namespace Lux {
 		}
 		const uint32_t uploadedMaterialCount = persistentMaterialCount + (uint32_t)transientGPUMaterialData.size();
 		const uint32_t uploadedTextureCount = (uint32_t)gpuTextureSlots.size();
+
+		if (m_TextureStreamingCache && !m_TextureStreamingCache->Empty())
+		{
+			auto& cache = *m_TextureStreamingCache;
+			cache.BeginFeedback();
+			const glm::mat4& view = m_SceneData.SceneCamera.ViewMatrix;
+			const glm::mat4 projection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix();
+			const float projectionHeight = std::abs(projection[1][1]) * static_cast<float>(m_ViewportHeight);
+			const bool orthographic = projection[3][3] == 1.0f;
+			const auto requestInstance = [&](const GPUSceneInstanceData& instance)
+			{
+				const uint32_t flags = GetGPUSceneInstanceFlags(instance);
+				const uint32_t materialIndex = GetGPUSceneMaterialIndex(instance);
+				const glm::vec4 sphere = instance.BoundsSphere;
+				if (!(flags & static_cast<uint32_t>(GPUSceneInstanceFlags::Visible)) ||
+					materialIndex >= persistentMaterialCount || !m_SceneData.CameraFrustum.IsSphereVisible({ glm::vec3(sphere), sphere.w }))
+					return;
+				const GPUMaterialData& material = gpuMaterialData[materialIndex];
+				const float depth = -(view * glm::vec4(glm::vec3(sphere), 1.0f)).z;
+				const float tiling = std::max({ glm::length(glm::vec2(material.UVTransform)), glm::length(glm::vec2(material.UVTransform.z, material.UVTransform.w)), 1.0f });
+				const float pixels = sphere.w * projectionHeight / ((orthographic ? 1.0f : std::max(depth, 0.1f)) * tiling);
+				for (uint32_t channel = 0; channel < 4; ++channel)
+					cache.Request(material.TextureIndices[channel], pixels);
+				for (uint32_t channel = 0; channel < 3; ++channel)
+				{
+					cache.Request(material.ExtraTextureIndices[channel], pixels);
+					cache.Request(material.DetailTextureIndices[channel], pixels);
+				}
+				cache.Request(material.TransmissionTextureIndices.x, pixels);
+			};
+			if (persistentGPUSceneInstances)
+				for (const auto& instance : *persistentGPUSceneInstances)
+					requestInstance(instance);
+			for (const auto& instance : m_TransientGPUSceneInstances)
+				requestInstance(instance);
+			const uint64_t bytes = uint64_t(std::clamp(m_Options.TextureStreamingBudgetMiB, 1u, 512u)) * 1024 * 1024;
+			cache.Apply(bytes, [this](GPUTextureIndex index, const Ref<Texture2D>& texture) {
+				m_GPUMaterialTextures[index] = texture;
+				m_BindlessTextures->SetSlot(index, texture);
+			});
+			const auto& residency = cache.GetStatistics();
+			m_Statistics.StreamedTextures = residency.StreamedTextures;
+			m_Statistics.StreamedFineTextures = residency.FineTextures;
+			m_Statistics.TextureStreamingPromotions = residency.Promotions;
+			m_Statistics.TextureStreamingEvictions = residency.Evictions;
+			m_Statistics.TextureStreamingFineBytes = residency.FineBytes;
+		}
+		else
+		{
+			m_Statistics.StreamedTextures = 0;
+			m_Statistics.StreamedFineTextures = 0;
+			m_Statistics.TextureStreamingFineBytes = 0;
+		}
+		// Before recording the passes that read this frame's material bindings.
+		m_BindlessTextures->Flush();
 
 		auto resolveInstanceData = [this, persistentGPUSceneInstances](uint32_t sceneInstanceIndex) -> const GPUSceneInstanceData*
 			{

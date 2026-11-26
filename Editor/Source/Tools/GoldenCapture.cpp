@@ -135,7 +135,7 @@ namespace Lux {
 			{ "PTHeat", &SceneRendererOptions::PathTracerSampleHeatmap },
 		};
 
-		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "RTGIFullResolutionAtFrame", "CameraSway", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch", "TexLibCached" };
+		constexpr std::string_view k_SpecialOptions[] = { "Bloom", "DOF", "Colliders", "PCSS", "MoveEntities", "MoveStop", "Quality", "Select", "Attach", "PathTracerSamples", "PathTracerBounces", "BakeLightmaps", "DiffPeak", "PTAdaptive", "RTGIHistory", "RTGIFullResolutionAtFrame", "CameraSway", "CameraVisit", "TextureStreamingBudget", "PosePulse", "PTFog", "PTFurnaceL", "PTDebug", "GIProbeSpacing", "RTReflRays", "AutoUnwrap", "AutoUnwrapAsset", "TexLibFetch", "TexLibCached" };
 
 		bool IsKnownOption(std::string_view name)
 		{
@@ -345,6 +345,8 @@ namespace Lux {
 			}
 			else if (name == "RTGIHistory")
 				std::from_chars(value.data(), value.data() + value.size(), options.RTGIHistoryLength);
+			else if (name == "TextureStreamingBudget")
+				std::from_chars(value.data(), value.data() + value.size(), options.TextureStreamingBudgetMiB);
 			else if (name == "PTAdaptive")
 				std::from_chars(value.data(), value.data() + value.size(), options.PathTracerAdaptiveThreshold);
 			else if (name == "PathTracerSamples")
@@ -495,7 +497,15 @@ namespace Lux {
 			if (std::sscanf(it->second.c_str(), "%f:%u:%u", &amplitude, &first, &last) == 3 && m_SceneFrames >= first && m_SceneFrames <= last)
 				swayYaw = amplitude * std::sin(static_cast<float>(m_SceneFrames - first) * 6.2831853f / 40.0f);
 		}
-		camera.SetOrbitState(m_CameraPose.FocalPoint, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
+		glm::vec3 focus = m_CameraPose.FocalPoint;
+		if (const auto it = m_Options.find("CameraVisit"); it != m_Options.end())
+		{
+			float translation = 0.0f;
+			unsigned first = 0, last = 0;
+			if (std::sscanf(it->second.c_str(), "%f:%u:%u", &translation, &first, &last) == 3 && m_SceneFrames >= first && m_SceneFrames < last)
+				focus.x += translation;
+		}
+		camera.SetOrbitState(focus, m_CameraPose.Distance, m_CameraPose.Pitch, m_CameraPose.Yaw + swayYaw);
 		ApplyOptions(renderer);
 		if (const auto it = m_Options.find("RTGIFullResolutionAtFrame"); it != m_Options.end())
 		{
@@ -905,6 +915,10 @@ namespace Lux {
 		m_GPUSamples.push_back(stats.TotalGPUTime);
 		m_ClusterEntries = stats.ClusterPointIndicesRequested + stats.ClusterSpotIndicesRequested;
 		m_ClusterLightsDropped = std::max(m_ClusterLightsDropped, stats.ClusterPointLightsDropped + stats.ClusterSpotLightsDropped);
+		m_StreamedTextures = stats.StreamedTextures;
+		m_StreamingPromotions = stats.TextureStreamingPromotions;
+		m_StreamingEvictions = stats.TextureStreamingEvictions;
+		m_PeakFineTextureBytes = std::max(m_PeakFineTextureBytes, stats.TextureStreamingFineBytes);
 
 		for (const SceneRenderer::PassProfile& profile : stats.PassProfiles)
 		{
@@ -953,6 +967,8 @@ namespace Lux {
 		json += std::format("  \"warmupFrames\": {},\n", m_PerfWarmupDone);
 		json += std::format("  \"lostReadinessFrames\": {},\n", m_LostReadinessFrames);
 		json += std::format("  \"clusterLightEntries\": {},\n  \"clusterLightsDropped\": {},\n", m_ClusterEntries, m_ClusterLightsDropped);
+		json += std::format("  \"textureStreaming\": {{ \"textures\": {}, \"promotions\": {}, \"evictions\": {}, \"measuredFineBytes\": {} }},\n",
+			m_StreamedTextures, m_StreamingPromotions, m_StreamingEvictions, m_PeakFineTextureBytes);
 		json += std::format("  \"complete\": {},\n", m_PerfSamples >= m_PerfFrames ? "true" : "false");
 		json += std::format("  \"frameStats\": {},\n", SummarizeSamples(m_FrameSamples));
 		json += std::format("  \"gpuStats\": {},\n", SummarizeSamples(m_GPUSamples));

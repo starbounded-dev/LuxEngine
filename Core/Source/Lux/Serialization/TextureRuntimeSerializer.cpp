@@ -3,6 +3,7 @@
 
 #include "lpch.h"
 #include "TextureRuntimeSerializer.h"
+#include "Lux/Renderer/TextureStreamSource.h"
 
 #include "Lux/Asset/TextureImporter.h"
 
@@ -85,6 +86,15 @@ namespace Lux {
 	{
 		// NOTE(Yan): serializing/deserializing mips is not support atm
 		Texture2DMetadata metadata;
+		if (const auto& source = texture->GetStreamSource())
+		{
+			const auto& full = source->GetLevel(0, false);
+			metadata.Width = full.Width;
+			metadata.Height = full.Height;
+			metadata.Format = static_cast<uint16_t>(ImageFormat::RGBA);
+			metadata.Mips = 0x80u | static_cast<uint8_t>(source->GetMode());
+			return SerializeTexture2DToFile(full.View(), metadata, stream);
+		}
 		metadata.Width = texture->GetWidth();
 		metadata.Height = texture->GetHeight();
 		metadata.Format = (uint16_t)texture->GetFormat();
@@ -137,7 +147,10 @@ namespace Lux {
 		spec.Format = (ImageFormat)metadata.Format;
 		spec.GenerateMips = true;
 
-		Ref<Texture2D> texture = Texture2D::Create(spec, buffer);
+		const uint8_t mode = metadata.Mips & 0x7fu;
+		const bool streamed = (metadata.Mips & 0x80u) && (mode == static_cast<uint8_t>(TextureResidency::StreamedMips) ||
+			mode == static_cast<uint8_t>(TextureResidency::VirtualPages));
+		Ref<Texture2D> texture = streamed ? Texture2D::CreateStreamed(static_cast<TextureResidency>(mode), spec, buffer) : Texture2D::Create(spec, buffer);
 		buffer.Release();
 		return texture;
 	}

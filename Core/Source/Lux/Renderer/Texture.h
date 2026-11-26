@@ -13,6 +13,9 @@
 
 namespace Lux {
 
+	enum class TextureResidency : uint8_t;
+	class TextureStreamSource;
+
 	enum class TextureCompressionFormat
 	{
 		None = 0,
@@ -76,6 +79,8 @@ namespace Lux {
 		static Ref<Texture2D> Create(const TextureSpecification& specification) { return Ref<Texture2D>::Create(specification); }
 		static Ref<Texture2D> Create(const TextureSpecification& specification, const std::filesystem::path& filepath) { return Ref<Texture2D>::Create(specification, filepath); }
 		static Ref<Texture2D> Create(const TextureSpecification& specification, Buffer imageData) { return Ref<Texture2D>::Create(specification, imageData); }
+		static Ref<Texture2D> CreateStreamed(TextureResidency mode, const TextureSpecification& specification, Buffer imageData);
+		const Ref<TextureStreamSource>& GetStreamSource() const { return m_StreamSource; }
 
 		virtual ResourceDescriptorInfo GetDescriptorInfo() const override { return m_Image->GetDescriptorInfo(); }
 
@@ -137,6 +142,7 @@ namespace Lux {
 		Buffer m_ImageData;
 
 		Ref<Image2D> m_Image;
+		Ref<TextureStreamSource> m_StreamSource;
 	};
 
 	class TextureCube : public Texture

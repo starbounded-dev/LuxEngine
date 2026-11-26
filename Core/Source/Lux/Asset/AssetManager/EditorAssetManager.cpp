@@ -250,6 +250,25 @@ namespace Lux
 		return true;
 	}
 
+	bool EditorAssetManager::SetTextureResidency(AssetHandle handle, TextureResidency residency)
+	{
+		const AssetMetadata original = GetMetadata(handle);
+		if (!original.IsValid() || original.Type != AssetType::Texture || original.Status == AssetStatus::Loading)
+			return false;
+		if (original.Residency == residency)
+			return true;
+		AssetMetadata updated = original;
+		updated.Residency = residency;
+		SetMetadata(handle, updated);
+		if (!WriteRegistryToFile())
+		{
+			SetMetadata(handle, original);
+			return false;
+		}
+		ReloadDataAsync(handle);
+		return true;
+	}
+
 	bool EditorAssetManager::EnsureCurrent(AssetHandle assetHandle)
 	{
 		if (IsMemoryAsset(assetHandle))
@@ -826,6 +845,12 @@ namespace Lux
 			metadata.Type = AssetTypeFromString(node["Type"].as<std::string>());
 			if (metadata.Type == AssetType::MeshSource)
 				metadata.GenerateLightmapUVs = node["GenerateLightmapUVs"].as<bool>(false);
+			if (metadata.Type == AssetType::Texture)
+			{
+				const uint32_t value = node["TextureResidency"].as<uint32_t>(0);
+				if (value <= static_cast<uint32_t>(TextureResidency::VirtualPages))
+					metadata.Residency = static_cast<TextureResidency>(value);
+			}
 			if (metadata.Type == AssetType::AudioProject || metadata.Type == AssetType::AudioBank)
 			{
 				// FMOD Studio files are no longer assets; the next registry save drops the entry.
@@ -918,13 +943,14 @@ namespace Lux
 			std::string FilePath;
 			AssetType Type = AssetType::None;
 			bool GenerateLightmapUVs = false;
+			TextureResidency Residency = TextureResidency::Resident;
 		};
 
 		std::map<uint64_t, AssetRegistryEntry> sortedEntries;
 		{
 			std::shared_lock lock(m_AssetRegistryMutex);
 			for (const auto& [handle, metadata] : m_AssetRegistry)
-				sortedEntries[static_cast<uint64_t>(handle)] = { metadata.FilePath.generic_string(), metadata.Type, metadata.GenerateLightmapUVs };
+				sortedEntries[static_cast<uint64_t>(handle)] = { metadata.FilePath.generic_string(), metadata.Type, metadata.GenerateLightmapUVs, metadata.Residency };
 		}
 
 		Yaml::Writer out;
@@ -938,6 +964,8 @@ namespace Lux
 			out << Yaml::Key << "Type" << Yaml::Value << std::string(AssetTypeToString(entry.Type));
 			if (entry.Type == AssetType::MeshSource && entry.GenerateLightmapUVs)
 				out << Yaml::Key << "GenerateLightmapUVs" << Yaml::Value << true;
+			if (entry.Type == AssetType::Texture && entry.Residency != TextureResidency::Resident)
+				out << Yaml::Key << "TextureResidency" << Yaml::Value << static_cast<uint32_t>(entry.Residency);
 			out << Yaml::EndMap;
 		}
 		out << Yaml::EndSeq;

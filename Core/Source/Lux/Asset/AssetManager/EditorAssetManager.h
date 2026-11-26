@@ -58,6 +58,7 @@ namespace Lux
 		void SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
 		// Persists the mesh import option and schedules a reload. Main thread only.
 		bool SetGenerateLightmapUVs(AssetHandle handle, bool enabled);
+		bool SetTextureResidency(AssetHandle handle, TextureResidency residency);
 
 		AssetHandle ImportAsset(const std::filesystem::path& filepath);
 		AssetHandle ImportScriptAsset(const std::filesystem::path& filepath, uint64_t uuid);
