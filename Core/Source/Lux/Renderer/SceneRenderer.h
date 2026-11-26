@@ -327,6 +327,8 @@ namespace Lux {
 		uint32_t RTShadowRays = 4;
 		float    RTReflectionRoughnessCutoff = 0.4f; // surfaces rougher than this keep the raster reflection
 		uint32_t RTReflectionRays = 2;
+		bool     RTReflectionAdaptiveBudget = true;
+		bool     RTReflectionDenoiser = true;
 		// A reflection ray that hits geometry replaces the raster environment reflection it would otherwise add to (no double count under a bright sky).
 		bool     RTReflectionReplaceEnvironment = true;
 		uint32_t RTGIBounces = 1;
@@ -2081,9 +2083,13 @@ namespace Lux {
 		// Screen-space reflections, unless ray-traced reflections replace them (they trace the same surfaces and would add on top of SSR).
 		bool SSRActive() const;
 		bool EnsureRTReflections();
+		bool EnsureRTReflectionDenoiser();
 		Ref<ComputePass> m_RTReflPass;
 		Ref<Image2D> m_RTReflResult;
+		Ref<ComputePass> m_RTReflDenoisePass;
+		Ref<Image2D> m_RTReflDenoisedResult;
 		bool m_RTReflUnavailable = false;
+		bool m_RTReflDenoiseUnavailable = false;
 		uint32_t m_RTReflFrame = 0;
 		void ApplyRTTuning() const
 		{

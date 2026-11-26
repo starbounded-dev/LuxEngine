@@ -8,6 +8,7 @@
 #include "Lux/Renderer/Renderer2D.h"
 #include "Lux/Renderer/RenderScene.h"
 #include "Lux/Renderer/Exposure.h"
+#include "Lux/Renderer/Shader.h"
 #include "Lux/Core/Application.h"
 #include "Lux/Core/Math/Frustum.h"
 #include "Lux/Asset/AssetManager.h"
@@ -490,6 +491,8 @@ namespace Lux {
 			"PreConvolution",
 			"SSR",
 			"SSRComposite",
+			"RTReflectionsPass",
+			"RTReflectionsDenoise",
 			"JumpFlood",
 			"BloomCompute",
 			"CompositePass",
@@ -4847,6 +4850,7 @@ namespace Lux {
 						if (name == "AO Debug") return "AODebug";
 						if (name == "Pre-Convolution") return "PreConvolution";
 						if (name == "SSR Composite") return "SSRComposite";
+						if (name == "RTReflections") return "RTReflectionsPass";
 						if (name == "JumpFlood Composite") return "JumpFloodComposite";
 						if (name == "Bloom") return "BloomCompute";
 						if (name == "Composite") return "CompositePass";
@@ -10203,7 +10207,8 @@ namespace Lux {
 
 	bool SceneRenderer::SSRActive() const
 	{
-		return m_Options.EnableSSR && !(m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery());
+		return m_Options.EnableSSR && !(m_Options.EnableRTReflections && RHIDevice::SupportsRayQuery()
+			&& ShaderCompiler::IsAvailable() && !m_RTReflUnavailable);
 	}
 
 	void SceneRenderer::SSRCompute()

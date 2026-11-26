@@ -666,7 +666,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Reflections Replace Sky", "Ray-Traced Shadows", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Adaptive Reflection Rays", "Reflection Denoiser", "Reflections Replace Sky", "Ray-Traced Shadows", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -740,7 +740,9 @@ namespace Lux {
 				if (match("Reflection Roughness Cutoff"))
 					ImGuiEx::Property("Reflection Roughness Cutoff", options.RTReflectionRoughnessCutoff, 0.01f, 0.0f, 1.0f);
 				if (match("Reflection Rays"))
-					ImGuiEx::Property("Reflection Rays", options.RTReflectionRays, 1u, 16u);
+					ImGuiEx::Property("Reflection Rays", options.RTReflectionRays, 1u, 16u, "Maximum rays per rough surface pixel.");
+				toggle("Adaptive Reflection Rays", options.RTReflectionAdaptiveBudget);
+				toggle("Reflection Denoiser", options.RTReflectionDenoiser);
 				toggle("Reflections Replace Sky", options.RTReflectionReplaceEnvironment);
 				toggle("Ray-Traced Shadows", options.EnableRTShadows);
 				if (match("Shadow Light Radius"))

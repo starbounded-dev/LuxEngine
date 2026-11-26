@@ -140,8 +140,8 @@ def mesh(tag, asset, pos, scale, material, rot=(0, 0, 0), folder="Default"):
 """)
 
 
-def write_material(name, albedo, metalness, roughness, extra=None):
-    lines = ["FormatVersion: 1", "Material:", "  Transparent: false", f"  AlbedoColor: [{albedo[0]}, {albedo[1]}, {albedo[2]}]", "  Emission: 0",
+def write_material(name, albedo, metalness, roughness, extra=None, *, emission=0):
+    lines = ["FormatVersion: 1", "Material:", "  Transparent: false", f"  AlbedoColor: [{albedo[0]}, {albedo[1]}, {albedo[2]}]", f"  Emission: {emission}",
              "  UseNormalMap: false", f"  Metalness: {metalness}", f"  Roughness: {roughness}", "  AlbedoMap: 0", "  NormalMap: 0", "  MetalnessMap: 0", "  RoughnessMap: 0"]
     for key, value in (extra or {}).items():
         lines.append(f"  {key}: {value}")
@@ -167,6 +167,17 @@ def write_fog_sun_scene():
 """)
     write("GI_FogSun", [nosky(), sun, floor("Materials/GI/GI_White.lmat"),
                        camera((0, 4, 6), (-math.atan2(4, 6), 0, 0))])
+
+
+def write_rough_reflection_scene():
+    write_material("GI_RoughMetal", (0.9, 0.9, 0.9), 1.0, 0.32)
+    write_material("GI_ReflectionEmitter", (1.0, 0.45, 0.12), 0.0, 0.7, emission=2.5)
+    write("GI_RoughReflection", [
+        nosky(),
+        floor("Materials/GI/GI_RoughMetal.lmat", (16, 0.1, 14)),
+        mesh("Emitter", "Cube", (0, 1.45, -1.2), (1.4, 0.65, 0.4), "GI_ReflectionEmitter"),
+        camera((0, 2.1, 5.5), (-0.30, 0, 0)),
+    ])
 
 
 def main():
@@ -292,6 +303,7 @@ def main():
     write("GI_FogLight", [nosky(), mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), point("Lamp", (0, 0, 0), (1, 1, 1), 60, 30), camera((0, 0, 8), (0, 0, 0))])
     write("GI_FogEmpty", [mesh("Far Cube", "Cube", (0, -100, 0), (1, 1, 1), "GI_White"), camera((0, 0, 8), (0, 0, 0))])
     write_fog_sun_scene()
+    write_rough_reflection_scene()
 
     # The white-furnace sphere with a clearcoat layer: still must not exceed the environment.
     furnace = (SCENES / "GI_Furnace.luxscene").read_text(encoding="utf-8").replace("GI_Furnace.lmat", "GI_FurnaceCoat.lmat").replace("Scene: GI_Furnace", "Scene: GI_FurnaceCoat")

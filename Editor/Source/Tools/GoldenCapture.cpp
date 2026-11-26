@@ -105,6 +105,8 @@ namespace Lux {
 			{ "RTGIReuse", &SceneRendererOptions::RTGIReuse },
 			{ "RTReflections", &SceneRendererOptions::EnableRTReflections },
 			{ "RTReflEnv", &SceneRendererOptions::RTReflectionReplaceEnvironment },
+			{ "RTReflBudget", &SceneRendererOptions::RTReflectionAdaptiveBudget },
+			{ "RTReflDenoise", &SceneRendererOptions::RTReflectionDenoiser },
 			{ "RTShadows", &SceneRendererOptions::EnableRTShadows },
 			{ "RTCompact", &SceneRendererOptions::RTCompactBLAS },
 			{ "RTRefit", &SceneRendererOptions::RTRefitSkinned },
@@ -832,7 +834,7 @@ namespace Lux {
 
 		for (const SceneRenderer::PassProfile& profile : stats.PassProfiles)
 		{
-			if (!profile.Active || !profile.Name)
+			if ((!profile.Active && !profile.GPUActive) || !profile.Name)
 				continue;
 
 			PassTiming& timing = m_PassTimings[profile.Name];

@@ -7,7 +7,8 @@
 // ray-traced scene, shades what they hit (emission + direct light by next-event estimation) and adds F * radiance to scene colour.
 // Rays that escape add nothing: the sky is already in the frame as the raster environment reflection. A ray that hits geometry
 // replaces it: the radiance the environment would have given along that ray is subtracted (flag 128), so a bright sky is not
-// counted twice. A mirror-smooth surface (the GGX lobe is a point) needs one ray, not the configured count. See docs/GI_PLAN.md.
+// counted twice. The GGX lobe broadens with roughness. Mirrors trace once, and the optional adaptive budget tapers toward the
+// roughness cutoff. When the denoiser is active, rough pixels store the signed correction for filtering before compositing.
 //
 #version 460 core
 #pragma stage : comp
@@ -46,6 +47,24 @@ layout(set = 1, binding = 153) uniform texture2D u_RRBaseColor;
 layout(set = 1, binding = 154) uniform texture2D u_RRSceneColor;
 layout(rgba16f, set = 1, binding = 155) uniform writeonly image2D o_RRResult;
 
+const uint RR_REPLACE_ENVIRONMENT = 1u << 7u;
+const uint RR_ADAPTIVE_BUDGET = 1u << 8u;
+const uint RR_DENOISE = 1u << 9u;
+const float RR_MIRROR_THRESHOLD = 0.06;
+
+uint ReflectionRayCount(float roughness, float cutoff)
+{
+	if (roughness < RR_MIRROR_THRESHOLD)
+		return 1u;
+	const uint maxRays = max(u_Push.Counts.z, 1u);
+	if ((u_Push.Counts.y & RR_ADAPTIVE_BUDGET) == 0u)
+		return maxRays;
+	const uint minRays = (maxRays + 3u) / 4u;
+	const float roughRange = max(cutoff - RR_MIRROR_THRESHOLD, 1e-3);
+	const float taper = smoothstep(0.0, 1.0, (roughness - RR_MIRROR_THRESHOLD) / roughRange);
+	return uint(round(mix(float(maxRays), float(minRays), taper)));
+}
+
 // Light leaving a hit toward the reflecting surface: every light gets its own sample when there are few (no light-choice noise in what a
 // mirror shows), otherwise one light by the power CDF as the path tracer does.
 vec3 ShadeHit(Surface s, vec3 V)
@@ -80,9 +99,11 @@ void main()
 	const float depth = texelFetch(u_RRDepth, pixel, 0).r;
 	const vec2 metalRough = texelFetch(u_RRMetalRough, pixel, 0).xy;
 	const float roughness = max(metalRough.y, 0.02);
-	if (depth <= 1e-6 || roughness > uintBitsToFloat(u_Push.Counts.w))
+	const float cutoff = uintBitsToFloat(u_Push.Counts.w);
+	const bool denoise = (u_Push.Counts.y & RR_DENOISE) != 0u;
+	if (depth <= 1e-6 || roughness > cutoff)
 	{
-		imageStore(o_RRResult, pixel, scene);
+		imageStore(o_RRResult, pixel, denoise ? vec4(scene.rgb, 0.0) : scene);
 		return;
 	}
 
@@ -92,7 +113,7 @@ void main()
 	const vec3 P = world.xyz / world.w;
 	const vec3 N = normalize(mat3(u_Camera.InverseViewMatrix) * texelFetch(u_RRNormal, pixel, 0).xyz);
 	const vec3 base = texelFetch(u_RRBaseColor, pixel, 0).rgb;
-	const vec3 V = normalize(u_Camera.InverseViewMatrix[3].xyz - P);
+	const vec3 V = normalize(u_Camera.IsOrthographic != 0 ? u_Camera.InverseViewMatrix[2].xyz : u_Camera.InverseViewMatrix[3].xyz - P);
 	const vec3 F0 = mix(vec3(0.04), base, metalRough.x);
 	const float alpha = max(roughness * roughness, MIN_ALPHA);
 
@@ -103,8 +124,8 @@ void main()
 	vec3 t, b;
 	Basis(N, t, b);
 
-	const uint rays = roughness < 0.06 ? 1u : max(u_Push.Counts.z, 1u);
-	const bool replaceEnvironment = (u_Push.Counts.y & 128u) != 0u;
+	const uint rays = ReflectionRayCount(roughness, cutoff);
+	const bool replaceEnvironment = (u_Push.Counts.y & RR_REPLACE_ENVIRONMENT) != 0u;
 	vec3 sum = vec3(0.0);
 	for (uint k = 0u; k < rays; k++)
 	{
@@ -122,6 +143,14 @@ void main()
 		const vec3 fresnel = F0 + (vec3(1.0) - F0) * pow(1.0 - max(dot(V, H), 0.0), 5.0);
 		sum += fresnel * (s.Emission + ShadeHit(s, -R) - (replaceEnvironment ? Environment(R) : vec3(0.0)));
 	}
-	scene.rgb = max(scene.rgb + sum / float(rays), vec3(0.0));
+	const vec3 correction = sum / float(rays);
+	if (denoise && roughness >= RR_MIRROR_THRESHOLD)
+	{
+		imageStore(o_RRResult, pixel, vec4(correction, 1.0));
+		return;
+	}
+	scene.rgb = max(scene.rgb + correction, vec3(0.0));
+	if (denoise)
+		scene.a = 0.0;
 	imageStore(o_RRResult, pixel, scene);
 }

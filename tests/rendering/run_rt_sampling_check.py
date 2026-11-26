@@ -11,6 +11,7 @@ reference is lower. Captures land in bin/golden/rt-check-*/ and are deleted afte
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -25,11 +26,11 @@ from golden_compare import Capture  # noqa: E402
 LABELS = []
 
 
-def capture(tag, scene, options, config, frame):
+def capture(tag, scene, options, config, frame, *, perf_frames=10):
     label = f"rt-check-{tag}"
     LABELS.append(label)
     command = [sys.executable, str(ROOT / "tests/rendering/golden_run.py"), "--label", label, "--scenes", scene, "--config", config,
-               "--options", options, "--frame", str(frame), "--perf-frames", "10", "--perf-warmup", "5", "--timeout", "600"]
+               "--options", options, "--frame", str(frame), "--perf-frames", str(perf_frames), "--perf-warmup", "5", "--timeout", "600"]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     if result.returncode != 0 or " OK " not in result.stdout:
         print(result.stdout[-2000:], result.stderr[-1000:])
@@ -447,6 +448,34 @@ def check_reflection_sky(config):
     check(en < eo * 0.9, f"replacing the sky reflection is closer to the path tracer under a bright sky (RMSE {eo:.4f} -> {en:.4f})")
     one = capture("rk-1", scene, "RTReflections=1,RTReflRays=1", config, 330)
     check(rmse(one[band], new[band]) < 0.02, f"one ray on the mirror floor matches the default count (RMSE {rmse(one[band], new[band]):.4f})")
+    unfiltered = capture("rk-unfiltered", scene, "RTReflections=1,RTReflDenoise=0", config, 330)
+    check(rmse(unfiltered[band], new[band]) < 1e-6, "the rough-reflection denoiser leaves the mirror floor unchanged")
+
+
+def check_rough_reflection(config):
+    """#251: denoise a rough reflection of a small emitter and verify the adaptive budget on the same rough surface."""
+    scene = "GI_RoughReflection"
+    base = "RTReflections=1,Bloom=0,DOF=0,RTReflRays=4"
+    reference = capture("rrrough-ref", scene, "PathTracer=1,PathTracerSamples=512,PathTracerBounces=3,Bloom=0,DOF=0", config, spp(512))
+    raw = capture("rrrough-raw", scene, f"{base},RTReflDenoise=0", config, 330)
+    filtered = capture("rrrough-filter", scene, f"{base},RTReflDenoise=1", config, 330)
+    h, w = raw.shape[:2]
+    floor = (slice(int(h * 0.57), int(h * 0.96)), slice(int(w * 0.22), int(w * 0.78)))
+    raw_error = rmse(raw[floor], reference[floor])
+    filter_error = rmse(filtered[floor], reference[floor])
+    check(filter_error < raw_error * 0.85,
+          f"filtering the rough reflection reduces error against the path tracer ({raw_error:.4f} -> {filter_error:.4f})")
+
+    def trace_time(tag, options):
+        capture(tag, scene, options, config, 330, perf_frames=60)
+        perf = json.loads((ROOT / "bin/golden" / f"rt-check-{tag}" / f"{scene}.perf.json").read_text(encoding="utf-8"))
+        check(perf["complete"] and perf["passes"]["RTReflectionsPass"]["frames"] >= 50, "reflection GPU timing contains steady-state samples")
+        return perf["passes"]["RTReflectionsPass"]["gpuMs"]
+
+    timing = "RTReflections=1,RTReflRays=16,RTReflDenoise=0,Bloom=0,DOF=0"
+    fixed = trace_time("rrrough-fixed-budget", f"{timing},RTReflBudget=0")
+    adaptive = trace_time("rrrough-adaptive-budget", f"{timing},RTReflBudget=1")
+    check(adaptive < fixed * 0.85, f"the roughness budget reduces trace GPU time ({fixed:.3f} -> {adaptive:.3f} ms)")
 
 
 def check_shadows(config):
@@ -649,7 +678,7 @@ def check_texlib(config):
         shutil.rmtree(library, ignore_errors=True)
 
 
-CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
+CHECKS = {"power": check_power, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "texlib": check_texlib}
 
 
 def main():

@@ -399,6 +399,52 @@ namespace Lux {
 		return true;
 	}
 
+	bool SceneRenderer::EnsureRTReflectionDenoiser()
+	{
+		if (m_RTReflDenoisePass)
+			return true;
+		if (m_RTReflDenoiseUnavailable)
+			return false;
+
+		auto library = Renderer::GetShaderLibrary();
+		if (!library->GetShaders().contains("RTReflectionsDenoise"))
+			library->Load("Resources/Shaders/PathTracing/RTReflectionsDenoise.glsl");
+		if (!library->GetShaders().contains("RTReflectionsDenoise"))
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTReflections] denoiser shader did not compile; using unfiltered reflections");
+			m_RTReflDenoiseUnavailable = true;
+			return false;
+		}
+
+		ImageSpecification spec = m_RTReflResult->GetSpecification();
+		spec.DebugName = "RTReflections-DenoisedResult";
+		Ref<Image2D> output = Image2D::Create(spec);
+		output->Invalidate();
+
+		ComputePassSpecification passSpec;
+		passSpec.DebugName = "RTReflectionsDenoise";
+		passSpec.Pipeline = PipelineCompute::Create(library->Get("RTReflectionsDenoise"));
+		Ref<ComputePass> pass = ComputePass::Create(passSpec);
+		pass->SetInput("Camera", m_UBSCamera);
+		pass->SetInput("u_RRDepth", m_PreDepthPass->GetDepthOutput());
+		pass->SetInput("u_RRNormal", GetGeometryNormalOutput());
+		pass->SetInput("u_RRMetalRough", GetGeometryMetalRoughOutput());
+		pass->SetInput("u_RRBaseColor", GetGeometryBaseColorOutput());
+		pass->SetInput("u_RRSceneColor", GetSceneColorOutput());
+		pass->SetInput("u_RRCorrection", m_RTReflResult);
+		pass->SetInput("o_RRResult", output);
+		if (!pass->Validate())
+		{
+			LUX_CORE_ERROR_TAG("Renderer", "[RTReflections] denoiser pass inputs do not match the shader; using unfiltered reflections");
+			m_RTReflDenoiseUnavailable = true;
+			return false;
+		}
+		pass->Bake();
+		m_RTReflDenoisedResult = output;
+		m_RTReflDenoisePass = pass;
+		return true;
+	}
+
 	void SceneRenderer::RTReflectionsPass()
 	{
 		ScopedCPUProfile cpuProfile(*this, "RTReflectionsPass");
@@ -407,12 +453,30 @@ namespace Lux {
 			return;
 		if (m_RTReflResult->GetWidth() != m_ViewportWidth || m_RTReflResult->GetHeight() != m_ViewportHeight)
 			m_RTReflResult->Resize(m_ViewportWidth, m_ViewportHeight);
+		const bool denoise = m_Options.RTReflectionDenoiser && EnsureRTReflectionDenoiser();
+		const Ref<Image2D> depth = m_PreDepthPass->GetDepthOutput();
+		const Ref<Image2D> normal = GetGeometryNormalOutput();
+		const Ref<Image2D> metalRough = GetGeometryMetalRoughOutput();
+		const Ref<Image2D> baseColor = GetGeometryBaseColorOutput();
+		const Ref<Image2D> sceneColor = GetSceneColorOutput();
 		// The G-buffer and scene colour are recreated on a resize.
-		m_RTReflPass->SetInput("u_RRDepth", m_PreDepthPass->GetDepthOutput());
-		m_RTReflPass->SetInput("u_RRNormal", GetGeometryNormalOutput());
-		m_RTReflPass->SetInput("u_RRMetalRough", GetGeometryMetalRoughOutput());
-		m_RTReflPass->SetInput("u_RRBaseColor", GetGeometryBaseColorOutput());
-		m_RTReflPass->SetInput("u_RRSceneColor", GetSceneColorOutput());
+		m_RTReflPass->SetInput("u_RRDepth", depth);
+		m_RTReflPass->SetInput("u_RRNormal", normal);
+		m_RTReflPass->SetInput("u_RRMetalRough", metalRough);
+		m_RTReflPass->SetInput("u_RRBaseColor", baseColor);
+		m_RTReflPass->SetInput("u_RRSceneColor", sceneColor);
+		if (denoise)
+		{
+			if (m_RTReflDenoisedResult->GetWidth() != m_ViewportWidth || m_RTReflDenoisedResult->GetHeight() != m_ViewportHeight)
+				m_RTReflDenoisedResult->Resize(m_ViewportWidth, m_ViewportHeight);
+			m_RTReflDenoisePass->SetInput("u_RRDepth", depth);
+			m_RTReflDenoisePass->SetInput("u_RRNormal", normal);
+			m_RTReflDenoisePass->SetInput("u_RRMetalRough", metalRough);
+			m_RTReflDenoisePass->SetInput("u_RRBaseColor", baseColor);
+			m_RTReflDenoisePass->SetInput("u_RRSceneColor", sceneColor);
+			GetOrCreatePassProfile("RTReflectionsDenoise").GPUActive = true;
+		}
+		GetOrCreatePassProfile("RTReflectionsPass").GPUActive = true;
 
 		std::vector<const StaticMeshRenderProxy*> proxies = m_SubmittedRenderScene->GetStaticMeshProxies();
 		std::vector<RayTracingScene::InstanceInput> instances = RayTracingScene::GatherInstances(proxies);
@@ -420,15 +484,19 @@ namespace Lux {
 		const uint32_t width = m_ViewportWidth, height = m_ViewportHeight;
 		const uint32_t rays = std::clamp(m_Options.RTReflectionRays, 1u, 16u);
 		const float cutoff = std::clamp(m_Options.RTReflectionRoughnessCutoff, 0.0f, 1.0f);
-		const uint32_t replaceEnvironment = m_Options.RTReflectionReplaceEnvironment ? 128u : 0u;
+		constexpr uint32_t replaceEnvironment = 1u << 7u;
+		constexpr uint32_t adaptiveBudget = 1u << 8u;
+		constexpr uint32_t filterCorrection = 1u << 9u;
+		const uint32_t reflectionFlags = (m_Options.RTReflectionReplaceEnvironment ? replaceEnvironment : 0u)
+			| (m_Options.RTReflectionAdaptiveBudget ? adaptiveBudget : 0u) | (denoise ? filterCorrection : 0u);
 		const uint32_t frame = m_RTReflFrame++;
 
 		Ref<RenderCommandBuffer> cb = m_CommandBuffer;
 		Ref<RayTracingScene> scene = m_RayTracingScene;
 		Ref<ComputePass> pass = m_RTReflPass;
+		Ref<ComputePass> filter = denoise ? m_RTReflDenoisePass : nullptr;
 		Ref<StorageBuffer> lightBuffer = m_PathTraceLights;
-		Ref<Image2D> result = m_RTReflResult;
-		Ref<Image2D> sceneColor = GetSceneColorOutput();
+		Ref<Image2D> result = denoise ? m_RTReflDenoisedResult : m_RTReflResult;
 		const PathTraceEnvParams envParams = PreparePathTraceEnvironment(m_RTReflPass);
 
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
@@ -446,11 +514,19 @@ namespace Lux {
 			push.SizeFrameBounces = glm::uvec4(width, height, frame, 0u);
 			push.Counts = glm::uvec4(static_cast<uint32_t>(lights.size() / 4), 0u, rays, std::bit_cast<uint32_t>(cutoff));
 			ApplyPathTraceEnvironment(push, envParams);
-			push.Counts.y |= replaceEnvironment;
-			cb->RT_BeginMarker("RTReflections");
+			push.Counts.y |= reflectionFlags;
+			const glm::uvec3 groups((width + 7u) / 8u, (height + 7u) / 8u, 1u);
+			Renderer::RT_BeginGPUPerfMarker(cb, "RTReflectionsPass");
 			pass->Prepare();
-			Renderer::RT_DispatchCompute(*cb, *pass, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u), Buffer(&push, sizeof(push)));
-			cb->RT_EndMarker();
+			Renderer::RT_DispatchCompute(*cb, *pass, groups, Buffer(&push, sizeof(push)));
+			Renderer::RT_EndGPUPerfMarker(cb);
+			if (filter)
+			{
+				Renderer::RT_BeginGPUPerfMarker(cb, "RTReflectionsDenoise");
+				filter->Prepare();
+				Renderer::RT_DispatchCompute(*cb, *filter, groups, Buffer());
+				Renderer::RT_EndGPUPerfMarker(cb);
+			}
 			Renderer::RT_CopyImage(cb, result, sceneColor);
 		});
 	}

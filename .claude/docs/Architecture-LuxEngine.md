@@ -408,6 +408,11 @@ Structurally:
   path tracer, ReSTIR, RT reflections, probes, RTGI and the lightmap baker use the shared path
   tracing parameters. Both paths clip light segments with `FogVolume.glslh`. The raster LTC
   area-light integral evaluates transmittance along the segment to the emitter centre.
+- The opt-in ray-traced reflection pass reads the raster G-buffer. A ray that hits geometry
+  replaces the contribution of the sky along that ray. Mirrors use one ray. The adaptive budget
+  reduces the count toward the roughness cutoff, and the optional spatial filter uses depth,
+  normal, roughness, metalness and base colour to filter the signed correction before adding
+  it to raster lighting. The trace and filter have separate GPU timers.
 - `RenderScene` / `GPUScene` / `MaterialScene` / `TextureScene` hold the persistent render-side
   mirror of the ECS, with `StaticMeshRenderProxy` entries and dirty flags. `Scene::SyncRenderScene`
   maintains them through `RenderScene::SyncStaticMesh(entityID, StaticMeshSyncInputs)`, which
