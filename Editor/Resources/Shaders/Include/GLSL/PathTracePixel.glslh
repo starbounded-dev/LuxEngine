@@ -20,8 +20,9 @@ layout(std140, set = 2, binding = 0) uniform Camera
 	int IsOrthographic;
 } u_Camera;
 
-layout(rgba32f, set = 1, binding = 65) uniform image2D o_PathTraceAccum;
 layout(rgba16f, set = 1, binding = 66) uniform writeonly image2D o_PathTraceImage;
+#ifndef LUX_PATH_TRACE_RECONSTRUCTION
+layout(rgba32f, set = 1, binding = 65) uniform image2D o_PathTraceAccum;
 layout(set = 1, binding = 109) uniform texture2D u_ReSTIRDirect; // first-hit direct light from ReSTIR DI (read only when FLAG_RESTIR_DI is set)
 layout(rgba32f, set = 1, binding = 98) uniform image2D o_PathTraceMoments; // x = sum of luminance, y = sum of luminance^2 (adaptive sampling)
 
@@ -109,3 +110,4 @@ void PathTracePixel(uvec2 pixel)
 	}
 	imageStore(o_PathTraceImage, ivec2(pixel), vec4(shown, 1.0));
 }
+#endif

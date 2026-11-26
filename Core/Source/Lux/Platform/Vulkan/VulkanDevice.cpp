@@ -50,6 +50,7 @@ freely, subject to the following restrictions:
 #include "VulkanDevice.h"
 
 #include "Lux/Platform/Vulkan/Debug/Aftermath.h"
+#include "Lux/Renderer/RayTracing/RayReconstruction.h"
 
 #include <GLFW/glfw3.h>
 
@@ -108,6 +109,8 @@ namespace Lux {
 		{
 			optionalExtensions.instance.insert(name);
 		}
+		for (const auto& name : RayReconstruction::RequiredInstanceExtensions())
+			optionalExtensions.instance.insert(name);
 
 		// add layers requested by the user
 		for (const std::string& name : m_DeviceParams.requiredVulkanLayers)
@@ -460,6 +463,9 @@ namespace Lux {
 		}
 
 		const vk::PhysicalDeviceProperties physicalDeviceProperties = m_VulkanPhysicalDevice.getProperties();
+		if (m_DeviceParams.enableRayTracingExtensions)
+			RayReconstruction::EnableDeviceExtensions(m_VulkanPhysicalDevice, deviceExtensions,
+				enabledExtensions.instance, enabledExtensions.device);
 		m_RendererString = std::string(physicalDeviceProperties.deviceName.data());
 		// The GPU identity that the shader-pack stamp sidecar records (ShaderPack.h § stamp): which
 		// vendor/driver compiled the SPIR-V inside a pack. Captured here, on the one getProperties()

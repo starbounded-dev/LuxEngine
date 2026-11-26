@@ -17,6 +17,7 @@ project "Lux-Runtime"
 
 	links { "Core" }
 	StageNrdSdk()
+	StageDlssSdk()
 
 	defines { "GLM_FORCE_DEPTH_ZERO_TO_ONE" }
 

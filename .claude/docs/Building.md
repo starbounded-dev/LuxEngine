@@ -707,3 +707,29 @@ on first use through the **NVIDIA NRD** control under **Ray-Traced GI**.
 Run `python tests/rendering/run_rt_sampling_check.py nrd --keep` with
 `LUX_TEST_REQUIRE_NRD=1` to require native RELAX dispatch in the capture. An SDK-free
 runner exercises the built-in fallback. Unset `LUX_NRD_SDK` for ordinary project generation.
+
+### Optional NVIDIA DLSS Ray Reconstruction SDK
+
+For a Windows developer build, set `LUX_DLSS_SDK` to the NVIDIA DLSS 310.9.1 SDK
+root and regenerate projects. Debug and Release stage `nvngx_dlssd.dll` and its
+license. The **DLSS Ray Reconstruction** option is under **Path Tracing**. The
+SDK is initialized when a supported scene requests reconstruction. Unset
+`LUX_DLSS_SDK` to generate the ordinary build.
+
+Run `python tests/rendering/run_rt_sampling_check.py ray_reconstruction --keep`
+with `LUX_TEST_REQUIRE_DLSS=1` to require native reconstruction. With both optional
+SDKs staged, `python tests/rendering/run_vendor_denoiser_export.py` verifies the
+scene settings and runs both denoisers in exported Release players.
+
+### Opacity micromap benchmark
+
+Build NRI Release before running the standalone Windows probe. It uses Vulkan
+synchronization validation and compares a bilinear cutout mask with and without
+four-state opacity micromaps.
+
+```powershell
+cmake -S tests/rendering/opacity_micromap -B bin/opacity-micromap-check -G "Visual Studio 18 2026" -A x64
+cmake --build bin/opacity-micromap-check --config Release
+$env:VK_LAYER_VALIDATE_SYNC = "1"
+& bin/opacity-micromap-check/Release/LuxOpacityMicromapProbe.exe bin/opacity-micromap-check/probe.spv
+```

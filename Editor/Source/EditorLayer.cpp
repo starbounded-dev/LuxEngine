@@ -5460,10 +5460,15 @@ namespace Lux {
 			const std::filesystem::path runtimeDirectory = runtimeExe.parent_path();
 			if (!runtimeDirectory.empty() && std::filesystem::exists(runtimeDirectory, ec))
 			{
-				const auto nrdNotice = runtimeDirectory / "NRD-LICENSE.txt";
-				if (targetConfig != RuntimeExportTarget::Dist && RuntimeExport::FileExists(nrdNotice) &&
-					!CopyFileIfExists(nrdNotice, exportRoot / nrdNotice.filename(), true))
-					return false;
+				if (targetConfig != RuntimeExportTarget::Dist)
+				{
+					for (const auto* filename : { "NRD-LICENSE.txt", "DLSS-LICENSE.txt" })
+					{
+						const auto notice = runtimeDirectory / filename;
+						if (RuntimeExport::FileExists(notice) && !CopyFileIfExists(notice, exportRoot / filename, true))
+							return false;
+					}
+				}
 #ifdef LUX_PLATFORM_LINUX
 				const std::filesystem::path libDir = exportRoot / "lib";
 				for (const auto& sourceDirectory : { runtimeDirectory, runtimeDirectory / "lib" })
@@ -6155,6 +6160,7 @@ namespace Lux {
 			targets.emplace_back(delta.Handle, undo ? delta.Before : delta.After);
 		const std::string* meta = command.MetaChanged ? &(undo ? command.MetaBefore : command.MetaAfter) : nullptr;
 		const auto pathTracing = m_EditorScene ? m_EditorScene->GetPathTracingSettings() : ScenePathTracingSettings{};
+		const auto rayTracedGI = m_EditorScene ? m_EditorScene->GetRayTracedGISettings() : SceneRayTracedGISettings{};
 
 		if (!m_EditorScene || !SceneSerializer(m_EditorScene).ApplyEntitySnapshots(meta, targets))
 		{
@@ -6162,8 +6168,8 @@ namespace Lux {
 			RestoreSceneState(m_BaselineMeta, m_BaselineEntities);
 			return;
 		}
-		if (m_SceneRenderer && pathTracing != m_EditorScene->GetPathTracingSettings())
-			m_SceneRenderer->ApplyScenePathTracingSettings();
+		if (m_SceneRenderer && (pathTracing != m_EditorScene->GetPathTracingSettings() || rayTracedGI != m_EditorScene->GetRayTracedGISettings()))
+			m_SceneRenderer->ApplySceneRayTracingSettings();
 
 #ifdef LUX_DEBUG
 		// The live scene must now equal the (already rolled) baseline; anything else means a step

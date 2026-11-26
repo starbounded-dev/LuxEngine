@@ -315,6 +315,7 @@ namespace Lux {
 		// Opt-in path tracer (editor-only ground-truth reference, docs/GI_PLAN.md, #213). Session-only: never saved into
 		// the project, off by default, and the raster renderer is untouched while it is off (RayTracing/PathTracePass.cpp).
 		bool     EnablePathTracer = false;
+		bool     PathTracerReconstruction = false;
 		// Use the scene's baked lightmap (a sidecar written by the baker) as indirect diffuse. No effect without one.
 		bool     EnableLightmaps = true;
 		// Realtime GI: a probe volume updated by ray queries every frame (RayTracing/RealtimeGI.cpp), read as indirect diffuse.
@@ -886,8 +887,10 @@ namespace Lux {
 		void InitOptions();
 
 		void SetScene(Ref<Scene> scene);
-		void ApplyScenePathTracingSettings();
+		void ApplySceneRayTracingSettings();
 		static bool HasNRDSdk();
+		static bool HasRayReconstruction();
+		bool IsUsingRayReconstruction() const;
 		void SetViewportSize(uint32_t width, uint32_t height);
 		// Main thread. Values are clamped to a usable range.
 		void SetGridSettings(const GridSettings& settings);
@@ -1559,6 +1562,7 @@ namespace Lux {
 		// Opt-in path tracer, RayTracing/PathTracePass.cpp. Off (and not even created) unless
 		// SceneRendererOptions::EnablePathTracer is set and the device supports ray queries.
 		struct PathTraceState;
+		struct PathTraceReconstruction;
 		void PathTracePass();
 		// Lightmaps, Lightmaps/LightmapBake.cpp.
 		struct LightmapBakeState;
@@ -1590,8 +1594,9 @@ namespace Lux {
 		bool GetPathTraceDiffStats(float& mae, float& psnr) const;
 	private:
 		bool EnsurePathTracer();
+		Ref<PathTraceReconstruction> EnsurePathTraceReconstruction();
 		bool EnsurePathTraceSER();
-		Ref<ComputePass> CreatePathTracePass(const Ref<Shader>& shader);
+		Ref<ComputePass> CreatePathTracePass(const Ref<Shader>& shader, const PathTraceReconstruction* reconstruction = nullptr);
 		// Binds the scene's radiance map (or a black cube) and its sampler to a ray-traced compute pass; returns what the push constants need.
 		PathTraceEnvParams PreparePathTraceEnvironment(Ref<ComputePass> pass);
 		bool EnsurePathTraceDiff();
@@ -2084,6 +2089,8 @@ namespace Lux {
 		Ref<RayTracingScene> m_RayTracingScene;
 		Ref<ComputePass> m_PathTracePass;
 		Ref<ComputePass> m_PathTraceSERPass;
+		Ref<RefCounted> m_PathTraceReconstruction;
+		bool m_PathTraceReconstructionUnavailable = false;
 		bool m_PathTraceSERUnavailable = false;
 		Ref<Image2D> m_PathTraceMomentsImage;
 		bool EnsureReSTIRDI();

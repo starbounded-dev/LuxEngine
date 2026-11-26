@@ -580,7 +580,7 @@ namespace Lux {
 	SceneRenderer::SceneRenderer(Ref<Scene> scene, SceneRendererSpecification specification)
 		: m_Scene(scene), m_Specification(specification)
 	{
-		ApplyScenePathTracingSettings();
+		ApplySceneRayTracingSettings();
 		Init();
 	}
 
@@ -598,18 +598,22 @@ namespace Lux {
 	{
 		LUX_CORE_ASSERT(!m_Active, "Cannot change scene while rendering");
 		m_Scene = scene;
-		ApplyScenePathTracingSettings();
+		ApplySceneRayTracingSettings();
 		if (m_LightmapRects)
 			RefreshLightmap();
 	}
 
-	void SceneRenderer::ApplyScenePathTracingSettings()
+	void SceneRenderer::ApplySceneRayTracingSettings()
 	{
 		const auto settings = m_Scene ? m_Scene->GetPathTracingSettings() : ScenePathTracingSettings{};
 		m_Options.EnablePathTracer = settings.Enabled;
 		m_Options.PathTracerMaxBounces = settings.MaxBounces;
 		m_Options.PathTracerTargetSamples = settings.TargetSamples;
+		m_Options.PathTracerReconstruction = settings.RayReconstruction;
 		m_Options.PathTracerResetCounter++;
+		const auto gi = m_Scene ? m_Scene->GetRayTracedGISettings() : SceneRayTracedGISettings{};
+		m_Options.EnableRTGI = gi.Enabled;
+		m_Options.RTGINRD = gi.UseNRD;
 	}
 
 	void SceneRenderer::InitOptions()

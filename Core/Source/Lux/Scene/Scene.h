@@ -66,8 +66,17 @@ namespace Lux {
 		bool Enabled = false;
 		uint32_t MaxBounces = 4;
 		uint32_t TargetSamples = 256;
+		bool RayReconstruction = false;
 
 		bool operator==(const ScenePathTracingSettings&) const = default;
+	};
+
+	struct SceneRayTracedGISettings
+	{
+		bool Enabled = false;
+		bool UseNRD = false;
+
+		bool operator==(const SceneRayTracedGISettings&) const = default;
 	};
 
 	class Scene : public Asset
@@ -94,6 +103,8 @@ namespace Lux {
 
 		ScenePathTracingSettings& GetPathTracingSettings() { return m_PathTracingSettings; }
 		const ScenePathTracingSettings& GetPathTracingSettings() const { return m_PathTracingSettings; }
+		SceneRayTracedGISettings& GetRayTracedGISettings() { return m_RayTracedGISettings; }
+		const SceneRayTracedGISettings& GetRayTracedGISettings() const { return m_RayTracedGISettings; }
 
 		// The Sound Banks this scene loads before it starts playing and unloads when it stops.
 		const std::vector<AssetHandle>& GetSoundBanks() const { return m_SoundBanks; }
@@ -414,6 +425,7 @@ namespace Lux {
 
 		PostProcessSettings m_PostProcessSettings;
 		ScenePathTracingSettings m_PathTracingSettings;
+		SceneRayTracedGISettings m_RayTracedGISettings;
 		std::vector<AssetHandle> m_SoundBanks;
 
 		bool m_IsRunning = false;

@@ -464,7 +464,15 @@ Structurally:
   indirect hit distance, view depth, normal, roughness and camera motion directly from
   the RTGI trace variant. Geometry or lighting changes restart its history. SDK resources
   retire with their frame fences. ReSTIR GI and half-resolution RTGI use the built-in
-  denoiser, as do builds without a compatible packaged NRD library.
+  denoiser, as do builds without a compatible packaged NRD library. Ray-Traced GI
+  and its NRD selection are saved with the scene.
+- DLSS Ray Reconstruction is a Windows SDK option saved with the path-tracing
+  settings. The Vulkan device enables NGX's required extensions when supported.
+  A separate trace pass emits the noisy HDR sample, motion vectors, linear depth,
+  world normal and roughness, diffuse and specular albedos and reflected hit distance.
+  The result enters the same scene colour before tone mapping. Geometry or lighting
+  changes restart reconstruction. Ordinary accumulation remains available in
+  SDK-free builds and for Diff views, ray sorting, ReSTIR DI and SER.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

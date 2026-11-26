@@ -63,6 +63,31 @@ function StageNrdSdk()
 	filter {}
 end
 
+local dlssSdk = os.getenv("LUX_DLSS_SDK")
+if dlssSdk and os.target() == "windows" then
+	LuxDlssSdk = path.getabsolute(dlssSdk)
+	if not os.isfile(path.join(LuxDlssSdk, "include/nvsdk_ngx_helpers_dlssd_vk.h")) or
+		not os.isfile(path.join(LuxDlssSdk, "lib/Windows_x86_64/rel/nvngx_dlssd.dll")) then
+		error("LUX_DLSS_SDK must point to the NVIDIA DLSS 310.9.1 SDK with the Windows Ray Reconstruction library")
+	end
+end
+
+function StageDlssSdk()
+	if not LuxDlssSdk then
+		return
+	end
+	filter { "system:windows", "configurations:Release" }
+		links { path.join(LuxDlssSdk, "lib/Windows_x86_64/x64/nvsdk_ngx_d.lib") }
+	filter { "system:windows", "configurations:Debug or Debug-AS" }
+		links { path.join(LuxDlssSdk, "lib/Windows_x86_64/x64/nvsdk_ngx_d_dbg.lib") }
+	filter { "system:windows", "configurations:not Dist" }
+		postbuildcommands {
+			'{COPYFILE} "' .. path.join(LuxDlssSdk, "lib/Windows_x86_64/rel/nvngx_dlssd.dll") .. '" "%{cfg.targetdir}/nvngx_dlssd.dll"',
+			'{COPYFILE} "' .. path.join(LuxDlssSdk, "LICENSE.txt") .. '" "%{cfg.targetdir}/DLSS-LICENSE.txt"',
+		}
+	filter {}
+end
+
 workspace "Lux"
 	configurations { "Debug", "Debug-AS", "Release", "Dist" }
 	startproject "Core"

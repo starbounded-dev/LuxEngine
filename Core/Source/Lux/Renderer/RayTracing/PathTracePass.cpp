@@ -16,6 +16,7 @@
 #include "Lux/Renderer/Renderer.h"
 #include "Lux/Renderer/Shader.h"
 #include "Lux/Renderer/RayTracing/PathTraceLights.h"
+#include "Lux/Renderer/RayTracing/RayReconstruction.h"
 
 #include <glm/gtc/constants.hpp>
 
@@ -38,6 +39,18 @@ namespace Lux {
 		uint32_t ResetCounter = 0;
 		uint32_t ReSTIRParity = 0; // which of the two reservoir sets this frame writes
 		uint64_t Signature = 0;
+		uint64_t ReconstructionSignature = 0;
+		uint64_t ReconstructionFrame = 0;
+		std::atomic<bool> ReconstructionActive{ false };
+	};
+
+	struct SceneRenderer::PathTraceReconstruction : RefCounted
+	{
+		Ref<RayReconstruction> Backend = Ref<RayReconstruction>::Create();
+		Ref<ComputePass> Trace;
+		RayReconstruction::Guides Guides;
+		Ref<Image2D> Output;
+		std::atomic<bool> Failed{ false };
 	};
 
 	namespace {
@@ -51,6 +64,19 @@ namespace Lux {
 				hash *= 1099511628211ull;
 			}
 			return hash;
+		}
+
+		float RadicalInverse(uint32_t index, uint32_t base)
+		{
+			float sum = 0.0f;
+			float scale = 1.0f / static_cast<float>(base);
+			while (index)
+			{
+				sum += scale * static_cast<float>(index % base);
+				index /= base;
+				scale /= static_cast<float>(base);
+			}
+			return sum;
 		}
 
 		struct DiffPush
@@ -214,7 +240,7 @@ namespace Lux {
 		return true;
 	}
 
-	Ref<ComputePass> SceneRenderer::CreatePathTracePass(const Ref<Shader>& shader)
+	Ref<ComputePass> SceneRenderer::CreatePathTracePass(const Ref<Shader>& shader, const PathTraceReconstruction* reconstruction)
 	{
 		ComputePassSpecification passSpec;
 		passSpec.DebugName = shader->GetName();
@@ -229,11 +255,24 @@ namespace Lux {
 		pass->SetInput("RTIndices", m_RayTracingScene->GetIndexBuffer());
 		pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
 		pass->SetInput("RTLights", m_PathTraceLights);
-		pass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
 		pass->SetInput("o_PathTraceImage", m_PathTraceImage);
-		pass->SetInput("o_PathTraceMoments", m_PathTraceMomentsImage);
-		// Keep the inactive sampled descriptor separate from the writable path-trace image.
-		pass->SetInput("u_ReSTIRDirect", Renderer::GetBlackTexture());
+		if (reconstruction)
+		{
+			const auto& guides = reconstruction->Guides;
+			pass->SetInput("o_RRMotion", guides.Motion);
+			pass->SetInput("o_RRViewDepth", guides.ViewDepth);
+			pass->SetInput("o_RRNormals", guides.Normals);
+			pass->SetInput("o_RRDiffuseAlbedo", guides.DiffuseAlbedo);
+			pass->SetInput("o_RRSpecularAlbedo", guides.SpecularAlbedo);
+			pass->SetInput("o_RRSpecularHitDistance", guides.SpecularHitDistance);
+		}
+		else
+		{
+			pass->SetInput("o_PathTraceAccum", m_PathTraceAccumImage);
+			pass->SetInput("o_PathTraceMoments", m_PathTraceMomentsImage);
+			// Keep the inactive sampled descriptor separate from the writable path-trace image.
+			pass->SetInput("u_ReSTIRDirect", Renderer::GetBlackTexture());
+		}
 		PreparePathTraceEnvironment(pass);
 		if (!pass->Validate())
 		{
@@ -242,6 +281,72 @@ namespace Lux {
 		}
 		pass->Bake();
 		return pass;
+	}
+
+	bool SceneRenderer::HasRayReconstruction()
+	{
+		return RayReconstruction::IsAvailable();
+	}
+
+	bool SceneRenderer::IsUsingRayReconstruction() const
+	{
+		return m_PathTraceState && m_PathTraceState->ReconstructionActive.load(std::memory_order_acquire);
+	}
+
+	Ref<SceneRenderer::PathTraceReconstruction> SceneRenderer::EnsurePathTraceReconstruction()
+	{
+		if (m_PathTraceReconstructionUnavailable)
+			return nullptr;
+		if (m_PathTraceReconstruction)
+		{
+			auto existing = m_PathTraceReconstruction.As<PathTraceReconstruction>();
+			if (existing->Failed.load(std::memory_order_acquire))
+			{
+				m_PathTraceReconstruction = nullptr;
+				m_PathTraceReconstructionUnavailable = true;
+				return nullptr;
+			}
+			if (existing->Output->GetWidth() == m_ViewportWidth && existing->Output->GetHeight() == m_ViewportHeight)
+				return existing;
+		}
+		if (HasRayReconstruction())
+		{
+			auto library = Renderer::GetShaderLibrary();
+			if (!library->GetShaders().contains("PathTraceReconstruction"))
+				library->Load("Resources/Shaders/PathTracing/PathTraceReconstruction.glsl");
+			if (library->GetShaders().contains("PathTraceReconstruction"))
+			{
+				auto state = Ref<PathTraceReconstruction>::Create();
+				const auto createImage = [&](ImageFormat format, const char* label)
+				{
+					ImageSpecification spec;
+					spec.Format = format;
+					spec.Usage = ImageUsage::Storage;
+					spec.Width = m_ViewportWidth;
+					spec.Height = m_ViewportHeight;
+					spec.DebugName = label;
+					auto image = Image2D::Create(spec);
+					image->Invalidate();
+					return image;
+				};
+				state->Guides.Motion = createImage(ImageFormat::RG16F, "DLSS RR Motion");
+				state->Guides.ViewDepth = createImage(ImageFormat::RED32F, "DLSS RR View Depth");
+				state->Guides.Normals = createImage(ImageFormat::RGBA16F, "DLSS RR Normals and Roughness");
+				state->Guides.DiffuseAlbedo = createImage(ImageFormat::RGBA16F, "DLSS RR Diffuse Albedo");
+				state->Guides.SpecularAlbedo = createImage(ImageFormat::RGBA16F, "DLSS RR Specular Albedo");
+				state->Guides.SpecularHitDistance = createImage(ImageFormat::RED32F, "DLSS RR Specular Hit Distance");
+				state->Output = createImage(ImageFormat::RGBA16F, "DLSS RR Result");
+				state->Trace = CreatePathTracePass(library->Get("PathTraceReconstruction"), state.Raw());
+				if (state->Trace)
+				{
+					m_PathTraceReconstruction = state;
+					return state;
+				}
+			}
+		}
+		LUX_CORE_WARN_TAG("Renderer", "[PathTracer] DLSS Ray Reconstruction unavailable; using accumulation");
+		m_PathTraceReconstructionUnavailable = true;
+		return nullptr;
 	}
 
 	bool SceneRenderer::EnsurePathTraceSER()
@@ -471,10 +576,20 @@ namespace Lux {
 		const uint32_t debugView = m_Options.PathTracerDebugView != 0 ? std::min(m_Options.PathTracerDebugView, 4u) : (m_Options.PathTracerSampleHeatmap ? 4u : 0u);
 		const uint32_t width = m_ViewportWidth;
 		const uint32_t height = m_ViewportHeight;
+		const auto view = m_SceneData.SceneCamera.ViewMatrix;
+		const glm::mat4 projection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix();
+		const bool wantsReconstruction = m_Options.PathTracerReconstruction && !raySort && !serPass && !restirDI &&
+			!diff && !debugView && projection[3][3] != 1.0f;
+		auto reconstruction = wantsReconstruction ? EnsurePathTraceReconstruction() : Ref<PathTraceReconstruction>{};
+		if (reconstruction)
+		{
+			PreparePathTraceEnvironment(reconstruction->Trace);
+			GetOrCreatePassProfile("RTDLSSRayReconstruction").GPUActive = true;
+		}
+		else if (!wantsReconstruction)
+			m_PathTraceReconstruction = nullptr;
 
 		uint64_t signature = 1469598103934665603ull;
-		signature = HashBytes(signature, &m_SceneData.SceneCamera.ViewMatrix, sizeof(glm::mat4));
-		const glm::mat4 projection = m_SceneData.SceneCamera.Camera.GetProjectionMatrix();
 		signature = HashBytes(signature, &projection, sizeof(glm::mat4));
 		if (!lights.empty())
 			signature = HashBytes(signature, lights.data(), lights.size() * sizeof(glm::vec4));
@@ -515,8 +630,13 @@ namespace Lux {
 		Renderer::Submit([=, instances = std::move(instances), lights = std::move(lights)]() mutable
 		{
 			const bool ser = serPass && serPass->GetPipeline()->GetNRIPipeline();
-			const uint64_t dispatchSignature = HashBytes(signature, &ser, sizeof(ser));
+			const bool reconstruct = reconstruction && !reconstruction->Failed.load(std::memory_order_acquire);
+			state->ReconstructionActive.store(false, std::memory_order_release);
+			uint64_t dispatchSignature = HashBytes(signature, &view, sizeof(view));
+			dispatchSignature = HashBytes(dispatchSignature, &ser, sizeof(ser));
+			dispatchSignature = HashBytes(dispatchSignature, &reconstruct, sizeof(reconstruct));
 			const bool sceneChanged = scene->RT_Update(cb, instances);
+			const bool resetRequested = state->ResetCounter != resetCounter;
 			if (sceneChanged || state->Signature != dispatchSignature || state->ResetCounter != resetCounter)
 			{
 				state->Frame = 0;
@@ -526,7 +646,7 @@ namespace Lux {
 			if (!scene->IsValid())
 				return; // nothing to trace: leave the raster frame in scene colour
 
-			if (state->Frame < targetSamples)
+			if (reconstruct || state->Frame < targetSamples)
 			{
 				const uint32_t lightBytes = static_cast<uint32_t>(lights.size() * sizeof(glm::vec4));
 				if (lightBuffer->GetSize() < lightBytes)
@@ -543,6 +663,38 @@ namespace Lux {
 				push.Medium = fogMedium;
 				push.MediumAlbedo = fogAlbedo;
 				push.MediumCenter = fogCenter;
+
+				if (reconstruct && sceneColor)
+				{
+					const uint64_t frame = Renderer::RT_GetFrameNumber();
+					const uint32_t sequence = static_cast<uint32_t>(frame % 1024) + 1;
+					const glm::vec2 jitter(RadicalInverse(sequence, 2) - 0.5f, RadicalInverse(sequence, 3) - 0.5f);
+					const bool reset = sceneChanged || resetRequested || state->ReconstructionSignature != signature ||
+						state->ReconstructionFrame + 1 != frame;
+					PathTracePush sample = push;
+					sample.SizeFrameBounces.z = static_cast<uint32_t>(frame);
+					sample.Counts.z = std::bit_cast<uint32_t>(jitter.x);
+					sample.Counts.w = std::bit_cast<uint32_t>(jitter.y);
+					Renderer::RT_BeginGPUPerfMarker(cb, "RTPathTrace");
+					reconstruction->Trace->Prepare();
+					Renderer::RT_DispatchCompute(*cb, *reconstruction->Trace, glm::uvec3((width + 7u) / 8u, (height + 7u) / 8u, 1u),
+						Buffer(&sample, sizeof(sample)));
+					Renderer::RT_EndGPUPerfMarker(cb);
+
+					Renderer::RT_BeginGPUPerfMarker(cb, "RTDLSSRayReconstruction");
+					const bool evaluated = reconstruction->Backend->RT_Evaluate(*cb, image, reconstruction->Guides,
+						reconstruction->Output, jitter, view, projection, reset);
+					Renderer::RT_EndGPUPerfMarker(cb);
+					if (evaluated)
+					{
+						state->ReconstructionSignature = signature;
+						state->ReconstructionFrame = frame;
+						state->ReconstructionActive.store(true, std::memory_order_release);
+						Renderer::RT_CopyImage(cb, reconstruction->Output, sceneColor);
+						return;
+					}
+					reconstruction->Failed.store(true, std::memory_order_release);
+				}
 
 				if (restirPasses[0])
 				{

@@ -96,6 +96,12 @@ project "Core"
 			defines { "LUX_HAS_NRD" }
 		filter {}
 	end
+	if LuxDlssSdk then
+		includedirs { path.join(LuxDlssSdk, "include") }
+		filter "files:Source/Lux/Renderer/RayTracing/RayReconstruction.cpp"
+			defines { "LUX_HAS_DLSS_RR" }
+		filter {}
+	end
 
 	defines {
 		"GLM_FORCE_DEPTH_ZERO_TO_ONE",

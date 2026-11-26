@@ -247,6 +247,7 @@ namespace Lux {
 		newScene->m_SoundBanks = other->m_SoundBanks;
 		newScene->m_PostProcessSettings = other->m_PostProcessSettings;
 		newScene->m_PathTracingSettings = other->m_PathTracingSettings;
+		newScene->m_RayTracedGISettings = other->m_RayTracedGISettings;
 
 		auto& srcSceneRegistry = other->m_Registry;
 		auto& dstSceneRegistry = newScene->m_Registry;
@@ -2648,6 +2649,7 @@ namespace Lux {
 		target->m_SoundBanks = m_SoundBanks;
 		target->m_PostProcessSettings = m_PostProcessSettings;
 		target->m_PathTracingSettings = m_PathTracingSettings;
+		target->m_RayTracedGISettings = m_RayTracedGISettings;
 
 		std::unordered_map<UUID, entt::entity> enttMap;
 		// A view iterates newest-first, so create in reverse to keep this scene's iteration order.

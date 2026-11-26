@@ -13,6 +13,7 @@ reference is lower. Captures land in bin/golden/rt-check-*/ and are deleted afte
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,6 +95,11 @@ def check(condition, message):
     print(("PASS: " if condition else "FAIL: ") + message)
     if not condition:
         raise SystemExit(1)
+
+
+def check_validation(tag, scene):
+    check(not re.search(r"VUID-|Validation Error:|SYNC-HAZARD", read_log(tag, scene)),
+          f"{tag} passed Vulkan validation")
 
 
 def spp(n):
@@ -322,6 +328,7 @@ def check_nrd(config):
     path = ROOT / "bin/golden/rt-check-nrd-settled" / f"{scene}.perf.json"
     passes = json.loads(path.read_text(encoding="utf-8"))["passes"]
     active = "NRD RELAX diffuse active" in log
+    check_validation("nrd-settled", scene)
     if os.environ.get("LUX_TEST_REQUIRE_NRD") == "1":
         check(active, "the packaged SDK initializes NRD RELAX diffuse")
     if not active:
@@ -334,6 +341,7 @@ def check_nrd(config):
     print(f"MEASURED: NRD and composite {passes['RTGINRD']['gpuMs']:.3f} ms")
     sway = "CameraSway=0.18:150:190"
     moved = capture("nrd-sway", scene, f"{nrd},{sway}", config, 196, size=size)
+    check_validation("nrd-sway", scene)
     single = capture("nrd-single", scene, f"{base},RTGIHistory=1,{sway}", config, 196, size=size)
     moved_error, single_error = rmse(moved, settled), rmse(single, settled)
     check(np.isfinite(moved).all() and moved_error < single_error * 0.9,
@@ -346,6 +354,40 @@ def check_nrd(config):
     raster_error, diffuse_error = rmse(raster, reference), rmse(diffuse, reference)
     check(diffuse_error < raster_error * 0.8,
           f"NRD preserves indirect diffuse against the path tracer ({raster_error:.4f} -> {diffuse_error:.4f} RMSE)")
+
+
+def check_ray_reconstruction(config):
+    """#231: native Ray Reconstruction from real path trace guides, including motion."""
+    scene = "GI_GlossyArea"
+    size = "961x541"
+    base = "PathTracer=1,PathTracerBounces=3,Bloom=0,DOF=0"
+    rr = f"{base},PTRayReconstruction=1"
+    reconstructed = capture("dlss-rr", scene, rr, config, 240, size=size, perf_frames=40)
+    log = read_log("dlss-rr", scene)
+    path = ROOT / "bin/golden/rt-check-dlss-rr" / f"{scene}.perf.json"
+    passes = json.loads(path.read_text(encoding="utf-8"))["passes"]
+    active = "DLSS Ray Reconstruction active" in log and "DLSS Ray Reconstruction failed" not in log
+    check_validation("dlss-rr", scene)
+    if os.environ.get("LUX_TEST_REQUIRE_DLSS") == "1":
+        check(active, "the packaged SDK dispatches DLSS Ray Reconstruction")
+    if not active:
+        fallback = capture("dlss-fallback", scene, base, config, 240, size=size)
+        check("RTDLSSRayReconstruction" not in passes and rmse(reconstructed, fallback) < 0.002,
+              "the SDK-free build uses ordinary path tracing accumulation")
+        return
+
+    timing = passes.get("RTDLSSRayReconstruction", {}).get("gpuMs", 0)
+    check(timing > 0, f"GPU timestamps measure Ray Reconstruction ({timing:.3f} ms)")
+    noisy = capture("dlss-noisy", scene, f"{base},PathTracerSamples=1", config, 200, size=size)
+    reference = capture("dlss-pt", scene, f"{base},PathTracerSamples=512", config, spp(512), size=size)
+    raw_error, reconstructed_error = rmse(noisy, reference), rmse(reconstructed, reference)
+    check(np.isfinite(reconstructed).all() and reconstructed_error < raw_error * 0.8,
+          f"Ray Reconstruction improves one-sample glossy transport against the path tracer ({raw_error:.4f} -> {reconstructed_error:.4f} RMSE)")
+    moved = capture("dlss-motion", scene, f"{rr},CameraSway=0.18:150:190", config, 196, size=size)
+    check_validation("dlss-motion", scene)
+    motion_error = rmse(moved, reference)
+    check(np.isfinite(moved).all() and motion_error < raw_error * 0.9,
+          f"Ray Reconstruction preserves glossy detail after camera movement ({raw_error:.4f} -> {motion_error:.4f} RMSE)")
 
 
 def rt_lines(tag, scene):
@@ -1226,7 +1268,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"path_tracing_settings": check_path_tracing_settings, "power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "nrd": check_nrd, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib, "texture_streaming": check_texture_streaming}
+CHECKS = {"path_tracing_settings": check_path_tracing_settings, "power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "rtgi_upscale": check_rtgi_upscale, "nrd": check_nrd, "ray_reconstruction": check_ray_reconstruction, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "height_fog": check_height_fog, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "rt_caustic": check_rt_caustic, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib, "texture_streaming": check_texture_streaming}
 
 
 def main():

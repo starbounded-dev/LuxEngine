@@ -8,6 +8,7 @@ project "Editor"
 
 	links { "Core" }
 	StageNrdSdk()
+	StageDlssSdk()
 
 	-- The crash watchdog is built next to Editor.exe, where CrashWatchdog::Start looks for it.
 	if os.target() == "windows" then

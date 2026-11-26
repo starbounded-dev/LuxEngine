@@ -157,6 +157,32 @@ Six frames after a camera sway, RMSE against the settled image fell from 0.0061 
 0.0009. The denoised Cornell Box reduced RMSE against the path tracer from 0.0719 to
 0.0315 versus raster. The optional Windows library adds 4.95 MiB to the package.
 
+**DLSS Ray Reconstruction.** The Windows opt-in reconstructs one native-resolution
+path-traced sample per frame. Its guides come from the primary surface and the first
+reflected intersection, and it retains history under camera motion. At 961×541 on the
+RTX 4070 Ti, preset E took 1.445 ms. It reduced glossy-scene RMSE against the
+512-sample path tracer from 0.0977 to 0.0060, with 0.0066 six frames after camera
+movement. Preset F in SDK 310.9.1 reported hazards during its internal history clears.
+Preset E passed synchronization validation. The optional Windows library adds 46.1 MiB.
+The SDK device-extension query took 0.85 s in the standalone probe. Startup checks
+the pinned SDK's four requirements against Vulkan's existing extension list and
+defers NGX initialization. First-use initialization took 0.69 s and feature creation
+took 0.054 s, excluding shader compilation.
+
+Exported Release players restored both scene selections and bundled the matching
+SDK libraries and licenses. The Cornell export changed by 0.0017 RMSE from the
+raster control with NRD RTGI and by 0.0158 RMSE from one-sample accumulation with
+Ray Reconstruction. The four standalone captures passed Vulkan synchronization
+validation.
+
+**Opacity micromaps.** The NRI Vulkan benchmark built a four-state, subdivision-level
+4 micromap from a bilinear alpha texture with meshoptimizer. Across 32 overlapping
+layers, inline alpha testing and the micromap produced identical visibility for
+1,048,576 rays. Median trace time fell from 1.1930 to 0.6441 ms on the RTX 4070 Ti
+with tier 3. This is a controlled traversal benchmark. Scene foliage can vary in
+alpha cutoff, mip level, material overrides and geometry, so the measured gain
+applies to the fixture. The engine continues to use its existing scene RT geometry.
+
 ### Materials, media and reflections pass (issues #241-#245, 2026-11-23)
 
 | Issue | Feature | Result |

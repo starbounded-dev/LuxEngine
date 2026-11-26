@@ -669,7 +669,7 @@ namespace Lux {
 		}
 
 		// ---- Path Tracing --------------------------------------------------------------------
-		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Sample Emissive Meshes", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "NVIDIA NRD", "Half-Resolution RTGI", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Adaptive Reflection Rays", "Reflection Denoiser", "Reflections Replace Sky", "Ray-Traced Shadows", "RT Translucent Shadows", "RT Caustics", "Caustic Photons", "RT Area-Light Shadows", "Area Shadow Rays", "RT Contact Shadows", "Contact Shadow Distance", "RT Ambient Occlusion", "Ambient Occlusion Radius", "Ambient Occlusion Rays", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
+		if (CardHasMatch(queryLower, "Path Tracing", { "Enable Path Tracer", "DLSS Ray Reconstruction", "Uniform Environment (furnace test)", "Diff vs Raster (heat map)", "Diff Scale", "Diff Peak (HDR)", "Max Bounces", "Target Samples", "Reset Accumulation", "Use Lightmaps", "Bake Lightmaps", "Diff Lightmap", "Realtime GI", "GI Rays Per Probe", "Adaptive Probe Placement", "GI Bounces", "Diff Realtime GI", "Ray-Traced GI", "RTGI Bounces", "Diff RTGI", "Power Light Sampling", "Sample Emissive Meshes", "Multiple Importance Sampling", "Adaptive Threshold", "Sample Count Heat Map", "ReSTIR DI (biased)", "Ray Sorting (experimental, slower)", "Shader Execution Reordering", "RTGI History", "ReSTIR GI Reuse (biased)", "RTGI Denoiser", "NVIDIA NRD", "Half-Resolution RTGI", "Compact BLASes", "Refit Skinned BLASes", "Refit TLAS", "Lobes (clearcoat, sheen, anisotropy)", "Glass (refraction)", "Subsurface Scattering", "Fog Density", "Fog Albedo", "Fog Anisotropy", "Fog Radius", "Fog Center", "Ray-Traced Reflections", "Reflection Roughness Cutoff", "Reflection Rays", "Adaptive Reflection Rays", "Reflection Denoiser", "Reflections Replace Sky", "Ray-Traced Shadows", "RT Translucent Shadows", "RT Caustics", "Caustic Photons", "RT Area-Light Shadows", "Area Shadow Rays", "RT Contact Shadows", "Contact Shadow Distance", "RT Ambient Occlusion", "Ambient Occlusion Radius", "Ambient Occlusion Rays", "Shadow Light Radius", "Shadow Rays", "Debug View", "Probe Spacing" }))
 		{
 			if (BeginSettingsCard("card_pathtracing", LUX_ICON_CUBE, "Path Tracing", m_CardPathTracing, searching))
 			{
@@ -688,7 +688,10 @@ namespace Lux {
 				}
 				else if (options.EnablePathTracer)
 				{
-					ImGui::TextWrapped("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
+					if (m_Context && m_Context->IsUsingRayReconstruction())
+						ImGui::TextWrapped("DLSS Ray Reconstruction active");
+					else
+						ImGui::TextWrapped("Samples: %u / %u", m_Context ? m_Context->GetPathTraceSampleCount() : 0u, options.PathTracerTargetSamples);
 					float mae = 0.0f, psnr = 0.0f;
 					if (options.PathTracerDiffHeatmap && m_Context && m_Context->GetPathTraceDiffStats(mae, psnr))
 						ImGui::TextWrapped("Diff vs raster: MAE %.4f, PSNR %.1f dB", mae, psnr);
@@ -737,6 +740,21 @@ namespace Lux {
 					pathTracing->TargetSamples = options.PathTracerTargetSamples;
 					sceneSettingsChanged = true;
 				}
+				if (match("DLSS Ray Reconstruction"))
+				{
+					ImGui::BeginDisabled(!SceneRenderer::HasRayReconstruction());
+					if (ImGuiEx::Property("DLSS Ray Reconstruction", options.PathTracerReconstruction,
+						"Reconstructs one path-traced sample per frame at native resolution. Diff views, ReSTIR DI, sorting and SER use accumulation.", false))
+					{
+						options.PathTracerResetCounter++;
+						if (pathTracing)
+						{
+							pathTracing->RayReconstruction = options.PathTracerReconstruction;
+							sceneSettingsChanged = true;
+						}
+					}
+					ImGui::EndDisabled();
+				}
 				if (sceneSettingsChanged)
 					EditorStack::Get().MarkSceneEdited("Path Tracing Settings");
 				toggle("Power Light Sampling", options.PathTracerPowerLightSampling);
@@ -778,7 +796,12 @@ namespace Lux {
 				ImGui::Separator();
 				ImGui::TextWrapped("Ray-Traced GI");
 				ImGuiEx::BeginPropertyGrid(2, ImGui::GetFontSize() * 14.0f, ImGui::GetFontSize() * 28.0f);
-				toggle("Ray-Traced GI", options.EnableRTGI);
+				auto* rayTracedGI = m_Scene ? &m_Scene->GetRayTracedGISettings() : nullptr;
+				if (toggle("Ray-Traced GI", options.EnableRTGI) && rayTracedGI)
+				{
+					rayTracedGI->Enabled = options.EnableRTGI;
+					EditorStack::Get().MarkSceneEdited("Ray-Traced GI Settings");
+				}
 				if (match("RTGI Bounces"))
 					ImGuiEx::Property("RTGI Bounces", options.RTGIBounces, 1u, 4u);
 				if (match("RTGI History"))
@@ -788,8 +811,12 @@ namespace Lux {
 				if (match("NVIDIA NRD"))
 				{
 					ImGui::BeginDisabled(!SceneRenderer::HasNRDSdk());
-					ImGuiEx::Property("NVIDIA NRD", options.RTGINRD,
-						"RELAX diffuse denoises native-resolution ray-traced GI. Half-resolution and ReSTIR GI use the built-in denoiser.", false);
+					if (ImGuiEx::Property("NVIDIA NRD", options.RTGINRD,
+						"RELAX diffuse denoises native-resolution ray-traced GI. Half-resolution and ReSTIR GI use the built-in denoiser.", false) && rayTracedGI)
+					{
+						rayTracedGI->UseNRD = options.RTGINRD;
+						EditorStack::Get().MarkSceneEdited("Ray-Traced GI Settings");
+					}
 					ImGui::EndDisabled();
 				}
 				toggle("Half-Resolution RTGI", options.RTGIHalfResolution);

@@ -2199,6 +2199,14 @@ namespace Lux {
 			out << Yaml::Key << "Enabled" << Yaml::Value << settings.Enabled;
 			out << Yaml::Key << "MaxBounces" << Yaml::Value << settings.MaxBounces;
 			out << Yaml::Key << "TargetSamples" << Yaml::Value << settings.TargetSamples;
+			out << Yaml::Key << "RayReconstruction" << Yaml::Value << settings.RayReconstruction;
+			out << Yaml::EndMap;
+		}
+		if (const auto& settings = scene->GetRayTracedGISettings(); settings != SceneRayTracedGISettings{})
+		{
+			out << Yaml::Key << "RayTracedGI" << Yaml::Value << Yaml::BeginMap;
+			out << Yaml::Key << "Enabled" << Yaml::Value << settings.Enabled;
+			out << Yaml::Key << "UseNRD" << Yaml::Value << settings.UseNRD;
 			out << Yaml::EndMap;
 		}
 		if (!scene->GetSoundBanks().empty())
@@ -2277,8 +2285,16 @@ namespace Lux {
 			pathTracing.Enabled = settings["Enabled"].as<bool>(pathTracing.Enabled);
 			pathTracing.MaxBounces = std::clamp(settings["MaxBounces"].as<uint32_t>(pathTracing.MaxBounces), 1u, 16u);
 			pathTracing.TargetSamples = std::clamp(settings["TargetSamples"].as<uint32_t>(pathTracing.TargetSamples), 1u, 65536u);
+			pathTracing.RayReconstruction = settings["RayReconstruction"].as<bool>(pathTracing.RayReconstruction);
 		}
 		scene->GetPathTracingSettings() = pathTracing;
+		SceneRayTracedGISettings rayTracedGI;
+		if (const auto settings = data["RayTracedGI"]; settings && settings.IsMap())
+		{
+			rayTracedGI.Enabled = settings["Enabled"].as<bool>(rayTracedGI.Enabled);
+			rayTracedGI.UseNRD = settings["UseNRD"].as<bool>(rayTracedGI.UseNRD);
+		}
+		scene->GetRayTracedGISettings() = rayTracedGI;
 
 		// Absent in scenes written before post-processing moved off volumes; those simply
 		// keep the struct defaults.
@@ -2836,7 +2852,8 @@ namespace Lux {
 		// Switched-off state: an inactive entity and a disabled component must come back off.
 		childA.GetComponent<TagComponent>().Active = false;
 		childA.GetComponent<PointLightComponent>().Enabled = false;
-		src->GetPathTracingSettings() = { true, 7, 192 };
+		src->GetPathTracingSettings() = { true, 7, 192, true };
+		src->GetRayTracedGISettings() = { true, true };
 
 		std::string meta1;
 		std::map<UUID, std::string> ents1 = SceneSerializer(src).SerializeEntitySnapshots(meta1);
@@ -2859,6 +2876,8 @@ namespace Lux {
 		{
 			if (scene->GetPathTracingSettings() != src->GetPathTracingSettings())
 				fail(std::format("{} changed scene path tracing settings", operation));
+			if (scene->GetRayTracedGISettings() != src->GetRayTracedGISettings())
+				fail(std::format("{} changed scene ray-traced GI settings", operation));
 			Entity restoredLight = scene->TryGetEntityWithUUID(childA.GetUUID());
 			if (!restoredLight || scene->IsEntityActiveInHierarchy(restoredLight) || !restoredLight.HasComponent<PointLightComponent>()
 				|| restoredLight.GetComponent<PointLightComponent>().Enabled)

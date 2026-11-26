@@ -99,6 +99,7 @@ namespace Lux {
 			{ "GTAOBitmask", &SceneRendererOptions::GTAOVisibilityBitmask },
 			{ "MeshLODs", &SceneRendererOptions::EnableMeshLODs },
 			{ "PathTracer", &SceneRendererOptions::EnablePathTracer },
+			{ "PTRayReconstruction", &SceneRendererOptions::PathTracerReconstruction },
 			{ "PathTracerFurnace", &SceneRendererOptions::PathTracerUniformEnvironment },
 			{ "PathTracerDiff", &SceneRendererOptions::PathTracerDiffHeatmap },
 			{ "Lightmaps", &SceneRendererOptions::EnableLightmaps },
