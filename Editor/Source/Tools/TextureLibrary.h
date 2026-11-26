@@ -32,10 +32,8 @@
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
-#elif defined(LUX_PLATFORM_LINUX) && __has_include(<curl/curl.h>)
-#include <curl/curl.h>
+#elif defined(LUX_PLATFORM_LINUX)
 #include <dlfcn.h>
-#define LUX_TEXTURE_LIBRARY_HAS_CURL
 #endif
 
 namespace Lux {
@@ -52,14 +50,15 @@ namespace Lux {
 			double Number = 0.0;
 			bool Bool = false;
 			std::string String;
-			std::vector<Json> Items;                            // array elements
-			std::vector<std::pair<std::string, Json>> Members;  // object members, in order
+			std::string MemberName;
+			std::vector<Json> Items; // arrays and object members retain their document order
 
 			const Json* Find(const std::string& key) const
 			{
-				for (const auto& [name, value] : Members)
-					if (name == key)
-						return &value;
+				if (Type == Kind::Object)
+					for (const auto& value : Items)
+						if (value.MemberName == key)
+							return &value;
 				return nullptr;
 			}
 			std::string Text(const std::string& key) const
@@ -123,7 +122,8 @@ namespace Lux {
 						Json value;
 						if (!ParseString(key) || !Expect(':') || !ParseValue(value, depth + 1))
 							return false;
-						out.Members.emplace_back(std::move(key), std::move(value));
+						value.MemberName = std::move(key);
+						out.Items.push_back(std::move(value));
 					} while (Expect(','));
 					return Expect('}');
 				}
@@ -245,20 +245,28 @@ namespace Lux {
 			if (connection) WinHttpCloseHandle(connection);
 			if (session) WinHttpCloseHandle(session);
 			return ok;
-#elif defined(LUX_TEXTURE_LIBRARY_HAS_CURL)
+#elif defined(LUX_PLATFORM_LINUX)
+			// libcurl.so.4's C ABI uses these stable option IDs. Loading only the required
+			// symbols keeps catalog browsing available with the distro's runtime library.
+			enum class CurlOption : int
+			{
+				WriteData = 10001, URL = 10002, WriteFunction = 20011, Timeout = 13, UserAgent = 10018,
+				FollowLocation = 52, MaxRedirects = 68, ConnectTimeout = 78, NoSignal = 99,
+				Protocols = 181, RedirectProtocols = 182
+			};
 			struct Curl
 			{
 				void* Library = dlopen("libcurl.so.4", RTLD_LOCAL | RTLD_NOW);
-				decltype(&curl_global_init) GlobalInit = Library ? reinterpret_cast<decltype(GlobalInit)>(dlsym(Library, "curl_global_init")) : nullptr;
-				decltype(&curl_easy_init) Init = Library ? reinterpret_cast<decltype(Init)>(dlsym(Library, "curl_easy_init")) : nullptr;
-				decltype(&curl_easy_setopt) Set = Library ? reinterpret_cast<decltype(Set)>(dlsym(Library, "curl_easy_setopt")) : nullptr;
-				decltype(&curl_easy_perform) Perform = Library ? reinterpret_cast<decltype(Perform)>(dlsym(Library, "curl_easy_perform")) : nullptr;
-				decltype(&curl_easy_getinfo) Info = Library ? reinterpret_cast<decltype(Info)>(dlsym(Library, "curl_easy_getinfo")) : nullptr;
-				decltype(&curl_easy_cleanup) Cleanup = Library ? reinterpret_cast<decltype(Cleanup)>(dlsym(Library, "curl_easy_cleanup")) : nullptr;
-				bool Ready = GlobalInit && Init && Set && Perform && Info && Cleanup && GlobalInit(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+				int (*GlobalInit)(long) = Library ? reinterpret_cast<decltype(GlobalInit)>(dlsym(Library, "curl_global_init")) : nullptr;
+				void* (*Init)() = Library ? reinterpret_cast<decltype(Init)>(dlsym(Library, "curl_easy_init")) : nullptr;
+				int (*Set)(void*, CurlOption, ...) = Library ? reinterpret_cast<decltype(Set)>(dlsym(Library, "curl_easy_setopt")) : nullptr;
+				int (*Perform)(void*) = Library ? reinterpret_cast<decltype(Perform)>(dlsym(Library, "curl_easy_perform")) : nullptr;
+				int (*Info)(void*, int, ...) = Library ? reinterpret_cast<decltype(Info)>(dlsym(Library, "curl_easy_getinfo")) : nullptr;
+				void (*Cleanup)(void*) = Library ? reinterpret_cast<decltype(Cleanup)>(dlsym(Library, "curl_easy_cleanup")) : nullptr;
+				bool Ready = GlobalInit && Init && Set && Perform && Info && Cleanup && GlobalInit(3L) == 0;
 			};
 			static const Curl curl;
-			CURL* handle = curl.Ready ? curl.Init() : nullptr;
+			void* handle = curl.Ready ? curl.Init() : nullptr;
 			if (!handle)
 			{
 				error = "the system libcurl HTTPS client is unavailable";
@@ -273,24 +281,21 @@ namespace Lux {
 				output.insert(output.end(), begin, begin + bytes);
 				return bytes;
 			};
-			curl.Set(handle, CURLOPT_URL, url.c_str());
-			curl.Set(handle, CURLOPT_USERAGENT, "LuxEngine");
-			curl.Set(handle, CURLOPT_CONNECTTIMEOUT, 10L);
-			curl.Set(handle, CURLOPT_TIMEOUT, 60L);
-			curl.Set(handle, CURLOPT_NOSIGNAL, 1L);
-			curl.Set(handle, CURLOPT_FOLLOWLOCATION, 1L);
-			curl.Set(handle, CURLOPT_MAXREDIRS, 4L);
-			curl.Set(handle, CURLOPT_PROTOCOLS, long(CURLPROTO_HTTPS));
-			curl.Set(handle, CURLOPT_REDIR_PROTOCOLS, long(CURLPROTO_HTTPS));
-			curl.Set(handle, CURLOPT_WRITEFUNCTION, write);
-			curl.Set(handle, CURLOPT_WRITEDATA, &out);
-			const CURLcode result = curl.Perform(handle);
+			constexpr long https = 1L << 1;
+			const auto set = [&](CurlOption option, auto value) { return curl.Set(handle, option, value) == 0; };
+			const bool configured = set(CurlOption::URL, url.c_str()) && set(CurlOption::UserAgent, "LuxEngine") &&
+				set(CurlOption::ConnectTimeout, 10L) && set(CurlOption::Timeout, 60L) && set(CurlOption::NoSignal, 1L) &&
+				set(CurlOption::FollowLocation, 1L) && set(CurlOption::MaxRedirects, 4L) &&
+				set(CurlOption::Protocols, https) && set(CurlOption::RedirectProtocols, https) &&
+				set(CurlOption::WriteFunction, write) && set(CurlOption::WriteData, &out);
+			const int result = configured ? curl.Perform(handle) : -1;
 			long status = 0;
-			curl.Info(handle, CURLINFO_RESPONSE_CODE, &status);
+			curl.Info(handle, 0x200002 /* CURLINFO_RESPONSE_CODE */, &status);
 			curl.Cleanup(handle);
-			if (result == CURLE_OK && status == 200)
+			if (result == 0 && status == 200)
 				return true;
-			error = status && status != 200 ? "HTTP " + std::to_string(status) : "libcurl error " + std::to_string(result);
+			error = !configured ? "could not configure HTTPS in system libcurl"
+				: status && status != 200 ? "HTTP " + std::to_string(status) : "libcurl error " + std::to_string(result);
 			return false;
 #else
 			error = "an HTTPS client is unavailable in this build";
@@ -398,8 +403,9 @@ namespace Lux {
 			if (!HttpGetJson("https://api.polyhaven.com/assets?t=textures", root, error, true))
 				return false;
 			out.clear();
-			for (const auto& [id, asset] : root.Members)
+			for (const auto& asset : root.Items)
 			{
+				const std::string& id = asset.MemberName;
 				if (!ValidId(id))
 					continue;
 				Entry entry;
@@ -606,9 +612,9 @@ namespace Lux {
 			{
 				const Json& asset = found->Items.front();
 				if (const Json* folders = asset.Find("downloadFolders"))
-					for (const auto& [folderName, folderValue] : folders->Members)
+					for (const auto& folderValue : folders->Items)
 						if (const Json* categories = folderValue.Find("downloadFiletypeCategories"))
-							for (const auto& [typeName, type] : categories->Members)
+							for (const auto& type : categories->Items)
 								if (const Json* downloads = type.Find("downloads"))
 									for (const Json& download : downloads->Items)
 										if (link.empty() && download.Text("attribute") == tier + "-JPG")
@@ -746,7 +752,3 @@ namespace Lux {
 	}
 
 }
-
-#ifdef LUX_TEXTURE_LIBRARY_HAS_CURL
-#undef LUX_TEXTURE_LIBRARY_HAS_CURL
-#endif

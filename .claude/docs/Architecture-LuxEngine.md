@@ -443,8 +443,8 @@ Structurally:
   channel. The two passes use the traced instance material's transmission, IOR and absorption.
   The area-light shader reads the same instance table as the compute ray tracers.
 - The opt-in Texture Library panel fetches CC0 material indexes, thumbnails and maps on the
-  JobSystem. Windows uses WinHTTP and Linux builds with curl headers load system libcurl at
-  request time. A project holds complete maps and their material in `Assets/Textures/Library`,
+  JobSystem. Windows uses WinHTTP and Linux loads system libcurl at request time.
+  A project holds complete maps and their material in `Assets/Textures/Library`,
   so they load through the normal asset pipeline offline. The main thread registers the pack
   and applies the selected mesh or slot only while its project, scene and mesh still match.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
