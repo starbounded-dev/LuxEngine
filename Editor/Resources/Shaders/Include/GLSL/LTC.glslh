@@ -360,17 +360,17 @@ vec3 LuxEvaluateAreaLights(vec3 worldPosition, vec3 N, vec3 V, vec3 albedo, floa
 		}
 
 		// Read from the light as placed: a sphere or tube is integrated below as a shape facing the point.
-		float visibility = 1.0;
+		vec3 visibility = vec3(1.0);
 #ifdef LUX_RT_AREA_SHADOWS
 		if ((light.ShadowFlags & AREA_LIGHT_RT_SHADOW) != 0u)
 			visibility = LuxTraceAreaShadow(light, i, worldPosition, N);
 #else
 		if ((light.ShadowFlags & AREA_LIGHT_SHADOW_CASTS) != 0u)
 		{
-			visibility = LTC_AreaLightShadow(light, worldPosition, N, front, shadowAtlas);
+			visibility = vec3(LTC_AreaLightShadow(light, worldPosition, N, front, shadowAtlas));
 		}
 #endif
-		if (visibility <= 0.0)
+		if (all(lessThanEqual(visibility, vec3(0.0))))
 			continue;
 
 		if (!flatShape)

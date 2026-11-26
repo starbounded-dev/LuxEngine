@@ -429,6 +429,9 @@ Structurally:
   the emitter, weighted by its projected contribution at the receiver. It shares the LTC
   BRDF integration and framebuffer with the shadow-atlas path. The renderer selects the
   atlas path if it cannot bind a valid ray-tracing scene.
+- Translucent RT shadows attenuate the directional mask and area-light visibility per colour
+  channel. The two passes use the traced instance material's transmission, IOR and absorption.
+  The area-light shader reads the same instance table as the compute ray tracers.
 - The Content Browser's **Generate Lightmap UVs** setting is stored in the asset registry for
   each source mesh. Reimport runs xatlas before creating render geometry. Chart vertices copy
   the source attributes and skin influences, UV1 stores the chart coordinates, and index buffers,

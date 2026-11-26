@@ -7,23 +7,7 @@
 // bindings, the BRDF (PBR.glslh terms), ray queries, next-event estimation and the path loop.
 // Needs GL_EXT_ray_query and GL_EXT_nonuniform_qualifier. Material rows: set 2 binding 7, bindless textures: set 4. Bindings (set 1): 60 TLAS, 61 vertices, 62 indices, 63 instances, 64 lights, 74 environment cube, 75 its sampler.
 
-struct RTInstance
-{
-	vec4 NormalRow0;     // rows of the inverse-transpose of the object-to-world 3x3 (w unused)
-	vec4 NormalRow1;
-	vec4 NormalRow2;
-	vec4 WorldRow0;      // rows of the object-to-world 3x4 (for texture footprints)
-	vec4 WorldRow1;
-	vec4 WorldRow2;
-	uvec4 Info;          // first BLAS vertex, first BLAS index, material row, emissive instance ordinal
-	vec4 AlbedoMetal;    // rgb albedo, a metalness
-	vec4 EmissionRough;  // rgb emitted radiance, a roughness
-};
-
-layout(set = 1, binding = 60) uniform accelerationStructureEXT u_RTScene;
-layout(std430, set = 1, binding = 61) readonly buffer RTVertices { vec4 Vertices[]; };   // [2i] position, [2i+1] normal
-layout(std430, set = 1, binding = 62) readonly buffer RTIndices { uint Indices[]; };
-layout(std430, set = 1, binding = 63) readonly buffer RTInstances { RTInstance Instances[]; };
+#include <RayInstanceData.glslh>
 layout(std430, set = 1, binding = 64) readonly buffer RTLights { vec4 Lights[]; };       // 4 vec4 per light followed by alias entries
 
 layout(push_constant) uniform PathTracePush

@@ -535,7 +535,7 @@ namespace Lux {
 	{
 		if (m_RTShadowUnavailable || !RHIDevice::SupportsRayQuery() || !ShaderCompiler::IsAvailable())
 			return 0u;
-		return (m_Options.EnableRTShadows ? k_RTFullDirectionalShadow : 0u)
+		return (m_Options.EnableRTShadows || m_Options.EnableRTTranslucentShadows ? k_RTFullDirectionalShadow : 0u)
 			| (m_Options.EnableRTContactShadows ? k_RTContactShadow : 0u)
 			| (m_Options.EnableRTAmbientOcclusion ? k_RTAmbientOcclusion : 0u);
 	}
@@ -674,6 +674,7 @@ namespace Lux {
 		const bool fullShadow = (visibilityFlags & k_RTFullDirectionalShadow) != 0u;
 		const bool contactShadow = (visibilityFlags & k_RTContactShadow) != 0u;
 		const bool ambientOcclusion = (visibilityFlags & k_RTAmbientOcclusion) != 0u;
+		const bool translucentShadows = m_Options.EnableRTTranslucentShadows;
 		const float radius = fullShadow ? glm::radians(std::clamp(m_Options.RTShadowAngularRadiusDegrees, 0.0f, 30.0f)) : 0.0f;
 		const float contactDistance = contactShadow ? std::clamp(m_Options.RTContactShadowDistance, 0.01f, 10.0f) : 0.0f;
 		const float shadowDistance = sun.Intensity > 0.0f ? (fullShadow ? 1e30f : contactDistance) : 0.0f;
@@ -701,6 +702,8 @@ namespace Lux {
 				push.Counts = glm::uvec4(0u, 0u, rays, aoRays);
 				ApplyPathTraceEnvironment(push, envParams);
 				push.SkyRadiance = glm::vec4(toLight, radius);
+				if (translucentShadows)
+					push.Counts.y |= (1u << 8u) | (1u << 5u); // translucent visibility and glass material evaluation
 				push.GroundRadiance.x = shadowDistance;
 				push.GroundRadiance.y = aoRadius;
 				Renderer::RT_BeginGPUPerfMarker(cb, "RTShadowsPass");

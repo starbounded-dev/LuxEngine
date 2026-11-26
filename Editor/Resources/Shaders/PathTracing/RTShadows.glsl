@@ -42,6 +42,8 @@ layout(set = 1, binding = 160) uniform texture2D u_RSDepth;   // device depth (r
 layout(set = 1, binding = 161) uniform texture2D u_RSNormal;  // view-space normal
 layout(rgba16f, set = 1, binding = 162) uniform writeonly image2D o_RSMask;
 
+const uint RS_TRANSLUCENT_VISIBILITY = 1u << 8u;
+
 float LocalAmbientVisibility(vec3 origin, vec3 direction, float radius)
 {
 	rayQueryEXT query;
@@ -74,22 +76,25 @@ void main()
 	const vec3 origin = P + N * 2e-3;
 	const vec3 toLight = u_Push.SkyRadiance.xyz;
 	const float distanceLimit = u_Push.GroundRadiance.x;
-	float sunVisibility = 1.0;
+	vec3 sunVisibility = vec3(1.0);
 	if (distanceLimit > 0.0 && dot(N, toLight) > 0.0)
 	{
 		vec3 t, b;
 		Basis(toLight, t, b);
 		const uint rays = u_Push.Counts.z;
 		const float cosMax = cos(u_Push.SkyRadiance.w);
-		float visible = 0.0;
+		vec3 visible = vec3(0.0);
 		for (uint k = 0u; k < rays; k++)
 		{
 			const float cosT = 1.0 - Rand() * (1.0 - cosMax);
 			const float sinT = sqrt(max(1.0 - cosT * cosT, 0.0));
 			const float phi = 2.0 * PI * Rand();
 			const vec3 L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + toLight * cosT);
-			if (!Occluded(origin + L * 1e-3, L, distanceLimit))
-				visible += 1.0;
+			const vec3 start = origin + L * 1e-3;
+			if ((u_Push.Counts.y & RS_TRANSLUCENT_VISIBILITY) != 0u)
+				visible += ShadowTransmittance(start, L, distanceLimit);
+			else if (!Occluded(start, L, distanceLimit))
+				visible += vec3(1.0);
 		}
 		sunVisibility = visible / float(rays);
 	}

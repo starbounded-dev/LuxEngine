@@ -249,6 +249,25 @@ def write_rt_area_scenes():
     write("GI_RTAreaClear", setup())
 
 
+def write_rt_translucent_scenes():
+    sun = entity("Sun", (0, 0, 0), rot=(-0.85, -0.45, 0), body="""    DirectionalLightComponent:
+      Intensity: 3
+      Radiance: [1, 1, 1]
+      Unit: 0
+      UseColorTemperature: false
+      CastShadows: true
+      SoftShadows: false
+      ShadowAmount: 1
+""")
+    emitter = area("Rectangle", (-1.8, 3.2, 0), (-math.pi / 2, 0, 0), 0, 6.0, 1.5, 1.7) + "      SoftShadows: true\n"
+    for name, light in (("GI_RTTranslucentSun", sun), ("GI_RTTranslucentArea", emitter)):
+        write(name, [
+            nosky(), floor("Materials/GI/GI_White.lmat"),
+            mesh("Glass plate", "Cube", (-1.6, 1.2, 0), (1.4, 0.20, 2.2), "GI_GlassTint"),
+            camera((0, 4.2, 6.0), (-0.62, 0, 0)), light,
+        ])
+
+
 def main():
     # Power spans ~3 decades: intensity = 0.4 * 2^(k mod 12), a ring of 24 lights over the floor.
     lights = []

@@ -4572,7 +4572,7 @@ namespace Lux {
 				appendResources(areaReads, shadowOutputs);
 				appendResources(areaReads, sceneColorCurrent);
 				std::vector<RenderGraph::ResourceHandle> areaOutputs = addRenderPassResources("Area Lights", m_AreaLightPass);
-				const auto areaFlags = m_Options.EnableRTAreaLightShadows && RHIDevice::SupportsRayQuery()
+				const auto areaFlags = (m_Options.EnableRTAreaLightShadows || m_Options.EnableRTTranslucentShadows) && RHIDevice::SupportsRayQuery()
 					? static_cast<RenderGraph::PassFlags>(static_cast<uint32_t>(RenderGraph::PassFlags::Graphics) | static_cast<uint32_t>(RenderGraph::PassFlags::UntrackedResources))
 					: RenderGraph::PassFlags::Graphics;
 				addPass("Area Lights", areaReads, areaOutputs, areaFlags, makeExecute(&SceneRenderer::AreaLightPass));
@@ -9775,11 +9775,12 @@ namespace Lux {
 		passSpec.DebugName = "RTAreaLights";
 		passSpec.Pipeline = Pipeline::Create(pipeline);
 		Ref<RenderPass> pass = RenderPass::Create(passSpec);
-		BindSceneRenderPassInputs(pass, PassInputCommonScene | PassInputShadowMaps | PassInputDepth | PassInputGBuffer);
+		BindSceneRenderPassInputs(pass, PassInputCommonScene | PassInputMaterialScene | PassInputShadowMaps | PassInputDepth | PassInputGBuffer);
 		pass->SetInput("AreaLightData", m_UBSAreaLights);
 		pass->SetInput("u_LTCMatrixTexture", Renderer::GetLTCMatrixTexture());
 		pass->SetInput("u_LTCAmplitudeTexture", Renderer::GetLTCAmplitudeTexture());
 		pass->SetInput("u_RTScene", Ref<RHIAccelerationStructure>(m_RayTracingScene));
+		pass->SetInput("RTInstances", m_RayTracingScene->GetInstanceBuffer());
 		if (!pass->Validate())
 		{
 			LUX_CORE_ERROR_TAG("Renderer", "[RTAreaShadows] pass inputs do not match the shader; using shadow maps");
@@ -9799,7 +9800,8 @@ namespace Lux {
 			return;
 
 		BeginProfiledGPU("AreaLightPass");
-		if (m_Options.EnableRTAreaLightShadows && m_SubmittedRenderScene && EnsureRTAreaLightPass())
+		const bool translucent = m_Options.EnableRTTranslucentShadows;
+		if ((m_Options.EnableRTAreaLightShadows || translucent) && m_SubmittedRenderScene && EnsureRTAreaLightPass())
 		{
 			ApplyRTTuning();
 			m_RTAreaLightPass->SetInput("u_DepthTexture", m_PreDepthPass->GetDepthOutput());
@@ -9811,7 +9813,7 @@ namespace Lux {
 			auto instances = RayTracingScene::GatherInstances(m_SubmittedRenderScene->GetStaticMeshProxies());
 			Renderer::Submit([cb = m_CommandBuffer, scene = m_RayTracingScene, rtPass = m_RTAreaLightPass,
 				rtMaterial = m_RTAreaLightMaterial, shadowMapPass = m_AreaLightPass, shadowMapMaterial = m_AreaLightMaterial,
-				rays, instances = std::move(instances)]() mutable
+				rays, translucent, instances = std::move(instances)]() mutable
 			{
 				scene->RT_Update(cb, instances);
 				if (scene->IsValid())
@@ -9820,6 +9822,7 @@ namespace Lux {
 					if (Renderer::RT_BeginRenderPass(*cb, *rtPass, {}, false))
 					{
 						rtMaterial->Set("u_AreaShadowSettings.Rays", rays);
+						rtMaterial->Set("u_AreaShadowSettings.Translucent", translucent ? 1u : 0u);
 						Renderer::RT_SubmitFullscreenQuad(*cb, *rtPass->GetPipeline(), *rtMaterial);
 						cb->RT_EndNRIRenderPass();
 						return;

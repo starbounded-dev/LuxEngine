@@ -82,17 +82,17 @@ vec3 IBL(vec3 F0, vec3 Lr, float ao)
 
 // `normal` is the side of the surface the receiver bias offsets toward: the shading normal for
 // reflected light, the back face for transmitted light.
-float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 normal)
+vec3 CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 normal)
 {
 	if (u_Scene.DirectionalLights.Multiplier <= 0.0)
-		return 0.0;
+		return vec3(0.0);
 
 	// Ray-traced shadows: the mask was traced for the shading normal (the translucency path passes its flipped one and keeps the cascades).
 	const bool frontFace = dot(normal, m_Params.Normal) > 0.999;
 	if ((u_RendererData.RTShadows & 1u) != 0u && frontFace)
 	{
-		float rayTraced = texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).r;
-		return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - rayTraced, 0.0, 1.0);
+		vec3 rayTraced = texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).rgb;
+		return vec3(1.0) - clamp(vec3(u_Scene.DirectionalLights.ShadowAmount) - rayTraced, vec3(0.0), vec3(1.0));
 	}
 
 	uint cascadeIndex = 0;
@@ -168,7 +168,7 @@ float CalculateDirectionalShadow(vec3 worldPosition, vec3 viewPosition, vec3 nor
 
 	if ((u_RendererData.RTShadows & 2u) != 0u && frontFace)
 		shadowScale = min(shadowScale, texture(sampler2D(u_RTShadowMask, r_PointSampler), v_TexCoord).r);
-	return 1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0, 1.0);
+	return vec3(1.0 - clamp(u_Scene.DirectionalLights.ShadowAmount - shadowScale, 0.0, 1.0));
 }
 
 // The directional light through a translucent surface. Its shadow is offset toward the light's side,
@@ -255,7 +255,7 @@ void main()
 		m_Params.Albedo *= 1.0 - diffuseTransmission;
 	}
 
-	float shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition, m_Params.Normal);
+	vec3 shadowScale = CalculateDirectionalShadow(worldPosition, viewPosition, m_Params.Normal);
 	vec3 directLighting = CalculateDirLights(F0, worldPosition) * shadowScale;
 	if (diffuseTransmission > 0.0)
 		directLighting += CalculateDirLightTransmission(worldPosition, viewPosition);

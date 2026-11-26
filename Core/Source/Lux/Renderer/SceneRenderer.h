@@ -325,6 +325,7 @@ namespace Lux {
 		bool     EnableRTReflections = false;
 		// Ray-traced directional shadows (RayTracing/RTGI.cpp, RTShadows.glsl): deferred lighting reads a visibility mask traced from the raster depth/G-buffer instead of the cascade shadow maps. Soft by the light's angular radius. RT-only.
 		bool     EnableRTShadows = false;
+		bool     EnableRTTranslucentShadows = false;
 		bool     EnableRTAreaLightShadows = false;
 		uint32_t RTAreaShadowRays = 8;
 		bool     EnableRTContactShadows = false;

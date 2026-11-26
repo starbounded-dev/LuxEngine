@@ -673,6 +673,34 @@ def check_rt_area(config):
                 fixture.write_bytes(saved)
 
 
+def check_rt_translucent(config):
+    """#261: directional and area rays deliver the tint of glass to a diffuse receiver."""
+    from make_rt_scenes import SCENES, write_rt_translucent_scenes
+
+    modes = (("GI_RTTranslucentSun", "RTShadows=1"), ("GI_RTTranslucentArea", "RTAreaShadows=1"))
+    fixtures = {SCENES / f"{scene}.luxscene": None for scene, _ in modes}
+    for fixture in fixtures:
+        if fixture.exists():
+            fixtures[fixture] = fixture.read_bytes()
+    try:
+        write_rt_translucent_scenes()
+        for scene, mode in modes:
+            base = f"GTAO=0,Bloom=0,DOF=0,SSR=0,Lightmaps=0,{mode}"
+            opaque = capture(f"{scene}-opaque", scene, f"{base},RTTranslucentShadows=0", config, 240)
+            tint = capture(f"{scene}-tint", scene, f"{base},RTTranslucentShadows=1", config, 240)
+            red = (tint[..., 0] > 1.5 * tint[..., 1]) & (tint[..., 0] > 1.6 * tint[..., 2]) & (tint[..., 0] > opaque[..., 0] + 0.035)
+            check(int(red.sum()) > 500, f"{scene}: {int(red.sum())} pixels receive additional red light through glass")
+            old = float(opaque[red][:, 0].mean())
+            new = float(tint[red][:, 0].mean())
+            check(new > old + 0.06, f"{scene}: glass transmits red light to the floor ({old:.3f} -> {new:.3f})")
+    finally:
+        for fixture, saved in fixtures.items():
+            if saved is None:
+                fixture.unlink(missing_ok=True)
+            else:
+                fixture.write_bytes(saved)
+
+
 def check_lmdenoise(config):
     """#248: lightmap denoising. A 16-sample bake with the denoiser is closer (as rendered) to a 512-sample bake than the raw 16-sample
     bake, and the denoiser does not darken the result."""
@@ -856,7 +884,7 @@ def check_unwrap_skinned(config):
           f"re-indexed skinned geometry preserves the posed image (RMSE {difference:.5f})")
 
 
-CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
+CHECKS = {"power": check_power, "many_lights": check_many_lights, "mesh_lights": check_mesh_lights, "mis": check_mis, "adaptive": check_adaptive, "restir_di": check_restir_di, "restir_gi": check_restir_gi, "denoise": check_denoise, "compact": check_compact, "tlas": check_tlas, "refit": check_refit, "sort": check_sort, "ser": check_ser, "lobes": check_lobes, "glass": check_glass, "fog": check_fog, "fog_sun": check_fog_sun, "glass_shadow": check_glass_shadow, "fog_gi": check_fog_gi, "sss": check_sss, "reflections": check_reflections, "reflection_sky": check_reflection_sky, "rough_reflection": check_rough_reflection, "shadows": check_shadows, "rt_visibility": check_rt_visibility, "rt_area": check_rt_area, "rt_translucent": check_rt_translucent, "debug": check_debug, "lmdenoise": check_lmdenoise, "probes": check_probes, "adaptive_probes": check_adaptive_probes, "unwrap": check_unwrap, "unwrap_apply": check_unwrap_apply, "unwrap_skinned": check_unwrap_skinned, "texlib": check_texlib}
 
 
 def main():
